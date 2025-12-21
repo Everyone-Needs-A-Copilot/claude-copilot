@@ -189,16 +189,16 @@ export class DatabaseClient {
       JOIN memories m ON m.id = e.memory_id
       WHERE m.project_id = ?
         AND e.embedding MATCH ?
+        AND k = ?
     `;
-    const params: unknown[] = [this.projectId, Buffer.from(queryEmbedding.buffer)];
+    const params: unknown[] = [this.projectId, Buffer.from(queryEmbedding.buffer), limit];
 
     if (options.type) {
       sql += ' AND m.type = ?';
       params.push(options.type);
     }
 
-    sql += ` ORDER BY e.distance LIMIT ?`;
-    params.push(limit);
+    sql += ` ORDER BY e.distance`;
 
     const results = this.db.prepare(sql).all(...params) as Array<MemoryRow & { distance: number }>;
     return results.filter(r => r.distance <= threshold);
