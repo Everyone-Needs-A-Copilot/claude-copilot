@@ -99,3 +99,105 @@ export interface ProviderResult<T> {
   error?: string;
   source: SkillSource;
 }
+
+// ============================================================================
+// Knowledge Repository Extension Types
+// ============================================================================
+
+/**
+ * Extension type determines how the extension modifies the base agent
+ */
+export type ExtensionType = 'override' | 'extension' | 'skills';
+
+/**
+ * Fallback behavior when required skills are unavailable
+ */
+export type FallbackBehavior = 'use_base' | 'use_base_with_warning' | 'fail';
+
+/**
+ * Extension declaration from knowledge-manifest.json
+ */
+export interface ExtensionDeclaration {
+  agent: string;
+  type: ExtensionType;
+  file: string;
+  description?: string;
+  requiredSkills?: string[];
+  fallbackBehavior?: FallbackBehavior;
+}
+
+/**
+ * Skill declaration from knowledge-manifest.json
+ */
+export interface ManifestSkillDeclaration {
+  name: string;
+  path: string;
+  description?: string;
+  keywords?: string[];
+}
+
+/**
+ * Knowledge repository manifest structure
+ */
+export interface KnowledgeManifest {
+  version: string;
+  name: string;
+  description?: string;
+  framework?: {
+    name: string;
+    minVersion?: string;
+  };
+  extensions?: ExtensionDeclaration[];
+  skills?: {
+    local?: ManifestSkillDeclaration[];
+    remote?: Array<{
+      name: string;
+      source: string;
+      description?: string;
+      fallback?: string;
+    }>;
+  };
+  glossary?: string;
+  config?: {
+    preferProprietarySkills?: boolean;
+    strictMode?: boolean;
+  };
+}
+
+/**
+ * Resolved extension with loaded content
+ */
+export interface ResolvedExtension {
+  agent: string;
+  type: ExtensionType;
+  content: string;
+  description?: string;
+  requiredSkills: string[];
+  fallbackBehavior: FallbackBehavior;
+}
+
+/**
+ * Extension listing item
+ */
+export interface ExtensionListItem {
+  agent: string;
+  type: ExtensionType;
+  description?: string;
+  requiredSkills?: string[];
+  fallbackBehavior?: FallbackBehavior;
+}
+
+/**
+ * Knowledge repo status result
+ */
+export interface KnowledgeRepoStatus {
+  configured: boolean;
+  path?: string;
+  manifest?: {
+    name: string;
+    description?: string;
+    extensions: number;
+    skills: number;
+  };
+  error?: string;
+}

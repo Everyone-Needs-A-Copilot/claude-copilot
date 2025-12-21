@@ -16,8 +16,8 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
-import { SkillsMPProvider, PostgresProvider, CacheProvider, LocalProvider } from './providers/index.js';
-import type { SkillsHubConfig, Skill, SkillMeta, SkillMatch, SkillSource, SkillSaveParams } from './types.js';
+import { SkillsMPProvider, PostgresProvider, CacheProvider, LocalProvider, KnowledgeRepoProvider } from './providers/index.js';
+import type { SkillsHubConfig, Skill, SkillMeta, SkillMatch, SkillSource, SkillSaveParams, ResolvedExtension, ExtensionListItem, KnowledgeRepoStatus } from './types.js';
 
 // Configuration from environment
 const config: SkillsHubConfig = {
@@ -29,11 +29,15 @@ const config: SkillsHubConfig = {
   logLevel: (process.env.LOG_LEVEL || 'info') as SkillsHubConfig['logLevel']
 };
 
+// Knowledge repository path (optional)
+const knowledgeRepoPath = process.env.KNOWLEDGE_REPO_PATH;
+
 // Initialize providers
 const cache = new CacheProvider(config.cachePath, config.cacheTtlDays);
 const local = new LocalProvider(config.localSkillsPath || '');
 const skillsmp = config.skillsmpApiKey ? new SkillsMPProvider(config.skillsmpApiKey) : null;
 const postgres = config.postgresUrl ? new PostgresProvider(config.postgresUrl) : null;
+const knowledgeRepo = new KnowledgeRepoProvider(knowledgeRepoPath);
 
 // Create MCP server
 const server = new Server(
@@ -131,6 +135,38 @@ const TOOLS = [
   {
     name: 'skills_hub_status',
     description: 'Get status of all providers',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  // Extension tools for knowledge repository integration
+  {
+    name: 'extension_get',
+    description: 'Get extension for a specific agent from the knowledge repository. Returns the extension content, type, and required skills.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        agent: {
+          type: 'string',
+          description: 'Agent ID to get extension for (e.g., "sd", "uxd", "cw")',
+          enum: ['me', 'ta', 'qa', 'sec', 'doc', 'do', 'sd', 'uxd', 'uids', 'uid', 'cw']
+        }
+      },
+      required: ['agent']
+    }
+  },
+  {
+    name: 'extension_list',
+    description: 'List all available extensions from the knowledge repository manifest',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  {
+    name: 'manifest_status',
+    description: 'Get status of the knowledge repository configuration and manifest',
     inputSchema: {
       type: 'object',
       properties: {}
@@ -438,23 +474,148 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'skills_hub_status': {
         const cacheStats = cache.getStats();
         const localCount = local.getCount();
+        const repoStatus = knowledgeRepo.getStatus();
 
         const status = {
           providers: {
             postgres: postgres?.isConnected() ? 'connected' : 'not configured',
             skillsmp: skillsmp ? 'configured' : 'not configured',
             local: `${localCount} skills found`,
-            cache: `${cacheStats.total} cached (${Math.round(cacheStats.size / 1024)}KB)`
+            cache: `${cacheStats.total} cached (${Math.round(cacheStats.size / 1024)}KB)`,
+            knowledgeRepo: repoStatus.configured
+              ? (repoStatus.manifest
+                  ? `${repoStatus.manifest.name} (${repoStatus.manifest.extensions} extensions, ${repoStatus.manifest.skills} skills)`
+                  : repoStatus.error || 'not loaded')
+              : 'not configured'
           },
           config: {
             cachePath: config.cachePath,
             cacheTtlDays: config.cacheTtlDays,
-            localSkillsPath: config.localSkillsPath
+            localSkillsPath: config.localSkillsPath,
+            knowledgeRepoPath: knowledgeRepoPath || 'not set'
           }
         };
 
         return {
           content: [{ type: 'text', text: JSON.stringify(status, null, 2) }]
+        };
+      }
+
+      // Extension tools for knowledge repository
+      case 'extension_get': {
+        const agentId = a.agent as string;
+
+        if (!knowledgeRepo.isConfigured()) {
+          return {
+            content: [{
+              type: 'text',
+              text: `No knowledge repository configured.\n\nSet KNOWLEDGE_REPO_PATH environment variable to enable extensions.`
+            }]
+          };
+        }
+
+        if (!knowledgeRepo.isLoaded()) {
+          const status = knowledgeRepo.getStatus();
+          return {
+            content: [{
+              type: 'text',
+              text: `Knowledge repository not loaded: ${status.error}`
+            }],
+            isError: true
+          };
+        }
+
+        const extension = knowledgeRepo.getExtension(agentId);
+
+        if (!extension) {
+          return {
+            content: [{
+              type: 'text',
+              text: `No extension found for agent: ${agentId}\n\nUse extension_list to see available extensions.`
+            }]
+          };
+        }
+
+        // Format the response
+        const requiredSkillsNote = extension.requiredSkills.length > 0
+          ? `\n\n**Required Skills:** ${extension.requiredSkills.join(', ')}`
+          : '';
+
+        return {
+          content: [{
+            type: 'text',
+            text: `# Extension: @agent-${extension.agent}\n\n**Type:** ${extension.type}\n**Fallback:** ${extension.fallbackBehavior}${requiredSkillsNote}\n${extension.description ? `\n**Description:** ${extension.description}\n` : ''}\n---\n\n${extension.content}`
+          }]
+        };
+      }
+
+      case 'extension_list': {
+        if (!knowledgeRepo.isConfigured()) {
+          return {
+            content: [{
+              type: 'text',
+              text: `No knowledge repository configured.\n\nSet KNOWLEDGE_REPO_PATH environment variable to enable extensions.`
+            }]
+          };
+        }
+
+        if (!knowledgeRepo.isLoaded()) {
+          const status = knowledgeRepo.getStatus();
+          return {
+            content: [{
+              type: 'text',
+              text: `Knowledge repository not loaded: ${status.error}`
+            }],
+            isError: true
+          };
+        }
+
+        const extensions = knowledgeRepo.listExtensions();
+
+        if (extensions.length === 0) {
+          return {
+            content: [{
+              type: 'text',
+              text: `No extensions defined in the knowledge repository manifest.`
+            }]
+          };
+        }
+
+        let output = '## Available Extensions\n\n';
+        output += '| Agent | Type | Description | Required Skills |\n';
+        output += '|-------|------|-------------|------------------|\n';
+
+        for (const ext of extensions) {
+          const skills = ext.requiredSkills?.join(', ') || '-';
+          output += `| @agent-${ext.agent} | ${ext.type} | ${ext.description || '-'} | ${skills} |\n`;
+        }
+
+        output += '\n\nUse `extension_get(agent)` to load the full extension content.';
+
+        return { content: [{ type: 'text', text: output }] };
+      }
+
+      case 'manifest_status': {
+        const status = knowledgeRepo.getStatus();
+
+        if (!status.configured) {
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                configured: false,
+                message: 'KNOWLEDGE_REPO_PATH environment variable not set',
+                howToEnable: 'Set KNOWLEDGE_REPO_PATH in your MCP server configuration to point to a knowledge repository'
+              }, null, 2)
+            }]
+          };
+        }
+
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify(status, null, 2)
+          }]
         };
       }
 
@@ -488,6 +649,8 @@ async function main() {
     console.error(`SkillsMP: ${skillsmp ? 'configured' : 'not configured'}`);
     console.error(`Local skills: ${local.getCount()} found`);
     console.error(`Cache: ${cache.getStats().total} entries`);
+    const repoStatus = knowledgeRepo.getStatus();
+    console.error(`Knowledge repo: ${repoStatus.configured ? (repoStatus.manifest ? repoStatus.manifest.name : repoStatus.error) : 'not configured'}`);
   }
 
   const transport = new StdioServerTransport();

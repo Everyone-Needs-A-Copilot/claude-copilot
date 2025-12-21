@@ -13,7 +13,8 @@
       "args": ["~/.claude/copilot/mcp-servers/skills-copilot/dist/index.js"],
       "env": {
         "LOG_LEVEL": "info",
-        "LOCAL_SKILLS_PATH": "~/.claude/copilot/templates/skills"
+        "LOCAL_SKILLS_PATH": "~/.claude/copilot/templates/skills",
+        "KNOWLEDGE_REPO_PATH": ""
       }
     }
   }
