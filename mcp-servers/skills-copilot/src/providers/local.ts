@@ -71,7 +71,8 @@ export class LocalProvider {
       }
 
       const frontmatter = frontmatterMatch[1];
-      const nameMatch = frontmatter.match(/name:\s*(.+)/);
+      // Support both 'name:' and 'skill_name:' formats
+      const nameMatch = frontmatter.match(/(?:skill_)?name:\s*(.+)/);
       const descMatch = frontmatter.match(/description:\s*(.+)/);
 
       if (!nameMatch) {
@@ -176,7 +177,7 @@ export class LocalProvider {
           const skillPath = join(fullPath, 'SKILL.md');
           if (existsSync(skillPath)) {
             const content = readFileSync(skillPath, 'utf-8');
-            const nameMatch = content.match(/name:\s*(.+)/);
+            const nameMatch = content.match(/(?:skill_)?name:\s*(.+)/);
             if (nameMatch && nameMatch[1].trim() === name) {
               return skillPath;
             }
