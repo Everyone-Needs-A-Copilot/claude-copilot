@@ -1,4 +1,4 @@
-# Skills Hub MCP Server
+# Skills Copilot MCP Server
 
 On-demand skill loading from multiple sources. Reduces token overhead by 85% compared to loading all skills upfront.
 
@@ -17,7 +17,7 @@ Claude Code Session
        │
        ▼
 ┌──────────────────────────────────────────────────────────┐
-│                    skills-hub MCP                         │
+│                  Skills Copilot MCP                       │
 │                                                           │
 │  skill_get(name)                                         │
 │    1. Check SQLite cache                                 │
@@ -37,7 +37,7 @@ Claude Code Session
 ### 1. Install dependencies
 
 ```bash
-cd docs/shared-docs/03-ai-enabling/04-mcp-servers/skills-hub
+cd ~/.claude/copilot/mcp-servers/skills-copilot
 npm install
 ```
 
@@ -82,9 +82,9 @@ Add to your project's `.mcp.json`:
 ```json
 {
   "mcpServers": {
-    "skills-hub": {
+    "skills-copilot": {
       "command": "node",
-      "args": ["docs/shared-docs/03-ai-enabling/04-mcp-servers/skills-hub/dist/index.js"],
+      "args": ["~/.claude/copilot/mcp-servers/skills-copilot/dist/index.js"],
       "env": {
         "SKILLSMP_API_KEY": "sk_live_skillsmp_...",
         "POSTGRES_URL": "postgresql://...",
