@@ -1,0 +1,69 @@
+{
+  "version": "1.0",
+  "name": "acme-corp-knowledge",
+  "description": "ACME Corporation's proprietary methodologies and company knowledge",
+  "framework": {
+    "name": "claude-copilot",
+    "minVersion": "1.0.0"
+  },
+  "extensions": [
+    {
+      "agent": "sd",
+      "type": "override",
+      "file": ".claude/extensions/sd.override.md",
+      "description": "Replaces generic service design with Moments Framework methodology",
+      "requiredSkills": ["moments-mapping", "forces-analysis"],
+      "fallbackBehavior": "use_base_with_warning"
+    },
+    {
+      "agent": "uxd",
+      "type": "extension",
+      "file": ".claude/extensions/uxd.extension.md",
+      "description": "Adds company design system integration to base UX practices",
+      "requiredSkills": ["design-system-audit"],
+      "fallbackBehavior": "use_base"
+    },
+    {
+      "agent": "ta",
+      "type": "skills",
+      "file": ".claude/extensions/ta.skills.json",
+      "description": "Injects company architecture patterns as additional skills",
+      "requiredSkills": ["architecture-patterns"],
+      "fallbackBehavior": "use_base"
+    }
+  ],
+  "skills": {
+    "local": [
+      {
+        "name": "design-system-audit",
+        "path": "skills/design-system-audit.md",
+        "description": "Audit components against company design system",
+        "keywords": ["design", "components", "audit", "consistency"]
+      },
+      {
+        "name": "architecture-patterns",
+        "path": "skills/architecture-patterns.md",
+        "description": "Company-standard architecture patterns",
+        "keywords": ["architecture", "patterns", "standards"]
+      }
+    ],
+    "remote": [
+      {
+        "name": "moments-mapping",
+        "source": "mcp://skills-hub",
+        "description": "Map customer struggling moments using Moments Framework",
+        "fallback": "journey-mapping"
+      },
+      {
+        "name": "forces-analysis",
+        "source": "mcp://skills-hub",
+        "description": "Analyze organizational forces blocking change"
+      }
+    ]
+  },
+  "glossary": "docs/glossary.md",
+  "config": {
+    "preferProprietarySkills": true,
+    "strictMode": false
+  }
+}

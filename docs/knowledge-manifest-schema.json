@@ -1,0 +1,158 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Knowledge Repository Manifest",
+  "description": "Schema for knowledge-manifest.json - declares how a knowledge repository extends the Claude-Copilot framework",
+  "type": "object",
+  "required": ["version", "name"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Manifest schema version",
+      "enum": ["1.0"]
+    },
+    "name": {
+      "type": "string",
+      "description": "Knowledge repository name",
+      "examples": ["acme-corp-knowledge", "startup-methodology"]
+    },
+    "description": {
+      "type": "string",
+      "description": "Brief description of this knowledge repository"
+    },
+    "framework": {
+      "type": "object",
+      "description": "Framework compatibility requirements",
+      "properties": {
+        "name": {
+          "type": "string",
+          "const": "claude-copilot"
+        },
+        "minVersion": {
+          "type": "string",
+          "description": "Minimum compatible framework version",
+          "examples": ["1.0.0"]
+        }
+      }
+    },
+    "extensions": {
+      "type": "array",
+      "description": "Agent extensions provided by this knowledge repository",
+      "items": {
+        "type": "object",
+        "required": ["agent", "type", "file"],
+        "properties": {
+          "agent": {
+            "type": "string",
+            "description": "Agent ID to extend",
+            "enum": ["me", "ta", "qa", "sec", "doc", "do", "sd", "uxd", "uids", "uid", "cw"]
+          },
+          "type": {
+            "type": "string",
+            "description": "Extension type",
+            "enum": ["override", "extension", "skills"]
+          },
+          "file": {
+            "type": "string",
+            "description": "Path to extension file relative to knowledge repo root",
+            "examples": [".claude/extensions/sd.override.md"]
+          },
+          "description": {
+            "type": "string",
+            "description": "What this extension adds or changes"
+          },
+          "requiredSkills": {
+            "type": "array",
+            "description": "Skills required for this extension to function",
+            "items": {
+              "type": "string"
+            },
+            "examples": [["moments-mapping", "forces-analysis"]]
+          },
+          "fallbackBehavior": {
+            "type": "string",
+            "description": "What to do if required skills are unavailable",
+            "enum": ["use_base", "use_base_with_warning", "fail"],
+            "default": "use_base_with_warning"
+          }
+        }
+      }
+    },
+    "skills": {
+      "type": "object",
+      "description": "Skills provided by this knowledge repository",
+      "properties": {
+        "local": {
+          "type": "array",
+          "description": "Skills stored as local files",
+          "items": {
+            "type": "object",
+            "required": ["name", "path"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Skill identifier"
+              },
+              "path": {
+                "type": "string",
+                "description": "Path to skill file relative to knowledge repo root"
+              },
+              "description": {
+                "type": "string"
+              },
+              "keywords": {
+                "type": "array",
+                "items": {"type": "string"}
+              }
+            }
+          }
+        },
+        "remote": {
+          "type": "array",
+          "description": "Skills loaded from external sources (MCP servers, databases)",
+          "items": {
+            "type": "object",
+            "required": ["name", "source"],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string",
+                "description": "MCP server or connection string",
+                "examples": ["mcp://skills-hub", "postgres://skills-db"]
+              },
+              "description": {
+                "type": "string"
+              },
+              "fallback": {
+                "type": "string",
+                "description": "Fallback skill name if this one is unavailable"
+              }
+            }
+          }
+        }
+      }
+    },
+    "glossary": {
+      "type": "string",
+      "description": "Path to glossary file with company-specific terminology",
+      "examples": ["docs/glossary.md"]
+    },
+    "config": {
+      "type": "object",
+      "description": "Additional configuration options",
+      "properties": {
+        "preferProprietarySkills": {
+          "type": "boolean",
+          "description": "When true, proprietary skills take priority over framework defaults",
+          "default": true
+        },
+        "strictMode": {
+          "type": "boolean",
+          "description": "When true, fail if any required skill is unavailable",
+          "default": false
+        }
+      }
+    }
+  }
+}
