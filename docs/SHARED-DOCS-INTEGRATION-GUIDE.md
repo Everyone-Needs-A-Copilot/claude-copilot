@@ -511,7 +511,6 @@ Claude will load the skill via `skill_get` and execute the validation, providing
 
 ## References
 
-- Documentation Guide: `03-ai-enabling/03-operations/05-documentation-guide.md`
-- Structure Rules: `STRUCTURE.md`
-- Security Guidelines: `03-ai-enabling/03-operations/02-security-guidelines.md`
-- Development Standards: `03-ai-enabling/03-operations/01-development-standards.md`
+- Extension Specification: [EXTENSION-SPEC.md](./EXTENSION-SPEC.md)
+- Documentation Guide: [documentation-guide.md](./operations/documentation-guide.md)
+- Working Protocol: [working-protocol.md](./operations/working-protocol.md)
