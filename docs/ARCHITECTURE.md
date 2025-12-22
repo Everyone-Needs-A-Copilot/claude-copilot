@@ -62,13 +62,13 @@ User Request → Protocol → Agent → Skills + Memory → Output → Memory Up
 | memories | type, content, tags[], embedding (semantic search) |
 | sessions | initiative_id, started_at, summary |
 
-Location: `~/.claude/memory/{project-hash}/memory.db`
+Location: `~/.claude/memory/{workspace-id}/memory.db`
 
 ### Skills Copilot (Priority Order)
 
 | Source | Location | Purpose |
 |--------|----------|---------|
-| Local | `./skills/*.md` | Project-specific |
+| Local | `./.claude/skills/` | Project-specific |
 | Cache | SQLite (7-day TTL) | Fast repeat access |
 | Private DB | PostgreSQL | Organization skills |
 | SkillsMP | API | 25,000+ public skills |
