@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "copilot-memory": {
+      "command": "node",
+      "args": ["/Users/pabs/.claude/copilot/mcp-servers/copilot-memory/dist/index.js"],
+      "env": {
+        "LOG_LEVEL": "info",
+        "MEMORY_PATH": "/Users/pabs/.claude/memory"
+      }
+    },
+    "skills-copilot": {
+      "command": "node",
+      "args": ["/Users/pabs/.claude/copilot/mcp-servers/skills-copilot/dist/index.js"],
+      "env": {
+        "LOG_LEVEL": "info",
+        "LOCAL_SKILLS_PATH": "/Users/pabs/.claude/copilot/templates/skills",
+        "KNOWLEDGE_REPO_PATH": "/Users/pabs/Sites/COPILOT/shared-docs"
+      }
+    }
+  }
+}
