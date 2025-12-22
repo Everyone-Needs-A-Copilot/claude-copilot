@@ -1,20 +1,21 @@
 {
+  "_comment": "IMPORTANT: Replace /Users/yourname with your actual home directory path. The ~ tilde does NOT work.",
   "mcpServers": {
     "copilot-memory": {
       "command": "node",
-      "args": ["~/.claude/copilot/mcp-servers/copilot-memory/dist/index.js"],
+      "args": ["/Users/yourname/.claude/copilot/mcp-servers/copilot-memory/dist/index.js"],
       "env": {
         "LOG_LEVEL": "info",
-        "MEMORY_PATH": "~/.claude/memory",
+        "MEMORY_PATH": "/Users/yourname/.claude/memory",
         "WORKSPACE_ID": ""
       }
     },
     "skills-copilot": {
       "command": "node",
-      "args": ["~/.claude/copilot/mcp-servers/skills-copilot/dist/index.js"],
+      "args": ["/Users/yourname/.claude/copilot/mcp-servers/skills-copilot/dist/index.js"],
       "env": {
         "LOG_LEVEL": "info",
-        "LOCAL_SKILLS_PATH": "~/.claude/copilot/templates/skills",
+        "LOCAL_SKILLS_PATH": "./.claude/skills",
         "KNOWLEDGE_REPO_PATH": ""
       }
     }

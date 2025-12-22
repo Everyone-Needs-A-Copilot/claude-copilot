@@ -468,6 +468,59 @@ ls .mcp.json CLAUDE.md
 
 ---
 
+### Verify Installation
+
+After restarting Claude Code, test that everything is working:
+
+**Step 1: Check MCP server status**
+
+In Claude Code, press `Cmd/Ctrl + Shift + P` and select "Show MCP Servers" or look for the MCP indicator. Both servers should show as connected:
+
+```
+✓ copilot-memory    Connected
+✓ skills-copilot    Connected
+```
+
+**Step 2: Test the Memory Copilot**
+
+Run `/continue` in Claude Code. You should see:
+
+```
+[PROTOCOL: QUESTION | Agent: none | Action: ASKING]
+
+## No Active Initiative Found
+
+There's no previous initiative to resume and no recent memories stored.
+
+**Options:**
+
+1. **Start a new initiative** - Tell me what you're working on...
+2. **Search for older context** - If you've worked on something before...
+
+Protocol active. What would you like to work on?
+```
+
+This confirms:
+- Memory Copilot MCP server is running
+- The `/continue` command is loaded
+- Agent-First Protocol is active
+
+**Step 3: Test the Skills Copilot**
+
+Ask Claude Code: "List available skills"
+
+You should see a response showing available skills from local and/or cached sources.
+
+**If something's wrong:**
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| MCP server shows "failed" | Tilde `~` not expanded in paths | Replace `~` with full path (e.g., `/Users/yourname/.claude/copilot/...`) |
+| `/continue` not found | Command not copied | Verify `.claude/commands/continue.md` exists |
+| `vec0 knn` errors | Old MCP server build | Rebuild: `cd ~/.claude/copilot/mcp-servers/copilot-memory && npm run build` |
+
+---
+
 ### Start Working
 
 ```bash
@@ -481,18 +534,27 @@ ls .mcp.json CLAUDE.md
 
 ### Basic Setup (Works Offline)
 
-The default `.mcp.json` works with no external services:
+The default `.mcp.json` works with no external services.
+
+> **Important:** Replace `/Users/yourname` with your actual home directory path. The `~` tilde does **NOT** expand in MCP args.
 
 ```json
 {
   "mcpServers": {
     "copilot-memory": {
       "command": "node",
-      "args": ["~/.claude/copilot/mcp-servers/copilot-memory/dist/index.js"]
+      "args": ["/Users/yourname/.claude/copilot/mcp-servers/copilot-memory/dist/index.js"],
+      "env": {
+        "MEMORY_PATH": "/Users/yourname/.claude/memory",
+        "WORKSPACE_ID": "your-project-name"
+      }
     },
     "skills-copilot": {
       "command": "node",
-      "args": ["~/.claude/copilot/mcp-servers/skills-copilot/dist/index.js"]
+      "args": ["/Users/yourname/.claude/copilot/mcp-servers/skills-copilot/dist/index.js"],
+      "env": {
+        "LOCAL_SKILLS_PATH": "./.claude/skills"
+      }
     }
   }
 }
@@ -513,12 +575,17 @@ For access to 25,000+ public skills and team-shared private skills:
   "mcpServers": {
     "copilot-memory": {
       "command": "node",
-      "args": ["~/.claude/copilot/mcp-servers/copilot-memory/dist/index.js"]
+      "args": ["/Users/yourname/.claude/copilot/mcp-servers/copilot-memory/dist/index.js"],
+      "env": {
+        "MEMORY_PATH": "/Users/yourname/.claude/memory",
+        "WORKSPACE_ID": "your-project-name"
+      }
     },
     "skills-copilot": {
       "command": "node",
-      "args": ["~/.claude/copilot/mcp-servers/skills-copilot/dist/index.js"],
+      "args": ["/Users/yourname/.claude/copilot/mcp-servers/skills-copilot/dist/index.js"],
       "env": {
+        "LOCAL_SKILLS_PATH": "./.claude/skills",
         "SKILLSMP_API_KEY": "sk_live_skillsmp_your_key_here",
         "POSTGRES_URL": "postgresql://user:pass@host:5432/database"
       }
@@ -814,7 +881,9 @@ npm rebuild better-sqlite3
 
 1. Ensure servers are built: check for `dist/` folders
 2. Restart Claude Code after config changes
-3. Check paths in `.mcp.json` are absolute or use `~`
+3. **Use absolute paths** in `.mcp.json` (the `~` tilde does NOT expand)
+   - Wrong: `~/.claude/copilot/...`
+   - Correct: `/Users/yourname/.claude/copilot/...`
 
 ### Memory not persisting
 
