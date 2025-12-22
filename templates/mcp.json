@@ -5,18 +5,15 @@
       "command": "node",
       "args": ["/Users/yourname/.claude/copilot/mcp-servers/copilot-memory/dist/index.js"],
       "env": {
-        "LOG_LEVEL": "info",
         "MEMORY_PATH": "/Users/yourname/.claude/memory",
-        "WORKSPACE_ID": ""
+        "WORKSPACE_ID": "your-project-name"
       }
     },
     "skills-copilot": {
       "command": "node",
       "args": ["/Users/yourname/.claude/copilot/mcp-servers/skills-copilot/dist/index.js"],
       "env": {
-        "LOG_LEVEL": "info",
-        "LOCAL_SKILLS_PATH": "./.claude/skills",
-        "KNOWLEDGE_REPO_PATH": ""
+        "LOCAL_SKILLS_PATH": "./.claude/skills"
       }
     }
   }
