@@ -385,7 +385,50 @@ Your CPA agent encodes tax law expertise, IRS requirements, and accounting stand
 - **Linux:** `sudo apt-get install build-essential python3`
 - **Windows:** `npm install --global windows-build-tools`
 
-### Installation
+---
+
+### Option A: Claude Code-Assisted Installation (Recommended)
+
+Let Claude Code handle the setup for you.
+
+**Step 1: Clone the repository**
+
+```bash
+mkdir -p ~/.claude
+cd ~/.claude
+git clone https://github.com/Everyone-Needs-A-Copilot/claude-copilot.git copilot
+```
+
+**Step 2: Ask Claude Code to complete the installation**
+
+Open Claude Code in your terminal and paste:
+
+```
+I just cloned claude-copilot to ~/.claude/copilot. Please:
+1. Build both MCP servers (copilot-memory and skills-copilot)
+2. Copy the templates to my current project directory
+3. Verify everything is working
+
+Then restart Claude Code when done.
+```
+
+Claude Code will:
+- Run `npm install` and `npm run build` for both MCP servers
+- Copy `.mcp.json` and `CLAUDE.md` templates to your project
+- Report any issues and how to fix them
+
+**Step 3: Restart Claude Code and start working**
+
+```bash
+/protocol    # Start fresh work with Agent-First Protocol
+/continue    # Resume where you left off
+```
+
+---
+
+### Option B: Manual Installation
+
+For developers who prefer to run each step themselves.
 
 ```bash
 # 1. Clone to global location
@@ -410,6 +453,19 @@ cp ~/.claude/copilot/templates/CLAUDE.template.md ./CLAUDE.md
 
 # 5. Restart Claude Code
 ```
+
+**Verify installation:**
+
+```bash
+# Check MCP servers built successfully
+ls ~/.claude/copilot/mcp-servers/copilot-memory/dist/index.js
+ls ~/.claude/copilot/mcp-servers/skills-copilot/dist/index.js
+
+# Check templates copied
+ls .mcp.json CLAUDE.md
+```
+
+---
 
 ### Start Working
 
