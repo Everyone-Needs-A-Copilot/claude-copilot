@@ -137,18 +137,14 @@ Your response MUST include:
 | Reproduce bugs | `@agent-qa` | Confirm issue exists, document steps |
 | Map user journey | `@agent-sd` | Service design, experience mapping |
 | Assess approach | `@agent-ta` | Architecture, technical feasibility |
-| Explore codebase | `@agent-Explore` | Find patterns, understand structure |
 
 ### Execution Phase
 
-| Stack | Agent | Purpose |
-|-------|-------|---------|
-| Next.js/React UI | `@agent-react` | React components, client-side code |
-| Next.js API/Server | `@agent-nextjs` | API routes, Server Components, Server Actions |
-| Laravel/PHP | `@agent-laravel` | Laravel backend, Eloquent, Blade |
-| Python/FastAPI | `@agent-python` | Python backend, FastAPI, Pydantic |
-| DevOps | `@agent-do` | Deployment, Docker, infrastructure |
-| n8n Workflows | `@agent-n8n` | Automation, integrations |
+| Task | Agent | Purpose |
+|------|-------|---------|
+| Code implementation | `@agent-me` | Features, bug fixes, refactoring |
+| DevOps/Infrastructure | `@agent-do` | Deployment, Docker, CI/CD |
+| Documentation | `@agent-doc` | Technical writing, API docs |
 
 ### Design Phase
 
@@ -157,6 +153,7 @@ Your response MUST include:
 | UX/Interaction | `@agent-uxd` | Task flows, wireframes, usability |
 | Visual Design | `@agent-uids` | Colors, typography, visual hierarchy |
 | UI Implementation | `@agent-uid` | CSS, Tailwind, component styling |
+| Content/Copy | `@agent-cw` | Microcopy, error messages, UI text |
 
 ### Verification Phase
 
@@ -167,9 +164,9 @@ Your response MUST include:
 
 ---
 
-## Product-Specific Overrides
+## Project-Specific Overrides
 
-Product repos may extend this protocol with product-specific agents or rules. Check the product's root `CLAUDE.md` for any overrides.
+Projects may extend this protocol with custom agents or rules via the extension system. See [EXTENSION-SPEC.md](../EXTENSION-SPEC.md) for details.
 
 ---
 
