@@ -474,11 +474,11 @@ After restarting Claude Code, test that everything is working:
 
 **Step 1: Check MCP server status**
 
-In Claude Code, press `Cmd/Ctrl + Shift + P` and select "Show MCP Servers" or look for the MCP indicator. Both servers should show as connected:
+Run `/mcp` in Claude Code. Both servers should show as connected:
 
 ```
-✓ copilot-memory    Connected
-✓ skills-copilot    Connected
+● copilot-memory
+● skills-copilot
 ```
 
 **Step 2: Test the Memory Copilot**
