@@ -378,23 +378,24 @@ echo "  ✓ Created .mcp.json"
 
 # Preserve WORKSPACE_ID if we found an existing database
 if [ -n "$PRESERVE_WORKSPACE_ID" ]; then
+  # Replace placeholder value with actual workspace ID
   if [[ "$OSTYPE" == "darwin"* ]]; then
-    sed -i '' "s|\"WORKSPACE_ID\": \"\"|\"WORKSPACE_ID\": \"$PRESERVE_WORKSPACE_ID\"|g" .mcp.json
+    sed -i '' "s|\"WORKSPACE_ID\": \"your-project-name\"|\"WORKSPACE_ID\": \"$PRESERVE_WORKSPACE_ID\"|g" .mcp.json
   else
-    sed -i "s|\"WORKSPACE_ID\": \"\"|\"WORKSPACE_ID\": \"$PRESERVE_WORKSPACE_ID\"|g" .mcp.json
+    sed -i "s|\"WORKSPACE_ID\": \"your-project-name\"|\"WORKSPACE_ID\": \"$PRESERVE_WORKSPACE_ID\"|g" .mcp.json
   fi
   echo "  ✓ Preserved WORKSPACE_ID: $PRESERVE_WORKSPACE_ID"
 fi
 
-# If knowledge-manifest.json exists, update KNOWLEDGE_REPO_PATH
+# If knowledge-manifest.json exists, add KNOWLEDGE_REPO_PATH to skills-copilot env
 if [ -f "knowledge-manifest.json" ]; then
-  # Use sed to update the KNOWLEDGE_REPO_PATH
+  # Add KNOWLEDGE_REPO_PATH after LOCAL_SKILLS_PATH
   if [[ "$OSTYPE" == "darwin"* ]]; then
-    sed -i '' "s|\"KNOWLEDGE_REPO_PATH\": \"\"|\"KNOWLEDGE_REPO_PATH\": \"$PROJECT_ROOT\"|g" .mcp.json
+    sed -i '' "s|\"LOCAL_SKILLS_PATH\": \"./.claude/skills\"|\"LOCAL_SKILLS_PATH\": \"./.claude/skills\",\n        \"KNOWLEDGE_REPO_PATH\": \"$PROJECT_ROOT\"|g" .mcp.json
   else
-    sed -i "s|\"KNOWLEDGE_REPO_PATH\": \"\"|\"KNOWLEDGE_REPO_PATH\": \"$PROJECT_ROOT\"|g" .mcp.json
+    sed -i "s|\"LOCAL_SKILLS_PATH\": \"./.claude/skills\"|\"LOCAL_SKILLS_PATH\": \"./.claude/skills\",\n        \"KNOWLEDGE_REPO_PATH\": \"$PROJECT_ROOT\"|g" .mcp.json
   fi
-  echo "  ✓ Updated KNOWLEDGE_REPO_PATH in .mcp.json"
+  echo "  ✓ Added KNOWLEDGE_REPO_PATH to .mcp.json"
 fi
 
 # Copy CLAUDE.md if it doesn't exist
