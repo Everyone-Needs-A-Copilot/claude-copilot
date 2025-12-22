@@ -104,7 +104,7 @@ Claude Copilot transforms Claude Code into a **complete development environment*
 │  • Stores decisions made     │   │  • 25,000+ public skills (Skill Marketplace) │
 │  • Remembers lessons learned │   │  • Your private/proprietary skills      │
 │  • Tracks progress           │   │  • Local project skills                 │
-│  • Enables /continue         │   │  • Intelligent caching                  │
+│  • Enables /continue         │   │  • Knowledge search (project → global)  │
 └──────────────────────────────┘   └──────────────────────────────────────────┘
 ```
 
@@ -530,6 +530,7 @@ The default `.mcp.json` works with no external services.
 - All 11 agents
 - Memory persistence (local SQLite)
 - Local project skills
+- Knowledge search (local markdown files)
 - `/protocol` and `/continue` commands
 
 ### Full Setup (With External Services)
@@ -709,6 +710,54 @@ your-knowledge-repo/
 | **Skills** | Injects skills into agent context | Agent automatically loads your patterns |
 
 See [docs/EXTENSION-SPEC.md](docs/EXTENSION-SPEC.md) for complete implementation details.
+
+---
+
+## Shared Knowledge
+
+Claude Copilot includes **knowledge search**—ask about your company, products, brand, or operations and get answers from your own documentation.
+
+### How It Works
+
+```
+Query: "Tell me about my company"
+         ↓
+  1. Check project-level knowledge (if KNOWLEDGE_REPO_PATH set)
+         ↓
+  2. Check machine-level knowledge (~/.claude/knowledge)
+         ↓
+  3. Return matching markdown files
+```
+
+### Quick Setup
+
+**One-time machine setup:**
+
+```bash
+# Link your shared docs to the default knowledge location
+ln -s /path/to/your/shared-docs ~/.claude/knowledge
+
+# Create a minimal manifest (required)
+echo '{"version":"1.0","name":"my-company","description":"My knowledge"}' > ~/.claude/knowledge/knowledge-manifest.json
+```
+
+**That's it.** Now every project has access to your shared knowledge—no per-project configuration needed.
+
+### Knowledge Tools
+
+| Tool | Purpose |
+|------|---------|
+| `knowledge_search(query)` | Search files by keyword ("company", "brand", "products") |
+| `knowledge_get(path)` | Get a specific file by path |
+
+### Two-Tier Resolution
+
+| Tier | Location | Configuration |
+|------|----------|---------------|
+| Project | `KNOWLEDGE_REPO_PATH` env var | Optional per-project override |
+| Global | `~/.claude/knowledge` | Auto-detected, no config needed |
+
+Project knowledge takes precedence, falling back to global for anything not found locally.
 
 ---
 

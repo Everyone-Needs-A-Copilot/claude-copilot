@@ -1,7 +1,8 @@
 {
   "_setup_instructions": {
     "1_home_path": "Replace all {{HOME_PATH}} with your actual home directory (e.g., /Users/username). Do NOT use ~",
-    "2_project_name": "Replace {{PROJECT_NAME}} with your project folder name (e.g., my-app)"
+    "2_project_name": "Replace {{PROJECT_NAME}} with your project folder name (e.g., my-app)",
+    "3_knowledge_repo": "Global knowledge repo auto-detected at ~/.claude/knowledge (no config needed). Add KNOWLEDGE_REPO_PATH only for project-specific overrides."
   },
   "mcpServers": {
     "copilot-memory": {

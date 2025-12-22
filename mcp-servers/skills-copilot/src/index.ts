@@ -17,7 +17,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import { SkillsMPProvider, PostgresProvider, CacheProvider, LocalProvider, KnowledgeRepoProvider } from './providers/index.js';
-import type { SkillsHubConfig, Skill, SkillMeta, SkillMatch, SkillSource, SkillSaveParams, ResolvedExtension, ExtensionListItem, KnowledgeRepoStatus } from './types.js';
+import type { SkillsHubConfig, Skill, SkillMeta, SkillMatch, SkillSource, SkillSaveParams, ResolvedExtension, ExtensionListItemWithSource, KnowledgeRepoStatus, KnowledgeRepoConfig, KnowledgeSearchResult, KnowledgeSearchOptions } from './types.js';
 
 // Configuration from environment
 const config: SkillsHubConfig = {
@@ -29,15 +29,19 @@ const config: SkillsHubConfig = {
   logLevel: (process.env.LOG_LEVEL || 'info') as SkillsHubConfig['logLevel']
 };
 
-// Knowledge repository path (optional)
-const knowledgeRepoPath = process.env.KNOWLEDGE_REPO_PATH;
+// Knowledge repository configuration (two-tier: project + global)
+// Project-specific path takes precedence over global ~/.claude/knowledge
+const knowledgeRepoConfig: KnowledgeRepoConfig = {
+  projectPath: process.env.KNOWLEDGE_REPO_PATH,  // Optional: project-specific override
+  globalPath: process.env.GLOBAL_KNOWLEDGE_PATH  // Optional: defaults to ~/.claude/knowledge
+};
 
 // Initialize providers
 const cache = new CacheProvider(config.cachePath, config.cacheTtlDays);
 const local = new LocalProvider(config.localSkillsPath || '');
 const skillsmp = config.skillsmpApiKey ? new SkillsMPProvider(config.skillsmpApiKey) : null;
 const postgres = config.postgresUrl ? new PostgresProvider(config.postgresUrl) : null;
-const knowledgeRepo = new KnowledgeRepoProvider(knowledgeRepoPath);
+const knowledgeRepo = new KnowledgeRepoProvider(knowledgeRepoConfig);
 
 // Create MCP server
 const server = new Server(
@@ -170,6 +174,47 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {}
+    }
+  },
+  // Knowledge search tools
+  {
+    name: 'knowledge_search',
+    description: 'Search knowledge files across project and machine-level knowledge repositories. Searches file names, paths, and content. Use this to find information about company, products, brand, operations, etc.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Search query (e.g., "company", "brand voice", "products")'
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum results to return (default: 5)'
+        },
+        directory: {
+          type: 'string',
+          description: 'Limit search to specific directory (e.g., "01-company", "02-products")'
+        },
+        includeContent: {
+          type: 'boolean',
+          description: 'Include full file content in results (default: false, returns snippets)'
+        }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'knowledge_get',
+    description: 'Get a specific knowledge file by path. Checks project-level first, then machine-level.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string',
+          description: 'Relative path to the file (e.g., "01-company/00-overview.md")'
+        }
+      },
+      required: ['path']
     }
   }
 ];
@@ -476,23 +521,39 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const localCount = local.getCount();
         const repoStatus = knowledgeRepo.getStatus();
 
+        // Format knowledge repo status for display
+        let knowledgeRepoDisplay = 'not configured';
+        if (repoStatus.configured) {
+          const parts: string[] = [];
+          if (repoStatus.global?.loaded && repoStatus.global.manifest) {
+            parts.push(`global: ${repoStatus.global.manifest.name} (${repoStatus.global.manifest.extensions} ext)`);
+          } else if (repoStatus.global) {
+            parts.push(`global: not loaded`);
+          }
+          if (repoStatus.project?.loaded && repoStatus.project.manifest) {
+            parts.push(`project: ${repoStatus.project.manifest.name} (${repoStatus.project.manifest.extensions} ext)`);
+          } else if (repoStatus.project) {
+            parts.push(`project: not loaded`);
+          }
+          knowledgeRepoDisplay = parts.length > 0 ? parts.join(', ') : 'configured but not loaded';
+        }
+
         const status = {
           providers: {
             postgres: postgres?.isConnected() ? 'connected' : 'not configured',
             skillsmp: skillsmp ? 'configured' : 'not configured',
             local: `${localCount} skills found`,
             cache: `${cacheStats.total} cached (${Math.round(cacheStats.size / 1024)}KB)`,
-            knowledgeRepo: repoStatus.configured
-              ? (repoStatus.manifest
-                  ? `${repoStatus.manifest.name} (${repoStatus.manifest.extensions} extensions, ${repoStatus.manifest.skills} skills)`
-                  : repoStatus.error || 'not loaded')
-              : 'not configured'
+            knowledgeRepo: knowledgeRepoDisplay
           },
           config: {
             cachePath: config.cachePath,
             cacheTtlDays: config.cacheTtlDays,
             localSkillsPath: config.localSkillsPath,
-            knowledgeRepoPath: knowledgeRepoPath || 'not set'
+            knowledgeRepo: {
+              projectPath: knowledgeRepoConfig.projectPath || 'not set',
+              globalPath: knowledgeRepoConfig.globalPath || '~/.claude/knowledge (default)'
+            }
           }
         };
 
@@ -505,23 +566,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'extension_get': {
         const agentId = a.agent as string;
 
-        if (!knowledgeRepo.isConfigured()) {
-          return {
-            content: [{
-              type: 'text',
-              text: `No knowledge repository configured.\n\nSet KNOWLEDGE_REPO_PATH environment variable to enable extensions.`
-            }]
-          };
-        }
-
         if (!knowledgeRepo.isLoaded()) {
           const status = knowledgeRepo.getStatus();
+          const globalPath = status.global?.path || '~/.claude/knowledge';
           return {
             content: [{
               type: 'text',
-              text: `Knowledge repository not loaded: ${status.error}`
-            }],
-            isError: true
+              text: `No knowledge repository loaded.\n\n**To enable extensions:**\n1. Create a global knowledge repo at \`${globalPath}\`\n2. Or set \`KNOWLEDGE_REPO_PATH\` for project-specific extensions\n\nSee EXTENSION-SPEC.md for details.`
+            }]
           };
         }
 
@@ -550,23 +602,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'extension_list': {
-        if (!knowledgeRepo.isConfigured()) {
-          return {
-            content: [{
-              type: 'text',
-              text: `No knowledge repository configured.\n\nSet KNOWLEDGE_REPO_PATH environment variable to enable extensions.`
-            }]
-          };
-        }
-
         if (!knowledgeRepo.isLoaded()) {
           const status = knowledgeRepo.getStatus();
+          const globalPath = status.global?.path || '~/.claude/knowledge';
           return {
             content: [{
               type: 'text',
-              text: `Knowledge repository not loaded: ${status.error}`
-            }],
-            isError: true
+              text: `No knowledge repository loaded.\n\n**To enable extensions:**\n1. Create a global knowledge repo at \`${globalPath}\`\n2. Or set \`KNOWLEDGE_REPO_PATH\` for project-specific extensions\n\nSee EXTENSION-SPEC.md for details.`
+            }]
           };
         }
 
@@ -582,12 +625,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         let output = '## Available Extensions\n\n';
-        output += '| Agent | Type | Description | Required Skills |\n';
-        output += '|-------|------|-------------|------------------|\n';
+        output += '| Agent | Type | Source | Description | Required Skills |\n';
+        output += '|-------|------|--------|-------------|------------------|\n';
 
         for (const ext of extensions) {
           const skills = ext.requiredSkills?.join(', ') || '-';
-          output += `| @agent-${ext.agent} | ${ext.type} | ${ext.description || '-'} | ${skills} |\n`;
+          const sourceLabel = ext.overridesGlobal ? `${ext.source} (overrides global)` : ext.source;
+          output += `| @agent-${ext.agent} | ${ext.type} | ${sourceLabel} | ${ext.description || '-'} | ${skills} |\n`;
         }
 
         output += '\n\nUse `extension_get(agent)` to load the full extension content.';
@@ -598,15 +642,104 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'manifest_status': {
         const status = knowledgeRepo.getStatus();
 
-        if (!status.configured) {
+        // Add helpful information about the two-tier system
+        const enrichedStatus = {
+          ...status,
+          resolution: 'project → global → base agents',
+          howToEnable: {
+            global: 'Create ~/.claude/knowledge/knowledge-manifest.json (auto-detected)',
+            project: 'Set KNOWLEDGE_REPO_PATH in .mcp.json for project-specific overrides'
+          }
+        };
+
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify(enrichedStatus, null, 2)
+          }]
+        };
+      }
+
+      // Knowledge search tools
+      case 'knowledge_search': {
+        if (!knowledgeRepo.isLoaded()) {
+          const status = knowledgeRepo.getStatus();
+          const globalPath = status.global?.path || '~/.claude/knowledge';
           return {
             content: [{
               type: 'text',
-              text: JSON.stringify({
-                configured: false,
-                message: 'KNOWLEDGE_REPO_PATH environment variable not set',
-                howToEnable: 'Set KNOWLEDGE_REPO_PATH in your MCP server configuration to point to a knowledge repository'
-              }, null, 2)
+              text: `No knowledge repository loaded.\n\n**To enable knowledge search:**\n1. Create a global knowledge repo at \`${globalPath}\` with a \`knowledge-manifest.json\`\n2. Or set \`KNOWLEDGE_REPO_PATH\` in .mcp.json for project-specific knowledge\n\nSee EXTENSION-SPEC.md for details.`
+            }]
+          };
+        }
+
+        const query = a.query as string;
+        const options: KnowledgeSearchOptions = {
+          limit: a.limit as number | undefined,
+          directory: a.directory as string | undefined,
+          includeContent: a.includeContent as boolean | undefined
+        };
+
+        const results = knowledgeRepo.searchKnowledge(query, options);
+
+        if (results.length === 0) {
+          return {
+            content: [{
+              type: 'text',
+              text: `No knowledge found for query: "${query}"\n\nTry different search terms or check your knowledge repository structure.`
+            }]
+          };
+        }
+
+        // Format results
+        let output = `## Knowledge Search Results for "${query}"\n\n`;
+        output += `Found ${results.length} result(s):\n\n`;
+
+        for (const result of results) {
+          output += `### ${result.name}\n`;
+          output += `**Path:** \`${result.path}\`\n`;
+          output += `**Source:** ${result.source} | **Relevance:** ${(result.relevance * 100).toFixed(0)}%\n`;
+          if (result.section) {
+            output += `**Section:** ${result.section}\n`;
+          }
+          output += '\n';
+
+          if (result.content) {
+            // Full content mode
+            output += '```markdown\n' + result.content + '\n```\n\n';
+          } else {
+            // Snippet mode
+            output += '> ' + result.snippet.replace(/\n/g, '\n> ') + '\n\n';
+          }
+
+          output += '---\n\n';
+        }
+
+        output += `Use \`knowledge_get(path)\` to retrieve full file content.`;
+
+        return { content: [{ type: 'text', text: output }] };
+      }
+
+      case 'knowledge_get': {
+        if (!knowledgeRepo.isLoaded()) {
+          const status = knowledgeRepo.getStatus();
+          const globalPath = status.global?.path || '~/.claude/knowledge';
+          return {
+            content: [{
+              type: 'text',
+              text: `No knowledge repository loaded.\n\n**To enable knowledge access:**\n1. Create a global knowledge repo at \`${globalPath}\` with a \`knowledge-manifest.json\`\n2. Or set \`KNOWLEDGE_REPO_PATH\` in .mcp.json for project-specific knowledge`
+            }]
+          };
+        }
+
+        const filePath = a.path as string;
+        const result = knowledgeRepo.getKnowledgeFile(filePath);
+
+        if (!result) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Knowledge file not found: ${filePath}\n\nUse \`knowledge_search\` to find available files.`
             }]
           };
         }
@@ -614,7 +747,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return {
           content: [{
             type: 'text',
-            text: JSON.stringify(status, null, 2)
+            text: `# ${filePath}\n\n**Source:** ${result.source}\n**Path:** ${result.absolutePath}\n\n---\n\n${result.content}`
           }]
         };
       }
@@ -650,7 +783,12 @@ async function main() {
     console.error(`Local skills: ${local.getCount()} found`);
     console.error(`Cache: ${cache.getStats().total} entries`);
     const repoStatus = knowledgeRepo.getStatus();
-    console.error(`Knowledge repo: ${repoStatus.configured ? (repoStatus.manifest ? repoStatus.manifest.name : repoStatus.error) : 'not configured'}`);
+    if (repoStatus.global) {
+      console.error(`Knowledge repo (global): ${repoStatus.global.loaded ? repoStatus.global.manifest?.name : repoStatus.global.error}`);
+    }
+    if (repoStatus.project) {
+      console.error(`Knowledge repo (project): ${repoStatus.project.loaded ? repoStatus.project.manifest?.name : repoStatus.project.error}`);
+    }
   }
 
   const transport = new StdioServerTransport();

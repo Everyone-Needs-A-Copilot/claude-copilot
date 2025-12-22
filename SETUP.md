@@ -325,4 +325,79 @@ chmod -R 755 /path/to/project/.claude
 | `LOCAL_SKILLS_PATH` | No | `./.claude/skills` | Project skills location |
 | `SKILLSMP_API_KEY` | No | - | Access to 25K+ public skills |
 | `POSTGRES_URL` | No | - | Team-shared private skills |
-| `KNOWLEDGE_REPO_PATH` | No | - | Custom knowledge repository |
+| `KNOWLEDGE_REPO_PATH` | No | - | Project-specific knowledge repository |
+| `GLOBAL_KNOWLEDGE_PATH` | No | `~/.claude/knowledge` | Machine-wide knowledge repository |
+
+---
+
+## Knowledge Repository (Shared Knowledge)
+
+Claude Copilot supports **two-tier knowledge resolution** for company/product information:
+
+```
+Query: "Tell me about my company"
+         ↓
+  1. Check project-level knowledge (KNOWLEDGE_REPO_PATH)
+         ↓
+  2. Check machine-level knowledge (~/.claude/knowledge)
+         ↓
+  3. Return matching knowledge files
+```
+
+### Setting Up Machine-Wide Shared Knowledge
+
+Create a symlink or directory at `~/.claude/knowledge`:
+
+```bash
+# Option 1: Symlink to existing docs
+ln -s /path/to/your/shared-docs ~/.claude/knowledge
+
+# Option 2: Create new directory
+mkdir -p ~/.claude/knowledge
+```
+
+**Required:** Create a `knowledge-manifest.json` in the knowledge repo:
+
+```json
+{
+  "version": "1.0",
+  "name": "my-company",
+  "description": "Company knowledge repository"
+}
+```
+
+### Knowledge Tools Available
+
+Once configured, these tools are automatically available in every project:
+
+| Tool | Purpose |
+|------|---------|
+| `knowledge_search` | Search knowledge files by query (project → global) |
+| `knowledge_get` | Get specific knowledge file by path |
+
+### Example Queries
+
+```
+"Tell me about my company"     → Searches for company info
+"What is our brand voice?"     → Searches brand/voice docs
+"Show me our products"         → Searches product docs
+```
+
+### Knowledge Directory Structure
+
+Organize your knowledge repo for best search results:
+
+```
+~/.claude/knowledge/
+├── knowledge-manifest.json    # Required
+├── 01-company/
+│   ├── 00-overview.md
+│   ├── 01-brand/
+│   └── 02-voice/
+├── 02-products/
+│   └── ...
+└── 03-operations/
+    └── ...
+```
+
+**Key benefit:** Set up knowledge once at `~/.claude/knowledge` and it's automatically available in every project—no per-project configuration needed

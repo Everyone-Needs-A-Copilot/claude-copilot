@@ -188,11 +188,11 @@ export interface ExtensionListItem {
 }
 
 /**
- * Knowledge repo status result
+ * Status for a single knowledge repository tier
  */
-export interface KnowledgeRepoStatus {
-  configured: boolean;
-  path?: string;
+export interface KnowledgeRepoTierStatus {
+  path: string;
+  loaded: boolean;
   manifest?: {
     name: string;
     description?: string;
@@ -200,4 +200,89 @@ export interface KnowledgeRepoStatus {
     skills: number;
   };
   error?: string;
+}
+
+/**
+ * Knowledge repo status result (supports two-tier: project + global)
+ */
+export interface KnowledgeRepoStatus {
+  configured: boolean;
+  /** Project-specific repository (highest priority) */
+  project?: KnowledgeRepoTierStatus;
+  /** Global repository at ~/.claude/knowledge (fallback) */
+  global?: KnowledgeRepoTierStatus;
+  /** Legacy single-path error (for backward compatibility) */
+  error?: string;
+}
+
+/**
+ * Configuration for two-tier knowledge repository
+ */
+export interface KnowledgeRepoConfig {
+  /** Project-specific knowledge repo path (highest priority) */
+  projectPath?: string;
+  /** Global knowledge repo path (defaults to ~/.claude/knowledge) */
+  globalPath?: string;
+}
+
+/**
+ * Extension list item with source indicator
+ */
+export interface ExtensionListItemWithSource extends ExtensionListItem {
+  /** Where this extension comes from */
+  source: 'project' | 'global';
+  /** Whether this overrides a global extension */
+  overridesGlobal?: boolean;
+}
+
+// ============================================================================
+// Knowledge Search Types
+// ============================================================================
+
+/**
+ * A single knowledge search result
+ */
+export interface KnowledgeSearchResult {
+  /** File path relative to knowledge repo */
+  path: string;
+  /** Full absolute path to file */
+  absolutePath: string;
+  /** File name without extension */
+  name: string;
+  /** Source tier: project or global */
+  source: 'project' | 'global';
+  /** Relevance score (0-1) */
+  relevance: number;
+  /** Matched content snippet */
+  snippet: string;
+  /** Section/heading where match was found */
+  section?: string;
+  /** Full file content (only when retrieving single file) */
+  content?: string;
+}
+
+/**
+ * Options for knowledge search
+ */
+export interface KnowledgeSearchOptions {
+  /** Maximum results to return (default: 5) */
+  limit?: number;
+  /** Search in specific directory only (e.g., "01-company") */
+  directory?: string;
+  /** Include full content in results (default: false, returns snippets) */
+  includeContent?: boolean;
+  /** Minimum relevance score (0-1, default: 0.1) */
+  minRelevance?: number;
+}
+
+/**
+ * Topic mapping for manifest (optional enhancement)
+ */
+export interface KnowledgeTopicMapping {
+  /** Topic keyword (e.g., "company", "brand", "products") */
+  topic: string;
+  /** File path relative to knowledge repo */
+  file: string;
+  /** Brief description */
+  description?: string;
 }

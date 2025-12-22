@@ -32,6 +32,15 @@ This project uses [Claude Copilot](https://github.com/Everyone-Needs-A-Copilot/c
 | `memory_store` | Store decisions, lessons, context |
 | `memory_search` | Semantic search across memories |
 
+### Knowledge Tools
+
+| Tool | Purpose |
+|------|---------|
+| `knowledge_search` | Search company/product knowledge (project → global) |
+| `knowledge_get` | Get specific knowledge file by path |
+
+Knowledge is searched in order: project-level first, then machine-level (`~/.claude/knowledge`).
+
 ### Agents
 
 | Agent | Name | Domain |

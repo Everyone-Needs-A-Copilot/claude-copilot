@@ -63,9 +63,11 @@ MCP server providing persistent memory across sessions.
 
 ### 3. Skills Copilot
 
-MCP server for on-demand skill loading.
+MCP server for on-demand skill loading and knowledge search.
 
 **Location:** `mcp-servers/skills-copilot/`
+
+**Skill Tools:**
 
 | Tool | Purpose |
 |------|---------|
@@ -73,6 +75,15 @@ MCP server for on-demand skill loading.
 | `skill_search` | Search skills across sources |
 | `skill_list` | List available skills |
 | `skill_save` | Save skill to private DB |
+
+**Knowledge Tools:**
+
+| Tool | Purpose |
+|------|---------|
+| `knowledge_search` | Search knowledge files (project → global) |
+| `knowledge_get` | Get specific knowledge file by path |
+
+Knowledge is searched in two-tier resolution: project-level first (`KNOWLEDGE_REPO_PATH`), then machine-level (`~/.claude/knowledge`).
 
 ### 4. Protocol
 
@@ -140,6 +151,18 @@ your-project/
 
 This framework supports extensions via knowledge repositories. Extensions allow company-specific methodologies to override or enhance base agents.
 
+### Two-Tier Resolution
+
+Extensions are resolved in priority order:
+
+| Tier | Path | Configuration |
+|------|------|---------------|
+| 1. Project | `$KNOWLEDGE_REPO_PATH` | Set in `.mcp.json` (optional) |
+| 2. Global | `~/.claude/knowledge` | Auto-detected (no config needed) |
+| 3. Base | Framework agents | Always available |
+
+**Key benefit:** Set up your company knowledge once in `~/.claude/knowledge` and it's automatically available in every project.
+
 ### Extension Types
 
 | Type | Behavior |
@@ -148,32 +171,53 @@ This framework supports extensions via knowledge repositories. Extensions allow 
 | `extension` | Adds to base agent (section-level merge) |
 | `skills` | Injects additional skills into agent |
 
-### Configuring a Knowledge Repository
+### Setting Up Global Knowledge Repository
 
-1. **Set `KNOWLEDGE_REPO_PATH`** in your MCP config (`.mcp.json`):
+Create a knowledge repository at `~/.claude/knowledge/`:
+
+```
+~/.claude/knowledge/
+├── knowledge-manifest.json    # Required
+└── .claude/
+    └── extensions/
+        ├── sd.override.md     # Your agent extensions
+        └── uxd.extension.md
+```
+
+**Minimal manifest:**
+```json
+{
+  "version": "1.0",
+  "name": "my-company",
+  "description": "Company-specific agent extensions"
+}
+```
+
+No `.mcp.json` changes needed - global repository is auto-detected.
+
+### Project-Specific Overrides (Optional)
+
+Only needed when a project requires different extensions than global:
 
 ```json
 {
   "mcpServers": {
     "skills-copilot": {
       "env": {
-        "KNOWLEDGE_REPO_PATH": "/path/to/your/knowledge-repo"
+        "KNOWLEDGE_REPO_PATH": "/path/to/project-specific/knowledge"
       }
     }
   }
 }
 ```
 
-2. **Knowledge repo must contain** `knowledge-manifest.json` declaring extensions
-3. **Restart Claude Code** to pick up changes
-
 ### Extension Tools
 
 | Tool | Purpose |
 |------|---------|
 | `extension_get` | Get extension for specific agent |
-| `extension_list` | List all available extensions |
-| `manifest_status` | Check knowledge repo configuration |
+| `extension_list` | List all extensions (shows source: global/project) |
+| `manifest_status` | Check both global and project repo status |
 
 ### Documentation
 

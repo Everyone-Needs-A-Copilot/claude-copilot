@@ -6,21 +6,30 @@ This document defines how knowledge repositories extend Claude-Copilot framework
 
 Claude-Copilot provides **base agents** with generic, industry-standard methodologies. Knowledge repositories can **extend** these agents with company-specific methodologies, skills, and practices.
 
+The system supports **two-tier resolution**: a global knowledge repository shared across all projects, and optional project-specific overrides.
+
 ```
+┌─────────────────────────────────────┐
+│  Project Knowledge Repo (optional)  │
+│  Path: $KNOWLEDGE_REPO_PATH         │
+│  Priority: HIGHEST                  │
+└─────────────────────────────────────┘
+              ↓ fallback
+┌─────────────────────────────────────┐
+│  Global Knowledge Repo (shared)     │
+│  Path: ~/.claude/knowledge          │
+│  Priority: MEDIUM (auto-detected)   │
+└─────────────────────────────────────┘
+              ↓ fallback
 ┌─────────────────────────────────────┐
 │  Framework: Base Agents (Generic)   │
 │  - Industry-standard methodologies  │
 │  - Universal best practices         │
 │  - Works standalone                 │
 └─────────────────────────────────────┘
-              ↓ extends
-┌─────────────────────────────────────┐
-│  Knowledge Repo: Extensions         │
-│  - Company-specific methodologies   │
-│  - Proprietary skills               │
-│  - Custom deliverable templates     │
-└─────────────────────────────────────┘
 ```
+
+**Key benefit:** Set up your company knowledge once in `~/.claude/knowledge` and it's automatically available in every project. No per-project configuration needed.
 
 ## Extension Types
 
@@ -118,31 +127,40 @@ All wireframes must include Figma component references...
 
 ## Resolution Algorithm
 
-When an agent is invoked:
+When an agent is invoked, the system uses **two-tier resolution**:
 
 ```
-1. Check: Does knowledge repo exist?
-   ├─ No  → Use base agent (framework only)
-   └─ Yes → Continue
+1. Check PROJECT knowledge repo ($KNOWLEDGE_REPO_PATH)
+   ├─ Has extension for this agent? → Use it (highest priority)
+   └─ No extension → Continue to step 2
 
-2. Load knowledge-manifest.json
+2. Check GLOBAL knowledge repo (~/.claude/knowledge)
+   ├─ Has extension for this agent? → Use it
+   └─ No extension → Continue to step 3
 
-3. Check: Is there an extension for this agent?
-   ├─ No  → Use base agent
-   └─ Yes → Continue
+3. Use base agent (framework only)
 
-4. Check: Are required skills available?
-   ├─ No  → Apply fallbackBehavior
-   │        ├─ "use_base" → Use base agent silently
-   │        ├─ "use_base_with_warning" → Use base + warn user
-   │        └─ "fail" → Error, don't proceed
-   └─ Yes → Continue
+4. For resolved extension, check required skills:
+   ├─ All available → Apply extension
+   └─ Missing skills → Apply fallbackBehavior
+        ├─ "use_base" → Use base agent silently
+        ├─ "use_base_with_warning" → Use base + warn user
+        └─ "fail" → Error, don't proceed
 
 5. Apply extension based on type:
    ├─ "override" → Replace base entirely
    ├─ "extension" → Merge specified sections
    └─ "skills" → Inject skills into base
 ```
+
+### Precedence Examples
+
+| Project Repo | Global Repo | Result |
+|--------------|-------------|--------|
+| SD override | SD override | Uses **project** SD override |
+| (none) | SD override | Uses **global** SD override |
+| UXD extension | SD override | UXD from project, SD from global |
+| (none) | (none) | Base agents only |
 
 ## File Structure
 
@@ -167,10 +185,12 @@ claude-copilot/
     └── EXTENSION-SPEC.md  # This file
 ```
 
-### Knowledge Repository (company-specific)
+### Global Knowledge Repository (shared across projects)
+
+Located at `~/.claude/knowledge` - automatically detected, no configuration needed.
 
 ```
-your-knowledge-repo/
+~/.claude/knowledge/
 ├── knowledge-manifest.json    # REQUIRED: Declares extensions
 ├── .claude/
 │   └── extensions/
@@ -178,10 +198,24 @@ your-knowledge-repo/
 │       ├── uxd.extension.md   # Extension example
 │       └── ta.skills.json     # Skills injection example
 ├── skills/
-│   ├── your-skill-1.md
-│   └── your-skill-2.md
+│   ├── company-skill-1.md
+│   └── company-skill-2.md
 └── docs/
     └── glossary.md            # Company terminology
+```
+
+### Project-Specific Knowledge Repository (optional override)
+
+Only needed when a project requires different extensions than global.
+
+```
+your-project/
+├── .mcp.json                  # Set KNOWLEDGE_REPO_PATH here
+└── project-knowledge/
+    ├── knowledge-manifest.json
+    └── .claude/
+        └── extensions/
+            └── sd.override.md  # Project-specific override
 ```
 
 ## Minimum Viable Knowledge Repository
@@ -348,9 +382,27 @@ Extensions are validated against framework version at setup time.
 
 ### MCP Server Configuration
 
-Add `KNOWLEDGE_REPO_PATH` to your skills-copilot MCP server configuration:
+The skills-copilot server automatically checks for a global knowledge repository at `~/.claude/knowledge`. No configuration is required for global extensions.
 
-> **Important:** Replace `/Users/yourname` with your actual home directory path. The `~` tilde does **NOT** expand in MCP args.
+**Minimal configuration (global repo auto-detected):**
+
+```json
+{
+  "mcpServers": {
+    "skills-copilot": {
+      "command": "node",
+      "args": ["/Users/yourname/.claude/copilot/mcp-servers/skills-copilot/dist/index.js"],
+      "env": {
+        "LOCAL_SKILLS_PATH": "./.claude/skills"
+      }
+    }
+  }
+}
+```
+
+**With project-specific override:**
+
+Add `KNOWLEDGE_REPO_PATH` only when you need project-specific extensions that differ from global:
 
 ```json
 {
@@ -360,12 +412,14 @@ Add `KNOWLEDGE_REPO_PATH` to your skills-copilot MCP server configuration:
       "args": ["/Users/yourname/.claude/copilot/mcp-servers/skills-copilot/dist/index.js"],
       "env": {
         "LOCAL_SKILLS_PATH": "./.claude/skills",
-        "KNOWLEDGE_REPO_PATH": "/path/to/your/knowledge-repo"
+        "KNOWLEDGE_REPO_PATH": "/path/to/project-specific/knowledge"
       }
     }
   }
 }
 ```
+
+> **Note:** Replace `/Users/yourname` with your actual home directory path. The `~` tilde does **NOT** expand in MCP args.
 
 ### Available MCP Tools
 
@@ -386,24 +440,53 @@ Retrieves the extension for a specific agent.
 
 #### `extension_list`
 
-Lists all available extensions from the knowledge repository.
+Lists all available extensions from both global and project repositories.
 
-**Output:** Table showing agent, type, description, and required skills for each extension.
+**Output:** Table showing agent, type, source, description, and required skills for each extension.
+
+```
+| Agent | Type | Source | Description | Required Skills |
+|-------|------|--------|-------------|-----------------|
+| @agent-sd | override | global | Moments Framework | moments-mapping |
+| @agent-uxd | extension | project (overrides global) | Project design system | - |
+```
+
+The `source` column indicates where each extension comes from:
+- `global` - From `~/.claude/knowledge`
+- `project` - From `$KNOWLEDGE_REPO_PATH`
+- `project (overrides global)` - Project extension that takes precedence over a global one
 
 #### `manifest_status`
 
-Returns the status of the knowledge repository configuration.
+Returns the status of both global and project knowledge repositories.
 
 **Output:**
 ```json
 {
   "configured": true,
-  "path": "/path/to/knowledge-repo",
-  "manifest": {
-    "name": "company-knowledge",
-    "description": "Company-specific methodologies",
-    "extensions": 4,
-    "skills": 5
+  "global": {
+    "path": "/Users/yourname/.claude/knowledge",
+    "loaded": true,
+    "manifest": {
+      "name": "company-knowledge",
+      "description": "Company-specific methodologies",
+      "extensions": 4,
+      "skills": 5
+    }
+  },
+  "project": {
+    "path": "/path/to/project/knowledge",
+    "loaded": true,
+    "manifest": {
+      "name": "project-overrides",
+      "extensions": 1,
+      "skills": 0
+    }
+  },
+  "resolution": "project → global → base agents",
+  "howToEnable": {
+    "global": "Create ~/.claude/knowledge/knowledge-manifest.json (auto-detected)",
+    "project": "Set KNOWLEDGE_REPO_PATH in .mcp.json for project-specific overrides"
   }
 }
 ```
@@ -501,14 +584,29 @@ interface ResolvedExtension {
 
 ### Graceful Degradation
 
-When no knowledge repository is configured:
+The system degrades gracefully at each tier:
 
-- All extension tools return informational messages
+**No knowledge repositories found:**
+- Global path (`~/.claude/knowledge`) checked but not found
+- No project path configured
+- All extension tools return informational messages with setup instructions
 - Base agents work unchanged
 - No errors or failures
 
-When knowledge repository is configured but manifest fails to load:
+**Global repo exists, project repo missing:**
+- Global extensions used for all agents
+- Project-specific features unavailable (expected behavior)
 
-- `manifest_status` reports the error
-- `extension_get` returns error with details
-- System continues to function with base agents
+**Global repo fails to load:**
+- Error logged for global repo
+- System continues with base agents
+- `manifest_status` reports the specific error
+
+**Project repo fails to load:**
+- Error logged for project repo
+- Falls back to global repo (if available)
+- Falls back to base agents (if global also unavailable)
+
+**Both repos exist, extension in project only:**
+- Project extension used (highest priority)
+- Other agents fall back to global extensions
