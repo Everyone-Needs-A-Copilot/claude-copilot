@@ -69,16 +69,72 @@ Changes take effect after restarting Claude Code.
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
 | `MEMORY_PATH` | `~/.claude/memory` | Base path for memory storage |
+| `WORKSPACE_ID` | (auto-generated) | Explicit workspace identifier (see below) |
 | `LOG_LEVEL` | `info` | Logging level: debug, info, warn, error |
 
 ## Data Storage
 
-Data is stored per-project at:
+Data is stored per-workspace at:
 ```
-~/.claude/memory/<project-hash>/memory.db
+~/.claude/memory/<workspace-id>/memory.db
 ```
 
-The project hash is derived from the absolute path to ensure isolation.
+By default, the workspace ID is an MD5 hash of the project's absolute path. This ensures project isolation but means **renaming or moving a project creates a new empty database**.
+
+### WORKSPACE_ID: Preserving Memory Across Project Changes
+
+To maintain access to your memories when renaming or moving a project, set an explicit `WORKSPACE_ID`:
+
+```json
+{
+  "mcpServers": {
+    "copilot-memory": {
+      "command": "node",
+      "args": ["~/.claude/copilot/mcp-servers/copilot-memory/dist/index.js"],
+      "env": {
+        "MEMORY_PATH": "~/.claude/memory",
+        "WORKSPACE_ID": "my-project"
+      }
+    }
+  }
+}
+```
+
+**When to use WORKSPACE_ID:**
+
+| Scenario | Recommendation |
+|----------|----------------|
+| New project | Leave empty (auto-generated hash) |
+| Before renaming/moving project | Set to current hash to preserve memories |
+| Multiple related projects | Set same ID to share memories |
+| Monorepo with sub-projects | Set unique IDs per sub-project |
+
+**Finding your current workspace hash:**
+
+```bash
+# Get hash for current directory
+node -e "console.log(require('crypto').createHash('md5').update(process.cwd()).digest('hex').substring(0, 12))"
+
+# Get hash for specific path
+node -e "console.log(require('crypto').createHash('md5').update('/path/to/project').digest('hex').substring(0, 12))"
+```
+
+**Migration example:**
+
+```bash
+# 1. Find current hash before moving
+cd /old/project/path
+HASH=$(node -e "console.log(require('crypto').createHash('md5').update(process.cwd()).digest('hex').substring(0, 12))")
+echo "Current hash: $HASH"
+
+# 2. Add WORKSPACE_ID to .mcp.json
+# "WORKSPACE_ID": "<hash-from-step-1>"
+
+# 3. Move/rename project
+mv /old/project/path /new/project/path
+
+# 4. Memories are preserved!
+```
 
 ## Tools
 
@@ -233,7 +289,13 @@ node dist/index.js
 
 **Memory not persisting**
 - Check `MEMORY_PATH` is writable
-- Verify project path hasn't changed
+- Verify project path hasn't changed (or set `WORKSPACE_ID` to preserve across moves)
+
+**Lost memories after project rename/move**
+- The default workspace ID is a hash of the project path
+- Find your old hash: `node -e "console.log(require('crypto').createHash('md5').update('/old/path').digest('hex').substring(0, 12))"`
+- Add `"WORKSPACE_ID": "<old-hash>"` to your `.mcp.json`
+- Restart Claude Code
 
 ## License
 

@@ -5,7 +5,8 @@
       "args": ["~/.claude/copilot/mcp-servers/copilot-memory/dist/index.js"],
       "env": {
         "LOG_LEVEL": "info",
-        "MEMORY_PATH": "~/.claude/memory"
+        "MEMORY_PATH": "~/.claude/memory",
+        "WORKSPACE_ID": ""
       }
     },
     "skills-copilot": {

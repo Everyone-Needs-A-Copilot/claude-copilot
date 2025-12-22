@@ -32,6 +32,15 @@ MCP server providing persistent memory across sessions.
 | `memory_store` | Store decisions, lessons, context |
 | `memory_search` | Semantic search across memories |
 
+**Configuration:**
+
+| Env Variable | Default | Purpose |
+|--------------|---------|---------|
+| `MEMORY_PATH` | `~/.claude/memory` | Base storage path |
+| `WORKSPACE_ID` | (auto-hash) | Explicit workspace identifier |
+
+**Important:** By default, each project gets a unique database based on its path hash. Set `WORKSPACE_ID` explicitly to preserve memories when renaming/moving projects. See `mcp-servers/copilot-memory/README.md` for details.
+
 ### 2. Agents
 
 11 specialized agents for complex development tasks.

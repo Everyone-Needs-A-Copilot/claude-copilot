@@ -16,9 +16,10 @@ export class DatabaseClient {
   private db: Database.Database;
   private projectId: string;
 
-  constructor(projectPath: string, memoryBasePath?: string) {
-    this.projectId = this.hashProjectPath(projectPath);
-    const dbPath = this.getDbPath(projectPath, memoryBasePath);
+  constructor(projectPath: string, memoryBasePath?: string, workspaceId?: string) {
+    // Use workspaceId if provided, otherwise hash the project path
+    this.projectId = workspaceId?.trim() || this.hashProjectPath(projectPath);
+    const dbPath = this.getDbPath(this.projectId, memoryBasePath);
 
     // Ensure directory exists
     const dbDir = dirname(dbPath);
@@ -40,10 +41,9 @@ export class DatabaseClient {
     return createHash('md5').update(projectPath).digest('hex').substring(0, 12);
   }
 
-  private getDbPath(projectPath: string, memoryBasePath?: string): string {
+  private getDbPath(projectId: string, memoryBasePath?: string): string {
     const basePath = memoryBasePath || join(homedir(), '.claude', 'memory');
-    const projectHash = this.hashProjectPath(projectPath);
-    return join(basePath, projectHash, 'memory.db');
+    return join(basePath, projectId, 'memory.db');
   }
 
   private migrate(): void {

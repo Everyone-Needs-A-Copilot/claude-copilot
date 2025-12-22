@@ -36,10 +36,11 @@ import type { MemoryType, InitiativeStatus } from './types.js';
 // Get configuration from environment
 const PROJECT_PATH = process.cwd();
 const MEMORY_PATH = process.env.MEMORY_PATH || undefined;
+const WORKSPACE_ID = process.env.WORKSPACE_ID || undefined;
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 
 // Initialize database
-const db = new DatabaseClient(PROJECT_PATH, MEMORY_PATH);
+const db = new DatabaseClient(PROJECT_PATH, MEMORY_PATH, WORKSPACE_ID);
 
 // Session ID for this run
 const sessionId = `session_${Date.now()}`;
@@ -386,6 +387,7 @@ async function main() {
   if (LOG_LEVEL === 'debug') {
     console.error('Copilot Memory server starting...');
     console.error(`Project: ${PROJECT_PATH}`);
+    console.error(`Workspace ID: ${WORKSPACE_ID || '(auto-generated)'}`);
     console.error(`Project ID: ${db.getProjectId()}`);
     console.error(`Session: ${sessionId}`);
   }
