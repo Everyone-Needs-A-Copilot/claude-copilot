@@ -97,6 +97,7 @@ Commands enforcing battle-tested workflows.
 | `/setup` | Machine | One-time machine setup (run from `~/.claude/copilot`) |
 | `/setup-project` | User | Initialize a new project |
 | `/update-project` | User | Update existing project with latest Claude Copilot |
+| `/update-copilot` | User | Update Claude Copilot itself (pull + rebuild) |
 | `/knowledge-copilot` | User | Build or link shared knowledge repository |
 | `/protocol` | Project | Start fresh work with Agent-First Protocol |
 | `/continue` | Project | Resume previous work via Memory Copilot |

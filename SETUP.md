@@ -61,6 +61,7 @@ This creates a knowledge repository for company/product information that's share
 | `/setup` | `~/.claude/copilot` only | One-time machine setup |
 | `/setup-project` | Any folder | Initialize a new project |
 | `/update-project` | Existing projects | Update project with latest Claude Copilot |
+| `/update-copilot` | Any folder | Update Claude Copilot itself (pull + rebuild) |
 | `/knowledge-copilot` | Any folder | Set up shared knowledge |
 | `/protocol` | Projects | Start fresh work |
 | `/continue` | Projects | Resume previous work |
@@ -85,6 +86,7 @@ This creates a knowledge repository for company/product information that's share
 |-----------|---------|
 | `setup-project.md` | `/setup-project` - initialize new projects |
 | `update-project.md` | `/update-project` - update existing projects |
+| `update-copilot.md` | `/update-copilot` - update Claude Copilot itself |
 | `knowledge-copilot.md` | `/knowledge-copilot` - set up shared knowledge |
 
 ### Project Level
@@ -142,6 +144,7 @@ npm run build
 mkdir -p ~/.claude/commands
 cp ~/.claude/copilot/.claude/commands/setup-project.md ~/.claude/commands/
 cp ~/.claude/copilot/.claude/commands/update-project.md ~/.claude/commands/
+cp ~/.claude/copilot/.claude/commands/update-copilot.md ~/.claude/commands/
 cp ~/.claude/copilot/.claude/commands/knowledge-copilot.md ~/.claude/commands/
 ```
 

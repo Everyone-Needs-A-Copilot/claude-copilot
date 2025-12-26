@@ -118,6 +118,9 @@ mkdir -p ~/.claude/commands
 cp ~/.claude/copilot/.claude/commands/setup-project.md ~/.claude/commands/
 cp ~/.claude/copilot/.claude/commands/update-project.md ~/.claude/commands/
 
+# Maintenance command
+cp ~/.claude/copilot/.claude/commands/update-copilot.md ~/.claude/commands/
+
 # Knowledge setup command
 cp ~/.claude/copilot/.claude/commands/knowledge-copilot.md ~/.claude/commands/
 ```
@@ -129,7 +132,7 @@ Tell user: "Installing global commands..."
 ls ~/.claude/commands/
 ```
 
-Should show: `setup-project.md`, `update-project.md`, `knowledge-copilot.md`
+Should show: `setup-project.md`, `update-project.md`, `update-copilot.md`, `knowledge-copilot.md`
 
 ---
 
@@ -161,6 +164,7 @@ Claude Copilot is installed at `~/.claude/copilot`
 |---------|---------|
 | `/setup-project` | Initialize a new project |
 | `/update-project` | Update an existing project |
+| `/update-copilot` | Update Claude Copilot itself |
 | `/knowledge-copilot` | Set up shared knowledge |
 
 {{IF NO_KNOWLEDGE}}
