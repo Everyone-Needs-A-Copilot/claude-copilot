@@ -382,14 +382,31 @@ ls ~/.claude/copilot/mcp-servers/copilot-memory/dist/index.js 2>/dev/null && ech
 ls ~/.claude/copilot/mcp-servers/skills-copilot/dist/index.js 2>/dev/null && echo "SKILLS_OK" || echo "SKILLS_MISSING"
 ```
 
-### Step 2: Check Project Files
+### Step 2: Check Global Commands
+
+**CRITICAL:** Global commands must exist for `/setup` to work in any folder.
+
+```bash
+ls ~/.claude/commands/setup.md 2>/dev/null && echo "GLOBAL_SETUP_OK" || echo "GLOBAL_SETUP_MISSING"
+ls ~/.claude/commands/knowledge-copilot.md 2>/dev/null && echo "GLOBAL_KC_OK" || echo "GLOBAL_KC_MISSING"
+```
+
+**If either MISSING:** Copy them now:
+```bash
+mkdir -p ~/.claude/commands
+cp ~/.claude/copilot/.claude/commands/setup.md ~/.claude/commands/
+cp ~/.claude/copilot/.claude/commands/knowledge-copilot.md ~/.claude/commands/
+echo "Installed global commands"
+```
+
+### Step 3: Check Project Files
 
 ```bash
 ls .mcp.json 2>/dev/null && echo "MCP_JSON_OK" || echo "MCP_JSON_MISSING"
 ls CLAUDE.md 2>/dev/null && echo "CLAUDE_MD_OK" || echo "CLAUDE_MD_MISSING"
 ```
 
-### Step 3: Check for Broken Symlinks
+### Step 4: Check for Broken Symlinks
 
 **CRITICAL:** Regular `ls` passes for broken symlinks. Must check if target exists.
 
@@ -416,13 +433,13 @@ echo "=== Done ==="
 
 **If any BROKEN_SYMLINK found:** Run **Repair Mode** below.
 
-### Step 4: Check Knowledge
+### Step 5: Check Knowledge
 
 ```bash
 ls ~/.claude/knowledge/knowledge-manifest.json 2>/dev/null && echo "KNOWLEDGE_OK" || echo "NO_KNOWLEDGE"
 ```
 
-### Step 5: Report Status
+### Step 6: Report Status
 
 Report status of each component. If all OK, setup is complete.
 
