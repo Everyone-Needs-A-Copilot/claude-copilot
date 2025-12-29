@@ -37,6 +37,7 @@ Then STOP.
 I'll set up Claude Copilot on your machine. This includes:
 - Building the Memory server (persists your work between sessions)
 - Building the Skills server (powers specialized agents and knowledge search)
+- Building the Task server (manages PRDs, tasks, and work products)
 - Installing global commands (`/setup-project`, `/update-project`, `/knowledge-copilot`)
 
 Let me check what's already in place...
@@ -99,15 +100,31 @@ ls ~/.claude/copilot/mcp-servers/skills-copilot/dist/index.js
 
 ---
 
-## Step 6: Create Memory Directory
+## Step 6: Build Task Server
+
+Tell user: "Building Task Server..."
 
 ```bash
-mkdir -p ~/.claude/memory
+cd ~/.claude/copilot/mcp-servers/task-copilot && npm install && npm run build
+```
+
+**Verify:**
+```bash
+ls ~/.claude/copilot/mcp-servers/task-copilot/dist/index.js
 ```
 
 ---
 
-## Step 7: Install Global Commands
+## Step 7: Create Data Directories
+
+```bash
+mkdir -p ~/.claude/memory
+mkdir -p ~/.claude/tasks
+```
+
+---
+
+## Step 8: Install Global Commands
 
 Install commands that work in any folder:
 
@@ -136,7 +153,7 @@ Should show: `setup-project.md`, `update-project.md`, `update-copilot.md`, `know
 
 ---
 
-## Step 8: Check for Global Knowledge
+## Step 9: Check for Global Knowledge
 
 ```bash
 ls ~/.claude/knowledge/knowledge-manifest.json 2>/dev/null && echo "KNOWLEDGE_EXISTS" || echo "NO_KNOWLEDGE"
@@ -146,7 +163,7 @@ Store result for reporting.
 
 ---
 
-## Step 9: Report Success
+## Step 10: Report Success
 
 ---
 
@@ -157,6 +174,7 @@ Claude Copilot is installed at `~/.claude/copilot`
 **What's ready:**
 - Memory Server - Persists decisions, lessons, and progress
 - Skills Server - Powers agents and knowledge search
+- Task Server - Manages PRDs, tasks, and work products
 - 12 Specialized Agents - Expert guidance for any task
 
 **Global commands installed:**

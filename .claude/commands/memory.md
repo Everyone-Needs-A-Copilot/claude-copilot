@@ -16,6 +16,11 @@ Call these tools to gather memory state:
    memory_list({ limit: 10 })
    ```
 
+3. **If Task Copilot is linked, get progress:**
+   ```
+   progress_summary()
+   ```
+
 ## Step 2: Display Dashboard
 
 Format the output as a clean, scannable dashboard:
@@ -47,6 +52,10 @@ lesson     | [First 50 chars...]                | 2025-01-14
 
 **Storage:** ~/.claude/memory/[workspace-id]/memory.db
 **Workspace ID:** [workspace-id or "auto-generated hash"]
+
+### Task Progress (if Task Copilot linked)
+[Show output from progress_summary(), or skip section if not linked]
+PRDs: [count] | Tasks: [pending/in_progress/completed] | Work Products: [count]
 ```
 
 ## Step 3: Handle Edge Cases

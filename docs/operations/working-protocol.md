@@ -100,7 +100,10 @@ Your response MUST include:
 
 ## Phase 3: Execute (with specialized agents)
 
-1. Use TodoWrite to track tasks
+1. Use Task Copilot to track work:
+   - Create tasks with `task_create()`
+   - Update status with `task_update({ id, status: "in_progress" })`
+   - Store outputs with `work_product_store()` for details over 500 chars
 2. Launch specialized agents:
    - Stack-specific agents for implementation (see Agent Reference below)
    - `@agent-qa` for testing

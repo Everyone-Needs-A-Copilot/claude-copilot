@@ -66,8 +66,9 @@ Mode: Machine Setup
 This will:
 - Build Memory Copilot MCP server
 - Build Skills Copilot MCP server
+- Build Task Copilot MCP server
 - Install global commands
-- Create memory directory
+- Create data directories (memory, tasks)
 ```
 
 Then proceed to Step 3A.
@@ -150,6 +151,7 @@ Follow the complete flow from `/setup` command:
 I'll set up Claude Copilot on your machine. This includes:
 - Building the Memory server (persists your work between sessions)
 - Building the Skills server (powers specialized agents and knowledge search)
+- Building the Task server (manages PRDs, tasks, and work products)
 - Installing global commands (`/setup-project`, `/update-project`, `/knowledge-copilot`)
 
 Let me check what's already in place...
@@ -212,15 +214,31 @@ ls ~/.claude/copilot/mcp-servers/skills-copilot/dist/index.js
 
 ---
 
-### 3A.5: Create Memory Directory
+### 3A.5: Build Task Server
+
+Tell user: "Building Task Server..."
 
 ```bash
-mkdir -p ~/.claude/memory
+cd ~/.claude/copilot/mcp-servers/task-copilot && npm install && npm run build
+```
+
+**Verify:**
+```bash
+ls ~/.claude/copilot/mcp-servers/task-copilot/dist/index.js
 ```
 
 ---
 
-### 3A.6: Install Global Commands
+### 3A.6: Create Data Directories
+
+```bash
+mkdir -p ~/.claude/memory
+mkdir -p ~/.claude/tasks
+```
+
+---
+
+### 3A.7: Install Global Commands
 
 Install commands that work in any folder:
 
@@ -252,7 +270,7 @@ Should show: `setup-project.md`, `update-project.md`, `update-copilot.md`, `know
 
 ---
 
-### 3A.7: Check for Global Knowledge
+### 3A.8: Check for Global Knowledge
 
 ```bash
 ls ~/.claude/knowledge/knowledge-manifest.json 2>/dev/null && echo "KNOWLEDGE_EXISTS" || echo "NO_KNOWLEDGE"
@@ -262,7 +280,7 @@ Store result for reporting.
 
 ---
 
-### 3A.8: Report Success
+### 3A.9: Report Success
 
 ---
 
@@ -273,6 +291,7 @@ Claude Copilot is installed at `~/.claude/copilot`
 **What's ready:**
 - Memory Server - Persists decisions, lessons, and progress
 - Skills Server - Powers agents and knowledge search
+- Task Server - Manages PRDs, tasks, and work products
 - 12 Specialized Agents - Expert guidance for any task
 
 **Global commands installed:**
@@ -321,9 +340,10 @@ Follow the complete flow from `/update-project` command:
 ```bash
 ls ~/.claude/copilot/mcp-servers/copilot-memory/dist/index.js 2>/dev/null && echo "MEMORY_OK" || echo "MEMORY_MISSING"
 ls ~/.claude/copilot/mcp-servers/skills-copilot/dist/index.js 2>/dev/null && echo "SKILLS_OK" || echo "SKILLS_MISSING"
+ls ~/.claude/copilot/mcp-servers/task-copilot/dist/index.js 2>/dev/null && echo "TASK_OK" || echo "TASK_MISSING"
 ```
 
-**If either MISSING:**
+**If any MISSING:**
 
 Tell user:
 
@@ -804,9 +824,10 @@ Follow the complete flow from `/setup-project` command:
 ```bash
 ls ~/.claude/copilot/mcp-servers/copilot-memory/dist/index.js 2>/dev/null && echo "MEMORY_OK" || echo "MEMORY_MISSING"
 ls ~/.claude/copilot/mcp-servers/skills-copilot/dist/index.js 2>/dev/null && echo "SKILLS_OK" || echo "SKILLS_MISSING"
+ls ~/.claude/copilot/mcp-servers/task-copilot/dist/index.js 2>/dev/null && echo "TASK_OK" || echo "TASK_MISSING"
 ```
 
-**If either MISSING:**
+**If any MISSING:**
 
 Tell user:
 
@@ -933,6 +954,7 @@ grep -E '\$[A-Z_]+' .mcp.json && echo "ERROR: Unexpanded variables found" || ech
 # Verify critical paths exist
 ls -l "$HOME/.claude/copilot/mcp-servers/copilot-memory/dist/index.js" && echo "Memory server OK" || echo "Memory server MISSING"
 ls -l "$HOME/.claude/copilot/mcp-servers/skills-copilot/dist/index.js" && echo "Skills server OK" || echo "Skills server MISSING"
+ls -l "$HOME/.claude/copilot/mcp-servers/task-copilot/dist/index.js" && echo "Task server OK" || echo "Task server MISSING"
 
 # Validate JSON
 node -e "JSON.parse(require('fs').readFileSync('.mcp.json', 'utf8'))" && echo "JSON valid" || echo "JSON INVALID"

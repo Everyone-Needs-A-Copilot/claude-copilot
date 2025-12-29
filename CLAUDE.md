@@ -4,13 +4,14 @@ This file provides guidance to Claude Code when working with the Claude Copilot 
 
 ## Overview
 
-**Claude Copilot** is a complete AI-enabled development framework solving four challenges:
+**Claude Copilot** is a complete AI-enabled development framework solving five challenges:
 
 | Challenge | Solution | Component |
 |-----------|----------|-----------|
 | Lost memory, wasted tokens | Persistent memory + semantic search | **Memory Copilot** |
 | Generic AI lacks expertise | Specialized agents for complex tasks | **Agents** |
 | Manual skill management | On-demand skill loading | **Skills Copilot** |
+| Context bloat from agents | Ephemeral task/work product storage | **Task Copilot** |
 | Inconsistent processes | Battle-tested workflows | **Protocol** |
 
 ---
@@ -24,6 +25,7 @@ This file provides guidance to Claude Code when working with the Claude Copilot 
 | **Memory** | Auto | Cross-session | Context preservation, decisions, lessons |
 | **Agents** | Protocol | Session | Expert tasks, complex work |
 | **Skills** | Auto | On-demand | Reusable patterns, workflows |
+| **Tasks** | Auto | Per-initiative | PRDs, task tracking, work products |
 | **Commands** | Manual | Session | Quick shortcuts, workflows |
 | **Extensions** | Auto | Permanent | Team standards, custom methodologies |
 
@@ -92,7 +94,7 @@ This file provides guidance to Claude Code when working with the Claude Copilot 
 
 ---
 
-## The Four Pillars
+## The Five Pillars
 
 ### 1. Memory Copilot
 
@@ -163,7 +165,49 @@ MCP server for on-demand skill loading and knowledge search.
 
 Knowledge is searched in two-tier resolution: project-level first (`KNOWLEDGE_REPO_PATH`), then machine-level (`~/.claude/knowledge`).
 
-### 4. Protocol
+### 4. Task Copilot
+
+MCP server for ephemeral PRD, task, and work product storage.
+
+**Location:** `mcp-servers/task-copilot/`
+
+**Purpose:** Agents store detailed work products here instead of returning them to the main session, reducing context bloat by ~96%.
+
+| Tool | Purpose |
+|------|---------|
+| `prd_create` | Create product requirements document |
+| `prd_get` | Retrieve PRD details |
+| `prd_list` | List PRDs for initiative |
+| `task_create` | Create task or subtask |
+| `task_update` | Update task status and notes |
+| `task_get` | Retrieve task details |
+| `task_list` | List tasks with filters |
+| `work_product_store` | Store agent output |
+| `work_product_get` | Retrieve full work product |
+| `work_product_list` | List work products for task |
+| `progress_summary` | Get compact progress overview (~200 tokens) |
+| `initiative_link` | Link Memory Copilot initiative to Task Copilot |
+
+**Configuration:**
+
+| Env Variable | Default | Purpose |
+|--------------|---------|---------|
+| `TASK_DB_PATH` | `~/.claude/tasks` | Database storage path |
+| `WORKSPACE_ID` | (auto) | Links to Memory Copilot workspace |
+
+**Work Product Types:**
+
+| Type | Agent |
+|------|-------|
+| `architecture` | @agent-ta |
+| `technical_design` | @agent-ta, @agent-do |
+| `implementation` | @agent-me |
+| `test_plan` | @agent-qa |
+| `security_review` | @agent-sec |
+| `documentation` | @agent-doc |
+| `other` | @agent-sd, @agent-uxd, @agent-uids, @agent-uid, @agent-cw |
+
+### 5. Protocol
 
 Commands enforcing battle-tested workflows.
 
@@ -406,6 +450,7 @@ Every agent must include:
 5. **Quality Gates** - Checklists
 6. **Route To Other Agent** - When to hand off
 7. **Decision Authority** - Autonomous vs escalate
+8. **Task Copilot Integration** - How to store work products
 
 ---
 

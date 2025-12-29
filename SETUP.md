@@ -25,7 +25,7 @@ claude
 
 The setup wizard will:
 - Check prerequisites (Node.js, build tools)
-- Build the MCP servers
+- Build the MCP servers (Memory, Skills, Task)
 - Install global commands (`/setup-project`, `/update-project`, `/knowledge-copilot`)
 
 ### Step 4: Set Up Projects
@@ -76,6 +76,7 @@ This creates a knowledge repository for company/product information that's share
 |-----------|---------|
 | `mcp-servers/copilot-memory/` | Persistent memory across sessions |
 | `mcp-servers/skills-copilot/` | On-demand skill loading + knowledge search |
+| `mcp-servers/task-copilot/` | PRD, task, and work product storage |
 | `.claude/agents/` | 12 specialized agent definitions |
 | `.claude/commands/` | Source command files |
 | `templates/` | Project setup templates |
@@ -136,6 +137,11 @@ npm run build
 cd ~/.claude/copilot/mcp-servers/skills-copilot
 npm install
 npm run build
+
+# Task server
+cd ~/.claude/copilot/mcp-servers/task-copilot
+npm install
+npm run build
 ```
 
 ### Install Global Commands
@@ -180,6 +186,14 @@ cp ~/.claude/copilot/.claude/commands/knowledge-copilot.md ~/.claude/commands/
          "env": {
            "LOCAL_SKILLS_PATH": "./.claude/skills"
          }
+       },
+       "task-copilot": {
+         "command": "node",
+         "args": ["/Users/yourname/.claude/copilot/mcp-servers/task-copilot/dist/index.js"],
+         "env": {
+           "TASK_DB_PATH": "/Users/yourname/.claude/tasks",
+           "WORKSPACE_ID": "your-project-name"
+         }
        }
      }
    }
@@ -197,6 +211,7 @@ After setup, run `/mcp` in Claude Code. You should see:
 ```
 ● copilot-memory
 ● skills-copilot
+● task-copilot
 ```
 
 Then try:
@@ -248,6 +263,13 @@ npm run build
 | `POSTGRES_URL` | - | Team-shared private skills |
 | `KNOWLEDGE_REPO_PATH` | - | Project-specific knowledge |
 | `GLOBAL_KNOWLEDGE_PATH` | `~/.claude/knowledge` | Machine-wide knowledge |
+
+### Task Copilot
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `TASK_DB_PATH` | `~/.claude/tasks` | Task database storage |
+| `WORKSPACE_ID` | Auto-hash | Links to Memory Copilot workspace |
 
 ---
 

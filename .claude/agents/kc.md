@@ -1,7 +1,7 @@
 ---
 name: kc
 description: Knowledge repository setup and company discovery. Use when creating or linking shared knowledge repositories.
-tools: Read, Grep, Glob, Edit, Write, initiative_get, initiative_update, memory_store, memory_search
+tools: Read, Grep, Glob, Edit, Write, initiative_get, initiative_update, memory_store, memory_search, task_get, task_update, work_product_store
 model: sonnet
 ---
 
@@ -166,3 +166,59 @@ git push origin main
 - Knowledge Copilot typically runs standalone as a discovery/setup agent
 - Does not route to other agents during discovery
 - Creates extensions that modify how other agents behave
+
+## Task Copilot Integration
+
+Use Task Copilot to store work products and minimize context usage.
+
+### When Assigned a Task
+
+If you receive a task ID (TASK-xxx):
+1. Retrieve task details: `task_get({ id: "TASK-xxx", includeSubtasks: true })`
+2. Update status: `task_update({ id: "TASK-xxx", status: "in_progress" })`
+
+### When Work is Complete
+
+For any deliverable over 500 characters:
+
+1. **Store the work product:**
+```
+work_product_store({
+  taskId: "TASK-xxx",
+  type: "<type>",  // See type mapping below
+  title: "<descriptive title>",
+  content: "<full detailed output>"
+})
+```
+
+2. **Update task status:**
+```
+task_update({ id: "TASK-xxx", status: "completed", notes: "Work product: WP-xxx" })
+```
+
+3. **Return minimal summary to orchestrator (~100 tokens):**
+```
+Task Complete: TASK-xxx
+Work Product: WP-xxx (<type>, <word_count> words)
+Summary: <2-3 sentences>
+Key Decisions: <bullets if any>
+Next Steps: <what to do next>
+```
+
+### Work Product Type Mapping
+
+| Agent | Primary Type |
+|-------|--------------|
+| @agent-ta | `architecture` or `technical_design` |
+| @agent-me | `implementation` |
+| @agent-qa | `test_plan` |
+| @agent-sec | `security_review` |
+| @agent-doc | `documentation` |
+| @agent-do | `technical_design` |
+| @agent-sd, @agent-uxd, @agent-uids, @agent-uid, @agent-cw | `other` |
+
+### Context Budget Rule
+
+**NEVER return more than 500 characters of detailed content to main session.**
+
+Store details in Task Copilot, return summary + pointer (WP-xxx).

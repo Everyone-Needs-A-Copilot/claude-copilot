@@ -86,7 +86,30 @@ ls ~/.claude/copilot/mcp-servers/skills-copilot/dist/index.js
 
 ---
 
-## Step 6: Update Global Commands
+## Step 6: Rebuild Task Server
+
+Tell user: "Rebuilding Task Server..."
+
+```bash
+cd ~/.claude/copilot/mcp-servers/task-copilot && npm install && npm run build
+```
+
+**Verify:**
+```bash
+ls ~/.claude/copilot/mcp-servers/task-copilot/dist/index.js
+```
+
+---
+
+## Step 7: Create Tasks Directory (if needed)
+
+```bash
+mkdir -p ~/.claude/tasks
+```
+
+---
+
+## Step 8: Update Global Commands
 
 Tell user: "Updating global commands..."
 
@@ -105,7 +128,7 @@ ls -la ~/.claude/commands/
 
 ---
 
-## Step 7: Show Changelog
+## Step 9: Show Changelog
 
 ```bash
 cd ~/.claude/copilot && git log --oneline HEAD~5..HEAD 2>/dev/null || git log --oneline -5
@@ -113,7 +136,7 @@ cd ~/.claude/copilot && git log --oneline HEAD~5..HEAD 2>/dev/null || git log --
 
 ---
 
-## Step 8: Report Success
+## Step 10: Report Success
 
 ---
 
@@ -123,7 +146,7 @@ cd ~/.claude/copilot && git log --oneline HEAD~5..HEAD 2>/dev/null || git log --
 **Current version:** `{{NEW_VERSION}}`
 
 **What was updated:**
-- MCP servers rebuilt (copilot-memory, skills-copilot)
+- MCP servers rebuilt (copilot-memory, skills-copilot, task-copilot)
 - Global commands refreshed
 
 **Recent changes:**

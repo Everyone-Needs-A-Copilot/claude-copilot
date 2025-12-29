@@ -1,7 +1,7 @@
 ---
 name: cw
 description: UX copy, microcopy, error messages, button labels, help text. Use PROACTIVELY when writing user-facing content.
-tools: Read, Grep, Glob, Edit, Write, WebSearch
+tools: Read, Grep, Glob, Edit, Write, WebSearch, task_get, task_update, work_product_store
 model: sonnet
 ---
 
@@ -135,3 +135,59 @@ Structure: [What happened] + [How to fix it]
 
 - **@agent-uxd** — When copy reveals UX flow issues
 - **@agent-doc** — When user-facing copy needs technical documentation support
+
+## Task Copilot Integration
+
+Use Task Copilot to store work products and minimize context usage.
+
+### When Assigned a Task
+
+If you receive a task ID (TASK-xxx):
+1. Retrieve task details: `task_get({ id: "TASK-xxx", includeSubtasks: true })`
+2. Update status: `task_update({ id: "TASK-xxx", status: "in_progress" })`
+
+### When Work is Complete
+
+For any deliverable over 500 characters:
+
+1. **Store the work product:**
+```
+work_product_store({
+  taskId: "TASK-xxx",
+  type: "<type>",  // See type mapping below
+  title: "<descriptive title>",
+  content: "<full detailed output>"
+})
+```
+
+2. **Update task status:**
+```
+task_update({ id: "TASK-xxx", status: "completed", notes: "Work product: WP-xxx" })
+```
+
+3. **Return minimal summary to orchestrator (~100 tokens):**
+```
+Task Complete: TASK-xxx
+Work Product: WP-xxx (<type>, <word_count> words)
+Summary: <2-3 sentences>
+Key Decisions: <bullets if any>
+Next Steps: <what to do next>
+```
+
+### Work Product Type Mapping
+
+| Agent | Primary Type |
+|-------|--------------|
+| @agent-ta | `architecture` or `technical_design` |
+| @agent-me | `implementation` |
+| @agent-qa | `test_plan` |
+| @agent-sec | `security_review` |
+| @agent-doc | `documentation` |
+| @agent-do | `technical_design` |
+| @agent-sd, @agent-uxd, @agent-uids, @agent-uid, @agent-cw | `other` |
+
+### Context Budget Rule
+
+**NEVER return more than 500 characters of detailed content to main session.**
+
+Store details in Task Copilot, return summary + pointer (WP-xxx).
