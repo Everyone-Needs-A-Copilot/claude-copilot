@@ -1,0 +1,28 @@
+---
+name: pr-review
+version: "1.0.0"
+description: Complete PR review workflow with security, testing, and docs
+author: Anthropic
+license: MIT
+tags:
+  - code-review
+  - quality
+  - security
+
+requires:
+  - claude-code: ">=1.0.0"
+
+components:
+  - type: commands
+    path: commands/
+  - type: agents
+    path: agents/
+  - type: mcp
+    path: mcp/
+  - type: hooks
+    path: hooks/
+
+config:
+  auto_load: true
+  enabled_by_default: true
+---

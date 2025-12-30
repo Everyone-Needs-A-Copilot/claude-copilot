@@ -1,0 +1,31 @@
+---
+name: devops-automation
+version: "1.0.0"
+description: Complete DevOps automation for deployment, monitoring, and incident response
+author: Community
+license: MIT
+tags:
+  - devops
+  - deployment
+  - monitoring
+  - automation
+
+requires:
+  - claude-code: ">=1.0.0"
+
+components:
+  - type: commands
+    path: commands/
+  - type: agents
+    path: agents/
+  - type: mcp
+    path: mcp/
+  - type: hooks
+    path: hooks/
+  - type: scripts
+    path: scripts/
+
+config:
+  auto_load: true
+  enabled_by_default: true
+---
