@@ -280,7 +280,7 @@ Reduce agent complexity while preserving routing:
 
 ### Key Files
 - `/docs/PRD-FRAMEWORK-IMPROVEMENTS.md` - This document
-- `/docs/tasks/` - Task breakdown
+- Task breakdown tracked in Task Copilot (use `task_list()` to view)
 - `/docs/claude-howto-reference/` - Competitive reference
 - `/docs/qa/` - Smoke test suite (created by QA agent)
 

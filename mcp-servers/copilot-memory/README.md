@@ -15,7 +15,7 @@ Session memory with semantic search for Claude Code. Replaces manual initiative 
 ### 1. Install dependencies
 
 ```bash
-cd docs/shared-docs/03-ai-enabling/04-mcp-servers/copilot-memory
+cd ~/.claude/copilot/mcp-servers/copilot-memory
 npm install
 ```
 
@@ -34,7 +34,7 @@ Add to `~/.claude/mcp-profiles/core.json`:
   "mcpServers": {
     "copilot-memory": {
       "command": "node",
-      "args": ["docs/shared-docs/03-ai-enabling/04-mcp-servers/copilot-memory/dist/index.js"],
+      "args": ["~/.claude/copilot/mcp-servers/copilot-memory/dist/index.js"],
       "env": {
         "LOG_LEVEL": "info"
       }
@@ -49,8 +49,8 @@ Or using the launcher script pattern:
 {
   "mcpServers": {
     "copilot-memory": {
-      "command": "./mcp-servers/run-mcp.sh",
-      "args": ["core-business/copilot-memory/dist/index.js"],
+      "command": "node",
+      "args": ["~/.claude/copilot/mcp-servers/copilot-memory/dist/index.js"],
       "env": {
         "LOG_LEVEL": "info",
         "MEMORY_PATH": "~/.claude/memory"

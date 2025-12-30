@@ -1,6 +1,6 @@
 # Claude Copilot Architecture
 
-Four-pillar framework: persistent memory, expert agents, on-demand skills, battle-tested workflows.
+Five-pillar framework: persistent memory, expert agents, on-demand skills, ephemeral task storage, battle-tested workflows.
 
 ---
 
@@ -9,9 +9,10 @@ Four-pillar framework: persistent memory, expert agents, on-demand skills, battl
 | Layer | Pillar | Component | Purpose |
 |-------|--------|-----------|---------|
 | Persistence | 1 | Memory Copilot | Cross-session context, decisions, lessons |
-| Expertise | 2 | 11 Agents | Specialized roles with routing |
+| Expertise | 2 | 12 Agents | Specialized roles with routing |
 | Knowledge | 3 | Skills Copilot | On-demand skill loading |
-| Workflow | 4 | Protocol | /protocol and /continue commands |
+| Tasks | 4 | Task Copilot | Ephemeral PRD, task, work product storage |
+| Workflow | 5 | Protocol | /protocol and /continue commands |
 
 ### Data Flow
 
@@ -125,6 +126,7 @@ Detected via `knowledge-manifest.json` in project or `docs/shared/`.
 | Included | External |
 |----------|----------|
 | Memory persistence | Claude Code CLI |
-| 11 specialized agents | MCP SDK |
+| 12 specialized agents | MCP SDK |
 | Skills loading | Git, project files |
-| Protocol commands | SkillsMP API, PostgreSQL |
+| Task storage | SkillsMP API, PostgreSQL |
+| Protocol commands | |

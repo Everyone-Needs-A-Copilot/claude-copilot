@@ -22,7 +22,7 @@ This project uses [Claude Copilot](https://github.com/Everyone-Needs-A-Copilot/c
 |---------|---------|
 | `/protocol` | Start fresh work with Agent-First Protocol |
 | `/continue` | Resume previous work via Memory Copilot |
-| `/setup` | Configure Claude Copilot in a project |
+| `/setup-project` | Initialize Claude Copilot in a new project |
 | `/knowledge-copilot` | Build or link shared knowledge repository |
 
 ### Capabilities

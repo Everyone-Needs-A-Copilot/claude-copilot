@@ -2,6 +2,8 @@
 
 A comprehensive guide to help you choose the right tools, commands, agents, and approaches in Claude Copilot.
 
+*Note: This is the complete reference. For a quick overview integrated into Claude Code's instructions, see [CLAUDE.md](../CLAUDE.md#quick-decision-guide).*
+
 ---
 
 ## Feature Selection

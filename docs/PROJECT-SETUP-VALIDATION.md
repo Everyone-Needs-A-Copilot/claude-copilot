@@ -65,8 +65,7 @@ If you need to manually fix common issues:
       "args": ["/Users/yourname/.claude/copilot/mcp-servers/skills-copilot/dist/index.js"],
       "env": {
         "LOG_LEVEL": "info",
-        "LOCAL_SKILLS_PATH": "./.claude/skills",
-        "KNOWLEDGE_REPO_PATH": "./docs/shared-docs"
+        "LOCAL_SKILLS_PATH": "./.claude/skills"
       }
     }
   }

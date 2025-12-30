@@ -128,7 +128,7 @@ cd ~/your-project && claude
 
 Then run:
 ```
-/setup
+/setup-project
 ```
 
 ### 4. Start Working
@@ -177,7 +177,7 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 |---------|---------|
 | `/protocol` | Start work with Agent-First Protocol |
 | `/continue` | Resume from memory |
-| `/setup` | Configure any project |
+| `/setup-project` | Initialize a new project |
 | `/knowledge-copilot` | Build shared knowledge |
 
 ---
@@ -190,7 +190,7 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 | **Team** | + shared knowledge, private skills via PostgreSQL |
 | **Enterprise** | + Skill Marketplace (25K+ skills), full customization |
 
-→ [Customization guide](docs/CUSTOMIZATION.md)
+→ [Customization guide](docs/CUSTOMIZATION.md) | [Extension Spec](docs/EXTENSION-SPEC.md)
 
 ---
 
@@ -220,6 +220,12 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 | [Philosophy](docs/PHILOSOPHY.md) | Why we built it this way |
 | [Architecture](docs/ARCHITECTURE.md) | Technical deep dive |
 | [Extension Spec](docs/EXTENSION-SPEC.md) | Creating extensions |
+
+**Operations:**
+| Document | Purpose |
+|----------|---------|
+| [Working Protocol](docs/operations/working-protocol.md) | Agent-First Protocol details |
+| [Documentation Guide](docs/operations/documentation-guide.md) | Doc standards, token budgets |
 
 ---
 

@@ -84,6 +84,8 @@ Ask yourself:
 
 ## Quick Decision Guide
 
+*Note: For comprehensive decision matrices and flowcharts, see [docs/DECISION-GUIDE.md](docs/DECISION-GUIDE.md). The tables below provide quick reference for common scenarios.*
+
 ### Feature Comparison
 
 | Feature | Invocation | Persistence | Best For |
@@ -239,6 +241,8 @@ MCP server for ephemeral PRD, task, and work product storage.
 
 **Purpose:** Agents store detailed work products here instead of returning them to the main session, reducing context bloat by ~96%.
 
+**Core Tools:**
+
 | Tool | Purpose |
 |------|---------|
 | `prd_create` | Create product requirements document |
@@ -253,6 +257,29 @@ MCP server for ephemeral PRD, task, and work product storage.
 | `work_product_list` | List work products for task |
 | `progress_summary` | Get compact progress overview (~200 tokens) |
 | `initiative_link` | Link Memory Copilot initiative to Task Copilot |
+
+**Performance Tracking:**
+
+| Tool | Purpose |
+|------|---------|
+| `agent_performance_get` | Get agent success rates, completion rates by task type, complexity |
+
+**Checkpoint System:**
+
+| Tool | Purpose |
+|------|---------|
+| `checkpoint_create` | Create mid-task recovery checkpoint before risky operations |
+| `checkpoint_resume` | Resume task from last checkpoint with full state |
+| `checkpoint_get` | Get specific checkpoint details |
+| `checkpoint_list` | List available checkpoints for task |
+| `checkpoint_cleanup` | Clean up old or expired checkpoints |
+
+**Validation System:**
+
+| Tool | Purpose |
+|------|---------|
+| `validation_config_get` | Get current validation configuration and rules |
+| `validation_rules_list` | List validation rules for work product types |
 
 **Configuration:**
 
@@ -272,6 +299,13 @@ MCP server for ephemeral PRD, task, and work product storage.
 | `security_review` | @agent-sec |
 | `documentation` | @agent-doc |
 | `other` | @agent-sd, @agent-uxd, @agent-uids, @agent-uid, @agent-cw |
+
+**Key Features:**
+
+- **Performance Tracking**: Automatically tracks agent success rates, completion rates by task type and complexity
+- **Checkpoint System**: Create recovery points during long-running tasks; auto-expires after 24h (manual: 7d)
+- **Validation System**: Validates work products for size limits, required structure, completeness before storage
+- **Token Efficiency**: Validation enforces character/token limits to prevent context bloat (warn/reject modes)
 
 ### 5. Protocol
 

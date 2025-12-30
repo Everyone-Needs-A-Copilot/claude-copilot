@@ -62,7 +62,7 @@ POSTGRES_URL=postgresql://user:pass@host:5432/database
 # Optional
 CACHE_PATH=~/.claude/skills-cache
 CACHE_TTL_DAYS=7
-LOCAL_SKILLS_PATH=./03-ai-enabling/01-skills
+LOCAL_SKILLS_PATH=./.claude/skills
 LOG_LEVEL=info
 
 # Knowledge repository for agent extensions (optional)

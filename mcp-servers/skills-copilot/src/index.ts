@@ -25,7 +25,7 @@ const config: SkillsHubConfig = {
   postgresUrl: process.env.POSTGRES_URL,
   cachePath: process.env.CACHE_PATH || '~/.claude/skills-cache',
   cacheTtlDays: parseInt(process.env.CACHE_TTL_DAYS || '7', 10),
-  localSkillsPath: process.env.LOCAL_SKILLS_PATH || './03-ai-enabling/01-skills',
+  localSkillsPath: process.env.LOCAL_SKILLS_PATH || './.claude/skills',
   logLevel: (process.env.LOG_LEVEL || 'info') as SkillsHubConfig['logLevel']
 };
 

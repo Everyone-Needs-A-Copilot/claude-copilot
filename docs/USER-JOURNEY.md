@@ -76,10 +76,15 @@ claude
 
 ### Step 3: Run Machine Setup
 
-Since Claude Copilot isn't configured yet, you need to reference the setup file directly:
+Since Claude Copilot isn't configured yet, you need to reference the setup file directly or use the `/setup` command (which only works in `~/.claude/copilot`):
 
 ```
 Read @~/.claude/copilot/SETUP.md and set up Claude Copilot on this machine
+```
+
+Or simply:
+```
+/setup
 ```
 
 **What happens:**
@@ -89,7 +94,7 @@ Read @~/.claude/copilot/SETUP.md and set up Claude Copilot on this machine
 3. **Build Skills Server** - `npm install && npm run build`
 4. **Build Task Server** - `npm install && npm run build`
 5. **Create directories** - `~/.claude/memory/` and `~/.claude/tasks/` for databases
-6. **Install global commands** - Copies `/setup` and `/knowledge-copilot` to `~/.claude/commands/`
+6. **Install global commands** - Copies `/setup-project`, `/update-project`, `/update-copilot`, and `/knowledge-copilot` to `~/.claude/commands/`
 7. **Check for knowledge** - Detects existing knowledge repository
 
 **What you now have:**
@@ -102,7 +107,9 @@ Read @~/.claude/copilot/SETUP.md and set up Claude Copilot on this machine
 │       ├── skills-copilot/dist/   ← Built!
 │       └── task-copilot/dist/     ← Built!
 ├── commands/                       ← NEW
-│   ├── setup.md                    ← Works in any folder
+│   ├── setup-project.md            ← Works in any folder
+│   ├── update-project.md           ← Works in any folder
+│   ├── update-copilot.md           ← Works in any folder
 │   └── knowledge-copilot.md        ← Works in any folder
 ├── memory/                         ← NEW - Memory database storage
 └── tasks/                          ← NEW - Task database storage
@@ -118,10 +125,10 @@ What's ready:
 - Skills Server - Powers agents and knowledge search
 - Task Server - Manages PRDs, tasks, and work products
 - 12 Specialized Agents - Expert guidance for any task
-- Global Commands - /setup and /knowledge-copilot work anywhere
+- Global Commands - /setup-project, /update-project, /update-copilot, and /knowledge-copilot work anywhere
 
 Next: Set up a project
-Open Claude Code in any project directory and run /setup
+Open Claude Code in any project directory and run /setup-project
 ```
 
 ---
@@ -140,10 +147,10 @@ claude
 ### Step 5: Run Project Setup
 
 ```
-/setup
+/setup-project
 ```
 
-This works because `/setup` was installed globally in Phase 2.
+This works because `/setup-project` was installed globally in Phase 2.
 
 **What happens:**
 
@@ -323,7 +330,7 @@ claude
 
 # 5. Set up project
 cd ~/work-project && claude
-> /setup
+> /setup-project
 ```
 
 **Result:** Team member has identical setup—same agents, same knowledge, same experience.
@@ -345,16 +352,16 @@ cd ~/work-project && claude
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │  2. cd ~/.claude/copilot && claude                              │
-│     "Read @~/.claude/copilot/SETUP.md and set up..."            │
+│     "Read @~/.claude/copilot/SETUP.md and set up..." OR /setup │
 │                                                                  │
 │     ✓ Builds MCP servers                                        │
-│     ✓ Installs /setup globally                                  │
+│     ✓ Installs /setup-project and other global commands        │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │  3. cd ~/any-project && claude                                  │
-│     /setup                                                       │
+│     /setup-project                                               │
 │                                                                  │
 │     ✓ Creates .mcp.json                                         │
 │     ✓ Copies agents & commands                                  │
@@ -385,7 +392,7 @@ cd ~/work-project && claude
 | Location | What | Purpose |
 |----------|------|---------|
 | `~/.claude/copilot/` | Framework | Source of truth for agents, commands, servers |
-| `~/.claude/commands/` | Global commands | `/setup` and `/knowledge-copilot` work anywhere |
+| `~/.claude/commands/` | Global commands | `/setup-project`, `/update-project`, `/update-copilot`, and `/knowledge-copilot` work anywhere |
 | `~/.claude/memory/` | Memory databases | SQLite databases for decisions, lessons, initiatives |
 | `~/.claude/tasks/` | Task databases | SQLite databases for PRDs, tasks, work products |
 | `~/.claude/knowledge/` | Symlink | Points to your knowledge repository |
@@ -398,12 +405,19 @@ cd ~/work-project && claude
 
 ## Troubleshooting
 
-### /setup not found in empty folder
+### /setup-project not found in empty folder
 
 Machine setup hasn't been run. Go to `~/.claude/copilot` and run:
 ```
 Read @~/.claude/copilot/SETUP.md and set up Claude Copilot on this machine
 ```
+
+Or simply:
+```
+/setup
+```
+
+Note: `/setup` only works when run from `~/.claude/copilot`. For projects, use `/setup-project`.
 
 ### MCP servers not connecting
 

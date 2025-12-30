@@ -9,6 +9,10 @@ MCP server providing PRD and task management for Claude Code.
 - **Work Products**: Store agent outputs (designs, implementations, reviews, etc.)
 - **Activity Log**: Automatic tracking of all changes
 - **Initiative Linking**: Lightweight connection to Memory Copilot initiatives
+- **Performance Tracking** (v1.6+): Track agent success rates and completion rates by task type/complexity
+- **Checkpoint System** (v1.6+): Create recovery points during long-running tasks with auto-expiry
+- **Validation System** (v1.6+): Validate work products for size, structure, and completeness
+- **Token Efficiency** (v1.6+): Enforce character/token limits to prevent context bloat
 
 ## Installation
 
@@ -381,6 +385,254 @@ Get high-level progress overview (optimized for minimal context usage).
 }
 ```
 
+### Performance Tracking Tools
+
+#### agent_performance_get
+Get agent performance metrics including success rates and completion rates by task type and complexity.
+
+**Input:**
+- `agentId` (string): Filter by agent ID (me, ta, qa, sec, doc, do, sd, uxd, uids, uid, cw)
+- `workProductType` (string): Filter by work product type
+- `complexity` (string): Filter by complexity (low, medium, high, very_high)
+- `sinceDays` (number): Only include last N days (default: all)
+
+**Output:**
+```json
+{
+  "agents": [
+    {
+      "agentId": "me",
+      "metrics": {
+        "total": 25,
+        "success": 20,
+        "failure": 2,
+        "blocked": 1,
+        "reassigned": 2,
+        "successRate": 0.8,
+        "completionRate": 0.87
+      },
+      "byType": {
+        "implementation": { "total": 15, "successRate": 0.87 },
+        "technical_design": { "total": 10, "successRate": 0.7 }
+      },
+      "byComplexity": {
+        "medium": { "total": 12, "successRate": 0.92 },
+        "high": { "total": 13, "successRate": 0.69 }
+      },
+      "recentTrend": "improving"
+    }
+  ],
+  "summary": {
+    "totalRecords": 150,
+    "periodStart": "2025-11-01T...",
+    "periodEnd": "2025-12-30T..."
+  }
+}
+```
+
+**Use Cases:**
+- Identify which agents excel at specific task types
+- Track improvement or regression over time
+- Make informed decisions about task assignment
+- Detect patterns in blocked or failed tasks
+
+### Checkpoint System Tools
+
+Checkpoints enable mid-task recovery by creating snapshots of task state, execution progress, and draft work.
+
+#### checkpoint_create
+Create a checkpoint for mid-task recovery. Use before risky operations or after completing significant steps.
+
+**Input:**
+- `taskId` (string, required): Task ID to checkpoint
+- `trigger` (string): Checkpoint trigger type (auto_status, auto_subtask, manual, error) - default: manual
+- `executionPhase` (string): Current phase (e.g., "analysis", "implementation")
+- `executionStep` (number): Step number within phase
+- `agentContext` (object): Agent-specific state to preserve
+- `draftContent` (string): Partial work in progress (max 50KB, auto-truncated)
+- `draftType` (string): Type of draft content
+- `expiresIn` (number): Minutes until checkpoint expires (default: 1440 = 24h for auto, 10080 = 7d for manual)
+
+**Output:**
+```json
+{
+  "id": "CP-xxx",
+  "taskId": "TASK-xxx",
+  "sequence": 3,
+  "trigger": "manual",
+  "createdAt": "2025-12-30T...",
+  "expiresAt": "2026-01-06T..."
+}
+```
+
+**Auto-Cleanup:**
+- Max 5 checkpoints per task (oldest pruned automatically)
+- Expired checkpoints cleaned on server startup
+- Manual checkpoints live 7 days, auto checkpoints 24 hours
+
+#### checkpoint_resume
+Resume task from last checkpoint. Returns state and context for continuing work.
+
+**Input:**
+- `taskId` (string, required): Task ID to resume
+- `checkpointId` (string): Specific checkpoint ID (default: latest non-expired)
+
+**Output:**
+```json
+{
+  "taskId": "TASK-xxx",
+  "taskTitle": "Implement user authentication",
+  "checkpointId": "CP-xxx",
+  "checkpointCreatedAt": "2025-12-30T...",
+  "restoredStatus": "in_progress",
+  "restoredPhase": "implementation",
+  "restoredStep": 3,
+  "agentContext": { "filesModified": ["auth.ts", "login.tsx"] },
+  "hasDraft": true,
+  "draftType": "implementation",
+  "draftPreview": "# Authentication Implementation\n\nCompleted:\n- User model\n- Login endpoint...",
+  "subtaskSummary": {
+    "total": 5,
+    "completed": 2,
+    "pending": 2,
+    "blocked": 1
+  },
+  "resumeInstructions": "Resuming task: \"Implement user authentication\"\n..."
+}
+```
+
+#### checkpoint_get
+Get a specific checkpoint by ID with full details.
+
+**Input:**
+- `id` (string, required): Checkpoint ID
+
+**Output:**
+Full checkpoint details including task metadata, execution state, draft content, and subtask states.
+
+#### checkpoint_list
+List available checkpoints for a task.
+
+**Input:**
+- `taskId` (string, required): Task ID
+- `limit` (number): Max results (default: 5)
+
+**Output:**
+```json
+{
+  "taskId": "TASK-xxx",
+  "checkpoints": [
+    {
+      "id": "CP-xxx",
+      "sequence": 3,
+      "trigger": "manual",
+      "phase": "implementation",
+      "step": 3,
+      "hasDraft": true,
+      "createdAt": "2025-12-30T...",
+      "expiresAt": "2026-01-06T..."
+    }
+  ]
+}
+```
+
+#### checkpoint_cleanup
+Clean up old or expired checkpoints.
+
+**Input:**
+- `taskId` (string): Clean specific task (omit for all tasks)
+- `olderThan` (number): Remove checkpoints older than N minutes
+- `keepLatest` (number): Keep N most recent per task (default: 3)
+
+**Output:**
+```json
+{
+  "deletedCount": 12,
+  "remainingCount": 8
+}
+```
+
+### Validation System Tools
+
+The validation system checks work products before storage to prevent low-quality outputs from propagating.
+
+#### validation_config_get
+Get current validation configuration.
+
+**Output:**
+```json
+{
+  "version": "1.0",
+  "defaultMode": "warn",
+  "globalRulesCount": 2,
+  "typeRules": {
+    "architecture": 2,
+    "technical_design": 2,
+    "implementation": 2,
+    "test_plan": 2,
+    "security_review": 2,
+    "documentation": 2,
+    "other": 1
+  }
+}
+```
+
+#### validation_rules_list
+List validation rules for a work product type.
+
+**Input:**
+- `type` (string): Work product type (omit for global rules)
+
+**Output:**
+```json
+{
+  "type": "implementation",
+  "rules": [
+    {
+      "id": "impl-code-blocks",
+      "name": "Implementation Has Code",
+      "description": "Implementation should include code",
+      "type": "completeness",
+      "severity": "warn",
+      "enabled": true
+    },
+    {
+      "id": "impl-size",
+      "name": "Implementation Size",
+      "description": "Implementation notes should be concise",
+      "type": "size",
+      "severity": "warn",
+      "enabled": true
+    }
+  ]
+}
+```
+
+**Validation Rule Types:**
+
+| Rule Type | Checks |
+|-----------|--------|
+| `size` | Character/token limits (min/max) |
+| `structure` | Required sections, required/forbidden patterns |
+| `completeness` | Minimum sections, code blocks, tables, conclusion |
+
+**Default Limits:**
+
+| Work Product Type | Max Characters | Max Tokens (est) | Special Requirements |
+|-------------------|----------------|------------------|---------------------|
+| Global | 50,000 | ~12,500 | Has heading |
+| Architecture | 30,000 | ~7,500 | Overview, Components sections |
+| Technical Design | 25,000 | ~6,250 | Min 3 sections |
+| Implementation | 20,000 | ~5,000 | Min 1 code block |
+| Test Plan | - | - | Min 1 table, Scope/Test sections |
+| Security Review | - | - | Finding/Summary sections, min 1 table |
+| Documentation | 30,000 | ~7,500 | Min 1 code block |
+
+**Validation Modes:**
+- `warn`: Flag issues but allow storage (default)
+- `reject`: Prevent storage if validation fails
+- `skip`: Disable validation entirely
+
 ### Utility Tools
 
 #### health_check
@@ -445,6 +697,50 @@ const tasks = await taskList({
   status: "in_progress"
 });
 ```
+
+## Token Efficiency Enforcement (v1.6+)
+
+Task Copilot enforces token efficiency through its validation system to prevent context bloat:
+
+### How It Works
+
+1. **Pre-Storage Validation**: All work products are validated before storage using `work_product_store`
+2. **Size Limits**: Character and token count limits prevent oversized outputs
+3. **Structure Checks**: Required sections ensure completeness without verbosity
+4. **Quality Gates**: Type-specific rules ensure outputs meet minimum standards
+
+### Benefits
+
+- **96% Context Reduction**: Agents store detailed work in Task Copilot, returning only summaries
+- **Automatic Enforcement**: No manual checking needed - validation runs automatically
+- **Actionable Feedback**: When validation fails, agents receive specific suggestions
+- **Configurable**: Adjust limits and rules via validation config
+
+### Example Workflow
+
+```javascript
+// Agent creates detailed work product
+const content = generateImplementation(); // 15,000 characters
+
+// Validation runs automatically on storage
+const result = await workProductStore({
+  taskId: 'TASK-xxx',
+  type: 'implementation',
+  title: 'User Authentication',
+  content: content
+});
+
+// If oversized, validation warns but allows (in 'warn' mode)
+// Agent receives feedback and can optionally split into smaller products
+```
+
+### Main Session vs Agent Output
+
+| Session Type | Expected Tokens | Enforced By |
+|--------------|----------------|-------------|
+| Main Session | ~500 per task | Protocol guardrails (CLAUDE.md) |
+| Agent Work Products | ~5,000-12,500 | Validation system (automatic) |
+| Full Initiative | ~2,000 main + unlimited stored | Task Copilot storage |
 
 ## Integration with Memory Copilot
 
