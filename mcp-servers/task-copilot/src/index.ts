@@ -28,6 +28,7 @@ import {
   getTaskHooks,
   clearTaskHooks
 } from './tools/stop-hooks.js';
+import { sessionGuard } from './tools/session-guard.js';
 import { getValidator, initValidator } from './validation/index.js';
 import type {
   PrdCreateInput,
@@ -51,6 +52,7 @@ import type {
   CheckpointListInput,
   CheckpointCleanupInput,
   ValidationRulesListInput,
+  SessionGuardInput,
   TaskStatus,
   PrdStatus,
   WorkProductType,
@@ -581,6 +583,32 @@ const TOOLS = [
       },
       required: ['taskId']
     }
+  },
+  // Session Guard Tool
+  {
+    name: 'session_guard',
+    description: 'Enforce main session guardrails to prevent context bloat. Use "check" to validate current session behavior against rules, or "report" to get a summary of guidelines and initiative status.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['check', 'report'],
+          description: 'Action to perform: "check" validates context against rules, "report" provides guidelines summary'
+        },
+        context: {
+          type: 'object',
+          description: 'Session context to check (optional for report)',
+          properties: {
+            filesRead: { type: 'number', description: 'Number of files read in main session' },
+            codeWritten: { type: 'boolean', description: 'Whether code was written directly in main session' },
+            agentUsed: { type: 'string', description: 'Name of agent invoked (if any)' },
+            responseTokens: { type: 'number', description: 'Estimated response token count' }
+          }
+        }
+      },
+      required: ['action']
+    }
   }
 ];
 
@@ -603,7 +631,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           content: a.content as string,
           metadata: a.metadata as Record<string, unknown> | undefined
         });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
       case 'prd_get': {
@@ -611,7 +639,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           id: a.id as string,
           includeContent: a.includeContent as boolean | undefined
         });
-        return { content: [{ type: 'text', text: result ? JSON.stringify(result, null, 2) : 'PRD not found' }] };
+        return { content: [{ type: 'text', text: result ? JSON.stringify(result) : 'PRD not found' }] };
       }
 
       case 'prd_list': {
@@ -619,7 +647,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           initiativeId: a.initiativeId as string | undefined,
           status: a.status as PrdStatus | undefined
         });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
       case 'task_create': {
@@ -631,7 +659,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           assignedAgent: a.assignedAgent as string | undefined,
           metadata: a.metadata as Record<string, unknown> | undefined
         });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
       case 'task_update': {
@@ -643,7 +671,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           blockedReason: a.blockedReason as string | undefined,
           metadata: a.metadata as Record<string, unknown> | undefined
         });
-        return { content: [{ type: 'text', text: result ? JSON.stringify(result, null, 2) : 'Task not found' }] };
+        return { content: [{ type: 'text', text: result ? JSON.stringify(result) : 'Task not found' }] };
       }
 
       case 'task_get': {
@@ -652,7 +680,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           includeSubtasks: a.includeSubtasks as boolean | undefined,
           includeWorkProducts: a.includeWorkProducts as boolean | undefined
         });
-        return { content: [{ type: 'text', text: result ? JSON.stringify(result, null, 2) : 'Task not found' }] };
+        return { content: [{ type: 'text', text: result ? JSON.stringify(result) : 'Task not found' }] };
       }
 
       case 'task_list': {
@@ -662,7 +690,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           status: a.status as TaskStatus | undefined,
           assignedAgent: a.assignedAgent as string | undefined
         });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
       case 'work_product_store': {
@@ -673,21 +701,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           content: a.content as string,
           metadata: a.metadata as Record<string, unknown> | undefined
         });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
       case 'work_product_get': {
         const result = workProductGet(db, {
           id: a.id as string
         });
-        return { content: [{ type: 'text', text: result ? JSON.stringify(result, null, 2) : 'Work product not found' }] };
+        return { content: [{ type: 'text', text: result ? JSON.stringify(result) : 'Work product not found' }] };
       }
 
       case 'work_product_list': {
         const result = workProductList(db, {
           taskId: a.taskId as string
         });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
       case 'health_check': {
@@ -699,7 +727,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               status: 'healthy',
               workspaceId: db.getWorkspaceId(),
               ...stats
-            }, null, 2)
+            })
           }]
         };
       }
@@ -710,7 +738,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           title: a.title as string,
           description: a.description as string | undefined
         });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
       case 'initiative_archive': {
@@ -718,7 +746,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           initiativeId: a.initiativeId as string | undefined,
           archivePath: a.archivePath as string | undefined
         });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
       case 'initiative_wipe': {
@@ -726,14 +754,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           initiativeId: a.initiativeId as string | undefined,
           confirm: a.confirm as boolean
         });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
       case 'progress_summary': {
         const result = progressSummary(db, {
           initiativeId: a.initiativeId as string | undefined
         });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
       // Agent Performance Tracking
@@ -744,7 +772,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           complexity: a.complexity as string | undefined,
           sinceDays: a.sinceDays as number | undefined
         });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
       // Checkpoint Tools
@@ -761,14 +789,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           iterationConfig: a.iterationConfig as IterationConfig | undefined,
           iterationNumber: a.iterationNumber as number | undefined
         });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
       case 'checkpoint_get': {
         const result = checkpointGet(db, {
           id: a.id as string
         });
-        return { content: [{ type: 'text', text: result ? JSON.stringify(result, null, 2) : 'Checkpoint not found' }] };
+        return { content: [{ type: 'text', text: result ? JSON.stringify(result) : 'Checkpoint not found' }] };
       }
 
       case 'checkpoint_resume': {
@@ -776,7 +804,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           taskId: a.taskId as string,
           checkpointId: a.checkpointId as string | undefined
         });
-        return { content: [{ type: 'text', text: result ? JSON.stringify(result, null, 2) : 'No checkpoint found' }] };
+        return { content: [{ type: 'text', text: result ? JSON.stringify(result) : 'No checkpoint found' }] };
       }
 
       case 'checkpoint_list': {
@@ -786,7 +814,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           iterationNumber: a.iterationNumber as number | undefined,
           hasIteration: a.hasIteration as boolean | undefined
         });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
       case 'checkpoint_cleanup': {
@@ -795,7 +823,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           olderThan: a.olderThan as number | undefined,
           keepLatest: a.keepLatest as number | undefined
         });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
       // Validation Tools
@@ -812,7 +840,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               typeRules: Object.fromEntries(
                 Object.entries(config.typeRules).map(([k, v]) => [k, v.length])
               )
-            }, null, 2)
+            })
           }]
         };
       }
@@ -834,7 +862,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 severity: r.severity,
                 enabled: r.enabled
               }))
-            }, null, 2)
+            })
           }]
         };
       }
@@ -852,7 +880,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }> | undefined,
           circuitBreakerThreshold: a.circuitBreakerThreshold as number | undefined
         });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
       case 'iteration_validate': {
@@ -860,7 +888,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           iterationId: a.iterationId as string,
           agentOutput: a.agentOutput as string | undefined
         });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
       case 'iteration_next': {
@@ -869,7 +897,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           validationResult: a.validationResult as object | undefined,
           agentContext: a.agentContext as object | undefined
         });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
       case 'iteration_complete': {
@@ -878,7 +906,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           completionPromise: a.completionPromise as string,
           workProductId: a.workProductId as string | undefined
         });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
       // Stop Hook Tools (Phase 2)
@@ -911,7 +939,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               hookType,
               enabled: true,
               metadata
-            }, null, 2)
+            })
           }]
         };
       }
@@ -924,7 +952,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           draftContent: a.draftContent as string | undefined,
           draftType: a.draftType as WorkProductType | undefined
         });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
       case 'hook_list': {
@@ -942,7 +970,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 enabled: h.enabled,
                 metadata: h.metadata
               }))
-            }, null, 2)
+            })
           }]
         };
       }
@@ -957,9 +985,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             text: JSON.stringify({
               taskId,
               hooksCleared: cleared
-            }, null, 2)
+            })
           }]
         };
+      }
+
+      // Session Guard Tool
+      case 'session_guard': {
+        const result = sessionGuard(db, {
+          action: a.action as 'check' | 'report',
+          context: a.context as SessionGuardInput['context'] | undefined
+        });
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
       default:

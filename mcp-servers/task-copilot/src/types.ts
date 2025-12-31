@@ -594,3 +594,24 @@ export interface ValidationRulesListOutput {
     enabled: boolean;
   }>;
 }
+
+// ============================================================================
+// SESSION GUARD TYPES
+// ============================================================================
+
+export interface SessionGuardInput {
+  action: 'check' | 'report';
+  context?: {
+    filesRead?: number;
+    codeWritten?: boolean;
+    agentUsed?: string;
+    responseTokens?: number;
+  };
+}
+
+export interface SessionGuardOutput {
+  allowed: boolean;
+  violations: string[];
+  warnings: string[];
+  suggestions: string[];
+}
