@@ -112,7 +112,7 @@ Discovery → Order → Preparation → Delivery → Post-Delivery
 
 ### Opportunities
 - **Order:** Show estimated prep time based on real-time kitchen capacity — Reduces anxiety, sets expectations
-- **Delivery:** Real-time GPS with accurate ETA — Increases trust, reduces support calls
+- **Delivery:** Real-time GPS with accurate arrival tracking — Increases trust, reduces support calls
 - **Post-Delivery:** One-tap issue resolution with automatic refund — Faster recovery, higher satisfaction
 ```
 

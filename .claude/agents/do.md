@@ -117,7 +117,7 @@ groups:
 
 ### Secrets Management
 - API keys stored in AWS Secrets Manager
-- Rotated on regular schedule per security policy
+- Rotated periodically per security policy
 - Access via IAM roles (no hardcoded credentials)
 
 ### Rollback Plan
