@@ -75,14 +75,23 @@ export class DatabaseClient {
 
     if (currentVersion < 2) {
       // Run migration v2: Add slim initiative fields
+      // Only add columns if they don't already exist
       try {
-        this.db.exec(MIGRATION_V2_SQL);
+        // Check if columns already exist (they would if schema was created fresh from v2)
+        const tableInfo = this.db.pragma('table_info(initiatives)') as Array<{ name: string }>;
+        const hasTaskCopilotLinked = tableInfo.some(col => col.name === 'task_copilot_linked');
+
+        if (!hasTaskCopilotLinked) {
+          // Columns don't exist, run migration
+          this.db.exec(MIGRATION_V2_SQL);
+        }
+
+        // Always record migration as applied
         this.db.prepare('INSERT INTO migrations (version, applied_at) VALUES (?, ?)').run(
           2,
           new Date().toISOString()
         );
       } catch (err) {
-        // Columns might already exist if schema was created fresh
         console.warn('Migration v2 warning:', err);
       }
     }

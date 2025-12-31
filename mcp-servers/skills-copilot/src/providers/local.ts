@@ -151,7 +151,13 @@ export class LocalProvider {
         if (existsSync(skillPath)) {
           const meta = this.parseSkillMeta(skillPath);
           if (meta) {
-            this.skillsCache.set(meta.name, meta);
+            // Validate skill before adding to cache
+            const validation = this.validateSkill(meta);
+            if (validation.valid) {
+              this.skillsCache.set(meta.name, meta);
+            } else {
+              console.warn(`Skipping ${skillPath}: ${validation.errors.join(', ')}`);
+            }
           }
         }
         // Continue scanning subdirectories

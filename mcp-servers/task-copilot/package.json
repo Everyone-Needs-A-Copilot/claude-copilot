@@ -8,7 +8,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsc -w",
-    "test:integration": "npm run build && node dist/tools/iteration.integration.test.js"
+    "test:integration": "npm run build && node dist/tools/iteration.integration.test.js",
+    "test:full": "npm run build && node dist/tools/full-integration.test.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
