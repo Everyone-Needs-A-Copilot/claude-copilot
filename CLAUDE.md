@@ -239,7 +239,7 @@ MCP server for ephemeral PRD, task, and work product storage.
 
 **Location:** `mcp-servers/task-copilot/`
 
-**Purpose:** Agents store detailed work products here instead of returning them to the main session, reducing context bloat by ~96%.
+**Purpose:** Agents store detailed work products here instead of returning them to the main session, reducing context bloat by 90-95% on average (up to 97% for single-agent tasks).
 
 **Core Tools:**
 

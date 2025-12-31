@@ -9,7 +9,13 @@
     "start": "node dist/index.js",
     "dev": "tsc -w",
     "test:integration": "npm run build && node dist/tools/iteration.integration.test.js",
-    "test:full": "npm run build && node dist/tools/full-integration.test.js"
+    "test:full": "npm run build && node dist/tools/full-integration.test.js",
+    "test:benchmark": "npm run build && node dist/benchmark/test.js",
+    "benchmark:example": "npm run build && node dist/benchmark/example.js",
+    "benchmark:baseline": "npm run build && node dist/benchmark/baseline-scenarios.js",
+    "benchmark:framework": "npm run build && node dist/benchmark/framework-scenarios.js",
+    "benchmark:compare": "npm run build && node dist/benchmark/compare-scenarios.js",
+    "benchmark:cli": "npm run build && node dist/benchmark/cli.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
