@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.1] - 2025-12-31
+
+### Changed
+
+- Added disclaimer to README clarifying no affiliation with Microsoft Copilot or GitHub Copilot
+
 ## [1.6.0] - 2025-12-30
 
 ### Added

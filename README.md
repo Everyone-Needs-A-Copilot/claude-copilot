@@ -22,7 +22,7 @@
 
 ## What Is Claude Copilot?
 
-**Claude Copilot is a set of instructions that sit on top of Claude Code.**
+**Claude Copilot is a set of instructions that sit on top of Claude Code.** This is an independent, community-driven framework for Claude Code, unaffiliated with Microsoft Copilot or GitHub Copilot.
 
 It's not separate software—it's markdown files (agents, commands, project instructions) and three MCP servers that give Claude Code new capabilities:
 
