@@ -117,14 +117,14 @@ groups:
 
 ### Secrets Management
 - API keys stored in AWS Secrets Manager
-- Rotated every 90 days
+- Rotated on regular schedule per security policy
 - Access via IAM roles (no hardcoded credentials)
 
 ### Rollback Plan
 1. Revert to previous container tag
 2. Restart pods with health checks
 3. Verify error rate returns to normal
-4. Post-mortem within 24 hours
+4. Post-mortem immediately after incident resolution
 ```
 
 ## Core Behaviors

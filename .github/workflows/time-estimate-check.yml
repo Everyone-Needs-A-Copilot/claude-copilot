@@ -53,7 +53,7 @@ jobs:
           # Run all checks
           check_pattern '\b(hours?|days?|weeks?|months?|years?)\b' \
             'Direct time units' \
-            'TTL|cache|testing|fast|slow|millisecond|performance'
+            'TTL|cache|testing|fast|slow|millisecond|performance|NEVER include'
 
           check_pattern '\b(timeline|schedule|deadline|due\s+date|ETA|delivery\s+date)\b' \
             'Time-based planning language'

@@ -60,7 +60,7 @@ Authentication flow from login form to dashboard
 | ID | Scenario | Expected |
 |----|----------|----------|
 | TC-01 | Valid credentials | Redirects to dashboard |
-| TC-02 | Remember me checked | Sets 30-day token |
+| TC-02 | Remember me checked | Sets extended session token |
 
 #### Edge Cases
 | ID | Scenario | Expected |
