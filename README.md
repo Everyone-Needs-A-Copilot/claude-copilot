@@ -246,6 +246,12 @@ MIT License - see [LICENSE](LICENSE)
 
 ---
 
+## Acknowledgements
+
+This project builds on the work of many contributors and open source projects. See [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md) for credits.
+
+---
+
 <p align="center">
   <a href="https://ineedacopilot.com">
     <img src="assets/ENAC-Tagline-MID.svg" alt="...because Everyone Needs a Copilot" width="400">
