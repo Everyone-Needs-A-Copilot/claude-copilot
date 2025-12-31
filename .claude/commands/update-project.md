@@ -64,7 +64,74 @@ Then STOP.
 
 ---
 
-## Step 3: Check for Broken Symlinks
+## Step 3: Check and Update MCP Server Configuration
+
+**Read both configurations:**
+
+```bash
+cat .mcp.json
+cat ~/.claude/copilot/templates/mcp.json
+```
+
+**Identify missing servers:**
+
+Compare the `mcpServers` keys in project's `.mcp.json` with the template.
+
+For each server in the template that is NOT in the project's `.mcp.json`:
+1. Note the server name
+2. Prepare to add it with variable expansion:
+   - `$HOME` → actual home directory path
+   - `$PROJECT_PATH` → result of `pwd`
+   - `$PROJECT_NAME` → result of `basename $(pwd)`
+   - `$COPILOT_PATH` → `$HOME/.claude/copilot`
+
+**If missing servers found:**
+
+Tell the user:
+
+---
+
+**New MCP servers available**
+
+The following servers will be added to your `.mcp.json`:
+
+{{LIST_MISSING_SERVERS}}
+
+This will preserve all existing server configurations and only add new ones.
+
+---
+
+Use AskUserQuestion:
+
+**Question:** "Add these new servers to .mcp.json?"
+- Header: "MCP Configuration Update"
+- Options:
+  - "Yes, add new servers"
+  - "No, skip this step"
+
+**If user says "Yes, add new servers":**
+
+1. Read the existing `.mcp.json` as JSON
+2. For each missing server from template:
+   - Expand all variables (`$HOME`, `$PROJECT_PATH`, `$PROJECT_NAME`, `$COPILOT_PATH`)
+   - Add the server entry to `mcpServers` object
+3. Write the merged JSON back to `.mcp.json` with proper formatting (2-space indent)
+4. Validate the JSON is well-formed
+5. Report success: "Added {{SERVER_NAMES}} to .mcp.json"
+
+**If user says "No, skip this step":**
+
+Continue to Step 4 without modifying `.mcp.json`.
+
+**If no missing servers:**
+
+Report: "All MCP servers already configured, no updates needed."
+
+Continue to Step 4.
+
+---
+
+## Step 4: Check for Broken Symlinks
 
 **CRITICAL:** Regular `ls` passes for broken symlinks. Must check if target exists.
 
@@ -95,7 +162,7 @@ Note any broken symlinks found - they will be fixed in the update.
 
 ---
 
-## Step 4: Show Current State
+## Step 5: Show Current State
 
 ```bash
 echo "=== Current Commands ==="
@@ -111,7 +178,7 @@ cd ~/.claude/copilot && git log --oneline -1
 
 ---
 
-## Step 5: Confirm Update
+## Step 6: Confirm Update
 
 Tell the user:
 
@@ -123,10 +190,13 @@ This will refresh:
 - `.claude/commands/protocol.md` and `continue.md`
 - `.claude/agents/*.md` (all 12 agents)
 
+This will ONLY update if needed:
+- `.mcp.json` (only to add new MCP servers, preserving all existing configuration)
+
 This will NOT touch:
-- `.mcp.json` (your MCP configuration)
 - `CLAUDE.md` (your project instructions)
 - `.claude/skills/` (your project skills)
+- Existing MCP server configurations in `.mcp.json`
 
 ---
 
@@ -142,7 +212,7 @@ Use AskUserQuestion:
 
 ---
 
-## Step 6: Update Commands
+## Step 7: Update Commands
 
 Remove old command files and copy fresh ones:
 
@@ -160,7 +230,7 @@ echo "Commands updated"
 
 ---
 
-## Step 7: Update Agents
+## Step 8: Update Agents
 
 Remove old agent files and copy fresh ones:
 
@@ -176,7 +246,7 @@ echo "Agents updated"
 
 ---
 
-## Step 8: Verify Update
+## Step 9: Verify Update
 
 ```bash
 echo "=== Updated Commands ==="
@@ -199,7 +269,7 @@ done
 
 ---
 
-## Step 9: Report Success
+## Step 10: Report Success
 
 ---
 
@@ -210,10 +280,17 @@ done
 - `.claude/commands/continue.md`
 - `.claude/agents/` (12 agents)
 
+**MCP Configuration:**
+{{IF_SERVERS_ADDED}}
+- `.mcp.json` updated: Added {{SERVER_NAMES}}
+{{ELSE}}
+- `.mcp.json` unchanged (all servers already configured)
+{{END_IF}}
+
 **Unchanged:**
-- `.mcp.json`
 - `CLAUDE.md`
 - `.claude/skills/`
+- Existing MCP server configurations
 
 **Claude Copilot version:**
 `{{VERSION_FROM_GIT_LOG}}`
