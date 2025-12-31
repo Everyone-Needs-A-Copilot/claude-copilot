@@ -19,6 +19,15 @@ import { workProductStore, workProductGet, workProductList } from './tools/work-
 import { initiativeLink, initiativeArchive, initiativeWipe, progressSummary } from './tools/initiative.js';
 import { agentPerformanceGet } from './tools/performance.js';
 import { checkpointCreate, checkpointGet, checkpointResume, checkpointList, checkpointCleanup } from './tools/checkpoint.js';
+import { iterationStart, iterationValidate, iterationNext, iterationComplete } from './tools/iteration.js';
+import {
+  evaluateStopHooks,
+  createDefaultHook,
+  createValidationHook,
+  createPromiseHook,
+  getTaskHooks,
+  clearTaskHooks
+} from './tools/stop-hooks.js';
 import { getValidator, initValidator } from './validation/index.js';
 import type {
   PrdCreateInput,
@@ -44,8 +53,15 @@ import type {
   ValidationRulesListInput,
   TaskStatus,
   PrdStatus,
-  WorkProductType
+  WorkProductType,
+  IterationConfig
 } from './types.js';
+import type {
+  IterationStartInput,
+  IterationValidateInput,
+  IterationNextInput,
+  IterationCompleteInput
+} from './tools/iteration.js';
 
 // Get configuration from environment
 const PROJECT_PATH = process.cwd();
@@ -312,7 +328,7 @@ const TOOLS = [
   // Checkpoint Tools
   {
     name: 'checkpoint_create',
-    description: 'Create a checkpoint for mid-task recovery. Use before risky operations or after completing significant steps.',
+    description: 'Create a checkpoint for mid-task recovery. Use before risky operations or after completing significant steps. Supports Ralph Wiggum iteration metadata.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -331,7 +347,29 @@ const TOOLS = [
           enum: ['technical_design', 'implementation', 'test_plan', 'security_review', 'documentation', 'architecture', 'other'],
           description: 'Type of draft content'
         },
-        expiresIn: { type: 'number', description: 'Minutes until checkpoint expires (default: 1440 = 24h)' }
+        expiresIn: { type: 'number', description: 'Minutes until checkpoint expires (default: 1440 = 24h)' },
+        iterationConfig: {
+          type: 'object',
+          description: 'Ralph Wiggum iteration configuration (maxIterations, completionPromises, validationRules, circuitBreakerThreshold)',
+          properties: {
+            maxIterations: { type: 'number', description: 'Maximum number of iterations allowed' },
+            completionPromises: { type: 'array', items: { type: 'string' }, description: 'List of completion criteria' },
+            validationRules: {
+              type: 'array',
+              description: 'Validation rules to apply',
+              items: {
+                type: 'object',
+                properties: {
+                  type: { type: 'string' },
+                  config: { type: 'object' }
+                }
+              }
+            },
+            circuitBreakerThreshold: { type: 'number', description: 'Consecutive failures before breaking (default: 3)' }
+          },
+          required: ['maxIterations', 'completionPromises']
+        },
+        iterationNumber: { type: 'number', description: 'Current iteration number (default: 0)' }
       },
       required: ['taskId']
     }
@@ -349,7 +387,7 @@ const TOOLS = [
   },
   {
     name: 'checkpoint_resume',
-    description: 'Resume task from last checkpoint. Returns state and context for continuing work.',
+    description: 'Resume task from last checkpoint. Returns state and context for continuing work, including Ralph Wiggum iteration state (iterationConfig, iterationNumber, iterationHistory, completionPromises, validationState).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -366,7 +404,9 @@ const TOOLS = [
       type: 'object',
       properties: {
         taskId: { type: 'string', description: 'Task ID' },
-        limit: { type: 'number', description: 'Max results (default: 5)' }
+        limit: { type: 'number', description: 'Max results (default: 5)' },
+        iterationNumber: { type: 'number', description: 'Filter by iteration number' },
+        hasIteration: { type: 'boolean', description: 'Filter checkpoints that have (true) or don\'t have (false) iteration data' }
       },
       required: ['taskId']
     }
@@ -404,6 +444,142 @@ const TOOLS = [
           description: 'Work product type to get rules for (omit for global rules)'
         }
       }
+    }
+  },
+  // Ralph Wiggum Iteration Tools
+  {
+    name: 'iteration_start',
+    description: 'Initialize a new iteration loop with Ralph Wiggum pattern. Creates checkpoint with iteration_number=1 and stores iteration configuration.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskId: { type: 'string', description: 'Task ID to start iteration for' },
+        maxIterations: { type: 'number', description: 'Maximum number of iterations allowed (must be >= 1)' },
+        completionPromises: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'List of completion criteria that must be met'
+        },
+        validationRules: {
+          type: 'array',
+          description: 'Optional validation rules to apply each iteration',
+          items: {
+            type: 'object',
+            properties: {
+              type: { type: 'string', description: 'Rule type' },
+              name: { type: 'string', description: 'Rule name' },
+              config: { type: 'object', description: 'Rule configuration' }
+            },
+            required: ['type', 'name', 'config']
+          }
+        },
+        circuitBreakerThreshold: {
+          type: 'number',
+          description: 'Number of consecutive failures before circuit breaker triggers (default: 3)'
+        }
+      },
+      required: ['taskId', 'maxIterations', 'completionPromises']
+    }
+  },
+  {
+    name: 'iteration_validate',
+    description: 'Run validation rules against current iteration. Returns validation results, completion signal (CONTINUE/COMPLETE/BLOCKED/ESCALATE), and actionable feedback. Integrates safety guards to detect runaway loops.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        iterationId: { type: 'string', description: 'Iteration checkpoint ID from iteration_start' },
+        agentOutput: { type: 'string', description: 'Agent output to validate for completion promises like <promise>COMPLETE</promise> or <promise>BLOCKED</promise>' }
+      },
+      required: ['iterationId']
+    }
+  },
+  {
+    name: 'iteration_next',
+    description: 'Advance to next iteration. Increments iteration number and updates history. Throws if max iterations reached.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        iterationId: { type: 'string', description: 'Iteration checkpoint ID' },
+        validationResult: { type: 'object', description: 'Validation result from iteration_validate (optional)' },
+        agentContext: { type: 'object', description: 'Agent state to preserve for next iteration (optional)' }
+      },
+      required: ['iterationId']
+    }
+  },
+  {
+    name: 'iteration_complete',
+    description: 'Mark iteration as complete. Updates task status to completed and optionally links final work product.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        iterationId: { type: 'string', description: 'Iteration checkpoint ID' },
+        completionPromise: { type: 'string', description: 'Which completion promise was met' },
+        workProductId: { type: 'string', description: 'Optional final work product ID' }
+      },
+      required: ['iterationId', 'completionPromise']
+    }
+  },
+  // Stop Hook Tools (Phase 2)
+  {
+    name: 'hook_register',
+    description: 'Register a stop hook for a task. Hooks intercept completion signals and decide whether to complete, continue, or escalate. Use preset hooks: "default" (validation + promises), "validation" (rules only), "promise" (promises only).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskId: { type: 'string', description: 'Task ID to register hook for' },
+        hookType: {
+          type: 'string',
+          enum: ['default', 'validation', 'promise'],
+          description: 'Preset hook type: "default" (recommended), "validation", or "promise"'
+        },
+        metadata: { type: 'object', description: 'Optional metadata to attach to hook' }
+      },
+      required: ['taskId', 'hookType']
+    }
+  },
+  {
+    name: 'hook_evaluate',
+    description: 'Evaluate registered hooks for an iteration. Returns action (complete/continue/escalate) and reason. Called internally by iteration_validate but can be used manually for testing.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        iterationId: { type: 'string', description: 'Iteration checkpoint ID' },
+        agentOutput: { type: 'string', description: 'Agent output to analyze for completion promises' },
+        filesModified: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'List of file paths modified in this iteration (optional)'
+        },
+        draftContent: { type: 'string', description: 'Draft work product content (optional)' },
+        draftType: {
+          type: 'string',
+          enum: ['technical_design', 'implementation', 'test_plan', 'security_review', 'documentation', 'architecture', 'other'],
+          description: 'Draft work product type (optional)'
+        }
+      },
+      required: ['iterationId']
+    }
+  },
+  {
+    name: 'hook_list',
+    description: 'List all registered hooks for a task. Returns hook IDs, enabled status, and metadata.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskId: { type: 'string', description: 'Task ID to list hooks for' }
+      },
+      required: ['taskId']
+    }
+  },
+  {
+    name: 'hook_clear',
+    description: 'Clear all hooks for a task. Should be called when iteration loop completes or is cancelled.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskId: { type: 'string', description: 'Task ID to clear hooks for' }
+      },
+      required: ['taskId']
     }
   }
 ];
@@ -581,7 +757,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           agentContext: a.agentContext as Record<string, unknown> | undefined,
           draftContent: a.draftContent as string | undefined,
           draftType: a.draftType as WorkProductType | undefined,
-          expiresIn: a.expiresIn as number | undefined
+          expiresIn: a.expiresIn as number | undefined,
+          iterationConfig: a.iterationConfig as IterationConfig | undefined,
+          iterationNumber: a.iterationNumber as number | undefined
         });
         return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
       }
@@ -604,7 +782,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'checkpoint_list': {
         const result = checkpointList(db, {
           taskId: a.taskId as string,
-          limit: a.limit as number | undefined
+          limit: a.limit as number | undefined,
+          iterationNumber: a.iterationNumber as number | undefined,
+          hasIteration: a.hasIteration as boolean | undefined
         });
         return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
       }
@@ -654,6 +834,129 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 severity: r.severity,
                 enabled: r.enabled
               }))
+            }, null, 2)
+          }]
+        };
+      }
+
+      // Ralph Wiggum Iteration Tools
+      case 'iteration_start': {
+        const result = iterationStart(db, {
+          taskId: a.taskId as string,
+          maxIterations: a.maxIterations as number,
+          completionPromises: a.completionPromises as string[],
+          validationRules: a.validationRules as Array<{
+            type: string;
+            name: string;
+            config: Record<string, unknown>;
+          }> | undefined,
+          circuitBreakerThreshold: a.circuitBreakerThreshold as number | undefined
+        });
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case 'iteration_validate': {
+        const result = await iterationValidate(db, {
+          iterationId: a.iterationId as string,
+          agentOutput: a.agentOutput as string | undefined
+        });
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case 'iteration_next': {
+        const result = iterationNext(db, {
+          iterationId: a.iterationId as string,
+          validationResult: a.validationResult as object | undefined,
+          agentContext: a.agentContext as object | undefined
+        });
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case 'iteration_complete': {
+        const result = iterationComplete(db, {
+          iterationId: a.iterationId as string,
+          completionPromise: a.completionPromise as string,
+          workProductId: a.workProductId as string | undefined
+        });
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      }
+
+      // Stop Hook Tools (Phase 2)
+      case 'hook_register': {
+        const taskId = a.taskId as string;
+        const hookType = a.hookType as string;
+        const metadata = a.metadata as Record<string, unknown> | undefined;
+
+        let hookId: string;
+        switch (hookType) {
+          case 'default':
+            hookId = createDefaultHook(taskId);
+            break;
+          case 'validation':
+            hookId = createValidationHook(taskId);
+            break;
+          case 'promise':
+            hookId = createPromiseHook(taskId);
+            break;
+          default:
+            throw new Error(`Unknown hook type: ${hookType}`);
+        }
+
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              hookId,
+              taskId,
+              hookType,
+              enabled: true,
+              metadata
+            }, null, 2)
+          }]
+        };
+      }
+
+      case 'hook_evaluate': {
+        const result = await evaluateStopHooks(db, {
+          iterationId: a.iterationId as string,
+          agentOutput: a.agentOutput as string | undefined,
+          filesModified: a.filesModified as string[] | undefined,
+          draftContent: a.draftContent as string | undefined,
+          draftType: a.draftType as WorkProductType | undefined
+        });
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case 'hook_list': {
+        const taskId = a.taskId as string;
+        const hooks = getTaskHooks(taskId);
+
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              taskId,
+              hookCount: hooks.length,
+              hooks: hooks.map(h => ({
+                id: h.id,
+                enabled: h.enabled,
+                metadata: h.metadata
+              }))
+            }, null, 2)
+          }]
+        };
+      }
+
+      case 'hook_clear': {
+        const taskId = a.taskId as string;
+        const cleared = clearTaskHooks(taskId);
+
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              taskId,
+              hooksCleared: cleared
             }, null, 2)
           }]
         };

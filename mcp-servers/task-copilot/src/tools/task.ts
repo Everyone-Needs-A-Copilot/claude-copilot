@@ -238,7 +238,13 @@ function createAutoCheckpoint(
     draft_type: null,
     subtask_states: JSON.stringify(subtaskStates),
     created_at: timestamp,
-    expires_at: expiresAt
+    expires_at: expiresAt,
+    // Ralph Wiggum Iteration Support (v4)
+    iteration_config: null,
+    iteration_number: 0,
+    iteration_history: '[]',
+    completion_promises: '[]',
+    validation_state: null
   });
 
   // Prune old checkpoints if exceeding max

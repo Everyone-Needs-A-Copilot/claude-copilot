@@ -290,12 +290,28 @@ export interface AgentMetrics {
   completionRate: number;
 }
 
+export interface IterationMetrics {
+  averageIterationsToCompletion: number;
+  successRateByIterationCount: Record<number, number>;
+  safetyGuardTriggers: {
+    maxIterations: number;
+    circuitBreaker: number;
+    qualityRegression: number;
+    thrashing: number;
+  };
+  iterationCompletionRate: number;
+  totalIterationSessions: number;
+  totalIterationsRun: number;
+  averageDurationPerIteration: number | null;
+}
+
 export interface AgentPerformanceResult {
   agentId: string;
   metrics: AgentMetrics;
   byType: Record<string, { total: number; successRate: number }>;
   byComplexity: Record<string, { total: number; successRate: number }>;
   recentTrend: 'improving' | 'stable' | 'declining' | 'insufficient_data';
+  iterationMetrics?: IterationMetrics;
 }
 
 export interface AgentPerformanceGetOutput {
@@ -312,6 +328,90 @@ export interface AgentPerformanceGetOutput {
 // ============================================================================
 
 export type CheckpointTrigger = 'auto_status' | 'auto_subtask' | 'manual' | 'error';
+
+// ============================================================================
+// RALPH WIGGUM ITERATION TYPES
+// ============================================================================
+
+export type CompletionSignal = 'CONTINUE' | 'COMPLETE' | 'BLOCKED' | 'ESCALATE';
+
+/**
+ * Iteration configuration (simplified version for storage)
+ * For full hook configuration types, see validation/iteration-hook-types.ts
+ */
+export interface IterationConfig {
+  maxIterations: number;
+  completionPromises: string[];
+  validationRules?: Array<{
+    type: string;
+    name?: string;
+    config: Record<string, unknown>;
+  }>;
+  circuitBreakerThreshold?: number;
+
+  /**
+   * Optional hook configuration
+   * Stored as JSON in checkpoint.iteration_config
+   */
+  hooks?: {
+    stopHooks?: Array<{
+      name: string;
+      validationRules: Array<{
+        type: string;
+        name: string;
+        config: Record<string, unknown>;
+      }>;
+      action: 'complete' | 'blocked' | 'escalate';
+      priority: number;
+    }>;
+    preIterationHooks?: Array<{
+      name: string;
+      actions: Array<{
+        type: string;
+        config: Record<string, unknown>;
+      }>;
+      trigger: string;
+    }>;
+    postIterationHooks?: Array<{
+      name: string;
+      actions: Array<{
+        type: string;
+        config: Record<string, unknown>;
+      }>;
+      trigger: string;
+    }>;
+    circuitBreakerHooks?: Array<{
+      name: string;
+      strategy: string;
+      config: Record<string, unknown>;
+      action: 'escalate' | 'blocked';
+    }>;
+  };
+}
+
+export interface IterationHistoryEntry {
+  iteration: number;
+  timestamp: string;
+  validationResult: {
+    passed: boolean;
+    flags: Array<{
+      ruleId: string;
+      message: string;
+      severity: string;
+    }>;
+  };
+  checkpointId: string;
+}
+
+export interface ValidationState {
+  lastRun: string;
+  passed: boolean;
+  results: Array<{
+    ruleId: string;
+    passed: boolean;
+    message?: string;
+  }>;
+}
 
 export interface CheckpointRow {
   id: string;
@@ -331,6 +431,12 @@ export interface CheckpointRow {
   subtask_states: string;
   created_at: string;
   expires_at: string | null;
+  // Ralph Wiggum Iteration Support (v4)
+  iteration_config: string | null;
+  iteration_number: number;
+  iteration_history: string;
+  completion_promises: string;
+  validation_state: string | null;
 }
 
 export interface CheckpointCreateInput {
@@ -342,6 +448,9 @@ export interface CheckpointCreateInput {
   draftContent?: string;
   draftType?: WorkProductType;
   expiresIn?: number; // Minutes until expiry
+  // Ralph Wiggum iteration support
+  iterationConfig?: IterationConfig;
+  iterationNumber?: number;
 }
 
 export interface CheckpointCreateOutput {
@@ -377,6 +486,12 @@ export interface CheckpointResumeOutput {
     blocked: number;
   };
   resumeInstructions: string;
+  // Ralph Wiggum iteration state
+  iterationConfig: IterationConfig | null;
+  iterationNumber: number;
+  iterationHistory: IterationHistoryEntry[];
+  completionPromises: string[];
+  validationState: ValidationState | null;
 }
 
 export interface CheckpointGetInput {
@@ -407,6 +522,8 @@ export interface CheckpointGetOutput {
 export interface CheckpointListInput {
   taskId: string;
   limit?: number;
+  iterationNumber?: number;
+  hasIteration?: boolean;
 }
 
 export interface CheckpointListOutput {

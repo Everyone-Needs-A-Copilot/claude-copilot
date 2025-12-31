@@ -79,7 +79,13 @@ export function checkpointCreate(
     draft_type: input.draftType || null,
     subtask_states: JSON.stringify(subtaskStates),
     created_at: now,
-    expires_at: expiresAt
+    expires_at: expiresAt,
+    // Ralph Wiggum iteration fields
+    iteration_config: input.iterationConfig ? JSON.stringify(input.iterationConfig) : null,
+    iteration_number: input.iterationNumber ?? 0,
+    iteration_history: '[]',
+    completion_promises: '[]',
+    validation_state: null
   });
 
   // Prune old checkpoints if exceeding max
@@ -177,6 +183,28 @@ export function checkpointResume(
     : null;
   const subtaskStates = JSON.parse(checkpoint.subtask_states) as Array<{ id: string; status: string }>;
 
+  // Parse Ralph Wiggum iteration fields
+  const iterationConfig = checkpoint.iteration_config
+    ? JSON.parse(checkpoint.iteration_config)
+    : null;
+  const iterationHistory = JSON.parse(checkpoint.iteration_history) as Array<{
+    iteration: number;
+    timestamp: string;
+    validationResult: {
+      passed: boolean;
+      flags: Array<{
+        ruleId: string;
+        message: string;
+        severity: string;
+      }>;
+    };
+    checkpointId: string;
+  }>;
+  const completionPromises = JSON.parse(checkpoint.completion_promises) as string[];
+  const validationState = checkpoint.validation_state
+    ? JSON.parse(checkpoint.validation_state)
+    : null;
+
   // Calculate subtask summary
   const subtaskSummary = {
     total: subtaskStates.length,
@@ -203,7 +231,13 @@ export function checkpointResume(
       ? checkpoint.draft_content.substring(0, 200) + (checkpoint.draft_content.length > 200 ? '...' : '')
       : null,
     subtaskSummary,
-    resumeInstructions
+    resumeInstructions,
+    // Ralph Wiggum iteration state
+    iterationConfig,
+    iterationNumber: checkpoint.iteration_number,
+    iterationHistory,
+    completionPromises,
+    validationState
   };
 }
 
@@ -214,7 +248,12 @@ export function checkpointList(
   db: DatabaseClient,
   input: CheckpointListInput
 ): CheckpointListOutput {
-  const checkpoints = db.listCheckpoints(input.taskId, input.limit || 5);
+  const checkpoints = db.listCheckpoints(
+    input.taskId,
+    input.limit || 5,
+    input.iterationNumber,
+    input.hasIteration
+  );
 
   return {
     taskId: input.taskId,

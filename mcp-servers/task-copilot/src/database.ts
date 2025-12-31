@@ -145,6 +145,19 @@ CREATE INDEX IF NOT EXISTS idx_checkpoints_task ON checkpoints(task_id, sequence
 CREATE INDEX IF NOT EXISTS idx_checkpoints_expires ON checkpoints(expires_at);
 `;
 
+// Migration SQL for version 4: Ralph Wiggum Iteration Support
+const MIGRATION_V4_SQL = `
+-- Add iteration support columns to checkpoints table
+ALTER TABLE checkpoints ADD COLUMN iteration_config TEXT DEFAULT NULL;
+ALTER TABLE checkpoints ADD COLUMN iteration_number INTEGER DEFAULT 0;
+ALTER TABLE checkpoints ADD COLUMN iteration_history TEXT DEFAULT '[]';
+ALTER TABLE checkpoints ADD COLUMN completion_promises TEXT DEFAULT '[]';
+ALTER TABLE checkpoints ADD COLUMN validation_state TEXT DEFAULT NULL;
+
+-- Index for efficient iteration queries
+CREATE INDEX IF NOT EXISTS idx_checkpoints_iteration ON checkpoints(task_id, iteration_number DESC);
+`;
+
 const MIGRATION_TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS migrations (
   version INTEGER PRIMARY KEY,
@@ -152,7 +165,7 @@ CREATE TABLE IF NOT EXISTS migrations (
 );
 `;
 
-const CURRENT_VERSION = 3;
+const CURRENT_VERSION = 4;
 
 export class DatabaseClient {
   private db: Database.Database;
@@ -216,6 +229,15 @@ export class DatabaseClient {
       this.db.exec(MIGRATION_V3_SQL);
       this.db.prepare('INSERT INTO migrations (version, applied_at) VALUES (?, ?)').run(
         3,
+        new Date().toISOString()
+      );
+    }
+
+    // Migration v4: Ralph Wiggum Iteration Support
+    if (currentVersion < 4) {
+      this.db.exec(MIGRATION_V4_SQL);
+      this.db.prepare('INSERT INTO migrations (version, applied_at) VALUES (?, ?)').run(
+        4,
         new Date().toISOString()
       );
     }
@@ -603,8 +625,9 @@ export class DatabaseClient {
       INSERT INTO checkpoints (
         id, task_id, sequence, trigger, task_status, task_notes, task_metadata,
         blocked_reason, assigned_agent, execution_phase, execution_step,
-        agent_context, draft_content, draft_type, subtask_states, created_at, expires_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        agent_context, draft_content, draft_type, subtask_states, created_at, expires_at,
+        iteration_config, iteration_number, iteration_history, completion_promises, validation_state
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       checkpoint.id,
       checkpoint.task_id,
@@ -622,7 +645,12 @@ export class DatabaseClient {
       checkpoint.draft_type,
       checkpoint.subtask_states,
       checkpoint.created_at,
-      checkpoint.expires_at
+      checkpoint.expires_at,
+      checkpoint.iteration_config,
+      checkpoint.iteration_number,
+      checkpoint.iteration_history,
+      checkpoint.completion_promises,
+      checkpoint.validation_state
     );
   }
 
@@ -636,9 +664,33 @@ export class DatabaseClient {
     ).get(taskId) as CheckpointRow | undefined;
   }
 
-  listCheckpoints(taskId: string, limit?: number): CheckpointRow[] {
-    const sql = `SELECT * FROM checkpoints WHERE task_id = ? ORDER BY sequence DESC ${limit ? `LIMIT ${limit}` : ''}`;
-    return this.db.prepare(sql).all(taskId) as CheckpointRow[];
+  listCheckpoints(
+    taskId: string,
+    limit?: number,
+    iterationNumber?: number,
+    hasIteration?: boolean
+  ): CheckpointRow[] {
+    const whereClauses: string[] = ['task_id = ?'];
+    const params: (string | number)[] = [taskId];
+
+    // Add iteration number filter
+    if (iterationNumber !== undefined) {
+      whereClauses.push('iteration_number = ?');
+      params.push(iterationNumber);
+    }
+
+    // Add hasIteration filter
+    if (hasIteration !== undefined) {
+      if (hasIteration) {
+        whereClauses.push('iteration_config IS NOT NULL');
+      } else {
+        whereClauses.push('iteration_config IS NULL');
+      }
+    }
+
+    const whereClause = whereClauses.join(' AND ');
+    const sql = `SELECT * FROM checkpoints WHERE ${whereClause} ORDER BY sequence DESC ${limit ? `LIMIT ${limit}` : ''}`;
+    return this.db.prepare(sql).all(...params) as CheckpointRow[];
   }
 
   getNextCheckpointSequence(taskId: string): number {
@@ -696,9 +748,110 @@ export class DatabaseClient {
     return result.changes;
   }
 
+  updateCheckpointIteration(
+    id: string,
+    iterationNumber: number,
+    iterationHistory: string,
+    validationState: string | null
+  ): void {
+    this.db.prepare(`
+      UPDATE checkpoints
+      SET iteration_number = ?,
+          iteration_history = ?,
+          validation_state = ?
+      WHERE id = ?
+    `).run(iterationNumber, iterationHistory, validationState, id);
+  }
+
   getTotalCheckpointCount(): number {
     const result = this.db.prepare('SELECT COUNT(*) as count FROM checkpoints').get() as { count: number };
     return result.count;
+  }
+
+  // ============================================================================
+  // ITERATION METRICS (for performance tracking)
+  // ============================================================================
+
+  /**
+   * Get all iteration checkpoints for performance analysis
+   */
+  getIterationCheckpoints(options: {
+    agentId?: string;
+    sinceDays?: number;
+  }): CheckpointRow[] {
+    let sql = `
+      SELECT c.*
+      FROM checkpoints c
+      JOIN tasks t ON c.task_id = t.id
+      WHERE c.iteration_config IS NOT NULL
+    `;
+    const params: unknown[] = [];
+
+    if (options.agentId) {
+      sql += ' AND t.assigned_agent = ?';
+      params.push(options.agentId);
+    }
+
+    if (options.sinceDays) {
+      const sinceDate = new Date();
+      sinceDate.setDate(sinceDate.getDate() - options.sinceDays);
+      sql += ' AND c.created_at >= ?';
+      params.push(sinceDate.toISOString());
+    }
+
+    sql += ' ORDER BY c.created_at DESC';
+
+    return this.db.prepare(sql).all(...params) as CheckpointRow[];
+  }
+
+  /**
+   * Get iteration statistics for a specific agent
+   */
+  getIterationStats(agentId?: string, sinceDays?: number): {
+    totalSessions: number;
+    completedSessions: number;
+    totalIterations: number;
+    avgIterationsPerSession: number;
+  } {
+    let sql = `
+      SELECT
+        COUNT(DISTINCT c.id) as totalSessions,
+        SUM(CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END) as completedSessions,
+        SUM(c.iteration_number) as totalIterations
+      FROM checkpoints c
+      JOIN tasks t ON c.task_id = t.id
+      WHERE c.iteration_config IS NOT NULL
+    `;
+    const params: unknown[] = [];
+
+    if (agentId) {
+      sql += ' AND t.assigned_agent = ?';
+      params.push(agentId);
+    }
+
+    if (sinceDays) {
+      const sinceDate = new Date();
+      sinceDate.setDate(sinceDate.getDate() - sinceDays);
+      sql += ' AND c.created_at >= ?';
+      params.push(sinceDate.toISOString());
+    }
+
+    const result = this.db.prepare(sql).get(...params) as {
+      totalSessions: number;
+      completedSessions: number;
+      totalIterations: number;
+    };
+
+    const avgIterationsPerSession = result.totalSessions > 0
+      ? result.totalIterations / result.totalSessions
+      : 0;
+
+    return {
+      totalSessions: result.totalSessions || 0,
+      completedSessions: result.completedSessions || 0,
+      totalIterations: result.totalIterations || 0,
+      avgIterationsPerSession
+    };
   }
 
   close(): void {

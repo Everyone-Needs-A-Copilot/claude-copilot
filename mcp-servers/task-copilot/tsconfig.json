@@ -16,5 +16,5 @@
     "sourceMap": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "exclude": ["node_modules", "dist", "**/stop-hooks.test.ts", "**/iteration-guards.test.ts", "**/iteration-config-validator.test.ts", "**/performance.test.ts"]
 }

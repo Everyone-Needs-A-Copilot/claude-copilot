@@ -1,0 +1,381 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://claude-copilot.dev/schemas/iteration-config.schema.json",
+  "title": "Iteration Configuration Schema",
+  "description": "Schema for validating iteration hook configurations in Ralph Wiggum integration",
+  "type": "object",
+  "required": ["maxIterations", "completionPromises"],
+  "properties": {
+    "maxIterations": {
+      "type": "integer",
+      "description": "Maximum number of iterations allowed before circuit breaker triggers",
+      "minimum": 1,
+      "maximum": 100,
+      "examples": [15, 10, 8]
+    },
+    "completionPromises": {
+      "type": "array",
+      "description": "Array of completion promise strings that signal iteration completion",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "pattern": "^<promise>[A-Z]+</promise>$",
+        "examples": [
+          "<promise>COMPLETE</promise>",
+          "<promise>BLOCKED</promise>",
+          "<promise>ESCALATE</promise>"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "validationRules": {
+      "type": "array",
+      "description": "Array of validation rules to execute each iteration",
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/definitions/commandRule"
+          },
+          {
+            "$ref": "#/definitions/contentPatternRule"
+          },
+          {
+            "$ref": "#/definitions/coverageRule"
+          },
+          {
+            "$ref": "#/definitions/fileExistenceRule"
+          },
+          {
+            "$ref": "#/definitions/customRule"
+          }
+        ]
+      }
+    },
+    "circuitBreakerThreshold": {
+      "type": "integer",
+      "description": "Number of consecutive validation failures before triggering circuit breaker",
+      "minimum": 1,
+      "maximum": 20,
+      "default": 3
+    }
+  },
+  "definitions": {
+    "baseRule": {
+      "type": "object",
+      "required": ["type", "name"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Type of validation rule"
+        },
+        "name": {
+          "type": "string",
+          "description": "Unique identifier for the rule",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "config": {
+          "type": "object",
+          "description": "Configuration object specific to the rule type"
+        }
+      }
+    },
+    "commandRule": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/baseRule"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "command"
+            },
+            "config": {
+              "type": "object",
+              "required": ["command"],
+              "properties": {
+                "command": {
+                  "type": "string",
+                  "description": "Shell command to execute",
+                  "minLength": 1,
+                  "examples": [
+                    "npm test",
+                    "tsc --noEmit",
+                    "npm run lint"
+                  ]
+                },
+                "expectedExitCode": {
+                  "type": "integer",
+                  "description": "Expected exit code for success",
+                  "default": 0,
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "successExitCodes": {
+                  "type": "array",
+                  "description": "Array of acceptable exit codes (alternative to expectedExitCode)",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 255
+                  },
+                  "uniqueItems": true
+                },
+                "timeout": {
+                  "type": "integer",
+                  "description": "Command timeout in milliseconds",
+                  "minimum": 1000,
+                  "maximum": 600000,
+                  "default": 60000
+                },
+                "workingDirectory": {
+                  "type": "string",
+                  "description": "Working directory for command execution"
+                },
+                "env": {
+                  "type": "object",
+                  "description": "Environment variables for command",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "contentPatternRule": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/baseRule"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "content_pattern"
+            },
+            "config": {
+              "type": "object",
+              "required": ["pattern", "target"],
+              "properties": {
+                "pattern": {
+                  "type": "string",
+                  "description": "Regular expression pattern to match",
+                  "minLength": 1,
+                  "examples": [
+                    "<promise>COMPLETE</promise>",
+                    "^#{1,3}\\s+.+$",
+                    "```[\\s\\S]*?```"
+                  ]
+                },
+                "target": {
+                  "type": "string",
+                  "enum": ["agent_output", "task_notes", "work_product_latest"],
+                  "description": "Where to look for the pattern"
+                },
+                "flags": {
+                  "type": "string",
+                  "description": "Regular expression flags (e.g., 'i', 'm', 'g')",
+                  "pattern": "^[gimsuvy]*$",
+                  "examples": ["i", "m", "im"]
+                },
+                "mustMatch": {
+                  "type": "boolean",
+                  "description": "If true, pattern must match. If false, pattern must NOT match.",
+                  "default": true
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "coverageRule": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/baseRule"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "coverage"
+            },
+            "config": {
+              "type": "object",
+              "required": ["minCoverage", "format"],
+              "properties": {
+                "minCoverage": {
+                  "type": "number",
+                  "description": "Minimum coverage percentage required",
+                  "minimum": 0,
+                  "maximum": 100,
+                  "examples": [80, 90, 75]
+                },
+                "format": {
+                  "type": "string",
+                  "enum": ["lcov", "json", "cobertura"],
+                  "description": "Coverage report format"
+                },
+                "reportPath": {
+                  "type": "string",
+                  "description": "Path to coverage report file",
+                  "examples": [
+                    "coverage/lcov.info",
+                    "coverage/coverage-final.json",
+                    "coverage/cobertura-coverage.xml"
+                  ]
+                },
+                "scope": {
+                  "type": "string",
+                  "enum": ["lines", "branches", "functions", "statements"],
+                  "description": "Coverage metric to evaluate",
+                  "default": "lines"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "fileExistenceRule": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/baseRule"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "file_existence"
+            },
+            "config": {
+              "type": "object",
+              "required": ["paths"],
+              "properties": {
+                "paths": {
+                  "type": "array",
+                  "description": "Array of file paths to check",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "examples": [
+                    ["src/index.ts", "src/types.ts"],
+                    ["README.md"],
+                    [".github/workflows/ci.yml"]
+                  ]
+                },
+                "allMustExist": {
+                  "type": "boolean",
+                  "description": "If true, all paths must exist. If false, at least one must exist.",
+                  "default": true
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "customRule": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/baseRule"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "custom"
+            },
+            "config": {
+              "type": "object",
+              "required": ["validatorId"],
+              "properties": {
+                "validatorId": {
+                  "type": "string",
+                  "description": "Identifier of the registered custom validator",
+                  "minLength": 1,
+                  "maxLength": 100,
+                  "pattern": "^[a-zA-Z0-9_-]+$"
+                }
+              },
+              "additionalProperties": true
+            }
+          }
+        }
+      ]
+    }
+  },
+  "examples": [
+    {
+      "maxIterations": 15,
+      "completionPromises": [
+        "<promise>COMPLETE</promise>",
+        "<promise>BLOCKED</promise>"
+      ],
+      "validationRules": [
+        {
+          "type": "command",
+          "name": "tests_pass",
+          "config": {
+            "command": "npm test",
+            "expectedExitCode": 0,
+            "timeout": 120000
+          }
+        },
+        {
+          "type": "command",
+          "name": "compiles",
+          "config": {
+            "command": "tsc --noEmit",
+            "timeout": 60000
+          }
+        },
+        {
+          "type": "content_pattern",
+          "name": "promise_complete",
+          "config": {
+            "pattern": "<promise>COMPLETE</promise>",
+            "target": "agent_output",
+            "mustMatch": false
+          }
+        }
+      ],
+      "circuitBreakerThreshold": 3
+    },
+    {
+      "maxIterations": 10,
+      "completionPromises": [
+        "<promise>COMPLETE</promise>"
+      ],
+      "validationRules": [
+        {
+          "type": "coverage",
+          "name": "coverage_threshold",
+          "config": {
+            "minCoverage": 80,
+            "format": "lcov",
+            "reportPath": "coverage/lcov.info",
+            "scope": "lines"
+          }
+        },
+        {
+          "type": "file_existence",
+          "name": "test_files_created",
+          "config": {
+            "paths": [
+              "src/feature.test.ts"
+            ],
+            "allMustExist": true
+          }
+        }
+      ],
+      "circuitBreakerThreshold": 5
+    }
+  ]
+}
