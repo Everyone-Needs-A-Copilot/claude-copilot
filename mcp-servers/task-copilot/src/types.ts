@@ -40,9 +40,26 @@ export interface Task {
   status: TaskStatus;
   blockedReason?: string;
   notes?: string;
-  metadata: Record<string, unknown>;
+  metadata: TaskMetadata;
   createdAt: string;
   updatedAt: string;
+}
+
+// Task Metadata with Stream Support
+export interface TaskMetadata extends Record<string, unknown> {
+  // Existing metadata fields
+  complexity?: 'Low' | 'Medium' | 'High' | 'Very High';
+  priority?: string;
+  dependencies?: string[];
+  acceptanceCriteria?: string[];
+  phase?: string;
+
+  // Stream metadata (Command Arguments & Independent Streams)
+  streamId?: string;          // Auto-generated: "Stream-A", "Stream-B", etc.
+  streamName?: string;         // Human-readable: "foundation", "auth-api", etc.
+  streamPhase?: 'foundation' | 'parallel' | 'integration';
+  files?: string[];            // File paths this task will touch
+  streamDependencies?: string[]; // Other streamIds this depends on
 }
 
 // Work Product
@@ -145,7 +162,7 @@ export interface TaskCreateInput {
   prdId?: string;
   parentId?: string;
   assignedAgent?: string;
-  metadata?: Record<string, unknown>;
+  metadata?: TaskMetadata;
 }
 
 export interface TaskUpdateInput {
@@ -154,7 +171,7 @@ export interface TaskUpdateInput {
   assignedAgent?: string;
   notes?: string;
   blockedReason?: string;
-  metadata?: Record<string, unknown>;
+  metadata?: TaskMetadata;
 }
 
 export interface TaskGetInput {
@@ -664,5 +681,63 @@ export interface AgentChainGetOutput {
     type: WorkProductType;
     title: string;
     agent: string;
+  }>;
+}
+
+// ============================================================================
+// STREAM TYPES (Command Arguments & Independent Streams)
+// ============================================================================
+
+export interface StreamListInput {
+  initiativeId?: string;
+  prdId?: string;
+}
+
+export interface StreamInfo {
+  streamId: string;
+  streamName: string;
+  streamPhase: 'foundation' | 'parallel' | 'integration';
+  totalTasks: number;
+  completedTasks: number;
+  inProgressTasks: number;
+  blockedTasks: number;
+  pendingTasks: number;
+  files: string[];
+  dependencies: string[];
+}
+
+export interface StreamListOutput {
+  streams: StreamInfo[];
+}
+
+export interface StreamGetInput {
+  streamId: string;
+  initiativeId?: string;
+}
+
+export interface StreamGetOutput {
+  streamId: string;
+  streamName: string;
+  streamPhase: 'foundation' | 'parallel' | 'integration';
+  tasks: Task[];
+  dependencies: string[];
+  status: 'pending' | 'in_progress' | 'completed' | 'blocked';
+}
+
+export interface StreamConflictCheckInput {
+  files: string[];
+  excludeStreamId?: string;
+  initiativeId?: string;
+}
+
+export interface StreamConflictCheckOutput {
+  hasConflict: boolean;
+  conflicts: Array<{
+    file: string;
+    streamId: string;
+    streamName: string;
+    taskId: string;
+    taskTitle: string;
+    taskStatus: TaskStatus;
   }>;
 }

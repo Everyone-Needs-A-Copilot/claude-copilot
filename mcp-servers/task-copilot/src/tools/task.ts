@@ -11,10 +11,12 @@ import type {
   TaskListInput,
   TaskRow,
   TaskStatus,
+  TaskMetadata,
   PerformanceRow,
   PerformanceOutcome,
   CheckpointTrigger,
 } from '../types.js';
+import { validateStreamDependencies } from './stream.js';
 
 export async function taskCreate(
   db: DatabaseClient,
@@ -24,6 +26,42 @@ export async function taskCreate(
   const id = `TASK-${uuidv4()}`;
 
   const metadata = input.metadata || {};
+
+  // Validate stream dependencies if streamId and streamDependencies are provided
+  if (metadata.streamId && metadata.streamDependencies && Array.isArray(metadata.streamDependencies)) {
+    const typedMetadata = metadata as TaskMetadata;
+
+    // Build map of existing stream dependencies
+    const allStreams = new Map<string, string[]>();
+
+    // Query existing tasks with stream metadata
+    const sql = `
+      SELECT metadata
+      FROM tasks
+      WHERE json_extract(metadata, '$.streamId') IS NOT NULL
+    `;
+    const existingTasks = db.getDb().prepare(sql).all() as Array<{ metadata: string }>;
+
+    for (const taskRow of existingTasks) {
+      const taskMeta = JSON.parse(taskRow.metadata) as TaskMetadata;
+      if (taskMeta.streamId) {
+        allStreams.set(taskMeta.streamId, taskMeta.streamDependencies || []);
+      }
+    }
+
+    // Validate the new task's dependencies
+    // Use metadata.streamId directly (already narrowed by the if check above)
+    const error = validateStreamDependencies(
+      metadata.streamId as string,
+      metadata.streamDependencies as string[],
+      allStreams
+    );
+
+    if (error) {
+      throw new Error(error);
+    }
+  }
+
   const task: TaskRow = {
     id,
     prd_id: input.prdId || null,

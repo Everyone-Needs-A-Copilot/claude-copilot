@@ -20,6 +20,7 @@ import { initiativeLink, initiativeArchive, initiativeWipe, progressSummary } fr
 import { agentPerformanceGet } from './tools/performance.js';
 import { checkpointCreate, checkpointGet, checkpointResume, checkpointList, checkpointCleanup } from './tools/checkpoint.js';
 import { iterationStart, iterationValidate, iterationNext, iterationComplete } from './tools/iteration.js';
+import { streamList, streamGet, streamConflictCheck } from './tools/stream.js';
 import {
   evaluateStopHooks,
   createDefaultHook,
@@ -56,6 +57,9 @@ import type {
   SessionGuardInput,
   AgentHandoffInput,
   AgentChainGetInput,
+  StreamListInput,
+  StreamGetInput,
+  StreamConflictCheckInput,
   TaskStatus,
   PrdStatus,
   WorkProductType,
@@ -641,6 +645,43 @@ const TOOLS = [
       },
       required: ['taskId']
     }
+  },
+  // Stream Tools (Command Arguments & Independent Streams)
+  {
+    name: 'stream_list',
+    description: 'List all work streams for an initiative. Groups tasks by streamId and returns status for each stream.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        initiativeId: { type: 'string', description: 'Filter by initiative ID (default: current initiative)' },
+        prdId: { type: 'string', description: 'Filter by PRD ID' }
+      }
+    }
+  },
+  {
+    name: 'stream_get',
+    description: 'Get all tasks for a specific stream by streamId',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        streamId: { type: 'string', description: 'Stream ID (e.g., "Stream-A", "Stream-B")' },
+        initiativeId: { type: 'string', description: 'Filter by initiative ID (optional)' }
+      },
+      required: ['streamId']
+    }
+  },
+  {
+    name: 'stream_conflict_check',
+    description: 'Check if files are already being worked on by other streams. Use before starting work to detect conflicts.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        files: { type: 'array', items: { type: 'string' }, description: 'File paths to check' },
+        excludeStreamId: { type: 'string', description: 'Exclude tasks from this stream (optional)' },
+        initiativeId: { type: 'string', description: 'Filter by initiative ID (optional)' }
+      },
+      required: ['files']
+    }
   }
 ];
 
@@ -1050,6 +1091,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           taskId: a.taskId as string
         });
         return { content: [{ type: 'text', text: result ? JSON.stringify(result) : 'Task not found' }] };
+      }
+
+      // Stream Tools
+      case 'stream_list': {
+        const result = streamList(db, {
+          initiativeId: a.initiativeId as string | undefined,
+          prdId: a.prdId as string | undefined
+        });
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+      }
+
+      case 'stream_get': {
+        const result = streamGet(db, {
+          streamId: a.streamId as string,
+          initiativeId: a.initiativeId as string | undefined
+        });
+        return { content: [{ type: 'text', text: result ? JSON.stringify(result) : 'Stream not found' }] };
+      }
+
+      case 'stream_conflict_check': {
+        const result = streamConflictCheck(db, {
+          files: a.files as string[],
+          excludeStreamId: a.excludeStreamId as string | undefined,
+          initiativeId: a.initiativeId as string | undefined
+        });
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
       default:

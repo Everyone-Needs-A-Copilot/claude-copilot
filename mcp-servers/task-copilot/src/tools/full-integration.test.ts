@@ -256,7 +256,7 @@ async function testTaskCreate(): Promise<void> {
       prdId: prd.id,
       assignedAgent: '@agent-me',
       metadata: {
-        complexity: 'medium',
+        complexity: 'Medium',
         priority: 'P0',
         acceptanceCriteria: [
           'Endpoint accepts email and password',
@@ -278,7 +278,7 @@ async function testTaskCreate(): Promise<void> {
     const fullTask = taskGet(db, { id: result.id });
     assert(fullTask!.title === input.title, 'Task title should match');
     assert(fullTask!.assignedAgent === '@agent-me', 'Agent should be assigned');
-    assert(fullTask!.metadata.complexity === 'medium', 'Metadata should be preserved');
+    assert(fullTask!.metadata.complexity === 'Medium', 'Metadata should be preserved');
 
     console.log(`  ✓ Created task: ${result.id}`);
     console.log(`  ✓ Assigned to: ${fullTask!.assignedAgent}`);

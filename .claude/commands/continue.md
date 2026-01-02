@@ -2,6 +2,62 @@
 
 Resume a conversation by loading context from Memory Copilot and Task Copilot.
 
+## Command Argument Handling
+
+This command supports an optional stream name argument for resuming work on specific parallel streams:
+
+**Usage:**
+- `/continue` - Interactive mode (resume main initiative or select from streams)
+- `/continue Stream-B` - Resume work on specific stream directly
+
+**Auto-Detection Logic:**
+When a stream argument is provided:
+
+1. **Query stream details**:
+   ```
+   stream_get({ streamId: "Stream-B" })
+   ```
+
+2. **Load stream context** (~200 tokens):
+   - Stream name and phase
+   - Total/completed/in-progress/blocked tasks
+   - Files touched by stream
+   - Stream dependencies
+   - Next incomplete task
+
+3. **Begin work immediately**:
+   - Identify next pending/blocked task
+   - Invoke appropriate agent with task ID
+   - Skip interactive selection
+
+**When no argument provided:**
+
+1. **Check for streams** in current initiative:
+   ```
+   stream_list()
+   ```
+
+2. **If streams exist**, present formatted list:
+   ```
+   Available streams:
+
+   1. Stream-A (foundation) - 4/4 tasks complete ✓
+   2. Stream-B (command-updates) - 1/2 tasks complete
+   3. Stream-C (agent-updates) - 0/3 tasks pending
+
+   Select stream [1-3] or press Enter to resume main initiative:
+   ```
+
+3. **If no streams**, proceed with standard resume flow
+
+4. **After selection**:
+   - Load selected stream context
+   - Identify next task
+   - Begin work
+
+**When no streams or user selects main**:
+- Follow standard resume protocol (load initiative, show status, ask what to work on)
+
 ## Step 1: Load Context (Slim)
 
 Load minimal context to preserve token budget:

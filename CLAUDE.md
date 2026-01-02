@@ -106,9 +106,13 @@ Ask yourself:
 | `/update-project` | Sync project with latest framework | Project | Project root |
 | `/update-copilot` | Update framework itself | Machine | `~/.claude/copilot` |
 | `/knowledge-copilot` | Create shared knowledge repo | Machine/Team | Any directory |
-| `/protocol` | Start fresh work session | Session | Project root |
-| `/continue` | Resume previous work | Session | Project root |
+| `/protocol [task]` | Start fresh work session | Session | Project root |
+| `/continue [stream]` | Resume previous work | Session | Project root |
 | `/memory` | View memory state and recent activity | Session | Project root |
+
+**Command Arguments (optional):**
+- `/protocol <task>` - Auto-detect task type and route to agent (e.g., `/protocol fix the login bug`)
+- `/continue <stream>` - Resume specific parallel stream (e.g., `/continue Stream-B`)
 
 ### Agent Selection Matrix
 
@@ -127,9 +131,10 @@ Ask yourself:
 
 | I want to... | Start with | Next Step |
 |--------------|------------|-----------|
-| Fix a bug | `/protocol` select DEFECT | Follow Agent-First Protocol |
-| Build a feature | `/protocol` select EXPERIENCE/FEATURE | Agent routes automatically |
+| Fix a bug | `/protocol fix the login bug` | Auto-routes to @agent-qa |
+| Build a feature | `/protocol add dark mode UI` | Auto-routes to @agent-sd |
 | Resume yesterday's work | `/continue` | Memory loads automatically |
+| Resume specific stream | `/continue Stream-B` | Loads stream context directly |
 | View memory state | `/memory` | See current initiative & recent activity |
 | Set up team standards | `/knowledge-copilot` | Create extension repository |
 | Initialize new project | `/setup-project` | Framework installs |
@@ -262,6 +267,14 @@ MCP server for ephemeral PRD, task, and work product storage.
 | `progress_summary` | Get compact progress overview (~200 tokens) |
 | `initiative_link` | Link Memory Copilot initiative to Task Copilot |
 
+**Stream Management:**
+
+| Tool | Purpose |
+|------|---------|
+| `stream_list` | List all independent work streams in initiative |
+| `stream_get` | Get detailed info for specific stream (~200 tokens) |
+| `stream_conflict_check` | Check if files conflict with other streams |
+
 **Agent Collaboration (Hierarchical Handoffs):**
 
 | Tool | Purpose |
@@ -318,6 +331,7 @@ MCP server for ephemeral PRD, task, and work product storage.
 - **Checkpoint System**: Create recovery points during long-running tasks; auto-expires after 24h (manual: 7d)
 - **Validation System**: Validates work products for size limits, required structure, completeness before storage
 - **Token Efficiency**: Validation enforces character/token limits to prevent context bloat (warn/reject modes)
+- **Independent Streams**: Parallel work streams with file conflict detection and dependency management (foundation → parallel → integration)
 
 ### 5. Protocol
 
@@ -332,9 +346,16 @@ Commands enforcing battle-tested workflows.
 | `/update-project` | User | Update existing project with latest Claude Copilot |
 | `/update-copilot` | User | Update Claude Copilot itself (pull + rebuild) |
 | `/knowledge-copilot` | User | Build or link shared knowledge repository |
-| `/protocol` | Project | Start fresh work with Agent-First Protocol |
-| `/continue` | Project | Resume previous work via Memory Copilot |
+| `/protocol [task]` | Project | Start fresh work with Agent-First Protocol |
+| `/continue [stream]` | Project | Resume previous work via Memory Copilot |
 | `/memory` | Project | View current memory state and recent activity |
+
+**Quick Start Examples:**
+```
+/protocol fix login authentication bug        → Auto-routes to @agent-qa
+/protocol add dark mode to dashboard          → Auto-routes to @agent-sd
+/continue Stream-B                            → Resume parallel stream work
+```
 
 ---
 

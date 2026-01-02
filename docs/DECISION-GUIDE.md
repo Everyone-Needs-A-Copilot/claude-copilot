@@ -44,9 +44,13 @@ A comprehensive guide to help you choose the right tools, commands, agents, and 
 | Update project files | `/update-project` | After framework updates | Project root |
 | Update framework itself | `/update-copilot` | When new version available | Any directory |
 | Create team knowledge | `/knowledge-copilot` | Once per team/company | Any directory |
-| Start fresh work | `/protocol` | Each work session | Project root |
-| Resume previous work | `/continue` | When returning to work | Project root |
+| Start fresh work | `/protocol [task]` | Each work session | Project root |
+| Resume previous work | `/continue [stream]` | When returning to work | Project root |
 | Verify MCP servers | `/mcp` | After setup, troubleshooting | Project root |
+
+**Command Arguments:**
+- `/protocol <task>` - Auto-detect task type and route to agent (e.g., `/protocol fix the login bug`)
+- `/continue <stream>` - Resume specific parallel stream (e.g., `/continue Stream-B`)
 
 ### Setup Command Flowchart
 
@@ -138,8 +142,9 @@ Do you need to customize agent behavior?
 
 | Situation | Use | Why |
 |-----------|-----|-----|
-| Brand new task | `/protocol` | Classify and route to expert |
+| Brand new task | `/protocol` or `/protocol <task>` | Classify and route to expert |
 | Continuing yesterday's work | `/continue` | Load context from memory |
+| Resume specific parallel stream | `/continue <stream>` | Jump directly to stream work |
 | Quick question | Just ask | No need for protocol |
 | Exploring ideas | Just ask | Protocol is for execution |
 | Complex multi-step task | `/protocol` | Agent expertise needed |
@@ -184,6 +189,61 @@ Do you need to customize agent behavior?
 | API standards | Knowledge | Team standard |
 | Deployment process | Skills | Reusable workflow |
 | Why we chose X | Memory | Project context |
+
+---
+
+## Stream Management Decisions
+
+### When to Use Streams
+
+| Scenario | Use Streams? | Why |
+|----------|--------------|-----|
+| Single developer, sequential work | No | Standard task flow is simpler |
+| Multiple parallel work areas | Yes | Prevent file conflicts |
+| Large feature with independent components | Yes | Parallel development |
+| Bug fix while feature in progress | Yes | Isolate changes |
+| Foundation → parallel → integration workflow | Yes | Enforce dependencies |
+
+### Stream Pattern
+
+**Foundation Phase:**
+- Stream-A: Core infrastructure that parallel work depends on
+- Example: Schema changes, base types, shared utilities
+
+**Parallel Phase:**
+- Stream-B, Stream-C, Stream-D: Independent work streams
+- Each touches different files
+- Can run simultaneously in separate Claude Code sessions
+- Example: Stream-B (API endpoints), Stream-C (UI components), Stream-D (tests)
+
+**Integration Phase:**
+- Stream-Z: Combines parallel streams
+- Example: Documentation, final validation, release prep
+
+### Stream Tools Usage
+
+| Tool | When to Use | Example |
+|------|-------------|---------|
+| `stream_list()` | View all streams in initiative | See progress across parallel work |
+| `stream_get({ streamId })` | Get detailed stream info | Check Stream-B status before resuming |
+| `stream_conflict_check({ files, excludeStreamId })` | Before creating tasks | Ensure no file conflicts with other streams |
+
+### Stream Metadata in Tasks
+
+When creating tasks with streams, include:
+
+```typescript
+metadata: {
+  streamId: "Stream-B",           // Auto-generated ID
+  streamName: "command-updates",  // Human-readable name
+  streamPhase: "parallel",        // foundation | parallel | integration
+  files: [                        // Files this task will modify
+    "path/to/file1.ts",
+    "path/to/file2.md"
+  ],
+  streamDependencies: ["Stream-A"] // Must complete before this stream
+}
+```
 
 ---
 

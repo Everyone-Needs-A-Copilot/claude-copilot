@@ -134,8 +134,10 @@ Then run:
 ### 4. Start Working
 
 ```bash
-/protocol    # Start fresh work
-/continue    # Resume where you left off
+/protocol                            # Start fresh work (interactive)
+/protocol fix the login bug          # Quick start with auto-routing
+/continue                            # Resume where you left off
+/continue Stream-B                   # Resume specific parallel stream
 ```
 
 ### 5. (Optional) Shared Knowledge
@@ -173,12 +175,12 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 
 ## Commands
 
-| Command | Purpose |
-|---------|---------|
-| `/protocol` | Start work with Agent-First Protocol |
-| `/continue` | Resume from memory |
-| `/setup-project` | Initialize a new project |
-| `/knowledge-copilot` | Build shared knowledge |
+| Command | Purpose | Example |
+|---------|---------|---------|
+| `/protocol [task]` | Start work with Agent-First Protocol | `/protocol add dark mode` |
+| `/continue [stream]` | Resume from memory | `/continue Stream-B` |
+| `/setup-project` | Initialize a new project | |
+| `/knowledge-copilot` | Build shared knowledge | |
 
 ---
 

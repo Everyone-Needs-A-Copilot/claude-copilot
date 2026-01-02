@@ -9,6 +9,7 @@ MCP server providing PRD and task management for Claude Code.
 - **Work Products**: Store agent outputs (designs, implementations, reviews, etc.)
 - **Activity Log**: Automatic tracking of all changes
 - **Initiative Linking**: Lightweight connection to Memory Copilot initiatives
+- **Stream Management** (v1.7+): Independent parallel work streams with file conflict detection
 - **Performance Tracking** (v1.6+): Track agent success rates and completion rates by task type/complexity
 - **Checkpoint System** (v1.6+): Create recovery points during long-running tasks with auto-expiry
 - **Validation System** (v1.6+): Validate work products for size, structure, and completeness
@@ -149,7 +150,7 @@ Create task or subtask.
 - `prdId` (string): Parent PRD ID (optional)
 - `parentId` (string): Parent task ID for subtasks (optional)
 - `assignedAgent` (string): Assigned agent name
-- `metadata` (object): Optional metadata (complexity, priority, dependencies, acceptanceCriteria, phase)
+- `metadata` (object): Optional metadata (complexity, priority, dependencies, acceptanceCriteria, phase, streamId, streamName, streamPhase, files, streamDependencies)
 
 **Output:**
 ```json
@@ -384,6 +385,131 @@ Get high-level progress overview (optimized for minimal context usage).
   ]
 }
 ```
+
+### Stream Management Tools
+
+Independent work streams enable parallel development by multiple agents/sessions without file conflicts. Streams track which files each task modifies and validate dependencies.
+
+#### stream_list
+List all independent work streams in an initiative.
+
+**Input:**
+- `initiativeId` (string): Initiative ID (default: current)
+- `prdId` (string): Filter by PRD ID
+
+**Output:**
+```json
+{
+  "streams": [
+    {
+      "streamId": "Stream-A",
+      "streamName": "foundation",
+      "streamPhase": "foundation",
+      "totalTasks": 4,
+      "completedTasks": 4,
+      "inProgressTasks": 0,
+      "blockedTasks": 0,
+      "pendingTasks": 0,
+      "files": ["src/types.ts", "src/tools/stream.ts"],
+      "dependencies": []
+    },
+    {
+      "streamId": "Stream-B",
+      "streamName": "command-updates",
+      "streamPhase": "parallel",
+      "totalTasks": 2,
+      "completedTasks": 0,
+      "inProgressTasks": 1,
+      "blockedTasks": 0,
+      "pendingTasks": 1,
+      "files": [".claude/commands/protocol.md"],
+      "dependencies": ["Stream-A"]
+    }
+  ]
+}
+```
+
+#### stream_get
+Get detailed information for a specific stream.
+
+**Input:**
+- `streamId` (string, required): Stream ID (e.g., "Stream-B")
+- `initiativeId` (string): Initiative ID (default: current)
+
+**Output:**
+```json
+{
+  "streamId": "Stream-B",
+  "streamName": "command-updates",
+  "streamPhase": "parallel",
+  "tasks": [
+    {
+      "id": "TASK-xxx",
+      "title": "Update /protocol command",
+      "status": "in_progress",
+      "assignedAgent": "me"
+    }
+  ],
+  "dependencies": ["Stream-A"],
+  "status": "in_progress"
+}
+```
+
+#### stream_conflict_check
+Check if files are already being worked on by other streams to prevent conflicts.
+
+**Input:**
+- `files` (string[], required): File paths to check
+- `excludeStreamId` (string): Exclude tasks from this stream
+- `initiativeId` (string): Initiative ID (default: current)
+
+**Output:**
+```json
+{
+  "hasConflict": true,
+  "conflicts": [
+    {
+      "file": "src/types.ts",
+      "streamId": "Stream-A",
+      "streamName": "foundation",
+      "taskId": "TASK-123",
+      "taskTitle": "Add stream metadata types",
+      "taskStatus": "in_progress"
+    }
+  ]
+}
+```
+
+**Stream Metadata Schema:**
+
+Tasks can include stream metadata for parallel work coordination:
+
+```typescript
+metadata: {
+  streamId: "Stream-B",              // Auto-generated ID
+  streamName: "command-updates",     // Human-readable name
+  streamPhase: "parallel",           // foundation | parallel | integration
+  files: [                           // Files this task will modify
+    ".claude/commands/protocol.md",
+    ".claude/commands/continue.md"
+  ],
+  streamDependencies: ["Stream-A"]   // Must complete before this stream
+}
+```
+
+**Stream Phases:**
+
+| Phase | When | Dependencies |
+|-------|------|--------------|
+| `foundation` | First - shared infrastructure | None |
+| `parallel` | Independent work streams | Foundation complete |
+| `integration` | Combine parallel work | All parallel streams complete |
+
+**Use Cases:**
+- Multiple agents working simultaneously in separate Claude Code sessions
+- Prevent file conflicts by tracking which files each stream modifies
+- Enforce dependency order (foundation → parallel → integration)
+- Validate circular dependencies at task creation time
 
 ### Performance Tracking Tools
 

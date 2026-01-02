@@ -276,6 +276,10 @@ export class DatabaseClient {
     return this.workspaceId;
   }
 
+  getDb(): Database.Database {
+    return this.db;
+  }
+
   // Initiative operations
   upsertInitiative(initiative: InitiativeRow): void {
     this.db.prepare(`

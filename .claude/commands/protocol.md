@@ -2,6 +2,32 @@
 
 You are starting a new conversation. **The Agent-First Protocol is now active.**
 
+## Command Argument Handling
+
+This command supports an optional task description argument for quick task initiation:
+
+**Usage:**
+- `/protocol` - Interactive mode (select task type manually)
+- `/protocol fix the login bug` - Auto-detect and route based on keywords
+
+**Auto-Detection Logic:**
+When an argument is provided, auto-detect task type via keyword matching:
+
+| Task Type | Keywords | Agent to Invoke |
+|-----------|----------|-----------------|
+| DEFECT | bug, fix, broken, error, crash, issue, not working, failing | @agent-qa |
+| EXPERIENCE | UI, UX, feature, design, user, flow, modal, form, page, screen | @agent-sd |
+| TECHNICAL (default) | architecture, refactor, API, backend, database, performance, or anything else | @agent-ta |
+
+**When argument provided:**
+1. Parse task description from argument
+2. Auto-detect task type using keyword matching (case-insensitive)
+3. Immediately invoke appropriate agent with task description
+4. Skip interactive type selection
+
+**When no argument provided:**
+- Follow standard interactive protocol (no changes to existing behavior)
+
 ## CRITICAL: Token Efficiency Rules
 
 This framework exists to prevent context bloat. Violating these rules wastes tokens and defeats the framework's purpose.
