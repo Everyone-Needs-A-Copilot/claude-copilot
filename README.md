@@ -33,6 +33,7 @@ It's not separate software—it's markdown files (agents, commands, project inst
 | **Task Management** | PRDs, tasks, and work products with minimal context usage |
 | **Knowledge Search** | Your company docs, available in every project |
 | **Skills on Demand** | 25K+ patterns and best practices, loaded when needed |
+| **Context Engineering** | Auto-compaction, continuation enforcement, activation modes |
 
 When Claude Code reads these instructions, it transforms from a generic assistant into a full development team that remembers your work.
 
@@ -219,6 +220,7 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 | [Agents](docs/AGENTS.md) | All 12 specialists in detail |
 | [Configuration](docs/CONFIGURATION.md) | .mcp.json, environment variables |
 | [Customization](docs/CUSTOMIZATION.md) | Extensions, knowledge repos, private skills |
+| [Enhancement Features](docs/ENHANCEMENT-FEATURES.md) | Context engineering: auto-compaction, activation modes |
 | [Philosophy](docs/PHILOSOPHY.md) | Why we built it this way |
 | [Architecture](docs/ARCHITECTURE.md) | Technical deep dive |
 | [Extension Spec](docs/EXTENSION-SPEC.md) | Creating extensions |

@@ -61,6 +61,48 @@ Open-source toolkit for Spec-Driven Development introducing the "Constitution" c
 
 ---
 
+## Context Engineering Research
+
+The following projects provided key insights for our context engineering enhancements, including auto-compaction, continuation enforcement, and activation modes.
+
+### Oh My OpenCode
+**Source:** [github.com/code-yeongyu/oh-my-opencode](https://github.com/code-yeongyu/oh-my-opencode)
+**Author:** [code-yeongyu](https://github.com/code-yeongyu)
+
+An advanced agent harness for OpenCode with multi-agent orchestration and parallel execution. The project's disciplined approach to context management directly influenced our auto-compaction and continuation enforcement features.
+
+**Key Learnings:**
+- Todo Continuation Enforcer pattern (prevents agents from stopping mid-task)
+- 85% context threshold for preemptive compaction
+- Aggressive delegation to specialized agents
+- Context intelligence strategies (dynamic pruning, tool output truncation)
+
+### MCP Shrimp Task Manager
+**Source:** [github.com/cjo4m06/mcp-shrimp-task-manager](https://github.com/cjo4m06/mcp-shrimp-task-manager)
+**Author:** [cjo4m06](https://github.com/cjo4m06)
+
+A task management tool for AI agents emphasizing chain-of-thought, reflection, and style consistency. The structured workflow approach influenced our quality gates and project rules implementation.
+
+**Key Learnings:**
+- Persistent memory patterns for tasks across sessions
+- Project rules initialization workflow
+- Research mode for systematic exploration
+- Smart task decomposition with dependency tracking
+
+### BMAD Method
+**Source:** [github.com/bmad-code-org/BMAD-METHOD](https://github.com/bmad-code-org/BMAD-METHOD)
+**Author:** [bmad-code-org](https://github.com/bmad-code-org)
+
+Breakthrough Method for Agile AI Driven Development with 21 specialized agents and 50+ guided workflows. The agent customization patterns informed our extension system and activation modes.
+
+**Key Learnings:**
+- Agent customization without modifying core files
+- Keyword-based activation modes for different work intensities
+- Battle-tested workflows for agile development
+- Expansion pack isolation patterns
+
+---
+
 ## Standards & Specifications
 
 ### Model Context Protocol (MCP)
