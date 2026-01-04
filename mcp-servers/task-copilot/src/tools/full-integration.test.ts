@@ -389,7 +389,7 @@ async function testTaskSubtasks(): Promise<void> {
     console.log(`  ✓ Retrieved parent with ${retrieved!.subtasks!.length} subtasks`);
 
     // Complete one subtask
-    taskUpdate(db, { id: subtask1.id, status: 'completed' });
+    await taskUpdate(db, { id: subtask1.id, status: 'completed' });
 
     const updated = taskGet(db, {
       id: parent.id,
@@ -423,14 +423,14 @@ async function testTaskListFilters(): Promise<void> {
       prdId: prd.id,
       assignedAgent: '@agent-qa'
     });
-    taskUpdate(db, { id: task2.id, status: 'in_progress' });
+    await taskUpdate(db, { id: task2.id, status: 'in_progress' });
 
     const task3 = await taskCreate(db, {
       title: 'Task 3',
       prdId: prd.id,
       assignedAgent: '@agent-me'
     });
-    taskUpdate(db, { id: task3.id, status: 'completed' });
+    await taskUpdate(db, { id: task3.id, status: 'completed' });
 
     // Filter by PRD
     const prdTasks = taskList(db, { prdId: prd.id });
@@ -640,7 +640,7 @@ async function testCheckpointCreate(): Promise<void> {
       assignedAgent: '@agent-me'
     });
 
-    taskUpdate(db, { id: task.id, status: 'in_progress' });
+    await taskUpdate(db, { id: task.id, status: 'in_progress' });
 
     const input: CheckpointCreateInput = {
       taskId: task.id,
@@ -684,7 +684,7 @@ async function testCheckpointResume(): Promise<void> {
       prdId: prd.id
     });
 
-    taskUpdate(db, {
+    await taskUpdate(db, {
       id: task.id,
       status: 'in_progress',
       notes: 'Working on authentication'
@@ -1537,13 +1537,13 @@ async function testProgressSummaryAccuracy(): Promise<void> {
     // Create tasks with various statuses
     const task1 = await taskCreate(db, { title: 'Task 1', prdId: prd1.id });
     const task2 = await taskCreate(db, { title: 'Task 2', prdId: prd1.id });
-    taskUpdate(db, { id: task2.id, status: 'in_progress' });
+    await taskUpdate(db, { id: task2.id, status: 'in_progress' });
 
     const task3 = await taskCreate(db, { title: 'Task 3', prdId: prd2.id });
-    taskUpdate(db, { id: task3.id, status: 'completed' });
+    await taskUpdate(db, { id: task3.id, status: 'completed' });
 
     const task4 = await taskCreate(db, { title: 'Task 4', prdId: prd2.id });
-    taskUpdate(db, { id: task4.id, status: 'blocked', blockedReason: 'Waiting on API' });
+    await taskUpdate(db, { id: task4.id, status: 'blocked', blockedReason: 'Waiting on API' });
 
     // Create work products
     await workProductStore(db, {
@@ -1619,7 +1619,7 @@ async function testErrorHandling(): Promise<void> {
     console.log(`  ✓ Non-existent task returns null`);
 
     // 2. Task update with invalid ID
-    const noUpdate = taskUpdate(db, { id: 'NONEXISTENT', status: 'completed' });
+    const noUpdate = await taskUpdate(db, { id: 'NONEXISTENT', status: 'completed' });
     assert(noUpdate === null, 'Should return null for invalid update');
     console.log(`  ✓ Invalid task update returns null`);
 

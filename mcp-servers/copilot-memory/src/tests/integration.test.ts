@@ -177,6 +177,9 @@ describe('Memory Copilot Integration Tests', () => {
 
   describe('Initiative Slim Migration', () => {
     it('should slim down bloated initiative', () => {
+      // Start fresh initiative for this test
+      initiativeStart(db, { name: 'Slim Test Initiative' });
+
       // Create bloated initiative
       initiativeUpdate(db, {
         completed: Array.from({ length: 15 }, (_, i) => `Completed task ${i + 1}`),
@@ -188,7 +191,7 @@ describe('Memory Copilot Integration Tests', () => {
         keyFiles: ['keep/this/file.ts']
       });
 
-      const beforeSlim = initiativeGet(db);
+      const beforeSlim = initiativeGet(db, { mode: 'full' });
       assert.ok(beforeSlim);
       assert.strictEqual(beforeSlim!.completed.length, 15);
 
@@ -208,7 +211,7 @@ describe('Memory Copilot Integration Tests', () => {
       assert.ok(result!.savings.includes('%'));
 
       // Verify permanent knowledge was kept
-      const afterSlim = initiativeGet(db);
+      const afterSlim = initiativeGet(db, { mode: 'full' });
       assert.ok(afterSlim);
       assert.deepStrictEqual(afterSlim!.decisions, ['Keep this decision']);
       assert.deepStrictEqual(afterSlim!.lessons, ['Keep this lesson']);
@@ -674,6 +677,9 @@ describe('Memory Copilot Integration Tests', () => {
     });
 
     it('should handle duplicate key files', () => {
+      // Ensure we have an active initiative
+      initiativeStart(db, { name: 'Duplicate KeyFiles Test' });
+
       initiativeUpdate(db, {
         keyFiles: ['file1.ts', 'file2.ts']
       });
@@ -682,7 +688,7 @@ describe('Memory Copilot Integration Tests', () => {
         keyFiles: ['file2.ts', 'file3.ts'] // file2.ts is duplicate
       });
 
-      const initiative = initiativeGet(db);
+      const initiative = initiativeGet(db, { mode: 'full' });
       const uniqueFiles = new Set(initiative!.keyFiles);
 
       // Should have deduplicated files
