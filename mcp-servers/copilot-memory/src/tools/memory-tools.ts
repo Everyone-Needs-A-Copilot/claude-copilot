@@ -13,8 +13,50 @@ import type {
   MemoryUpdateInput,
   MemoryListInput,
   MemorySearchInput,
-  MemoryType
+  MemoryType,
+  AgentImprovementMetadata
 } from '../types.js';
+
+/**
+ * Validate agent_improvement metadata
+ */
+function validateAgentImprovementMetadata(metadata: Record<string, unknown>): void {
+  const requiredFields: (keyof AgentImprovementMetadata)[] = [
+    'agentId',
+    'targetSection',
+    'currentContent',
+    'suggestedContent',
+    'rationale',
+    'status'
+  ];
+
+  for (const field of requiredFields) {
+    if (!(field in metadata)) {
+      throw new Error(`agent_improvement type requires metadata field: ${field}`);
+    }
+  }
+
+  // Validate status enum
+  const status = metadata.status;
+  if (status !== 'pending' && status !== 'approved' && status !== 'rejected') {
+    throw new Error(`agent_improvement metadata.status must be 'pending', 'approved', or 'rejected', got: ${status}`);
+  }
+
+  // Validate string fields
+  const stringFields: (keyof AgentImprovementMetadata)[] = [
+    'agentId',
+    'targetSection',
+    'currentContent',
+    'suggestedContent',
+    'rationale'
+  ];
+
+  for (const field of stringFields) {
+    if (typeof metadata[field] !== 'string' || (metadata[field] as string).trim() === '') {
+      throw new Error(`agent_improvement metadata.${field} must be a non-empty string`);
+    }
+  }
+}
 
 /**
  * Convert database row to Memory object
@@ -41,6 +83,14 @@ export async function memoryStore(
   input: MemoryStoreInput,
   sessionId?: string
 ): Promise<Memory> {
+  // Validate agent_improvement metadata if applicable
+  if (input.type === 'agent_improvement') {
+    if (!input.metadata) {
+      throw new Error('agent_improvement type requires metadata');
+    }
+    validateAgentImprovementMetadata(input.metadata);
+  }
+
   const id = uuidv4();
   const now = new Date().toISOString();
 
@@ -134,6 +184,7 @@ export function memoryList(db: DatabaseClient, input: MemoryListInput): Memory[]
   const rows = db.listMemories({
     type: input.type,
     tags: input.tags,
+    agentId: input.agentId,
     limit: input.limit || 20,
     offset: input.offset || 0
   });
@@ -154,6 +205,7 @@ export async function memorySearch(
   // Search in database
   const results = db.searchByEmbedding(queryEmbedding, {
     type: input.type,
+    agentId: input.agentId,
     limit: input.limit || 10,
     threshold: input.threshold || 0.7
   });

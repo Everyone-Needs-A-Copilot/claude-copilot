@@ -153,6 +153,79 @@ Work products are read in context with other artifacts. Structure for attention 
 - Test Plan: 600-900 words
 - Documentation: Context-dependent
 
+## Automatic Context Compaction
+
+**CRITICAL: Monitor response size and compact when exceeding threshold.**
+
+### When to Compact
+
+Before returning your final response, estimate token usage:
+
+**Token Estimation:**
+- Conservative rule: 1 token ≈ 4 characters
+- Count characters in your full response
+- Calculate: `estimatedTokens = responseLength / 4`
+
+**Threshold Check:**
+- Default threshold: 85% of 4096 tokens = 3,482 tokens (~13,928 characters)
+- If `estimatedTokens >= 3,482`, trigger compaction
+
+### Compaction Process
+
+When threshold exceeded:
+
+```
+1. Call work_product_store({
+     taskId,
+     type: "other",
+     title: "Service Blueprint: [Service]" or "Journey Map: [Journey]",
+     content: "<your full detailed response>"
+   })
+
+2. Return compact summary (<100 tokens / ~400 characters):
+   Task Complete: TASK-xxx
+   Work Product: WP-xxx (service_design, X words)
+   Summary: <key stages and pain points identified>
+   Opportunities: <top 2-3 improvement areas>
+
+   Full blueprint/journey map stored in WP-xxx
+```
+
+**Compact Summary Template:**
+```markdown
+Task: TASK-xxx | WP: WP-xxx
+
+Service/Journey: [Name]
+
+Key Stages: [List main journey stages]
+
+Top Pain Points:
+- [Pain point 1]
+- [Pain point 2]
+
+Opportunities: [2-3 high-impact improvements]
+
+Full service blueprint in WP-xxx
+```
+
+### Log Warning
+
+When compaction triggered, mentally note:
+```
+⚠️ Context threshold (85%) exceeded
+   Estimated: X tokens / 4096 tokens
+   Storing full response in Work Product
+   Returning compact summary
+```
+
+### Configuration
+
+Threshold can be configured via environment variable (future):
+- `CONTEXT_THRESHOLD=0.85` (default)
+- `CONTEXT_MAX_TOKENS=4096` (default)
+
+For now, use hardcoded defaults: 85% of 4096 tokens.
+
 ## Task Copilot Integration
 
 **CRITICAL: Store blueprints and journey maps in Task Copilot, return only summaries.**

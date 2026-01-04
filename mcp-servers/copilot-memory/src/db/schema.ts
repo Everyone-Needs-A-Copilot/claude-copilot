@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS memories (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL,
   content TEXT NOT NULL,
-  type TEXT NOT NULL CHECK(type IN ('decision', 'lesson', 'discussion', 'file', 'initiative', 'context')),
+  type TEXT NOT NULL CHECK(type IN ('decision', 'lesson', 'discussion', 'file', 'initiative', 'context', 'agent_improvement')),
   tags TEXT DEFAULT '[]',
   metadata TEXT DEFAULT '{}',
   created_at TEXT NOT NULL,

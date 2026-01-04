@@ -1,0 +1,60 @@
+{
+  "version": "1.0",
+  "description": "Quality gate configuration for Task Copilot. Gates are checked before task completion.",
+  "defaultGates": [
+    "tests_pass",
+    "lint_clean",
+    "build_success"
+  ],
+  "gates": {
+    "tests_pass": {
+      "name": "tests_pass",
+      "description": "All tests must pass",
+      "command": "npm test",
+      "expectedExitCode": 0,
+      "timeout": 300000
+    },
+    "lint_clean": {
+      "name": "lint_clean",
+      "description": "ESLint must pass with no errors",
+      "command": "npm run lint",
+      "expectedExitCode": 0,
+      "timeout": 60000
+    },
+    "build_success": {
+      "name": "build_success",
+      "description": "TypeScript compilation must succeed",
+      "command": "npm run build",
+      "expectedExitCode": 0,
+      "timeout": 120000
+    },
+    "type_check": {
+      "name": "type_check",
+      "description": "TypeScript type checking must pass",
+      "command": "tsc --noEmit",
+      "expectedExitCode": 0,
+      "timeout": 60000
+    },
+    "format_check": {
+      "name": "format_check",
+      "description": "Code formatting must be consistent",
+      "command": "npm run format:check",
+      "expectedExitCode": 0,
+      "timeout": 30000
+    },
+    "unit_tests": {
+      "name": "unit_tests",
+      "description": "Unit tests must pass",
+      "command": "npm run test:unit",
+      "expectedExitCode": 0,
+      "timeout": 120000
+    },
+    "integration_tests": {
+      "name": "integration_tests",
+      "description": "Integration tests must pass",
+      "command": "npm run test:integration",
+      "expectedExitCode": 0,
+      "timeout": 300000
+    }
+  }
+}

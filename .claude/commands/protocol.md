@@ -103,6 +103,15 @@ Generic agents bypass Task Copilot entirely. Their outputs bloat context.
    - Use phases, priorities, complexity, and dependencies instead
    - See CLAUDE.md "No Time Estimates Policy" for acceptable alternatives
 
+6. **Continuation Detection:**
+   - When agents stop without `<promise>COMPLETE</promise>` or `<promise>BLOCKED</promise>`, the system detects premature stops
+   - If in active iteration loop: auto-resumes with `iteration_next()`
+   - If no iteration loop: prompts user to continue incomplete work
+   - Tracks continuation count in task metadata
+   - Warns if >5 continuations (possible runaway)
+   - Blocks if >10 continuations (runaway protection)
+   - Agents can explicitly signal continuation needed: `<thinking>CONTINUATION_NEEDED</thinking>`
+
 ## Request Type → Agent Mapping
 
 | Type | Indicators | Agent to Invoke |

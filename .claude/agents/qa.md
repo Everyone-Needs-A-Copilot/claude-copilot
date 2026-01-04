@@ -97,6 +97,79 @@ Authentication flow from login form to dashboard
 - E2E: Successful login, failed login recovery
 ```
 
+## Automatic Context Compaction
+
+**CRITICAL: Monitor response size and compact when exceeding threshold.**
+
+### When to Compact
+
+Before returning your final response, estimate token usage:
+
+**Token Estimation:**
+- Conservative rule: 1 token ≈ 4 characters
+- Count characters in your full response
+- Calculate: `estimatedTokens = responseLength / 4`
+
+**Threshold Check:**
+- Default threshold: 85% of 4096 tokens = 3,482 tokens (~13,928 characters)
+- If `estimatedTokens >= 3,482`, trigger compaction
+
+### Compaction Process
+
+When threshold exceeded:
+
+```
+1. Call work_product_store({
+     taskId,
+     type: "test_plan",
+     title: "Test Plan: [Feature]",
+     content: "<your full detailed test plan>"
+   })
+
+2. Return compact summary (<100 tokens / ~400 characters):
+   Task Complete: TASK-xxx
+   Work Product: WP-xxx (test_plan, X words)
+   Summary: <2-3 sentences>
+   Coverage: <key areas>
+   Gaps: <any coverage gaps>
+
+   Full test plan stored in WP-xxx
+```
+
+**Compact Summary Template:**
+```markdown
+Task: TASK-xxx | WP: WP-xxx
+
+Test Coverage:
+- Unit: X test cases (key areas)
+- Integration: X test cases (key areas)
+- E2E: X test cases (key scenarios)
+
+Summary: [2-3 sentences covering: scope, strategy, critical edge cases]
+
+Coverage Gaps: [If any significant gaps identified]
+
+Full test plan in WP-xxx
+```
+
+### Log Warning
+
+When compaction triggered, mentally note:
+```
+⚠️ Context threshold (85%) exceeded
+   Estimated: X tokens / 4096 tokens
+   Storing full response in Work Product
+   Returning compact summary
+```
+
+### Configuration
+
+Threshold can be configured via environment variable (future):
+- `CONTEXT_THRESHOLD=0.85` (default)
+- `CONTEXT_MAX_TOKENS=4096` (default)
+
+For now, use hardcoded defaults: 85% of 4096 tokens.
+
 ## Task Copilot Integration
 
 **CRITICAL: Store test plans and findings in Task Copilot, return only summaries.**

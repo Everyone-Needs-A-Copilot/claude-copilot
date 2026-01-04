@@ -17,6 +17,8 @@ import type {
   CheckpointTrigger,
 } from '../types.js';
 import { validateStreamDependencies } from './stream.js';
+import { detectActivationMode, isValidActivationMode } from '../utils/mode-detection.js';
+import { executeQualityGates, shouldEnforceQualityGates } from './quality-gates.js';
 
 export async function taskCreate(
   db: DatabaseClient,
@@ -26,6 +28,20 @@ export async function taskCreate(
   const id = `TASK-${uuidv4()}`;
 
   const metadata = input.metadata || {};
+
+  // Auto-detect activation mode if not explicitly provided
+  // Explicit override takes precedence over auto-detection
+  if (metadata.activationMode === undefined) {
+    const detectedMode = detectActivationMode(input.title, input.description || undefined);
+    if (detectedMode) {
+      metadata.activationMode = detectedMode;
+    } else {
+      metadata.activationMode = null;
+    }
+  } else if (metadata.activationMode !== null && !isValidActivationMode(metadata.activationMode as string)) {
+    // Validate explicit mode if provided
+    throw new Error(`Invalid activationMode: "${metadata.activationMode}". Must be one of: ultrawork, analyze, quick, thorough, or null`);
+  }
 
   // Validate stream dependencies if streamId and streamDependencies are provided
   if (metadata.streamId && metadata.streamDependencies && Array.isArray(metadata.streamDependencies)) {
@@ -112,10 +128,10 @@ export async function taskCreate(
   };
 }
 
-export function taskUpdate(
+export async function taskUpdate(
   db: DatabaseClient,
   input: TaskUpdateInput
-): { id: string; status: TaskStatus; updatedAt: string } | null {
+): Promise<{ id: string; status: TaskStatus; updatedAt: string } | null> {
   const task = db.getTask(input.id);
   if (!task) return null;
 
@@ -140,6 +156,36 @@ export function taskUpdate(
     const existingMetadata = JSON.parse(task.metadata);
     const mergedMetadata = { ...existingMetadata, ...input.metadata };
     updates.metadata = JSON.stringify(mergedMetadata);
+  }
+
+  // Check quality gates before allowing completion
+  if (shouldEnforceQualityGates(task, input.status)) {
+    const projectRoot = process.cwd();
+    const gateReport = await executeQualityGates(db, task, projectRoot);
+
+    if (!gateReport.allPassed) {
+      // Quality gates failed - block completion
+      const failedGates = gateReport.results
+        .filter(r => !r.passed)
+        .map(r => r.gateName)
+        .join(', ');
+
+      const blockedReason = `Quality gates failed: ${failedGates}. ${gateReport.failedGates} of ${gateReport.totalGates} gates failed.`;
+
+      // Update to blocked instead of completed
+      updates.status = 'blocked';
+      updates.blocked_reason = blockedReason;
+
+      // Add gate failure details to notes
+      const gateDetails = gateReport.results
+        .filter(r => !r.passed)
+        .map(r => `- ${r.gateName}: ${r.message}`)
+        .join('\n');
+
+      updates.notes = task.notes
+        ? `${task.notes}\n\nQuality Gate Failures:\n${gateDetails}`
+        : `Quality Gate Failures:\n${gateDetails}`;
+    }
   }
 
   // Track agent reassignment before update (for performance tracking)

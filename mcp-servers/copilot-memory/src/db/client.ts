@@ -154,7 +154,7 @@ export class DatabaseClient {
     return this.db.prepare('SELECT * FROM memories WHERE id = ? AND project_id = ?').get(id, this.projectId) as MemoryRow | undefined;
   }
 
-  listMemories(options: { type?: string; tags?: string[]; limit?: number; offset?: number }): MemoryRow[] {
+  listMemories(options: { type?: string; tags?: string[]; agentId?: string; limit?: number; offset?: number }): MemoryRow[] {
     let sql = 'SELECT * FROM memories WHERE project_id = ?';
     const params: unknown[] = [this.projectId];
 
@@ -168,6 +168,12 @@ export class DatabaseClient {
       const tagConditions = options.tags.map(() => "tags LIKE ?").join(' OR ');
       sql += ` AND (${tagConditions})`;
       options.tags.forEach(tag => params.push(`%"${tag}"%`));
+    }
+
+    if (options.agentId) {
+      // Filter by agentId in metadata (for agent_improvement type)
+      sql += ' AND metadata LIKE ?';
+      params.push(`%"agentId":"${options.agentId}"%`);
     }
 
     sql += ' ORDER BY created_at DESC';
@@ -199,7 +205,7 @@ export class DatabaseClient {
 
   searchByEmbedding(
     queryEmbedding: EmbeddingVector,
-    options: { type?: string; limit?: number; threshold?: number }
+    options: { type?: string; agentId?: string; limit?: number; threshold?: number }
   ): Array<MemoryRow & { distance: number }> {
     const limit = options.limit || 10;
     const threshold = options.threshold || 0.7;
@@ -219,6 +225,11 @@ export class DatabaseClient {
     if (options.type) {
       sql += ' AND m.type = ?';
       params.push(options.type);
+    }
+
+    if (options.agentId) {
+      sql += ' AND m.metadata LIKE ?';
+      params.push(`%"agentId":"${options.agentId}"%`);
     }
 
     sql += ` ORDER BY e.distance`;

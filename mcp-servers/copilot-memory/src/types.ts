@@ -3,7 +3,7 @@
  */
 
 // Memory types
-export type MemoryType = 'decision' | 'lesson' | 'discussion' | 'file' | 'initiative' | 'context';
+export type MemoryType = 'decision' | 'lesson' | 'discussion' | 'file' | 'initiative' | 'context' | 'agent_improvement';
 
 export type InitiativeStatus = 'NOT STARTED' | 'IN PROGRESS' | 'BLOCKED' | 'READY FOR REVIEW' | 'COMPLETE';
 
@@ -65,6 +65,16 @@ export interface Session {
   summary?: string;
 }
 
+// Agent improvement metadata structure
+export interface AgentImprovementMetadata {
+  agentId: string;
+  targetSection: string;
+  currentContent: string;
+  suggestedContent: string;
+  rationale: string;
+  status: 'pending' | 'approved' | 'rejected';
+}
+
 // Tool input schemas
 export interface MemoryStoreInput {
   content: string;
@@ -83,6 +93,7 @@ export interface MemoryUpdateInput {
 export interface MemoryListInput {
   type?: MemoryType;
   tags?: string[];
+  agentId?: string;  // Filter by agentId in metadata (for agent_improvement type)
   limit?: number;
   offset?: number;
 }
@@ -90,6 +101,7 @@ export interface MemoryListInput {
 export interface MemorySearchInput {
   query: string;
   type?: MemoryType;
+  agentId?: string;  // Filter by agentId in metadata (for agent_improvement type)
   limit?: number;
   threshold?: number;
 }

@@ -185,6 +185,78 @@ Work products are read in context with other artifacts. Structure for attention 
 - Test Plan: 600-900 words
 - Documentation: Context-dependent
 
+## Automatic Context Compaction
+
+**CRITICAL: Monitor response size and compact when exceeding threshold.**
+
+### When to Compact
+
+Before returning your final response, estimate token usage:
+
+**Token Estimation:**
+- Conservative rule: 1 token ≈ 4 characters
+- Count characters in your full response
+- Calculate: `estimatedTokens = responseLength / 4`
+
+**Threshold Check:**
+- Default threshold: 85% of 4096 tokens = 3,482 tokens (~13,928 characters)
+- If `estimatedTokens >= 3,482`, trigger compaction
+
+### Compaction Process
+
+When threshold exceeded:
+
+```
+1. Call work_product_store({
+     taskId,
+     type: "documentation",
+     title: "Docs: [Topic]",
+     content: "<your full detailed response>"
+   })
+
+2. Return compact summary (<100 tokens / ~400 characters):
+   Task Complete: TASK-xxx
+   Work Product: WP-xxx (documentation, X words)
+   Summary: <what was documented>
+   Sections: <list of main sections created>
+
+   Full documentation stored in WP-xxx
+```
+
+**Compact Summary Template:**
+```markdown
+Task: TASK-xxx | WP: WP-xxx
+
+Documentation: [Topic/Feature]
+
+Sections:
+- [Section 1]
+- [Section 2]
+- [Section 3]
+
+Summary: [2-3 sentences covering scope and key takeaways]
+
+Full documentation in WP-xxx
+```
+
+### Log Warning
+
+When compaction triggered, mentally note:
+```
+⚠️ Context threshold (85%) exceeded
+   Estimated: X tokens / 4096 tokens
+   Storing full response in Work Product
+   Returning compact summary
+```
+
+### Configuration
+
+Threshold can be configured via environment variable (future):
+- `CONTEXT_THRESHOLD=0.85` (default)
+- `CONTEXT_MAX_TOKENS=4096` (default)
+
+For now, use hardcoded defaults: 85% of 4096 tokens.
+
 ## Task Copilot Integration
 
 **CRITICAL: Store documentation in Task Copilot, return only summaries.**

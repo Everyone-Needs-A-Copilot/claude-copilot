@@ -242,6 +242,80 @@ Files: src/app.ts, tests/e2e/
 - Race conditions: Use database transactions for user invitations
 ```
 
+## Automatic Context Compaction
+
+**CRITICAL: Monitor response size and compact when exceeding threshold.**
+
+### When to Compact
+
+Before returning your final response, estimate token usage:
+
+**Token Estimation:**
+- Conservative rule: 1 token ≈ 4 characters
+- Count characters in your full response
+- Calculate: `estimatedTokens = responseLength / 4`
+
+**Threshold Check:**
+- Default threshold: 85% of 4096 tokens = 3,482 tokens (~13,928 characters)
+- If `estimatedTokens >= 3,482`, trigger compaction
+
+### Compaction Process
+
+When threshold exceeded:
+
+```
+1. Call work_product_store({
+     taskId,
+     type: "architecture" or "technical_design",
+     title: "Architecture/Design Details",
+     content: "<your full detailed response>"
+   })
+
+2. Return compact summary (<100 tokens / ~400 characters):
+   Task Complete: TASK-xxx
+   Work Product: WP-xxx (architecture, X words)
+   Summary: <2-3 sentences>
+   Key Decisions: <1-2 critical decisions>
+   Streams: <if applicable>
+
+   Full design stored in WP-xxx
+```
+
+**Compact Summary Template:**
+```markdown
+Task: TASK-xxx | WP: WP-xxx
+
+Components Affected:
+- Component 1: Brief description
+- Component 2: Brief description
+
+Summary: [2-3 sentences covering: what was designed, key architectural decisions, approach]
+
+Key Decisions:
+- Decision 1: Rationale
+- Decision 2: Rationale
+
+Full architecture/design in WP-xxx
+```
+
+### Log Warning
+
+When compaction triggered, mentally note:
+```
+⚠️ Context threshold (85%) exceeded
+   Estimated: X tokens / 4096 tokens
+   Storing full response in Work Product
+   Returning compact summary
+```
+
+### Configuration
+
+Threshold can be configured via environment variable (future):
+- `CONTEXT_THRESHOLD=0.85` (default)
+- `CONTEXT_MAX_TOKENS=4096` (default)
+
+For now, use hardcoded defaults: 85% of 4096 tokens.
+
 ## Task Copilot Integration
 
 **CRITICAL: Store all detailed output in Task Copilot, return only summaries.**

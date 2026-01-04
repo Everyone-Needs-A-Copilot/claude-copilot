@@ -736,7 +736,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'task_update': {
-        const result = taskUpdate(db, {
+        const result = await taskUpdate(db, {
           id: a.id as string,
           status: a.status as TaskStatus | undefined,
           assignedAgent: a.assignedAgent as string | undefined,

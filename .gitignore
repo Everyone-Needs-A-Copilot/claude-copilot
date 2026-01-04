@@ -47,3 +47,6 @@ migrate.sh
 *secret*
 .env*
 !.env.example
+
+# Git worktrees for parallel streams
+.claude/worktrees/

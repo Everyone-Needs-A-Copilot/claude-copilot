@@ -245,6 +245,79 @@ Work products are read in context with other artifacts. Structure for attention 
 - Test Plan: 600-900 words
 - Documentation: Context-dependent
 
+## Automatic Context Compaction
+
+**CRITICAL: Monitor response size and compact when exceeding threshold.**
+
+### When to Compact
+
+Before returning your final response, estimate token usage:
+
+**Token Estimation:**
+- Conservative rule: 1 token ≈ 4 characters
+- Count characters in your full response
+- Calculate: `estimatedTokens = responseLength / 4`
+
+**Threshold Check:**
+- Default threshold: 85% of 4096 tokens = 3,482 tokens (~13,928 characters)
+- If `estimatedTokens >= 3,482`, trigger compaction
+
+### Compaction Process
+
+When threshold exceeded:
+
+```
+1. Call work_product_store({
+     taskId,
+     type: "implementation",
+     title: "UI Component: [Component]",
+     content: "<your full detailed response>"
+   })
+
+2. Return compact summary (<100 tokens / ~400 characters):
+   Task Complete: TASK-xxx
+   Work Product: WP-xxx (implementation, X words)
+   Files Modified: <list of component files>
+   Summary: <components implemented>
+
+   Full implementation stored in WP-xxx
+```
+
+**Compact Summary Template:**
+```markdown
+Task: TASK-xxx | WP: WP-xxx
+
+Components: [Component names]
+
+Files Modified:
+- path/to/component1.tsx: [Brief description]
+- path/to/component2.css: [Brief description]
+
+Summary: [2-3 sentences covering components, design tokens used, responsive behavior]
+
+Accessibility: [Keyboard nav, focus states, ARIA]
+
+Full implementation in WP-xxx
+```
+
+### Log Warning
+
+When compaction triggered, mentally note:
+```
+⚠️ Context threshold (85%) exceeded
+   Estimated: X tokens / 4096 tokens
+   Storing full response in Work Product
+   Returning compact summary
+```
+
+### Configuration
+
+Threshold can be configured via environment variable (future):
+- `CONTEXT_THRESHOLD=0.85` (default)
+- `CONTEXT_MAX_TOKENS=4096` (default)
+
+For now, use hardcoded defaults: 85% of 4096 tokens.
+
 ## Task Copilot Integration
 
 **CRITICAL: Store component implementations in Task Copilot, return only summaries.**

@@ -71,11 +71,14 @@ const TOOLS = [
         content: { type: 'string', description: 'The content to store' },
         type: {
           type: 'string',
-          enum: ['decision', 'lesson', 'discussion', 'file', 'initiative', 'context'],
+          enum: ['decision', 'lesson', 'discussion', 'file', 'initiative', 'context', 'agent_improvement'],
           description: 'Type of memory'
         },
         tags: { type: 'array', items: { type: 'string' }, description: 'Optional tags for filtering' },
-        metadata: { type: 'object', description: 'Optional metadata object' }
+        metadata: {
+          type: 'object',
+          description: 'Optional metadata object. For agent_improvement type, must include: agentId, targetSection, currentContent, suggestedContent, rationale, status (pending|approved|rejected)'
+        }
       },
       required: ['content', 'type']
     }
@@ -124,10 +127,11 @@ const TOOLS = [
       properties: {
         type: {
           type: 'string',
-          enum: ['decision', 'lesson', 'discussion', 'file', 'initiative', 'context'],
+          enum: ['decision', 'lesson', 'discussion', 'file', 'initiative', 'context', 'agent_improvement'],
           description: 'Filter by type'
         },
         tags: { type: 'array', items: { type: 'string' }, description: 'Filter by tags (any match)' },
+        agentId: { type: 'string', description: 'Filter by agentId in metadata (for agent_improvement type)' },
         limit: { type: 'number', description: 'Max results (default 20)' },
         offset: { type: 'number', description: 'Skip first N results' }
       }
@@ -142,9 +146,10 @@ const TOOLS = [
         query: { type: 'string', description: 'Natural language search query' },
         type: {
           type: 'string',
-          enum: ['decision', 'lesson', 'discussion', 'file', 'initiative', 'context'],
+          enum: ['decision', 'lesson', 'discussion', 'file', 'initiative', 'context', 'agent_improvement'],
           description: 'Filter by type'
         },
+        agentId: { type: 'string', description: 'Filter by agentId in metadata (for agent_improvement type)' },
         limit: { type: 'number', description: 'Max results (default 10)' },
         threshold: { type: 'number', description: 'Similarity threshold 0-1 (default 0.7)' }
       },
@@ -294,6 +299,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const result = memoryList(db, {
           type: a.type as MemoryType | undefined,
           tags: a.tags as string[] | undefined,
+          agentId: a.agentId as string | undefined,
           limit: a.limit as number | undefined,
           offset: a.offset as number | undefined
         });
@@ -304,6 +310,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const result = await memorySearch(db, {
           query: a.query as string,
           type: a.type as MemoryType | undefined,
+          agentId: a.agentId as string | undefined,
           limit: a.limit as number | undefined,
           threshold: a.threshold as number | undefined
         });

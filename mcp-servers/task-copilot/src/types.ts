@@ -54,12 +54,20 @@ export interface TaskMetadata extends Record<string, unknown> {
   acceptanceCriteria?: string[];
   phase?: string;
 
+  // Activation mode (auto-detected from keywords or explicitly set)
+  activationMode?: 'ultrawork' | 'analyze' | 'quick' | 'thorough' | null;
+
   // Stream metadata (Command Arguments & Independent Streams)
   streamId?: string;          // Auto-generated: "Stream-A", "Stream-B", etc.
   streamName?: string;         // Human-readable: "foundation", "auth-api", etc.
   streamPhase?: 'foundation' | 'parallel' | 'integration';
   files?: string[];            // File paths this task will touch
   streamDependencies?: string[]; // Other streamIds this depends on
+  worktreePath?: string;       // Git worktree path for this stream
+  branchName?: string;         // Git branch name for this stream
+
+  // Quality gates (Quality Gates Configuration)
+  qualityGates?: string[];    // Gate names to run before task completion
 }
 
 // Work Product
@@ -704,6 +712,9 @@ export interface StreamInfo {
   pendingTasks: number;
   files: string[];
   dependencies: string[];
+  // Git worktree isolation
+  worktreePath?: string;
+  branchName?: string;
 }
 
 export interface StreamListOutput {
@@ -722,6 +733,9 @@ export interface StreamGetOutput {
   tasks: Task[];
   dependencies: string[];
   status: 'pending' | 'in_progress' | 'completed' | 'blocked';
+  // Git worktree isolation
+  worktreePath?: string;
+  branchName?: string;
 }
 
 export interface StreamConflictCheckInput {

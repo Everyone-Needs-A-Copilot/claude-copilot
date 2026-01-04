@@ -7,6 +7,7 @@
  * 3. Semantic search functionality
  * 4. Initiative slim migration
  * 5. Error handling for invalid inputs
+ * 6. Agent self-improvement workflow (validation, filtering, status updates)
  */
 
 import { describe, it, before, after } from 'node:test';
@@ -872,6 +873,682 @@ describe('Memory Copilot Integration Tests', () => {
         db2.close();
         rmSync(testDir2, { recursive: true, force: true });
       }
+    });
+  });
+
+  describe('Agent Self-Improvement Workflow', () => {
+    let improvementId1: string;
+    let improvementId2: string;
+    let improvementId3: string;
+
+    describe('Valid Improvement Storage', () => {
+      it('should store valid improvement with all required fields', async () => {
+        const memory = await memoryStore(db, {
+          content: 'Suggestion to improve error handling in Core Behaviors section',
+          type: 'agent_improvement',
+          tags: ['agent-me', 'enhancement'],
+          metadata: {
+            agentId: 'agent-me',
+            targetSection: 'Core Behaviors',
+            currentContent: 'Always: Write production-ready code',
+            suggestedContent: 'Always: Write production-ready code with comprehensive error handling',
+            rationale: 'Error handling should be explicit in core behaviors to prevent oversight',
+            status: 'pending'
+          }
+        });
+
+        improvementId1 = memory.id;
+
+        assert.ok(memory.id);
+        assert.strictEqual(memory.type, 'agent_improvement');
+        assert.strictEqual(memory.content, 'Suggestion to improve error handling in Core Behaviors section');
+        assert.deepStrictEqual(memory.tags, ['agent-me', 'enhancement']);
+        assert.strictEqual(memory.metadata.agentId, 'agent-me');
+        assert.strictEqual(memory.metadata.targetSection, 'Core Behaviors');
+        assert.strictEqual(memory.metadata.status, 'pending');
+      });
+
+      it('should store improvement with status=approved', async () => {
+        const memory = await memoryStore(db, {
+          content: 'Add TypeScript type checking to checklist',
+          type: 'agent_improvement',
+          metadata: {
+            agentId: 'agent-me',
+            targetSection: 'Pre-Implementation Checklist',
+            currentContent: '- Review requirements',
+            suggestedContent: '- Review requirements\n- Verify TypeScript types',
+            rationale: 'Type safety is critical for maintainability',
+            status: 'approved'
+          }
+        });
+
+        improvementId2 = memory.id;
+
+        assert.strictEqual(memory.metadata.status, 'approved');
+      });
+
+      it('should store improvement with status=rejected', async () => {
+        const memory = await memoryStore(db, {
+          content: 'Remove testing guidelines',
+          type: 'agent_improvement',
+          metadata: {
+            agentId: 'agent-qa',
+            targetSection: 'Core Behaviors',
+            currentContent: 'Always write tests',
+            suggestedContent: 'Skip tests for prototypes',
+            rationale: 'Tests slow down prototyping',
+            status: 'rejected'
+          }
+        });
+
+        improvementId3 = memory.id;
+
+        assert.strictEqual(memory.metadata.status, 'rejected');
+        assert.strictEqual(memory.metadata.agentId, 'agent-qa');
+      });
+
+      it('should store improvement with long content fields', async () => {
+        const longContent = 'x'.repeat(5000);
+        const memory = await memoryStore(db, {
+          content: 'Suggestion with very long details',
+          type: 'agent_improvement',
+          metadata: {
+            agentId: 'agent-ta',
+            targetSection: 'Architecture Patterns',
+            currentContent: longContent,
+            suggestedContent: longContent + ' with additions',
+            rationale: longContent,
+            status: 'pending'
+          }
+        });
+
+        assert.ok(memory.id);
+        const metadata = memory.metadata as { currentContent: string };
+        assert.strictEqual(metadata.currentContent.length, 5000);
+      });
+
+      it('should store improvement with special characters', async () => {
+        const memory = await memoryStore(db, {
+          content: 'Handle "quotes" and <tags>',
+          type: 'agent_improvement',
+          metadata: {
+            agentId: 'agent-me',
+            targetSection: 'Error Handling',
+            currentContent: 'Handle errors with try/catch',
+            suggestedContent: 'Handle errors with try/catch and "proper" logging',
+            rationale: 'Better error visibility with <structured> logging & metrics 🚀',
+            status: 'pending'
+          }
+        });
+
+        assert.ok(memory.id);
+        const metadata = memory.metadata as { rationale: string; suggestedContent: string };
+        assert.ok(metadata.suggestedContent.includes('"proper"'));
+        assert.ok(metadata.rationale.includes('<structured>'));
+        assert.ok(metadata.rationale.includes('🚀'));
+      });
+    });
+
+    describe('Validation Errors', () => {
+      it('should reject improvement without metadata', async () => {
+        await assert.rejects(
+          async () => {
+            await memoryStore(db, {
+              content: 'Improvement without metadata',
+              type: 'agent_improvement'
+            });
+          },
+          /agent_improvement type requires metadata/
+        );
+      });
+
+      it('should reject improvement missing agentId', async () => {
+        await assert.rejects(
+          async () => {
+            await memoryStore(db, {
+              content: 'Missing agentId',
+              type: 'agent_improvement',
+              metadata: {
+                targetSection: 'Section',
+                currentContent: 'Current',
+                suggestedContent: 'Suggested',
+                rationale: 'Rationale',
+                status: 'pending'
+              }
+            });
+          },
+          /requires metadata field: agentId/
+        );
+      });
+
+      it('should reject improvement missing targetSection', async () => {
+        await assert.rejects(
+          async () => {
+            await memoryStore(db, {
+              content: 'Missing targetSection',
+              type: 'agent_improvement',
+              metadata: {
+                agentId: 'agent-me',
+                currentContent: 'Current',
+                suggestedContent: 'Suggested',
+                rationale: 'Rationale',
+                status: 'pending'
+              }
+            });
+          },
+          /requires metadata field: targetSection/
+        );
+      });
+
+      it('should reject improvement missing currentContent', async () => {
+        await assert.rejects(
+          async () => {
+            await memoryStore(db, {
+              content: 'Missing currentContent',
+              type: 'agent_improvement',
+              metadata: {
+                agentId: 'agent-me',
+                targetSection: 'Section',
+                suggestedContent: 'Suggested',
+                rationale: 'Rationale',
+                status: 'pending'
+              }
+            });
+          },
+          /requires metadata field: currentContent/
+        );
+      });
+
+      it('should reject improvement missing suggestedContent', async () => {
+        await assert.rejects(
+          async () => {
+            await memoryStore(db, {
+              content: 'Missing suggestedContent',
+              type: 'agent_improvement',
+              metadata: {
+                agentId: 'agent-me',
+                targetSection: 'Section',
+                currentContent: 'Current',
+                rationale: 'Rationale',
+                status: 'pending'
+              }
+            });
+          },
+          /requires metadata field: suggestedContent/
+        );
+      });
+
+      it('should reject improvement missing rationale', async () => {
+        await assert.rejects(
+          async () => {
+            await memoryStore(db, {
+              content: 'Missing rationale',
+              type: 'agent_improvement',
+              metadata: {
+                agentId: 'agent-me',
+                targetSection: 'Section',
+                currentContent: 'Current',
+                suggestedContent: 'Suggested',
+                status: 'pending'
+              }
+            });
+          },
+          /requires metadata field: rationale/
+        );
+      });
+
+      it('should reject improvement missing status', async () => {
+        await assert.rejects(
+          async () => {
+            await memoryStore(db, {
+              content: 'Missing status',
+              type: 'agent_improvement',
+              metadata: {
+                agentId: 'agent-me',
+                targetSection: 'Section',
+                currentContent: 'Current',
+                suggestedContent: 'Suggested',
+                rationale: 'Rationale'
+              }
+            });
+          },
+          /requires metadata field: status/
+        );
+      });
+
+      it('should reject improvement with invalid status', async () => {
+        await assert.rejects(
+          async () => {
+            await memoryStore(db, {
+              content: 'Invalid status',
+              type: 'agent_improvement',
+              metadata: {
+                agentId: 'agent-me',
+                targetSection: 'Section',
+                currentContent: 'Current',
+                suggestedContent: 'Suggested',
+                rationale: 'Rationale',
+                status: 'invalid'
+              }
+            });
+          },
+          /status must be 'pending', 'approved', or 'rejected'/
+        );
+      });
+
+      it('should reject improvement with empty agentId', async () => {
+        await assert.rejects(
+          async () => {
+            await memoryStore(db, {
+              content: 'Empty agentId',
+              type: 'agent_improvement',
+              metadata: {
+                agentId: '',
+                targetSection: 'Section',
+                currentContent: 'Current',
+                suggestedContent: 'Suggested',
+                rationale: 'Rationale',
+                status: 'pending'
+              }
+            });
+          },
+          /agentId must be a non-empty string/
+        );
+      });
+
+      it('should reject improvement with whitespace-only agentId', async () => {
+        await assert.rejects(
+          async () => {
+            await memoryStore(db, {
+              content: 'Whitespace agentId',
+              type: 'agent_improvement',
+              metadata: {
+                agentId: '   ',
+                targetSection: 'Section',
+                currentContent: 'Current',
+                suggestedContent: 'Suggested',
+                rationale: 'Rationale',
+                status: 'pending'
+              }
+            });
+          },
+          /agentId must be a non-empty string/
+        );
+      });
+
+      it('should reject improvement with empty targetSection', async () => {
+        await assert.rejects(
+          async () => {
+            await memoryStore(db, {
+              content: 'Empty targetSection',
+              type: 'agent_improvement',
+              metadata: {
+                agentId: 'agent-me',
+                targetSection: '',
+                currentContent: 'Current',
+                suggestedContent: 'Suggested',
+                rationale: 'Rationale',
+                status: 'pending'
+              }
+            });
+          },
+          /targetSection must be a non-empty string/
+        );
+      });
+
+      it('should reject improvement with empty currentContent', async () => {
+        await assert.rejects(
+          async () => {
+            await memoryStore(db, {
+              content: 'Empty currentContent',
+              type: 'agent_improvement',
+              metadata: {
+                agentId: 'agent-me',
+                targetSection: 'Section',
+                currentContent: '',
+                suggestedContent: 'Suggested',
+                rationale: 'Rationale',
+                status: 'pending'
+              }
+            });
+          },
+          /currentContent must be a non-empty string/
+        );
+      });
+
+      it('should reject improvement with empty suggestedContent', async () => {
+        await assert.rejects(
+          async () => {
+            await memoryStore(db, {
+              content: 'Empty suggestedContent',
+              type: 'agent_improvement',
+              metadata: {
+                agentId: 'agent-me',
+                targetSection: 'Section',
+                currentContent: 'Current',
+                suggestedContent: '',
+                rationale: 'Rationale',
+                status: 'pending'
+              }
+            });
+          },
+          /suggestedContent must be a non-empty string/
+        );
+      });
+
+      it('should reject improvement with empty rationale', async () => {
+        await assert.rejects(
+          async () => {
+            await memoryStore(db, {
+              content: 'Empty rationale',
+              type: 'agent_improvement',
+              metadata: {
+                agentId: 'agent-me',
+                targetSection: 'Section',
+                currentContent: 'Current',
+                suggestedContent: 'Suggested',
+                rationale: '',
+                status: 'pending'
+              }
+            });
+          },
+          /rationale must be a non-empty string/
+        );
+      });
+    });
+
+    describe('Query by AgentId', () => {
+      it('should filter improvements by agentId', () => {
+        const meImprovements = memoryList(db, {
+          type: 'agent_improvement',
+          agentId: 'agent-me'
+        });
+
+        assert.ok(meImprovements.length >= 2);
+        meImprovements.forEach(m => {
+          assert.strictEqual(m.type, 'agent_improvement');
+          assert.strictEqual(m.metadata.agentId, 'agent-me');
+        });
+      });
+
+      it('should filter improvements for different agent', () => {
+        const qaImprovements = memoryList(db, {
+          type: 'agent_improvement',
+          agentId: 'agent-qa'
+        });
+
+        assert.ok(qaImprovements.length >= 1);
+        qaImprovements.forEach(m => {
+          assert.strictEqual(m.metadata.agentId, 'agent-qa');
+        });
+      });
+
+      it('should return empty array for non-existent agentId', () => {
+        const results = memoryList(db, {
+          type: 'agent_improvement',
+          agentId: 'agent-nonexistent'
+        });
+
+        assert.deepStrictEqual(results, []);
+      });
+
+      it('should filter with pagination', () => {
+        const page1 = memoryList(db, {
+          type: 'agent_improvement',
+          agentId: 'agent-me',
+          limit: 1,
+          offset: 0
+        });
+
+        const page2 = memoryList(db, {
+          type: 'agent_improvement',
+          agentId: 'agent-me',
+          limit: 1,
+          offset: 1
+        });
+
+        assert.strictEqual(page1.length, 1);
+        assert.strictEqual(page2.length, 1);
+        assert.notStrictEqual(page1[0].id, page2[0].id);
+      });
+    });
+
+    describe('List All Improvements', () => {
+      it('should list all improvements with type filter', () => {
+        const allImprovements = memoryList(db, {
+          type: 'agent_improvement'
+        });
+
+        assert.ok(allImprovements.length >= 5);
+        allImprovements.forEach(m => {
+          assert.strictEqual(m.type, 'agent_improvement');
+          assert.ok(m.metadata.agentId);
+          assert.ok(m.metadata.status);
+        });
+      });
+
+      it('should list improvements with tags filter', () => {
+        const taggedImprovements = memoryList(db, {
+          type: 'agent_improvement',
+          tags: ['enhancement']
+        });
+
+        assert.ok(taggedImprovements.length >= 1);
+        taggedImprovements.forEach(m => {
+          assert.ok(m.tags.includes('enhancement'));
+        });
+      });
+
+      it('should list improvements with combined filters', () => {
+        const filtered = memoryList(db, {
+          type: 'agent_improvement',
+          agentId: 'agent-me',
+          tags: ['agent-me']
+        });
+
+        assert.ok(filtered.length >= 1);
+        filtered.forEach(m => {
+          assert.strictEqual(m.type, 'agent_improvement');
+          assert.strictEqual(m.metadata.agentId, 'agent-me');
+          assert.ok(m.tags.includes('agent-me'));
+        });
+      });
+    });
+
+    describe('Update Improvement Status', () => {
+      it('should update improvement status from pending to approved', async () => {
+        const original = memoryGet(db, improvementId1);
+        assert.strictEqual(original!.metadata.status, 'pending');
+
+        const updated = await memoryUpdate(db, {
+          id: improvementId1,
+          metadata: {
+            ...original!.metadata,
+            status: 'approved'
+          }
+        });
+
+        assert.ok(updated);
+        assert.strictEqual(updated!.metadata.status, 'approved');
+        assert.strictEqual(updated!.metadata.agentId, 'agent-me');
+        assert.strictEqual(updated!.metadata.targetSection, 'Core Behaviors');
+      });
+
+      it('should update improvement status from approved to rejected', async () => {
+        const original = memoryGet(db, improvementId2);
+        assert.strictEqual(original!.metadata.status, 'approved');
+
+        const updated = await memoryUpdate(db, {
+          id: improvementId2,
+          metadata: {
+            ...original!.metadata,
+            status: 'rejected'
+          }
+        });
+
+        assert.ok(updated);
+        assert.strictEqual(updated!.metadata.status, 'rejected');
+      });
+
+      it('should update improvement while preserving all fields', async () => {
+        const original = memoryGet(db, improvementId3);
+
+        const updated = await memoryUpdate(db, {
+          id: improvementId3,
+          metadata: {
+            ...original!.metadata,
+            status: 'approved',
+            reviewedBy: 'human-reviewer'
+          }
+        });
+
+        assert.ok(updated);
+        assert.strictEqual(updated!.metadata.status, 'approved');
+        assert.strictEqual(updated!.metadata.agentId, 'agent-qa');
+        assert.strictEqual(updated!.metadata.targetSection, 'Core Behaviors');
+        assert.strictEqual(updated!.metadata.reviewedBy, 'human-reviewer');
+      });
+
+      it('should update improvement content', async () => {
+        const original = memoryGet(db, improvementId1);
+
+        const updated = await memoryUpdate(db, {
+          id: improvementId1,
+          content: 'Updated: Suggestion to improve error handling (revised)',
+          metadata: original!.metadata
+        });
+
+        assert.ok(updated);
+        assert.strictEqual(updated!.content, 'Updated: Suggestion to improve error handling (revised)');
+      });
+
+      it('should update improvement tags', async () => {
+        const original = memoryGet(db, improvementId1);
+
+        const updated = await memoryUpdate(db, {
+          id: improvementId1,
+          tags: ['agent-me', 'enhancement', 'approved', 'high-priority'],
+          metadata: original!.metadata
+        });
+
+        assert.ok(updated);
+        assert.deepStrictEqual(updated!.tags, ['agent-me', 'enhancement', 'approved', 'high-priority']);
+      });
+    });
+
+    describe('Semantic Search with AgentId Filter', () => {
+      it('should search improvements by agentId', async () => {
+        const results = await memorySearch(db, {
+          query: 'error handling improvements',
+          type: 'agent_improvement',
+          agentId: 'agent-me',
+          threshold: 0.3,
+          limit: 10
+        });
+
+        assert.ok(Array.isArray(results));
+        results.forEach(r => {
+          assert.strictEqual(r.type, 'agent_improvement');
+          assert.strictEqual(r.metadata.agentId, 'agent-me');
+        });
+      });
+
+      it('should search improvements without agentId filter', async () => {
+        const results = await memorySearch(db, {
+          query: 'improvements',
+          type: 'agent_improvement',
+          threshold: 0.3,
+          limit: 10
+        });
+
+        assert.ok(Array.isArray(results));
+        results.forEach(r => {
+          assert.strictEqual(r.type, 'agent_improvement');
+        });
+      });
+
+      it('should return empty results for non-matching agentId', async () => {
+        const results = await memorySearch(db, {
+          query: 'error handling',
+          type: 'agent_improvement',
+          agentId: 'agent-nonexistent',
+          threshold: 0.3,
+          limit: 10
+        });
+
+        assert.deepStrictEqual(results, []);
+      });
+    });
+
+    describe('Cross-Agent Isolation', () => {
+      it('should isolate improvements across multiple agents', async () => {
+        // Store improvements for different agents
+        await memoryStore(db, {
+          content: 'Improvement for agent-ta',
+          type: 'agent_improvement',
+          metadata: {
+            agentId: 'agent-ta',
+            targetSection: 'Architecture Patterns',
+            currentContent: 'Current',
+            suggestedContent: 'Suggested',
+            rationale: 'Rationale',
+            status: 'pending'
+          }
+        });
+
+        await memoryStore(db, {
+          content: 'Improvement for agent-doc',
+          type: 'agent_improvement',
+          metadata: {
+            agentId: 'agent-doc',
+            targetSection: 'Documentation Standards',
+            currentContent: 'Current',
+            suggestedContent: 'Suggested',
+            rationale: 'Rationale',
+            status: 'pending'
+          }
+        });
+
+        // Verify isolation
+        const taImprovements = memoryList(db, {
+          type: 'agent_improvement',
+          agentId: 'agent-ta'
+        });
+
+        const docImprovements = memoryList(db, {
+          type: 'agent_improvement',
+          agentId: 'agent-doc'
+        });
+
+        assert.ok(taImprovements.length >= 1);
+        assert.ok(docImprovements.length >= 1);
+
+        taImprovements.forEach(m => assert.strictEqual(m.metadata.agentId, 'agent-ta'));
+        docImprovements.forEach(m => assert.strictEqual(m.metadata.agentId, 'agent-doc'));
+      });
+    });
+
+    describe('Delete Improvement', () => {
+      it('should delete improvement', async () => {
+        const memory = await memoryStore(db, {
+          content: 'Temporary improvement',
+          type: 'agent_improvement',
+          metadata: {
+            agentId: 'agent-me',
+            targetSection: 'Test',
+            currentContent: 'Current',
+            suggestedContent: 'Suggested',
+            rationale: 'Rationale',
+            status: 'pending'
+          }
+        });
+
+        const result = memoryDelete(db, memory.id);
+        assert.strictEqual(result, true);
+
+        const deleted = memoryGet(db, memory.id);
+        assert.strictEqual(deleted, null);
+      });
     });
   });
 });

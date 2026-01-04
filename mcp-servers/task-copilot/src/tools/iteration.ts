@@ -12,6 +12,7 @@ import type { IterationValidationRule } from '../validation/iteration-types.js';
 import { runSafetyChecks } from './iteration-guards.js';
 import { validateIterationConfigOrThrow } from '../validation/iteration-config-validator.js';
 import { evaluateStopHooks, getTaskHooks } from './stop-hooks.js';
+import { detectIncompleteStop, decideContinuation } from './continuation-guard.js';
 
 // ============================================================================
 // INPUT/OUTPUT TYPES
@@ -61,6 +62,13 @@ export interface IterationValidateOutput {
     action: 'complete' | 'continue' | 'escalate';
     reason: string;
     nextPrompt?: string;
+  };
+  continuationDecision?: {
+    incomplete: boolean;
+    action: 'auto_resume' | 'prompt_user' | 'complete' | 'blocked';
+    reason: string;
+    prompt?: string;
+    warning?: string;
   };
 }
 
@@ -273,6 +281,20 @@ export async function iterationValidate(
       config.completionPromises
     );
 
+    // Check for premature stops
+    const continuationDetection = detectIncompleteStop(input.agentOutput || '');
+    const continuationDecision = decideContinuation(
+      db,
+      checkpoint.task_id,
+      input.iterationId,
+      continuationDetection
+    );
+
+    // Add continuation warning to feedback if present
+    if (continuationDecision.warning) {
+      feedback.push(continuationDecision.warning);
+    }
+
     return {
       iterationId: input.iterationId,
       iterationNumber,
@@ -282,7 +304,14 @@ export async function iterationValidate(
       feedback,
       results: [],
       completionPromisesDetected,
-      hookDecision
+      hookDecision,
+      continuationDecision: continuationDetection.incomplete ? {
+        incomplete: continuationDetection.incomplete,
+        action: continuationDecision.action,
+        reason: continuationDecision.reason,
+        prompt: continuationDecision.prompt,
+        warning: continuationDecision.warning
+      } : undefined
     };
   }
 
@@ -351,6 +380,20 @@ export async function iterationValidate(
     JSON.stringify(validationState)
   );
 
+  // Check for premature stops and decide on continuation
+  const continuationDetection = detectIncompleteStop(input.agentOutput || '');
+  const continuationDecision = decideContinuation(
+    db,
+    checkpoint.task_id,
+    input.iterationId,
+    continuationDetection
+  );
+
+  // Add continuation warning to feedback if present
+  if (continuationDecision.warning) {
+    feedback.push(continuationDecision.warning);
+  }
+
   return {
     iterationId: input.iterationId,
     iterationNumber,
@@ -364,7 +407,14 @@ export async function iterationValidate(
       message: r.message
     })),
     completionPromisesDetected,
-    hookDecision
+    hookDecision,
+    continuationDecision: continuationDetection.incomplete ? {
+      incomplete: continuationDetection.incomplete,
+      action: continuationDecision.action,
+      reason: continuationDecision.reason,
+      prompt: continuationDecision.prompt,
+      warning: continuationDecision.warning
+    } : undefined
   };
 }
 

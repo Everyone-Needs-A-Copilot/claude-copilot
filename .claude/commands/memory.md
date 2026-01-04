@@ -16,7 +16,12 @@ Call these tools to gather memory state:
    memory_list({ limit: 10 })
    ```
 
-3. **If Task Copilot is linked, get progress:**
+3. **Get agent improvement suggestions:**
+   ```
+   memory_list({ type: 'agent_improvement', limit: 20 })
+   ```
+
+4. **If Task Copilot is linked, get progress:**
    ```
    progress_summary()
    ```
@@ -50,6 +55,18 @@ Type       | Content Preview                    | Created
 decision   | [First 50 chars...]                | 2025-01-15
 lesson     | [First 50 chars...]                | 2025-01-14
 
+### Agent Improvements
+[If agent improvements exist, show summary:]
+**Pending:** [count] | **Approved:** [count] | **Rejected:** [count]
+
+[Table format for pending suggestions:]
+Agent | Section           | Rationale                           | Created
+----- | ----------------- | ----------------------------------- | ----------
+me    | Core Behaviors    | [First 40 chars...]                 | 2025-01-15
+ta    | Output format     | [First 40 chars...]                 | 2025-01-14
+
+[If no improvements: "No agent improvements recorded"]
+
 **Storage:** ~/.claude/memory/[workspace-id]/memory.db
 **Workspace ID:** [workspace-id or "auto-generated hash"]
 
@@ -81,6 +98,14 @@ If `memory_list` returns empty:
 No memories stored yet.
 ```
 
+### No Agent Improvements
+
+If `memory_list({ type: 'agent_improvement' })` returns empty:
+```
+### Agent Improvements
+No agent improvements recorded
+```
+
 ### Bloated Initiative Warning
 
 If the initiative contains legacy fields (`completed`, `inProgress`, `blocked`, `resumeInstructions`):
@@ -98,6 +123,9 @@ Consider running `initiative_slim({ archiveDetails: true })` to reduce context u
 - Group decisions and lessons separately from other memory types
 - Highlight if Task Copilot is linked (`taskCopilotLinked: true`)
 - Show `activePrdIds` if linked to Task Copilot
+- For agent improvements, parse metadata to extract AgentImprovementMetadata fields
+- Show status counts (pending/approved/rejected) from metadata.status field
+- Truncate rationale to 40 characters for table display
 
 ## Example Output
 
@@ -132,6 +160,14 @@ decision   | Migrate to slim initiative format for 75% cont... | 2025-01-15
 lesson     | Bloated initiatives waste tokens and slow down... | 2025-01-15
 decision   | Use Task Copilot for all task tracking, Memory... | 2025-01-14
 context    | Framework v2.0 focuses on memory optimization      | 2025-01-14
+
+### Agent Improvements
+**Pending:** 2 | **Approved:** 1 | **Rejected:** 0
+
+Agent | Section           | Rationale                           | Created
+----- | ----------------- | ----------------------------------- | ----------
+me    | Core Behaviors    | Add checkpoint validation before r... | 2025-01-15
+qa    | Output format     | Include regression test considerati... | 2025-01-14
 
 **Storage:** ~/.claude/memory/abc123def456/memory.db
 **Workspace ID:** abc123def456 (auto-generated)

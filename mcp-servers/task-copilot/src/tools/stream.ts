@@ -235,6 +235,11 @@ export function streamList(db: DatabaseClient, input: StreamListInput): StreamLi
     const blockedTasks = stream.tasks.filter(t => t.status === 'blocked').length;
     const pendingTasks = stream.tasks.filter(t => t.status === 'pending').length;
 
+    // Extract worktree metadata from first task (all tasks in stream share same worktree)
+    const firstTask = stream.tasks[0];
+    const worktreePath = firstTask?.metadata?.worktreePath;
+    const branchName = firstTask?.metadata?.branchName;
+
     return {
       streamId: stream.streamId,
       streamName: stream.streamName,
@@ -245,7 +250,9 @@ export function streamList(db: DatabaseClient, input: StreamListInput): StreamLi
       blockedTasks,
       pendingTasks,
       files: Array.from(stream.filesSet),
-      dependencies: Array.from(stream.dependenciesSet)
+      dependencies: Array.from(stream.dependenciesSet),
+      worktreePath,
+      branchName
     };
   });
 
@@ -347,18 +354,27 @@ export function streamGet(db: DatabaseClient, input: StreamGetInput): StreamGetO
     status = 'pending';
   }
 
+  // Extract worktree metadata from first task (all tasks in stream share same worktree)
+  const worktreePath = tasks[0]?.metadata?.worktreePath;
+  const branchName = tasks[0]?.metadata?.branchName;
+
   return {
     streamId,
     streamName,
     streamPhase,
     tasks,
     dependencies,
-    status
+    status,
+    worktreePath,
+    branchName
   };
 }
 
 /**
  * Check for file conflicts between streams
+ *
+ * Note: Streams with worktrees are isolated and won't conflict with other streams.
+ * Only streams sharing the same worktree (main or no worktree) can have conflicts.
  */
 export function streamConflictCheck(
   db: DatabaseClient,
@@ -368,6 +384,16 @@ export function streamConflictCheck(
 
   if (files.length === 0) {
     return { hasConflict: false, conflicts: [] };
+  }
+
+  // If checking for an excluded stream, check if it has a worktree
+  // If it does, it's isolated and won't conflict
+  if (excludeStreamId) {
+    const streamInfo = streamGet(db, { streamId: excludeStreamId, initiativeId });
+    if (streamInfo?.worktreePath) {
+      // Stream has worktree isolation, no conflicts possible
+      return { hasConflict: false, conflicts: [] };
+    }
   }
 
   const conflicts: StreamConflictCheckOutput['conflicts'] = [];
@@ -413,6 +439,11 @@ export function streamConflictCheck(
     for (const task of conflictingTasks) {
       const metadata = JSON.parse(task.metadata) as TaskMetadata;
       if (metadata.streamId) {
+        // Skip if conflicting stream has worktree isolation
+        if (metadata.worktreePath) {
+          continue;
+        }
+
         conflicts.push({
           file,
           streamId: metadata.streamId,
