@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-01-05
+
+### Added
+
+- **Stream Auto-Archive**: Streams automatically archive when switching initiatives
+  - Prevents stream pollution when using `/continue` across different initiatives
+  - `stream_list` and `stream_get` filter archived streams by default
+  - Use `includeArchived: true` parameter to view archived streams
+- **Stream Recovery Tools**:
+  - `stream_unarchive`: Recover an archived stream to make it active again
+  - `stream_archive_all`: One-time cleanup for legacy streams (requires `confirm: true`)
+- **Task Protection**: Archived tasks cannot be updated (clear error with recovery instructions)
+
+### Changed
+
+- `initiative_link` now auto-archives streams from previous initiative when switching
+- Database schema v6: Added `archived`, `archived_at`, `archived_by_initiative_id` columns to tasks table
+- Updated `/continue` command documentation with archived stream handling
+
+### Migration
+
+After updating from pre-1.7.1, optionally run `stream_archive_all({ confirm: true })` once to clean up existing streams. Without this, legacy streams remain visible until you naturally switch initiatives.
+
 ## [1.7.0] - 2026-01-04
 
 ### Added

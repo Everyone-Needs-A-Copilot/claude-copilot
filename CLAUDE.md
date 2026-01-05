@@ -271,9 +271,24 @@ MCP server for ephemeral PRD, task, and work product storage.
 
 | Tool | Purpose |
 |------|---------|
-| `stream_list` | List all independent work streams in initiative |
+| `stream_list` | List all independent work streams in initiative (use `includeArchived: true` to show archived) |
 | `stream_get` | Get detailed info for specific stream (~200 tokens) |
 | `stream_conflict_check` | Check if files conflict with other streams |
+| `stream_unarchive` | Recover an archived stream to make it active again |
+| `stream_archive_all` | One-time cleanup to archive all legacy streams (requires `confirm: true`) |
+
+**Stream Archival:**
+
+Streams are automatically archived when switching initiatives via `initiative_link()`. This prevents stream pollution when using `/continue` across different initiatives.
+
+| Scenario | Behavior |
+|----------|----------|
+| Switch to new initiative | Old streams auto-archived |
+| Re-link same initiative | No archival (streams preserved) |
+| `/continue Stream-A` | Only shows current initiative's streams |
+| Need old stream back | Use `stream_unarchive({ streamId: "Stream-A" })` |
+
+**After Updating from Pre-1.7.1:** Run `stream_archive_all({ confirm: true })` once to clean up legacy streams from before the auto-archive feature.
 
 **Agent Collaboration (Hierarchical Handoffs):**
 
