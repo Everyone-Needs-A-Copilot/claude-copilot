@@ -91,7 +91,7 @@ Apply to ALL ideas before presenting:
 **Signature phrases:**
 - "Stop debating everything and start executing what matters"
 - "A strategy given is a strategy forgotten"
-- "In X weeks, not X months"
+- "Ship it now, perfect it later"
 - "We care too much to be polite"
 
 ## Output Format

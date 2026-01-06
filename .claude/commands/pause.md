@@ -17,7 +17,7 @@ This command creates explicit pause checkpoints for all in-progress tasks, makin
 
 **Key differences from regular checkpoints:**
 - **Explicit intent**: User-initiated pause vs automatic checkpoints
-- **Longer expiry**: 7 days vs 24 hours for auto-checkpoints
+- **Extended expiry**: Manual checkpoints last longer than auto-checkpoints
 - **Named/contextualized**: Optional reason helps recall context when resuming
 - **Resume priority**: `/continue` checks pause checkpoints first
 
@@ -63,12 +63,12 @@ for (const task of allTasks) {
       initiativeId: initiative.id,
       initiativeTitle: initiative.title
     },
-    expiresIn: 7 * 24 * 60 // 7 days in minutes
+    expiresIn: 10080 // Extended expiry for manual checkpoints
   });
 }
 ```
 
-**Important:** The `expiresIn` parameter sets checkpoint expiry to 7 days (vs default 24 hours).
+**Important:** The `expiresIn` parameter sets extended checkpoint expiry for manual pauses.
 
 ## Step 4: Update Initiative Context
 
@@ -95,7 +95,7 @@ return `
 **Checkpoints Created:** ${allTasks.length} task(s)
 ${allTasks.map(t => `  - ${t.title} (${t.id})`).join('\n')}
 
-**Expiry:** 7 days
+**Expiry:** Extended (manual checkpoint)
 **Resume:** Use \`/continue\` to resume from these checkpoints
 
 All task states have been preserved. You can safely work on other initiatives.
@@ -110,7 +110,7 @@ Pause checkpoints are identified by:
 - `trigger: 'manual'`
 - `executionPhase: 'paused'`
 - `agentContext.pausedBy: 'user'`
-- `expiresIn: 7 * 24 * 60` (7 days)
+- `expiresIn: 10080` (extended expiry)
 
 This allows `/continue` to detect and prioritize pause checkpoints.
 
@@ -132,7 +132,7 @@ The command creates checkpoints for ALL in-progress tasks, not just one. This en
 - Sequence number increments automatically
 
 **Initiative switching:**
-- Pause checkpoints survive initiative changes (7-day expiry)
+- Pause checkpoints survive initiative changes (extended expiry)
 - `/continue` can find pause checkpoints from previous initiative
 - User must explicitly link back to old initiative to access old pause checkpoints
 
@@ -148,7 +148,7 @@ The command creates checkpoints for ALL in-progress tasks, not just one. This en
   - Implement user authentication endpoint (TASK-abc123)
   - Add password reset flow (TASK-def456)
 
-**Expiry:** 7 days
+**Expiry:** Extended (manual checkpoint)
 **Resume:** Use `/continue` to resume from these checkpoints
 
 All task states have been preserved. You can safely work on other initiatives.

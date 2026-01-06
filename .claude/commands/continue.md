@@ -15,7 +15,7 @@ This command supports an optional stream name argument for resuming work on spec
 **BEFORE loading standard initiative context**, check for recent pause checkpoints:
 
 ```typescript
-// Find all checkpoints from last 7 days with pause characteristics
+// Find all non-expired checkpoints with pause characteristics
 const pauseCheckpoints = await findPauseCheckpoints();
 
 function findPauseCheckpoints() {
