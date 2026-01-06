@@ -16,5 +16,11 @@
     "sourceMap": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "**/__tests__/**", "**/stop-hooks.test.ts", "**/iteration-guards.test.ts", "**/iteration-config-validator.test.ts", "**/performance.test.ts", "**/session-guard.test.ts"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/__tests__/**",
+    "**/*.test.ts",
+    "**/verify-*.ts"
+  ]
 }

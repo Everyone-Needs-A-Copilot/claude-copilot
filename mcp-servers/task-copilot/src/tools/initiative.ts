@@ -16,7 +16,12 @@ import type {
   InitiativeWipeOutput,
   ProgressSummaryInput,
   ProgressSummaryOutput,
+  Milestone,
+  MilestoneProgress,
+  VelocityTrend,
+  PrdMetadata,
 } from '../types.js';
+import { renderProgressBar } from '../utils/progress-bar.js';
 
 /**
  * Link current initiative from Memory Copilot to Task Copilot workspace
@@ -249,7 +254,103 @@ export function initiativeWipe(
 }
 
 /**
+ * Calculate milestone progress for PRDs
+ */
+function calculateMilestoneProgress(
+  milestones: Milestone[],
+  allTasks: any[]
+): MilestoneProgress[] {
+  const taskStatusMap = new Map(allTasks.map(t => [t.id, t.status]));
+
+  return milestones.map(milestone => {
+    const totalTasks = milestone.taskIds.length;
+    const completedTasks = milestone.taskIds.filter(
+      taskId => taskStatusMap.get(taskId) === 'completed'
+    ).length;
+
+    const percentComplete = totalTasks > 0
+      ? Math.floor((completedTasks / totalTasks) * 100)
+      : 0;
+
+    return {
+      id: milestone.id,
+      name: milestone.name,
+      description: milestone.description,
+      totalTasks,
+      completedTasks,
+      percentComplete,
+      isComplete: completedTasks === totalTasks && totalTasks > 0
+    };
+  });
+}
+
+/**
+ * Calculate velocity trends over different time periods
+ */
+function calculateVelocityTrends(db: DatabaseClient, initiativeId: string): VelocityTrend[] {
+  const now = new Date();
+  const periods: Array<{ days: number; label: '7d' | '14d' | '30d' }> = [
+    { days: 7, label: '7d' },
+    { days: 14, label: '14d' },
+    { days: 30, label: '30d' }
+  ];
+
+  const trends: VelocityTrend[] = [];
+
+  for (const period of periods) {
+    const startDate = new Date(now);
+    startDate.setDate(startDate.getDate() - period.days);
+    const startDateISO = startDate.toISOString();
+
+    // Query completed tasks within period
+    const completedTasks = db.getCompletedTasksInPeriod(startDateISO, now.toISOString());
+    const tasksCompleted = completedTasks.length;
+    const tasksPerDay = tasksCompleted / period.days;
+
+    // Calculate trend by comparing first half vs second half
+    let trend: 'improving' | 'stable' | 'declining' | 'insufficient_data' = 'insufficient_data';
+
+    if (tasksCompleted >= 4) { // Need at least 4 tasks for meaningful trend
+      const midDate = new Date(startDate);
+      midDate.setDate(midDate.getDate() + Math.floor(period.days / 2));
+      const midDateISO = midDate.toISOString();
+
+      const firstHalfCount = completedTasks.filter(
+        t => t.updated_at < midDateISO
+      ).length;
+      const secondHalfCount = tasksCompleted - firstHalfCount;
+
+      const firstHalfRate = firstHalfCount / (period.days / 2);
+      const secondHalfRate = secondHalfCount / (period.days / 2);
+
+      // 20% threshold for trend detection
+      const changePercent = firstHalfRate > 0
+        ? (secondHalfRate - firstHalfRate) / firstHalfRate
+        : (secondHalfCount > 0 ? 1 : 0);
+
+      if (changePercent > 0.2) {
+        trend = 'improving';
+      } else if (changePercent < -0.2) {
+        trend = 'declining';
+      } else {
+        trend = 'stable';
+      }
+    }
+
+    trends.push({
+      period: period.label,
+      tasksCompleted,
+      tasksPerDay: Math.round(tasksPerDay * 100) / 100,
+      trend
+    });
+  }
+
+  return trends;
+}
+
+/**
  * Get high-level progress summary for initiative
+ * Enhanced with milestones, progress bars, and velocity tracking
  */
 export function progressSummary(
   db: DatabaseClient,
@@ -291,6 +392,26 @@ export function progressSummary(
     }
   }
 
+  // Calculate milestone progress from all active PRDs
+  let allMilestones: MilestoneProgress[] = [];
+  for (const prd of activePrds) {
+    const metadata = JSON.parse(prd.metadata) as PrdMetadata;
+    if (metadata.milestones && metadata.milestones.length > 0) {
+      const milestoneProgress = calculateMilestoneProgress(metadata.milestones, allTasks);
+      allMilestones = allMilestones.concat(milestoneProgress);
+    }
+  }
+
+  // Generate ASCII progress bar for tasks
+  const progressBar = renderProgressBar(
+    tasksByStatus.completed,
+    allTasks.length,
+    { width: 20, showPercentage: true, showCount: true }
+  );
+
+  // Calculate velocity trends
+  const velocity = calculateVelocityTrends(db, initiative.id);
+
   // Get recent activity (last 5 items)
   const recentActivity = db.listActivityLogs(initiative.id, 5).map(log => ({
     timestamp: log.created_at,
@@ -311,12 +432,15 @@ export function progressSummary(
       pending: tasksByStatus.pending,
       inProgress: tasksByStatus.inProgress,
       completed: tasksByStatus.completed,
-      blocked: tasksByStatus.blocked
+      blocked: tasksByStatus.blocked,
+      progressBar
     },
     workProducts: {
       total: totalWorkProducts,
       byType: workProductsByType
     },
+    milestones: allMilestones.length > 0 ? allMilestones : undefined,
+    velocity,
     recentActivity
   };
 }

@@ -19,6 +19,8 @@ import type {
 import { validateStreamDependencies } from './stream.js';
 import { detectActivationMode, isValidActivationMode } from '../utils/mode-detection.js';
 import { executeQualityGates, shouldEnforceQualityGates } from './quality-gates.js';
+import { requiresVerification, validateTaskCompletion } from '../validation/verification-rules.js';
+import { validateActivationMode, shouldValidateActivationMode } from '../validation/activation-mode-rules.js';
 
 export async function taskCreate(
   db: DatabaseClient,
@@ -122,12 +124,25 @@ export async function taskCreate(
     });
   }
 
+  // Validate activation mode constraints on parent task (if this is a subtask)
+  let activationModeWarning: string | undefined;
+  if (input.parentId) {
+    const parentTask = db.getTask(input.parentId);
+    if (parentTask && shouldValidateActivationMode(parentTask)) {
+      const validationResult = validateActivationMode(db, parentTask);
+      if (validationResult.warnings.length > 0) {
+        activationModeWarning = validationResult.actionableFeedback;
+      }
+    }
+  }
+
   return {
     id,
     prdId: input.prdId,
     parentId: input.parentId,
     status: 'pending',
-    createdAt: now
+    createdAt: now,
+    ...(activationModeWarning && { activationModeWarning })
   };
 }
 
@@ -170,6 +185,36 @@ export async function taskUpdate(
     const existingMetadata = JSON.parse(task.metadata);
     const mergedMetadata = { ...existingMetadata, ...input.metadata };
     updates.metadata = JSON.stringify(mergedMetadata);
+  }
+
+  // Validate activation mode if mode was updated
+  let activationModeWarning: string | undefined;
+  if (input.metadata?.activationMode !== undefined) {
+    // Create a temporary updated task for validation
+    const tempTask: TaskRow = {
+      ...task,
+      metadata: updates.metadata || task.metadata
+    };
+
+    if (shouldValidateActivationMode(tempTask)) {
+      const validationResult = validateActivationMode(db, tempTask);
+      if (validationResult.warnings.length > 0) {
+        activationModeWarning = validationResult.actionableFeedback;
+      }
+    }
+  }
+
+  // Check verification requirements before allowing completion
+  if (input.status === 'completed' && requiresVerification(task)) {
+    const verificationResult = validateTaskCompletion(db, task);
+
+    if (!verificationResult.allowed) {
+      // Verification failed - block completion
+      throw new Error(
+        verificationResult.actionableFeedback ||
+        'Task cannot be completed: verification requirements not met'
+      );
+    }
   }
 
   // Check quality gates before allowing completion
@@ -250,7 +295,8 @@ export async function taskUpdate(
   return {
     id: input.id,
     status: (input.status || task.status) as TaskStatus,
-    updatedAt: now
+    updatedAt: now,
+    ...(activationModeWarning && { activationModeWarning })
   };
 }
 

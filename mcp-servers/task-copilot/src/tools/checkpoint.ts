@@ -48,6 +48,21 @@ export function checkpointCreate(
     (trigger === 'manual' ? MANUAL_EXPIRY_MINUTES : DEFAULT_EXPIRY_MINUTES);
   const expiresAt = new Date(Date.now() + expiryMinutes * 60 * 1000).toISOString();
 
+  // Merge pause metadata into agent context if provided
+  let agentContext = input.agentContext || {};
+  if (input.pauseMetadata) {
+    agentContext = {
+      ...agentContext,
+      pauseReason: input.pauseMetadata.pauseReason,
+      pausedBy: input.pauseMetadata.pausedBy,
+      nextSteps: input.pauseMetadata.nextSteps,
+      blockers: input.pauseMetadata.blockers,
+      keyFiles: input.pauseMetadata.keyFiles,
+      estimatedResumeTime: input.pauseMetadata.estimatedResumeTime,
+      pausedAt: now
+    };
+  }
+
   // Get subtask states
   const subtasks = db.listTasks({ parentId: input.taskId });
   const subtaskStates = subtasks.map(st => ({
@@ -74,7 +89,7 @@ export function checkpointCreate(
     assigned_agent: task.assigned_agent,
     execution_phase: input.executionPhase || null,
     execution_step: input.executionStep || null,
-    agent_context: input.agentContext ? JSON.stringify(input.agentContext) : null,
+    agent_context: agentContext ? JSON.stringify(agentContext) : null,
     draft_content: draftContent,
     draft_type: input.draftType || null,
     subtask_states: JSON.stringify(subtaskStates),
@@ -216,6 +231,19 @@ export function checkpointResume(
   // Generate resume instructions
   const resumeInstructions = generateResumeInstructions(task, checkpoint);
 
+  // Extract pause metadata if present
+  let pauseMetadata: CheckpointResumeOutput['pauseMetadata'];
+  if (agentContext && (agentContext.pausedBy || agentContext.pauseReason)) {
+    pauseMetadata = {
+      pauseReason: agentContext.pauseReason as string | undefined,
+      pausedBy: agentContext.pausedBy as 'user' | 'system' | undefined,
+      nextSteps: agentContext.nextSteps as string | undefined,
+      blockers: agentContext.blockers as string[] | undefined,
+      keyFiles: agentContext.keyFiles as string[] | undefined,
+      estimatedResumeTime: agentContext.estimatedResumeTime as string | undefined
+    };
+  }
+
   return {
     taskId: input.taskId,
     taskTitle: task.title,
@@ -237,7 +265,9 @@ export function checkpointResume(
     iterationNumber: checkpoint.iteration_number,
     iterationHistory,
     completionPromises,
-    validationState
+    validationState,
+    // Pause metadata (if checkpoint was from /pause)
+    pauseMetadata
   };
 }
 

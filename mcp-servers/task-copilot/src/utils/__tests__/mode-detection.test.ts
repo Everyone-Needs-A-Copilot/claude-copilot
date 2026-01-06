@@ -13,6 +13,14 @@ describe('detectActivationMode', () => {
       expect(detectActivationMode('ultrawork')).toBe('ultrawork');
     });
 
+    it('should detect ultrawork from GSD keywords', () => {
+      expect(detectActivationMode('Simple bug fix')).toBe('ultrawork');
+      expect(detectActivationMode('Minor change needed')).toBe('ultrawork');
+      expect(detectActivationMode('Fix typo in README')).toBe('ultrawork');
+      expect(detectActivationMode('Hotfix for production')).toBe('ultrawork');
+      expect(detectActivationMode('Tweak the styling')).toBe('ultrawork');
+    });
+
     it('should detect analyze keyword', () => {
       expect(detectActivationMode('Please analyze this code')).toBe('analyze');
       expect(detectActivationMode('Run analysis on the data')).toBe('analyze');
@@ -30,6 +38,14 @@ describe('detectActivationMode', () => {
       expect(detectActivationMode('Comprehensive testing')).toBe('thorough');
       expect(detectActivationMode('Detailed analysis')).toBe('thorough');
       expect(detectActivationMode('In-depth investigation')).toBe('thorough');
+    });
+
+    it('should detect thorough from complex/architecture keywords', () => {
+      expect(detectActivationMode('Complex refactoring needed')).toBe('thorough');
+      expect(detectActivationMode('Architecture review')).toBe('thorough');
+      expect(detectActivationMode('Refactor authentication module')).toBe('thorough');
+      expect(detectActivationMode('Redesign the API')).toBe('thorough');
+      expect(detectActivationMode('System-wide changes')).toBe('thorough');
     });
   });
 

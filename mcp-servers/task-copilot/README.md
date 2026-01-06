@@ -12,8 +12,10 @@ MCP server providing PRD and task management for Claude Code.
 - **Stream Management** (v1.7+): Independent parallel work streams with file conflict detection
 - **Performance Tracking** (v1.6+): Track agent success rates and completion rates by task type/complexity
 - **Checkpoint System** (v1.6+): Create recovery points during long-running tasks with auto-expiry
+- **Pause/Resume** (v1.8+): Explicit pause checkpoints with extended expiry (7 days) for seamless context switching
 - **Validation System** (v1.6+): Validate work products for size, structure, and completeness
 - **Token Efficiency** (v1.6+): Enforce character/token limits to prevent context bloat
+- **Activation Modes** (v1.8+): Auto-detect execution modes (ultrawork, analyze, quick, thorough) with GSD-inspired constraints
 
 ## Installation
 
@@ -511,6 +513,85 @@ metadata: {
 - Enforce dependency order (foundation → parallel → integration)
 - Validate circular dependencies at task creation time
 
+### Activation Modes
+
+Activation modes are auto-detected from task titles/descriptions using keyword matching. They help scope tasks appropriately and enforce GSD-inspired constraints for focused, atomic work.
+
+**Available Modes:**
+
+| Mode | Keywords | Constraints | Use When |
+|------|----------|-------------|----------|
+| `ultrawork` | ultrawork, atomic, focused | Max 3 subtasks (warns if exceeded) | Atomic, focused work with clear scope |
+| `analyze` | analyze, analysis, analyse, investigate, research | None | Investigation or research tasks |
+| `quick` | quick, fast, rapid, simple | None | Fast, simple tasks |
+| `thorough` | thorough, comprehensive, detailed, in-depth, deep | None | Deep, comprehensive work (no limits) |
+
+**Auto-Detection:**
+
+```javascript
+// Keywords in title or description
+"Quick fix for login bug"           → mode: 'quick'
+"Analyze authentication flow"       → mode: 'analyze'
+"Comprehensive security audit"      → mode: 'thorough'
+"Use ultrawork for this task"       → mode: 'ultrawork'
+"Regular task"                       → mode: null (no keywords)
+```
+
+**Explicit Override:**
+
+```javascript
+await task_create({
+  title: "Quick task",
+  metadata: {
+    activationMode: 'ultrawork'  // Explicit mode overrides auto-detection
+  }
+});
+```
+
+**Ultrawork Constraint:**
+
+When a task is in `ultrawork` mode, the system warns if it has more than 3 direct subtasks:
+
+```javascript
+// Creating 4th subtask triggers warning
+const result = await task_create({
+  title: "Subtask 4",
+  parentId: ultraworkTaskId
+});
+
+// result.activationModeWarning:
+// ⚠️  ULTRAWORK MODE CONSTRAINT VIOLATED
+//
+// Task: "Implement authentication"
+// Subtasks: 4 (limit: 3)
+//
+// Ultrawork mode enforces atomic, focused work with max 3 subtasks.
+//
+// Recommendations:
+// 1. Break this task into smaller ultrawork tasks (preferred)
+// 2. Change activationMode to "thorough" if complexity justified
+// 3. Remove 1 subtask(s) to fit within limit
+```
+
+**Why This Matters:**
+
+Tasks with >3 subtasks often indicate scope creep. The ultrawork constraint encourages:
+- Smaller, focused tasks
+- Faster iteration cycles
+- Better focus and clarity
+- Higher completion rates
+
+**Changing Modes:**
+
+```javascript
+await task_update({
+  id: taskId,
+  metadata: {
+    activationMode: 'thorough'  // Change from ultrawork to allow more subtasks
+  }
+});
+```
+
 ### Performance Tracking Tools
 
 #### agent_performance_get
@@ -889,6 +970,20 @@ npm run dev
 
 # Start server
 npm start
+```
+
+### Testing
+
+```bash
+# Run all tests
+npm test
+
+# Run specific test suites
+npm run test:full              # Full integration tests
+npm run test:integration       # Iteration system tests
+npm run test:progress          # Progress visibility tests
+npm run test:pause-resume      # Pause/resume checkpoint tests
+npm run test:activation-mode   # Activation mode validation tests
 ```
 
 ## License

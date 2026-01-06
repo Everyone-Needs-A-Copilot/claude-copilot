@@ -84,10 +84,10 @@ fi
 
 # Check agents
 AGENT_COUNT=$(find "$REPO_ROOT/.claude/agents" -name "*.md" -type f | wc -l | tr -d ' ')
-if [[ "$AGENT_COUNT" -eq 12 ]]; then
-  pass "All 12 agents present"
+if [[ "$AGENT_COUNT" -eq 13 ]]; then
+  pass "All 13 agents present"
 else
-  fail "Agent count mismatch: expected 12, found $AGENT_COUNT"
+  fail "Agent count mismatch: expected 13, found $AGENT_COUNT"
 fi
 
 # Check commands

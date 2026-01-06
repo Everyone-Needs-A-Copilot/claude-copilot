@@ -12,10 +12,12 @@ export type ActivationMode = 'ultrawork' | 'analyze' | 'quick' | 'thorough';
  * Patterns are case-insensitive and match whole words
  */
 const MODE_PATTERNS: Record<ActivationMode, RegExp> = {
-  ultrawork: /\bultrawork\b/i,
+  // Ultrawork: atomic, focused tasks (matches GSD keywords)
+  ultrawork: /\bultrawork\b|\bsimple\b|\bminor\b|\btypo\b|\bhotfix\b|\btweak\b/i,
   analyze: /\banalyze\b|\banalysis\b|\banalyse\b/i,
   quick: /\bquick\b|\bfast\b|\brapid\b/i,
-  thorough: /\bthorough\b|\bcomprehensive\b|\bdetailed\b|\bin-depth\b/i
+  // Thorough: complex, deep work (matches complex/architecture keywords)
+  thorough: /\bthorough\b|\bcomprehensive\b|\bdetailed\b|\bin-depth\b|\bcomplex\b|\barchitecture\b|\brefactor\b|\bredesign\b|\bsystem\b/i
 };
 
 /**

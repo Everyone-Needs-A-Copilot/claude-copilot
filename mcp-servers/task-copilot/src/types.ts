@@ -16,6 +16,22 @@ export interface Initiative {
   updatedAt: string;
 }
 
+// Milestone for PRD progress tracking
+export interface Milestone {
+  id: string;
+  name: string;
+  description?: string;
+  taskIds: string[]; // Tasks that must be complete for milestone
+}
+
+// PRD Metadata structure
+export interface PrdMetadata extends Record<string, unknown> {
+  priority?: string;
+  complexity?: string;
+  tags?: string[];
+  milestones?: Milestone[]; // Optional progress milestones
+}
+
 // PRD
 export interface Prd {
   id: string;
@@ -23,7 +39,7 @@ export interface Prd {
   title: string;
   description?: string;
   content: string;
-  metadata: Record<string, unknown>;
+  metadata: PrdMetadata;
   status: PrdStatus;
   createdAt: string;
   updatedAt: string;
@@ -68,6 +84,9 @@ export interface TaskMetadata extends Record<string, unknown> {
 
   // Quality gates (Quality Gates Configuration)
   qualityGates?: string[];    // Gate names to run before task completion
+
+  // Verification enforcement (GSD-inspired DX improvements)
+  verificationRequired?: boolean; // If true, requires acceptanceCriteria and proof to complete
 }
 
 // Work Product
@@ -259,6 +278,23 @@ export interface ProgressSummaryInput {
   initiativeId?: string;
 }
 
+export interface MilestoneProgress {
+  id: string;
+  name: string;
+  description?: string;
+  totalTasks: number;
+  completedTasks: number;
+  percentComplete: number;
+  isComplete: boolean;
+}
+
+export interface VelocityTrend {
+  period: '7d' | '14d' | '30d';
+  tasksCompleted: number;
+  tasksPerDay: number;
+  trend: 'improving' | 'stable' | 'declining' | 'insufficient_data';
+}
+
 export interface ProgressSummaryOutput {
   initiativeId: string;
   title: string;
@@ -273,11 +309,14 @@ export interface ProgressSummaryOutput {
     inProgress: number;
     completed: number;
     blocked: number;
+    progressBar?: string; // ASCII progress bar
   };
   workProducts: {
     total: number;
     byType: Record<string, number>;
   };
+  milestones?: MilestoneProgress[]; // Optional milestone progress
+  velocity?: VelocityTrend[]; // Task completion velocity
   recentActivity: Array<{
     timestamp: string;
     type: string;
@@ -480,6 +519,15 @@ export interface CheckpointCreateInput {
   // Ralph Wiggum iteration support
   iterationConfig?: IterationConfig;
   iterationNumber?: number;
+  // Pause/Resume metadata (optional)
+  pauseMetadata?: {
+    pauseReason?: string;
+    pausedBy?: 'user' | 'system';
+    nextSteps?: string;
+    blockers?: string[];
+    keyFiles?: string[];
+    estimatedResumeTime?: string;
+  };
 }
 
 export interface CheckpointCreateOutput {
@@ -521,6 +569,15 @@ export interface CheckpointResumeOutput {
   iterationHistory: IterationHistoryEntry[];
   completionPromises: string[];
   validationState: ValidationState | null;
+  // Pause metadata (if checkpoint was created via /pause)
+  pauseMetadata?: {
+    pauseReason?: string;
+    pausedBy?: 'user' | 'system';
+    nextSteps?: string;
+    blockers?: string[];
+    keyFiles?: string[];
+    estimatedResumeTime?: string;
+  };
 }
 
 export interface CheckpointGetInput {

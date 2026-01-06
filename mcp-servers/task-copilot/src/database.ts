@@ -485,6 +485,20 @@ export class DatabaseClient {
     return result;
   }
 
+  /**
+   * Get completed tasks within a time period (for velocity tracking)
+   */
+  getCompletedTasksInPeriod(startDate: string, endDate: string): TaskRow[] {
+    return this.db.prepare(`
+      SELECT * FROM tasks
+      WHERE status = 'completed'
+        AND updated_at >= ?
+        AND updated_at <= ?
+        AND archived = 0
+      ORDER BY updated_at ASC
+    `).all(startDate, endDate) as TaskRow[];
+  }
+
   // Work Product operations
   insertWorkProduct(wp: WorkProductRow): void {
     this.db.prepare(`

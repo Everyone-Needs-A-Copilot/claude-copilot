@@ -7,8 +7,87 @@ Resume a conversation by loading context from Memory Copilot and Task Copilot.
 This command supports an optional stream name argument for resuming work on specific parallel streams:
 
 **Usage:**
-- `/continue` - Interactive mode (resume main initiative or select from streams)
+- `/continue` - Interactive mode (check pause checkpoints, then resume main initiative or select from streams)
 - `/continue Stream-B` - Resume work on specific stream directly
+
+## Step 0: Check for Pause Checkpoints (Priority Check)
+
+**BEFORE loading standard initiative context**, check for recent pause checkpoints:
+
+```typescript
+// Find all checkpoints from last 7 days with pause characteristics
+const pauseCheckpoints = await findPauseCheckpoints();
+
+function findPauseCheckpoints() {
+  // Get current initiative (lean mode)
+  const initiative = await initiative_get({ mode: "lean" });
+  if (!initiative) return [];
+
+  // Get all in-progress tasks
+  const tasks = await task_list({ status: 'in_progress' });
+
+  // For each task, check for pause checkpoints
+  const checkpoints = [];
+  for (const task of tasks) {
+    const taskCheckpoints = await checkpoint_list({ taskId: task.id, limit: 5 });
+
+    // Find checkpoints with pause characteristics
+    for (const cp of taskCheckpoints.checkpoints) {
+      const fullCheckpoint = await checkpoint_get({ id: cp.id });
+
+      if (fullCheckpoint &&
+          fullCheckpoint.trigger === 'manual' &&
+          fullCheckpoint.executionPhase === 'paused' &&
+          fullCheckpoint.agentContext?.pausedBy === 'user') {
+        checkpoints.push({
+          checkpointId: cp.id,
+          taskId: task.id,
+          taskTitle: task.title,
+          pauseReason: fullCheckpoint.agentContext.pauseReason,
+          pausedAt: fullCheckpoint.agentContext.pausedAt,
+          hasDraft: cp.hasDraft,
+          expiresAt: cp.expiresAt
+        });
+      }
+    }
+  }
+
+  // Sort by most recent pause
+  return checkpoints.sort((a, b) =>
+    new Date(b.pausedAt).getTime() - new Date(a.pausedAt).getTime()
+  );
+}
+```
+
+**If pause checkpoints found**, present resume options:
+
+```
+## Paused Work Detected
+
+Found ${pauseCheckpoints.length} paused task(s) from recent session:
+
+${pauseCheckpoints.map((cp, idx) => `
+${idx + 1}. ${cp.taskTitle}
+   Paused: ${formatTimeAgo(cp.pausedAt)}
+   Reason: ${cp.pauseReason}
+   Has draft: ${cp.hasDraft ? 'Yes' : 'No'}
+   Expires: ${formatTimeAgo(cp.expiresAt)}
+`).join('\n')}
+
+Options:
+[1-${pauseCheckpoints.length}] Resume specific paused task
+[c] Continue with standard initiative resume (ignore paused work)
+[s] Show all streams (include paused tasks)
+
+Select option:
+```
+
+**User selections:**
+- Number (1-N): Call `checkpoint_resume({ taskId, checkpointId })` and begin work
+- `c`: Proceed to standard resume flow (Step 1 below)
+- `s`: Proceed to stream selection flow (Step 1 below, then stream list)
+
+**If no pause checkpoints found**, proceed to standard resume flow.
 
 **Auto-Detection Logic:**
 When a stream argument is provided:
