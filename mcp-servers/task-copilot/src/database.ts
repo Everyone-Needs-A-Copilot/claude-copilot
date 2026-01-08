@@ -903,6 +903,42 @@ export class DatabaseClient {
     return result.count;
   }
 
+  /**
+   * Get latest checkpoint for any task in a stream
+   * Used for context exhaustion recovery
+   */
+  getLatestCheckpointForStream(streamId: string): CheckpointRow | undefined {
+    const sql = `
+      SELECT cp.*
+      FROM checkpoints cp
+      JOIN tasks t ON cp.task_id = t.id
+      WHERE t.metadata LIKE ?
+        AND (cp.expires_at IS NULL OR cp.expires_at > datetime('now'))
+      ORDER BY cp.created_at DESC
+      LIMIT 1
+    `;
+    // Stream ID is stored in task.metadata as JSON: {"streamId": "Stream-A"}
+    return this.db.prepare(sql).get(`%"streamId":"${streamId}"%`) as CheckpointRow | undefined;
+  }
+
+  /**
+   * Get recent activities for a stream (for health check)
+   * Used to detect stalled sessions
+   */
+  getActivitiesByStream(streamId: string, limit: number = 10): ActivityLogRow[] {
+    const sql = `
+      SELECT a.*
+      FROM activity_log a
+      WHERE (a.entity_type = 'task' AND a.entity_id IN (
+        SELECT id FROM tasks WHERE metadata LIKE ?
+      ))
+      OR (a.entity_type = 'stream' AND a.entity_id = ?)
+      ORDER BY a.created_at DESC
+      LIMIT ?
+    `;
+    return this.db.prepare(sql).all(`%"streamId":"${streamId}"%`, streamId, limit) as ActivityLogRow[];
+  }
+
   // ============================================================================
   // ITERATION METRICS (for performance tracking)
   // ============================================================================

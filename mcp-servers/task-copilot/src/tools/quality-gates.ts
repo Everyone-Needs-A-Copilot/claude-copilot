@@ -7,7 +7,8 @@
 
 import { readFile, access } from 'fs/promises';
 import { constants } from 'fs';
-import { resolve } from 'path';
+import { resolve, dirname, join } from 'path';
+import { existsSync } from 'fs';
 import type { DatabaseClient } from '../database.js';
 import type { TaskRow } from '../types.js';
 import { getIterationEngine } from '../validation/iteration-engine.js';
@@ -117,6 +118,77 @@ export function clearConfigCache(): void {
 }
 
 // ============================================================================
+// WORKING DIRECTORY DETECTION
+// ============================================================================
+
+/**
+ * Find the appropriate working directory for executing quality gates
+ *
+ * Strategy:
+ * 1. Check gate config for explicit workingDirectory
+ * 2. For npm/yarn/pnpm commands, find nearest package.json from task files
+ * 3. Check task metadata for files array - use common parent directory
+ * 4. Fall back to project root
+ *
+ * @param task - Task being validated
+ * @param projectRoot - Project root directory
+ * @param command - Command being executed (used to detect npm/yarn/pnpm)
+ * @param gateWorkingDir - Explicit working directory from gate config
+ * @returns Absolute path to working directory
+ */
+function findWorkingDirectory(
+  task: TaskRow,
+  projectRoot: string,
+  command: string,
+  gateWorkingDir?: string
+): string {
+  // If gate specifies explicit working directory, use it
+  if (gateWorkingDir) {
+    return resolve(projectRoot, gateWorkingDir);
+  }
+
+  const metadata = JSON.parse(task.metadata);
+
+  // For npm/yarn/pnpm commands, find nearest package.json
+  const isPackageManager = /^(npm|yarn|pnpm)\s/.test(command);
+
+  if (isPackageManager && metadata.files && Array.isArray(metadata.files) && metadata.files.length > 0) {
+    // Start from the first file's directory
+    const firstFile = metadata.files[0];
+    let currentDir = dirname(resolve(projectRoot, firstFile));
+
+    // Walk up directory tree looking for package.json
+    while (currentDir.startsWith(projectRoot) && currentDir !== projectRoot) {
+      const packageJsonPath = join(currentDir, 'package.json');
+      if (existsSync(packageJsonPath)) {
+        return currentDir;
+      }
+
+      const parentDir = dirname(currentDir);
+      if (parentDir === currentDir) {
+        // Reached filesystem root
+        break;
+      }
+      currentDir = parentDir;
+    }
+
+    // Check project root itself
+    if (existsSync(join(projectRoot, 'package.json'))) {
+      return projectRoot;
+    }
+  }
+
+  // For non-package-manager commands, use task files common directory
+  if (metadata.files && Array.isArray(metadata.files) && metadata.files.length > 0) {
+    const firstFile = metadata.files[0];
+    return dirname(resolve(projectRoot, firstFile));
+  }
+
+  // Fall back to project root
+  return projectRoot;
+}
+
+// ============================================================================
 // GATE EXECUTION
 // ============================================================================
 
@@ -155,13 +227,21 @@ export async function executeQualityGates(
     };
   }
 
-  // Convert gates to validation rules
+  // Convert gates to validation rules with smart working directory detection
   const rules: IterationValidationRule[] = [];
   for (const gateName of gateNames) {
     const gate = config.gates[gateName];
     if (!gate) {
       throw new Error(`Quality gate not found in config: ${gateName}`);
     }
+
+    // Determine working directory for this gate
+    const workingDir = findWorkingDirectory(
+      task,
+      projectRoot,
+      gate.command,
+      gate.workingDirectory
+    );
 
     rules.push({
       type: 'command',
@@ -170,7 +250,7 @@ export async function executeQualityGates(
       command: gate.command,
       expectedExitCode: gate.expectedExitCode ?? 0,
       timeout: gate.timeout ?? 60000,
-      workingDirectory: gate.workingDirectory,
+      workingDirectory: workingDir,
       env: gate.env
     });
   }

@@ -10,6 +10,7 @@ import type { DatabaseClient } from './database.js';
 import { streamsRoutes } from './http-routes/streams.js';
 import { tasksRoutes } from './http-routes/tasks.js';
 import { activityRoutes } from './http-routes/activity.js';
+import { checkpointsRoutes } from './http-routes/checkpoints.js';
 
 export interface HttpServerConfig {
   host?: string;
@@ -29,6 +30,7 @@ export async function createHttpServer(config: HttpServerConfig) {
   await fastify.register(streamsRoutes, { prefix: '/api/streams', db });
   await fastify.register(tasksRoutes, { prefix: '/api/tasks', db });
   await fastify.register(activityRoutes, { prefix: '/api/activity', db });
+  await fastify.register(checkpointsRoutes, { prefix: '/api/checkpoints', db });
 
   // Health check endpoint
   fastify.get('/health', async () => {
