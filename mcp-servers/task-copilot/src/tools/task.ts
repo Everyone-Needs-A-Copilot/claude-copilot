@@ -259,7 +259,15 @@ export async function taskUpdate(
 
   // Check verification requirements before allowing completion
   if (input.status === 'completed' && requiresVerification(task)) {
-    const verificationResult = validateTaskCompletion(db, task);
+    // Create a temporary updated task for validation that includes pending updates
+    const tempTask: TaskRow = {
+      ...task,
+      notes: updates.notes !== undefined ? updates.notes : task.notes,
+      blocked_reason: updates.blocked_reason !== undefined ? updates.blocked_reason : task.blocked_reason,
+      metadata: updates.metadata || task.metadata
+    };
+
+    const verificationResult = validateTaskCompletion(db, tempTask);
 
     if (!verificationResult.allowed) {
       // Verification failed - block completion

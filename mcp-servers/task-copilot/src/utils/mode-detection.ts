@@ -9,15 +9,19 @@ export type ActivationMode = 'ultrawork' | 'analyze' | 'quick' | 'thorough';
 
 /**
  * Keyword patterns for each activation mode
- * Patterns are case-insensitive and match whole words
+ * Patterns are case-insensitive and match word prefixes
+ * (e.g., "thorough" matches "thorough", "thoroughly", "thoroughness")
  */
 const MODE_PATTERNS: Record<ActivationMode, RegExp> = {
   // Ultrawork: atomic, focused tasks (matches GSD keywords)
-  ultrawork: /\bultrawork\b|\bsimple\b|\bminor\b|\btypo\b|\bhotfix\b|\btweak\b/i,
-  analyze: /\banalyze\b|\banalysis\b|\banalyse\b/i,
-  quick: /\bquick\b|\bfast\b|\brapid\b/i,
+  ultrawork: /\bultrawork\b|\bsimple|\bminor\b|\btypo|\bhotfix|\btweak/i,
+  // Analyze: matches "analyze", "analysis", "analyzing", "analyzed", etc.
+  analyze: /\banalyz|\banalys/i,
+  // Quick: matches "quick", "quickly", "fast", "rapid", "rapidly"
+  quick: /\bquick|\bfast|\brapid/i,
   // Thorough: complex, deep work (matches complex/architecture keywords)
-  thorough: /\bthorough\b|\bcomprehensive\b|\bdetailed\b|\bin-depth\b|\bcomplex\b|\barchitecture\b|\brefactor\b|\bredesign\b|\bsystem\b/i
+  // Matches word prefixes for thorough, comprehensive, detailed, complex, architecture
+  thorough: /\bthorough|\bcomprehensive|\bdetailed|\bin-depth\b|\bcomplex|\barchitecture|\brefactor|\bredesign|\bsystem\b/i
 };
 
 /**
@@ -28,7 +32,8 @@ const MODE_PATTERNS: Record<ActivationMode, RegExp> = {
  * - Returns the LAST matching keyword if multiple are found (last wins)
  * - Returns null if no keywords are detected
  * - Case-insensitive matching
- * - Whole word boundaries (won't match partial words)
+ * - Matches word prefixes (e.g., "analyze" matches "analyzing", "thorough" matches "thoroughly")
+ * - Word boundary at start ensures "ultrawork" won't match "xultrawork"
  *
  * @param title - Task title
  * @param description - Optional task description

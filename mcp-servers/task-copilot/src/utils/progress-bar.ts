@@ -43,17 +43,21 @@ export function renderProgressBar(
     return `[${bar}] 0%${showCount ? ' (0/0)' : ''}`;
   }
 
+  // Clamp negative values to 0 for rendering (but preserve original for display)
+  const clampedCompleted = Math.max(0, completed);
+  const clampedTotal = Math.max(0, total);
+
   // Calculate percentage and filled width
-  const percentage = Math.floor((completed / total) * 100);
-  const filledWidth = Math.floor((completed / total) * width);
-  const emptyWidth = width - filledWidth;
+  const percentage = Math.floor((clampedCompleted / clampedTotal) * 100);
+  const filledWidth = Math.max(0, Math.floor((clampedCompleted / clampedTotal) * width));
+  const emptyWidth = Math.max(0, width - filledWidth);
 
   // Build progress bar
   const filledPart = filled.repeat(filledWidth);
   const emptyPart = empty.repeat(emptyWidth);
   const bar = `[${filledPart}${emptyPart}]`;
 
-  // Build labels
+  // Build labels (use original values for display)
   const labels: string[] = [];
   if (showPercentage) {
     labels.push(`${percentage}%`);
