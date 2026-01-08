@@ -1,854 +1,1159 @@
 # Orchestration
 
-Generate and manage parallel Claude Code orchestration for independent streams.
+Generate headless orchestration scripts for running parallel Claude Code workers across independent streams.
 
 ## Command Argument Handling
 
 This command supports optional action arguments:
 
 **Usage:**
-- `/orchestration` or `/orchestration generate` - Generate orchestration scripts (default)
-- `/orchestration config` - Show current orchestration configuration
-- `/orchestration status` - Show stream progress and active sessions
+- `/orchestration` or `/orchestration generate` - Generate headless orchestration scripts (default)
+- `/orchestration status` - Show stream progress (queries Task Copilot directly)
 
 ## Action: Generate (Default)
 
-Generate external orchestration scripts that enable running multiple Claude Code sessions in parallel for independent work streams.
+Generate headless orchestration scripts that spawn autonomous Claude Code workers.
 
-### Step 1: Query Active Streams
+### What Gets Generated
 
-Call `stream_list()` to retrieve all active streams in the current initiative.
+Three files in `.claude/orchestrator/`:
 
-**If no initiative exists:**
-```
-## No Active Initiative
+1. **orchestrate.py** - Main orchestrator (spawns headless workers, manages phases, auto-restarts)
+2. **check-streams** - Status dashboard (bash script, queries Task Copilot SQLite)
+3. **watch-status** - Live monitoring (calls check-streams in loop)
 
-Cannot generate orchestration without an active initiative.
+### Step 1: Query Current Project
 
-To create an initiative:
-1. Run /protocol
-2. Work with @agent-ta to create a PRD with tasks
-3. Ensure tasks are organized into streams
+Get absolute project root path and project name:
 
-Or run /continue to resume a previous initiative.
-```
-
-**If no streams found:**
-```
-## No Streams Defined
-
-Cannot generate orchestration without work streams.
-
-Work streams enable parallel execution across multiple Claude Code sessions.
-
-To create streams:
-1. Work with @agent-ta to organize tasks into streams
-2. Assign streamId, streamName, and streamPhase to tasks
-3. Use streamPhase: 'foundation', 'parallel', or 'integration'
-
-Run /orchestration once streams are defined.
+```typescript
+// Use process.cwd() or similar to get absolute path
+const projectRoot = "/absolute/path/to/project";
+const projectName = path.basename(projectRoot);
 ```
 
-### Step 2: Validate Stream Configuration
+Calculate workspace ID using same algorithm as Task Copilot (hash of project path). This is needed for the SQLite database path: `~/.claude/tasks/{workspace}/tasks.db`
 
-Check the following requirements:
+### Step 2: Prepare Output Directory
 
-1. **At least one foundation stream exists** (streamPhase: 'foundation')
-2. **No circular dependencies** (validated by stream_list tool)
-3. **File conflicts within streams are acceptable** (streams are independent)
-4. **Maximum 5 parallel streams** (practical orchestration limit)
-
-**If validation fails, display error:**
-```
-## Invalid Stream Configuration
-
-Cannot generate orchestration due to configuration issues:
-
-[List specific validation errors]
-
-Please fix these issues and run /orchestration again.
-```
-
-### Step 3: Prepare Output Directory
-
-Create `.claude/orchestration/` directory if it doesn't exist.
+Create `.claude/orchestrator/` directory if it doesn't exist. Also create subdirectories:
+- `.claude/orchestrator/pids/` - For PID files
+- `.claude/orchestrator/logs/` - For worker logs
 
 Display message:
 ```
-## Generating Orchestration Scripts
+## Generating Headless Orchestration Scripts
 
-Output directory: .claude/orchestration/
+Output directory: .claude/orchestrator/
+Project: {projectName}
+Workspace: {workspaceId}
 ```
 
-### Step 4: Generate orchestration-config.json
+### Step 3: Generate orchestrate.py
 
-Create configuration file with current stream data:
+Create the Python orchestrator script with these components:
 
-```json
-{
-  "version": "1.0",
-  "generatedAt": "[ISO timestamp]",
-  "initiative": {
-    "id": "[initiative ID]",
-    "name": "[initiative name]"
-  },
-  "apiEndpoint": "http://127.0.0.1:9090",
-  "streams": [
-    {
-      "streamId": "Stream-A",
-      "streamName": "foundation",
-      "streamPhase": "foundation",
-      "totalTasks": 4,
-      "completedTasks": 0,
-      "dependencies": [],
-      "projectRoot": "[absolute path to project]",
-      "worktreePath": null
-    },
-    {
-      "streamId": "Stream-B",
-      "streamName": "command-updates",
-      "streamPhase": "parallel",
-      "totalTasks": 2,
-      "completedTasks": 0,
-      "dependencies": ["Stream-A"],
-      "projectRoot": "[absolute path to project]",
-      "worktreePath": ".claude/worktrees/Stream-B"
-    }
-  ],
-  "executionPlan": {
-    "foundation": ["Stream-A"],
-    "parallel": ["Stream-B", "Stream-C"],
-    "integration": ["Stream-Z"]
-  }
-}
-```
-
-### Step 5: Generate start-streams.py
-
-Create the Python orchestration script:
+**File: `.claude/orchestrator/orchestrate.py`**
 
 ```python
 #!/usr/bin/env python3
 """
-Claude Code Parallel Stream Orchestration
+Claude Copilot Orchestrator
 
-Manages multiple Claude Code sessions running in parallel for independent work streams.
-Generated by: /orchestration command
+Spawns and manages multiple headless Claude Code sessions for parallel stream execution.
+Each stream runs autonomously, with dependencies managed automatically.
+
+Generated by Claude Copilot /orchestration command
+
+Usage:
+    python orchestrate.py start          # Start all streams (respects dependencies)
+    python orchestrate.py start Stream-C # Start specific stream
+    python orchestrate.py status         # Check status of all streams
+    python orchestrate.py stop           # Stop all running streams
+    python orchestrate.py logs Stream-A  # Tail logs for a stream
 """
 
 import json
 import subprocess
-import time
-import requests
+import os
 import sys
+import time
+import signal
+import sqlite3
+import hashlib
 from pathlib import Path
-from typing import Dict, List, Optional
-from dataclasses import dataclass
 from datetime import datetime
+from typing import Dict, List, Optional
+from enum import Enum
 
 # Configuration
-CONFIG_FILE = Path(__file__).parent / "orchestration-config.json"
-API_BASE = "http://127.0.0.1:9090"
+SCRIPT_DIR = Path(__file__).parent
+PROJECT_ROOT = Path("{projectRoot}")
+PROJECT_NAME = "{projectName}"
+LOG_DIR = SCRIPT_DIR / "logs"
+PID_DIR = SCRIPT_DIR / "pids"
 POLL_INTERVAL = 30  # seconds
-MAX_RETRIES = 3
 
-@dataclass
-class StreamStatus:
-    """Current status of a stream."""
-    stream_id: str
-    stream_name: str
-    stream_phase: str
-    total_tasks: int
-    completed_tasks: int
-    in_progress_tasks: int
-    progress_percentage: float
-    dependencies: List[str]
-    worktree_path: Optional[str]
+# Task Copilot SQLite database path
+WORKSPACE_ID = "{workspaceId}"
+TASK_DB = Path.home() / ".claude" / "tasks" / WORKSPACE_ID / "tasks.db"
 
-class OrchestrationManager:
-    """Manages parallel Claude Code sessions."""
 
-    def __init__(self, config_path: Path):
-        self.config = self._load_config(config_path)
-        self.active_processes: Dict[str, subprocess.Popen] = {}
+class StreamPhase(Enum):
+    FOUNDATION = "foundation"
+    PARALLEL = "parallel"
+    INTEGRATION = "integration"
 
-    def _load_config(self, path: Path) -> dict:
-        """Load orchestration configuration."""
-        if not path.exists():
-            print(f"Error: Configuration file not found: {path}")
+
+class Colors:
+    RED = '\\033[0;31m'
+    GREEN = '\\033[0;32m'
+    YELLOW = '\\033[1;33m'
+    BLUE = '\\033[0;34m'
+    CYAN = '\\033[0;36m'
+    MAGENTA = '\\033[0;35m'
+    BOLD = '\\033[1m'
+    DIM = '\\033[2m'
+    NC = '\\033[0m'  # No Color
+
+
+def log(msg: str, color: str = Colors.BLUE):
+    print(f"{color}[ORCHESTRATOR]{Colors.NC} {msg}")
+
+
+def success(msg: str):
+    print(f"{Colors.GREEN}[SUCCESS]{Colors.NC} {msg}")
+
+
+def warn(msg: str):
+    print(f"{Colors.YELLOW}[WARNING]{Colors.NC} {msg}")
+
+
+def error(msg: str):
+    print(f"{Colors.RED}[ERROR]{Colors.NC} {msg}")
+
+
+class Orchestrator:
+    def __init__(self):
+        self.streams = self._query_streams()
+        self.running_processes: Dict[str, subprocess.Popen] = {}
+
+        # Ensure directories exist
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        PID_DIR.mkdir(parents=True, exist_ok=True)
+
+    def _query_streams(self) -> Dict[str, dict]:
+        """Query streams from Task Copilot database."""
+        if not TASK_DB.exists():
+            error(f"Task Copilot database not found: {TASK_DB}")
             sys.exit(1)
 
-        with open(path) as f:
-            return json.load(f)
-
-    def _check_api_health(self) -> bool:
-        """Check if Task Copilot HTTP API is available."""
         try:
-            response = requests.get(f"{API_BASE}/health", timeout=5)
-            return response.status_code == 200
-        except requests.RequestException:
-            return False
+            conn = sqlite3.connect(str(TASK_DB), timeout=5)
+            cursor = conn.cursor()
 
-    def _get_stream_status(self, stream_id: str) -> Optional[StreamStatus]:
-        """Query current stream status from API."""
-        try:
-            response = requests.get(f"{API_BASE}/api/streams/{stream_id}", timeout=5)
-            if response.status_code == 404:
-                return None
+            # Query unique streams from task metadata
+            cursor.execute("""
+                SELECT DISTINCT
+                    json_extract(metadata, '$.streamId') as stream_id,
+                    json_extract(metadata, '$.streamName') as stream_name,
+                    json_extract(metadata, '$.streamPhase') as stream_phase
+                FROM tasks
+                WHERE json_extract(metadata, '$.streamId') IS NOT NULL
+                  AND archived = 0
+                ORDER BY stream_phase, stream_id
+            """)
 
-            data = response.json()
-            return StreamStatus(
-                stream_id=data["streamId"],
-                stream_name=data["streamName"],
-                stream_phase=data["streamPhase"],
-                total_tasks=data.get("totalTasks", 0),
-                completed_tasks=data.get("completedTasks", 0),
-                in_progress_tasks=data.get("inProgressTasks", 0),
-                progress_percentage=data.get("progressPercentage", 0.0),
-                dependencies=data.get("dependencies", []),
-                worktree_path=data.get("worktreePath")
-            )
-        except requests.RequestException as e:
-            print(f"Warning: Failed to get status for {stream_id}: {e}")
+            rows = cursor.fetchall()
+            conn.close()
+
+            if not rows:
+                error("No streams found in Task Copilot database")
+                sys.exit(1)
+
+            streams = {}
+            for stream_id, stream_name, stream_phase in rows:
+                # Determine worktree path
+                if stream_phase == "foundation" or stream_phase == "integration":
+                    worktree = "."
+                else:
+                    worktree = f".claude/worktrees/{stream_id}"
+
+                streams[stream_id] = {
+                    "id": stream_id,
+                    "name": stream_name or stream_id,
+                    "phase": StreamPhase(stream_phase),
+                    "worktree": worktree,
+                    "stream_id": stream_id
+                }
+
+            log(f"Found {len(streams)} streams")
+            return streams
+
+        except Exception as e:
+            error(f"Failed to query streams: {e}")
+            sys.exit(1)
+
+    def _get_stream_status(self, stream_id: str) -> Optional[dict]:
+        """Query Task Copilot SQLite database for stream status."""
+        if not TASK_DB.exists():
             return None
 
-    def _are_dependencies_complete(self, stream_id: str) -> bool:
-        """Check if all stream dependencies are 100% complete."""
-        stream_config = next(
-            (s for s in self.config["streams"] if s["streamId"] == stream_id),
-            None
-        )
-        if not stream_config:
-            return False
+        try:
+            conn = sqlite3.connect(str(TASK_DB), timeout=5)
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT
+                    COUNT(*) as total,
+                    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+                    SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress
+                FROM tasks
+                WHERE json_extract(metadata, '$.streamId') = ?
+                  AND archived = 0
+            """, (stream_id,))
+            row = cursor.fetchone()
+            conn.close()
 
-        dependencies = stream_config.get("dependencies", [])
-        if not dependencies:
+            if row and row[0] > 0:
+                total, completed, in_progress = row
+                return {
+                    "total_tasks": total,
+                    "completed_tasks": completed,
+                    "in_progress_tasks": in_progress,
+                    "is_complete": (completed >= total and total > 0)
+                }
+        except Exception as e:
+            warn(f"SQLite query failed for {stream_id}: {e}")
+
+        return None
+
+    def _are_dependencies_complete(self, stream: dict) -> bool:
+        """Check if all dependencies for a stream are complete."""
+        # For now, simple phase-based dependencies
+        phase = stream["phase"]
+
+        if phase == StreamPhase.FOUNDATION:
+            return True
+        elif phase == StreamPhase.PARALLEL:
+            # Check all foundation streams complete
+            for sid, s in self.streams.items():
+                if s["phase"] == StreamPhase.FOUNDATION:
+                    status = self._get_stream_status(sid)
+                    if not status or not status["is_complete"]:
+                        return False
+            return True
+        elif phase == StreamPhase.INTEGRATION:
+            # Check all parallel streams complete
+            for sid, s in self.streams.items():
+                if s["phase"] == StreamPhase.PARALLEL:
+                    status = self._get_stream_status(sid)
+                    if not status or not status["is_complete"]:
+                        return False
             return True
 
-        for dep_id in dependencies:
-            status = self._get_stream_status(dep_id)
-            if not status or status.progress_percentage < 100:
-                return False
+        return False
 
-        return True
+    def _get_pid_file(self, stream_id: str) -> Path:
+        return PID_DIR / f"{stream_id}.pid"
 
-    def _start_stream_session(self, stream_id: str) -> bool:
-        """Start a Claude Code session for a stream."""
-        stream_config = next(
-            (s for s in self.config["streams"] if s["streamId"] == stream_id),
-            None
-        )
-        if not stream_config:
-            print(f"Error: Stream {stream_id} not found in configuration")
+    def _get_log_file(self, stream_id: str) -> Path:
+        return LOG_DIR / f"{stream_id}.log"
+
+    def _is_running(self, stream_id: str) -> bool:
+        """Check if a stream worker is currently running."""
+        pid_file = self._get_pid_file(stream_id)
+        if not pid_file.exists():
+            return False
+
+        try:
+            pid = int(pid_file.read_text().strip())
+            os.kill(pid, 0)  # Check if process exists
+            return True
+        except (ProcessLookupError, ValueError):
+            pid_file.unlink(missing_ok=True)
+            return False
+
+    def _build_prompt(self, stream: dict) -> str:
+        """Build the prompt for a Claude Code worker."""
+        return f"""You are a worker agent in the Claude Copilot orchestration system.
+
+## Your Assignment
+- Stream: {stream['id']}
+- Stream ID: {stream['stream_id']}
+- Phase: {stream['phase'].value} ({stream['name']})
+
+## Instructions
+1. Run /continue {stream['stream_id']} to load your assigned stream context
+2. Work through all pending tasks for this stream
+3. Use @agent-me for implementation tasks
+4. Update task status as you complete work (task_update)
+5. Commit changes frequently with descriptive messages
+6. When all tasks complete, report back with a summary
+
+## Important
+- Stay focused on {stream['id']} tasks only
+- Do not work on other streams
+- Commit after each significant change
+- If blocked, update task status to blocked with reason
+- When complete, all tasks should be marked completed
+
+Begin by running: /continue {stream['stream_id']}
+"""
+
+    def spawn_worker(self, stream_id: str, wait_for_deps: bool = True) -> bool:
+        """Spawn a Claude Code worker for a stream."""
+        if stream_id not in self.streams:
+            error(f"Stream '{stream_id}' not found")
+            return False
+
+        stream = self.streams[stream_id]
+
+        # Check if already running
+        if self._is_running(stream_id):
+            warn(f"Worker {stream_id} already running")
+            return True
+
+        # Check dependencies
+        if wait_for_deps and not self._are_dependencies_complete(stream):
+            warn(f"Dependencies not complete for {stream_id}")
             return False
 
         # Determine working directory
-        project_root = Path(stream_config["projectRoot"])
-        worktree_path = stream_config.get("worktreePath")
-
-        if worktree_path:
-            work_dir = project_root / worktree_path
+        if stream["worktree"] == ".":
+            work_dir = PROJECT_ROOT
         else:
-            work_dir = project_root
+            work_dir = PROJECT_ROOT / stream["worktree"]
 
         if not work_dir.exists():
-            print(f"Error: Working directory does not exist: {work_dir}")
-            return False
+            # Create worktree if needed
+            log(f"Creating worktree for {stream_id}...")
+            work_dir.mkdir(parents=True, exist_ok=True)
 
-        # Launch Claude Code with /continue command
-        # Note: This is a placeholder - actual command depends on environment
-        # Users should modify this to match their Claude Code invocation method
-        print(f"┌─ Starting session for {stream_id} ({stream_config['streamName']})")
-        print(f"│  Working directory: {work_dir}")
-        print(f"│  Command: claude")
-        print(f"│  Initial command: /continue {stream_id}")
-        print(f"└─ Session started")
+        log(f"Spawning worker for {stream_id}")
+        log(f"  Phase: {stream['phase'].value} - {stream['name']}")
+        log(f"  Working dir: {work_dir}")
 
-        # Example process launch (modify for your environment):
-        # proc = subprocess.Popen(
-        #     ["claude"],
-        #     cwd=work_dir,
-        #     stdin=subprocess.PIPE,
-        #     stdout=subprocess.PIPE,
-        #     stderr=subprocess.PIPE
-        # )
-        # proc.stdin.write(f"/continue {stream_id}\n".encode())
-        # proc.stdin.flush()
-        # self.active_processes[stream_id] = proc
+        prompt = self._build_prompt(stream)
+        log_file = self._get_log_file(stream_id)
+        pid_file = self._get_pid_file(stream_id)
 
+        # Spawn Claude Code headlessly
+        with open(log_file, "a") as log_f:
+            log_f.write(f"\\n{'='*60}\\n")
+            log_f.write(f"Started: {datetime.now().isoformat()}\\n")
+            log_f.write(f"Stream: {stream_id}\\n")
+            log_f.write(f"{'='*60}\\n\\n")
+
+            proc = subprocess.Popen(
+                ["claude", "--print", "--dangerously-skip-permissions", "-p", prompt],
+                cwd=work_dir,
+                stdout=log_f,
+                stderr=subprocess.STDOUT,
+                start_new_session=True  # Detach from parent
+            )
+
+        # Save PID
+        pid_file.write_text(str(proc.pid))
+        self.running_processes[stream_id] = proc
+
+        success(f"Worker {stream_id} started (PID: {proc.pid})")
+        success(f"Logs: {log_file}")
         return True
 
-    def run_orchestration(self):
-        """Execute the orchestration plan."""
-        print("=" * 60)
-        print("Claude Code Parallel Stream Orchestration")
-        print("=" * 60)
+    def start_all(self):
+        """Start all streams respecting dependencies."""
+        log(f"Starting orchestration for {PROJECT_NAME}")
         print()
 
-        # Check API health
-        print("Checking Task Copilot HTTP API...")
-        if not self._check_api_health():
-            print("Error: Task Copilot HTTP API is not available")
-            print("Ensure Task Copilot MCP server is running with HTTP API enabled")
-            sys.exit(1)
-        print("✓ API is healthy")
-        print()
+        # Group streams by phase
+        foundation = [s for s in self.streams.values() if s["phase"] == StreamPhase.FOUNDATION]
+        parallel = [s for s in self.streams.values() if s["phase"] == StreamPhase.PARALLEL]
+        integration = [s for s in self.streams.values() if s["phase"] == StreamPhase.INTEGRATION]
 
-        # Get execution plan
-        plan = self.config["executionPlan"]
-
-        # Phase 1: Foundation
-        print("Phase 1: Foundation Streams")
-        print("-" * 60)
-        for stream_id in plan.get("foundation", []):
-            status = self._get_stream_status(stream_id)
-            if status and status.progress_percentage >= 100:
-                print(f"✓ {stream_id} already complete")
-                continue
-
-            print(f"⚠ {stream_id} needs to be completed manually")
-            print(f"  Run: /continue {stream_id}")
-            print(f"  This is the foundation - must complete before parallel streams")
-
-        print()
-        input("Press Enter when foundation streams are complete...")
-        print()
-
-        # Verify foundation complete
-        foundation_complete = all(
-            self._get_stream_status(sid).progress_percentage >= 100
-            for sid in plan.get("foundation", [])
-            if self._get_stream_status(sid)
-        )
-
-        if not foundation_complete:
-            print("Error: Foundation streams not complete. Exiting.")
-            sys.exit(1)
-
-        # Phase 2: Parallel Streams
-        print("Phase 2: Parallel Streams")
-        print("-" * 60)
-        parallel_streams = plan.get("parallel", [])
-
-        print(f"Starting {len(parallel_streams)} parallel sessions...")
-        for stream_id in parallel_streams:
-            self._start_stream_session(stream_id)
-
-        print()
-        print("Monitoring progress (Ctrl+C to stop)...")
-        print()
-
-        try:
-            while True:
-                all_complete = True
-                for stream_id in parallel_streams:
-                    status = self._get_stream_status(stream_id)
-                    if not status:
-                        continue
-
-                    progress_bar = "█" * int(status.progress_percentage / 5)
-                    progress_bar = progress_bar.ljust(20, "░")
-
-                    print(f"{stream_id}: [{progress_bar}] {status.progress_percentage:.0f}% " +
-                          f"({status.completed_tasks}/{status.total_tasks} tasks)")
-
-                    if status.progress_percentage < 100:
-                        all_complete = False
-
+        # Start foundation streams first
+        if foundation:
+            print(f"{Colors.MAGENTA}=== FOUNDATION PHASE ==={Colors.NC}")
+            for stream in foundation:
+                self.spawn_worker(stream["id"], wait_for_deps=False)
                 print()
 
-                if all_complete:
-                    print("✓ All parallel streams complete!")
-                    break
+            # Wait for foundation to complete before starting parallel
+            log("Waiting for foundation streams to complete...")
+            self._wait_for_streams([s["id"] for s in foundation])
 
-                time.sleep(POLL_INTERVAL)
+        # Start parallel streams
+        if parallel:
+            print(f"\\n{Colors.CYAN}=== PARALLEL PHASE ==={Colors.NC}")
+            for stream in parallel:
+                self.spawn_worker(stream["id"])
+                print()
 
-        except KeyboardInterrupt:
-            print("\nOrchestration interrupted by user")
-            sys.exit(0)
+            # Wait for all parallel streams to complete
+            log("Waiting for parallel streams to complete...")
+            self._wait_for_streams([s["id"] for s in parallel])
 
-        # Phase 3: Integration
-        integration_streams = plan.get("integration", [])
-        if integration_streams:
+        # Start integration streams
+        if integration:
+            print(f"\\n{Colors.MAGENTA}=== INTEGRATION PHASE ==={Colors.NC}")
+            for stream in integration:
+                self.spawn_worker(stream["id"])
+                print()
+
+        success("All workers spawned!")
+        log("Use './check-streams' to monitor progress")
+        log("Use './watch-status' for live monitoring")
+
+    def _wait_for_streams(self, stream_ids: List[str], timeout: int = 3600):
+        """Wait for streams to complete (via SQLite status check)."""
+        start_time = time.time()
+        max_restarts = 10  # Limit restarts per stream to avoid infinite loops
+        restart_counts: Dict[str, int] = {sid: 0 for sid in stream_ids}
+
+        while time.time() - start_time < timeout:
+            all_complete = True
+            incomplete_streams = []
+            for stream_id in stream_ids:
+                status = self._get_stream_status(stream_id)
+                if not status or not status["is_complete"]:
+                    all_complete = False
+                    incomplete_streams.append(stream_id)
+
+            if all_complete:
+                return True
+
+            # Check for dead workers that need restart
+            for stream_id in incomplete_streams:
+                if not self._is_running(stream_id):
+                    if restart_counts[stream_id] < max_restarts:
+                        log(f"Restarting worker for {stream_id} (attempt {restart_counts[stream_id] + 1})")
+                        self.spawn_worker(stream_id, wait_for_deps=False)
+                        restart_counts[stream_id] += 1
+                    else:
+                        warn(f"Max restarts reached for {stream_id}")
+
+            time.sleep(POLL_INTERVAL)
+
+        warn("Timeout waiting for streams")
+        return False
+
+    def check_status(self):
+        """Display status of all workers."""
+        print(f"\\n{Colors.BOLD}╔═══════════════════════════════════════════════════════════════════════╗{Colors.NC}")
+        print(f"{Colors.BOLD}║              {PROJECT_NAME.upper()} - WORKER STATUS                         ║{Colors.NC}")
+        print(f"{Colors.BOLD}╚═══════════════════════════════════════════════════════════════════════╝{Colors.NC}\\n")
+
+        for phase_name, phase_enum in [("FOUNDATION", StreamPhase.FOUNDATION),
+                                        ("PARALLEL", StreamPhase.PARALLEL),
+                                        ("INTEGRATION", StreamPhase.INTEGRATION)]:
+            streams = [s for s in self.streams.values() if s["phase"] == phase_enum]
+            if not streams:
+                continue
+
+            print(f"  {Colors.MAGENTA}{phase_name}{Colors.NC}")
+
+            for stream in streams:
+                running = self._is_running(stream["id"])
+                status = self._get_stream_status(stream["id"])
+
+                # Determine status icon
+                if status and status["is_complete"]:
+                    icon = f"{Colors.GREEN}✓{Colors.NC}"
+                    status_text = "Complete"
+                elif running:
+                    icon = f"{Colors.YELLOW}●{Colors.NC}"
+                    status_text = "Running"
+                else:
+                    pid_file = self._get_pid_file(stream["id"])
+                    if pid_file.exists():
+                        icon = f"{Colors.RED}●{Colors.NC}"
+                        status_text = "Stopped"
+                    else:
+                        icon = f"{Colors.DIM}○{Colors.NC}"
+                        status_text = "Not started"
+
+                # Progress bar
+                if status and status["total_tasks"] > 0:
+                    pct = int(status["completed_tasks"] / status["total_tasks"] * 100)
+                    bar = "█" * (pct // 7) + "░" * (15 - pct // 7)
+                    progress = f"[{bar}] {status['completed_tasks']}/{status['total_tasks']}"
+                else:
+                    progress = "[░░░░░░░░░░░░░░░] ?/?"
+
+                # Get PID if running
+                pid_str = ""
+                if running:
+                    pid_file = self._get_pid_file(stream["id"])
+                    if pid_file.exists():
+                        pid_str = f" (PID: {pid_file.read_text().strip()})"
+
+                print(f"    {icon} {Colors.BOLD}{stream['id']}{Colors.NC} │ {stream['name']}")
+                print(f"      {progress} │ {status_text}{pid_str}")
             print()
-            print("Phase 3: Integration Streams")
-            print("-" * 60)
-            for stream_id in integration_streams:
-                print(f"⚠ {stream_id} ready to start")
-                print(f"  Run: /continue {stream_id}")
 
-            print()
-            print("Run integration streams manually to merge parallel work.")
+    def stop_all(self):
+        """Stop all running workers."""
+        log("Stopping all workers...")
 
-        print()
-        print("=" * 60)
-        print("Orchestration complete!")
-        print("=" * 60)
+        for pid_file in PID_DIR.glob("*.pid"):
+            stream_id = pid_file.stem
+            try:
+                pid = int(pid_file.read_text().strip())
+                os.kill(pid, signal.SIGTERM)
+                log(f"Stopped {stream_id} (PID: {pid})")
+            except (ProcessLookupError, ValueError):
+                pass
+            pid_file.unlink(missing_ok=True)
+
+        success("All workers stopped")
+
+    def stop_one(self, stream_id: str):
+        """Stop a specific worker."""
+        pid_file = self._get_pid_file(stream_id)
+        if not pid_file.exists():
+            warn(f"No PID file for {stream_id}")
+            return
+
+        try:
+            pid = int(pid_file.read_text().strip())
+            os.kill(pid, signal.SIGTERM)
+            log(f"Stopped {stream_id} (PID: {pid})")
+        except (ProcessLookupError, ValueError):
+            warn(f"Process not found for {stream_id}")
+
+        pid_file.unlink(missing_ok=True)
+
+    def tail_logs(self, stream_id: str):
+        """Tail logs for a stream."""
+        log_file = self._get_log_file(stream_id)
+        if not log_file.exists():
+            error(f"No logs found for {stream_id}")
+            return
+
+        subprocess.run(["tail", "-f", str(log_file)])
+
+
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Claude Copilot Orchestrator")
+    parser.add_argument("command", choices=["start", "status", "stop", "logs"],
+                       help="Command to run")
+    parser.add_argument("stream_id", nargs="?", help="Stream ID (for start/stop/logs)")
+
+    args = parser.parse_args()
+
+    orchestrator = Orchestrator()
+
+    if args.command == "start":
+        if args.stream_id:
+            orchestrator.spawn_worker(args.stream_id)
+        else:
+            orchestrator.start_all()
+    elif args.command == "status":
+        orchestrator.check_status()
+    elif args.command == "stop":
+        if args.stream_id:
+            orchestrator.stop_one(args.stream_id)
+        else:
+            orchestrator.stop_all()
+    elif args.command == "logs":
+        if not args.stream_id:
+            error("Usage: orchestrate.py logs <stream-id>")
+            sys.exit(1)
+        orchestrator.tail_logs(args.stream_id)
 
 
 if __name__ == "__main__":
-    manager = OrchestrationManager(CONFIG_FILE)
-    manager.run_orchestration()
+    main()
 ```
 
-### Step 6: Generate README.md
+Replace placeholders:
+- `{projectRoot}` - Absolute path to project
+- `{projectName}` - Project name (basename of path)
+- `{workspaceId}` - Workspace ID (hash of project path, same algorithm as Task Copilot)
 
-Create usage documentation:
+### Step 4: Generate check-streams
 
-```markdown
-# Claude Code Parallel Orchestration
+Create the bash status dashboard script.
 
-This directory contains generated scripts for orchestrating parallel Claude Code sessions across independent work streams.
+**File: `.claude/orchestrator/check-streams`**
 
-## Generated Files
-
-- **orchestration-config.json** - Stream configuration and execution plan
-- **start-streams.py** - Python orchestration script
-- **README.md** - This file
-
-## Prerequisites
-
-1. **Task Copilot HTTP API must be running**
-   - Configured in `.mcp.json` with `HTTP_API_PORT` (default: 9090)
-   - API provides stream status and task progress
-
-2. **Python 3.8+** with `requests` library:
-   ```bash
-   pip install requests
-   ```
-
-3. **Foundation streams must be complete** before starting parallel work
-
-## Quick Start
-
-1. **Review the configuration:**
-   ```bash
-   cat orchestration-config.json
-   ```
-
-2. **Start orchestration:**
-   ```bash
-   python start-streams.py
-   ```
-
-3. **Follow the prompts:**
-   - Complete foundation streams first (manually)
-   - Script will start parallel sessions
-   - Monitor progress in real-time
-   - Complete integration streams last (manually)
-
-## Execution Phases
-
-### Phase 1: Foundation
-Shared infrastructure that other streams depend on. Must complete before parallel work begins.
-
-**Streams:** [list foundation stream IDs]
-
-**How to run:**
 ```bash
-claude
-/continue Stream-A
+#!/bin/bash
+# Quick status check for all streams with detailed task progress
+# Usage: check-streams
+# Compatible with bash 3.2+ (macOS default)
+
+# Resolve symlinks to get the real script location
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+while [ -L "$SCRIPT_PATH" ]; do
+    SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+    SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
+    # Handle relative symlinks
+    [[ "$SCRIPT_PATH" != /* ]] && SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_PATH"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+cd "$PROJECT_ROOT"
+
+# Colors
+RED='\\033[0;31m'
+GREEN='\\033[0;32m'
+YELLOW='\\033[1;33m'
+BLUE='\\033[0;34m'
+CYAN='\\033[0;36m'
+MAGENTA='\\033[0;35m'
+NC='\\033[0m'
+BOLD='\\033[1m'
+DIM='\\033[2m'
+
+# Orchestrator directories
+ORCHESTRATOR_DIR="$PROJECT_ROOT/.claude/orchestrator"
+PID_DIR="$ORCHESTRATOR_DIR/pids"
+LOG_DIR="$ORCHESTRATOR_DIR/logs"
+
+# Task Copilot database
+WORKSPACE_ID="{workspaceId}"
+DB_PATH="$HOME/.claude/tasks/$WORKSPACE_ID/tasks.db"
+
+# Check if a worker process is running
+is_worker_running() {
+    local stream_id=$1
+    local pid_file="$PID_DIR/${stream_id}.pid"
+
+    if [ ! -f "$pid_file" ]; then
+        return 1
+    fi
+
+    local pid=$(cat "$pid_file" 2>/dev/null)
+    if [ -z "$pid" ]; then
+        return 1
+    fi
+
+    # Check if process exists
+    kill -0 "$pid" 2>/dev/null
+    return $?
+}
+
+# Get last N lines from worker log
+get_worker_last_lines() {
+    local stream_id=$1
+    local num_lines=${2:-10}
+    local log_file="$LOG_DIR/${stream_id}.log"
+
+    if [ -f "$log_file" ]; then
+        tail -n "$num_lines" "$log_file" 2>/dev/null | grep -v "^$"
+    fi
+}
+
+# Parse worker status from log output
+get_worker_status() {
+    local stream_id=$1
+    local last_lines=$(get_worker_last_lines "$stream_id" 20)
+
+    # Check if running
+    if ! is_worker_running "$stream_id"; then
+        # Check if completed
+        if echo "$last_lines" | grep -qE "(Complete|completed|success|✅|✓)"; then
+            echo "COMPLETED"
+        elif [ -f "$PID_DIR/${stream_id}.pid" ]; then
+            echo "STOPPED"
+        else
+            echo "NOT_STARTED"
+        fi
+        return
+    fi
+
+    # Running - check activity
+    if echo "$last_lines" | grep -qiE "complete|finished|done"; then
+        echo "FINISHING"
+    elif echo "$last_lines" | grep -qE "(Reading|Writing|Editing|Searching|Running)"; then
+        echo "WORKING"
+    elif echo "$last_lines" | grep -qiE "(error|failed|blocked)"; then
+        echo "ERROR"
+    else
+        echo "RUNNING"
+    fi
+}
+
+# Read task progress from Task Copilot SQLite database
+read_orchestrator_data() {
+    python3 << 'PYEOF'
+import json
+import os
+import sqlite3
+from pathlib import Path
+
+DB_PATH = Path.home() / ".claude/tasks/{workspaceId}/tasks.db"
+
+stream_stats = {}
+total_completed = 0
+total_in_progress = 0
+total_pending = 0
+total_blocked = 0
+total_tasks = 0
+
+# Get all streams first
+streams = []
+try:
+    conn = sqlite3.connect(str(DB_PATH))
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT DISTINCT
+            json_extract(metadata, '$.streamId') as stream_id
+        FROM tasks
+        WHERE json_extract(metadata, '$.streamId') IS NOT NULL
+          AND archived = 0
+        ORDER BY stream_id
+    """)
+
+    streams = [row[0] for row in cursor.fetchall()]
+
+    # Query tasks grouped by stream and status
+    cursor.execute("""
+        SELECT
+            json_extract(metadata, '$.streamId') as stream,
+            status,
+            COUNT(*) as count
+        FROM tasks
+        WHERE json_extract(metadata, '$.streamId') IS NOT NULL
+          AND archived = 0
+        GROUP BY stream, status
+    """)
+
+    for row in cursor.fetchall():
+        stream_id, status, count = row
+        if stream_id not in stream_stats:
+            stream_stats[stream_id] = {"completed": 0, "in_progress": 0, "pending": 0, "blocked": 0, "total": 0}
+
+        stream_stats[stream_id][status.replace("-", "_")] = count
+        stream_stats[stream_id]["total"] += count
+
+        if status == "completed":
+            total_completed += count
+        elif status == "in_progress":
+            total_in_progress += count
+        elif status == "pending":
+            total_pending += count
+        elif status == "blocked":
+            total_blocked += count
+        total_tasks += count
+
+    conn.close()
+except Exception as e:
+    pass  # Database not available, will show defaults
+
+# Calculate overall percentage
+overall_pct = int((total_completed / total_tasks * 100) if total_tasks > 0 else 0)
+
+print("OVERALL {} {} {} {} {}".format(
+    total_completed,
+    total_tasks,
+    total_in_progress,
+    total_pending,
+    overall_pct
+))
+
+for stream_id in streams:
+    s = stream_stats.get(stream_id, {})
+    completed = s.get("completed", 0)
+    total = s.get("total", 0)
+    in_prog = s.get("in_progress", 0)
+    pending = s.get("pending", 0)
+    blocked = s.get("blocked", 0)
+    pct = int((completed / total * 100) if total > 0 else 0)
+
+    # Format: STREAM <id> <completed> <total> <pct> <in_progress> <pending> <blocked>
+    print("STREAM {} {} {} {} {} {} {}".format(
+        stream_id, completed, total, pct, in_prog, pending, blocked
+    ))
+PYEOF
+}
+
+# Read orchestrator data
+ORCHESTRATOR_DATA=$(read_orchestrator_data 2>/dev/null)
+OVERALL_LINE=$(echo "$ORCHESTRATOR_DATA" | grep "^OVERALL")
+read -r _ O_COMPLETED O_TOTAL O_INPROG O_PENDING O_PCT <<< "$OVERALL_LINE"
+
+clear
+echo -e "${BOLD}╔═══════════════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${BOLD}║              {projectName} - STREAM STATUS                         ║${NC}"
+echo -e "${BOLD}╚═══════════════════════════════════════════════════════════════════════╝${NC}"
+echo ""
+
+# Overall progress
+echo -e "${CYAN}📊 Overall Progress${NC}"
+echo "───────────────────────────────────────────────────────────────────────"
+
+if [ "$O_TOTAL" -gt 0 ] 2>/dev/null; then
+    BAR_WIDTH=40
+    BAR_FILLED=$((O_PCT * BAR_WIDTH / 100))
+    BAR=""
+    i=0
+    while [ $i -lt $BAR_FILLED ]; do BAR="${BAR}█"; i=$((i + 1)); done
+    while [ $i -lt $BAR_WIDTH ]; do BAR="${BAR}░"; i=$((i + 1)); done
+
+    echo -e "  [${GREEN}${BAR}${NC}] ${BOLD}${O_PCT}%${NC}"
+    echo -e "  ${GREEN}✓ ${O_COMPLETED} completed${NC}  │  ${YELLOW}⚡ ${O_INPROG} in progress${NC}  │  ${DIM}◯ ${O_PENDING} pending${NC}  │  Total: ${O_TOTAL}"
+else
+    echo -e "  ${DIM}No progress data available${NC}"
+fi
+
+echo ""
+echo -e "${CYAN}🖥  Stream Details${NC}"
+echo "───────────────────────────────────────────────────────────────────────"
+
+# Check worker processes
+RUNNING_COUNT=$(find "$PID_DIR" -name "*.pid" -type f 2>/dev/null | wc -l | tr -d ' ')
+echo -e "  Workers: ${GREEN}${RUNNING_COUNT} running${NC}"
+echo ""
+
+# Process each stream from database
+echo "$ORCHESTRATOR_DATA" | grep "^STREAM" | while read -r LINE; do
+    read -r _ STREAM_ID S_COMP S_TOT S_PCT S_INPROG S_PEND S_BLOCK <<< "$LINE"
+
+    WORKER_STATUS=$(get_worker_status "$STREAM_ID")
+
+    # Determine status indicator
+    case "$WORKER_STATUS" in
+        COMPLETED)
+            STATUS_ICON="${GREEN}✓${NC}"
+            STATUS_TEXT="Completed"
+            ;;
+        WORKING)
+            STATUS_ICON="${YELLOW}◐${NC}"
+            STATUS_TEXT="Working"
+            ;;
+        FINISHING)
+            STATUS_ICON="${GREEN}◐${NC}"
+            STATUS_TEXT="Finishing"
+            ;;
+        RUNNING)
+            STATUS_ICON="${BLUE}●${NC}"
+            STATUS_TEXT="Running"
+            ;;
+        ERROR)
+            STATUS_ICON="${RED}●${NC}"
+            STATUS_TEXT="Error"
+            ;;
+        STOPPED)
+            STATUS_ICON="${RED}○${NC}"
+            STATUS_TEXT="Stopped"
+            ;;
+        NOT_STARTED)
+            STATUS_ICON="${DIM}○${NC}"
+            STATUS_TEXT="Not started"
+            ;;
+        *)
+            STATUS_ICON="${DIM}?${NC}"
+            STATUS_TEXT="Unknown"
+            ;;
+    esac
+
+    # Get PID if running
+    PID_STR=""
+    if is_worker_running "$STREAM_ID"; then
+        PID=$(cat "$PID_DIR/${STREAM_ID}.pid" 2>/dev/null)
+        PID_STR=" (PID: $PID)"
+    fi
+
+    # Build mini progress bar (15 chars)
+    if [ "$S_TOT" != "?" ] && [ "$S_TOT" -gt 0 ] 2>/dev/null; then
+        MINI_FILLED=$((S_PCT * 15 / 100))
+        MINI_BAR=""
+        i=0
+        while [ $i -lt $MINI_FILLED ]; do MINI_BAR="${MINI_BAR}█"; i=$((i + 1)); done
+        while [ $i -lt 15 ]; do MINI_BAR="${MINI_BAR}░"; i=$((i + 1)); done
+
+        if [ "$S_PCT" -ge 100 ]; then
+            MINI_BAR="${GREEN}${MINI_BAR}${NC}"
+            PROGRESS_COLOR="${GREEN}"
+        elif [ "$S_PCT" -ge 50 ]; then
+            MINI_BAR="${YELLOW}${MINI_BAR}${NC}"
+            PROGRESS_COLOR="${YELLOW}"
+        else
+            MINI_BAR="${BLUE}${MINI_BAR}${NC}"
+            PROGRESS_COLOR="${BLUE}"
+        fi
+    else
+        MINI_BAR="${DIM}░░░░░░░░░░░░░░░${NC}"
+        PROGRESS_COLOR="${DIM}"
+        S_COMP="?"
+        S_TOT="?"
+    fi
+
+    echo -e "  ${STATUS_ICON} ${BOLD}${STREAM_ID}${NC}"
+    echo -e "    [${MINI_BAR}] ${PROGRESS_COLOR}${S_COMP}/${S_TOT}${NC} (${S_PCT}%)"
+
+    # Show task breakdown if we have data
+    if [ "$S_TOT" != "?" ] && [ "$S_TOT" -gt 0 ] 2>/dev/null; then
+        BREAKDOWN="    ${GREEN}✓${S_COMP}${NC}"
+        if [ "${S_INPROG:-0}" -gt 0 ] 2>/dev/null; then
+            BREAKDOWN="${BREAKDOWN}  ${YELLOW}⚡${S_INPROG}${NC}"
+        fi
+        if [ "${S_PEND:-0}" -gt 0 ] 2>/dev/null; then
+            BREAKDOWN="${BREAKDOWN}  ${DIM}○${S_PEND}${NC}"
+        fi
+        if [ "${S_BLOCK:-0}" -gt 0 ] 2>/dev/null; then
+            BREAKDOWN="${BREAKDOWN}  ${RED}⊘${S_BLOCK}${NC}"
+        fi
+        echo -e "${BREAKDOWN}"
+    fi
+    echo -e "    Status: ${STATUS_TEXT}${PID_STR}"
+    echo ""
+done
+
+echo ""
+echo -e "${CYAN}⌨  Quick Actions${NC}"
+echo "───────────────────────────────────────────────────────────────────────"
+echo -e "  ${DIM}python orchestrate.py status${NC}        Full worker status"
+echo -e "  ${DIM}python orchestrate.py logs Stream-A${NC} Tail worker logs"
+echo -e "  ${DIM}python orchestrate.py stop${NC}          Stop all workers"
+echo ""
+
+# Show data source
+if [ "$RUNNING_COUNT" -gt 0 ] 2>/dev/null; then
+    echo -e "${DIM}Data: Task Copilot │ ${RUNNING_COUNT} workers │ $(date '+%H:%M:%S')${NC}"
+elif [ "$O_TOTAL" -gt 0 ] 2>/dev/null; then
+    echo -e "${DIM}Data: Task Copilot │ Idle │ $(date '+%H:%M:%S')${NC}"
+else
+    echo -e "${DIM}Data: Task Copilot │ No task data │ $(date '+%H:%M:%S')${NC}"
+fi
 ```
 
-Work through all tasks in the foundation stream until 100% complete.
+Replace placeholders:
+- `{workspaceId}` - Workspace ID
+- `{projectName}` - Project name
 
-### Phase 2: Parallel
-Independent streams that can run simultaneously in separate Claude Code sessions.
+### Step 5: Generate watch-status
 
-**Streams:** [list parallel stream IDs]
+Create the live monitoring script.
 
-**How to run:**
-The orchestration script will guide you through starting parallel sessions. Each session runs in its own terminal/window.
+**File: `.claude/orchestrator/watch-status`**
 
-Alternatively, start manually:
 ```bash
-# Terminal 1
-claude
-/continue Stream-B
+#!/bin/bash
+# Live status monitor for Claude Copilot streams
+# Usage: watch-status [interval]
+# Default interval: 15 seconds
 
-# Terminal 2
-claude
-/continue Stream-C
+INTERVAL=${1:-15}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+echo "Starting live status monitor (refresh every ${INTERVAL}s)"
+echo "Press Ctrl-C to stop"
+echo ""
+
+while true; do
+    "$SCRIPT_DIR/check-streams"
+    echo -e "\\n\\033[0;36mNext refresh in ${INTERVAL}s... (Ctrl-C to stop)\\033[0m"
+    sleep "$INTERVAL"
+done
 ```
 
-### Phase 3: Integration
-Combines work from parallel streams. Runs after all parallel streams complete.
+### Step 6: Make Scripts Executable
 
-**Streams:** [list integration stream IDs]
-
-**How to run:**
+Make all scripts executable:
 ```bash
-claude
-/continue Stream-Z
+chmod +x .claude/orchestrator/orchestrate.py
+chmod +x .claude/orchestrator/check-streams
+chmod +x .claude/orchestrator/watch-status
 ```
 
-## Monitoring Progress
-
-### Real-time Monitoring (Automated)
-The orchestration script polls the HTTP API every 30 seconds and displays progress bars.
-
-### Manual Status Check
-```bash
-# In any Claude Code session:
-/orchestration status
-
-# Or query the API directly:
-curl http://127.0.0.1:9090/api/streams
-```
-
-## Worktree Isolation
-
-Parallel streams use Git worktrees for complete file isolation:
-
-- **Foundation/Integration:** Work in main worktree (project root)
-- **Parallel streams:** Each has its own worktree in `.claude/worktrees/Stream-X`
-
-The `/continue` command automatically:
-- Creates worktrees if needed
-- Switches to the correct worktree
-- Isolates file changes
-
-## Troubleshooting
-
-### HTTP API Not Available
-
-**Error:** "Task Copilot HTTP API is not available"
-
-**Fix:**
-1. Ensure Task Copilot MCP server is running
-2. Check `.mcp.json` configuration includes `HTTP_API_PORT`
-3. Verify server is listening: `curl http://127.0.0.1:9090/health`
-
-### Stream Not Found
-
-**Error:** "Stream not found: Stream-X"
-
-**Fix:**
-1. Verify stream exists: `/orchestration status`
-2. Check stream wasn't archived (archived streams hidden by default)
-3. Unarchive if needed: Use `stream_unarchive({ streamId: "Stream-X" })`
-
-### Foundation Not Complete
-
-**Error:** "Foundation streams not complete"
-
-**Fix:**
-1. Check foundation stream status: `/orchestration status`
-2. Complete all foundation tasks before starting parallel work
-3. Foundation must be 100% complete
-
-### Worktree Conflicts
-
-**Error:** "Worktree already exists"
-
-**Fix:**
-```bash
-# List worktrees
-git worktree list
-
-# Remove stale worktree
-git worktree remove .claude/worktrees/Stream-X
-
-# Prune stale references
-git worktree prune
-```
-
-## Customization
-
-### Modify Polling Interval
-
-Edit `start-streams.py`:
-```python
-POLL_INTERVAL = 30  # Change to desired seconds
-```
-
-### Change API Endpoint
-
-Edit `orchestration-config.json`:
-```json
-"apiEndpoint": "http://127.0.0.1:9090"
-```
-
-### Custom Session Launch
-
-The script includes a placeholder for launching Claude Code sessions. Modify `_start_stream_session()` to match your environment (iTerm, tmux, screen, etc.).
-
-## Re-generating Scripts
-
-If stream configuration changes, regenerate:
-```bash
-claude
-/orchestration generate
-```
-
-This overwrites existing files with updated configuration.
-
-## Next Steps
-
-1. Complete foundation streams
-2. Run `python start-streams.py` to start parallel orchestration
-3. Monitor progress in real-time
-4. Complete integration streams after parallel work finishes
-5. Merge stream branches as needed
-
-For more information, see:
-- Stream documentation: `docs/TASK-WORKTREE-ISOLATION.md`
-- HTTP API docs: `HTTP_IMPLEMENTATION.md`
-```
-
-### Step 7: Make Scripts Executable
-
-Make the Python script executable:
-```bash
-chmod +x .claude/orchestration/start-streams.py
-```
-
-### Step 8: Display Success Message
+### Step 7: Display Success Message
 
 ```
-## Orchestration Scripts Generated
+## Headless Orchestration Scripts Generated
 
 Created files:
-- .claude/orchestration/orchestration-config.json
-- .claude/orchestration/start-streams.py
-- .claude/orchestration/README.md
+- .claude/orchestrator/orchestrate.py (main orchestrator)
+- .claude/orchestrator/check-streams (status dashboard)
+- .claude/orchestrator/watch-status (live monitoring)
+
+Subdirectories:
+- .claude/orchestrator/pids/ (process tracking)
+- .claude/orchestrator/logs/ (worker logs)
 
 Next steps:
-1. Review the configuration: cat .claude/orchestration/orchestration-config.json
-2. Read the README: cat .claude/orchestration/README.md
-3. Start orchestration: python .claude/orchestration/start-streams.py
+1. Start orchestration: python .claude/orchestrator/orchestrate.py start
+2. Monitor progress: ./claude/orchestrator/watch-status
+3. Check status: python .claude/orchestrator/orchestrate.py status
 
-Note: Foundation streams must complete before parallel streams can begin.
+The orchestrator will:
+- Query Task Copilot at runtime for stream data
+- Spawn headless Claude Code workers
+- Manage foundation → parallel → integration phases
+- Auto-restart failed workers
+- Track all output in logs/
 
-Stream summary:
-[Display execution plan with stream counts by phase]
-```
-
-## Action: Config
-
-Display current orchestration configuration if it exists.
-
-### Step 1: Check for Configuration File
-
-Look for `.claude/orchestration/orchestration-config.json`.
-
-**If file exists:**
-
-```
-## Current Orchestration Configuration
-
-Generated: [generatedAt timestamp]
-Initiative: [initiative name] ([initiative ID])
-API Endpoint: [apiEndpoint]
-
-Stream Summary:
-- Foundation: [count] stream(s)
-- Parallel: [count] stream(s)
-- Integration: [count] stream(s)
-
-Configuration file: .claude/orchestration/orchestration-config.json
-
-To view full configuration:
-cat .claude/orchestration/orchestration-config.json
-
-To regenerate:
-/orchestration generate
-```
-
-**If file does not exist:**
-
-```
-## No Orchestration Configuration Found
-
-No orchestration scripts have been generated yet.
-
-To generate orchestration scripts:
-/orchestration generate
-
-This will create:
-- orchestration-config.json
-- start-streams.py
-- README.md
+For detailed usage: python .claude/orchestrator/orchestrate.py --help
 ```
 
 ## Action: Status
 
-Display current stream progress and status.
+Display current stream progress by querying Task Copilot directly.
 
-### Step 1: Query Stream Status
+### Step 1: Calculate Workspace ID
 
-Call `stream_list()` to get all active streams.
+Use same algorithm as Task Copilot to hash project path and get workspace ID.
 
-**If no initiative:**
+### Step 2: Query Task Copilot Database
+
+Query SQLite database at `~/.claude/tasks/{workspace}/tasks.db`:
+
+```sql
+-- Get all streams
+SELECT DISTINCT
+    json_extract(metadata, '$.streamId') as stream_id,
+    json_extract(metadata, '$.streamName') as stream_name,
+    json_extract(metadata, '$.streamPhase') as stream_phase
+FROM tasks
+WHERE json_extract(metadata, '$.streamId') IS NOT NULL
+  AND archived = 0
+ORDER BY stream_phase, stream_id;
+
+-- For each stream, get task counts
+SELECT
+    COUNT(*) as total,
+    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+    SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
+    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+    SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) as blocked
+FROM tasks
+WHERE json_extract(metadata, '$.streamId') = ?
+  AND archived = 0;
 ```
-## No Active Initiative
 
-Cannot show stream status without an active initiative.
+### Step 3: Display Stream Status
 
-Run /continue or /protocol to start working.
-```
-
-**If no streams:**
+**If no streams found:**
 ```
 ## No Streams Found
 
 No work streams defined in current initiative.
 
 Streams enable parallel orchestration. To create streams:
-1. Organize tasks with streamId, streamName, streamPhase metadata
-2. Run /orchestration generate to create orchestration scripts
+1. Work with @agent-ta to organize tasks into streams
+2. Assign streamId, streamName, streamPhase metadata to tasks
+3. Run /orchestration generate to create orchestration scripts
 ```
 
-### Step 2: Display Stream Status
-
-For each stream, show progress and task breakdown:
+**If streams found:**
 
 ```
 ## Stream Status
 
-Total streams: [count]
-Active sessions: [count of streams with in_progress tasks]
+Overall Progress: ████████████████░░░░░░░░ 62% (32/51 tasks)
+├─ Completed: 32
+├─ In Progress: 4
+├─ Pending: 15
+└─ Blocked: 0
 
 ### Foundation Phase
 
-Stream-A (foundation)
-├─ Progress: ████████████████████ 100% (4/4 tasks)
+Stream-A
+├─ Progress: ████████████████████ 100% (7/7 tasks)
 ├─ Status: Complete ✓
-├─ Files: src/types.ts, src/tools/stream.ts
 └─ Dependencies: None
 
 ### Parallel Phase
 
-Stream-B (command-updates)
-├─ Progress: ██████████░░░░░░░░░░ 50% (1/2 tasks)
-├─ Status: In Progress
+Stream-B
+├─ Progress: ██████████████░░░░░░ 70% (7/10 tasks)
+├─ Status: In Progress ⚡
 ├─ Worktree: .claude/worktrees/Stream-B
-├─ Branch: stream-b
-├─ Files: .claude/commands/protocol.md, .claude/commands/continue.md
 └─ Dependencies: Stream-A ✓
 
-Stream-C (agent-updates)
-├─ Progress: ░░░░░░░░░░░░░░░░░░░░ 0% (0/3 tasks)
-├─ Status: Pending
+Stream-C
+├─ Progress: ████████░░░░░░░░░░░░ 40% (2/5 tasks)
+├─ Status: In Progress ⚡
 ├─ Worktree: .claude/worktrees/Stream-C
-├─ Branch: stream-c
-├─ Files: .claude/agents/ta.md
 └─ Dependencies: Stream-A ✓
 
 ### Integration Phase
 
-Stream-Z (integration)
-├─ Progress: ░░░░░░░░░░░░░░░░░░░░ 0% (0/2 tasks)
-├─ Status: Blocked (dependencies incomplete)
-├─ Files: docs/*, README.md
-└─ Dependencies: Stream-B (50%), Stream-C (0%)
+Stream-Z
+├─ Progress: ░░░░░░░░░░░░░░░░░░░░ 0% (0/3 tasks)
+├─ Status: Blocked ⚫
+└─ Dependencies: Stream-B (70%), Stream-C (40%)
 
 ---
 
-Legend:
-✓ Complete | ⚠ In Progress | ⏸ Pending | ⚫ Blocked
+Next Actions:
+1. Continue working on parallel streams (Stream-B, Stream-C)
+2. Once parallel complete, start integration (Stream-Z)
 
-To start orchestration: /orchestration generate
-To view configuration: /orchestration config
-```
-
-### Step 3: Show Next Actions
-
-Based on stream status, suggest next actions:
-
-```
-## Suggested Next Actions
-
-[If foundation incomplete:]
-1. Complete foundation streams first (required for parallel work)
-   Run: /continue Stream-A
-
-[If foundation complete, parallel not started:]
-1. Start parallel orchestration
-   Run: /orchestration generate
-   Then: python .claude/orchestration/start-streams.py
-
-[If parallel in progress:]
-1. Continue working on in-progress streams
-2. Monitor progress: /orchestration status
-
-[If parallel complete, integration not started:]
-1. Begin integration streams
-   Run: /continue Stream-Z
+To generate orchestration scripts: /orchestration generate
+To monitor live: ./.claude/orchestrator/watch-status
 ```
 
 ## Error Handling
 
-### Stream Tools Unavailable
+### Task Copilot Database Not Found
 
-If `stream_list`, `stream_get` tools are not available:
-
-```
-## Orchestration Unavailable
-
-The orchestration feature requires Task Copilot MCP server with stream support.
-
-Ensure:
-1. Task Copilot is configured in .mcp.json
-2. Server version supports stream tools (v1.7.0+)
-3. MCP server is running
-
-To check: Look for task-copilot in MCP server list
-```
-
-### Task Copilot HTTP API Not Running
-
-If generating scripts but HTTP API is not available:
+If database doesn't exist at `~/.claude/tasks/{workspace}/tasks.db`:
 
 ```
-## Warning: HTTP API Not Detected
+## Error: Task Copilot Database Not Found
 
-Orchestration scripts require Task Copilot HTTP API.
+Cannot find Task Copilot database for this project.
 
-The scripts will be generated, but won't work until HTTP API is enabled.
+Expected path: ~/.claude/tasks/{workspaceId}/tasks.db
 
-To enable HTTP API, add to .mcp.json:
-{
-  "mcpServers": {
-    "task-copilot": {
-      "env": {
-        "HTTP_API_PORT": "9090"
-      }
-    }
-  }
-}
+Possible causes:
+1. No tasks have been created yet (run /protocol)
+2. Workspace ID calculation mismatch
+3. Task Copilot not initialized
 
-Then restart Claude Code.
+Run /protocol to initialize task tracking.
 ```
 
-### Permission Errors
+### No Streams in Database
 
-If unable to create `.claude/orchestration/` directory or write files:
+If database exists but no streams found:
+
+```
+## No Streams Defined
+
+Task Copilot database exists but no streams found.
+
+To create streams:
+1. Work with @agent-ta to organize tasks into streams
+2. Ensure task metadata includes:
+   - streamId (e.g., "Stream-A")
+   - streamName (e.g., "foundation")
+   - streamPhase (foundation, parallel, or integration)
+```
+
+### Permission Issues
+
+If unable to create orchestrator directory:
 
 ```
 ## Error: Permission Denied
 
-Cannot create orchestration directory or files.
-
-Attempted: .claude/orchestration/
+Cannot create .claude/orchestrator/ directory.
 
 Check:
 1. Write permissions for .claude/ directory
 2. Disk space available
 3. Directory is not read-only
+
+Fix permissions: chmod u+w .claude/
 ```
 
 ## Implementation Notes
 
-- Use `stream_list()` to query stream data from Task Copilot
-- Generate files using the Write tool (absolute paths)
-- Create `.claude/orchestration/` if it doesn't exist
-- Make `start-streams.py` executable with `chmod +x`
-- Include current timestamp in generated config
-- Use absolute paths for projectRoot in config
-- Calculate execution plan by grouping streams by phase
-- Default action is `generate` if no argument provided
-- Commands are idempotent - safe to run multiple times
-- Always check for active initiative before proceeding
-- Display progress using ASCII progress bars (█ for complete, ░ for incomplete)
-- Format percentages without decimals for cleaner display
+- **No streams.json** - All data queried at runtime from Task Copilot
+- **Workspace ID** - Use same hashing algorithm as Task Copilot (hash of absolute project path)
+- **Database queries** - Query `metadata` JSON column for stream data
+- **Headless spawning** - Use critical command: `claude --print --dangerously-skip-permissions -p "prompt"`
+- **Process detachment** - Use `start_new_session=True` in `subprocess.Popen`
+- **Auto-restart** - Max 10 restarts per stream to prevent infinite loops
+- **Bash 3.2 compatibility** - Avoid modern bash features for macOS compatibility
+- **Symlink resolution** - Always resolve symlinks in bash scripts
+- **Embedded Python** - Use heredoc with `'PYEOF'` to prevent variable expansion
+- **File paths** - Use absolute paths in generated scripts
+- **Make executable** - Run `chmod +x` on all scripts
+- **Dashboard format** - Match the specified format with Unicode box drawing
