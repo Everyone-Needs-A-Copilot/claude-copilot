@@ -12,21 +12,24 @@
       "description": "All tests must pass",
       "command": "npm test",
       "expectedExitCode": 0,
-      "timeout": 300000
+      "timeout": 300000,
+      "workingDirectory": "mcp-servers/task-copilot"
     },
     "lint_clean": {
       "name": "lint_clean",
       "description": "ESLint must pass with no errors",
       "command": "npm run lint",
       "expectedExitCode": 0,
-      "timeout": 60000
+      "timeout": 60000,
+      "workingDirectory": "mcp-servers/task-copilot"
     },
     "build_success": {
       "name": "build_success",
       "description": "TypeScript compilation must succeed",
       "command": "npm run build",
       "expectedExitCode": 0,
-      "timeout": 120000
+      "timeout": 120000,
+      "workingDirectory": "mcp-servers/task-copilot"
     },
     "type_check": {
       "name": "type_check",

@@ -21,7 +21,7 @@ import type {
   VelocityTrend,
   PrdMetadata,
 } from '../types.js';
-import { renderProgressBar } from '../utils/progress-bar.js';
+import { renderProgressBar, calculateTrendIndicator } from '../utils/progress-bar.js';
 
 /**
  * Link current initiative from Memory Copilot to Task Copilot workspace
@@ -341,6 +341,7 @@ function calculateVelocityTrends(db: DatabaseClient, initiativeId: string): Velo
 
     // Calculate trend by comparing first half vs second half
     let trend: 'improving' | 'stable' | 'declining' | 'insufficient_data' = 'insufficient_data';
+    let trendIndicator: '↗' | '→' | '↘' | '?' = '?';
 
     if (tasksCompleted >= 4) { // Need at least 4 tasks for meaningful trend
       const midDate = new Date(startDate);
@@ -362,10 +363,13 @@ function calculateVelocityTrends(db: DatabaseClient, initiativeId: string): Velo
 
       if (changePercent > 0.2) {
         trend = 'improving';
+        trendIndicator = '↗';
       } else if (changePercent < -0.2) {
         trend = 'declining';
+        trendIndicator = '↘';
       } else {
         trend = 'stable';
+        trendIndicator = '→';
       }
     }
 
@@ -373,7 +377,8 @@ function calculateVelocityTrends(db: DatabaseClient, initiativeId: string): Velo
       period: period.label,
       tasksCompleted,
       tasksPerDay: Math.round(tasksPerDay * 100) / 100,
-      trend
+      trend,
+      trendIndicator
     });
   }
 

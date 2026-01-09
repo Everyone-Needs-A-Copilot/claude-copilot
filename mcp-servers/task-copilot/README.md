@@ -16,6 +16,8 @@ MCP server providing PRD and task management for Claude Code.
 - **Validation System** (v1.6+): Validate work products for size, structure, and completeness
 - **Token Efficiency** (v1.6+): Enforce character/token limits to prevent context bloat
 - **Activation Modes** (v1.8+): Auto-detect execution modes (ultrawork, analyze, quick, thorough) with GSD-inspired constraints
+- **Verification Enforcement** (v1.8+): Opt-in blocking of task completion without acceptance criteria and proof
+- **Progress Visibility** (v1.8+): ASCII progress bars, milestone tracking, velocity trends with 7d/14d/30d windows
 
 ## Installation
 
@@ -612,6 +614,200 @@ await task_update({
 });
 ```
 
+### Verification Enforcement
+
+Verification enforcement prevents tasks from being completed without proper success criteria and proof. This is an opt-in feature inspired by GSD methodology.
+
+**Enable Verification:**
+
+```javascript
+await task_create({
+  title: "Implement authentication endpoint",
+  metadata: {
+    verificationRequired: true,
+    acceptanceCriteria: [
+      "Endpoint returns 200 for valid credentials",
+      "Endpoint returns 401 for invalid credentials",
+      "JWT token is included in response"
+    ]
+  }
+});
+```
+
+**Requirements for Completion:**
+
+When `metadata.verificationRequired: true`, the task cannot be completed without:
+
+1. **Acceptance Criteria**: Non-empty array in `metadata.acceptanceCriteria`
+2. **Proof** (one of):
+   - Work product stored via `work_product_store`
+   - Task notes with substantive content (≥50 characters)
+   - Blocked reason (if task cannot be completed)
+
+**Validation Errors:**
+
+```javascript
+// Attempting to complete without proof
+await task_update({
+  id: taskId,
+  status: 'completed'  // ❌ Rejected
+});
+
+// Error returned:
+// "Verification failed - task cannot be completed:
+//
+// [ACCEPTANCE_CRITERIA] Task missing acceptance criteria
+//   → Add acceptanceCriteria to task metadata before marking as completed.
+//      Example: metadata.acceptanceCriteria = ["Test passes", "Code reviewed"]
+//
+// [PROOF] Task completion requires proof/evidence
+//   → Provide evidence via: (1) work_product_store with implementation/test results,
+//      (2) task notes with test output, screenshot paths, or acceptance criteria
+//      checklist (min 50 chars), or (3) blocked_reason if task cannot be completed"
+```
+
+**Valid Completion:**
+
+```javascript
+// Option 1: Store work product
+await work_product_store({
+  taskId: taskId,
+  type: 'implementation',
+  title: 'Authentication Endpoint',
+  content: '// implementation code...'
+});
+
+await task_update({
+  id: taskId,
+  status: 'completed'  // ✅ Allowed
+});
+
+// Option 2: Add detailed notes
+await task_update({
+  id: taskId,
+  status: 'completed',
+  notes: `All acceptance criteria verified:
+    ✓ Endpoint returns 200 for valid credentials
+    ✓ Endpoint returns 401 for invalid credentials
+    ✓ JWT token is included in response
+    Test output: test/auth.test.ts passed`  // ✅ Allowed (>50 chars)
+});
+
+// Option 3: Document blocker
+await task_update({
+  id: taskId,
+  status: 'blocked',
+  blockedReason: 'Waiting for external API credentials'  // ✅ Allowed
+});
+```
+
+**Disabling Verification:**
+
+```javascript
+await task_update({
+  id: taskId,
+  metadata: {
+    verificationRequired: false  // Remove enforcement
+  }
+});
+```
+
+### Progress Visibility
+
+Task Copilot provides rich progress tracking with ASCII progress bars, milestone tracking, and velocity trends.
+
+**Progress Summary with Bars:**
+
+```javascript
+const summary = await progress_summary({ initiativeId: 'INIT-xxx' });
+
+// Returns:
+{
+  "initiativeId": "INIT-xxx",
+  "title": "Framework Improvements",
+  "progressBar": "[████████████░░░░░░░░] 60% (12/20)",
+  "prds": { "total": 3, "active": 2, "completed": 1 },
+  "tasks": {
+    "total": 20,
+    "pending": 5,
+    "inProgress": 3,
+    "completed": 12,
+    "blocked": 0
+  },
+  "milestones": [
+    {
+      "id": "milestone-1",
+      "name": "Core Infrastructure",
+      "totalTasks": 8,
+      "completedTasks": 8,
+      "percentComplete": 100
+    }
+  ],
+  "velocity": [
+    { "period": "7d", "completed": 5, "trend": "↗" },
+    { "period": "14d", "completed": 9, "trend": "→" },
+    { "period": "30d", "completed": 12, "trend": "↘" }
+  ]
+}
+```
+
+**Milestone Tracking in PRDs:**
+
+```javascript
+await prd_create({
+  title: "User Authentication",
+  content: "PRD content...",
+  metadata: {
+    milestones: [
+      {
+        id: "auth-phase-1",
+        name: "Basic Auth",
+        description: "Email/password authentication",
+        taskIds: ["TASK-001", "TASK-002", "TASK-003"]
+      },
+      {
+        id: "auth-phase-2",
+        name: "OAuth Integration",
+        description: "Google and GitHub OAuth",
+        taskIds: ["TASK-004", "TASK-005"]
+      }
+    ]
+  }
+});
+```
+
+**Velocity Trends:**
+
+Velocity is automatically calculated over three time windows:
+- **7d**: Last 7 days of completed tasks
+- **14d**: Last 14 days of completed tasks
+- **30d**: Last 30 days of completed tasks
+
+Trend indicators:
+- `↗` Improving: +10% or more vs previous period
+- `→` Stable: Within ±10% of previous period
+- `↘` Declining: -10% or more vs previous period
+
+**ASCII Progress Bar Rendering:**
+
+```javascript
+import { renderProgressBar } from './utils/progress-bar';
+
+// Single progress bar
+const bar = renderProgressBar(8, 20);
+// "[████████░░░░░░░░░░░░] 40% (8/20)"
+
+// Multiple aligned bars
+const bars = renderMultiProgressBars([
+  { label: 'Frontend', completed: 5, total: 10 },
+  { label: 'Backend', completed: 8, total: 10 },
+  { label: 'Tests', completed: 12, total: 15 }
+]);
+// "Frontend: [██████████░░░░░░░░░░] 50% (5/10)
+//  Backend:  [████████████████░░░░] 80% (8/10)
+//  Tests:    [████████████████░░░░] 80% (12/15)"
+```
+
 ### Performance Tracking Tools
 
 #### agent_performance_get
@@ -696,6 +892,27 @@ Create a checkpoint for mid-task recovery. Use before risky operations or after 
 - Max 5 checkpoints per task (oldest pruned automatically)
 - Expired checkpoints cleaned on server startup
 - Manual checkpoints live 7 days, auto checkpoints 24 hours
+
+**Pause/Resume Integration:**
+
+Manual checkpoints with specific metadata are used by `/pause` and `/continue` commands:
+
+```javascript
+// Created by /pause command
+await checkpoint_create({
+  taskId: task.id,
+  trigger: 'manual',
+  executionPhase: 'paused',
+  agentContext: {
+    pauseReason: 'Switching to urgent bug',
+    pausedBy: 'user',
+    pausedAt: new Date().toISOString()
+  },
+  expiresIn: 10080  // Extended 7-day expiry for manual pauses
+});
+```
+
+The `/continue` command checks for pause checkpoints BEFORE loading standard initiative context, allowing seamless resume of paused work even after switching initiatives.
 
 #### checkpoint_resume
 Resume task from last checkpoint. Returns state and context for continuing work.

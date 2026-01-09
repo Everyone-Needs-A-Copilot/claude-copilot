@@ -2,17 +2,17 @@
 
 ## Overview
 
-The auto-commit feature automatically creates git commits when tasks are completed, using git as a checkpoint system. Every completed task can have a corresponding commit, making it easy to track progress and revert changes if needed.
+The auto-commit feature signals to calling agents when a task completion should trigger a git commit. When enabled, `task_update` returns a flag and suggested commit message, allowing the agent to create a checkpoint commit for the completed task.
 
 ## How It Works
 
 When `task_update` marks a task as `completed`:
 
-1. **Check if enabled**: Verify `metadata.autoCommit !== false` (default: true)
-2. **Check files**: Verify `metadata.filesModified` exists and has files
-3. **Stage files**: Stage each file from `filesModified` array
-4. **Create commit**: Generate commit with conventional format
-5. **Log result**: Add commit hash or warning to task notes
+1. **Check if enabled**: Verify `metadata.autoCommitOnComplete === true`
+2. **Check transition**: Only on transition TO completed (not when already completed)
+3. **Return flag**: Set `autoCommitRequested: true` in response
+4. **Provide message**: Include `suggestedCommitMessage` with task ID and title
+5. **Agent handles commit**: Calling agent performs git operations
 
 ## Configuration
 
@@ -20,80 +20,93 @@ When `task_update` marks a task as `completed`:
 
 ```typescript
 interface TaskMetadata {
-  // Enable/disable auto-commit (default: true)
-  autoCommit?: boolean;
+  // Request auto-commit when task transitions to completed (default: false, opt-in)
+  autoCommitOnComplete?: boolean;
 
-  // Files to stage and commit (required for auto-commit)
+  // Files to stage and commit (optional, for agent reference)
   filesModified?: string[];
 }
 ```
 
 ### Default Behavior
 
-- `autoCommit` defaults to `true` if not specified
-- Auto-commit only happens if `filesModified` has files
-- All errors are handled gracefully (never fails task completion)
+- `autoCommitOnComplete` defaults to `false` (opt-in feature)
+- Only triggers on transition TO completed status (not when already completed)
+- Returns flag in response, does not execute git commands
+- Agent is responsible for performing git commit
 
 ## Usage Examples
 
-### Enable Auto-Commit (Default)
+### Enable Auto-Commit (Opt-in)
 
 ```typescript
-await task_update({
+const result = await task_update({
   id: 'TASK-123',
   status: 'completed',
   metadata: {
+    autoCommitOnComplete: true,
     filesModified: [
       'src/tools/task.ts',
-      'src/types.ts',
-      'src/utils/git-helper.ts'
+      'src/types.ts'
     ]
-    // autoCommit: true (implied)
   }
 });
+
+// Result includes:
+// {
+//   id: 'TASK-123',
+//   status: 'completed',
+//   updatedAt: '2025-01-08T10:30:00.000Z',
+//   autoCommitRequested: true,
+//   suggestedCommitMessage: 'feat(TASK-123): Implement auto-commit feature'
+// }
+
+// Agent then performs git commit:
+if (result.autoCommitRequested) {
+  await exec(`git add ${metadata.filesModified.join(' ')}`);
+  await exec(`git commit -m "${result.suggestedCommitMessage}"`);
+}
 ```
 
-**Result:**
-```
-feat(TASK-123): Implement auto-commit feature
-
-Task ID: TASK-123
-Work Products: WP-001, WP-002
-Files Modified: 3 file(s)
-```
-
-### Disable Auto-Commit
+### Disable Auto-Commit (Default)
 
 ```typescript
 await task_update({
   id: 'TASK-456',
   status: 'completed',
   metadata: {
-    autoCommit: false,
+    // autoCommitOnComplete: false (default)
     filesModified: ['README.md']
   }
 });
+
+// Result does NOT include autoCommitRequested flag
+// {
+//   id: 'TASK-456',
+//   status: 'completed',
+//   updatedAt: '2025-01-08T10:30:00.000Z'
+// }
 ```
 
-**Result:** No commit created (escape hatch)
-
-### No Files Modified
+### Already Completed Task
 
 ```typescript
 await task_update({
   id: 'TASK-789',
-  status: 'completed',
+  status: 'completed', // Already completed
   metadata: {
-    // No filesModified field
+    autoCommitOnComplete: true
   }
 });
-```
 
-**Result:** No commit created (nothing to commit)
+// Result does NOT include autoCommitRequested (no transition)
+```
 
 ## Commit Message Format
 
-### Commit Subject
+### Suggested Commit Message
+
+The `suggestedCommitMessage` field returns:
 
 ```
 feat(TASK-{id}): {task title}
@@ -101,72 +114,55 @@ feat(TASK-{id}): {task title}
 
 **Example:**
 ```
-feat(TASK-419ae33f): Implement auto-commit on task completion
+feat(TASK-419ae33f-a31b-4ef9-832f-b813bee8035b): Implement auto-commit on task completion
 ```
 
-### Commit Body
+### Agent Customization
 
+Agents can customize the commit message and body:
+
+```typescript
+// Basic usage (use suggested message as-is)
+await exec(`git commit -m "${result.suggestedCommitMessage}"`);
+
+// Custom body with work products
+const workProducts = await work_product_list({ taskId });
+const body = `
+Task ID: ${taskId}
+Work Products: ${workProducts.map(wp => wp.id).join(', ')}
+Files Modified: ${metadata.filesModified.length} file(s)
+`;
+await exec(`git commit -m "${result.suggestedCommitMessage}" -m "${body}"`);
 ```
-Task ID: {taskId}
-Work Products: {workProductIds...}
-Files Modified: {count} file(s)
-```
 
-**Example:**
-```
-Task ID: TASK-419ae33f
-Work Products: WP-abc123, WP-def456
-Files Modified: 3 file(s)
-```
+## Edge Cases & Behavior
 
-## Edge Cases & Error Handling
+### Already Completed Task
 
-### Dirty Working Directory
-
-**Scenario:** Uncommitted changes exist outside `filesModified`
+**Scenario:** Updating a task that's already in `completed` status
 
 **Behavior:**
-- Stages only files in `filesModified`
-- Creates commit with those files
-- Other changes remain unstaged
-- Warning logged to task notes
+- No `autoCommitRequested` flag returned
+- Agent does not perform commit
+- Prevents duplicate commits for same task
 
-### Git Not Available
+### Missing autoCommitOnComplete
 
-**Scenario:** Git not in PATH or not installed
-
-**Behavior:**
-- Auto-commit skipped silently
-- Warning logged: "Git not available in PATH"
-- Task completion proceeds normally
-
-### Not a Git Repository
-
-**Scenario:** Project directory is not a git repository
+**Scenario:** Task metadata does not include `autoCommitOnComplete` field
 
 **Behavior:**
-- Auto-commit skipped silently
-- Warning logged: "Not a git repository"
-- Task completion proceeds normally
+- Defaults to `false` (opt-in feature)
+- No `autoCommitRequested` flag returned
+- Agent does not perform commit
 
-### File Not Found
+### Agent Responsibility
 
-**Scenario:** File in `filesModified` doesn't exist or is outside repo
-
-**Behavior:**
-- Stages files that exist
-- Partial commit created if some files succeed
-- Warning logged: "Staged X of Y files"
-
-### No Staged Changes
-
-**Scenario:** All files in `filesModified` are unchanged
-
-**Behavior:**
-- Commit creation attempted
-- Git returns "nothing to commit" error
-- Warning logged to task notes
-- Task completion proceeds normally
+**Important:** The MCP server only returns a flag. The calling agent must:
+1. Check if `autoCommitRequested === true` in response
+2. Stage files from `metadata.filesModified` (if provided)
+3. Execute git commit with `suggestedCommitMessage`
+4. Handle all git errors gracefully
+5. Update task notes with commit SHA (optional)
 
 ## Integration with Task Copilot
 
@@ -181,30 +177,38 @@ Check quality gates
   ↓
 Record performance
   ↓
-→ Auto-commit (NEW)
-  ↓
 Create auto-checkpoint
   ↓
-Return success
+Check auto-commit request
+  ↓
+Return response with autoCommitRequested flag
+  ↓
+Agent performs git commit (if requested)
 ```
 
-### Task Notes Logging
+### Response Structure
 
-Auto-commit results are appended to task notes:
+When auto-commit is requested, `task_update` returns:
 
-**Success:**
-```
-Auto-commit: a1b2c3d
+```typescript
+{
+  id: string;
+  status: 'completed';
+  updatedAt: string;
+  autoCommitRequested: true;
+  suggestedCommitMessage: string;
+}
 ```
 
-**Success with warning:**
-```
-Auto-commit: a1b2c3d (Staged 2 of 3 files. Some files may not exist.)
-```
+When auto-commit is NOT requested:
 
-**Skipped:**
-```
-Auto-commit skipped: Not a git repository. Skipping auto-commit.
+```typescript
+{
+  id: string;
+  status: 'completed';
+  updatedAt: string;
+  // No autoCommitRequested field
+}
 ```
 
 ## Best Practices
@@ -215,98 +219,151 @@ Auto-commit skipped: Not a git repository. Skipping auto-commit.
 - Feature implementations with clear file changes
 - Bug fixes modifying specific files
 - Refactoring with known scope
-- Documentation updates
+- Tasks with automated testing (can verify before commit)
 
 ❌ **Not recommended:**
 - Exploratory work (scope unclear)
 - Multi-stage tasks (commit per stage instead)
 - Tasks with no file changes (analysis, planning)
+- Tasks requiring manual commit message customization
 
-### Setting filesModified
+### Enabling Auto-Commit
 
 **Recommended approach:**
 ```typescript
-// Track files as you work
-const filesModified = [];
-
-// After editing files
-filesModified.push('src/feature.ts');
-filesModified.push('src/feature.test.ts');
-
-// On completion
-await task_update({
-  id: taskId,
-  status: 'completed',
-  metadata: { filesModified }
+// Set autoCommitOnComplete when creating task
+await task_create({
+  title: 'Implement user authentication',
+  metadata: {
+    autoCommitOnComplete: true,
+    filesModified: [
+      'src/auth/login.ts',
+      'src/auth/login.test.ts'
+    ]
+  }
 });
+
+// On completion, handle auto-commit request
+const result = await task_update({
+  id: taskId,
+  status: 'completed'
+});
+
+if (result.autoCommitRequested) {
+  // Stage files and commit
+  const files = metadata.filesModified || [];
+  await exec(`git add ${files.join(' ')}`);
+  await exec(`git commit -m "${result.suggestedCommitMessage}"`);
+}
 ```
 
-**Automatic tracking (future enhancement):**
-```typescript
-// Could auto-detect from work products, git diff, or file watchers
-```
+### When to Disable
 
-### Escape Hatch Usage
-
-Use `autoCommit: false` when:
+Don't set `autoCommitOnComplete: true` when:
 - You want to manually craft the commit message
 - Multiple tasks contribute to one logical commit
 - Working in a shared branch (need to coordinate commits)
-- Task is part of larger PR scope
+- Task is part of larger PR scope requiring custom commit history
 
 ## Implementation Details
-
-### GitHelper Class
-
-Located: `src/utils/git-helper.ts`
-
-**Key methods:**
-- `isGitAvailable()`: Check if git command exists
-- `isGitRepo()`: Check if directory is a git repository
-- `stageFiles(files[])`: Stage specific files
-- `commit(message, body)`: Create commit with message
-- `autoCommitTask(...)`: Orchestrate full auto-commit flow
-
-**Design principles:**
-- Never throws errors (all failures return `{ success: false, warning: string }`)
-- Graceful degradation (missing git = skip commit)
-- Detailed warnings for debugging
 
 ### Task Update Integration
 
 Located: `src/tools/task.ts`
 
-**Function:** `handleAutoCommit(db, task, taskId)`
+**In `taskUpdate()` function:**
 
 **Flow:**
-1. Parse task metadata
-2. Check `autoCommit !== false`
-3. Validate `filesModified` exists and is non-empty
-4. Get work product IDs for commit body
-5. Call `GitHelper.autoCommitTask()`
-6. Log result to task notes
+1. Check if status is transitioning TO `completed` (not already completed)
+2. Parse updated task metadata
+3. Check if `metadata.autoCommitOnComplete === true`
+4. If yes, set response flags:
+   - `autoCommitRequested: true`
+   - `suggestedCommitMessage: "feat(TASK-xxx): {title}"`
+5. Return response to calling agent
+
+**Code snippet:**
+```typescript
+// Check if auto-commit is requested on completion
+let autoCommitRequested = false;
+let suggestedCommitMessage: string | undefined;
+
+if (input.status === 'completed' && task.status !== 'completed') {
+  // Task is transitioning TO completed (not already completed)
+  const updatedMetadata = JSON.parse(updates.metadata || task.metadata) as TaskMetadata;
+
+  // Check if autoCommitOnComplete is enabled
+  if (updatedMetadata.autoCommitOnComplete === true) {
+    autoCommitRequested = true;
+    suggestedCommitMessage = `feat(${input.id}): ${task.title}`;
+  }
+}
+
+return {
+  id: input.id,
+  status: (input.status || task.status) as TaskStatus,
+  updatedAt: now,
+  ...(autoCommitRequested && {
+    autoCommitRequested,
+    suggestedCommitMessage
+  })
+};
+```
+
+### Agent Implementation
+
+Agents should implement the git commit logic:
+
+```typescript
+// After task_update call
+if (result.autoCommitRequested) {
+  try {
+    // Stage files from metadata
+    const files = taskMetadata.filesModified || [];
+    if (files.length > 0) {
+      await exec(`git add ${files.join(' ')}`);
+    }
+
+    // Create commit with suggested message
+    await exec(`git commit -m "${result.suggestedCommitMessage}"`);
+
+    // Optionally update task notes with commit SHA
+    const { stdout } = await exec('git rev-parse HEAD');
+    const commitSha = stdout.trim().substring(0, 7);
+    await task_update({
+      id: taskId,
+      notes: `${existingNotes}\n\nCommitted: ${commitSha}`
+    });
+  } catch (error) {
+    // Handle git errors gracefully
+    console.warn('Auto-commit failed:', error);
+  }
+}
+```
 
 ## Testing
 
 ### Unit Tests
 
-Located: `src/utils/__tests__/git-helper.test.ts`
+Test the flag return behavior in `task.ts`:
 
-**Coverage:**
-- Commit message format validation
-- Metadata field handling
-- Graceful degradation scenarios
-- Edge case handling
+**Test cases:**
+- Task transitioning to completed with `autoCommitOnComplete: true` → Returns flag
+- Task already completed → Does NOT return flag
+- Task with `autoCommitOnComplete: false` → Does NOT return flag
+- Task with missing `autoCommitOnComplete` → Does NOT return flag
+- Suggested message format matches `feat(TASK-xxx): {title}`
 
 ### Integration Testing
 
 **Manual test procedure:**
 
-1. Create task with metadata:
+1. Create task with auto-commit enabled:
    ```typescript
    const task = await task_create({
-     title: 'Test auto-commit',
+     title: 'Test auto-commit flag',
      metadata: {
+       autoCommitOnComplete: true,
        filesModified: ['test.txt']
      }
    });
@@ -317,100 +374,109 @@ Located: `src/utils/__tests__/git-helper.test.ts`
    echo "test content" > test.txt
    ```
 
-3. Complete task:
+3. Complete task and check response:
    ```typescript
-   await task_update({
+   const result = await task_update({
      id: task.id,
      status: 'completed'
    });
+
+   console.log(result);
+   // Should include:
+   // {
+   //   autoCommitRequested: true,
+   //   suggestedCommitMessage: "feat(TASK-xxx): Test auto-commit flag"
+   // }
    ```
 
-4. Verify commit:
+4. Agent performs commit:
    ```bash
-   git log -1 --pretty=format:"%s%n%b"
+   git add test.txt
+   git commit -m "feat(TASK-xxx): Test auto-commit flag"
    ```
 
-   Expected output:
-   ```
-   feat(TASK-xxx): Test auto-commit
-
-   Task ID: TASK-xxx
-   Work Products: (if any)
-   Files Modified: 1 file(s)
+5. Verify commit:
+   ```bash
+   git log -1 --pretty=format:"%s"
+   # Expected: feat(TASK-xxx): Test auto-commit flag
    ```
 
 ## Future Enhancements
 
 ### Potential Improvements
 
-1. **Automatic file detection**: Track files modified during task execution
-2. **Commit templates**: Customize commit format per project
+1. **Automatic file detection**: Track files modified during task execution (via git diff)
+2. **Commit templates**: Customize commit format per project/agent
 3. **Branch integration**: Auto-create branch per task/stream
 4. **PR automation**: Auto-create PR when task completed
-5. **Rollback support**: `/rollback TASK-123` to revert task commit
-6. **Commit hooks**: Run pre-commit hooks before auto-commit
-7. **Multi-commit support**: Multiple commits per task for large changes
+5. **Rollback support**: Revert task commit if task reopened
+6. **Multi-commit support**: Multiple commits per task for large changes
+7. **Commit body templates**: Standardized body format with work products, tests, etc.
 
 ### Configuration Options (Future)
 
+Could add to task metadata:
+
 ```typescript
-interface AutoCommitConfig {
-  enabled: boolean;
-  commitFormat: 'conventional' | 'custom';
-  customTemplate?: string;
-  runHooks: boolean;
-  signCommits: boolean;
-  pushOnCommit: boolean;
+interface TaskMetadata {
+  autoCommitOnComplete?: boolean;
+  autoCommitConfig?: {
+    commitType: 'feat' | 'fix' | 'refactor' | 'docs' | 'test';
+    includeWorkProducts: boolean;
+    includeTestStatus: boolean;
+    customBody?: string;
+  };
 }
 ```
 
 ## Troubleshooting
 
-### "Auto-commit skipped: No files specified"
+### Flag not returned when expected
 
-**Cause:** `metadata.filesModified` is empty or not provided
+**Cause:** Task metadata missing `autoCommitOnComplete: true`
 
-**Solution:** Add files to metadata:
+**Solution:**
 ```typescript
-metadata: {
-  filesModified: ['path/to/file.ts']
+await task_update({
+  id: taskId,
+  status: 'completed',
+  metadata: {
+    autoCommitOnComplete: true  // Must be explicitly set
+  }
+});
+```
+
+### Flag returned but agent doesn't commit
+
+**Cause:** Agent not checking `autoCommitRequested` in response
+
+**Solution:** Implement git commit logic in agent:
+```typescript
+const result = await task_update({ id, status: 'completed' });
+if (result.autoCommitRequested) {
+  // Add git commit logic here
 }
 ```
 
-### "Auto-commit skipped: Git not available"
+### Task already completed, no flag returned
 
-**Cause:** Git not installed or not in PATH
+**Cause:** Task status was already `completed`, no transition occurred
 
-**Solution:**
-- Install git: `brew install git` (macOS) or `apt-get install git` (Linux)
-- Verify: `git --version`
+**Solution:** This is expected behavior. Auto-commit only triggers on status transition TO completed, preventing duplicate commits.
 
-### "Auto-commit skipped: Not a git repository"
+### Agent git commit fails
 
-**Cause:** Project directory is not a git repository
+**Cause:** Git errors (not staged, conflicts, etc.)
 
-**Solution:**
-```bash
-cd /path/to/project
-git init
+**Solution:** Agent should handle git errors gracefully:
+```typescript
+try {
+  await exec(`git commit -m "${message}"`);
+} catch (error) {
+  console.warn('Auto-commit failed:', error);
+  // Optionally update task notes with error
+}
 ```
-
-### "Staged 0 of N files"
-
-**Cause:** Files in `filesModified` don't exist or are outside repository
-
-**Solution:**
-- Verify file paths are correct
-- Use absolute paths or paths relative to project root
-- Check files exist: `ls -la path/to/file.ts`
-
-### Commit created but wrong files staged
-
-**Cause:** Dirty working directory with extra changes
-
-**Solution:**
-- Commit or stash unrelated changes before completing task
-- Or set `autoCommit: false` and manually create commit
 
 ## Related Features
 

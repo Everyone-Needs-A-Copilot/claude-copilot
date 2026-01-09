@@ -56,14 +56,13 @@ for (const task of allTasks) {
     trigger: 'manual',
     executionPhase: 'paused',
     executionStep: 0,
-    agentContext: {
+    pauseMetadata: {
       pauseReason: pauseReason,
       pausedBy: 'user',
-      pausedAt: new Date().toISOString(),
-      initiativeId: initiative.id,
-      initiativeTitle: initiative.title
+      nextSteps: `Resume with /continue to restore work on: ${task.title}`,
+      keyFiles: task.metadata?.files || []
     },
-    expiresIn: 10080 // Extended expiry for manual checkpoints
+    expiresIn: 10080 // Extended expiry: 7 days for manual checkpoints
   });
 }
 ```

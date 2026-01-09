@@ -92,33 +92,19 @@ User: Create a PRD with these streams:
 
 The Tech Architect will create a PRD with tasks organized into streams.
 
-### Step 2: Generate Orchestration Scripts
+### Step 2: Start Orchestration
 
 ```
-User: /orchestrate generate
+User: /orchestrate start
 ```
 
-**Output:**
+On first run, this automatically:
+- Creates `.claude/orchestrator/` directory
+- Copies orchestration templates (orchestrate.py, check-streams, watch-status, etc.)
+- Creates `./watch-status` symlink at project root
+- Makes scripts executable
 
-```
-Headless Orchestration Scripts Generated
-
-Created files:
-- .claude/orchestrator/orchestrate.py (main orchestrator)
-- .claude/orchestrator/check-streams (status dashboard)
-- .claude/orchestrator/watch-status (live monitoring)
-
-Subdirectories:
-- .claude/orchestrator/pids/ (process tracking)
-- .claude/orchestrator/logs/ (worker logs)
-
-Next steps:
-1. Start orchestration: python .claude/orchestrator/orchestrate.py start
-2. Monitor progress: ./.claude/orchestrator/watch-status
-3. Check status: python .claude/orchestrator/orchestrate.py status
-```
-
-### Step 3: Start Orchestration
+Then it starts the orchestration:
 
 ```bash
 cd /path/to/your/project
@@ -135,7 +121,7 @@ python .claude/orchestrator/orchestrate.py start
 6. Spawn integration workers
 7. Auto-restart any failed workers
 
-### Step 4: Monitor Progress
+### Step 3: Monitor Progress
 
 In a separate terminal, run the live monitor:
 
@@ -412,35 +398,37 @@ Integration runs last, merges parallel work.
 
 ### Worker Prompt
 
-Each worker receives this prompt:
+Each worker receives a prompt with mandatory task update protocol:
 
 ```
 You are a worker agent in the Claude Copilot orchestration system.
 
 ## Your Assignment
 - Stream: Stream-B
-- Stream ID: Stream-B
-- Phase: parallel (api-implementation)
+- Stream Name: api-implementation
+- Dependencies: Stream-A
 
-## Instructions
-1. Run /continue Stream-B to load your assigned stream context
-2. Work through all pending tasks for this stream
-3. Use @agent-me for implementation tasks
-4. Update task status as you complete work (task_update)
-5. Commit changes frequently with descriptive messages
-6. When all tasks complete, report back with a summary
+## MANDATORY PROTOCOL
 
-## Important
-- Stay focused on Stream-B tasks only
-- Do not work on other streams
-- Commit after each significant change
-- If blocked, update task status to blocked with reason
-- When complete, all tasks should be marked completed
+### Step 1: Query Your Tasks
+Call task_list with streamId filter.
 
-Begin by running: /continue Stream-B
+### Step 2: For EACH Task
+- Before work: task_update(id="TASK-xxx", status="in_progress")
+- After work: task_update(id="TASK-xxx", status="completed", notes="...")
+
+### Step 3: Verify Before Exiting
+Re-query task_list and verify ALL tasks show "completed".
+
+### Step 4: Output Summary
+Only after verification, output completion summary.
+
+## Anti-Patterns (NEVER DO THESE)
+- Claiming "complete" without calling task_update for each
+- Skipping verification step
 ```
 
-The worker loads stream context via `/continue` and works autonomously.
+The worker queries Task Copilot and works autonomously with mandatory task updates.
 
 ---
 
@@ -498,7 +486,7 @@ Example:
    - `streamId` (e.g., "Stream-A")
    - `streamName` (e.g., "foundation")
    - `streamPhase` ("foundation", "parallel", or "integration")
-3. Regenerate orchestration: `/orchestrate generate`
+3. Re-run orchestration: `/orchestrate start` (will auto-create files)
 
 ### Worker Not Starting
 
@@ -827,7 +815,7 @@ WHERE json_extract(metadata, '$.streamId') = 'Stream-B'
 
 - `/protocol` - Start fresh work with Agent-First Protocol
 - `/continue [stream]` - Resume work on specific stream
-- `/orchestrate generate` - Generate headless orchestration scripts
+- `/orchestrate start` - Set up and run parallel orchestration
 - `/orchestrate status` - Check stream progress
 
 ### MCP Tools
@@ -848,25 +836,43 @@ You are a worker agent in the Claude Copilot orchestration system.
 
 ## Your Assignment
 - Stream: {stream.id}
-- Stream ID: {stream.stream_id}
-- Phase: {stream.phase} ({stream.name})
+- Stream Name: {stream.name}
+- Dependencies: {deps_str}
 
-## Instructions
-1. Run /continue {stream.stream_id} to load your assigned stream context
-2. Work through all pending tasks for this stream
-3. Use @agent-me for implementation tasks
-4. Update task status as you complete work (task_update)
-5. Commit changes frequently with descriptive messages
-6. When all tasks complete, report back with a summary
+## MANDATORY PROTOCOL - YOU MUST FOLLOW THIS EXACTLY
 
-## Important
-- Stay focused on {stream.id} tasks only
-- Do not work on other streams
-- Commit after each significant change
-- If blocked, update task status to blocked with reason
-- When complete, all tasks should be marked completed
+### Step 1: Query Your Tasks
+Call task_list with streamId filter to get your assigned tasks.
 
-Begin by running: /continue {stream.stream_id}
+### Step 2: For EACH Task (in order)
+
+**Before starting work:**
+task_update(id="TASK-xxx", status="in_progress")
+
+**After completing work:**
+task_update(id="TASK-xxx", status="completed", notes="Brief description")
+
+**CRITICAL:** You MUST call task_update after EACH task. Do not batch updates.
+
+### Step 3: Verify Before Exiting
+
+**Before outputting any completion summary:**
+1. Call task_list again
+2. Check that ALL tasks have status: "completed"
+3. If ANY task is still pending or in_progress, go back and complete it
+
+### Step 4: Output Summary
+Only after ALL tasks are verified complete, output:
+- List of completed tasks with brief notes
+- Any commits made
+- Any issues encountered
+
+## Anti-Patterns (NEVER DO THESE)
+- Outputting "All tasks complete" without calling task_update for each
+- Skipping verification step before exit
+- Claiming success when Task Copilot shows pending tasks
+
+Begin by querying your task list with task_list.
 ```
 
 ### Example Workflow
@@ -877,24 +883,19 @@ claude
 > /protocol
 > Create a PRD with organized streams
 
-# 2. Generate orchestration scripts
-> /orchestrate generate
+# 2. Start orchestration (auto-creates files on first run)
+> /orchestrate start
 
-# Exit Claude Code
+# 3. Monitor in separate terminal
+./watch-status
 
-# 3. Start orchestration
-python .claude/orchestrator/orchestrate.py start
-
-# 4. Monitor in separate terminal
-./.claude/orchestrator/watch-status
-
-# 5. Check logs if needed
+# 4. Check logs if needed
 tail -f .claude/orchestrator/logs/Stream-B.log
 
-# 6. Wait for completion
+# 5. Wait for completion
 # Workers run autonomously until all tasks complete
 
-# 7. Clean up
+# 6. Clean up
 python .claude/orchestrator/orchestrate.py stop
 ```
 

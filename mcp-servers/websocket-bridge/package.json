@@ -1,6 +1,6 @@
 {
   "name": "@copilot/websocket-bridge",
-  "version": "1.8.0",
+  "version": "2.0.0",
   "description": "WebSocket bridge for Task Copilot real-time events",
   "type": "module",
   "main": "dist/index.js",
