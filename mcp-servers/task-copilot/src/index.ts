@@ -699,24 +699,26 @@ const TOOLS = [
   },
   {
     name: 'stream_unarchive',
-    description: 'Unarchive a stream and link it to current or specified initiative. Use when you want to resume work on an archived stream.',
+    description: 'Unarchive a stream and link it to current or specified initiative. Use when you want to resume work on an archived stream. Optional prdId to scope unarchive to specific PRD.',
     inputSchema: {
       type: 'object',
       properties: {
         streamId: { type: 'string', description: 'Stream ID to unarchive (e.g., "Stream-A")' },
-        initiativeId: { type: 'string', description: 'Initiative ID to link stream to (default: current initiative)' }
+        initiativeId: { type: 'string', description: 'Initiative ID to link stream to (default: current initiative)' },
+        prdId: { type: 'string', description: 'Optional: only unarchive tasks belonging to this PRD' }
       },
       required: ['streamId']
     }
   },
   {
     name: 'stream_archive_all',
-    description: 'Archive all active streams. One-time cleanup for legacy data before auto-archive feature. Requires confirm: true for safety.',
+    description: 'Archive all active streams. One-time cleanup for legacy data before auto-archive feature. Requires confirm: true for safety. Optional prdId to scope archival to specific PRD.',
     inputSchema: {
       type: 'object',
       properties: {
         confirm: { type: 'boolean', description: 'Safety flag - must be true to proceed' },
-        initiativeId: { type: 'string', description: 'Optional: only archive streams from specific initiative' }
+        initiativeId: { type: 'string', description: 'Optional: only archive streams from specific initiative' },
+        prdId: { type: 'string', description: 'Optional: only archive streams from specific PRD (takes precedence over initiativeId)' }
       },
       required: ['confirm']
     }
@@ -1254,7 +1256,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'stream_unarchive': {
         const result = streamUnarchive(db, {
           streamId: a.streamId as string,
-          initiativeId: a.initiativeId as string | undefined
+          initiativeId: a.initiativeId as string | undefined,
+          prdId: a.prdId as string | undefined
         });
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
@@ -1262,7 +1265,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'stream_archive_all': {
         const result = streamArchiveAll(db, {
           confirm: a.confirm as boolean,
-          initiativeId: a.initiativeId as string | undefined
+          initiativeId: a.initiativeId as string | undefined,
+          prdId: a.prdId as string | undefined
         });
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }

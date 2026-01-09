@@ -95,7 +95,7 @@ The Tech Architect will create a PRD with tasks organized into streams.
 ### Step 2: Generate Orchestration Scripts
 
 ```
-User: /orchestration generate
+User: /orchestrate generate
 ```
 
 **Output:**
@@ -498,7 +498,7 @@ Example:
    - `streamId` (e.g., "Stream-A")
    - `streamName` (e.g., "foundation")
    - `streamPhase` ("foundation", "parallel", or "integration")
-3. Regenerate orchestration: `/orchestration generate`
+3. Regenerate orchestration: `/orchestrate generate`
 
 ### Worker Not Starting
 
@@ -827,8 +827,8 @@ WHERE json_extract(metadata, '$.streamId') = 'Stream-B'
 
 - `/protocol` - Start fresh work with Agent-First Protocol
 - `/continue [stream]` - Resume work on specific stream
-- `/orchestration generate` - Generate headless orchestration scripts
-- `/orchestration status` - Check stream progress
+- `/orchestrate generate` - Generate headless orchestration scripts
+- `/orchestrate status` - Check stream progress
 
 ### MCP Tools
 
@@ -878,7 +878,7 @@ claude
 > Create a PRD with organized streams
 
 # 2. Generate orchestration scripts
-> /orchestration generate
+> /orchestrate generate
 
 # Exit Claude Code
 

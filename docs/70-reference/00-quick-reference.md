@@ -95,6 +95,8 @@ cp ~/.claude/copilot/templates/commands/protocol.md ~/your-project/.claude/comma
 |--------------|----------|--------------|
 | Start fresh work | Protocol | `/protocol` |
 | Resume previous work | Continue | `/continue` |
+| Run parallel work streams | Orchestrate | `/orchestrate start` |
+| Monitor orchestration | Orchestrate | `/orchestrate status` |
 | Get architecture help | Tech Architect agent | `/protocol` → routes to `ta` |
 | Implement code | Engineer agent | `/protocol` → routes to `me` |
 | Review security | Security agent | `/protocol` → routes to `sec` |
@@ -294,6 +296,7 @@ Agents store detailed work products here instead of returning them to the main s
 | `/knowledge-copilot` | User | Build or link shared knowledge repository |
 | `/protocol` | Project | Start fresh work with Agent-First Protocol |
 | `/continue` | Project | Resume previous work via Memory Copilot |
+| `/orchestrate` | Project | Set up and manage parallel stream orchestration |
 
 ---
 

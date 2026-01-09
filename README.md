@@ -252,6 +252,7 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 |---------|---------|---------|
 | `/protocol [task]` | Start work with Agent-First Protocol | `/protocol add dark mode` |
 | `/continue [stream]` | Resume from memory | `/continue Stream-B` |
+| `/orchestrate` | Run parallel work streams | `/orchestrate start` |
 | `/setup-project` | Initialize a new project | |
 | `/knowledge-copilot` | Build shared knowledge | |
 

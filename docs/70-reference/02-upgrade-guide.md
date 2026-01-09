@@ -154,7 +154,7 @@ In Claude Code:
 **What this does:**
 - Syncs `.claude/` directory with latest framework
 - Updates agents with new features
-- Adds new commands (`/orchestration`)
+- Adds new commands (`/orchestrate`)
 - Preserves project-specific customizations
 - Updates `.gitignore` with orchestration directories
 
@@ -164,11 +164,11 @@ Updating Project with Claude Copilot v1.8.0
 
 Files updated:
 ✓ .claude/agents/ (12 agents)
-✓ .claude/commands/ (added orchestration.md)
-✓ .gitignore (added .claude/orchestration/)
+✓ .claude/commands/ (added orchestrate.md)
+✓ .gitignore (added .claude/orchestrator/)
 
 New features available:
-- /orchestration command
+- /orchestrate command
 - Parallel stream execution
 - Context recovery system
 
@@ -241,7 +241,7 @@ For each project:
 cd ~/your-project
 
 # Copy new command
-cp ~/.claude/copilot/.claude/commands/orchestration.md .claude/commands/
+cp ~/.claude/copilot/.claude/commands/orchestrate.md .claude/commands/
 
 # Update agents (all 12 files)
 cp -r ~/.claude/copilot/.claude/agents/ .claude/
@@ -249,7 +249,7 @@ cp -r ~/.claude/copilot/.claude/agents/ .claude/
 # Update .gitignore
 echo "" >> .gitignore
 echo "# Claude Copilot orchestration" >> .gitignore
-echo ".claude/orchestration/" >> .gitignore
+echo ".claude/orchestrator/" >> .gitignore
 ```
 
 ### Step 4: Verify Installation
@@ -304,7 +304,7 @@ claude
 
 In Claude Code:
 ```
-/orchestration
+/orchestrate
 ```
 
 **Expected output:**
@@ -319,7 +319,7 @@ To create an initiative:
 3. Ensure tasks are organized into streams
 ```
 
-This confirms the `/orchestration` command is installed.
+This confirms the `/orchestrate` command is installed.
 
 ### 4. Verify Quality Gates
 
@@ -395,11 +395,11 @@ claude
 /protocol
 # Create a PRD with multiple streams via @agent-ta
 
-/orchestration generate
-# Generates scripts in .claude/orchestration/
+/orchestrate generate
+# Generates scripts in .claude/orchestrator/
 
 # Outside Claude Code:
-python3 .claude/orchestration/start-streams.py
+python3 .claude/orchestrator/start-streams.py
 ```
 
 ### 2. Enable WebSocket Bridge (Optional)
@@ -510,7 +510,7 @@ stream_archive_all({ confirm: true })
 
 For orchestration with auto-recovery, edit generated config:
 
-**.claude/orchestration/orchestration-config.json:**
+**.claude/orchestrator/orchestrate-config.json:**
 ```json
 {
   "version": "1.0",
@@ -558,13 +558,13 @@ npm run build
 
 ---
 
-### Issue: `/orchestration` command not available
+### Issue: `/orchestrate` command not available
 
 **Cause:** Project files not updated
 **Solution:**
 ```bash
 cd ~/your-project
-cp ~/.claude/copilot/.claude/commands/orchestration.md .claude/commands/
+cp ~/.claude/copilot/.claude/commands/orchestrate.md .claude/commands/
 ```
 
 Restart Claude Code.
@@ -735,8 +735,8 @@ cd ../skills-copilot && npm install && npm run build
 cd ~/your-project
 
 # Remove new files
-rm .claude/commands/orchestration.md
-rm -rf .claude/orchestration/
+rm .claude/commands/orchestrate.md
+rm -rf .claude/orchestrator/
 
 # Restore agents from backup
 git checkout HEAD .claude/agents/
@@ -791,7 +791,7 @@ Memory Copilot database remains compatible. New `agent_improvement` type is addi
 
 **New optional configs:**
 - `.claude/quality-gates.json` (optional)
-- `.claude/orchestration/` (generated on-demand)
+- `.claude/orchestrator/` (generated on-demand)
 - `contextRecovery` in orchestration config (optional)
 
 ---
@@ -824,7 +824,7 @@ If you encounter issues not covered in this guide:
 After successful upgrade:
 
 1. **Explore New Features:**
-   - Try `/orchestration` with a multi-stream PRD
+   - Try `/orchestrate` with a multi-stream PRD
    - Set up quality gates for your project
    - Test activation modes (`quick`, `thorough`, `analyze`)
 

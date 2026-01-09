@@ -111,11 +111,13 @@ Ask yourself:
 | `/pause [reason]` | Context switch, save state | Session | Project root |
 | `/map` | Analyze codebase structure | Project | Project root |
 | `/memory` | View memory state and recent activity | Session | Project root |
+| `/orchestrate` | Set up parallel stream orchestration | Project | Project root |
 
 **Command Arguments (optional):**
 - `/protocol <task>` - Auto-detect task type and route to agent (e.g., `/protocol fix the login bug`)
 - `/continue <stream>` - Resume specific parallel stream (e.g., `/continue Stream-B`)
 - `/pause <reason>` - Create named checkpoint (e.g., `/pause switching to urgent bug`)
+- `/orchestrate <subcommand>` - Manage parallel orchestration (e.g., `/orchestrate start`, `/orchestrate status`)
 
 ### Agent Selection Matrix
 
@@ -141,6 +143,8 @@ Ask yourself:
 | Context switch mid-task | `/pause switching to X` | Creates checkpoint, switch safely |
 | Understand new codebase | `/map` | Generates PROJECT_MAP.md |
 | View memory state | `/memory` | See current initiative & recent activity |
+| Run parallel work streams | `/orchestrate start` | Spawns autonomous workers |
+| Monitor orchestration | `/orchestrate status` | Live progress dashboard |
 | Set up team standards | `/knowledge-copilot` | Create extension repository |
 | Initialize new project | `/setup-project` | Framework installs |
 | Update all projects | `/update-project` (each project) | Syncs latest changes |
@@ -375,6 +379,7 @@ Commands enforcing battle-tested workflows.
 | `/pause [reason]` | Project | Create named checkpoint with extended expiry for context switching |
 | `/map` | Project | Generate PROJECT_MAP.md with codebase analysis |
 | `/memory` | Project | View current memory state and recent activity |
+| `/orchestrate` | Project | Set up and manage parallel stream orchestration |
 
 **Quick Start Examples:**
 ```
@@ -383,6 +388,8 @@ Commands enforcing battle-tested workflows.
 /continue Stream-B                            → Resume parallel stream work
 /pause switching to urgent bug                → Create checkpoint with reason
 /map                                          → Generate project structure map
+/orchestrate start                            → Start parallel workers for all streams
+/orchestrate status                           → Check progress of all streams
 ```
 
 ---

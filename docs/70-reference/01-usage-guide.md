@@ -431,6 +431,7 @@ progress_summary()
 | `/pause [reason]` | Save checkpoint, switch context |
 | `/map` | Generate project structure map |
 | `/memory` | View memory state |
+| `/orchestrate` | Set up and run parallel streams |
 
 ### Key Tools
 

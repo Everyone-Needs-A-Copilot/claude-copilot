@@ -46,6 +46,8 @@ A comprehensive guide to help you choose the right tools, commands, agents, and 
 | Create team knowledge | `/knowledge-copilot` | Once per team/company | Any directory |
 | Start fresh work | `/protocol [task]` | Each work session | Project root |
 | Resume previous work | `/continue [stream]` | When returning to work | Project root |
+| Run parallel work streams | `/orchestrate start` | For multi-stream work | Project root |
+| Monitor orchestration | `/orchestrate status` | During parallel execution | Project root |
 | Verify MCP servers | `/mcp` | After setup, troubleshooting | Project root |
 
 **Command Arguments:**

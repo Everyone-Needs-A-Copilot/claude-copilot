@@ -217,15 +217,25 @@ Use AskUserQuestion:
 Remove old command files and copy fresh ones:
 
 ```bash
-# Remove old project commands (only protocol and continue)
+# Remove old project commands
 rm -f .claude/commands/protocol.md 2>/dev/null
 rm -f .claude/commands/continue.md 2>/dev/null
+rm -f .claude/commands/pause.md 2>/dev/null
+rm -f .claude/commands/map.md 2>/dev/null
+rm -f .claude/commands/memory.md 2>/dev/null
+rm -f .claude/commands/extensions.md 2>/dev/null
+rm -f .claude/commands/orchestrate.md 2>/dev/null
 
-# Copy fresh from source
+# Copy fresh from source (all project-level commands)
 cp ~/.claude/copilot/.claude/commands/protocol.md .claude/commands/
 cp ~/.claude/copilot/.claude/commands/continue.md .claude/commands/
+cp ~/.claude/copilot/.claude/commands/pause.md .claude/commands/
+cp ~/.claude/copilot/.claude/commands/map.md .claude/commands/
+cp ~/.claude/copilot/.claude/commands/memory.md .claude/commands/
+cp ~/.claude/copilot/.claude/commands/extensions.md .claude/commands/
+cp ~/.claude/copilot/.claude/commands/orchestrate.md .claude/commands/
 
-echo "Commands updated"
+echo "Commands updated (8 project commands)"
 ```
 
 ---
@@ -308,8 +318,7 @@ Tell user:
 **Project Updated!**
 
 **Refreshed:**
-- `.claude/commands/protocol.md`
-- `.claude/commands/continue.md`
+- `.claude/commands/` (8 project commands: protocol, continue, pause, map, memory, extensions, orchestrate)
 - `.claude/agents/` (12 agents)
 
 **MCP Configuration:**

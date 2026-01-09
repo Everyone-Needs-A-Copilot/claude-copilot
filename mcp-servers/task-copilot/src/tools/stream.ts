@@ -398,9 +398,9 @@ export function streamGet(db: DatabaseClient, input: StreamGetInput): StreamGetO
  */
 export function streamUnarchive(
   db: DatabaseClient,
-  input: { streamId: string; initiativeId?: string }
+  input: { streamId: string; initiativeId?: string; prdId?: string }
 ): { streamId: string; tasksUnarchived: number; newInitiativeId: string } {
-  const { streamId, initiativeId } = input;
+  const { streamId, initiativeId, prdId } = input;
 
   // Get current initiative if not specified
   let targetInitiativeId = initiativeId;
@@ -412,11 +412,28 @@ export function streamUnarchive(
     targetInitiativeId = currentInitiative.id;
   }
 
-  // Unarchive the stream
-  const tasksUnarchived = db.unarchiveStream(streamId);
+  // Build unarchive query with optional prdId filter
+  let sql = `
+    UPDATE tasks
+    SET archived = 0,
+        archived_at = NULL,
+        archived_by_initiative_id = NULL
+    WHERE json_extract(metadata, '$.streamId') = ?
+      AND archived = 1
+  `;
+  const params: unknown[] = [streamId];
+
+  if (prdId) {
+    sql += ' AND prd_id = ?';
+    params.push(prdId);
+  }
+
+  const result = db.getDb().prepare(sql).run(...params);
+  const tasksUnarchived = result.changes || 0;
 
   if (tasksUnarchived === 0) {
-    throw new Error(`No archived tasks found for stream: ${streamId}`);
+    const prdFilter = prdId ? ` for PRD ${prdId}` : '';
+    throw new Error(`No archived tasks found for stream: ${streamId}${prdFilter}`);
   }
 
   // Log activity
@@ -427,11 +444,12 @@ export function streamUnarchive(
     type: 'stream_unarchived',
     entity_id: streamId,
     entity_type: 'stream',
-    summary: `Unarchived stream ${streamId} (${tasksUnarchived} tasks) and linked to initiative ${targetInitiativeId}`,
+    summary: `Unarchived stream ${streamId} (${tasksUnarchived} tasks) and linked to initiative ${targetInitiativeId}${prdId ? ` (PRD: ${prdId})` : ''}`,
     metadata: JSON.stringify({
       streamId,
       tasksUnarchived,
-      targetInitiativeId
+      targetInitiativeId,
+      prdId
     }),
     created_at: now
   });
@@ -453,7 +471,7 @@ export function streamArchiveAll(
   db: DatabaseClient,
   input: StreamArchiveAllInput
 ): StreamArchiveAllOutput {
-  const { confirm, initiativeId } = input;
+  const { confirm, initiativeId, prdId } = input;
 
   // Safety check
   if (!confirm) {
@@ -462,9 +480,9 @@ export function streamArchiveAll(
 
   const now = new Date().toISOString();
 
-  // Get current initiative if not specified
+  // Get current initiative if not specified and no prdId provided
   let targetInitiativeId = initiativeId;
-  if (!targetInitiativeId) {
+  if (!targetInitiativeId && !prdId) {
     const currentInitiative = db.getCurrentInitiative();
     if (currentInitiative) {
       targetInitiativeId = currentInitiative.id;
@@ -480,9 +498,13 @@ export function streamArchiveAll(
     WHERE json_extract(metadata, '$.streamId') IS NOT NULL
       AND (archived IS NULL OR archived = 0)
   `;
-  const params: unknown[] = [now, targetInitiativeId || 'manual'];
+  const params: unknown[] = [now, targetInitiativeId || prdId || 'manual'];
 
-  if (targetInitiativeId) {
+  // Add prdId filter if specified (takes precedence over initiativeId)
+  if (prdId) {
+    sql += ' AND prd_id = ?';
+    params.push(prdId);
+  } else if (targetInitiativeId) {
     sql += `
       AND prd_id IN (
         SELECT id FROM prds WHERE initiative_id = ?
@@ -503,7 +525,10 @@ export function streamArchiveAll(
   `;
   const countParams: unknown[] = [now];
 
-  if (targetInitiativeId) {
+  if (prdId) {
+    countSql += ' AND prd_id = ?';
+    countParams.push(prdId);
+  } else if (targetInitiativeId) {
     countSql += `
       AND prd_id IN (
         SELECT id FROM prds WHERE initiative_id = ?
@@ -516,18 +541,20 @@ export function streamArchiveAll(
   const streamsArchived = countResult.count;
 
   // Log activity
-  if (targetInitiativeId) {
+  if (targetInitiativeId || prdId) {
+    const scopeDesc = prdId ? `PRD ${prdId}` : `initiative ${targetInitiativeId}`;
     db.insertActivity({
       id: uuidv4(),
-      initiative_id: targetInitiativeId,
+      initiative_id: targetInitiativeId || 'unknown',
       type: 'stream_archive_all',
       entity_id: 'bulk',
       entity_type: 'stream',
-      summary: `Archived all streams (${streamsArchived} streams, ${tasksArchived} tasks)`,
+      summary: `Archived all streams for ${scopeDesc} (${streamsArchived} streams, ${tasksArchived} tasks)`,
       metadata: JSON.stringify({
         streamsArchived,
         tasksArchived,
-        targetInitiativeId
+        targetInitiativeId,
+        prdId
       }),
       created_at: now
     });

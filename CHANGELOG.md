@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-01-08
+
+### Added
+
+- **Parallel Stream Orchestration**: Run multiple Claude sessions simultaneously
+  - `/orchestrate` command for headless parallel execution
+  - `start-streams.py` template for automated stream management
+  - `watch-status.py` for real-time terminal monitoring
+  - Foundation → Parallel → Integration phase workflow
+  - Automatic stream conflict detection
+
+- **WebSocket Bridge**: New MCP server for real-time event streaming
+  - `mcp-servers/websocket-bridge/` with JWT authentication
+  - Live task status updates across sessions
+  - Event subscription and filtering
+  - Integration with Task Copilot events
+
+- **HTTP API for Task Copilot**: REST endpoints for external integration
+  - `/api/tasks`, `/api/streams`, `/api/activity`, `/api/checkpoints`
+  - Python client library (`task_copilot_client.py`)
+  - Enables dashboard and monitoring tools
+
+- **New Project Commands** (5 new commands):
+  - `/map` - Generate PROJECT_MAP.md with codebase analysis
+  - `/pause [reason]` - Create checkpoint for context switching
+  - `/orchestrate` - Parallel stream management
+  - `/memory` - View current initiative state
+  - `/extensions` - List agent extensions
+
+- **Enhanced Pause/Resume**: Extended checkpoint expiry for manual pauses
+  - `/pause` creates 7-day checkpoints (vs 24h for auto)
+  - `/continue` checks pause checkpoints first
+  - Named checkpoints with reason tracking
+
+- **Progress Visibility Enhancements**:
+  - ASCII progress bars in `progress_summary`
+  - Velocity trends (7d/14d/30d) with directional indicators
+  - Milestone tracking in PRDs
+
+- **Worktree Conflict Handling**:
+  - `worktree_conflict_status` tool
+  - `worktree_conflict_resolve` tool
+  - Git worktree manager utilities
+
+### Changed
+
+- **Major Version Bump**: 1.8.0 → 2.0.0 reflecting paradigm shift to parallel orchestration
+- **Update Project Command**: Now copies 8 project commands (was 2)
+- All MCP servers aligned to version 2.0.0
+
+### Technical
+
+- 18,246 lines of new code
+- 91 compiled JavaScript files across 4 MCP servers
+- 28 integration tests passing
+- New event bus architecture in Task Copilot
+
 ## [1.7.1] - 2026-01-05
 
 ### Added

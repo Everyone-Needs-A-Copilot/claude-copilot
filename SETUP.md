@@ -65,6 +65,7 @@ This creates a knowledge repository for company/product information that's share
 | `/knowledge-copilot` | Any folder | Set up shared knowledge |
 | `/protocol` | Projects | Start fresh work |
 | `/continue` | Projects | Resume previous work |
+| `/orchestrate` | Projects | Set up and run parallel streams |
 
 ---
 
