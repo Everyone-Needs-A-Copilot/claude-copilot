@@ -28,8 +28,11 @@ import {
   initiativeGet,
   initiativeSlim,
   initiativeComplete,
-  initiativeToMarkdown
+  initiativeToMarkdown,
+  detectCorrections,
+  getPatterns,
 } from './tools/index.js';
+import type { CorrectionDetectInput, CorrectionDetectOutput } from './types/corrections.js';
 import { getInitiativeResource, getInitiativeSummary } from './resources/initiative-resource.js';
 import { getContextResource } from './resources/context-resource.js';
 import type { MemoryType, InitiativeStatus } from './types.js';
@@ -250,6 +253,31 @@ const TOOLS = [
       type: 'object',
       properties: {}
     }
+  },
+  {
+    name: 'correction_detect',
+    description: 'Detect correction patterns in user messages. Auto-extracts old/new values with confidence scoring.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        userMessage: { type: 'string', description: 'User message to analyze for corrections' },
+        previousAgentOutput: { type: 'string', description: 'Previous agent output (for context)' },
+        taskId: { type: 'string', description: 'Current task context' },
+        agentId: { type: 'string', description: 'Current agent context' },
+        threshold: { type: 'number', description: 'Minimum confidence threshold (default: 0.5)' }
+      },
+      required: ['userMessage']
+    }
+  },
+  {
+    name: 'correction_patterns_list',
+    description: 'List all available correction detection patterns',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        includeDisabled: { type: 'boolean', description: 'Include disabled patterns (default: false)' }
+      }
+    }
   }
 ];
 
@@ -389,6 +417,27 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             }, null, 2)
           }]
         };
+      }
+
+      case 'correction_detect': {
+        const input: CorrectionDetectInput = {
+          userMessage: a.userMessage as string,
+          previousAgentOutput: a.previousAgentOutput as string | undefined,
+          taskId: a.taskId as string | undefined,
+          agentId: a.agentId as string | undefined,
+          threshold: a.threshold as number | undefined,
+        };
+        const result: CorrectionDetectOutput = detectCorrections(input);
+        // Set project ID on any detected corrections
+        for (const correction of result.corrections) {
+          correction.projectId = db.getProjectId();
+        }
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case 'correction_patterns_list': {
+        const patterns = getPatterns(a.includeDisabled as boolean | undefined);
+        return { content: [{ type: 'text', text: JSON.stringify(patterns, null, 2) }] };
       }
 
       default:

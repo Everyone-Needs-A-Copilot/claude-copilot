@@ -20,3 +20,10 @@ export {
   initiativeComplete,
   initiativeToMarkdown
 } from './initiative-tools.js';
+
+export {
+  detectCorrections,
+  getPatterns,
+  validatePattern,
+  DEFAULT_PATTERNS
+} from './correction-detect.js';
