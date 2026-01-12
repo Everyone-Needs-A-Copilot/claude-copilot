@@ -271,10 +271,71 @@ Before presenting the protocol acknowledgment, attempt to load the project Const
 
 When routing to agents or making technical decisions, reference Constitution constraints first.
 
+## Lifecycle Hooks Integration
+
+The protocol activates lifecycle hooks for runtime behavior modification:
+
+### On Protocol Start
+
+Initialize all hook systems:
+```
+initializePreToolUseHooks()    → Path normalization, metadata enrichment
+initializePostToolUseHooks()   → Logging, error enrichment, slow execution warnings
+initializeUserPromptSubmitHooks() → Skill detection, context injection
+initializeDefaultSecurityRules()  → Secret detection, destructive command blocking
+```
+
+### UserPromptSubmit Hooks (Before Processing)
+
+Every user prompt passes through UserPromptSubmit hooks:
+1. **Whitespace normalization** (optional) - Cleans excessive whitespace
+2. **File pattern detection** - Generates skill signals from file references (.tsx, .py, etc.)
+3. **Keyword detection** - Detects domain keywords (test, deploy, security, etc.)
+4. **Explicit skill requests** - Honors "use the X skill" patterns
+5. **Task context injection** (optional) - Adds current task ID to context
+
+**Skill signals are collected and can trigger skill loading:**
+```
+If skillSignals with confidence > 0.8:
+  Consider loading suggested skills via skill_get
+```
+
+### PreToolUse Hooks (Before Tool Execution)
+
+Every tool call passes through PreToolUse hooks:
+1. **Security rules** - Block secret writes, destructive commands, sensitive files
+2. **Path normalization** - Convert relative paths to absolute
+3. **Metadata enrichment** (optional) - Add timestamps and context
+
+**Blocked tool calls return error with recommendation.**
+
+### PostToolUse Hooks (After Tool Completion)
+
+Every tool result passes through PostToolUse hooks:
+1. **Error enrichment** - Add context to error messages
+2. **Slow execution warning** - Log when tools exceed 5s threshold
+3. **Result sanitization** (optional) - Redact sensitive data from logs
+4. **Activity tracking** (optional) - Record tool usage for analytics
+
+### Custom Hook Registration
+
+Agents can register custom hooks for specific tasks:
+```
+registerPreToolUseRule({
+  id: 'custom-rule',
+  name: 'Custom Rule',
+  description: 'Task-specific validation',
+  enabled: true,
+  priority: 50,
+  category: 'custom',
+  evaluate: (context) => { /* custom logic */ }
+})
+```
+
 ## Acknowledge
 
 Respond with:
 ```
-Protocol active. [Constitution: Active/Not Found]
+Protocol active. [Constitution: Active/Not Found] [Hooks: Initialized]
 Ready for your request.
 ```

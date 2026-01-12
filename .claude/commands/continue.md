@@ -469,6 +469,68 @@ git stash push -m "Stream-B checkpoint"
 4. **Test after merge** - run tests in main worktree after merging streams
 5. **Clean up promptly** - remove worktrees after successful merge to avoid confusion
 
+## Lifecycle Hooks Integration
+
+The /continue command activates lifecycle hooks for runtime behavior modification:
+
+### On Continue Start
+
+Initialize all hook systems (same as /protocol):
+```
+initializePreToolUseHooks()    → Path normalization, metadata enrichment
+initializePostToolUseHooks()   → Logging, error enrichment, slow execution warnings
+initializeUserPromptSubmitHooks() → Skill detection, context injection
+initializeDefaultSecurityRules()  → Secret detection, destructive command blocking
+```
+
+### Stream-Specific Hooks
+
+When resuming a stream, additional hooks can be registered:
+
+1. **File conflict detection** - Warn when editing files claimed by other streams
+2. **Worktree path validation** - Ensure file paths are within stream worktree
+3. **Task context auto-injection** - Automatically inject current task context
+
+```typescript
+// Register stream-specific file conflict hook
+registerPreToolUseRule({
+  id: 'stream-conflict-check',
+  name: 'Stream File Conflict Check',
+  description: 'Warns when editing files claimed by other streams',
+  enabled: true,
+  priority: 70,
+  category: 'validation',
+  evaluate: async (context) => {
+    if (!isFileWriteTool(context.toolName)) return null;
+
+    const filePaths = extractFilePaths(context.toolInput);
+    const conflicts = await stream_conflict_check({
+      files: filePaths,
+      excludeStreamId: currentStreamId
+    });
+
+    if (conflicts.hasConflicts) {
+      return {
+        action: HookAction.WARN,
+        ruleName: 'stream-conflict-check',
+        reason: `File ${conflicts.files[0]} is being worked on by ${conflicts.streams[0]}`,
+        severity: 'medium',
+        recommendation: 'Coordinate with other stream or resolve conflict'
+      };
+    }
+    return null;
+  }
+});
+```
+
+### Pause Checkpoint Hooks
+
+When resuming from a pause checkpoint, hooks restore context:
+
+1. **Task context restoration** - Set taskId from checkpoint
+2. **Iteration state restoration** - Restore iteration number and state
+3. **Draft content injection** - Make checkpoint draft available
+
 ## End of Session
 
 Update Memory Copilot with **slim context only**:

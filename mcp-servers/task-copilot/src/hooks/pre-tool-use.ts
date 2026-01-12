@@ -1,8 +1,14 @@
 /**
- * PreToolUse Security Hooks
+ * PreToolUse Lifecycle Hooks
  *
- * Intercepts and validates tool calls before execution to prevent security issues proactively.
- * Supports secret detection, destructive command warnings, and sensitive file protection.
+ * Intercepts and validates tool calls before execution.
+ * Supports:
+ * - Pre-execution validation (security, permissions)
+ * - Argument preprocessing (transformation, enrichment)
+ * - Permission checks
+ * - Custom rule registration
+ *
+ * Part of the Lifecycle Hooks system (PRD-6df7cc11).
  */
 
 // ============================================================================
@@ -10,46 +16,55 @@
 // ============================================================================
 
 /**
- * Security action levels
+ * Hook action levels
  */
-export enum SecurityAction {
+export enum HookAction {
   ALLOW = 0,    // Tool call is safe, proceed
   WARN = 1,     // Potential issue, but allow with warning
-  BLOCK = 2     // Security violation, prevent execution
+  BLOCK = 2,    // Issue detected, prevent execution
+  TRANSFORM = 3 // Transform arguments and continue
 }
 
 /**
- * Tool call context provided to security rules
+ * Tool call context provided to hooks
  */
 export interface ToolCallContext {
   toolName: string;
   toolInput: Record<string, unknown>;
   timestamp: string;
   metadata?: Record<string, unknown>;
+  // Enriched context
+  sessionId?: string;
+  agentId?: string;
+  taskId?: string;
+  iterationNumber?: number;
 }
 
 /**
- * Security rule evaluation result
+ * Rule evaluation result
  */
-export interface SecurityRuleResult {
-  action: SecurityAction;
+export interface HookRuleResult {
+  action: HookAction;
   ruleName: string;
   reason: string;
   severity: 'low' | 'medium' | 'high' | 'critical';
   matchedPattern?: string;
   recommendation?: string;
+  // For TRANSFORM action
+  transformedInput?: Record<string, unknown>;
 }
 
 /**
- * Security rule definition
+ * Hook rule definition
  */
-export interface SecurityRule {
+export interface PreToolUseRule {
   id: string;
   name: string;
   description: string;
   enabled: boolean;
   priority: number; // Higher priority rules evaluated first (1-100)
-  evaluate: (context: ToolCallContext) => SecurityRuleResult | null;
+  category: 'security' | 'validation' | 'preprocessing' | 'permission' | 'custom';
+  evaluate: (context: ToolCallContext) => HookRuleResult | null | Promise<HookRuleResult | null>;
 }
 
 /**
@@ -57,52 +72,109 @@ export interface SecurityRule {
  */
 export interface PreToolUseResult {
   allowed: boolean;
-  action: SecurityAction;
-  violations: SecurityRuleResult[];
-  warnings: SecurityRuleResult[];
+  action: HookAction;
+  violations: HookRuleResult[];
+  warnings: HookRuleResult[];
+  transformations: HookRuleResult[];
+  finalInput: Record<string, unknown>;
   executionTime: number; // milliseconds
 }
+
+// ============================================================================
+// BACKWARD COMPATIBILITY ALIASES
+// ============================================================================
+
+/**
+ * @deprecated Use HookAction instead
+ */
+export const SecurityAction = HookAction;
+export type SecurityAction = HookAction;
+
+/**
+ * @deprecated Use HookRuleResult instead
+ */
+export type SecurityRuleResult = HookRuleResult;
+
+/**
+ * @deprecated Use PreToolUseRule instead
+ */
+export type SecurityRule = PreToolUseRule;
 
 // ============================================================================
 // RULE REGISTRY
 // ============================================================================
 
-const ruleRegistry: Map<string, SecurityRule> = new Map();
+const ruleRegistry: Map<string, PreToolUseRule> = new Map();
 
 /**
- * Register a security rule
+ * Register a PreToolUse rule
  */
-export function registerSecurityRule(rule: SecurityRule): void {
+export function registerPreToolUseRule(rule: PreToolUseRule): void {
   ruleRegistry.set(rule.id, rule);
 }
 
 /**
- * Unregister a security rule
+ * Register a security rule (alias for backward compatibility)
+ */
+export function registerSecurityRule(rule: PreToolUseRule): void {
+  registerPreToolUseRule(rule);
+}
+
+/**
+ * Unregister a rule
+ */
+export function unregisterPreToolUseRule(ruleId: string): boolean {
+  return ruleRegistry.delete(ruleId);
+}
+
+/**
+ * Unregister a security rule (alias for backward compatibility)
  */
 export function unregisterSecurityRule(ruleId: string): boolean {
-  return ruleRegistry.delete(ruleId);
+  return unregisterPreToolUseRule(ruleId);
 }
 
 /**
  * Get all registered rules sorted by priority
  */
-export function getSecurityRules(): SecurityRule[] {
-  return Array.from(ruleRegistry.values())
-    .filter(rule => rule.enabled)
-    .sort((a, b) => b.priority - a.priority);
+export function getPreToolUseRules(category?: PreToolUseRule['category']): PreToolUseRule[] {
+  const rules = Array.from(ruleRegistry.values())
+    .filter(rule => rule.enabled);
+
+  if (category) {
+    return rules
+      .filter(rule => rule.category === category)
+      .sort((a, b) => b.priority - a.priority);
+  }
+
+  return rules.sort((a, b) => b.priority - a.priority);
+}
+
+/**
+ * Get all security rules (alias for backward compatibility)
+ */
+export function getSecurityRules(): PreToolUseRule[] {
+  return getPreToolUseRules('security');
 }
 
 /**
  * Get specific rule by ID
  */
-export function getSecurityRule(ruleId: string): SecurityRule | undefined {
+export function getPreToolUseRule(ruleId: string): PreToolUseRule | undefined {
   return ruleRegistry.get(ruleId);
+}
+
+/**
+ * Get specific security rule (alias for backward compatibility)
+ */
+export function getSecurityRule(ruleId: string): PreToolUseRule | undefined {
+  return getPreToolUseRule(ruleId);
 }
 
 /**
  * Enable/disable a rule
  */
-export function toggleSecurityRule(ruleId: string, enabled: boolean): boolean {
+export function togglePreToolUseRule(ruleId: string, enabled: boolean): boolean {
   const rule = ruleRegistry.get(ruleId);
   if (!rule) return false;
 
@@ -110,12 +182,49 @@ export function toggleSecurityRule(ruleId: string, enabled: boolean): boolean {
   return true;
 }
 
+/**
+ * Toggle security rule (alias for backward compatibility)
+ */
+export function toggleSecurityRule(ruleId: string, enabled: boolean): boolean {
+  return togglePreToolUseRule(ruleId, enabled);
+}
+
+/**
+ * Clear all rules
+ */
+export function clearAllRules(): number {
+  const count = ruleRegistry.size;
+  ruleRegistry.clear();
+  return count;
+}
+
+/**
+ * Get rules by category
+ */
+export function getRulesByCategory(): Record<string, number> {
+  const counts: Record<string, number> = {
+    security: 0,
+    validation: 0,
+    preprocessing: 0,
+    permission: 0,
+    custom: 0
+  };
+
+  for (const rule of ruleRegistry.values()) {
+    if (rule.enabled) {
+      counts[rule.category]++;
+    }
+  }
+
+  return counts;
+}
+
 // ============================================================================
 // HOOK EVALUATION
 // ============================================================================
 
 /**
- * Evaluate all security rules against a tool call
+ * Evaluate all PreToolUse rules against a tool call
  */
 export async function evaluatePreToolUse(
   toolName: string,
@@ -128,23 +237,44 @@ export async function evaluatePreToolUse(
     toolName,
     toolInput,
     timestamp: new Date().toISOString(),
-    metadata
+    metadata,
+    // Extract enriched context from metadata if available
+    sessionId: metadata?.sessionId as string | undefined,
+    agentId: metadata?.agentId as string | undefined,
+    taskId: metadata?.taskId as string | undefined,
+    iterationNumber: metadata?.iterationNumber as number | undefined
   };
 
-  const violations: SecurityRuleResult[] = [];
-  const warnings: SecurityRuleResult[] = [];
-  const rules = getSecurityRules();
+  const violations: HookRuleResult[] = [];
+  const warnings: HookRuleResult[] = [];
+  const transformations: HookRuleResult[] = [];
+  let currentInput = { ...toolInput };
 
-  // Evaluate each rule
+  const rules = getPreToolUseRules();
+
+  // Evaluate each rule in priority order
   for (const rule of rules) {
     try {
-      const result = rule.evaluate(context);
+      const result = await rule.evaluate({
+        ...context,
+        toolInput: currentInput // Use potentially transformed input
+      });
 
       if (result) {
-        if (result.action === SecurityAction.BLOCK) {
-          violations.push(result);
-        } else if (result.action === SecurityAction.WARN) {
-          warnings.push(result);
+        switch (result.action) {
+          case HookAction.BLOCK:
+            violations.push(result);
+            break;
+          case HookAction.WARN:
+            warnings.push(result);
+            break;
+          case HookAction.TRANSFORM:
+            if (result.transformedInput) {
+              currentInput = result.transformedInput;
+              transformations.push(result);
+            }
+            break;
+          // ALLOW - no action needed
         }
       }
     } catch (error) {
@@ -156,28 +286,125 @@ export async function evaluatePreToolUse(
   const executionTime = Date.now() - startTime;
   const allowed = violations.length === 0;
   const action = violations.length > 0
-    ? SecurityAction.BLOCK
+    ? HookAction.BLOCK
     : warnings.length > 0
-    ? SecurityAction.WARN
-    : SecurityAction.ALLOW;
+    ? HookAction.WARN
+    : transformations.length > 0
+    ? HookAction.TRANSFORM
+    : HookAction.ALLOW;
 
   return {
     allowed,
     action,
     violations,
     warnings,
+    transformations,
+    finalInput: currentInput,
     executionTime
   };
 }
 
 /**
- * Test a tool call without executing (for dry-run testing)
+ * Test rules without executing (for dry-run testing)
+ */
+export async function testPreToolUseRules(
+  toolName: string,
+  toolInput: Record<string, unknown>
+): Promise<PreToolUseResult> {
+  return evaluatePreToolUse(toolName, toolInput, { dryRun: true });
+}
+
+/**
+ * Test security rules (alias for backward compatibility)
  */
 export async function testSecurityRules(
   toolName: string,
   toolInput: Record<string, unknown>
 ): Promise<PreToolUseResult> {
-  return evaluatePreToolUse(toolName, toolInput, { dryRun: true });
+  return testPreToolUseRules(toolName, toolInput);
+}
+
+// ============================================================================
+// BUILT-IN PREPROCESSING RULES
+// ============================================================================
+
+/**
+ * Create a path normalization rule
+ * Normalizes file paths to absolute paths
+ */
+export function createPathNormalizationRule(): PreToolUseRule {
+  return {
+    id: 'path-normalization',
+    name: 'Path Normalization',
+    description: 'Normalizes relative file paths to absolute paths',
+    enabled: true,
+    priority: 95,
+    category: 'preprocessing',
+    evaluate: (context) => {
+      const input = context.toolInput;
+      const pathFields = ['file_path', 'path', 'filePath'];
+      let transformed = false;
+      const newInput = { ...input };
+
+      for (const field of pathFields) {
+        const value = input[field];
+        if (typeof value === 'string' && !value.startsWith('/')) {
+          // Normalize relative path
+          const cwd = process.cwd();
+          newInput[field] = `${cwd}/${value}`;
+          transformed = true;
+        }
+      }
+
+      if (transformed) {
+        return {
+          action: HookAction.TRANSFORM,
+          ruleName: 'path-normalization',
+          reason: 'Normalized relative path to absolute path',
+          severity: 'low',
+          transformedInput: newInput
+        };
+      }
+
+      return null;
+    }
+  };
+}
+
+/**
+ * Create a metadata enrichment rule
+ * Adds timestamp and context to tool inputs
+ */
+export function createMetadataEnrichmentRule(): PreToolUseRule {
+  return {
+    id: 'metadata-enrichment',
+    name: 'Metadata Enrichment',
+    description: 'Adds timestamp and context metadata to tool inputs',
+    enabled: false, // Disabled by default - opt-in
+    priority: 90,
+    category: 'preprocessing',
+    evaluate: (context) => {
+      if (context.toolName === 'work_product_store') {
+        const metadata = (context.toolInput.metadata as Record<string, unknown>) || {};
+        return {
+          action: HookAction.TRANSFORM,
+          ruleName: 'metadata-enrichment',
+          reason: 'Added enriched metadata',
+          severity: 'low',
+          transformedInput: {
+            ...context.toolInput,
+            metadata: {
+              ...metadata,
+              _enrichedAt: context.timestamp,
+              _agentId: context.agentId,
+              _taskId: context.taskId
+            }
+          }
+        };
+      }
+      return null;
+    }
+  };
 }
 
 // ============================================================================
@@ -237,4 +464,17 @@ export function extractFilePaths(input: Record<string, unknown>): string[] {
   }
 
   return paths;
+}
+
+// ============================================================================
+// INITIALIZATION
+// ============================================================================
+
+/**
+ * Initialize PreToolUse hook system with default preprocessing rules
+ */
+export function initializePreToolUseHooks(): void {
+  // Register built-in preprocessing rules
+  registerPreToolUseRule(createPathNormalizationRule());
+  registerPreToolUseRule(createMetadataEnrichmentRule());
 }

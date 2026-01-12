@@ -8,16 +8,22 @@
  */
 
 import {
-  SecurityAction,
-  SecurityRule,
-  ToolCallContext,
-  SecurityRuleResult,
+  HookAction,
+  type PreToolUseRule,
+  type ToolCallContext,
+  type HookRuleResult,
   extractStringContent,
   isFileWriteTool,
   isCommandExecutionTool,
   extractFilePaths,
-  registerSecurityRule
+  registerPreToolUseRule
 } from './pre-tool-use.js';
+
+// Backward compatibility aliases
+const SecurityAction = HookAction;
+type SecurityRule = PreToolUseRule;
+type SecurityRuleResult = HookRuleResult;
+const registerSecurityRule = registerPreToolUseRule;
 
 // ============================================================================
 // SECRET DETECTION PATTERNS
@@ -167,6 +173,7 @@ const secretDetectionRule: SecurityRule = {
   description: 'Blocks writes containing API keys, passwords, tokens, or other secrets',
   enabled: true,
   priority: 90,
+  category: 'security',
   evaluate(context: ToolCallContext): SecurityRuleResult | null {
     if (!isFileWriteTool(context.toolName)) {
       return null;
@@ -211,6 +218,7 @@ const destructiveCommandRule: SecurityRule = {
   description: 'Warns on destructive commands like rm -rf, DROP TABLE, etc.',
   enabled: true,
   priority: 85,
+  category: 'security',
   evaluate(context: ToolCallContext): SecurityRuleResult | null {
     if (!isCommandExecutionTool(context.toolName)) {
       return null;
@@ -251,6 +259,7 @@ const sensitiveFileRule: SecurityRule = {
   description: 'Blocks or warns when editing sensitive files like .env, credentials, private keys',
   enabled: true,
   priority: 80,
+  category: 'security',
   evaluate(context: ToolCallContext): SecurityRuleResult | null {
     if (!isFileWriteTool(context.toolName)) {
       return null;
@@ -292,6 +301,7 @@ const credentialUrlRule: SecurityRule = {
   description: 'Blocks URLs containing embedded credentials',
   enabled: true,
   priority: 88,
+  category: 'security',
   evaluate(context: ToolCallContext): SecurityRuleResult | null {
     if (!isFileWriteTool(context.toolName)) {
       return null;
@@ -327,6 +337,7 @@ const gitSecretCommitRule: SecurityRule = {
   description: 'Warns when attempting to commit commonly ignored secret files',
   enabled: true,
   priority: 75,
+  category: 'security',
   evaluate(context: ToolCallContext): SecurityRuleResult | null {
     // This rule would integrate with git operations
     // For now, it's a placeholder for future git integration
