@@ -96,6 +96,7 @@ export function hookRegisterSecurity(
           description: ruleInput.description,
           enabled: ruleInput.enabled ?? true,
           priority: ruleInput.priority ?? 50,
+          category: 'security',
           evaluate: (context) => {
             // Custom rule evaluation based on patterns
             if (!ruleInput.patterns || ruleInput.patterns.length === 0) {
@@ -240,16 +241,17 @@ export async function hookTestSecurity(
 }> {
   const result = await testSecurityRules(input.toolName, input.toolInput);
 
-  const actionMap = {
-    [SecurityAction.ALLOW]: 'allow' as const,
-    [SecurityAction.WARN]: 'warn' as const,
-    [SecurityAction.BLOCK]: 'block' as const
+  const actionMap: Record<number, 'allow' | 'warn' | 'block'> = {
+    [SecurityAction.ALLOW]: 'allow',
+    [SecurityAction.WARN]: 'warn',
+    [SecurityAction.BLOCK]: 'block',
+    [SecurityAction.TRANSFORM]: 'allow' // TRANSFORM is effectively allowed
   };
 
   return {
     toolName: input.toolName,
     allowed: result.allowed,
-    action: actionMap[result.action],
+    action: actionMap[result.action] ?? 'allow',
     violations: result.violations.map(v => ({
       ruleName: v.ruleName,
       reason: v.reason,

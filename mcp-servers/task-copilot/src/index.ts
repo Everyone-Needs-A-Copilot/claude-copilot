@@ -39,6 +39,9 @@ import { protocolViolationLog, protocolViolationsGet } from './tools/protocol.js
 import { getValidator, initValidator } from './validation/index.js';
 import { createHttpServer } from './http-server.js';
 import { initializeAutoCheckpointHooks } from './hooks/auto-checkpoint.js';
+import { initializePreToolUseHooks } from './hooks/pre-tool-use.js';
+import { initializePostToolUseHooks } from './hooks/post-tool-use.js';
+import { initializeUserPromptSubmitHooks } from './hooks/user-prompt-submit.js';
 import type {
   PrdCreateInput,
   PrdGetInput,
@@ -1567,6 +1570,11 @@ async function main() {
 
   // Initialize security hooks system
   initializeSecurityHooks();
+
+  // Initialize lifecycle hooks system
+  initializePreToolUseHooks();
+  initializePostToolUseHooks();
+  initializeUserPromptSubmitHooks();
 
   // Initialize auto-checkpoint hooks
   initializeAutoCheckpointHooks(db, {
