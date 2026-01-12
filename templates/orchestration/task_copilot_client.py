@@ -446,17 +446,18 @@ class TaskCopilotClient:
             if initiative_id:
                 cursor.execute("""
                     SELECT
-                        id,
-                        title,
-                        assigned_agent,
-                        json_extract(metadata, '$.streamId') as stream_id
-                    FROM tasks
-                    WHERE json_extract(metadata, '$.streamId') IS NOT NULL
-                      AND archived = 0
-                      AND initiative_id = ?
-                      AND assigned_agent IS NOT NULL
-                      AND assigned_agent != 'me'
-                    ORDER BY json_extract(metadata, '$.streamId'), created_at
+                        t.id,
+                        t.title,
+                        t.assigned_agent,
+                        json_extract(t.metadata, '$.streamId') as stream_id
+                    FROM tasks t
+                    LEFT JOIN prds p ON t.prd_id = p.id
+                    WHERE json_extract(t.metadata, '$.streamId') IS NOT NULL
+                      AND t.archived = 0
+                      AND p.initiative_id = ?
+                      AND t.assigned_agent IS NOT NULL
+                      AND t.assigned_agent != 'me'
+                    ORDER BY json_extract(t.metadata, '$.streamId'), t.created_at
                 """, (initiative_id,))
             else:
                 cursor.execute("""
