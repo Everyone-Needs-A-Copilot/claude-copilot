@@ -424,6 +424,92 @@ class TaskCopilotClient:
         finally:
             conn.close()
 
+    def get_non_me_agent_tasks(self, initiative_id: Optional[str] = None) -> List[Dict]:
+        """
+        Get all tasks assigned to agents other than 'me'.
+
+        Workers run as 'me' agent, so tasks assigned to other agents will be skipped.
+        This method helps identify such tasks before starting orchestration.
+
+        Args:
+            initiative_id: Optional initiative ID to filter by
+
+        Returns:
+            List of task dictionaries with non-'me' agent assignments
+        """
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+
+            if initiative_id:
+                cursor.execute("""
+                    SELECT
+                        id,
+                        title,
+                        assigned_agent,
+                        json_extract(metadata, '$.streamId') as stream_id
+                    FROM tasks
+                    WHERE json_extract(metadata, '$.streamId') IS NOT NULL
+                      AND archived = 0
+                      AND initiative_id = ?
+                      AND assigned_agent IS NOT NULL
+                      AND assigned_agent != 'me'
+                    ORDER BY json_extract(metadata, '$.streamId'), created_at
+                """, (initiative_id,))
+            else:
+                cursor.execute("""
+                    SELECT
+                        id,
+                        title,
+                        assigned_agent,
+                        json_extract(metadata, '$.streamId') as stream_id
+                    FROM tasks
+                    WHERE json_extract(metadata, '$.streamId') IS NOT NULL
+                      AND archived = 0
+                      AND assigned_agent IS NOT NULL
+                      AND assigned_agent != 'me'
+                    ORDER BY json_extract(metadata, '$.streamId'), created_at
+                """)
+
+            tasks = []
+            for task_id, title, agent, stream_id in cursor.fetchall():
+                tasks.append({
+                    'id': task_id,
+                    'title': title,
+                    'assigned_agent': agent,
+                    'stream_id': stream_id
+                })
+
+            return tasks
+        finally:
+            conn.close()
+
+    def reassign_task_to_me(self, task_id: str) -> bool:
+        """
+        Reassign a task to 'me' agent.
+
+        Args:
+            task_id: Task ID to reassign
+
+        Returns:
+            True if successful, False otherwise
+        """
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE tasks
+                SET assigned_agent = 'me',
+                    updated_at = datetime('now')
+                WHERE id = ?
+            """, (task_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error:
+            return False
+        finally:
+            conn.close()
+
 
 # Convenience function for creating a client
 def get_client(workspace_id: str) -> TaskCopilotClient:

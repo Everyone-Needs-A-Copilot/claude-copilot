@@ -86,26 +86,43 @@ which claude  # Should show path to Claude Code binary
 
 ## Quick Start
 
-### Step 1: Create Streams
+### Step 1: Generate PRD and Tasks (REQUIRED)
 
-Start with `/protocol` and work with `@agent-ta`:
+Run `/orchestrate generate` to create a PRD with proper stream metadata:
 
 ```
-User: /protocol
-User: Create a PRD with these streams:
-      - Foundation: Core types (4 tasks)
-      - Parallel A: API implementation (5 tasks)
-      - Parallel B: UI components (4 tasks)
-      - Integration: Tests and docs (3 tasks)
+User: /orchestrate generate
+Assistant: What feature or initiative should I plan for orchestration?
+User: Implement user authentication with OAuth
 ```
 
-The Tech Architect will create a PRD with tasks organized into streams.
+This invokes `@agent-ta` to:
+- Create a PRD using `prd_create()` in Task Copilot
+- Create tasks using `task_create()` with required stream metadata
+- Validate stream structure (foundation streams, no circular dependencies)
+- Display dependency visualization
+
+**Stream metadata format:**
+```json
+{
+  "streamId": "Stream-B",
+  "streamName": "API Implementation",
+  "dependencies": ["Stream-A"],
+  "files": ["src/api/auth.ts", "src/api/session.ts"]
+}
+```
 
 ### Step 2: Start Orchestration
 
 ```
 User: /orchestrate start
 ```
+
+**Pre-flight checks run automatically:**
+- Validates streams exist in Task Copilot
+- Checks at least one foundation stream exists (empty dependencies)
+- Warns about tasks assigned to non-'me' agents (offers to reassign)
+- Verifies no circular dependencies
 
 On first run, this automatically:
 - Creates `.claude/orchestrator/` directory
@@ -146,42 +163,27 @@ In a separate terminal, run the live monitor:
 **Output:**
 
 ```
-╔═══════════════════════════════════════════════════════════════════════╗
-║              YOUR-PROJECT - STREAM STATUS                             ║
-╚═══════════════════════════════════════════════════════════════════════╝
-
-📊 Overall Progress
-───────────────────────────────────────────────────────────────────────
-  [████████████████████████░░░░░░░░░░░░░░░░] 62%
-  ✓ 32 completed  │  ⚡ 4 in progress  │  ◯ 15 pending  │  Total: 51
-
-🖥  Stream Details
-───────────────────────────────────────────────────────────────────────
-  Workers: 3 running
-
-  ✓ Stream-A
-    [███████████████] 7/7 (100%)
-    ✓7
-    Status: Completed
-
-  ◐ Stream-B
-    [██████████░░░░░] 7/10 (70%)
-    ✓7  ⚡1  ○2
-    Status: Working (PID: 12345)
-
-  ● Stream-C
-    [████████░░░░░░░] 2/5 (40%)
-    ✓2  ⚡1  ○2
-    Status: Running (PID: 12346)
-
-⌨  Quick Actions
-───────────────────────────────────────────────────────────────────────
-  python orchestrate.py status        Full worker status
-  python orchestrate.py logs Stream-A Tail worker logs
-  python orchestrate.py stop          Stop all workers
-
-Data: Task Copilot │ 3 workers │ 16:42:11
+YOUR-PROJECT
+Current Initiative                                    62% ✓32 ⚙4 ○15
+Implement user authentication with OAuth
+═══════════════════════════════════════════════════════════════════════════
+Stream-A [===============] 100%  ✓  7        DONE  2h31m  Foundation
+Stream-B [==========-----]  70%  ✓  7  ⚙ 1  RUN   1h45m  API Layer
+Stream-C [========-------]  40%  ✓  2  ⚙ 1  RUN     52m  UI Components
+Stream-Z [---------------]   0%  ✓  0     ○ 3  ---    ---  Integration
+═══════════════════════════════════════════════════════════════════════════
+Workers: 2 | Data: Task Copilot + Memory Copilot (initiative-scoped) | 16:42:11
 ```
+
+**Status column key:**
+- `DONE` - Stream complete (green)
+- `RUN` - Worker actively running (yellow)
+- `FIN` - Finishing up (green)
+- `STOP` - Worker stopped unexpectedly (red)
+- `ERR` - Worker encountered error (red)
+- `---` - Not started yet (dim)
+
+**Runtime column:** Shows elapsed time since worker started (e.g., `2h31m`, `45m`, `<1m`)
 
 ---
 
@@ -316,6 +318,65 @@ Live monitoring with auto-refresh:
 ```
 
 Press Ctrl+C to stop monitoring.
+
+---
+
+## Key Features
+
+### Initiative-Scoped Stream Filtering
+
+Streams are automatically filtered to show only those belonging to the current initiative:
+
+- Queries Memory Copilot for active initiative ID
+- Filters Task Copilot streams by `initiative_id`
+- Shows appropriate empty states:
+  - `NO_INITIATIVE` - No active initiative found
+  - `NO_ACTIVE_STREAMS` - All streams in current initiative complete
+  - `NO_DATABASE` - Task Copilot not initialized
+
+### Runtime Tracking
+
+Each stream shows elapsed time since the worker started:
+
+```
+Stream-A [===============] 100%  ✓  7        DONE  2h31m  Foundation
+Stream-B [==========-----]  70%  ✓  7  ⚙ 1  RUN   1h45m  API Layer
+```
+
+- Runtime extracted from "Started:" timestamp in worker log files
+- Format: `<1m`, `45m`, `2h31m`, `1d4h`
+- Cyan for running streams, dimmed for completed
+
+### Agent Assignment Pre-flight Check
+
+Before starting workers, the orchestrator checks for tasks assigned to non-'me' agents:
+
+```
+[WARNING] Found 3 task(s) assigned to non-'me' agents:
+
+  Stream-A:
+    • Set up database schema... → @ta
+    • Write API documentation... → @doc
+
+[WARNING] Workers run as @agent-me and will SKIP these tasks.
+
+  [r] Reassign all to 'me' and continue
+  [c] Continue anyway (tasks will be skipped)
+  [a] Abort
+
+  Choice [r/c/a]:
+```
+
+This prevents workers from silently skipping tasks they can't execute.
+
+### Dynamic Dependency Resolution
+
+No hardcoded phases - stream execution order determined entirely by the dependency graph:
+
+- Streams with empty `dependencies: []` start immediately (foundation)
+- Streams start when ALL dependencies reach 100% complete
+- Independent streams run in parallel automatically
+- Circular dependencies detected and reported
 
 ---
 

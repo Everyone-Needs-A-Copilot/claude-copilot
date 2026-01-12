@@ -70,6 +70,78 @@ get_worker_last_lines() {
     fi
 }
 
+# Get stream start time from log file (most recent session)
+# Returns Unix timestamp or empty if not found
+get_stream_start_time() {
+    local stream_id=$1
+    local log_file="$LOG_DIR/${stream_id}.log"
+
+    if [ ! -f "$log_file" ]; then
+        echo ""
+        return
+    fi
+
+    # Find the last "Started:" line in the log (most recent session)
+    local started_line=$(grep "^Started:" "$log_file" | tail -1)
+    if [ -z "$started_line" ]; then
+        echo ""
+        return
+    fi
+
+    # Extract ISO timestamp: "Started: 2026-01-12T10:21:35.336549"
+    local timestamp=$(echo "$started_line" | sed 's/Started: //' | cut -d'.' -f1)
+
+    # Convert to Unix timestamp (macOS compatible)
+    if [ -n "$timestamp" ]; then
+        # Replace T with space for date parsing
+        local date_str=$(echo "$timestamp" | tr 'T' ' ')
+        # macOS date command
+        date -j -f "%Y-%m-%d %H:%M:%S" "$date_str" "+%s" 2>/dev/null
+    fi
+}
+
+# Format duration in compact form: 45m, 2h31m, 1d4h
+format_duration() {
+    local seconds=$1
+
+    if [ -z "$seconds" ] || [ "$seconds" -le 0 ] 2>/dev/null; then
+        echo "---"
+        return
+    fi
+
+    local days=$((seconds / 86400))
+    local hours=$(( (seconds % 86400) / 3600 ))
+    local minutes=$(( (seconds % 3600) / 60 ))
+
+    if [ "$days" -gt 0 ]; then
+        echo "${days}d${hours}h"
+    elif [ "$hours" -gt 0 ]; then
+        echo "${hours}h${minutes}m"
+    elif [ "$minutes" -gt 0 ]; then
+        echo "${minutes}m"
+    else
+        echo "<1m"
+    fi
+}
+
+# Get runtime for a stream
+# For running streams: elapsed time from start
+# For completed streams: total runtime (start to now, since we don't track end time)
+get_stream_runtime() {
+    local stream_id=$1
+    local start_ts=$(get_stream_start_time "$stream_id")
+
+    if [ -z "$start_ts" ]; then
+        echo "---"
+        return
+    fi
+
+    local now_ts=$(date "+%s")
+    local elapsed=$((now_ts - start_ts))
+
+    format_duration "$elapsed"
+}
+
 # Parse worker status from log output
 get_worker_status() {
     local stream_id=$1
@@ -235,9 +307,9 @@ echo "$ORCHESTRATOR_DATA" | grep "^STREAM" | while read -r LINE; do
     # Parse: STREAM <id> <completed> <total> <pct> <in_progress> <pending> <blocked> <stream_name...>
     read -r _ STREAM_ID S_COMP S_TOT S_PCT S_INPROG S_PEND S_BLOCK STREAM_NAME_RAW <<< "$LINE"
 
-    # Truncate stream name to 25 chars (expanded without PID column)
+    # Truncate stream name to 19 chars (shortened to make room for runtime column)
     if [ -n "$STREAM_NAME_RAW" ]; then
-        STREAM_NAME=$(echo "$STREAM_NAME_RAW" | cut -c1-25)
+        STREAM_NAME=$(echo "$STREAM_NAME_RAW" | cut -c1-19)
     else
         STREAM_NAME=""
     fi
@@ -310,15 +382,19 @@ echo "$ORCHESTRATOR_DATA" | grep "^STREAM" | while read -r LINE; do
     # Format percentage with fixed width (right-aligned)
     PCT_DISPLAY=$(printf "%3s%%" "${S_PCT}")
 
-    # Format stream name (25 chars, left-aligned) - more space without PID column
+    # Get runtime for this stream
+    RUNTIME=$(get_stream_runtime "$STREAM_ID")
+    RUNTIME_DISPLAY=$(printf "%5s" "$RUNTIME")
+
+    # Format stream name (19 chars, left-aligned) - shortened to make room for runtime
     if [ -n "$STREAM_NAME" ]; then
-        NAME_DISPLAY=$(printf "%-25s" "$(echo "$STREAM_NAME" | cut -c1-25)")
+        NAME_DISPLAY=$(printf "%-19s" "$(echo "$STREAM_NAME" | cut -c1-19)")
     else
         NAME_DISPLAY=""
     fi
 
-    # Build complete line with fixed columns (no PID)
-    # Stream-A  [---------------]   0%  ✓  0     ○ 5  RUN    Foundation
+    # Build complete line with fixed columns (with runtime)
+    # Stream-A [===============] 100%  ✓  3        DONE  2h31m  Foundation
     printf "%-8s [%s] %s  ${GREEN}✓%s${NC}" "$STREAM_ID" "$MINI_BAR" "$PCT_DISPLAY" "$COMP_STR"
 
     if [ "${S_INPROG:-0}" -gt 0 ] 2>/dev/null; then
@@ -334,6 +410,13 @@ echo "$ORCHESTRATOR_DATA" | grep "^STREAM" | while read -r LINE; do
     fi
 
     printf "  %b" "$STATUS"
+
+    # Show runtime (dimmed for completed, cyan for running)
+    if [ "$S_PCT" -eq 100 ] 2>/dev/null; then
+        printf "  ${DIM}%s${NC}" "$RUNTIME_DISPLAY"
+    else
+        printf "  ${CYAN}%s${NC}" "$RUNTIME_DISPLAY"
+    fi
 
     if [ -n "$NAME_DISPLAY" ]; then
         printf "  %s" "$NAME_DISPLAY"

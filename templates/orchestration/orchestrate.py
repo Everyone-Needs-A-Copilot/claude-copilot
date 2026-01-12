@@ -263,6 +263,69 @@ class Orchestrator:
 
         return blocked
 
+    def _preflight_check_agent_assignments(self) -> bool:
+        """Pre-flight check for non-'me' agent assignments.
+
+        Workers run as 'me' agent, so tasks assigned to other agents will be skipped.
+        This check warns about such tasks and offers to auto-reassign them.
+
+        Returns:
+            True if check passes (no issues or user chose to continue)
+            False if user chose to abort
+        """
+        non_me_tasks = self.tc_client.get_non_me_agent_tasks()
+
+        if not non_me_tasks:
+            return True
+
+        # Group by stream for cleaner display
+        by_stream: Dict[str, List[dict]] = defaultdict(list)
+        for task in non_me_tasks:
+            by_stream[task['stream_id']].append(task)
+
+        print()
+        warn(f"Found {len(non_me_tasks)} task(s) assigned to non-'me' agents:")
+        print()
+
+        for stream_id, tasks in sorted(by_stream.items()):
+            print(f"  {Colors.CYAN}{stream_id}:{Colors.NC}")
+            for task in tasks:
+                title = task['title'][:50] + '...' if len(task['title']) > 50 else task['title']
+                print(f"    • {title} → {Colors.YELLOW}@{task['assigned_agent']}{Colors.NC}")
+        print()
+
+        warn("Workers run as @agent-me and will SKIP these tasks.")
+        print()
+        print(f"  {Colors.BOLD}[r]{Colors.NC} Reassign all to 'me' and continue")
+        print(f"  {Colors.BOLD}[c]{Colors.NC} Continue anyway (tasks will be skipped)")
+        print(f"  {Colors.BOLD}[a]{Colors.NC} Abort")
+        print()
+
+        try:
+            choice = input(f"  Choice [r/c/a]: ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            print()
+            return False
+
+        if choice == 'r':
+            log("Reassigning tasks to 'me'...")
+            reassigned = 0
+            for task in non_me_tasks:
+                if self.tc_client.reassign_task_to_me(task['id']):
+                    reassigned += 1
+                    title = task['title'][:40] + '...' if len(task['title']) > 40 else task['title']
+                    log(f"  Reassigned: {title}")
+            success(f"Reassigned {reassigned}/{len(non_me_tasks)} tasks")
+            print()
+            return True
+        elif choice == 'c':
+            warn("Continuing with non-'me' tasks (they will be skipped)")
+            print()
+            return True
+        else:
+            error("Aborted by user")
+            return False
+
     def _get_pid_file(self, stream_id: str) -> Path:
         return PID_DIR / f"{stream_id}.pid"
 
@@ -422,6 +485,10 @@ Begin by querying your task list with task_list.
         """
         log(f"Starting dynamic orchestration for {PROJECT_NAME}")
         print()
+
+        # Pre-flight check: warn about non-'me' agent assignments
+        if not self._preflight_check_agent_assignments():
+            sys.exit(1)
 
         # Display dependency structure
         self._display_dependency_structure()
