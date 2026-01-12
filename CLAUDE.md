@@ -763,3 +763,138 @@ if (!health.healthy) {
 
 // Proceed with implementation
 ```
+
+---
+
+## Lifecycle Hooks Quick Reference
+
+Lifecycle hooks intercept execution at critical phases for security, transformation, and monitoring.
+
+### Hook Types
+
+| Hook | Fires | Primary Use |
+|------|-------|-------------|
+| `PreToolUse` | Before tool executes | Security validation, preprocessing |
+| `PostToolUse` | After tool completes | Logging, result transformation |
+| `UserPromptSubmit` | Before prompt processing | Context injection, skill detection |
+
+### PreToolUse Security Rules (Built-in)
+
+| Rule | Action | Detects |
+|------|--------|---------|
+| `secret-detection` | Block | AWS keys, GitHub tokens, JWTs, private keys |
+| `destructive-command` | Block | `rm -rf /`, `DROP DATABASE`, etc. |
+| `sensitive-file-protection` | Block | `.env`, credentials, SSH keys |
+| `credential-url` | Block | URLs with embedded passwords |
+
+### Hook API Examples
+
+```typescript
+// Test if a tool call would be blocked
+import { testSecurityRules } from 'task-copilot/hooks';
+const result = await testSecurityRules('Write', { file_path: '.env', content: '...' });
+if (!result.allowed) console.log('Would be blocked:', result.violations);
+
+// Register custom rule
+import { registerSecurityRule, SecurityAction } from 'task-copilot/hooks';
+registerSecurityRule({
+  id: 'my-rule', name: 'Custom', description: '...', enabled: true, priority: 75,
+  evaluate: (ctx) => ctx.toolInput.content?.includes('UNSAFE')
+    ? { action: SecurityAction.BLOCK, ruleName: 'my-rule', reason: 'Unsafe', severity: 'high' }
+    : null
+});
+```
+
+**Full documentation:** [docs/50-features/lifecycle-hooks.md](docs/50-features/lifecycle-hooks.md)
+
+---
+
+## Skill Evaluation Quick Reference
+
+Automatically detect relevant skills from file patterns and text keywords.
+
+### Evaluation Methods
+
+| Method | Analyzes | Weight |
+|--------|----------|--------|
+| Pattern matching | File paths (glob patterns) | 0.5 |
+| Keyword detection | Text content (TF-IDF) | 0.5 |
+
+### skill_evaluate Tool
+
+```typescript
+// Evaluate context for relevant skills
+const result = await skill_evaluate({
+  files: ['src/Button.test.tsx'],     // File patterns to match
+  text: 'Help with React testing',    // Keywords to detect
+  recentActivity: ['testing'],        // Boost matching skills
+  threshold: 0.3,                     // Min confidence (0-1)
+  limit: 5                            // Max results
+});
+
+// Returns ranked skills:
+// { skillName: 'react-testing', confidence: 0.78, level: 'high', reason: '...' }
+```
+
+### Confidence Levels
+
+| Level | Threshold | Meaning |
+|-------|-----------|---------|
+| High | >= 0.7 | Strong match, likely relevant |
+| Medium | >= 0.4 | Moderate match, possibly relevant |
+| Low | < 0.4 | Weak match |
+
+**Full documentation:** [docs/50-features/skill-evaluation.md](docs/50-features/skill-evaluation.md)
+
+---
+
+## Correction Detection Quick Reference
+
+Auto-capture user corrections for continuous agent/skill improvement.
+
+### Detection Patterns
+
+| Pattern Type | Example | Weight |
+|--------------|---------|--------|
+| Explicit | "Correction: use X" | 0.95 |
+| Negation | "No, that's wrong" | 0.90 |
+| Replacement | "Use X instead of Y" | 0.90 |
+| Preference | "I prefer X over Y" | 0.75 |
+
+### Correction Tools
+
+| Tool | Purpose |
+|------|---------|
+| `correction_detect` | Detect patterns in user message |
+| `correction_list` | List pending/approved corrections |
+| `correction_update` | Approve or reject a correction |
+| `correction_route` | Get routing info (skill/agent/memory) |
+
+### /reflect Command
+
+Review and manage pending corrections:
+
+```bash
+/reflect                    # Review all pending
+/reflect --agent me         # Filter by agent
+/reflect --status approved  # Filter by status
+```
+
+### Example Detection
+
+```typescript
+import { detectCorrections } from 'copilot-memory/tools/correction-tools';
+
+const result = detectCorrections({
+  userMessage: 'Actually, use async/await instead of callbacks',
+  previousAgentOutput: '...',
+  agentId: 'me',
+  threshold: 0.5
+}, 'project-id');
+
+// result.detected: true
+// result.maxConfidence: 0.85
+// result.suggestedAction: 'auto_capture'
+```
+
+**Full documentation:** [docs/50-features/correction-detection.md](docs/50-features/correction-detection.md)
