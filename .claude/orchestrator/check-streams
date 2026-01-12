@@ -1,0 +1,257 @@
+#!/bin/bash
+# Quick status check for all streams with detailed task progress
+# Usage: check-streams
+# Compatible with bash 3.2+ (macOS default)
+
+# Resolve symlinks to get the real script location
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+while [ -L "$SCRIPT_PATH" ]; do
+    SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+    SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
+    # Handle relative symlinks
+    [[ "$SCRIPT_PATH" != /* ]] && SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_PATH"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+cd "$PROJECT_ROOT"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+NC='\033[0m'
+BOLD='\033[1m'
+DIM='\033[2m'
+
+# Orchestrator directories
+ORCHESTRATOR_DIR="$PROJECT_ROOT/.claude/orchestrator"
+PID_DIR="$ORCHESTRATOR_DIR/pids"
+LOG_DIR="$ORCHESTRATOR_DIR/logs"
+
+# Task Copilot database - detect workspace ID from project directory name
+WORKSPACE_ID=$(basename "$PROJECT_ROOT")
+DB_PATH="$HOME/.claude/tasks/$WORKSPACE_ID/tasks.db"
+
+# Check if a worker process is running
+is_worker_running() {
+    local stream_id=$1
+    local pid_file="$PID_DIR/${stream_id}.pid"
+
+    if [ ! -f "$pid_file" ]; then
+        return 1
+    fi
+
+    local pid=$(cat "$pid_file" 2>/dev/null)
+    if [ -z "$pid" ]; then
+        return 1
+    fi
+
+    # Check if process exists
+    kill -0 "$pid" 2>/dev/null
+    return $?
+}
+
+# Get last N lines from worker log
+get_worker_last_lines() {
+    local stream_id=$1
+    local num_lines=${2:-10}
+    local log_file="$LOG_DIR/${stream_id}.log"
+
+    if [ -f "$log_file" ]; then
+        tail -n "$num_lines" "$log_file" 2>/dev/null | grep -v "^$"
+    fi
+}
+
+# Parse worker status from log output
+get_worker_status() {
+    local stream_id=$1
+    local last_lines=$(get_worker_last_lines "$stream_id" 20)
+
+    # Check if running
+    if ! is_worker_running "$stream_id"; then
+        # Check if completed
+        if echo "$last_lines" | grep -qE "(Complete|completed|success)"; then
+            echo "COMPLETED"
+        elif [ -f "$PID_DIR/${stream_id}.pid" ]; then
+            echo "STOPPED"
+        else
+            echo "NOT_STARTED"
+        fi
+        return
+    fi
+
+    # Running - check activity
+    if echo "$last_lines" | grep -qiE "complete|finished|done"; then
+        echo "FINISHING"
+    elif echo "$last_lines" | grep -qE "(Reading|Writing|Editing|Searching|Running)"; then
+        echo "WORKING"
+    elif echo "$last_lines" | grep -qiE "(error|failed|blocked)"; then
+        echo "ERROR"
+    else
+        echo "RUNNING"
+    fi
+}
+
+# Read task progress from Task Copilot using Python client
+read_orchestrator_data() {
+    python3 "$SCRIPT_DIR/check_streams_data.py" "$WORKSPACE_ID" 2>/dev/null
+}
+
+# Read orchestrator data
+ORCHESTRATOR_DATA=$(read_orchestrator_data 2>/dev/null)
+OVERALL_LINE=$(echo "$ORCHESTRATOR_DATA" | grep "^OVERALL")
+read -r _ O_COMPLETED O_TOTAL O_INPROG O_PENDING O_PCT <<< "$OVERALL_LINE"
+
+clear
+
+# Check worker processes
+RUNNING_COUNT=$(find "$PID_DIR" -name "*.pid" -type f 2>/dev/null | wc -l | tr -d ' ')
+
+# Build compact header with overall progress
+if [ "$O_TOTAL" -gt 0 ] 2>/dev/null; then
+    # Format: PROJECT-NAME                                          60% ✓54 ⚙1 ○35
+    HEADER=$(echo "$WORKSPACE_ID" | tr '[:lower:]' '[:upper:]')
+    # Calculate padding to align percentage at position 58
+    PADDING_LEN=$((58 - ${#HEADER}))
+    PADDING=$(printf '%*s' "$PADDING_LEN" '')
+
+    # Build stats: ✓completed ⚙in-progress ○pending
+    STATS="${O_PCT}% ${GREEN}✓${O_COMPLETED}${NC}"
+    if [ "${O_INPROG:-0}" -gt 0 ] 2>/dev/null; then
+        STATS="${STATS} ${YELLOW}⚙${O_INPROG}${NC}"
+    fi
+    STATS="${STATS} ${DIM}○${O_PENDING}${NC}"
+
+    echo -e "${BOLD}${HEADER}${NC}${PADDING}${STATS}"
+else
+    HEADER=$(echo "$WORKSPACE_ID" | tr '[:lower:]' '[:upper:]')
+    echo -e "${BOLD}${HEADER}${NC}                              ${DIM}No task data${NC}"
+fi
+
+echo "═══════════════════════════════════════════════════════════════════════════"
+
+# Process each stream from database
+echo "$ORCHESTRATOR_DATA" | grep "^STREAM" | while read -r LINE; do
+    # Parse: STREAM <id> <completed> <total> <pct> <in_progress> <pending> <blocked> <stream_name...>
+    read -r _ STREAM_ID S_COMP S_TOT S_PCT S_INPROG S_PEND S_BLOCK STREAM_NAME_RAW <<< "$LINE"
+
+    # Truncate stream name to 25 chars (expanded without PID column)
+    if [ -n "$STREAM_NAME_RAW" ]; then
+        STREAM_NAME=$(echo "$STREAM_NAME_RAW" | cut -c1-25)
+    else
+        STREAM_NAME=""
+    fi
+
+    WORKER_STATUS=$(get_worker_status "$STREAM_ID")
+
+    # Determine status code (4 chars max) using progress percentage
+    # Logic:
+    #   No PID + progress < 100% = ---
+    #   No PID + progress = 100% = DONE
+    #   Active PID + progress < 100% = RUN
+    #   Active PID + progress = 100% = FIN
+
+    if is_worker_running "$STREAM_ID"; then
+        # Worker is active
+        if [ "$S_PCT" -eq 100 ] 2>/dev/null; then
+            # 100% + active PID = finishing/cleanup
+            STATUS="${GREEN}FIN${NC}"
+        elif [ "$WORKER_STATUS" = "ERROR" ]; then
+            STATUS="${RED}ERR${NC}"
+        else
+            # < 100% + active PID = running
+            STATUS="${YELLOW}RUN${NC}"
+        fi
+    else
+        # No active worker
+        if [ "$S_PCT" -eq 100 ] 2>/dev/null; then
+            # 100% + no PID = done
+            STATUS="${GREEN}DONE${NC}"
+        elif [ "$WORKER_STATUS" = "STOPPED" ]; then
+            STATUS="${RED}STOP${NC}"
+        else
+            # < 100% + no PID = not started/idle
+            STATUS="${DIM}---${NC}"
+        fi
+    fi
+
+    # PID tracking removed from display per user request
+
+    # Build mini progress bar (15 chars)
+    if [ "$S_TOT" != "?" ] && [ "$S_TOT" -gt 0 ] 2>/dev/null; then
+        MINI_FILLED=$((S_PCT * 15 / 100))
+        MINI_BAR=""
+        i=0
+        while [ $i -lt $MINI_FILLED ]; do MINI_BAR="${MINI_BAR}="; i=$((i + 1)); done
+        while [ $i -lt 15 ]; do MINI_BAR="${MINI_BAR}-"; i=$((i + 1)); done
+
+        # Don't color the bar itself to save on terminal codes
+        PCT_STR="${S_PCT}%"
+    else
+        MINI_BAR="---------------"
+        PCT_STR="  0%"
+        S_COMP=0
+        S_INPROG=0
+        S_PEND=0
+    fi
+
+    # Build task counts with fixed column widths
+    # Column widths: completed(4) in-progress(3) pending(3)
+    COMP_STR=$(printf "%3s" "${S_COMP}")
+    if [ "${S_INPROG:-0}" -gt 0 ] 2>/dev/null; then
+        INPROG_STR=$(printf "%2s" "${S_INPROG}")
+    else
+        INPROG_STR="  "
+    fi
+    if [ "${S_PEND:-0}" -gt 0 ] 2>/dev/null; then
+        PEND_STR=$(printf "%2s" "${S_PEND}")
+    else
+        PEND_STR="  "
+    fi
+
+    # Format percentage with fixed width (right-aligned)
+    PCT_DISPLAY=$(printf "%3s%%" "${S_PCT}")
+
+    # Format stream name (25 chars, left-aligned) - more space without PID column
+    if [ -n "$STREAM_NAME" ]; then
+        NAME_DISPLAY=$(printf "%-25s" "$(echo "$STREAM_NAME" | cut -c1-25)")
+    else
+        NAME_DISPLAY=""
+    fi
+
+    # Build complete line with fixed columns (no PID)
+    # Audit-A  [---------------]   0%  ✓  0     ○ 5  RUN    Audit Foundation
+    printf "%-8s [%s] %s  ${GREEN}✓%s${NC}" "$STREAM_ID" "$MINI_BAR" "$PCT_DISPLAY" "$COMP_STR"
+
+    if [ "${S_INPROG:-0}" -gt 0 ] 2>/dev/null; then
+        printf " ${YELLOW}⚙%s${NC}" "$INPROG_STR"
+    else
+        printf "    "
+    fi
+
+    if [ "${S_PEND:-0}" -gt 0 ] 2>/dev/null; then
+        printf " ${DIM}○%s${NC}" "$PEND_STR"
+    else
+        printf "    "
+    fi
+
+    printf "  %b" "$STATUS"
+
+    if [ -n "$NAME_DISPLAY" ]; then
+        printf "  %s" "$NAME_DISPLAY"
+    fi
+
+    printf "\n"
+done
+
+echo "═══════════════════════════════════════════════════════════════════════════"
+
+# Show compact footer
+if [ "$RUNNING_COUNT" -gt 0 ] 2>/dev/null; then
+    echo -e "${DIM}Workers: ${RUNNING_COUNT} | Data: Task Copilot | $(date '+%H:%M:%S')${NC}"
+else
+    echo -e "${DIM}Workers: 0 | Data: Task Copilot | $(date '+%H:%M:%S')${NC}"
+fi

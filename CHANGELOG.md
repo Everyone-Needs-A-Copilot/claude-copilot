@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-01-12
+
+### Added
+
+- **Orchestration Script Generation**: `/orchestrate generate` creates production-ready scripts
+  - `orchestrate.py` - Main orchestrator with dynamic dependency resolution
+  - `task_copilot_client.py` - Task Copilot data abstraction layer
+  - `check_streams_data.py` - Stream data fetcher for bash scripts
+  - `check-streams` - Colorful status dashboard (Bash 3.2+ compatible)
+  - `watch-status` - Live monitoring with configurable refresh interval
+  - Automatic workspace ID detection from project directory name
+  - No hardcoded phases - execution order from task dependencies
+  - Auto-restart failed workers with configurable limits
+
+- **Orchestration Documentation**: Comprehensive guides
+  - Updated `docs/50-features/01-orchestration-guide.md` (920+ lines)
+  - Quick reference in `ORCHESTRATION_IMPLEMENTATION.md`
+  - Clear dependency patterns and metadata format
+
+### Changed
+
+- **Orchestration Architecture**: Fully dynamic dependency resolution
+  - Removed hardcoded foundation/parallel/integration phases
+  - Streams execute based on `metadata.dependencies` arrays
+  - Continuous 30s polling for newly-ready streams
+
+### Technical
+
+- New Python client for Task Copilot SQLite database
+- Bash scripts use dynamic workspace detection
+- Full symlink resolution in all generated scripts
+
 ## [2.0.0] - 2026-01-08
 
 ### Added

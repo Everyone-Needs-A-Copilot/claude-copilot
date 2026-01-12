@@ -1,0 +1,25 @@
+#!/bin/bash
+# Live status monitor for Claude Copilot streams
+# Usage: watch-status [interval]
+# Default interval: 15 seconds
+
+INTERVAL=${1:-15}
+
+# Resolve symlinks to get the real script location
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+while [ -L "$SCRIPT_PATH" ]; do
+    SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+    SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
+    [[ "$SCRIPT_PATH" != /* ]] && SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_PATH"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+
+echo "Starting live status monitor (refresh every ${INTERVAL}s)"
+echo "Press Ctrl-C to stop"
+echo ""
+
+while true; do
+    "$SCRIPT_DIR/check-streams"
+    echo -e "\n\033[0;36mNext refresh in ${INTERVAL}s... (Ctrl-C to stop)\033[0m"
+    sleep "$INTERVAL"
+done
