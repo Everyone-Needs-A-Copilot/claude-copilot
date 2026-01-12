@@ -28,5 +28,8 @@ export {
   extractValues,
   inferTarget,
   detectCorrections,
-  storeCorrection
+  storeCorrection,
+  updateCorrectionStatus,
+  listCorrections,
+  getCorrectionStats
 } from './correction-tools.js';

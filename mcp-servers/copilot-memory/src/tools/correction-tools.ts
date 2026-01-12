@@ -436,53 +436,136 @@ export function detectCorrections(
 }
 
 // ============================================================================
-// CORRECTION STORAGE (requires database)
+// CORRECTION STORAGE
 // ============================================================================
 
 /**
  * Store a correction in the database
- * Note: Requires corrections table to be created first (TASK-2)
  */
-export async function storeCorrection(
+export function storeCorrection(
   db: DatabaseClient,
   correction: CorrectionCapture,
   sessionId?: string
-): Promise<CorrectionCapture> {
-  // For now, store as a memory with type context
-  // Full database support will be added in TASK-756cf984 (Add correction storage)
-
+): CorrectionCapture {
   // Update session ID
   const correctionWithSession: CorrectionCapture = {
     ...correction,
     sessionId: sessionId || correction.sessionId
   };
 
-  // Store as context memory until full correction table is implemented
-  await db.insertMemory({
+  // Store in corrections table
+  db.insertCorrection({
     id: correction.id,
-    content: JSON.stringify({
-      type: 'correction_capture',
-      originalContent: correction.originalContent,
-      correctedContent: correction.correctedContent,
-      target: correction.target,
-      targetId: correction.targetId,
-      confidence: correction.confidence,
-      status: correction.status,
-      matchedPatterns: correction.matchedPatterns.map(p => p.patternId)
-    }),
-    type: 'context',
-    tags: JSON.stringify(['correction', 'pending-review', correction.target]),
-    metadata: JSON.stringify({
-      correctionId: correction.id,
-      agentId: correction.agentId,
-      taskId: correction.taskId,
-      confidence: correction.confidence,
-      expiresAt: correction.expiresAt
-    }),
+    session_id: sessionId || null,
+    task_id: correction.taskId || null,
+    agent_id: correction.agentId || null,
+    original_content: correction.originalContent,
+    corrected_content: correction.correctedContent,
+    raw_user_message: correction.rawUserMessage,
+    matched_patterns: JSON.stringify(correction.matchedPatterns),
+    extracted_what: correction.extractedWhat || null,
+    extracted_why: correction.extractedWhy || null,
+    extracted_how: correction.extractedHow || null,
+    target: correction.target,
+    target_id: correction.targetId || null,
+    target_section: correction.targetSection || null,
+    confidence: correction.confidence,
+    status: correction.status,
     created_at: correction.createdAt,
     updated_at: correction.updatedAt,
-    session_id: sessionId || null
+    reviewed_at: correction.reviewedAt || null,
+    applied_at: correction.appliedAt || null,
+    expires_at: correction.expiresAt || null,
+    review_metadata: correction.reviewMetadata ? JSON.stringify(correction.reviewMetadata) : null
   });
 
   return correctionWithSession;
+}
+
+/**
+ * Update a correction's status
+ */
+export function updateCorrectionStatus(
+  db: DatabaseClient,
+  correctionId: string,
+  status: CorrectionStatus,
+  reviewMetadata?: Record<string, unknown>
+): boolean {
+  const existing = db.getCorrection(correctionId);
+  if (!existing) return false;
+
+  const updates: Partial<import('../types/corrections.js').CorrectionRow> = {
+    status
+  };
+
+  if (status === 'approved' || status === 'rejected') {
+    updates.reviewed_at = new Date().toISOString();
+  }
+
+  if (status === 'applied') {
+    updates.applied_at = new Date().toISOString();
+  }
+
+  if (reviewMetadata) {
+    updates.review_metadata = JSON.stringify(reviewMetadata);
+  }
+
+  db.updateCorrection(correctionId, updates);
+  return true;
+}
+
+/**
+ * List corrections with filters
+ */
+export function listCorrections(
+  db: DatabaseClient,
+  options: {
+    status?: CorrectionStatus;
+    agentId?: string;
+    target?: CorrectionTarget;
+    limit?: number;
+    includeExpired?: boolean;
+  }
+): CorrectionCapture[] {
+  const rows = db.listCorrections(options);
+
+  return rows.map(row => ({
+    id: row.id,
+    projectId: row.project_id,
+    sessionId: row.session_id || undefined,
+    taskId: row.task_id || undefined,
+    agentId: row.agent_id || undefined,
+    originalContent: row.original_content,
+    correctedContent: row.corrected_content,
+    rawUserMessage: row.raw_user_message,
+    matchedPatterns: JSON.parse(row.matched_patterns),
+    extractedWhat: row.extracted_what || undefined,
+    extractedWhy: row.extracted_why || undefined,
+    extractedHow: row.extracted_how || undefined,
+    target: row.target as CorrectionTarget,
+    targetId: row.target_id || undefined,
+    targetSection: row.target_section || undefined,
+    confidence: row.confidence,
+    status: row.status as CorrectionStatus,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    reviewedAt: row.reviewed_at || undefined,
+    appliedAt: row.applied_at || undefined,
+    expiresAt: row.expires_at || undefined,
+    reviewMetadata: row.review_metadata ? JSON.parse(row.review_metadata) : undefined
+  }));
+}
+
+/**
+ * Get correction statistics
+ */
+export function getCorrectionStats(db: DatabaseClient): {
+  total: number;
+  pending: number;
+  approved: number;
+  rejected: number;
+  applied: number;
+  expired: number;
+} {
+  return db.getCorrectionStats();
 }

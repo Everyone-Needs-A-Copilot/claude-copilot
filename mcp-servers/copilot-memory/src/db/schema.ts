@@ -96,6 +96,40 @@ CREATE TABLE IF NOT EXISTS initiatives_archive (
   archived_at TEXT NOT NULL
 );
 
+-- Corrections table for two-stage correction workflow
+CREATE TABLE IF NOT EXISTS corrections (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  session_id TEXT,
+  task_id TEXT,
+  agent_id TEXT,
+  original_content TEXT NOT NULL,
+  corrected_content TEXT NOT NULL,
+  raw_user_message TEXT NOT NULL,
+  matched_patterns TEXT DEFAULT '[]',
+  extracted_what TEXT,
+  extracted_why TEXT,
+  extracted_how TEXT,
+  target TEXT NOT NULL CHECK(target IN ('skill', 'agent', 'memory', 'preference')),
+  target_id TEXT,
+  target_section TEXT,
+  confidence REAL NOT NULL DEFAULT 0.5,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected', 'applied', 'expired')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  reviewed_at TEXT,
+  applied_at TEXT,
+  expires_at TEXT,
+  review_metadata TEXT DEFAULT '{}'
+);
+
+-- Indexes for corrections
+CREATE INDEX IF NOT EXISTS idx_corrections_project ON corrections(project_id);
+CREATE INDEX IF NOT EXISTS idx_corrections_status ON corrections(project_id, status);
+CREATE INDEX IF NOT EXISTS idx_corrections_agent ON corrections(project_id, agent_id);
+CREATE INDEX IF NOT EXISTS idx_corrections_target ON corrections(project_id, target);
+CREATE INDEX IF NOT EXISTS idx_corrections_expires ON corrections(expires_at);
+
 -- Full-text search on memory content
 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
   content,
@@ -137,7 +171,7 @@ CREATE TABLE IF NOT EXISTS migrations (
 );
 `;
 
-export const CURRENT_VERSION = 2;
+export const CURRENT_VERSION = 3;
 
 // Migration for version 2: Add slim initiative fields
 export const MIGRATION_V2_SQL = `
@@ -154,4 +188,41 @@ ALTER TABLE initiatives_archive ADD COLUMN task_copilot_linked INTEGER DEFAULT 0
 ALTER TABLE initiatives_archive ADD COLUMN active_prd_ids TEXT DEFAULT '[]';
 ALTER TABLE initiatives_archive ADD COLUMN current_focus TEXT;
 ALTER TABLE initiatives_archive ADD COLUMN next_action TEXT;
+`;
+
+// Migration for version 3: Add corrections table
+export const MIGRATION_V3_SQL = `
+-- Corrections table for two-stage correction workflow
+CREATE TABLE IF NOT EXISTS corrections (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  session_id TEXT,
+  task_id TEXT,
+  agent_id TEXT,
+  original_content TEXT NOT NULL,
+  corrected_content TEXT NOT NULL,
+  raw_user_message TEXT NOT NULL,
+  matched_patterns TEXT DEFAULT '[]',
+  extracted_what TEXT,
+  extracted_why TEXT,
+  extracted_how TEXT,
+  target TEXT NOT NULL CHECK(target IN ('skill', 'agent', 'memory', 'preference')),
+  target_id TEXT,
+  target_section TEXT,
+  confidence REAL NOT NULL DEFAULT 0.5,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected', 'applied', 'expired')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  reviewed_at TEXT,
+  applied_at TEXT,
+  expires_at TEXT,
+  review_metadata TEXT DEFAULT '{}'
+);
+
+-- Indexes for corrections
+CREATE INDEX IF NOT EXISTS idx_corrections_project ON corrections(project_id);
+CREATE INDEX IF NOT EXISTS idx_corrections_status ON corrections(project_id, status);
+CREATE INDEX IF NOT EXISTS idx_corrections_agent ON corrections(project_id, agent_id);
+CREATE INDEX IF NOT EXISTS idx_corrections_target ON corrections(project_id, target);
+CREATE INDEX IF NOT EXISTS idx_corrections_expires ON corrections(expires_at);
 `;

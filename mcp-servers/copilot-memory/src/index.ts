@@ -30,8 +30,12 @@ import {
   initiativeComplete,
   initiativeToMarkdown,
   detectCorrections,
-  storeCorrection
+  storeCorrection,
+  updateCorrectionStatus,
+  listCorrections,
+  getCorrectionStats
 } from './tools/index.js';
+import type { CorrectionStatus, CorrectionTarget } from './types/corrections.js';
 import { getInitiativeResource, getInitiativeSummary } from './resources/initiative-resource.js';
 import { getContextResource } from './resources/context-resource.js';
 import type { MemoryType, InitiativeStatus } from './types.js';
@@ -268,6 +272,53 @@ const TOOLS = [
       },
       required: ['userMessage']
     }
+  },
+  {
+    name: 'correction_list',
+    description: 'List corrections with optional filters. Use with /reflect command to review pending corrections.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: {
+          type: 'string',
+          enum: ['pending', 'approved', 'rejected', 'applied', 'expired'],
+          description: 'Filter by status'
+        },
+        agentId: { type: 'string', description: 'Filter by agent (me, ta, qa, etc.)' },
+        target: {
+          type: 'string',
+          enum: ['skill', 'agent', 'memory', 'preference'],
+          description: 'Filter by target type'
+        },
+        limit: { type: 'number', description: 'Max results (default: 20)' },
+        includeExpired: { type: 'boolean', description: 'Include expired corrections (default: false)' }
+      }
+    }
+  },
+  {
+    name: 'correction_update',
+    description: 'Update a correction status after user review. Called from /reflect command.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        correctionId: { type: 'string', description: 'Correction ID to update' },
+        status: {
+          type: 'string',
+          enum: ['approved', 'rejected', 'applied'],
+          description: 'New status'
+        },
+        rejectionReason: { type: 'string', description: 'Reason for rejection (if rejecting)' }
+      },
+      required: ['correctionId', 'status']
+    }
+  },
+  {
+    name: 'correction_stats',
+    description: 'Get correction statistics for the current project.',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
   }
 ];
 
@@ -421,7 +472,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         // Auto-store if requested and corrections detected
         if (a.autoStore && result.detected && result.corrections.length > 0) {
           for (const correction of result.corrections) {
-            await storeCorrection(db, correction, sessionId);
+            storeCorrection(db, correction, sessionId);
           }
         }
 
@@ -444,6 +495,68 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 status: c.status
               }))
             }, null, 2)
+          }]
+        };
+      }
+
+      case 'correction_list': {
+        const corrections = listCorrections(db, {
+          status: a.status as CorrectionStatus | undefined,
+          agentId: a.agentId as string | undefined,
+          target: a.target as CorrectionTarget | undefined,
+          limit: (a.limit as number) || 20,
+          includeExpired: a.includeExpired as boolean | undefined
+        });
+
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              count: corrections.length,
+              corrections: corrections.map(c => ({
+                id: c.id,
+                originalContent: c.originalContent.substring(0, 100) + (c.originalContent.length > 100 ? '...' : ''),
+                correctedContent: c.correctedContent.substring(0, 100) + (c.correctedContent.length > 100 ? '...' : ''),
+                target: c.target,
+                targetId: c.targetId,
+                confidence: c.confidence,
+                status: c.status,
+                createdAt: c.createdAt
+              }))
+            }, null, 2)
+          }]
+        };
+      }
+
+      case 'correction_update': {
+        const reviewMetadata = a.rejectionReason
+          ? { rejectionReason: a.rejectionReason as string }
+          : undefined;
+
+        const success = updateCorrectionStatus(
+          db,
+          a.correctionId as string,
+          a.status as CorrectionStatus,
+          reviewMetadata
+        );
+
+        return {
+          content: [{
+            type: 'text',
+            text: success
+              ? `Correction ${a.correctionId} updated to ${a.status}`
+              : `Correction ${a.correctionId} not found`
+          }]
+        };
+      }
+
+      case 'correction_stats': {
+        const stats = getCorrectionStats(db);
+
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify(stats, null, 2)
           }]
         };
       }

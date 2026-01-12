@@ -9,8 +9,9 @@ import { existsSync, mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { homedir } from 'os';
 
-import { SCHEMA_SQL, VECTOR_SCHEMA_SQL, MIGRATION_TABLE_SQL, CURRENT_VERSION, MIGRATION_V2_SQL } from './schema.js';
+import { SCHEMA_SQL, VECTOR_SCHEMA_SQL, MIGRATION_TABLE_SQL, CURRENT_VERSION, MIGRATION_V2_SQL, MIGRATION_V3_SQL } from './schema.js';
 import type { MemoryRow, InitiativeRow, EmbeddingVector } from '../types.js';
+import type { CorrectionRow, CorrectionStatus, CorrectionTarget } from '../types/corrections.js';
 
 export class DatabaseClient {
   private db: Database.Database;
@@ -93,6 +94,27 @@ export class DatabaseClient {
         );
       } catch (err) {
         console.warn('Migration v2 warning:', err);
+      }
+    }
+
+    if (currentVersion < 3) {
+      // Run migration v3: Add corrections table
+      try {
+        // Check if corrections table already exists
+        const tables = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='corrections'").all();
+
+        if (tables.length === 0) {
+          // Table doesn't exist, run migration
+          this.db.exec(MIGRATION_V3_SQL);
+        }
+
+        // Always record migration as applied
+        this.db.prepare('INSERT INTO migrations (version, applied_at) VALUES (?, ?)').run(
+          3,
+          new Date().toISOString()
+        );
+      } catch (err) {
+        console.warn('Migration v3 warning:', err);
       }
     }
   }
@@ -345,16 +367,190 @@ export class DatabaseClient {
   }
 
   // Stats
-  getStats(): { memoryCount: number; initiativeActive: boolean; lastUpdated: string | null } {
+  getStats(): { memoryCount: number; initiativeActive: boolean; lastUpdated: string | null; correctionCount?: number } {
     const memoryCount = (this.db.prepare('SELECT COUNT(*) as count FROM memories WHERE project_id = ?').get(this.projectId) as { count: number }).count;
     const initiative = this.getInitiative();
     const lastMemory = this.db.prepare('SELECT MAX(updated_at) as last FROM memories WHERE project_id = ?').get(this.projectId) as { last: string | null };
 
+    // Get correction count
+    let correctionCount = 0;
+    try {
+      correctionCount = (this.db.prepare('SELECT COUNT(*) as count FROM corrections WHERE project_id = ?').get(this.projectId) as { count: number }).count;
+    } catch {
+      // Table might not exist in older databases
+    }
+
     return {
       memoryCount,
       initiativeActive: !!initiative,
-      lastUpdated: lastMemory.last || initiative?.updated_at || null
+      lastUpdated: lastMemory.last || initiative?.updated_at || null,
+      correctionCount
     };
+  }
+
+  // Correction operations
+  insertCorrection(correction: Omit<CorrectionRow, 'project_id'>): void {
+    this.db.prepare(`
+      INSERT INTO corrections (
+        id, project_id, session_id, task_id, agent_id,
+        original_content, corrected_content, raw_user_message,
+        matched_patterns, extracted_what, extracted_why, extracted_how,
+        target, target_id, target_section, confidence, status,
+        created_at, updated_at, reviewed_at, applied_at, expires_at, review_metadata
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      correction.id,
+      this.projectId,
+      correction.session_id,
+      correction.task_id,
+      correction.agent_id,
+      correction.original_content,
+      correction.corrected_content,
+      correction.raw_user_message,
+      correction.matched_patterns,
+      correction.extracted_what,
+      correction.extracted_why,
+      correction.extracted_how,
+      correction.target,
+      correction.target_id,
+      correction.target_section,
+      correction.confidence,
+      correction.status,
+      correction.created_at,
+      correction.updated_at,
+      correction.reviewed_at,
+      correction.applied_at,
+      correction.expires_at,
+      correction.review_metadata
+    );
+  }
+
+  updateCorrection(id: string, updates: Partial<CorrectionRow>): void {
+    const sets: string[] = [];
+    const values: unknown[] = [];
+
+    if (updates.status !== undefined) {
+      sets.push('status = ?');
+      values.push(updates.status);
+    }
+    if (updates.reviewed_at !== undefined) {
+      sets.push('reviewed_at = ?');
+      values.push(updates.reviewed_at);
+    }
+    if (updates.applied_at !== undefined) {
+      sets.push('applied_at = ?');
+      values.push(updates.applied_at);
+    }
+    if (updates.review_metadata !== undefined) {
+      sets.push('review_metadata = ?');
+      values.push(updates.review_metadata);
+    }
+
+    sets.push('updated_at = ?');
+    values.push(new Date().toISOString());
+    values.push(id);
+    values.push(this.projectId);
+
+    this.db.prepare(`
+      UPDATE corrections SET ${sets.join(', ')} WHERE id = ? AND project_id = ?
+    `).run(...values);
+  }
+
+  getCorrection(id: string): CorrectionRow | undefined {
+    return this.db.prepare('SELECT * FROM corrections WHERE id = ? AND project_id = ?').get(id, this.projectId) as CorrectionRow | undefined;
+  }
+
+  listCorrections(options: {
+    status?: CorrectionStatus;
+    agentId?: string;
+    target?: CorrectionTarget;
+    limit?: number;
+    offset?: number;
+    includeExpired?: boolean;
+  }): CorrectionRow[] {
+    let sql = 'SELECT * FROM corrections WHERE project_id = ?';
+    const params: unknown[] = [this.projectId];
+
+    if (options.status) {
+      sql += ' AND status = ?';
+      params.push(options.status);
+    }
+
+    if (options.agentId) {
+      sql += ' AND agent_id = ?';
+      params.push(options.agentId);
+    }
+
+    if (options.target) {
+      sql += ' AND target = ?';
+      params.push(options.target);
+    }
+
+    if (!options.includeExpired) {
+      sql += ' AND (expires_at IS NULL OR expires_at > ?)';
+      params.push(new Date().toISOString());
+    }
+
+    sql += ' ORDER BY created_at DESC';
+
+    if (options.limit) {
+      sql += ' LIMIT ?';
+      params.push(options.limit);
+    }
+
+    if (options.offset) {
+      sql += ' OFFSET ?';
+      params.push(options.offset);
+    }
+
+    return this.db.prepare(sql).all(...params) as CorrectionRow[];
+  }
+
+  getCorrectionStats(): {
+    total: number;
+    pending: number;
+    approved: number;
+    rejected: number;
+    applied: number;
+    expired: number;
+  } {
+    const stats = this.db.prepare(`
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+        SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved,
+        SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) as rejected,
+        SUM(CASE WHEN status = 'applied' THEN 1 ELSE 0 END) as applied,
+        SUM(CASE WHEN status = 'expired' THEN 1 ELSE 0 END) as expired
+      FROM corrections WHERE project_id = ?
+    `).get(this.projectId) as {
+      total: number;
+      pending: number;
+      approved: number;
+      rejected: number;
+      applied: number;
+      expired: number;
+    };
+
+    return stats;
+  }
+
+  expireOldCorrections(): number {
+    const result = this.db.prepare(`
+      UPDATE corrections
+      SET status = 'expired', updated_at = ?
+      WHERE project_id = ?
+        AND status = 'pending'
+        AND expires_at IS NOT NULL
+        AND expires_at < ?
+    `).run(
+      new Date().toISOString(),
+      this.projectId,
+      new Date().toISOString()
+    );
+
+    return result.changes;
   }
 
   close(): void {

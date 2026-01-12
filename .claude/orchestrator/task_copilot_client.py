@@ -137,14 +137,15 @@ class TaskCopilotClient:
             if initiative_id:
                 cursor.execute("""
                     SELECT
-                        json_extract(metadata, '$.streamId') as stream_id,
-                        MIN(json_extract(metadata, '$.streamName')) as stream_name,
-                        MIN(json_extract(metadata, '$.dependencies')) as dependencies_json
-                    FROM tasks
-                    WHERE json_extract(metadata, '$.streamId') IS NOT NULL
-                      AND archived = 0
-                      AND initiative_id = ?
-                    GROUP BY json_extract(metadata, '$.streamId')
+                        json_extract(t.metadata, '$.streamId') as stream_id,
+                        MIN(json_extract(t.metadata, '$.streamName')) as stream_name,
+                        MIN(json_extract(t.metadata, '$.dependencies')) as dependencies_json
+                    FROM tasks t
+                    LEFT JOIN prds p ON t.prd_id = p.id
+                    WHERE json_extract(t.metadata, '$.streamId') IS NOT NULL
+                      AND t.archived = 0
+                      AND p.initiative_id = ?
+                    GROUP BY json_extract(t.metadata, '$.streamId')
                     ORDER BY stream_id
                 """, (initiative_id,))
             else:
@@ -252,14 +253,15 @@ class TaskCopilotClient:
                 cursor.execute("""
                     SELECT
                         COUNT(*) as total,
-                        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
-                        SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
-                        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
-                        SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) as blocked
-                    FROM tasks
-                    WHERE json_extract(metadata, '$.streamId') IS NOT NULL
-                      AND archived = 0
-                      AND initiative_id = ?
+                        SUM(CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END) as completed,
+                        SUM(CASE WHEN t.status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
+                        SUM(CASE WHEN t.status = 'pending' THEN 1 ELSE 0 END) as pending,
+                        SUM(CASE WHEN t.status = 'blocked' THEN 1 ELSE 0 END) as blocked
+                    FROM tasks t
+                    LEFT JOIN prds p ON t.prd_id = p.id
+                    WHERE json_extract(t.metadata, '$.streamId') IS NOT NULL
+                      AND t.archived = 0
+                      AND p.initiative_id = ?
                 """, (initiative_id,))
             else:
                 cursor.execute("""
@@ -444,17 +446,18 @@ class TaskCopilotClient:
             if initiative_id:
                 cursor.execute("""
                     SELECT
-                        id,
-                        title,
-                        assigned_agent,
-                        json_extract(metadata, '$.streamId') as stream_id
-                    FROM tasks
-                    WHERE json_extract(metadata, '$.streamId') IS NOT NULL
-                      AND archived = 0
-                      AND initiative_id = ?
-                      AND assigned_agent IS NOT NULL
-                      AND assigned_agent != 'me'
-                    ORDER BY json_extract(metadata, '$.streamId'), created_at
+                        t.id,
+                        t.title,
+                        t.assigned_agent,
+                        json_extract(t.metadata, '$.streamId') as stream_id
+                    FROM tasks t
+                    LEFT JOIN prds p ON t.prd_id = p.id
+                    WHERE json_extract(t.metadata, '$.streamId') IS NOT NULL
+                      AND t.archived = 0
+                      AND p.initiative_id = ?
+                      AND t.assigned_agent IS NOT NULL
+                      AND t.assigned_agent != 'me'
+                    ORDER BY json_extract(t.metadata, '$.streamId'), t.created_at
                 """, (initiative_id,))
             else:
                 cursor.execute("""
