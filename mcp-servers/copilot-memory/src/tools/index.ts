@@ -38,3 +38,10 @@ export {
   correctionMarkApplied,
   getReflectSummary
 } from './correction-tools.js';
+
+export {
+  correctionRoute,
+  correctionApply,
+  correctionRouteBatch,
+  correctionApplyBatch
+} from './correction-route.js';

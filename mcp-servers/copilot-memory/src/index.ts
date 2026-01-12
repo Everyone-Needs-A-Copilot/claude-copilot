@@ -39,6 +39,10 @@ import {
   correctionStats,
   correctionMarkApplied,
   getReflectSummary,
+  correctionRoute,
+  correctionApply,
+  correctionRouteBatch,
+  correctionApplyBatch,
 } from './tools/index.js';
 import type {
   CorrectionDetectInput,
@@ -47,6 +51,7 @@ import type {
   CorrectionStatus,
   CorrectionTarget,
   CorrectionReviewDecision,
+  CorrectionRouteInput,
 } from './types/corrections.js';
 import { getInitiativeResource, getInitiativeSummary } from './resources/initiative-resource.js';
 import { getContextResource } from './resources/context-resource.js';
@@ -398,6 +403,64 @@ const TOOLS = [
         agentId: { type: 'string', description: 'Filter by agent ID' }
       }
     }
+  },
+  {
+    name: 'correction_route',
+    description: 'Route an approved correction to its target (skill, agent, memory, or preference)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        correctionId: { type: 'string', description: 'Correction ID to route' },
+        forceTarget: {
+          type: 'string',
+          enum: ['skill', 'agent', 'memory', 'preference'],
+          description: 'Force specific target (override auto-detection)'
+        },
+        forceTargetId: { type: 'string', description: 'Force specific target ID' }
+      },
+      required: ['correctionId']
+    }
+  },
+  {
+    name: 'correction_apply',
+    description: 'Apply a routed correction to its target (stores in memory, updates skill, etc.)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        correctionId: { type: 'string', description: 'Correction ID to apply' }
+      },
+      required: ['correctionId']
+    }
+  },
+  {
+    name: 'correction_route_batch',
+    description: 'Route multiple approved corrections at once',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        correctionIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Array of correction IDs to route'
+        }
+      },
+      required: ['correctionIds']
+    }
+  },
+  {
+    name: 'correction_apply_batch',
+    description: 'Apply multiple routed corrections at once',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        correctionIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Array of correction IDs to apply'
+        }
+      },
+      required: ['correctionIds']
+    }
   }
 ];
 
@@ -616,6 +679,31 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           agentId: a.agentId as string | undefined,
         });
         return { content: [{ type: 'text', text: JSON.stringify(summary, null, 2) }] };
+      }
+
+      case 'correction_route': {
+        const input: CorrectionRouteInput = {
+          correctionId: a.correctionId as string,
+          forceTarget: a.forceTarget as CorrectionTarget | undefined,
+          forceTargetId: a.forceTargetId as string | undefined,
+        };
+        const result = correctionRoute(db, input, sessionId);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case 'correction_apply': {
+        const result = await correctionApply(db, a.correctionId as string, sessionId);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case 'correction_route_batch': {
+        const results = correctionRouteBatch(db, a.correctionIds as string[], sessionId);
+        return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
+      }
+
+      case 'correction_apply_batch': {
+        const results = await correctionApplyBatch(db, a.correctionIds as string[], sessionId);
+        return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
       }
 
       default:
