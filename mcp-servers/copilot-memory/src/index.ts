@@ -31,8 +31,23 @@ import {
   initiativeToMarkdown,
   detectCorrections,
   getPatterns,
+  correctionStore,
+  correctionGet,
+  correctionList,
+  correctionReview,
+  correctionDelete,
+  correctionStats,
+  correctionMarkApplied,
+  getReflectSummary,
 } from './tools/index.js';
-import type { CorrectionDetectInput, CorrectionDetectOutput } from './types/corrections.js';
+import type {
+  CorrectionDetectInput,
+  CorrectionDetectOutput,
+  CorrectionCapture,
+  CorrectionStatus,
+  CorrectionTarget,
+  CorrectionReviewDecision,
+} from './types/corrections.js';
 import { getInitiativeResource, getInitiativeSummary } from './resources/initiative-resource.js';
 import { getContextResource } from './resources/context-resource.js';
 import type { MemoryType, InitiativeStatus } from './types.js';
@@ -278,6 +293,111 @@ const TOOLS = [
         includeDisabled: { type: 'boolean', description: 'Include disabled patterns (default: false)' }
       }
     }
+  },
+  {
+    name: 'correction_store',
+    description: 'Store a detected correction for later review',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        correction: { type: 'object', description: 'CorrectionCapture object from correction_detect' }
+      },
+      required: ['correction']
+    }
+  },
+  {
+    name: 'correction_get',
+    description: 'Get a correction by ID',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Correction ID' }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'correction_list',
+    description: 'List corrections with optional filters',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: {
+          type: 'string',
+          enum: ['pending', 'approved', 'rejected', 'applied', 'expired'],
+          description: 'Filter by status'
+        },
+        agentId: { type: 'string', description: 'Filter by agent ID' },
+        target: {
+          type: 'string',
+          enum: ['skill', 'agent', 'memory', 'preference'],
+          description: 'Filter by target type'
+        },
+        limit: { type: 'number', description: 'Max results (default: 20)' },
+        offset: { type: 'number', description: 'Skip first N results' },
+        includeExpired: { type: 'boolean', description: 'Include expired corrections (default: false)' }
+      }
+    }
+  },
+  {
+    name: 'correction_review',
+    description: 'Review a pending correction (approve, reject, or modify)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        correctionId: { type: 'string', description: 'Correction ID to review' },
+        decision: {
+          type: 'string',
+          enum: ['approve', 'reject', 'modify'],
+          description: 'Review decision'
+        },
+        rejectionReason: { type: 'string', description: 'Reason for rejection (if rejecting)' },
+        modifiedContent: { type: 'string', description: 'Modified correction content (if modifying)' },
+        notes: { type: 'string', description: 'Additional notes' }
+      },
+      required: ['correctionId', 'decision']
+    }
+  },
+  {
+    name: 'correction_delete',
+    description: 'Delete a correction',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Correction ID to delete' }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'correction_stats',
+    description: 'Get correction statistics',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  {
+    name: 'correction_mark_applied',
+    description: 'Mark an approved correction as applied',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Correction ID to mark as applied' }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'reflect_summary',
+    description: 'Get summary for /reflect command showing pending and recent corrections',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'number', description: 'Max pending corrections to return (default: 10)' },
+        agentId: { type: 'string', description: 'Filter by agent ID' }
+      }
+    }
   }
 ];
 
@@ -438,6 +558,64 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'correction_patterns_list': {
         const patterns = getPatterns(a.includeDisabled as boolean | undefined);
         return { content: [{ type: 'text', text: JSON.stringify(patterns, null, 2) }] };
+      }
+
+      case 'correction_store': {
+        const correction = a.correction as CorrectionCapture;
+        const result = correctionStore(db, correction);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case 'correction_get': {
+        const correction = correctionGet(db, a.id as string);
+        return { content: [{ type: 'text', text: correction ? JSON.stringify(correction, null, 2) : 'Correction not found' }] };
+      }
+
+      case 'correction_list': {
+        const corrections = correctionList(db, {
+          status: a.status as CorrectionStatus | undefined,
+          agentId: a.agentId as string | undefined,
+          target: a.target as CorrectionTarget | undefined,
+          limit: a.limit as number | undefined,
+          offset: a.offset as number | undefined,
+          includeExpired: a.includeExpired as boolean | undefined,
+        });
+        return { content: [{ type: 'text', text: JSON.stringify(corrections, null, 2) }] };
+      }
+
+      case 'correction_review': {
+        const decision: CorrectionReviewDecision = {
+          correctionId: a.correctionId as string,
+          decision: a.decision as 'approve' | 'reject' | 'modify',
+          rejectionReason: a.rejectionReason as string | undefined,
+          modifiedContent: a.modifiedContent as string | undefined,
+          notes: a.notes as string | undefined,
+        };
+        const result = correctionReview(db, decision);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case 'correction_delete': {
+        const deleted = correctionDelete(db, a.id as string);
+        return { content: [{ type: 'text', text: deleted ? 'Deleted' : 'Correction not found' }] };
+      }
+
+      case 'correction_stats': {
+        const stats = correctionStats(db);
+        return { content: [{ type: 'text', text: JSON.stringify(stats, null, 2) }] };
+      }
+
+      case 'correction_mark_applied': {
+        const result = correctionMarkApplied(db, a.id as string);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case 'reflect_summary': {
+        const summary = getReflectSummary(db, {
+          limit: a.limit as number | undefined,
+          agentId: a.agentId as string | undefined,
+        });
+        return { content: [{ type: 'text', text: JSON.stringify(summary, null, 2) }] };
       }
 
       default:

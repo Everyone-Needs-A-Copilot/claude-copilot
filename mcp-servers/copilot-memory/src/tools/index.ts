@@ -27,3 +27,14 @@ export {
   validatePattern,
   DEFAULT_PATTERNS
 } from './correction-detect.js';
+
+export {
+  correctionStore,
+  correctionGet,
+  correctionList,
+  correctionReview,
+  correctionDelete,
+  correctionStats,
+  correctionMarkApplied,
+  getReflectSummary
+} from './correction-tools.js';
