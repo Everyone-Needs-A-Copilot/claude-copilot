@@ -4,6 +4,7 @@
  * Provides skill evaluation based on context analysis:
  * - Pattern matching for file-based triggers
  * - Keyword detection with TF-IDF scoring
+ * - Quality skill detection with context-aware boosting
  * - Unified confidence scoring
  */
 

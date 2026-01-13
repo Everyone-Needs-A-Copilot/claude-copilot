@@ -24,6 +24,10 @@ export interface SkillEvaluation {
   keywordMatch?: KeywordMatchResult;
   /** Human-readable explanation */
   reason: string;
+  /** Whether this skill has quality-focused content */
+  hasQualityKeywords?: boolean;
+  /** Number of quality keywords in the skill */
+  qualityKeywordCount?: number;
 }
 
 /**
@@ -217,6 +221,10 @@ export class ConfidenceScorer {
       // Determine confidence level
       const level = this.getConfidenceLevel(confidence);
 
+      // Extract quality information from keyword match
+      const hasQualityKeywords = keywordMatch?.hasQualityKeywords ?? false;
+      const qualityKeywordCount = keywordMatch?.qualityKeywordCount ?? 0;
+
       // Generate explanation
       const reason = this.generateReason(patternMatch, keywordMatch, confidence);
 
@@ -227,6 +235,8 @@ export class ConfidenceScorer {
         patternMatch,
         keywordMatch,
         reason,
+        hasQualityKeywords,
+        qualityKeywordCount,
       });
     }
 
@@ -321,7 +331,32 @@ export function formatEvaluationResults(
     return 'No skills matched the current context.';
   }
 
+  // Separate quality skills for highlighting
+  const qualitySkills = results.filter(r => r.hasQualityKeywords);
+  const hasQualityContext = qualitySkills.length > 0;
+
   let output = `## Skill Evaluation Results (${results.length} matched)\n\n`;
+
+  // Quality skills section
+  if (hasQualityContext && qualitySkills.length > 0) {
+    output += '### Quality-Focused Skills\n';
+    output += '| Skill | Confidence | Quality Keywords | Reason |\n';
+    output += '|-------|------------|-----------------|--------|\n';
+
+    for (const result of qualitySkills.slice(0, 5)) {
+      const confPercent = (result.confidence * 100).toFixed(0);
+      const qualityCount = result.qualityKeywordCount || 0;
+      const truncatedReason = result.reason.length > 40
+        ? result.reason.slice(0, 37) + '...'
+        : result.reason;
+
+      output += `| ${result.skillName} | ${confPercent}% | ${qualityCount} | ${truncatedReason} |\n`;
+    }
+    output += '\n';
+  }
+
+  // All matches section
+  output += '### All Matches\n';
   output += '| Skill | Confidence | Level | Reason |\n';
   output += '|-------|------------|-------|--------|\n';
 
@@ -329,21 +364,26 @@ export function formatEvaluationResults(
     const confPercent = (result.confidence * 100).toFixed(0);
     const levelEmoji = result.level === 'high' ? '' :
                        result.level === 'medium' ? '' : '';
+    const qualityIndicator = result.hasQualityKeywords ? ' [Q]' : '';
     const truncatedReason = result.reason.length > 50
       ? result.reason.slice(0, 47) + '...'
       : result.reason;
 
-    output += `| ${result.skillName} | ${confPercent}% | ${levelEmoji} ${result.level} | ${truncatedReason} |\n`;
+    output += `| ${result.skillName}${qualityIndicator} | ${confPercent}% | ${levelEmoji} ${result.level} | ${truncatedReason} |\n`;
   }
 
   if (showDetails && results.length > 0) {
     output += '\n### Match Details\n\n';
     for (const result of results.slice(0, 3)) {
-      output += `**${result.skillName}** (${(result.confidence * 100).toFixed(0)}%)\n`;
-      output += `- ${result.reason}\n\n`;
+      output += `**${result.skillName}** (${(result.confidence * 100).toFixed(0)}%)`;
+      if (result.hasQualityKeywords) {
+        output += ` - Quality skill (${result.qualityKeywordCount} quality keywords)`;
+      }
+      output += `\n- ${result.reason}\n\n`;
     }
   }
 
+  output += '\n[Q] = Quality-focused skill with anti-patterns, best practices, or validation rules.\n';
   output += '\nUse `skill_get(name)` to load a skill.';
 
   return output;

@@ -14,6 +14,10 @@ export interface KeywordMatchResult {
   skillName: string;
   confidence: number;
   matchedKeywords: MatchedKeyword[];
+  /** Indicates if this skill has quality-focused keywords */
+  hasQualityKeywords: boolean;
+  /** Count of quality-related keywords matched */
+  qualityKeywordCount: number;
 }
 
 /**
@@ -35,6 +39,43 @@ const SOURCE_WEIGHTS = {
   tags: 0.25,          // Tags are moderately relevant
   description: 0.15,   // Description matches are less specific
 };
+
+/**
+ * Quality-focused keywords that indicate code quality concerns.
+ * Skills matching these get boosted confidence when quality context is detected.
+ */
+const QUALITY_KEYWORDS = new Set([
+  // Anti-pattern detection
+  'antipattern', 'anti-pattern', 'smell', 'code-smell', 'codesmell',
+  'mistake', 'pitfall', 'gotcha', 'avoid', 'dont', 'never',
+  // Best practices
+  'best-practice', 'bestpractice', 'pattern', 'idiom', 'convention',
+  'standard', 'guideline', 'principle', 'rule',
+  // Quality concepts
+  'quality', 'clean', 'solid', 'dry', 'kiss', 'yagni',
+  'maintainable', 'readable', 'testable', 'refactor',
+  // Validation/verification
+  'validate', 'validation', 'verify', 'check', 'lint', 'linter',
+  'review', 'audit', 'inspect', 'analyze',
+  // Security quality
+  'secure', 'security', 'vulnerability', 'exploit', 'injection',
+  'sanitize', 'escape', 'encode',
+  // Testing quality
+  'test', 'testing', 'coverage', 'assertion', 'mock', 'stub',
+  'unit', 'integration', 'e2e', 'regression',
+  // Performance quality
+  'performance', 'optimize', 'optimization', 'efficient', 'memory',
+  'cpu', 'bottleneck', 'profile',
+]);
+
+/**
+ * Context keywords that indicate a quality-focused task
+ */
+const QUALITY_CONTEXT_KEYWORDS = new Set([
+  'review', 'audit', 'check', 'fix', 'improve', 'refactor',
+  'polish', 'harden', 'secure', 'optimize', 'clean', 'lint',
+  'validate', 'verify', 'test', 'coverage', 'quality',
+]);
 
 /**
  * Stop words to filter from input text
@@ -114,6 +155,9 @@ export class KeywordDetector {
     const termFrequencies = this.calculateTermFrequencies(inputTerms);
     const results: KeywordMatchResult[] = [];
 
+    // Detect if this is a quality-focused context
+    const isQualityContext = this.detectQualityContext(inputTerms);
+
     for (const [skillName, skill] of skills.entries()) {
       const matchedKeywords = this.findMatches(
         termFrequencies,
@@ -121,16 +165,92 @@ export class KeywordDetector {
       );
 
       if (matchedKeywords.length > 0) {
-        const confidence = this.calculateConfidence(matchedKeywords, termFrequencies.size);
+        // Count quality keywords in the skill
+        const { hasQualityKeywords, qualityKeywordCount } = this.analyzeQualityKeywords(skill);
+
+        // Calculate base confidence
+        let confidence = this.calculateConfidence(matchedKeywords, termFrequencies.size);
+
+        // Apply quality context boost if applicable
+        if (isQualityContext && hasQualityKeywords) {
+          // Boost skills with quality keywords when in quality context
+          // Max boost of 20% based on quality keyword density
+          const qualityBoost = Math.min(qualityKeywordCount * 0.05, 0.2);
+          confidence = Math.min(confidence + qualityBoost, 1);
+        }
+
         results.push({
           skillName,
           confidence,
           matchedKeywords,
+          hasQualityKeywords,
+          qualityKeywordCount,
         });
       }
     }
 
     return results.sort((a, b) => b.confidence - a.confidence);
+  }
+
+  /**
+   * Detect if the input text indicates a quality-focused task context
+   */
+  private detectQualityContext(inputTerms: string[]): boolean {
+    let qualityContextCount = 0;
+    for (const term of inputTerms) {
+      if (QUALITY_CONTEXT_KEYWORDS.has(term)) {
+        qualityContextCount++;
+      }
+    }
+    // Consider it a quality context if we have at least 2 quality context keywords
+    // or if any single high-signal keyword appears
+    const highSignalKeywords = ['review', 'audit', 'refactor', 'polish', 'harden'];
+    const hasHighSignal = inputTerms.some(t => highSignalKeywords.includes(t));
+    return qualityContextCount >= 2 || hasHighSignal;
+  }
+
+  /**
+   * Analyze a skill for quality-focused keywords
+   */
+  private analyzeQualityKeywords(skill: SkillMeta): { hasQualityKeywords: boolean; qualityKeywordCount: number } {
+    let qualityKeywordCount = 0;
+
+    // Check skill name
+    const nameTerms = this.tokenize(skill.name);
+    for (const term of nameTerms) {
+      if (QUALITY_KEYWORDS.has(term)) {
+        qualityKeywordCount++;
+      }
+    }
+
+    // Check explicit keywords
+    if (skill.keywords) {
+      for (const keyword of skill.keywords) {
+        const keywordTerms = this.tokenize(keyword);
+        for (const term of keywordTerms) {
+          if (QUALITY_KEYWORDS.has(term)) {
+            qualityKeywordCount++;
+          }
+        }
+      }
+    }
+
+    // Check tags
+    if (skill.tags) {
+      for (const tag of skill.tags) {
+        const tagTerms = this.tokenize(tag);
+        for (const term of tagTerms) {
+          if (QUALITY_KEYWORDS.has(term)) {
+            qualityKeywordCount++;
+          }
+        }
+      }
+    }
+
+    return {
+      hasQualityKeywords: qualityKeywordCount > 0,
+      qualityKeywordCount,
+    };
   }
 
   /**
