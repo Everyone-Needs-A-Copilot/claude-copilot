@@ -13,13 +13,57 @@ while [ -L "$SCRIPT_PATH" ]; do
     [[ "$SCRIPT_PATH" != /* ]] && SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_PATH"
 done
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+WORKSPACE_ID=$(basename "$PROJECT_ROOT")
+
+# Colors
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
 
 echo "Starting live status monitor (refresh every ${INTERVAL}s)"
 echo "Press Ctrl-C to stop"
 echo ""
 
 while true; do
+    # Capture check-streams output
     "$SCRIPT_DIR/check-streams"
-    echo -e "\n\033[0;36mNext refresh in ${INTERVAL}s... (Ctrl-C to stop)\033[0m"
+
+    # Check if all streams are complete using the data script
+    ORCHESTRATOR_DATA=$(python3 "$SCRIPT_DIR/check_streams_data.py" "$WORKSPACE_ID" 2>/dev/null)
+    ALL_COMPLETE=$(echo "$ORCHESTRATOR_DATA" | grep -c "^ALL_STREAMS_COMPLETE")
+
+    if [ "$ALL_COMPLETE" -gt 0 ] 2>/dev/null; then
+        echo ""
+        echo -e "${GREEN}${BOLD}╔═════════════════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${GREEN}${BOLD}║                       🎉 INITIATIVE COMPLETE 🎉                             ║${NC}"
+        echo -e "${GREEN}${BOLD}╚═════════════════════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        echo -e "${CYAN}All streams completed. Streams have been archived for this initiative.${NC}"
+        echo ""
+
+        # Wait 30 seconds showing countdown
+        for i in 30 29 28 27 26 25 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1; do
+            echo -ne "\r${CYAN}Clearing in ${i}s... (Ctrl-C to keep viewing)${NC}  "
+            sleep 1
+        done
+        echo ""
+        echo ""
+
+        # Clear screen and show ready message
+        clear
+        echo ""
+        echo -e "${GREEN}${BOLD}╔═════════════════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${GREEN}${BOLD}║                    Ready for Next Initiative                                ║${NC}"
+        echo -e "${GREEN}${BOLD}╚═════════════════════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        echo -e "${CYAN}Previous initiative completed and archived.${NC}"
+        echo -e "${CYAN}Run '/orchestrate generate' to start a new initiative.${NC}"
+        echo ""
+        exit 0
+    fi
+
+    echo -e "\n${CYAN}Next refresh in ${INTERVAL}s... (Ctrl-C to stop)${NC}"
     sleep "$INTERVAL"
 done
