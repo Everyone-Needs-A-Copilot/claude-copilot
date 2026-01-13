@@ -74,6 +74,20 @@ class Orchestrator:
         # Initialize Task Copilot client
         self.tc_client = TaskCopilotClient(WORKSPACE_ID)
 
+        # Get active initiative ID for filtering
+        self.initiative_id = self.tc_client.get_active_initiative_id()
+        if not self.initiative_id:
+            error("No active initiative found in Memory Copilot")
+            error("Run '/protocol' or '/orchestrate generate' first to start an initiative")
+            sys.exit(1)
+
+        # Get initiative details for display
+        initiative_details = self.tc_client.get_initiative_details(self.initiative_id)
+        if initiative_details:
+            log(f"Initiative: {initiative_details.name} ({self.initiative_id[:8]}...)")
+        else:
+            log(f"Initiative: {self.initiative_id[:8]}...")
+
         self.streams = self._query_streams()
         self.stream_dependencies = self._build_dependency_graph()
         self.dependency_depth = self._calculate_dependency_depth()
@@ -84,12 +98,23 @@ class Orchestrator:
         PID_DIR.mkdir(parents=True, exist_ok=True)
 
     def _query_streams(self) -> Dict[str, dict]:
-        """Query streams dynamically using Task Copilot client."""
+        """Query streams dynamically using Task Copilot client.
+
+        Only returns streams from the current active initiative.
+        """
         try:
-            stream_infos = self.tc_client.stream_list()
+            # Filter by current initiative to avoid mixing streams from different initiatives
+            stream_infos = self.tc_client.stream_list(initiative_id=self.initiative_id)
 
             if not stream_infos:
-                error("No streams found in Task Copilot database")
+                error("No streams found in Task Copilot database for current initiative")
+                error(f"Initiative: {self.initiative_id[:8]}...")
+                error("")
+                error("This could mean:")
+                error("  1. '/orchestrate generate' was not run for this initiative")
+                error("  2. @agent-ta failed to create tasks with streamId metadata")
+                error("")
+                error("Run '/orchestrate generate' first to create PRD and stream tasks.")
                 sys.exit(1)
 
             streams = {}
@@ -183,7 +208,7 @@ class Orchestrator:
     def _get_stream_status(self, stream_id: str) -> Optional[dict]:
         """Get stream status using Task Copilot client."""
         try:
-            progress = self.tc_client.stream_get(stream_id)
+            progress = self.tc_client.stream_get(stream_id, initiative_id=self.initiative_id)
             if not progress:
                 return None
 
@@ -273,7 +298,7 @@ class Orchestrator:
             True if check passes (no issues or user chose to continue)
             False if user chose to abort
         """
-        non_me_tasks = self.tc_client.get_non_me_agent_tasks()
+        non_me_tasks = self.tc_client.get_non_me_agent_tasks(initiative_id=self.initiative_id)
 
         if not non_me_tasks:
             return True

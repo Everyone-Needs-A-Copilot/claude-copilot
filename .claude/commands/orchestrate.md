@@ -89,7 +89,22 @@ Assistant: [Invokes @agent-ta to create PRD and tasks]
 When user runs `/orchestrate generate`:
 
 1. **Prompt for feature name** if not provided as argument
-2. **Invoke @agent-ta** with this prompt:
+2. **Call initiative_link()** to establish current initiative and trigger archival of old streams:
+   ```typescript
+   // Link current Memory Copilot initiative to Task Copilot
+   const initiative = await initiative_get();  // From Memory Copilot
+   if (!initiative?.id) {
+     console.error("ERROR: No active initiative found.");
+     console.error("Run '/protocol' first to start a new initiative.");
+     return;
+   }
+   await initiative_link({
+     initiativeId: initiative.id,
+     title: initiative.name
+   });
+   // This archives any streams from previous initiatives
+   ```
+3. **Invoke @agent-ta** with this prompt:
    ```
    Create a PRD and task breakdown for parallel orchestration.
 
@@ -121,8 +136,89 @@ When user runs `/orchestrate generate`:
    5. Display dependency structure visualization
    6. Return "Ready for /orchestrate start"
    ```
-3. **Validate @agent-ta created proper metadata** - if validation fails, report errors
-4. **Display success message** with stream structure and next steps
+4. **POST-INVOCATION VERIFICATION (CRITICAL)**
+   After @agent-ta returns, ALWAYS verify PRDs and streams were actually created:
+   ```typescript
+   // Verify PRD creation
+   const prds = await prd_list({ initiativeId: initiative.id });
+   const prdCount = prds?.length || 0;
+
+   // Verify stream creation
+   const streams = await stream_list({ initiativeId: initiative.id });
+   const streamCount = streams?.length || 0;
+
+   if (prdCount === 0 || streamCount === 0) {
+     // VERIFICATION FAILED - @agent-ta did not use Task Copilot tools
+     console.error("ERROR: Verification Failed");
+     console.error("");
+     console.error("@agent-ta did not properly create PRD/tasks in Task Copilot:");
+     console.error(`  - PRDs created: ${prdCount} (expected: >= 1)`);
+     console.error(`  - Streams created: ${streamCount} (expected: >= 1)`);
+     console.error("");
+     console.error("The agent may have output a plan but failed to call:");
+     console.error("  - prd_create() to create the PRD");
+     console.error("  - task_create() to create tasks with streamId metadata");
+     console.error("");
+
+     // Offer retry with stronger enforcement
+     const retry = await askUser("Would you like to retry with stronger enforcement?");
+     if (retry) {
+       // Re-invoke with EXPLICIT tool enforcement
+       // (See retry prompt below)
+     }
+     return;
+   }
+   ```
+
+5. **IF VERIFICATION FAILS - Retry with stronger enforcement prompt:**
+   ```
+   CRITICAL FAILURE RECOVERY - You MUST use Task Copilot tools.
+
+   Your previous response did NOT create PRDs or tasks in Task Copilot.
+
+   ## MANDATORY TOOL CALLS
+
+   You MUST call these tools in this exact order:
+
+   1. FIRST: Call prd_create() to create the PRD
+      prd_create({
+        title: "Feature Title",
+        content: "PRD content...",
+        description: "Brief description"
+      })
+
+   2. THEN: For EACH task, call task_create() with stream metadata
+      task_create({
+        prdId: "PRD-xxx",  // From step 1
+        title: "Task title",
+        description: "Task description",
+        assignedAgent: "me",
+        metadata: {
+          streamId: "Stream-A",
+          streamName: "Stream Name",
+          dependencies: []  // Empty for foundation, or ["Stream-A"] for dependent
+        }
+      })
+
+   ## VERIFICATION
+
+   After creating all tasks, call:
+   - prd_list() - should show your PRD
+   - stream_list() - should show your streams
+
+   ## FAILURE IS NOT AN OPTION
+
+   DO NOT output a markdown plan.
+   DO NOT skip the tool calls.
+   DO NOT claim completion without tool calls.
+
+   The orchestration system REQUIRES PRDs and tasks in Task Copilot.
+
+   Feature: {feature_description}
+   ```
+
+6. **Validate @agent-ta created proper metadata** - if validation fails, report errors
+7. **Display success message** with stream structure and next steps
 
 ---
 
@@ -336,8 +432,23 @@ When user runs `/orchestrate [command]`:
 
 2. **For `generate`:**
    - **Prompt for feature** if not provided as argument
+   - **FIRST: Call initiative_link()** to establish current initiative:
+     - Get current initiative from Memory Copilot via `initiative_get()`
+     - If no initiative: ERROR - "Run /protocol first to start an initiative"
+     - Call `initiative_link()` with initiativeId and title
+     - This automatically archives streams from previous initiatives
    - **Invoke @agent-ta** with orchestration generation prompt (see `/orchestrate generate` section above)
    - **Wait for @agent-ta** to create PRD and tasks in Task Copilot
+   - **POST-INVOCATION VERIFICATION (CRITICAL):**
+     - Call `prd_list({ initiativeId: initiative.id })` to get PRD count
+     - Call `stream_list({ initiativeId: initiative.id })` to get stream count
+     - If PRD count == 0 OR stream count == 0:
+       - Display ERROR: "@agent-ta did not properly create PRD/tasks"
+       - Show: "PRDs created: X (expected >= 1)"
+       - Show: "Streams created: Y (expected >= 1)"
+       - Explain: "Agent may have output plan but failed to call prd_create()/task_create()"
+       - **Offer retry with stronger enforcement prompt**
+       - If user accepts retry: Re-invoke @agent-ta with failure recovery prompt
    - **Validate creation:**
      - Query Task Copilot for tasks with `metadata.streamId`
      - Verify at least one stream has `dependencies: []`
