@@ -212,7 +212,7 @@ MCP server providing persistent memory across sessions.
 
 ### 2. Agents
 
-13 specialized agents for complex development tasks.
+13 specialized agents for complex development tasks using the **lean agent model**.
 
 **Location:** `.claude/agents/`
 
@@ -231,6 +231,29 @@ MCP server providing persistent memory across sessions.
 | `cw` | Copywriter | Content/copy |
 | `cco` | Creative Chief Officer | Creative direction |
 | `kc` | Knowledge Copilot | Shared knowledge setup |
+
+**Lean Agent Model:**
+
+Agents are ~60-100 lines and auto-load domain skills using `skill_evaluate`:
+
+```typescript
+// Agents auto-detect relevant skills
+const skills = await skill_evaluate({
+  files: ['src/auth/login.ts'],     // Files being worked on
+  text: task.description,            // Task context
+  threshold: 0.5                     // Minimum confidence
+});
+// Then load matching skills via @include
+```
+
+**Required Agent Tools:**
+
+| Tool | Purpose |
+|------|---------|
+| `preflight_check` | Verify environment before work |
+| `skill_evaluate` | Auto-detect and load skills |
+| `task_get`, `task_update` | Task management |
+| `work_product_store` | Store output (not in response) |
 
 ### 3. Skills (Native & MCP)
 
@@ -260,6 +283,21 @@ When writing tests:
 - User-level skills (`~/.claude/skills/`)
 - Simple, direct loading
 
+#### Auto-Detection with skill_evaluate
+
+Agents use `skill_evaluate` to automatically detect relevant skills based on file patterns and keywords:
+
+```typescript
+const skills = await skill_evaluate({
+  files: ['src/Button.test.tsx'],     // Match against trigger_files
+  text: 'Help with React testing',    // Match against trigger_keywords
+  threshold: 0.5                      // Minimum confidence (0-1)
+});
+// Returns ranked list: { skillName, confidence, path }
+```
+
+See [Skill Evaluation Quick Reference](#skill-evaluation-quick-reference) for details.
+
 #### Skills Copilot MCP (OPTIONAL)
 
 MCP server for advanced skill management and marketplace access.
@@ -274,6 +312,7 @@ MCP server for advanced skill management and marketplace access.
 | `skill_search` | Search skills across sources |
 | `skill_list` | List available skills |
 | `skill_save` | Save skill to private DB |
+| `skill_evaluate` | Auto-detect skills from context |
 
 **Knowledge Tools:**
 

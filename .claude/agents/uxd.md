@@ -1,7 +1,7 @@
 ---
 name: uxd
 description: Interaction design, wireframing, task flows, information architecture. Use PROACTIVELY when designing how users interact with features.
-tools: Read, Grep, Glob, Edit, Write, WebSearch, task_get, task_update, work_product_store
+tools: Read, Grep, Glob, Edit, Write, WebSearch, task_get, task_update, work_product_store, preflight_check, skill_evaluate
 model: sonnet
 ---
 

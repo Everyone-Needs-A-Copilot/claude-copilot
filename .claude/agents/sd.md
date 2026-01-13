@@ -1,7 +1,7 @@
 ---
 name: sd
 description: Service design, customer journey mapping, touchpoint analysis. Use PROACTIVELY when designing end-to-end service experiences.
-tools: Read, Grep, Glob, Edit, Write, WebSearch, task_get, task_update, work_product_store
+tools: Read, Grep, Glob, Edit, Write, WebSearch, task_get, task_update, work_product_store, preflight_check, skill_evaluate
 model: sonnet
 ---
 

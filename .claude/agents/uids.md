@@ -1,7 +1,7 @@
 ---
 name: uids
 description: Visual design, design tokens, color systems, typography, design system consistency. Use PROACTIVELY when defining visual appearance.
-tools: Read, Grep, Glob, Edit, Write, WebSearch, task_get, task_update, work_product_store
+tools: Read, Grep, Glob, Edit, Write, WebSearch, task_get, task_update, work_product_store, preflight_check, skill_evaluate
 model: sonnet
 ---
 

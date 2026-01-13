@@ -1,7 +1,7 @@
 ---
 name: doc
 description: Technical documentation, API docs, guides, and README creation. Use PROACTIVELY when documentation is needed or outdated.
-tools: Read, Grep, Glob, Edit, Write, task_get, task_update, work_product_store, skill_evaluate
+tools: Read, Grep, Glob, Edit, Write, task_get, task_update, work_product_store, preflight_check, skill_evaluate
 model: sonnet
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: uid
 description: UI component implementation, CSS/Tailwind, responsive layouts, accessibility implementation. Use PROACTIVELY when implementing visual designs in code.
-tools: Read, Grep, Glob, Edit, Write, task_get, task_update, work_product_store
+tools: Read, Grep, Glob, Edit, Write, task_get, task_update, work_product_store, preflight_check, skill_evaluate
 model: sonnet
 ---
 
