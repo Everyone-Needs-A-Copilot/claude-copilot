@@ -184,12 +184,13 @@ class TaskCopilotClient:
         finally:
             conn.close()
 
-    def stream_get(self, stream_id: str) -> Optional[StreamProgress]:
+    def stream_get(self, stream_id: str, initiative_id: Optional[str] = None) -> Optional[StreamProgress]:
         """
         Get progress information for a specific stream.
 
         Args:
             stream_id: Stream identifier
+            initiative_id: Optional initiative ID to filter by
 
         Returns:
             StreamProgress object or None if stream not found
@@ -201,17 +202,33 @@ class TaskCopilotClient:
         conn = self._connect()
         try:
             cursor = conn.cursor()
-            cursor.execute("""
-                SELECT
-                    COUNT(*) as total,
-                    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
-                    SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
-                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
-                    SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) as blocked
-                FROM tasks
-                WHERE json_extract(metadata, '$.streamId') = ?
-                  AND archived = 0
-            """, (stream_id,))
+
+            if initiative_id:
+                cursor.execute("""
+                    SELECT
+                        COUNT(*) as total,
+                        SUM(CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END) as completed,
+                        SUM(CASE WHEN t.status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
+                        SUM(CASE WHEN t.status = 'pending' THEN 1 ELSE 0 END) as pending,
+                        SUM(CASE WHEN t.status = 'blocked' THEN 1 ELSE 0 END) as blocked
+                    FROM tasks t
+                    LEFT JOIN prds p ON t.prd_id = p.id
+                    WHERE json_extract(t.metadata, '$.streamId') = ?
+                      AND t.archived = 0
+                      AND p.initiative_id = ?
+                """, (stream_id, initiative_id))
+            else:
+                cursor.execute("""
+                    SELECT
+                        COUNT(*) as total,
+                        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+                        SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
+                        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+                        SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) as blocked
+                    FROM tasks
+                    WHERE json_extract(metadata, '$.streamId') = ?
+                      AND archived = 0
+                """, (stream_id,))
 
             row = cursor.fetchone()
             if not row or row[0] == 0:
@@ -512,6 +529,69 @@ class TaskCopilotClient:
             return False
         finally:
             conn.close()
+
+    def archive_initiative_streams(self, initiative_id: str) -> int:
+        """
+        Archive all streams for a specific initiative.
+
+        This marks all tasks belonging to streams in the initiative as archived.
+
+        Args:
+            initiative_id: Initiative ID to archive streams for
+
+        Returns:
+            Number of tasks archived
+        """
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE tasks
+                SET archived = 1,
+                    updated_at = datetime('now')
+                WHERE prd_id IN (
+                    SELECT id FROM prds WHERE initiative_id = ?
+                )
+                AND json_extract(metadata, '$.streamId') IS NOT NULL
+                AND archived = 0
+            """, (initiative_id,))
+            conn.commit()
+            return cursor.rowcount
+        except sqlite3.Error:
+            return 0
+        finally:
+            conn.close()
+
+    def complete_initiative(self, initiative_id: str) -> bool:
+        """
+        Mark an initiative as complete in Memory Copilot.
+
+        Args:
+            initiative_id: Initiative ID to complete
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.memory_db_path.exists():
+            return False
+
+        try:
+            conn = sqlite3.connect(str(self.memory_db_path), timeout=5)
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                UPDATE initiatives
+                SET status = 'COMPLETE',
+                    updated_at = datetime('now')
+                WHERE id = ?
+            """, (initiative_id,))
+
+            conn.commit()
+            success = cursor.rowcount > 0
+            conn.close()
+            return success
+        except sqlite3.Error:
+            return False
 
 
 # Convenience function for creating a client

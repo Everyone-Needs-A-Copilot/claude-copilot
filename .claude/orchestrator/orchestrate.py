@@ -74,6 +74,19 @@ class Orchestrator:
         # Initialize Task Copilot client
         self.tc_client = TaskCopilotClient(WORKSPACE_ID)
 
+        # Require active initiative
+        self.initiative_id = self.tc_client.get_active_initiative_id()
+        if not self.initiative_id:
+            error("No active initiative found. Start an initiative with /protocol first.")
+            sys.exit(1)
+
+        # Get initiative details for display
+        self.initiative_details = self.tc_client.get_initiative_details(self.initiative_id)
+        if self.initiative_details:
+            log(f"Initiative: {self.initiative_details.name}")
+            if self.initiative_details.goal:
+                log(f"Goal: {self.initiative_details.goal[:100]}")
+
         self.streams = self._query_streams()
         self.stream_dependencies = self._build_dependency_graph()
         self.dependency_depth = self._calculate_dependency_depth()
@@ -86,10 +99,11 @@ class Orchestrator:
     def _query_streams(self) -> Dict[str, dict]:
         """Query streams dynamically using Task Copilot client."""
         try:
-            stream_infos = self.tc_client.stream_list()
+            # Filter streams by initiative
+            stream_infos = self.tc_client.stream_list(initiative_id=self.initiative_id)
 
             if not stream_infos:
-                error("No streams found in Task Copilot database")
+                error(f"No streams found for initiative {self.initiative_id}")
                 sys.exit(1)
 
             streams = {}
@@ -183,7 +197,8 @@ class Orchestrator:
     def _get_stream_status(self, stream_id: str) -> Optional[dict]:
         """Get stream status using Task Copilot client."""
         try:
-            progress = self.tc_client.stream_get(stream_id)
+            # Filter by initiative
+            progress = self.tc_client.stream_get(stream_id, initiative_id=self.initiative_id)
             if not progress:
                 return None
 
@@ -263,6 +278,45 @@ class Orchestrator:
 
         return blocked
 
+    def _get_dead_workers(self) -> List[str]:
+        """Detect workers that died with incomplete tasks.
+
+        Returns list of stream_ids where:
+        - Worker was previously running (PID file exists or existed)
+        - Process is now dead
+        - Tasks are not complete
+        - Dependencies are satisfied (was ready to run)
+        """
+        dead_workers = []
+
+        for stream_id in self.streams.keys():
+            # Skip if currently running
+            if self._is_running(stream_id):
+                continue
+
+            # Skip if complete
+            status = self._get_stream_status(stream_id)
+            if status and status["is_complete"]:
+                continue
+
+            # Skip if dependencies not met (wasn't ready yet)
+            if not self._are_dependencies_complete(stream_id):
+                continue
+
+            # Check if there's evidence of prior execution
+            # (log file exists with content, indicating worker started)
+            log_file = self._get_log_file(stream_id)
+            if log_file.exists() and log_file.stat().st_size > 100:
+                # Worker ran but died - has incomplete tasks
+                # Check if there's at least one in_progress or we had progress
+                if status and (status["completed_tasks"] > 0 or status["in_progress_tasks"] > 0):
+                    dead_workers.append(stream_id)
+                elif status and status["total_tasks"] > 0:
+                    # Had tasks but no progress - likely died early
+                    dead_workers.append(stream_id)
+
+        return dead_workers
+
     def _preflight_check_agent_assignments(self) -> bool:
         """Pre-flight check for non-'me' agent assignments.
 
@@ -273,7 +327,7 @@ class Orchestrator:
             True if check passes (no issues or user chose to continue)
             False if user chose to abort
         """
-        non_me_tasks = self.tc_client.get_non_me_agent_tasks()
+        non_me_tasks = self.tc_client.get_non_me_agent_tasks(initiative_id=self.initiative_id)
 
         if not non_me_tasks:
             return True
@@ -497,6 +551,10 @@ Begin by querying your task list with task_list.
         # Track which streams we've attempted to start
         attempted = set()
 
+        # Track restart counts to prevent infinite loops
+        restart_counts: Dict[str, int] = defaultdict(int)
+        MAX_RESTARTS = 2
+
         # Main execution loop
         while True:
             # Find streams that are ready to start
@@ -512,6 +570,17 @@ Begin by querying your task list with task_list.
                     attempted.add(stream_id)
                     print()
 
+            # Check for dead workers that need restarting
+            dead_workers = self._get_dead_workers()
+            for stream_id in dead_workers:
+                if restart_counts[stream_id] < MAX_RESTARTS:
+                    restart_counts[stream_id] += 1
+                    warn(f"Worker {stream_id} died with incomplete tasks - restarting (attempt {restart_counts[stream_id]}/{MAX_RESTARTS})")
+                    self.spawn_worker(stream_id, wait_for_deps=False)
+                    print()
+                else:
+                    error(f"Worker {stream_id} failed {MAX_RESTARTS} times - marking as stuck")
+
             # Check if all streams are complete
             all_complete = True
             for stream_id in self.streams.keys():
@@ -522,6 +591,22 @@ Begin by querying your task list with task_list.
 
             if all_complete:
                 success("All streams complete!")
+                print()
+
+                # Archive streams for this initiative
+                log(f"Archiving streams for initiative {self.initiative_id}")
+                archived_count = self.tc_client.archive_initiative_streams(self.initiative_id)
+                success(f"Archived {archived_count} tasks")
+
+                # Mark initiative as complete
+                log("Marking initiative as complete")
+                if self.tc_client.complete_initiative(self.initiative_id):
+                    success("Initiative marked as COMPLETE")
+                else:
+                    warn("Failed to mark initiative as complete (Memory Copilot database may not be accessible)")
+
+                print()
+                success("Initiative complete - all streams archived")
                 break
 
             # Check if we're stuck (nothing ready, nothing running, not all complete)

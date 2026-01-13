@@ -144,8 +144,8 @@ Ask yourself:
 | Context switch mid-task | `/pause switching to X` | Creates checkpoint, switch safely |
 | Understand new codebase | `/map` | Generates PROJECT_MAP.md |
 | View memory state | `/memory` | See current initiative & recent activity |
-| Run parallel work streams | `/orchestrate start` | Spawns autonomous workers |
-| Monitor orchestration | `/orchestrate status` | Live progress dashboard |
+| Run parallel work streams | `/orchestrate generate` then `/orchestrate start` | Create PRD + tasks → spawn workers |
+| Monitor orchestration | `/orchestrate status` or `./watch-status` | Live progress dashboard |
 | Set up team standards | `/knowledge-copilot` | Create extension repository |
 | Initialize new project | `/setup-project` | Framework installs |
 | Update all projects | `/update-project` (each project) | Syncs latest changes |
@@ -374,6 +374,9 @@ Streams are automatically archived when switching initiatives via `initiative_li
 | Switch to new initiative | Old streams auto-archived |
 | Re-link same initiative | No archival (streams preserved) |
 | `/continue Stream-A` | Only shows current initiative's streams |
+| `/orchestrate generate` | Calls `initiative_link()` → archives old streams before creating new ones |
+| `/orchestrate start` | Only spawns workers for current initiative's streams |
+| `watch-status` | Only displays streams from active initiative |
 | Need old stream back | Use `stream_unarchive({ streamId: "Stream-A" })` |
 
 **After Updating from Pre-1.7.1:** Run `stream_archive_all({ confirm: true })` once to clean up legacy streams from before the auto-archive feature.
@@ -618,8 +621,11 @@ See [extension-spec.md](docs/40-extensions/00-extension-spec.md) for full docume
 | MCP Servers | `mcp-servers/` |
 | Decision matrices | `docs/10-architecture/03-decision-guide.md` |
 | Operations docs | `docs/30-operations/` |
+| Feature docs | `docs/50-features/` |
 | Templates | `templates/` |
+| Integration tests | `tests/integration/` |
 | Extension spec | `docs/40-extensions/00-extension-spec.md` |
+| Orchestration workflow | `docs/50-features/02-orchestration-workflow.md` |
 
 ---
 
