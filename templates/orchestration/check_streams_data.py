@@ -59,7 +59,7 @@ def main():
         # Output initiative info if available
         if initiative_id and initiative_name:
             goal_str = initiative_goal if initiative_goal else ""
-            print(f"INITIATIVE {initiative_name}|{goal_str}")
+            print(f"INITIATIVE {initiative_id}|{initiative_name}|{goal_str}")
 
         # Get streams (filtered by initiative if applicable)
         streams = client.stream_list(initiative_id)

@@ -489,7 +489,18 @@ Examples:
         help=f"Check interval in seconds for daemon mode (default: {DEFAULT_CHECK_INTERVAL})"
     )
 
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Quiet mode - only output when action is taken (for integration with watch-status)"
+    )
+
     args = parser.parse_args()
+
+    # In quiet mode, suppress all output unless there's an action
+    if args.quiet:
+        import io
+        sys.stdout = io.StringIO()
 
     # Create monitor instance
     monitor = WorkerMonitor(

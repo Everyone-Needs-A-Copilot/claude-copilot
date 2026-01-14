@@ -11,6 +11,9 @@
 # 5. Runs Claude with the prompt
 # 6. Cleans up on exit (success, failure, or signal)
 
+# Ensure common paths are in PATH (homebrew, local bin, etc.)
+export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"
+
 STREAM_ID="$1"
 PID_FILE="$2"
 LOG_DIR="$3"
@@ -93,7 +96,17 @@ echo $$ > "$PID_FILE"
 # Change to work directory
 cd "$WORK_DIR" || exit 1
 
+# Debug: Log prompt length and claude path
+{
+    echo "Prompt length: ${#PROMPT} chars"
+    echo "Claude path: $(which claude 2>/dev/null || echo 'NOT FOUND')"
+    echo "PATH: $PATH"
+    echo "Starting claude..."
+} >> "$LOG_FILE"
+
 # Run Claude - output goes to log file
 claude --print --dangerously-skip-permissions -p "$PROMPT" >> "$LOG_FILE" 2>&1
+CLAUDE_EXIT=$?
+echo "Claude exited with code: $CLAUDE_EXIT" >> "$LOG_FILE"
 
 # Exit code will be captured by trap

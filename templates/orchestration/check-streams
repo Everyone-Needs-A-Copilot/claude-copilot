@@ -8,16 +8,21 @@
 # - Empty state handling (no initiative, no streams, all complete)
 # - Initiative name and goal display in header
 
-# Resolve symlinks to get the real script location
-SCRIPT_PATH="${BASH_SOURCE[0]}"
+# Get script directory from original invocation path (don't resolve symlinks)
+# This ensures PROJECT_ROOT is calculated from the project's .claude/orchestrator,
+# not from a template directory if check-streams is symlinked
+INVOCATION_PATH="${BASH_SOURCE[0]}"
+INVOCATION_DIR="$(cd "$(dirname "$INVOCATION_PATH")" && pwd)"
+PROJECT_ROOT="$(cd "$INVOCATION_DIR/../.." && pwd)"
+
+# For finding companion scripts, use the resolved path (they may be in template)
+SCRIPT_PATH="$INVOCATION_PATH"
 while [ -L "$SCRIPT_PATH" ]; do
-    SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+    RESOLVED_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
     SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
-    # Handle relative symlinks
-    [[ "$SCRIPT_PATH" != /* ]] && SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_PATH"
+    [[ "$SCRIPT_PATH" != /* ]] && SCRIPT_PATH="$RESOLVED_DIR/$SCRIPT_PATH"
 done
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$PROJECT_ROOT"
 
 # Colors
