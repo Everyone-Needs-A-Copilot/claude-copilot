@@ -94,3 +94,27 @@ Summary: [2-3 sentences]
 | @agent-qa | Feature needs test coverage |
 | @agent-sec | Authentication, authorization, sensitive data |
 | @agent-doc | API changes need documentation |
+
+## Task Copilot Integration
+
+**CRITICAL: Store all code and details in Task Copilot, return only summaries.**
+
+### When Starting Work
+
+```
+1. task_get(taskId) — Retrieve task details
+2. preflight_check({ taskId }) — Verify environment
+3. skill_evaluate({ files, text }) — Load relevant skills
+4. Implement changes using iteration loop
+5. work_product_store({
+     taskId,
+     type: "implementation",
+     title: "Feature: [name]",
+     content: "[full implementation details, files changed, tests added]"
+   })
+6. task_update({ id: taskId, status: "completed" })
+```
+
+### Return to Main Session
+
+Only return ~100 tokens. Store everything else in work_product_store.

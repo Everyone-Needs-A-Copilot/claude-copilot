@@ -153,73 +153,144 @@ Then run:
 
 ## How to Use This Framework
 
-### The Basic Pattern
+Two patterns cover most development work:
+
+### Pattern 1: Fix a Bug
 
 ```bash
-# New work
-/protocol [describe what you want to do]
-
-# Resume
-/continue
+/protocol the checkout form submits twice on Enter key
 ```
 
-That's it. The framework classifies your request, routes to the right specialist, tracks progress, and remembers everything.
+**What happens step-by-step:**
 
-### Real Workflows
+1. **Protocol classifies your request:**
+   ```
+   [PROTOCOL: DEFECT | Agent: @agent-qa | Action: INVOKING]
+   Detected: Bug fix → Routing to QA Engineer...
+   ```
 
-**Bug fix:**
+2. **@agent-qa diagnoses:**
+   ```
+   Bug reproduced. Root cause: Missing preventDefault() on keyDown handler.
+   Routing to @agent-me for fix...
+   ```
+
+3. **@agent-me implements:**
+   ```
+   Fix implemented:
+   - Added e.preventDefault() to handleKeyDown
+   - Added test: "prevents double submission on Enter"
+
+   Routing back to @agent-qa for verification...
+   ```
+
+4. **@agent-qa verifies and commits:**
+   ```
+   Verification: PASS ✓
+   Git commit: fix(TASK-abc): Prevent double submission on Enter key
+   ```
+
+**Total time: 6-12 minutes from report to commit.**
+
+---
+
+### Pattern 2: Build a Feature (with Orchestration)
+
+For substantial features, use parallel work streams:
+
 ```bash
-/protocol the checkout crashes on empty cart
+/protocol ultrawork add OAuth authentication with Google and GitHub
 ```
-→ Routes to QA → reproduces → routes to Engineer → fixes → verifies → auto-commits
 
-**New feature:**
+**Step 1: Planning**
+
+The Tech Architect creates a plan with parallel streams:
+
+```
+✓ PRD Created: PRD-xyz789
+✓ 4 streams identified with 18 tasks
+
+Stream Structure:
+  Depth 0 (Foundation):
+    • Stream-A (Database & Config) - 4 tasks
+
+  Depth 1 (Parallel):
+    • Stream-B (Google OAuth) - 5 tasks → depends on: Stream-A
+    • Stream-C (GitHub OAuth) - 5 tasks → depends on: Stream-A
+
+  Depth 2 (Integration):
+    • Stream-Z (Integration & Docs) - 4 tasks → depends on: Stream-B, Stream-C
+
+Next: Run /orchestrate start to begin parallel execution
+```
+
+**Step 2: Start parallel workers**
+
 ```bash
-/protocol add dark mode to settings
+/orchestrate start
 ```
-→ Routes through Service Design → UX → UI Design → Implementation → verified and committed
 
-**Resume yesterday:**
+```
+Starting workers:
+  Stream-A (Foundation)... ✓ Worker spawned
+
+Waiting for dependencies:
+  Stream-B (blocked by Stream-A)
+  Stream-C (blocked by Stream-A)
+  Stream-Z (blocked by Stream-B, Stream-C)
+
+To monitor progress, open a second terminal:
+  ./watch-status
+```
+
+**Step 3: Monitor in second terminal**
+
 ```bash
-/continue
+./watch-status
 ```
-→ Loads memory → shows progress → picks up exactly where you left off
 
-### Work Intensity
+```
+MY-APP                                                62% ✓11 ⚙4 ○3
+═════════════════════════════════════════════════════════════════════
+Stream-A [===============] 100%  ✓  4        DONE  Database & Config
+Stream-B [==========-----]  60%  ✓  3  ⚙ 2  RUN   Google OAuth
+Stream-C [=======--------]  40%  ✓  2  ⚙ 2  RUN   GitHub OAuth
+Stream-Z [---------------]   0%       ○ 4  ---   Integration & Docs
+═════════════════════════════════════════════════════════════════════
+Workers: 2 | Press Ctrl-C to stop
+```
 
-Control depth with keywords:
+**Step 4: Completion**
 
-| Keyword | Use For |
+When all streams finish:
+
+```
+🎉 INITIATIVE COMPLETE 🎉
+
+All streams completed. 18 git commits created.
+```
+
+---
+
+### Quick Commands
+
+| Command | Use For |
 |---------|---------|
-| `quick` | Typos, obvious fixes |
-| `analyze` | Investigation only |
-| `thorough` | Deep review, full testing |
-| `ultrawork` | Multi-day features, architecture |
+| `/protocol [task]` | Start any work |
+| `/continue` | Resume yesterday's work |
+| `/pause [reason]` | Context switch, save state |
+| `/orchestrate start` | Run parallel workers |
+| `./watch-status` | Monitor progress (second terminal) |
 
-```bash
-/protocol quick fix the typo
-/protocol ultrawork redesign the auth system
-```
+### Work Intensity Keywords
 
-### What Happens Automatically
+| Keyword | Use For | Example |
+|---------|---------|---------|
+| `quick` | Typos, obvious fixes | `/protocol quick fix the typo` |
+| `thorough` | Deep review, full testing | `/protocol thorough review auth` |
+| `ultrawork` | Multi-day features | `/protocol ultrawork redesign auth` |
 
-| Feature | What It Does |
-|---------|--------------|
-| **Preflight Check** | Agents verify environment before starting |
-| **Verification** | Complex tasks require proof of completion |
-| **Auto-Commit** | Completed tasks create git commits |
-| **Scope Lock** | Feature PRDs prevent scope creep |
-| **Memory** | Progress survives across sessions |
-
-### Context Switching
-
-```bash
-/pause switching to urgent bug    # Save current work
-/protocol fix the crash           # Handle urgent work
-/continue Stream-A                # Resume previous work
-```
-
-→ [Full usage guide with scenarios](docs/70-reference/01-usage-guide.md)
+→ [Full usage guide with more scenarios](docs/70-reference/01-usage-guide.md)
 
 ---
 
@@ -255,19 +326,21 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 
 ---
 
-## Commands
+## All Commands
 
-| Command | Purpose | Example |
-|---------|---------|---------|
-| `/protocol [task]` | Start work with Agent-First Protocol | `/protocol add dark mode` |
-| `/continue [stream]` | Resume from memory or checkpoint | `/continue Stream-B` |
-| `/pause [reason]` | Create checkpoint for context switch | `/pause urgent bug` |
-| `/orchestrate` | Run parallel work streams | `/orchestrate start` |
-| `/map` | Generate project structure analysis | |
-| `/setup-project` | Initialize a new project | |
-| `/knowledge-copilot` | Build shared knowledge | |
+| Command | Purpose |
+|---------|---------|
+| `/protocol [task]` | Start work (auto-routes to right agent) |
+| `/continue [stream]` | Resume from memory or specific stream |
+| `/pause [reason]` | Save checkpoint for context switch |
+| `/orchestrate start` | Launch parallel workers |
+| `/orchestrate status` | Check stream progress |
+| `/map` | Generate project structure analysis |
+| `/setup-project` | Initialize a new project |
+| `/setup-knowledge-sync` | Enable auto-updates on releases |
+| `/knowledge-copilot` | Build shared knowledge repo |
 
-→ [Orchestration Guide](docs/50-features/01-orchestration-guide.md)
+→ [Orchestration Guide](docs/50-features/01-orchestration-guide.md) | [Knowledge Sync](docs/50-features/03-knowledge-sync.md)
 
 ---
 

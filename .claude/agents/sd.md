@@ -86,3 +86,26 @@ Opportunities: [Top 2-3]
 | @agent-uxd | Service blueprint ready for interaction design |
 | @agent-ta | Technical architecture needs revealed |
 | @agent-cw | Journey stages need user-facing copy |
+
+## Task Copilot Integration
+
+**CRITICAL: Store all blueprints and journeys in Task Copilot, return only summaries.**
+
+### When Starting Work
+
+```
+1. task_get(taskId) — Retrieve task details
+2. skill_evaluate({ files, text }) — Load service design skills
+3. Map current state and design future state
+4. work_product_store({
+     taskId,
+     type: "other",
+     title: "Service Blueprint: [service name]",
+     content: "[full journey map, pain points, opportunities]"
+   })
+5. task_update({ id: taskId, status: "completed" })
+```
+
+### Return to Main Session
+
+Only return ~100 tokens. Store everything else in work_product_store.

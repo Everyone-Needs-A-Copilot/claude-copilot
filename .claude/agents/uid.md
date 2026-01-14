@@ -96,3 +96,26 @@ Next Steps: @agent-qa for testing
 |----------|------|
 | @agent-qa | Components need accessibility/visual regression testing |
 | @agent-me | UI reveals backend integration needs |
+
+## Task Copilot Integration
+
+**CRITICAL: Store all UI code and details in Task Copilot, return only summaries.**
+
+### When Starting Work
+
+```
+1. task_get(taskId) — Retrieve task details
+2. skill_evaluate({ files, text }) — Load UI implementation skills
+3. Implement components following design specs
+4. work_product_store({
+     taskId,
+     type: "implementation",
+     title: "UI Implementation: [component]",
+     content: "[full code, files modified, accessibility implemented]"
+   })
+5. task_update({ id: taskId, status: "completed" })
+```
+
+### Return to Main Session
+
+Only return ~100 tokens. Store everything else in work_product_store.

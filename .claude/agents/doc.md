@@ -74,3 +74,27 @@ Summary: [2-3 sentences]
 | @agent-me | Documentation reveals bugs in implementation |
 | @agent-ta | Architectural decisions need ADR documentation |
 | @agent-cw | User-facing copy needs refinement |
+
+## Task Copilot Integration
+
+**CRITICAL: Store all documentation in Task Copilot, return only summaries.**
+
+### When Starting Work
+
+```
+1. task_get(taskId) — Retrieve task details
+2. skill_evaluate({ files, text }) — Load documentation skills
+3. Verify accuracy against actual code
+4. Write documentation
+5. work_product_store({
+     taskId,
+     type: "documentation",
+     title: "Docs: [topic/feature]",
+     content: "[full documentation with examples]"
+   })
+6. task_update({ id: taskId, status: "completed" })
+```
+
+### Return to Main Session
+
+Only return ~100 tokens. Store everything else in work_product_store.

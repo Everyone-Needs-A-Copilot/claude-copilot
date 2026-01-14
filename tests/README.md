@@ -1,34 +1,66 @@
-# Codebase Mapping Tests
+# Claude Copilot Test Suite
 
-Comprehensive test suite for the `/map` command and codebase mapping feature.
+Comprehensive tests for Claude Copilot framework, covering agent invocation, skill loading, orchestration workflows, and system features.
 
 ## Overview
 
-These tests validate the codebase mapping functionality, ensuring accurate detection of:
-- Tech stack (languages, package managers, frameworks)
-- Directory structure (with .gitignore respect)
-- Key files (configuration, documentation, entry points)
-- PROJECT_MAP.md generation and refresh
+This test suite validates:
+- **Agent System:** Assignment, routing, invocation, and specialization
+- **Skill System:** Discovery, evaluation, and injection into agent context
+- **Orchestration:** PRD/task creation, stream dependencies, parallel execution
+- **System Features:** Codebase mapping, hooks, corrections, lifecycle management
+
+## Test Organization
+
+```
+tests/
+├── TEST_STRATEGY.md                          # Comprehensive test strategy document
+├── unit/                                     # Fast, isolated unit tests
+│   ├── agent-assignment.test.ts              # Agent validation and routing
+│   ├── skill-loading.test.ts                 # Skill discovery and evaluation
+│   └── README.md
+├── integration/                              # Integration tests with multiple components
+│   ├── agent-skill-orchestration.test.ts     # Full workflow tests
+│   ├── hooks-evaluation-corrections.test.ts  # Lifecycle hooks and corrections
+│   ├── lean-agents-skills.test.ts            # Agent structure validation
+│   ├── orchestration-lifecycle.test.ts       # Orchestration workflow
+│   └── README.md
+├── map-command.test.ts                       # Codebase mapping tests
+└── hooks-evaluation-corrections.test.ts      # Legacy hooks test (root level)
+```
 
 ## Running Tests
 
 ### Run All Tests
 
 ```bash
-node --test tests/map-command.test.ts
+cd tests
+
+# Run all unit tests
+npx tsx unit/agent-assignment.test.ts
+npx tsx unit/skill-loading.test.ts
+
+# Run all integration tests
+npx tsx integration/agent-skill-orchestration.test.ts
+npx tsx integration/hooks-evaluation-corrections.test.ts
+npx tsx integration/lean-agents-skills.test.ts
+npx tsx integration/orchestration-lifecycle.test.ts
+
+# Run system tests
+npx tsx map-command.test.ts
 ```
 
-### Run Specific Test Suite
+### Run Quick Test Suite (Recommended)
 
 ```bash
-# Run with grep filter
-node --test tests/map-command.test.ts --test-name-pattern="Tech Stack Detection"
+# Run new agent/skill tests only
+./run-agent-tests.sh
 ```
 
-### Run with Coverage (if available)
+### Run with Node Test Runner
 
 ```bash
-node --test --experimental-test-coverage tests/map-command.test.ts
+node --test tests/**/*.test.ts
 ```
 
 ## Test Structure

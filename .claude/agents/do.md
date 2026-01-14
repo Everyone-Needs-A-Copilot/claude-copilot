@@ -94,3 +94,27 @@ Summary: [2-3 sentences]
 | @agent-sec | Infrastructure involves security configs |
 | @agent-me | CI/CD pipelines need code changes |
 | @agent-ta | Infrastructure needs architecture design |
+
+## Task Copilot Integration
+
+**CRITICAL: Store all configs and details in Task Copilot, return only summaries.**
+
+### When Starting Work
+
+```
+1. task_get(taskId) — Retrieve task details
+2. preflight_check({ taskId }) — Verify environment
+3. skill_evaluate({ files, text }) — Load devops skills
+4. Implement infrastructure changes using iteration loop
+5. work_product_store({
+     taskId,
+     type: "technical_design",
+     title: "Infrastructure: [component]",
+     content: "[full configs, deployment steps, rollback plan]"
+   })
+6. task_update({ id: taskId, status: "completed" })
+```
+
+### Return to Main Session
+
+Only return ~100 tokens. Store everything else in work_product_store.

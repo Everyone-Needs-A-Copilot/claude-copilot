@@ -107,6 +107,7 @@ Ask yourself:
 | `/update-project` | Sync project with latest framework | Project | Project root |
 | `/update-copilot` | Update framework itself | Machine | `~/.claude/copilot` |
 | `/knowledge-copilot` | Create shared knowledge repo | Machine/Team | Any directory |
+| `/setup-knowledge-sync` | Install automatic knowledge updates | Project | Project root |
 | `/protocol [task]` | Start fresh work session | Session | Project root |
 | `/continue [stream]` | Resume previous work | Session | Project root |
 | `/pause [reason]` | Context switch, save state | Session | Project root |
@@ -147,6 +148,7 @@ Ask yourself:
 | Run parallel work streams | `/orchestrate generate` then `/orchestrate start` | Create PRD + tasks → spawn workers |
 | Monitor orchestration | `/orchestrate status` or `./watch-status` | Live progress dashboard |
 | Set up team standards | `/knowledge-copilot` | Create extension repository |
+| Auto-update product knowledge | `/setup-knowledge-sync` | Updates on git release tags |
 | Initialize new project | `/setup-project` | Framework installs |
 | Update all projects | `/update-project` (each project) | Syncs latest changes |
 | Search past decisions | Use `memory_search` tool | Semantic search across sessions |
@@ -619,6 +621,8 @@ See [extension-spec.md](docs/40-extensions/00-extension-spec.md) for full docume
 | Agents | `.claude/agents/` |
 | Commands | `.claude/commands/` |
 | MCP Servers | `mcp-servers/` |
+| Knowledge sync scripts | `scripts/knowledge-sync/` |
+| Git hooks | `templates/hooks/` |
 | Decision matrices | `docs/10-architecture/03-decision-guide.md` |
 | Operations docs | `docs/30-operations/` |
 | Feature docs | `docs/50-features/` |
@@ -626,6 +630,7 @@ See [extension-spec.md](docs/40-extensions/00-extension-spec.md) for full docume
 | Integration tests | `tests/integration/` |
 | Extension spec | `docs/40-extensions/00-extension-spec.md` |
 | Orchestration workflow | `docs/50-features/02-orchestration-workflow.md` |
+| Knowledge sync protocol | `docs/50-features/03-knowledge-sync.md` |
 
 ---
 

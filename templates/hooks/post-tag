@@ -1,0 +1,55 @@
+#!/bin/bash
+# Git Post-Tag Hook for Knowledge Sync
+# Automatically syncs product knowledge when a release tag is created
+
+# This hook is triggered after a tag is created
+# Usage: Installed in .git/hooks/post-tag
+
+# Get the tag that was just created
+TAG="$1"
+
+# Only process release tags (versions starting with 'v')
+if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+    echo "Skipping knowledge sync for non-release tag: $TAG"
+    exit 0
+fi
+
+# Color codes
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+echo ""
+echo -e "${BLUE}🔄 Knowledge Sync Triggered${NC}"
+echo -e "${BLUE}Tag: $TAG${NC}"
+echo ""
+
+# Check if knowledge-sync script exists
+SYNC_SCRIPT="$(git rev-parse --show-toplevel)/.git/hooks/sync-knowledge.sh"
+
+if [ ! -f "$SYNC_SCRIPT" ]; then
+    echo -e "${YELLOW}⚠️  Knowledge sync script not found: $SYNC_SCRIPT${NC}"
+    echo -e "${YELLOW}Knowledge sync skipped.${NC}"
+    echo ""
+    echo "To enable automatic knowledge sync:"
+    echo "  1. Run /setup-knowledge-sync in Claude Code"
+    echo "  2. Or manually copy scripts from templates/hooks/"
+    exit 0
+fi
+
+# Run knowledge sync
+echo "Running knowledge sync..."
+if "$SYNC_SCRIPT" --tag "$TAG"; then
+    echo ""
+    echo -e "${GREEN}✅ Knowledge sync complete${NC}"
+else
+    echo ""
+    echo -e "${RED}❌ Knowledge sync failed${NC}"
+    echo -e "${YELLOW}This won't prevent the tag from being created.${NC}"
+    echo "You can manually sync later with:"
+    echo "  .git/hooks/sync-knowledge.sh --tag $TAG"
+fi
+
+echo ""

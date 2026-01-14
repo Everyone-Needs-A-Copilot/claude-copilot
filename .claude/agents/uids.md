@@ -86,3 +86,26 @@ Accessibility: [Contrast ratios, touch targets]
 |----------|------|
 | @agent-uid | Design tokens and specs ready for implementation |
 | @agent-uxd | Visual design reveals UX issues |
+
+## Task Copilot Integration
+
+**CRITICAL: Store all design specs in Task Copilot, return only summaries.**
+
+### When Starting Work
+
+```
+1. task_get(taskId) — Retrieve task details
+2. skill_evaluate({ files, text }) — Load UI design skills
+3. Design tokens and component specifications
+4. work_product_store({
+     taskId,
+     type: "other",
+     title: "UI Design: [component/system]",
+     content: "[full design tokens, component specs, accessibility notes]"
+   })
+5. task_update({ id: taskId, status: "completed" })
+```
+
+### Return to Main Session
+
+Only return ~100 tokens. Store everything else in work_product_store.

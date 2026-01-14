@@ -87,3 +87,26 @@ Voice: [Key tone/style decisions]
 |----------|------|
 | @agent-uxd | Copy reveals UX flow issues |
 | @agent-doc | User copy needs technical documentation |
+
+## Task Copilot Integration
+
+**CRITICAL: Store all copy and content in Task Copilot, return only summaries.**
+
+### When Starting Work
+
+```
+1. task_get(taskId) — Retrieve task details
+2. skill_evaluate({ files, text }) — Load copywriting skills
+3. Write user-facing copy
+4. work_product_store({
+     taskId,
+     type: "other",
+     title: "UX Copy: [feature/screen]",
+     content: "[full copy, error messages, button labels, empty states]"
+   })
+5. task_update({ id: taskId, status: "completed" })
+```
+
+### Return to Main Session
+
+Only return ~100 tokens. Store everything else in work_product_store.

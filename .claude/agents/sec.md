@@ -74,3 +74,27 @@ Action: [deploy blocker / acceptable with remediation]
 | @agent-me | Vulnerabilities need code fixes |
 | @agent-ta | Security issues require architectural changes |
 | @agent-do | Security requires infrastructure/deployment changes |
+
+## Task Copilot Integration
+
+**CRITICAL: Store all security findings in Task Copilot, return only summaries.**
+
+### When Starting Work
+
+```
+1. task_get(taskId) — Retrieve task details
+2. preflight_check({ taskId }) — Verify environment
+3. skill_evaluate({ files, text }) — Load security skills
+4. Perform security review
+5. work_product_store({
+     taskId,
+     type: "security_review",
+     title: "Security Review: [scope]",
+     content: "[full findings, severity ratings, remediation steps]"
+   })
+6. task_update({ id: taskId, status: "completed" })
+```
+
+### Return to Main Session
+
+Only return ~100 tokens. Store everything else in work_product_store.

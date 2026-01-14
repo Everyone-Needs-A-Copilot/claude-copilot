@@ -13,6 +13,10 @@ Usage:
     python orchestrate.py status         # Check status of all streams
     python orchestrate.py stop           # Stop all running streams
     python orchestrate.py logs Stream-A  # Tail logs for a stream
+    python orchestrate.py test-routing   # Show routing plan without executing (dry run)
+
+Routing Logs:
+    All agent routing decisions are logged to: .claude/orchestrator/logs/routing.log
 """
 
 import json
@@ -35,6 +39,7 @@ PROJECT_ROOT = SCRIPT_DIR.parent.parent  # Go up from .claude/orchestrator to pr
 PROJECT_NAME = PROJECT_ROOT.name  # Auto-detect from directory name
 LOG_DIR = SCRIPT_DIR / "logs"
 PID_DIR = SCRIPT_DIR / "pids"
+ROUTING_LOG = LOG_DIR / "routing.log"
 POLL_INTERVAL = 30  # seconds
 
 # Task Copilot workspace ID - auto-detect from project name
@@ -67,6 +72,22 @@ def warn(msg: str):
 
 def error(msg: str):
     print(f"{Colors.RED}[ERROR]{Colors.NC} {msg}")
+
+
+def log_routing(msg: str, to_file: bool = True, to_console: bool = True):
+    """Log routing decision to file and/or console."""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_msg = f"[{timestamp}] {msg}"
+
+    if to_console:
+        print(f"{Colors.CYAN}[ROUTING]{Colors.NC} {msg}")
+
+    if to_file:
+        try:
+            with open(ROUTING_LOG, "a") as f:
+                f.write(log_msg + "\n")
+        except Exception as e:
+            warn(f"Failed to write to routing log: {e}")
 
 
 class Orchestrator:
@@ -323,65 +344,28 @@ class Orchestrator:
     def _preflight_check_agent_assignments(self) -> bool:
         """Pre-flight check for non-'me' agent assignments.
 
-        Workers run as 'me' agent, so tasks assigned to other agents will be skipped.
-        This check warns about such tasks and offers to auto-reassign them.
+        NOTE: This check is now INFORMATIONAL only - workers route tasks to specialized agents.
+        Keeping the method for backwards compatibility but it always returns True.
 
         Returns:
-            True if check passes (no issues or user chose to continue)
-            False if user chose to abort
+            True (always passes now that routing is enabled)
         """
+        # Specialized agent routing is now enabled - no need to check/reassign
         non_me_tasks = self.tc_client.get_non_me_agent_tasks(initiative_id=self.initiative_id)
 
-        if not non_me_tasks:
-            return True
-
-        # Group by stream for cleaner display
-        by_stream: Dict[str, List[dict]] = defaultdict(list)
-        for task in non_me_tasks:
-            by_stream[task['stream_id']].append(task)
-
-        print()
-        warn(f"Found {len(non_me_tasks)} task(s) assigned to non-'me' agents:")
-        print()
-
-        for stream_id, tasks in sorted(by_stream.items()):
-            print(f"  {Colors.CYAN}{stream_id}:{Colors.NC}")
-            for task in tasks:
-                title = task['title'][:50] + '...' if len(task['title']) > 50 else task['title']
-                print(f"    • {title} → {Colors.YELLOW}@{task['assigned_agent']}{Colors.NC}")
-        print()
-
-        warn("Workers run as @agent-me and will SKIP these tasks.")
-        print()
-        print(f"  {Colors.BOLD}[r]{Colors.NC} Reassign all to 'me' and continue")
-        print(f"  {Colors.BOLD}[c]{Colors.NC} Continue anyway (tasks will be skipped)")
-        print(f"  {Colors.BOLD}[a]{Colors.NC} Abort")
-        print()
-
-        try:
-            choice = input(f"  Choice [r/c/a]: ").strip().lower()
-        except (KeyboardInterrupt, EOFError):
-            print()
-            return False
-
-        if choice == 'r':
-            log("Reassigning tasks to 'me'...")
-            reassigned = 0
+        if non_me_tasks:
+            # Group by agent for informational display
+            by_agent: Dict[str, int] = defaultdict(int)
             for task in non_me_tasks:
-                if self.tc_client.reassign_task_to_me(task['id']):
-                    reassigned += 1
-                    title = task['title'][:40] + '...' if len(task['title']) > 40 else task['title']
-                    log(f"  Reassigned: {title}")
-            success(f"Reassigned {reassigned}/{len(non_me_tasks)} tasks")
+                by_agent[task['assigned_agent']] += 1
+
+            log(f"Found {len(non_me_tasks)} task(s) assigned to specialized agents:")
+            for agent, count in sorted(by_agent.items()):
+                log(f"  • @agent-{agent}: {count} tasks")
+            log("Workers will route these tasks to their assigned agents.")
             print()
-            return True
-        elif choice == 'c':
-            warn("Continuing with non-'me' tasks (they will be skipped)")
-            print()
-            return True
-        else:
-            error("Aborted by user")
-            return False
+
+        return True
 
     def _get_pid_file(self, stream_id: str) -> Path:
         return PID_DIR / f"{stream_id}.pid"
@@ -426,6 +410,64 @@ class Orchestrator:
         if cleaned > 0:
             log(f"Cleaned up {cleaned} stale PID file(s)")
 
+    def _get_all_tasks(self) -> List[Dict]:
+        """Get all tasks for the current initiative."""
+        conn = self.tc_client._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT
+                    t.id,
+                    t.title,
+                    t.status,
+                    t.assigned_agent,
+                    json_extract(t.metadata, '$.streamId') as stream_id,
+                    json_extract(t.metadata, '$.files') as files
+                FROM tasks t
+                LEFT JOIN prds p ON t.prd_id = p.id
+                WHERE json_extract(t.metadata, '$.streamId') IS NOT NULL
+                  AND t.archived = 0
+                  AND p.initiative_id = ?
+                ORDER BY json_extract(t.metadata, '$.streamId'), t.created_at
+            """, (self.initiative_id,))
+
+            tasks = []
+            for row in cursor.fetchall():
+                task_id, title, status, agent, stream_id, files = row
+                tasks.append({
+                    'id': task_id,
+                    'title': title,
+                    'status': status,
+                    'assigned_agent': agent or 'me',
+                    'stream_id': stream_id,
+                    'files': files
+                })
+
+            return tasks
+        finally:
+            conn.close()
+
+    def _generate_routing_plan(self) -> Dict:
+        """Generate routing plan for all tasks."""
+        tasks = self._get_all_tasks()
+
+        # Group by stream
+        streams_tasks = defaultdict(list)
+        agent_counts = defaultdict(int)
+
+        for task in tasks:
+            stream_id = task['stream_id']
+            agent = task['assigned_agent']
+
+            streams_tasks[stream_id].append(task)
+            agent_counts[agent] += 1
+
+        return {
+            'streams': streams_tasks,
+            'agent_counts': agent_counts,
+            'total_tasks': len(tasks)
+        }
+
     def _build_prompt(self, stream: dict) -> str:
         """Build the prompt for a Claude Code worker."""
         dependencies = self.stream_dependencies.get(stream['id'], set())
@@ -446,46 +488,106 @@ Call `task_list` with streamId filter to get your assigned tasks:
 task_list(metadata.streamId="{stream['id']}")
 ```
 
-### Step 2: For EACH Task (in order)
+### Step 2: Route Each Task to Its Assigned Agent
 
-**Before starting work:**
-```
-task_update(id="TASK-xxx", status="in_progress")
-```
+**For EACH task in order:**
 
-**After completing work:**
-```
-task_update(id="TASK-xxx", status="completed", notes="Brief description of what was done")
-```
+1. **Get task details:**
+   ```
+   task_get(id="TASK-xxx")
+   ```
 
-**CRITICAL:** You MUST call task_update after EACH task. Do not batch updates.
+2. **Check the assignedAgent field:**
+   - If `assignedAgent` is "me", execute the task yourself
+   - If `assignedAgent` is anything else (uid, qa, sec, uxd, etc.), invoke that agent
+
+3. **Route to specialized agent:**
+   ```
+   # Use Task tool to invoke the specialized agent
+   Task: Execute task TASK-xxx
+   Subagent: @agent-{{assignedAgent}}
+   Context: [Brief task context from task.title and task.description]
+   ```
+
+4. **Wait for agent to complete:**
+   - The specialized agent will call skill_evaluate() to load domain skills
+   - The specialized agent will execute the task
+   - The specialized agent will call task_update() when complete
+
+5. **Move to next task:**
+   - Do NOT mark tasks as complete yourself (agents do this)
+   - Simply move to the next task in your stream
 
 ### Step 3: Verify Before Exiting
 
 **Before outputting any completion summary:**
 1. Call `task_list(metadata.streamId="{stream['id']}")` again
 2. Check that ALL tasks have `status: "completed"`
-3. If ANY task is still `pending` or `in_progress`, go back and complete it
+3. If ANY task is still `pending` or `in_progress`, investigate and retry
 4. Only after verification passes, output your summary
 
 ### Step 4: Output Summary
 Only after ALL tasks are verified complete in Task Copilot, output:
-- List of completed tasks with brief notes
+- List of tasks routed to which agents
+- Which agents completed their work
 - Any commits made
 - Any issues encountered
 
 ## CRITICAL RULES
+- DO NOT execute tasks assigned to specialized agents yourself
+- Each specialized agent loads their own domain skills via skill_evaluate()
 - DO NOT claim "complete" without verifying in Task Copilot first
-- DO NOT skip task_update calls - they are MANDATORY
-- If task_update fails, retry or report the error - do not proceed silently
 - Stay focused on {stream['id']} tasks only
-- Commit after each significant change
-- If blocked, call task_update with status="blocked" and blockedReason
+- If an agent is blocked, check task status and coordinate
+
+## Specialized Agent Examples
+
+**Example 1: UI Implementation Task**
+```
+Task Details:
+- id: TASK-123
+- title: "Implement topic card component"
+- assignedAgent: "uid"
+
+Action: Invoke @agent-uid via Task tool
+→ @agent-uid will call skill_evaluate() with files/context
+→ @agent-uid will load design-patterns or ux-patterns skills
+→ @agent-uid will implement component with accessibility
+→ @agent-uid will call task_update(id="TASK-123", status="completed")
+```
+
+**Example 2: Testing Task**
+```
+Task Details:
+- id: TASK-456
+- title: "Add tests for evidence selector"
+- assignedAgent: "qa"
+
+Action: Invoke @agent-qa via Task tool
+→ @agent-qa will call skill_evaluate() with test file context
+→ @agent-qa will load pytest-patterns or jest-patterns skills
+→ @agent-qa will write comprehensive tests
+→ @agent-qa will call task_update(id="TASK-456", status="completed")
+```
+
+**Example 3: Generic Implementation Task**
+```
+Task Details:
+- id: TASK-789
+- title: "Fix evidence migration bug"
+- assignedAgent: "me"
+
+Action: Execute yourself (you are 'me')
+→ Call task_update(id="TASK-789", status="in_progress")
+→ Execute the fix
+→ Call task_update(id="TASK-789", status="completed")
+```
 
 ## Anti-Patterns (NEVER DO THESE)
-- Outputting "All tasks complete" without calling task_update for each
-- Skipping verification step before exit
-- Claiming success when Task Copilot shows pending tasks
+- Executing uid/qa/sec tasks yourself instead of routing
+- Outputting "All tasks complete" without verifying Task Copilot
+- Skipping agent routing for specialized tasks
+- Marking other agents' tasks as complete yourself
 
 Begin by querying your task list with task_list.
 """
@@ -828,12 +930,121 @@ Begin by querying your task list with task_list.
 
         subprocess.run(["tail", "-f", str(log_file)])
 
+    def test_routing(self):
+        """Display routing plan without executing tasks."""
+        print(f"\n{Colors.BOLD}{'='*75}{Colors.NC}")
+        print(f"{Colors.BOLD}           ROUTING PLAN - TEST MODE (DRY RUN){Colors.NC}")
+        print(f"{Colors.BOLD}{'='*75}{Colors.NC}\n")
+
+        log(f"Initiative: {self.initiative_details.name if self.initiative_details else self.initiative_id}")
+        print()
+
+        # Generate routing plan
+        plan = self._generate_routing_plan()
+
+        # Display tasks grouped by stream
+        print(f"{Colors.BOLD}Task Routing by Stream:{Colors.NC}\n")
+
+        # Sort streams by dependency depth
+        depths = defaultdict(list)
+        for stream_id, depth in self.dependency_depth.items():
+            depths[depth].append(stream_id)
+
+        for depth in sorted(depths.keys()):
+            stream_ids = sorted(depths[depth])
+
+            for stream_id in stream_ids:
+                if stream_id not in plan['streams']:
+                    continue
+
+                stream = self.streams[stream_id]
+                tasks = plan['streams'][stream_id]
+
+                # Display stream header
+                deps = self.stream_dependencies.get(stream_id, set())
+                deps_str = f" (depends on: {', '.join(sorted(deps))})" if deps else ""
+
+                print(f"  {Colors.MAGENTA}{stream_id}{Colors.NC}: {stream['name']}{deps_str}")
+
+                # Display tasks with agent assignments
+                agent_colors = {
+                    'me': Colors.GREEN,
+                    'uid': Colors.CYAN,
+                    'uxd': Colors.CYAN,
+                    'qa': Colors.YELLOW,
+                    'sec': Colors.RED,
+                    'ta': Colors.BLUE,
+                    'sd': Colors.BLUE,
+                    'doc': Colors.DIM,
+                }
+
+                for task in tasks:
+                    agent = task['assigned_agent']
+                    color = agent_colors.get(agent, Colors.NC)
+                    status_icon = {
+                        'completed': f"{Colors.GREEN}✓{Colors.NC}",
+                        'in_progress': f"{Colors.YELLOW}◐{Colors.NC}",
+                        'pending': f"{Colors.DIM}○{Colors.NC}",
+                        'blocked': f"{Colors.RED}✗{Colors.NC}",
+                    }.get(task['status'], "?")
+
+                    # Truncate title if too long
+                    title = task['title']
+                    if len(title) > 60:
+                        title = title[:57] + "..."
+
+                    print(f"    {status_icon} {task['id']} → {color}@agent-{agent}{Colors.NC}")
+                    print(f"      {Colors.DIM}{title}{Colors.NC}")
+
+                print()
+
+        # Display routing summary
+        print(f"{Colors.BOLD}Routing Summary:{Colors.NC}\n")
+
+        # Sort agents by count
+        sorted_agents = sorted(plan['agent_counts'].items(), key=lambda x: x[1], reverse=True)
+
+        total_tasks = plan['total_tasks']
+        for agent, count in sorted_agents:
+            color = agent_colors.get(agent, Colors.NC)
+            pct = int(count / total_tasks * 100) if total_tasks > 0 else 0
+            bar_filled = pct // 5
+            bar = "█" * bar_filled + "░" * (20 - bar_filled)
+            print(f"  {color}@agent-{agent:6}{Colors.NC} {bar} {count:3} tasks ({pct:3}%)")
+
+        print()
+        print(f"  {Colors.BOLD}Total:{Colors.NC} {total_tasks} tasks across {len(plan['streams'])} streams")
+        print()
+
+        # Display execution order
+        print(f"{Colors.BOLD}Execution Order (by dependency depth):{Colors.NC}\n")
+
+        for depth in sorted(depths.keys()):
+            stream_ids = sorted(depths[depth])
+            stream_ids_with_tasks = [s for s in stream_ids if s in plan['streams']]
+
+            if not stream_ids_with_tasks:
+                continue
+
+            if depth == 0:
+                print(f"  {Colors.GREEN}Depth {depth} (Independent - can run in parallel):{Colors.NC}")
+            else:
+                print(f"  {Colors.CYAN}Depth {depth} (will start after depth {depth-1} completes):{Colors.NC}")
+
+            for stream_id in stream_ids_with_tasks:
+                task_count = len(plan['streams'][stream_id])
+                print(f"    • {stream_id} ({task_count} tasks)")
+
+            print()
+
+        print(f"{Colors.YELLOW}[DRY RUN] No workers will be spawned. Use 'orchestrate.py start' to execute.{Colors.NC}\n")
+
 
 def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="Claude Copilot Orchestrator")
-    parser.add_argument("command", choices=["start", "status", "stop", "logs"],
+    parser.add_argument("command", choices=["start", "status", "stop", "logs", "test-routing"],
                        help="Command to run")
     parser.add_argument("stream_id", nargs="?", help="Stream ID (for start/stop/logs)")
 
@@ -858,6 +1069,8 @@ def main():
             error("Usage: orchestrate.py logs <stream-id>")
             sys.exit(1)
         orchestrator.tail_logs(args.stream_id)
+    elif args.command == "test-routing":
+        orchestrator.test_routing()
 
 
 if __name__ == "__main__":

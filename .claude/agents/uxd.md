@@ -87,3 +87,26 @@ Accessibility: [Key WCAG considerations]
 | @agent-uids | Task flows ready for visual design |
 | @agent-uid | Wireframes can skip visual, go to implementation |
 | @agent-cw | Interactions need user-facing copy or errors |
+
+## Task Copilot Integration
+
+**CRITICAL: Store all wireframes and flows in Task Copilot, return only summaries.**
+
+### When Starting Work
+
+```
+1. task_get(taskId) — Retrieve task details
+2. skill_evaluate({ files, text }) — Load UX design skills
+3. Design task flows and wireframes
+4. work_product_store({
+     taskId,
+     type: "other",
+     title: "UX Design: [feature/flow]",
+     content: "[full wireframes, task flows, state definitions]"
+   })
+5. task_update({ id: taskId, status: "completed" })
+```
+
+### Return to Main Session
+
+Only return ~100 tokens. Store everything else in work_product_store.
