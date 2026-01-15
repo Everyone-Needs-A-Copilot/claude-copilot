@@ -109,14 +109,15 @@ async function testAgentStructure() {
   });
 
   // Test: Lean agents are within line limit
-  await runTest('Lean agents are ~60-100 lines', () => {
+  // Note: Domain agents (sd, uxd, uids, cw) have specification workflow sections (~50 lines each)
+  await runTest('Lean agents are within line limit', () => {
     for (const agent of LEAN_AGENTS) {
       const agentPath = join(agentsDir, `${agent}.md`);
       const content = readFileSync(agentPath, 'utf-8');
       const lineCount = content.split('\n').length;
 
-      // Allow some flexibility: 40-150 lines
-      assertInRange(lineCount, 40, 150, `Agent ${agent}.md has ${lineCount} lines`);
+      // Allow 40-250 lines: base ~100 lines + specification sections (~50 lines) + headroom
+      assertInRange(lineCount, 40, 250, `Agent ${agent}.md has ${lineCount} lines`);
     }
   });
 

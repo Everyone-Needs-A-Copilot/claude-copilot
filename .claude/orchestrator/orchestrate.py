@@ -8,11 +8,16 @@ All stream information and dependencies are queried from Task Copilot SQLite dat
 NO HARDCODED PHASES - Streams define their own dependencies, execution is fully dynamic.
 
 Usage:
+    python orchestrate.py preflight      # Validate environment before orchestration
     python orchestrate.py start          # Start all streams (respects dependencies)
     python orchestrate.py start Stream-C # Start specific stream
     python orchestrate.py status         # Check status of all streams
     python orchestrate.py stop           # Stop all running streams
     python orchestrate.py logs Stream-A  # Tail logs for a stream
+    python orchestrate.py test-routing   # Show routing plan without executing (dry run)
+
+Routing Logs:
+    All agent routing decisions are logged to: .claude/orchestrator/logs/routing.log
 """
 
 import json
@@ -21,9 +26,10 @@ import os
 import sys
 import time
 import signal
+import shutil
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 from collections import defaultdict
 
 # Import Task Copilot client
@@ -35,6 +41,7 @@ PROJECT_ROOT = SCRIPT_DIR.parent.parent  # Go up from .claude/orchestrator to pr
 PROJECT_NAME = PROJECT_ROOT.name  # Auto-detect from directory name
 LOG_DIR = SCRIPT_DIR / "logs"
 PID_DIR = SCRIPT_DIR / "pids"
+ROUTING_LOG = LOG_DIR / "routing.log"
 POLL_INTERVAL = 30  # seconds
 
 # Task Copilot workspace ID - auto-detect from project name
@@ -69,6 +76,399 @@ def error(msg: str):
     print(f"{Colors.RED}[ERROR]{Colors.NC} {msg}")
 
 
+def log_routing(msg: str, to_file: bool = True, to_console: bool = True):
+    """Log routing decision to file and/or console."""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_msg = f"[{timestamp}] {msg}"
+
+    if to_console:
+        print(f"{Colors.CYAN}[ROUTING]{Colors.NC} {msg}")
+
+    if to_file:
+        try:
+            with open(ROUTING_LOG, "a") as f:
+                f.write(log_msg + "\n")
+        except Exception as e:
+            warn(f"Failed to write to routing log: {e}")
+
+
+class PreflightValidator:
+    """Validates environment before orchestration to catch issues early."""
+
+    def __init__(self, project_root: Path):
+        self.project_root = project_root
+        self.errors: List[Tuple[str, str]] = []  # (check_name, error_message)
+        self.warnings: List[Tuple[str, str]] = []  # (check_name, warning_message)
+
+    def validate_all(self) -> bool:
+        """Run all validations. Returns True if environment is healthy."""
+        self.errors = []
+        self.warnings = []
+
+        # Run all validation checks
+        self.validate_claude_cli()
+        self.validate_git_worktree_support()
+        self.validate_directory_permissions()
+        self.validate_task_copilot()
+
+        # Return True only if no errors (warnings are acceptable)
+        return len(self.errors) == 0
+
+    def validate_claude_cli(self) -> bool:
+        """Check Claude CLI is in PATH and executable."""
+        # First check with shutil.which
+        claude_path = shutil.which('claude')
+
+        # If not found, check common installation locations
+        if not claude_path:
+            common_paths = [
+                '/opt/homebrew/bin/claude',
+                '/usr/local/bin/claude',
+                os.path.expanduser('~/.local/bin/claude')
+            ]
+            for path in common_paths:
+                if os.path.exists(path) and os.access(path, os.X_OK):
+                    claude_path = path
+                    break
+
+        if not claude_path:
+            self.errors.append((
+                "Claude CLI",
+                "NOT FOUND\n   → Install with: brew install anthropics/tap/claude\n   → Or add claude to PATH"
+            ))
+            return False
+
+        # Verify it's executable
+        if not os.access(claude_path, os.X_OK):
+            self.errors.append((
+                "Claude CLI",
+                f"Found at {claude_path} but NOT EXECUTABLE\n   → Run: chmod +x {claude_path}"
+            ))
+            return False
+
+        return True
+
+    def validate_git_worktree_support(self) -> bool:
+        """Check git supports worktrees and project is a git repo."""
+        # Check if project is a git repository
+        if not (self.project_root / '.git').exists():
+            self.errors.append((
+                "Git Repository",
+                f"NOT A GIT REPO: {self.project_root}\n   → Initialize with: git init"
+            ))
+            return False
+
+        # Check git version supports worktrees (requires git >= 2.5)
+        try:
+            result = subprocess.run(
+                ['git', '--version'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode != 0:
+                self.errors.append((
+                    "Git Version",
+                    "Could not determine git version"
+                ))
+                return False
+
+            # Parse version (output format: "git version 2.43.0")
+            version_str = result.stdout.strip()
+            # Extract version number
+            import re
+            match = re.search(r'git version (\d+)\.(\d+)', version_str)
+            if match:
+                major, minor = int(match.group(1)), int(match.group(2))
+                if major < 2 or (major == 2 and minor < 5):
+                    self.errors.append((
+                        "Git Version",
+                        f"Git {major}.{minor} found - worktrees require >= 2.5\n   → Update git: brew upgrade git"
+                    ))
+                    return False
+        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+            self.errors.append((
+                "Git Check",
+                f"Failed to check git version: {e}"
+            ))
+            return False
+
+        # Test worktree support by running 'git worktree list'
+        try:
+            result = subprocess.run(
+                ['git', 'worktree', 'list'],
+                cwd=self.project_root,
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode != 0:
+                self.errors.append((
+                    "Git Worktree",
+                    f"Git worktree command failed\n   → {result.stderr.strip()}"
+                ))
+                return False
+        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+            self.errors.append((
+                "Git Worktree",
+                f"Failed to test worktree support: {e}"
+            ))
+            return False
+
+        return True
+
+    def validate_directory_permissions(self) -> bool:
+        """Check write permissions for worktree directory."""
+        worktree_base = self.project_root / '.claude' / 'worktrees'
+
+        # If it doesn't exist, check parent directory
+        if not worktree_base.exists():
+            check_dir = self.project_root / '.claude'
+            if not check_dir.exists():
+                check_dir = self.project_root
+        else:
+            check_dir = worktree_base
+
+        if not os.access(check_dir, os.W_OK):
+            self.errors.append((
+                "Directory Permissions",
+                f"Cannot write to {check_dir}\n   → Check permissions: ls -la {check_dir.parent}"
+            ))
+            return False
+
+        # Also check PID and log directories
+        orchestrator_dir = self.project_root / '.claude' / 'orchestrator'
+        if orchestrator_dir.exists():
+            for subdir in ['pids', 'logs']:
+                subdir_path = orchestrator_dir / subdir
+                if subdir_path.exists() and not os.access(subdir_path, os.W_OK):
+                    self.warnings.append((
+                        f"{subdir.title()} Directory",
+                        f"Warning - Cannot write to {subdir_path}"
+                    ))
+
+        return True
+
+    def validate_task_copilot(self) -> bool:
+        """Check Task Copilot MCP server is accessible."""
+        mcp_json_path = self.project_root / '.mcp.json'
+
+        if not mcp_json_path.exists():
+            self.errors.append((
+                "Task Copilot",
+                "NOT CONFIGURED - .mcp.json not found\n   → Run: /setup-project"
+            ))
+            return False
+
+        # Read and parse .mcp.json
+        try:
+            with open(mcp_json_path, 'r') as f:
+                mcp_config = json.load(f)
+        except json.JSONDecodeError as e:
+            self.errors.append((
+                "Task Copilot",
+                f".mcp.json is invalid JSON: {e}"
+            ))
+            return False
+        except Exception as e:
+            self.errors.append((
+                "Task Copilot",
+                f"Could not read .mcp.json: {e}"
+            ))
+            return False
+
+        # Check for task-copilot server configuration
+        if 'mcpServers' not in mcp_config:
+            self.errors.append((
+                "Task Copilot",
+                "NOT CONFIGURED - mcpServers missing in .mcp.json\n   → Run: /setup-project"
+            ))
+            return False
+
+        if 'task-copilot' not in mcp_config['mcpServers']:
+            self.errors.append((
+                "Task Copilot",
+                "NOT CONFIGURED - task-copilot server missing\n   → Run: /setup-project"
+            ))
+            return False
+
+        # Verify the server path exists
+        tc_config = mcp_config['mcpServers']['task-copilot']
+        if 'args' in tc_config and len(tc_config['args']) > 0:
+            server_path = Path(tc_config['args'][0])
+            if not server_path.exists():
+                self.warnings.append((
+                    "Task Copilot",
+                    f"Warning - Server path not found: {server_path}\n   → May need to rebuild: cd mcp-servers/task-copilot && npm run build"
+                ))
+
+        return True
+
+    def validate_worktree(self, worktree_path: Path, main_project_path: Path) -> bool:
+        """
+        Validate a worktree was created correctly.
+
+        Checks:
+        1. Directory exists and is a git worktree (not just mkdir)
+        2. File count is reasonable (within 50% of main project)
+        3. Git recognizes it as a worktree
+
+        Args:
+            worktree_path: Path to the worktree directory
+            main_project_path: Path to the main project root
+
+        Returns:
+            True if worktree is valid, False otherwise
+        """
+        # Clear errors/warnings for this validation
+        worktree_errors = []
+
+        # Check 1: Directory exists
+        if not worktree_path.exists():
+            self.errors.append((
+                "Worktree Validation",
+                f"Directory does not exist: {worktree_path}"
+            ))
+            return False
+
+        # Check 2: .git file exists (worktrees have a .git file, not directory)
+        git_file = worktree_path / '.git'
+        if not git_file.exists():
+            worktree_errors.append(f"Missing .git file in worktree")
+        elif git_file.is_dir():
+            worktree_errors.append(f".git is a directory (should be a file in worktrees)")
+
+        # Check 3: Git recognizes it as a worktree
+        try:
+            result = subprocess.run(
+                ['git', 'worktree', 'list'],
+                cwd=main_project_path,
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+
+            if result.returncode == 0:
+                # Check if worktree_path is in the output
+                worktree_listed = False
+                for line in result.stdout.strip().split('\n'):
+                    # Lines are like: "/path/to/worktree <hash> [branch]"
+                    if str(worktree_path.resolve()) in line:
+                        worktree_listed = True
+                        break
+
+                if not worktree_listed:
+                    worktree_errors.append(f"Not listed in 'git worktree list'")
+            else:
+                worktree_errors.append(f"Failed to run 'git worktree list'")
+
+        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+            worktree_errors.append(f"Git command failed: {e}")
+
+        # Check 4: File count comparison (within 50% of main project)
+        try:
+            # Count files in main project (excluding .git and common ignore patterns)
+            main_files = []
+            for root, dirs, files in os.walk(main_project_path):
+                # Skip .git and common directories
+                dirs[:] = [d for d in dirs if d not in ['.git', 'node_modules', '__pycache__', '.venv', 'venv']]
+                main_files.extend(files)
+
+            main_file_count = len(main_files)
+
+            # Count files in worktree
+            worktree_files = []
+            for root, dirs, files in os.walk(worktree_path):
+                dirs[:] = [d for d in dirs if d not in ['.git', 'node_modules', '__pycache__', '.venv', 'venv']]
+                worktree_files.extend(files)
+
+            worktree_file_count = len(worktree_files)
+
+            # Expect at least 50% of main project files
+            min_expected = int(main_file_count * 0.5)
+
+            if worktree_file_count < min_expected:
+                worktree_errors.append(
+                    f"Directory has {worktree_file_count} files, expected ~{main_file_count} (main project has {main_file_count})"
+                )
+
+        except Exception as e:
+            # File count check is best-effort, don't fail validation on exceptions
+            pass
+
+        # If there are errors, compile them into a single error message
+        if worktree_errors:
+            error_msg = f"INVALID WORKTREE: {worktree_path}\n"
+            for err in worktree_errors:
+                error_msg += f"   → {err}\n"
+            error_msg += "   → This usually means 'mkdir' was used instead of 'git worktree add'\n"
+            error_msg += f"   → Fix: Remove directory and re-create with 'git worktree add'"
+
+            self.errors.append((
+                "Worktree Validation",
+                error_msg
+            ))
+            return False
+
+        return True
+
+    def print_report(self) -> None:
+        """Print validation results with actionable messages."""
+        print(f"\n{Colors.BOLD}🔍 Pre-flight Validation{Colors.NC}")
+        print("=" * 60)
+
+        # Track all checks performed
+        all_checks = {
+            "Claude CLI": True,
+            "Git Worktree": True,
+            "Permissions": True,
+            "Task Copilot": True
+        }
+
+        # Mark failed checks
+        for check_name, _ in self.errors:
+            all_checks[check_name] = False
+
+        # Print status for each check
+        for check_name, passed in all_checks.items():
+            if passed:
+                # Check if there's a warning for this check
+                warning = next((msg for name, msg in self.warnings if name == check_name), None)
+                if warning:
+                    print(f"⚠️  {Colors.YELLOW}{check_name}{Colors.NC}: {warning}")
+                else:
+                    # Need to show details for passing checks
+                    if check_name == "Claude CLI":
+                        claude_path = shutil.which('claude') or '/opt/homebrew/bin/claude'
+                        print(f"✅ {Colors.GREEN}{check_name}{Colors.NC}: Found at {claude_path}")
+                    elif check_name == "Git Worktree":
+                        try:
+                            result = subprocess.run(['git', '--version'], capture_output=True, text=True, timeout=5)
+                            version = result.stdout.strip()
+                            print(f"✅ {Colors.GREEN}{check_name}{Colors.NC}: Supported ({version})")
+                        except:
+                            print(f"✅ {Colors.GREEN}{check_name}{Colors.NC}: Supported")
+                    elif check_name == "Permissions":
+                        print(f"✅ {Colors.GREEN}{check_name}{Colors.NC}: Write access confirmed")
+                    elif check_name == "Task Copilot":
+                        print(f"✅ {Colors.GREEN}{check_name}{Colors.NC}: Configured in .mcp.json")
+            else:
+                # Print error details
+                error_msg = next((msg for name, msg in self.errors if name == check_name), "FAILED")
+                print(f"❌ {Colors.RED}{check_name}{Colors.NC}: {error_msg}")
+
+        print()
+
+        # Print summary
+        if len(self.errors) == 0:
+            if len(self.warnings) > 0:
+                print(f"{Colors.YELLOW}All checks passed with {len(self.warnings)} warning(s). Orchestration should work.{Colors.NC}\n")
+            else:
+                print(f"{Colors.GREEN}All checks passed. Ready to orchestrate.{Colors.NC}\n")
+        else:
+            print(f"{Colors.RED}Pre-flight failed with {len(self.errors)} error(s). Fix issues above before running orchestration.{Colors.NC}\n")
+
+
 class Orchestrator:
     def __init__(self):
         # Initialize Task Copilot client
@@ -95,6 +495,9 @@ class Orchestrator:
         # Ensure directories exist
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         PID_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Clean up stale PID files from previous runs
+        self._cleanup_stale_pids()
 
     def _query_streams(self) -> Dict[str, dict]:
         """Query streams dynamically using Task Copilot client."""
@@ -320,71 +723,35 @@ class Orchestrator:
     def _preflight_check_agent_assignments(self) -> bool:
         """Pre-flight check for non-'me' agent assignments.
 
-        Workers run as 'me' agent, so tasks assigned to other agents will be skipped.
-        This check warns about such tasks and offers to auto-reassign them.
+        NOTE: This check is now INFORMATIONAL only - workers route tasks to specialized agents.
+        Keeping the method for backwards compatibility but it always returns True.
 
         Returns:
-            True if check passes (no issues or user chose to continue)
-            False if user chose to abort
+            True (always passes now that routing is enabled)
         """
+        # Specialized agent routing is now enabled - no need to check/reassign
         non_me_tasks = self.tc_client.get_non_me_agent_tasks(initiative_id=self.initiative_id)
 
-        if not non_me_tasks:
-            return True
-
-        # Group by stream for cleaner display
-        by_stream: Dict[str, List[dict]] = defaultdict(list)
-        for task in non_me_tasks:
-            by_stream[task['stream_id']].append(task)
-
-        print()
-        warn(f"Found {len(non_me_tasks)} task(s) assigned to non-'me' agents:")
-        print()
-
-        for stream_id, tasks in sorted(by_stream.items()):
-            print(f"  {Colors.CYAN}{stream_id}:{Colors.NC}")
-            for task in tasks:
-                title = task['title'][:50] + '...' if len(task['title']) > 50 else task['title']
-                print(f"    • {title} → {Colors.YELLOW}@{task['assigned_agent']}{Colors.NC}")
-        print()
-
-        warn("Workers run as @agent-me and will SKIP these tasks.")
-        print()
-        print(f"  {Colors.BOLD}[r]{Colors.NC} Reassign all to 'me' and continue")
-        print(f"  {Colors.BOLD}[c]{Colors.NC} Continue anyway (tasks will be skipped)")
-        print(f"  {Colors.BOLD}[a]{Colors.NC} Abort")
-        print()
-
-        try:
-            choice = input(f"  Choice [r/c/a]: ").strip().lower()
-        except (KeyboardInterrupt, EOFError):
-            print()
-            return False
-
-        if choice == 'r':
-            log("Reassigning tasks to 'me'...")
-            reassigned = 0
+        if non_me_tasks:
+            # Group by agent for informational display
+            by_agent: Dict[str, int] = defaultdict(int)
             for task in non_me_tasks:
-                if self.tc_client.reassign_task_to_me(task['id']):
-                    reassigned += 1
-                    title = task['title'][:40] + '...' if len(task['title']) > 40 else task['title']
-                    log(f"  Reassigned: {title}")
-            success(f"Reassigned {reassigned}/{len(non_me_tasks)} tasks")
+                by_agent[task['assigned_agent']] += 1
+
+            log(f"Found {len(non_me_tasks)} task(s) assigned to specialized agents:")
+            for agent, count in sorted(by_agent.items()):
+                log(f"  • @agent-{agent}: {count} tasks")
+            log("Workers will route these tasks to their assigned agents.")
             print()
-            return True
-        elif choice == 'c':
-            warn("Continuing with non-'me' tasks (they will be skipped)")
-            print()
-            return True
-        else:
-            error("Aborted by user")
-            return False
+
+        return True
 
     def _get_pid_file(self, stream_id: str) -> Path:
         return PID_DIR / f"{stream_id}.pid"
 
     def _get_log_file(self, stream_id: str) -> Path:
-        return LOG_DIR / f"{stream_id}.log"
+        """Get log file path using per-initiative naming."""
+        return LOG_DIR / f"{stream_id}_{self.initiative_id[:8]}.log"
 
     def _is_running(self, stream_id: str) -> bool:
         """Check if a stream worker is currently running."""
@@ -394,11 +761,91 @@ class Orchestrator:
 
         try:
             pid = int(pid_file.read_text().strip())
-            os.kill(pid, 0)  # Check if process exists
+            # Check if process exists with kill -0
+            os.kill(pid, 0)
+            # Double-check with ps to catch zombies (kill -0 succeeds for zombies)
+            result = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "pid="],
+                capture_output=True,
+                timeout=5
+            )
+            if result.returncode != 0:
+                # Process is zombie or doesn't exist
+                pid_file.unlink(missing_ok=True)
+                return False
             return True
-        except (ProcessLookupError, ValueError):
+        except (ProcessLookupError, ValueError, subprocess.TimeoutExpired):
             pid_file.unlink(missing_ok=True)
             return False
+
+    def _cleanup_stale_pids(self):
+        """Clean up stale PID files from workers that exited without cleanup."""
+        cleaned = 0
+        for pid_file in PID_DIR.glob("*.pid"):
+            stream_id = pid_file.stem
+            if not self._is_running(stream_id):
+                # _is_running already cleaned up the file if stale
+                cleaned += 1
+        if cleaned > 0:
+            log(f"Cleaned up {cleaned} stale PID file(s)")
+
+    def _get_all_tasks(self) -> List[Dict]:
+        """Get all tasks for the current initiative."""
+        conn = self.tc_client._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT
+                    t.id,
+                    t.title,
+                    t.status,
+                    t.assigned_agent,
+                    json_extract(t.metadata, '$.streamId') as stream_id,
+                    json_extract(t.metadata, '$.files') as files
+                FROM tasks t
+                LEFT JOIN prds p ON t.prd_id = p.id
+                WHERE json_extract(t.metadata, '$.streamId') IS NOT NULL
+                  AND t.archived = 0
+                  AND p.initiative_id = ?
+                ORDER BY json_extract(t.metadata, '$.streamId'), t.created_at
+            """, (self.initiative_id,))
+
+            tasks = []
+            for row in cursor.fetchall():
+                task_id, title, status, agent, stream_id, files = row
+                tasks.append({
+                    'id': task_id,
+                    'title': title,
+                    'status': status,
+                    'assigned_agent': agent or 'me',
+                    'stream_id': stream_id,
+                    'files': files
+                })
+
+            return tasks
+        finally:
+            conn.close()
+
+    def _generate_routing_plan(self) -> Dict:
+        """Generate routing plan for all tasks."""
+        tasks = self._get_all_tasks()
+
+        # Group by stream
+        streams_tasks = defaultdict(list)
+        agent_counts = defaultdict(int)
+
+        for task in tasks:
+            stream_id = task['stream_id']
+            agent = task['assigned_agent']
+
+            streams_tasks[stream_id].append(task)
+            agent_counts[agent] += 1
+
+        return {
+            'streams': streams_tasks,
+            'agent_counts': agent_counts,
+            'total_tasks': len(tasks)
+        }
 
     def _build_prompt(self, stream: dict) -> str:
         """Build the prompt for a Claude Code worker."""
@@ -420,55 +867,129 @@ Call `task_list` with streamId filter to get your assigned tasks:
 task_list(metadata.streamId="{stream['id']}")
 ```
 
-### Step 2: For EACH Task (in order)
+### Step 2: Route Each Task to Its Assigned Agent
 
-**Before starting work:**
-```
-task_update(id="TASK-xxx", status="in_progress")
-```
+**For EACH task in order:**
 
-**After completing work:**
-```
-task_update(id="TASK-xxx", status="completed", notes="Brief description of what was done")
-```
+1. **Get task details:**
+   ```
+   task_get(id="TASK-xxx")
+   ```
 
-**CRITICAL:** You MUST call task_update after EACH task. Do not batch updates.
+2. **Check the assignedAgent field:**
+   - If `assignedAgent` is "me", execute the task yourself
+   - If `assignedAgent` is anything else (uid, qa, sec, uxd, etc.), invoke that agent
+
+3. **Route to specialized agent:**
+   ```
+   # Use Task tool to invoke the specialized agent
+   Task: Execute task TASK-xxx
+   Subagent: @agent-{{assignedAgent}}
+   Context: [Brief task context from task.title and task.description]
+   ```
+
+4. **Wait for agent to complete:**
+   - The specialized agent will call skill_evaluate() to load domain skills
+   - The specialized agent will execute the task
+   - The specialized agent will call task_update() when complete
+
+5. **Move to next task:**
+   - Do NOT mark tasks as complete yourself (agents do this)
+   - Simply move to the next task in your stream
 
 ### Step 3: Verify Before Exiting
 
 **Before outputting any completion summary:**
 1. Call `task_list(metadata.streamId="{stream['id']}")` again
 2. Check that ALL tasks have `status: "completed"`
-3. If ANY task is still `pending` or `in_progress`, go back and complete it
+3. If ANY task is still `pending` or `in_progress`, investigate and retry
 4. Only after verification passes, output your summary
 
 ### Step 4: Output Summary
 Only after ALL tasks are verified complete in Task Copilot, output:
-- List of completed tasks with brief notes
+- List of tasks routed to which agents
+- Which agents completed their work
 - Any commits made
 - Any issues encountered
 
 ## CRITICAL RULES
+- DO NOT execute tasks assigned to specialized agents yourself
+- Each specialized agent loads their own domain skills via skill_evaluate()
 - DO NOT claim "complete" without verifying in Task Copilot first
-- DO NOT skip task_update calls - they are MANDATORY
-- If task_update fails, retry or report the error - do not proceed silently
 - Stay focused on {stream['id']} tasks only
-- Commit after each significant change
-- If blocked, call task_update with status="blocked" and blockedReason
+- If an agent is blocked, check task status and coordinate
+
+## Specialized Agent Examples
+
+**Example 1: UI Implementation Task**
+```
+Task Details:
+- id: TASK-123
+- title: "Implement topic card component"
+- assignedAgent: "uid"
+
+Action: Invoke @agent-uid via Task tool
+→ @agent-uid will call skill_evaluate() with files/context
+→ @agent-uid will load design-patterns or ux-patterns skills
+→ @agent-uid will implement component with accessibility
+→ @agent-uid will call task_update(id="TASK-123", status="completed")
+```
+
+**Example 2: Testing Task**
+```
+Task Details:
+- id: TASK-456
+- title: "Add tests for evidence selector"
+- assignedAgent: "qa"
+
+Action: Invoke @agent-qa via Task tool
+→ @agent-qa will call skill_evaluate() with test file context
+→ @agent-qa will load pytest-patterns or jest-patterns skills
+→ @agent-qa will write comprehensive tests
+→ @agent-qa will call task_update(id="TASK-456", status="completed")
+```
+
+**Example 3: Generic Implementation Task**
+```
+Task Details:
+- id: TASK-789
+- title: "Fix evidence migration bug"
+- assignedAgent: "me"
+
+Action: Execute yourself (you are 'me')
+→ Call task_update(id="TASK-789", status="in_progress")
+→ Execute the fix
+→ Call task_update(id="TASK-789", status="completed")
+```
 
 ## Anti-Patterns (NEVER DO THESE)
-- Outputting "All tasks complete" without calling task_update for each
-- Skipping verification step before exit
-- Claiming success when Task Copilot shows pending tasks
+- Executing uid/qa/sec tasks yourself instead of routing
+- Outputting "All tasks complete" without verifying Task Copilot
+- Skipping agent routing for specialized tasks
+- Marking other agents' tasks as complete yourself
 
 Begin by querying your task list with task_list.
 """
 
-    def spawn_worker(self, stream_id: str, wait_for_deps: bool = True) -> bool:
-        """Spawn a Claude Code worker for a stream."""
+    def spawn_worker(self, stream_id: str, wait_for_deps: bool = True, skip_preflight: bool = False) -> bool:
+        """Spawn a Claude Code worker for a stream.
+
+        Args:
+            stream_id: The stream to spawn
+            wait_for_deps: Whether to check dependencies before spawning
+            skip_preflight: Skip preflight validation (used when called from start_all which already validated)
+        """
         if stream_id not in self.streams:
             error(f"Stream '{stream_id}' not found")
             return False
+
+        # Run preflight check if not skipped
+        if not skip_preflight:
+            validator = PreflightValidator(PROJECT_ROOT)
+            if not validator.validate_all():
+                validator.print_report()
+                return False
+            validator.print_report()
 
         stream = self.streams[stream_id]
 
@@ -490,9 +1011,68 @@ Begin by querying your task list with task_list.
             work_dir = PROJECT_ROOT / stream["worktree"]
 
         if not work_dir.exists():
-            # Create worktree if needed
-            log(f"Creating worktree for {stream_id}...")
-            work_dir.mkdir(parents=True, exist_ok=True)
+            # Create proper git worktree (not just a directory!)
+            log(f"Creating git worktree for {stream_id}...")
+
+            # Ensure branch exists (create from current HEAD if not)
+            branch_result = subprocess.run(
+                ["git", "branch", stream_id],
+                cwd=PROJECT_ROOT,
+                capture_output=True,
+                text=True
+            )
+            # Ignore error if branch already exists
+
+            # Create the worktree linked to the branch
+            worktree_result = subprocess.run(
+                ["git", "worktree", "add", str(work_dir), stream_id],
+                cwd=PROJECT_ROOT,
+                capture_output=True,
+                text=True
+            )
+
+            if worktree_result.returncode != 0:
+                # Check if worktree already exists but directory was deleted
+                if "already checked out" in worktree_result.stderr or "already exists" in worktree_result.stderr:
+                    warn(f"Worktree issue for {stream_id}: {worktree_result.stderr.strip()}")
+                    warn(f"Attempting to repair by removing and recreating...")
+                    subprocess.run(["git", "worktree", "remove", str(work_dir), "--force"], cwd=PROJECT_ROOT, capture_output=True)
+                    subprocess.run(["git", "worktree", "prune"], cwd=PROJECT_ROOT, capture_output=True)
+                    worktree_result = subprocess.run(
+                        ["git", "worktree", "add", str(work_dir), stream_id],
+                        cwd=PROJECT_ROOT,
+                        capture_output=True,
+                        text=True
+                    )
+
+                if worktree_result.returncode != 0:
+                    error(f"Failed to create worktree for {stream_id}: {worktree_result.stderr}")
+                    return False
+
+            success(f"Created git worktree at {work_dir}")
+
+            # Validate the worktree was created correctly
+            validator = PreflightValidator(PROJECT_ROOT)
+            if not validator.validate_worktree(work_dir, PROJECT_ROOT):
+                validator.print_report()
+                # Clean up the failed worktree
+                log(f"Cleaning up invalid worktree at {work_dir}...")
+                try:
+                    shutil.rmtree(work_dir, ignore_errors=True)
+                    subprocess.run(
+                        ["git", "worktree", "remove", str(work_dir), "--force"],
+                        cwd=PROJECT_ROOT,
+                        capture_output=True
+                    )
+                    subprocess.run(["git", "worktree", "prune"], cwd=PROJECT_ROOT, capture_output=True)
+                except Exception as cleanup_err:
+                    warn(f"Cleanup warning: {cleanup_err}")
+
+                error(f"Worktree validation failed for {stream_id}")
+                error(f"Please remove the directory manually and re-run orchestrate generate")
+                return False
+
+            success(f"Worktree validated successfully")
 
         dependencies = self.stream_dependencies.get(stream_id, set())
         deps_str = f" (depends on: {', '.join(dependencies)})" if dependencies else " (no dependencies)"
@@ -503,31 +1083,40 @@ Begin by querying your task list with task_list.
         log(f"  Working dir: {work_dir}")
 
         prompt = self._build_prompt(stream)
-        log_file = self._get_log_file(stream_id)
         pid_file = self._get_pid_file(stream_id)
+        wrapper_script = SCRIPT_DIR / "worker-wrapper.sh"
 
-        # Spawn Claude Code headlessly
-        with open(log_file, "a") as log_f:
-            log_f.write(f"\n{'='*60}\n")
-            log_f.write(f"Started: {datetime.now().isoformat()}\n")
-            log_f.write(f"Stream: {stream_id}\n")
-            log_f.write(f"Name: {stream['name']}\n")
-            log_f.write(f"Dependencies: {deps_str}\n")
-            log_f.write(f"{'='*60}\n\n")
+        # Spawn via wrapper script (handles PID cleanup, log archiving, per-initiative logs)
+        proc = subprocess.Popen(
+            [
+                str(wrapper_script),
+                stream_id,
+                str(pid_file),
+                str(LOG_DIR),  # Wrapper constructs per-initiative log filename
+                str(work_dir),
+                self.initiative_id,  # For per-initiative log naming
+                prompt
+            ],
+            start_new_session=True,  # Detach from parent
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
-            proc = subprocess.Popen(
-                ["claude", "--print", "--dangerously-skip-permissions", "-p", prompt],
-                cwd=work_dir,
-                stdout=log_f,
-                stderr=subprocess.STDOUT,
-                start_new_session=True  # Detach from parent
-            )
+        # Give wrapper a moment to write PID file
+        time.sleep(0.5)
 
-        # Save PID
-        pid_file.write_text(str(proc.pid))
+        # Read actual PID from file (wrapper's PID, not subprocess PID)
+        if pid_file.exists():
+            actual_pid = pid_file.read_text().strip()
+        else:
+            actual_pid = str(proc.pid)
+
         self.running_processes[stream_id] = proc
 
-        success(f"Worker {stream_id} started (PID: {proc.pid})")
+        # Log file uses per-initiative naming
+        log_file = LOG_DIR / f"{stream_id}_{self.initiative_id[:8]}.log"
+        success(f"Worker {stream_id} started (PID: {actual_pid})")
+        success(f"Logs: {log_file}")
         success(f"Logs: {log_file}")
         return True
 
@@ -539,6 +1128,15 @@ Begin by querying your task list with task_list.
         """
         log(f"Starting dynamic orchestration for {PROJECT_NAME}")
         print()
+
+        # Pre-flight validation: check environment before spawning workers
+        validator = PreflightValidator(PROJECT_ROOT)
+        if not validator.validate_all():
+            validator.print_report()
+            sys.exit(1)
+
+        # Print report even on success to show what was validated
+        validator.print_report()
 
         # Pre-flight check: warn about non-'me' agent assignments
         if not self._preflight_check_agent_assignments():
@@ -566,7 +1164,7 @@ Begin by querying your task list with task_list.
             if new_ready:
                 log(f"Found {len(new_ready)} ready streams: {', '.join(new_ready)}")
                 for stream_id in new_ready:
-                    self.spawn_worker(stream_id, wait_for_deps=False)
+                    self.spawn_worker(stream_id, wait_for_deps=False, skip_preflight=True)
                     attempted.add(stream_id)
                     print()
 
@@ -576,7 +1174,7 @@ Begin by querying your task list with task_list.
                 if restart_counts[stream_id] < MAX_RESTARTS:
                     restart_counts[stream_id] += 1
                     warn(f"Worker {stream_id} died with incomplete tasks - restarting (attempt {restart_counts[stream_id]}/{MAX_RESTARTS})")
-                    self.spawn_worker(stream_id, wait_for_deps=False)
+                    self.spawn_worker(stream_id, wait_for_deps=False, skip_preflight=True)
                     print()
                 else:
                     error(f"Worker {stream_id} failed {MAX_RESTARTS} times - marking as stuck")
@@ -793,16 +1391,132 @@ Begin by querying your task list with task_list.
 
         subprocess.run(["tail", "-f", str(log_file)])
 
+    def test_routing(self):
+        """Display routing plan without executing tasks."""
+        print(f"\n{Colors.BOLD}{'='*75}{Colors.NC}")
+        print(f"{Colors.BOLD}           ROUTING PLAN - TEST MODE (DRY RUN){Colors.NC}")
+        print(f"{Colors.BOLD}{'='*75}{Colors.NC}\n")
+
+        log(f"Initiative: {self.initiative_details.name if self.initiative_details else self.initiative_id}")
+        print()
+
+        # Generate routing plan
+        plan = self._generate_routing_plan()
+
+        # Display tasks grouped by stream
+        print(f"{Colors.BOLD}Task Routing by Stream:{Colors.NC}\n")
+
+        # Sort streams by dependency depth
+        depths = defaultdict(list)
+        for stream_id, depth in self.dependency_depth.items():
+            depths[depth].append(stream_id)
+
+        for depth in sorted(depths.keys()):
+            stream_ids = sorted(depths[depth])
+
+            for stream_id in stream_ids:
+                if stream_id not in plan['streams']:
+                    continue
+
+                stream = self.streams[stream_id]
+                tasks = plan['streams'][stream_id]
+
+                # Display stream header
+                deps = self.stream_dependencies.get(stream_id, set())
+                deps_str = f" (depends on: {', '.join(sorted(deps))})" if deps else ""
+
+                print(f"  {Colors.MAGENTA}{stream_id}{Colors.NC}: {stream['name']}{deps_str}")
+
+                # Display tasks with agent assignments
+                agent_colors = {
+                    'me': Colors.GREEN,
+                    'uid': Colors.CYAN,
+                    'uxd': Colors.CYAN,
+                    'qa': Colors.YELLOW,
+                    'sec': Colors.RED,
+                    'ta': Colors.BLUE,
+                    'sd': Colors.BLUE,
+                    'doc': Colors.DIM,
+                }
+
+                for task in tasks:
+                    agent = task['assigned_agent']
+                    color = agent_colors.get(agent, Colors.NC)
+                    status_icon = {
+                        'completed': f"{Colors.GREEN}✓{Colors.NC}",
+                        'in_progress': f"{Colors.YELLOW}◐{Colors.NC}",
+                        'pending': f"{Colors.DIM}○{Colors.NC}",
+                        'blocked': f"{Colors.RED}✗{Colors.NC}",
+                    }.get(task['status'], "?")
+
+                    # Truncate title if too long
+                    title = task['title']
+                    if len(title) > 60:
+                        title = title[:57] + "..."
+
+                    print(f"    {status_icon} {task['id']} → {color}@agent-{agent}{Colors.NC}")
+                    print(f"      {Colors.DIM}{title}{Colors.NC}")
+
+                print()
+
+        # Display routing summary
+        print(f"{Colors.BOLD}Routing Summary:{Colors.NC}\n")
+
+        # Sort agents by count
+        sorted_agents = sorted(plan['agent_counts'].items(), key=lambda x: x[1], reverse=True)
+
+        total_tasks = plan['total_tasks']
+        for agent, count in sorted_agents:
+            color = agent_colors.get(agent, Colors.NC)
+            pct = int(count / total_tasks * 100) if total_tasks > 0 else 0
+            bar_filled = pct // 5
+            bar = "█" * bar_filled + "░" * (20 - bar_filled)
+            print(f"  {color}@agent-{agent:6}{Colors.NC} {bar} {count:3} tasks ({pct:3}%)")
+
+        print()
+        print(f"  {Colors.BOLD}Total:{Colors.NC} {total_tasks} tasks across {len(plan['streams'])} streams")
+        print()
+
+        # Display execution order
+        print(f"{Colors.BOLD}Execution Order (by dependency depth):{Colors.NC}\n")
+
+        for depth in sorted(depths.keys()):
+            stream_ids = sorted(depths[depth])
+            stream_ids_with_tasks = [s for s in stream_ids if s in plan['streams']]
+
+            if not stream_ids_with_tasks:
+                continue
+
+            if depth == 0:
+                print(f"  {Colors.GREEN}Depth {depth} (Independent - can run in parallel):{Colors.NC}")
+            else:
+                print(f"  {Colors.CYAN}Depth {depth} (will start after depth {depth-1} completes):{Colors.NC}")
+
+            for stream_id in stream_ids_with_tasks:
+                task_count = len(plan['streams'][stream_id])
+                print(f"    • {stream_id} ({task_count} tasks)")
+
+            print()
+
+        print(f"{Colors.YELLOW}[DRY RUN] No workers will be spawned. Use 'orchestrate.py start' to execute.{Colors.NC}\n")
+
 
 def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="Claude Copilot Orchestrator")
-    parser.add_argument("command", choices=["start", "status", "stop", "logs"],
+    parser.add_argument("command", choices=["start", "status", "stop", "logs", "test-routing", "preflight"],
                        help="Command to run")
     parser.add_argument("stream_id", nargs="?", help="Stream ID (for start/stop/logs)")
 
     args = parser.parse_args()
+
+    # Handle preflight command separately (doesn't need Orchestrator initialization)
+    if args.command == "preflight":
+        validator = PreflightValidator(PROJECT_ROOT)
+        validator.validate_all()
+        validator.print_report()
+        sys.exit(0 if len(validator.errors) == 0 else 1)
 
     orchestrator = Orchestrator()
 
@@ -823,6 +1537,8 @@ def main():
             error("Usage: orchestrate.py logs <stream-id>")
             sys.exit(1)
         orchestrator.tail_logs(args.stream_id)
+    elif args.command == "test-routing":
+        orchestrator.test_routing()
 
 
 if __name__ == "__main__":

@@ -52,7 +52,94 @@ const skills = await skill_evaluate({
 - Create designs that fail accessibility contrast
 - Design components without defining all states
 - Skip documentation of design tokens
+- Create tasks directly (use specification → TA workflow instead)
 - Emit completion promise prematurely
+
+## Creating Specifications
+
+**CRITICAL: UI Designers MUST NOT create tasks directly.**
+
+When your visual design is complete, store it as a specification and route to @agent-ta for task creation:
+
+```typescript
+work_product_store({
+  taskId,
+  type: 'specification',
+  title: 'UI Design Specification: [feature name]',
+  content: `
+# UI Design Specification: [Feature Name]
+
+## PRD Reference
+PRD: [PRD-xxx]
+Initiative: [initiative-xxx]
+
+## Visual Design Overview
+[High-level description of visual treatment]
+
+## Design Tokens
+### Colors
+| Token | Value | Usage | Contrast Ratio |
+|-------|-------|-------|----------------|
+| --color-primary | #2563eb | Primary actions | 4.5:1 on white |
+| --color-text | #1f2937 | Body text | 12:1 on white |
+
+### Typography
+| Token | Value | Usage |
+|-------|-------|-------|
+| --font-heading | Inter, 24px, 700 | H1 headings |
+| --font-body | Inter, 16px, 400 | Body text |
+
+### Spacing
+| Token | Value | Usage |
+|-------|-------|-------|
+| --space-sm | 8px | Tight spacing |
+| --space-md | 16px | Standard spacing |
+
+### Elevation
+| Token | Value | Usage |
+|-------|-------|-------|
+| --shadow-sm | 0 1px 2px rgba(0,0,0,0.05) | Cards |
+| --shadow-md | 0 4px 6px rgba(0,0,0,0.07) | Dropdowns |
+
+## Component Specifications
+### [Component Name]
+- States: Default, Hover, Focus, Active, Disabled, Loading, Error
+- Dimensions: [Width, height, touch target size]
+- Visual treatment: [Colors, typography, spacing, elevation]
+- Transitions: [Animation specs]
+
+## Accessibility Verification
+- Text contrast: All text meets 4.5:1 (body) or 3:1 (large text)
+- UI contrast: All UI elements meet 3:1
+- Touch targets: All interactive elements ≥ 44x44px
+- Focus indicators: 2px solid, 4.5:1 contrast
+
+## Implementation Implications
+- CSS Variables: [Design tokens to define]
+- Components: [React/Vue/etc components needed]
+- Assets: [Icons, images, fonts to provide]
+- Animations: [CSS transitions/keyframes needed]
+
+## Acceptance Criteria
+- [ ] All design tokens documented and consistent
+- [ ] All states defined for each component
+- [ ] WCAG 2.1 AA compliance verified
+- [ ] Design system consistency maintained
+
+## Open Questions
+- [Component library availability]
+- [Browser/device support requirements]
+  `
+});
+
+// Then route to TA for task breakdown
+// Route: @agent-ta
+```
+
+**Why specifications instead of tasks:**
+- Visual design expertise ≠ technical decomposition expertise
+- @agent-ta needs full context to create well-structured tasks
+- Prevents misalignment between design intent and implementation plan
 
 ## Output Format
 

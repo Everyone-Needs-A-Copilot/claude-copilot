@@ -8,16 +8,37 @@
 # - Empty state handling (no initiative, no streams, all complete)
 # - Initiative name and goal display in header
 
-# Resolve symlinks to get the real script location
-SCRIPT_PATH="${BASH_SOURCE[0]}"
+# Resolve script location to find PROJECT_ROOT
+# Handles multiple symlink scenarios:
+#   1. Direct call: .claude/orchestrator/check-streams
+#   2. Project root symlink: ./check-streams -> .claude/orchestrator/check-streams
+#   3. Symlinked orchestrator: .claude/orchestrator/check-streams -> template
+INVOCATION_PATH="${BASH_SOURCE[0]}"
+INVOCATION_DIR="$(cd "$(dirname "$INVOCATION_PATH")" && pwd)"
+
+# Check if first symlink target contains .claude/orchestrator (project root symlink case)
+if [ -L "$INVOCATION_PATH" ]; then
+    FIRST_TARGET="$(readlink "$INVOCATION_PATH")"
+    if [[ "$FIRST_TARGET" == *".claude/orchestrator"* ]]; then
+        # Called from project root via symlink
+        PROJECT_ROOT="$INVOCATION_DIR"
+    else
+        # Called from .claude/orchestrator (which may itself be symlinked)
+        PROJECT_ROOT="$(cd "$INVOCATION_DIR/../.." && pwd)"
+    fi
+else
+    # Direct call (not a symlink)
+    PROJECT_ROOT="$(cd "$INVOCATION_DIR/../.." && pwd)"
+fi
+
+# For finding companion scripts, use the resolved path (they may be in template)
+SCRIPT_PATH="$INVOCATION_PATH"
 while [ -L "$SCRIPT_PATH" ]; do
-    SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+    RESOLVED_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
     SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
-    # Handle relative symlinks
-    [[ "$SCRIPT_PATH" != /* ]] && SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_PATH"
+    [[ "$SCRIPT_PATH" != /* ]] && SCRIPT_PATH="$RESOLVED_DIR/$SCRIPT_PATH"
 done
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$PROJECT_ROOT"
 
 # Colors
@@ -54,18 +75,49 @@ is_worker_running() {
         return 1
     fi
 
-    # Check if process exists
-    kill -0 "$pid" 2>/dev/null
+    # Check if process exists with kill -0
+    if ! kill -0 "$pid" 2>/dev/null; then
+        return 1
+    fi
+
+    # Double-check with ps to detect zombie processes
+    # Zombies pass kill -0 but ps -p will fail
+    ps -p "$pid" -o pid= >/dev/null 2>&1
     return $?
+}
+
+# Get log file path for a stream (per-initiative first, then legacy fallback)
+get_log_file() {
+    local stream_id=$1
+    local init_id=$2
+
+    # Try per-initiative log first
+    if [ -n "$init_id" ]; then
+        local per_init_log="$LOG_DIR/${stream_id}_${init_id:0:8}.log"
+        if [ -f "$per_init_log" ]; then
+            echo "$per_init_log"
+            return
+        fi
+    fi
+
+    # Fall back to legacy log
+    local legacy_log="$LOG_DIR/${stream_id}.log"
+    if [ -f "$legacy_log" ]; then
+        echo "$legacy_log"
+        return
+    fi
+
+    # No log found
+    echo ""
 }
 
 # Get last N lines from worker log
 get_worker_last_lines() {
     local stream_id=$1
     local num_lines=${2:-10}
-    local log_file="$LOG_DIR/${stream_id}.log"
+    local log_file=$(get_log_file "$stream_id" "$INITIATIVE_ID")
 
-    if [ -f "$log_file" ]; then
+    if [ -n "$log_file" ] && [ -f "$log_file" ]; then
         tail -n "$num_lines" "$log_file" 2>/dev/null | grep -v "^$"
     fi
 }
@@ -74,9 +126,9 @@ get_worker_last_lines() {
 # Returns Unix timestamp or empty if not found
 get_stream_start_time() {
     local stream_id=$1
-    local log_file="$LOG_DIR/${stream_id}.log"
+    local log_file=$(get_log_file "$stream_id" "$INITIATIVE_ID")
 
-    if [ ! -f "$log_file" ]; then
+    if [ -z "$log_file" ] || [ ! -f "$log_file" ]; then
         echo ""
         return
     fi
@@ -254,15 +306,21 @@ case "$FIRST_LINE" in
         ;;
 esac
 
-# Parse initiative info
+# Parse initiative info (format: INITIATIVE <id>|<name>|<goal>)
 INITIATIVE_LINE=$(echo "$ORCHESTRATOR_DATA" | grep "^INITIATIVE")
 if [ -n "$INITIATIVE_LINE" ]; then
     INITIATIVE_INFO="${INITIATIVE_LINE#INITIATIVE }"
-    INITIATIVE_NAME="${INITIATIVE_INFO%%|*}"
-    INITIATIVE_GOAL="${INITIATIVE_INFO#*|}"
+    INITIATIVE_ID="${INITIATIVE_INFO%%|*}"
+    INITIATIVE_REST="${INITIATIVE_INFO#*|}"
+    INITIATIVE_NAME="${INITIATIVE_REST%%|*}"
+    INITIATIVE_GOAL="${INITIATIVE_REST#*|}"
+    # Short ID for log file naming (first 8 chars)
+    SHORT_INIT_ID="${INITIATIVE_ID:0:8}"
 else
+    INITIATIVE_ID=""
     INITIATIVE_NAME=""
     INITIATIVE_GOAL=""
+    SHORT_INIT_ID=""
 fi
 
 # Parse overall stats
@@ -328,22 +386,28 @@ echo "$ORCHESTRATOR_DATA" | grep "^STREAM" | while read -r LINE; do
         if [ "$S_PCT" -eq 100 ] 2>/dev/null; then
             # 100% + active PID = finishing/cleanup
             STATUS="${GREEN}FIN${NC}"
+            STATUS_RAW="FIN"
         elif [ "$WORKER_STATUS" = "ERROR" ]; then
             STATUS="${RED}ERR${NC}"
+            STATUS_RAW="ERR"
         else
             # < 100% + active PID = running
             STATUS="${YELLOW}RUN${NC}"
+            STATUS_RAW="RUN"
         fi
     else
         # No active worker
         if [ "$S_PCT" -eq 100 ] 2>/dev/null; then
             # 100% + no PID = done
             STATUS="${GREEN}DONE${NC}"
+            STATUS_RAW="DONE"
         elif [ "$WORKER_STATUS" = "STOPPED" ]; then
             STATUS="${RED}STOP${NC}"
+            STATUS_RAW="STOP"
         else
             # < 100% + no PID = not started/idle
             STATUS="${DIM}---${NC}"
+            STATUS_RAW="---"
         fi
     fi
 
@@ -411,8 +475,11 @@ echo "$ORCHESTRATOR_DATA" | grep "^STREAM" | while read -r LINE; do
 
     printf "  %b" "$STATUS"
 
-    # Show runtime (dimmed for completed, cyan for running)
-    if [ "$S_PCT" -eq 100 ] 2>/dev/null; then
+    # Show runtime (dimmed for completed, cyan for running, --- for not started)
+    if [ "$STATUS_RAW" = "---" ]; then
+        # Stream hasn't started in current initiative - don't show stale runtime
+        printf "  ${DIM}%5s${NC}" "---"
+    elif [ "$S_PCT" -eq 100 ] 2>/dev/null; then
         printf "  ${DIM}%s${NC}" "$RUNTIME_DISPLAY"
     else
         printf "  ${CYAN}%s${NC}" "$RUNTIME_DISPLAY"

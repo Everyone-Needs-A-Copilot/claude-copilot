@@ -157,6 +157,36 @@ export const DEFAULT_VALIDATION_CONFIG: ValidationConfig = {
       },
     ],
 
+    specification: [
+      {
+        id: 'spec-sections',
+        name: 'Specification Required Sections',
+        description: 'Specifications need PRD reference and acceptance criteria',
+        type: 'structure',
+        severity: 'warn',
+        enabled: true,
+        requiredSections: ['PRD Reference', 'Acceptance Criteria'],
+      },
+      {
+        id: 'spec-size',
+        name: 'Specification Size',
+        description: 'Specifications should be focused and actionable',
+        type: 'size',
+        severity: 'warn',
+        enabled: true,
+        maxCharacters: 25000,
+      },
+      {
+        id: 'spec-completeness',
+        name: 'Specification Completeness',
+        description: 'Should have multiple defined sections',
+        type: 'completeness',
+        severity: 'warn',
+        enabled: true,
+        minSections: 4,
+      },
+    ],
+
     other: [
       {
         id: 'other-size',

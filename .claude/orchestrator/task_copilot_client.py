@@ -306,7 +306,7 @@ class TaskCopilotClient:
             completed_stream_count = 0
 
             for stream_info in streams:
-                progress = self.stream_get(stream_info.stream_id)
+                progress = self.stream_get(stream_info.stream_id, initiative_id)
                 if progress and progress.is_complete:
                     completed_stream_count += 1
 
@@ -529,69 +529,6 @@ class TaskCopilotClient:
             return False
         finally:
             conn.close()
-
-    def archive_initiative_streams(self, initiative_id: str) -> int:
-        """
-        Archive all streams for a specific initiative.
-
-        This marks all tasks belonging to streams in the initiative as archived.
-
-        Args:
-            initiative_id: Initiative ID to archive streams for
-
-        Returns:
-            Number of tasks archived
-        """
-        conn = self._connect()
-        try:
-            cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE tasks
-                SET archived = 1,
-                    updated_at = datetime('now')
-                WHERE prd_id IN (
-                    SELECT id FROM prds WHERE initiative_id = ?
-                )
-                AND json_extract(metadata, '$.streamId') IS NOT NULL
-                AND archived = 0
-            """, (initiative_id,))
-            conn.commit()
-            return cursor.rowcount
-        except sqlite3.Error:
-            return 0
-        finally:
-            conn.close()
-
-    def complete_initiative(self, initiative_id: str) -> bool:
-        """
-        Mark an initiative as complete in Memory Copilot.
-
-        Args:
-            initiative_id: Initiative ID to complete
-
-        Returns:
-            True if successful, False otherwise
-        """
-        if not self.memory_db_path.exists():
-            return False
-
-        try:
-            conn = sqlite3.connect(str(self.memory_db_path), timeout=5)
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                UPDATE initiatives
-                SET status = 'COMPLETE',
-                    updated_at = datetime('now')
-                WHERE id = ?
-            """, (initiative_id,))
-
-            conn.commit()
-            success = cursor.rowcount > 0
-            conn.close()
-            return success
-        except sqlite3.Error:
-            return False
 
 
 # Convenience function for creating a client

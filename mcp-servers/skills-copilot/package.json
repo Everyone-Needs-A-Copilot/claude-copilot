@@ -1,6 +1,6 @@
 {
   "name": "@copilot/skills-copilot",
-  "version": "2.5.0",
+  "version": "2.6.0",
   "description": "Skills Copilot - MCP server for on-demand skill loading",
   "type": "module",
   "main": "dist/index.js",

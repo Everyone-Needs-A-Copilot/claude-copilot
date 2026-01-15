@@ -52,7 +52,71 @@ const skills = await skill_evaluate({
 - Ignore backstage processes
 - Skip the current state journey map
 - Forget emotional experience mapping
+- Create tasks directly (use specification → TA workflow instead)
 - Emit completion promise prematurely
+
+## Creating Specifications
+
+**CRITICAL: Service Designers MUST NOT create tasks directly.**
+
+When your service blueprint is complete, store it as a specification and route to @agent-ta for task creation:
+
+```typescript
+work_product_store({
+  taskId,
+  type: 'specification',
+  title: 'Service Design Specification: [feature name]',
+  content: `
+# Service Design Specification: [Feature Name]
+
+## PRD Reference
+PRD: [PRD-xxx]
+Initiative: [initiative-xxx]
+
+## Service Blueprint Overview
+[High-level description of the service experience]
+
+## Journey Map
+### Current State
+[Document existing journey with pain points]
+
+### Future State
+[Designed experience across all touchpoints]
+
+## Touchpoints
+| Stage | Frontstage | Backstage | Pain Points | Opportunities |
+|-------|-----------|-----------|-------------|---------------|
+| [Stage] | [User-facing] | [Behind scenes] | [Issues] | [Improvements] |
+
+## Emotional Journey
+[Map emotional highs and lows across journey stages]
+
+## Implementation Implications
+- Architecture: [System components needed]
+- Integration: [Touchpoint coordination requirements]
+- Data: [Data flows across touchpoints]
+- Performance: [Service level requirements]
+
+## Acceptance Criteria
+- [ ] All touchpoints function cohesively
+- [ ] Pain points addressed with measurable improvements
+- [ ] Emotional journey validated with users
+- [ ] Backstage processes support frontstage experience
+
+## Open Questions
+- [Technical feasibility questions for TA]
+- [Integration questions]
+  `
+});
+
+// Then route to TA for task breakdown
+// Route: @agent-ta
+```
+
+**Why specifications instead of tasks:**
+- Service design expertise ≠ technical decomposition expertise
+- @agent-ta needs full context to create well-structured tasks
+- Prevents misalignment between design intent and implementation plan
 
 ## Output Format
 

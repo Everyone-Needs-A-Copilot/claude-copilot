@@ -8,12 +8,28 @@
 # - Empty state handling (no initiative, no streams, all complete)
 # - Initiative name and goal display in header
 
-# Get script directory from original invocation path (don't resolve symlinks)
-# This ensures PROJECT_ROOT is calculated from the project's .claude/orchestrator,
-# not from a template directory if check-streams is symlinked
+# Resolve script location to find PROJECT_ROOT
+# Handles multiple symlink scenarios:
+#   1. Direct call: .claude/orchestrator/check-streams
+#   2. Project root symlink: ./check-streams -> .claude/orchestrator/check-streams
+#   3. Symlinked orchestrator: .claude/orchestrator/check-streams -> template
 INVOCATION_PATH="${BASH_SOURCE[0]}"
 INVOCATION_DIR="$(cd "$(dirname "$INVOCATION_PATH")" && pwd)"
-PROJECT_ROOT="$(cd "$INVOCATION_DIR/../.." && pwd)"
+
+# Check if first symlink target contains .claude/orchestrator (project root symlink case)
+if [ -L "$INVOCATION_PATH" ]; then
+    FIRST_TARGET="$(readlink "$INVOCATION_PATH")"
+    if [[ "$FIRST_TARGET" == *".claude/orchestrator"* ]]; then
+        # Called from project root via symlink
+        PROJECT_ROOT="$INVOCATION_DIR"
+    else
+        # Called from .claude/orchestrator (which may itself be symlinked)
+        PROJECT_ROOT="$(cd "$INVOCATION_DIR/../.." && pwd)"
+    fi
+else
+    # Direct call (not a symlink)
+    PROJECT_ROOT="$(cd "$INVOCATION_DIR/../.." && pwd)"
+fi
 
 # For finding companion scripts, use the resolved path (they may be in template)
 SCRIPT_PATH="$INVOCATION_PATH"

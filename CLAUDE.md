@@ -432,7 +432,8 @@ Streams are automatically archived when switching initiatives via `initiative_li
 | `test_plan` | @agent-qa |
 | `security_review` | @agent-sec |
 | `documentation` | @agent-doc |
-| `other` | @agent-sd, @agent-uxd, @agent-uids, @agent-uid, @agent-cw |
+| `specification` | @agent-sd, @agent-uxd, @agent-uids, @agent-cw, @agent-cco |
+| `other` | @agent-uid, misc. agents |
 
 **Key Features:**
 
@@ -445,6 +446,7 @@ Streams are automatically archived when switching initiatives via `initiative_li
 - **Verification Enforcement**: Opt-in blocking of task completion without acceptance criteria and proof (set `metadata.verificationRequired: true`)
 - **Activation Modes**: Auto-detected from keywords (ultrawork, analyze, quick, thorough); ultrawork warns when >3 subtasks
 - **Progress Visibility**: ASCII progress bars, milestone tracking in PRDs, velocity trends (7d/14d/30d with ↗↘→ indicators)
+- **Specification Workflow**: Domain agents (sd, uxd, uids, cw, cco) create specifications → @agent-ta reviews and creates tasks with traceability
 
 ### 5. Protocol
 
@@ -493,6 +495,69 @@ Agents route to each other based on expertise:
 | Any | `me` | Code implementation |
 | Any | `qa` | Testing needed |
 | Any | `doc` | Documentation needed |
+
+---
+
+## Specification Workflow
+
+Domain agents (sd, uxd, uids, cw, cco) **MUST NOT create tasks directly**. Instead, they create specifications that @agent-ta reviews and decomposes into tasks.
+
+### Why Specifications?
+
+| Problem | Solution |
+|---------|----------|
+| Domain expertise ≠ technical decomposition | Domain agents focus on their specialty |
+| @agent-ta needs full context | Specifications provide complete requirements |
+| Prevents misalignment | TA sees all domain requirements before task creation |
+
+### Workflow
+
+```
+1. Domain agent completes work (journey map, wireframes, design tokens, copy, creative direction)
+2. Store as specification work product (type: 'specification')
+3. Route to @agent-ta
+4. TA discovers specifications for PRD
+5. TA reviews all domain specifications
+6. TA creates tasks with specification traceability
+```
+
+### Specification Structure
+
+All specifications include:
+
+| Section | Purpose |
+|---------|---------|
+| PRD Reference | Link back to source PRD |
+| Overview | High-level description |
+| Domain Content | Journey maps, wireframes, tokens, copy, creative direction |
+| Implementation Implications | Technical requirements from domain perspective |
+| Acceptance Criteria | How to verify domain requirements met |
+| Open Questions | Technical feasibility questions for TA |
+
+### Task Creation with Traceability
+
+When TA creates tasks from specifications, metadata includes:
+
+```typescript
+metadata: {
+  sourceSpecifications: ['WP-xxx', 'WP-yyy', 'WP-zzz'],
+  // Links back to all domain specifications
+}
+```
+
+Task descriptions consolidate requirements from all specifications, ensuring implementation aligns with all domain input.
+
+### Example Flow
+
+```
+1. User creates PRD-001: "Build user dashboard"
+2. @agent-sd creates WP-001: Service Design Specification (journey stages)
+3. @agent-uxd creates WP-002: UX Design Specification (interactions, states)
+4. @agent-uids creates WP-003: UI Design Specification (design tokens, components)
+5. @agent-cw creates WP-004: Copy Specification (headlines, errors, empty states)
+6. @agent-ta discovers WP-001 through WP-004
+7. @agent-ta creates tasks with consolidated requirements and sourceSpecifications metadata
+```
 
 ---
 

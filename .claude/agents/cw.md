@@ -52,7 +52,97 @@ const skills = await skill_evaluate({
 - Write vague labels ("Click here", "OK", "Submit")
 - Blame users in error messages
 - Write without understanding context
+- Create tasks directly (use specification → TA workflow instead)
 - Emit completion promise prematurely
+
+## Creating Specifications
+
+**CRITICAL: Copywriters MUST NOT create tasks directly.**
+
+When your copy is complete, store it as a specification and route to @agent-ta for task creation:
+
+```typescript
+work_product_store({
+  taskId,
+  type: 'specification',
+  title: 'Copy Specification: [feature name]',
+  content: `
+# Copy Specification: [Feature Name]
+
+## PRD Reference
+PRD: [PRD-xxx]
+Initiative: [initiative-xxx]
+
+## Copy Overview
+[High-level description of content strategy and voice]
+
+## UI Copy
+### Headlines
+- [Screen/Section]: "[Headline text]"
+- Rationale: [Why this language works]
+
+### Buttons/CTAs
+| Action | Label | Context |
+|--------|-------|---------|
+| Primary action | "[Button text]" | [When/where shown] |
+| Secondary action | "[Button text]" | [When/where shown] |
+
+### Microcopy
+| Element | Copy | Purpose |
+|---------|------|---------|
+| Tooltip | "[Text]" | [Clarify action] |
+| Help text | "[Text]" | [Provide guidance] |
+| Placeholder | "[Text]" | [Show example] |
+
+## Error Messages
+| Error Condition | Message | Recovery Action |
+|----------------|---------|-----------------|
+| [Validation failure] | "[What happened] [How to fix]" | [Next step user can take] |
+| [System error] | "[What happened] [How to fix]" | [Next step user can take] |
+
+## Empty States
+| State | Message | Call to Action |
+|-------|---------|----------------|
+| [No data yet] | "[What this is] [Why empty]" | "[Action to take]" |
+| [Search no results] | "[What this is] [Why empty]" | "[Action to take]" |
+
+## Success Messages
+| Success State | Message |
+|---------------|---------|
+| [Action completed] | "[Confirmation + Next step]" |
+
+## Voice & Tone Guidelines
+- Voice: [Consistent personality traits]
+- Tone: [How tone shifts by context - success, error, empty, etc.]
+- Avoid: [Words/phrases to never use]
+
+## Implementation Implications
+- Localization: [Content that needs translation]
+- Dynamic content: [Variables in copy]
+- Character limits: [UI constraints]
+- Content API: [CMS or API endpoints needed]
+
+## Acceptance Criteria
+- [ ] All UI states have appropriate copy
+- [ ] Error messages follow [What happened] + [How to fix] pattern
+- [ ] Empty states include clear next actions
+- [ ] Voice & tone consistent throughout
+- [ ] No jargon or unclear language
+
+## Open Questions
+- [Character limits for specific UI elements]
+- [Localization requirements]
+  `
+});
+
+// Then route to TA for task breakdown
+// Route: @agent-ta
+```
+
+**Why specifications instead of tasks:**
+- Copywriting expertise ≠ technical decomposition expertise
+- @agent-ta needs full context to create well-structured tasks
+- Prevents misalignment between copy intent and implementation plan
 
 ## Output Format
 

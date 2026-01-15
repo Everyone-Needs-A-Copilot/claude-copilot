@@ -1,34 +1,94 @@
 #!/bin/bash
 # Live status monitor for Claude Copilot streams
-# Usage: watch-status [interval]
+# Usage: watch-status [interval] [--no-auto-restart]
 # Default interval: 15 seconds
+#
+# Features:
+# - Live stream progress display
+# - Auto-restart dead workers (disable with --no-auto-restart)
+# - Initiative completion detection
 
 INTERVAL=${1:-15}
+AUTO_RESTART=true
 
-# Resolve symlinks to get the real script location
-SCRIPT_PATH="${BASH_SOURCE[0]}"
+# Parse arguments
+for arg in "$@"; do
+    case $arg in
+        --no-auto-restart)
+            AUTO_RESTART=false
+            ;;
+        [0-9]*)
+            INTERVAL=$arg
+            ;;
+    esac
+done
+
+# Resolve script location to find PROJECT_ROOT and ORCHESTRATOR_DIR
+# Handles multiple symlink scenarios:
+#   1. Direct call: .claude/orchestrator/watch-status
+#   2. Project root symlink: ./watch-status -> .claude/orchestrator/watch-status
+#   3. Symlinked orchestrator: .claude/orchestrator/watch-status -> template
+INVOCATION_PATH="${BASH_SOURCE[0]}"
+INVOCATION_DIR="$(cd "$(dirname "$INVOCATION_PATH")" && pwd)"
+
+# Check if first symlink target contains .claude/orchestrator (project root symlink case)
+if [ -L "$INVOCATION_PATH" ]; then
+    FIRST_TARGET="$(readlink "$INVOCATION_PATH")"
+    if [[ "$FIRST_TARGET" == *".claude/orchestrator"* ]]; then
+        # Called from project root via symlink
+        PROJECT_ROOT="$INVOCATION_DIR"
+        ORCHESTRATOR_DIR="$INVOCATION_DIR/.claude/orchestrator"
+    else
+        # Called from .claude/orchestrator (which may itself be symlinked)
+        PROJECT_ROOT="$(cd "$INVOCATION_DIR/../.." && pwd)"
+        ORCHESTRATOR_DIR="$INVOCATION_DIR"
+    fi
+else
+    # Direct call (not a symlink)
+    PROJECT_ROOT="$(cd "$INVOCATION_DIR/../.." && pwd)"
+    ORCHESTRATOR_DIR="$INVOCATION_DIR"
+fi
+
+WORKSPACE_ID=$(basename "$PROJECT_ROOT")
+
+# For finding template scripts (check_streams_data.py, etc.), resolve fully
+SCRIPT_PATH="$INVOCATION_PATH"
 while [ -L "$SCRIPT_PATH" ]; do
-    SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+    RESOLVED_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
     SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
-    [[ "$SCRIPT_PATH" != /* ]] && SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_PATH"
+    [[ "$SCRIPT_PATH" != /* ]] && SCRIPT_PATH="$RESOLVED_DIR/$SCRIPT_PATH"
 done
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-WORKSPACE_ID=$(basename "$PROJECT_ROOT")
 
 # Colors
 GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m'
 
 echo "Starting live status monitor (refresh every ${INTERVAL}s)"
+if [ "$AUTO_RESTART" = true ]; then
+    echo -e "Auto-restart: ${GREEN}enabled${NC} (use --no-auto-restart to disable)"
+else
+    echo -e "Auto-restart: ${YELLOW}disabled${NC}"
+fi
 echo "Press Ctrl-C to stop"
 echo ""
 
 while true; do
-    # Capture check-streams output
-    "$SCRIPT_DIR/check-streams"
+    # Capture check-streams output (use INVOCATION_DIR so check-streams calculates correct PROJECT_ROOT)
+    "$INVOCATION_DIR/check-streams"
+
+    # Monitor and auto-restart dead workers (monitor-workers.py is in project dir, not template)
+    if [ "$AUTO_RESTART" = true ]; then
+        # Run monitor quietly, only show output if action taken
+        MONITOR_OUTPUT=$(python3 "$INVOCATION_DIR/monitor-workers.py" --auto-restart --quiet 2>&1)
+        if [ -n "$MONITOR_OUTPUT" ]; then
+            echo ""
+            echo "$MONITOR_OUTPUT"
+        fi
+    fi
 
     # Check if all streams are complete using the data script
     ORCHESTRATOR_DATA=$(python3 "$SCRIPT_DIR/check_streams_data.py" "$WORKSPACE_ID" 2>/dev/null)

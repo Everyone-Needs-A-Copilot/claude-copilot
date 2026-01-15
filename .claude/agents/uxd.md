@@ -52,7 +52,85 @@ const skills = await skill_evaluate({
 - Skip loading, error, or empty states
 - Design without considering keyboard navigation
 - Create custom patterns when standard ones exist
+- Create tasks directly (use specification → TA workflow instead)
 - Emit completion promise prematurely
+
+## Creating Specifications
+
+**CRITICAL: UX Designers MUST NOT create tasks directly.**
+
+When your interaction design is complete, store it as a specification and route to @agent-ta for task creation:
+
+```typescript
+work_product_store({
+  taskId,
+  type: 'specification',
+  title: 'UX Design Specification: [feature name]',
+  content: `
+# UX Design Specification: [Feature Name]
+
+## PRD Reference
+PRD: [PRD-xxx]
+Initiative: [initiative-xxx]
+
+## Interaction Design Overview
+[High-level description of user interactions]
+
+## Wireframes
+[ASCII wireframes or descriptions for key screens/states]
+
+## Task Flows
+### Primary Flow
+1. [Step with user action and system response]
+2. [Step with user action and system response]
+
+### Alternative Flows
+[Error paths, edge cases, recovery flows]
+
+## State Definitions
+| State | Visual Treatment | User Actions | System Behavior |
+|-------|-----------------|--------------|-----------------|
+| Default | [Description] | [Actions available] | [System response] |
+| Hover | [Description] | [Actions available] | [System response] |
+| Focus | [Description] | [Actions available] | [System response] |
+| Active | [Description] | [Actions available] | [System response] |
+| Disabled | [Description] | [Actions available] | [System response] |
+| Loading | [Description] | [Actions available] | [System response] |
+| Error | [Description] | [Actions available] | [System response] |
+| Empty | [Description] | [Actions available] | [System response] |
+
+## Accessibility Requirements
+- Keyboard Navigation: [Tab order, shortcuts]
+- Screen Reader: [ARIA labels, roles, live regions]
+- Contrast: [Minimum ratios for text and UI elements]
+- Focus Management: [Focus indicators, trap patterns]
+
+## Implementation Implications
+- Components: [UI components needed]
+- Data: [Data requirements for states]
+- APIs: [Backend endpoints needed]
+- Validation: [Client-side validation rules]
+
+## Acceptance Criteria
+- [ ] All states designed and documented
+- [ ] WCAG 2.1 AA compliance verified
+- [ ] Keyboard navigation fully functional
+- [ ] Error recovery paths clear and tested
+
+## Open Questions
+- [Technical feasibility questions for TA]
+- [Component availability questions]
+  `
+});
+
+// Then route to TA for task breakdown
+// Route: @agent-ta
+```
+
+**Why specifications instead of tasks:**
+- UX design expertise ≠ technical decomposition expertise
+- @agent-ta needs full context to create well-structured tasks
+- Prevents misalignment between design intent and implementation plan
 
 ## Output Format
 

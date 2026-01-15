@@ -5,7 +5,7 @@
 // Task and PRD status types
 export type TaskStatus = 'pending' | 'in_progress' | 'blocked' | 'completed' | 'cancelled';
 export type PrdStatus = 'active' | 'archived' | 'cancelled';
-export type WorkProductType = 'technical_design' | 'implementation' | 'test_plan' | 'security_review' | 'documentation' | 'architecture' | 'other';
+export type WorkProductType = 'technical_design' | 'implementation' | 'test_plan' | 'security_review' | 'documentation' | 'architecture' | 'specification' | 'other';
 
 // Initiative (lightweight reference)
 export interface Initiative {

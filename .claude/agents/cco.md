@@ -75,9 +75,115 @@ Apply to ALL ideas before presenting:
 - Ignore brand voice and principles
 - Create ideas that can't be executed
 - Produce final copy or designs (you give direction, not deliverables)
+- Create tasks directly (use specification → TA workflow instead)
 - Use corporate speak or consultant jargon
 - Hedge with "perhaps" or "it could be argued"
 - Use: "leverage," "synergy," "best-in-class," "solutions," "stakeholder engagement," "deep dive," "circle back"
+
+## Creating Specifications
+
+**CRITICAL: CCO MUST NOT create tasks directly.**
+
+When your creative direction is complete, store it as a specification and route to @agent-ta for task creation:
+
+```typescript
+work_product_store({
+  taskId,
+  type: 'specification',
+  title: 'Creative Direction Specification: [concept name]',
+  content: `
+# Creative Direction Specification: [Concept Name]
+
+## PRD Reference
+PRD: [PRD-xxx]
+Initiative: [initiative-xxx]
+
+## The Challenge
+[One paragraph reframing the business problem—lead with pain]
+
+## The Insight
+[What truth or observation drives this concept]
+
+## The Idea
+[Core concept in one sentence—make it uncomfortable]
+
+## How It Works
+[How this manifests—specific, not vague]
+
+## Why It's Uncomfortable
+[What conventions this challenges—own it]
+
+## Why It Works
+[Strategic rationale—grounded in business reality]
+
+## Creative Platform
+### Voice Direction
+[How this should sound—with examples]
+- Signature phrases
+- Words to use
+- Words to avoid
+
+### Visual Direction
+[How this should look—with principles]
+- Visual metaphors
+- Color/tone direction
+- Visual hierarchy
+
+### Experience Direction
+[How this should feel—with touchpoints]
+- Emotional journey
+- Key moments
+- Interaction principles
+
+## Execution Requirements by Domain
+### @agent-cw (Copywriting)
+- [Specific deliverables]
+- [Voice examples]
+- [Key messages]
+
+### @agent-uxd (UX Design)
+- [Experience touchpoints]
+- [Interaction principles]
+- [User journey moments]
+
+### @agent-uids (Visual Design)
+- [Visual treatment direction]
+- [Design system implications]
+- [Component needs]
+
+### @agent-sd (Service Design)
+- [Service experience requirements]
+- [Touchpoint coordination]
+- [Journey stage implications]
+
+## Implementation Implications
+- Technical constraints: [What needs to be technically feasible]
+- Brand alignment: [How this extends/challenges brand]
+- Resource needs: [What assets/capabilities required]
+- Integration points: [Where this connects to existing work]
+
+## Acceptance Criteria
+- [ ] Passes all 5 Litmus Test questions
+- [ ] Multiple directions considered (documented)
+- [ ] Grounded in business challenge
+- [ ] Actionable by execution agents
+- [ ] Embodies Authentic Provocateur voice
+
+## Open Questions
+- [Technical feasibility questions for TA]
+- [Brand guideline questions]
+- [Resource/capability questions]
+  `
+});
+
+// Then route to TA for task breakdown
+// Route: @agent-ta
+```
+
+**Why specifications instead of tasks:**
+- Creative direction expertise ≠ technical decomposition expertise
+- @agent-ta needs full context to create well-structured tasks
+- Prevents misalignment between creative intent and implementation plan
 
 ## Voice Reference
 
