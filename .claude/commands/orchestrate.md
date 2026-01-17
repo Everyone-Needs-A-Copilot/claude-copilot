@@ -21,116 +21,268 @@ This command helps set up and run the orchestration system for parallel Claude C
 
 ### `/orchestrate generate` (REQUIRED FIRST)
 
-**Purpose:** Create PRD and tasks with proper stream metadata for orchestration.
+**Purpose:** Create specifications, PRD, and tasks with proper stream metadata for orchestration.
 
 **This command MUST be run before `/orchestrate start`.**
 
-**Workflow:**
+**Two Modes:**
+- **Experience-First (default):** Domain agents create specifications → TA creates tasks from specs
+- **Technical-Only (`--technical`):** TA creates tasks directly (for refactoring, optimization, etc.)
 
-1. **Invoke @agent-ta** with the feature/initiative description
-2. **@agent-ta creates:**
-   - PRD using `prd_create()` in Task Copilot
-   - Tasks using `task_create()` with required stream metadata:
-     ```json
-     {
-       "metadata": {
-         "streamId": "Stream-A",
-         "streamName": "Foundation Work",
-         "streamPhase": "foundation|parallel|integration",
-         "files": ["list", "of", "files"],
-         "dependencies": ["Stream-X", "Stream-Y"]
-       }
-     }
-     ```
-3. **Validate stream metadata:**
-   - All tasks have `streamId`
-   - All tasks have `dependencies` (empty `[]` for foundation)
-   - At least one foundation stream exists (no dependencies)
-   - No circular dependencies
-4. **Display dependency structure:**
-   ```
-   Stream Dependency Structure:
+**Workflow (Experience-First - Default):**
 
-     Depth 0 (Independent):
-       • Stream-A (Foundation)
+```
+1. @agent-sd → Service Design Specification (WP-xxx)
+2. @agent-uxd → UX Design Specification (WP-yyy)
+3. @agent-uids → UI Design Specification (WP-zzz)
+4. @agent-ta → PRD + Tasks with sourceSpecifications traceability
+```
 
-     Depth 1:
-       • Stream-B (Auth API) → depends on: Stream-A
-       • Stream-C (User API) → depends on: Stream-A
+**Workflow (Technical-Only):**
 
-     Depth 2:
-       • Stream-Z (Integration) → depends on: Stream-B, Stream-C
-   ```
-5. **Return next step:** "Run `/orchestrate start` to begin execution"
+```
+1. @agent-ta → PRD + Tasks directly (no specifications)
+```
 
 **Usage:**
 ```
 User: /orchestrate generate
-Assistant: I'll invoke @agent-ta to create PRDs and tasks with stream metadata.
-           What feature or initiative should I plan for orchestration?
+Assistant: What feature or initiative should I plan for orchestration?
 
-User: Implement user authentication with OAuth
-Assistant: [Invokes @agent-ta to create PRD and tasks]
+User: Implement user voice profiles
+Assistant: [Detects: Experience-first flow - user-facing feature]
+
+           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           Stage 1/4: Service Design (@agent-sd)
+           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           [Invokes @agent-sd to create service design specification]
+
+           Specification Created: WP-001
+           Service: User Voice Profiles
+           Journey: Discovery → Setup → Usage → Management
+           Pain Points: Profile creation friction, unclear value
+
+           Proceed to UX Design? [y/n/skip]
+
+User: y
+Assistant: ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           Stage 2/4: UX Design (@agent-uxd)
+           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           [Invokes @agent-uxd to create UX specification]
+
+           Specification Created: WP-002
+           Interactions: 8 states designed
+           Key Flows: First-time setup (3 steps), Quick record
+           Accessibility: WCAG 2.1 AA, keyboard navigation
+
+           Proceed to Visual Design? [y/n/skip]
+
+User: y
+Assistant: ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           Stage 3/4: UI Design (@agent-uids)
+           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           [Invokes @agent-uids to create visual design specification]
+
+           Specification Created: WP-003
+           Design Tokens: 12 color, 6 spacing, 4 typography
+           Components: VoiceProfileCard, RecordButton, WaveformVisualizer
+
+           Proceed to Technical Architecture? [y/n]
+
+User: y
+Assistant: ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           Stage 4/4: Technical Architecture (@agent-ta)
+           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           [Invokes @agent-ta with specification IDs]
 
            PRD Created: PRD-abc123
            Tasks Created: 12 tasks across 4 streams
+           Source Specifications: WP-001, WP-002, WP-003
 
            Stream Structure:
              Stream-A (Foundation): 3 tasks - DB migrations, types
-             Stream-B (OAuth Provider): 4 tasks - depends on Stream-A
-             Stream-C (Session Management): 3 tasks - depends on Stream-A
+             Stream-B (Backend API): 4 tasks - depends on Stream-A
+             Stream-C (Frontend UI): 3 tasks - depends on Stream-A
              Stream-Z (Integration): 2 tasks - depends on Stream-B, Stream-C
 
            Next: Run `/orchestrate start` to begin parallel execution
 ```
 
+**Technical-Only Usage:**
+```
+User: /orchestrate generate --technical
+Assistant: What technical work should I plan for orchestration?
+
+User: Refactor authentication to use JWT
+Assistant: [Invokes @agent-ta directly - no specification stages]
+
+           PRD Created: PRD-def456
+           Tasks Created: 8 tasks across 3 streams
+           ...
+```
+
 **Implementation:**
 
-When user runs `/orchestrate generate`:
+When user runs `/orchestrate generate [--technical] [description]`:
 
-1. **Prompt for feature name** if not provided as argument
+1. **Parse arguments:**
+   - Check for `--technical` flag
+   - Extract feature description if provided
 
-2. **Link to Memory Copilot initiative (REQUIRED FIRST):**
+2. **Prompt for feature name** if not provided as argument
+
+3. **Link to Memory Copilot initiative (REQUIRED FIRST):**
    - Call `initiative_link({ initiativeId, title, description })` to:
      - Establish current initiative in Task Copilot
      - Auto-archive old streams from previous initiatives (clean slate)
      - Prevent stream pollution from prior work
    - If initiative not found, return error asking user to start initiative in Memory Copilot first
 
-3. **Invoke @agent-ta** with this prompt:
+4. **Detect workflow mode:**
+   - If `--technical` flag: Use Technical-Only workflow (skip to step 8)
+   - If feature contains technical keywords (refactor, optimize, migrate, performance):
+     Ask user to confirm: "This sounds technical. Use technical-only flow? [y/n]"
+   - Default: Use Experience-First workflow
+
+**Experience-First Workflow (Steps 5-7):**
+
+5. **Stage 1: Service Design (@agent-sd)**
+
+   Invoke @agent-sd with this prompt:
+   ```
+   Create a Service Design Specification for orchestration planning.
+
+   Feature: {feature_description}
+
+   REQUIREMENTS:
+   1. Map the complete user journey for this feature
+   2. Identify all touchpoints (frontstage and backstage)
+   3. Document pain points and opportunities
+   4. Store specification using work_product_store():
+      {
+        taskId: "planning-task",
+        type: "specification",
+        title: "Service Design Specification: {feature}",
+        content: "<full service blueprint>"
+      }
+   5. Return summary (~100 tokens) with WP-xxx ID
+   ```
+
+   After @agent-sd returns:
+   - Extract WP-xxx ID from response
+   - Display checkpoint summary
+   - Ask: "Proceed to UX Design? [y/n/skip]"
+   - If "skip": Jump to step 8 (TA) with collected specs
+   - If "n": Allow user to provide feedback, re-invoke @agent-sd
+
+6. **Stage 2: UX Design (@agent-uxd)**
+
+   Invoke @agent-uxd with this prompt:
+   ```
+   Create a UX Design Specification based on the service design.
+
+   Feature: {feature_description}
+   Service Design Spec: {WP-xxx from step 5}
+
+   REQUIREMENTS:
+   1. Read the service design specification for context
+   2. Design all interaction states (default, hover, focus, error, loading, empty)
+   3. Define task flows with all paths (primary, alternative, error recovery)
+   4. Specify accessibility requirements (WCAG 2.1 AA)
+   5. Store specification using work_product_store():
+      {
+        taskId: "planning-task",
+        type: "specification",
+        title: "UX Design Specification: {feature}",
+        content: "<full interaction design>"
+      }
+   6. Return summary (~100 tokens) with WP-xxx ID
+   ```
+
+   After @agent-uxd returns:
+   - Extract WP-xxx ID from response
+   - Display checkpoint summary
+   - Ask: "Proceed to Visual Design? [y/n/skip]"
+   - If "skip": Jump to step 8 (TA) with collected specs
+   - If "n": Allow user to provide feedback, re-invoke @agent-uxd
+
+7. **Stage 3: UI Design (@agent-uids)**
+
+   Invoke @agent-uids with this prompt:
+   ```
+   Create a UI Design Specification based on the UX design.
+
+   Feature: {feature_description}
+   Service Design Spec: {WP-xxx from step 5}
+   UX Design Spec: {WP-yyy from step 6}
+
+   REQUIREMENTS:
+   1. Read prior specifications for context
+   2. Define design tokens (colors, spacing, typography)
+   3. Specify component designs with all visual states
+   4. Include micro-interactions and transitions
+   5. Store specification using work_product_store():
+      {
+        taskId: "planning-task",
+        type: "specification",
+        title: "UI Design Specification: {feature}",
+        content: "<full visual design>"
+      }
+   6. Return summary (~100 tokens) with WP-xxx ID
+   ```
+
+   After @agent-uids returns:
+   - Extract WP-xxx ID from response
+   - Display checkpoint summary
+   - Ask: "Proceed to Technical Architecture? [y/n]"
+   - If "n": Allow user to provide feedback, re-invoke @agent-uids
+
+8. **Stage 4: Technical Architecture (@agent-ta)**
+
+   Invoke @agent-ta with this prompt:
    ```
    Create a PRD and task breakdown for parallel orchestration.
 
    Feature: {feature_description}
 
+   SOURCE SPECIFICATIONS (READ THESE FIRST):
+   {list of WP-xxx IDs from steps 5-7, or "None - technical-only flow"}
+
    MANDATORY REQUIREMENTS:
-   1. Call prd_create() to create PRD in Task Copilot
-   2. Design stream structure:
+   1. If specifications provided:
+      - Call work_product_get() for each specification ID
+      - Read and understand all domain requirements
+      - Consolidate requirements into implementation tasks
+   2. Call prd_create() to create PRD in Task Copilot
+   3. Design stream structure:
       - Foundation streams (shared dependencies, no deps)
       - Parallel streams (independent work, depend on foundation)
       - Integration streams (combines parallel work)
-   3. For EACH task, call task_create() with metadata:
+   4. For EACH task, call task_create() with metadata:
       {
         "prdId": "PRD-xxx",
         "title": "Task title",
-        "description": "Task description",
+        "description": "Task description with requirements from specs",
         "assignedAgent": "me|qa|doc|etc",
         "metadata": {
           "streamId": "Stream-X",
           "streamName": "Human Readable Name",
+          "streamPhase": "foundation|parallel|integration",
           "files": ["list", "of", "files", "this", "stream", "modifies"],
-          "dependencies": ["Stream-A", "Stream-B"]  // empty [] for foundation
+          "dependencies": ["Stream-A", "Stream-B"],
+          "sourceSpecifications": ["WP-xxx", "WP-yyy", "WP-zzz"]
         }
       }
-   4. After creating all tasks, validate:
+   5. After creating all tasks, validate:
       - Every task has streamId
       - At least one stream has empty dependencies
       - No circular dependencies
-   5. Display dependency structure visualization
-   6. Return "Ready for /orchestrate start"
+      - Tasks reference source specifications (if provided)
+   6. Display dependency structure visualization
+   7. Return "Ready for /orchestrate start"
    ```
 
-4. **VERIFY Task Copilot State (MANDATORY - DO NOT SKIP):**
+9. **VERIFY Task Copilot State (MANDATORY - DO NOT SKIP):**
 
    After @agent-ta returns, you MUST verify that tools were actually called:
 
@@ -504,9 +656,25 @@ When user runs `/orchestrate [command]`:
 1. **Validate command** - Must be `generate`, `start`, `status`, or `stop`
 
 2. **For `generate`:**
+   - **Parse arguments** for `--technical` flag and feature description
    - **Prompt for feature** if not provided as argument
    - **Link initiative** via `initiative_link()` (see detailed steps in `/orchestrate generate` section above)
-   - **Invoke @agent-ta** with orchestration generation prompt (see `/orchestrate generate` section above)
+   - **Detect workflow mode:**
+     - If `--technical` flag: Skip to @agent-ta invocation
+     - If technical keywords detected: Ask user to confirm technical-only flow
+     - Default: Use Experience-First workflow
+   - **Experience-First Flow (if not --technical):**
+     - **Stage 1:** Invoke @agent-sd → Service Design Specification (WP-xxx)
+       - Display checkpoint, ask "Proceed to UX Design? [y/n/skip]"
+     - **Stage 2:** Invoke @agent-uxd → UX Design Specification (WP-yyy)
+       - Display checkpoint, ask "Proceed to Visual Design? [y/n/skip]"
+     - **Stage 3:** Invoke @agent-uids → UI Design Specification (WP-zzz)
+       - Display checkpoint, ask "Proceed to Technical Architecture? [y/n]"
+     - Collect specification IDs for @agent-ta
+   - **Stage 4:** Invoke @agent-ta with:
+     - Feature description
+     - Source specification IDs (from Experience-First stages, or "None" if --technical)
+     - Orchestration generation prompt (see `/orchestrate generate` section above)
    - **Wait for @agent-ta** to create PRD and tasks in Task Copilot
    - **VERIFY creation (MANDATORY):**
      - Call `prd_list({})` to verify PRDs exist
@@ -525,8 +693,10 @@ When user runs `/orchestrate [command]`:
      - Make scripts executable: `chmod +x check-streams watch-status`
      - Create project root symlink: `ln -sf .claude/orchestrator/watch-status watch-status`
    - **Display results:**
+     - Specifications created (if Experience-First)
      - PRD ID created
      - Number of streams and tasks
+     - Source specifications linked to tasks
      - Dependency structure visualization
      - Files created confirmation
      - Next step: "Run `/orchestrate start` to begin execution"

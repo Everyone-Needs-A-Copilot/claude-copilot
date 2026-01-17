@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-01-17
+
+### Added
+
+- **Experience-First Protocol Redesign**:
+  - Flipped default routing from technical-first to experience-first (sd → uxd → uids → ta → me)
+  - Four flow types: Experience (default), Defect, Technical, Clarification
+  - Checkpoint system with explicit approval required (~100 token summaries)
+  - 50-char handoff context between agents
+  - Skip warnings when bypassing design stages
+  - Single `/protocol` entry point with smart intent detection (no command proliferation)
+  - All 6 relevant agents updated with checkpoint templates
+
+- **Experience-First Orchestration**:
+  - `/orchestrate generate` now uses experience-first workflow by default
+  - `--technical` flag to skip design stages for technical-only work
+  - 4-stage flow: @agent-sd → @agent-uxd → @agent-uids → @agent-ta with checkpoints
+  - sourceSpecifications traceability in tasks (links back to design work products)
+  - Technical keyword detection with user confirmation
+
+- **Task Copilot Client Enhancements**:
+  - `archive_initiative_streams()` - Archives stream tasks when initiative completes
+  - `complete_initiative()` - Marks initiative as COMPLETE in Memory Copilot
+
+### Changed
+
+- **Protocol Routing**: Intent detection now looks for technical/defect exceptions rather than experience indicators
+- **Agent Summaries**: All design agents (sd, uxd, uids, ta, qa, me) output standardized checkpoint summaries
+- **Orchestration**: `/orchestrate generate` validates workflow mode before task creation
+
+### Documentation
+
+- Added service design specification: `docs/specifications/protocol-redesign-service-spec.md`
+- Added testing guide: `docs/specifications/protocol-redesign-testing-guide.md`
+- Updated CLAUDE.md with Protocol Flow System documentation
+
 ## [2.3.1] - 2026-01-13
 
 ### Added
