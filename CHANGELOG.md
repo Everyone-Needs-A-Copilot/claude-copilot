@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.7.1] - 2026-01-17
+
+### Changed
+
+- **Update Project Command**: Improved messaging to clarify what gets updated
+  - Shows orchestrator update status when `.claude/orchestrator/` exists
+  - Clearer summary of refreshed vs preserved files
+
 ## [2.7.0] - 2026-01-17
 
 ### Added

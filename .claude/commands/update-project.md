@@ -187,8 +187,9 @@ Tell the user:
 **Ready to update project**
 
 This will refresh:
-- `.claude/commands/protocol.md` and `continue.md`
+- `.claude/commands/` (8 project commands)
 - `.claude/agents/*.md` (all 12 agents)
+- `.claude/orchestrator/` (if present - Python scripts and shell utilities)
 
 This will ONLY update if needed:
 - `.mcp.json` (only to add new MCP servers, preserving all existing configuration)
@@ -325,7 +326,7 @@ fi
 
 ---
 
-## Step 10: Report Success
+## Step 11: Report Success
 
 ```bash
 # Get Claude Copilot version
@@ -366,6 +367,9 @@ Tell user:
 **Refreshed:**
 - `.claude/commands/` (8 project commands: protocol, continue, pause, map, memory, extensions, orchestrate)
 - `.claude/agents/` (12 agents)
+{{IF_ORCHESTRATOR_UPDATED}}
+- `.claude/orchestrator/` (Python scripts and shell utilities)
+{{END_IF}}
 
 **MCP Configuration:**
 {{IF_SERVERS_ADDED}}
@@ -378,6 +382,9 @@ Tell user:
 - `CLAUDE.md`
 - `.claude/skills/`
 - Existing MCP server configurations
+{{IF_NO_ORCHESTRATOR}}
+- `.claude/orchestrator/` not present (run `/orchestrate setup` to initialize)
+{{END_IF}}
 
 **Claude Copilot Version:** $COPILOT_VERSION
 
