@@ -109,4 +109,40 @@ claude --print --dangerously-skip-permissions -p "$PROMPT" >> "$LOG_FILE" 2>&1
 CLAUDE_EXIT=$?
 echo "Claude exited with code: $CLAUDE_EXIT" >> "$LOG_FILE"
 
+# CRITICAL: Commit any changes made by Claude BEFORE exiting
+# This ensures work is saved even if orchestrator cleanup runs
+if [ $CLAUDE_EXIT -eq 0 ]; then
+    echo "" >> "$LOG_FILE"
+    echo "Checking for uncommitted changes..." >> "$LOG_FILE"
+
+    # Check if there are any changes to commit
+    if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null || [ -n "$(git ls-files --others --exclude-standard 2>/dev/null)" ]; then
+        echo "Found changes, committing..." >> "$LOG_FILE"
+
+        # Stage all changes (new files, modifications, deletions)
+        git add -A >> "$LOG_FILE" 2>&1
+
+        # Commit with descriptive message
+        git commit -m "feat($STREAM_ID): Complete stream tasks
+
+Initiative: $INITIATIVE_ID
+Stream: $STREAM_ID
+Automated commit from orchestration worker" >> "$LOG_FILE" 2>&1
+
+        COMMIT_EXIT=$?
+        if [ $COMMIT_EXIT -eq 0 ]; then
+            echo "Successfully committed changes" >> "$LOG_FILE"
+
+            # Get the commit hash for reference
+            COMMIT_HASH=$(git rev-parse --short HEAD 2>/dev/null)
+            echo "Commit: $COMMIT_HASH" >> "$LOG_FILE"
+        else
+            echo "WARNING: Commit failed (exit code: $COMMIT_EXIT)" >> "$LOG_FILE"
+            echo "Changes may be lost during cleanup!" >> "$LOG_FILE"
+        fi
+    else
+        echo "No changes to commit" >> "$LOG_FILE"
+    fi
+fi
+
 # Exit code will be captured by trap

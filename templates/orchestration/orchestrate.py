@@ -789,6 +789,141 @@ class Orchestrator:
         if cleaned > 0:
             log(f"Cleaned up {cleaned} stale PID file(s)")
 
+    def _merge_all_worktrees(self) -> Tuple[int, List[str]]:
+        """Merge all worktree branches to main branch.
+
+        Returns:
+            Tuple of (success_count, list_of_failed_stream_ids)
+        """
+        worktree_base = PROJECT_ROOT / '.claude' / 'worktrees'
+        success_count = 0
+        failures = []
+
+        if not worktree_base.exists():
+            log("No worktrees directory found")
+            return 0, []
+
+        # Get current branch name
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=PROJECT_ROOT,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            main_branch = result.stdout.strip() or "main"
+        except Exception:
+            main_branch = "main"
+
+        for stream_id in self.streams.keys():
+            worktree_path = worktree_base / stream_id
+            if not worktree_path.exists():
+                continue
+
+            try:
+                # Check if worktree has commits ahead of main
+                result = subprocess.run(
+                    ["git", "log", f"{main_branch}..HEAD", "--oneline"],
+                    cwd=worktree_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+
+                if not result.stdout.strip():
+                    # No new commits in worktree
+                    log(f"  {stream_id}: No new commits to merge")
+                    continue
+
+                commits = result.stdout.strip().split('\n')
+                log(f"  {stream_id}: {len(commits)} commit(s) to merge")
+
+                # Get the worktree's branch name (usually same as stream_id)
+                branch_result = subprocess.run(
+                    ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                    cwd=worktree_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+                worktree_branch = branch_result.stdout.strip()
+
+                # Merge the worktree branch into main from the main project root
+                merge_result = subprocess.run(
+                    ["git", "merge", worktree_branch, "--no-edit", "-m",
+                     f"Merge {stream_id} into {main_branch}"],
+                    cwd=PROJECT_ROOT,
+                    capture_output=True,
+                    text=True,
+                    timeout=60
+                )
+
+                if merge_result.returncode == 0:
+                    success_count += 1
+                    log(f"  {stream_id}: Merged successfully")
+                else:
+                    # Check if it's a conflict
+                    if "CONFLICT" in merge_result.stdout or "CONFLICT" in merge_result.stderr:
+                        warn(f"  {stream_id}: Merge conflict - manual resolution required")
+                        # Abort the merge
+                        subprocess.run(["git", "merge", "--abort"], cwd=PROJECT_ROOT, capture_output=True)
+                    else:
+                        warn(f"  {stream_id}: Merge failed - {merge_result.stderr[:100]}")
+                    failures.append(stream_id)
+
+            except subprocess.TimeoutExpired:
+                warn(f"  {stream_id}: Merge timed out")
+                failures.append(stream_id)
+            except Exception as e:
+                warn(f"  {stream_id}: Merge error - {e}")
+                failures.append(stream_id)
+
+        return success_count, failures
+
+    def _cleanup_worktrees(self):
+        """Remove all worktrees after successful merge."""
+        worktree_base = PROJECT_ROOT / '.claude' / 'worktrees'
+
+        if not worktree_base.exists():
+            return
+
+        cleaned = 0
+        for stream_id in self.streams.keys():
+            worktree_path = worktree_base / stream_id
+            if not worktree_path.exists():
+                continue
+
+            try:
+                # Remove the git worktree properly
+                result = subprocess.run(
+                    ["git", "worktree", "remove", str(worktree_path), "--force"],
+                    cwd=PROJECT_ROOT,
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                if result.returncode == 0:
+                    cleaned += 1
+                else:
+                    # Fallback: just delete the directory
+                    shutil.rmtree(worktree_path, ignore_errors=True)
+                    cleaned += 1
+            except Exception as e:
+                warn(f"Failed to cleanup {stream_id} worktree: {e}")
+                # Try force delete
+                shutil.rmtree(worktree_path, ignore_errors=True)
+
+        # Prune worktree metadata
+        subprocess.run(["git", "worktree", "prune"], cwd=PROJECT_ROOT, capture_output=True)
+
+        if cleaned > 0:
+            log(f"Cleaned up {cleaned} worktree(s)")
+
+        # Remove worktrees directory if empty
+        if worktree_base.exists() and not any(worktree_base.iterdir()):
+            worktree_base.rmdir()
+
     def _get_all_tasks(self) -> List[Dict]:
         """Get all tasks for the current initiative."""
         conn = self.tc_client._connect()
@@ -1191,10 +1326,23 @@ Begin by querying your task list with task_list.
                 success("All streams complete!")
                 print()
 
+                # CRITICAL: Merge all worktree branches to main BEFORE archiving
+                log("Merging worktree branches to main...")
+                merge_success, merge_failures = self._merge_all_worktrees()
+                if merge_success:
+                    success(f"Merged {merge_success} stream(s) to main")
+                if merge_failures:
+                    warn(f"Failed to merge {len(merge_failures)} stream(s): {', '.join(merge_failures)}")
+                print()
+
                 # Archive streams for this initiative
                 log(f"Archiving streams for initiative {self.initiative_id}")
                 archived_count = self.tc_client.archive_initiative_streams(self.initiative_id)
                 success(f"Archived {archived_count} tasks")
+
+                # Clean up worktrees after successful merge
+                log("Cleaning up worktrees...")
+                self._cleanup_worktrees()
 
                 # Mark initiative as complete
                 log("Marking initiative as complete")
@@ -1204,7 +1352,7 @@ Begin by querying your task list with task_list.
                     warn("Failed to mark initiative as complete (Memory Copilot database may not be accessible)")
 
                 print()
-                success("Initiative complete - all streams archived")
+                success("Initiative complete - all streams merged and archived")
                 break
 
             # Check if we're stuck (nothing ready, nothing running, not all complete)
