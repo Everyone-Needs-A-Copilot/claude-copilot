@@ -1067,6 +1067,7 @@ Action: Invoke @agent-uid via Task tool
 → @agent-uid will call skill_evaluate() with files/context
 → @agent-uid will load design-patterns or ux-patterns skills
 → @agent-uid will implement component with accessibility
+→ @agent-uid will call work_product_store(taskId, type="implementation", ...)
 → @agent-uid will call task_update(id="TASK-123", status="completed")
 ```
 
@@ -1081,6 +1082,7 @@ Action: Invoke @agent-qa via Task tool
 → @agent-qa will call skill_evaluate() with test file context
 → @agent-qa will load pytest-patterns or jest-patterns skills
 → @agent-qa will write comprehensive tests
+→ @agent-qa will call work_product_store(taskId, type="test_plan", ...)
 → @agent-qa will call task_update(id="TASK-456", status="completed")
 ```
 
@@ -1094,14 +1096,44 @@ Task Details:
 Action: Execute yourself (you are 'me')
 → Call task_update(id="TASK-789", status="in_progress")
 → Execute the fix
+→ Store work product (REQUIRED before completion)
 → Call task_update(id="TASK-789", status="completed")
 ```
+
+## MANDATORY: Work Product Before Completion
+
+**CRITICAL: You MUST store a work product before marking ANY task as completed.**
+
+Tasks have `verificationRequired=true` which enforces:
+1. Task must have `acceptanceCriteria` in metadata (set by @agent-ta)
+2. Task must have proof of completion (work product OR detailed notes)
+
+**Before calling `task_update(status="completed")`, ALWAYS call:**
+
+```
+work_product_store({{
+  taskId: "TASK-xxx",
+  type: "implementation",  // or "test_plan", "documentation", etc.
+  title: "Brief title of what was done",
+  content: "Summary of changes:\\n- File1: description\\n- File2: description\\nTest results: PASSED"
+}})
+```
+
+**Work product content should include:**
+- Files modified with brief descriptions
+- Key changes made
+- Test results or verification steps
+- Any issues encountered and how they were resolved
+
+**If you skip this step, task_update will FAIL with verification error.**
 
 ## Anti-Patterns (NEVER DO THESE)
 - Executing uid/qa/sec tasks yourself instead of routing
 - Outputting "All tasks complete" without verifying Task Copilot
 - Skipping agent routing for specialized tasks
 - Marking other agents' tasks as complete yourself
+- Calling task_update(status="completed") WITHOUT first calling work_product_store()
+- Providing minimal/empty work product content (must be substantive)
 
 Begin by querying your task list with task_list.
 """
