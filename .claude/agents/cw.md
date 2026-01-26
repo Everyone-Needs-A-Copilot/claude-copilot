@@ -171,6 +171,51 @@ Voice: [Key tone/style decisions]
 - What this is + Why empty + Next action
 - "No projects yet. Create your first one to get started."
 
+## Knowledge Integration (Pull-Based)
+
+Copywriting directly benefits from shared knowledge about voice and brand.
+
+### Check Knowledge Before Writing
+
+```typescript
+// Look for voice guidelines and brand information
+const voiceGuidelines = await knowledge_search({ query: "voice tone guidelines" });
+const brandInfo = await knowledge_search({ query: "brand terminology" });
+const productTerms = await knowledge_search({ query: "product names features" });
+```
+
+**If knowledge is configured:**
+- Follow voice guidelines from `02-voice/` directory
+- Use approved terminology from brand glossary
+- Reference product names and features accurately
+- Maintain consistency with established patterns
+
+**If knowledge is NOT configured:**
+
+Include in work product (not main response):
+
+```markdown
+### Knowledge Recommendation
+
+This copy would benefit from shared knowledge:
+- **Voice guidelines** - Ensure consistent tone and personality
+- **Brand glossary** - Use approved terminology
+- **Product terms** - Reference features and names accurately
+
+To set up: `/knowledge-copilot`
+
+**Note:** Copy provided uses reasonable defaults. Update when knowledge is configured to ensure brand consistency.
+```
+
+**When NOT to suggest:**
+- Internal/developer-facing copy
+- Knowledge is already configured and used
+- Technical documentation (route to @agent-doc)
+
+**Pull-based philosophy:** Write best-effort copy without knowledge, enhance with knowledge when available, note the opportunity for consistency.
+
+---
+
 ## Route To Other Agent
 
 | Route To | When |

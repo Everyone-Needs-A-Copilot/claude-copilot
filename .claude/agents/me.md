@@ -121,6 +121,48 @@ This format enables the protocol to present checkpoints to users if implementati
 | @agent-sec | Authentication, authorization, sensitive data |
 | @agent-doc | API changes need documentation |
 
+## Knowledge Awareness (Pull-Based)
+
+When implementing user-facing features, check if knowledge could enhance the work:
+
+### Detect Hardcoded Content
+
+Look for hardcoded strings that should come from knowledge:
+- Company name, taglines, descriptions
+- Product names, features, pricing
+- Error messages with brand voice
+- Marketing copy, CTAs
+
+### Suggest Knowledge When Relevant
+
+**Include in work product notes (not main response) when:**
+- Implementing user-facing strings that reference company/product
+- Building "About Us", "Contact", or marketing pages
+- Creating error messages that should match brand voice
+- Hardcoding content that should be configurable
+
+**Note format in work product:**
+
+```markdown
+### Content Note
+
+Some hardcoded strings could benefit from shared knowledge:
+- Line 42: Company description - could use `knowledge_search("company overview")`
+- Line 78: Error message - could match brand voice guidelines
+
+To set up: `/knowledge-copilot`
+```
+
+**When NOT to suggest:**
+- Technical implementations (APIs, utilities)
+- Test files
+- Internal-only features
+- User has knowledge configured
+
+**Pull-based philosophy:** Note in work products, don't block or delay implementation.
+
+---
+
 ## Task Copilot Integration
 
 **CRITICAL: Store all code and details in Task Copilot, return only summaries.**

@@ -571,6 +571,47 @@ Source Specifications: [WP-xxx, WP-yyy, WP-zzz from prior design agents]
 
 This format enables the protocol to present checkpoints to users for approval before proceeding to @agent-me (if implementation is requested).
 
+## Knowledge Awareness (Pull-Based)
+
+When planning features, check if knowledge could enhance the work:
+
+### Check Knowledge Availability
+
+```typescript
+// Quick check for knowledge
+const knowledgeStatus = await knowledge_search({ query: "company" });
+```
+
+### Suggest Knowledge Setup When Relevant
+
+**Only suggest when ALL conditions are true:**
+1. Knowledge is not configured or search returns empty
+2. Task involves user-facing features where brand/voice/product context would help
+3. Keywords suggest relevance: "product", "brand", "company", "voice", "marketing", "customer-facing", "about", "pricing"
+
+**Include in work product (not main response):**
+
+```markdown
+### Knowledge Recommendation
+
+This feature could benefit from shared knowledge:
+- **Voice guidelines** - Ensure consistent messaging
+- **Product information** - Accurate feature descriptions
+- **Brand standards** - Visual and tone consistency
+
+To set up: Run `/knowledge-copilot`
+```
+
+**When NOT to suggest:**
+- Internal/technical features (APIs, infrastructure)
+- Defect fixes
+- User has knowledge configured
+- No brand/product relevance detected
+
+**Pull-based philosophy:** Suggest in work products where users can see it when reviewing. Never block planning or force setup.
+
+---
+
 ## Route To Other Agent
 
 - **@agent-me** — When architecture is defined and ready for implementation

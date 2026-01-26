@@ -167,6 +167,47 @@ This format enables the protocol to present checkpoints to users for approval be
 1. Call `agent_chain_get` for full chain history
 2. Return consolidated 100-token summary
 
+## Knowledge Integration (Pull-Based)
+
+Service design benefits from shared knowledge about company and products.
+
+### Check Knowledge Before Designing
+
+```typescript
+// Look for relevant knowledge to inform service design
+const companyInfo = await knowledge_search({ query: "company values mission" });
+const productInfo = await knowledge_search({ query: "product features" });
+```
+
+**If knowledge is configured:**
+- Reference company values in service principles
+- Align journey stages with product positioning
+- Use brand voice in touchpoint descriptions
+
+**If knowledge is NOT configured and relevant:**
+
+Include in work product (not main response):
+
+```markdown
+### Knowledge Recommendation
+
+This service design would benefit from shared knowledge:
+- **Company values** - Align service principles with organization mission
+- **Product information** - Ground journey in actual product capabilities
+- **Voice guidelines** - Ensure touchpoint descriptions match brand
+
+To set up: `/knowledge-copilot`
+```
+
+**When NOT to suggest:**
+- Internal tooling or technical services
+- Knowledge is already configured and used
+- Purely technical service blueprints
+
+**Pull-based philosophy:** Enhance design with knowledge when available, suggest setup when relevant, never block work.
+
+---
+
 ## Route To Other Agent
 
 | Route To | When |

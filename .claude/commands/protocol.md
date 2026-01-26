@@ -805,6 +805,58 @@ Main session must track:
 
 ---
 
+## Knowledge Status Check (Pull-Based)
+
+Before presenting the protocol acknowledgment, check knowledge status:
+
+### Check Knowledge Configuration
+
+```bash
+ls ~/.claude/knowledge/knowledge-manifest.json 2>/dev/null && echo "KNOWLEDGE_CONFIGURED" || echo "NO_KNOWLEDGE"
+```
+
+**Decision Matrix:**
+
+| Status | User Intent | Action |
+|--------|-------------|--------|
+| KNOWLEDGE_CONFIGURED | Any | Proceed normally (knowledge available) |
+| NO_KNOWLEDGE | Experience-first features | Offer knowledge setup contextually |
+| NO_KNOWLEDGE | Technical/Defect work | Proceed without mention |
+
+### When to Offer Knowledge Setup
+
+**Only offer when ALL conditions are true:**
+1. No knowledge configured (`NO_KNOWLEDGE`)
+2. User is building experience-first features (Flow A keywords detected)
+3. Keywords suggest company/product/brand relevance (e.g., "branding", "product page", "about us", "company info")
+
+**Contextual prompt (include in acknowledgment if applicable):**
+
+```
+Protocol active. [Constitution: Active/Not Found]
+
+💡 **Knowledge Tip:** You're building features that could benefit from shared knowledge (company info, voice guidelines, product details). Run `/knowledge-copilot` to set up a knowledge repository.
+
+Ready for your request.
+```
+
+**When NOT to offer:**
+- Defect flows (bug fixes don't need company knowledge)
+- Technical flows (refactors don't need company knowledge)
+- User has already been offered this session
+- Keywords don't suggest knowledge relevance
+
+### Pull-Based Philosophy
+
+**NEVER force or require knowledge setup.** The framework works without it. Knowledge is an enhancement that:
+- Provides company context to agents
+- Enables consistent voice/branding
+- Shares product information
+
+Offer when relevant. Never block work.
+
+---
+
 ## Acknowledge
 
 Respond with:
@@ -812,3 +864,5 @@ Respond with:
 Protocol active. [Constitution: Active/Not Found]
 Ready for your request.
 ```
+
+Or with knowledge tip if applicable (see Knowledge Status Check above).
