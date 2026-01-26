@@ -24,6 +24,7 @@
     "test:prd-auto": "npm run build:test && node dist/tools/__tests__/prd-auto-detection.test.js",
     "test:security-hooks": "npm run build:test && node dist/hooks/__tests__/security-hooks.test.js",
     "test:security-integration": "npm run build:test && node dist/hooks/__tests__/integration-example.js",
+    "test:complexity-scorer": "npm run build:test && node --test dist/ecomode/complexity-scorer.test.js",
     "test:benchmark": "npm run build && node dist/benchmark/test.js",
     "benchmark:example": "npm run build && node dist/benchmark/example.js",
     "benchmark:baseline": "npm run build && node dist/benchmark/baseline-scenarios.js",

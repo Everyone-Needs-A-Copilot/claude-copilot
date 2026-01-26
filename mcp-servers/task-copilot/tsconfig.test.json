@@ -9,6 +9,9 @@
     "skipLibCheck": true
   },
   "include": [
+    "src/types/omc-features.ts",
+    "src/ecomode/complexity-scorer.ts",
+    "src/ecomode/complexity-scorer.test.ts",
     "src/tools/full-integration.test.ts",
     "src/tools/__tests__/activation-mode-validation.test.ts",
     "src/tools/__tests__/auto-commit.test.ts",
