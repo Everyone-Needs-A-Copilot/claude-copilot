@@ -12,6 +12,11 @@ This guide shows real workflows, not feature lists. After setup, this is how you
 # Starting fresh work
 /protocol fix the authentication bug
 
+# With magic keywords for model control
+/protocol eco: fix: the login bug      # Cost-optimized bug fix
+/protocol opus: add: new feature       # High-quality feature work
+/protocol fast: doc: API reference     # Quick documentation
+
 # Resuming previous work
 /continue
 
@@ -442,11 +447,38 @@ progress_summary()
 | `stream_list()` | See parallel work streams |
 | `initiative_get()` | Get current initiative state |
 
+### Magic Keywords
+
+Prefix your `/protocol` commands for model and routing control:
+
+**Model Selection:**
+| Keyword | Model | Use When |
+|---------|-------|----------|
+| `eco:` | Auto-select | Cost optimization (default) |
+| `opus:` | Opus | Complex reasoning needed |
+| `fast:` | Haiku | Speed priority, simple tasks |
+| `sonnet:` | Sonnet | Balanced quality/speed |
+
+**Action Routing:**
+| Keyword | Flow | Agent Chain |
+|---------|------|-------------|
+| `fix:` | Defect | qa → me → qa |
+| `add:` | Experience | sd → uxd → uids → ta → me |
+| `refactor:` | Technical | ta → me |
+| `test:` | QA | qa |
+| `doc:` | Documentation | doc |
+
+**Combine them:** `/protocol eco: fix: the login bug`
+
+See [Magic Keywords](../50-features/magic-keywords.md) for full documentation.
+
 ### Workflow Cheat Sheet
 
 ```
 Morning:     /continue
 New task:    /protocol [description]
+Quick fix:   /protocol fast: fix: [description]
+Quality:     /protocol opus: add: [description]
 Context sw:  /pause [reason] → /protocol [new task]
 Resume:      /continue [stream-name]
 End of day:  /pause [notes]
@@ -456,6 +488,8 @@ End of day:  /pause [notes]
 
 ## Next Steps
 
+- [Magic Keywords](../50-features/magic-keywords.md) - Model selection and action routing
+- [Ecomode](../50-features/ecomode.md) - Smart model routing based on complexity
 - [Agent Details](AGENTS.md) - Learn each specialist
 - [Decision Guide](DECISION-GUIDE.md) - When to use what
 - [Customization](CUSTOMIZATION.md) - Extensions and knowledge repos
