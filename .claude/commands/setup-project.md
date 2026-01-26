@@ -191,14 +191,52 @@ Fix: Run /setup from ~/.claude/copilot first to build MCP servers
 
 ## Step 8: Detect Knowledge
 
+### 8.1: Check Global Knowledge
+
 ```bash
-ls ~/.claude/knowledge/knowledge-manifest.json 2>/dev/null && echo "KNOWLEDGE_EXISTS" || echo "NO_KNOWLEDGE"
+ls ~/.claude/knowledge/knowledge-manifest.json 2>/dev/null && echo "GLOBAL_KNOWLEDGE_EXISTS" || echo "NO_GLOBAL_KNOWLEDGE"
 cat ~/.claude/knowledge/knowledge-manifest.json 2>/dev/null | grep '"name"' | head -1
 ```
 
 Store:
-- `KNOWLEDGE_STATUS` = "configured" or "not configured"
+- `GLOBAL_KNOWLEDGE_EXISTS` = true/false
 - `KNOWLEDGE_NAME` = from manifest (if exists)
+
+### 8.2: Check Project Expectation
+
+Look for signals that this project expects knowledge:
+
+```bash
+# Check if CLAUDE.md references knowledge tools
+grep -q "knowledge_search\|knowledge_get" CLAUDE.md 2>/dev/null && echo "PROJECT_EXPECTS_KNOWLEDGE" || echo "NO_EXPECTATION"
+
+# Check for team repo URL in existing manifest (if any)
+cat ~/.claude/knowledge/knowledge-manifest.json 2>/dev/null | grep '"repository"' -A2 | grep '"url"'
+```
+
+Store:
+- `PROJECT_EXPECTS_KNOWLEDGE` = true/false
+- `TEAM_REPO_URL` = if found in manifest
+
+### 8.3: Decision Matrix
+
+| Global | Expects | Action |
+|--------|---------|--------|
+| Yes | Any | Status: configured |
+| No | Yes | Offer knowledge setup (see below) |
+| No | No | Status: not configured |
+
+**If NO_GLOBAL_KNOWLEDGE but PROJECT_EXPECTS_KNOWLEDGE:**
+
+Use AskUserQuestion to offer knowledge setup:
+
+**Question:** "This project references team knowledge, but none is configured on this machine. Would you like to set it up?"
+**Header:** "Knowledge"
+**Options:**
+1. **"Yes, set up knowledge now"** - Will run /knowledge-copilot after setup
+2. **"Skip for now"** - Continue without knowledge (can run /knowledge-copilot later)
+
+Store user's choice in `SETUP_KNOWLEDGE_NOW`.
 
 ---
 
@@ -260,7 +298,7 @@ All must exist.
 **Configuration:**
 - Memory workspace: `{{PROJECT_NAME}}`
 - Skills: Local (.claude/skills)
-{{IF KNOWLEDGE_EXISTS}}
+{{IF GLOBAL_KNOWLEDGE_EXISTS}}
 - Knowledge: `{{KNOWLEDGE_NAME}}` (global)
 {{ELSE}}
 - Knowledge: Not configured
@@ -280,7 +318,7 @@ All must exist.
 - For local skills: Use `@include .claude/skills/NAME/SKILL.md` in your prompts
 - For marketplace access: Install Skills Copilot MCP (see mcp-servers/skills-copilot/README.md)
 
-{{IF NO_KNOWLEDGE}}
+{{IF NO_GLOBAL_KNOWLEDGE AND NOT SETUP_KNOWLEDGE_NOW}}
 **Optional: Set up shared knowledge**
 
 Create a knowledge repository for company/product information:
@@ -290,6 +328,16 @@ Create a knowledge repository for company/product information:
 {{END IF}}
 
 ---
+
+{{IF SETUP_KNOWLEDGE_NOW}}
+## Step 13: Set Up Knowledge
+
+Since you chose to set up knowledge now, running `/knowledge-copilot`:
+
+**Note:** This will guide you through connecting to your team's knowledge repository.
+
+---
+{{END IF}}
 
 ## Remember
 

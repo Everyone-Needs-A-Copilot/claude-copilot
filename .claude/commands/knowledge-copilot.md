@@ -30,15 +30,70 @@ First, check current state:
 # Check for existing symlink
 ls -la ~/.claude/knowledge 2>/dev/null
 
+# Check for global knowledge manifest
+cat ~/.claude/knowledge/knowledge-manifest.json 2>/dev/null
+
 # Check for initiative in progress
 ```
 
 Also call `initiative_get` to check for in-progress discovery.
 
+### Team Context Detection
+
+Before showing options, check if this appears to be a team member joining:
+
+```bash
+# Check if current project expects knowledge but none is configured
+grep -q "knowledge_search\|knowledge_get" CLAUDE.md 2>/dev/null && echo "PROJECT_EXPECTS_KNOWLEDGE" || echo "NO_EXPECTATION"
+
+# Check for team repo URL in project's .mcp.json or CLAUDE.md
+grep -o 'git@github.com:[^"]*\.git' CLAUDE.md .mcp.json 2>/dev/null | head -1
+```
+
+**Decision Matrix:**
+
+| Global Knowledge | Project Expects | Action |
+|------------------|-----------------|--------|
+| Yes | Any | Standard mode selection |
+| No | Yes | Show "Join Team" prompt first |
+| No | No | Standard mode selection |
+
 **Based on results:**
 - If symlink exists and points to valid repo → Offer to extend or verify
 - If initiative exists for knowledge discovery → Resume
+- If NO global but project expects → Show Team Knowledge Detected prompt
 - Otherwise → Start fresh or link existing
+
+---
+
+## Team Knowledge Detected (Pre-Selection)
+
+**If NO global knowledge but PROJECT_EXPECTS_KNOWLEDGE:**
+
+Show this prompt BEFORE mode selection:
+
+---
+
+**Team Knowledge Detected**
+
+This project references team knowledge (`knowledge_search`, `knowledge_get`), but no knowledge repository is configured on this machine.
+
+{{IF TEAM_REPO_URL}}
+**Team repository URL detected:** `{{TEAM_REPO_URL}}`
+{{END IF}}
+
+---
+
+Use AskUserQuestion:
+
+**Question:** "Would you like to set up team knowledge?"
+**Header:** "Team"
+**Options:**
+1. **"Yes, set up team knowledge (Recommended)"** - Connect to your team's repository
+2. **"No, I'll create my own"** - Start fresh with new knowledge
+
+**If user selects "Yes":** Jump to **Mode: Join Team Knowledge** below.
+**If user selects "No":** Continue to standard Mode Selection.
 
 ---
 
@@ -51,8 +106,9 @@ Use AskUserQuestion:
 **Options:**
 1. **"Create new knowledge repository"** - Start fresh with guided discovery
 2. **"Link existing repository"** - Connect to a repo you or your team already created
-3. **"Check status"** - Verify your current knowledge setup
-4. **"Continue discovery"** - Resume where you left off (if applicable)
+3. **"Join team knowledge"** - Clone and link your team's knowledge repository
+4. **"Check status"** - Verify your current knowledge setup
+5. **"Continue discovery"** - Resume where you left off (if applicable)
 
 ---
 
@@ -103,6 +159,22 @@ Create `knowledge-manifest.json`:
   "description": "Knowledge repository for [Company Name]"
 }
 ```
+
+**Note:** After pushing to GitHub, update the manifest to include the repository URL:
+
+```json
+{
+  "version": "1.0",
+  "name": "[company]",
+  "description": "Knowledge repository for [Company Name]",
+  "repository": {
+    "url": "git@github.com:[org]/[company]-knowledge.git",
+    "type": "git"
+  }
+}
+```
+
+This helps team members auto-detect the repository when running `/knowledge-copilot`.
 
 ### Step 4: Create README
 
@@ -300,6 +372,116 @@ knowledge_search("company")
 
 ---
 
+## Mode: Join Team Knowledge
+
+Use this mode when joining an existing team that has a knowledge repository.
+
+### Step 1: Get Repository URL
+
+**If TEAM_REPO_URL was detected:** Use it as default.
+
+Otherwise, use AskUserQuestion:
+
+**Question:** "What's your team's knowledge repository URL?"
+**Header:** "Repo URL"
+**Options:** Let user type (e.g., `git@github.com:acme-corp/acme-knowledge.git`)
+
+Store as `TEAM_REPO_URL`.
+
+### Step 2: Determine Clone Location
+
+Extract company name from URL:
+
+```bash
+# Extract repo name from URL (e.g., "acme-knowledge" from "git@github.com:acme-corp/acme-knowledge.git")
+echo "{{TEAM_REPO_URL}}" | sed 's/.*[:/]\([^/]*\)\.git$/\1/'
+```
+
+Store as `REPO_NAME`.
+
+Clone location: `~/${REPO_NAME}`
+
+### Step 3: Clone Repository
+
+```bash
+# Clone the team's knowledge repository
+git clone {{TEAM_REPO_URL}} ~/${REPO_NAME}
+```
+
+**Verify manifest exists:**
+
+```bash
+ls ~/${REPO_NAME}/knowledge-manifest.json && echo "MANIFEST_OK" || echo "MANIFEST_MISSING"
+```
+
+**If MANIFEST_MISSING:**
+
+---
+
+**Warning:** The cloned repository doesn't have a `knowledge-manifest.json`.
+
+This may not be a valid Claude Copilot knowledge repository. Please verify the URL with your team.
+
+---
+
+Then STOP.
+
+### Step 4: Create Symlink
+
+```bash
+# Remove existing symlink if present
+rm -f ~/.claude/knowledge
+
+# Create symlink to cloned repo
+ln -sf ~/${REPO_NAME} ~/.claude/knowledge
+```
+
+### Step 5: Verify Setup
+
+```bash
+# Verify symlink works
+ls ~/.claude/knowledge/knowledge-manifest.json
+
+# Get knowledge name
+cat ~/.claude/knowledge/knowledge-manifest.json | grep '"name"'
+
+# Count knowledge files
+find ~/.claude/knowledge -name "*.md" -type f 2>/dev/null | wc -l
+```
+
+### Step 6: Report Success
+
+---
+
+**Team Knowledge Connected!**
+
+Successfully set up team knowledge:
+- Repository: `{{TEAM_REPO_URL}}`
+- Local path: `~/${REPO_NAME}`
+- Linked at: `~/.claude/knowledge`
+- Knowledge name: `{{KNOWLEDGE_NAME}}`
+
+This knowledge is now available in all your Claude Copilot projects.
+
+**Test it:**
+```
+knowledge_search("company")
+```
+
+**To get updates from your team:**
+```bash
+cd ~/${REPO_NAME}
+git pull
+```
+
+**To contribute:**
+- Edit files in `~/${REPO_NAME}`
+- Commit and push changes (follow your team's PR process)
+
+---
+
+---
+
 ## Mode: Check Status
 
 ```bash
@@ -362,7 +544,37 @@ git branch -M main
 git push -u origin main
 ```
 
-### Step 3: Confirm
+### Step 3: Update Manifest with Repository URL
+
+Now that the repo is on GitHub, update the manifest to help team members auto-detect it:
+
+```bash
+cd ~/[company]-knowledge
+```
+
+Edit `knowledge-manifest.json` to add the repository field:
+
+```json
+{
+  "version": "1.0",
+  "name": "[company]",
+  "description": "Knowledge repository for [Company Name]",
+  "repository": {
+    "url": "git@github.com:[username]/[company]-knowledge.git",
+    "type": "git"
+  }
+}
+```
+
+Then commit and push:
+
+```bash
+git add knowledge-manifest.json
+git commit -m "Add repository URL to manifest"
+git push
+```
+
+### Step 4: Confirm
 
 ---
 
@@ -371,9 +583,12 @@ git push -u origin main
 Repository: `github.com/[username]/[company]-knowledge`
 
 **Team members can now:**
-1. Clone: `git clone git@github.com:[username]/[company]-knowledge.git ~/[company]-knowledge`
-2. Link: `ln -sf ~/[company]-knowledge ~/.claude/knowledge`
-3. Or run `/knowledge-copilot` and choose "Link existing repository"
+1. Run `/knowledge-copilot` - It will auto-detect and offer to set up team knowledge
+2. Or manually: Clone and link:
+   ```bash
+   git clone git@github.com:[username]/[company]-knowledge.git ~/[company]-knowledge
+   ln -sf ~/[company]-knowledge ~/.claude/knowledge
+   ```
 
 **To update:**
 - Make changes locally

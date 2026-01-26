@@ -24,7 +24,10 @@ import type {
   KnowledgeRepoConfig,
   FallbackBehavior,
   KnowledgeSearchResult,
-  KnowledgeSearchOptions
+  KnowledgeSearchOptions,
+  KnowledgeExpectation,
+  TeamMemberDetection,
+  KnowledgeSignal
 } from '../types.js';
 
 /** Default global knowledge repository path */
@@ -895,5 +898,144 @@ export class KnowledgeRepoProvider {
     }
 
     return null;
+  }
+
+  // ============================================================================
+  // Knowledge Detection Methods (P0 Knowledge System)
+  // ============================================================================
+
+  /**
+   * Get the repository URL from the manifest
+   * Returns the git URL for cloning the knowledge repository
+   */
+  getRepositoryUrl(): string | null {
+    // Check project tier first
+    if (this.projectTier?.manifest?.repository?.url) {
+      return this.projectTier.manifest.repository.url;
+    }
+
+    // Check global tier
+    if (this.globalTier?.manifest?.repository?.url) {
+      return this.globalTier.manifest.repository.url;
+    }
+
+    // Legacy manifest
+    if (this.manifest?.repository?.url) {
+      return this.manifest.repository.url;
+    }
+
+    return null;
+  }
+
+  /**
+   * Detect whether a project expects knowledge to be configured
+   * Uses multi-signal detection from project files
+   *
+   * @param projectPath - Path to the project root
+   * @returns KnowledgeExpectation with signals and reason
+   */
+  detectKnowledgeExpectation(projectPath: string): KnowledgeExpectation {
+    const signals: KnowledgeSignal[] = [];
+    const reasons: string[] = [];
+
+    // Signal 1: Check .mcp.json for KNOWLEDGE_REPO_PATH (HIGH confidence)
+    const mcpJsonPath = join(projectPath, '.mcp.json');
+    if (existsSync(mcpJsonPath)) {
+      try {
+        const mcpContent = readFileSync(mcpJsonPath, 'utf-8');
+        if (mcpContent.includes('KNOWLEDGE_REPO_PATH')) {
+          signals.push('mcp_config');
+          reasons.push('.mcp.json references KNOWLEDGE_REPO_PATH');
+        }
+      } catch {
+        // Ignore read errors
+      }
+    }
+
+    // Signal 2: Check CLAUDE.md for knowledge tool references (MEDIUM confidence)
+    const claudeMdPath = join(projectPath, 'CLAUDE.md');
+    if (existsSync(claudeMdPath)) {
+      try {
+        const claudeContent = readFileSync(claudeMdPath, 'utf-8');
+        const knowledgePatterns = [
+          'knowledge_search',
+          'knowledge_get',
+          'knowledge repository',
+          'knowledge-manifest'
+        ];
+
+        for (const pattern of knowledgePatterns) {
+          if (claudeContent.toLowerCase().includes(pattern.toLowerCase())) {
+            signals.push('claude_md_reference');
+            reasons.push(`CLAUDE.md references ${pattern}`);
+            break; // Only add this signal once
+          }
+        }
+      } catch {
+        // Ignore read errors
+      }
+    }
+
+    // Determine expectation based on signals
+    const expected = signals.length > 0;
+
+    // Get suggested repo URL from existing loaded manifest (if any)
+    const suggestedRepoUrl = this.getRepositoryUrl() || undefined;
+
+    return {
+      expected,
+      reason: expected
+        ? `Project expects knowledge: ${reasons.join('; ')}`
+        : 'No knowledge signals detected in project',
+      signals,
+      suggestedRepoUrl
+    };
+  }
+
+  /**
+   * Detect whether the user appears to be a team member joining existing knowledge
+   * Compares global knowledge state against project expectations
+   *
+   * @param projectPath - Path to the project root (optional)
+   * @returns TeamMemberDetection with setup instructions
+   */
+  detectTeamMemberStatus(projectPath?: string): TeamMemberDetection {
+    const hasGlobalKnowledge = this.globalTier?.manifest !== null;
+    const hasProjectKnowledge = this.projectTier?.manifest !== null;
+
+    // If global knowledge exists, user is already set up
+    if (hasGlobalKnowledge) {
+      return {
+        isTeamMember: false,
+        teamRepoUrl: this.getRepositoryUrl(),
+        setupNeeded: 'none',
+        reason: 'Global knowledge already configured'
+      };
+    }
+
+    // If project expects knowledge but global doesn't exist, user may be a team member
+    if (projectPath) {
+      const expectation = this.detectKnowledgeExpectation(projectPath);
+
+      if (expectation.expected) {
+        // Check if there's a repo URL we can suggest
+        const teamRepoUrl = expectation.suggestedRepoUrl || null;
+
+        return {
+          isTeamMember: true,
+          teamRepoUrl,
+          setupNeeded: teamRepoUrl ? 'clone_and_link' : 'link_only',
+          reason: `Project expects knowledge but none configured. ${expectation.reason}`
+        };
+      }
+    }
+
+    // No signals of team membership
+    return {
+      isTeamMember: false,
+      teamRepoUrl: null,
+      setupNeeded: 'none',
+      reason: 'No knowledge expectation detected'
+    };
   }
 }

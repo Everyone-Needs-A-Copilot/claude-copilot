@@ -155,6 +155,8 @@ export interface KnowledgeManifest {
   version: string;
   name: string;
   description?: string;
+  /** Git repository URL for team cloning */
+  repository?: KnowledgeRepositoryConfig;
   framework?: {
     name: string;
     minVersion?: string;
@@ -297,4 +299,56 @@ export interface KnowledgeTopicMapping {
   file: string;
   /** Brief description */
   description?: string;
+}
+
+// ============================================================================
+// Knowledge Detection Types (P0 Knowledge System)
+// ============================================================================
+
+/**
+ * Signal types indicating a project expects knowledge
+ */
+export type KnowledgeSignal = 'mcp_config' | 'claude_md_reference';
+
+/**
+ * Result of detecting whether a project expects knowledge
+ */
+export interface KnowledgeExpectation {
+  /** Whether the project expects knowledge to be configured */
+  expected: boolean;
+  /** Human-readable reason for the expectation */
+  reason: string;
+  /** Signals that led to this determination */
+  signals: KnowledgeSignal[];
+  /** If team knowledge repo URL is available from manifest */
+  suggestedRepoUrl?: string;
+}
+
+/**
+ * Type of setup needed for team member
+ */
+export type TeamSetupNeeded = 'clone_and_link' | 'link_only' | 'none';
+
+/**
+ * Result of detecting team member status
+ */
+export interface TeamMemberDetection {
+  /** Whether the user appears to be a team member joining existing knowledge */
+  isTeamMember: boolean;
+  /** URL of team knowledge repository (if detected) */
+  teamRepoUrl: string | null;
+  /** What setup is needed */
+  setupNeeded: TeamSetupNeeded;
+  /** Reason for detection result */
+  reason?: string;
+}
+
+/**
+ * Repository configuration in manifest
+ */
+export interface KnowledgeRepositoryConfig {
+  /** Git URL to clone the knowledge repository */
+  url: string;
+  /** Repository type (currently only 'git' supported) */
+  type?: 'git';
 }

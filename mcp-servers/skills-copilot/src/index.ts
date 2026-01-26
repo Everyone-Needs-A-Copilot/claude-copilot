@@ -857,9 +857,40 @@ Consider: Main skill + helper skills pattern`
 
       // Knowledge search tools
       case 'knowledge_search': {
+        const query = a.query as string;
+
+        // Check if knowledge repository is loaded
         if (!knowledgeRepo.isLoaded()) {
           const status = knowledgeRepo.getStatus();
           const globalPath = status.global?.path || '~/.claude/knowledge';
+
+          // Detect if project expects knowledge (contextual prompt)
+          const cwd = process.cwd();
+          const expectation = knowledgeRepo.detectKnowledgeExpectation(cwd);
+          const teamDetection = knowledgeRepo.detectTeamMemberStatus(cwd);
+
+          if (expectation.expected) {
+            // Project expects knowledge - provide contextual setup prompt
+            let setupText = `No knowledge found for "${query}".\n\n`;
+            setupText += `**This project expects team knowledge** but it's not configured on this machine.\n`;
+            setupText += `Signals: ${expectation.signals.join(', ')}\n\n`;
+
+            if (teamDetection.teamRepoUrl) {
+              setupText += `**Team repository detected:** \`${teamDetection.teamRepoUrl}\`\n\n`;
+              setupText += `Run \`/knowledge-copilot\` to set up team knowledge (it will offer to clone the repository for you).\n`;
+            } else {
+              setupText += `Run \`/knowledge-copilot\` and choose "Join Team" to connect to your team's knowledge repository.\n`;
+            }
+
+            return {
+              content: [{
+                type: 'text',
+                text: setupText
+              }]
+            };
+          }
+
+          // No expectation - standard message
           return {
             content: [{
               type: 'text',
@@ -868,7 +899,6 @@ Consider: Main skill + helper skills pattern`
           };
         }
 
-        const query = a.query as string;
         const options: KnowledgeSearchOptions = {
           limit: a.limit as number | undefined,
           directory: a.directory as string | undefined,
