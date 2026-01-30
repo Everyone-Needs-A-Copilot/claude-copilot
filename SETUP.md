@@ -1,6 +1,39 @@
 # Claude Copilot Setup Guide
 
-## Quick Start
+## Quick Start (Recommended)
+
+### Zero-Config Install
+
+The fastest way to get started is with the zero-config installer:
+
+```bash
+# Install globally with automatic dependency fixing
+npx claude-copilot install --global --auto-fix
+```
+
+This single command will:
+- Check for Node.js, Git, and build tools
+- Auto-install missing dependencies (macOS: via Homebrew, Linux: via apt/dnf/pacman)
+- Clone the repository to `~/.claude/copilot`
+- Build MCP servers (Memory, Task; Skills optional)
+- Install global commands (`/setup-project`, `/update-project`, `/knowledge-copilot`)
+
+**For project setup after global install:**
+```bash
+cd your-project
+npx claude-copilot install --project .
+```
+
+**Check dependencies without installing:**
+```bash
+npx claude-copilot check --verbose
+```
+
+---
+
+## Alternative: Interactive Setup
+
+If you prefer interactive setup or already have the repository cloned:
 
 ### Step 1: Clone the Repository
 

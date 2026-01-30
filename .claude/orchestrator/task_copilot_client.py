@@ -10,6 +10,7 @@ Future: Can be replaced with MCP API calls when Task Copilot MCP server is avail
 
 import sqlite3
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 from dataclasses import dataclass
@@ -529,6 +530,112 @@ class TaskCopilotClient:
             return False
         finally:
             conn.close()
+
+    def archive_initiative_streams(self, initiative_id: str) -> int:
+        """
+        Archive all tasks with a streamId that belong to a specific initiative.
+
+        This is called when an initiative completes to clean up stream tasks
+        and prevent them from appearing in future orchestration runs.
+
+        Args:
+            initiative_id: Initiative ID whose streams should be archived
+
+        Returns:
+            Number of tasks archived
+
+        Note:
+            Archives tasks by setting archived=1, archived_at=now, and
+            archived_by_initiative_id to the initiative ID.
+        """
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            now = datetime.now().isoformat()
+
+            # Archive tasks that have streamId and belong to this initiative (via PRD join)
+            cursor.execute("""
+                UPDATE tasks
+                SET archived = 1,
+                    archived_at = ?,
+                    archived_by_initiative_id = ?
+                WHERE json_extract(metadata, '$.streamId') IS NOT NULL
+                  AND prd_id IN (
+                    SELECT id FROM prds WHERE initiative_id = ?
+                  )
+                  AND archived = 0
+            """, (now, initiative_id, initiative_id))
+            count1 = cursor.rowcount
+
+            # Also archive orphaned stream tasks (no PRD) that aren't already archived
+            cursor.execute("""
+                UPDATE tasks
+                SET archived = 1,
+                    archived_at = ?,
+                    archived_by_initiative_id = ?
+                WHERE json_extract(metadata, '$.streamId') IS NOT NULL
+                  AND prd_id IS NULL
+                  AND archived = 0
+            """, (now, initiative_id))
+            count2 = cursor.rowcount
+
+            conn.commit()
+            return count1 + count2
+        except sqlite3.Error as e:
+            print(f"Error archiving streams: {e}")
+            return 0
+        finally:
+            conn.close()
+
+    def complete_initiative(self, initiative_id: str, summary: Optional[str] = None) -> bool:
+        """
+        Mark an initiative as COMPLETE in Memory Copilot.
+
+        This updates the initiative status to 'COMPLETE' and optionally
+        sets a completion summary in the resume_instructions field.
+
+        Args:
+            initiative_id: Initiative ID to complete
+            summary: Optional completion summary
+
+        Returns:
+            True if successful, False otherwise
+
+        Note:
+            This modifies the Memory Copilot database, not the Task Copilot database.
+        """
+        if not self.memory_db_path.exists():
+            print(f"Memory Copilot database not found: {self.memory_db_path}")
+            return False
+
+        try:
+            conn = sqlite3.connect(str(self.memory_db_path), timeout=5)
+            cursor = conn.cursor()
+            now = datetime.now().isoformat()
+
+            if summary:
+                cursor.execute("""
+                    UPDATE initiatives
+                    SET status = 'COMPLETE',
+                        resume_instructions = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                """, (summary, now, initiative_id))
+            else:
+                cursor.execute("""
+                    UPDATE initiatives
+                    SET status = 'COMPLETE',
+                        updated_at = ?
+                    WHERE id = ?
+                """, (now, initiative_id))
+
+            conn.commit()
+            success = cursor.rowcount > 0
+            conn.close()
+            return success
+        except sqlite3.Error as e:
+            print(f"Error completing initiative: {e}")
+            return False
 
 
 # Convenience function for creating a client

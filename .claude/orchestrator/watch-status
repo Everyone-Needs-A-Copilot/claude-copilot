@@ -77,13 +77,13 @@ echo "Press Ctrl-C to stop"
 echo ""
 
 while true; do
-    # Capture check-streams output (use INVOCATION_DIR so check-streams calculates correct PROJECT_ROOT)
-    "$INVOCATION_DIR/check-streams"
+    # Capture check-streams output
+    "$SCRIPT_DIR/check-streams"
 
-    # Monitor and auto-restart dead workers (monitor-workers.py is in project dir, not template)
+    # Monitor and auto-restart dead workers
     if [ "$AUTO_RESTART" = true ]; then
         # Run monitor quietly, only show output if action taken
-        MONITOR_OUTPUT=$(python3 "$INVOCATION_DIR/monitor-workers.py" --auto-restart --quiet 2>&1)
+        MONITOR_OUTPUT=$(python3 "$SCRIPT_DIR/monitor-workers.py" --auto-restart --quiet 2>&1)
         if [ -n "$MONITOR_OUTPUT" ]; then
             echo ""
             echo "$MONITOR_OUTPUT"

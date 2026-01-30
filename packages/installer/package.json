@@ -1,0 +1,52 @@
+{
+  "name": "@copilot/installer",
+  "version": "2.7.2",
+  "description": "Zero-config installer for Claude Copilot framework",
+  "type": "module",
+  "main": "lib/install.js",
+  "bin": {
+    "claude-copilot": "./bin/claude-copilot.js"
+  },
+  "scripts": {
+    "test": "node --test lib/__tests__/*.test.js",
+    "prepublishOnly": "node scripts/validate-package.js"
+  },
+  "keywords": [
+    "claude",
+    "copilot",
+    "mcp",
+    "ai",
+    "framework",
+    "installer"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/claude-copilot.git",
+    "directory": "packages/installer"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/claude-copilot/issues"
+  },
+  "homepage": "https://github.com/yourusername/claude-copilot#readme",
+  "author": "Everyone Needs a Copilot",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^12.0.0",
+    "ora": "^8.0.1",
+    "prompts": "^2.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.3",
+    "@types/prompts": "^2.4.9"
+  }
+}

@@ -9,6 +9,7 @@ This command supports an optional task description argument for quick task initi
 **Usage:**
 - `/protocol` - Interactive mode (select task type manually)
 - `/protocol [description]` - Auto-detect intent and route to appropriate agent chain
+- `/protocol [modifier:] [action:] [description]` - Magic keywords for model selection and shortcuts
 
 **Examples:**
 ```
@@ -16,11 +17,113 @@ This command supports an optional task description argument for quick task initi
 /protocol fix login authentication bug     → Defect Flow (qa → me → qa)
 /protocol refactor auth module             → Technical Flow (ta → me)
 /protocol improve the dashboard            → Clarification Flow (ask user)
+
+# Magic Keywords Examples
+/protocol eco: fix: the login bug          → Auto-select model + Defect Flow
+/protocol opus: add: dark mode feature     → Force Opus + Experience Flow
+/protocol fast: refactor: auth module      → Force Haiku + Technical Flow
+```
+
+## Magic Keywords Support
+
+The protocol supports **magic keywords** for streamlined commands:
+
+**Modifier keywords (model selection):**
+- `eco:` - Auto-select model based on complexity (cost-optimized)
+- `opus:` - Force Claude Opus (highest quality)
+- `fast:` - Force fastest model (Haiku)
+- `sonnet:` - Force Claude Sonnet
+- `haiku:` - Force Claude Haiku
+- `auto:` - Auto-select (same as eco:)
+- `ralph:` - Auto-select with cost optimization
+
+**Action keywords (task type shortcuts):**
+- `fix:` - Bug fix → routes to Defect Flow (qa → me → qa)
+- `add:` - New feature → routes to Experience Flow (sd → uxd → uids → ta → me)
+- `refactor:` - Code refactoring → routes to Technical Flow (ta → me)
+- `optimize:` - Performance optimization → routes to Technical Flow (ta → me)
+- `test:` - Testing work → routes to @agent-qa
+- `doc:` - Documentation → routes to @agent-doc
+- `deploy:` - Deployment/DevOps → routes to @agent-do
+
+**Rules:**
+- Keywords must be at the start of the message
+- Maximum 1 modifier keyword
+- Maximum 1 action keyword
+- Order: modifier, then action, then description
+- Case-insensitive matching
+
+**Examples:**
+```
+eco: fix: the login bug
+→ Modifier: eco (auto-select model)
+→ Action: fix (defect flow)
+→ Description: "the login bug"
+
+opus: add: dark mode feature
+→ Modifier: opus (force Opus model)
+→ Action: add (experience flow)
+→ Description: "dark mode feature"
+
+fix: authentication error
+→ Modifier: (none)
+→ Action: fix (defect flow)
+→ Description: "authentication error"
 ```
 
 ## Intent Detection & Flow Routing
 
-When an argument is provided, the system detects intent via keyword matching and routes to the appropriate agent chain:
+When an argument is provided, the system:
+
+1. **Parses magic keywords** using keyword-parser.ts
+2. **Extracts model preference** from modifier keywords (eco:, opus:, fast:, etc.)
+3. **Detects intent** from action keywords (fix:, add:, refactor:, etc.) or text analysis
+4. **Routes to appropriate agent chain** based on detected or explicit intent
+
+**Keyword Processing:**
+
+```typescript
+import { parseKeywords } from './keyword-parser';
+
+// Parse the user message
+const parsed = parseKeywords(userMessage);
+
+if (!parsed.valid) {
+  // Show validation errors
+  return parsed.errors;
+}
+
+// Extract information
+const modelPreference = parsed.modifier?.targetModel; // haiku | sonnet | opus | null
+const suggestedFlow = parsed.action?.suggestedAgent; // qa | me | ta | doc | do | undefined
+const cleanDescription = parsed.cleanMessage; // "the login bug"
+
+// Use action keyword to determine flow if present
+if (parsed.action) {
+  switch (parsed.action.keyword) {
+    case 'fix': // → Defect Flow
+    case 'add': // → Experience Flow
+    case 'refactor': // → Technical Flow
+    case 'optimize': // → Technical Flow
+    // ... etc
+  }
+}
+
+// Show parsed keyword info in response
+if (parsed.modifier || parsed.action) {
+  console.log('[KEYWORDS DETECTED]');
+  if (parsed.modifier) {
+    console.log(`Model: ${parsed.modifier.keyword} → ${parsed.modifier.targetModel || 'auto-select'}`);
+  }
+  if (parsed.action) {
+    console.log(`Action: ${parsed.action.keyword} → ${getFlowName(parsed.action)}`);
+  }
+}
+```
+
+**Standard Flow Detection:**
+
+When no action keywords are present, the system detects intent via keyword matching and routes to the appropriate agent chain:
 
 ### Flow A: Experience-First (DEFAULT)
 
@@ -37,7 +140,9 @@ flow, journey, interaction, visual, layout, redesign
 
 **Checkpoints:** After sd, uxd, uids (user approves/changes/skips each stage)
 
-**Example:**
+**Examples:**
+
+*Without magic keywords:*
 ```
 User: /protocol add dark mode to dashboard
 
@@ -45,6 +150,24 @@ User: /protocol add dark mode to dashboard
 
 Routing to experience-first flow:
 sd (journey mapping) → uxd (interactions) → uids (visual design) → ta (tasks) → me (implementation)
+
+Invoking @agent-sd for service design...
+```
+
+*With magic keywords:*
+```
+User: /protocol eco: add: dark mode to dashboard
+
+[KEYWORDS DETECTED]
+Model: eco → auto-select
+Action: add → Experience Flow
+
+[PROTOCOL: EXPERIENCE | Agent: @agent-sd | Action: INVOKING]
+
+Routing to experience-first flow:
+sd (journey mapping) → uxd (interactions) → uids (visual design) → ta (tasks) → me (implementation)
+
+Model selection: Auto-select based on complexity (cost-optimized)
 
 Invoking @agent-sd for service design...
 ```
@@ -66,7 +189,9 @@ regression, invalid, incorrect, wrong, unexpected, exception
 
 **Checkpoints:** After qa diagnosis, after me fix (before verification)
 
-**Example:**
+**Examples:**
+
+*Without magic keywords:*
 ```
 User: /protocol fix login authentication bug
 
@@ -74,6 +199,24 @@ User: /protocol fix login authentication bug
 
 Routing to defect flow:
 qa (diagnosis) → me (fix) → qa (verification)
+
+Invoking @agent-qa for issue investigation...
+```
+
+*With magic keywords:*
+```
+User: /protocol fast: fix: login authentication bug
+
+[KEYWORDS DETECTED]
+Model: fast → haiku (fastest model)
+Action: fix → Defect Flow
+
+[PROTOCOL: DEFECT | Agent: @agent-qa | Action: INVOKING]
+
+Routing to defect flow:
+qa (diagnosis) → me (fix) → qa (verification)
+
+Model selection: Haiku (fastest, cost-efficient)
 
 Invoking @agent-qa for issue investigation...
 ```
@@ -98,7 +241,9 @@ security (alone, without user-facing context)
 
 **Checkpoints:** After ta planning
 
-**Example:**
+**Examples:**
+
+*Without magic keywords:*
 ```
 User: /protocol refactor auth module
 
@@ -106,6 +251,24 @@ User: /protocol refactor auth module
 
 Routing to technical-only flow:
 ta (planning) → me (implementation)
+
+Invoking @agent-ta for refactor planning...
+```
+
+*With magic keywords:*
+```
+User: /protocol sonnet: refactor: auth module
+
+[KEYWORDS DETECTED]
+Model: sonnet → sonnet (balanced performance)
+Action: refactor → Technical Flow
+
+[PROTOCOL: TECHNICAL | Agent: @agent-ta | Action: INVOKING]
+
+Routing to technical-only flow:
+ta (planning) → me (implementation)
+
+Model selection: Sonnet (balanced quality and speed)
 
 Invoking @agent-ta for refactor planning...
 ```
@@ -286,6 +449,92 @@ User can interrupt at any checkpoint:
 | "Pause here" | Create manual checkpoint, exit flow (use `/pause`) |
 | "Restart" | Discard current work, start fresh |
 | "Go back to [stage]" | Return to previous stage for revision |
+
+---
+
+## Keyword Parser Implementation
+
+**CRITICAL: Import and use the keyword parser for all protocol commands.**
+
+```typescript
+// At the top of your protocol implementation
+import { parseKeywords, hasKeywords } from './keyword-parser';
+
+// When processing user message
+const userMessage = args[0] || ''; // Get message from arguments
+
+// Parse keywords first
+const parsed = parseKeywords(userMessage);
+
+// Check for validation errors
+if (!parsed.valid) {
+  return `❌ Invalid keyword combination:\n${parsed.errors.join('\n')}`;
+}
+
+// Extract parsed information
+const hasModifier = parsed.modifier !== null;
+const hasAction = parsed.action !== null;
+const modelPreference = parsed.modifier?.targetModel; // haiku | sonnet | opus | null
+const actionKeyword = parsed.action?.keyword; // fix | add | refactor | etc.
+const suggestedAgent = parsed.action?.suggestedAgent; // qa | me | ta | etc.
+const cleanMessage = parsed.cleanMessage; // Message without keywords
+
+// Show keyword detection if any keywords found
+if (hasModifier || hasAction) {
+  console.log('[KEYWORDS DETECTED]');
+
+  if (hasModifier) {
+    const modelName = modelPreference || 'auto-select';
+    console.log(`Model: ${parsed.modifier.keyword} → ${modelName}`);
+  }
+
+  if (hasAction) {
+    const flowName = getFlowNameFromAction(parsed.action.keyword);
+    console.log(`Action: ${parsed.action.keyword} → ${flowName}`);
+  }
+
+  console.log(''); // Empty line
+}
+
+// Route based on action keyword if present
+if (actionKeyword) {
+  switch (actionKeyword) {
+    case 'fix':
+      return routeToDefectFlow(cleanMessage, modelPreference);
+    case 'add':
+      return routeToExperienceFlow(cleanMessage, modelPreference);
+    case 'refactor':
+    case 'optimize':
+      return routeToTechnicalFlow(cleanMessage, modelPreference);
+    case 'test':
+      return routeToAgent('qa', cleanMessage, modelPreference);
+    case 'doc':
+      return routeToAgent('doc', cleanMessage, modelPreference);
+    case 'deploy':
+      return routeToAgent('do', cleanMessage, modelPreference);
+  }
+}
+
+// Otherwise, use standard intent detection on cleanMessage
+return detectIntentAndRoute(cleanMessage, modelPreference);
+```
+
+**Flow name mapping helper:**
+
+```typescript
+function getFlowNameFromAction(action: string): string {
+  const flowMap = {
+    fix: 'Defect Flow',
+    add: 'Experience Flow',
+    refactor: 'Technical Flow',
+    optimize: 'Technical Flow',
+    test: 'QA Testing',
+    doc: 'Documentation',
+    deploy: 'DevOps'
+  };
+  return flowMap[action] || 'Unknown';
+}
+```
 
 ---
 
