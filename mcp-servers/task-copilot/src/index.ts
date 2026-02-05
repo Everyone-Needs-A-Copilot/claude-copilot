@@ -32,7 +32,7 @@ import {
 import { sessionGuard } from './tools/session-guard.js';
 import { agentHandoff, agentChainGet } from './tools/agent-handoff.js';
 import { preflightCheck } from './tools/preflight.js';
-import { worktreeConflictStatus, worktreeConflictResolve } from './tools/worktree.js';
+import { worktreeCreate, worktreeList, worktreeCleanup, worktreeMerge, worktreeConflictStatus, worktreeConflictResolve } from './tools/worktree.js';
 import { scopeChangeRequest, scopeChangeReview, scopeChangeList } from './tools/scope-change.js';
 import { hookRegisterSecurity, hookListSecurity, hookTestSecurity, hookToggleSecurity, initializeSecurityHooks } from './tools/security-hooks.js';
 import { protocolViolationLog, protocolViolationsGet } from './tools/protocol.js';
@@ -753,7 +753,51 @@ const TOOLS = [
       }
     }
   },
-  // Worktree Conflict Management
+  // Worktree Management
+  {
+    name: 'worktree_create',
+    description: 'Manually create a worktree for a task. Useful when task was created without requiresWorktree but needs isolation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskId: { type: 'string', description: 'Task ID to create worktree for' },
+        baseBranch: { type: 'string', description: 'Base branch to branch from (optional, defaults to current branch)' }
+      },
+      required: ['taskId']
+    }
+  },
+  {
+    name: 'worktree_list',
+    description: 'List all task worktrees managed by Task Copilot.',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  {
+    name: 'worktree_cleanup',
+    description: 'Clean up a task worktree (remove worktree and delete branch). Use after manual merge or to force cleanup.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskId: { type: 'string', description: 'Task ID to cleanup worktree for' },
+        force: { type: 'boolean', description: 'Force removal even if worktree is dirty (default: false)' }
+      },
+      required: ['taskId']
+    }
+  },
+  {
+    name: 'worktree_merge',
+    description: 'Merge a task worktree branch into target branch. If conflicts occur, task is marked as blocked.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskId: { type: 'string', description: 'Task ID to merge worktree for' },
+        targetBranch: { type: 'string', description: 'Target branch to merge into (optional, defaults to current)' }
+      },
+      required: ['taskId']
+    }
+  },
   {
     name: 'worktree_conflict_status',
     description: 'Check conflict status for a task worktree. Returns list of conflicting files if any exist.',
@@ -1432,7 +1476,36 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
-      // Worktree Conflict Management
+      // Worktree Management
+      case 'worktree_create': {
+        const result = await worktreeCreate(db, {
+          taskId: a.taskId as string,
+          baseBranch: a.baseBranch as string | undefined
+        });
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+      }
+
+      case 'worktree_list': {
+        const result = await worktreeList(db, {});
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+      }
+
+      case 'worktree_cleanup': {
+        const result = await worktreeCleanup(db, {
+          taskId: a.taskId as string,
+          force: a.force as boolean | undefined
+        });
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+      }
+
+      case 'worktree_merge': {
+        const result = await worktreeMerge(db, {
+          taskId: a.taskId as string,
+          targetBranch: a.targetBranch as string | undefined
+        });
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+      }
+
       case 'worktree_conflict_status': {
         const result = await worktreeConflictStatus(db, {
           taskId: a.taskId as string

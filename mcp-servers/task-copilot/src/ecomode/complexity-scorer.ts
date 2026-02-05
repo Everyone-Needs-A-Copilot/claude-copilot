@@ -6,7 +6,14 @@
  * - File count (single file → low, 10+ files → high)
  * - Agent type (@agent-qa → low, @agent-ta → medium/high)
  *
- * Normalizes scores to 0.0-1.0 range for model routing decisions.
+ * Normalizes scores to 0.0-1.0 range for TWO purposes:
+ * 1. Model selection (which model: haiku/sonnet/opus)
+ * 2. Effort level determination (how hard to think: low/medium/high/max)
+ *
+ * Effort level mapping (see model-router.ts):
+ * - score < 0.3 → effort: low
+ * - score 0.3-0.7 → effort: high
+ * - score > 0.7 → effort: max
  *
  * @see PRD-omc-learnings (OMC Learnings Integration)
  */
@@ -254,6 +261,14 @@ export interface ComplexityScoringInput {
 /**
  * Calculate complexity score for a task
  *
+ * Returns a normalized score (0.0-1.0) used for:
+ * 1. Model selection - determines which Claude model to use (haiku/sonnet/opus)
+ * 2. Effort level - determines thinking budget (low/medium/high/max)
+ *
+ * The score is calculated from keywords, file count, and agent type, then
+ * normalized to a 0.0-1.0 range. The model-router uses this score to select
+ * both the appropriate model tier and the extended thinking effort level.
+ *
  * @param input - Task information
  * @returns ComplexityScore with normalized score (0.0-1.0) and breakdown
  *
@@ -266,6 +281,7 @@ export interface ComplexityScoringInput {
  * });
  * // score.score = 0.23 (low complexity)
  * // score.level = 'low'
+ * // → Model router will use: haiku model + low effort
  * ```
  */
 export function calculateComplexityScore(input: ComplexityScoringInput): ComplexityScore {
@@ -309,6 +325,7 @@ export function calculateComplexityScore(input: ComplexityScoringInput): Complex
 /**
  * Batch calculate complexity scores for multiple tasks
  *
+ * Each score is used for model selection and effort level determination.
  * More efficient than calling calculateComplexityScore multiple times.
  */
 export function calculateComplexityScores(inputs: ComplexityScoringInput[]): ComplexityScore[] {

@@ -172,7 +172,7 @@ Accessibility: [Key compliance notes, e.g., WCAG 2.1 AA, 4.5:1 contrast verified
 - [Decision 1: e.g., Used system design tokens from existing library]
 - [Decision 2: e.g., Added micro-interactions for state transitions]
 
-**Handoff Context:** [50-char max context for next agent, e.g., "Design: 12 tokens, 4 components, WCAG AA"]
+**Handoff Context:** [200-char max context for next agent, e.g., "Design: 12 tokens, 4 components, WCAG AA"]
 ---
 ```
 
@@ -183,7 +183,7 @@ This format enables the protocol to present checkpoints to users for approval be
 **If NOT final agent in chain:**
 1. Call `agent_chain_get` to see prior work (sd blueprint, uxd wireframes)
 2. Store work product in Task Copilot
-3. Call `agent_handoff` with 50-char context
+3. Call `agent_handoff` with 200-char max context
 4. Route to next agent (typically @agent-uid)
 5. **DO NOT return to main session**
 

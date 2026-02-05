@@ -130,6 +130,33 @@ export async function taskCreate(
 
   db.insertTask(task);
 
+  // Handle worktree creation if required
+  if (metadata.requiresWorktree === true) {
+    try {
+      const projectRoot = process.cwd();
+      const worktreeManager = new WorktreeManager(projectRoot);
+      const worktreeInfo = await worktreeManager.createTaskWorktree(
+        id,
+        metadata.worktreeBaseBranch
+      );
+
+      // Update task metadata with worktree info
+      const updatedMetadata = {
+        ...metadata,
+        isolatedWorktree: true,
+        worktreePath: worktreeInfo.path,
+        branchName: worktreeInfo.branch
+      };
+
+      db.updateTask(id, {
+        metadata: JSON.stringify(updatedMetadata)
+      });
+    } catch (error: any) {
+      // Log error but don't fail task creation
+      console.error(`Failed to create worktree for ${id}:`, error.message);
+    }
+  }
+
   // Log activity (need initiative ID - get from PRD or parent)
   let initiativeId: string | undefined;
   if (input.prdId) {
@@ -423,7 +450,7 @@ export async function taskUpdate(
 
     // Handle worktree lifecycle on status transitions
     const metadata = JSON.parse(updates.metadata || task.metadata) as TaskMetadata;
-    if (metadata.isolatedWorktree) {
+    if (metadata.isolatedWorktree || metadata.requiresWorktree) {
       await handleWorktreeLifecycle(db, task, input.id, input.status, metadata);
     }
 
@@ -589,13 +616,17 @@ async function handleWorktreeLifecycle(
   const worktreeManager = new WorktreeManager(projectRoot);
 
   try {
-    // Create worktree on transition to in_progress
+    // Create worktree on transition to in_progress (if not already created)
     if (newStatus === 'in_progress' && !metadata.worktreePath) {
-      const worktreeInfo = await worktreeManager.createTaskWorktree(taskId);
+      const worktreeInfo = await worktreeManager.createTaskWorktree(
+        taskId,
+        metadata.worktreeBaseBranch
+      );
 
       // Update task metadata with worktree info
       const updatedMetadata = {
         ...metadata,
+        isolatedWorktree: true,
         worktreePath: worktreeInfo.path,
         branchName: worktreeInfo.branch
       };

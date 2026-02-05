@@ -419,7 +419,7 @@ export function progressSummary(
   // Get work product stats
   const workProductsByType: Record<string, number> = {};
   let totalWorkProducts = 0;
-  const allWorkProducts: Array<{ type: string; confidence: number | null }> = [];
+  const allWorkProducts: Array<{ type: string; confidence: number | null; metadata: string }> = [];
 
   for (const task of allTasks) {
     const workProducts = db.listWorkProducts(task.id);
@@ -434,7 +434,7 @@ export function progressSummary(
 
       totalWorkProducts += 1;
       workProductsByType[wp.type] = (workProductsByType[wp.type] || 0) + 1;
-      allWorkProducts.push({ type: wp.type, confidence: wp.confidence });
+      allWorkProducts.push({ type: wp.type, confidence: wp.confidence, metadata: wp.metadata });
     }
   }
 
@@ -450,6 +450,33 @@ export function progressSummary(
     lowConfidence: confidenceValues.filter(c => c < 0.5).length,
     noConfidence: allWorkProducts.filter(wp => wp.confidence === null).length
   } : undefined;
+
+  // Calculate model usage stats
+  const modelUsage = {
+    opus: 0,
+    sonnet: 0,
+    haiku: 0,
+    unknown: 0
+  };
+
+  for (const wp of allWorkProducts) {
+    try {
+      const metadata = JSON.parse(wp.metadata);
+      const model = metadata.modelUsed as string | undefined;
+
+      if (model === 'opus') {
+        modelUsage.opus += 1;
+      } else if (model === 'sonnet') {
+        modelUsage.sonnet += 1;
+      } else if (model === 'haiku') {
+        modelUsage.haiku += 1;
+      } else {
+        modelUsage.unknown += 1;
+      }
+    } catch {
+      modelUsage.unknown += 1;
+    }
+  }
 
   // Calculate milestone progress from all active PRDs
   let allMilestones: MilestoneProgress[] = [];
@@ -497,7 +524,8 @@ export function progressSummary(
     workProducts: {
       total: totalWorkProducts,
       byType: workProductsByType,
-      confidenceStats
+      confidenceStats,
+      modelUsage
     },
     milestones: allMilestones.length > 0 ? allMilestones : undefined,
     velocity,

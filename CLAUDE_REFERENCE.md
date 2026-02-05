@@ -398,19 +398,22 @@ Five productivity enhancements inspired by [Oh My Claude Code](https://github.co
 
 Automatically routes tasks to appropriate Claude model (haiku/sonnet/opus) based on complexity scoring.
 
-**Usage in task titles:**
+**Usage in task titles (BREAKING CHANGE v2.8.0):**
 ```
-eco: Fix the login bug                    → Auto-selects based on complexity
-opus: Design microservices architecture   → Forces Claude Opus
-fast: Update README typo                  → Forces Claude Haiku (fastest)
-sonnet: Refactor authentication module    → Forces Claude Sonnet
+eco: Fix the login bug                    → Auto-selects model, low effort
+fast: Refactor authentication module      → Auto-selects model, medium effort ⚠️ BREAKING
+max: Design microservices architecture    → Auto-selects model, max effort ✨ NEW
+opus: Update README typo                  → Forces Opus (effort from complexity)
+sonnet: Implement feature                 → Forces Sonnet (effort from complexity)
+haiku: Fix typo                           → Forces Haiku (effort from complexity)
 ```
 
 **How it works:**
 - Analyzes task title, description, file count, and agent type
 - Calculates complexity score (0.0 to 1.0)
-- Routes: < 0.3 = haiku, 0.3-0.7 = sonnet, > 0.7 = opus
-- Supports explicit overrides with keywords
+- Routes model: < 0.3 = haiku, 0.3-0.7 = sonnet, > 0.7 = opus
+- Determines effort: < 0.3 = low, 0.3-0.7 = high, > 0.7 = max
+- Keywords can override model (opus:, sonnet:, haiku:) or effort (eco:, fast:, max:)
 
 **Benefits:**
 - Cost optimization for simple tasks
@@ -434,9 +437,10 @@ deploy: Production environment           → Routes to @agent-do
 
 **Combine with modifiers:**
 ```
-eco: fix: login bug                      → QA agent + auto-model
-fast: doc: quick API reference           → Doc agent + haiku
-opus: add: complex feature               → Engineer + opus
+eco: fix: login bug                      → QA agent + auto-model + low effort
+fast: doc: quick API reference           → Doc agent + auto-model + medium effort
+max: add: complex feature                → Engineer + auto-model + max effort
+opus: refactor: auth module              → Engineer + opus + complexity-based effort
 ```
 
 **Rules:**

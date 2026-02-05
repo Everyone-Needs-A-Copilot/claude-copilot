@@ -28,14 +28,19 @@ This command supports an optional task description argument for quick task initi
 
 The protocol supports **magic keywords** for streamlined commands:
 
-**Modifier keywords (model selection):**
-- `eco:` - Auto-select model based on complexity (cost-optimized)
-- `opus:` - Force Claude Opus (highest quality)
-- `fast:` - Force fastest model (Haiku)
+**Modifier keywords:**
+
+*Effort-level keywords (auto-select model):*
+- `eco:` - Low effort reasoning (cost-optimized)
+- `fast:` - Medium effort reasoning ⚠️ BREAKING: was haiku model
+- `max:` - Maximum reasoning depth ✨ NEW
+- `auto:` - Auto-select model and effort
+- `ralph:` - Auto-select model and effort
+
+*Model-selection keywords (force specific model):*
+- `opus:` - Force Claude Opus
 - `sonnet:` - Force Claude Sonnet
 - `haiku:` - Force Claude Haiku
-- `auto:` - Auto-select (same as eco:)
-- `ralph:` - Auto-select with cost optimization
 
 **Action keywords (task type shortcuts):**
 - `fix:` - Bug fix → routes to Defect Flow (qa → me → qa)
@@ -56,17 +61,17 @@ The protocol supports **magic keywords** for streamlined commands:
 **Examples:**
 ```
 eco: fix: the login bug
-→ Modifier: eco (auto-select model)
+→ Modifier: eco (auto-select model, low effort)
 → Action: fix (defect flow)
 → Description: "the login bug"
 
-opus: add: dark mode feature
-→ Modifier: opus (force Opus model)
+max: add: dark mode feature
+→ Modifier: max (auto-select model, max effort)
 → Action: add (experience flow)
 → Description: "dark mode feature"
 
-fix: authentication error
-→ Modifier: (none)
+opus: fix: authentication error
+→ Modifier: opus (force Opus, effort from complexity)
 → Action: fix (defect flow)
 → Description: "authentication error"
 ```
@@ -159,7 +164,7 @@ Invoking @agent-sd for service design...
 User: /protocol eco: add: dark mode to dashboard
 
 [KEYWORDS DETECTED]
-Model: eco → auto-select
+Model: eco → auto-select [effort: low]
 Action: add → Experience Flow
 
 [PROTOCOL: EXPERIENCE | Agent: @agent-sd | Action: INVOKING]
@@ -167,7 +172,8 @@ Action: add → Experience Flow
 Routing to experience-first flow:
 sd (journey mapping) → uxd (interactions) → uids (visual design) → ta (tasks) → me (implementation)
 
-Model selection: Auto-select based on complexity (cost-optimized)
+Model selection: Auto-select based on complexity (likely sonnet)
+Effort level: low (minimal reasoning, fast response)
 
 Invoking @agent-sd for service design...
 ```
@@ -208,7 +214,7 @@ Invoking @agent-qa for issue investigation...
 User: /protocol fast: fix: login authentication bug
 
 [KEYWORDS DETECTED]
-Model: fast → haiku (fastest model)
+Model: fast → auto-select [effort: medium]
 Action: fix → Defect Flow
 
 [PROTOCOL: DEFECT | Agent: @agent-qa | Action: INVOKING]
@@ -216,7 +222,9 @@ Action: fix → Defect Flow
 Routing to defect flow:
 qa (diagnosis) → me (fix) → qa (verification)
 
-Model selection: Haiku (fastest, cost-efficient)
+Model selection: Auto-select based on complexity (likely sonnet)
+Effort level: medium (balanced reasoning)
+⚠️ BREAKING: Previously forced Haiku model
 
 Invoking @agent-qa for issue investigation...
 ```
@@ -260,7 +268,7 @@ Invoking @agent-ta for refactor planning...
 User: /protocol sonnet: refactor: auth module
 
 [KEYWORDS DETECTED]
-Model: sonnet → sonnet (balanced performance)
+Model: sonnet → sonnet (forced)
 Action: refactor → Technical Flow
 
 [PROTOCOL: TECHNICAL | Agent: @agent-ta | Action: INVOKING]
@@ -268,7 +276,8 @@ Action: refactor → Technical Flow
 Routing to technical-only flow:
 ta (planning) → me (implementation)
 
-Model selection: Sonnet (balanced quality and speed)
+Model selection: Sonnet (forced override)
+Effort level: high (based on task complexity)
 
 Invoking @agent-ta for refactor planning...
 ```
@@ -485,7 +494,8 @@ if (hasModifier || hasAction) {
 
   if (hasModifier) {
     const modelName = modelPreference || 'auto-select';
-    console.log(`Model: ${parsed.modifier.keyword} → ${modelName}`);
+    const effortInfo = parsed.modifier.effortLevel ? ` [effort: ${parsed.modifier.effortLevel}]` : '';
+    console.log(`Model: ${parsed.modifier.keyword} → ${modelName}${effortInfo}`);
   }
 
   if (hasAction) {

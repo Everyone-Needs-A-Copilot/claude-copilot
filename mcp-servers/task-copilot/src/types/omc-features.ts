@@ -16,6 +16,17 @@
 // ============================================================================
 
 /**
+ * Effort level for Opus 4.6 adaptive thinking
+ *
+ * Maps to the effort parameter that controls reasoning depth:
+ * - low: Quick responses, minimal thinking
+ * - medium: Standard responses
+ * - high: Deeper reasoning (default for most tasks)
+ * - max: Maximum reasoning effort for complex problems
+ */
+export type EffortLevel = 'low' | 'medium' | 'high' | 'max';
+
+/**
  * Complexity score for a task (0.0 = trivial, 1.0 = highly complex)
  *
  * Scoring factors:
@@ -64,6 +75,9 @@ export interface ModelRoute {
 
   /** Estimated cost tier (low, medium, high) */
   costTier: 'low' | 'medium' | 'high';
+
+  /** Effort level for adaptive thinking (Opus 4.6+) */
+  effortLevel: EffortLevel;
 }
 
 /**
@@ -96,11 +110,11 @@ export interface CostTracking {
 /**
  * Modifier keywords for model selection
  *
- * Examples: eco:, opus:, fast:, sonnet:, haiku:, auto:, ralph:
+ * Examples: eco:, opus:, fast:, max:, sonnet:, haiku:, auto:, ralph:
  */
 export interface ModifierKeyword {
   /** The keyword matched (without colon) */
-  keyword: 'eco' | 'opus' | 'fast' | 'sonnet' | 'haiku' | 'auto' | 'ralph';
+  keyword: 'eco' | 'opus' | 'fast' | 'max' | 'sonnet' | 'haiku' | 'auto' | 'ralph';
 
   /** Position in message (0-based character index) */
   position: number;
@@ -110,6 +124,9 @@ export interface ModifierKeyword {
 
   /** Model to route to (null for auto/eco) */
   targetModel: 'haiku' | 'sonnet' | 'opus' | null;
+
+  /** Effort level for adaptive thinking */
+  effortLevel?: EffortLevel | null;
 }
 
 /**
@@ -439,7 +456,7 @@ export function isValidModel(model: string): model is 'haiku' | 'sonnet' | 'opus
  * Validates modifier keyword
  */
 export function isValidModifier(keyword: string): keyword is ModifierKeyword['keyword'] {
-  return ['eco', 'opus', 'fast', 'sonnet', 'haiku', 'auto', 'ralph'].includes(keyword);
+  return ['eco', 'opus', 'fast', 'max', 'sonnet', 'haiku', 'auto', 'ralph'].includes(keyword);
 }
 
 /**

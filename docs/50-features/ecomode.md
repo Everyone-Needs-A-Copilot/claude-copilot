@@ -72,17 +72,23 @@ The complexity scorer analyzes multiple factors to produce a normalized score.
 
 ### Modifier Keywords
 
-Override automatic routing with explicit keywords:
+**BREAKING CHANGE (v2.8.0):** Keywords now separate model selection from effort level.
 
-| Keyword | Target Model | Confidence |
-|---------|--------------|------------|
-| `eco:` | Auto-select | 0.85 (complexity-based) |
-| `auto:` | Auto-select | 0.85 (complexity-based) |
-| `opus:` | Opus | 1.0 (explicit override) |
-| `sonnet:` | Sonnet | 1.0 (explicit override) |
-| `haiku:` | Haiku | 1.0 (explicit override) |
-| `fast:` | Haiku | 1.0 (explicit override) |
-| `ralph:` | Opus | 1.0 (explicit override) |
+**Effort-level keywords** (auto-select model):
+| Keyword | Effort Level | Confidence | Description |
+|---------|--------------|------------|-------------|
+| `eco:` | low | 0.85 | Minimal reasoning, fast response |
+| `fast:` | medium | 0.85 | ⚠️ BREAKING: Was haiku model, now medium effort |
+| `max:` | max | 0.85 | ✨ NEW: Maximum reasoning depth |
+| `auto:` | (complexity-based) | 0.85 | Auto-select everything |
+| `ralph:` | (complexity-based) | 0.85 | Auto-select everything |
+
+**Model-selection keywords** (force model, effort from complexity):
+| Keyword | Target Model | Confidence | Description |
+|---------|--------------|------------|-------------|
+| `opus:` | Opus | 1.0 | Force Opus, effort from task complexity |
+| `sonnet:` | Sonnet | 1.0 | Force Sonnet, effort from task complexity |
+| `haiku:` | Haiku | 1.0 | Force Haiku, effort from task complexity |
 
 ---
 
@@ -222,11 +228,31 @@ routeToModel({ title: 'opus: Simple bug fix' });
 // → model: 'opus', isOverride: true (ignores low complexity)
 ```
 
-### Auto-Routing with eco:
+### Auto-Routing with eco: (Low Effort)
 
 ```typescript
 routeToModel({ title: 'eco: Implement new feature', fileCount: 3 });
-// → model: 'sonnet', reason: 'Auto-routing (eco:): Medium complexity...'
+// → model: 'sonnet' (from complexity)
+// → effortLevel: 'low' (from eco: keyword)
+// → reason: 'Auto-routing (eco:): Medium complexity... [effort: low]'
+```
+
+### Auto-Routing with fast: (Medium Effort)
+
+```typescript
+routeToModel({ title: 'fast: Refactor auth module', fileCount: 5 });
+// → model: 'sonnet' (from complexity)
+// → effortLevel: 'medium' (from fast: keyword)
+// ⚠️ BREAKING: Previously forced haiku model
+```
+
+### Auto-Routing with max: (Maximum Effort)
+
+```typescript
+routeToModel({ title: 'max: Design microservices architecture', fileCount: 12 });
+// → model: 'opus' (from complexity)
+// → effortLevel: 'max' (from max: keyword)
+// ✨ NEW in v2.8.0
 ```
 
 ---

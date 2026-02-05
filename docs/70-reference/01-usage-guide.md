@@ -451,13 +451,15 @@ progress_summary()
 
 Prefix your `/protocol` commands for model and routing control:
 
-**Model Selection:**
-| Keyword | Model | Use When |
-|---------|-------|----------|
-| `eco:` | Auto-select | Cost optimization (default) |
-| `opus:` | Opus | Complex reasoning needed |
-| `fast:` | Haiku | Speed priority, simple tasks |
-| `sonnet:` | Sonnet | Balanced quality/speed |
+**Model Selection & Effort:**
+| Keyword | Model | Effort | Use When |
+|---------|-------|--------|----------|
+| `eco:` | Auto-select | low | Cost optimization, simple tasks |
+| `fast:` | Auto-select | medium | Balanced reasoning ⚠️ BREAKING: was haiku |
+| `max:` | Auto-select | max | Maximum reasoning depth ✨ NEW |
+| `opus:` | Opus | (auto) | Force Opus model |
+| `sonnet:` | Sonnet | (auto) | Force Sonnet model |
+| `haiku:` | Haiku | (auto) | Force Haiku model |
 
 **Action Routing:**
 | Keyword | Flow | Agent Chain |
@@ -477,8 +479,9 @@ See [Magic Keywords](../50-features/magic-keywords.md) for full documentation.
 ```
 Morning:     /continue
 New task:    /protocol [description]
-Quick fix:   /protocol fast: fix: [description]
-Quality:     /protocol opus: add: [description]
+Quick fix:   /protocol eco: fix: [description]
+Quality:     /protocol max: add: [description]
+Force model: /protocol opus: [description]
 Context sw:  /pause [reason] → /protocol [new task]
 Resume:      /continue [stream-name]
 End of day:  /pause [notes]

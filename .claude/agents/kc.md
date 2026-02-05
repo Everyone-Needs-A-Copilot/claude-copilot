@@ -196,8 +196,8 @@ Before returning your final response, estimate token usage:
 - Calculate: `estimatedTokens = responseLength / 4`
 
 **Threshold Check:**
-- Default threshold: 85% of 4096 tokens = 3,482 tokens (~13,928 characters)
-- If `estimatedTokens >= 3,482`, trigger compaction
+- Default threshold: 85% of 16384 tokens = 13,926 tokens (~55,704 characters)
+- If `estimatedTokens >= 13,926`, trigger compaction
 
 ### Compaction Process
 
@@ -244,7 +244,7 @@ Full discovery notes in WP-xxx
 When compaction triggered, mentally note:
 ```
 ⚠️ Context threshold (85%) exceeded
-   Estimated: X tokens / 4096 tokens
+   Estimated: X tokens / 16384 tokens
    Storing full response in Work Product
    Returning compact summary
 ```
@@ -253,9 +253,9 @@ When compaction triggered, mentally note:
 
 Threshold can be configured via environment variable (future):
 - `CONTEXT_THRESHOLD=0.85` (default)
-- `CONTEXT_MAX_TOKENS=4096` (default)
+- `CONTEXT_MAX_TOKENS=16384` (default)
 
-For now, use hardcoded defaults: 85% of 4096 tokens.
+For now, use hardcoded defaults: 85% of 16384 tokens.
 
 ## Task Copilot Integration
 

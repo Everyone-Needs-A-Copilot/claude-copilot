@@ -149,7 +149,7 @@ Opportunities: [Top 2-3 improvement areas]
 - [Decision 1: e.g., Prioritized setup flow optimization]
 - [Decision 2: e.g., Added contextual onboarding in discovery stage]
 
-**Handoff Context:** [50-char max context for next agent, e.g., "Journey: 4 stages, focus setup flow optimization"]
+**Handoff Context:** [200-char max context for next agent, e.g., "Journey: 4 stages, focus setup flow optimization"]
 ---
 ```
 
@@ -159,7 +159,7 @@ This format enables the protocol to present checkpoints to users for approval be
 
 **If NOT final agent in chain:**
 1. Store work product in Task Copilot
-2. Call `agent_handoff` with 50-char context
+2. Call `agent_handoff` with 200-char max context
 3. Route to next agent (typically @agent-uxd)
 4. **DO NOT return to main session**
 

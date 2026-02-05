@@ -58,7 +58,7 @@ Format as clean dashboard:
 - Scores below 0.3 → haiku (fast, low cost)
 - Scores 0.3-0.7 → sonnet (balanced)
 - Scores 0.7+ → opus (complex work)
-- Override anytime with keywords: `eco:`, `opus:`, `fast:`, `sonnet:`, `haiku:`
+- Override anytime with keywords: `eco:`, `fast:`, `max:`, `opus:`, `sonnet:`, `haiku:`
 
 **Current Session Cost Summary:**
 [If ecomode enabled and cost tracking active, call cost_get_summary({ format: 'compact' })]
@@ -103,7 +103,7 @@ Actions:
 
    - Tasks will be automatically routed to haiku/sonnet/opus based on complexity
    - Cost tracking is active
-   - Override anytime with keywords: opus:, fast:, eco:, sonnet:, haiku:
+   - Override anytime with keywords: eco:, fast:, max:, opus:, sonnet:, haiku:
 
    Run `/config` to see current settings.
    ```
@@ -236,10 +236,12 @@ Configuration:
 
 Cost tracking is active. View savings with `/memory` or `/config ecomode cost`.
 
-Override model selection anytime with keywords:
-- `eco: fix the bug` → auto-route by complexity
-- `opus: design architecture` → force opus
-- `fast: update docs` → force haiku
+Override model selection and effort anytime with keywords:
+- `eco: fix the bug` → auto-route by complexity, low effort
+- `fast: implement feature` → auto-route by complexity, medium effort
+- `max: design architecture` → auto-route by complexity, max effort
+- `opus: anything` → force opus model
+- `haiku: simple task` → force haiku model
 ```
 
 ### Example 2: Update thresholds

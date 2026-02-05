@@ -2,13 +2,14 @@
  * Model Router for Ecomode
  *
  * Routes tasks to appropriate model (haiku/sonnet/opus) based on complexity score.
+ * Determines effort level for Opus 4.6 adaptive thinking.
  * Supports modifier keywords for explicit model overrides.
  *
  * @see PRD-omc-learnings (OMC Learnings Integration)
  */
 
 import { calculateComplexityScore, type ComplexityScoringInput } from './complexity-scorer.js';
-import type { ComplexityScore, ModelRoute, ModifierKeyword } from '../types/omc-features.js';
+import type { ComplexityScore, ModelRoute, ModifierKeyword, EffortLevel } from '../types/omc-features.js';
 
 // ============================================================================
 // ROUTING THRESHOLDS
@@ -45,24 +46,26 @@ export interface RoutingThresholds {
 /**
  * Detect modifier keywords in task text
  *
- * Supported keywords: eco:, opus:, fast:, sonnet:, haiku:, auto:, ralph:
+ * Supported keywords: eco:, fast:, max:, opus:, sonnet:, haiku:, auto:, ralph:
  */
 export function detectModifierKeyword(text: string): ModifierKeyword | null {
   const patterns: Array<{
     regex: RegExp;
     keyword: ModifierKeyword['keyword'];
     targetModel: ModifierKeyword['targetModel'];
+    effortLevel: ModifierKeyword['effortLevel'];
   }> = [
-    { regex: /\beco:/i, keyword: 'eco', targetModel: null },
-    { regex: /\bopus:/i, keyword: 'opus', targetModel: 'opus' },
-    { regex: /\bfast:/i, keyword: 'fast', targetModel: 'haiku' },
-    { regex: /\bsonnet:/i, keyword: 'sonnet', targetModel: 'sonnet' },
-    { regex: /\bhaiku:/i, keyword: 'haiku', targetModel: 'haiku' },
-    { regex: /\bauto:/i, keyword: 'auto', targetModel: null },
-    { regex: /\bralph:/i, keyword: 'ralph', targetModel: 'opus' }, // ralph = opus override
+    { regex: /\beco:/i, keyword: 'eco', targetModel: null, effortLevel: 'low' },
+    { regex: /\bfast:/i, keyword: 'fast', targetModel: null, effortLevel: 'medium' },
+    { regex: /\bmax:/i, keyword: 'max', targetModel: null, effortLevel: 'max' },
+    { regex: /\bopus:/i, keyword: 'opus', targetModel: 'opus', effortLevel: null },
+    { regex: /\bsonnet:/i, keyword: 'sonnet', targetModel: 'sonnet', effortLevel: null },
+    { regex: /\bhaiku:/i, keyword: 'haiku', targetModel: 'haiku', effortLevel: null },
+    { regex: /\bauto:/i, keyword: 'auto', targetModel: null, effortLevel: null },
+    { regex: /\bralph:/i, keyword: 'ralph', targetModel: null, effortLevel: null }, // ralph = auto-select
   ];
 
-  for (const { regex, keyword, targetModel } of patterns) {
+  for (const { regex, keyword, targetModel, effortLevel } of patterns) {
     const match = regex.exec(text);
     if (match) {
       return {
@@ -70,6 +73,7 @@ export function detectModifierKeyword(text: string): ModifierKeyword | null {
         position: match.index,
         raw: match[0],
         targetModel,
+        effortLevel,
       };
     }
   }
@@ -82,7 +86,7 @@ export function detectModifierKeyword(text: string): ModifierKeyword | null {
  */
 export function stripModifierKeywords(text: string): string {
   // Remove all known modifier keywords
-  return text.replace(/\b(eco|opus|fast|sonnet|haiku|auto|ralph):/gi, '').trim();
+  return text.replace(/\b(eco|fast|max|opus|sonnet|haiku|auto|ralph):/gi, '').trim();
 }
 
 // ============================================================================
@@ -104,6 +108,26 @@ function getCostTier(model: ModelRoute['model']): ModelRoute['costTier'] {
 }
 
 /**
+ * Determine effort level based on complexity score
+ *
+ * Effort mapping (aligned with Opus 4.6 adaptive thinking):
+ * - score < 0.3: low (trivial tasks, quick responses)
+ * - score 0.3-0.7: high (standard tasks, default reasoning depth)
+ * - score > 0.7: max (complex architecture/design, deep reasoning)
+ *
+ * Note: 'medium' is reserved for future use or explicit overrides
+ */
+function getEffortLevel(score: ComplexityScore): EffortLevel {
+  if (score.score < 0.3) {
+    return 'low';
+  } else if (score.score < 0.7) {
+    return 'high'; // Default for most tasks
+  } else {
+    return 'max';
+  }
+}
+
+/**
  * Route to model based on complexity score
  */
 function routeByComplexity(score: ComplexityScore, thresholds: RoutingThresholds): ModelRoute {
@@ -121,38 +145,50 @@ function routeByComplexity(score: ComplexityScore, thresholds: RoutingThresholds
     reason = `High complexity (${score.score.toFixed(2)}) → opus. ${score.reasoning}`;
   }
 
+  const effortLevel = getEffortLevel(score);
+
   return {
     model,
     confidence: 0.85, // High confidence in complexity-based routing
     reason,
     isOverride: false,
     costTier: getCostTier(model),
+    effortLevel,
   };
 }
 
 /**
  * Route to model based on modifier keyword override
+ *
+ * Note: Effort-specific modifiers (eco:, fast:, max:) set effortLevel directly.
+ * Model-specific modifiers (opus:, sonnet:, haiku:) use complexity-based effort.
  */
-function routeByModifier(modifier: ModifierKeyword): ModelRoute {
+function routeByModifier(modifier: ModifierKeyword, complexityScore?: ComplexityScore): ModelRoute {
   if (modifier.targetModel) {
-    // Explicit model override (opus:, fast:, sonnet:, haiku:, ralph:)
+    // Explicit model override (opus:, sonnet:, haiku:)
+    // Use complexity-based effort if available, otherwise default to 'high'
+    const effortLevel = complexityScore ? getEffortLevel(complexityScore) : 'high';
+
     return {
       model: modifier.targetModel,
       confidence: 1.0, // Maximum confidence for explicit overrides
       reason: `User override: ${modifier.keyword}: → ${modifier.targetModel}`,
       isOverride: true,
       costTier: getCostTier(modifier.targetModel),
+      effortLevel,
     };
   }
 
-  // eco: or auto: means defer to complexity
-  // Return null to signal fallback to complexity
+  // eco:, fast:, max:, auto:, ralph: means defer to complexity for model
+  // But use modifier's effort level if specified (eco=low, fast=medium, max=max)
+  // Return placeholder values - will be overridden by complexity routing
   return {
     model: 'haiku', // Will be overridden by complexity
     confidence: 0.0,
     reason: `Auto-routing enabled (${modifier.keyword}:)`,
     isOverride: false,
     costTier: 'low',
+    effortLevel: modifier.effortLevel || 'high', // Use modifier effort if set, otherwise default
   };
 }
 
@@ -231,12 +267,19 @@ export function routeToModel(input: ModelRoutingInput): ModelRoutingResult {
   let route: ModelRoute;
 
   if (modifier && modifier.targetModel) {
-    // Explicit model override
-    route = routeByModifier(modifier);
-  } else if (modifier && (modifier.keyword === 'eco' || modifier.keyword === 'auto')) {
-    // eco: or auto: means use complexity-based routing
+    // Explicit model override (opus:, sonnet:, haiku:) - pass complexity score for effort level
+    route = routeByModifier(modifier, complexityScore);
+  } else if (modifier && !modifier.targetModel) {
+    // Effort-level modifiers (eco:, fast:, max:) or auto-routing (auto:, ralph:)
+    // Use complexity-based routing for model selection
     route = routeByComplexity(complexityScore, thresholds);
     route.reason = `Auto-routing (${modifier.keyword}:): ${route.reason}`;
+
+    // Override effort level if modifier specifies one
+    if (modifier.effortLevel) {
+      route.effortLevel = modifier.effortLevel;
+      route.reason += ` [effort: ${modifier.effortLevel}]`;
+    }
   } else {
     // No modifier, use complexity
     route = routeByComplexity(complexityScore, thresholds);
@@ -279,4 +322,114 @@ export function getRecommendedModel(
   });
 
   return result.route.model;
+}
+
+/**
+ * Recommend model for a task with agent and task metadata
+ *
+ * Resolution order:
+ * 1. task.metadata.modelOverride (highest priority)
+ * 2. agent.model (from agent frontmatter)
+ * 3. Complexity-based routing (fallback)
+ * 4. 'sonnet' (system default)
+ *
+ * Fallback heuristics (only when no explicit model configured):
+ * - Orchestration keywords (ultrawork, orchestrate, parallel) → opus
+ * - Simple/quick keywords (typo, simple, quick) → haiku
+ * - Default → sonnet
+ *
+ * Note: This is a simplified API that only returns the model.
+ * For full routing with effort level, use routeToModel() instead.
+ *
+ * @param task - Task metadata with title, description, metadata
+ * @param agent - Agent configuration with default model
+ * @returns Recommended model ('opus' | 'sonnet' | 'haiku')
+ *
+ * @example
+ * ```typescript
+ * const model = recommendModel(
+ *   { title: 'Fix login bug', metadata: {} },
+ *   { id: 'me', model: 'sonnet' }
+ * );
+ * // Returns: 'sonnet' (from agent default)
+ *
+ * const model = recommendModel(
+ *   { title: 'orchestrate: parallel build', metadata: {} },
+ *   { id: 'ta', model: 'opus' }
+ * );
+ * // Returns: 'opus' (orchestration keyword)
+ *
+ * const model = recommendModel(
+ *   { title: 'Quick fix', metadata: { modelOverride: 'haiku' } },
+ *   { id: 'me', model: 'sonnet' }
+ * );
+ * // Returns: 'haiku' (override takes precedence)
+ * ```
+ */
+export function recommendModel(
+  task: {
+    title: string;
+    description?: string;
+    metadata?: {
+      modelOverride?: 'opus' | 'sonnet' | 'haiku';
+      complexity?: string;
+      fileCount?: number;
+    };
+  },
+  agent: {
+    id: string;
+    model?: 'opus' | 'sonnet' | 'haiku';
+  }
+): 'opus' | 'sonnet' | 'haiku' {
+  // Priority 1: Task metadata override (highest)
+  if (task.metadata?.modelOverride) {
+    return task.metadata.modelOverride;
+  }
+
+  // Priority 2: Agent default model (from frontmatter)
+  if (agent.model) {
+    return agent.model;
+  }
+
+  // Priority 3: Keyword heuristics (fallback when no explicit model configured)
+  const combinedText = [task.title, task.description].filter(Boolean).join(' ').toLowerCase();
+
+  // Check for orchestration keywords → opus
+  const orchestrationKeywords = [
+    'ultrawork',
+    'orchestrate',
+    'parallel',
+    'coordinate',
+    'multi-stream',
+    'concurrent'
+  ];
+
+  const hasOrchestrationKeyword = orchestrationKeywords.some(keyword =>
+    combinedText.includes(keyword)
+  );
+
+  if (hasOrchestrationKeyword) {
+    return 'opus';
+  }
+
+  // Check for simple/quick keywords → haiku
+  const simpleKeywords = [
+    'quick',
+    'simple',
+    'typo',
+    'fix typo',
+    'update text',
+    'change wording'
+  ];
+
+  const hasSimpleKeyword = simpleKeywords.some(keyword =>
+    combinedText.includes(keyword)
+  );
+
+  if (hasSimpleKeyword) {
+    return 'haiku';
+  }
+
+  // Priority 4: Fallback to sonnet (system default)
+  return 'sonnet';
 }

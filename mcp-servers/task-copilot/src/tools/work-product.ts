@@ -105,7 +105,8 @@ export async function workProductStore(
           wordCount: input.content.split(/\s+/).filter(w => w.length > 0).length,
           assignedAgent: task.assigned_agent,
           hasValidationWarnings: validationResult.flags.length > 0,
-          validationFlagCount: validationResult.flags.length
+          validationFlagCount: validationResult.flags.length,
+          modelUsed: (input.metadata as any)?.modelUsed || null
         }),
         created_at: now
       });

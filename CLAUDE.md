@@ -8,27 +8,32 @@ This file provides guidance to Claude Code when working with the Claude Copilot 
 
 **These rules exist to prevent context bloat. Violating them wastes tokens and defeats the framework's purpose.**
 
-### What You (Main Session) Must NEVER Do
+### What You MUST NEVER Do
 
 | Action | Why It's Wrong | What To Do Instead |
 |--------|---------------|-------------------|
-| Read more than 3 files | Bloats context with code | Delegate to framework agent |
 | Write implementation code | Code belongs in work products | Delegate to `@agent-me` |
 | Create detailed plans | Plans belong in Task Copilot | Delegate to `@agent-ta` |
 | Use `Explore` agent | Returns full content to context | Use `@agent-ta` or `@agent-me` |
 | Use `Plan` agent | Returns full plans to context | Use `@agent-ta` with PRD |
 | Use `general-purpose` agent | No Task Copilot integration | Use specific framework agent |
+
+### What You Should AVOID
+
+| Action | Why It's Suboptimal | What To Do Instead |
+|--------|-------------------|-------------------|
+| Read more than 8 files | Prefer delegation for large exploration | Delegate to framework agent |
 | Return detailed analysis | Fills context with text | Store as work product |
 
 ### Self-Check Before Every Response
 
 Ask yourself:
 
-1. **Am I about to read multiple files?** → STOP. Delegate to agent.
+1. **Am I about to read many files (>8)?** → CONSIDER delegating to agent.
 2. **Am I about to write code?** → STOP. Delegate to `@agent-me`.
 3. **Am I about to create a plan?** → STOP. Delegate to `@agent-ta`.
 4. **Am I using a generic agent?** → STOP. Switch to framework agent.
-5. **Is my response going to be long?** → STOP. Store details in Task Copilot.
+5. **Is my response going to be long?** → CONSIDER storing details in Task Copilot.
 
 ### Framework Agents vs Generic Agents
 
@@ -60,11 +65,11 @@ Ask yourself:
 
 | Task Type | With Framework | Without Framework |
 |-----------|---------------|-------------------|
-| Research + Plan | ~500 tokens (summary only) | ~20,000+ tokens (full content) |
-| Implementation | ~500 tokens (summary only) | ~10,000+ tokens (full code) |
-| Full initiative | ~2,000 tokens | ~50,000+ tokens (compact needed) |
+| Research + Plan | ~2,000 tokens (summary only) | ~80,000+ tokens (full content) |
+| Implementation | ~2,000 tokens (summary only) | ~40,000+ tokens (full code) |
+| Full initiative | ~8,000 tokens | ~200,000+ tokens |
 
-**If you're approaching compact, you violated these rules.**
+**If you're hitting compact frequently, consider delegating more to framework agents.**
 
 ---
 
@@ -301,6 +306,8 @@ See [extension-spec.md](docs/40-extensions/00-extension-spec.md) and CLAUDE_REFE
 | Extension spec | `docs/40-extensions/00-extension-spec.md` |
 | Orchestration workflow | `docs/50-features/02-orchestration-workflow.md` |
 | Knowledge sync protocol | `docs/50-features/03-knowledge-sync.md` |
+| Worktree isolation | `docs/50-features/05-worktree-isolation.md` |
+| Opus 4.6 capabilities | `docs/50-features/06-opus-46-capabilities.md` |
 
 ---
 

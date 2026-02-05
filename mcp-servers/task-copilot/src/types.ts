@@ -72,6 +72,12 @@ export interface TaskMetadata extends Record<string, unknown> {
   acceptanceCriteria?: string[];
   phase?: string;
 
+  // Model routing (model override for specific tasks)
+  modelOverride?: 'opus' | 'sonnet' | 'haiku';
+
+  // Effort level for Opus 4.6 adaptive thinking
+  effortLevel?: 'low' | 'medium' | 'high' | 'max';
+
   // Activation mode (auto-detected from keywords or explicitly set)
   activationMode?: 'ultrawork' | 'analyze' | 'quick' | 'thorough' | null;
 
@@ -97,6 +103,8 @@ export interface TaskMetadata extends Record<string, unknown> {
 
   // Task isolation with git worktrees
   isolatedWorktree?: boolean;  // If true, task runs in isolated git worktree (opt-in)
+  requiresWorktree?: boolean;  // If true, worktree is automatically created on task_create
+  worktreeBaseBranch?: string; // Base branch to branch from (defaults to current branch)
   mergeConflicts?: string[];   // List of files with merge conflicts (set when merge fails)
   mergeConflictTimestamp?: string; // When merge conflict was detected
 
@@ -245,7 +253,7 @@ export interface WorkProductStoreInput {
   type: WorkProductType;
   title: string;
   content: string;
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, unknown>; // Can include: modelUsed ('opus' | 'sonnet' | 'haiku')
   confidence?: number; // 0-1 scale, optional
 }
 
@@ -346,6 +354,12 @@ export interface ProgressSummaryOutput {
       mediumConfidence: number; // Count 0.5-0.79
       lowConfidence: number; // Count < 0.5
       noConfidence: number; // Count with null confidence
+    };
+    modelUsage?: {
+      opus: number;
+      sonnet: number;
+      haiku: number;
+      unknown: number;
     };
   };
   milestones?: MilestoneProgress[]; // Optional milestone progress

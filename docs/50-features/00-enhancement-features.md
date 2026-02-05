@@ -1023,6 +1023,8 @@ return validationResult;
 
 **Purpose:** Monitors agent response size and triggers automatic compaction when approaching context limits, preventing token overflow and maintaining efficient communication.
 
+**Note (Opus 4.6):** Default thresholds increased 4x to leverage 1M token context window. See [Opus 4.6 Capabilities](./06-opus-46-capabilities.md) for details.
+
 #### Token estimation formula
 
 Conservative approach to avoid underestimation:
@@ -1043,11 +1045,18 @@ estimatedTokens = Math.ceil(text.length / 4)
 
 #### Threshold settings
 
-**Default configuration:**
+**Default configuration (Opus 4.6):**
 
 ```typescript
 const threshold = 0.85;  // 85% of max tokens
-const maxTokens = 4096;  // Default agent response limit
+const maxTokens = 16384;  // Default agent response limit (Opus 4.6)
+const thresholdTokens = 13,927;  // 85% of 16384
+```
+
+**Legacy (Opus 4):**
+
+```typescript
+const maxTokens = 4096;  // Old default
 const thresholdTokens = 3,482;  // 85% of 4096
 ```
 

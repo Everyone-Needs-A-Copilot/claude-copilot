@@ -1,10 +1,29 @@
 /**
- * Worktree tool implementations for conflict management
+ * Worktree tool implementations for conflict management and lifecycle
  */
 
 import type { DatabaseClient } from '../database.js';
-import { WorktreeManager } from '../utils/worktree-manager.js';
+import { WorktreeManager, type WorktreeInfo } from '../utils/worktree-manager.js';
 import type { TaskMetadata } from '../types.js';
+
+export interface WorktreeCreateInput {
+  taskId: string;
+  baseBranch?: string;
+}
+
+export interface WorktreeListInput {
+  // No parameters - lists all task worktrees
+}
+
+export interface WorktreeCleanupInput {
+  taskId: string;
+  force?: boolean;
+}
+
+export interface WorktreeMergeInput {
+  taskId: string;
+  targetBranch?: string;
+}
 
 export interface WorktreeConflictStatusInput {
   taskId: string;
@@ -306,6 +325,254 @@ async function completeMergeAfterResolution(
       completed: false,
       resolvedFiles,
       message: `Merge failed: ${error.message}`
+    };
+  }
+}
+
+/**
+ * Create a worktree for a task
+ *
+ * Manually create a worktree for a task. This is useful when:
+ * - Task was created without requiresWorktree but needs isolation
+ * - Recreating a worktree after cleanup
+ */
+export async function worktreeCreate(
+  db: DatabaseClient,
+  input: WorktreeCreateInput
+): Promise<{
+  taskId: string;
+  worktreePath: string;
+  branchName: string;
+  message: string;
+}> {
+  const task = db.getTask(input.taskId);
+  if (!task) {
+    throw new Error(`Task not found: ${input.taskId}`);
+  }
+
+  const metadata = JSON.parse(task.metadata) as TaskMetadata;
+
+  // Check if worktree already exists
+  if (metadata.worktreePath) {
+    return {
+      taskId: input.taskId,
+      worktreePath: metadata.worktreePath,
+      branchName: metadata.branchName || '',
+      message: 'Worktree already exists for this task'
+    };
+  }
+
+  const projectRoot = process.cwd();
+  const worktreeManager = new WorktreeManager(projectRoot);
+
+  // Create worktree
+  const worktreeInfo = await worktreeManager.createTaskWorktree(
+    input.taskId,
+    input.baseBranch
+  );
+
+  // Update task metadata
+  const updatedMetadata = {
+    ...metadata,
+    isolatedWorktree: true,
+    worktreePath: worktreeInfo.path,
+    branchName: worktreeInfo.branch
+  };
+
+  db.updateTask(input.taskId, {
+    metadata: JSON.stringify(updatedMetadata),
+    notes: task.notes
+      ? `${task.notes}\n\nWorktree created: ${worktreeInfo.path} (branch: ${worktreeInfo.branch})`
+      : `Worktree created: ${worktreeInfo.path} (branch: ${worktreeInfo.branch})`
+  });
+
+  return {
+    taskId: input.taskId,
+    worktreePath: worktreeInfo.path,
+    branchName: worktreeInfo.branch,
+    message: 'Worktree created successfully'
+  };
+}
+
+/**
+ * List all task worktrees
+ *
+ * Returns information about all worktrees managed by Task Copilot.
+ */
+export async function worktreeList(
+  db: DatabaseClient,
+  input: WorktreeListInput
+): Promise<{
+  worktrees: Array<{
+    taskId: string;
+    taskTitle?: string;
+    taskStatus?: string;
+    worktreePath: string;
+    branchName: string;
+  }>;
+  totalCount: number;
+}> {
+  const projectRoot = process.cwd();
+  const worktreeManager = new WorktreeManager(projectRoot);
+
+  // Get all worktrees from git
+  const worktrees = await worktreeManager.listTaskWorktrees();
+
+  // Enrich with task information
+  const enrichedWorktrees = worktrees.map(wt => {
+    const taskId = wt.streamId; // streamId is actually taskId for task worktrees
+    const task = db.getTask(taskId);
+
+    return {
+      taskId,
+      taskTitle: task?.title,
+      taskStatus: task?.status,
+      worktreePath: wt.path,
+      branchName: wt.branch
+    };
+  });
+
+  return {
+    worktrees: enrichedWorktrees,
+    totalCount: enrichedWorktrees.length
+  };
+}
+
+/**
+ * Clean up a task worktree
+ *
+ * Removes the worktree and deletes the associated branch.
+ * Use this to manually clean up after task completion or to force cleanup.
+ */
+export async function worktreeCleanup(
+  db: DatabaseClient,
+  input: WorktreeCleanupInput
+): Promise<{
+  taskId: string;
+  worktreeRemoved: boolean;
+  branchDeleted: boolean;
+  message: string;
+}> {
+  const task = db.getTask(input.taskId);
+  if (!task) {
+    throw new Error(`Task not found: ${input.taskId}`);
+  }
+
+  const metadata = JSON.parse(task.metadata) as TaskMetadata;
+
+  const projectRoot = process.cwd();
+  const worktreeManager = new WorktreeManager(projectRoot);
+
+  // Clean up worktree
+  const cleanupResult = await worktreeManager.cleanupTaskWorktree(
+    input.taskId,
+    input.force || false
+  );
+
+  // Update task metadata to remove worktree info
+  if (cleanupResult.worktreeRemoved) {
+    const updatedMetadata = { ...metadata };
+    delete updatedMetadata.worktreePath;
+    delete updatedMetadata.branchName;
+    delete updatedMetadata.isolatedWorktree;
+
+    db.updateTask(input.taskId, {
+      metadata: JSON.stringify(updatedMetadata),
+      notes: task.notes
+        ? `${task.notes}\n\nWorktree cleaned up (removed: ${cleanupResult.worktreeRemoved}, branch deleted: ${cleanupResult.branchDeleted})`
+        : `Worktree cleaned up (removed: ${cleanupResult.worktreeRemoved}, branch deleted: ${cleanupResult.branchDeleted})`
+    });
+  }
+
+  return {
+    taskId: input.taskId,
+    worktreeRemoved: cleanupResult.worktreeRemoved,
+    branchDeleted: cleanupResult.branchDeleted,
+    message: cleanupResult.worktreeRemoved
+      ? 'Worktree cleaned up successfully'
+      : 'No worktree found to clean up'
+  };
+}
+
+/**
+ * Merge a task worktree
+ *
+ * Merges the task's worktree branch into the target branch.
+ * If conflicts occur, task is marked as blocked.
+ */
+export async function worktreeMerge(
+  db: DatabaseClient,
+  input: WorktreeMergeInput
+): Promise<{
+  taskId: string;
+  merged: boolean;
+  conflicts?: string[];
+  message: string;
+}> {
+  const task = db.getTask(input.taskId);
+  if (!task) {
+    throw new Error(`Task not found: ${input.taskId}`);
+  }
+
+  const metadata = JSON.parse(task.metadata) as TaskMetadata;
+
+  if (!metadata.worktreePath) {
+    throw new Error(`Task ${input.taskId} does not have a worktree`);
+  }
+
+  const projectRoot = process.cwd();
+  const worktreeManager = new WorktreeManager(projectRoot);
+
+  // Attempt merge
+  const mergeResult = await worktreeManager.mergeTaskWorktree(
+    input.taskId,
+    input.targetBranch
+  );
+
+  if (mergeResult.merged) {
+    // Merge successful
+    db.updateTask(input.taskId, {
+      notes: task.notes
+        ? `${task.notes}\n\nWorktree merged: ${mergeResult.message}`
+        : `Worktree merged: ${mergeResult.message}`
+    });
+
+    return {
+      taskId: input.taskId,
+      merged: true,
+      message: mergeResult.message
+    };
+  } else if (mergeResult.conflicts && mergeResult.conflicts.length > 0) {
+    // Merge conflicts detected
+    const conflictList = mergeResult.conflicts.join(', ');
+    const blockedReason = `Merge conflicts detected: ${conflictList}`;
+
+    // Update task to blocked
+    db.updateTask(input.taskId, {
+      status: 'blocked',
+      blocked_reason: blockedReason,
+      notes: task.notes
+        ? `${task.notes}\n\nMerge conflicts in ${mergeResult.conflicts.length} file(s):\n${mergeResult.conflicts.map(f => `- ${f}`).join('\n')}`
+        : `Merge conflicts in ${mergeResult.conflicts.length} file(s):\n${mergeResult.conflicts.map(f => `- ${f}`).join('\n')}`,
+      metadata: JSON.stringify({
+        ...metadata,
+        mergeConflicts: mergeResult.conflicts,
+        mergeConflictTimestamp: new Date().toISOString()
+      })
+    });
+
+    return {
+      taskId: input.taskId,
+      merged: false,
+      conflicts: mergeResult.conflicts,
+      message: mergeResult.message
+    };
+  } else {
+    // Unexpected state
+    return {
+      taskId: input.taskId,
+      merged: false,
+      message: 'Merge failed for unknown reason'
     };
   }
 }

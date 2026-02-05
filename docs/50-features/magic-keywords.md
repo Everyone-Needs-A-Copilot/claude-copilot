@@ -24,17 +24,34 @@ Magic keywords are special prefixes you add to your `/protocol` commands to cont
 
 ## Modifier Keywords
 
-Modifier keywords control which Claude model is used for the task.
+Modifier keywords control model selection and reasoning effort level.
 
-| Keyword | Target Model | Use When | Cost |
-|---------|--------------|----------|------|
-| `eco:` | Auto-select | You want cost optimization | Variable |
-| `opus:` | Claude Opus | You need highest quality/reasoning | High |
-| `fast:` | Claude Haiku | You need speed, simple task | Low |
-| `sonnet:` | Claude Sonnet | You want balanced quality/speed | Medium |
-| `haiku:` | Claude Haiku | You need speed, simple task | Low |
-| `auto:` | Auto-select | You want automatic selection | Variable |
-| `ralph:` | Auto-select | You want cost optimization (same as eco:) | Variable |
+### Model Selection vs Effort Level
+
+**BREAKING CHANGE (v2.8.0):** Keywords now separate model selection from effort level:
+
+| Keyword | Selects Model? | Sets Effort | Description |
+|---------|----------------|-------------|-------------|
+| `eco:` | No (auto-select) | **low** | Cost optimization with minimal effort |
+| `fast:` | No (auto-select) | **medium** | ⚠️ CHANGED: Was haiku, now medium effort auto-select |
+| `max:` | No (auto-select) | **max** | NEW: Maximum reasoning depth |
+| `opus:` | Yes → Opus | (complexity-based) | Force Opus model |
+| `sonnet:` | Yes → Sonnet | (complexity-based) | Force Sonnet model |
+| `haiku:` | Yes → Haiku | (complexity-based) | Force Haiku model |
+| `auto:` | No (auto-select) | (complexity-based) | Automatic selection |
+| `ralph:` | No (auto-select) | (complexity-based) | Automatic selection |
+
+### How It Works
+
+**Effort-level keywords** (`eco:`, `fast:`, `max:`):
+- Let complexity scoring choose the best model (haiku/sonnet/opus)
+- Override the reasoning effort level for that model
+- Example: `eco: fix bug` → might select sonnet, but use low effort
+
+**Model-selection keywords** (`opus:`, `sonnet:`, `haiku:`):
+- Force a specific model regardless of complexity
+- Effort level determined by task complexity
+- Example: `opus: fix bug` → opus model with medium effort (based on complexity)
 
 **Rules:**
 - Maximum 1 modifier keyword per command
@@ -44,28 +61,40 @@ Modifier keywords control which Claude model is used for the task.
 
 ### Examples
 
-**Cost-optimized auto-selection:**
+**Cost-optimized with low effort:**
 ```
 /protocol eco: fix the login bug
-→ Automatically selects Haiku (low complexity) or Sonnet (medium)
+→ Auto-selects model by complexity (likely sonnet)
+→ Uses low effort (fast, minimal reasoning)
 ```
 
-**Force highest quality:**
+**Medium effort, auto-select model:**
 ```
-/protocol opus: design the new checkout flow
-→ Uses Claude Opus for complex design work
+/protocol fast: refactor the auth module
+→ Auto-selects model by complexity (likely sonnet)
+→ Uses medium effort (balanced reasoning)
+⚠️ BREAKING: Previously forced Haiku model
 ```
 
-**Fast execution:**
+**Maximum reasoning depth:**
 ```
-/protocol fast: add console logging to auth module
-→ Uses Haiku for simple implementation
+/protocol max: design the new checkout flow
+→ Auto-selects model by complexity (likely opus)
+→ Uses max effort (deepest reasoning)
+```
+
+**Force specific model:**
+```
+/protocol opus: add console logging
+→ Forces Opus model (ignores low complexity)
+→ Effort level based on task complexity
 ```
 
 **Balanced approach:**
 ```
 /protocol sonnet: refactor the API layer
-→ Uses Sonnet for balanced quality and speed
+→ Forces Sonnet model
+→ Effort level based on task complexity
 ```
 
 ---
@@ -156,11 +185,13 @@ Combine modifier and action keywords for precise control.
 
 [KEYWORDS DETECTED]
 Model: eco → auto-select
+Effort: low
 Action: fix → Defect Flow
 
 [PROTOCOL: DEFECT | Agent: @agent-qa | Action: INVOKING]
 Routing to defect flow: qa → me → qa
-Model selection: Auto-select based on complexity (cost-optimized)
+Model selection: Auto-select based on complexity (sonnet likely)
+Effort level: low (minimal reasoning, fast response)
 ```
 
 **High-quality feature with design:**
@@ -168,38 +199,45 @@ Model selection: Auto-select based on complexity (cost-optimized)
 /protocol opus: add: user profile customization
 
 [KEYWORDS DETECTED]
-Model: opus → opus
+Model: opus → opus (forced)
+Effort: (complexity-based)
 Action: add → Experience Flow
 
 [PROTOCOL: EXPERIENCE | Agent: @agent-sd | Action: INVOKING]
 Routing to experience-first flow: sd → uxd → uids → ta → me
-Model selection: Claude Opus (highest quality)
+Model selection: Claude Opus (forced override)
+Effort level: high (complex feature, standard reasoning)
 ```
 
-**Fast refactoring:**
+**Medium effort refactoring:**
 ```
 /protocol fast: refactor: simplify auth logic
 
 [KEYWORDS DETECTED]
-Model: fast → haiku
+Model: fast → auto-select
+Effort: medium
 Action: refactor → Technical Flow
 
 [PROTOCOL: TECHNICAL | Agent: @agent-ta | Action: INVOKING]
 Routing to technical-only flow: ta → me
-Model selection: Haiku (fastest, cost-efficient)
+Model selection: Auto-select based on complexity (sonnet likely)
+Effort level: medium (balanced reasoning)
+⚠️ BREAKING: Previously forced Haiku model
 ```
 
-**Balanced optimization work:**
+**Maximum reasoning depth:**
 ```
-/protocol sonnet: optimize: API response times
+/protocol max: optimize: API response times
 
 [KEYWORDS DETECTED]
-Model: sonnet → sonnet
+Model: max → auto-select
+Effort: max
 Action: optimize → Technical Flow
 
 [PROTOCOL: TECHNICAL | Agent: @agent-ta | Action: INVOKING]
 Routing to technical-only flow: ta → me
-Model selection: Sonnet (balanced quality and speed)
+Model selection: Auto-select based on complexity (opus likely for optimization)
+Effort level: max (deepest reasoning, thorough analysis)
 ```
 
 ---
@@ -301,10 +339,20 @@ The parser only matches exact keywords at the start of the message to prevent fa
 
 | Situation | Use | Why |
 |-----------|-----|-----|
-| Simple bug fix | `fast:` or `eco:` | Low complexity, save cost |
-| Complex architecture | `opus:` | Need high-quality reasoning |
-| Balanced task | `sonnet:` | Good quality without high cost |
-| Unsure | `eco:` or omit | Let system auto-select |
+| Quick tasks, minimal thinking | `eco:` | Low effort, fast response, save cost |
+| Balanced reasoning | `fast:` | Medium effort, good for most tasks |
+| Complex reasoning needed | `max:` | Maximum reasoning depth |
+| Force specific model | `opus:`, `sonnet:`, `haiku:` | Override auto-selection |
+| Unsure | Omit or `auto:` | Let complexity scoring decide everything |
+
+### Effort Levels Explained
+
+| Effort | When to Use | Example Tasks |
+|--------|-------------|---------------|
+| **low** (`eco:`) | Simple, obvious tasks | Typo fixes, minor updates, simple bug fixes |
+| **medium** (`fast:`) | Standard development work | Feature implementation, refactoring, most bugs |
+| **high** (default) | Complex tasks | Architecture decisions, complex features |
+| **max** (`max:`) | Maximum reasoning needed | System design, critical optimizations, security
 
 ### When to Use Action Keywords
 
@@ -334,14 +382,20 @@ The parser only matches exact keywords at the start of the message to prevent fa
 
 ### All Modifier Keywords
 
+**Effort-level keywords** (auto-select model):
 ```
-eco:     → Auto-select (cost-optimized)
-opus:    → Claude Opus (highest quality)
-fast:    → Claude Haiku (fastest)
-sonnet:  → Claude Sonnet (balanced)
-haiku:   → Claude Haiku (fastest)
-auto:    → Auto-select (same as eco:)
-ralph:   → Auto-select (cost-optimized)
+eco:     → effort: low (minimal reasoning)
+fast:    → effort: medium (balanced) ⚠️ BREAKING: was haiku model
+max:     → effort: max (deepest reasoning) ✨ NEW
+auto:    → effort: (complexity-based)
+ralph:   → effort: (complexity-based)
+```
+
+**Model-selection keywords** (force model):
+```
+opus:    → Claude Opus (effort based on complexity)
+sonnet:  → Claude Sonnet (effort based on complexity)
+haiku:   → Claude Haiku (effort based on complexity)
 ```
 
 ### All Action Keywords
@@ -359,25 +413,25 @@ deploy:   → DevOps (@agent-do)
 ### Common Patterns
 
 ```bash
-# Cost-optimized bug fix
+# Low effort bug fix (minimal reasoning)
 /protocol eco: fix: login authentication error
 
-# High-quality feature
-/protocol opus: add: user voice recording
+# Maximum reasoning for architecture
+/protocol max: add: user voice recording system
 
-# Fast refactoring
+# Medium effort refactoring (BREAKING: was haiku model)
 /protocol fast: refactor: simplify auth logic
 
-# Balanced optimization
+# Force sonnet model for optimization
 /protocol sonnet: optimize: database queries
 
-# Simple test writing
+# Medium effort test writing
 /protocol fast: test: auth module coverage
 
-# Documentation
-/protocol doc: API endpoints for users
+# Low effort documentation
+/protocol eco: doc: API endpoints for users
 
-# Deployment work
+# Deployment work (auto-select)
 /protocol deploy: staging environment setup
 ```
 
@@ -415,10 +469,11 @@ Types are defined in `mcp-servers/task-copilot/src/types/omc-features.ts`:
 
 ```typescript
 interface ModifierKeyword {
-  keyword: 'eco' | 'opus' | 'fast' | 'sonnet' | 'haiku' | 'auto' | 'ralph';
+  keyword: 'eco' | 'fast' | 'max' | 'opus' | 'sonnet' | 'haiku' | 'auto' | 'ralph';
   position: number;
   raw: string;
   targetModel: 'haiku' | 'sonnet' | 'opus' | null;
+  effortLevel: 'low' | 'medium' | 'high' | 'max' | null;
 }
 
 interface ActionKeyword {
@@ -436,6 +491,63 @@ interface ParsedCommand {
   errors: string[];
   valid: boolean;
 }
+```
+
+---
+
+## Migration Guide (v2.7 → v2.8)
+
+### Breaking Change: `fast:` Keyword
+
+**What Changed:**
+- **v2.7 and earlier:** `fast:` forced Haiku model
+- **v2.8 and later:** `fast:` sets medium effort level, auto-selects model
+
+**Migration:**
+
+| Old Usage | New Equivalent | Notes |
+|-----------|---------------|-------|
+| `fast: fix bug` | `haiku: fix bug` | To keep Haiku model |
+| `fast: quick task` | `eco: quick task` | For low effort + cost optimization |
+| `fast: standard work` | `fast: standard work` | OK as-is (medium effort appropriate) |
+
+**Why This Change:**
+- Separates model selection from reasoning depth
+- `fast:` now means "medium effort" (balanced reasoning)
+- More consistent with `eco:` (low effort) and `max:` (high effort)
+- Model selection should be based on complexity, not speed preference
+
+**Recommended Migration:**
+
+```bash
+# If you used fast: for quick tasks
+# OLD: /protocol fast: fix typo
+# NEW: /protocol eco: fix typo
+
+# If you specifically want Haiku model
+# OLD: /protocol fast: anything
+# NEW: /protocol haiku: anything
+
+# If you want balanced reasoning (new behavior)
+# OLD: (no equivalent)
+# NEW: /protocol fast: standard task
+```
+
+### New: `max:` Keyword
+
+**Purpose:** Maximum reasoning depth for complex tasks
+
+**Use Cases:**
+- Architecture design
+- System optimization
+- Security analysis
+- Complex debugging
+
+**Example:**
+```bash
+/protocol max: design authentication architecture
+→ Auto-selects model (likely opus for high complexity)
+→ Uses maximum reasoning depth
 ```
 
 ---

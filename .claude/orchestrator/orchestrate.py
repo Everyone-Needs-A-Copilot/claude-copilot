@@ -367,13 +367,32 @@ class PreflightValidator:
 
         # Check 4: File count comparison (within 50% of main project)
         try:
-            # Count files in main project (excluding .git, common ignore patterns, and build artifacts)
-            # Build artifacts (dist/) are gitignored and won't exist in fresh worktrees
-            ignored_dirs = ['.git', 'node_modules', '__pycache__', '.venv', 'venv', 'dist', 'build', 'coverage', '.next', '.nuxt', 'worktrees']
+            # Directories to ignore when counting files
+            # Includes: VCS, dependencies, build output, caches, and common artifacts
+            ignore_dirs = {
+                # Version control
+                '.git',
+                # Dependencies
+                'node_modules', '.venv', 'venv', 'vendor', '.bundle',
+                # Python caches
+                '__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache',
+                # Build output (common across frameworks)
+                'dist', 'build', 'out', 'target', '.output',
+                # Framework-specific build directories
+                '.next', '.nuxt', '.svelte-kit', '.turbo', '.vercel',
+                # Coverage and test output
+                'coverage', '.nyc_output', 'htmlcov',
+                # General caches
+                '.cache', '.parcel-cache', '.webpack',
+                # IDE directories
+                '.idea', '.vscode',
+            }
+
+            # Count files in main project (excluding ignore patterns)
             main_files = []
             for root, dirs, files in os.walk(main_project_path):
-                # Skip .git and common directories
-                dirs[:] = [d for d in dirs if d not in ignored_dirs]
+                # Skip ignored directories
+                dirs[:] = [d for d in dirs if d not in ignore_dirs]
                 main_files.extend(files)
 
             main_file_count = len(main_files)
@@ -381,7 +400,7 @@ class PreflightValidator:
             # Count files in worktree
             worktree_files = []
             for root, dirs, files in os.walk(worktree_path):
-                dirs[:] = [d for d in dirs if d not in ignored_dirs]
+                dirs[:] = [d for d in dirs if d not in ignore_dirs]
                 worktree_files.extend(files)
 
             worktree_file_count = len(worktree_files)

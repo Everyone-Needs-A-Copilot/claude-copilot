@@ -4,9 +4,10 @@
  * Extracts and validates modifier and action keywords from user messages.
  *
  * Modifier keywords (model selection):
- * - eco: - Auto-select model based on complexity
+ * - eco: - Low effort, quick responses (effortLevel: low)
+ * - fast: - Medium effort, standard responses (effortLevel: medium)
+ * - max: - Maximum effort, deep reasoning (effortLevel: max)
  * - opus: - Force Claude Opus
- * - fast: - Force fastest model (Haiku)
  * - sonnet: - Force Claude Sonnet
  * - haiku: - Force Claude Haiku
  * - auto: - Auto-select (same as eco:)
@@ -42,16 +43,17 @@ import type {
 // ============================================================================
 
 /**
- * Valid modifier keywords with their target models
+ * Valid modifier keywords with their target models and effort levels
  */
-const MODIFIER_KEYWORDS: Record<string, ModifierKeyword['targetModel']> = {
-  eco: null, // Auto-select based on complexity
-  opus: 'opus',
-  fast: 'haiku',
-  sonnet: 'sonnet',
-  haiku: 'haiku',
-  auto: null, // Auto-select based on complexity
-  ralph: null, // Auto-select with cost optimization
+const MODIFIER_KEYWORDS: Record<string, { targetModel: ModifierKeyword['targetModel']; effortLevel: ModifierKeyword['effortLevel'] }> = {
+  eco: { targetModel: null, effortLevel: 'low' }, // Low effort, quick responses
+  fast: { targetModel: null, effortLevel: 'medium' }, // Medium effort, standard responses
+  max: { targetModel: null, effortLevel: 'max' }, // Maximum effort, deep reasoning
+  opus: { targetModel: 'opus', effortLevel: null }, // Model override, no effort level
+  sonnet: { targetModel: 'sonnet', effortLevel: null }, // Model override, no effort level
+  haiku: { targetModel: 'haiku', effortLevel: null }, // Model override, no effort level
+  auto: { targetModel: null, effortLevel: null }, // Auto-select based on complexity
+  ralph: { targetModel: null, effortLevel: null }, // Auto-select with cost optimization
 };
 
 /**
@@ -73,20 +75,27 @@ const ACTION_KEYWORDS: Record<string, string | undefined> = {
 const CONFLICTING_MODIFIERS: [string, string][] = [
   ['eco', 'opus'],
   ['eco', 'fast'],
+  ['eco', 'max'],
   ['eco', 'sonnet'],
   ['eco', 'haiku'],
   ['opus', 'fast'],
+  ['opus', 'max'],
   ['opus', 'sonnet'],
   ['opus', 'haiku'],
   ['sonnet', 'fast'],
+  ['sonnet', 'max'],
   ['sonnet', 'haiku'],
-  ['fast', 'haiku'], // fast and haiku are the same, but still a conflict
+  ['fast', 'haiku'],
+  ['fast', 'max'],
+  ['haiku', 'max'],
   ['auto', 'opus'],
   ['auto', 'fast'],
+  ['auto', 'max'],
   ['auto', 'sonnet'],
   ['auto', 'haiku'],
   ['ralph', 'opus'],
   ['ralph', 'fast'],
+  ['ralph', 'max'],
   ['ralph', 'sonnet'],
   ['ralph', 'haiku'],
 ];
@@ -108,7 +117,7 @@ function extractModifier(message: string): ModifierKeyword | null {
   // Case-insensitive matching
   const lowerMessage = trimmed.toLowerCase();
 
-  for (const [keyword, targetModel] of Object.entries(MODIFIER_KEYWORDS)) {
+  for (const [keyword, { targetModel, effortLevel }] of Object.entries(MODIFIER_KEYWORDS)) {
     const pattern = `${keyword}:`;
 
     // Must be exact match at start (no partial matches like "economics:")
@@ -121,6 +130,7 @@ function extractModifier(message: string): ModifierKeyword | null {
           position: message.indexOf(trimmed),
           raw: trimmed.slice(0, pattern.length),
           targetModel,
+          effortLevel,
         };
       }
     }

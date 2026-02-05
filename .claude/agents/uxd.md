@@ -162,7 +162,7 @@ Accessibility: [WCAG level and key considerations, e.g., WCAG 2.1 AA, keyboard n
 - [Decision 1: e.g., Reduced setup flow from 5 to 3 steps]
 - [Decision 2: e.g., Added inline error recovery for all form states]
 
-**Handoff Context:** [50-char max context for next agent, e.g., "Flows: 8 states, focus first-time setup flow"]
+**Handoff Context:** [200-char max context for next agent, e.g., "Flows: 8 states, focus first-time setup flow"]
 ---
 ```
 
@@ -173,7 +173,7 @@ This format enables the protocol to present checkpoints to users for approval be
 **If NOT final agent in chain:**
 1. Call `agent_chain_get` to see prior work (e.g., sd's blueprint)
 2. Store work product in Task Copilot
-3. Call `agent_handoff` with 50-char context
+3. Call `agent_handoff` with 200-char max context
 4. Route to next agent (typically @agent-uids)
 5. **DO NOT return to main session**
 

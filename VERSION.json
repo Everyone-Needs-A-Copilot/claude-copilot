@@ -1,6 +1,6 @@
 {
-  "framework": "2.7.2",
-  "lastUpdated": "2026-01-24T00:00:00.000Z",
+  "framework": "2.8.0",
+  "lastUpdated": "2026-02-05T00:00:00.000Z",
   "components": {
     "mcp-servers": {
       "copilot-memory": {
@@ -16,14 +16,14 @@
         "checkFile": "dist/index.js"
       },
       "task-copilot": {
-        "version": "2.6.0",
+        "version": "2.8.0",
         "path": "mcp-servers/task-copilot",
         "buildRequired": true,
         "checkFile": "dist/index.js"
       }
     },
     "agents": {
-      "version": "2.6.0",
+      "version": "2.8.0",
       "path": ".claude/agents",
       "count": 13,
       "requiredSections": [
@@ -33,7 +33,7 @@
       ]
     },
     "commands": {
-      "version": "2.7.0",
+      "version": "2.8.0",
       "path": ".claude/commands",
       "projectCommands": [
         "protocol.md",
