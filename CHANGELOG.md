@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.9.0] - 2026-02-12
+
+### Added
+
+- **Multi-Agent Foreman Architecture**: Each stream now coordinates multiple specialist agents
+  - Foreman agent (`general-purpose`) spawned per stream as coordinator
+  - Phase-based intra-stream parallelism: backend → frontend → quality → docs → devops → integration
+  - Specialists run in parallel within each phase via `Task(run_in_background: true)`
+  - Automatic QA + Security review phases generated per stream
+  - Foreman prompt template at `.claude/orchestrator/foreman-prompt.md`
+
+- **Agent Assignment Rules**: Tasks auto-assigned to correct specialist agents
+  - `me` for backend APIs, business logic, data models
+  - `uid` for frontend pages, component wiring, UI integration
+  - `ta` for architecture, schema design, system contracts
+  - `qa` for test suites, edge cases, coverage
+  - `sec` for security review, auth flows, input validation
+  - `doc` for technical docs, API docs, setup guides
+  - `do` for CI/CD, deployment, infrastructure
+
+- **Task Phase Metadata**: Every task includes execution phase
+  - Defines intra-stream ordering: backend → frontend → quality → docs → devops → integration
+  - Parallel execution within phases, sequential between phases
+  - Used by Foreman agents to coordinate specialist spawning
+
+### Changed
+
+- **Status Dashboard**: Derived entirely from Task Copilot data (no PID/log dependencies)
+  - Removed PID file detection and log parsing from `check-streams`
+  - New status codes: RUN (active tasks), DONE (100%), BLK (blocked), IDLE (partial progress)
+  - Simplified footer: `Data: Task Copilot + Memory Copilot (initiative-scoped)`
+  - `watch-status` simplified: removed auto-restart logic and worker monitoring
+
+- **`/orchestrate start`**: Now launches Foreman agents instead of single workers
+  - Each stream gets a Foreman that coordinates multiple specialists
+  - Replaced flat worker model with hierarchical Foreman → Specialist pattern
+  - Inter-stream dependencies still respected (Foreman waits for dependency streams)
+
+- **`/orchestrate generate`**: Includes agent assignment and phase metadata
+  - Agent Assignment Rules table enforces correct specialist selection
+  - Phase metadata required on every task for intra-stream ordering
+
+### Removed
+
+- PID-based worker detection from status dashboard
+- Log file parsing and runtime tracking from `check-streams`
+- Auto-restart logic from `watch-status`
+- `worker-wrapper.sh` dependency for stream execution (replaced by native Task agents)
+
 ## [2.8.0] - 2026-01-26
 
 ### Added
@@ -601,6 +650,13 @@ After updating from pre-1.7.1, optionally run `stream_archive_all({ confirm: tru
 
 | Version | Release Date | Key Features |
 |---------|-------------|--------------|
+| **2.9.0** | 2026-02-12 | Multi-agent Foreman architecture, agent assignment rules, task-data status dashboard |
+| **2.8.0** | 2026-01-26 | OMC features: ecomode, magic keywords, progress HUD, skill extraction, zero-config |
+| **2.7.0** | 2026-01-17 | Experience-first protocol, checkpoint system, orchestration redesign |
+| **2.3.1** | 2026-01-13 | Initiative lifecycle, lean agents, deep skills, generation verification |
+| **2.2.0** | 2026-01-12 | Confidence scoring, security hooks, session protocol, auto-checkpoints |
+| **2.1.0** | 2026-01-12 | Orchestration script generation, dynamic dependency resolution |
+| **2.0.0** | 2026-01-08 | Parallel stream orchestration, WebSocket bridge, HTTP API |
 | **1.7.0** | 2026-01-04 | Context engineering: activation modes, auto-compaction, quality gates |
 | **1.6.0** | 2025-12-30 | Performance tracking, validation system, checkpoints, token efficiency |
 | **1.5.0** | 2024-12-XX | Simplified agents, Task Copilot migration, centralized routing |
