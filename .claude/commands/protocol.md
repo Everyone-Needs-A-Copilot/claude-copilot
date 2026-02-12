@@ -9,7 +9,7 @@ All guardrails, agent selection rules, token efficiency rules, and routing table
 **Usage:**
 - `/protocol` - Interactive mode (select task type manually)
 - `/protocol [description]` - Auto-detect intent and route to appropriate agent chain
-- `/protocol [modifier:] [action:] [description]` - Magic keywords for model selection and shortcuts
+- `/protocol [modifier:] [action:] [description]` - Magic keywords for effort control and shortcuts
 
 **Examples:**
 ```
@@ -17,8 +17,8 @@ All guardrails, agent selection rules, token efficiency rules, and routing table
 /protocol fix login authentication bug     → Defect Flow (qa → me → qa)
 /protocol refactor auth module             → Technical Flow (ta → me)
 /protocol improve the dashboard            → Clarification Flow (ask user)
-/protocol eco: fix: the login bug          → Auto-select model + Defect Flow
-/protocol opus: add: dark mode feature     → Force Opus + Experience Flow
+/protocol eco: fix: the login bug          → Low effort + Defect Flow
+/protocol max: add: dark mode feature      → Max effort + Experience Flow
 ```
 
 ---
@@ -31,13 +31,10 @@ Keywords must appear at the start of the message. Max 1 modifier + 1 action. Ord
 
 | Keyword | Effect |
 |---------|--------|
-| `eco:` | Low effort reasoning (cost-optimized, auto-select model) |
-| `fast:` | Medium effort reasoning (auto-select model) |
-| `max:` | Maximum reasoning depth (auto-select model) |
-| `auto:` / `ralph:` | Auto-select model and effort |
-| `opus:` | Force Claude Opus |
-| `sonnet:` | Force Claude Sonnet |
-| `haiku:` | Force Claude Haiku |
+| `eco:` | Low effort reasoning (cost-optimized, minimal thinking) |
+| `fast:` | Medium effort reasoning (balanced speed and quality) |
+| `max:` | Maximum reasoning depth (deep extended thinking) |
+| `auto:` / `ralph:` | Auto-select effort from complexity scoring |
 
 **Action keywords:**
 
@@ -133,7 +130,7 @@ Options:
 
 | Option | User Signals | Action |
 |--------|-------------|--------|
-| 1. Approve | "yes", "1", "y", "looks good", "continue" | Proceed to next stage with 50-char handoff context |
+| 1. Approve | "yes", "1", "y", "looks good", "continue" | Proceed to next stage with 200-char handoff context |
 | 2. Changes | "no", "2", "change X", contains feedback | Re-invoke agent with user feedback as constraint. Max 3 iterations before suggesting restart. |
 | 3. Skip | "skip", "3", "go to next" | Warn what they miss, then proceed to next stage |
 | 4. Go Back | "back", "4", "go back" | Save current as draft, re-invoke previous stage |
@@ -143,7 +140,7 @@ Options:
 
 ## Agent Handoff Protocol
 
-Between agents in a chain, pass **50-char context maximum** via `agent_handoff()`. Final agent (ta) receives ALL prior work product IDs via `sourceSpecifications` metadata.
+Between agents in a chain, pass **200-char context maximum** via `agent_handoff()`. Final agent (ta) receives ALL prior work product IDs via `sourceSpecifications` metadata.
 
 ---
 
@@ -194,6 +191,32 @@ The main session orchestrates agent chains. For each flow:
 **Change request handling:** Re-invoke same agent with user feedback as `CONSTRAINT`. Track iterations; warn after 3.
 
 **Skip warning pattern:** When user skips a stage, warn what they miss (e.g., no design tokens, visual inconsistency) and confirm before proceeding.
+
+---
+
+## Agent Teams vs Protocol Orchestration
+
+Claude Code includes experimental [Agent Teams](https://code.claude.com/docs/en/agent-teams) for multi-session coordination. Use the right tool for the job:
+
+| Use Protocol Orchestration When | Use Agent Teams When |
+|---------------------------------|---------------------|
+| Structured initiatives with deliverables | Ad-hoc collaboration, quick exploration |
+| User approval gates needed between stages | No approval gates needed |
+| Persistent work products required | Throwaway or exploratory work |
+| Multi-session recovery and progress tracking | Single-session parallel execution |
+| Quality gates and validation | Rapid prototyping |
+| Audit trail of decisions | Informal brainstorming |
+
+**Hybrid pattern:** Use Agent Teams for discovery, then formalize with `/protocol` for delivery:
+```
+1. Agent Teams: "@agent-ta and @agent-sec, brainstorm auth approaches"
+2. Protocol:    /protocol implement OAuth2 authentication
+```
+
+**Key differences:**
+- Protocol chains are sequential with checkpoints; Agent Teams run in parallel
+- Protocol stores work products in Task Copilot; Agent Teams use shared task lists and mailboxes
+- Protocol supports resume across sessions; Agent Teams are session-scoped
 
 ---
 
