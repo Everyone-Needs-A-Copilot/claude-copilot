@@ -80,7 +80,7 @@ Comprehensive research on context engineering principles including attention bud
 The "lean agent with external expertise" pattern emerged from multiple sources in the AI agent ecosystem:
 
 **Core Pattern:**
-- Slim agent definitions (~60-100 lines) focusing on workflow and routing
+- Slim agent definitions (~60-120 lines) focusing on workflow and routing
 - Domain expertise moved to loadable skill files (200-500 lines)
 - Context-aware skill selection via evaluation systems
 - On-demand loading reduces baseline token usage by 67%

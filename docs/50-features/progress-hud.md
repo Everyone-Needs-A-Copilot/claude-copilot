@@ -361,4 +361,3 @@ FORCE_COLOR=1 npm test  # Enable colors
 
 - [Ecomode](./ecomode.md) - Model routing that feeds into HUD
 - [Magic Keywords](./magic-keywords.md) - Task keywords
-- [OMC Learnings Overview](./omc-learnings.md) - All OMC-inspired features

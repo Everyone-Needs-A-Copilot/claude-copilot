@@ -319,7 +319,7 @@ EOF
 ```bash
 # Check all agent files exist
 ls -1 .claude/agents/*.md | wc -l
-# Should be 13 agents
+# Should be 14 agents
 
 # Verify each has required sections
 for agent in .claude/agents/*.md; do
@@ -689,7 +689,7 @@ claude
 - [ ] `.mcp.json` created with correct server configs
 - [ ] `CLAUDE.md` created with project instructions
 - [ ] `.claude/commands/` directory created with protocol and continue
-- [ ] `.claude/agents/` directory created with all 13 agents
+- [ ] `.claude/agents/` directory created with all 14 agents
 - [ ] `.claude/skills/` directory created for project skills
 - [ ] User informed of next steps
 
@@ -706,7 +706,7 @@ test -d .claude/skills && echo "✓ Skills"
 jq . .mcp.json > /dev/null && echo "✓ Valid JSON"
 
 # Check all agents present
-[[ $(ls .claude/agents/*.md | wc -l) -eq 12 ]] && echo "✓ All 13 agents"
+[[ $(ls .claude/agents/*.md | wc -l) -ge 14 ]] && echo "✓ All 14 agents"
 ```
 
 **Pass Criteria:**

@@ -29,7 +29,7 @@ It's not separate software—it's markdown files (agents, commands, project inst
 | You Get                    | What It Does                                                                       |
 | -------------------------- | ---------------------------------------------------------------------------------- |
 | **Persistent Memory**      | Decisions, lessons, and progress survive across sessions                           |
-| **13 Lean Agents**         | Specialist agents (~60-100 lines) with on-demand skill loading                     |
+| **14 Lean Agents**         | Specialist agents (~60-120 lines) with on-demand skill loading                     |
 | **Auto-Load Skills**       | Agents detect and load relevant skills based on context (file patterns + keywords) |
 | **Parallel Orchestration** | Headless workers execute streams concurrently with `/orchestrate`                  |
 | **Pause & Resume**         | Context switch mid-task with `/pause`, return with `/continue`                     |
@@ -229,40 +229,35 @@ Stream Structure:
 Next: Run /orchestrate start to begin parallel execution
 ```
 
-**Step 2: Start parallel workers**
+**Step 2: Set up worktrees and launch agents**
 
 ```bash
 /orchestrate start
 ```
 
 ```
-Starting workers:
-  Stream-A (Foundation)... ✓ Worker spawned
+Scaffolding ready. Each stream has an isolated worktree.
 
-Waiting for dependencies:
-  Stream-B (blocked by Stream-A)
-  Stream-C (blocked by Stream-A)
-  Stream-Z (blocked by Stream-B, Stream-C)
-
-To monitor progress, open a second terminal:
-  ./watch-status
+Launching Task agents for each stream...
+  Stream-A (Foundation)... ✓ Agent launched
+  Stream-B (blocked by Stream-A) - will start when ready
+  Stream-C (blocked by Stream-A) - will start when ready
+  Stream-Z (blocked by Stream-B, Stream-C) - will start when ready
 ```
 
-**Step 3: Monitor in second terminal**
+**Step 3: Monitor progress**
 
 ```bash
-./watch-status
+/orchestrate status
 ```
 
 ```
-MY-APP                                                62% ✓11 ⚙4 ○3
-═════════════════════════════════════════════════════════════════════
-Stream-A [===============] 100%  ✓  4        DONE  Database & Config
-Stream-B [==========-----]  60%  ✓  3  ⚙ 2  RUN   Google OAuth
-Stream-C [=======--------]  40%  ✓  2  ⚙ 2  RUN   GitHub OAuth
-Stream-Z [---------------]   0%       ○ 4  ---   Integration & Docs
-═════════════════════════════════════════════════════════════════════
-Workers: 2 | Press Ctrl-C to stop
+Stream     | Status      | Progress
+-----------|-------------|----------
+Stream-A   | completed   | 100%
+Stream-B   | in_progress | 60%
+Stream-C   | in_progress | 40%
+Stream-Z   | pending     | 0%
 ```
 
 **Step 4: Completion**
@@ -284,8 +279,8 @@ All streams completed. 18 git commits created.
 | `/protocol [task]`   | Start any work                     |
 | `/continue`          | Resume yesterday's work            |
 | `/pause [reason]`    | Context switch, save state         |
-| `/orchestrate start` | Run parallel workers               |
-| `./watch-status`     | Monitor progress (second terminal) |
+| `/orchestrate start` | Set up worktrees, launch agents    |
+| `/orchestrate status`| Check stream progress              |
 
 ### Work Intensity Keywords
 
@@ -338,14 +333,14 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 | `/protocol [task]`      | Start work (auto-routes to right agent) |
 | `/continue [stream]`    | Resume from memory or specific stream   |
 | `/pause [reason]`       | Save checkpoint for context switch      |
-| `/orchestrate start`    | Launch parallel workers                 |
+| `/orchestrate start`    | Set up worktrees, launch stream agents  |
 | `/orchestrate status`   | Check stream progress                   |
 | `/map`                  | Generate project structure analysis     |
 | `/setup-project`        | Initialize a new project                |
 | `/setup-knowledge-sync` | Enable auto-updates on releases         |
 | `/knowledge-copilot`    | Build shared knowledge repo             |
 
-→ [Orchestration Guide](docs/50-features/01-orchestration-guide.md) | [Knowledge Sync](docs/50-features/03-knowledge-sync.md)
+→ [Orchestration Guide](docs/50-features/02-orchestration-workflow.md) | [Knowledge Sync](docs/50-features/03-knowledge-sync.md)
 
 ---
 
@@ -353,7 +348,7 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 
 | Level          | What You Get                                          |
 | -------------- | ----------------------------------------------------- |
-| **Solo**       | 13 agents, persistent memory, local skills            |
+| **Solo**       | 14 agents, persistent memory, local skills            |
 | **Team**       | + shared knowledge, private skills via PostgreSQL     |
 | **Enterprise** | + Skill Marketplace (25K+ skills), full customization |
 
@@ -383,7 +378,7 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 |-------|---------|
 | [Usage Guide](docs/70-reference/01-usage-guide.md) | **How to actually use this** - real workflows and scenarios |
 | [Decision Guide](docs/10-architecture/03-decision-guide.md) | When to use what - quick reference matrices |
-| [Agents](docs/10-architecture/01-agents.md) | All 13 specialists in detail |
+| [Agents](docs/10-architecture/01-agents.md) | All 14 specialists in detail |
 
 **Setup & Configuration:**
 | Guide | Purpose |

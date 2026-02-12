@@ -122,8 +122,8 @@ Ask yourself:
 | Context switch mid-task | `/pause switching to X` | Creates checkpoint, switch safely |
 | Understand new codebase | `/map` | Generates PROJECT_MAP.md |
 | View memory state | `/memory` | See current initiative & recent activity |
-| Run parallel work streams | `/orchestrate generate` then `/orchestrate start` | Create PRD + tasks → spawn workers |
-| Monitor orchestration | `/orchestrate status` or `./watch-status` | Live progress dashboard |
+| Run parallel work streams | `/orchestrate generate` then `/orchestrate start` | Create PRD + tasks → set up worktrees |
+| Monitor orchestration | `/orchestrate status` | Stream progress dashboard |
 | Set up team standards | `/knowledge-copilot` | Create extension repository |
 | Auto-update product knowledge | `/setup-knowledge-sync` | Updates on git release tags |
 | Initialize new project | `/setup-project` | Framework installs |
@@ -146,7 +146,7 @@ Persistent memory across sessions with semantic search.
 
 ### 2. Agents
 
-13 specialized agents using lean agent model (~60-100 lines each).
+14 specialized agents using lean agent model (~60-120 lines each).
 
 **Agents:** me, ta, qa, sec, doc, do, sd, uxd, uids, uid, cw, cco, kc
 
@@ -385,6 +385,43 @@ Every agent must include:
 4. **Output format** - Example output or deliverable templates
 5. **Route To Other Agent** - When to hand off to specialists
 6. **Task Copilot Integration** - How to store work products
+
+### Agent Shared Behaviors
+
+All agents inherit these behaviors. Individual agent files should NOT repeat them.
+
+**Skill Loading:** Call `skill_evaluate({ files, text, threshold: 0.5 })` at start. Load top matching skills via `@include skills[0].path`.
+
+**Task Copilot Pattern (all agents):**
+```
+1. task_get(taskId)
+2. preflight_check({ taskId }) (if available)
+3. skill_evaluate({ files, text }) (if available)
+4. Do domain work
+5. work_product_store({ taskId, type, title, content })
+6. task_update({ id: taskId, status: "completed" })
+```
+
+**Iteration Loop (agents with iteration enabled):**
+```
+1. iteration_start({ taskId, maxIterations, validationRules })
+2. FOR EACH: make changes → iteration_validate({ iterationId })
+   - COMPLETE → iteration_complete(), proceed to store work product
+   - BLOCKED → store findings, emit <promise>BLOCKED</promise>
+   - ELSE → iteration_next(), refine approach
+```
+
+**Return Format:** Return ONLY ~100 tokens to main session. Store all details in `work_product_store`. Never return full designs, plans, code, or analysis.
+
+**Context Compaction:** If response exceeds ~14K tokens (~55K chars), store full content as work product and return compact summary only.
+
+**Knowledge (Pull-Based):** When working on user-facing features, check `knowledge_search()` for voice/brand/product context. If not configured and relevant, note recommendation in work product (not main response). Never block work for missing knowledge.
+
+**Specification Workflow (domain agents: sd, uxd, uids, cw, cco):** Store completed work as `type: 'specification'`, then route to @agent-ta. Domain agents MUST NOT create tasks directly.
+
+**Multi-Agent Handoff:** If not final agent in chain: store work product, call `agent_handoff` (200-char context), route to next agent, do NOT return to main session. If final agent: call `agent_chain_get`, return consolidated summary.
+
+**Protocol Integration:** When invoked via /protocol with checkpoints, output stage-complete summary with: Task/WP IDs, key deliverables, key decisions (2-3), handoff context (200-char max).
 
 ---
 

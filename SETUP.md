@@ -113,7 +113,7 @@ This creates a knowledge repository for company/product information that's share
 | `mcp-servers/copilot-memory/` | Persistent memory across sessions (required) |
 | `mcp-servers/skills-copilot/` | OPTIONAL: Advanced skill management + marketplace access |
 | `mcp-servers/task-copilot/` | PRD, task, and work product storage (required) |
-| `.claude/agents/` | 12 specialized agent definitions |
+| `.claude/agents/` | 14 specialized agent definitions |
 | `.claude/commands/` | Source command files |
 | `templates/` | Project setup templates |
 

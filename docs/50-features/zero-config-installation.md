@@ -75,7 +75,7 @@ git clone [repository-url] .
 
 **What gets installed:**
 - Framework core files
-- All 13 agents
+- All 14 agents
 - All commands
 - 3 MCP servers (built and ready)
 - Installation scripts
@@ -215,7 +215,7 @@ npx claude-copilot validate --project . --verbose
 
 **Validation checks:**
 - Framework structure (directories and files)
-- All 13 agents present
+- All 14 agents present
 - All 6 commands present
 - All 3 MCP servers built
 - Optional components (knowledge repo, skills)
@@ -299,12 +299,12 @@ npm install -g yarn
 ./scripts/install/validate-installation.sh
 
 # Should see:
-# ✓ Framework Structure: OK
-# ✓ Agents: OK
-# ✓ Commands: OK
-# ✓ copilot-memory: OK
-# ✓ task-copilot: OK
-# ✓ skills-copilot: OK
+# Framework Structure: OK
+# Agents: OK
+# Commands: OK
+# copilot-memory: OK
+# task-copilot: OK
+# skills-copilot: OK
 ```
 
 ### Configure MCP Servers
@@ -417,36 +417,14 @@ cd mcp-servers/skills-copilot && npm run dev &
 ./scripts/install/platforms/linux.sh --help
 ```
 
-### Support Resources
-
-- **Documentation:** `/docs/` directory
-- **Issues:** GitHub Issues
-- **Examples:** `/examples/` directory
-- **Integration Tests:** `/tests/integration/`
-
 ## Next Steps
 
 After successful installation:
 
-1. **Initialize Project**
-   - Run `/setup-project` in Claude Code
-   - Configure `.mcp.json`
-   - Add project-specific skills
-
-2. **Start First Task**
-   - Run `/protocol your-task`
-   - Let framework route to appropriate agent
-   - Review work products in Task Copilot
-
-3. **Explore Features**
-   - Try `/map` to analyze codebase
-   - Use `/orchestrate` for parallel work
-   - Check `/memory` for session state
-
-4. **Set Up Knowledge**
-   - Run `/knowledge-copilot` for shared knowledge
-   - Add team-specific extensions
-   - Configure skill repositories
+1. **Initialize Project** - Run `/setup-project` in Claude Code
+2. **Start First Task** - Run `/protocol your-task`
+3. **Explore Features** - Try `/map`, `/orchestrate`, `/memory`
+4. **Set Up Knowledge** - Run `/knowledge-copilot` for shared knowledge
 
 ## Updating
 
@@ -476,7 +454,3 @@ rm -rf .claude/
 rm .mcp.json
 rm CLAUDE.md
 ```
-
-## License
-
-MIT - See LICENSE file for details

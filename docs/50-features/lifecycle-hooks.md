@@ -249,6 +249,78 @@ The UserPromptSubmit hook can signal that specific skills should be loaded:
 }
 ```
 
+## Security Hooks MCP Tools
+
+Security hooks are also exposed as MCP tools for runtime management.
+
+### Available Tools
+
+| Tool | Purpose |
+|------|---------|
+| `hook_list_security` | List active security rules (optional: `includeDisabled`, `ruleId`) |
+| `hook_test_security` | Dry-run test a tool call against rules (without executing) |
+| `hook_register_security` | Register custom rules or `resetToDefaults` |
+| `hook_toggle_security` | Enable/disable a specific rule by `ruleId` |
+
+### Default Rule Detection Patterns
+
+| Rule | Detects |
+|------|---------|
+| `secret-detection` | AWS keys (AKIA...), Google API keys (AIza...), GitHub tokens (ghp_...), Stripe keys (sk_live_...), JWT tokens, private keys |
+| `destructive-command` | `rm -rf /`, `DROP DATABASE/TABLE`, `TRUNCATE TABLE`, shutdown commands, fork bombs, `chmod 777` |
+| `sensitive-file-protection` | `.env` files, credentials files, SSH/SSL keys, cloud provider configs, database files |
+| `credential-url` | URLs with embedded credentials (`http://user:pass@host`) |
+
+### Custom Rule Registration
+
+```typescript
+hook_register_security({
+  rules: [{
+    id: "internal-api-key",
+    name: "Internal API Key Detection",
+    description: "Detects internal API key patterns",
+    priority: 85,         // 1-100, higher runs first
+    patterns: ["INTERNAL_[A-Z0-9]{32}"],
+    severity: "critical", // low, medium, high, critical
+    action: "block"       // allow, warn, block
+  }]
+})
+```
+
+### Configuration File
+
+Rules can also be defined in `.claude/hooks/security-rules.json`:
+
+```json
+{
+  "version": "1.0.0",
+  "rules": [
+    {
+      "id": "custom-pattern",
+      "name": "Custom Pattern",
+      "description": "Project-specific detection",
+      "enabled": true,
+      "priority": 85,
+      "patterns": ["YOUR_PATTERN_HERE"],
+      "action": "block",
+      "severity": "critical"
+    }
+  ]
+}
+```
+
+### Priority Guidelines
+
+| Range | Use Case |
+|-------|----------|
+| 90-100 | Critical security (secrets, keys) |
+| 80-89 | High priority (sensitive files, credentials) |
+| 70-79 | Medium priority (destructive commands) |
+| 50-69 | Low priority (code quality) |
+| 1-49 | Informational (warnings only) |
+
+---
+
 ## Initialization
 
 Hooks are automatically initialized on server startup. For manual initialization:
@@ -301,6 +373,5 @@ console.log('UserPromptSubmit rules:', summary.userPromptSubmit.total);
 
 ## Related Documentation
 
-- [Security Hooks Guide](../security-hooks-guide.md)
 - [Auto-Checkpoint Hooks](./03-auto-checkpoint-hooks.md)
 - [Task Copilot API Reference](./02-api-reference.md)

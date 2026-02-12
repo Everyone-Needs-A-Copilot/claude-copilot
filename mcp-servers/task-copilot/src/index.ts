@@ -238,7 +238,7 @@ const TOOLS = [
   },
   {
     name: 'work_product_store',
-    description: 'Store agent output with optional confidence scoring (0-1 scale)',
+    description: 'Store agent output with optional confidence score (0-1)',
     inputSchema: {
       type: 'object',
       properties: {
@@ -253,7 +253,7 @@ const TOOLS = [
         metadata: { type: 'object', description: 'Optional metadata' },
         confidence: {
           type: 'number',
-          description: 'Confidence score 0-1 (optional). Use to filter noise in multi-agent results. High (0.8+), Medium (0.5-0.79), Low (<0.5)',
+          description: 'Confidence score 0-1 (optional)',
           minimum: 0,
           maximum: 1
         }
@@ -263,7 +263,7 @@ const TOOLS = [
   },
   {
     name: 'work_product_get',
-    description: 'Get full work product',
+    description: 'Get work product by ID',
     inputSchema: {
       type: 'object',
       properties: {
@@ -293,7 +293,7 @@ const TOOLS = [
   },
   {
     name: 'initiative_link',
-    description: 'Link current initiative from Memory Copilot to Task Copilot workspace',
+    description: 'Link initiative from Memory Copilot to Task Copilot',
     inputSchema: {
       type: 'object',
       properties: {
@@ -306,7 +306,7 @@ const TOOLS = [
   },
   {
     name: 'initiative_archive',
-    description: 'Archive all task data for an initiative to a JSON file',
+    description: 'Archive all task data for an initiative to JSON',
     inputSchema: {
       type: 'object',
       properties: {
@@ -329,14 +329,14 @@ const TOOLS = [
   },
   {
     name: 'progress_summary',
-    description: 'Get high-level progress summary for initiative with optional confidence filtering',
+    description: 'Get progress summary for initiative with optional confidence filtering',
     inputSchema: {
       type: 'object',
       properties: {
         initiativeId: { type: 'string', description: 'Initiative ID (default: current initiative)' },
         minConfidence: {
           type: 'number',
-          description: 'Filter work products by minimum confidence score (0-1). Filters noise in multi-agent results.',
+          description: 'Filter work products by minimum confidence score (0-1)',
           minimum: 0,
           maximum: 1
         }
@@ -346,7 +346,7 @@ const TOOLS = [
   // Agent Performance Tracking
   {
     name: 'agent_performance_get',
-    description: 'Get agent performance metrics (success rates, completion rates by task type)',
+    description: 'Get agent performance metrics',
     inputSchema: {
       type: 'object',
       properties: {
@@ -364,7 +364,7 @@ const TOOLS = [
   // Checkpoint Tools
   {
     name: 'checkpoint_create',
-    description: 'Create a checkpoint for mid-task recovery. Use before risky operations or after completing significant steps. Supports Ralph Wiggum iteration metadata.',
+    description: 'Create a checkpoint for mid-task recovery',
     inputSchema: {
       type: 'object',
       properties: {
@@ -386,7 +386,7 @@ const TOOLS = [
         expiresIn: { type: 'number', description: 'Minutes until checkpoint expires (default: 1440 = 24h)' },
         iterationConfig: {
           type: 'object',
-          description: 'Ralph Wiggum iteration configuration (maxIterations, completionPromises, validationRules, circuitBreakerThreshold)',
+          description: 'Iteration configuration',
           properties: {
             maxIterations: { type: 'number', description: 'Maximum number of iterations allowed' },
             completionPromises: { type: 'array', items: { type: 'string' }, description: 'List of completion criteria' },
@@ -412,7 +412,7 @@ const TOOLS = [
   },
   {
     name: 'checkpoint_get',
-    description: 'Get a specific checkpoint by ID with full details',
+    description: 'Get a checkpoint by ID',
     inputSchema: {
       type: 'object',
       properties: {
@@ -423,7 +423,7 @@ const TOOLS = [
   },
   {
     name: 'checkpoint_resume',
-    description: 'Resume task from last checkpoint. Returns state and context for continuing work, including Ralph Wiggum iteration state (iterationConfig, iterationNumber, iterationHistory, completionPromises, validationState).',
+    description: 'Resume task from last checkpoint. Returns state and context for continuing work.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -435,7 +435,7 @@ const TOOLS = [
   },
   {
     name: 'checkpoint_list',
-    description: 'List available checkpoints for a task',
+    description: 'List checkpoints for a task',
     inputSchema: {
       type: 'object',
       properties: {
@@ -449,7 +449,7 @@ const TOOLS = [
   },
   {
     name: 'checkpoint_cleanup',
-    description: 'Clean up old or expired checkpoints',
+    description: 'Clean up old/expired checkpoints',
     inputSchema: {
       type: 'object',
       properties: {
@@ -485,7 +485,7 @@ const TOOLS = [
   // Ralph Wiggum Iteration Tools
   {
     name: 'iteration_start',
-    description: 'Initialize a new iteration loop with Ralph Wiggum pattern. Creates checkpoint with iteration_number=1 and stores iteration configuration.',
+    description: 'Start a new iteration loop. Creates checkpoint at iteration 1 with config.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -519,19 +519,19 @@ const TOOLS = [
   },
   {
     name: 'iteration_validate',
-    description: 'Run validation rules against current iteration. Returns validation results, completion signal (CONTINUE/COMPLETE/BLOCKED/ESCALATE), and actionable feedback. Integrates safety guards to detect runaway loops.',
+    description: 'Validate current iteration. Returns completion signal (CONTINUE/COMPLETE/BLOCKED/ESCALATE).',
     inputSchema: {
       type: 'object',
       properties: {
         iterationId: { type: 'string', description: 'Iteration checkpoint ID from iteration_start' },
-        agentOutput: { type: 'string', description: 'Agent output to validate for completion promises like <promise>COMPLETE</promise> or <promise>BLOCKED</promise>' }
+        agentOutput: { type: 'string', description: 'Agent output to check for completion promises' }
       },
       required: ['iterationId']
     }
   },
   {
     name: 'iteration_next',
-    description: 'Advance to next iteration. Increments iteration number and updates history. Throws if max iterations reached.',
+    description: 'Advance to next iteration. Throws if max iterations reached.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -544,7 +544,7 @@ const TOOLS = [
   },
   {
     name: 'iteration_complete',
-    description: 'Mark iteration as complete. Updates task status to completed and optionally links final work product.',
+    description: 'Mark iteration as complete and optionally link final work product',
     inputSchema: {
       type: 'object',
       properties: {
@@ -558,7 +558,7 @@ const TOOLS = [
   // Stop Hook Tools (Phase 2)
   {
     name: 'hook_register',
-    description: 'Register a stop hook for a task. Hooks intercept completion signals and decide whether to complete, continue, or escalate. Use preset hooks: "default" (validation + promises), "validation" (rules only), "promise" (promises only).',
+    description: 'Register a stop hook for a task. Presets: "default", "validation", "promise".',
     inputSchema: {
       type: 'object',
       properties: {
@@ -575,12 +575,12 @@ const TOOLS = [
   },
   {
     name: 'hook_evaluate',
-    description: 'Evaluate registered hooks for an iteration. Returns action (complete/continue/escalate) and reason. Called internally by iteration_validate but can be used manually for testing.',
+    description: 'Evaluate registered hooks for an iteration. Returns action and reason.',
     inputSchema: {
       type: 'object',
       properties: {
         iterationId: { type: 'string', description: 'Iteration checkpoint ID' },
-        agentOutput: { type: 'string', description: 'Agent output to analyze for completion promises' },
+        agentOutput: { type: 'string', description: 'Agent output to analyze' },
         filesModified: {
           type: 'array',
           items: { type: 'string' },
@@ -598,7 +598,7 @@ const TOOLS = [
   },
   {
     name: 'hook_list',
-    description: 'List all registered hooks for a task. Returns hook IDs, enabled status, and metadata.',
+    description: 'List registered hooks for a task',
     inputSchema: {
       type: 'object',
       properties: {
@@ -609,7 +609,7 @@ const TOOLS = [
   },
   {
     name: 'hook_clear',
-    description: 'Clear all hooks for a task. Should be called when iteration loop completes or is cancelled.',
+    description: 'Clear all hooks for a task',
     inputSchema: {
       type: 'object',
       properties: {
@@ -621,7 +621,7 @@ const TOOLS = [
   // Session Guard Tool
   {
     name: 'session_guard',
-    description: 'Enforce main session guardrails to prevent context bloat. Use "check" to validate current session behavior against rules, or "report" to get a summary of guidelines and initiative status.',
+    description: 'Check or report on main session guardrails to prevent context bloat',
     inputSchema: {
       type: 'object',
       properties: {
@@ -647,7 +647,7 @@ const TOOLS = [
   // Agent Handoff Tools
   {
     name: 'agent_handoff',
-    description: 'Record agent handoff in multi-agent collaboration chain. Intermediate agents store work in Task Copilot and pass minimal context (max 50 chars) to next agent. Only final agent returns to main session.',
+    description: 'Record agent handoff in multi-agent collaboration chain',
     inputSchema: {
       type: 'object',
       properties: {
@@ -664,7 +664,7 @@ const TOOLS = [
   },
   {
     name: 'agent_chain_get',
-    description: 'Get full agent collaboration chain for a task. Final agent uses this to retrieve all prior work products and handoff contexts before returning consolidated summary to main session.',
+    description: 'Get agent collaboration chain for a task',
     inputSchema: {
       type: 'object',
       properties: {
@@ -676,7 +676,7 @@ const TOOLS = [
   // Stream Tools (Command Arguments & Independent Streams)
   {
     name: 'stream_list',
-    description: 'List all work streams for an initiative. Groups tasks by streamId and returns status for each stream. By default, excludes archived streams.',
+    description: 'List work streams for an initiative (excludes archived by default)',
     inputSchema: {
       type: 'object',
       properties: {
@@ -688,7 +688,7 @@ const TOOLS = [
   },
   {
     name: 'stream_get',
-    description: 'Get all tasks for a specific stream by streamId. Returns null if stream is archived unless includeArchived=true.',
+    description: 'Get tasks for a specific stream',
     inputSchema: {
       type: 'object',
       properties: {
@@ -701,7 +701,7 @@ const TOOLS = [
   },
   {
     name: 'stream_conflict_check',
-    description: 'Check if files are already being worked on by other streams. Use before starting work to detect conflicts.',
+    description: 'Check if files conflict with other streams',
     inputSchema: {
       type: 'object',
       properties: {
@@ -714,7 +714,7 @@ const TOOLS = [
   },
   {
     name: 'stream_unarchive',
-    description: 'Unarchive a stream and link it to current or specified initiative. Use when you want to resume work on an archived stream. Optional prdId to scope unarchive to specific PRD.',
+    description: 'Unarchive a stream and link to current initiative',
     inputSchema: {
       type: 'object',
       properties: {
@@ -727,7 +727,7 @@ const TOOLS = [
   },
   {
     name: 'stream_archive_all',
-    description: 'Archive all active streams. One-time cleanup for legacy data before auto-archive feature. Requires confirm: true for safety. Optional prdId to scope archival to specific PRD.',
+    description: 'Archive all active streams. Requires confirm: true.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -741,7 +741,7 @@ const TOOLS = [
   // Preflight Check (Session Boundary Protocol)
   {
     name: 'preflight_check',
-    description: 'Check environment health before starting substantive work. Verifies initiative state, git status, optional dev server and tests. Part of Session Boundary Protocol.',
+    description: 'Check environment health (initiative, git, optional dev server/tests)',
     inputSchema: {
       type: 'object',
       properties: {
@@ -756,7 +756,7 @@ const TOOLS = [
   // Worktree Management
   {
     name: 'worktree_create',
-    description: 'Manually create a worktree for a task. Useful when task was created without requiresWorktree but needs isolation.',
+    description: 'Create a git worktree for a task',
     inputSchema: {
       type: 'object',
       properties: {
@@ -768,7 +768,7 @@ const TOOLS = [
   },
   {
     name: 'worktree_list',
-    description: 'List all task worktrees managed by Task Copilot.',
+    description: 'List task worktrees',
     inputSchema: {
       type: 'object',
       properties: {}
@@ -776,7 +776,7 @@ const TOOLS = [
   },
   {
     name: 'worktree_cleanup',
-    description: 'Clean up a task worktree (remove worktree and delete branch). Use after manual merge or to force cleanup.',
+    description: 'Clean up a task worktree and delete branch',
     inputSchema: {
       type: 'object',
       properties: {
@@ -788,7 +788,7 @@ const TOOLS = [
   },
   {
     name: 'worktree_merge',
-    description: 'Merge a task worktree branch into target branch. If conflicts occur, task is marked as blocked.',
+    description: 'Merge a task worktree branch into target branch',
     inputSchema: {
       type: 'object',
       properties: {
@@ -800,7 +800,7 @@ const TOOLS = [
   },
   {
     name: 'worktree_conflict_status',
-    description: 'Check conflict status for a task worktree. Returns list of conflicting files if any exist.',
+    description: 'Check conflict status for a task worktree',
     inputSchema: {
       type: 'object',
       properties: {
@@ -811,7 +811,7 @@ const TOOLS = [
   },
   {
     name: 'worktree_conflict_resolve',
-    description: 'Retry merge after manual conflict resolution. Attempts to complete merge and mark task as completed if conflicts are resolved.',
+    description: 'Retry merge after manual conflict resolution',
     inputSchema: {
       type: 'object',
       properties: {
@@ -824,7 +824,7 @@ const TOOLS = [
   // Scope Change Request Tools (P3.3)
   {
     name: 'scope_change_request',
-    description: 'Request a scope change for a locked PRD. Worker agents use this when they need to add, modify, or remove tasks from a scope-locked PRD. Only @agent-ta can approve/reject.',
+    description: 'Request a scope change for a locked PRD',
     inputSchema: {
       type: 'object',
       properties: {
@@ -843,7 +843,7 @@ const TOOLS = [
   },
   {
     name: 'scope_change_review',
-    description: 'Review and approve/reject a scope change request. Typically used by @agent-ta or user to approve/reject requests from worker agents.',
+    description: 'Review and approve/reject a scope change request',
     inputSchema: {
       type: 'object',
       properties: {
@@ -861,7 +861,7 @@ const TOOLS = [
   },
   {
     name: 'scope_change_list',
-    description: 'List scope change requests. Filter by PRD or status (pending, approved, rejected).',
+    description: 'List scope change requests with optional filters',
     inputSchema: {
       type: 'object',
       properties: {
@@ -877,7 +877,7 @@ const TOOLS = [
   // Security Hook Tools
   {
     name: 'hook_register_security',
-    description: 'Register custom security rules or reset to defaults. Rules intercept tool calls before execution to prevent security issues.',
+    description: 'Register custom security rules or reset to defaults',
     inputSchema: {
       type: 'object',
       properties: {
@@ -917,7 +917,7 @@ const TOOLS = [
   },
   {
     name: 'hook_list_security',
-    description: 'List active security rules and their status',
+    description: 'List active security rules',
     inputSchema: {
       type: 'object',
       properties: {
@@ -928,7 +928,7 @@ const TOOLS = [
   },
   {
     name: 'hook_test_security',
-    description: 'Test security rules against a tool call without executing it (dry-run)',
+    description: 'Test security rules against a tool call (dry-run)',
     inputSchema: {
       type: 'object',
       properties: {
@@ -941,7 +941,7 @@ const TOOLS = [
   },
   {
     name: 'hook_toggle_security',
-    description: 'Enable or disable a specific security rule',
+    description: 'Toggle a security rule on/off',
     inputSchema: {
       type: 'object',
       properties: {
@@ -954,7 +954,7 @@ const TOOLS = [
   // Protocol Violation Tools
   {
     name: 'protocol_violation_log',
-    description: 'Log a main session protocol violation for compliance tracking',
+    description: 'Log a protocol violation',
     inputSchema: {
       type: 'object',
       properties: {
@@ -985,7 +985,7 @@ const TOOLS = [
   },
   {
     name: 'protocol_violations_get',
-    description: 'Get protocol violations with optional filters. Use to analyze compliance and identify patterns.',
+    description: 'Get protocol violations with optional filters',
     inputSchema: {
       type: 'object',
       properties: {

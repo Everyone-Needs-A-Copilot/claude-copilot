@@ -829,7 +829,7 @@ After successful upgrade:
    - Test activation modes (`quick`, `thorough`, `analyze`)
 
 2. **Read Documentation:**
-   - [Orchestration Guide](../50-features/01-orchestration-guide.md)
+   - [Orchestration Guide](../50-features/02-orchestration-workflow.md)
    - [Enhancement Features](../50-features/00-enhancement-features.md)
    - [WebSocket Bridge](../../mcp-servers/websocket-bridge/README.md)
 

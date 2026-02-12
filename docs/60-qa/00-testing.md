@@ -85,7 +85,7 @@ If any test fails, see the detailed logs for which specific test failed and why.
 
 **Lean Agent Model (v1.8+)**
 
-Current state: All 13 agents use the lean agent model (~60-100 lines) with on-demand skill loading via `skill_evaluate()`.
+Current state: All 14 agents use the lean agent model (under 120 lines each) with on-demand skill loading via `skill_evaluate()`. Shared boilerplate is extracted to "Agent Shared Behaviors" in CLAUDE.md.
 
 **Agents with full structure:**
 - cw.md (Copywriter)

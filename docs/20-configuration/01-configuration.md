@@ -48,7 +48,7 @@ This file configures the MCP servers that power Claude Copilot.
 > **Important:** Replace `/Users/yourname` with your actual home directory path. The `~` tilde does **NOT** expand in MCP args.
 
 **What works offline:**
-- All 13 lean agents (with on-demand skill loading)
+- All 14 lean agents (with on-demand skill loading)
 - Memory persistence (local SQLite)
 - Local project skills
 - Knowledge search (if configured)

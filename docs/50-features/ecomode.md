@@ -288,5 +288,4 @@ routeToModel({
 ## Related Documentation
 
 - [Magic Keywords](./magic-keywords.md) - Modifier and action keywords
-- [OMC Learnings Overview](./omc-learnings.md) - All OMC-inspired features
 - [Progress HUD](./progress-hud.md) - Real-time status display

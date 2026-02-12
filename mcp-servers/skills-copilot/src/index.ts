@@ -63,7 +63,7 @@ const server = new Server(
 const TOOLS = [
   {
     name: 'skill_get',
-    description: 'Fetch a skill by name. Checks cache, then private DB, then SkillsMP, then local files.',
+    description: 'Fetch a skill by name from any available source',
     inputSchema: {
       type: 'object',
       properties: {
@@ -149,7 +149,7 @@ const TOOLS = [
   },
   {
     name: 'skill_discover',
-    description: 'Force re-scan of local skill directories (.claude/skills and ~/.claude/skills). Use when skills are added/modified outside the session.',
+    description: 'Re-scan local skill directories for new or modified skills',
     inputSchema: {
       type: 'object',
       properties: {
@@ -162,18 +162,18 @@ const TOOLS = [
   },
   {
     name: 'skill_auto_detect',
-    description: 'Auto-detect skills based on file patterns and keywords in context. Returns skills whose triggers match the provided context.',
+    description: 'Auto-detect relevant skills from file patterns and keywords',
     inputSchema: {
       type: 'object',
       properties: {
         files: {
           type: 'array',
           items: { type: 'string' },
-          description: 'File paths to analyze for trigger patterns (e.g., ["src/test.spec.ts", "README.md"])'
+          description: 'File paths to analyze for trigger patterns'
         },
         text: {
           type: 'string',
-          description: 'Text content to analyze for trigger keywords (e.g., conversation or file content)'
+          description: 'Text content to analyze for trigger keywords'
         },
         limit: {
           type: 'number',
@@ -185,7 +185,7 @@ const TOOLS = [
   // Extension tools for knowledge repository integration
   {
     name: 'extension_get',
-    description: 'Get extension for a specific agent from the knowledge repository. Returns the extension content, type, and required skills.',
+    description: 'Get extension for a specific agent from the knowledge repository',
     inputSchema: {
       type: 'object',
       properties: {
@@ -200,7 +200,7 @@ const TOOLS = [
   },
   {
     name: 'extension_list',
-    description: 'List all available extensions from the knowledge repository manifest',
+    description: 'List available extensions from the knowledge repository',
     inputSchema: {
       type: 'object',
       properties: {}
@@ -208,7 +208,7 @@ const TOOLS = [
   },
   {
     name: 'manifest_status',
-    description: 'Get status of the knowledge repository configuration and manifest',
+    description: 'Get knowledge repository status',
     inputSchema: {
       type: 'object',
       properties: {}
@@ -217,13 +217,13 @@ const TOOLS = [
   // Knowledge search tools
   {
     name: 'knowledge_search',
-    description: 'Search knowledge files across project and machine-level knowledge repositories. Searches file names, paths, and content. Use this to find information about company, products, brand, operations, etc.',
+    description: 'Search knowledge files across project and global repositories',
     inputSchema: {
       type: 'object',
       properties: {
         query: {
           type: 'string',
-          description: 'Search query (e.g., "company", "brand voice", "products")'
+          description: 'Search query'
         },
         limit: {
           type: 'number',
@@ -231,11 +231,11 @@ const TOOLS = [
         },
         directory: {
           type: 'string',
-          description: 'Limit search to specific directory (e.g., "01-company", "02-products")'
+          description: 'Limit search to specific directory'
         },
         includeContent: {
           type: 'boolean',
-          description: 'Include full file content in results (default: false, returns snippets)'
+          description: 'Include full file content (default: false)'
         }
       },
       required: ['query']
@@ -243,7 +243,7 @@ const TOOLS = [
   },
   {
     name: 'knowledge_get',
-    description: 'Get a specific knowledge file by path. Checks project-level first, then machine-level.',
+    description: 'Get a knowledge file by path (project-level first, then global)',
     inputSchema: {
       type: 'object',
       properties: {
@@ -258,23 +258,23 @@ const TOOLS = [
   // Skill evaluation tool
   {
     name: 'skill_evaluate',
-    description: 'Evaluate context to find relevant skills with confidence scores. Combines file pattern matching and keyword detection. Returns ranked skills above threshold.',
+    description: 'Evaluate context to find relevant skills with confidence scores',
     inputSchema: {
       type: 'object',
       properties: {
         files: {
           type: 'array',
           items: { type: 'string' },
-          description: 'File paths to analyze for pattern matching (e.g., ["src/test.spec.ts", "config.json"])'
+          description: 'File paths to analyze for pattern matching'
         },
         text: {
           type: 'string',
-          description: 'Text content to analyze for keyword matching (e.g., prompt, conversation, file content)'
+          description: 'Text content to analyze for keyword matching'
         },
         recentActivity: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Recent activity keywords for boosting (e.g., ["testing", "deployment"])'
+          description: 'Recent activity keywords for boosting'
         },
         threshold: {
           type: 'number',
@@ -286,7 +286,7 @@ const TOOLS = [
         },
         showDetails: {
           type: 'boolean',
-          description: 'Include detailed match information (default: false)'
+          description: 'Include detailed match info (default: false)'
         }
       }
     }

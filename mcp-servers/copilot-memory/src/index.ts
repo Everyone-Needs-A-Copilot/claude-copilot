@@ -73,7 +73,7 @@ const server = new Server(
 const TOOLS = [
   {
     name: 'memory_store',
-    description: 'Store a new memory with automatic embedding generation for semantic search',
+    description: 'Store a new memory (auto-generates embedding for search)',
     inputSchema: {
       type: 'object',
       properties: {
@@ -148,7 +148,7 @@ const TOOLS = [
   },
   {
     name: 'memory_search',
-    description: 'Semantic search across memories using natural language query',
+    description: 'Semantic search across memories using natural language',
     inputSchema: {
       type: 'object',
       properties: {
@@ -184,7 +184,7 @@ const TOOLS = [
   },
   {
     name: 'initiative_update',
-    description: 'Update the current initiative. Supports both slim mode (Task Copilot) and legacy mode.',
+    description: 'Update the current initiative',
     inputSchema: {
       type: 'object',
       properties: {
@@ -217,21 +217,21 @@ const TOOLS = [
   },
   {
     name: 'initiative_get',
-    description: 'Get the current initiative state. Use lean mode (default) for session resume to save tokens. Use full mode when you need all decisions/lessons/keyFiles.',
+    description: 'Get the current initiative. Lean mode (default) excludes decisions/lessons/keyFiles.',
     inputSchema: {
       type: 'object',
       properties: {
         mode: {
           type: 'string',
           enum: ['lean', 'full'],
-          description: 'lean: ~150 tokens (excludes decisions, lessons, keyFiles), full: ~370 tokens (includes all fields). Default: lean'
+          description: 'lean (default): excludes decisions/lessons/keyFiles. full: all fields.'
         }
       }
     }
   },
   {
     name: 'initiative_slim',
-    description: 'Slim down initiative by removing bloated task lists (completed, inProgress, blocked, resumeInstructions). Keeps permanent knowledge (decisions, lessons, keyFiles). Archives removed data to file.',
+    description: 'Slim down initiative by clearing task lists. Keeps decisions/lessons/keyFiles, archives removed data.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -262,7 +262,7 @@ const TOOLS = [
   },
   {
     name: 'correction_detect',
-    description: 'Auto-detect correction patterns in user messages. Returns matched patterns, confidence score, and extracted old/new values. Use for the two-stage correction workflow: auto-capture → manual review via /reflect.',
+    description: 'Detect correction patterns in user messages. Returns matches, confidence, and extracted old/new values.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -278,7 +278,7 @@ const TOOLS = [
   },
   {
     name: 'correction_list',
-    description: 'List corrections with optional filters. Use with /reflect command to review pending corrections.',
+    description: 'List corrections with optional filters',
     inputSchema: {
       type: 'object',
       properties: {
@@ -300,7 +300,7 @@ const TOOLS = [
   },
   {
     name: 'correction_update',
-    description: 'Update a correction status after user review. Called from /reflect command.',
+    description: 'Update a correction status (approve, reject, or mark applied)',
     inputSchema: {
       type: 'object',
       properties: {
@@ -317,7 +317,7 @@ const TOOLS = [
   },
   {
     name: 'correction_stats',
-    description: 'Get correction statistics for the current project.',
+    description: 'Get correction statistics',
     inputSchema: {
       type: 'object',
       properties: {}
@@ -325,7 +325,7 @@ const TOOLS = [
   },
   {
     name: 'correction_route',
-    description: 'Get routing information for a correction. Shows target file/agent and apply instructions without actually applying.',
+    description: 'Get routing info for a correction (dry-run, does not apply)',
     inputSchema: {
       type: 'object',
       properties: {
@@ -342,7 +342,7 @@ const TOOLS = [
   },
   {
     name: 'correction_apply',
-    description: 'Apply an approved correction to its target. Marks as applied and returns instructions for the responsible agent.',
+    description: 'Apply an approved correction and return instructions for the responsible agent',
     inputSchema: {
       type: 'object',
       properties: {

@@ -23,7 +23,7 @@ With this minimal setup:
 - You plan to upgrade to the full framework later
 
 **You'll miss out on:**
-- 13 lean agents with auto-skill loading (Tech Architect, QA, Security, etc.)
+- 14 lean agents with auto-skill loading (Tech Architect, QA, Security, etc.)
 - Context-aware skill evaluation (skill_evaluate)
 - Knowledge repository integration
 - Agent-First Protocol workflow
@@ -267,7 +267,7 @@ Then in your project:
 ```
 
 This will add:
-- All 13 lean agents
+- All 14 lean agents
 - Skills Copilot (with skill_evaluate)
 - Task Copilot
 - `/protocol` command

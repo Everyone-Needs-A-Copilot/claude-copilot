@@ -9,7 +9,7 @@ Five-pillar framework: persistent memory, expert agents, on-demand skills, ephem
 | Layer | Pillar | Component | Purpose |
 |-------|--------|-----------|---------|
 | Persistence | 1 | Memory Copilot | Cross-session context, decisions, lessons |
-| Expertise | 2 | 13 Lean Agents | Minimal agents (~60-100 lines) with on-demand skills |
+| Expertise | 2 | 14 Lean Agents | Minimal agents (under 120 lines) with on-demand skills |
 | Knowledge | 3 | Skills Copilot | Auto-detected skill loading via skill_evaluate |
 | Tasks | 4 | Task Copilot | Ephemeral PRD, task, work product storage |
 | Workflow | 5 | Protocol | /protocol and /continue commands |
@@ -21,11 +21,12 @@ User Request → Protocol → Lean Agent → skill_evaluate() → Load Skills �
 ```
 
 **Lean Agent Pattern:**
-- Agent files are ~60-100 lines (workflow, routing, core behaviors)
+- Agent files are under 120 lines (workflow, routing, core behaviors)
+- Shared boilerplate extracted to "Agent Shared Behaviors" in CLAUDE.md
 - Domain expertise lives in skill files (200-500 lines each)
 - `skill_evaluate()` matches skills based on file patterns and keywords
 - Skills loaded on-demand via `@include` directive
-- 67% token reduction vs. monolithic agents
+- ~70% token reduction vs. monolithic agents
 
 ---
 
@@ -101,7 +102,7 @@ Detected via `knowledge-manifest.json` in project or `docs/shared/`.
 |-----------|----------|---------------|
 | Memory | Semantic search, relevant context only | ~80% |
 | Skills | Auto-detected on-demand loading | ~95% |
-| Lean Agents | Minimal definitions + external skills | ~67% |
+| Lean Agents | Minimal definitions + shared behaviors + external skills | ~70% |
 | Protocol | Two simple commands | ~90% |
 | Task Copilot | Work products stored externally | ~96% |
 
@@ -134,7 +135,7 @@ Detected via `knowledge-manifest.json` in project or `docs/shared/`.
 | Included | External |
 |----------|----------|
 | Memory persistence | Claude Code CLI |
-| 13 lean agents with skill_evaluate | MCP SDK |
+| 14 lean agents with skill_evaluate | MCP SDK |
 | Skills loading (auto-detection) | Git, project files |
 | Task storage | SkillsMP API, PostgreSQL |
 | Protocol commands | |

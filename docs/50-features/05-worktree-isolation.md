@@ -342,6 +342,46 @@ Each stream task gets its own isolated worktree, preventing file conflicts.
 
 ---
 
+## Limitations
+
+1. **Git dependency**: Requires git to be available and the working directory to be a git repo
+2. **Disk space**: Each worktree is a full checkout (uses more disk space)
+3. **Manual conflicts**: Merge conflicts require manual resolution
+4. **No nested worktrees**: Cannot create a worktree of a worktree
+
+---
+
+## Integration Notes
+
+### Auto-Commit
+
+Worktree isolation works seamlessly with auto-commit:
+
+```typescript
+{
+  requiresWorktree: true,
+  autoCommit: true,           // Still works in worktree context
+  filesModified: ['src/...']  // Auto-commits within the worktree
+}
+```
+
+### Checkpoints
+
+Checkpoints preserve worktree metadata (`worktreePath` and `branchName`). On resume, the worktree state is restored.
+
+### Conflict Resolution Validation
+
+Before allowing conflict resolution to complete, the system verifies:
+
+| Check | Purpose |
+|-------|---------|
+| No conflict markers | Files must not contain `<<<<<<<`, `=======`, `>>>>>>>` |
+| All files staged | Resolved files must be added with `git add` |
+| No remaining conflicts | `git diff --name-only --diff-filter=U` returns empty |
+| Merge can complete | `git merge` completes successfully |
+
+---
+
 ## Best Practices
 
 ### When to Use Worktrees

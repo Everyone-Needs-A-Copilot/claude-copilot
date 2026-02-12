@@ -555,7 +555,6 @@ interface ParsedCommand {
 ## Related Documentation
 
 - [Protocol Command](../../.claude/commands/protocol.md) - Main protocol documentation
-- [OMC Features](../50-features/omc-learnings.md) - Full OMC learnings integration
 - [Ecomode](../50-features/ecomode.md) - Auto-select model routing details
 - [Agent Routing](../10-architecture/02-agent-routing.md) - Agent flow details
 
@@ -570,4 +569,4 @@ Potential future additions to magic keywords:
 3. **Scope keywords:** `quick:`, `thorough:`, `deep:` for depth control
 4. **Phase keywords:** `design:`, `impl:`, `test:` to skip to specific phase
 
-See PRD-omc-learnings for roadmap details.
+See the OMC feature docs (ecomode, magic-keywords, progress-hud) for roadmap details.

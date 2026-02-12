@@ -326,7 +326,7 @@ You've seen one agent in action. Milestone 3 introduces all 12 specialists and s
 
 **Complexity**: Intermediate
 **Prerequisites**: Protocol working
-**Goal**: Master all 13 agents and understand when to use each
+**Goal**: Master all 14 agents and understand when to use each
 
 ### What You'll Achieve
 
@@ -463,7 +463,7 @@ Expected flow:
 
 ### Success Criteria
 
-- [ ] Understand all 13 agents and their domains
+- [ ] Understand all 14 agents and their domains
 - [ ] Completed multi-agent feature exercise
 - [ ] Invoked agents directly with @
 - [ ] Saw agents route to each other
@@ -944,7 +944,7 @@ Use this checklist to track your journey:
 - [ ] Understand protocol → agent → memory flow
 
 ### Milestone 3: Agents
-- [ ] Know all 13 agents and their domains
+- [ ] Know all 14 agents and their domains
 - [ ] Completed multi-agent feature
 - [ ] Used @ to invoke agents directly
 - [ ] Saw agents route to each other

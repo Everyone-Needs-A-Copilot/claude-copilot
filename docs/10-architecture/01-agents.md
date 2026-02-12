@@ -1,14 +1,15 @@
 # Meet Your Team
 
-Claude Copilot gives you access to **13 specialized agents**—each an expert in their domain, built using the **lean agent model** with on-demand skill loading.
+Claude Copilot gives you access to **14 specialized agents**—each an expert in their domain, built using the **lean agent model** with on-demand skill loading.
 
 ## Architecture: Lean Agents + Deep Skills
 
-Agents are kept minimal (~60-100 lines) and auto-load domain expertise on demand:
+Agents are kept minimal (under 120 lines) and auto-load domain expertise on demand. Shared boilerplate (skill loading, Task Copilot pattern, iteration loop, return format, etc.) is extracted to the "Agent Shared Behaviors" section in CLAUDE.md, so individual agent files contain only domain-specific logic.
 
 | Component | Size | Purpose |
 |-----------|------|---------|
-| Agent file | ~60-100 lines | Core workflow, routing, behaviors |
+| Agent file | Under 120 lines | Core workflow, routing, behaviors |
+| Shared behaviors | In CLAUDE.md | Skill loading, Task Copilot, iteration, handoffs |
 | Skills | ~200-500 lines each | Domain patterns, anti-patterns, examples |
 | Total context | ~1,000 tokens | Agent + relevant skills only |
 
@@ -19,12 +20,44 @@ Agents are kept minimal (~60-100 lines) and auto-load domain expertise on demand
 4. Work executes with specialized knowledge
 
 **Benefits:**
-- 67% less context per agent (3,000 → 1,000 tokens)
+- ~70% less context per agent (3,000 → 1,000 tokens)
 - Skills loaded only when needed
 - Extensible without modifying agents
 - Faster agent startup
 
-→ [Lean Agent Migration Guide](../50-features/lean-agents-migration.md)
+### Required Tools
+
+All lean agents MUST include these tools:
+
+| Tool | Purpose |
+|------|---------|
+| `preflight_check` | Verify environment before work |
+| `skill_evaluate` | Auto-detect and load skills |
+| `task_get` | Retrieve task details |
+| `task_update` | Update task status |
+| `work_product_store` | Store output |
+
+### Skill Metadata
+
+Skills must have trigger metadata for auto-detection:
+
+```yaml
+---
+skill_name: python-idioms
+trigger_files: ["*.py", "**/*.py", "requirements.txt"]
+trigger_keywords: [python, django, flask, pytest, pythonic]
+---
+```
+
+### Extension Compatibility
+
+Extensions continue to work with lean agents:
+
+| Extension Type | Behavior |
+|----------------|----------|
+| `override` | Replaces the lean agent entirely |
+| `extension` | Adds sections to the lean agent |
+| `skills` | Injects additional skills |
 
 ---
 

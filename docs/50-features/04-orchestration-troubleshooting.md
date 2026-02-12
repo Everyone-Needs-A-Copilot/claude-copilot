@@ -1258,7 +1258,7 @@ tail -100 .claude/orchestrator/logs/*.log
 ## See Also
 
 - **Workflow Guide:** [02-orchestration-workflow.md](./02-orchestration-workflow.md)
-- **Full Feature Guide:** [01-orchestration-guide.md](./01-orchestration-guide.md)
+- **Full Feature Guide:** [02-orchestration-workflow.md](./02-orchestration-workflow.md)
 - **Task Copilot README:** [mcp-servers/task-copilot/README.md](../../mcp-servers/task-copilot/README.md)
 
 ---

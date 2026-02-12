@@ -123,7 +123,7 @@ MCP server providing persistent memory across sessions.
 
 ### 2. Agents (Full Details)
 
-13 specialized agents for complex development tasks using the **lean agent model**.
+14 specialized agents for complex development tasks using the **lean agent model**.
 
 **Location:** `.claude/agents/`
 
@@ -145,17 +145,7 @@ MCP server providing persistent memory across sessions.
 
 **Lean Agent Model:**
 
-Agents are ~60-100 lines and auto-load domain skills using `skill_evaluate`:
-
-```typescript
-// Agents auto-detect relevant skills
-const skills = await skill_evaluate({
-  files: ['src/auth/login.ts'],     // Files being worked on
-  text: task.description,            // Task context
-  threshold: 0.5                     // Minimum confidence
-});
-// Then load matching skills via @include
-```
+Agents are 60-120 lines each. Shared boilerplate (skill loading, Task Copilot pattern, iteration loop, return format, context compaction, knowledge pull-based, specification workflow, multi-agent handoff, protocol integration) is extracted to the "Agent Shared Behaviors" section in CLAUDE.md. Individual agent files contain only domain-specific logic, core behaviors, output format, and routing tables.
 
 **Required Agent Tools:**
 
@@ -286,8 +276,8 @@ Streams are automatically archived when switching initiatives via `initiative_li
 | Re-link same initiative | No archival (streams preserved) |
 | `/continue Stream-A` | Only shows current initiative's streams |
 | `/orchestrate generate` | Calls `initiative_link()` → archives old streams before creating new ones |
-| `/orchestrate start` | Only spawns workers for current initiative's streams |
-| `watch-status` | Only displays streams from active initiative |
+| `/orchestrate start` | Sets up worktrees for current initiative's streams (native `Task` tool launches agents) |
+| `/orchestrate status` | Only displays streams from active initiative |
 | Need old stream back | Use `stream_unarchive({ streamId: "Stream-A" })` |
 
 **After Updating from Pre-1.7.1:** Run `stream_archive_all({ confirm: true })` once to clean up legacy streams from before the auto-archive feature.
@@ -375,7 +365,7 @@ Commands enforcing battle-tested workflows.
 | `/pause [reason]` | Project | Create named checkpoint with extended expiry for context switching |
 | `/map` | Project | Generate PROJECT_MAP.md with codebase analysis |
 | `/memory` | Project | View current memory state and recent activity |
-| `/orchestrate` | Project | Set up and manage parallel stream orchestration |
+| `/orchestrate` | Project | Scaffolding for parallel streams (PRD, tasks, worktrees, conflict check); native `Task` tool handles agent execution |
 
 **Quick Start Examples:**
 ```
@@ -384,8 +374,10 @@ Commands enforcing battle-tested workflows.
 /continue Stream-B                            → Resume parallel stream work
 /pause switching to urgent bug                → Create checkpoint with reason
 /map                                          → Generate project structure map
-/orchestrate start                            → Start parallel workers for all streams
+/orchestrate generate                         → Create PRD + stream tasks via @agent-ta
+/orchestrate start                            → Set up worktrees, print launch instructions
 /orchestrate status                           → Check progress of all streams
+/orchestrate merge                            → Merge completed worktrees back to main
 ```
 
 ---

@@ -79,10 +79,35 @@ const result = await iteration_start({
 src/validation/
 ├── iteration-hook-types.ts      # TypeScript type definitions
 ├── iteration-hook-examples.ts   # Practical configuration examples
-├── HOOK-CONFIGURATION.md        # Complete documentation
-├── HOOK-README.md              # This file (quick reference)
+├── HOOK-README.md              # This file (hook system documentation)
 └── iteration-types.ts          # Validation rule types
 ```
+
+## Architecture
+
+```
+iteration_start
+    |
+    v
+  PRE-ITERATION HOOKS    <- Setup, validation prep
+    |
+    v
+  AGENT ITERATION         <- Agent performs work
+    |
+    v
+  POST-ITERATION HOOKS   <- Cleanup, metrics
+    |
+    v
+  STOP HOOKS              <- Check completion
+    |
+    v
+  CIRCUIT BREAKERS        <- Safety checks
+    |
+    v
+  CONTINUE / COMPLETE / ESCALATE
+```
+
+---
 
 ## Hook Types
 
@@ -400,6 +425,60 @@ Enforces maximum time limits.
 }
 ```
 
+## Hook Execution Order
+
+Within each phase, hooks execute in priority order (ascending -- lower number runs first):
+
+1. **Pre-Iteration Hooks**
+2. **Agent Work**
+3. **Post-Iteration Hooks**
+4. **Stop Hooks** (first match wins)
+5. **Circuit Breakers** (first trip wins)
+
+## Action Context
+
+All hook actions have access to:
+
+- `taskId` -- Current task ID
+- `iterationNumber` -- Current iteration number
+- `hookType` -- Type of hook executing
+- `trigger` -- Hook trigger condition
+
+## Conditional Triggers
+
+For `conditional` triggers, provide a JavaScript expression:
+
+```typescript
+{
+  trigger: 'conditional',
+  condition: 'iteration % 5 === 0' // Every 5th iteration
+}
+```
+
+Available variables: `iteration`, `config` (full iteration config), `history` (iteration history array).
+
+## Error Handling
+
+Hooks can fail gracefully or fail the iteration:
+
+```typescript
+{ failOnError: false } // Continue even if hook fails
+```
+
+Global error handling:
+
+```typescript
+{
+  global: {
+    continueOnError: true,
+    maxHooksPerIteration: 20,
+    maxHookDuration: 60000
+  }
+}
+```
+
+---
+
 ## Best Practices
 
 1. **Keep Stop Hooks Simple** - Focus on objective, measurable criteria
@@ -443,15 +522,7 @@ Both formats are supported for backward compatibility.
 
 ## See Also
 
-- **Full Documentation**: `HOOK-CONFIGURATION.md`
 - **Type Definitions**: `iteration-hook-types.ts`
 - **Validation Rules**: `iteration-types.ts`
 - **Examples**: `iteration-hook-examples.ts`
 - **Iteration Tools**: `../tools/iteration.ts`
-
-## Support
-
-For issues or questions:
-1. Check `HOOK-CONFIGURATION.md` for detailed documentation
-2. Review `iteration-hook-examples.ts` for practical examples
-3. Consult type definitions in `iteration-hook-types.ts`
