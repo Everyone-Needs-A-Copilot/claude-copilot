@@ -1,16 +1,16 @@
 {
   "framework": "2.8.0",
-  "lastUpdated": "2026-02-05T00:00:00.000Z",
+  "lastUpdated": "2026-02-12T00:00:00.000Z",
   "components": {
     "mcp-servers": {
       "copilot-memory": {
-        "version": "2.6.0",
+        "version": "2.8.0",
         "path": "mcp-servers/copilot-memory",
         "buildRequired": true,
         "checkFile": "dist/index.js"
       },
       "skills-copilot": {
-        "version": "2.6.0",
+        "version": "2.8.0",
         "path": "mcp-servers/skills-copilot",
         "buildRequired": true,
         "checkFile": "dist/index.js"
@@ -55,7 +55,7 @@
       ]
     },
     "skills": {
-      "version": "2.6.0",
+      "version": "2.8.0",
       "path": ".claude/skills",
       "categories": [
         "code",
@@ -66,7 +66,7 @@
       ]
     },
     "templates": {
-      "version": "2.7.0",
+      "version": "2.8.0",
       "path": "templates",
       "includes": [
         "mcp.json",
