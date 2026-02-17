@@ -28,6 +28,12 @@ Displays current task/stream progress in a compact format.
 [Stream-C] ⚠ 25% | opus | ~3.4k tokens
 ```
 
+With a token budget configured:
+
+```
+[Stream-A] ▶ 50% | sonnet | ~1.2k/2.5k tokens
+```
+
 ### Components
 
 | Part | Description | Example |

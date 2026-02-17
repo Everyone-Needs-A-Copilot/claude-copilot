@@ -106,6 +106,18 @@ This file configures the MCP servers that power Claude Copilot.
 | `KNOWLEDGE_REPO_PATH` | No | - | Project-specific knowledge |
 | `GLOBAL_KNOWLEDGE_PATH` | No | `~/.claude/knowledge` | Machine-wide knowledge |
 
+### Task Copilot
+
+| Variable | Required | Default | Purpose |
+|----------|----------|---------|---------|
+| `TASK_DB_PATH` | No | - | Override SQLite database path |
+| `WORKSPACE_ID` | No | - | Workspace identifier for task scoping |
+| `LOG_LEVEL` | No | `info` | Logging level |
+| `HTTP_API_HOST` | No | `127.0.0.1` | API host |
+| `HTTP_API_PORT` | No | `9090` | API port |
+| `ECOMODE_THRESHOLD_LOW` | No | `0.3` | Ecomode low threshold (0-1) |
+| `ECOMODE_THRESHOLD_MEDIUM` | No | `0.7` | Ecomode medium threshold (0-1) |
+
 ---
 
 ## External Services

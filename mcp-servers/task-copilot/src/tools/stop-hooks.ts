@@ -13,6 +13,7 @@ import type {
   ValidationState,
   WorkProductType
 } from '../types.js';
+import { extractSummary, estimateTokens as estimateContextTokens } from '../utils/context-monitor.js';
 
 // ============================================================================
 // TYPES
@@ -548,6 +549,24 @@ export function createDefaultHook(taskId: string): string {
   return registerStopHook(
     { taskId },
     (context: AgentContext): StopHookResult => {
+      const buildBlockedCheckpoint = (): CheckpointData | undefined => {
+        const source = context.draftContent || context.agentOutput;
+        if (!source) return undefined;
+
+        const summary = extractSummary(source, 200);
+        return {
+          executionPhase: 'blocked',
+          agentContext: {
+            autoCompacted: true,
+            summaryTokens: estimateContextTokens(summary),
+            summarySource: context.draftContent ? 'draftContent' : 'agentOutput',
+            summaryCreatedAt: new Date().toISOString(),
+          },
+          draftContent: summary,
+          draftType: context.draftType || 'other'
+        };
+      };
+
       // 1. Check for explicit promises first (highest priority)
       const completePromise = context.completionPromises.find(p => p.type === 'COMPLETE');
       if (completePromise) {
@@ -569,7 +588,8 @@ export function createDefaultHook(taskId: string): string {
       if (blockedPromise) {
         return {
           action: 'escalate',
-          reason: 'Agent signaled blocked state via <promise>BLOCKED</promise>'
+          reason: 'Agent signaled blocked state via <promise>BLOCKED</promise>',
+          checkpointData: buildBlockedCheckpoint()
         };
       }
 

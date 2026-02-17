@@ -283,6 +283,20 @@ routeToModel({
 });
 ```
 
+### Environment Overrides
+
+Set global thresholds via environment variables (used when no explicit `thresholds` are passed):
+
+```
+ECOMODE_THRESHOLD_LOW=0.25
+ECOMODE_THRESHOLD_MEDIUM=0.65
+```
+
+Rules:
+- Values must be between 0 and 1
+- `low` must be less than `medium`
+- Invalid values fall back to defaults
+
 ---
 
 ## Related Documentation

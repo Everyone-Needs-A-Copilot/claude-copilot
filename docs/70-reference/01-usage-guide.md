@@ -497,3 +497,4 @@ End of day:  /pause [notes]
 - [Decision Guide](DECISION-GUIDE.md) - When to use what
 - [Customization](CUSTOMIZATION.md) - Extensions and knowledge repos
 - [Enhancement Features](ENHANCEMENT-FEATURES.md) - Advanced context engineering
+- [Token Efficiency Playbook](../30-operations/04-token-efficiency-playbook.md) - Keep usage low without losing rigor

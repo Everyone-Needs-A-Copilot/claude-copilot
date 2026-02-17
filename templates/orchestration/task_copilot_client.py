@@ -404,6 +404,60 @@ class TaskCopilotClient:
         except sqlite3.Error:
             return None
 
+    def stream_tasks(self, stream_id: str, initiative_id: Optional[str] = None) -> list:
+        """Get task IDs and titles for a specific stream.
+
+        Returns list of dicts with 'id', 'title', 'status', 'description',
+        'assigned_agent', and 'phase' keys.
+        """
+        phase_order_sql = """
+            ORDER BY
+                CASE json_extract({prefix}metadata, '$.phase')
+                    WHEN 'backend' THEN 1
+                    WHEN 'frontend' THEN 2
+                    WHEN 'quality' THEN 3
+                    WHEN 'docs' THEN 4
+                    WHEN 'devops' THEN 5
+                    WHEN 'integration' THEN 6
+                    ELSE 99
+                END, {prefix}created_at
+        """
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            if initiative_id:
+                cursor.execute(f"""
+                    SELECT t.id, t.title, t.status, t.description,
+                           t.assigned_agent,
+                           json_extract(t.metadata, '$.phase') as phase
+                    FROM tasks t
+                    LEFT JOIN prds p ON t.prd_id = p.id
+                    WHERE json_extract(t.metadata, '$.streamId') = ?
+                      AND t.archived = 0
+                      AND p.initiative_id = ?
+                    {phase_order_sql.format(prefix='t.')}
+                """, (stream_id, initiative_id))
+            else:
+                cursor.execute(f"""
+                    SELECT id, title, status, description,
+                           assigned_agent,
+                           json_extract(metadata, '$.phase') as phase
+                    FROM tasks
+                    WHERE json_extract(metadata, '$.streamId') = ?
+                      AND archived = 0
+                    {phase_order_sql.format(prefix='')}
+                """, (stream_id,))
+
+            return [
+                {
+                    "id": row[0], "title": row[1], "status": row[2], "description": row[3],
+                    "assigned_agent": row[4] or "me", "phase": row[5] or "backend"
+                }
+                for row in cursor.fetchall()
+            ]
+        finally:
+            conn.close()
+
     def get_stream_tasks_by_status(self, stream_id: str, status: TaskStatus) -> List[Dict]:
         """
         Get tasks for a stream filtered by status.

@@ -28,6 +28,37 @@ export const DEFAULT_THRESHOLDS = {
   /** Above medium = opus (high complexity) */
 } as const;
 
+export function parseThresholdEnv(value: string | undefined): number | null {
+  if (!value) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  if (parsed <= 0 || parsed >= 1) return null;
+  return parsed;
+}
+
+function getConfiguredThresholds(): RoutingThresholds | null {
+  const low = parseThresholdEnv(process.env.ECOMODE_THRESHOLD_LOW);
+  const medium = parseThresholdEnv(process.env.ECOMODE_THRESHOLD_MEDIUM);
+
+  if (low === null && medium === null) {
+    return null;
+  }
+
+  const thresholds: RoutingThresholds = {
+    low: low ?? DEFAULT_THRESHOLDS.low,
+    medium: medium ?? DEFAULT_THRESHOLDS.medium,
+  };
+
+  if (thresholds.low >= thresholds.medium) {
+    console.warn(
+      '[ecomode] Invalid thresholds: low must be < medium. Using defaults.'
+    );
+    return null;
+  }
+
+  return thresholds;
+}
+
 /**
  * Configurable thresholds
  */
@@ -247,7 +278,7 @@ export interface ModelRoutingResult {
  * ```
  */
 export function routeToModel(input: ModelRoutingInput): ModelRoutingResult {
-  const thresholds = input.thresholds ?? DEFAULT_THRESHOLDS;
+  const thresholds = input.thresholds ?? getConfiguredThresholds() ?? DEFAULT_THRESHOLDS;
 
   // Detect modifier keywords
   const combinedText = [input.title, input.description, input.context].filter(Boolean).join(' ');

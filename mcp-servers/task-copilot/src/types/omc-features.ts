@@ -197,6 +197,9 @@ export interface StatuslineState {
   /** Stream ID if parallel work */
   streamId?: string;
 
+  /** Optional token budget for stream/task */
+  tokenBudget?: number;
+
   /** Files being modified */
   activeFiles: string[];
 

@@ -13,9 +13,14 @@
     "src/tools/__tests__/activation-mode-validation.test.ts",
     "src/tools/__tests__/auto-commit.test.ts",
     "src/tools/__tests__/verification-enforcement.test.ts",
+    "src/tools/__tests__/stream-security.test.ts",
+    "src/tools/__tests__/stream-paths.test.ts",
     "src/tools/progress-visibility.integration.test.ts",
     "src/tools/iteration-guards.test.ts",
-    "src/utils/__tests__/progress-bar.test.ts"
+    "src/utils/__tests__/progress-bar.test.ts",
+    "src/utils/__tests__/stream-tokens.test.ts",
+    "src/ecomode/__tests__/model-router.test.ts",
+    "src/hud/__tests__/statusline.test.ts"
   ],
   "exclude": [
     "node_modules",

@@ -81,6 +81,7 @@ import type {
   TaskStatus,
   TaskMetadata
 } from '../types.js';
+import { getStreamTokenBudgetFromMetadata, getStreamTokenUsage } from '../utils/stream-tokens.js';
 
 /**
  * Validate stream dependencies for circular references
@@ -127,6 +128,47 @@ export function validateStreamDependencies(
   }
 
   return null;
+}
+
+export function pathMatchesPattern(filePath: string, pattern: string): boolean {
+  if (!pattern) return false;
+
+  // H-1: ReDoS protection - enforce limits on pattern complexity
+  const MAX_PATTERN_LENGTH = 500;
+  const MAX_WILDCARD_COUNT = 10;
+
+  if (pattern.length > MAX_PATTERN_LENGTH) {
+    throw new Error(
+      `Pattern too long: ${pattern.length} chars exceeds maximum ${MAX_PATTERN_LENGTH}`
+    );
+  }
+
+  const wildcardCount = (pattern.match(/\*/g) || []).length;
+  if (wildcardCount > MAX_WILDCARD_COUNT) {
+    throw new Error(
+      `Too many wildcards: ${wildcardCount} exceeds maximum ${MAX_WILDCARD_COUNT}`
+    );
+  }
+
+  // Treat trailing slash as directory prefix
+  if (pattern.endsWith('/')) {
+    return filePath.startsWith(pattern);
+  }
+
+  const hasGlob = /[*?]/.test(pattern);
+  if (!hasGlob) {
+    return filePath === pattern || filePath.startsWith(`${pattern}/`);
+  }
+
+  // Convert glob to regex (supports **, *, ?)
+  const escaped = pattern.replace(/[.+^${}()|[\]\\*?]/g, '\\$&');
+  const regexText = escaped
+    .replace(/\/\\\*\\\*\//g, '(?:/.*)?/')  // /**/ → zero or more directory levels
+    .replace(/\\\*\\\*/g, '.*')             // remaining ** → match anything
+    .replace(/\\\*/g, '[^/]*')              // * → match within single level
+    .replace(/\\\?/g, '.');                 // ? → match single character
+  const regex = new RegExp(`^${regexText}$`);
+  return regex.test(filePath);
 }
 
 /**
@@ -198,6 +240,7 @@ export function streamList(db: DatabaseClient, input: StreamListInput): StreamLi
       metadata: TaskMetadata;
     }>;
     filesSet: Set<string>;
+    streamPathsSet: Set<string>;
     dependenciesSet: Set<string>;
   }>();
 
@@ -214,6 +257,7 @@ export function streamList(db: DatabaseClient, input: StreamListInput): StreamLi
         streamPhase: metadata.streamPhase || 'parallel',
         tasks: [],
         filesSet: new Set(),
+        streamPathsSet: new Set(),
         dependenciesSet: new Set()
       });
     }
@@ -228,6 +272,10 @@ export function streamList(db: DatabaseClient, input: StreamListInput): StreamLi
     // Collect files
     if (metadata.files) {
       metadata.files.forEach(f => stream.filesSet.add(f));
+    }
+
+    if (metadata.streamPaths) {
+      metadata.streamPaths.forEach(p => stream.streamPathsSet.add(p));
     }
 
     // Collect dependencies
@@ -249,6 +297,10 @@ export function streamList(db: DatabaseClient, input: StreamListInput): StreamLi
     const worktreePath = firstTask?.metadata?.worktreePath;
     const branchName = firstTask?.metadata?.branchName;
 
+    const tokenBudget = getStreamTokenBudgetFromMetadata(stream.tasks.map(task => task.metadata));
+    const tokenUsage = getStreamTokenUsage(db, stream.streamId, targetInitiativeId, includeArchived);
+    const overBudget = tokenBudget !== null && tokenUsage > tokenBudget;
+
     return {
       streamId: stream.streamId,
       streamName: stream.streamName,
@@ -259,7 +311,11 @@ export function streamList(db: DatabaseClient, input: StreamListInput): StreamLi
       blockedTasks,
       pendingTasks,
       files: Array.from(stream.filesSet),
+      streamPaths: Array.from(stream.streamPathsSet),
       dependencies: Array.from(stream.dependenciesSet),
+      tokenBudget: tokenBudget ?? undefined,
+      tokenUsage,
+      overBudget,
       worktreePath,
       branchName
     };
@@ -372,6 +428,10 @@ export function streamGet(db: DatabaseClient, input: StreamGetInput): StreamGetO
   const worktreePath = tasks[0]?.metadata?.worktreePath;
   const branchName = tasks[0]?.metadata?.branchName;
 
+  const tokenBudget = getStreamTokenBudgetFromMetadata(tasks.map(task => task.metadata));
+  const tokenUsage = getStreamTokenUsage(db, streamId, initiativeId, includeArchived);
+  const overBudget = tokenBudget !== null && tokenUsage > tokenBudget;
+
   // Check if stream is archived (all tasks have archived flag set)
   const firstTaskRow = taskRows[0];
   const archived = firstTaskRow && (firstTaskRow as any).archived === 1;
@@ -385,6 +445,9 @@ export function streamGet(db: DatabaseClient, input: StreamGetInput): StreamGetO
     tasks,
     dependencies,
     status,
+    tokenBudget: tokenBudget ?? undefined,
+    tokenUsage,
+    overBudget,
     worktreePath,
     branchName,
     archived,
@@ -594,6 +657,36 @@ export function streamConflictCheck(
   }
 
   const conflicts: StreamConflictCheckOutput['conflicts'] = [];
+  const conflictKeySet = new Set<string>();
+
+  const addConflict = (
+    file: string,
+    metadata: TaskMetadata,
+    task: { id: string; title: string; status: string }
+  ): void => {
+    if (!metadata.streamId) {
+      return;
+    }
+
+    if (metadata.worktreePath) {
+      return;
+    }
+
+    const key = `${file}::${metadata.streamId}::${task.id}`;
+    if (conflictKeySet.has(key)) {
+      return;
+    }
+    conflictKeySet.add(key);
+
+    conflicts.push({
+      file,
+      streamId: metadata.streamId,
+      streamName: metadata.streamName || metadata.streamId,
+      taskId: task.id,
+      taskTitle: task.title,
+      taskStatus: task.status as TaskStatus
+    });
+  };
 
   // For each file, search for tasks that touch it
   for (const file of files) {
@@ -635,20 +728,50 @@ export function streamConflictCheck(
 
     for (const task of conflictingTasks) {
       const metadata = JSON.parse(task.metadata) as TaskMetadata;
-      if (metadata.streamId) {
-        // Skip if conflicting stream has worktree isolation
-        if (metadata.worktreePath) {
-          continue;
-        }
+      addConflict(file, metadata, task);
+    }
+  }
 
-        conflicts.push({
-          file,
-          streamId: metadata.streamId,
-          streamName: metadata.streamName || metadata.streamId,
-          taskId: task.id,
-          taskTitle: task.title,
-          taskStatus: task.status as TaskStatus
-        });
+  // Also check stream path ownership patterns (streamPaths) for conflicts
+  const pathSqlParts: string[] = [
+    'SELECT t.id, t.title, t.status, t.metadata FROM tasks t'
+  ];
+  const pathParams: unknown[] = [];
+
+  if (initiativeId) {
+    pathSqlParts.push('JOIN prds p ON t.prd_id = p.id');
+    pathSqlParts.push('WHERE p.initiative_id = ?');
+    pathParams.push(initiativeId);
+  } else {
+    pathSqlParts.push('WHERE 1=1');
+  }
+
+  pathSqlParts.push('AND json_extract(t.metadata, \'$.streamPaths\') IS NOT NULL');
+  pathSqlParts.push('AND t.status IN (\'in_progress\', \'completed\')');
+
+  if (excludeStreamId) {
+    pathSqlParts.push('AND json_extract(t.metadata, \'$.streamId\') != ?');
+    pathParams.push(excludeStreamId);
+  }
+
+  const pathSql = pathSqlParts.join('\n');
+  const pathTasks = db.getDb().prepare(pathSql).all(...pathParams) as Array<{
+    id: string;
+    title: string;
+    status: string;
+    metadata: string;
+  }>;
+
+  for (const task of pathTasks) {
+    const metadata = JSON.parse(task.metadata) as TaskMetadata;
+    const streamPaths = metadata.streamPaths || [];
+    if (!metadata.streamId || streamPaths.length === 0) {
+      continue;
+    }
+
+    for (const file of files) {
+      if (streamPaths.some(pattern => pathMatchesPattern(file, pattern))) {
+        addConflict(file, metadata, task);
       }
     }
   }

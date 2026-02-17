@@ -86,9 +86,11 @@ export interface TaskMetadata extends Record<string, unknown> {
   streamName?: string;         // Human-readable: "foundation", "auth-api", etc.
   streamPhase?: 'foundation' | 'parallel' | 'integration';
   files?: string[];            // File paths this task will touch
+  streamPaths?: string[];      // Optional glob/prefix patterns for stream ownership
   streamDependencies?: string[]; // Other streamIds this depends on
   worktreePath?: string;       // Git worktree path for this stream
   branchName?: string;         // Git branch name for this stream
+  streamTokenBudget?: number;  // Optional per-stream token budget (estimated tokens)
 
   // Quality gates (Quality Gates Configuration)
   qualityGates?: string[];    // Gate names to run before task completion
@@ -820,7 +822,11 @@ export interface StreamInfo {
   blockedTasks: number;
   pendingTasks: number;
   files: string[];
+  streamPaths: string[];
   dependencies: string[];
+  tokenBudget?: number;
+  tokenUsage?: number;
+  overBudget?: boolean;
   // Git worktree isolation
   worktreePath?: string;
   branchName?: string;
@@ -843,6 +849,9 @@ export interface StreamGetOutput {
   tasks: Task[];
   dependencies: string[];
   status: 'pending' | 'in_progress' | 'completed' | 'blocked';
+  tokenBudget?: number;
+  tokenUsage?: number;
+  overBudget?: boolean;
   // Git worktree isolation
   worktreePath?: string;
   branchName?: string;

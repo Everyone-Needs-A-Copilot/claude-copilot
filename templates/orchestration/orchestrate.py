@@ -514,11 +514,15 @@ class Orchestrator:
                 # All parallel streams use worktrees, main stream uses project root
                 worktree = "." if stream_info.stream_id == "main" else f".claude/worktrees/{stream_info.stream_id}"
 
+                # Fetch tasks for this stream
+                tasks = self.tc_client.stream_tasks(stream_info.stream_id, self.initiative_id)
+
                 streams[stream_info.stream_id] = {
                     "id": stream_info.stream_id,
                     "name": stream_info.stream_name,
                     "dependencies": stream_info.dependencies,
                     "worktree": worktree,
+                    "tasks": tasks,
                 }
 
             log(f"Found {len(streams)} streams")
@@ -936,25 +940,36 @@ class Orchestrator:
                     t.status,
                     t.assigned_agent,
                     json_extract(t.metadata, '$.streamId') as stream_id,
-                    json_extract(t.metadata, '$.files') as files
+                    json_extract(t.metadata, '$.files') as files,
+                    json_extract(t.metadata, '$.phase') as phase
                 FROM tasks t
                 LEFT JOIN prds p ON t.prd_id = p.id
                 WHERE json_extract(t.metadata, '$.streamId') IS NOT NULL
                   AND t.archived = 0
                   AND p.initiative_id = ?
-                ORDER BY json_extract(t.metadata, '$.streamId'), t.created_at
+                ORDER BY json_extract(t.metadata, '$.streamId'),
+                    CASE json_extract(t.metadata, '$.phase')
+                        WHEN 'backend' THEN 1
+                        WHEN 'frontend' THEN 2
+                        WHEN 'quality' THEN 3
+                        WHEN 'docs' THEN 4
+                        WHEN 'devops' THEN 5
+                        WHEN 'integration' THEN 6
+                        ELSE 99
+                    END, t.created_at
             """, (self.initiative_id,))
 
             tasks = []
             for row in cursor.fetchall():
-                task_id, title, status, agent, stream_id, files = row
+                task_id, title, status, agent, stream_id, files, phase = row
                 tasks.append({
                     'id': task_id,
                     'title': title,
                     'status': status,
                     'assigned_agent': agent or 'me',
                     'stream_id': stream_id,
-                    'files': files
+                    'files': files,
+                    'phase': phase or 'backend'
                 })
 
             return tasks
@@ -983,160 +998,59 @@ class Orchestrator:
         }
 
     def _build_prompt(self, stream: dict) -> str:
-        """Build the prompt for a Claude Code worker."""
+        """Build the Foreman prompt for a Claude Code worker.
+
+        Loads foreman-prompt.md template and populates it with stream data,
+        including a task table with Agent and Phase columns.
+        """
         dependencies = self.stream_dependencies.get(stream['id'], set())
         deps_str = ", ".join(dependencies) if dependencies else "None"
 
-        return f"""You are a worker agent in the Claude Copilot orchestration system.
+        # Determine worktree path
+        if stream["worktree"] == ".":
+            worktree_path = str(PROJECT_ROOT)
+        else:
+            worktree_path = str(PROJECT_ROOT / stream["worktree"])
 
-## Your Assignment
-- Stream: {stream['id']}
-- Stream Name: {stream['name']}
-- Dependencies: {deps_str}
+        # Build task table with Agent + Phase columns
+        tasks = stream.get("tasks", [])
+        table_lines = ["| Task ID | Title | Agent | Phase |", "|---------|-------|-------|-------|"]
+        for task in tasks:
+            table_lines.append(
+                f"| {task['id']} | {task['title']} | {task.get('assigned_agent', 'me')} | {task.get('phase', 'backend')} |"
+            )
+        task_table = "\n".join(table_lines)
 
-## MANDATORY PROTOCOL - YOU MUST FOLLOW THIS EXACTLY
+        # Get any task ID for the completion summary placeholder
+        any_task_id = tasks[0]['id'] if tasks else "TASK-xxx"
+        task_count = len(tasks)
 
-### Step 1: Query Your Tasks
-Call `task_list` with streamId filter to get your assigned tasks:
-```
-task_list(metadata.streamId="{stream['id']}")
-```
+        # Load foreman-prompt.md template
+        foreman_template_path = SCRIPT_DIR / "foreman-prompt.md"
+        try:
+            template = foreman_template_path.read_text()
+        except FileNotFoundError:
+            error(f"Foreman prompt template not found: {foreman_template_path}")
+            error("Falling back to basic prompt.")
+            # Minimal fallback
+            return f"You are a Stream Foreman for {stream['id']}. Execute tasks: {task_table}"
 
-### Step 2: Route Each Task to Its Assigned Agent
+        # Strip the template instruction header (everything before "You are a **Stream Foreman**")
+        marker = "You are a **Stream Foreman**"
+        marker_pos = template.find(marker)
+        if marker_pos > 0:
+            template = template[marker_pos:]
 
-**For EACH task in order:**
+        # Replace placeholders
+        prompt = template.replace("{stream_id}", stream['id'])
+        prompt = prompt.replace("{stream_name}", stream['name'])
+        prompt = prompt.replace("{worktree_path}", worktree_path)
+        prompt = prompt.replace("{dependencies}", deps_str)
+        prompt = prompt.replace("{task_table}", task_table)
+        prompt = prompt.replace("{task_count}", str(task_count))
+        prompt = prompt.replace("{any_stream_task_id}", any_task_id)
 
-1. **Get task details:**
-   ```
-   task_get(id="TASK-xxx")
-   ```
-
-2. **Check the assignedAgent field:**
-   - If `assignedAgent` is "me", execute the task yourself
-   - If `assignedAgent` is anything else (uid, qa, sec, uxd, etc.), invoke that agent
-
-3. **Route to specialized agent:**
-   ```
-   # Use Task tool to invoke the specialized agent
-   Task: Execute task TASK-xxx
-   Subagent: @agent-{{assignedAgent}}
-   Context: [Brief task context from task.title and task.description]
-   ```
-
-4. **Wait for agent to complete:**
-   - The specialized agent will call skill_evaluate() to load domain skills
-   - The specialized agent will execute the task
-   - The specialized agent will call task_update() when complete
-
-5. **Move to next task:**
-   - Do NOT mark tasks as complete yourself (agents do this)
-   - Simply move to the next task in your stream
-
-### Step 3: Verify Before Exiting
-
-**Before outputting any completion summary:**
-1. Call `task_list(metadata.streamId="{stream['id']}")` again
-2. Check that ALL tasks have `status: "completed"`
-3. If ANY task is still `pending` or `in_progress`, investigate and retry
-4. Only after verification passes, output your summary
-
-### Step 4: Output Summary
-Only after ALL tasks are verified complete in Task Copilot, output:
-- List of tasks routed to which agents
-- Which agents completed their work
-- Any commits made
-- Any issues encountered
-
-## CRITICAL RULES
-- DO NOT execute tasks assigned to specialized agents yourself
-- Each specialized agent loads their own domain skills via skill_evaluate()
-- DO NOT claim "complete" without verifying in Task Copilot first
-- Stay focused on {stream['id']} tasks only
-- If an agent is blocked, check task status and coordinate
-
-## Specialized Agent Examples
-
-**Example 1: UI Implementation Task**
-```
-Task Details:
-- id: TASK-123
-- title: "Implement topic card component"
-- assignedAgent: "uid"
-
-Action: Invoke @agent-uid via Task tool
-→ @agent-uid will call skill_evaluate() with files/context
-→ @agent-uid will load design-patterns or ux-patterns skills
-→ @agent-uid will implement component with accessibility
-→ @agent-uid will call work_product_store(taskId, type="implementation", ...)
-→ @agent-uid will call task_update(id="TASK-123", status="completed")
-```
-
-**Example 2: Testing Task**
-```
-Task Details:
-- id: TASK-456
-- title: "Add tests for evidence selector"
-- assignedAgent: "qa"
-
-Action: Invoke @agent-qa via Task tool
-→ @agent-qa will call skill_evaluate() with test file context
-→ @agent-qa will load pytest-patterns or jest-patterns skills
-→ @agent-qa will write comprehensive tests
-→ @agent-qa will call work_product_store(taskId, type="test_plan", ...)
-→ @agent-qa will call task_update(id="TASK-456", status="completed")
-```
-
-**Example 3: Generic Implementation Task**
-```
-Task Details:
-- id: TASK-789
-- title: "Fix evidence migration bug"
-- assignedAgent: "me"
-
-Action: Execute yourself (you are 'me')
-→ Call task_update(id="TASK-789", status="in_progress")
-→ Execute the fix
-→ Store work product (REQUIRED before completion)
-→ Call task_update(id="TASK-789", status="completed")
-```
-
-## MANDATORY: Work Product Before Completion
-
-**CRITICAL: You MUST store a work product before marking ANY task as completed.**
-
-Tasks have `verificationRequired=true` which enforces:
-1. Task must have `acceptanceCriteria` in metadata (set by @agent-ta)
-2. Task must have proof of completion (work product OR detailed notes)
-
-**Before calling `task_update(status="completed")`, ALWAYS call:**
-
-```
-work_product_store({{
-  taskId: "TASK-xxx",
-  type: "implementation",  // or "test_plan", "documentation", etc.
-  title: "Brief title of what was done",
-  content: "Summary of changes:\\n- File1: description\\n- File2: description\\nTest results: PASSED"
-}})
-```
-
-**Work product content should include:**
-- Files modified with brief descriptions
-- Key changes made
-- Test results or verification steps
-- Any issues encountered and how they were resolved
-
-**If you skip this step, task_update will FAIL with verification error.**
-
-## Anti-Patterns (NEVER DO THESE)
-- Executing uid/qa/sec tasks yourself instead of routing
-- Outputting "All tasks complete" without verifying Task Copilot
-- Skipping agent routing for specialized tasks
-- Marking other agents' tasks as complete yourself
-- Calling task_update(status="completed") WITHOUT first calling work_product_store()
-- Providing minimal/empty work product content (must be substantive)
-
-Begin by querying your task list with task_list.
-"""
+        return prompt
 
     def spawn_worker(self, stream_id: str, wait_for_deps: bool = True, skip_preflight: bool = False) -> bool:
         """Spawn a Claude Code worker for a stream.
@@ -1607,7 +1521,7 @@ Begin by querying your task list with task_list.
 
                 print(f"  {Colors.MAGENTA}{stream_id}{Colors.NC}: {stream['name']}{deps_str}")
 
-                # Display tasks with agent assignments
+                # Display tasks with agent assignments, grouped by phase
                 agent_colors = {
                     'me': Colors.GREEN,
                     'uid': Colors.CYAN,
@@ -1617,25 +1531,49 @@ Begin by querying your task list with task_list.
                     'ta': Colors.BLUE,
                     'sd': Colors.BLUE,
                     'doc': Colors.DIM,
+                    'do': Colors.DIM,
                 }
 
+                # Group tasks by phase
+                phase_order = ['backend', 'frontend', 'quality', 'docs', 'devops', 'integration']
+                tasks_by_phase = defaultdict(list)
                 for task in tasks:
-                    agent = task['assigned_agent']
-                    color = agent_colors.get(agent, Colors.NC)
-                    status_icon = {
-                        'completed': f"{Colors.GREEN}✓{Colors.NC}",
-                        'in_progress': f"{Colors.YELLOW}◐{Colors.NC}",
-                        'pending': f"{Colors.DIM}○{Colors.NC}",
-                        'blocked': f"{Colors.RED}✗{Colors.NC}",
-                    }.get(task['status'], "?")
+                    phase = task.get('phase', 'backend')
+                    tasks_by_phase[phase].append(task)
 
-                    # Truncate title if too long
-                    title = task['title']
-                    if len(title) > 60:
-                        title = title[:57] + "..."
+                for phase in phase_order:
+                    if phase not in tasks_by_phase:
+                        continue
+                    phase_tasks = tasks_by_phase[phase]
+                    parallel_label = f" ({len(phase_tasks)} parallel)" if len(phase_tasks) > 1 else ""
+                    print(f"    {Colors.BOLD}Phase: {phase}{parallel_label}{Colors.NC}")
 
-                    print(f"    {status_icon} {task['id']} → {color}@agent-{agent}{Colors.NC}")
-                    print(f"      {Colors.DIM}{title}{Colors.NC}")
+                    for task in phase_tasks:
+                        agent = task['assigned_agent']
+                        color = agent_colors.get(agent, Colors.NC)
+                        status_icon = {
+                            'completed': f"{Colors.GREEN}✓{Colors.NC}",
+                            'in_progress': f"{Colors.YELLOW}◐{Colors.NC}",
+                            'pending': f"{Colors.DIM}○{Colors.NC}",
+                            'blocked': f"{Colors.RED}✗{Colors.NC}",
+                        }.get(task['status'], "?")
+
+                        # Truncate title if too long
+                        title = task['title']
+                        if len(title) > 55:
+                            title = title[:52] + "..."
+
+                        print(f"      {status_icon} {task['id']} → {color}@agent-{agent}{Colors.NC}  {Colors.DIM}{title}{Colors.NC}")
+
+                # Show any phases not in the standard order
+                for phase, phase_tasks in tasks_by_phase.items():
+                    if phase not in phase_order:
+                        print(f"    {Colors.BOLD}Phase: {phase}{Colors.NC}")
+                        for task in phase_tasks:
+                            agent = task['assigned_agent']
+                            color = agent_colors.get(agent, Colors.NC)
+                            title = task['title'][:52] + "..." if len(task['title']) > 55 else task['title']
+                            print(f"      {Colors.DIM}○{Colors.NC} {task['id']} → {color}@agent-{agent}{Colors.NC}  {Colors.DIM}{title}{Colors.NC}")
 
                 print()
 
@@ -1645,9 +1583,15 @@ Begin by querying your task list with task_list.
         # Sort agents by count
         sorted_agents = sorted(plan['agent_counts'].items(), key=lambda x: x[1], reverse=True)
 
+        summary_agent_colors = {
+            'me': Colors.GREEN, 'uid': Colors.CYAN, 'uxd': Colors.CYAN,
+            'qa': Colors.YELLOW, 'sec': Colors.RED, 'ta': Colors.BLUE,
+            'sd': Colors.BLUE, 'doc': Colors.DIM, 'do': Colors.DIM,
+        }
+
         total_tasks = plan['total_tasks']
         for agent, count in sorted_agents:
-            color = agent_colors.get(agent, Colors.NC)
+            color = summary_agent_colors.get(agent, Colors.NC)
             pct = int(count / total_tasks * 100) if total_tasks > 0 else 0
             bar_filled = pct // 5
             bar = "█" * bar_filled + "░" * (20 - bar_filled)

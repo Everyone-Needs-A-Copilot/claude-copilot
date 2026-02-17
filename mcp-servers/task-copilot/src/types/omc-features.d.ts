@@ -130,6 +130,8 @@ export interface StatuslineState {
     agentId?: string;
     /** Stream ID if parallel work */
     streamId?: string;
+    /** Optional token budget for stream/task */
+    tokenBudget?: number;
     /** Files being modified */
     activeFiles: string[];
     /** Timestamp of last update */

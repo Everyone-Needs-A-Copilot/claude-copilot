@@ -145,9 +145,16 @@ export function renderStatusline(
     : model;
   parts.push(modelDisplay);
 
-  // Token estimate
-  if (tokenEstimate > 0) {
-    parts.push(`~${formatTokens(tokenEstimate)} tokens`);
+  // Token estimate / budget
+  if (tokenEstimate > 0 || state.tokenBudget) {
+    if (state.tokenBudget) {
+      const usageDisplay = formatTokens(tokenEstimate);
+      const budgetDisplay = formatTokens(state.tokenBudget);
+      const overBudget = tokenEstimate > state.tokenBudget;
+      parts.push(`~${usageDisplay}/${budgetDisplay} tokens${overBudget ? ' !' : ''}`);
+    } else {
+      parts.push(`~${formatTokens(tokenEstimate)} tokens`);
+    }
   }
 
   // Optional: Active files
@@ -206,6 +213,14 @@ export class StatuslineUpdater {
    */
   updateTokens(tokens: number): RenderedStatusline {
     this.tokenEstimate = tokens;
+    return this.render();
+  }
+
+  /**
+   * Update token budget
+   */
+  updateTokenBudget(tokens: number): RenderedStatusline {
+    this.state.tokenBudget = tokens;
     return this.render();
   }
 

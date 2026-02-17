@@ -1,10 +1,11 @@
 {
   "name": "@copilot/task-mcp-server",
-  "version": "2.8.0",
+  "version": "2.10.0",
   "description": "MCP server for PRD and task management",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
+    "postinstall": "npm rebuild better-sqlite3",
     "build": "tsc",
     "build:test": "npm run build && tsc -p tsconfig.test.json",
     "lint": "tsc --noEmit",
@@ -24,6 +25,9 @@
     "test:prd-auto": "npm run build:test && node dist/tools/__tests__/prd-auto-detection.test.js",
     "test:security-hooks": "npm run build:test && node dist/hooks/__tests__/security-hooks.test.js",
     "test:security-integration": "npm run build:test && node dist/hooks/__tests__/integration-example.js",
+    "test:stream-tokens": "npm run build:test && node dist/utils/__tests__/stream-tokens.test.js",
+    "test:stream-paths": "npm run build:test && node dist/tools/__tests__/stream-paths.test.js",
+    "test:model-router": "npm run build:test && node dist/ecomode/__tests__/model-router.test.js",
     "test:benchmark": "npm run build && node dist/benchmark/test.js",
     "benchmark:example": "npm run build && node dist/benchmark/example.js",
     "benchmark:baseline": "npm run build && node dist/benchmark/baseline-scenarios.js",

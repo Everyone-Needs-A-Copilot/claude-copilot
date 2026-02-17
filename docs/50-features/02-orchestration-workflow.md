@@ -40,7 +40,9 @@ Creates PRD and tasks with stream metadata. Default if no subcommand given.
   "streamId": "Stream-A",
   "streamName": "Foundation",
   "files": ["src/auth.ts"],
-  "dependencies": []
+  "streamDependencies": [],
+  "streamPaths": ["src/auth/**"],
+  "streamTokenBudget": 2500
 }
 ```
 
@@ -49,7 +51,9 @@ Creates PRD and tasks with stream metadata. Default if no subcommand given.
 | `streamId` | Yes | Unique identifier (e.g., "Stream-A") |
 | `streamName` | No | Human-readable label (defaults to streamId) |
 | `files` | Yes | Files this stream touches (for conflict detection) |
-| `dependencies` | Yes | Array of streamIds that must complete first (`[]` for foundation) |
+| `streamDependencies` | Yes | Array of streamIds that must complete first (`[]` for foundation) |
+| `streamPaths` | No | Optional path patterns (globs or directory prefixes) owned by the stream |
+| `streamTokenBudget` | No | Optional per-stream token budget (estimated tokens) |
 
 ### `start`
 

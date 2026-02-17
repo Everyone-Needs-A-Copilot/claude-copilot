@@ -430,6 +430,8 @@ When user runs `/orchestrate generate [--technical] [description]`:
            "streamId": "Stream-A",
            "streamName": "Foundation",
            "streamPhase": "foundation",
+           "phase": "backend",
+           "assignedAgent": "me",
            "files": ["path/to/file1.ts"],
            "dependencies": [],
            "sourceSpecifications": ["WP-xxx"]
@@ -442,6 +444,8 @@ When user runs `/orchestrate generate [--technical] [description]`:
            "streamId": "Stream-B",
            "streamName": "Implementation",
            "streamPhase": "parallel",
+           "phase": "frontend",
+           "assignedAgent": "uid",
            "files": ["path/to/file2.ts"],
            "dependencies": ["Stream-A"],
            "sourceSpecifications": ["WP-xxx", "WP-yyy"]
@@ -462,18 +466,44 @@ When user runs `/orchestrate generate [--technical] [description]`:
      - metadata.streamId: REQUIRED (e.g., "Stream-A", "Stream-B")
      - metadata.streamName: Human readable name
      - metadata.streamPhase: "foundation", "parallel", or "integration"
+     - metadata.phase: REQUIRED — "backend", "frontend", "quality", "docs", "devops", or "integration"
+     - metadata.assignedAgent: REQUIRED — "me", "uid", "ta", "qa", "sec", "doc", or "do"
      - metadata.files: Array of files this task will modify
      - metadata.dependencies: Array of streamIds this depends on ([] for foundation)
      - metadata.sourceSpecifications: Array of WP-xxx IDs (can be empty)
+
+   AGENT ASSIGNMENT TABLE (implementation agents only):
+   | Task Type | Agent | Phase |
+   |-----------|-------|-------|
+   | Backend APIs, services, data models | me | backend |
+   | Frontend pages, UI integration, hooks | uid | frontend |
+   | Architecture, schemas, contracts | ta | backend |
+   | Test suites, edge cases | qa | quality |
+   | Security review, auth flows | sec | quality |
+   | Technical docs | doc | docs |
+   | CI/CD, deployment | do | devops |
+
+   TASK GRANULARITY — FILE INDEPENDENCE RULE:
+   - ONE independent file/feature per task
+   - Tasks in the same phase + same stream MUST modify different files
+   - If two tasks need to touch the same file, put them in different phases or merge into one task
+   - Backend: one endpoint/service/model per task
+   - Frontend: one page/component per task
+   - Count of tasks in a phase = count of independent units (no artificial merging)
+   - No single task should list more than 4 files (split if larger)
 
    VALIDATION RULES:
    - At least one task must have dependencies: []
    - No circular dependencies
    - All dependency references must exist as streamIds in other tasks
+   - Every task MUST have metadata.phase (reject if missing)
+   - Every task MUST have metadata.assignedAgent (reject if missing)
+   - assignedAgent MUST be one of: me, uid, ta, qa, sec, doc, do
+   - No two tasks in the same stream+phase should share files
 
    After the JSON block, provide a brief summary:
    - Number of streams
-   - Number of tasks per stream
+   - Number of tasks per stream (grouped by phase)
    - Dependency structure
    ```
 
@@ -489,8 +519,12 @@ When user runs `/orchestrate generate [--technical] [description]`:
    b. **Validate the JSON structure:**
       - Verify `prd` has title, description, content
       - Verify `tasks` is a non-empty array
-      - Verify each task has required metadata fields
+      - Verify each task has required metadata fields (streamId, streamName, streamPhase, phase, assignedAgent, files, dependencies)
+      - Verify `metadata.phase` exists and is one of: backend, frontend, quality, docs, devops, integration
+      - Verify `metadata.assignedAgent` exists and is one of: me, uid, ta, qa, sec, doc, do
       - Verify at least one task has `dependencies: []`
+      - Verify no single task lists more than 4 files
+      - Verify no two tasks in the same stream+phase share files
       - Check for circular dependencies
 
       **If validation fails:**
@@ -528,12 +562,12 @@ When user runs `/orchestrate generate [--technical] [description]`:
         prdId: PRD_ID,
         title: task.title,
         description: task.description,
-        assignedAgent: "ta",    // ← MUST be "ta" due to PRD scope lock
+        assignedAgent: task.metadata.assignedAgent,  // ← From TA's JSON (me, uid, qa, sec, doc, do)
         metadata: task.metadata
       })
       ```
-      **NOTE:** PRDs have scope lock - only `assignedAgent: "ta"` can create tasks.
-      The workers will run as "me" agent regardless of this setting.
+      **NOTE:** The `assignedAgent` field controls which specialist the Foreman spawns.
+      The `metadata.phase` field controls execution ordering within the stream.
 
       Count successful creates as: TASK_COUNT
 

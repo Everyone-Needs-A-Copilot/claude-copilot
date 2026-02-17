@@ -12,6 +12,7 @@ import type {
   ValidationResult,
 } from '../types.js';
 import { getValidator } from '../validation/index.js';
+import { estimateTokensFromText, getStreamTokenBudget, getStreamTokenUsage } from '../utils/stream-tokens.js';
 
 export interface WorkProductStoreResult {
   id: string;
@@ -81,7 +82,47 @@ export async function workProductStore(
     confidence: input.confidence ?? null
   };
 
-  db.insertWorkProduct(wp);
+  // H-2: Use transaction to atomically check budget and insert work product
+  // This prevents race conditions where multiple concurrent inserts could exceed budget
+  if (task?.metadata) {
+    const taskMetadata = typeof task.metadata === 'string'
+      ? JSON.parse(task.metadata)
+      : task.metadata;
+    const streamId = taskMetadata.streamId as string | undefined;
+    if (streamId) {
+      const prd = task.prd_id ? db.getPrd(task.prd_id) : null;
+      const initiativeId = prd?.initiative_id || undefined;
+      const tokenBudget = getStreamTokenBudget(db, streamId, initiativeId);
+      if (tokenBudget) {
+        // Execute budget check and insert in a single transaction
+        const transaction = db.getDb().transaction(() => {
+          const currentUsage = getStreamTokenUsage(db, streamId, initiativeId);
+          const contentTokens = estimateTokensFromText(input.content);
+          const projectedUsage = currentUsage + contentTokens;
+
+          if (projectedUsage > tokenBudget) {
+            throw new Error(
+              `Stream token budget exceeded for ${streamId}: ` +
+              `${projectedUsage} > ${tokenBudget} tokens (estimated). ` +
+              `Reduce work product size or raise streamTokenBudget.`
+            );
+          }
+
+          db.insertWorkProduct(wp);
+        });
+        transaction();
+      } else {
+        // No budget configured, just insert
+        db.insertWorkProduct(wp);
+      }
+    } else {
+      // No stream ID, just insert
+      db.insertWorkProduct(wp);
+    }
+  } else {
+    // No task metadata, just insert
+    db.insertWorkProduct(wp);
+  }
 
   // Log activity (need initiative ID from task -> PRD)
   if (task?.prd_id) {

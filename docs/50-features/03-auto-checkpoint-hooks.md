@@ -76,6 +76,15 @@ initializeAutoCheckpointHooks(db, {
 - **Maintainable**: Hook logic centralized, not scattered across agents
 - **Extensible**: Easy to add new checkpoint triggers
 
+## Blocked Stream Compaction
+
+When an iteration signals `<promise>BLOCKED</promise>`, the default stop hook creates a compact checkpoint summary. This keeps stalled streams lighter by storing a short summary instead of full context.
+
+Behavior:
+- Summary derived from draft content (preferred) or agent output
+- Stored as a checkpoint with a short, token-efficient draft
+- Used as a compact recovery anchor when resuming
+
 ## Usage
 
 ### For Agents

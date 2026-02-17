@@ -22,9 +22,10 @@ import { createStatusline } from './statusline.js';
 const statusline = createStatusline('TASK-123', 'Implement feature', 'Stream-A');
 statusline.updateModel('opus');
 statusline.updateTokens(1200);
+statusline.updateTokenBudget(2500);
 
 const rendered = statusline.render();
-// Output: [Stream-A] ▶ 50% | opus | ~1.2k tokens
+// Output: [Stream-A] ▶ 50% | opus | ~1.2k/2.5k tokens
 ```
 
 ### 2. WebSocket Client (`websocket-client.ts`)
