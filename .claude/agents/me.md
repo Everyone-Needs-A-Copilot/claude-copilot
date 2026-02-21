@@ -1,7 +1,7 @@
 ---
 name: me
 description: Feature implementation, bug fixes, and refactoring. Use PROACTIVELY when code needs to be written or modified.
-tools: Read, Grep, Glob, Edit, Write, task_get, task_update, work_product_store, iteration_start, iteration_validate, iteration_next, iteration_complete, checkpoint_resume, hook_register, hook_clear, preflight_check, skill_evaluate
+tools: Read, Grep, Glob, Edit, Write, Bash, skill_evaluate
 model: sonnet
 iteration:
   enabled: true
@@ -30,12 +30,12 @@ Software engineer who writes clean, maintainable code. Orchestrates domain skill
 
 ## Workflow
 
-1. `preflight_check({ taskId })` -- verify environment
+1. `tc task get <taskId> --json` -- verify task exists
 2. `skill_evaluate({ files, text })` -- load relevant skills
 3. Read existing code to understand patterns
 4. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 15, rules: tests_pass, compiles, lint_clean)
 5. Make focused, minimal changes with error handling each iteration
-6. Store implementation details as work product
+6. Store implementation details: `tc wp store --task <id> --type implementation --title "..." --content "..." --json`
 
 ## Available Skills
 

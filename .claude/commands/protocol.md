@@ -134,13 +134,13 @@ Options:
 | 2. Changes | "no", "2", "change X", contains feedback | Re-invoke agent with user feedback as constraint. Max 3 iterations before suggesting restart. |
 | 3. Skip | "skip", "3", "go to next" | Warn what they miss, then proceed to next stage |
 | 4. Go Back | "back", "4", "go back" | Save current as draft, re-invoke previous stage |
-| 5. Details | "show", "5", "details", "WP-" | Call `work_product_get()`, display, re-present options |
+| 5. Details | "show", "5", "details", "WP-" | Run `tc wp get <id> --json`, display, re-present options |
 
 ---
 
 ## Agent Handoff Protocol
 
-Between agents in a chain, pass **200-char context maximum** via `agent_handoff()`. Final agent (ta) receives ALL prior work product IDs via `sourceSpecifications` metadata.
+Between agents in a chain, pass **200-char context maximum** via `tc handoff --from <a> --to <b> --task <id> --context "..." --json`. Final agent (ta) receives ALL prior work product IDs via `sourceSpecifications` metadata.
 
 ---
 
@@ -239,12 +239,12 @@ Read `CONSTITUTION.md` from project root. If exists: inject into context, note `
 
 ## Task Copilot Integration
 
-1. Check existing initiative: `initiative_get()` + `progress_summary()`
-2. Create PRD if needed: `prd_create({ title, description, content })`
-3. Create tasks: `task_create({ title, prdId, assignedAgent, metadata })`
+1. Check existing initiative: `initiative_get()` + `tc progress --json`
+2. Create PRD if needed: `tc prd create --title "..." --description "..." --json`
+3. Create tasks: `tc task create --title "..." --prd <id> --json`
 4. Link initiative: `initiative_link()` + `initiative_update()`
 5. Pass task IDs when invoking agents; they store work products and return ~100 token summaries
-6. Use `progress_summary()` for status checks (never load full task lists)
+6. Use `tc progress --json` for status checks (never load full task lists)
 7. End of session: `initiative_update()` with currentFocus, nextAction, decisions, lessons
 
 ---

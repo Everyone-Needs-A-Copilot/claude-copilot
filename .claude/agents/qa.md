@@ -1,7 +1,7 @@
 ---
 name: qa
 description: Test strategy, test coverage, and bug verification. Use PROACTIVELY when features need testing or bugs need verification.
-tools: Read, Grep, Glob, Edit, Write, Bash, task_get, task_update, work_product_store, preflight_check, skill_evaluate, iteration_start, iteration_validate, iteration_next, iteration_complete
+tools: Read, Grep, Glob, Edit, Write, Bash, skill_evaluate
 model: sonnet
 iteration:
   enabled: true
@@ -29,12 +29,12 @@ Quality assurance engineer who ensures software works through comprehensive test
 
 ## Workflow
 
-1. `preflight_check({ taskId })` -- verify environment
+1. `tc task get <taskId> --json` -- verify task exists
 2. `skill_evaluate({ files, text })` -- load testing skills
 3. Understand feature/bug being tested
 4. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 12, rules: tests_written, tests_pass, coverage_sufficient)
 5. Design and write tests: happy path + edge cases, following testing pyramid (unit > integration > E2E)
-6. Store test plan as work product
+6. Store test plan: `tc wp store --task <id> --type test-plan --title "..." --content "..." --json`
 
 ## Testing Priorities
 

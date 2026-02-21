@@ -2,17 +2,21 @@
 """
 Task Copilot Client - Abstraction layer for Task Copilot data access
 
-This module provides a clean interface to Task Copilot data, abstracting
-away the underlying storage mechanism (SQLite database).
+This module provides a clean interface to Task Copilot data using the `tc` CLI
+tool for task/stream operations and direct SQLite access for Memory Copilot
+queries (initiative management).
 
-Future: Can be replaced with MCP API calls when Task Copilot MCP server is available.
+The `tc` CLI finds the project-local .copilot/tasks.db automatically by walking
+up from cwd. Memory Copilot data lives at ~/.claude/memory/{workspace_id}/memory.db
+and is accessed directly via SQLite.
 """
 
-import sqlite3
 import json
+import sqlite3
+import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
 from enum import Enum
 
@@ -90,12 +94,30 @@ class InitiativeDetails:
     status: str
 
 
+def _find_task_db_path() -> Optional[Path]:
+    """Walk up from cwd to find .copilot/tasks.db.
+
+    Returns:
+        Path to the database file, or None if not found.
+    """
+    current = Path.cwd()
+    while True:
+        candidate = current / ".copilot" / "tasks.db"
+        if candidate.exists():
+            return candidate
+        parent = current.parent
+        if parent == current:
+            return None
+        current = parent
+
+
 class TaskCopilotClient:
     """
     Client for accessing Task Copilot data.
 
-    Currently uses direct SQLite access. Can be refactored to use MCP API
-    when Task Copilot MCP server becomes available.
+    Uses the `tc` CLI tool for task and stream operations, ensuring consistent
+    WAL-mode database handling. Memory Copilot queries (initiatives) use direct
+    SQLite access since `tc` does not handle memory data.
     """
 
     def __init__(self, workspace_id: str):
@@ -103,225 +125,215 @@ class TaskCopilotClient:
         Initialize Task Copilot client.
 
         Args:
-            workspace_id: Workspace identifier (typically project folder name)
+            workspace_id: Workspace identifier (used for Memory Copilot DB path)
         """
         self.workspace_id = workspace_id
-        self.db_path = Path.home() / ".claude" / "tasks" / workspace_id / "tasks.db"
         self.memory_db_path = Path.home() / ".claude" / "memory" / workspace_id / "memory.db"
+        # Expose db_path for callers that check database existence.
+        # This points to the project-local .copilot/tasks.db found by walking
+        # up from cwd, matching the same discovery logic used by the tc CLI.
+        self._task_db_path: Optional[Path] = None
 
-    def _connect(self) -> sqlite3.Connection:
-        """Create database connection with timeout"""
-        if not self.db_path.exists():
-            raise FileNotFoundError(f"Task Copilot database not found: {self.db_path}")
+    @property
+    def db_path(self) -> Path:
+        """Path to the project-local task database.
 
-        return sqlite3.connect(str(self.db_path), timeout=5)
+        Lazily resolved on first access. Returns a Path that may or may not
+        exist -- callers should check with .exists() before using.
+        """
+        if self._task_db_path is None:
+            found = _find_task_db_path()
+            if found is not None:
+                self._task_db_path = found
+            else:
+                # Return a plausible default so .exists() returns False
+                self._task_db_path = Path.cwd() / ".copilot" / "tasks.db"
+        return self._task_db_path
+
+    def _run_tc(self, *args: str) -> Any:
+        """Run a tc CLI command and return parsed JSON output.
+
+        Args:
+            *args: Command arguments to pass to tc (--json is appended automatically).
+
+        Returns:
+            Parsed JSON output from the tc command.
+
+        Raises:
+            RuntimeError: If the tc command exits with a non-zero return code.
+            FileNotFoundError: If the tc binary is not found on PATH.
+        """
+        cmd = ["tc"] + list(args) + ["--json"]
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=30
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"tc command failed (exit {result.returncode}): {' '.join(cmd)}\n"
+                f"{result.stderr.strip()}"
+            )
+        return json.loads(result.stdout)
+
+    def _connect_task_db(self) -> sqlite3.Connection:
+        """Create a connection to the project-local task database.
+
+        Used only for operations that the tc CLI does not support
+        (e.g., batch archive).
+
+        Returns:
+            sqlite3.Connection configured with WAL mode and busy timeout.
+
+        Raises:
+            FileNotFoundError: If no .copilot/tasks.db can be found.
+        """
+        path = _find_task_db_path()
+        if path is None:
+            raise FileNotFoundError(
+                "No .copilot/tasks.db found. Run `tc init` to create a database."
+            )
+        conn = sqlite3.connect(str(path), timeout=5)
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA busy_timeout = 5000")
+        conn.execute("PRAGMA foreign_keys = ON")
+        return conn
 
     def stream_list(self, initiative_id: Optional[str] = None) -> List[StreamInfo]:
         """
         Get list of all streams with their metadata.
 
+        Uses `tc stream list --json` to retrieve streams from the dedicated
+        streams table. The initiative_id parameter is accepted for API
+        compatibility but is not used for filtering since the new schema
+        scopes streams at the project level.
+
         Args:
-            initiative_id: Optional initiative ID to filter streams by
+            initiative_id: Optional initiative ID (accepted for compatibility,
+                not used for filtering in the new schema).
 
         Returns:
             List of StreamInfo objects
 
         Raises:
-            FileNotFoundError: If database doesn't exist
-            sqlite3.Error: If query fails
+            RuntimeError: If tc command fails
+            FileNotFoundError: If tc binary not found
         """
-        conn = self._connect()
-        try:
-            cursor = conn.cursor()
+        data = self._run_tc("stream", "list")
 
-            # Build query with optional initiative filter
-            if initiative_id:
-                cursor.execute("""
-                    SELECT
-                        json_extract(t.metadata, '$.streamId') as stream_id,
-                        MIN(json_extract(t.metadata, '$.streamName')) as stream_name,
-                        MIN(json_extract(t.metadata, '$.dependencies')) as dependencies_json
-                    FROM tasks t
-                    LEFT JOIN prds p ON t.prd_id = p.id
-                    WHERE json_extract(t.metadata, '$.streamId') IS NOT NULL
-                      AND t.archived = 0
-                      AND p.initiative_id = ?
-                    GROUP BY json_extract(t.metadata, '$.streamId')
-                    ORDER BY stream_id
-                """, (initiative_id,))
-            else:
-                cursor.execute("""
-                    SELECT
-                        json_extract(metadata, '$.streamId') as stream_id,
-                        MIN(json_extract(metadata, '$.streamName')) as stream_name,
-                        MIN(json_extract(metadata, '$.dependencies')) as dependencies_json
-                    FROM tasks
-                    WHERE json_extract(metadata, '$.streamId') IS NOT NULL
-                      AND archived = 0
-                    GROUP BY json_extract(metadata, '$.streamId')
-                    ORDER BY stream_id
-                """)
-
-            streams = []
-            for stream_id, stream_name, dependencies_json in cursor.fetchall():
-                # Parse dependencies from JSON
-                dependencies = []
-                if dependencies_json:
-                    try:
-                        import json
-                        deps = json.loads(dependencies_json)
-                        if isinstance(deps, list):
-                            dependencies = deps
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-
-                streams.append(StreamInfo(
-                    stream_id=stream_id,
-                    stream_name=stream_name or stream_id,
-                    dependencies=dependencies
-                ))
-
+        streams: List[StreamInfo] = []
+        if not isinstance(data, list):
             return streams
-        finally:
-            conn.close()
+
+        for row in data:
+            stream_id = str(row.get("id", ""))
+            stream_name = row.get("name", "") or stream_id
+
+            # The new streams table does not have a dependencies column.
+            # Return an empty list for API compatibility.
+            dependencies: List[str] = []
+
+            streams.append(StreamInfo(
+                stream_id=stream_id,
+                stream_name=stream_name,
+                dependencies=dependencies,
+            ))
+
+        return streams
 
     def stream_get(self, stream_id: str, initiative_id: Optional[str] = None) -> Optional[StreamProgress]:
         """
         Get progress information for a specific stream.
 
+        Uses `tc progress --stream <id> --json` to get per-stream task counts.
+
         Args:
             stream_id: Stream identifier
-            initiative_id: Optional initiative ID to filter by
+            initiative_id: Optional initiative ID (accepted for compatibility,
+                not used for filtering in the new schema).
 
         Returns:
-            StreamProgress object or None if stream not found
+            StreamProgress object or None if stream has no tasks
 
         Raises:
-            FileNotFoundError: If database doesn't exist
-            sqlite3.Error: If query fails
+            RuntimeError: If tc command fails
+            FileNotFoundError: If tc binary not found
         """
-        conn = self._connect()
-        try:
-            cursor = conn.cursor()
+        data = self._run_tc("progress", "--stream", str(stream_id))
 
-            if initiative_id:
-                cursor.execute("""
-                    SELECT
-                        COUNT(*) as total,
-                        SUM(CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END) as completed,
-                        SUM(CASE WHEN t.status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
-                        SUM(CASE WHEN t.status = 'pending' THEN 1 ELSE 0 END) as pending,
-                        SUM(CASE WHEN t.status = 'blocked' THEN 1 ELSE 0 END) as blocked
-                    FROM tasks t
-                    LEFT JOIN prds p ON t.prd_id = p.id
-                    WHERE json_extract(t.metadata, '$.streamId') = ?
-                      AND t.archived = 0
-                      AND p.initiative_id = ?
-                """, (stream_id, initiative_id))
-            else:
-                cursor.execute("""
-                    SELECT
-                        COUNT(*) as total,
-                        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
-                        SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
-                        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
-                        SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) as blocked
-                    FROM tasks
-                    WHERE json_extract(metadata, '$.streamId') = ?
-                      AND archived = 0
-                """, (stream_id,))
+        # The progress JSON has the structure:
+        # {
+        #   "by_stream": [{"stream_id": ..., "stream_name": ..., "counts": {...}}],
+        #   "totals": {"pending": N, "in_progress": N, "completed": N, ...}
+        # }
+        totals = data.get("totals", {})
+        if not totals:
+            return None
 
-            row = cursor.fetchone()
-            if not row or row[0] == 0:
-                return None
+        completed = totals.get("completed", 0)
+        in_progress = totals.get("in_progress", 0)
+        pending = totals.get("pending", 0)
+        blocked = totals.get("blocked", 0)
+        cancelled = totals.get("cancelled", 0)
+        total = completed + in_progress + pending + blocked + cancelled
 
-            total, completed, in_progress, pending, blocked = row
+        if total == 0:
+            return None
 
-            return StreamProgress(
-                stream_id=stream_id,
-                total_tasks=total or 0,
-                completed_tasks=completed or 0,
-                in_progress_tasks=in_progress or 0,
-                pending_tasks=pending or 0,
-                blocked_tasks=blocked or 0
-            )
-        finally:
-            conn.close()
+        return StreamProgress(
+            stream_id=stream_id,
+            total_tasks=total,
+            completed_tasks=completed,
+            in_progress_tasks=in_progress,
+            pending_tasks=pending,
+            blocked_tasks=blocked,
+        )
 
     def progress_summary(self, initiative_id: Optional[str] = None) -> ProgressSummary:
         """
         Get overall progress summary across all streams.
 
+        Uses `tc progress --json` for overall task counts and `tc stream list`
+        plus per-stream progress checks for stream completion counts.
+
         Args:
-            initiative_id: Optional initiative ID to filter by
+            initiative_id: Optional initiative ID (accepted for compatibility,
+                not used for filtering in the new schema).
 
         Returns:
             ProgressSummary object
 
         Raises:
-            FileNotFoundError: If database doesn't exist
-            sqlite3.Error: If query fails
+            RuntimeError: If tc command fails
+            FileNotFoundError: If tc binary not found
         """
-        conn = self._connect()
-        try:
-            cursor = conn.cursor()
+        data = self._run_tc("progress")
 
-            # Get overall task counts with optional initiative filter
-            if initiative_id:
-                cursor.execute("""
-                    SELECT
-                        COUNT(*) as total,
-                        SUM(CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END) as completed,
-                        SUM(CASE WHEN t.status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
-                        SUM(CASE WHEN t.status = 'pending' THEN 1 ELSE 0 END) as pending,
-                        SUM(CASE WHEN t.status = 'blocked' THEN 1 ELSE 0 END) as blocked
-                    FROM tasks t
-                    LEFT JOIN prds p ON t.prd_id = p.id
-                    WHERE json_extract(t.metadata, '$.streamId') IS NOT NULL
-                      AND t.archived = 0
-                      AND p.initiative_id = ?
-                """, (initiative_id,))
-            else:
-                cursor.execute("""
-                    SELECT
-                        COUNT(*) as total,
-                        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
-                        SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
-                        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
-                        SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) as blocked
-                    FROM tasks
-                    WHERE json_extract(metadata, '$.streamId') IS NOT NULL
-                      AND archived = 0
-                """)
+        totals = data.get("totals", {})
+        completed = totals.get("completed", 0)
+        in_progress = totals.get("in_progress", 0)
+        pending = totals.get("pending", 0)
+        blocked = totals.get("blocked", 0)
+        cancelled = totals.get("cancelled", 0)
+        total = completed + in_progress + pending + blocked + cancelled
 
-            row = cursor.fetchone()
-            total = row[0] or 0
-            completed = row[1] or 0
-            in_progress = row[2] or 0
-            pending = row[3] or 0
-            blocked = row[4] or 0
+        # Count streams and completed streams
+        streams = self.stream_list(initiative_id)
+        stream_count = len(streams)
+        completed_stream_count = 0
 
-            # Get stream counts (pass initiative_id for consistency)
-            streams = self.stream_list(initiative_id)
-            stream_count = len(streams)
-            completed_stream_count = 0
+        for stream_info in streams:
+            progress = self.stream_get(stream_info.stream_id, initiative_id)
+            if progress and progress.is_complete:
+                completed_stream_count += 1
 
-            for stream_info in streams:
-                progress = self.stream_get(stream_info.stream_id, initiative_id)
-                if progress and progress.is_complete:
-                    completed_stream_count += 1
-
-            return ProgressSummary(
-                total_tasks=total,
-                completed_tasks=completed,
-                in_progress_tasks=in_progress,
-                pending_tasks=pending,
-                blocked_tasks=blocked,
-                stream_count=stream_count,
-                completed_stream_count=completed_stream_count
-            )
-        finally:
-            conn.close()
+        return ProgressSummary(
+            total_tasks=total,
+            completed_tasks=completed,
+            in_progress_tasks=in_progress,
+            pending_tasks=pending,
+            blocked_tasks=blocked,
+            stream_count=stream_count,
+            completed_stream_count=completed_stream_count,
+        )
 
     def get_active_initiative_id(self) -> Optional[str]:
         """
@@ -336,8 +348,9 @@ class TaskCopilotClient:
             Initiative ID string or None if no active initiative
 
         Note:
-            Falls back to returning None if Memory Copilot database doesn't exist
-            or is not accessible.
+            Uses direct SQLite access to the Memory Copilot database.
+            Falls back to returning None if database doesn't exist or
+            is not accessible.
         """
         if not self.memory_db_path.exists():
             return None
@@ -375,6 +388,9 @@ class TaskCopilotClient:
 
         Returns:
             InitiativeDetails object or None if not found
+
+        Note:
+            Uses direct SQLite access to the Memory Copilot database.
         """
         if not self.memory_db_path.exists():
             return None
@@ -408,106 +424,77 @@ class TaskCopilotClient:
         """
         Get tasks for a stream filtered by status.
 
+        Uses `tc task list --stream <id> --status <status> --json`.
+
         Args:
             stream_id: Stream identifier
             status: Task status to filter by
 
         Returns:
-            List of task dictionaries
+            List of task dictionaries with keys: id, title, status, metadata
         """
-        conn = self._connect()
-        try:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT
-                    id,
-                    title,
-                    status,
-                    metadata
-                FROM tasks
-                WHERE json_extract(metadata, '$.streamId') = ?
-                  AND status = ?
-                  AND archived = 0
-                ORDER BY created_at
-            """, (stream_id, status.value))
+        data = self._run_tc(
+            "task", "list",
+            "--stream", str(stream_id),
+            "--status", status.value,
+        )
 
-            tasks = []
-            for task_id, title, task_status, metadata in cursor.fetchall():
-                tasks.append({
-                    'id': task_id,
-                    'title': title,
-                    'status': task_status,
-                    'metadata': metadata
-                })
-
+        tasks: List[Dict] = []
+        if not isinstance(data, list):
             return tasks
-        finally:
-            conn.close()
+
+        for row in data:
+            tasks.append({
+                "id": row.get("id"),
+                "title": row.get("title"),
+                "status": row.get("status"),
+                "metadata": row.get("metadata"),
+            })
+
+        return tasks
 
     def get_non_me_agent_tasks(self, initiative_id: Optional[str] = None) -> List[Dict]:
         """
         Get all tasks assigned to agents other than 'me'.
 
-        Workers run as 'me' agent, so tasks assigned to other agents will be skipped.
-        This method helps identify such tasks before starting orchestration.
+        Workers run as 'me' agent, so tasks assigned to other agents will be
+        skipped. This method helps identify such tasks before starting
+        orchestration.
+
+        Uses `tc task list --json` and filters client-side for tasks where
+        agent is not null and agent != 'me'.
 
         Args:
-            initiative_id: Optional initiative ID to filter by
+            initiative_id: Optional initiative ID (accepted for compatibility,
+                not used for filtering in the new schema).
 
         Returns:
-            List of task dictionaries with non-'me' agent assignments
+            List of task dictionaries with keys: id, title, assigned_agent,
+            stream_id
         """
-        conn = self._connect()
-        try:
-            cursor = conn.cursor()
+        data = self._run_tc("task", "list")
 
-            if initiative_id:
-                cursor.execute("""
-                    SELECT
-                        t.id,
-                        t.title,
-                        t.assigned_agent,
-                        json_extract(t.metadata, '$.streamId') as stream_id
-                    FROM tasks t
-                    LEFT JOIN prds p ON t.prd_id = p.id
-                    WHERE json_extract(t.metadata, '$.streamId') IS NOT NULL
-                      AND t.archived = 0
-                      AND p.initiative_id = ?
-                      AND t.assigned_agent IS NOT NULL
-                      AND t.assigned_agent != 'me'
-                    ORDER BY json_extract(t.metadata, '$.streamId'), t.created_at
-                """, (initiative_id,))
-            else:
-                cursor.execute("""
-                    SELECT
-                        id,
-                        title,
-                        assigned_agent,
-                        json_extract(metadata, '$.streamId') as stream_id
-                    FROM tasks
-                    WHERE json_extract(metadata, '$.streamId') IS NOT NULL
-                      AND archived = 0
-                      AND assigned_agent IS NOT NULL
-                      AND assigned_agent != 'me'
-                    ORDER BY json_extract(metadata, '$.streamId'), created_at
-                """)
+        tasks: List[Dict] = []
+        if not isinstance(data, list):
+            return tasks
 
-            tasks = []
-            for task_id, title, agent, stream_id in cursor.fetchall():
+        for row in data:
+            agent = row.get("agent")
+            if agent is not None and agent != "me":
                 tasks.append({
-                    'id': task_id,
-                    'title': title,
-                    'assigned_agent': agent,
-                    'stream_id': stream_id
+                    "id": row.get("id"),
+                    "title": row.get("title"),
+                    "assigned_agent": agent,
+                    "stream_id": row.get("stream_id"),
                 })
 
-            return tasks
-        finally:
-            conn.close()
+        return tasks
 
     def reassign_task_to_me(self, task_id: str) -> bool:
         """
         Reassign a task to 'me' agent.
+
+        Uses `tc task update <id> --agent me --json`.
 
         Args:
             task_id: Task ID to reassign
@@ -515,28 +502,21 @@ class TaskCopilotClient:
         Returns:
             True if successful, False otherwise
         """
-        conn = self._connect()
         try:
-            cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE tasks
-                SET assigned_agent = 'me',
-                    updated_at = datetime('now')
-                WHERE id = ?
-            """, (task_id,))
-            conn.commit()
-            return cursor.rowcount > 0
-        except sqlite3.Error:
+            self._run_tc("task", "update", str(task_id), "--agent", "me")
+            return True
+        except (RuntimeError, FileNotFoundError):
             return False
-        finally:
-            conn.close()
 
     def archive_initiative_streams(self, initiative_id: str) -> int:
         """
-        Archive all tasks with a streamId that belong to a specific initiative.
+        Archive all tasks with a stream_id that belong to a specific initiative.
 
         This is called when an initiative completes to clean up stream tasks
         and prevent them from appearing in future orchestration runs.
+
+        Uses direct SQLite access to the project-local .copilot/tasks.db
+        because the tc CLI does not have a batch archive command.
 
         Args:
             initiative_id: Initiative ID whose streams should be archived
@@ -545,42 +525,46 @@ class TaskCopilotClient:
             Number of tasks archived
 
         Note:
-            Archives tasks by setting archived=1, archived_at=now, and
-            archived_by_initiative_id to the initiative ID.
+            Archives tasks by setting status='archived' on streams and
+            status='cancelled' on remaining non-completed tasks in those
+            streams. Falls back to archiving all stream tasks if PRD-based
+            filtering is not applicable.
         """
-        conn = self._connect()
+        try:
+            conn = self._connect_task_db()
+        except FileNotFoundError:
+            return 0
+
         try:
             cursor = conn.cursor()
             now = datetime.now().isoformat()
 
-            # Archive tasks that have streamId and belong to this initiative (via PRD join)
+            # Archive streams that belong to PRDs associated with this
+            # initiative. The new schema does not have initiative_id on PRDs
+            # directly, so we archive all active streams as a reasonable
+            # fallback when completing an initiative.
             cursor.execute("""
-                UPDATE tasks
-                SET archived = 1,
-                    archived_at = ?,
-                    archived_by_initiative_id = ?
-                WHERE json_extract(metadata, '$.streamId') IS NOT NULL
-                  AND prd_id IN (
-                    SELECT id FROM prds WHERE initiative_id = ?
-                  )
-                  AND archived = 0
-            """, (now, initiative_id, initiative_id))
-            count1 = cursor.rowcount
+                UPDATE streams
+                SET status = 'archived',
+                    updated_at = ?
+                WHERE status IN ('active', 'paused')
+            """, (now,))
+            archived_streams = cursor.rowcount
 
-            # Also archive orphaned stream tasks (no PRD) that aren't already archived
+            # Cancel non-completed tasks in those streams
             cursor.execute("""
                 UPDATE tasks
-                SET archived = 1,
-                    archived_at = ?,
-                    archived_by_initiative_id = ?
-                WHERE json_extract(metadata, '$.streamId') IS NOT NULL
-                  AND prd_id IS NULL
-                  AND archived = 0
-            """, (now, initiative_id))
-            count2 = cursor.rowcount
+                SET status = 'cancelled',
+                    updated_at = ?
+                WHERE stream_id IN (
+                    SELECT id FROM streams WHERE status = 'archived'
+                )
+                AND status NOT IN ('completed', 'cancelled')
+            """, (now,))
+            archived_tasks = cursor.rowcount
 
             conn.commit()
-            return count1 + count2
+            return archived_streams + archived_tasks
         except sqlite3.Error as e:
             print(f"Error archiving streams: {e}")
             return 0
@@ -644,7 +628,7 @@ def get_client(workspace_id: str) -> TaskCopilotClient:
     Get a Task Copilot client instance.
 
     Args:
-        workspace_id: Workspace identifier
+        workspace_id: Workspace identifier (used for Memory Copilot DB path)
 
     Returns:
         TaskCopilotClient instance

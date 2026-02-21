@@ -29,13 +29,14 @@ Agents are kept minimal (under 120 lines) and auto-load domain expertise on dema
 
 All lean agents MUST include these tools:
 
-| Tool | Purpose |
+| Tool / Command | Purpose |
 |------|---------|
-| `preflight_check` | Verify environment before work |
-| `skill_evaluate` | Auto-detect and load skills |
-| `task_get` | Retrieve task details |
-| `task_update` | Update task status |
-| `work_product_store` | Store output |
+| `skill_evaluate` | Auto-detect and load skills (Skills Copilot MCP) |
+| `tc task get <id> --json` | Retrieve task details |
+| `tc task update <id> --status <s> --json` | Update task status |
+| `tc wp store --task <id> ...` | Store output |
+
+> **Note:** `preflight_check` has been replaced by `tc task get <id> --json` which returns task state including environment context.
 
 ### Skill Metadata
 
@@ -376,9 +377,9 @@ User Request: "Design the auth system"
          │
          ├──→ Creates PRD, breaks down tasks
          │
-         ├──→ Stores PRD in Task Copilot (prd_create)
+         ├──→ Stores PRD in Task Copilot (tc prd create ...)
          │
-         ├──→ Creates tasks (task_create)
+         ├──→ Creates tasks (tc task create ...)
          │
          └──→ Returns summary to main session (~100 tokens)
               "Created PRD-001 with 5 tasks. Ready to proceed."
@@ -402,8 +403,8 @@ Each agent stores specific types of work:
 
 - **Reduced context**: Main session stays focused (~200 tokens vs ~8000)
 - **Persistent storage**: Work products survive session restarts
-- **Progress tracking**: `progress_summary()` shows compact status
-- **Work retrieval**: `work_product_get(id)` retrieves full details when needed
+- **Progress tracking**: `tc progress --json` shows compact status
+- **Work retrieval**: `tc wp get <id> --json` retrieves full details when needed
 
 ### Agent Workflow
 

@@ -26,15 +26,9 @@ Worktree isolation enables tasks to run in dedicated git worktrees, providing co
 
 Set `requiresWorktree: true` in task metadata during task creation:
 
-```typescript
-await task_create({
-  title: "Refactor authentication module",
-  assignedAgent: "me",
-  metadata: {
-    requiresWorktree: true,
-    worktreeBaseBranch: "develop"  // Optional, defaults to current branch
-  }
-});
+```bash
+tc task create --title "Refactor authentication module" --prd <id> --json
+# Set metadata: { requiresWorktree: true, worktreeBaseBranch: "develop" }
 ```
 
 ### Lifecycle Stages
@@ -241,7 +235,7 @@ When successful:
 
 | Field | Type | Description | Set By |
 |-------|------|-------------|--------|
-| `requiresWorktree` | `boolean` | Enable automatic worktree creation | User (task_create) |
+| `requiresWorktree` | `boolean` | Enable automatic worktree creation | User (tc task create) |
 | `worktreeBaseBranch` | `string` | Base branch to branch from | User (optional) |
 | `isolatedWorktree` | `boolean` | Indicates task uses worktree | System (auto-set) |
 | `worktreePath` | `string` | Filesystem path to worktree | System (auto-set) |
@@ -292,28 +286,14 @@ When successful:
 
 Worktrees work seamlessly with parallel streams:
 
-```typescript
-// Stream-A tasks can work in isolation
-await task_create({
-  title: "Implement API endpoints",
-  assignedAgent: "me",
-  metadata: {
-    streamId: "Stream-A",
-    streamName: "api-implementation",
-    requiresWorktree: true
-  }
-});
+```bash
+# Stream-A tasks can work in isolation
+tc task create --title "Implement API endpoints" --prd <id> --json
+# metadata: { streamId: "Stream-A", streamName: "api-implementation", requiresWorktree: true }
 
-// Stream-B tasks can work simultaneously without conflicts
-await task_create({
-  title: "Add UI components",
-  assignedAgent: "uid",
-  metadata: {
-    streamId: "Stream-B",
-    streamName: "ui-components",
-    requiresWorktree: true
-  }
-});
+# Stream-B tasks can work simultaneously without conflicts
+tc task create --title "Add UI components" --prd <id> --json
+# metadata: { streamId: "Stream-B", streamName: "ui-components", requiresWorktree: true }
 ```
 
 Each stream task gets its own isolated worktree, preventing file conflicts.
@@ -428,44 +408,29 @@ If worktree operations fail:
 
 ### Complete Workflow
 
-```typescript
-// 1. Create task with automatic worktree
-const task = await task_create({
-  title: "Refactor authentication",
-  assignedAgent: "me",
-  metadata: {
-    requiresWorktree: true,
-    complexity: "High"
-  }
-});
+```bash
+# 1. Create task with automatic worktree
+tc task create --title "Refactor authentication" --prd <id> --json
+# Set metadata: { requiresWorktree: true, complexity: "High" }
 
-// 2. Start work (worktree created automatically)
-await task_update({
-  id: task.id,
-  status: "in_progress"
-});
+# 2. Start work (worktree created automatically)
+tc task update <task-id> --status in_progress --json
 
-// 3. Do work in .worktrees/TASK-xxx directory
-// ...
+# 3. Do work in .worktrees/TASK-xxx directory
+# ...
 
-// 4. Complete task (automatic merge & cleanup)
-await task_update({
-  id: task.id,
-  status: "completed"
-});
+# 4. Complete task (automatic merge & cleanup)
+tc task update <task-id> --status completed --json
 
-// If merge conflicts:
-// 5. Check conflict details
-const conflicts = await worktree_conflict_status({ taskId: task.id });
+# If merge conflicts:
+# 5. Check conflict details
+worktree_conflict_status({ taskId: "<task-id>" })
 
-// 6. Manually resolve conflicts in files
-// ...
+# 6. Manually resolve conflicts in files
+# ...
 
-// 7. Resolve and complete
-await worktree_conflict_resolve({
-  taskId: task.id,
-  strategy: "manual"
-});
+# 7. Resolve and complete
+worktree_conflict_resolve({ taskId: "<task-id>", strategy: "manual" })
 ```
 
 ### Manual Worktree Management
@@ -550,7 +515,7 @@ await worktree_cleanup({ taskId: "TASK-xxx", force: true });
 If you were managing worktrees manually:
 
 1. **Update task metadata** to include `requiresWorktree: true`
-2. **Use task_update** status transitions instead of manual git commands
+2. **Use `tc task update`** status transitions instead of manual git commands
 3. **Conflict resolution** now handled via `worktree_conflict_resolve`
 
 ### From No Worktrees

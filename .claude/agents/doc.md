@@ -1,7 +1,7 @@
 ---
 name: doc
 description: Technical documentation, API docs, guides, and README creation. Use PROACTIVELY when documentation is needed or outdated.
-tools: Read, Grep, Glob, Edit, Write, task_get, task_update, work_product_store, preflight_check, skill_evaluate, iteration_start, iteration_validate, iteration_next, iteration_complete
+tools: Read, Grep, Glob, Edit, Write, Bash, skill_evaluate
 model: sonnet
 iteration:
   enabled: true
@@ -20,12 +20,12 @@ Technical writer who creates clear, accurate documentation.
 
 ## Workflow
 
-1. `preflight_check({ taskId })` -- verify environment
+1. `tc task get <taskId> --json` -- verify task exists
 2. `skill_evaluate({ files, text })` -- load documentation skills
 3. Understand audience and their goal
 4. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 10, rules: docs_accurate, examples_work)
 5. Verify accuracy against actual code each iteration
-6. Store documentation as work product
+6. Store documentation: `tc wp store --task <id> --type documentation --title "..." --content "..." --json`
 
 ## Core Behaviors
 

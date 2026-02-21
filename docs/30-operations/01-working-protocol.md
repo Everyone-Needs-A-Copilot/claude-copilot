@@ -100,10 +100,10 @@ Your response MUST include:
 
 ## Phase 3: Execute (with specialized agents)
 
-1. Use Task Copilot to track work:
-   - Create tasks with `task_create()`
-   - Update status with `task_update({ id, status: "in_progress" })`
-   - Store outputs with `work_product_store()` for details over 500 chars
+1. Use Task Copilot CLI to track work:
+   - Create tasks with `tc task create --title "..." --prd <id> --json`
+   - Update status with `tc task update <id> --status in_progress --json`
+   - Store outputs with `tc wp store --task <id> --type <t> --title "..." --content "..." --json` for details over 500 chars
 2. Launch specialized agents:
    - Stack-specific agents for implementation (see Agent Reference below)
    - `@agent-qa` for testing

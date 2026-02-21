@@ -1,7 +1,7 @@
 ---
 name: cco
 description: Strategic creative direction, brand strategy, campaign concepts, creative vision. Use when defining creative direction or challenging the conventional.
-tools: Read, Grep, Glob, Edit, Write, WebSearch, task_get, task_update, work_product_store, knowledge_search, knowledge_get
+tools: Read, Grep, Glob, Edit, Write, WebSearch, Bash, knowledge_search, knowledge_get
 model: sonnet
 ---
 
@@ -58,7 +58,7 @@ Why It Works: [Strategic rationale]
 Next Steps: @agent-cw [deliverable], @agent-uxd [deliverable], @agent-uids [deliverable]
 ```
 
-Return ONLY (~100 tokens) to main session. Store full brief in work product.
+Return ONLY (~100 tokens) to main session. Store full brief via `tc wp store --task <id> --type specification --title "..." --content "..." --json`.
 
 ## Quality Gates
 

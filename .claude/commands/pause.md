@@ -34,40 +34,22 @@ if (!initiative) {
 
 ## Step 2: Find In-Progress Tasks
 
-```typescript
-// Get all in-progress tasks across all PRDs in the initiative
-const allTasks = await task_list({ status: 'in_progress' });
-
-if (allTasks.length === 0) {
-  return "No in-progress tasks to pause.";
-}
+```bash
+# Get all in-progress tasks across all PRDs in the initiative
+tc task list --status in_progress --json
+# If no tasks returned, respond: "No in-progress tasks to pause."
 ```
 
-## Step 3: Create Pause Checkpoints
+## Step 3: Create Pause State for Each Task
 
-For each in-progress task:
+For each in-progress task, update its status to capture pause state:
 
-```typescript
-const pauseReason = commandArg || `Paused at ${new Date().toLocaleString()}`;
-
-for (const task of allTasks) {
-  await checkpoint_create({
-    taskId: task.id,
-    trigger: 'manual',
-    executionPhase: 'paused',
-    executionStep: 0,
-    pauseMetadata: {
-      pauseReason: pauseReason,
-      pausedBy: 'user',
-      nextSteps: `Resume with /continue to restore work on: ${task.title}`,
-      keyFiles: task.metadata?.files || []
-    },
-    expiresIn: 10080 // Extended expiry for manual checkpoints (minutes)
-  });
-}
+```bash
+# For each in-progress task, update with pause notes
+tc task update <id> --status paused --notes "Paused: <reason>. Resume with /continue." --json
 ```
 
-**Important:** The `expiresIn` parameter sets extended checkpoint expiry for manual pauses.
+This preserves the pause reason and context directly on the task for later resumption.
 
 ## Step 4: Update Initiative Context
 
@@ -103,19 +85,17 @@ All task states have been preserved. You can safely work on other initiatives.
 
 ## Implementation Notes
 
-### Pause Checkpoint Characteristics
+### Pause State Identification
 
-Pause checkpoints are identified by:
-- `trigger: 'manual'`
-- `executionPhase: 'paused'`
-- `agentContext.pausedBy: 'user'`
-- `expiresIn: 10080` (extended expiry, minutes)
+Paused tasks are identified by:
+- Task status set to `paused`
+- Notes field containing pause reason and resume instructions
 
-This allows `/continue` to detect and prioritize pause checkpoints.
+This allows `/continue` to detect and prioritize paused tasks.
 
 ### Multi-Task Pause Support
 
-The command creates checkpoints for ALL in-progress tasks, not just one. This ensures:
+The command updates ALL in-progress tasks, not just one. This ensures:
 - Complete state preservation across parallel streams
 - No lost work when context switching
 - Easy resume of entire work context
@@ -126,14 +106,10 @@ The command creates checkpoints for ALL in-progress tasks, not just one. This en
 - Return friendly message: "No in-progress tasks to pause."
 - Do NOT error - this is a valid state
 
-**Task already has checkpoint:**
-- Create new checkpoint (older ones auto-pruned per MAX_CHECKPOINTS_PER_TASK)
-- Sequence number increments automatically
-
 **Initiative switching:**
-- Pause checkpoints survive initiative changes (extended expiry)
-- `/continue` can find pause checkpoints from previous initiative
-- User must explicitly link back to old initiative to access old pause checkpoints
+- Paused task state persists across initiative changes
+- `/continue` can find paused tasks from previous initiative
+- User must explicitly link back to old initiative to access old paused tasks
 
 ## Example Output
 
@@ -162,16 +138,13 @@ Tip: Use /protocol to start new work, or /continue to resume existing tasks.
 
 ## Integration with /continue
 
-The `/continue` command checks for pause checkpoints BEFORE loading standard initiative context:
+The `/continue` command checks for paused tasks BEFORE loading standard initiative context:
 
-```typescript
-// /continue enhancement (implemented separately)
-const pauseCheckpoints = await findPauseCheckpoints();
-
-if (pauseCheckpoints.length > 0) {
-  // Show pause checkpoint resume options
-  // User can choose to resume from pause or continue with standard flow
-}
+```bash
+# /continue enhancement (implemented separately)
+tc task list --status paused --json
+# If paused tasks found, show resume options
+# User can choose to resume paused task or continue with standard flow
 ```
 
-See `continue.md` for pause checkpoint detection logic.
+See `continue.md` for pause detection logic.

@@ -166,13 +166,15 @@ Load via native @include (recommended) or Skills Copilot MCP server (optional).
 
 Ephemeral PRD, task, and work product storage. Reduces context bloat by ~94%.
 
-**Core Tools:** `prd_create`, `prd_get`, `task_create`, `task_update`, `task_get`, `work_product_store`, `work_product_get`, `progress_summary`, `initiative_link`
+**Note:** Task Copilot operations use the `tc` CLI tool (installed at `tools/tc/`). Agents call `tc` commands via Bash instead of MCP tool calls. Memory Copilot and Skills Copilot still use their MCP servers.
 
-**Stream Tools:** `stream_list`, `stream_get`, `stream_conflict_check`, `stream_unarchive`, `stream_archive_all`
+**Core Commands:** `tc prd create`, `tc prd get`, `tc task create`, `tc task update`, `tc task get`, `tc wp store`, `tc wp get`, `tc progress`, `initiative_link` (Memory Copilot MCP)
 
-**Other Tools:** `agent_handoff`, `agent_chain_get`, `checkpoint_create`, `checkpoint_resume`, `validation_config_get`
+**Stream Commands:** `tc stream list`, `tc stream get`
 
-**Location:** `mcp-servers/task-copilot/`
+**Other Commands:** `tc handoff`, `tc log --task <id>`
+
+**Location:** `tools/tc/`
 
 ### 5. Protocol
 
@@ -394,24 +396,24 @@ All agents inherit these behaviors. Individual agent files should NOT repeat the
 
 **Task Copilot Pattern (all agents):**
 ```
-1. task_get(taskId)
-2. preflight_check({ taskId }) (if available)
-3. skill_evaluate({ files, text }) (if available)
+1. tc task get <taskId> --json (via Bash)
+2. Verify task exists and is assigned
+3. skill_evaluate({ files, text }) (if available - Skills MCP unchanged)
 4. Do domain work
-5. work_product_store({ taskId, type, title, content })
-6. task_update({ id: taskId, status: "completed" })
+5. tc wp store --task <taskId> --type <type> --title "..." --content "..." --json (via Bash)
+6. tc task update <taskId> --status completed --json (via Bash)
 ```
 
 **Iteration Loop (agents with iteration enabled):**
 ```
-1. iteration_start({ taskId, maxIterations, validationRules })
-2. FOR EACH: make changes → iteration_validate({ iterationId })
-   - COMPLETE → iteration_complete(), proceed to store work product
-   - BLOCKED → store findings, emit <promise>BLOCKED</promise>
-   - ELSE → iteration_next(), refine approach
+1. Agent self-manages iteration count (max from frontmatter config)
+2. FOR EACH iteration: make changes → validate against frontmatter rules
+   - All rules pass → store work product via tc wp store, mark complete via tc task update
+   - Blocked → store findings via tc wp store, emit <promise>BLOCKED</promise>
+   - Else → iterate with refined approach
 ```
 
-**Return Format:** Return ONLY ~100 tokens to main session. Store all details in `work_product_store`. Never return full designs, plans, code, or analysis.
+**Return Format:** Return ONLY ~100 tokens to main session. Store all details via `tc wp store`. Never return full designs, plans, code, or analysis.
 
 **Context Compaction:** If response exceeds ~14K tokens (~55K chars), store full content as work product and return compact summary only.
 
@@ -419,7 +421,7 @@ All agents inherit these behaviors. Individual agent files should NOT repeat the
 
 **Specification Workflow (domain agents: sd, uxd, uids, cw, cco):** Store completed work as `type: 'specification'`, then route to @agent-ta. Domain agents MUST NOT create tasks directly.
 
-**Multi-Agent Handoff:** If not final agent in chain: store work product, call `agent_handoff` (200-char context), route to next agent, do NOT return to main session. If final agent: call `agent_chain_get`, return consolidated summary.
+**Multi-Agent Handoff:** If not final agent in chain: store work product, call `tc handoff --from <agent> --to <agent> --task <id> --context "..." --json` (200-char context), route to next agent, do NOT return to main session. If final agent: call `tc log --task <id> --json`, return consolidated summary.
 
 **Protocol Integration:** When invoked via /protocol with checkpoints, output stage-complete summary with: Task/WP IDs, key deliverables, key decisions (2-3), handoff context (200-char max).
 

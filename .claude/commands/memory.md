@@ -23,12 +23,12 @@ Call these tools to gather memory state:
 
 4. **If Task Copilot is linked, get progress:**
    ```
-   progress_summary()
+   tc progress --json
    ```
 
 5. **Get protocol violations (if Task Copilot is linked):**
    ```
-   protocol_violations_get({ limit: 20 })
+   tc log --json
    ```
 
 ## Step 2: Display Dashboard
@@ -76,7 +76,7 @@ ta    | Output format     | [First 40 chars...]                 | 2025-01-14
 **Workspace ID:** [workspace-id or "auto-generated hash"]
 
 ### Task Progress (if Task Copilot linked)
-[Show output from progress_summary(), or skip section if not linked]
+[Show output from `tc progress --json`, or skip section if not linked]
 PRDs: [count] | Tasks: [pending/in_progress/completed] | Work Products: [count]
 
 ### Protocol Violations (if Task Copilot linked)

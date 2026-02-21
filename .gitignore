@@ -48,6 +48,10 @@ migrate.sh
 .env*
 !.env.example
 
+# Task Copilot CLI database (project-local)
+.copilot/
+copilot.db
+
 # Git worktrees for parallel streams
 .claude/worktrees/
 

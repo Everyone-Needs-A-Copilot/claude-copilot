@@ -330,16 +330,14 @@ Migrating existing workflows to leverage Opus 4.6 capabilities.
    ```
 
 2. **Remove model-specific overrides:**
-   ```typescript
-   // Old: Force specific model
-   task_create({
-     metadata: { modelOverride: 'haiku' }
-   })
+   ```bash
+   # Old: Force specific model
+   tc task create --title "..." --prd <id> --json
+   # metadata: { modelOverride: 'haiku' }
 
-   // New: Use effort levels
-   task_create({
-     metadata: { effortOverride: 'low' }  // Future enhancement
-   })
+   # New: Use effort levels
+   tc task create --title "..." --prd <id> --json
+   # metadata: { effortOverride: 'low' }  -- Future enhancement
    ```
 
 3. **Update keyword documentation:**
@@ -466,14 +464,9 @@ Replace manual compaction with Opus 4.6's native API.
 
 Store effort level in task metadata for better tracking.
 
-```typescript
-task_create({
-  title: 'Complex refactor',
-  metadata: {
-    effortOverride: 'max',  // Explicit effort control
-    estimatedEffort: 'high' // Auto-detected
-  }
-});
+```bash
+tc task create --title "Complex refactor" --prd <id> --json
+# metadata: { effortOverride: 'max', estimatedEffort: 'high' }
 ```
 
 **Benefits:**

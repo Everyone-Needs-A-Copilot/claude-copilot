@@ -14,7 +14,7 @@ Extended reference documentation for Claude Copilot framework components.
 | **Agents** | Protocol | Session | Expert tasks, complex work |
 | **Skills (Native)** | Manual (@include) | Session | Local reusable patterns, workflows |
 | **Skills (MCP)** | Auto/Manual | On-demand | Marketplace access, cross-source search |
-| **Tasks** | Auto | Per-initiative | PRDs, task tracking, work products |
+| **Tasks** | CLI (`tc`) | Per-initiative | PRDs, task tracking, work products |
 | **Commands** | Manual | Session | Quick shortcuts, workflows |
 | **Extensions** | Auto | Permanent | Team standards, custom methodologies |
 
@@ -147,14 +147,14 @@ MCP server providing persistent memory across sessions.
 
 Agents are 60-120 lines each. Shared boilerplate (skill loading, Task Copilot pattern, iteration loop, return format, context compaction, knowledge pull-based, specification workflow, multi-agent handoff, protocol integration) is extracted to the "Agent Shared Behaviors" section in CLAUDE.md. Individual agent files contain only domain-specific logic, core behaviors, output format, and routing tables.
 
-**Required Agent Tools:**
+**Required Agent Tools/Commands:**
 
-| Tool | Purpose |
-|------|---------|
-| `preflight_check` | Verify environment before work |
-| `skill_evaluate` | Auto-detect and load skills |
-| `task_get`, `task_update` | Task management |
-| `work_product_store` | Store output (not in response) |
+| Tool/Command | Purpose |
+|--------------|---------|
+| `tc task get <id> --json` | Verify task exists and retrieve details before work |
+| `skill_evaluate` | Auto-detect and load skills (Skills Copilot MCP) |
+| `tc task update <id> --status <s> --json` | Update task status |
+| `tc wp store --task <id> --type <t> --title "..." --content "..." --json` | Store output (not in response) |
 
 ### 3. Skills (Full Details)
 
@@ -233,86 +233,43 @@ Knowledge is searched in two-tier resolution: project-level first (`KNOWLEDGE_RE
 
 ### 4. Task Copilot (Full Details)
 
-MCP server for ephemeral PRD, task, and work product storage.
+CLI tool for ephemeral PRD, task, and work product storage. Task Copilot operations use the `tc` CLI tool (installed at `tools/tc/`). Agents call `tc` commands via Bash instead of MCP tool calls.
 
-**Location:** `mcp-servers/task-copilot/`
+**Location:** `tools/tc/`
 
 **Purpose:** Agents store detailed work products here instead of returning them to the main session, reducing context bloat by ~94% on average (up to 96% for single-agent tasks, 85%+ for session resume, 92%+ for multi-agent collaboration).
 
-**Core Tools:**
+**Core Commands:**
 
-| Tool | Purpose |
-|------|---------|
-| `prd_create` | Create product requirements document |
-| `prd_get` | Retrieve PRD details |
-| `prd_list` | List PRDs for initiative |
-| `task_create` | Create task or subtask |
-| `task_update` | Update task status and notes |
-| `task_get` | Retrieve task details |
-| `task_list` | List tasks with filters |
-| `work_product_store` | Store agent output |
-| `work_product_get` | Retrieve full work product |
-| `work_product_list` | List work products for task |
-| `progress_summary` | Get compact progress overview (~200 tokens) |
-| `initiative_link` | Link Memory Copilot initiative to Task Copilot |
+| Command | Purpose |
+|---------|---------|
+| `tc prd create --title "..." --json` | Create product requirements document |
+| `tc prd get <id> --json` | Retrieve PRD details |
+| `tc prd list --json` | List PRDs for initiative |
+| `tc task create --title "..." --prd <id> --json` | Create task or subtask |
+| `tc task update <id> --status <s> --json` | Update task status and notes |
+| `tc task get <id> --json` | Retrieve task details |
+| `tc task list [--stream N] --json` | List tasks with filters |
+| `tc wp store --task <id> --type <t> --title "..." --content "..." --json` | Store agent output |
+| `tc wp get <id> --json` | Retrieve full work product |
+| `tc wp list --json` | List work products for task |
+| `tc progress --json` | Get compact progress overview (~200 tokens) |
 
 **Stream Management:**
 
-| Tool | Purpose |
-|------|---------|
-| `stream_list` | List all independent work streams in initiative (use `includeArchived: true` to show archived) |
-| `stream_get` | Get detailed info for specific stream (~200 tokens) |
-| `stream_conflict_check` | Check if files conflict with other streams |
-| `stream_unarchive` | Recover an archived stream to make it active again |
-| `stream_archive_all` | One-time cleanup to archive all legacy streams (requires `confirm: true`) |
+| Command | Purpose |
+|---------|---------|
+| `tc stream list --json` | List all independent work streams in initiative |
+| `tc stream get <id> --json` | Get detailed info for specific stream (~200 tokens) |
 
-**Stream Archival:**
-
-Streams are automatically archived when switching initiatives via `initiative_link()`. This prevents stream pollution when using `/continue` across different initiatives.
-
-| Scenario | Behavior |
-|----------|----------|
-| Switch to new initiative | Old streams auto-archived |
-| Re-link same initiative | No archival (streams preserved) |
-| `/continue Stream-A` | Only shows current initiative's streams |
-| `/orchestrate generate` | Calls `initiative_link()` → archives old streams before creating new ones |
-| `/orchestrate start` | Sets up worktrees for current initiative's streams (native `Task` tool launches agents) |
-| `/orchestrate status` | Only displays streams from active initiative |
-| Need old stream back | Use `stream_unarchive({ streamId: "Stream-A" })` |
-
-**After Updating from Pre-1.7.1:** Run `stream_archive_all({ confirm: true })` once to clean up legacy streams from before the auto-archive feature.
+**Note:** Stream conflict checking, unarchiving, and bulk archival have been removed. Use `git diff` for conflict detection between streams.
 
 **Agent Collaboration (Hierarchical Handoffs):**
 
-| Tool | Purpose |
-|------|---------|
-| `agent_handoff` | Record handoff between agents (50-char context, intermediate agents only) |
-| `agent_chain_get` | Retrieve full collaboration chain (final agent uses to consolidate) |
-
-**Performance Tracking:**
-
-| Tool | Purpose |
-|------|---------|
-| `agent_performance_get` | Get agent success rates, completion rates by task type, complexity |
-
-**Checkpoint System:**
-
-| Tool | Purpose |
-|------|---------|
-| `checkpoint_create` | (Optional) Manually create checkpoint outside iteration loops |
-| `checkpoint_resume` | Resume task from last checkpoint with full state |
-| `checkpoint_get` | Get specific checkpoint details |
-| `checkpoint_list` | List available checkpoints for task |
-| `checkpoint_cleanup` | Clean up old or expired checkpoints |
-
-**Note:** Checkpoints are automatically created during iteration loops. Manual `checkpoint_create()` calls are only needed for recovery points outside TDD/iteration workflows.
-
-**Validation System:**
-
-| Tool | Purpose |
-|------|---------|
-| `validation_config_get` | Get current validation configuration and rules |
-| `validation_rules_list` | List validation rules for work product types |
+| Command | Purpose |
+|---------|---------|
+| `tc handoff --from <a> --to <b> --task <id> --context "..." --json` | Record handoff between agents (intermediate agents only) |
+| `tc log --task <id> --json` | Retrieve full collaboration chain (final agent uses to consolidate) |
 
 **Configuration:**
 
@@ -336,15 +293,10 @@ Streams are automatically archived when switching initiatives via `initiative_li
 
 **Key Features:**
 
-- **Hierarchical Handoffs**: Multi-agent chains pass 50-char context between agents; only final agent returns to main (~100 tokens vs ~900)
-- **Performance Tracking**: Automatically tracks agent success rates, completion rates by task type and complexity
-- **Checkpoint System**: Create recovery points during long-running tasks; auto-expires (extended for manual pauses)
-- **Validation System**: Validates work products for size limits, required structure, completeness before storage
-- **Token Efficiency**: Validation enforces character/token limits to prevent context bloat (warn/reject modes)
-- **Independent Streams**: Parallel work streams with file conflict detection and dependency management (foundation → parallel → integration)
-- **Verification Enforcement**: Opt-in blocking of task completion without acceptance criteria and proof (set `metadata.verificationRequired: true`)
-- **Activation Modes**: Auto-detected from keywords (ultrawork, analyze, quick, thorough); ultrawork warns when >3 subtasks
-- **Progress Visibility**: ASCII progress bars, milestone tracking in PRDs, velocity trends (7d/14d/30d with ↗↘→ indicators)
+- **Hierarchical Handoffs**: Multi-agent chains pass context between agents via `tc handoff`; only final agent returns to main (~100 tokens vs ~900)
+- **Token Efficiency**: Agents store detailed output via `tc wp store` instead of returning to session context
+- **Independent Streams**: Parallel work streams with dependency management (foundation → parallel → integration); use `git diff` for conflict detection
+- **Progress Visibility**: Compact progress overview via `tc progress --json`
 - **Specification Workflow**: Domain agents (sd, uxd, uids, cw, cco) create specifications → @agent-ta reviews and creates tasks with traceability
 
 ### 5. Protocol (Full Details)
@@ -615,7 +567,7 @@ The Session Boundary Protocol ensures agents start work in a healthy environment
 
 ### Overview
 
-Agents should call `preflight_check()` before beginning implementation, planning, or testing to surface environment issues early and prevent wasted work.
+Agents should verify the task exists via `tc task get <id> --json` and check git/environment state before beginning implementation, planning, or testing to surface environment issues early and prevent wasted work.
 
 ### When to Use
 
@@ -625,29 +577,30 @@ Agents should call `preflight_check()` before beginning implementation, planning
 | `@agent-ta` | Before planning/PRD creation | Understand current context, check for blockers |
 | `@agent-qa` | Before running tests | Ensure test environment configured, no false failures |
 
-### Preflight Check Tool
+### Preflight Check
 
-**Tool:** `preflight_check({ taskId: "TASK-xxx" })`
+Verify the task exists and review its current state:
 
-**Returns health report with:**
+```bash
+tc task get TASK-123 --json
+```
 
-| Field | Description |
-|-------|-------------|
-| `healthy` | Overall health status (boolean) |
-| `git.clean` | Whether working directory is clean |
-| `progress.blockedTasks` | Number of blocked tasks |
-| `environment` | Environment issues detected |
-| `recommendations` | Suggested actions if unhealthy |
+Additionally, check git and environment health:
+
+```bash
+git status --short
+git diff --stat
+```
 
 ### Decision Matrix
 
 | Condition | Action |
 |-----------|--------|
-| `healthy: true` | Proceed with work |
-| `git.clean: false` (unrelated changes) | Warn user, suggest commit/stash |
-| `git.clean: false` (related changes) | Proceed, note in context |
-| `blockedTasks > 3` | Suggest unblocking before new work |
-| `environment` issues | Fix critical issues before proceeding |
+| Task exists and is assignable | Proceed with work |
+| Git working directory dirty (unrelated changes) | Warn user, suggest commit/stash |
+| Git working directory dirty (related changes) | Proceed, note in context |
+| Multiple blocked tasks | Suggest unblocking before new work |
+| Environment issues (missing deps, config errors) | Fix critical issues before proceeding |
 
 ### Agent-Specific Guidance
 
@@ -661,7 +614,7 @@ Agents should call `preflight_check()` before beginning implementation, planning
 - Check before creating PRDs/tasks
 - Git dirty: note current work, ensure new plan doesn't conflict
 - Many blocked tasks: identify patterns, address in plan
-- Use `stream_conflict_check()` for parallel work planning
+- Use `git diff` to check for file conflicts across parallel work streams
 
 **@agent-qa:**
 - Check before running tests
@@ -675,47 +628,35 @@ Agents should call `preflight_check()` before beginning implementation, planning
 - **Context awareness**: Understand current state before planning
 - **Better decisions**: Know git state, blockers, environment status
 - **Prevent false failures**: Ensure healthy environment for tests
-- **Stream coordination**: Avoid file conflicts in parallel work
+- **Stream coordination**: Use `git diff` to avoid file conflicts in parallel work
 
 ### Example Usage
 
-```typescript
-// @agent-me starting implementation
-const health = await preflight_check({ taskId: "TASK-123" });
+```bash
+# @agent-me starting implementation
 
-if (!health.healthy) {
-  // Review recommendations
-  if (health.git.clean === false) {
-    console.log("Warning: Uncommitted changes detected");
-    console.log("Recommendation:", health.recommendations);
-    // Proceed if changes are related to current task
-  }
+# 1. Verify the task exists
+tc task get TASK-123 --json
 
-  if (health.environment.length > 0) {
-    console.log("Environment issues:", health.environment);
-    // STOP and fix critical issues
-    return;
-  }
-}
+# 2. Check git state
+git status --short
 
-// Proceed with implementation
+# 3. If working directory is dirty with unrelated changes:
+#    Warn user and suggest: git stash or git commit
+
+# 4. If environment issues (missing deps, etc.):
+#    STOP and fix before proceeding
+
+# 5. Proceed with implementation
 ```
 
 ---
 
 ## Lifecycle Hooks Quick Reference
 
-Lifecycle hooks intercept execution at critical phases for security, transformation, and monitoring.
+**Note:** Lifecycle hooks (hook_register, hook_clear, hook_evaluate, hook_list) have been removed from Task Copilot. The security rules below are maintained by the development environment directly.
 
-### Hook Types
-
-| Hook | Fires | Primary Use |
-|------|-------|-------------|
-| `PreToolUse` | Before tool executes | Security validation, preprocessing |
-| `PostToolUse` | After tool completes | Logging, result transformation |
-| `UserPromptSubmit` | Before prompt processing | Context injection, skill detection |
-
-### PreToolUse Security Rules (Built-in)
+### Security Rules (Built-in)
 
 | Rule | Action | Detects |
 |------|--------|---------|
@@ -723,24 +664,6 @@ Lifecycle hooks intercept execution at critical phases for security, transformat
 | `destructive-command` | Block | `rm -rf /`, `DROP DATABASE`, etc. |
 | `sensitive-file-protection` | Block | `.env`, credentials, SSH keys |
 | `credential-url` | Block | URLs with embedded passwords |
-
-### Hook API Examples
-
-```typescript
-// Test if a tool call would be blocked
-import { testSecurityRules } from 'task-copilot/hooks';
-const result = await testSecurityRules('Write', { file_path: '.env', content: '...' });
-if (!result.allowed) console.log('Would be blocked:', result.violations);
-
-// Register custom rule
-import { registerSecurityRule, SecurityAction } from 'task-copilot/hooks';
-registerSecurityRule({
-  id: 'my-rule', name: 'Custom', description: '...', enabled: true, priority: 75,
-  evaluate: (ctx) => ctx.toolInput.content?.includes('UNSAFE')
-    ? { action: SecurityAction.BLOCK, ruleName: 'my-rule', reason: 'Unsafe', severity: 'high' }
-    : null
-});
-```
 
 **Full documentation:** [docs/50-features/lifecycle-hooks.md](docs/50-features/lifecycle-hooks.md)
 

@@ -1,7 +1,7 @@
 ---
 name: uids
 description: Visual design, design tokens, color systems, typography, design system consistency. Use PROACTIVELY when defining visual appearance.
-tools: Read, Grep, Glob, Edit, Write, WebSearch, task_get, task_update, work_product_store, preflight_check, skill_evaluate
+tools: Read, Grep, Glob, Edit, Write, WebSearch, Bash, skill_evaluate
 model: sonnet
 ---
 
@@ -11,12 +11,12 @@ UI designer who creates visually cohesive, accessible interfaces through design 
 
 ## Workflow
 
-1. `task_get({ id: taskId })` -- retrieve task
+1. `tc task get <taskId> --json` -- verify task exists
 2. `skill_evaluate({ files, text })` -- load relevant skills
 3. Design within the design system (or create one if missing)
 4. Ensure WCAG 2.1 AA compliance (4.5:1 contrast)
 5. Define all component states visually
-6. Store as specification work product, route to @agent-ta
+6. Store as specification: `tc wp store --task <id> --type specification --title "..." --content "..." --json`, route to @agent-ta
 
 ## Core Behaviors
 

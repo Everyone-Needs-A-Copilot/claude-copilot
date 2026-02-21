@@ -9,10 +9,10 @@ Resume a conversation by loading context from Memory Copilot and Task Copilot.
 **BEFORE loading standard initiative context**, check for recent pause checkpoints:
 
 1. Call `initiative_get({ mode: "lean" })` — if no initiative, skip
-2. Call `task_list({ status: 'in_progress' })` — get all active tasks
-3. For each task, call `checkpoint_list({ taskId, limit: 5 })` then `checkpoint_get({ id })`
-4. Filter checkpoints where `trigger === 'manual'`, `executionPhase === 'paused'`, `agentContext?.pausedBy === 'user'`
-5. Sort by most recent `pausedAt`
+2. Run `tc task list --status in_progress --json` — get all active tasks
+3. Check each task for pause state (tasks updated via `tc task update` with paused status/notes)
+4. Filter tasks where status indicates paused state with user-initiated pause
+5. Sort by most recent update
 
 **If pause checkpoints found**, present options:
 
@@ -29,7 +29,7 @@ Options: [1-N] Resume task | [c] Standard resume | [s] Show all streams
 
 **When stream argument provided** (e.g., `/continue Stream-B`):
 
-1. `stream_get({ streamId: "Stream-B" })` — load stream details
+1. `tc stream get Stream-B --json` — load stream details
 2. **Setup worktree** if parallel stream without `worktreePath` in metadata:
    - Create worktree at `.claude/worktrees/{streamId}`, branch `stream-{streamId}`
    - Update all stream tasks with `worktreePath` and `branchName` metadata
@@ -39,7 +39,7 @@ Options: [1-N] Resume task | [c] Standard resume | [s] Show all streams
 
 **When no argument provided:**
 
-1. `stream_list()` — check for streams (excludes archived; use `includeArchived: true` + `stream_unarchive` if needed)
+1. `tc stream list --json` — check for streams
 2. If streams exist, present selection list (parallel streams show worktree path/branch)
 3. If no streams, proceed with standard resume flow
 4. After selection, load stream context and begin work
@@ -51,12 +51,12 @@ Load minimal context to preserve token budget:
 | Source | Call | Returns |
 |--------|------|---------|
 | Memory Copilot | `initiative_get({ mode: "lean" })` | currentFocus, nextAction, status (~150 tokens) |
-| Task Copilot | `progress_summary()` | PRD counts, task status, recent activity |
+| Task Copilot | `tc progress --json` | PRD counts, task status, recent activity |
 | Project | Read `CONSTITUTION.md` from root | Constitution context (graceful fallback if missing) |
 
 If no initiative exists, ask user what they're working on and call `initiative_start`.
 
-**Important:** Do NOT load full task lists. Use `progress_summary` for compact status.
+**Important:** Do NOT load full task lists. Use `tc progress --json` for compact status.
 
 ## Step 2: Activate Protocol
 
@@ -90,7 +90,7 @@ Every response MUST start with a Protocol Declaration:
 **Next Action:** [From initiative.nextAction]
 **Active Stream:** [stream name, phase, worktree path, branch, task progress]
 **Recent Decisions:** [Key decisions from Memory Copilot]
-**Recent Activity:** [From Task Copilot progress_summary]
+**Recent Activity:** [From `tc progress --json`]
 ```
 
 Do NOT list all tasks. If resuming a parallel stream, include worktree path and branch.
@@ -116,8 +116,8 @@ Please complete TASK-xxx: <brief description>
 
 | Purpose | Tool |
 |---------|------|
-| Update task status | `task_update({ id, status, notes })` |
-| Check progress | `progress_summary()` |
+| Update task status | `tc task update <id> --status <s> --json` |
+| Check progress | `tc progress --json` |
 | Store decisions | `memory_store({ type: "decision", content })` |
 | Store learnings | `memory_store({ type: "lesson", content })` |
 
@@ -152,7 +152,7 @@ Git worktrees provide isolation for parallel streams, eliminating file conflicts
 - Parallel streams are fully isolated — no conflicts during development
 - Conflicts only arise at merge time if same file modified in multiple branches
 - Foundation work is always in main worktree; parallel streams branch from it
-- Use `stream_conflict_check` to detect shared-file risks
+- Use `git diff` across worktrees to detect shared-file risks
 
 ### Troubleshooting
 

@@ -1,7 +1,7 @@
 ---
 name: sec
 description: Security review, vulnerability analysis, threat modeling. Use PROACTIVELY when reviewing authentication, authorization, or data handling.
-tools: Read, Grep, Glob, Edit, Write, WebSearch, task_get, task_update, work_product_store, preflight_check, skill_evaluate, iteration_start, iteration_validate, iteration_next, iteration_complete
+tools: Read, Grep, Glob, Edit, Write, WebSearch, Bash, skill_evaluate
 model: sonnet
 iteration:
   enabled: true
@@ -20,11 +20,11 @@ Security engineer who identifies and mitigates security risks before exploitatio
 
 ## Workflow
 
-1. `preflight_check({ taskId })` -- verify environment
+1. `tc task get <taskId> --json` -- verify task exists
 2. `skill_evaluate({ files, text })` -- load security skills
 3. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 10, rules: vulnerabilities_assessed, critical_issues_flagged)
 4. Review code for vulnerabilities, categorize by severity
-5. Store full findings as work product
+5. Store full findings: `tc wp store --task <id> --type security-review --title "..." --content "..." --json`
 
 ## Core Behaviors
 

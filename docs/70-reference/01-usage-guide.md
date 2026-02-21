@@ -153,13 +153,13 @@ You: /protocol the login form crashes on empty email
 [PROTOCOL: DEFECT | Agent: @agent-qa | Action: INVOKING]
 
 QA Agent:
-  1. Runs preflight_check() - environment healthy ✓
+  1. Checks task state via tc task get - environment healthy
   2. Reproduces the bug
   3. Creates task: "Fix empty email crash"
   4. Routes to @agent-me for fix
 
 Engineer Agent:
-  1. Runs preflight_check() - git clean ✓
+  1. Checks task state and git status - clean
   2. Implements fix
   3. Provides proof: "Test added, all 47 tests pass"
   4. Auto-commits: "fix(TASK-xxx): Handle empty email validation"
@@ -290,7 +290,7 @@ Parallel streams let you context-switch safely:
 # ... resumes exactly where you left off
 
 # Check what streams exist
-stream_list()
+tc stream list --json
 # Shows: Stream-A (profiles), Stream-B (complete)
 ```
 
@@ -347,12 +347,11 @@ Control work intensity with keywords:
 - **Current Focus** - What you're working on
 - **Next Action** - What to do next
 
-### Task Copilot Stores
+### Task Copilot Stores (via `tc` CLI)
 
 - **PRDs** - Requirements documents
 - **Tasks** - Work items with status
 - **Work Products** - Agent outputs (designs, code, plans)
-- **Checkpoints** - Recovery points for pause/resume
 - **Streams** - Parallel work contexts
 
 ### What Survives Sessions
@@ -371,30 +370,28 @@ Control work intensity with keywords:
 
 ### "Agent started on broken code"
 
-The preflight check should catch this. If not:
+Check the environment before continuing:
 
 ```bash
-preflight_check({})
+tc task get <id> --json
+git status
 ```
 
-Review the health report. Fix issues before continuing.
+Review the task state and git status. Fix issues before continuing.
 
 ### "Task completed but no commit"
 
 Check if `filesModified` was set:
 
 ```bash
-task_update({
-  id: "TASK-xxx",
-  metadata: { filesModified: ["src/file.ts"] }
-})
+tc task update TASK-xxx --status completed --json
+# Ensure metadata includes: { filesModified: ["src/file.ts"] }
 ```
 
 ### "Can't add tasks to PRD"
 
 PRD is scope-locked. Either:
-1. Ask `@agent-ta` to add the task
-2. Use `scope_change_request()` to request the change
+1. Ask `@agent-ta` to add the task (TA has scope authority on locked PRDs)
 
 ### "Merge conflicts on completion"
 
@@ -419,8 +416,11 @@ worktree_conflict_resolve({ taskId: "TASK-xxx" })
 If that doesn't help, check Memory Copilot directly:
 
 ```bash
+# Check Memory Copilot
 initiative_get({ mode: "full" })
-progress_summary()
+
+# Check Task Copilot
+tc progress --json
 ```
 
 ---
@@ -438,14 +438,14 @@ progress_summary()
 | `/memory` | View memory state |
 | `/orchestrate` | Set up and run parallel streams |
 
-### Key Tools
+### Key Tools / Commands
 
-| Tool | Purpose |
+| Tool / Command | Purpose |
 |------|---------|
-| `preflight_check()` | Verify environment healthy |
-| `progress_summary()` | See overall progress |
-| `stream_list()` | See parallel work streams |
-| `initiative_get()` | Get current initiative state |
+| `tc task get <id> --json` | Retrieve task state |
+| `tc progress --json` | See overall progress |
+| `tc stream list --json` | See parallel work streams |
+| `initiative_get()` | Get current initiative state (Memory Copilot MCP) |
 
 ### Magic Keywords
 

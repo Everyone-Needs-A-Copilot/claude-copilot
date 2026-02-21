@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-02-21
+
+### Added
+
+- **`tc` CLI Tool (`tools/tc/`)**: New Python + Typer + Rich CLI replacing the Task Copilot MCP server for all task management operations
+  - Full CRUD for PRDs, streams, tasks, and work products
+  - Atomic task claiming with `BEGIN IMMEDIATE` for safe concurrent agent access
+  - Dependency-aware `tc task next` for automatic task sequencing
+  - FTS5 full-text search on work products via `tc wp search`
+  - Hybrid storage: content <100KB in SQLite, >100KB on disk at `.copilot/wp/`
+  - Agent handoff tracking via `tc handoff` with activity log
+  - `tc watch` live terminal dashboard (Rich Live + Layout) for monitoring parallel streams
+  - `tc progress` for per-stream and overall progress summaries
+  - `tc db stats` and `tc db path` for database introspection
+  - Project-local `.copilot/tasks.db` with SQLite WAL mode and busy_timeout for concurrency
+
+- **Pytest Test Suite (`tools/tc/tests/`)**: 225 tests at 97% coverage on active code
+  - 10 test files covering all commands and modules
+  - Atomic claiming, double-claim prevention, dependency resolution, FTS search, hybrid storage
+
+### Changed
+
+- **Task Copilot: MCP to CLI Migration** (BREAKING): All 55 MCP tool schemas replaced with `tc` CLI commands via Bash
+  - Eliminates ~4,600 tokens of MCP tool schema overhead per agent session
+  - No long-running MCP server process, no stdio pipe failures, no timeout errors
+  - Agents call `tc <command> --json` via Bash tool instead of MCP function calls
+  - Memory Copilot and Skills Copilot MCP servers unchanged
+- **14 Agent Files**: All `.claude/agents/*.md` frontmatter and workflows migrated from MCP tool calls to `tc` CLI commands
+- **5 Command Files**: `protocol.md`, `orchestrate.md`, `continue.md`, `memory.md`, `pause.md` migrated to `tc` CLI
+- **CLAUDE.md and CLAUDE_REFERENCE.md**: Task Copilot sections rewritten for `tc` CLI
+- **15 Documentation Files**: All `docs/` files migrated from MCP function-call syntax to `tc` CLI commands
+- **Orchestrator Client Rewritten**: `.claude/orchestrator/task_copilot_client.py` uses `subprocess.run(["tc", ...])` instead of direct SQLite
+- **`tc watch` Replaces `watch-status`**: Self-contained dashboard eliminates symlink path resolution errors across projects
+
+### Removed
+
+- Task Copilot MCP tool dependencies from agent frontmatter: `iteration_start`, `iteration_validate`, `iteration_next`, `iteration_complete`, `checkpoint_create`, `checkpoint_resume`, `hook_register`, `hook_clear`, `preflight_check`, `validation_config_get`
+- Agents now self-manage iteration loops using standard tools (Bash for tests/compile, `tc` for state)
+
+## [2.10.0] - 2026-02-20
+
+### Added
+
+- Stream token budgets, path ownership, security hardening
+
 ## [2.9.0] - 2026-02-12
 
 ### Added
@@ -650,6 +695,8 @@ After updating from pre-1.7.1, optionally run `stream_archive_all({ confirm: tru
 
 | Version | Release Date | Key Features |
 |---------|-------------|--------------|
+| **3.0.0** | 2026-02-21 | `tc` CLI replaces Task Copilot MCP server, 225 tests, full MCP-to-CLI migration |
+| **2.10.0** | 2026-02-20 | Stream token budgets, path ownership, security hardening |
 | **2.9.0** | 2026-02-12 | Multi-agent Foreman architecture, agent assignment rules, task-data status dashboard |
 | **2.8.0** | 2026-01-26 | OMC features: ecomode, magic keywords, progress HUD, skill extraction, zero-config |
 | **2.7.0** | 2026-01-17 | Experience-first protocol, checkpoint system, orchestration redesign |
@@ -670,6 +717,22 @@ After updating from pre-1.7.1, optionally run `stream_archive_all({ confirm: tru
 ---
 
 ## Migration Guides
+
+### Upgrading from 2.x to 3.0.0
+
+**Action Required:**
+
+1. **Install `tc` CLI**: `cd tools/tc && pip install -e .`
+2. **Initialize project database**: `tc init` in your project root
+3. **Task Copilot MCP server is no longer used for task management**: Agents now use `tc` CLI via Bash tool
+4. **Memory Copilot and Skills Copilot MCP servers are unchanged**
+
+**Breaking Changes:**
+
+- All 55 MCP Task Copilot tool schemas removed from agent frontmatter
+- Agents use `tc <command> --json` via Bash instead of MCP function calls
+- Task data stored in `.copilot/tasks.db` (project-local) instead of MCP server database
+- `watch-status` script replaced by `tc watch`
 
 ### Upgrading from 1.5.x to 1.6.0
 
@@ -734,7 +797,16 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
 ---
 
-[unreleased]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v1.7.0...HEAD
+[unreleased]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v2.10.0...v3.0.0
+[2.10.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v2.9.0...v2.10.0
+[2.9.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v2.8.0...v2.9.0
+[2.8.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v2.7.0...v2.8.0
+[2.7.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v2.3.1...v2.7.0
+[2.3.1]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v2.2.0...v2.3.1
+[2.2.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v2.1.0...v2.2.0
+[2.1.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v2.0.0...v2.1.0
+[2.0.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v1.7.0...v2.0.0
 [1.7.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v1.4.0...v1.5.0

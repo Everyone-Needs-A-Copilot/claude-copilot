@@ -2,6 +2,8 @@
 
 Goal-driven agents use an iterative refinement loop where success is verified through observables, not assumed from execution. Instead of "do X then Y," agents verify "X is done" before proceeding.
 
+> **Note:** The dedicated MCP iteration tools (`iteration_start`, `iteration_validate`, `iteration_next`, `iteration_complete`) have been removed. Agents now self-manage their iteration loops using standard tooling (run tests via Bash, check results, iterate). The goal-driven philosophy remains the same -- only the mechanism has changed.
+
 ## Overview
 
 Traditional agents execute procedural workflows: "Read file, make changes, write file." Goal-driven agents verify outcomes: "Verify tests pass, verify code compiles, verify acceptance criteria met."
@@ -20,10 +22,10 @@ Agent receives task
         │
         ▼
 ┌──────────────────────┐
-│ iteration_start()    │ ← Define success criteria
+│ Define success        │ ← Success criteria from task
+│ criteria              │
 │ - maxIterations: N   │
-│ - completionPromises │
-│ - validationRules    │
+│ - validation checks  │
 └──────────────────────┘
         │
         ▼
@@ -33,7 +35,7 @@ Agent receives task
         │
         ▼
 ┌──────────────────────┐
-│ iteration_validate() │ ← Check observables
+│ Validate via Bash     │ ← Check observables
 │ - Run tests          │
 │ - Check compiles     │
 │ - Verify goals       │
@@ -55,189 +57,46 @@ Agent receives task
         │                 │        status blocked
         │                 │             │
         │                 ▼             │
-        │         iteration_next()      │
-        │         - Analyze gap         │
-        │         - Refine approach     │
-        │         - Try again           │
+        │         Analyze gap           │
+        │         Refine approach       │
+        │         Try again             │
         │                 │             │
         │                 └─────────────┘
         │                       │
         ▼                       │
 ┌──────────────────────┐       │
-│ iteration_complete() │ ←─────┘
-│ Emit COMPLETE        │
+│ Store work product    │ ←─────┘
+│ Update task status    │
 └──────────────────────┘
 ```
 
 ## Agent Schema
 
-Agents declare iteration support in their YAML frontmatter:
+Agents define their iteration approach in their YAML frontmatter:
 
 ```yaml
 ---
 name: me
 description: Feature implementation agent
-tools: Read, Write, Edit, iteration_start, iteration_validate, iteration_next, iteration_complete
+tools: Read, Write, Edit, Bash, Grep, Glob
 model: sonnet
-iteration:
-  enabled: true
-  maxIterations: 15
-  completionPromises:
-    - "<promise>COMPLETE</promise>"
-    - "<promise>BLOCKED</promise>"
-  validationRules:
-    - tests_pass
-    - compiles
-    - lint_clean
 ---
 ```
 
-### Schema Fields
+Agents self-manage iteration loops without dedicated MCP tools. The iteration pattern is documented in the agent's workflow section.
 
-| Field | Type | Description | Example |
-|-------|------|-------------|---------|
-| `enabled` | boolean | Iteration loop enabled | `true` |
-| `maxIterations` | number | Max refinement attempts | `15` |
-| `completionPromises` | string[] | Signals for completion | `["<promise>COMPLETE</promise>"]` |
-| `validationRules` | string[] | Success criteria identifiers | `["tests_pass", "compiles"]` |
+### Validation Checks
 
-### Validation Rules
+Common validation checks for different agent types:
 
-Common validation rules for different agent types:
-
-| Agent | Validation Rules | Meaning |
+| Agent | Validation Checks | Meaning |
 |-------|-----------------|---------|
-| `me` | `tests_pass`, `compiles`, `lint_clean` | All tests pass, code compiles, no lint errors |
-| `ta` | `prd_created`, `tasks_created`, `no_conflicts` | PRD exists, tasks exist, no stream conflicts |
-| `qa` | `tests_written`, `coverage_sufficient`, `tests_pass` | Tests created, coverage threshold met, tests pass |
-| `doc` | `docs_generated`, `links_valid`, `examples_work` | Docs exist, no broken links, examples execute |
+| `me` | Run tests, compile, lint | All tests pass, code compiles, no lint errors |
+| `ta` | Check PRD exists, tasks exist | PRD created, tasks created via `tc` CLI |
+| `qa` | Check test coverage, run tests | Tests created, coverage threshold met, tests pass |
+| `doc` | Check docs exist, validate links | Docs exist, no broken links, examples execute |
 
-Validation rules are extensible. Agents can define custom rules based on their domain.
-
-## Iteration Tools
-
-### iteration_start
-
-Begins an iteration loop with defined success criteria.
-
-```typescript
-const result = await iteration_start({
-  taskId: "TASK-xxx",
-  maxIterations: 15,
-  completionPromises: [
-    "<promise>COMPLETE</promise>",
-    "<promise>BLOCKED</promise>"
-  ],
-  validationRules: ["tests_pass", "compiles", "lint_clean"]
-});
-
-// Returns:
-{
-  iterationId: "ITER-xxx",
-  currentIteration: 0,
-  maxIterations: 15,
-  status: "active"
-}
-```
-
-**Parameters:**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `taskId` | string | Yes | Task this iteration is for |
-| `maxIterations` | number | Yes | Max refinement attempts |
-| `completionPromises` | string[] | Yes | Signals indicating completion |
-| `validationRules` | string[] | Yes | Success criteria to check |
-
-### iteration_validate
-
-Checks if success criteria are met.
-
-```typescript
-const result = await iteration_validate({
-  iterationId: "ITER-xxx"
-});
-
-// Returns:
-{
-  iterationId: "ITER-xxx",
-  currentIteration: 3,
-  maxIterations: 15,
-  validationResults: {
-    tests_pass: { pass: true, message: "All 42 tests passed" },
-    compiles: { pass: true, message: "No compilation errors" },
-    lint_clean: { pass: false, message: "3 lint errors in src/auth.ts" }
-  },
-  completionSignal: null,  // or "COMPLETE" or "BLOCKED"
-  shouldContinue: true,
-  message: "Validation failed: lint_clean (3 errors)"
-}
-```
-
-**Returns:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `validationResults` | object | Results for each validation rule |
-| `completionSignal` | string\|null | Detected completion promise if any |
-| `shouldContinue` | boolean | Whether to continue iterating |
-| `message` | string | Human-readable status |
-
-**Validation Logic:**
-
-1. Check for completion promises in agent's recent output
-2. Run validation rules (tests, compilation, etc.)
-3. If all pass: return `completionSignal: "COMPLETE"`
-4. If blocked signal detected: return `completionSignal: "BLOCKED"`
-5. If max iterations reached: return `shouldContinue: false`
-6. Otherwise: return `shouldContinue: true` with failure details
-
-### iteration_next
-
-Advances to the next iteration after analyzing failures.
-
-```typescript
-const result = await iteration_next({
-  iterationId: "ITER-xxx"
-});
-
-// Returns:
-{
-  iterationId: "ITER-xxx",
-  currentIteration: 4,
-  maxIterations: 15,
-  status: "active",
-  message: "Iteration 4/15 started"
-}
-```
-
-### iteration_complete
-
-Marks iteration as complete and stores results.
-
-```typescript
-const result = await iteration_complete({
-  iterationId: "ITER-xxx",
-  outcome: "success",  // or "blocked" or "max_iterations"
-  summary: "Successfully implemented auth with all tests passing"
-});
-
-// Returns:
-{
-  iterationId: "ITER-xxx",
-  totalIterations: 5,
-  outcome: "success",
-  elapsedTime: "3m 42s"
-}
-```
-
-**Parameters:**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `iterationId` | string | Yes | Iteration to complete |
-| `outcome` | enum | Yes | `"success"`, `"blocked"`, `"max_iterations"` |
-| `summary` | string | Yes | Human-readable completion summary |
+Validation checks are executed via Bash commands. Agents can define custom checks based on their domain.
 
 ## Goal-Driven Workflow
 
@@ -246,42 +105,40 @@ const result = await iteration_complete({
 ```markdown
 ## Workflow
 
-1. Run `preflight_check({ taskId })` before starting
+1. Check task state: `tc task get <id> --json`
 2. Use `skill_evaluate({ files, text })` to load relevant skills
 3. Read existing code to understand patterns
-4. Start iteration loop:
-   - `iteration_start({ taskId, maxIterations: 15, ... })`
-5. FOR EACH iteration:
+4. FOR EACH iteration (up to max retries):
    - Make changes to code
-   - Run `iteration_validate({ iterationId })`
-   - IF `completionSignal === 'COMPLETE'`: Call `iteration_complete()`, BREAK
-   - IF `completionSignal === 'BLOCKED'`: Update task status, BREAK
-   - ELSE: Analyze failure, call `iteration_next()`, refine approach
-6. Store work product: `work_product_store({ ... })`
-7. Emit: `<promise>COMPLETE</promise>`
+   - Run tests via Bash
+   - IF all tests pass AND lint clean: BREAK (success)
+   - IF blocked by external dependency: Update task status, BREAK
+   - ELSE: Analyze failure, refine approach
+5. Store work product: `tc wp store --task <id> --type implementation --title "..." --content "..." --json`
+6. Update task: `tc task update <id> --status completed --json`
 ```
 
 ### Example: Test-Driven Development
 
-```typescript
-// Agent: me
-// Task: Add authentication middleware
+```markdown
+Agent: me
+Task: Add authentication middleware
 
-// Iteration 1:
-// - Write initial middleware code
-// - iteration_validate() → tests_pass: false (4 failures)
-// - iteration_next() → Analyze test failures
+Iteration 1:
+- Write initial middleware code
+- Run tests via Bash -> 4 failures
+- Analyze test failures
 
-// Iteration 2:
-// - Fix token validation logic
-// - iteration_validate() → tests_pass: false (2 failures), compiles: true
-// - iteration_next() → Fix edge cases
+Iteration 2:
+- Fix token validation logic
+- Run tests via Bash -> 2 failures, compiles OK
+- Fix edge cases
 
-// Iteration 3:
-// - Handle expired tokens
-// - iteration_validate() → tests_pass: true, compiles: true, lint_clean: true
-// - completionSignal: "COMPLETE"
-// - iteration_complete({ outcome: "success" })
+Iteration 3:
+- Handle expired tokens
+- Run tests via Bash -> all pass, compiles OK, lint clean
+- Store work product: tc wp store --task <id> ...
+- Update task: tc task update <id> --status completed --json
 ```
 
 ## Practical Examples
@@ -331,13 +188,13 @@ const result = await iteration_complete({
 **Iteration 1:**
 - Design initial schema with tenant isolation
 - Create PRD and task breakdown
-- **Validation:** `stream_conflict_check: conflict in database migrations`
+- **Validation:** Conflict detected in database migrations (checked via `git diff`)
 - **Next:** Resolve conflict with Stream-B
 
 **Iteration 2:**
 - Adjust migration strategy to avoid conflict
-- Recreate tasks with updated dependencies
-- **Validation:** `no_conflicts: true`, `tasks_created: true`
+- Recreate tasks with updated dependencies via `tc task create ...`
+- **Validation:** No conflicts (checked via `git diff`), tasks created
 - **Complete:** All criteria met
 
 **Result:** Success in 2 iterations
@@ -394,13 +251,12 @@ const result = await iteration_complete({
 
 ## Iteration Loop
 
-1. iteration_start({ maxIterations: 15, validationRules: [...] })
-2. FOR EACH iteration:
+1. FOR EACH iteration (up to max retries):
    - Make changes
-   - iteration_validate()
-   - IF success: iteration_complete(), emit COMPLETE
-   - IF blocked: task_update(blocked), emit BLOCKED
-   - ELSE: iteration_next(), analyze and refine
+   - Run validation checks via Bash (tests, compile, lint)
+   - IF success: store work product via `tc wp store ...`, update task via `tc task update <id> --status completed --json`
+   - IF blocked: update task via `tc task update <id> --status blocked --json`
+   - ELSE: analyze failure, refine approach
 ```
 
 ### Agent Instruction Patterns
@@ -417,10 +273,9 @@ const result = await iteration_complete({
 
 ## Max Iteration Handling
 
-When `maxIterations` is reached without success:
+When the maximum number of attempts is reached without success:
 
-1. Call `iteration_complete({ outcome: "max_iterations" })`
-2. Store work product with detailed analysis:
+1. Store work product with detailed analysis via `tc wp store --task <id> ...`:
    ```markdown
    ## Iteration Limit Reached
 
@@ -440,8 +295,7 @@ When `maxIterations` is reached without success:
    - Add synchronization mechanism
    - Consider involving @agent-sec for security review
    ```
-3. Update task status to "blocked" with human-readable summary
-4. Emit `<promise>BLOCKED</promise>`
+2. Update task status to "blocked" with human-readable summary: `tc task update <id> --status blocked --json`
 
 ## BLOCKED Signal Usage
 
@@ -457,51 +311,28 @@ Agents should emit `<promise>BLOCKED</promise>` when:
 
 **When blocked:**
 
-1. Emit `<promise>BLOCKED</promise>` in agent output
-2. `iteration_validate()` detects the promise
-3. Agent calls `iteration_complete({ outcome: "blocked" })`
-4. Store work product explaining blocker
-5. Update task with blocker details
+1. Store work product explaining blocker: `tc wp store --task <id> --type other --title "Blocked: ..." --content "..." --json`
+2. Update task with blocker details: `tc task update <id> --status blocked --json`
 
 ## Configuration
 
 ### Agent-Level Defaults
 
-Set in agent frontmatter:
+Agents define their iteration approach directly in their workflow instructions. The max retry count and validation checks are documented as part of the agent's markdown file.
 
-```yaml
-iteration:
-  enabled: true
-  maxIterations: 15
-  completionPromises:
-    - "<promise>COMPLETE</promise>"
-    - "<promise>BLOCKED</promise>"
-  validationRules:
-    - tests_pass
-    - compiles
-```
+### Task-Level Context
 
-### Task-Level Overrides
+Task metadata provides context for the agent's iteration decisions:
 
-Override in `iteration_start()` call:
-
-```typescript
-iteration_start({
-  taskId: "TASK-xxx",
-  maxIterations: 25,  // Override agent default
-  validationRules: ["custom_rule", "tests_pass"]  // Add custom rule
-})
+```bash
+# Agent retrieves task details to understand scope
+tc task get TASK-xxx --json
+# Returns metadata including complexity, files, acceptance criteria
 ```
 
 ### Project-Level Configuration
 
-Set environment variables (future):
-
-```bash
-ITERATION_MAX_DEFAULT=15
-ITERATION_TIMEOUT=300000  # 5 minutes
-ITERATION_VALIDATION_TIMEOUT=60000  # 1 minute
-```
+Quality gates in `.claude/quality-gates.json` define project-level validation checks that run on task completion.
 
 ## Best Practices
 
@@ -536,8 +367,8 @@ Avoid trying to fix everything in one iteration.
 
 ### 3. Analyze Failures Between Iterations
 
-Use `iteration_next()` to:
-- Review validation failure messages
+Between iterations, agents should:
+- Review validation failure messages from test/compile output
 - Identify patterns in errors
 - Adjust approach based on feedback
 - Document what was learned
@@ -590,19 +421,9 @@ Future: Dashboard showing iteration statistics across all tasks.
 
 ### Adapting Existing Agents
 
-**Step 1: Add iteration schema to frontmatter**
+**Step 1: Update agent tools**
 
-```yaml
-iteration:
-  enabled: true
-  maxIterations: 15
-  completionPromises:
-    - "<promise>COMPLETE</promise>"
-    - "<promise>BLOCKED</promise>"
-  validationRules:
-    - domain_specific_rule
-    - tests_pass
-```
+Remove iteration MCP tools from the tools list. Agents use standard tools (Read, Write, Edit, Bash, Grep, Glob) plus `tc` CLI commands.
 
 **Step 2: Transform workflow to success criteria**
 
@@ -612,24 +433,25 @@ Change from procedural steps to verifiable outcomes:
 - 1. Read files
 - 2. Make changes
 - 3. Write files
-+ 1. Verify code compiles
-+ 2. Verify tests pass
++ 1. Verify code compiles (run compiler via Bash)
++ 2. Verify tests pass (run test suite via Bash)
 + 3. Verify meets acceptance criteria
 ```
 
-**Step 3: Add iteration loop**
+**Step 3: Add self-managed iteration loop**
 
 ```markdown
 ## Workflow
 
-1. preflight_check()
-2. iteration_start({ taskId, maxIterations: 15, ... })
-3. FOR EACH iteration:
+1. tc task get <id> --json
+2. FOR EACH attempt (up to max retries):
    - Do work
-   - iteration_validate()
-   - IF complete: iteration_complete(), BREAK
-   - ELSE: iteration_next(), refine
-4. Emit <promise>COMPLETE</promise>
+   - Run validation checks via Bash
+   - IF all pass: store work product, update task, BREAK
+   - IF blocked: update task status to blocked, BREAK
+   - ELSE: analyze failure, refine approach
+3. tc wp store --task <id> --type <t> --title "..." --content "..." --json
+4. tc task update <id> --status completed --json
 ```
 
 **Step 4: Test with real tasks**
@@ -637,7 +459,7 @@ Change from procedural steps to verifiable outcomes:
 Run agent on actual tasks and verify:
 - Iterations converge to success
 - Blocked states are detected
-- Max iterations prevents infinite loops
+- Max retries prevent infinite loops
 
 ## Related Documentation
 

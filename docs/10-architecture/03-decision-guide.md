@@ -225,11 +225,11 @@ Do you need to customize agent behavior?
 
 ### Stream Tools Usage
 
-| Tool | When to Use | Example |
+| Command | When to Use | Example |
 |------|-------------|---------|
-| `stream_list()` | View all streams in initiative | See progress across parallel work |
-| `stream_get({ streamId })` | Get detailed stream info | Check Stream-B status before resuming |
-| `stream_conflict_check({ files, excludeStreamId })` | Before creating tasks | Ensure no file conflicts with other streams |
+| `tc stream list --json` | View all streams in initiative | See progress across parallel work |
+| `tc stream get <id> --json` | Get detailed stream info | Check Stream-B status before resuming |
+| `git diff` | Before creating tasks | Ensure no file conflicts with other streams |
 
 ### Stream Metadata in Tasks
 

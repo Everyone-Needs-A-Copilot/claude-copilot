@@ -34,7 +34,7 @@ Set a stream-level budget in task metadata:
 
 Behavior:
 - Work product storage is blocked if the stream exceeds its budget.
-- `stream_list()` and `stream_get()` show `tokenUsage` and `tokenBudget`.
+- `tc stream list --json` and `tc stream get <id> --json` show `tokenUsage` and `tokenBudget`.
 - Progress HUD can show `~usage/budget tokens` when provided.
 
 ---
@@ -66,7 +66,7 @@ When a stream stalls or blocks:
 ## Recommended Defaults
 
 - Stream token budgets: 2k to 4k tokens per stream
-- `progress_summary()` for ~200 token status updates
+- `tc progress --json` for ~200 token status updates
 - Work product summaries for long outputs
 
 ---

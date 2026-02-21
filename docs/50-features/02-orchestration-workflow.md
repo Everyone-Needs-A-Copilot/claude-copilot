@@ -30,7 +30,7 @@ Creates PRD and tasks with stream metadata. Default if no subcommand given.
 | 2 | `initiative_link()` to connect Task Copilot (archives old streams) |
 | 3 | Invoke **@agent-ta** to design architecture and return structured JSON |
 | 4 | Validate: no cycles, at least one foundation stream (`dependencies: []`) |
-| 5 | `prd_create()` then `task_create()` for each task |
+| 5 | `tc prd create --title "..." --json` then `tc task create --title "..." --prd <id> --json` for each task |
 | 6 | Display plan summary, ask user to approve |
 
 **Required task metadata:**
@@ -61,8 +61,8 @@ Sets up git isolation. Does NOT launch agents.
 
 | Step | Action |
 |------|--------|
-| 1 | `stream_list()` -- stop if no streams |
-| 2 | `stream_conflict_check()` -- stop if file overlaps between streams |
+| 1 | `tc stream list --json` -- stop if no streams |
+| 2 | Check for file overlaps between streams using `git diff` -- stop if conflicts |
 | 3 | `worktree_create({ taskId })` for each stream task |
 | 4 | Print launch instructions for the main session |
 
@@ -80,7 +80,7 @@ Stream-B   | in_progress | 60%
 Stream-C   | pending     | 0%
 ```
 
-Uses `progress_summary()` and `stream_list()`.
+Uses `tc progress --json` and `tc stream list --json`.
 
 ### `merge`
 
@@ -117,7 +117,7 @@ Depth 2 (Integration): Stream-Z  [depends on B, C]
 
 ## Stream Conflict Detection
 
-Before creating worktrees, `stream_conflict_check()` compares the `files` arrays across streams. If two streams declare overlapping files, orchestration stops.
+Before creating worktrees, the orchestration compares the `files` arrays across streams (using `git diff`). If two streams declare overlapping files, orchestration stops.
 
 **Resolution:** restructure streams so each file belongs to exactly one stream, or merge overlapping streams.
 
@@ -147,8 +147,8 @@ Streams are scoped to the active initiative.
 | Action | Effect |
 |--------|--------|
 | `initiative_link()` with new initiative | Archives streams from previous initiative |
-| `stream_list()` | Returns only current initiative streams |
-| Switching back | Use `stream_unarchive({ streamId })` then re-link old initiative |
+| `tc stream list --json` | Returns only current initiative streams |
+| Switching back | Re-link old initiative via Memory Copilot |
 
 ---
 
@@ -176,9 +176,9 @@ Stream-Z [---------------]   0%  ---    ---   Integration
 | Practice | Rationale |
 |----------|-----------|
 | Keep parallel streams at 3-5 | More streams increase merge complexity and resource usage |
-| Ensure files do not overlap | Prevents merge conflicts; enforced by `stream_conflict_check()` |
+| Ensure files do not overlap | Prevents merge conflicts; enforced by file overlap checks during `start` |
 | Complete foundation before parallel | Downstream streams depend on shared infrastructure |
-| Verify after `generate` | Call `stream_list()` to confirm tasks were created (not just markdown) |
+| Verify after `generate` | Call `tc stream list --json` to confirm tasks were created (not just markdown) |
 | Run `merge` promptly | Long-lived worktrees diverge from main, increasing conflict risk |
 
 ---
@@ -187,12 +187,12 @@ Stream-Z [---------------]   0%  ---    ---   Integration
 
 | Symptom | Cause | Solution |
 |---------|-------|----------|
-| "No streams found" on `start` | `generate` not run, or @agent-ta output markdown instead of calling tools | Run `/orchestrate generate`; verify with `stream_list()` |
+| "No streams found" on `start` | `generate` not run, or @agent-ta output markdown instead of calling tools | Run `/orchestrate generate`; verify with `tc stream list --json` |
 | File overlap detected | Two streams declare the same file in `files` metadata | Restructure streams or merge overlapping ones |
 | Circular dependency detected | Streams depend on each other in a cycle | Break cycle by making one stream foundation (`dependencies: []`) |
 | Worktree already exists | Previous run not cleaned up | `worktree_cleanup({ taskId, force: true })` or `git worktree remove --force` |
 | Merge conflicts on `merge` | Parallel changes touched same lines | Use `worktree_conflict_status()` to inspect, resolve manually, then `worktree_conflict_resolve()` |
-| Streams missing after initiative switch | `initiative_link()` auto-archives old streams | `stream_unarchive({ streamId })` then re-link old initiative |
+| Streams missing after initiative switch | `initiative_link()` auto-archives old streams | Re-link old initiative via Memory Copilot |
 | Database locked | Another process has SQLite open | Close other Claude sessions, wait 30s, retry |
 | Task agent not starting | Main session did not launch Task tool | Main session must call `Task` with `run_in_background: true` per stream |
 
@@ -200,20 +200,20 @@ Stream-Z [---------------]   0%  ---    ---   Integration
 
 ## Tool Reference
 
-| Tool | Used In | Purpose |
+| Tool / Command | Used In | Purpose |
 |------|---------|---------|
-| `initiative_get` | generate | Check active initiative |
-| `initiative_link` | generate | Connect Task Copilot, archive old streams |
-| `prd_create` | generate | Create PRD |
-| `task_create` | generate | Create stream tasks with metadata |
-| `stream_list` | start, status, merge | List streams with progress |
-| `stream_conflict_check` | start | Validate no file overlaps |
+| `initiative_get` | generate | Check active initiative (Memory Copilot MCP) |
+| `initiative_link` | generate | Connect Task Copilot, archive old streams (Memory Copilot MCP) |
+| `tc prd create` | generate | Create PRD |
+| `tc task create` | generate | Create stream tasks with metadata |
+| `tc stream list` | start, status, merge | List streams with progress |
+| `git diff` | start | Validate no file overlaps between streams |
 | `worktree_create` | start | Create git worktree per stream |
 | `worktree_merge` | merge | Merge branch to main |
 | `worktree_conflict_status` | merge | Inspect merge conflicts |
 | `worktree_conflict_resolve` | merge | Complete conflict resolution |
 | `worktree_cleanup` | merge | Remove worktree and branch |
-| `progress_summary` | status | Overall completion percentage |
+| `tc progress` | status | Overall completion percentage |
 
 ---
 

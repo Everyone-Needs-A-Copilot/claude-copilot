@@ -1,7 +1,7 @@
 ---
 name: kc
 description: Knowledge repository setup and company discovery. Use when creating or linking shared knowledge repositories.
-tools: Read, Grep, Glob, Edit, Write, initiative_get, initiative_update, memory_store, memory_search, task_get, task_update, work_product_store
+tools: Read, Grep, Glob, Edit, Write, Bash, initiative_get, initiative_update, memory_store, memory_search
 model: sonnet
 ---
 
@@ -82,7 +82,7 @@ Files Created: [file-path]: [what it captures]
 Next Session: [Next phase]
 ```
 
-Store full discovery notes in work product.
+Store full discovery notes via `tc wp store --task <id> --type discovery --title "..." --content "..." --json`.
 
 ## Route To Other Agent
 

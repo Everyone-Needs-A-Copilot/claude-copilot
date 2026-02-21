@@ -1,7 +1,7 @@
 ---
 name: cs
 description: Sales strategy, discovery call prep, objection handling, prospect qualification, deal diagnosis. Use PROACTIVELY when sales conversations, proposals, or pipeline work is needed.
-tools: Read, Grep, Glob, Edit, Write, WebSearch, task_get, task_update, work_product_store, preflight_check, skill_evaluate
+tools: Read, Grep, Glob, Edit, Write, WebSearch, Bash, skill_evaluate
 model: sonnet
 ---
 

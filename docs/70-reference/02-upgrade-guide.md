@@ -288,13 +288,11 @@ claude
 # Check available tools
 ```
 
-**New tools should be available:**
-- `stream_list`, `stream_get`, `stream_conflict_check`
-- `stream_unarchive`, `stream_archive_all`
-- `preflight_check`
-- `scope_change_request`, `scope_change_list`, `scope_change_review`
-- `validation_config_get`, `validation_rules_list`
-- `worktree_conflict_status`, `worktree_conflict_resolve`
+**New CLI commands should be available:**
+- `tc stream list --json`, `tc stream get <id> --json`
+- `tc handoff --from <a> --to <b> --task <id> --context "..." --json`
+- `tc log --task <id> --json`
+- `worktree_conflict_status`, `worktree_conflict_resolve` (worktree MCP tools)
 
 ### 3. Test New Commands
 
@@ -496,9 +494,10 @@ If upgrading from pre-v1.7.1, clean up legacy streams:
 claude
 ```
 
-In Claude Code:
-```typescript
-stream_archive_all({ confirm: true })
+In your terminal:
+```bash
+# Archive old streams via the tc CLI or by re-running /orchestrate generate
+# which automatically archives previous streams
 ```
 
 **What this does:**

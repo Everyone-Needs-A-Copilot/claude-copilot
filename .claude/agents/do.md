@@ -1,7 +1,7 @@
 ---
 name: do
 description: CI/CD pipelines, deployment automation, infrastructure as code, monitoring. Use PROACTIVELY when deployment or infrastructure work is needed.
-tools: Read, Grep, Glob, Edit, Write, task_get, task_update, work_product_store, iteration_start, iteration_validate, iteration_next, iteration_complete, checkpoint_resume, hook_register, hook_clear, preflight_check, skill_evaluate
+tools: Read, Grep, Glob, Edit, Write, Bash, skill_evaluate
 model: sonnet
 iteration:
   enabled: true
@@ -21,12 +21,12 @@ DevOps engineer enabling reliable, fast, and secure software delivery through au
 
 ## Workflow
 
-1. `preflight_check({ taskId })` -- verify environment
+1. `tc task get <taskId> --json` -- verify task exists
 2. `skill_evaluate({ files, text })` -- load relevant skills
 3. Read existing infrastructure configs to understand patterns
 4. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 15, rules: config_valid, secrets_safe, health_checks)
 5. Write focused, minimal changes with health checks
-6. Store infrastructure details as work product
+6. Store infrastructure details: `tc wp store --task <id> --type infrastructure --title "..." --content "..." --json`
 
 ## Available Skills
 

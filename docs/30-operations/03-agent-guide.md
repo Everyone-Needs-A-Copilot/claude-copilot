@@ -42,22 +42,14 @@ When executing a task, the effective model is resolved in this order:
 3. **System default** - `sonnet` (fallback if not specified)
 
 **Example:**
-```typescript
-// Task with model override (uses haiku regardless of agent default)
-task_create({
-  title: "Quick bug fix",
-  assignedAgent: "me",
-  metadata: {
-    modelOverride: "haiku"
-  }
-})
+```bash
+# Task with model override (uses haiku regardless of agent default)
+tc task create --title "Quick bug fix" --prd <id> --json
+# Then set metadata: modelOverride: "haiku"
 
-// Task without override (uses agent's default model)
-task_create({
-  title: "Implement feature",
-  assignedAgent: "me"
-  // Uses 'sonnet' from me.md frontmatter
-})
+# Task without override (uses agent's default model)
+tc task create --title "Implement feature" --prd <id> --json
+# Uses 'sonnet' from me.md frontmatter
 ```
 
 ### Iteration Configuration
@@ -199,22 +191,11 @@ Choose the right agent for each task type:
 Work products automatically track which model was used via `metadata.modelUsed`.
 
 **Query model usage:**
-```typescript
-// Get progress summary with model breakdown
-progress_summary({ initiativeId: "INIT-xxx" })
+```bash
+# Get progress summary with model breakdown
+tc progress --json
 
-// Returns:
-{
-  workProducts: {
-    total: 45,
-    byType: { implementation: 20, architecture: 10, ... },
-    modelUsage: {
-      opus: 12,
-      sonnet: 30,
-      haiku: 3
-    }
-  }
-}
+# Returns JSON with work product counts, types, and model usage breakdown
 ```
 
 **Use this data to:**
@@ -239,12 +220,12 @@ When creating a new agent:
 ---
 name: my-agent
 description: Custom agent for specific domain
-tools: Read, Write, Grep, task_get, work_product_store
+tools: Read, Write, Grep, Bash
 model: sonnet  # Standard complexity work
-iteration:
-  enabled: false  # No iteration loop needed
 ---
 ```
+
+> **Note:** Agents use the `tc` CLI via Bash for Task Copilot operations (e.g., `tc task get <id> --json`, `tc wp store ...`). Iteration tools have been removed; agents self-manage their loops.
 
 ---
 
@@ -260,18 +241,10 @@ iteration:
 3. Caching issue - restart MCP server
 
 **Solution:**
-```typescript
-// Correct override
-task_update({
-  id: "TASK-xxx",
-  metadata: { modelOverride: "haiku" }
-})
-
-// Incorrect (won't work)
-task_update({
-  id: "TASK-xxx",
-  metadata: { model: "haiku" }  // Wrong field name
-})
+```bash
+# Correct override -- set modelOverride in task metadata
+tc task update TASK-xxx --status in_progress --json
+# Ensure metadata field is modelOverride, not model
 ```
 
 ### High Costs with Auto-Routing

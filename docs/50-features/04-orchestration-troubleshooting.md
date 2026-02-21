@@ -451,7 +451,7 @@ npm run build
 
 #### Symptoms
 - `/orchestrate generate` succeeds
-- `stream_list()` shows streams
+- `tc stream list --json` shows streams
 - But `./watch-status` shows: "No streams found" or empty dashboard
 
 #### Root Cause
@@ -462,23 +462,10 @@ npm run build
 #### Diagnosis
 ```bash
 # 1. Check streams exist
-python -c "
-from task_copilot_client import TaskCopilotClient
-tc = TaskCopilotClient('$(basename $(pwd))')
-streams = tc.stream_list()
-print(f'Found {len(streams)} streams')
-for s in streams:
-    print(f'  - {s.stream_id}: {s.stream_name}')
-"
+tc stream list --json
 
-# 2. Check initiative linkage
-python -c "
-from pathlib import Path
-import json
-db_path = Path.home() / '.claude' / 'tasks' / '$(basename $(pwd)).db'
-print(f'Database: {db_path}')
-print(f'Exists: {db_path.exists()}')
-"
+# 2. Check database exists
+ls -lh ~/.claude/tasks/$(basename $(pwd)).db
 
 # 3. Check for archived streams
 python .claude/orchestrator/check_streams_data.py | grep -i archived
@@ -488,21 +475,11 @@ python .claude/orchestrator/check_streams_data.py | grep -i archived
 
 **If streams from different initiative:**
 ```bash
-# Unarchive and re-link to current initiative
-python -c "
-from task_copilot_client import TaskCopilotClient
-tc = TaskCopilotClient('$(basename $(pwd))')
+# Re-link to current initiative via Memory Copilot
+# Use initiative_link() MCP tool to reconnect
 
-# Unarchive specific stream
-tc.stream_unarchive('Stream-A')
-
-# Re-link to initiative
-tc.initiative_link(
-    initiative_id='INI-current',
-    title='Current Initiative',
-    description='...'
-)
-"
+# Then verify streams are visible
+tc stream list --json
 ```
 
 **If database corrupted:**
@@ -518,7 +495,7 @@ rm ~/.claude/tasks/$(basename $(pwd)).db
 #### Prevention
 - Always use `/orchestrate generate` to start new initiatives
 - Don't manually switch initiatives mid-orchestration
-- Use `initiative_link()` to properly scope initiatives
+- Use `initiative_link()` (Memory Copilot MCP) to properly scope initiatives
 
 ---
 
@@ -596,15 +573,8 @@ if [ -L "$INVOCATION_PATH" ]; then
 python .claude/orchestrator/check_streams_data.py | grep -A 5 "Dependencies"
 
 # Check for circular dependencies
-python -c "
-from task_copilot_client import TaskCopilotClient
-tc = TaskCopilotClient('$(basename $(pwd))')
-
-streams = tc.stream_list()
-for s in streams:
-    detail = tc.stream_get(s.stream_id)
-    print(f'{s.stream_id}: depends on {detail.dependencies}')
-"
+tc stream list --json
+# Review streamDependencies in each stream's metadata
 ```
 
 **Look for:**
@@ -617,36 +587,23 @@ for s in streams:
 **If circular dependency:**
 ```bash
 # Identify cycle and break it by making one stream foundation
-python -c "
-from task_copilot_client import TaskCopilotClient
-tc = TaskCopilotClient('$(basename $(pwd))')
+# List tasks for the stream
+tc task list --stream Stream-A --json
 
-# Update Stream-A to be foundation (no dependencies)
-tasks = tc.task_list(stream_id='Stream-A')
-for task in tasks:
-    tc.task_update(
-        id=task.id,
-        metadata={**task.metadata, 'dependencies': []}
-    )
-"
+# Update each task to remove dependencies
+tc task update <task-id> --status pending --json
+# Set metadata.dependencies to [] for each task in the stream
 ```
 
 **If no foundation streams:**
 ```bash
 # Identify the true starting point and remove its dependencies
 # Usually this is "database setup" or "configuration" stream
-python -c "
-from task_copilot_client import TaskCopilotClient
-tc = TaskCopilotClient('$(basename $(pwd))')
+tc task list --stream Stream-A --json
 
-# Find Stream-Foundation or Stream-A (typically foundation)
-foundation_tasks = tc.task_list(stream_id='Stream-A')
-for task in foundation_tasks:
-    tc.task_update(
-        id=task.id,
-        metadata={**task.metadata, 'dependencies': []}
-    )
-"
+# Update foundation tasks to have no dependencies
+tc task update <task-id> --status pending --json
+# Set metadata.dependencies to []
 
 # Restart orchestration
 /orchestrate start
@@ -686,37 +643,21 @@ tail -100 .claude/orchestrator/logs/Stream-A_*.log
 # Look for: exceptions, exit codes, task verification failures
 
 # Check task status
-python -c "
-from task_copilot_client import TaskCopilotClient
-tc = TaskCopilotClient('$(basename $(pwd))')
-
-tasks = tc.task_list(stream_id='Stream-A')
-for t in tasks:
-    print(f'{t.title}: {t.status}')
-"
+tc task list --stream Stream-A --json
 ```
 
 #### Solution
 
 **If worker completes but tasks show incomplete:**
 ```bash
-# Worker isn't calling task_update properly
+# Worker isn't calling tc task update properly
 # Check worker prompt includes mandatory protocol
 tail .claude/orchestrator/logs/Stream-A_*.log | grep -A 10 "MANDATORY PROTOCOL"
 
 # Manually complete tasks if worker finished work
-python -c "
-from task_copilot_client import TaskCopilotClient
-tc = TaskCopilotClient('$(basename $(pwd))')
-
-tasks = tc.task_list(stream_id='Stream-A', status='in_progress')
-for task in tasks:
-    tc.task_update(
-        id=task.id,
-        status='completed',
-        notes='Manually completed after worker verification'
-    )
-"
+tc task list --stream Stream-A --json
+# For each in-progress task:
+tc task update <task-id> --status completed --json
 ```
 
 **If environment issue (missing package, permissions):**
@@ -807,23 +748,10 @@ rm .claude/orchestrator/pids/*.pid
 python .claude/orchestrator/check_streams_data.py
 
 # Just stream list
-python -c "
-from task_copilot_client import TaskCopilotClient
-tc = TaskCopilotClient('$(basename $(pwd))')
-for s in tc.stream_list():
-    print(f'{s.stream_id}: {s.stream_name}')
-"
+tc stream list --json
 
 # Stream with full details
-python -c "
-from task_copilot_client import TaskCopilotClient
-tc = TaskCopilotClient('$(basename $(pwd))')
-detail = tc.stream_get('Stream-A')
-print(f'Progress: {detail.completion_percentage}%')
-print(f'Completed: {detail.completed_tasks}/{detail.total_tasks}')
-print(f'Dependencies: {detail.dependencies}')
-print(f'Blocked: {detail.blocked}')
-"
+tc stream get Stream-A --json
 ```
 
 ### Worker Status
@@ -878,38 +806,11 @@ diff -r .claude/worktrees/Stream-A/ . --exclude=.git --exclude=.claude | head -2
 # Check database exists
 ls -lh ~/.claude/tasks/$(basename $(pwd)).db
 
-# Query task counts
-python -c "
-from task_copilot_client import TaskCopilotClient
-tc = TaskCopilotClient('$(basename $(pwd))')
+# Query task counts and progress
+tc progress --json
 
-tasks = tc.task_list()
-by_status = {}
-for t in tasks:
-    by_status[t.status] = by_status.get(t.status, 0) + 1
-
-print('Task counts by status:')
-for status, count in by_status.items():
-    print(f'  {status}: {count}')
-"
-
-# Check initiative linkage
-python -c "
-from pathlib import Path
-import sqlite3
-
-db_path = Path.home() / '.claude' / 'tasks' / '$(basename $(pwd)).db'
-conn = sqlite3.connect(str(db_path))
-cursor = conn.cursor()
-
-cursor.execute('SELECT initiative_id, updated_at FROM initiative ORDER BY updated_at DESC LIMIT 1')
-result = cursor.fetchone()
-if result:
-    print(f'Current initiative: {result[0]}')
-    print(f'Updated: {result[1]}')
-else:
-    print('No initiative found')
-"
+# List all tasks
+tc task list --json
 ```
 
 ---
@@ -961,16 +862,9 @@ mv .claude/orchestrator/logs/*.log .claude/orchestrator/logs/archive/ 2>/dev/nul
 # Clean up worktrees (see procedure above)
 
 # Reset task statuses to pending
-python -c "
-from task_copilot_client import TaskCopilotClient
-tc = TaskCopilotClient('$(basename $(pwd))')
-
-tasks = tc.task_list()
-for task in tasks:
-    if task.status in ['in_progress', 'completed']:
-        tc.task_update(id=task.id, status='pending')
-        print(f'Reset {task.title}')
-"
+tc task list --json
+# For each in_progress or completed task:
+tc task update <task-id> --status pending --json
 
 # Start fresh
 /orchestrate start
@@ -1042,14 +936,8 @@ git branch | grep "Stream-" | xargs -I {} git branch -D {} 2>/dev/null || true
 
 # 6. Archive initiative in Task Copilot
 echo "  Archiving Task Copilot streams..."
-python -c "
-from task_copilot_client import TaskCopilotClient
-tc = TaskCopilotClient('$(basename $(pwd))')
-streams = tc.stream_list()
-for s in streams:
-    print(f'  Archiving {s.stream_id}...')
-    # Archive handled by initiative_link in generate phase
-" 2>/dev/null || true
+# Archive handled by initiative_link in generate phase
+tc stream list --json 2>/dev/null || true
 
 echo "✅ Cleanup complete. Run '/orchestrate generate' to start fresh."
 ```
@@ -1086,12 +974,7 @@ rm ~/.claude/tasks/$(basename $(pwd)).db
 echo "Database deleted. Run '/orchestrate generate' to recreate."
 
 # Verify
-python -c "
-from task_copilot_client import TaskCopilotClient
-tc = TaskCopilotClient('$(basename $(pwd))')
-streams = tc.stream_list()
-print(f'Found {len(streams)} streams')
-"
+tc stream list --json
 ```
 
 ### 6. Recover from Max Restarts Exceeded
@@ -1205,7 +1088,7 @@ npm run dev
 # Always start with /orchestrate generate
 /orchestrate generate  # Creates initiative link, PRD, tasks
 
-# Don't manually call task_create outside of generate phase
+# Don't manually call tc task create outside of generate phase
 # Don't switch initiatives mid-orchestration
 ```
 

@@ -319,39 +319,27 @@ Quality gates run automatically when tasks transition to `completed` status.
 
 **Default behavior (uses defaultGates):**
 
-```typescript
-task_create({
-  title: "Implement user authentication"
-})
+```bash
+# Create the task
+tc task create --title "Implement user authentication" --prd <id> --json
 
-// Later, agent completes task
-task_update({
-  id: "TASK-123",
-  status: "completed"
-})
+# Later, agent completes task
+tc task update TASK-123 --status completed --json
 
-// System automatically runs gates from defaultGates
-// If any fail, task status set to 'blocked' instead
+# System automatically runs gates from defaultGates
+# If any fail, task status set to 'blocked' instead
 ```
 
 **Per-task override:**
 
-```typescript
-// Use specific gates
-task_create({
-  title: "Update API documentation",
-  metadata: {
-    qualityGates: ["lint_clean"]  // Only run lint, skip tests
-  }
-})
+```bash
+# Use specific gates -- set qualityGates in task metadata
+tc task create --title "Update API documentation" --prd <id> --json
+# metadata: { qualityGates: ["lint_clean"] }  -- Only run lint, skip tests
 
-// Skip all gates
-task_create({
-  title: "Add comments to code",
-  metadata: {
-    qualityGates: []  // No gates
-  }
-})
+# Skip all gates -- set empty qualityGates array
+tc task create --title "Add comments to code" --prd <id> --json
+# metadata: { qualityGates: [] }  -- No gates
 ```
 
 #### Blocking behavior
@@ -440,74 +428,51 @@ const includeMetrics = mode === 'analyze' || mode === 'thorough';
 
 **Example 1: Quick fix**
 
-```typescript
-task_create({
-  title: "Quick bug fix for login validation",
-  description: "Fix the email validation regex"
-})
-
-// Result: activationMode = "quick" (detected from title)
+```bash
+tc task create --title "Quick bug fix for login validation" --prd <id> --json
+# Result: activationMode = "quick" (detected from title)
 ```
 
 **Example 2: Thorough analysis**
 
-```typescript
-task_create({
-  title: "Code review",
-  description: "Perform comprehensive analysis of the auth module"
-})
-
-// Result: activationMode = "thorough" (detected from description, overrides if title had different keyword)
+```bash
+tc task create --title "Code review" --prd <id> --json
+# With description: "Perform comprehensive analysis of the auth module"
+# Result: activationMode = "thorough" (detected from description)
 ```
 
 **Example 3: Investigation**
 
-```typescript
-task_create({
-  title: "Analyze performance bottleneck",
-  description: "Quick investigation of database query speed"
-})
-
-// Result: activationMode = "analyze" (last keyword in combined text)
+```bash
+tc task create --title "Analyze performance bottleneck" --prd <id> --json
+# With description: "Quick investigation of database query speed"
+# Result: activationMode = "analyze" (last keyword in combined text)
 ```
 
 **Example 4: No keyword**
 
-```typescript
-task_create({
-  title: "Implement dark mode feature",
-  description: "Add theme toggle to settings page"
-})
-
-// Result: activationMode = null (no keywords detected)
+```bash
+tc task create --title "Implement dark mode feature" --prd <id> --json
+# With description: "Add theme toggle to settings page"
+# Result: activationMode = null (no keywords detected)
 ```
 
 #### Explicit override
 
-Override auto-detection by setting mode explicitly:
+Override auto-detection by setting mode explicitly in task metadata:
 
-```typescript
-task_create({
-  title: "Quick task",  // Would auto-detect "quick"
-  metadata: {
-    activationMode: "ultrawork"  // Explicit override takes precedence
-  }
-})
-
-// Result: activationMode = "ultrawork"
+```bash
+tc task create --title "Quick task" --prd <id> --json
+# Set metadata: { activationMode: "ultrawork" }
+# Result: activationMode = "ultrawork" (explicit override takes precedence)
 ```
 
 **Disable auto-detection:**
 
-```typescript
-task_create({
-  title: "Analyze this code",  // Would auto-detect "analyze"
-  metadata: {
-    activationMode: null  // Explicitly disable
-  }
-})
-
-// Result: activationMode = null
+```bash
+tc task create --title "Analyze this code" --prd <id> --json
+# Set metadata: { activationMode: null }
+# Result: activationMode = null (explicitly disabled)
 ```
 
 #### Edge cases
@@ -598,7 +563,7 @@ project-root/
 
 **What happens:**
 
-1. Query stream details: `stream_get({ streamId: "Stream-B" })`
+1. Query stream details: `tc stream get Stream-B --json`
 2. Check stream phase and worktree metadata
 3. If parallel phase and no worktree exists:
    ```typescript
@@ -635,18 +600,7 @@ Tasks in worktree-isolated streams include:
 
 #### Conflict detection
 
-`stream_conflict_check` recognizes worktree isolation:
-
-```typescript
-// Stream-B and Stream-C both have worktrees
-stream_conflict_check({
-  files: ["src/api.ts"],
-  excludeStreamId: "Stream-B"
-})
-
-// Result: { hasConflict: false, conflictingStreams: [] }
-// Reason: Streams with worktrees cannot conflict (isolated directories)
-```
+Conflict detection recognizes worktree isolation. Streams with worktrees cannot have file conflicts because they work in isolated directories. Use `git diff` to check for conflicts between streams sharing the main worktree.
 
 **Only streams sharing main worktree can have file conflicts.**
 
@@ -802,41 +756,9 @@ Signal found?
 
 #### Auto-resume example (iteration loop)
 
-**Scenario:** Agent in TDD loop forgets completion signal after implementing feature
+**Scenario:** Agent in TDD loop completes work but does not signal completion
 
-```typescript
-// Iteration 3 - Agent writes code but forgets promise
-const result = await iteration_validate({
-  iterationId: 'IT-789',
-  agentOutput: `
-    ## Implementation Complete
-
-    I've updated the API endpoint with new validation logic.
-    All tests are passing.
-
-    Files modified: src/api/users.ts
-  `
-  // ❌ Missing <promise>COMPLETE</promise>
-});
-
-// System detects incomplete stop:
-result.continuationDecision = {
-  incomplete: true,
-  action: 'auto_resume',
-  reason: 'Active iteration loop detected (3/15)',
-  prompt: 'Continuing iteration 4. Previous issue: No completion signal detected'
-}
-
-// Continuation tracked in task metadata:
-task.metadata.continuation = {
-  continuationCount: 1,
-  lastContinuedAt: '2026-01-04T10:30:00Z',
-  continuationReasons: ['No completion signal detected in last 100 characters']
-}
-
-// Agent automatically continues to iteration 4
-// No manual intervention needed
-```
+The system detects that the agent stopped without a completion signal and decides whether to auto-resume (if in an active iteration), prompt the user, or block. Continuation is tracked in task metadata (retrievable via `tc task get <id> --json`).
 
 #### User prompt example (no iteration)
 
@@ -981,29 +903,9 @@ Stored in `task.metadata.continuation`:
 // Counter reset to 0
 ```
 
-#### Integration with iteration system
+#### Integration with agent workflow
 
-Continuation guard integrates seamlessly:
-
-```typescript
-// In iteration_validate():
-const validationResult = await engine.validate(...);
-
-// After validation, check for premature stops
-const detection = detectIncompleteStop(agentOutput);
-const decision = decideContinuation(db, taskId, iterationId, detection);
-
-// Add to validation output
-validationResult.continuationDecision = decision;
-
-// If auto-resume, track continuation
-if (decision.action === 'auto_resume') {
-  trackContinuation(db, taskId, detection.reason);
-}
-
-// Return enhanced validation result
-return validationResult;
-```
+The continuation guard runs as part of the agent's self-managed iteration loop. When an agent completes an iteration without signaling completion, the system tracks the continuation in task metadata and decides the next action.
 
 #### Token efficiency
 
@@ -1126,34 +1028,14 @@ Next Steps: Review work product WP-456 for full implementation details.
 
 **Check before responding:**
 
-```typescript
-import { exceedsThreshold, extractSummary } from './utils/context-monitor';
+When response exceeds the threshold, agents should store the full content as a work product and return a compact summary:
 
-const fullResponse = `
-  [... detailed implementation notes, code snippets, analysis ...]
-`;
+```bash
+# Store full details in work product
+tc wp store --task TASK-123 --type implementation --title "Authentication system implementation" --content "<full response>" --json
 
-if (exceedsThreshold(fullResponse)) {
-  // Store full details in work product
-  await work_product_store({
-    taskId: 'TASK-123',
-    type: 'implementation',
-    title: 'Authentication system implementation',
-    content: fullResponse
-  });
-
-  // Return compact summary
-  const summary = extractSummary(fullResponse, 100);  // 100 token max
-  return `
-    Task Complete: TASK-123
-    Work Product: WP-456 (implementation, ${estimateTokens(fullResponse)} tokens)
-    Summary: ${summary}
-    Next Steps: Review work product for full details.
-  `;
-}
-
-// Threshold not exceeded, return full response
-return fullResponse;
+# Return compact summary to main session (~100 tokens)
+# "Task Complete: TASK-123. WP-456 stored. See work product for full details."
 ```
 
 #### Context monitoring utilities
@@ -1239,28 +1121,15 @@ Currently hard-coded. Future enhancement:
 
 Agents automatically use compaction when storing work products:
 
-```typescript
-// Agent prepares detailed response
-const fullImplementation = `
-  [... 5,000 token detailed implementation ...]
-`;
+```bash
+# Agent stores full content in Task Copilot
+tc wp store --task <id> --type implementation --title "..." --content "<full implementation>" --json
 
-// Check threshold
-if (exceedsThreshold(fullImplementation)) {
-  // Store full content in Task Copilot
-  await work_product_store({
-    taskId,
-    type: 'implementation',
-    content: fullImplementation
-  });
-
-  // Return compact summary to main session
-  return compactSummary;
-}
+# Then returns compact summary to main session
 ```
 
 **Benefits:**
-- Full details preserved in Task Copilot (retrievable via `work_product_get`)
+- Full details preserved in Task Copilot (retrievable via `tc wp get <id> --json`)
 - Main session receives ~100 token summary
 - Token savings: ~95% on large responses
 
@@ -1419,16 +1288,12 @@ npm test  # Should work from project root
 **Issue:** Task stays blocked after fixing issues
 
 **Solution:** Re-run task completion:
-```typescript
-task_update({
-  id: 'TASK-123',
-  status: 'in-progress'  // Reset
-})
+```bash
+# Reset task status
+tc task update TASK-123 --status in-progress --json
 
-task_update({
-  id: 'TASK-123',
-  status: 'completed'  // Re-run gates
-})
+# Re-attempt completion (re-runs gates)
+tc task update TASK-123 --status completed --json
 ```
 
 ---
@@ -1456,14 +1321,10 @@ title: "Quick analysis"  // "quick" at position 0, "analysis" at position 6
 
 **Issue:** Cannot override auto-detection
 
-**Solution:** Set explicit `activationMode` in metadata:
-```typescript
-task_create({
-  title: "Quick task",
-  metadata: {
-    activationMode: "thorough"  // Explicit override
-  }
-})
+**Solution:** Set explicit `activationMode` in task metadata when creating the task:
+```bash
+tc task create --title "Quick task" --prd <id> --json
+# Set metadata: { activationMode: "thorough" }  -- Explicit override
 ```
 
 ---
@@ -1520,10 +1381,11 @@ git worktree prune
 **Issue:** Agent continues indefinitely without completing
 
 **Solution:** Check continuation count in task metadata. If >= 10, task is blocked:
-```typescript
-const status = getContinuationStatus(db, taskId);
-// If continuationCount >= 10, reset manually:
-resetContinuationCounter(db, taskId);
+```bash
+tc task get TASK-xxx --json
+# Check metadata.continuation.continuationCount
+# If >= 10, reset by updating task status back to in_progress
+tc task update TASK-xxx --status in_progress --json
 ```
 
 **Issue:** Agent blocked at 10 continuations but work isn't done
@@ -1534,13 +1396,9 @@ resetContinuationCounter(db, taskId);
 - Agent lacks necessary information
 
 Reset counter and provide additional context:
-```typescript
-resetContinuationCounter(db, taskId);
-task_update({
-  id: taskId,
-  notes: 'Additional context: [provide missing information]',
-  status: 'in-progress'
-})
+```bash
+tc task update <id> --status in_progress --json
+# Add notes with additional context for the agent
 ```
 
 **Issue:** Continuation prompts not appearing
@@ -1600,19 +1458,14 @@ const summary = extractSummary(content, 200);  // 200 tokens instead of 100
 **Issue:** Cannot retrieve full content after compaction
 
 **Solution:** Ensure work product was stored before compacting:
-```typescript
-// Store full content
-const workProduct = await work_product_store({
-  taskId,
-  type: 'implementation',
-  content: fullContent
-});
+```bash
+# Store full content
+tc wp store --task <id> --type implementation --title "..." --content "<full content>" --json
 
-// Then compact
-return compactSummary;
+# Then return compact summary
 
-// Later, retrieve full content:
-const full = await work_product_get({ id: workProduct.id });
+# Later, retrieve full content:
+tc wp get <wp-id> --json
 ```
 
 ---
@@ -1633,25 +1486,17 @@ Based on Anthropic's research on long-running agents, v1.8 adds features that im
 - Task completion blocked without evidence
 
 **Automatic behavior:**
-```typescript
-// High complexity task - verification auto-enabled
-task_create({
-  title: "Implement authentication",
-  metadata: { complexity: "High" }  // verificationRequired: true (automatic)
-})
+```bash
+# High complexity task - verification auto-enabled
+tc task create --title "Implement authentication" --prd <id> --json
+# metadata: { complexity: "High" }  -- verificationRequired: true (automatic)
 
-// Completion requires proof
-task_update({
-  id: "TASK-xxx",
-  status: "completed",
-  notes: "All 47 tests pass. See WP-001 for implementation."  // ✓ Sufficient proof
-})
+# Completion requires proof
+tc task update TASK-xxx --status completed --json
+# Notes: "All 47 tests pass. See WP-001 for implementation."  -- Sufficient proof
 ```
 
-**Override if needed:**
-```typescript
-metadata: { complexity: "High", verificationRequired: false }
-```
+**Override if needed:** Set `verificationRequired: false` in task metadata.
 
 ---
 
@@ -1666,21 +1511,13 @@ metadata: { complexity: "High", verificationRequired: false }
 - Includes task ID in commit body
 
 **Automatic behavior:**
-```typescript
-task_update({
-  id: "TASK-xxx",
-  status: "completed",
-  metadata: {
-    filesModified: ["src/auth.ts", "src/types.ts"]
-  }
-})
-// Creates: git commit -m "feat(TASK-xxx): Implement authentication"
+```bash
+tc task update TASK-xxx --status completed --json
+# metadata: { filesModified: ["src/auth.ts", "src/types.ts"] }
+# Creates: git commit -m "feat(TASK-xxx): Implement authentication"
 ```
 
-**Disable for a task:**
-```typescript
-metadata: { autoCommit: false }
-```
+**Disable for a task:** Set `autoCommit: false` in task metadata.
 
 **Error handling:**
 - Dirty directory: warns but doesn't fail
@@ -1693,44 +1530,31 @@ metadata: { autoCommit: false }
 
 **Purpose:** Agents verify environment health before starting work, catching issues early.
 
-**Tool:** `preflight_check()`
+**Command:** `tc task get <id> --json` (returns task state including environment context)
 
-**What it checks:**
-- Progress summary (blocked tasks, in-progress count)
-- Git status (clean/dirty, branch, uncommitted files)
-- Dev server (optional)
-- Baseline tests (optional)
+**What agents check before starting:**
+- Task status and metadata via `tc task get <id> --json`
+- Git status (clean/dirty, branch, uncommitted files) via `git status`
+- Dev server (optional, via Bash)
+- Baseline tests (optional, via Bash)
 
 **Usage:**
-```typescript
-// Basic check
-preflight_check({})
+```bash
+# Check task state
+tc task get TASK-123 --json
 
-// With optional checks
-preflight_check({
-  checkDevServer: true,
-  devServerPort: 3000,
-  testCommand: "npm test"
-})
-```
+# Check git status
+git status
 
-**Returns:**
-```typescript
-{
-  healthy: boolean,
-  timestamp: string,
-  checks: {
-    progress: { status: "pass"|"warn"|"fail", blockedTasks: number },
-    git: { status: "pass"|"warn"|"fail", clean: boolean, branch: string },
-    devServer?: { status: "pass"|"warn"|"skip" },
-    tests?: { status: "pass"|"warn"|"fail"|"skip" }
-  },
-  recommendations: string[]
-}
+# Optional: check dev server
+curl -s http://localhost:3000/health
+
+# Optional: run baseline tests
+npm test
 ```
 
 **Agent integration:**
-Agents @agent-me, @agent-ta, and @agent-qa automatically call preflight_check before starting work.
+Agents @agent-me, @agent-ta, and @agent-qa check task state and environment before starting work.
 
 ---
 
@@ -1741,7 +1565,7 @@ Agents @agent-me, @agent-ta, and @agent-qa automatically call preflight_check be
 **How it works:**
 - PRDs can be marked `scopeLocked: true`
 - Only `@agent-ta` (Tech Architect) can create tasks for locked PRDs
-- Other agents must use `scope_change_request` to propose changes
+- Other agents must route scope change requests to `@agent-ta`
 
 **Auto-detection:**
 - FEATURE and EXPERIENCE PRDs auto-lock
@@ -1749,41 +1573,19 @@ Agents @agent-me, @agent-ta, and @agent-qa automatically call preflight_check be
 - Detection based on keywords in title/description
 
 **Manual control:**
-```typescript
-// Explicitly lock
-prd_create({
-  title: "Payment system",
-  metadata: { scopeLocked: true }
-})
+```bash
+# Explicitly lock
+tc prd create --title "Payment system" --json
+# Set metadata: { scopeLocked: true }
 
-// Explicitly unlock
-prd_create({
-  title: "Add feature",
-  metadata: { scopeLocked: false }
-})
+# Explicitly unlock
+tc prd create --title "Add feature" --json
+# Set metadata: { scopeLocked: false }
 ```
 
 **Scope change workflow:**
-```typescript
-// Worker agent requests change
-scope_change_request({
-  prdId: "PRD-xxx",
-  requestType: "add_task",
-  description: "Need error handling task",
-  rationale: "Discovered edge case during implementation",
-  requestedBy: "me"
-})
 
-// Review requests
-scope_change_list({ prdId: "PRD-xxx" })
-
-// Approve or reject
-scope_change_review({
-  id: "SCR-xxx",
-  status: "approved",
-  notes: "Good catch"
-})
-```
+Scope changes are managed through direct communication with @agent-ta. Worker agents should route scope change requests to @agent-ta, who has the authority to add or modify tasks on locked PRDs.
 
 ---
 
@@ -1798,19 +1600,17 @@ scope_change_review({
 - If merge conflicts: task blocked, worktree preserved for manual resolution
 
 **Usage:**
-```typescript
-task_create({
-  title: "Risky refactor",
-  metadata: { isolatedWorktree: true }
-})
+```bash
+tc task create --title "Risky refactor" --prd <id> --json
+# Set metadata: { isolatedWorktree: true }
 ```
 
 **Conflict handling:**
-```typescript
-// Check conflict status
+```bash
+# Check conflict status
 worktree_conflict_status({ taskId: "TASK-xxx" })
 
-// After manual resolution
+# After manual resolution
 worktree_conflict_resolve({ taskId: "TASK-xxx" })
 ```
 
