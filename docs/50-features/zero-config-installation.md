@@ -171,11 +171,12 @@ sudo pacman -S nodejs npm git
 
 ## Building MCP Servers
 
-The framework includes 3 MCP servers that need to be built:
+The framework includes 2 MCP servers that need to be built:
 
 1. **copilot-memory** - Persistent memory and semantic search
-2. **task-copilot** - PRD and task management
-3. **skills-copilot** - Skill loading and knowledge repositories
+2. **skills-copilot** - Skill loading and knowledge repositories
+
+Task management is handled by the `tc` CLI tool (no MCP server needed).
 
 ### Build All Servers
 
@@ -217,7 +218,7 @@ npx claude-copilot validate --project . --verbose
 - Framework structure (directories and files)
 - All 14 agents present
 - All 6 commands present
-- All 3 MCP servers built
+- All 2 MCP servers built
 - Optional components (knowledge repo, skills)
 
 ## Troubleshooting
@@ -248,7 +249,6 @@ node --version
 
 # Try building individually to isolate issue
 ./scripts/install/build-servers.sh build copilot-memory
-./scripts/install/build-servers.sh build task-copilot
 ./scripts/install/build-servers.sh build skills-copilot
 
 # Check for detailed errors
@@ -303,7 +303,6 @@ npm install -g yarn
 # Agents: OK
 # Commands: OK
 # copilot-memory: OK
-# task-copilot: OK
 # skills-copilot: OK
 ```
 
@@ -317,10 +316,6 @@ Update `.mcp.json` in your project:
     "copilot-memory": {
       "command": "node",
       "args": ["~/.claude/copilot/mcp-servers/copilot-memory/dist/index.js"]
-    },
-    "task-copilot": {
-      "command": "node",
-      "args": ["~/.claude/copilot/mcp-servers/task-copilot/dist/index.js"]
     },
     "skills-copilot": {
       "command": "node",
@@ -383,7 +378,6 @@ cd ~/.claude/copilot
 
 # Build servers in watch mode
 cd mcp-servers/copilot-memory && npm run dev &
-cd mcp-servers/task-copilot && npm run dev &
 cd mcp-servers/skills-copilot && npm run dev &
 ```
 

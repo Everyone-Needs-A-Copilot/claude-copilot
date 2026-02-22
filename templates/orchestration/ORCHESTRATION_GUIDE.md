@@ -4,9 +4,9 @@ This document explains how the dynamic orchestration system works, what changes 
 
 ## Overview
 
-The orchestration system spawns multiple headless Claude Code sessions to work on different streams in parallel. It uses **Task Copilot as the single source of truth** for all stream and dependency information.
+The orchestration system spawns multiple headless Claude Code sessions to work on different streams in parallel. It uses **the `tc` CLI (Task Copilot) as the single source of truth** for all stream and dependency information.
 
-**Key Principle:** The orchestrator never needs to be modified. All configuration is done through Task Copilot task metadata.
+**Key Principle:** The orchestrator never needs to be modified. All configuration is done through task metadata managed by the `tc` CLI.
 
 ---
 
@@ -26,8 +26,8 @@ python validate-setup.py --fix        # Attempt automatic fixes
 - Git version >= 2.5 with worktree support
 - Current directory is a git repository
 - Write permissions in project root
-- .mcp.json exists with task-copilot configured
-- MCP servers built (node_modules present)
+- `tc` CLI installed and accessible
+- MCP servers built (copilot-memory, skills-copilot)
 - Orchestration templates available
 
 **Exit codes:**
@@ -100,19 +100,11 @@ Stream-Z (final)          → dependencies: ["Stream-B", "Stream-C", "Stream-D"]
 
 ### Dynamic Stream Discovery
 
-The orchestrator automatically discovers all streams from Task Copilot:
+The orchestrator automatically discovers all streams via the `tc` CLI:
 
 ```python
-cursor.execute("""
-    SELECT DISTINCT
-        json_extract(metadata, '$.streamId') as stream_id,
-        json_extract(metadata, '$.streamName') as stream_name,
-        json_extract(metadata, '$.dependencies') as dependencies
-    FROM tasks
-    WHERE json_extract(metadata, '$.streamId') IS NOT NULL
-      AND archived = 0
-    ORDER BY stream_id
-""")
+# Uses TaskCopilotClient which queries the tc CLI database
+stream_infos = self.tc_client.stream_list(initiative_id=self.initiative_id)
 ```
 
 **What it does:**
@@ -225,40 +217,28 @@ def start_all(self):
 
 ---
 
-## Task Copilot Integration
+## tc CLI Integration
 
 ### Metadata Format
 
 Every task must include `streamId` and `dependencies` in metadata:
 
-```python
-task_create({
-    "title": "Stream-B: Task Name",
-    "prdId": "PRD-xxx",
-    "description": "...",
-    "assignedAgent": "me",
-    "metadata": {
-        "streamId": "Stream-B",           # Required
-        "streamName": "Extraction Pipeline",  # Optional
-        "dependencies": ["Stream-A"],     # Required (use [] for none)
-        "complexity": "medium"            # Optional
-    }
-})
+```bash
+tc task create \
+    --title "Stream-B: Task Name" \
+    --prd-id "PRD-xxx" \
+    --description "..." \
+    --assigned-agent "me" \
+    --metadata '{"streamId": "Stream-B", "streamName": "Extraction Pipeline", "dependencies": ["Stream-A"], "complexity": "medium"}'
 ```
 
 ### How to Update Existing Tasks
 
-Use `task_update` to set proper metadata:
+Use `tc task update` to set proper metadata:
 
-```python
-task_update({
-    "id": "TASK-xxx",
-    "metadata": {
-        "streamId": "Stream-A",
-        "streamName": "Database Foundation",
-        "dependencies": []
-    }
-})
+```bash
+tc task update TASK-xxx \
+    --metadata '{"streamId": "Stream-A", "streamName": "Database Foundation", "dependencies": []}'
 ```
 
 ### Dependency Patterns
@@ -370,7 +350,7 @@ task_copilot_client.py  →  check_streams_data.py  →  check-streams (bash)
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| `task_copilot_client.py` | Clean API abstraction with typed dataclasses | `.claude/orchestrator/` |
+| `task_copilot_client.py` | Clean API abstraction with typed dataclasses (reads tc CLI database) | `.claude/orchestrator/` |
 | `check_streams_data.py` | Python script that outputs JSON data | `.claude/orchestrator/` |
 | `check-streams` | Bash script that displays live dashboard | `.claude/orchestrator/` |
 
@@ -455,9 +435,10 @@ Returns single snapshot.
 
 ## Troubleshooting
 
-### "No streams found in Task Copilot database"
+### "No streams found in task database"
 - Ensure tasks have `metadata.streamId` set
 - Check that tasks are not archived (`archived = 0`)
+- Verify `tc` CLI is installed: `tc version`
 
 ### "Circular dependency detected"
 - Review your dependency graph for cycles
@@ -596,7 +577,7 @@ Claude worker for Stream-A
     ↓ (optional) calls
 start-ready-streams.py --completed-stream Stream-A
     ↓ checks
-Task Copilot database
+tc CLI database
     ↓ finds Stream-B and Stream-C are ready
     ↓ spawns (via orchestrate.py start)
 New workers for Stream-B and Stream-C
@@ -666,7 +647,7 @@ The worker-wrapper.sh handles PID management and logging. When combined with wor
 | `.claude/orchestrator/watch-status` | Live monitoring wrapper |
 | `.claude/orchestrator/logs/` | Worker log files |
 | `.claude/orchestrator/pids/` | Worker PID files |
-| `~/.claude/tasks/{workspace}/tasks.db` | Task Copilot SQLite database |
+| `~/.claude/tasks/{workspace}/tasks.db` | tc CLI SQLite database |
 
 ---
 
@@ -679,7 +660,7 @@ The dynamic orchestration system requires:
    - `dependencies`: Array of streamIds (or empty array)
 
 2. **No orchestrator changes needed:**
-   - All configuration via Task Copilot
+   - All configuration via `tc` CLI
    - Dependency graph built dynamically
    - Execution order calculated automatically
 

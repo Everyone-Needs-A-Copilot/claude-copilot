@@ -6,7 +6,7 @@ Real-time terminal UI components for displaying task progress, model usage, and 
 
 The Progress HUD provides visual feedback during task execution with terminal-aware rendering.
 
-**Location:** `mcp-servers/task-copilot/src/hud/`
+**Location:** `hud/`
 
 | File | Purpose |
 |------|---------|
@@ -70,7 +70,7 @@ With a token budget configured:
 Creates a statusline updater instance.
 
 ```typescript
-import { createStatusline } from 'task-copilot/hud/statusline';
+import { createStatusline } from 'hud/statusline';
 
 const hud = createStatusline(
   'TASK-123',      // taskId
@@ -156,7 +156,7 @@ The `terminal-compat.ts` module detects terminal capabilities and provides fallb
 ### detectTerminalCapabilities
 
 ```typescript
-import { detectTerminalCapabilities } from 'task-copilot/hud/terminal-compat';
+import { detectTerminalCapabilities } from 'hud/terminal-compat';
 
 const caps = detectTerminalCapabilities();
 // {
@@ -184,7 +184,7 @@ const caps = detectTerminalCapabilities();
 ### Progress Bar Rendering
 
 ```typescript
-import { renderProgressBar, ASCII_PROGRESS_BAR, UNICODE_PROGRESS_BAR } from 'task-copilot/hud/terminal-compat';
+import { renderProgressBar, ASCII_PROGRESS_BAR, UNICODE_PROGRESS_BAR } from 'hud/terminal-compat';
 
 // ASCII fallback (default)
 renderProgressBar(50);
@@ -213,7 +213,7 @@ renderProgressBar(150);  // → [####################] (clamped)
 A convenience class for terminal output with capability awareness.
 
 ```typescript
-import { createTerminalWriter } from 'task-copilot/hud/terminal-compat';
+import { createTerminalWriter } from 'hud/terminal-compat';
 
 const writer = createTerminalWriter();
 
@@ -234,7 +234,7 @@ const bar = writer.renderProgress(75);
 ### ANSI Utilities
 
 ```typescript
-import { ANSI, stripAnsi, getVisibleWidth } from 'task-copilot/hud/terminal-compat';
+import { ANSI, stripAnsi, getVisibleWidth } from 'hud/terminal-compat';
 
 // ANSI codes
 ANSI.clearLine;      // Clear entire line
@@ -257,7 +257,7 @@ getVisibleWidth('\x1b[32mHello\x1b[0m');
 ### Text Fitting
 
 ```typescript
-import { fitToWidth } from 'task-copilot/hud/terminal-compat';
+import { fitToWidth } from 'hud/terminal-compat';
 
 fitToWidth('This is a very long text that needs truncation', 20);
 // → 'This is a very lo...'
@@ -270,7 +270,7 @@ fitToWidth('This is a very long text that needs truncation', 20);
 For real-time event streaming from external sources.
 
 ```typescript
-import { TaskCopilotClient } from 'task-copilot/hud/websocket-client';
+import { TaskCopilotClient } from 'hud/websocket-client';
 
 const client = new TaskCopilotClient('http://localhost:3456');
 
@@ -290,7 +290,7 @@ const events = await client.pollEvents('TASK-123', lastEventTime);
 ### Basic Statusline
 
 ```typescript
-import { createStatusline } from 'task-copilot/hud/statusline';
+import { createStatusline } from 'hud/statusline';
 
 const hud = createStatusline('TASK-001', 'Implement feature', 'Stream-A');
 
@@ -315,7 +315,7 @@ console.log(hud.render().text);
 ### Terminal-Aware Output
 
 ```typescript
-import { createTerminalWriter, detectTerminalCapabilities } from 'task-copilot/hud/terminal-compat';
+import { createTerminalWriter, detectTerminalCapabilities } from 'hud/terminal-compat';
 
 const caps = detectTerminalCapabilities();
 const writer = createTerminalWriter(caps);
@@ -332,8 +332,8 @@ if (caps.isTTY) {
 ### Capability-Based Rendering
 
 ```typescript
-import { createStatusline } from 'task-copilot/hud/statusline';
-import { detectTerminalCapabilities } from 'task-copilot/hud/terminal-compat';
+import { createStatusline } from 'hud/statusline';
+import { detectTerminalCapabilities } from 'hud/terminal-compat';
 
 const caps = detectTerminalCapabilities();
 

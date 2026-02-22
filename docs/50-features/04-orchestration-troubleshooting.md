@@ -16,7 +16,7 @@ which claude || echo "❌ NOT FOUND"
 git worktree list
 
 # 3. Check MCP servers configured
-cat .mcp.json | grep -A 5 task-copilot
+cat .mcp.json | grep -A 5 copilot-memory
 
 # 4. Check orchestrator files exist
 ls -la .claude/orchestrator/
@@ -56,16 +56,16 @@ ps aux | grep claude | grep -v grep
 
 - [ ] **MCP servers configured**
   ```bash
-  cat .mcp.json | grep -E "(task-copilot|copilot-memory)"
+  cat .mcp.json | grep -E "(copilot-memory|skills-copilot)"
   # Both servers must be present
   ```
 
 - [ ] **MCP servers built**
   ```bash
-  cd ~/.claude/copilot/mcp-servers/task-copilot
+  cd ~/.claude/copilot/mcp-servers/copilot-memory
   npm run build
 
-  cd ~/.claude/copilot/mcp-servers/copilot-memory
+  cd ~/.claude/copilot/mcp-servers/skills-copilot
   npm run build
   ```
 
@@ -122,8 +122,8 @@ def check(name, command, expected=None):
 checks = [
     ("Claude CLI", "which claude", "/claude"),
     ("Git version", "git --version", "git version"),
-    ("Task Copilot MCP", "cat .mcp.json | grep task-copilot", "task-copilot"),
     ("Memory Copilot MCP", "cat .mcp.json | grep copilot-memory", "copilot-memory"),
+    ("Skills Copilot MCP", "cat .mcp.json | grep skills-copilot", "skills-copilot"),
     ("Orchestrator directory", "ls .claude/orchestrator", "orchestrate.py"),
 ]
 
@@ -366,84 +366,30 @@ find .claude/orchestrator -type f -name "watch-*" -exec chmod +x {} \;
 
 ---
 
-### Issue 5: Task Copilot Connection Failed
+### Issue 5: `tc` CLI Not Found
 
 #### Symptoms
 - Workers start but fail immediately
-- Logs show: `Error: Cannot connect to Task Copilot MCP server`
-- Or: `ECONNREFUSED`
+- Logs show: `tc: command not found`
 
 #### Root Cause
-- Task Copilot MCP server not running
-- Server not built after update
-- Invalid `.mcp.json` configuration
+- `tc` CLI not installed or not in PATH
 
 #### Diagnosis
 ```bash
-# 1. Check MCP configuration
-cat .mcp.json | jq '.mcpServers["task-copilot"]'
-
-# 2. Check if server is built
-ls ~/.claude/copilot/mcp-servers/task-copilot/build/
-# Should show: index.js and other files
-
-# 3. Test server manually
-cd ~/.claude/copilot/mcp-servers/task-copilot
-npm run dev
-# Should start without errors
+which tc
+# Should return a path to the tc binary
 ```
 
 #### Solution
-
-**1. Rebuild MCP servers:**
+Ensure the `tc` CLI is installed and available in PATH. Verify by running:
 ```bash
-cd ~/.claude/copilot/mcp-servers/task-copilot
-npm install
-npm run build
-
-cd ~/.claude/copilot/mcp-servers/copilot-memory
-npm install
-npm run build
-```
-
-**2. Verify `.mcp.json` configuration:**
-```json
-{
-  "mcpServers": {
-    "task-copilot": {
-      "command": "node",
-      "args": [
-        "/absolute/path/to/.claude/copilot/mcp-servers/task-copilot/build/index.js"
-      ],
-      "env": {
-        "TASK_DB_PATH": "/absolute/path/to/.claude/tasks",
-        "WORKSPACE_ID": "your-project"
-      }
-    },
-    "copilot-memory": {
-      "command": "node",
-      "args": [
-        "/absolute/path/to/.claude/copilot/mcp-servers/copilot-memory/build/index.js"
-      ],
-      "env": {
-        "MEMORY_PATH": "/absolute/path/to/.claude/memory",
-        "WORKSPACE_ID": "your-project"
-      }
-    }
-  }
-}
-```
-
-**3. Restart Claude:**
-```bash
-# Close and reopen Claude Code
-# Or restart via command palette
+tc --help
 ```
 
 #### Prevention
-- Run `npm run build` after every `git pull` in Claude Copilot
-- Use absolute paths in `.mcp.json` (avoid `~` tilde)
-- Verify MCP servers in Claude status bar before orchestrating
+- Check that `tc` is installed during machine setup
+- Add `tc` location to PATH in shell profile
 
 ---
 
@@ -457,7 +403,7 @@ npm run build
 #### Root Cause
 - Initiative scoping mismatch
 - Streams from different initiative (auto-archived)
-- Task Copilot database corruption
+- Task database corruption
 
 #### Diagnosis
 ```bash
@@ -801,11 +747,8 @@ done
 diff -r .claude/worktrees/Stream-A/ . --exclude=.git --exclude=.claude | head -20
 ```
 
-### Task Copilot Status
+### Task Status (via `tc` CLI)
 ```bash
-# Check database exists
-ls -lh ~/.claude/tasks/$(basename $(pwd)).db
-
 # Query task counts and progress
 tc progress --json
 
@@ -934,8 +877,8 @@ rm -rf .claude/worktrees/*
 echo "  Deleting stream branches..."
 git branch | grep "Stream-" | xargs -I {} git branch -D {} 2>/dev/null || true
 
-# 6. Archive initiative in Task Copilot
-echo "  Archiving Task Copilot streams..."
+# 6. Archive streams
+echo "  Archiving streams..."
 # Archive handled by initiative_link in generate phase
 tc stream list --json 2>/dev/null || true
 
@@ -948,33 +891,15 @@ chmod +x reset-orchestration.sh
 ./reset-orchestration.sh
 ```
 
-### 5. Fix Corrupted Task Copilot Database
+### 5. Fix Corrupted Task Database
 
-**When:** Task Copilot returning errors or inconsistent data.
+**When:** `tc` CLI returning errors or inconsistent data.
 
 ```bash
-# Backup database
-cp ~/.claude/tasks/$(basename $(pwd)).db ~/.claude/tasks/$(basename $(pwd)).db.backup
+# Verify task data
+tc task list --json
 
-# Option 1: Vacuum and reindex
-python -c "
-import sqlite3
-from pathlib import Path
-
-db_path = Path.home() / '.claude' / 'tasks' / '$(basename $(pwd)).db'
-conn = sqlite3.connect(str(db_path))
-conn.execute('VACUUM')
-conn.execute('REINDEX')
-conn.close()
-print('Database vacuumed and reindexed')
-"
-
-# Option 2: Delete and regenerate (DESTRUCTIVE)
-rm ~/.claude/tasks/$(basename $(pwd)).db
-echo "Database deleted. Run '/orchestrate generate' to recreate."
-
-# Verify
-tc stream list --json
+# If issues persist, re-run /orchestrate generate to recreate PRD and tasks
 ```
 
 ### 6. Recover from Max Restarts Exceeded
@@ -1068,18 +993,17 @@ for stream in Stream-A Stream-B Stream-C Stream-D Stream-E; do
 done
 ```
 
-### 6. Test MCP Servers Before Orchestrating
+### 6. Test MCP Servers and CLI Before Orchestrating
 
 ```bash
-# Test Task Copilot
-cd ~/.claude/copilot/mcp-servers/task-copilot
-npm run dev
-# Should start without errors, Ctrl-C to stop
-
-# Test Memory Copilot
+# Test Memory Copilot MCP
 cd ~/.claude/copilot/mcp-servers/copilot-memory
 npm run dev
 # Should start without errors, Ctrl-C to stop
+
+# Test tc CLI
+tc --help
+# Should show available commands
 ```
 
 ### 7. Use Initiative Scoping Properly
@@ -1142,7 +1066,6 @@ tail -100 .claude/orchestrator/logs/*.log
 
 - **Workflow Guide:** [02-orchestration-workflow.md](./02-orchestration-workflow.md)
 - **Full Feature Guide:** [02-orchestration-workflow.md](./02-orchestration-workflow.md)
-- **Task Copilot README:** [mcp-servers/task-copilot/README.md](../../mcp-servers/task-copilot/README.md)
 
 ---
 

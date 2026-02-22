@@ -108,17 +108,17 @@ ls ~/.claude/copilot/mcp-servers/skills-copilot/dist/index.js
 
 ---
 
-## Step 6: Rebuild Task Server
+## Step 6: Reinstall tc CLI
 
-Tell user: "Rebuilding Task Server..."
+Tell user: "Reinstalling tc CLI (Task Copilot)..."
 
 ```bash
-cd ~/.claude/copilot/mcp-servers/task-copilot && npm install && npm run build
+pip install -e ~/.claude/copilot/tools/tc
 ```
 
 **Verify:**
 ```bash
-ls ~/.claude/copilot/mcp-servers/task-copilot/dist/index.js
+tc version
 ```
 
 ---
@@ -219,7 +219,8 @@ Tell user:
 $SUMMARY
 
 **What was updated:**
-- MCP servers rebuilt (copilot-memory, skills-copilot, task-copilot)
+- MCP servers rebuilt (copilot-memory, skills-copilot)
+- tc CLI reinstalled
 - Global commands refreshed
 
 **Next steps:**

@@ -464,6 +464,6 @@ Run agent on actual tasks and verify:
 ## Related Documentation
 
 - [Agent Development Guide](../../CLAUDE.md)
-- [Task Copilot Integration](../../CLAUDE_REFERENCE.md#task-copilot)
+- [Task Management (`tc` CLI)](../../CLAUDE_REFERENCE.md#tc-cli)
 - [Lifecycle Hooks](./lifecycle-hooks.md)
 - [Testing Patterns](./testing-patterns.md)

@@ -128,7 +128,6 @@ Pulling changes...
 
 Rebuilding MCP servers...
 ✓ copilot-memory rebuilt
-✓ task-copilot rebuilt
 ✓ skills-copilot rebuilt
 ✓ websocket-bridge installed
 
@@ -217,11 +216,6 @@ cd ~/.claude/copilot/mcp-servers/copilot-memory
 npm install
 npm run build
 
-# Task Copilot
-cd ../task-copilot
-npm install
-npm run build
-
 # Skills Copilot
 cd ../skills-copilot
 npm install
@@ -260,7 +254,6 @@ ls -la ~/.claude/copilot/mcp-servers/*/dist/
 
 # Should see dist/ directories for:
 # - copilot-memory
-# - task-copilot
 # - skills-copilot
 # - websocket-bridge
 ```
@@ -292,7 +285,6 @@ claude
 - `tc stream list --json`, `tc stream get <id> --json`
 - `tc handoff --from <a> --to <b> --task <id> --context "..." --json`
 - `tc log --task <id> --json`
-- `worktree_conflict_status`, `worktree_conflict_resolve` (worktree MCP tools)
 
 ### 3. Test New Commands
 
@@ -342,35 +334,13 @@ EOF
 
 Quality gates should now run automatically on task completion.
 
-### 5. Test HTTP API (Optional)
+### 5. Test `tc` CLI (Optional)
 
-If you want to use orchestration or WebSocket bridge, test HTTP API:
+If you want to verify task management is working:
 
-**Add to `.mcp.json`:**
-```json
-{
-  "mcpServers": {
-    "task-copilot": {
-      "command": "node",
-      "args": [
-        "/Users/your-username/.claude/copilot/mcp-servers/task-copilot/dist/index.js"
-      ],
-      "env": {
-        "HTTP_API_PORT": "9090"
-      }
-    }
-  }
-}
-```
-
-**Restart Claude Code, then test:**
 ```bash
-curl http://127.0.0.1:9090/health
-```
-
-**Expected output:**
-```json
-{"status":"ok","timestamp":"2026-01-08T12:34:56.789Z"}
+tc --help
+tc task list --json
 ```
 
 ---
@@ -384,8 +354,7 @@ Configure new features introduced in v1.8.0.
 **Prerequisites:**
 - tmux installed: `brew install tmux` (macOS) or `apt install tmux` (Linux)
 - Python 3.8+: `python3 --version`
-- requests library: `pip3 install requests`
-- HTTP API enabled (see verification step above)
+- `tc` CLI installed and in PATH
 
 **Usage:**
 ```bash
@@ -491,13 +460,9 @@ Create `.claude/quality-gates.json` in your project:
 If upgrading from pre-v1.7.1, clean up legacy streams:
 
 ```bash
-claude
-```
-
-In your terminal:
-```bash
 # Archive old streams via the tc CLI or by re-running /orchestrate generate
 # which automatically archives previous streams
+tc stream list --json
 ```
 
 **What this does:**
@@ -547,12 +512,12 @@ npm ERR! Build failed
 **Solution:**
 ```bash
 # Clear node_modules and rebuild
-cd ~/.claude/copilot/mcp-servers/task-copilot
+cd ~/.claude/copilot/mcp-servers/copilot-memory
 rm -rf node_modules package-lock.json
 npm install
 npm run build
 
-# Repeat for other servers
+# Repeat for skills-copilot
 ```
 
 ---
@@ -580,30 +545,6 @@ cat .claude/quality-gates.json | jq
 
 # If error, fix JSON syntax
 # Ensure gates match task metadata
-```
-
----
-
-### Issue: HTTP API not available
-
-**Symptom:**
-```bash
-curl http://127.0.0.1:9090/health
-curl: (7) Failed to connect
-```
-
-**Solution:**
-```bash
-# 1. Check .mcp.json has HTTP_API_PORT
-cat .mcp.json | grep HTTP_API_PORT
-
-# 2. Restart Claude Code to reload config
-
-# 3. Check port not in use
-lsof -i :9090
-
-# 4. Try different port
-# Edit .mcp.json: "HTTP_API_PORT": "9091"
 ```
 
 ---
@@ -724,7 +665,6 @@ git checkout v1.7.1
 
 ```bash
 cd mcp-servers/copilot-memory && npm install && npm run build
-cd ../task-copilot && npm install && npm run build
 cd ../skills-copilot && npm install && npm run build
 ```
 
@@ -770,9 +710,8 @@ Should show your previous version.
 
 ### Database Migrations
 
-Task Copilot database automatically migrates to v6 schema on first run:
+Task database automatically migrates on first run:
 
-- **Added columns:** `archived`, `archived_at`, `archived_by_initiative_id` to tasks table
 - **No data loss:** Existing tasks preserved
 - **Automatic:** No manual intervention needed
 
@@ -802,7 +741,7 @@ If you encounter issues not covered in this guide:
 1. **Check Logs:**
    ```bash
    # MCP server logs
-   tail -f ~/.claude/logs/task-copilot.log
+   tail -f ~/.claude/logs/copilot-memory.log
    ```
 
 2. **Search Issues:**

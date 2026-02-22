@@ -657,7 +657,7 @@ git worktree prune  # Only removes stale references, not worktrees
 
 #### WorktreeManager API
 
-Located in `mcp-servers/task-copilot/src/utils/worktree-manager.ts`
+The WorktreeManager handles git worktree lifecycle for streams.
 
 **Key methods:**
 
@@ -1117,19 +1117,19 @@ Currently hard-coded. Future enhancement:
 }
 ```
 
-#### Integration with Task Copilot
+#### Integration with `tc` CLI
 
 Agents automatically use compaction when storing work products:
 
 ```bash
-# Agent stores full content in Task Copilot
+# Agent stores full content via tc CLI
 tc wp store --task <id> --type implementation --title "..." --content "<full implementation>" --json
 
 # Then returns compact summary to main session
 ```
 
 **Benefits:**
-- Full details preserved in Task Copilot (retrievable via `tc wp get <id> --json`)
+- Full details preserved (retrievable via `tc wp get <id> --json`)
 - Main session receives ~100 token summary
 - Token savings: ~95% on large responses
 
@@ -1162,7 +1162,7 @@ Summary of configuration files and environment variables for all enhancement fea
 |----------|---------|---------|---------|
 | `MEMORY_PATH` | Self-improving Memory | `~/.claude/memory` | Memory database location |
 | `WORKSPACE_ID` | Self-improving Memory | (auto-hash) | Explicit workspace identifier |
-| `TASK_DB_PATH` | All Task Copilot features | `~/.claude/tasks` | Task database location |
+| `TASK_DB_PATH` | `tc` CLI task management | `~/.claude/tasks` | Task database location |
 
 ### In-Code Configuration
 
@@ -1618,10 +1618,10 @@ worktree_conflict_resolve({ taskId: "TASK-xxx" })
 
 ### 12. WebSocket Bridge (Real-time Events)
 
-**Purpose:** Streams Task Copilot events to external consumers (UIs, dashboards).
+**Purpose:** Streams task events to external consumers (UIs, dashboards).
 
 **Architecture:**
-- Standalone service polling Task Copilot's activity_log
+- Standalone service polling the task activity_log
 - JWT authentication per connection
 - Events filtered by initiative
 

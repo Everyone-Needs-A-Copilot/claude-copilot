@@ -49,7 +49,7 @@ python validate-setup.py --fix
 | Git version | Ensures Git >= 2.5 with worktree support | No |
 | Git repository | Verifies current directory is a git repo | Yes |
 | Directory permissions | Tests write access to project root | No |
-| MCP configuration | Verifies .mcp.json exists with task-copilot | No |
+| tc CLI | Verifies tc CLI is installed and accessible | No |
 | MCP servers built | Checks node_modules exist for MCP servers | Yes |
 | Orchestration templates | Verifies templates exist in framework | No |
 
@@ -111,8 +111,8 @@ Checking environment...
 ✓ Git version
 ✓ Git repository
 ✓ Directory permissions
-✗ MCP configuration
-  .mcp.json not found. Run /setup-project first
+✗ tc CLI
+  Not found in PATH. Install with: pip install -e ~/.claude/copilot/tools/tc
 ✓ MCP servers built
 ✓ Orchestration templates
 
@@ -121,7 +121,7 @@ Checking environment...
 
 Failed checks:
   • Claude CLI: Not found in PATH. Install from https://docs.anthropic.com/en/docs/claude-code
-  • MCP configuration: .mcp.json not found. Run /setup-project first
+  • tc CLI: Not found in PATH. Install with: pip install -e ~/.claude/copilot/tools/tc
 
 Try running with --fix to attempt automatic repairs:
   python validate-setup.py --fix
@@ -144,11 +144,11 @@ Checking environment...
   ✓ Fixed: Initialize git repository
 ✓ Git repository
 ✓ Directory permissions
-✓ MCP configuration
+✓ tc CLI
 ✗ MCP servers built
-  Missing node_modules: task-copilot
-  → Attempting fix: Build task-copilot
-  ✓ Fixed: Build task-copilot
+  Missing node_modules: copilot-memory
+  → Attempting fix: Build copilot-memory
+  ✓ Fixed: Build copilot-memory
 ✓ MCP servers built
 ✓ Orchestration templates
 

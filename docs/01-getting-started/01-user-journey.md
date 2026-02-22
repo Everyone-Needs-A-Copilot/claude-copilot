@@ -51,8 +51,7 @@ git clone https://github.com/Everyone-Needs-A-Copilot/claude-copilot.git copilot
 ~/.claude/copilot/
 ├── mcp-servers/            ← Not built yet
 │   ├── copilot-memory/     ← Persistence layer
-│   ├── skills-copilot/     ← Knowledge layer
-│   └── task-copilot/       ← Task management layer
+│   └── skills-copilot/     ← Knowledge layer
 ├── .claude/
 │   ├── agents/             ← 12 agent definitions (markdown)
 │   └── commands/           ← Slash commands (markdown)
@@ -92,8 +91,7 @@ Or simply:
 1. **Prerequisites check** - Verifies Node.js 18+ and build tools
 2. **Build Memory Server** - `npm install && npm run build`
 3. **Build Skills Server** - `npm install && npm run build`
-4. **Build Task Server** - `npm install && npm run build`
-5. **Create directories** - `~/.claude/memory/` and `~/.claude/tasks/` for databases
+4. **Create directories** - `~/.claude/memory/` and `~/.claude/tasks/` for databases
 6. **Install global commands** - Copies `/setup-project`, `/update-project`, `/update-copilot`, and `/knowledge-copilot` to `~/.claude/commands/`
 7. **Check for knowledge** - Detects existing knowledge repository
 
@@ -104,8 +102,7 @@ Or simply:
 ├── copilot/
 │   └── mcp-servers/
 │       ├── copilot-memory/dist/   ← Built!
-│       ├── skills-copilot/dist/   ← Built!
-│       └── task-copilot/dist/     ← Built!
+│       └── skills-copilot/dist/   ← Built!
 ├── commands/                       ← NEW
 │   ├── setup-project.md            ← Works in any folder
 │   ├── update-project.md           ← Works in any folder
@@ -123,7 +120,7 @@ Machine Setup Complete!
 What's ready:
 - Memory Server - Persists decisions, lessons, and progress
 - Skills Server - Powers agents and knowledge search
-- Task Server - Manages PRDs, tasks, and work products
+- Task Management - Use `tc` CLI for PRDs, tasks, and work products
 - 12 Specialized Agents - Expert guidance for any task
 - Global Commands - /setup-project, /update-project, /update-copilot, and /knowledge-copilot work anywhere
 
@@ -216,7 +213,6 @@ You should see:
 ```
 ● copilot-memory
 ● skills-copilot
-● task-copilot
 ```
 
 ### Step 8: Start Working
@@ -394,7 +390,7 @@ cd ~/work-project && claude
 | `~/.claude/copilot/` | Framework | Source of truth for agents, commands, servers |
 | `~/.claude/commands/` | Global commands | `/setup-project`, `/update-project`, `/update-copilot`, and `/knowledge-copilot` work anywhere |
 | `~/.claude/memory/` | Memory databases | SQLite databases for decisions, lessons, initiatives |
-| `~/.claude/tasks/` | Task databases | SQLite databases for PRDs, tasks, work products |
+| `~/.claude/tasks/` | Task databases | SQLite databases for PRDs, tasks, work products (managed by `tc` CLI) |
 | `~/.claude/knowledge/` | Symlink | Points to your knowledge repository |
 | `~/[company]-knowledge/` | Knowledge repo | Git-managed, shareable via GitHub |
 | `[project]/.mcp.json` | Config | MCP server configuration for this project |
@@ -423,7 +419,7 @@ Note: `/setup` only works when run from `~/.claude/copilot`. For projects, use `
 
 1. Check `.mcp.json` uses absolute paths (not `~`)
 2. Verify all servers are built: `ls ~/.claude/copilot/mcp-servers/*/dist/index.js`
-   - Should show: `copilot-memory`, `skills-copilot`, `task-copilot`
+   - Should show: `copilot-memory`, `skills-copilot`
 3. Restart Claude Code
 
 ### Knowledge not found

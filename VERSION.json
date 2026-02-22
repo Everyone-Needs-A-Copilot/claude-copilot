@@ -1,39 +1,33 @@
 {
-  "framework": "2.10.0",
-  "lastUpdated": "2026-02-17T00:00:00.000Z",
+  "framework": "3.0.0",
+  "lastUpdated": "2026-02-21T00:00:00.000Z",
   "components": {
     "mcp-servers": {
       "copilot-memory": {
-        "version": "2.10.0",
+        "version": "3.0.0",
         "path": "mcp-servers/copilot-memory",
         "buildRequired": true,
         "checkFile": "dist/index.js"
       },
       "skills-copilot": {
-        "version": "2.10.0",
+        "version": "3.0.0",
         "path": "mcp-servers/skills-copilot",
-        "buildRequired": true,
-        "checkFile": "dist/index.js"
-      },
-      "task-copilot": {
-        "version": "2.10.0",
-        "path": "mcp-servers/task-copilot",
         "buildRequired": true,
         "checkFile": "dist/index.js"
       }
     },
     "agents": {
-      "version": "2.10.0",
+      "version": "3.0.0",
       "path": ".claude/agents",
       "count": 13,
       "requiredSections": [
-        "Task Copilot Integration",
+        "tc CLI Integration",
         "Route To Other Agent",
         "Skill Loading Protocol"
       ]
     },
     "commands": {
-      "version": "2.10.0",
+      "version": "3.0.0",
       "path": ".claude/commands",
       "projectCommands": [
         "protocol.md",
@@ -55,7 +49,7 @@
       ]
     },
     "skills": {
-      "version": "2.10.0",
+      "version": "3.0.0",
       "path": ".claude/skills",
       "categories": [
         "code",
@@ -66,7 +60,7 @@
       ]
     },
     "templates": {
-      "version": "2.10.0",
+      "version": "3.0.0",
       "path": "templates",
       "includes": [
         "mcp.json",

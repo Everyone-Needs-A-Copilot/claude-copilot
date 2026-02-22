@@ -529,18 +529,14 @@ The auto-checkpoint system hooks into the iteration lifecycle to create checkpoi
 
 ### Configuration
 
-Auto-checkpoint hooks are initialized in the Task Copilot MCP server with default settings:
+Auto-checkpoint hooks are initialized in the `tc` CLI with default settings:
 
-```typescript
-initializeAutoCheckpointHooks(db, {
-  enabled: true,
-  triggers: {
-    iterationStart: true,      // ✅ Create checkpoint at start of each iteration
-    iterationFailure: true,     // ✅ Create checkpoint after validation failures
-    taskStatusChange: false,    // ❌ Too noisy for most workflows
-    workProductStore: false,    // ❌ Work products serve as checkpoints
-  },
-});
+```
+Triggers:
+  iterationStart: true       # Create checkpoint at start of each iteration
+  iterationFailure: true     # Create checkpoint after validation failures
+  taskStatusChange: false    # Too noisy for most workflows
+  workProductStore: false    # Work products serve as checkpoints
 ```
 
 ### Checkpoint Triggers
@@ -627,10 +623,8 @@ To disable auto-checkpoint hooks, set environment variable:
 export AUTO_CHECKPOINT_ENABLED=false
 ```
 
-Or modify the initialization in `mcp-servers/task-copilot/src/index.ts`:
+Or configure via `tc` CLI settings:
 
-```typescript
-initializeAutoCheckpointHooks(db, {
-  enabled: false,  // Disable all auto-checkpoints
-});
+```bash
+tc config set auto-checkpoint.enabled false
 ```

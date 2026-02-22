@@ -17,33 +17,17 @@ npm run build
 RESULT_2=$?
 echo ""
 
-# task-copilot
-echo "3. Building task-copilot..."
-cd /Users/pabs/Sites/COPILOT/claude-copilot/mcp-servers/task-copilot
-npm run build
-RESULT_3=$?
-echo ""
-
 # websocket-bridge
-echo "4. Building websocket-bridge..."
+echo "3. Building websocket-bridge..."
 cd /Users/pabs/Sites/COPILOT/claude-copilot/mcp-servers/websocket-bridge
 npm run build
-RESULT_4=$?
-echo ""
-
-# Run task-copilot tests
-echo "5. Running task-copilot tests..."
-cd /Users/pabs/Sites/COPILOT/claude-copilot/mcp-servers/task-copilot
-npm test
-RESULT_5=$?
+RESULT_3=$?
 echo ""
 
 # Summary
 echo "=== Build Summary ==="
 echo "copilot-memory: $([ $RESULT_1 -eq 0 ] && echo '✅ PASS' || echo '❌ FAIL')"
 echo "skills-copilot: $([ $RESULT_2 -eq 0 ] && echo '✅ PASS' || echo '❌ FAIL')"
-echo "task-copilot:   $([ $RESULT_3 -eq 0 ] && echo '✅ PASS' || echo '❌ FAIL')"
-echo "websocket-bridge: $([ $RESULT_4 -eq 0 ] && echo '✅ PASS' || echo '❌ FAIL')"
-echo "task-copilot tests: $([ $RESULT_5 -eq 0 ] && echo '✅ PASS' || echo '❌ FAIL')"
+echo "websocket-bridge: $([ $RESULT_3 -eq 0 ] && echo '✅ PASS' || echo '❌ FAIL')"
 
-exit $(( $RESULT_1 + $RESULT_2 + $RESULT_3 + $RESULT_4 + $RESULT_5 ))
+exit $(( $RESULT_1 + $RESULT_2 + $RESULT_3 ))

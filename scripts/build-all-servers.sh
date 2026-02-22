@@ -65,26 +65,7 @@ build_server() {
 # Build each server
 build_server "copilot-memory"
 build_server "skills-copilot"
-build_server "task-copilot"
 build_server "websocket-bridge"
-
-# Run tests
-echo "========================================="
-echo "RUNNING TESTS"
-echo "========================================="
-echo ""
-
-echo "Running task-copilot tests..."
-cd "/Users/pabs/Sites/COPILOT/claude-copilot/mcp-servers/task-copilot"
-
-if npm test 2>&1 | tee "/tmp/test-task-copilot.log"; then
-    echo -e "${GREEN}✅ Tests passed${NC}"
-    TEST_RESULT="PASS"
-else
-    echo -e "${RED}❌ Tests failed${NC}"
-    echo "   - See /tmp/test-task-copilot.log for details"
-    TEST_RESULT="FAIL"
-fi
 
 echo ""
 
@@ -103,17 +84,15 @@ for result in "${RESULTS[@]}"; do
 done
 
 echo ""
-echo "Tests: task-copilot - $TEST_RESULT"
-echo ""
 echo "Builds: $SUCCESS_COUNT/$BUILD_COUNT successful"
 echo "Completed: $(date)"
 echo ""
 
-if [ $SUCCESS_COUNT -eq $BUILD_COUNT ] && [ "$TEST_RESULT" == "PASS" ]; then
-    echo -e "${GREEN}✅ All builds and tests passed!${NC}"
+if [ $SUCCESS_COUNT -eq $BUILD_COUNT ]; then
+    echo -e "${GREEN}✅ All builds passed!${NC}"
     exit 0
 else
-    echo -e "${RED}❌ Some builds or tests failed${NC}"
-    echo "Check log files in /tmp/build-*.log and /tmp/test-*.log"
+    echo -e "${RED}❌ Some builds failed${NC}"
+    echo "Check log files in /tmp/build-*.log"
     exit 1
 fi

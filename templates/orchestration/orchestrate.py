@@ -250,57 +250,34 @@ class PreflightValidator:
         return True
 
     def validate_task_copilot(self) -> bool:
-        """Check Task Copilot MCP server is accessible."""
-        mcp_json_path = self.project_root / '.mcp.json'
+        """Check tc CLI is installed and accessible."""
+        tc_path = shutil.which('tc')
 
-        if not mcp_json_path.exists():
+        if not tc_path:
             self.errors.append((
                 "Task Copilot",
-                "NOT CONFIGURED - .mcp.json not found\n   → Run: /setup-project"
+                "NOT FOUND - tc CLI not installed\n   → Install with: pip install -e ~/.claude/copilot/tools/tc"
             ))
             return False
 
-        # Read and parse .mcp.json
+        # Verify tc works by checking version
         try:
-            with open(mcp_json_path, 'r') as f:
-                mcp_config = json.load(f)
-        except json.JSONDecodeError as e:
-            self.errors.append((
-                "Task Copilot",
-                f".mcp.json is invalid JSON: {e}"
-            ))
-            return False
-        except Exception as e:
-            self.errors.append((
-                "Task Copilot",
-                f"Could not read .mcp.json: {e}"
-            ))
-            return False
-
-        # Check for task-copilot server configuration
-        if 'mcpServers' not in mcp_config:
-            self.errors.append((
-                "Task Copilot",
-                "NOT CONFIGURED - mcpServers missing in .mcp.json\n   → Run: /setup-project"
-            ))
-            return False
-
-        if 'task-copilot' not in mcp_config['mcpServers']:
-            self.errors.append((
-                "Task Copilot",
-                "NOT CONFIGURED - task-copilot server missing\n   → Run: /setup-project"
-            ))
-            return False
-
-        # Verify the server path exists
-        tc_config = mcp_config['mcpServers']['task-copilot']
-        if 'args' in tc_config and len(tc_config['args']) > 0:
-            server_path = Path(tc_config['args'][0])
-            if not server_path.exists():
+            result = subprocess.run(
+                ['tc', 'version'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode != 0:
                 self.warnings.append((
                     "Task Copilot",
-                    f"Warning - Server path not found: {server_path}\n   → May need to rebuild: cd mcp-servers/task-copilot && npm run build"
+                    f"Warning - tc CLI returned error: {result.stderr.strip()}"
                 ))
+        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+            self.warnings.append((
+                "Task Copilot",
+                f"Warning - Could not verify tc CLI: {e}"
+            ))
 
         return True
 
@@ -451,7 +428,7 @@ class PreflightValidator:
                     elif check_name == "Permissions":
                         print(f"✅ {Colors.GREEN}{check_name}{Colors.NC}: Write access confirmed")
                     elif check_name == "Task Copilot":
-                        print(f"✅ {Colors.GREEN}{check_name}{Colors.NC}: Configured in .mcp.json")
+                        print(f"✅ {Colors.GREEN}{check_name}{Colors.NC}: tc CLI installed")
             else:
                 # Print error details
                 error_msg = next((msg for name, msg in self.errors if name == check_name), "FAILED")

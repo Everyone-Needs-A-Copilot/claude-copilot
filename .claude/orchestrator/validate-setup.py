@@ -256,70 +256,51 @@ class SetupValidator:
                 f"Cannot write to project root: {str(e)}"
             )
 
-    def check_mcp_config(self) -> bool:
-        """Check if .mcp.json exists."""
-        mcp_config = self.project_root / ".mcp.json"
+    def check_tc_cli(self) -> bool:
+        """Check if tc CLI is installed and accessible."""
+        tc_path = shutil.which("tc")
 
-        if self.verbose:
-            print(f"  Checking: {mcp_config}")
+        if self.verbose and tc_path:
+            print(f"  tc CLI path: {tc_path}")
 
-        if mcp_config.exists():
-            # Verify it's valid JSON
+        if tc_path:
+            # Verify it works
             try:
-                with open(mcp_config) as f:
-                    config = json.load(f)
-
-                # Check for task-copilot server
-                servers = config.get("mcpServers", {})
-                has_task_copilot = "task-copilot" in servers
-
-                if has_task_copilot:
-                    return self.check("MCP configuration", True, "task-copilot configured")
-                else:
-                    return self.check(
-                        "MCP configuration",
-                        False,
-                        "task-copilot server not found in .mcp.json"
-                    )
-
-            except json.JSONDecodeError:
-                return self.check(
-                    "MCP configuration",
-                    False,
-                    ".mcp.json is not valid JSON"
+                result = subprocess.run(
+                    ["tc", "version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
                 )
+                if result.returncode == 0:
+                    version_str = result.stdout.strip()
+                    return self.check("tc CLI", True, f"Installed ({version_str})")
+                else:
+                    return self.check("tc CLI", True, f"Found at {tc_path}")
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                return self.check("tc CLI", True, f"Found at {tc_path}")
         else:
             return self.check(
-                "MCP configuration",
+                "tc CLI",
                 False,
-                ".mcp.json not found. Run /setup-project first"
+                "Not found in PATH. Install with: pip install -e ~/.claude/copilot/tools/tc"
             )
 
     def check_mcp_servers_built(self) -> bool:
         """Check if MCP servers are built (node_modules exist)."""
-        # Check task-copilot
-        task_copilot_dir = self.project_root / "mcp-servers" / "task-copilot"
-        task_copilot_modules = task_copilot_dir / "node_modules"
-
         # Check memory copilot
         memory_copilot_dir = self.project_root / "mcp-servers" / "copilot-memory"
         memory_copilot_modules = memory_copilot_dir / "node_modules"
 
         if self.verbose:
-            print(f"  Task Copilot: {task_copilot_dir}")
             print(f"  Memory Copilot: {memory_copilot_dir}")
 
-        task_built = task_copilot_modules.exists()
         memory_built = memory_copilot_modules.exists()
 
-        if task_built and memory_built:
-            return self.check("MCP servers built", True, "Both servers ready")
+        if memory_built:
+            return self.check("MCP servers built", True, "Memory server ready")
         else:
-            missing = []
-            if not task_built:
-                missing.append("task-copilot")
-            if not memory_built:
-                missing.append("copilot-memory")
+            missing = ["copilot-memory"]
 
             def rebuild_servers():
                 for server in missing:
@@ -402,7 +383,7 @@ class SetupValidator:
         self.check_git_version()
         self.check_git_repository()
         self.check_directory_permissions()
-        self.check_mcp_config()
+        self.check_tc_cli()
         self.check_mcp_servers_built()
         self.check_orchestrator_templates()
 

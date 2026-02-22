@@ -269,7 +269,7 @@ Then in your project:
 This will add:
 - All 14 lean agents
 - Skills Copilot (with skill_evaluate)
-- Task Copilot
+- Task management via `tc` CLI
 - `/protocol` command
 - Full command set
 
@@ -291,9 +291,8 @@ cp ~/.claude/copilot/.claude/agents/*.md .claude/agents/
 cp ~/.claude/copilot/.claude/commands/protocol.md .claude/commands/
 ```
 
-**Add Task Copilot:**
-1. Build: `cd ~/.claude/copilot/mcp-servers/task-copilot && npm install && npm run build`
-2. Add to `.mcp.json` (see `templates/mcp.json`)
+**Add Task Management:**
+Install the `tc` CLI tool for PRD, task, and work product management.
 
 ---
 

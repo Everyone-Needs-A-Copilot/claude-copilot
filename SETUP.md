@@ -15,7 +15,8 @@ This single command will:
 - Check for Node.js, Git, and build tools
 - Auto-install missing dependencies (macOS: via Homebrew, Linux: via apt/dnf/pacman)
 - Clone the repository to `~/.claude/copilot`
-- Build MCP servers (Memory, Task; Skills optional)
+- Build MCP servers (Memory; Skills optional)
+- Install the `tc` CLI (Task Copilot)
 - Install global commands (`/setup-project`, `/update-project`, `/knowledge-copilot`)
 
 **For project setup after global install:**
@@ -58,7 +59,8 @@ claude
 
 The setup wizard will:
 - Check prerequisites (Node.js, build tools)
-- Build the MCP servers (Memory, Task; Skills optional)
+- Build the MCP servers (Memory; Skills optional)
+- Install the `tc` CLI (Task Copilot)
 - Install global commands (`/setup-project`, `/update-project`, `/knowledge-copilot`)
 
 **Note:** Skills Copilot MCP is optional. For local skills, use native `@include` directives.
@@ -112,7 +114,7 @@ This creates a knowledge repository for company/product information that's share
 |-----------|---------|
 | `mcp-servers/copilot-memory/` | Persistent memory across sessions (required) |
 | `mcp-servers/skills-copilot/` | OPTIONAL: Advanced skill management + marketplace access |
-| `mcp-servers/task-copilot/` | PRD, task, and work product storage (required) |
+| `tools/tc/` | `tc` CLI for PRD, task, and work product management (required) |
 | `.claude/agents/` | 14 specialized agent definitions |
 | `.claude/commands/` | Source command files |
 | `templates/` | Project setup templates |
@@ -165,17 +167,15 @@ xcode-select --install
 
 ### Build MCP Servers
 
-**Required servers:**
+**Required components:**
 ```bash
 # Memory server (required)
 cd ~/.claude/copilot/mcp-servers/copilot-memory
 npm install
 npm run build
 
-# Task server (required)
-cd ~/.claude/copilot/mcp-servers/task-copilot
-npm install
-npm run build
+# tc CLI - Task Copilot (required)
+pip install -e ~/.claude/copilot/tools/tc
 ```
 
 **Optional - Skills Copilot (only if you need marketplace/database):**
@@ -223,18 +223,12 @@ cp ~/.claude/copilot/.claude/commands/knowledge-copilot.md ~/.claude/commands/
            "MEMORY_PATH": "/Users/yourname/.claude/memory",
            "WORKSPACE_ID": "your-project-name"
          }
-       },
-       "task-copilot": {
-         "command": "node",
-         "args": ["/Users/yourname/.claude/copilot/mcp-servers/task-copilot/dist/index.js"],
-         "env": {
-           "TASK_DB_PATH": "/Users/yourname/.claude/tasks",
-           "WORKSPACE_ID": "your-project-name"
-         }
        }
      }
    }
    ```
+
+   **Note:** Task management is handled by the `tc` CLI tool, not an MCP server. Install it with `pip install -e ~/.claude/copilot/tools/tc`.
 
    **Optional - Add Skills Copilot (if you need marketplace/database):**
    ```json
@@ -258,12 +252,16 @@ cp ~/.claude/copilot/.claude/commands/knowledge-copilot.md ~/.claude/commands/
 After setup, run `/mcp` in Claude Code. You should see at minimum:
 ```
 ● copilot-memory
-● task-copilot
 ```
 
 Optional (if configured):
 ```
 ● skills-copilot
+```
+
+Also verify the `tc` CLI is installed:
+```bash
+tc version
 ```
 
 **Using Skills:**
@@ -322,7 +320,7 @@ npm run build
 | `KNOWLEDGE_REPO_PATH` | - | Project-specific knowledge repository |
 | `GLOBAL_KNOWLEDGE_PATH` | `~/.claude/knowledge` | Machine-wide knowledge (auto-detected) |
 
-### Task Copilot
+### tc CLI (Task Copilot)
 
 | Variable | Default | Purpose |
 |----------|---------|---------|

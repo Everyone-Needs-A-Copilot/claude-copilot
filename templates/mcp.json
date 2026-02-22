@@ -14,14 +14,6 @@
       "env": {
         "LOCAL_SKILLS_PATH": "./.claude/skills"
       }
-    },
-    "task-copilot": {
-      "command": "node",
-      "args": ["$COPILOT_PATH/mcp-servers/task-copilot/dist/index.js"],
-      "env": {
-        "TASK_DB_PATH": "$HOME/.claude/tasks",
-        "WORKSPACE_ID": "$PROJECT_NAME"
-      }
     }
   }
 }

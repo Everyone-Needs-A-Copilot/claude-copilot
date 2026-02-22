@@ -37,7 +37,7 @@ Then STOP.
 I'll set up Claude Copilot on your machine. This includes:
 - Building the Memory server (persists your work between sessions)
 - Building the Skills server (powers specialized agents and knowledge search)
-- Building the Task server (manages PRDs, tasks, and work products)
+- Installing the `tc` CLI (manages PRDs, tasks, and work products)
 - Installing global commands (`/setup-project`, `/update-project`, `/knowledge-copilot`)
 
 Let me check what's already in place...
@@ -100,17 +100,17 @@ ls ~/.claude/copilot/mcp-servers/skills-copilot/dist/index.js
 
 ---
 
-## Step 6: Build Task Server
+## Step 6: Install tc CLI
 
-Tell user: "Building Task Server..."
+Tell user: "Installing tc CLI (Task Copilot)..."
 
 ```bash
-cd ~/.claude/copilot/mcp-servers/task-copilot && npm install && npm run build
+pip install -e ~/.claude/copilot/tools/tc
 ```
 
 **Verify:**
 ```bash
-ls ~/.claude/copilot/mcp-servers/task-copilot/dist/index.js
+tc version
 ```
 
 ---
@@ -177,7 +177,7 @@ Claude Copilot is installed at `~/.claude/copilot`
 **What's ready:**
 - Memory Server - Persists decisions, lessons, and progress
 - Skills Server - Powers agents and knowledge search
-- Task Server - Manages PRDs, tasks, and work products
+- tc CLI - Manages PRDs, tasks, and work products
 - 12 Specialized Agents - Expert guidance for any task
 
 **Global commands installed:**

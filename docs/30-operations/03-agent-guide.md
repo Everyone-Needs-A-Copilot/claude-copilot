@@ -73,7 +73,7 @@ iteration:
 
 ## Model Routing Heuristics
 
-The Task Copilot includes an automatic model router (`ecomode/model-router.ts`) that recommends models based on task complexity.
+The framework includes an automatic model router (`ecomode/model-router.ts`) that recommends models based on task complexity.
 
 ### Complexity Scoring
 
@@ -225,7 +225,7 @@ model: sonnet  # Standard complexity work
 ---
 ```
 
-> **Note:** Agents use the `tc` CLI via Bash for Task Copilot operations (e.g., `tc task get <id> --json`, `tc wp store ...`). Iteration tools have been removed; agents self-manage their loops.
+> **Note:** Agents use the `tc` CLI via Bash for task operations (e.g., `tc task get <id> --json`, `tc wp store ...`). Iteration tools have been removed; agents self-manage their loops.
 
 ---
 
@@ -272,7 +272,6 @@ const result = routeToModel({
 
 ## Reference
 
-- **Model Router Implementation:** `mcp-servers/task-copilot/src/ecomode/model-router.ts`
-- **Complexity Scorer:** `mcp-servers/task-copilot/src/ecomode/complexity-scorer.ts`
+- **Model Router Implementation:** `ecomode/model-router.ts`
+- **Complexity Scorer:** `ecomode/complexity-scorer.ts`
 - **Agent Definitions:** `.claude/agents/*.md`
-- **Task Metadata Types:** `mcp-servers/task-copilot/src/types.ts`

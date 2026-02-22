@@ -78,7 +78,7 @@ import {
   registerSecurityRule,
   evaluatePreToolUse,
   SecurityAction
-} from 'task-copilot/hooks';
+} from 'hooks';
 
 // Register a custom rule
 registerSecurityRule({
@@ -120,7 +120,7 @@ import {
   toggleSecurityRule,
   unregisterSecurityRule,
   getSecurityRules
-} from 'task-copilot/hooks';
+} from 'hooks';
 
 // Disable a rule
 toggleSecurityRule('secret-detection', false);
@@ -162,7 +162,7 @@ import {
   registerPostToolUseRule,
   evaluatePostToolUse,
   PostToolAction
-} from 'task-copilot/hooks';
+} from 'hooks';
 
 // Register a logging rule
 registerPostToolUseRule({
@@ -213,7 +213,7 @@ import {
   registerUserPromptSubmitRule,
   evaluateUserPromptSubmit,
   PromptAction
-} from 'task-copilot/hooks';
+} from 'hooks';
 
 // Register a context injection rule
 registerUserPromptSubmitRule({
@@ -326,7 +326,7 @@ Rules can also be defined in `.claude/hooks/security-rules.json`:
 Hooks are automatically initialized on server startup. For manual initialization:
 
 ```typescript
-import { initializeAllHooks } from 'task-copilot/hooks';
+import { initializeAllHooks } from 'hooks';
 
 // Initialize all hook systems
 initializeAllHooks();
@@ -335,7 +335,7 @@ initializeAllHooks();
 To get a summary of registered hooks:
 
 ```typescript
-import { getHooksSummary } from 'task-copilot/hooks';
+import { getHooksSummary } from 'hooks';
 
 const summary = getHooksSummary();
 console.log('PreToolUse rules:', summary.preToolUse.total);
@@ -374,4 +374,4 @@ console.log('UserPromptSubmit rules:', summary.userPromptSubmit.total);
 ## Related Documentation
 
 - [Auto-Checkpoint Hooks](./03-auto-checkpoint-hooks.md)
-- [Task Copilot API Reference](./02-api-reference.md)
+- [External Query API Reference](./02-api-reference.md)

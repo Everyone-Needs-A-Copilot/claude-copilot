@@ -59,7 +59,6 @@ build_server() {
 # Build each server
 build_server "copilot-memory"
 build_server "skills-copilot"
-build_server "task-copilot"
 build_server "websocket-bridge"
 
 # Summary

@@ -465,7 +465,7 @@ const cleanMessage = parsed.cleanMessage;
 
 ### Type Definitions
 
-Types are defined in `mcp-servers/task-copilot/src/types/omc-features.ts`:
+Types are defined in `types/omc-features.ts`:
 
 ```typescript
 interface ModifierKeyword {

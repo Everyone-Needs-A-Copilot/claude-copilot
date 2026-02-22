@@ -22,7 +22,7 @@ Arguments:
     new-version         New version number (e.g., 2.6.0)
 
 Options:
-    --component <name>  Only bump specific component (mcp-memory, mcp-skills, mcp-task)
+    --component <name>  Only bump specific component (mcp-memory, mcp-skills)
     --dry-run           Show what would be changed without modifying files
     -h, --help          Show this help
 
@@ -165,16 +165,12 @@ case "$COMPONENT" in
     ""|"all")
         update_mcp_server "copilot-memory"
         update_mcp_server "skills-copilot"
-        update_mcp_server "task-copilot"
         ;;
     "mcp-memory"|"copilot-memory")
         update_mcp_server "copilot-memory"
         ;;
     "mcp-skills"|"skills-copilot")
         update_mcp_server "skills-copilot"
-        ;;
-    "mcp-task"|"task-copilot")
-        update_mcp_server "task-copilot"
         ;;
 esac
 

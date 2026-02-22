@@ -194,7 +194,6 @@ validate_mcp_servers() {
 
   local servers=(
     "copilot-memory"
-    "task-copilot"
     "skills-copilot"
   )
 
@@ -242,7 +241,6 @@ print_summary() {
   # MCP servers
   echo "MCP Servers:"
   echo -e "  copilot-memory: $(get_status_icon 'copilot-memory') $(get_status_text 'copilot-memory')"
-  echo -e "  task-copilot: $(get_status_icon 'task-copilot') $(get_status_text 'task-copilot')"
   echo -e "  skills-copilot: $(get_status_icon 'skills-copilot') $(get_status_text 'skills-copilot')"
   echo ""
 

@@ -6,7 +6,7 @@ Ecomode automatically routes tasks to the appropriate Claude model (haiku/sonnet
 
 Instead of always using the most expensive model, Ecomode analyzes task characteristics and selects the optimal model for cost/performance balance.
 
-**Location:** `mcp-servers/task-copilot/src/ecomode/`
+**Location:** `ecomode/`
 
 | File | Purpose |
 |------|---------|
@@ -99,7 +99,7 @@ The complexity scorer analyzes multiple factors to produce a normalized score.
 Analyzes task complexity and returns a normalized score.
 
 ```typescript
-import { calculateComplexityScore } from 'task-copilot/ecomode/complexity-scorer';
+import { calculateComplexityScore } from 'ecomode/complexity-scorer';
 
 const score = calculateComplexityScore({
   title: 'Fix login authentication bug',
@@ -141,7 +141,7 @@ const score = calculateComplexityScore({
 Routes a task to the appropriate model based on complexity and modifiers.
 
 ```typescript
-import { routeToModel } from 'task-copilot/ecomode/model-router';
+import { routeToModel } from 'ecomode/model-router';
 
 const result = routeToModel({
   title: 'opus: Design authentication architecture',
@@ -186,7 +186,7 @@ const result = routeToModel({
 Simple API to get just the recommended model name.
 
 ```typescript
-import { getRecommendedModel } from 'task-copilot/ecomode/model-router';
+import { getRecommendedModel } from 'ecomode/model-router';
 
 const model = getRecommendedModel('Fix typo in README', {
   fileCount: 1,

@@ -68,7 +68,8 @@ npx claude-copilot validate [options]
 Installs to `~/.claude/copilot/`:
 
 - Framework core files
-- MCP servers (copilot-memory, task-copilot, skills-copilot)
+- MCP servers (copilot-memory, skills-copilot)
+- `tc` CLI (Task Copilot)
 - Installation scripts
 - Documentation
 

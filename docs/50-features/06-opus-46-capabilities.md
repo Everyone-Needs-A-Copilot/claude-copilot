@@ -38,7 +38,7 @@ The framework has been modernized to leverage Opus 4.6 capabilities while mainta
 
 ```typescript
 // Effort-based routing (Opus 4.6)
-import { routeToModel } from 'task-copilot/ecomode/model-router';
+import { routeToModel } from 'ecomode/model-router';
 
 const result = routeToModel({
   title: 'Design authentication architecture',
@@ -178,9 +178,9 @@ interface ModelRoute {
 ```
 
 **Key files:**
-- `mcp-servers/task-copilot/src/ecomode/model-router.ts` - Routing logic with effort parameter
-- `mcp-servers/task-copilot/src/ecomode/complexity-scorer.ts` - Unchanged (complexity scoring)
-- `mcp-servers/task-copilot/src/types/omc-features.ts` - Type definitions
+- `ecomode/model-router.ts` - Routing logic with effort parameter
+- `ecomode/complexity-scorer.ts` - Unchanged (complexity scoring)
+- `types/omc-features.ts` - Type definitions
 
 ---
 

@@ -20,7 +20,6 @@ MCP_SERVERS_DIR="$PROJECT_ROOT/mcp-servers"
 # MCP servers to build
 SERVERS=(
   "copilot-memory"
-  "task-copilot"
   "skills-copilot"
 )
 

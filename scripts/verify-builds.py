@@ -16,7 +16,6 @@ MCP_DIR = BASE_DIR / "mcp-servers"
 SERVERS = [
     "copilot-memory",
     "skills-copilot",
-    "task-copilot",
     "websocket-bridge"
 ]
 
@@ -176,12 +175,6 @@ def main():
     # Build all servers
     for server in SERVERS:
         results["builds"][server] = build_server(server)
-
-    # Run task-copilot tests
-    print(f"\n{'='*60}")
-    print("RUNNING TESTS")
-    print(f"{'='*60}")
-    results["tests"]["task-copilot"] = run_tests("task-copilot")
 
     # Generate report
     print(f"\n{'='*60}")

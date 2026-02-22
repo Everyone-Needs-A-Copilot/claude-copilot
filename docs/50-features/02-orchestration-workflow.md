@@ -14,7 +14,7 @@ Parallel stream execution using Claude Code's native `Task` tool. The `/orchestr
 /orchestrate merge      -->  Merge completed worktrees back to main
 ```
 
-Agents run in parallel inside isolated git worktrees. Task Copilot tracks progress. No external Python scripts or HTTP APIs required.
+Agents run in parallel inside isolated git worktrees. The `tc` CLI tracks progress. No external Python scripts or HTTP APIs required.
 
 ---
 
@@ -27,7 +27,7 @@ Creates PRD and tasks with stream metadata. Default if no subcommand given.
 | Step | Action |
 |------|--------|
 | 1 | `initiative_get({ mode: "lean" })` -- stop if no active initiative |
-| 2 | `initiative_link()` to connect Task Copilot (archives old streams) |
+| 2 | `initiative_link()` to scope initiative and archive old streams |
 | 3 | Invoke **@agent-ta** to design architecture and return structured JSON |
 | 4 | Validate: no cycles, at least one foundation stream (`dependencies: []`) |
 | 5 | `tc prd create --title "..." --json` then `tc task create --title "..." --prd <id> --json` for each task |
@@ -203,7 +203,7 @@ Stream-Z [---------------]   0%  ---    ---   Integration
 | Tool / Command | Used In | Purpose |
 |------|---------|---------|
 | `initiative_get` | generate | Check active initiative (Memory Copilot MCP) |
-| `initiative_link` | generate | Connect Task Copilot, archive old streams (Memory Copilot MCP) |
+| `initiative_link` | generate | Scope initiative, archive old streams (Memory Copilot MCP) |
 | `tc prd create` | generate | Create PRD |
 | `tc task create` | generate | Create stream tasks with metadata |
 | `tc stream list` | start, status, merge | List streams with progress |
@@ -221,7 +221,7 @@ Stream-Z [---------------]   0%  ---    ---   Integration
 
 - **Command source:** [`.claude/commands/orchestrate.md`](../../.claude/commands/orchestrate.md)
 - **Worktree isolation:** [`docs/50-features/05-worktree-isolation.md`](./05-worktree-isolation.md)
-- **Task Copilot:** [`mcp-servers/task-copilot/README.md`](../../mcp-servers/task-copilot/README.md)
+- **Task Management:** `tc` CLI tool
 
 ---
 

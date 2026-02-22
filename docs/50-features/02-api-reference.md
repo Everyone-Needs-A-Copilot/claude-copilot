@@ -2,18 +2,18 @@
 
 ## Overview
 
-The External Query API is a lightweight HTTP REST API embedded in the Task Copilot MCP server. It enables external scripts (e.g., Python orchestration tools) to query task and stream state without requiring MCP protocol integration.
+The External Query API is a lightweight HTTP REST API for querying task and stream state. It enables external scripts (e.g., Python orchestration tools) to monitor progress without requiring MCP protocol integration.
 
 ### Purpose
 
-- **External Integration**: Enable non-MCP tools to monitor Task Copilot state
+- **External Integration**: Enable non-MCP tools to monitor task state
 - **Orchestration**: Support parallel stream management via external scripts
 - **Real-time Monitoring**: Query current agent activity and task progress
 - **Dependency Polling**: Check stream completion for dependency resolution
 
 ### Architecture
 
-- **Embedded Server**: Runs inside Task Copilot MCP server process
+- **Embedded Server**: Lightweight HTTP server process
 - **Framework**: Fastify HTTP server (lightweight, production-ready)
 - **Protocol**: Standard HTTP/REST (no authentication, localhost-only)
 - **Default URL**: `http://localhost:9090`
@@ -29,23 +29,11 @@ The API is designed for localhost-only access:
 
 ## Configuration
 
-Configure the HTTP API via environment variables in `.mcp.json`:
+Configure the HTTP API via environment variables:
 
-```json
-{
-  "mcpServers": {
-    "task-copilot": {
-      "command": "node",
-      "args": [
-        "/path/to/claude-copilot/mcp-servers/task-copilot/dist/index.js"
-      ],
-      "env": {
-        "HTTP_API_HOST": "127.0.0.1",
-        "HTTP_API_PORT": "9090"
-      }
-    }
-  }
-}
+```bash
+export HTTP_API_HOST="127.0.0.1"
+export HTTP_API_PORT="9090"
 ```
 
 ### Environment Variables
@@ -58,10 +46,9 @@ Configure the HTTP API via environment variables in `.mcp.json`:
 ### Server Lifecycle
 
 The HTTP API server:
-- Starts automatically when Task Copilot MCP server starts
-- Fails gracefully if port is in use (MCP server continues)
+- Starts when the query API process starts
+- Fails gracefully if port is in use
 - Logs startup message: `HTTP API listening on http://127.0.0.1:9090`
-- Stops when Task Copilot MCP server stops
 
 ---
 
@@ -581,8 +568,8 @@ try:
     response = requests.get('http://localhost:9090/api/streams')
     response.raise_for_status()
 except requests.exceptions.ConnectionError:
-    print("Error: Task Copilot HTTP API is not running")
-    print("Ensure Task Copilot MCP server is started")
+    print("Error: HTTP API is not running")
+    print("Ensure the query API server is started")
 except requests.exceptions.RequestException as e:
     print(f"HTTP error: {e}")
 ```
@@ -603,13 +590,13 @@ else:
 
 ### Port Already in Use
 
-If the configured port is already in use, the HTTP API server will fail to start but the MCP server will continue running. Check MCP server logs:
+If the configured port is already in use, the HTTP API server will fail to start. Check logs:
 
 ```
 Failed to start HTTP API server: Error: listen EADDRINUSE: address already in use 127.0.0.1:9090
 ```
 
-**Solution**: Change `HTTP_API_PORT` in `.mcp.json` to an available port.
+**Solution**: Change `HTTP_API_PORT` environment variable to an available port.
 
 ---
 
@@ -617,9 +604,9 @@ Failed to start HTTP API server: Error: listen EADDRINUSE: address already in us
 
 ### Read-Only Access
 
-The External Query API provides read-only access to Task Copilot state. Mutations (creating tasks, updating status, etc.) must be done via MCP tools.
+The External Query API provides read-only access to task state. Mutations (creating tasks, updating status, etc.) must be done via the `tc` CLI.
 
-**Why**: Maintains single source of truth through MCP protocol with proper validation and activity logging.
+**Why**: Maintains single source of truth through the `tc` CLI with proper validation and activity logging.
 
 ### No Authentication
 
@@ -670,7 +657,7 @@ All endpoints query the SQLite database. Impact is minimal for typical usage pat
 
 ### Server Not Starting
 
-**Symptom**: MCP server logs show "Failed to start HTTP API server"
+**Symptom**: Logs show "Failed to start HTTP API server"
 
 **Causes**:
 1. Port already in use
@@ -711,12 +698,11 @@ response = requests.get('http://localhost:9090/api/tasks')  # No filters
 
 **Cause**: Agent heartbeat not updated (may indicate agent issue)
 
-**Solution**: Check agent logs and task status. Activity heartbeat updates are managed by agents via MCP tools.
+**Solution**: Check agent logs and task status. Activity heartbeat updates are managed by agents via the `tc` CLI.
 
 ---
 
 ## See Also
 
-- **Task Copilot README**: Full MCP tool reference (`mcp-servers/task-copilot/README.md`)
+- **Task Management**: `tc` CLI tool
 - **Stream Management**: Stream orchestration guide (`docs/orchestration/stream-management.md`)
-- **HTTP Implementation**: Technical implementation details (`mcp-servers/task-copilot/HTTP_IMPLEMENTATION.md`)

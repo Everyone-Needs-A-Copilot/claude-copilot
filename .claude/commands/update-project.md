@@ -37,7 +37,7 @@ Then STOP. Do not continue.
 ```bash
 ls ~/.claude/copilot/mcp-servers/copilot-memory/dist/index.js 2>/dev/null && echo "MEMORY_OK" || echo "MEMORY_MISSING"
 ls ~/.claude/copilot/mcp-servers/skills-copilot/dist/index.js 2>/dev/null && echo "SKILLS_OK" || echo "SKILLS_MISSING"
-ls ~/.claude/copilot/mcp-servers/task-copilot/dist/index.js 2>/dev/null && echo "TASK_OK" || echo "TASK_MISSING"
+which tc >/dev/null 2>&1 && echo "TC_CLI_OK" || echo "TC_CLI_MISSING"
 ```
 
 **If any MISSING:**

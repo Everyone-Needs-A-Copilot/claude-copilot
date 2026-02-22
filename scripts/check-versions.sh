@@ -68,7 +68,6 @@ check_mcp_server() {
 
 check_mcp_server "copilot-memory"
 check_mcp_server "skills-copilot"
-check_mcp_server "task-copilot"
 
 echo ""
 
@@ -129,8 +128,6 @@ check_path() {
 check_path "Skills" "~/.claude/skills"
 check_path "Knowledge" "~/.claude/knowledge"
 check_path "Memory DB" "~/.claude/memory"
-check_path "Task DB" "~/.claude/tasks"
-
 echo ""
 
 # Summary
