@@ -187,8 +187,8 @@ Tell the user:
 **Ready to update project**
 
 This will refresh:
-- `.claude/commands/` (8 project commands)
-- `.claude/agents/*.md` (all 12 agents)
+- `.claude/commands/` (7 project commands)
+- `.claude/agents/*.md` (all 20 agents: 13 framework + 7 native)
 - `.claude/orchestrator/` (if present - Python scripts and shell utilities)
 
 This will ONLY update if needed:
@@ -236,7 +236,7 @@ cp ~/.claude/copilot/.claude/commands/memory.md .claude/commands/
 cp ~/.claude/copilot/.claude/commands/extensions.md .claude/commands/
 cp ~/.claude/copilot/.claude/commands/orchestrate.md .claude/commands/
 
-echo "Commands updated (8 project commands)"
+echo "Commands updated (7 project commands)"
 ```
 
 ---
@@ -365,8 +365,8 @@ Tell user:
 **Project Updated!**
 
 **Refreshed:**
-- `.claude/commands/` (8 project commands: protocol, continue, pause, map, memory, extensions, orchestrate)
-- `.claude/agents/` (12 agents)
+- `.claude/commands/` (7 project commands: protocol, continue, pause, map, memory, extensions, orchestrate)
+- `.claude/agents/` (20 agents: 13 framework + 7 native)
 {{IF_ORCHESTRATOR_UPDATED}}
 - `.claude/orchestrator/` (Python scripts and shell utilities)
 {{END_IF}}
