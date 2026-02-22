@@ -30,9 +30,10 @@ FRAMEWORK_VERSION=$(node -p "require('$VERSION_FILE').framework")
 echo -e "Framework Version: ${GREEN}$FRAMEWORK_VERSION${NC}"
 echo ""
 
+ERRORS=0
+
 # Check MCP Servers
 echo -e "${BLUE}MCP Servers:${NC}"
-ERRORS=0
 
 check_mcp_server() {
     local name=$1
@@ -71,6 +72,22 @@ check_mcp_server "skills-copilot"
 
 echo ""
 
+# Check tc CLI
+echo -e "${BLUE}Task Copilot CLI:${NC}"
+if command -v tc >/dev/null 2>&1; then
+    TC_VERSION=$(tc --version 2>/dev/null || echo "installed")
+    echo -e "  ${GREEN}✅ tc CLI: $TC_VERSION${NC}"
+elif [ -d "$COPILOT_PATH/tools/tc" ]; then
+    echo -e "  ${YELLOW}⚠️  tc CLI: found at tools/tc/ but not on PATH${NC}"
+    echo -e "      Install: cd $COPILOT_PATH/tools/tc && pip install -e ."
+    ((ERRORS++))
+else
+    echo -e "  ${RED}❌ tc CLI: not found${NC}"
+    ((ERRORS++))
+fi
+
+echo ""
+
 # Check Agents
 echo -e "${BLUE}Agents:${NC}"
 AGENT_PATH="$COPILOT_PATH/.claude/agents"
@@ -78,27 +95,83 @@ EXPECTED_COUNT=$(node -p "require('$VERSION_FILE').components.agents.count")
 ACTUAL_COUNT=$(ls "$AGENT_PATH"/*.md 2>/dev/null | wc -l | tr -d ' ')
 
 if [ "$ACTUAL_COUNT" -eq "$EXPECTED_COUNT" ]; then
-    echo -e "  ${GREEN}✅ Agent count: $ACTUAL_COUNT${NC}"
+    echo -e "  ${GREEN}✅ Agent count: $ACTUAL_COUNT ($EXPECTED_COUNT expected)${NC}"
 else
     echo -e "  ${YELLOW}⚠️  Agent count: $ACTUAL_COUNT (expected $EXPECTED_COUNT)${NC}"
     ((ERRORS++))
 fi
 
-# Check required sections in agents
+# Check required sections on framework agents only
+FRAMEWORK_AGENTS=$(node -p "require('$VERSION_FILE').components.agents.frameworkAgents.join(' ')")
 REQUIRED_SECTIONS=$(node -p "require('$VERSION_FILE').components.agents.requiredSections.join('|')")
 MISSING_SECTIONS=0
-for agent in "$AGENT_PATH"/*.md; do
-    name=$(basename "$agent" .md)
-    for section in "Task Copilot Integration" "Route To Other Agent"; do
+
+for agent_name in $FRAMEWORK_AGENTS; do
+    agent="$AGENT_PATH/$agent_name.md"
+    if [ ! -f "$agent" ]; then
+        echo -e "  ${RED}❌ $agent_name.md: not found${NC}"
+        MISSING_SECTIONS=$((MISSING_SECTIONS + 1))
+        continue
+    fi
+
+    IFS='|' read -ra SECTIONS <<< "$REQUIRED_SECTIONS"
+    for section in "${SECTIONS[@]}"; do
         if ! grep -q "## $section" "$agent" 2>/dev/null; then
-            echo -e "  ${RED}❌ $name.md missing: $section${NC}"
+            echo -e "  ${RED}❌ $agent_name.md missing: $section${NC}"
             MISSING_SECTIONS=$((MISSING_SECTIONS + 1))
         fi
     done
 done
 
 if [ $MISSING_SECTIONS -eq 0 ]; then
-    echo -e "  ${GREEN}✅ All agents have required sections${NC}"
+    echo -e "  ${GREEN}✅ All framework agents have required sections${NC}"
+else
+    ((ERRORS++))
+fi
+
+# Verify native agents exist
+NATIVE_AGENTS=$(node -p "require('$VERSION_FILE').components.agents.nativeAgents.join(' ')")
+MISSING_NATIVE=0
+for agent_name in $NATIVE_AGENTS; do
+    if [ ! -f "$AGENT_PATH/$agent_name.md" ]; then
+        echo -e "  ${RED}❌ $agent_name.md (native): not found${NC}"
+        MISSING_NATIVE=$((MISSING_NATIVE + 1))
+    fi
+done
+
+if [ $MISSING_NATIVE -eq 0 ]; then
+    echo -e "  ${GREEN}✅ All native agents present${NC}"
+else
+    ((ERRORS++))
+fi
+
+echo ""
+
+# Check Commands
+echo -e "${BLUE}Commands:${NC}"
+COMMAND_PATH="$COPILOT_PATH/.claude/commands"
+PROJECT_CMDS=$(node -p "require('$VERSION_FILE').components.commands.projectCommands.join(' ')")
+MACHINE_CMDS=$(node -p "require('$VERSION_FILE').components.commands.machineCommands.join(' ')")
+
+MISSING_CMDS=0
+for cmd in $PROJECT_CMDS; do
+    if [ ! -f "$COMMAND_PATH/$cmd" ]; then
+        echo -e "  ${RED}❌ Project command missing: $cmd${NC}"
+        MISSING_CMDS=$((MISSING_CMDS + 1))
+    fi
+done
+for cmd in $MACHINE_CMDS; do
+    if [ ! -f "$COMMAND_PATH/$cmd" ]; then
+        echo -e "  ${RED}❌ Machine command missing: $cmd${NC}"
+        MISSING_CMDS=$((MISSING_CMDS + 1))
+    fi
+done
+
+if [ $MISSING_CMDS -eq 0 ]; then
+    PROJECT_COUNT=$(echo $PROJECT_CMDS | wc -w | tr -d ' ')
+    MACHINE_COUNT=$(echo $MACHINE_CMDS | wc -w | tr -d ' ')
+    echo -e "  ${GREEN}✅ Project commands: $PROJECT_COUNT${NC}"
+    echo -e "  ${GREEN}✅ Machine commands: $MACHINE_COUNT${NC}"
 else
     ((ERRORS++))
 fi
@@ -128,6 +201,7 @@ check_path() {
 check_path "Skills" "~/.claude/skills"
 check_path "Knowledge" "~/.claude/knowledge"
 check_path "Memory DB" "~/.claude/memory"
+check_path "Tasks" "~/.claude/tasks"
 echo ""
 
 # Summary
@@ -139,7 +213,8 @@ else
     echo ""
     echo "To fix issues:"
     echo "  1. Rebuild MCP servers: cd ~/.claude/copilot && npm run build:all"
-    echo "  2. Update framework: /update-copilot"
+    echo "  2. Install tc CLI: cd ~/.claude/copilot/tools/tc && pip install -e ."
+    echo "  3. Update framework: /update-copilot"
 fi
 echo -e "${BLUE}========================================${NC}"
 

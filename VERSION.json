@@ -19,11 +19,16 @@
     "agents": {
       "version": "3.0.0",
       "path": ".claude/agents",
-      "count": 13,
+      "count": 20,
+      "frameworkAgents": [
+        "cco", "cw", "do", "doc", "kc", "me", "qa", "sd", "sec", "ta", "uid", "uids", "uxd"
+      ],
+      "nativeAgents": [
+        "architect", "cs", "engineer", "service-designer", "tester", "ui-designer", "ux-designer"
+      ],
       "requiredSections": [
-        "tc CLI Integration",
-        "Route To Other Agent",
-        "Skill Loading Protocol"
+        "Core Behaviors",
+        "Route To Other Agent"
       ]
     },
     "commands": {
