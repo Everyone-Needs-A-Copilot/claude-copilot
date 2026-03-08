@@ -11,14 +11,14 @@
     "test": "npm run build && node dist/tests/integration.test.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.25.1",
-    "better-sqlite3": "^12.5.0",
-    "pg": "^8.11.0"
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "better-sqlite3": "^12.6.2",
+    "pg": "^8.19.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",
-    "@types/node": "^25.0.3",
-    "@types/pg": "^8.10.0",
+    "@types/node": "^25.3.3",
+    "@types/pg": "^8.18.0",
     "typescript": "^5.4.0"
   },
   "engines": {
