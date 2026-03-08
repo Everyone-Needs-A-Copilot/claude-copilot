@@ -181,7 +181,7 @@ Created:
 - .mcp.json - MCP server configuration
 - CLAUDE.md - Project instructions
 - .claude/commands/ - Protocol commands
-- .claude/agents/ - 14 lean agents (under 120 lines each)
+- .claude/agents/ - 17 specialist agents
 - .claude/skills/ - For project-specific skills
 
 Next steps:

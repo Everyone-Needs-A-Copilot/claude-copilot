@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-03-08
+
+### Added
+
+- **Design Knowledge Skills (`.claude/skills/design/`)**: 6 design skills providing concrete creative methodology
+  - `color-palettes.md` — 25 named palettes by mood/industry, anti-generic bans, dark mode derivation, WCAG contrast reference
+  - `typography-pairings.md` — 30 curated font pairings, 3 type scale systems, fluid typography formulas
+  - `aesthetic-directions.md` — 20 named aesthetic directions, industry selection matrix, 15-item AI anti-slop detector
+  - `design-heuristics.md` — Rams' 10 Principles rubric, Nielsen's 10 Heuristics checklist, Three Lenses evaluation, senior vs junior thinking
+  - `design-patterns.md` — Component state matrices, spacing scales, WCAG requirements (from templates)
+  - `ux-patterns.md` — Task flow structures, service blueprints, accessibility checklists (from templates)
+
+### Changed
+
+- **Design Agents Upgraded to AKQA/IDEO Quality**:
+  - `sd.md` (64 → 154 lines) — Added Double Diamond, JTBD, Moments Framework, Three Lenses, mandatory 7-step creative process, 6 anti-generic NEVER rules, quality evaluation criteria
+  - `uxd.md` (63 → 184 lines) — Added Fitts/Hick/Jakob/Miller laws, Crazy Eights divergence, microinteraction anatomy, error prevention hierarchy, loading strategy decision tree, 9 anti-generic NEVER rules
+  - `uids.md` (72 → 233 lines) — Added Bold Commitment First philosophy, Rams' Principles, mandatory 11-step creative process with aesthetic direction commitment, concrete design knowledge (spacing/radius/elevation/motion/sizing), AI Slop Detector, Innovative/Controlled dual-mode
+  - All three agents now include: iteration config, validation rules, diverge-before-converge creative process, self-critique loops, and design skill references
+- **Agent count**: 20 → 17 (removed 3 legacy agents)
+- **VERSION.json**: Updated to v3.1.0 with new agent counts, design skill category added
+
+### Removed
+
+- **Legacy design agents**: Deleted `service-designer.md`, `ux-designer.md`, `ui-designer.md` (hardcoded to specific project, never referenced by framework routing)
+
 ## [3.0.0] - 2026-02-21
 
 ### Added

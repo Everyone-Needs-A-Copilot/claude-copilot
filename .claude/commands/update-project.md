@@ -188,7 +188,7 @@ Tell the user:
 
 This will refresh:
 - `.claude/commands/` (7 project commands)
-- `.claude/agents/*.md` (all 20 agents: 13 framework + 7 native)
+- `.claude/agents/*.md` (all 17 agents: 13 framework + 4 native)
 - `.claude/orchestrator/` (if present - Python scripts and shell utilities)
 
 This will ONLY update if needed:
@@ -366,7 +366,7 @@ Tell user:
 
 **Refreshed:**
 - `.claude/commands/` (7 project commands: protocol, continue, pause, map, memory, extensions, orchestrate)
-- `.claude/agents/` (20 agents: 13 framework + 7 native)
+- `.claude/agents/` (17 agents: 13 framework + 4 native)
 {{IF_ORCHESTRATOR_UPDATED}}
 - `.claude/orchestrator/` (Python scripts and shell utilities)
 {{END_IF}}

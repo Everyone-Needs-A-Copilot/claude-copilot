@@ -1,6 +1,6 @@
 {
-  "framework": "3.0.0",
-  "lastUpdated": "2026-02-21T00:00:00.000Z",
+  "framework": "3.1.0",
+  "lastUpdated": "2026-03-08T00:00:00.000Z",
   "components": {
     "mcp-servers": {
       "copilot-memory": {
@@ -17,14 +17,14 @@
       }
     },
     "agents": {
-      "version": "3.0.0",
+      "version": "3.1.0",
       "path": ".claude/agents",
-      "count": 20,
+      "count": 17,
       "frameworkAgents": [
         "cco", "cw", "do", "doc", "kc", "me", "qa", "sd", "sec", "ta", "uid", "uids", "uxd"
       ],
       "nativeAgents": [
-        "architect", "cs", "engineer", "service-designer", "tester", "ui-designer", "ux-designer"
+        "architect", "cs", "engineer", "tester"
       ],
       "requiredSections": [
         "Core Behaviors",
@@ -54,10 +54,11 @@
       ]
     },
     "skills": {
-      "version": "3.0.0",
+      "version": "3.1.0",
       "path": ".claude/skills",
       "categories": [
         "code",
+        "design",
         "devops",
         "documentation",
         "security",

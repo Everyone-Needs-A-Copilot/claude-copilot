@@ -9,7 +9,7 @@ Five-pillar framework: persistent memory, expert agents, on-demand skills, ephem
 | Layer | Pillar | Component | Purpose |
 |-------|--------|-----------|---------|
 | Persistence | 1 | Memory Copilot | Cross-session context, decisions, lessons |
-| Expertise | 2 | 14 Lean Agents | Minimal agents (under 120 lines) with on-demand skills |
+| Expertise | 2 | 17 Specialist Agents | Lean agents with on-demand skills; design agents include creative methodology |
 | Knowledge | 3 | Skills Copilot | Auto-detected skill loading via skill_evaluate |
 | Tasks | 4 | Task Copilot | Ephemeral PRD, task, work product storage |
 | Workflow | 5 | Protocol | /protocol and /continue commands |

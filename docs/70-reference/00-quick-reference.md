@@ -134,7 +134,7 @@ your-project/
     ├── commands/                # /protocol, /continue
     │   ├── protocol.md
     │   └── continue.md
-    ├── agents/                  # 14 lean agents (under 120 lines each)
+    ├── agents/                  # 17 specialist agents
     │   ├── ta.md               # Tech Architect
     │   ├── me.md               # Engineer
     │   ├── qa.md               # QA Engineer

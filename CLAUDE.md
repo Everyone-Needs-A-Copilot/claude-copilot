@@ -146,9 +146,9 @@ Persistent memory across sessions with semantic search.
 
 ### 2. Agents
 
-14 specialized agents using lean agent model (~60-120 lines each).
+17 specialized agents. Design agents (sd, uxd, uids) include creative methodology, anti-generic rules, and design knowledge skills. All others use the lean agent model (~60-120 lines).
 
-**Agents:** me, ta, qa, sec, doc, do, sd, uxd, uids, uid, cw, cco, kc
+**Agents:** me, ta, qa, sec, doc, do, sd, uxd, uids, uid, cw, cco, kc, architect, cs, engineer, tester
 
 **Location:** `.claude/agents/`
 
