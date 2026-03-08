@@ -106,9 +106,9 @@ Action keywords route your task to specific agent flows.
 | Keyword | Agent Flow | Agent Chain | Use When |
 |---------|-----------|-------------|----------|
 | `fix:` | Defect | qa → me → qa | Fixing bugs, errors, broken features |
-| `add:` | Experience | sd → uxd → uids → ta → me | Adding new features, UI, functionality |
-| `refactor:` | Technical | ta → me | Restructuring code, improving architecture |
-| `optimize:` | Technical | ta → me | Performance improvements, efficiency |
+| `add:` | Experience | sd → uxd → uids → ta → me → qa | Adding new features, UI, functionality |
+| `refactor:` | Technical | ta → me → qa | Restructuring code, improving architecture |
+| `optimize:` | Technical | ta → me → qa | Performance improvements, efficiency |
 | `test:` | QA | qa | Writing tests, test coverage |
 | `doc:` | Documentation | doc | Writing documentation, API docs |
 | `deploy:` | DevOps | do | Deployment, CI/CD, infrastructure |
@@ -130,19 +130,19 @@ Action keywords route your task to specific agent flows.
 **Add features:**
 ```
 /protocol add: dark mode toggle to settings
-→ Routes to Experience Flow: sd → uxd → uids → ta → me
+→ Routes to Experience Flow: sd → uxd → uids → ta → me → qa
 ```
 
 **Refactor code:**
 ```
 /protocol refactor: auth module to use new patterns
-→ Routes to Technical Flow: ta → me
+→ Routes to Technical Flow: ta → me → qa
 ```
 
 **Optimize performance:**
 ```
 /protocol optimize: database queries in user service
-→ Routes to Technical Flow: ta → me
+→ Routes to Technical Flow: ta → me → qa
 ```
 
 **Write tests:**
@@ -204,7 +204,7 @@ Effort: (complexity-based)
 Action: add → Experience Flow
 
 [PROTOCOL: EXPERIENCE | Agent: @agent-sd | Action: INVOKING]
-Routing to experience-first flow: sd → uxd → uids → ta → me
+Routing to experience-first flow: sd → uxd → uids → ta → me → qa
 Model selection: Claude Opus (forced override)
 Effort level: high (complex feature, standard reasoning)
 ```
@@ -219,7 +219,7 @@ Effort: medium
 Action: refactor → Technical Flow
 
 [PROTOCOL: TECHNICAL | Agent: @agent-ta | Action: INVOKING]
-Routing to technical-only flow: ta → me
+Routing to technical-only flow: ta → me → qa
 Model selection: Auto-select based on complexity (sonnet likely)
 Effort level: medium (balanced reasoning)
 ⚠️ BREAKING: Previously forced Haiku model
@@ -235,7 +235,7 @@ Effort: max
 Action: optimize → Technical Flow
 
 [PROTOCOL: TECHNICAL | Agent: @agent-ta | Action: INVOKING]
-Routing to technical-only flow: ta → me
+Routing to technical-only flow: ta → me → qa
 Model selection: Auto-select based on complexity (opus likely for optimization)
 Effort level: max (deepest reasoning, thorough analysis)
 ```
@@ -402,9 +402,9 @@ haiku:   → Claude Haiku (effort based on complexity)
 
 ```
 fix:      → Defect Flow (qa → me → qa)
-add:      → Experience Flow (sd → uxd → uids → ta → me)
-refactor: → Technical Flow (ta → me)
-optimize: → Technical Flow (ta → me)
+add:      → Experience Flow (sd → uxd → uids → ta → me → qa)
+refactor: → Technical Flow (ta → me → qa)
+optimize: → Technical Flow (ta → me → qa)
 test:     → QA Testing (@agent-qa)
 doc:      → Documentation (@agent-doc)
 deploy:   → DevOps (@agent-do)

@@ -52,6 +52,16 @@ When domain agents create specifications:
 3. **Consolidate** overlapping requirements; flag conflicts for human review
 4. **Create tasks** with `metadata.sourceSpecifications: ['WP-xxx', ...]` linking all sources
 
+## Testing Requirements in Tasks
+
+Every implementation task MUST include explicit test requirements in description:
+
+| Task Type | Test Requirement |
+|-----------|-----------------|
+| Backend implementation | "Unit and integration tests required" |
+| Frontend implementation | "Playwright E2E tests required" |
+| Full-stack | "Unit/integration AND Playwright E2E tests required" |
+
 ## Priorities
 
 1. **Simplicity** -- Start with simplest solution that works
@@ -67,12 +77,14 @@ When domain agents create specifications:
 - Document architectural decisions with trade-offs
 - Consider failure modes and graceful degradation
 - Start with simplest solution that works
+- Include explicit test requirements in every implementation task
 
 **Never:**
 - Include time estimates (use complexity: Low/Medium/High)
 - Design without understanding existing patterns
 - Create phases that can't be shipped independently
 - Make decisions without documenting alternatives
+- Create implementation tasks without test requirements
 
 ## Stream-Based Task Planning
 
@@ -107,7 +119,7 @@ Return ONLY (~100 tokens):
 Task: TASK-xxx | WP: WP-xxx
 Summary: [2-3 sentences describing architecture]
 Streams: Stream-A (foundation), Stream-B (parallel), Stream-Z (integration)
-Next: @agent-me for implementation
+Next: @agent-me for implementation → @agent-qa for testing
 ```
 
 ## Route To Other Agent

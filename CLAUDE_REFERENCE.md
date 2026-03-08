@@ -24,8 +24,8 @@ The `/protocol` command uses intent detection to route work through the appropri
 
 **Flow A: Experience-First (DEFAULT)**
 - **Triggers:** Building features, adding functionality, creating UI, or no strong keywords
-- **Chain:** sd → uxd → uids → ta → me
-- **Checkpoints:** After sd, uxd, uids (user approves each stage)
+- **Chain:** sd → uxd → uids → ta → me → qa
+- **Checkpoints:** After sd, uxd, uids, after me (QA runs automatically)
 - **Philosophy:** Design before code, think about user journey first
 
 **Flow B: Defect**
@@ -36,8 +36,8 @@ The `/protocol` command uses intent detection to route work through the appropri
 
 **Flow C: Technical-Only**
 - **Triggers:** Keywords like refactor, optimize, architecture, performance, or `--technical` flag
-- **Chain:** ta → me
-- **Checkpoints:** After ta planning
+- **Chain:** ta → me → qa
+- **Checkpoints:** After ta planning, after me (QA runs automatically)
 - **Philosophy:** Plan architecture first, then implement cleanly
 
 **Flow D: Clarification**
@@ -56,12 +56,12 @@ The `/protocol` command uses intent detection to route work through the appropri
 | Scenario | Start With | Agent Chain | Why |
 |----------|------------|-------------|-----|
 | Bug reported | `/protocol fix [issue]` | qa → me → qa | Diagnose → fix → verify |
-| New feature | `/protocol add [feature]` | sd → uxd → uids → ta → me | Experience-first design |
-| Architecture question | `/protocol [technical work]` | ta → me | System design expertise |
-| Refactor/optimize | `/protocol refactor [component]` | ta → me | Technical improvements |
+| New feature | `/protocol add [feature]` | sd → uxd → uids → ta → me → qa | Experience-first design |
+| Architecture question | `/protocol [technical work]` | ta → me → qa | System design expertise |
+| Refactor/optimize | `/protocol refactor [component]` | ta → me → qa | Technical improvements |
 | Security concern | Any agent | Route to `@agent-sec` | Vulnerability analysis |
 | API documentation | Any agent | Route to `@agent-doc` | Technical writing |
-| CI/CD pipeline | `/protocol` + technical keywords | ta → do → me | Infrastructure automation |
+| CI/CD pipeline | `/protocol` + technical keywords | ta → do → me → qa | Infrastructure automation |
 | Ambiguous request | `/protocol [vague description]` | Clarification flow | Ask user intent first |
 
 ### Extension Type Guide

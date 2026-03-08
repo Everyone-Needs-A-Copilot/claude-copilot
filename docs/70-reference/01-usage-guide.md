@@ -465,8 +465,8 @@ Prefix your `/protocol` commands for model and routing control:
 | Keyword | Flow | Agent Chain |
 |---------|------|-------------|
 | `fix:` | Defect | qa → me → qa |
-| `add:` | Experience | sd → uxd → uids → ta → me |
-| `refactor:` | Technical | ta → me |
+| `add:` | Experience | sd → uxd → uids → ta → me → qa |
+| `refactor:` | Technical | ta → me → qa |
 | `test:` | QA | qa |
 | `doc:` | Documentation | doc |
 

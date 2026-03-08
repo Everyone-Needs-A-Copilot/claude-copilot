@@ -113,8 +113,8 @@ Ask yourself:
 | I want to... | Start with | What Happens |
 |--------------|------------|--------------|
 | Fix a bug | `/protocol fix the login bug` | Defect flow: qa → me → qa |
-| Build a feature | `/protocol add dark mode UI` | Experience flow: sd → uxd → uids → ta → me |
-| Refactor code | `/protocol refactor auth module` | Technical flow: ta → me |
+| Build a feature | `/protocol add dark mode UI` | Experience flow: sd → uxd → uids → ta → me → qa |
+| Refactor code | `/protocol refactor auth module` | Technical flow: ta → me → qa |
 | Improve something | `/protocol improve dashboard` | Clarification flow (asks intent) |
 | Skip design stages | `/protocol --skip-sd add feature` | Jumps to specified stage |
 | Resume yesterday's work | `/continue` | Memory loads automatically |
@@ -422,6 +422,13 @@ All agents inherit these behaviors. Individual agent files should NOT repeat the
 **Specification Workflow (domain agents: sd, uxd, uids, cw, cco):** Store completed work as `type: 'specification'`, then route to @agent-ta. Domain agents MUST NOT create tasks directly.
 
 **Multi-Agent Handoff:** If not final agent in chain: store work product, call `tc handoff --from <agent> --to <agent> --task <id> --context "..." --json` (200-char context), route to next agent, do NOT return to main session. If final agent: call `tc log --task <id> --json`, return consolidated summary.
+
+**Testing Gate (MANDATORY — applies to ALL flows):**
+Implementation agents (@agent-me) are NEVER the final agent in a chain. After @agent-me completes, @agent-qa MUST run to write and verify tests:
+- Backend changes → unit tests + integration tests
+- Frontend/UI changes → Playwright E2E tests (zero console errors, user interactions, data flow)
+- Both → all test types
+No implementation is shipped without passing QA. This is not optional.
 
 **Protocol Integration:** When invoked via /protocol with checkpoints, output stage-complete summary with: Task/WP IDs, key deliverables, key decisions (2-3), handoff context (200-char max).
 

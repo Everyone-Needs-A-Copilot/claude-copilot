@@ -111,11 +111,16 @@ Your response MUST include:
 
 ---
 
-## Phase 4: Verify (NEVER SKIP)
+## Phase 4: Verify (MANDATORY GATE — NEVER SKIP)
 
-1. Use `@agent-qa` to verify changes work as expected
-2. If visual verification needed, ask user to test specific URL
-3. **Do NOT declare "done" until user confirms it works**
+1. @agent-qa MUST run after every @agent-me implementation — automatic, not optional
+2. @agent-qa MUST write new tests for changed/added code:
+   - Backend changes: unit tests + integration tests
+   - Frontend changes: Playwright E2E tests (zero console errors, user interactions, data flow)
+   - Both: all test types required
+3. All tests must pass before task is marked complete
+4. If visual verification also needed, ask user AFTER automated tests pass
+5. **Task is NOT done until automated tests pass AND user confirms**
 
 ---
 
@@ -128,6 +133,8 @@ Your response MUST include:
 | Writing a plan before running understanding agent | Plan should be based on agent findings |
 | Skipping to code changes | No understanding = wrong fix |
 | Declaring "done" after build success | Build passing ≠ bug fixed |
+| Skipping QA after implementation | Tests catch regressions and verify correctness |
+| Relying only on existing tests passing | New code needs new tests |
 
 ---
 
