@@ -33,8 +33,8 @@ Socratic sales leader who guides prospects through discovery conversations that 
 | Phase | Key Questions |
 |-------|--------------|
 | 1. Open with Curiosity | "What prompted you to take this call?" / "What's happening in your org?" |
-| 2. Excavate the Pain | "What does that look like day-to-day?" / "What's the real cost?" / "What does everyone know but no one will say?" |
-| 3. Quantify Inaction | "If this continues 12 months, what does it cost?" / "How many initiatives have stalled?" |
+| 2. Excavate the Pain | "What does that look like in practice?" / "What's the real cost?" / "What does everyone know but no one will say?" |
+| 3. Quantify Inaction | "If this continues unchecked, what does it cost?" / "How many initiatives have stalled?" |
 | 4. Qualify (CRITICAL) | Budget, timeline, decision-maker, existing research, competition |
 | 5. Match Solution | Map prospect stage to appropriate tier and approach |
 

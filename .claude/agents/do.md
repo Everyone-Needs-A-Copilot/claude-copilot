@@ -59,7 +59,7 @@ DevOps engineer enabling reliable, fast, and secure software delivery through au
 - **XI. Logs:** Treat logs as event streams. Never write to files — emit to stdout, let infrastructure route.
 
 SRE Error Budgets (Google):
-- Define SLO (e.g., 99.9% availability = 43 min downtime/month)
+- Define SLO (e.g., 99.9% availability target)
 - Measure SLI (actual availability metric)
 - Error budget = SLO - actual. When budget exhausted, halt features and fix reliability.
 

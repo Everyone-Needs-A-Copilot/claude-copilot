@@ -84,14 +84,14 @@ fi
 
 # Check agents
 AGENT_COUNT=$(find "$REPO_ROOT/.claude/agents" -name "*.md" -type f | wc -l | tr -d ' ')
-if [[ "$AGENT_COUNT" -eq 13 ]]; then
-  pass "All 13 agents present"
+if [[ "$AGENT_COUNT" -eq 14 ]]; then
+  pass "All 14 agents present"
 else
-  fail "Agent count mismatch: expected 13, found $AGENT_COUNT"
+  fail "Agent count mismatch: expected 14, found $AGENT_COUNT"
 fi
 
 # Check commands
-REQUIRED_COMMANDS=("protocol.md" "continue.md" "setup-project.md" "update-project.md" "update-copilot.md" "knowledge-copilot.md")
+REQUIRED_COMMANDS=("setup-project.md" "update-project.md" "update-copilot.md" "knowledge-copilot.md")
 for cmd in "${REQUIRED_COMMANDS[@]}"; do
   if [[ -f "$REPO_ROOT/.claude/commands/$cmd" ]]; then
     pass "Command exists: $cmd"
@@ -128,11 +128,8 @@ for agent_file in "$REPO_ROOT/.claude/agents"/*.md; do
     fail "$agent_name missing routing section"
   fi
 
-  if grep -q "## Task Copilot Integration" "$agent_file"; then
-    pass "$agent_name has Task Copilot Integration section"
-  else
-    fail "$agent_name missing Task Copilot Integration section"
-  fi
+  # Task Copilot Integration is consolidated in CLAUDE.md (v3.3.0+)
+  # Individual agents no longer require this section
 done
 
 #############################
@@ -310,6 +307,13 @@ if grep -q "See \[.*\](.*)" "CLAUDE.md"; then
   # Extract all markdown links and check if files exist
   # This is a simplified check - could be expanded
   pass "CLAUDE.md has markdown links (manual verification recommended)"
+fi
+
+# Verify CLAUDE.md contains consolidated Task Copilot integration (v3.3.0+)
+if grep -q "Task Copilot Pattern" "CLAUDE.md"; then
+  pass "CLAUDE.md contains consolidated Task Copilot integration"
+else
+  fail "CLAUDE.md missing consolidated Task Copilot integration"
 fi
 
 #############################

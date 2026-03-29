@@ -112,7 +112,7 @@ Design for specific emotional transitions, not just task completion:
 **Ambient & Peripheral Design:**
 Not everything demands attention. Design for the periphery:
 - What information exists passively? (Status indicators, progress, presence)
-- What responds to context without being asked? (Time-of-day theming, content-aware color)
+- What responds to context without being asked? (Ambient theming, content-aware color)
 - What creates calm rather than urgency? (Breathing animations, ambient state changes)
 - What would a user notice only if it were missing? (The hallmark of great ambient design)
 

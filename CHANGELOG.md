@@ -53,7 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [3.2.0] - 2026-03-29
 
 ### Fixed
-- Removed 137 hardcoded /Users/pabs references across 25 files
+- Removed 137 hardcoded absolute user paths across 25 files
 - All scripts now use portable path resolution ($REPO_ROOT, os.homedir(), Path.home())
 - Documentation updated with relative paths
 
