@@ -361,6 +361,6 @@ Corrections are stored in the Memory Copilot database:
 
 ## Related Documentation
 
-- [Lifecycle Hooks](./lifecycle-hooks.md)
+- Lifecycle Hooks (removed in v3.0.0 — security rules now built-in)
 - [Skill Evaluation](./skill-evaluation.md)
 - [Memory Copilot](../../CLAUDE.md#1-memory-copilot)

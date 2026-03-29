@@ -330,4 +330,4 @@ triggers:
 
 - [Skills Copilot Overview](../../CLAUDE.md#3-skills-native--mcp)
 - [Extension System](../40-extensions/00-extension-spec.md)
-- [Lifecycle Hooks](./lifecycle-hooks.md)
+- Lifecycle Hooks (removed in v3.0.0 — security rules now built-in)
