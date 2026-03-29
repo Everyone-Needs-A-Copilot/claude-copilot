@@ -215,7 +215,7 @@ Auto-generated - DO NOT edit manually
 Run the test suite:
 
 ```bash
-cd /Users/pabs/Sites/COPILOT/claude-copilot/scripts/knowledge-sync
+cd scripts/knowledge-sync
 ./test-knowledge-sync.sh
 ```
 

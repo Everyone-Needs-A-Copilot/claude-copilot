@@ -11,7 +11,7 @@ Created a standalone worker monitoring daemon for the Claude Copilot orchestrati
 ## Implementation Details
 
 ### File Created
-- **Location:** `/Users/pabs/Sites/COPILOT/claude-copilot/templates/orchestration/monitor-workers.py`
+- **Location:** `templates/orchestration/monitor-workers.py`
 - **Size:** ~550 lines
 - **Executable:** Requires `chmod +x` (see Post-Installation below)
 
@@ -216,7 +216,7 @@ Example log entries:
 
 After deployment, run:
 ```bash
-chmod +x /Users/pabs/Sites/COPILOT/claude-copilot/templates/orchestration/monitor-workers.py
+chmod +x templates/orchestration/monitor-workers.py
 ```
 
 ## Acceptance Criteria

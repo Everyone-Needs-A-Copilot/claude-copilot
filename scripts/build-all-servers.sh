@@ -5,6 +5,9 @@
 
 set -e  # Exit on first error
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 echo "========================================="
 echo "MCP SERVER BUILD VERIFICATION"
 echo "Started: $(date)"
@@ -25,7 +28,7 @@ SUCCESS_COUNT=0
 # Function to build a server
 build_server() {
     local server_name=$1
-    local server_path="/Users/pabs/Sites/COPILOT/claude-copilot/mcp-servers/$server_name"
+    local server_path="$REPO_ROOT/mcp-servers/$server_name"
 
     echo "----------------------------------------"
     echo "Building: $server_name"

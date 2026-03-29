@@ -6,6 +6,7 @@
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { homedir } from 'os';
 
 const require = createRequire(import.meta.url);
 const Database = require('./mcp-servers/task-copilot/node_modules/better-sqlite3/lib/index.js');
@@ -14,7 +15,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Database path from .mcp.json
-const DB_PATH = '/Users/pabs/.claude/tasks/claude-copilot/tasks.db';
+const WORKSPACE_ID = 'claude-copilot';
+const DB_PATH = join(homedir(), '.claude', 'tasks', WORKSPACE_ID, 'tasks.db');
 
 try {
   const db = new Database(DB_PATH, { readonly: true });

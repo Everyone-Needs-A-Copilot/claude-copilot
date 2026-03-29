@@ -365,7 +365,7 @@ export const MOCK_TASKS = {
 
 ### Run All Tests
 ```bash
-cd /Users/pabs/Sites/COPILOT/claude-copilot/tests
+cd tests
 node --test **/*.test.ts
 ```
 
@@ -444,8 +444,8 @@ node --test --experimental-test-coverage tests/**/*.test.ts
 
 ## References
 
-- **Existing Tests:** `/Users/pabs/Sites/COPILOT/claude-copilot/tests/`
-- **Insights Copilot Tests:** `/Users/pabs/Sites/COPILOT/insights-copilot/tests/`
+- **Existing Tests:** `tests/`
+- **Insights Copilot Tests:** `../insights-copilot/tests/`
 - **Orchestration Docs:** `.claude/commands/orchestrate.md`
 - **Agent Specs:** `.claude/agents/*.md`
 - **Skill Specs:** `.claude/skills/*/SKILL.md`

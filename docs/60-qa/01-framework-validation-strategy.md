@@ -37,7 +37,7 @@ This document defines the complete validation strategy for the Claude Copilot fr
 **Steps:**
 ```bash
 # 1. Start MCP server manually
-cd /Users/pabs/Sites/COPILOT/claude-copilot/mcp-servers/copilot-memory
+cd mcp-servers/copilot-memory
 npm run build
 node dist/index.js
 ```
@@ -183,7 +183,7 @@ memory_store("Added user login form to dashboard", "context")
 
 **Steps:**
 ```bash
-cd /Users/pabs/Sites/COPILOT/claude-copilot/mcp-servers/skills-copilot
+cd mcp-servers/skills-copilot
 npm run build
 node dist/index.js
 ```
@@ -960,7 +960,7 @@ initiative_update({
 
 **Frequency:** Every commit (pre-commit hook), Every PR (CI)
 
-**Reference:** See `/Users/pabs/Sites/COPILOT/claude-copilot/docs/qa/time-estimate-test-plan.md`
+**Reference:** See `docs/60-qa/time-estimate-test-plan.md`
 
 ---
 
@@ -1396,7 +1396,7 @@ git init
 ---
 
 **File Locations:**
-- This document: `/Users/pabs/Sites/COPILOT/claude-copilot/docs/qa/framework-validation-strategy.md`
-- Time estimate tests: `/Users/pabs/Sites/COPILOT/claude-copilot/docs/qa/time-estimate-test-plan.md`
-- Test scripts: `/Users/pabs/Sites/COPILOT/claude-copilot/scripts/` (to be created)
-- Test data: `/Users/pabs/Sites/COPILOT/claude-copilot/tests/fixtures/` (to be created)
+- This document: `docs/60-qa/01-framework-validation-strategy.md`
+- Time estimate tests: `docs/60-qa/time-estimate-test-plan.md`
+- Test scripts: `scripts/` (to be created)
+- Test data: `tests/fixtures/` (to be created)

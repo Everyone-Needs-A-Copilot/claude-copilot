@@ -8,9 +8,11 @@
 
 import { DatabaseClient } from './mcp-servers/task-copilot/dist/database.js';
 import { taskUpdate } from './mcp-servers/task-copilot/dist/tools/task.js';
+import { homedir } from 'os';
+import { join } from 'path';
 
 // Use the same configuration as .mcp.json
-const TASK_DB_PATH = '/Users/pabs/.claude/tasks';
+const TASK_DB_PATH = join(homedir(), '.claude', 'tasks');
 const WORKSPACE_ID = 'claude-copilot';
 
 // All subtasks that are now complete

@@ -57,7 +57,6 @@ All commented test code is preserved in the test file for easy restoration once 
 ## Running the Tests
 
 ```bash
-cd /Users/pabs/Sites/COPILOT/claude-copilot
 npx tsx tests/integration/knowledge-sync.test.ts
 ```
 
@@ -119,7 +118,7 @@ Once the BSD sed bug is fixed, we'll have:
 
 ## Related Files
 
-- `/Users/pabs/Sites/COPILOT/claude-copilot/scripts/knowledge-sync/extract-release-changes.sh`
-- `/Users/pabs/Sites/COPILOT/claude-copilot/scripts/knowledge-sync/update-product-knowledge.sh` ⚠️ (contains BSD sed bug)
-- `/Users/pabs/Sites/COPILOT/claude-copilot/scripts/knowledge-sync/sync-knowledge.sh`
-- `/Users/pabs/Sites/COPILOT/claude-copilot/templates/hooks/post-tag`
+- `scripts/knowledge-sync/extract-release-changes.sh`
+- `scripts/knowledge-sync/update-product-knowledge.sh` ⚠️ (contains BSD sed bug)
+- `scripts/knowledge-sync/sync-knowledge.sh`
+- `templates/hooks/post-tag`

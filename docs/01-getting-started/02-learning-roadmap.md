@@ -1079,4 +1079,4 @@ Once you've completed all milestones:
 
 ---
 
-[← Back to README](/Users/pabs/Sites/COPILOT/claude-copilot/README.md)
+[← Back to README](../../README.md)

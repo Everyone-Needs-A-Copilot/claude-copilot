@@ -21,7 +21,6 @@
 
 ```bash
 # From repository root
-cd /Users/pabs/Sites/COPILOT/claude-copilot
 
 # 1. Smoke tests (fast, ~30 seconds)
 ./scripts/smoke-test.sh
@@ -639,8 +638,8 @@ rm -rf /tmp/claude-copilot-*-test-*
 ---
 
 **File Locations:**
-- This guide: `/Users/pabs/Sites/COPILOT/claude-copilot/docs/qa/TESTING.md`
-- Full strategy: `/Users/pabs/Sites/COPILOT/claude-copilot/docs/qa/framework-validation-strategy.md`
-- Smoke tests: `/Users/pabs/Sites/COPILOT/claude-copilot/scripts/smoke-test.sh`
-- Integration tests: `/Users/pabs/Sites/COPILOT/claude-copilot/scripts/integration-test.sh`
-- Time audit: `/Users/pabs/Sites/COPILOT/claude-copilot/scripts/audit-time-language.sh`
+- This guide: `docs/60-qa/00-testing.md`
+- Full strategy: `docs/60-qa/01-framework-validation-strategy.md`
+- Smoke tests: `scripts/smoke-test.sh`
+- Integration tests: `scripts/integration-test.sh`
+- Time audit: `scripts/audit-time-language.sh`

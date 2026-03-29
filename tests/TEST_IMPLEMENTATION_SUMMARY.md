@@ -243,7 +243,7 @@ tests/
 
 ### Quick Start
 ```bash
-cd /Users/pabs/Sites/COPILOT/claude-copilot/tests
+cd tests
 ./run-agent-tests.sh
 ```
 

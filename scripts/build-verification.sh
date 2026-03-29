@@ -5,6 +5,9 @@
 
 set +e  # Don't exit on error, we want to collect all results
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 echo "========================================="
 echo "MCP Server Build Verification"
 echo "========================================="
@@ -16,7 +19,7 @@ ALL_SUCCESS=true
 # Function to build a server
 build_server() {
     local server_name=$1
-    local server_path="/Users/pabs/Sites/COPILOT/claude-copilot/mcp-servers/$server_name"
+    local server_path="$REPO_ROOT/mcp-servers/$server_name"
 
     echo "----------------------------------------"
     echo "Building: $server_name"

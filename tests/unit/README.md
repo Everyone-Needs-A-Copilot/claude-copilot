@@ -158,9 +158,7 @@ npx tsx tests/unit/skill-loading.test.ts
 ## Running All Unit Tests
 
 ```bash
-cd /Users/pabs/Sites/COPILOT/claude-copilot
-
-# Run all unit tests
+# Run all unit tests (from repo root)
 npx tsx tests/unit/agent-assignment.test.ts && \
 npx tsx tests/unit/skill-loading.test.ts
 

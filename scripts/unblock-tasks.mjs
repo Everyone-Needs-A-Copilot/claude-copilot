@@ -9,8 +9,10 @@
  */
 
 import { DatabaseClient } from './mcp-servers/task-copilot/dist/database.js';
+import { homedir } from 'os';
+import { join } from 'path';
 
-const DB_PATH = '/Users/pabs/.claude/tasks';
+const DB_PATH = join(homedir(), '.claude', 'tasks');
 const WORKSPACE_ID = 'claude-copilot';
 const DRY_RUN = process.argv.includes('--dry-run');
 

@@ -1,0 +1,47 @@
+name: No Hardcoded Paths
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check-hardcoded-paths:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check for hardcoded user paths
+        run: |
+          echo "Scanning tracked files for hardcoded user paths..."
+
+          MATCHES=$(git ls-files \
+            | grep -v 'node_modules/' \
+            | grep -v '.mcp.json' \
+            | xargs grep -rn --include='*' -E '/Users/[^/[:space:]"'"'"']+|/home/[^/[:space:]"'"'"']+' 2>/dev/null \
+            || true)
+
+          if [ ! -z "$MATCHES" ]; then
+            echo ""
+            echo "============================================="
+            echo "ERROR: Hardcoded user paths found"
+            echo "============================================="
+            echo ""
+            echo "$MATCHES"
+            echo ""
+            echo "Paths like /Users/<username>/ or /home/<username>/ only work on one machine."
+            echo ""
+            echo "Portable alternatives:"
+            echo "  Shell:  REPO_ROOT=\"\$(cd \"\$(dirname \"\${BASH_SOURCE[0]}\")/.\" && pwd)\""
+            echo "  Node:   import { homedir } from \"os\""
+            echo "  Python: from pathlib import Path; Path.home()"
+            echo "  Docs:   Use relative paths from repo root (e.g. .claude/agents/)"
+            echo ""
+            exit 1
+          fi
+
+          echo "✓ No hardcoded user paths found"

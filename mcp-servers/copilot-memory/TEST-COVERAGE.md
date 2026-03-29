@@ -9,7 +9,7 @@ The `initiative_get()` function now supports two modes:
 - **full**: Returns ~370 tokens - includes all fields including decisions, lessons, keyFiles
 
 ## Test Suite Location
-`/Users/pabs/Sites/COPILOT/claude-copilot/mcp-servers/copilot-memory/src/tests/integration.test.ts`
+`mcp-servers/copilot-memory/src/tests/integration.test.ts`
 
 ## Test Cases Added
 
@@ -61,7 +61,7 @@ Each test uses a rich initiative with:
 
 ### Quick Run
 ```bash
-cd /Users/pabs/Sites/COPILOT/claude-copilot/mcp-servers/copilot-memory
+cd mcp-servers/copilot-memory
 npm test
 ```
 

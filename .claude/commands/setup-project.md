@@ -148,8 +148,8 @@ cat ~/.claude/copilot/templates/mcp.json
 
 | Variable | Value | Example |
 |----------|-------|---------|
-| `$HOME` | User's home directory | `/Users/pabs` |
-| `$PROJECT_PATH` | Current working directory | `/Users/pabs/Sites/my-app` |
+| `$HOME` | User's home directory | `/Users/yourname` |
+| `$PROJECT_PATH` | Current working directory | `/path/to/my-app` |
 | `$PROJECT_NAME` | Directory basename | `my-app` |
 | `$COPILOT_PATH` | Claude Copilot location | `$HOME/.claude/copilot` |
 
