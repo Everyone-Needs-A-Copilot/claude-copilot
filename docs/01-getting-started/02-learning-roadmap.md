@@ -690,23 +690,22 @@ Then use `skill_save` to store company-specific patterns:
 Ask Claude: "Save this error handling pattern as a private skill"
 ```
 
-#### 2. Skills Marketplace Integration
+#### 2. Skills Catalog Integration
 
-Access 25,000+ public skills:
+Access the curated skills.sh public catalog (free, no API key needed):
 
 ```json
 {
   "mcpServers": {
     "skills-copilot": {
-      "env": {
-        "SKILLSMP_API_KEY": "your-api-key"
-      }
+      "command": "node",
+      "args": ["/path/to/mcp-servers/skills-copilot/dist/index.js"]
     }
   }
 }
 ```
 
-Skills auto-invoke based on context. No manual management.
+skills.sh is automatically available once Skills Copilot MCP is installed. Skills auto-invoke based on context. No manual management or API key required. Install skills locally via `npx skills add` or browse the catalog at https://skills.sh/.
 
 #### 3. Custom Workflows
 

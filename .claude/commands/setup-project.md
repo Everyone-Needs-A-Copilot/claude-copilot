@@ -72,7 +72,7 @@ Then return here and run `/setup-project` again.
 
 Then STOP.
 
-**Note:** Skills Copilot MCP is optional. For local skills, use native `@include` directives instead. Only install Skills Copilot if you need SkillsMP marketplace access or private skill storage.
+**Note:** Skills Copilot MCP is optional. For local skills, use native `@include` directives instead. Install Skills Copilot if you want access to the skills.sh public catalog (free, no API key needed) or private database skill storage.
 
 **If SETUP_MODE = "MINIMAL":** Skip to [Minimal Setup Flow](#minimal-setup-flow).
 

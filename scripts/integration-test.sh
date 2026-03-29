@@ -137,7 +137,7 @@ cd "$REPO_ROOT/mcp-servers/skills-copilot"
 
 # Check provider files exist
 # Note: Provider names in code use camelCase (e.g., KnowledgeRepoProvider)
-PROVIDERS=("Cache" "Local" "KnowledgeRepo" "Postgres" "SkillsMP")
+PROVIDERS=("Cache" "Local" "KnowledgeRepo" "Postgres" "SkillsSh")
 for provider in "${PROVIDERS[@]}"; do
   # Check in dist for compiled providers
   if grep -q "${provider}Provider" "dist/index.js" 2>/dev/null; then

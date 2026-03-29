@@ -31,7 +31,7 @@ Only install if you need:
 
 | Feature | Requires MCP |
 |---------|--------------|
-| SkillsMP marketplace (25K+ public skills) | ✓ Yes |
+| skills.sh public catalog (curated Anthropic skills) | ✓ Yes |
 | Private skill storage in Postgres | ✓ Yes |
 | Cross-source skill search | ✓ Yes |
 | Usage analytics and caching | ✓ Yes |
@@ -40,7 +40,7 @@ Only install if you need:
 
 ## Features
 
-- **Multi-Source Fetching**: Private DB (Postgres) + SkillsMP (25K+ skills) + Local files
+- **Multi-Source Fetching**: Private DB (Postgres) + skills.sh (public catalog) + Local files
 - **Auto-Discovery**: Automatically scans `.claude/skills` directories (no manifest needed)
 - **Intelligent Caching**: SQLite cache with configurable TTL + mtime-based skill cache
 - **On-Demand Loading**: Skills load only when needed (~2K tokens per skill)
@@ -59,13 +59,13 @@ Claude Code Session
 │  skill_get(name)                                         │
 │    1. Check SQLite cache                                 │
 │    2. Query Postgres (private skills)                    │
-│    3. Fetch from SkillsMP (public skills)               │
+│    3. Fetch from skills.sh (public skills)              │
 │    4. Fallback to local files                           │
 │                                                           │
 └──────────────────────────────────────────────────────────┘
        │              │              │              │
        ▼              ▼              ▼              ▼
-   SQLite         Postgres       SkillsMP       Local
+   SQLite         Postgres      skills.sh      Local
    Cache          (private)      (public)       Files
 ```
 
@@ -89,8 +89,7 @@ npm run build
 Copy `.env.example` to `.env` and configure:
 
 ```bash
-# Required for public skills
-SKILLSMP_API_KEY=sk_live_skillsmp_your_key_here
+# Public skills via skills.sh — no API key needed (free, Vercel-backed)
 
 # Required for private skills (optional if only using public)
 POSTGRES_URL=postgresql://user:pass@host:5432/database
@@ -126,7 +125,6 @@ Add to your project's `.mcp.json`:
       "command": "node",
       "args": ["~/.claude/copilot/mcp-servers/skills-copilot/dist/index.js"],
       "env": {
-        "SKILLSMP_API_KEY": "sk_live_skillsmp_...",
         "POSTGRES_URL": "postgresql://...",
         "CACHE_PATH": "~/.claude/skills-cache",
         "LOG_LEVEL": "info"
@@ -135,6 +133,8 @@ Add to your project's `.mcp.json`:
   }
 }
 ```
+
+**Note:** skills.sh is the public skills provider and requires no API key or configuration. It is automatically available when the MCP server starts.
 
 ### 6. Restart Claude Code
 
@@ -296,7 +296,7 @@ This reduces the need to manually search for skills and ensures relevant experti
 skill_get({ name: "nextjs-app-router-patterns" })
 ```
 
-Returns full SKILL.md content from SkillsMP.
+Returns full SKILL.md content from skills.sh or local sources.
 
 ### Search for skills
 
@@ -381,7 +381,7 @@ For fastest performance, add a Skills Registry to your CLAUDE.md:
 | forces-analysis | forces, blockers, resistance |
 | colab | colab, alignment, leadership |
 
-### Public Skills (SkillsMP)
+### Public Skills (skills.sh)
 | Skill | Keywords | Author |
 |-------|----------|--------|
 | nextjs-app-router-patterns | nextjs, ssr | wshobson |
@@ -405,7 +405,7 @@ Claude reads this at session start (~200 tokens) and knows what skills are avail
 |----------|------------|---------------------|---------------------|
 | Session start (all skills) | 42,000 tokens | 5,000 tokens | ~0 tokens |
 | On-demand skill load | N/A | ~2,000 tokens | ~1,500 tokens |
-| Available skills | 21 (preloaded) | 25,000+ (marketplace) | Unlimited (local files) |
+| Available skills | 21 (preloaded) | Curated catalog (skills.sh) | Unlimited (local files) |
 
 **Result: Native @include is most efficient for local skills, MCP adds value for marketplace access**
 
@@ -430,9 +430,9 @@ const skill = await skill_get({ name: "laravel" });
 ### When to Keep Using MCP
 
 Keep `skill_get()` if you:
-- Search SkillsMP marketplace (`skill_search`)
+- Search the skills.sh public catalog (`skill_search`)
 - Store private skills in database (`skill_save`)
-- Need cross-source search (DB + marketplace + local)
+- Need cross-source search (DB + skills.sh + local)
 - Track usage analytics
 - Use knowledge repository extensions
 
@@ -446,8 +446,8 @@ Use both for maximum flexibility:
 @include .claude/skills/testing/SKILL.md
 @include ~/.claude/skills/laravel/SKILL.md
 
-# MCP for marketplace/search/one-time skills
-When needed, search SkillsMP: skill_search({ query: "nextjs app router" })
+# MCP for skills.sh catalog/search/one-time skills
+When needed, search skills.sh: skill_search({ query: "nextjs app router" })
 ```
 
 ## Creating Skills for Native @include
@@ -515,10 +515,10 @@ node dist/index.js
 
 ## Troubleshooting
 
-**SkillsMP API errors**
-- Check API key is valid
+**skills.sh connectivity issues**
 - Ensure you have network access
-- Check rate limits (authenticated: higher limits)
+- skills.sh is Vercel-backed with ~50ms response time; transient failures are rare
+- No API key required — if requests fail, check firewall/proxy settings
 
 **Postgres connection failed**
 - Verify connection string format

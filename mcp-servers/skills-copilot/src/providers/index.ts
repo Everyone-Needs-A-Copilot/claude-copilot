@@ -2,7 +2,7 @@
  * Provider exports
  */
 
-export { SkillsMPProvider } from './skillsmp.js';
+export { SkillsShProvider } from './skillssh.js';
 export { PostgresProvider } from './postgres.js';
 export { CacheProvider } from './cache.js';
 export { LocalProvider } from './local.js';

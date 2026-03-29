@@ -72,7 +72,6 @@ This file configures the MCP servers that power Claude Copilot.
       "args": ["/Users/yourname/.claude/copilot/mcp-servers/skills-copilot/dist/index.js"],
       "env": {
         "LOCAL_SKILLS_PATH": "./.claude/skills",
-        "SKILLSMP_API_KEY": "sk_live_skillsmp_your_key_here",
         "POSTGRES_URL": "postgresql://user:pass@host:5432/database"
       }
     }
@@ -101,7 +100,6 @@ This file configures the MCP servers that power Claude Copilot.
 | Variable | Required | Default | Purpose |
 |----------|----------|---------|---------|
 | `LOCAL_SKILLS_PATH` | No | `./.claude/skills` | Project-specific skills |
-| `SKILLSMP_API_KEY` | No | - | Access to 25K+ public skills |
 | `POSTGRES_URL` | No | - | Team-shared private skills |
 | `KNOWLEDGE_REPO_PATH` | No | - | Project-specific knowledge |
 | `GLOBAL_KNOWLEDGE_PATH` | No | `~/.claude/knowledge` | Machine-wide knowledge |
@@ -122,9 +120,9 @@ This file configures the MCP servers that power Claude Copilot.
 
 ## External Services
 
-### Skill Marketplace (SkillsMP)
+### Skills Catalog (skills.sh)
 
-[Skill Marketplace](https://skillsmp.com) provides access to 25,000+ public skills—curated prompts, workflows, and domain expertise packaged as reusable skills.
+[skills.sh](https://skills.sh/) is a free, Vercel-backed public skills directory with a curated catalog of official Anthropic skills and community contributions.
 
 **What you get:**
 - Framework patterns (React, Next.js, Laravel, Rails, Django, etc.)
@@ -133,13 +131,13 @@ This file configures the MCP servers that power Claude Copilot.
 - Design system implementations
 - API design standards
 
-**To get your API key:**
+**No setup required.** skills.sh is automatically available when Skills Copilot MCP is installed — no API key, no account, no configuration needed (~50ms response time).
 
-1. Visit [skillsmp.com](https://skillsmp.com)
-2. Create an account or sign in
-3. Navigate to Settings → API Keys
-4. Generate a new API key
-5. Add to your `.mcp.json` as `SKILLSMP_API_KEY`
+To browse or install skills locally:
+
+```bash
+npx skills add
+```
 
 ### PostgreSQL (Team Skills)
 
@@ -335,7 +333,7 @@ Should return results if knowledge is configured.
 skill_search("react")
 ```
 
-Should return results (from local, Postgres, and/or SkillsMP).
+Should return results (from local, Postgres, and/or skills.sh).
 
 ---
 

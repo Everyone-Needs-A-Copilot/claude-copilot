@@ -31,7 +31,7 @@ CREATE INDEX IF NOT EXISTS idx_skills_proprietary ON skills(is_proprietary);
 CREATE INDEX IF NOT EXISTS idx_skills_fts ON skills
   USING GIN(to_tsvector('english', name || ' ' || description || ' ' || content));
 
--- SkillsMP cache table (optional, for caching public skills in DB)
+-- skills.sh cache table (optional, for caching public skills in DB)
 CREATE TABLE IF NOT EXISTS skills_cache (
   id VARCHAR(255) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
@@ -51,7 +51,7 @@ CREATE INDEX IF NOT EXISTS idx_skills_cache_expires ON skills_cache(expires_at);
 CREATE TABLE IF NOT EXISTS skill_usage (
   id SERIAL PRIMARY KEY,
   skill_name VARCHAR(255) NOT NULL,
-  source VARCHAR(50) NOT NULL,  -- 'private', 'skillsmp', 'local', 'cache'
+  source VARCHAR(50) NOT NULL,  -- 'private', 'skills.sh', 'local', 'cache'
   project_hash VARCHAR(64),
   used_at TIMESTAMPTZ DEFAULT NOW()
 );

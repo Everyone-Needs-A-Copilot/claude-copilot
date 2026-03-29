@@ -119,7 +119,7 @@ This creates a knowledge repository for company/product information that's share
 | `.claude/commands/` | Source command files |
 | `templates/` | Project setup templates |
 
-**Skills Note:** For local skills (`.claude/skills/`), use native `@include` directives. Only build Skills Copilot MCP if you need SkillsMP marketplace (25K+ skills) or private database storage.
+**Skills Note:** For local skills (`.claude/skills/`), use native `@include` directives. The skills.sh public catalog is automatically available (free, no API key needed) when Skills Copilot MCP is installed. Only install Skills Copilot MCP if you need skills.sh catalog access or private database storage.
 
 ### User Level (`~/.claude/commands/`)
 
@@ -315,7 +315,6 @@ npm run build
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `LOCAL_SKILLS_PATH` | `./.claude/skills` | Project skills (fallback) |
-| `SKILLSMP_API_KEY` | - | Access to 25K+ public skills marketplace |
 | `POSTGRES_URL` | - | Team-shared private skills in database |
 | `KNOWLEDGE_REPO_PATH` | - | Project-specific knowledge repository |
 | `GLOBAL_KNOWLEDGE_PATH` | `~/.claude/knowledge` | Machine-wide knowledge (auto-detected) |

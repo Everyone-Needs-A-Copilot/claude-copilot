@@ -80,7 +80,7 @@ Location: `~/.claude/memory/{workspace-id}/memory.db`
 | Local | `./.claude/skills/` | Project-specific |
 | Cache | SQLite (7-day TTL) | Fast repeat access |
 | Private DB | PostgreSQL | Organization skills |
-| SkillsMP | API | 25,000+ public skills |
+| skills.sh | API | Curated public skills catalog (free, no auth) |
 
 ---
 
@@ -137,5 +137,5 @@ Detected via `knowledge-manifest.json` in project or `docs/shared/`.
 | Memory persistence | Claude Code CLI |
 | 14 lean agents with skill_evaluate | MCP SDK |
 | Skills loading (auto-detection) | Git, project files |
-| Task storage | SkillsMP API, PostgreSQL |
+| Task storage | skills.sh API, PostgreSQL |
 | Protocol commands | |

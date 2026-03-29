@@ -4,7 +4,7 @@
  *
  * On-demand skill loading from multiple sources:
  * - Private database (Postgres) for proprietary skills
- * - SkillsMP API for 25,000+ public skills
+ * - skills.sh API for public skills
  * - Local files for git-synced skills
  * - SQLite cache for fast repeated access
  */
@@ -16,14 +16,13 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
-import { SkillsMPProvider, PostgresProvider, CacheProvider, LocalProvider, KnowledgeRepoProvider } from './providers/index.js';
+import { SkillsShProvider, PostgresProvider, CacheProvider, LocalProvider, KnowledgeRepoProvider } from './providers/index.js';
 import type { SkillsHubConfig, Skill, SkillMeta, SkillMatch, SkillSource, SkillSaveParams, ResolvedExtension, ExtensionListItemWithSource, KnowledgeRepoStatus, KnowledgeRepoConfig, KnowledgeSearchResult, KnowledgeSearchOptions } from './types.js';
 import { detectTriggeredSkills, formatTriggerMatches } from './triggers.js';
 import { ConfidenceScorer, formatEvaluationResults, type EvaluationContext } from './evaluation/index.js';
 
 // Configuration from environment
 const config: SkillsHubConfig = {
-  skillsmpApiKey: process.env.SKILLSMP_API_KEY,
   postgresUrl: process.env.POSTGRES_URL,
   cachePath: process.env.CACHE_PATH || '~/.claude/skills-cache',
   cacheTtlDays: parseInt(process.env.CACHE_TTL_DAYS || '7', 10),
@@ -41,7 +40,7 @@ const knowledgeRepoConfig: KnowledgeRepoConfig = {
 // Initialize providers
 const cache = new CacheProvider(config.cachePath, config.cacheTtlDays);
 const local = new LocalProvider(config.localSkillsPath || '');
-const skillsmp = config.skillsmpApiKey ? new SkillsMPProvider(config.skillsmpApiKey) : null;
+const skillssh = new SkillsShProvider();
 const postgres = config.postgresUrl ? new PostgresProvider(config.postgresUrl) : null;
 const knowledgeRepo = new KnowledgeRepoProvider(knowledgeRepoConfig);
 const skillEvaluator = new ConfidenceScorer();
@@ -82,7 +81,7 @@ const TOOLS = [
         query: { type: 'string', description: 'Search query' },
         source: {
           type: 'string',
-          enum: ['private', 'skillsmp', 'local', 'all'],
+          enum: ['private', 'skills.sh', 'local', 'all'],
           description: 'Limit search to specific source'
         },
         limit: { type: 'number', description: 'Max results (default 10)' }
@@ -326,26 +325,24 @@ async function getSkill(name: string, forceRefresh = false): Promise<{ skill: Sk
     }
   }
 
-  // 3. Check SkillsMP
-  if (skillsmp) {
-    const result = await skillsmp.getSkillByName(name);
-    if (result.success && result.data) {
-      cache.set(name, result.data.content, 'skillsmp');
-      return {
-        skill: {
-          id: result.data.meta.id,
-          name: result.data.meta.name,
-          description: result.data.meta.description,
-          content: result.data.content,
-          keywords: result.data.meta.keywords,
-          author: result.data.meta.author,
-          source: 'skillsmp',
-          version: '1.0.0',
-          isProprietary: false
-        },
-        source: 'skillsmp'
-      };
-    }
+  // 3. Check skills.sh
+  const skillsshResult = await skillssh.getSkillByName(name);
+  if (skillsshResult.success && skillsshResult.data) {
+    cache.set(name, skillsshResult.data.content, 'skills.sh');
+    return {
+      skill: {
+        id: skillsshResult.data.meta.id,
+        name: skillsshResult.data.meta.name,
+        description: skillsshResult.data.meta.description,
+        content: skillsshResult.data.content,
+        keywords: skillsshResult.data.meta.keywords,
+        author: skillsshResult.data.meta.author,
+        source: 'skills.sh',
+        version: '1.0.0',
+        isProprietary: false
+      },
+      source: 'skills.sh'
+    };
   }
 
   // 4. Check local files
@@ -363,7 +360,7 @@ async function getSkill(name: string, forceRefresh = false): Promise<{ skill: Sk
  */
 async function searchSkills(
   query: string,
-  source: 'private' | 'skillsmp' | 'local' | 'all' = 'all',
+  source: 'private' | 'skills.sh' | 'local' | 'all' = 'all',
   limit = 10
 ): Promise<SkillMatch[]> {
   const results: SkillMatch[] = [];
@@ -376,9 +373,9 @@ async function searchSkills(
     }
   }
 
-  // Search SkillsMP
-  if ((source === 'all' || source === 'skillsmp') && skillsmp) {
-    const publicResults = await skillsmp.searchSkills(query, limit);
+  // Search skills.sh
+  if (source === 'all' || source === 'skills.sh') {
+    const publicResults = await skillssh.searchSkills(query, limit);
     if (publicResults.success && publicResults.data) {
       results.push(...publicResults.data);
     }
@@ -483,7 +480,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'skill_search': {
         const results = await searchSkills(
           a.query as string,
-          a.source as 'private' | 'skillsmp' | 'local' | 'all' | undefined,
+          a.source as 'private' | 'skills.sh' | 'local' | 'all' | undefined,
           a.limit as number | undefined
         );
 
@@ -735,7 +732,7 @@ Consider: Main skill + helper skills pattern`
         const status = {
           providers: {
             postgres: postgres?.isConnected() ? 'connected' : 'not configured',
-            skillsmp: skillsmp ? 'configured' : 'not configured',
+            'skills.sh': 'available',
             local: `${localCount} skills found (${discoveredCount} auto-discovered)`,
             cache: `${cacheStats.total} cached (${Math.round(cacheStats.size / 1024)}KB)`,
             knowledgeRepo: knowledgeRepoDisplay
@@ -1061,7 +1058,7 @@ async function main() {
 
   if (config.logLevel === 'debug') {
     console.error('Skills Hub server starting...');
-    console.error(`SkillsMP: ${skillsmp ? 'configured' : 'not configured'}`);
+    console.error('skills.sh: available');
     console.error(`Local skills: ${local.getCount()} found (${local.getDiscoveredCount()} auto-discovered)`);
     console.error(`Cache: ${cache.getStats().total} entries`);
     const repoStatus = knowledgeRepo.getStatus();

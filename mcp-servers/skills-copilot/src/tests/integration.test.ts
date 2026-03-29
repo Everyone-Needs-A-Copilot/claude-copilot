@@ -394,7 +394,7 @@ function testCacheProviderList() {
     const cache = new CacheProvider(TEST_CACHE_DIR, 7);
 
     cache.set('list-test-1', 'Content 1', 'local');
-    cache.set('list-test-2', 'Content 2', 'skillsmp');
+    cache.set('list-test-2', 'Content 2', 'skills.sh');
 
     const list = cache.list();
 
@@ -473,7 +473,7 @@ function testCacheProviderStats() {
     const cache = new CacheProvider(TEST_CACHE_DIR, 7);
 
     cache.set('stats-test-1', 'Some content here', 'local');
-    cache.set('stats-test-2', 'More content', 'skillsmp');
+    cache.set('stats-test-2', 'More content', 'skills.sh');
 
     const stats = cache.getStats();
 

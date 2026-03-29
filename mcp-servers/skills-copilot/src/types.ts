@@ -44,10 +44,10 @@ export interface SkillTriggers {
 
 export interface SkillMatch extends SkillMeta {
   relevance: number;
-  githubUrl?: string;  // URL to fetch skill content (for SkillsMP skills)
+  githubUrl?: string;  // URL to fetch skill content (for skills.sh skills)
 }
 
-export type SkillSource = 'private' | 'skillsmp' | 'local' | 'cache';
+export type SkillSource = 'private' | 'skills.sh' | 'local' | 'cache';
 
 export interface SkillSearchParams {
   query: string;
@@ -79,7 +79,6 @@ export interface CachedSkill {
 }
 
 export interface SkillsHubConfig {
-  skillsmpApiKey?: string;
   postgresUrl?: string;
   cachePath: string;
   cacheTtlDays: number;
@@ -87,22 +86,20 @@ export interface SkillsHubConfig {
   logLevel: 'debug' | 'info' | 'warn' | 'error';
 }
 
-export interface SkillsMPSearchResponse {
-  success: boolean;
-  data: {
-    skills: SkillsMPSkill[];
-  };
+export interface SkillsShSearchResponse {
+  query: string;
+  searchType: string;
+  skills: SkillsShSkill[];
+  count: number;
+  duration_ms: number;
 }
 
-export interface SkillsMPSkill {
-  id: string;
+export interface SkillsShSkill {
+  id: string;        // "{owner}/{repo}/{skillId}"
+  skillId: string;
   name: string;
-  author: string;
-  description: string;
-  githubUrl: string;
-  skillUrl: string;
-  stars: number;
-  updatedAt: number;
+  installs: number;
+  source: string;    // "{owner}/{repo}"
 }
 
 export interface ProviderResult<T> {
