@@ -84,7 +84,7 @@ If any test fails, see the detailed logs for which specific test failed and why.
 
 **Lean Agent Model (v1.8+)**
 
-Current state: 17 agents total. Design agents (sd, uxd, uids) include creative methodology, anti-generic rules, and design knowledge skills (150-230 lines). All others use the lean agent model (under 120 lines) with on-demand skill loading via `skill_evaluate()`. Shared boilerplate is extracted to "Agent Shared Behaviors" in CLAUDE.md.
+Current state: 14 agents total. Design agents (sd, uxd, uids) include creative methodology, anti-generic rules, and design knowledge skills (150-230 lines). All others use the lean agent model (under 120 lines) with on-demand skill loading via `skill_evaluate()`. Shared boilerplate is extracted to "Agent Shared Behaviors" in CLAUDE.md.
 
 **Agents with full structure:**
 - cw.md (Copywriter)

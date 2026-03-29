@@ -162,7 +162,7 @@ In Claude Code:
 Updating Project with Claude Copilot v1.8.0
 
 Files updated:
-✓ .claude/agents/ (17 agents)
+✓ .claude/agents/ (14 agents)
 ✓ .claude/commands/ (added orchestrate.md)
 ✓ .gitignore (added .claude/orchestrator/)
 

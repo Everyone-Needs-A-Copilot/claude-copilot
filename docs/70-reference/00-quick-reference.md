@@ -134,7 +134,7 @@ your-project/
     ├── commands/                # /protocol, /continue
     │   ├── protocol.md
     │   └── continue.md
-    ├── agents/                  # 17 specialist agents
+    ├── agents/                  # 14 specialist agents
     │   ├── ta.md               # Tech Architect
     │   ├── me.md               # Engineer
     │   ├── qa.md               # QA Engineer

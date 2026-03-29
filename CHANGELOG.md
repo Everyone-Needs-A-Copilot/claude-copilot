@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.0] - 2026-03-29
+
+### Added
+- Elite Craft methodology layer for uxd and uids agents (Jony Ive inevitable design, AKQA purposeful motion, spatial depth, luminosity, materiality)
+- 3 premium design skills: premium-interaction-craft (GSAP, spring physics, micro-timing), spatial-luminous-design (depth layers, glassmorphism, atmospheric color), motion-choreography (easing personality, choreography, restraint)
+
+### Changed
+- Design agents now operate at three levels: Foundation (Nielsen/Rams), Methodology (IDEO), Elite Craft (Ive/AKQA)
+- uxd.md self-critique elevated to "Would AKQA present this? Does it feel inevitable?"
+- uids.md self-critique elevated to "Would Jony Ive call this inevitable?"
+
+## [3.4.0] - 2026-03-29
+
+### Added
+- Named industry methodology for every agent: ADR/Fitness Functions (ta), Kent Beck's 4 Rules (me), STRIDE/DREAD (sec), Diátaxis (doc), 12-Factor/SRE (do), Atomic Design (uid), Meszaros/Property-Based Testing (qa), Voice & Tone (cw)
+- 5 new skills: system-design-patterns, refactoring-patterns, threat-modeling, docker-patterns, voice-and-tone
+- Anti-generic rules and self-critique questions for every agent
+- Iteration config for cco agent
+
+### Removed
+- architect.md agent (was project docs for claude-monitor, not methodology)
+- engineer.md agent (was project docs for claude-monitor, not methodology)
+- tester.md agent (was project docs for claude-monitor, not methodology)
+
+### Changed
+- Agent count: 17 → 14
+- Narrowed trigger_files for web-security and aesthetic-directions skills (were overly broad)
+
+## [3.3.0] - 2026-03-29
+
+### Removed
+- CLAUDE_REFERENCE.md (761 lines, 50% duplicated with CLAUDE.md)
+- CODE_REVIEW_OVERVIEW.md (stale Phase 1 review)
+- docs/50-features/01-orchestration-guide.md (2-line stub)
+- docs/50-features/03-auto-checkpoint-hooks.md (documented removed MCP tools)
+- docs/50-features/lifecycle-hooks.md (documented removed hook_* tools)
+- docs/60-references/ directory (empty placeholder, never populated)
+
+### Changed
+- CLAUDE.md consolidated from 464 to 260 lines (~5.7K fewer tokens per session)
+- Unique content from CLAUDE_REFERENCE.md (Feature Comparison table, Session Boundary Protocol) merged into CLAUDE.md
+- Fixed dangling references in 3 feature docs
+
+## [3.2.0] - 2026-03-29
+
+### Fixed
+- Removed 137 hardcoded /Users/pabs references across 25 files
+- All scripts now use portable path resolution ($REPO_ROOT, os.homedir(), Path.home())
+- Documentation updated with relative paths
+
+### Added
+- Pre-commit hook (scripts/pre-commit-no-hardcoded-paths) to block future hardcoded user paths
+- CI workflow (.github/workflows/no-hardcoded-paths.yml) as safety net
+
+### Removed
+- 8 redundant/personal scripts (update-all-projects.sh, verify-builds.py, test-build-*.sh, etc.)
+
 ## [3.1.0] - 2026-03-08
 
 ### Added
