@@ -10,7 +10,7 @@ owner: Claude Copilot
 status: active
 tags: [design, aesthetic, visual-direction, brand-identity, anti-pattern]
 related_skills: [color-palettes, typography-pairings, design-patterns]
-trigger_files: ["**/*.css", "**/*.scss", "**/design/**", "**/brand/**"]
+trigger_files: ["**/design/**", "**/brand/**", "**/tokens/**", "**/theme/**", "**/styles/brand**"]
 trigger_keywords: [aesthetic, visual-direction, design-style, brand-identity, look-and-feel]
 quality_keywords: [anti-pattern, pattern, validation, best-practice]
 ---

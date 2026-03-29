@@ -16,7 +16,7 @@ This file provides guidance to Claude Code when working with the Claude Copilot 
 | Avoid reading >8 files directly | Delegate to framework agent |
 | Keep responses short | Store details via `tc wp store` |
 
-**Framework agents:** ta, me, qa, sec, doc, do, sd, uxd, uids, uid, cw, cco, kc, architect, cs, engineer, tester
+**Framework agents:** ta, me, qa, sec, doc, do, sd, uxd, uids, uid, cw, cco, kc, cs
 
 ---
 
@@ -91,7 +91,7 @@ Persistent memory across sessions with semantic search.
 
 ### 2. Agents
 
-17 specialized agents. Design agents (sd, uxd, uids) include creative methodology and design knowledge skills. All others use the lean agent model (~60-120 lines).
+14 specialized agents. Every agent embeds named industry methodology — IDEO (sd), Nielsen (uxd), Rams (uids), ADR/Fitness Functions (ta), Kent Beck (me), STRIDE/DREAD (sec), Diátaxis (doc), 12-Factor/SRE (do), Atomic Design (uid), Meszaros (qa), MailChimp Voice & Tone (cw), Litmus Test (cco).
 
 **Location:** `.claude/agents/`
 

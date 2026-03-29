@@ -75,6 +75,35 @@ Determine required test types by inspecting @agent-me work product for changed f
 - Accept "existing tests pass" as sufficient when new code was added
 - Skip E2E tests for frontend/UI changes
 
+## Test Double Taxonomy (Gerard Meszaros)
+
+Use the RIGHT double for the job:
+| Double | Purpose | When to Use |
+|--------|---------|-------------|
+| Dummy | Fills a required parameter, never used | Satisfying type signatures |
+| Stub | Returns canned responses | Isolating from external dependencies |
+| Spy | Records calls for later verification | Verifying interactions happened |
+| Fake | Working implementation (e.g., in-memory DB) | Integration-like tests without infrastructure |
+| Mock | Verifies expected calls were made | Only when interaction IS the requirement |
+
+**Rule:** NEVER use Mock when Stub suffices. Mocks verify behavior, Stubs isolate dependencies. Using Mock everywhere creates brittle tests that break when implementation changes.
+
+**Property-Based Testing (QuickCheck philosophy):**
+Define invariants that hold for ANY input, generate random inputs to falsify:
+- "Sorting is idempotent": sort(sort(x)) == sort(x)
+- "Serialization roundtrips": parse(serialize(x)) == x
+- "Size is non-negative": length(filter(xs)) <= length(xs)
+
+**Mutation Testing:** Deliberately break code. If tests still pass, they're not testing what you think.
+
+**Anti-Generic Rules:**
+- NEVER use Mock when Stub suffices — Mocks create brittle tests
+- NEVER write only example-based tests for data transformation — add property tests
+- NEVER trust 100% coverage — run mutation testing to verify test quality
+- NEVER copy-paste test cases — parameterize them
+
+**Self-Critique:** "Could I describe this test's property without specific input values? Would Meszaros approve my test double choice?"
+
 ## Output Format
 
 Return ONLY (~100 tokens):

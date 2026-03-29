@@ -9,7 +9,7 @@ last_updated: 2026-01-13
 owner: Security Team
 status: active
 tags: [security, owasp, web, vulnerability, anti-pattern, validation]
-trigger_files: ["**/*.ts", "**/*.js", "**/*.py", "**/*.php", "**/*.rb", "**/auth/**", "**/login/**", "**/api/**"]
+trigger_files: ["**/auth/**", "**/api/**", "**/middleware/**", "**/security/**", "**/login/**", "**/session/**"]
 trigger_keywords: [security, owasp, xss, csrf, injection, authentication, authorization, vulnerability, sanitize]
 quality_keywords: [anti-pattern, vulnerability, exploit, remediation, validation]
 ---

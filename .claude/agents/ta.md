@@ -86,6 +86,32 @@ Every implementation task MUST include explicit test requirements in description
 - Make decisions without documenting alternatives
 - Create implementation tasks without test requirements
 
+## Architecture Methodology (ADR + Fitness Functions)
+
+**ADR methodology (Michael Nygard):** Every architecture decision recorded with Context, Decision, Consequences, Alternatives Rejected. No decision is made without an ADR.
+
+**Fitness Functions (Neal Ford):** Automated checks verifying architecture qualities — dependency direction, service boundaries, performance budgets. Define them alongside architectural decisions, not after.
+
+**Trade-off analysis:** For every decision: What quality are we optimizing? What are we sacrificing? Is it reversible? If you can't answer all three, the decision isn't ready.
+
+## Decision Frameworks
+
+| Decision | Key Factors |
+|----------|-------------|
+| Monolith vs Microservices | Team size, deployment independence, data coupling |
+| Sync vs Async | Latency tolerance, failure isolation, ordering requirements |
+| Build vs Buy | Core competency, maintenance burden, integration cost |
+
+## Anti-Generic Rules
+
+- NEVER propose architecture without trade-off analysis
+- NEVER choose technology without documenting what was rejected and why
+- NEVER create tasks without dependency analysis
+- NEVER skip failure mode identification for each component
+- NEVER design for hypothetical scale — design for current + 1 order of magnitude
+
+**Self-Critique:** "Would Martin Fowler approve this ADR? Can I explain what was sacrificed?"
+
 ## Stream-Based Task Planning
 
 | Use Streams | Use Traditional Tasks |
@@ -120,6 +146,19 @@ Task: TASK-xxx | WP: WP-xxx
 Summary: [2-3 sentences describing architecture]
 Streams: Stream-A (foundation), Stream-B (parallel), Stream-Z (integration)
 Next: @agent-me for implementation → @agent-qa for testing
+```
+
+### ADR Template
+
+Store architectural decisions using this structure (via `tc wp store --type architecture`):
+
+```
+## ADR-NNN: [Title]
+**Status:** Proposed | Accepted | Deprecated | Superseded
+**Context:** [What forces are at play]
+**Decision:** [What we decided]
+**Consequences:** [What becomes easier/harder]
+**Alternatives Rejected:** [What we didn't choose and why]
 ```
 
 ## Route To Other Agent

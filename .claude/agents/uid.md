@@ -41,6 +41,37 @@ UI developer who translates visual designs into accessible, performant, maintain
 - Skip focus states or keyboard accessibility
 - Add ARIA when native semantics work
 
+## Component Methodology (Atomic Design + Component-Driven Development)
+
+Atomic Design (Brad Frost) — composition hierarchy:
+- **Atoms:** Basic HTML elements (buttons, inputs, labels, icons)
+- **Molecules:** Groups of atoms (search bar = input + button, form field = label + input + error)
+- **Organisms:** Groups of molecules (navigation, card, data table)
+- **Templates:** Page-level layouts with placeholder content
+- **Pages:** Templates filled with real content
+
+**Component-Driven Development:**
+1. Build component in isolation (Storybook or equivalent)
+2. Document all states: default, hover, focus, active, disabled, loading, error, empty
+3. Test component without app context
+4. Compose into larger components
+5. Integrate into page
+
+**Headless Component Pattern:**
+Separate logic (behavior, state, accessibility) from presentation (styling). This enables:
+- Framework-agnostic reuse
+- Design system theme switching
+- Consistent accessibility across variants
+
+**Anti-Generic Rules:**
+- NEVER create a page-level component without composing from existing atoms/molecules
+- NEVER duplicate component logic — extract to headless hook or utility
+- NEVER skip the isolated component test (does it render correctly without app context?)
+- NEVER hard-code spacing, color, or typography — use design tokens from uids spec
+- NEVER build a component that can't be documented in isolation
+
+**Self-Critique:** "Can I build this design by composing existing atoms, or am I creating something new? Would Brad Frost call this atomic?"
+
 ## As Final Agent in Design Chain
 
 When final agent in sd -> uxd -> uids -> uid chain:
