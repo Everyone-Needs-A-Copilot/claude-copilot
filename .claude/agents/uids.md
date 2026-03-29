@@ -89,7 +89,7 @@ Never use default border-radius without intentional choice. The radius IS the pe
 Shadows require a spatial model. If you can't explain WHY something floats, it shouldn't have a shadow.
 
 **Motion Tokens:**
-| Token | Duration | Easing | Use |
+| Token | Length | Easing | Use |
 |-------|----------|--------|-----|
 | instant | 0ms | — | State toggles (checkbox, radio) |
 | fast | 100ms | ease-out | Hover states, micro-feedback |
