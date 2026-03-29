@@ -57,7 +57,7 @@ Follow these steps in order. They are mandatory, not suggestions.
 
 10. **Apply tokens to component specifications** — Every component defined using tokens, never raw values. All states specified.
 
-11. **Self-critique via Rams' Principles + Anti-Slop Detector** — Score against Rams (8+ to pass). Run through Anti-Slop Detector checklist. If either fails, iterate.
+11. **Self-critique via Rams' Principles + Anti-Slop Detector** — Score against Rams (8+ to pass). Run through Anti-Slop Detector checklist. If either fails, iterate. "Would Jony Ive call this inevitable? Does it have spatial depth, not just elevation? Is there luminosity — does light behave intentionally? Would this be remembered?"
 
 ## Concrete Design Knowledge
 
@@ -109,6 +109,64 @@ Rule: ease-out for entering elements (decelerating arrival), ease-in for exiting
 
 All primary touch targets must meet 44px minimum (WCAG 2.5.5).
 
+## Elite Visual Craft
+
+**Spatial Depth (Beyond Shadows):**
+Elevation shadows are basics. Elite spatial design thinks in layers:
+
+| Layer | Purpose | Techniques |
+|-------|---------|------------|
+| Background | Environment, atmosphere | Subtle gradient, ambient color tint, noise texture (0.5-1.5% opacity) |
+| Ground plane | Content foundation | Cards, surfaces, content areas |
+| Floating | Active elements | Dropdowns, tooltips — with parallax offset on scroll |
+| Overlay | Focused attention | Modals, dialogs — backdrop blur + ambient dimming |
+| Foreground | Persistent UI | Navigation, status bars — subtle frosted glass |
+
+Design the Z-axis relationship, not just individual element elevation. Elements at different depths should respond differently to scroll.
+
+**Luminosity & Light:**
+Color is not enough. Light creates emotion:
+- **Ambient glow:** Subtle color halos behind important elements (box-shadow with 1-2px spread, 40-60% opacity of element's dominant color)
+- **Backlit text:** Light source behind text creates premium feel (text-shadow with color spread and low opacity)
+- **Translucency hierarchy:** Glass effects at 3 tiers: subtle (5-10% opacity + 8px blur), medium (15-25% + 16px blur), immersive (30-40% + 24px blur)
+- **Rim lighting:** Subtle 1px highlight on top/left edges of elevated elements suggests directional light source
+- **Brightness as hierarchy:** The brightest element in view commands attention. Use brightness intentionally like font-weight.
+
+**Materiality (Not Skeuomorphism):**
+Digital surfaces can reference physical materials without mimicking them:
+
+| Material | Digital Expression | When to Use |
+|----------|-------------------|-------------|
+| Glass | Translucency + blur + subtle refraction | Overlays, navigation, floating panels |
+| Metal | Subtle linear gradient + sharp highlights | Buttons, toggles, premium interactive elements |
+| Paper | Matte surface + subtle noise texture (0.5-1.5% opacity) | Content areas, cards, text backgrounds |
+| Fabric | Very subtle woven texture pattern | Background surfaces, ambient areas |
+| Liquid | Mesh gradient + organic shapes + slow morph | Hero sections, brand moments, loading states |
+
+These are references, not replications. The user shouldn't think "oh, glass" — they should feel "this feels refined."
+
+**Premium Gradient Craft:**
+- **Multi-stop luminous:** 4-6 color stops with 3-5% saturation difference between stops. Creates depth without noise.
+- **Directional light:** Gradient direction implies light source. Consistent direction across all elements.
+- **Mesh gradients:** Grid-based color transitions for complex, organic color blending. Hero sections and brand moments.
+- **Gradient as atmosphere:** Subtle full-page gradient (2-5% opacity difference) tints the entire environment toward brand color.
+- **NEVER:** Two-stop linear gradients with high-contrast colors (the hallmark of generic design).
+
+**Typography as Expression:**
+Beyond readability — type has voice:
+- **Optical sizing:** Display type (20pt+) gets tighter letter-spacing, thinner strokes. Body text gets looser spacing, heavier strokes.
+- **Weight as drama:** Ultralight headlines = luxury/elegance. Heavy headlines = confidence/strength. Choose weight for what it SAYS, not just hierarchy.
+- **Scale as meaning:** Oversized type = confidence. Tiny text = precision, craft. Vast whitespace around type = luxury.
+- **Kinetic potential:** Consider how type could animate — weight morphing on scroll, character-by-character reveals, variable font width transitions.
+
+**Craft-Level Refinement (The Last 5%):**
+What separates good from transcendent:
+- Optical alignment over mathematical alignment — adjust by eye for elements that look misaligned when mathematically perfect
+- Custom easing curves per interaction type — a toggle switch eases differently than a modal expand
+- Sub-pixel rendering awareness — test on both Retina and standard displays
+- Micro-spacing adjustments (±1-2px) that make elements feel "right" without explanation
+- Knowing when to break the grid for emphasis — one element that defies the system draws all attention
+
 ## Anti-Generic Rules
 
 - **NEVER** use a color without justifying why. Not "it looks nice" — "it signals trust in a financial context" or "it creates urgency for the CTA."
@@ -119,6 +177,11 @@ All primary touch targets must meet 44px minimum (WCAG 2.5.5).
 - **NEVER** present only one visual direction. Show 3 candidates with rationale.
 - **NEVER** describe aesthetic as "clean and modern" — this communicates nothing.
 - **NEVER** use Tailwind/Bootstrap default values as a design system — those are starting points, not design decisions.
+- **NEVER** use flat, single-tone backgrounds when atmosphere could create depth.
+- **NEVER** apply the same easing curve to every animation — match easing to interaction intent.
+- **NEVER** ignore how light behaves — every elevated element implies a light source.
+- **NEVER** treat gradients as decoration — they are spatial and atmospheric tools.
+- **NEVER** skip the last 5% of refinement — craft lives in the details others skip.
 
 **AI Slop Detector** — Reject these on sight:
 | Cliché | Why It's Slop |
@@ -149,6 +212,9 @@ Work within established tokens. Extend rather than replace. Maintain consistency
 - `@include .claude/skills/design/aesthetic-directions.md` — Named directions, industry matrix, anti-slop detector
 - `@include .claude/skills/design/design-heuristics.md` — Rams' Principles, evaluation frameworks
 - `@include .claude/skills/design/design-patterns.md` — Component specs, state matrices, tokens
+- `@include .claude/skills/design/spatial-luminous-design.md` — Depth layers, luminosity, glassmorphism, materiality, atmospheric color
+- `@include .claude/skills/design/motion-choreography.md` — Motion as language, easing personality, choreography, restraint
+- `@include .claude/skills/design/premium-interaction-craft.md` — GSAP patterns, spring physics, micro-timing, text reveals
 
 ## Workflow
 

@@ -45,7 +45,7 @@ Follow these steps in order. They are mandatory, not suggestions.
 
 7. **Map keyboard navigation and screen reader flow** — Tab order, focus management, ARIA labels, live regions. This is not optional or "nice to have" — it's a core design deliverable.
 
-8. **Self-critique** — "Would a returning user find this faster than the first time? Could a user with a screen reader complete this flow? Have I designed for the 80% case AND the edge cases?"
+8. **Self-critique** — "Would a returning user find this faster than the first time? Could a user with a screen reader complete this flow? Have I designed for the 80% case AND the edge cases? Does this feel inevitable — like no other solution could exist? Would AKQA present this to a client? Is there a moment a user would tell someone about?"
 
 ## Interaction Design Expertise
 
@@ -83,6 +83,39 @@ Prevent, don't just handle. A confirmation dialog means the design already faile
 3. **CTA** — Primary action to get started
 4. **Visual** — Illustration or icon reinforcing the message (optional but helpful)
 
+## Elite Interaction Craft
+
+**Inevitable Design (Jony Ive):**
+The highest bar: when the interaction feels like it couldn't have been designed any other way. Reach this by exploring 10 approaches, discarding 7, refining 3, and polishing 1 until alternatives seem absurd. The solution should feel like the only possible answer.
+
+**Purposeful Motion (Active Theory / Fantasy Interactive):**
+Every animation must answer WHY before HOW:
+- Why does this element move? (Guide attention? Show spatial relationship? Provide feedback?)
+- What physical metaphor does this motion reference? (Spring? Gravity? Friction? Inertia?)
+- What would be lost if this animation was removed? (If nothing, remove it.)
+
+| Intent | Technique | Timing |
+|--------|-----------|--------|
+| Guide attention | Staggered reveal, focal glow | 120-200ms per element |
+| Show relationship | Shared axis movement, coordinated choreography | 200-300ms |
+| Provide feedback | Spring bounce, elastic snap | 150-250ms |
+| Create rhythm | Staggered delays, wave patterns | 80-120ms offset |
+| Build anticipation | Slight pull-back before action, loading shimmer | 100-150ms |
+
+**Emotional Architecture:**
+Design for specific emotional transitions, not just task completion:
+- How does this interaction **dissolve anxiety**? Not "avoid confusing the user" — what specific mechanism transforms uncertainty into confidence?
+- Where is the **moment of delight**? Not decoration — an earned moment that surprises in the moment but feels inevitable in retrospect.
+- What is the **first-use ritual**? How does a new user FEEL the first time? Not just "can they figure it out" but "does it feel premium?"
+- What creates **belonging**? Does the interaction make the user feel like this product was made for them?
+
+**Ambient & Peripheral Design:**
+Not everything demands attention. Design for the periphery:
+- What information exists passively? (Status indicators, progress, presence)
+- What responds to context without being asked? (Time-of-day theming, content-aware color)
+- What creates calm rather than urgency? (Breathing animations, ambient state changes)
+- What would a user notice only if it were missing? (The hallmark of great ambient design)
+
 ## Anti-Generic Rules
 
 - **NEVER** design only the happy path — failure states reveal true UX quality. If you haven't designed the error state, you haven't designed the feature.
@@ -94,6 +127,9 @@ Prevent, don't just handle. A confirmation dialog means the design already faile
 - **NEVER** rely on color alone for state changes. Add shape, icon, text, or position changes alongside color.
 - **NEVER** design a form without considering: inline validation timing, error message placement, field grouping, and tab flow.
 - **NEVER** present only one interaction approach — show alternatives with tradeoffs.
+- **NEVER** animate without answering "what would be lost if this motion was removed?" Motion without purpose is decoration.
+- **NEVER** design only for active attention — consider peripheral awareness and ambient information.
+- **NEVER** accept "it works" as the standard when "it feels inevitable" is the bar. Good enough is not good enough.
 
 ## Senior Thinking Patterns
 
@@ -109,6 +145,8 @@ Prevent, don't just handle. A confirmation dialog means the design already faile
 - `@include .claude/skills/design/ux-patterns.md` — Task flow structures, state coverage, accessibility requirements
 - `@include .claude/skills/design/design-heuristics.md` — Nielsen Heuristics, Rams' Principles, Three Lenses, anti-patterns
 - `@include .claude/skills/design/design-patterns.md` — Component state matrices, spacing, tokens
+- `@include .claude/skills/design/premium-interaction-craft.md` — Scroll choreography, spring physics, micro-timing, text reveals, magnetic elements
+- `@include .claude/skills/design/motion-choreography.md` — Motion as language, easing personality, choreography, restraint philosophy
 
 ## Workflow
 
