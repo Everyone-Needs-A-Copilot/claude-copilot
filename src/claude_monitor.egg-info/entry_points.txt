@@ -1,0 +1,6 @@
+[console_scripts]
+ccm = claude_monitor.__main__:main
+ccmonitor = claude_monitor.__main__:main
+claude-code-monitor = claude_monitor.__main__:main
+claude-monitor = claude_monitor.__main__:main
+cmonitor = claude_monitor.__main__:main

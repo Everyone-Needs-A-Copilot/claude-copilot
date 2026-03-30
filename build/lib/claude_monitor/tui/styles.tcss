@@ -1,0 +1,239 @@
+/* Textual CSS for Claude Code Usage Monitor TUI */
+
+/* ==================== Theme Notes ==================== */
+/* Textual built-in variables used: $primary, $secondary, $surface, $text,
+   $success, $warning, $error, $background, $primary-background, $text-muted */
+
+/* ==================== Base Layout ==================== */
+
+Screen {
+    layout: vertical;
+    background: $surface;
+}
+
+/* ==================== Main App Layout ==================== */
+
+#main-content {
+    height: 1fr;
+    padding: 0;
+}
+
+/* ==================== Panels ==================== */
+
+.panel {
+    border: solid $primary;
+    padding: 1;
+    margin: 0 1 1 1;
+    height: auto;
+}
+
+.panel-title {
+    text-style: bold;
+    color: $primary;
+    margin-bottom: 1;
+}
+
+.panel:focus-within {
+    border: double $primary;
+}
+
+.panel.warning {
+    border: solid $warning;
+}
+
+.panel.critical {
+    border: solid $error;
+}
+
+/* ==================== Progress Bars ==================== */
+
+ProgressBar {
+    height: 1;
+    margin: 0 1;
+}
+
+ProgressBar > .bar--bar {
+    color: $success;
+}
+
+ProgressBar.warning > .bar--bar {
+    color: $warning;
+}
+
+ProgressBar.critical > .bar--bar {
+    color: $error;
+}
+
+/* ==================== Data Tables ==================== */
+
+DataTable {
+    height: 100%;
+}
+
+DataTable > .datatable--header {
+    text-style: bold;
+    background: $primary-background;
+}
+
+DataTable > .datatable--cursor {
+    background: $primary;
+    color: $text;
+}
+
+/* ==================== Status Indicators ==================== */
+
+.status-active {
+    color: $success;
+}
+
+.status-inactive {
+    color: $text-muted;
+}
+
+.status-warning {
+    color: $warning;
+}
+
+.status-critical {
+    color: $error;
+}
+
+/* ==================== Text Styles ==================== */
+
+.muted {
+    color: $text-muted;
+}
+
+.highlight {
+    text-style: bold;
+    color: $primary;
+}
+
+.value-positive {
+    color: $success;
+}
+
+.value-negative {
+    color: $error;
+}
+
+/* ==================== Loading State ==================== */
+
+.loading {
+    text-align: center;
+    padding: 2;
+}
+
+LoadingIndicator {
+    height: 3;
+}
+
+/* ==================== Dashboard Layout ==================== */
+
+#dashboard-container {
+    layout: vertical;
+    height: 100%;
+}
+
+#overview-panel {
+    height: auto;
+    min-height: 5;
+}
+
+#metrics-row {
+    layout: horizontal;
+    height: auto;
+    min-height: 5;
+}
+
+#burn-rate-panel {
+    width: 1fr;
+}
+
+#predictions-panel {
+    width: 1fr;
+}
+
+#timeline-panel {
+    height: auto;
+    min-height: 4;
+}
+
+/* ==================== Table Views Layout ==================== */
+
+#table-container {
+    layout: vertical;
+    height: 100%;
+}
+
+#table-header {
+    height: auto;
+    padding: 1;
+}
+
+#table-content {
+    height: 1fr;
+}
+
+#table-footer {
+    height: auto;
+    padding: 1;
+}
+
+/* ==================== Agents View Layout ==================== */
+
+#agents-container {
+    layout: vertical;
+    height: 100%;
+}
+
+#agents-table {
+    height: 1fr;
+}
+
+#relationships-panel {
+    height: auto;
+    min-height: 4;
+}
+
+/* ==================== Paused State ==================== */
+
+.paused {
+    opacity: 0.7;
+}
+
+.paused-indicator {
+    background: $warning;
+    color: $text;
+    text-align: center;
+    padding: 0 1;
+}
+
+/* ==================== Responsive Adjustments ==================== */
+
+/* Compact mode for smaller terminals */
+.compact .panel {
+    padding: 0;
+    margin: 0 0 1 0;
+}
+
+.compact .panel-title {
+    margin-bottom: 0;
+}
+
+/* ==================== Horizontal Layouts ==================== */
+
+Horizontal {
+    height: auto;
+}
+
+Horizontal > * {
+    width: 1fr;
+}
+
+/* ==================== Section Headers ==================== */
+
+.section-header {
+    color: $text-muted;
+    margin-bottom: 1;
+}
