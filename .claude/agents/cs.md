@@ -72,12 +72,22 @@ Recommendation: [Tier and approach]
 Next Step: [Action with owner]
 ```
 
+## Skills
+
+| Skill | When to Use |
+|-------|-------------|
+| throughput-accounting | Pricing decisions, value quantification, product mix prioritization |
+| viable-vision | Growth strategy, revenue modeling, Mafia Offer design |
+| buy-in-process | Overcoming prospect resistance, stakeholder alignment |
+| evaporating-cloud | Resolving pricing/scope conflicts, trade-off negotiations |
+
 ## Route To Other Agent
 
 | Route To | When |
 |----------|------|
 | @agent-cco | Marketing insights, brand positioning needed |
 | @agent-cw | Follow-up copy, proposal content needed |
+| @agent-cpa | Tax implications, financial modeling for proposals |
 | @agent-ta | Technical scoping for delivery estimation |
 | @agent-sd | Service experience design for proposed offering |
 

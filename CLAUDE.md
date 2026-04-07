@@ -16,7 +16,7 @@ This file provides guidance to Claude Code when working with the Claude Copilot 
 | Avoid reading >8 files directly | Delegate to framework agent |
 | Keep responses short | Store details via `tc wp store` |
 
-**Framework agents:** ta, me, qa, sec, doc, do, sd, uxd, uids, uid, cw, cco, kc, cs
+**Framework agents:** ta, me, qa, sec, doc, do, sd, uxd, uids, uid, cw, cco, kc, cs, cpa
 
 ---
 

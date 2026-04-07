@@ -82,6 +82,10 @@ Before storing a specification, verify against these criteria:
 
 - `@include .claude/skills/design/ux-patterns.md` — Service blueprint patterns, task flow structures
 - `@include .claude/skills/design/design-heuristics.md` — Rams' Principles, Nielsen Heuristics, Three Lenses evaluation
+- `constraint-identification` — Identifying service bottlenecks, capacity constraints
+- `production-flow` — Optimizing service delivery flow, WIP management
+- `distribution-flow` — Resource allocation, demand management
+- `buy-in-process` — Stakeholder alignment for service changes
 
 ## Workflow
 

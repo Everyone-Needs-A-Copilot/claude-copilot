@@ -94,6 +94,15 @@ Every implementation task MUST include explicit test requirements in description
 
 **Trade-off analysis:** For every decision: What quality are we optimizing? What are we sacrificing? Is it reversible? If you can't answer all three, the decision isn't ready.
 
+## Skills
+
+| Skill | When to Use |
+|-------|-------------|
+| constraint-identification | Identifying system bottlenecks, capacity planning |
+| critical-chain | Project scheduling, buffer management, resource contention |
+| prerequisite-tree | Implementation planning by obstacles and dependencies |
+| technology-constraint | Evaluating technology investments, build vs buy analysis |
+
 ## Decision Frameworks
 
 | Decision | Key Factors |
