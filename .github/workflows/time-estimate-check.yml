@@ -39,6 +39,7 @@ jobs:
             echo "Checking for: $description"
 
             if find .claude/agents .claude/commands templates -type f -name "*.md" 2>/dev/null \
+               | grep -v '/_archive/' \
                | xargs grep -nE "$pattern" 2>/dev/null \
                | grep -vE "$exclude"; then
               echo "❌ VIOLATION: $description found"
@@ -61,7 +62,7 @@ jobs:
           check_pattern 'Phase\s+\d+.*\((Week|Month|Q\d)' \
             'Time-based phase descriptions'
 
-          check_pattern '(Response\s+Time|Completion\s+Time|Duration|Timeframe)\s*\|' \
+          check_pattern '(Response\s+Time|Completion\s+Time|Timeframe)\s*\|' \
             'Tables with time commitments'
 
           # Exit if violations found

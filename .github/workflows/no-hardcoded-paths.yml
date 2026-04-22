@@ -25,7 +25,10 @@ jobs:
           MATCHES=$(git ls-files \
             | grep -v 'node_modules/' \
             | grep -v '.mcp.json' \
+            | grep -v '^.claude/settings.local.json$' \
+            | grep -v '^coverage.xml$' \
             | grep -v '^docs/' \
+            | grep -v '^src/.*egg-info/' \
             | grep -v '^templates/' \
             | grep -v '^scripts/pre-commit-no-hardcoded-paths' \
             | grep -v '^.github/workflows/no-hardcoded-paths.yml' \
