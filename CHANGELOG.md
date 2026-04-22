@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-04-22
+
+### Changed (Breaking)
+- Agent roster trimmed from 14 → 8 always-loaded agents: `me, qa, ta, do, sd, doc, design, kc`
+- `uxd`, `uids`, `uid` merged into single `design` agent preserving Nielsen/Rams/Atomic framing
+- `sec`, `cw`, `cco` demoted to skills (`stride-dread`, `voice-tone`, `litmus-test`); load via `@include`
+- `cs`, `cpa` archived — no replacement agent
+- Model tier inverted: strategy agents (`sd`, `design`, `ta`) run on Opus; execution agents (`me`, `qa`, `do`, `doc`) run on Sonnet
+- Main-session model recommendation changed to Sonnet 4.6 1M via `.claude/claude-launcher`
+
+### Added
+- **PreToolUse hook — force-delegate rule** (`.claude/hooks/pretool-check.sh`): denies the 5th consecutive `Bash`/`Read`/`Edit` call and requires delegation to a framework agent
+- **PreToolUse hook — QA gate rule**: after `@agent-me` completes, main session is blocked from all tool calls except `@agent-qa` until QA passes (file-based state machine in `.claude/hooks/state/qa-gate.json`)
+- **SubagentStop hook** (`.claude/hooks/subagent-stop.sh`): sets QA-gate pending state when `@agent-me` stops; clears it when `@agent-qa` passes; 3-retry fallback to advisory after repeated failures
+- **UserPromptSubmit hook** (`.claude/hooks/user-prompt-submit.sh`): advisory at 500 turns, stronger advisory at 750; prevents the 22-hour /continue context-bloat pattern
+- **Flow E — Infrastructure** added to `/protocol`: `do → me → qa` chain triggered by `staging`, `deploy`, `coolify`, `docker`, `ci`, and related keywords; `--infra` flag overrides
+- **`tc deploy wait`** subcommand (`tools/tc/src/tc/commands/deploy.py`): replaces hand-rolled `until curl` polling loops; shells out to `cli-copilot`'s Coolify commands; stores `deploy_report` work product; supports `--test <spec>` for post-deploy Playwright runs
+- **`tc task update --title` and `--metadata`** flags: structured metadata updates with merge semantics (existing keys preserved, new keys added, conflicting keys overridden)
+- **`.claude/claude-launcher`**: project-local bash wrapper that auto-loads Sonnet 4.6 1M; reads `.claude/.model` config file; `CLAUDE_MODEL` env var overrides
+- **`.claude/settings.json`**: registers all three hooks with correct matchers
+- Escape hatch env vars: `COPILOT_FORCE_DELEGATE=off`, `COPILOT_QA_GATE=off`, `COPILOT_SESSION_CAP=off`
+- 349 new test assertions across 6 hook test suites
+- `docs/10-architecture/04-framework-restructure-2026-04.md`: full diagnostic context (why, benefits, before/after data)
+- `docs/30-operations/05-deploy-and-verify.md`: how-to guide for Flow E and `tc deploy wait`
+
+### Motivation
+Cross-session diagnostic (15 sessions, 18.3 MB, Apr 17–22 2026) found:
+- 94% of tool calls were main-session-direct (6% delegated) — framework rules were advisory, not enforced
+- 5-day staging saga: 4 sessions, 12 MB, 26 `until curl` polling loops, 57 back-to-back bash runs
+- Protocol declarations appeared in 3.5% of assistant turns
+- Model tier was wrong-way: orchestrator on Opus 4.7, specialists on Sonnet 4.6
+
 ## [3.5.0] - 2026-03-29
 
 ### Added

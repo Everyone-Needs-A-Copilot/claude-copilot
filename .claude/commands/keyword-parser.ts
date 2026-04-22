@@ -20,7 +20,9 @@
  * - optimize: - Performance optimization
  * - test: - Testing work
  * - doc: - Documentation
- * - deploy: - Deployment/DevOps
+ * - deploy: - Deployment/DevOps (Flow E: do → me → qa)
+ * - infra: - Infrastructure provisioning (Flow E: do → me → qa)
+ * - release: - Release / rollout (Flow E: do → me → qa)
  *
  * Rules:
  * - Keywords must be at the start of the message
@@ -66,7 +68,9 @@ const ACTION_KEYWORDS: Record<string, string | undefined> = {
   optimize: 'ta', // Optimization → Tech Architect
   test: 'qa', // Testing → QA agent
   doc: 'doc', // Documentation → Doc agent
-  deploy: 'do', // Deployment → DevOps agent
+  deploy: 'do', // Deployment → DevOps agent (Flow E: do → me → qa)
+  infra: 'do', // Infrastructure provisioning → DevOps agent (Flow E: do → me → qa)
+  release: 'do', // Release/rollout → DevOps agent (Flow E: do → me → qa)
 };
 
 /**

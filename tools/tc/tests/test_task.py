@@ -296,6 +296,60 @@ class TestTaskUpdate:
         assert result.exit_code == 0
         assert "Updated task #1: HR Update [blocked]" in result.output
 
+    def test_update_title(self, cli):
+        _create_task(cli, "Old Title")
+        result = cli(["task", "update", "1", "--title", "New Title", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["title"] == "New Title"
+        assert data["status"] == "pending"  # other fields unchanged
+
+    def test_update_title_empty_rejected(self, cli):
+        _create_task(cli, "Not Empty")
+        result = cli(["task", "update", "1", "--title", ""])
+        assert result.exit_code == 4  # EXIT_VALIDATION
+
+    def test_update_metadata_sets_new_field(self, cli):
+        _create_task(cli, "Meta Task")
+        result = cli(["task", "update", "1", "--metadata", '{"decidedApproach":"launcher-script"}', "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        stored = json.loads(data["metadata"])
+        assert stored["decidedApproach"] == "launcher-script"
+
+    def test_update_metadata_invalid_json_rejected(self, cli):
+        _create_task(cli, "Bad Meta")
+        result = cli(["task", "update", "1", "--metadata", "invalid json"])
+        assert result.exit_code == 4  # EXIT_VALIDATION
+
+    def test_update_title_and_metadata_atomic(self, cli):
+        _create_task(cli, "Original")
+        result = cli(["task", "update", "1", "--title", "X", "--metadata", '{"k":"v"}', "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["title"] == "X"
+        stored = json.loads(data["metadata"])
+        assert stored["k"] == "v"
+
+    def test_update_metadata_merges_new_key(self, cli):
+        """Existing {a:1} + new {b:2} => {a:1, b:2}."""
+        cli(["task", "create", "--title", "Merge Task", "--metadata", '{"a":1}', "--json"])
+        result = cli(["task", "update", "1", "--metadata", '{"b":2}', "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        stored = json.loads(data["metadata"])
+        assert stored["a"] == 1
+        assert stored["b"] == 2
+
+    def test_update_metadata_overrides_existing_key(self, cli):
+        """Existing {a:1} + new {a:2} => {a:2}."""
+        cli(["task", "create", "--title", "Override Task", "--metadata", '{"a":1}', "--json"])
+        result = cli(["task", "update", "1", "--metadata", '{"a":2}', "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        stored = json.loads(data["metadata"])
+        assert stored["a"] == 2
+
 
 # ---------------------------------------------------------------------------
 # Claim

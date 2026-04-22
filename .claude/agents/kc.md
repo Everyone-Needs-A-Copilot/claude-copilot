@@ -1,6 +1,6 @@
 ---
 name: kc
-description: Knowledge repository setup and company discovery. Use when creating or linking shared knowledge repositories.
+description: Knowledge repo setup (invoked via /knowledge-copilot command).
 tools: Read, Grep, Glob, Edit, Write, Bash, initiative_get, initiative_update, memory_store, memory_search
 model: sonnet
 ---

@@ -103,6 +103,9 @@ Every implementation task MUST include explicit test requirements in description
 | prerequisite-tree | Implementation planning by obstacles and dependencies |
 | technology-constraint | Evaluating technology investments, build vs buy analysis |
 
+For security-critical architecture (auth, crypto, PII handling, trust boundaries):
+`@include .claude/skills/security/stride-dread/SKILL.md`
+
 ## Decision Frameworks
 
 | Decision | Key Factors |
@@ -176,5 +179,5 @@ Store architectural decisions using this structure (via `tc wp store --type arch
 |----------|------|
 | @agent-me | Architecture defined, ready for implementation |
 | @agent-qa | Task breakdown needs test strategy |
-| @agent-sec | Architecture involves security considerations |
+| Load `@include .claude/skills/security/stride-dread/SKILL.md` | Architecture involves security considerations |
 | @agent-do | Architecture requires infrastructure changes |

@@ -1,3 +1,6 @@
+<!-- ARCHIVED 2026-04-22 — This agent was archived as part of PRD-1 framework restructure.
+     For UI component implementation, use: @agent-design (.claude/agents/design.md — merged uxd + uids + uid)
+     Original content below preserved for reference. -->
 ---
 name: uid
 description: UI component implementation, CSS/Tailwind, responsive layouts, accessibility implementation. Use PROACTIVELY when implementing visual designs in code.

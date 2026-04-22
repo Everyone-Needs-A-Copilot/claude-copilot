@@ -29,7 +29,7 @@ It's not separate software—it's markdown files (agents, commands, project inst
 | You Get                    | What It Does                                                                       |
 | -------------------------- | ---------------------------------------------------------------------------------- |
 | **Persistent Memory**      | Decisions, lessons, and progress survive across sessions                           |
-| **14 Specialist Agents**   | Lean agents with on-demand skill loading; design agents include creative methodology |
+| **8 Specialist Agents**    | Lean agents with on-demand skill loading; design agents include creative methodology |
 | **Auto-Load Skills**       | Agents detect and load relevant skills based on context (file patterns + keywords) |
 | **Parallel Orchestration** | Headless workers execute streams concurrently with `/orchestrate`                  |
 | **Pause & Resume**         | Context switch mid-task with `/pause`, return with `/continue`                     |
@@ -60,6 +60,14 @@ Teams face the same challenges at scale—plus knowledge silos, inconsistent sta
 
 ---
 
+## April 2026 Restructure
+
+A diagnostic of 15 sessions (Apr 17-22 2026) found a 6% delegation rate — 94% of work stayed in the main session despite a 14-agent roster. A 5-day staging deployment saga (57 manual bash polling calls, 26 loops) exposed missing primitives. The April 2026 restructure fixes this with mechanical hook enforcement, a consolidated 8-agent roster, the `tc deploy wait` primitive, and model pinning so the cheap-and-fast model handles orchestration.
+
+→ [Full diagnostic and rationale](docs/10-architecture/04-framework-restructure-2026-04.md)
+
+---
+
 ## How It Works
 
 ```
@@ -82,17 +90,14 @@ Teams face the same challenges at scale—plus knowledge silos, inconsistent sta
 │                          AGENT LAYER                                         │
 │                                                                              │
 │   ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐  │
-│   │   ta    │ │   me    │ │   qa    │ │   sec   │ │   doc   │ │   do    │  │
-│   │Architect│ │Engineer │ │   QA    │ │Security │ │  Docs   │ │ DevOps  │  │
+│   │   ta    │ │   me    │ │   qa    │ │   doc   │ │   do    │ │   sd    │  │
+│   │Architect│ │Engineer │ │   QA    │ │  Docs   │ │ DevOps  │ │ Service │  │
+│   │         │ │         │ │         │ │         │ │         │ │Designer │  │
 │   └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘  │
-│   ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐  │
-│   │   sd    │ │   uxd   │ │  uids   │ │   uid   │ │   cw    │ │   cco   │  │
-│   │ Service │ │   UX    │ │   UI    │ │   UI    │ │  Copy   │ │Creative │  │
-│   │Designer │ │Designer │ │Designer │ │Developer│ │ Writer  │ │  Chief  │  │
-│   └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘  │
-│                              ┌─────────┐                                    │
-│                              │   kc    │  Knowledge Copilot (utility)       │
-│                              └─────────┘                                    │
+│             ┌────────────┐  ┌─────────┐                                     │
+│             │   design   │  │   kc    │  Knowledge Copilot (utility)        │
+│             │UX+UI+Visual│  └─────────┘                                     │
+│             └────────────┘                                                  │
 └───────────────────────────────┼─────────────────────────────────────────────┘
                                 │
               ┌─────────────────┼─────────────────┐
@@ -306,23 +311,26 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 
 ## Your Team
 
-| Agent  | Role              | When to Use                                |
-| ------ | ----------------- | ------------------------------------------ |
-| `ta`   | Tech Architect    | System design, task breakdown, ADRs        |
-| `me`   | Engineer          | Implementation, bug fixes, refactoring     |
-| `qa`   | QA Engineer       | Testing strategy, edge cases, verification |
-| `sec`  | Security          | Vulnerabilities, threat modeling, OWASP    |
-| `doc`  | Documentation     | READMEs, API docs, technical writing       |
-| `do`   | DevOps            | CI/CD, infrastructure, containers          |
-| `sd`   | Service Designer  | Customer journeys, experience strategy     |
-| `uxd`  | UX Designer       | Task flows, wireframes, accessibility      |
-| `uids` | UI Designer       | Visual design, design systems, tokens      |
-| `uid`  | UI Developer      | Component implementation, responsive UI    |
-| `cw`   | Copywriter        | Microcopy, error messages, voice           |
-| `cco`  | Creative Chief    | Creative direction, brand strategy         |
-| `kc`   | Knowledge Copilot | Shared knowledge setup                     |
+| Agent    | Role              | When to Use                                |
+| -------- | ----------------- | ------------------------------------------ |
+| `ta`     | Tech Architect    | System design, task breakdown, ADRs        |
+| `me`     | Engineer          | Implementation, bug fixes, refactoring     |
+| `qa`     | QA Engineer       | Testing strategy, edge cases, verification |
+| `doc`    | Documentation     | READMEs, API docs, technical writing       |
+| `do`     | DevOps            | CI/CD, infrastructure, deploy, containers  |
+| `sd`     | Service Designer  | Customer journeys, experience strategy     |
+| `design` | UX + UI + Visual  | Interaction design, visual design, components |
+| `kc`     | Knowledge Copilot | Shared knowledge setup (utility)           |
 
-→ [Meet your full team](docs/10-architecture/01-agents.md)
+**Skills (loaded on demand, not standalone agents):**
+
+| Skill | Replaces | Load with |
+|-------|----------|-----------|
+| Security (STRIDE/DREAD) | `@agent-sec` | `@include .claude/skills/security/stride-dread/SKILL.md` |
+| Voice & Tone | `@agent-cw` | `@include .claude/skills/voice-tone/SKILL.md` |
+| Creative Direction | `@agent-cco` | `@include .claude/skills/litmus-test/SKILL.md` |
+
+→ [Meet your full team](docs/10-architecture/01-agents.md) | [Why we restructured from 14 to 8 agents](docs/10-architecture/04-framework-restructure-2026-04.md)
 
 ---
 
@@ -348,7 +356,7 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 
 | Level          | What You Get                                          |
 | -------------- | ----------------------------------------------------- |
-| **Solo**       | 14 agents, persistent memory, local skills            |
+| **Solo**       | 8 agents, persistent memory, local skills             |
 | **Team**       | + shared knowledge, private skills via PostgreSQL     |
 | **Enterprise** | + Skill Marketplace (25K+ skills), full customization |
 
@@ -378,7 +386,7 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 |-------|---------|
 | [Usage Guide](docs/70-reference/01-usage-guide.md) | **How to actually use this** - real workflows and scenarios |
 | [Decision Guide](docs/10-architecture/03-decision-guide.md) | When to use what - quick reference matrices |
-| [Agents](docs/10-architecture/01-agents.md) | All 14 specialists in detail |
+| [Agents](docs/10-architecture/01-agents.md) | All 8 specialists in detail |
 
 **Setup & Configuration:**
 | Guide | Purpose |

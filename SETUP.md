@@ -363,6 +363,47 @@ ln -sf ~/company-knowledge ~/.claude/knowledge
 
 ---
 
+## External Dependencies
+
+### `copilot` CLI (from cli-copilot)
+
+**Required for:** `tc deploy wait` and Flow E (Infrastructure) deploy verification.
+
+**Optional for:** All other framework features. If you never use `tc deploy wait` directly or the Infra flow (`/protocol deploy to staging`), this dependency is not needed.
+
+**Installation:** See the [cli-copilot project](https://github.com/Everyone-Needs-A-Copilot/cli-copilot) for setup instructions.
+
+**Behavior when missing:** `tc deploy wait` fails with exit code 4 and a clear error message — it does not hang or silently succeed. All other `tc` commands are unaffected.
+
+**Verify:**
+```bash
+copilot version
+```
+
+If `copilot` is not on `PATH`, `tc deploy wait` will emit:
+```
+Error: `copilot` CLI not found on PATH (exit 4).
+Install from: https://github.com/Everyone-Needs-A-Copilot/cli-copilot
+```
+
+---
+
+## Per-Project Main-Session Model Pinning
+
+For projects where you want every Claude Code session to use a specific model, use the project-local launcher:
+
+- **`.claude/.model`** — plain-text file containing the model ID (e.g. `claude-sonnet-4-6[1m]`). Committed to the repo so all developers share the same default.
+- **`.claude/claude-launcher`** — executable wrapper script. Run it instead of `claude` to launch Claude Code with the pinned model.
+
+```bash
+.claude/claude-launcher          # uses .claude/.model
+CLAUDE_MODEL=claude-opus-4-5 .claude/claude-launcher  # env var overrides file
+```
+
+If `.claude/.model` is missing/empty and `CLAUDE_MODEL` is not set, the launcher falls back to Claude Code's default model selection.
+
+---
+
 ## Next Steps
 
 After setup:

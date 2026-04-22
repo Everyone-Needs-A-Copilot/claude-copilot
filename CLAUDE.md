@@ -8,15 +8,17 @@ This file provides guidance to Claude Code when working with the Claude Copilot 
 
 **These rules prevent context bloat — the framework's core purpose.**
 
-| Rule | What To Do Instead |
-|------|-------------------|
-| Never write implementation code | Delegate to `@agent-me` |
-| Never create detailed plans | Delegate to `@agent-ta` |
-| Never use `Explore`, `Plan`, or `general-purpose` agents | Use framework agents (they integrate with Task Copilot) |
-| Avoid reading >8 files directly | Delegate to framework agent |
-| Keep responses short | Store details via `tc wp store` |
+| Rule | What To Do Instead | Enforcement |
+|------|-------------------|-------------|
+| Never write implementation code | Delegate to `@agent-me` | Hook: force-delegate |
+| Never create detailed plans | Delegate to `@agent-ta` | Hook: force-delegate |
+| Never use `Explore`, `Plan`, or `general-purpose` agents | Use framework agents (they integrate with Task Copilot) | Advisory |
+| Avoid reading >8 files directly | Delegate to framework agent | Hook: force-delegate (triggers at 5 consecutive same-tool calls) |
+| Keep responses short | Store details via `tc wp store` | Advisory |
 
-**Framework agents:** ta, me, qa, sec, doc, do, sd, uxd, uids, uid, cw, cco, kc, cs, cpa
+**Mechanical enforcement:** The force-delegate rule, QA-gate rule, and session-cap advisory are enforced by hooks in `.claude/hooks/` — not just policy. Attempting >5 consecutive Bash/Read/Edit calls will be blocked automatically. After `@agent-me` completes, all main-session tools are gated until `@agent-qa` provides a pass verdict. See `.claude/hooks/README.md` for escape hatches and debug tools.
+
+**Framework agents:** ta, me, qa, do, sd, doc, design (plus `kc` for knowledge repo setup)
 
 ---
 
@@ -68,8 +70,9 @@ This file provides guidance to Claude Code when working with the Claude Copilot 
 | I want to... | Start with | What Happens |
 |--------------|------------|--------------|
 | Fix a bug | `/protocol fix the login bug` | Defect flow: qa → me → qa |
-| Build a feature | `/protocol add dark mode UI` | Experience flow: sd → uxd → uids → ta → me → qa |
+| Build a feature | `/protocol add dark mode UI` | Experience flow: sd → design → ta → me → qa |
 | Refactor code | `/protocol refactor auth module` | Technical flow: ta → me → qa |
+| Deploy / infra work | `/protocol deploy to staging` | Infra flow: do → me → qa |
 | Improve something | `/protocol improve dashboard` | Clarification flow (asks intent) |
 | Skip design stages | `/protocol --skip-sd add feature` | Jumps to specified stage |
 | Resume yesterday's work | `/continue` | Memory loads automatically |
@@ -91,7 +94,7 @@ Persistent memory across sessions with semantic search.
 
 ### 2. Agents
 
-14 specialized agents. Every agent embeds named industry methodology — IDEO (sd), Nielsen (uxd), Rams (uids), ADR/Fitness Functions (ta), Kent Beck (me), STRIDE/DREAD (sec), Diátaxis (doc), 12-Factor/SRE (do), Atomic Design (uid), Meszaros (qa), MailChimp Voice & Tone (cw), Litmus Test (cco).
+7 specialized agents + 1 setup agent (kc). Every agent embeds named industry methodology — IDEO (sd), Nielsen + Rams + Atomic Design (design), ADR/Fitness Functions (ta), Kent Beck (me), Diátaxis (doc), 12-Factor/SRE (do), Meszaros (qa). Security (STRIDE/DREAD), copywriting (MailChimp Voice & Tone), and creative direction (Litmus Test) are available as @include skills.
 
 **Location:** `.claude/agents/`
 
@@ -132,19 +135,19 @@ Battle-tested workflow commands.
 | From | Routes To | When |
 |------|-----------|------|
 | Any | `ta` | Architecture decisions |
-| Any | `sec` | Security concerns |
-| `sd` | `uxd` | Interaction design needed |
-| `uxd` | `uids` | Visual design needed |
-| `uids` | `uid` | Implementation needed |
+| `sd` | `design` | Interaction/visual design needed |
+| `design` | `ta` | Specification ready for architecture review |
 | Any | `me` | Code implementation |
 | Any | `qa` | Testing needed |
 | Any | `doc` | Documentation needed |
+
+For security reviews, load `@include .claude/skills/security/stride-dread/SKILL.md` rather than routing to a separate agent.
 
 ---
 
 ## Specification Workflow
 
-Domain agents (sd, uxd, uids, cw, cco) **MUST NOT create tasks directly**. They create specification work products (`type: 'specification'`) and route to @agent-ta. TA discovers all specifications via `tc wp list`, reviews them, and creates tasks with `metadata.sourceSpecifications` linking back to each spec.
+Domain agents (sd, design) **MUST NOT create tasks directly**. They create specification work products (`type: 'specification'`) and route to @agent-ta. TA discovers all specifications via `tc wp list`, reviews them, and creates tasks with `metadata.sourceSpecifications` linking back to each spec.
 
 ---
 
@@ -170,7 +173,7 @@ All agents inherit these. Individual agent files should NOT repeat them.
 - **Return Format:** Return ONLY ~100 tokens to main session. Store all details via `tc wp store`.
 - **Context Compaction:** If response exceeds ~14K tokens, store as work product and return summary only.
 - **Knowledge:** Check `knowledge_search()` for voice/brand context when working on user-facing features. Never block work for missing knowledge.
-- **Specification Workflow:** Domain agents (sd, uxd, uids, cw, cco) store as `type: 'specification'`, route to @agent-ta.
+- **Specification Workflow:** Domain agents (sd, design) store as `type: 'specification'`, route to @agent-ta.
 - **Multi-Agent Handoff:** Intermediate agents: `tc handoff` then route to next agent. Final agent: `tc log --task <id>`, return consolidated summary.
 - **Testing Gate (MANDATORY):** @agent-me is NEVER final. After implementation, @agent-qa MUST run tests. No implementation ships without QA.
 - **Protocol Integration:** Output stage-complete summary with Task/WP IDs, key decisions, handoff context (200-char max).
@@ -185,7 +188,7 @@ All agents inherit these. Individual agent files should NOT repeat them.
 3. Update projects: Run `/update-project` in each project
 4. Knowledge (optional): Run `/knowledge-copilot`
 
-See [SETUP.md](SETUP.md) for details.
+**Model pinning (recommended for Copilot-style projects):** Use `.claude/claude-launcher` instead of `claude` directly. It reads `.claude/.model` (default: `claude-sonnet-4-6[1m]`) and passes `--model` automatically. Override with `CLAUDE_MODEL` env var. See [SETUP.md](SETUP.md) for details.
 
 ---
 

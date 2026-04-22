@@ -146,6 +146,44 @@ After user clarifies, route to appropriate flow.
 
 ---
 
+### Flow E: Infrastructure
+
+**Detection:** User wants to deploy, configure infrastructure, set up CI/CD, manage containers, provision cloud resources, or handle environment/secrets.
+
+**Keywords:**
+```
+staging, deploy, coolify, docker, container, ci, cd, pipeline, kubernetes, k8s
+terraform, helm, ansible, aws, gcp, azure, dns, ssl, certificate
+env var, secret, migration, infrastructure, provisioning
+github actions, dockerfile, compose, rollout, release, environment
+```
+
+**Alternative:** Use `--infra` flag to force this flow regardless of keywords.
+
+**Agent Chain:** do → me → qa
+
+**Checkpoints:** After do planning (before me implements), after me (before verification)
+
+**Notes:**
+- `@agent-do` owns deployment planning: what to deploy, env vars required, verification criteria
+- `@agent-me` implements any code/config changes required (Dockerfile edits, env wiring, CI config)
+- `@agent-qa` verifies via `tc deploy wait <app> --test <spec>` where available (Phase 3 integration)
+- Infra keywords take precedence over Flow C (Technical) when infra-specific keywords dominate (e.g., "deploy to staging" → Flow E, not Flow C)
+
+**Example:**
+```
+User: /protocol set up staging for the auth service
+
+[PROTOCOL: INFRA | Agent: @agent-do | Action: INVOKING]
+
+Routing to infrastructure flow:
+do (deploy planning) → me (config/code changes) → qa (deploy + verification)
+
+Invoking @agent-do for deployment planning...
+```
+
+---
+
 ## Checkpoint System
 
 **CRITICAL: Explicit approval required.** No auto-proceed. User must explicitly approve to continue.
@@ -257,6 +295,7 @@ Override default behavior with flags:
 | `--technical` | Force technical flow (ta → me) |
 | `--defect` | Force defect flow (qa → me → qa) |
 | `--experience` | Force experience flow (sd → uxd → uids → ta → me) |
+| `--infra` | Force infrastructure flow (do → me → qa) |
 | `--no-checkpoints` | Run full chain without pausing for approval |
 | `--verbose` | Show detailed summaries (~200 tokens) |
 | `--minimal` | Show minimal summaries (~50 tokens, y/n only) |
@@ -312,14 +351,12 @@ This framework exists to prevent context bloat. Violating these rules wastes tok
 | `@agent-ta` | Architecture, planning, PRDs, task breakdown |
 | `@agent-me` | Code implementation, bug fixes, refactoring |
 | `@agent-qa` | Testing, bug verification, test plans |
-| `@agent-sec` | Security review, threat modeling |
 | `@agent-doc` | Documentation, API docs |
 | `@agent-do` | CI/CD, deployment, infrastructure |
 | `@agent-sd` | Service design, journey mapping |
-| `@agent-uxd` | Interaction design, wireframes |
-| `@agent-uids` | Visual design, design systems |
-| `@agent-uid` | UI implementation |
-| `@agent-cw` | Content, microcopy |
+| `@agent-design` | Interaction design, visual design, UI implementation (merged) |
+| `@include .claude/skills/security/stride-dread/SKILL.md` | Security review, threat modeling |
+| `@include .claude/skills/voice-tone/SKILL.md` | Content, microcopy |
 
 **NEVER use generic agents for framework work:**
 
@@ -388,6 +425,7 @@ Generic agents bypass Task Copilot entirely. Their outputs bloat context.
 | EXPERIENCE (default) | add, create, feature, UI, or no strong keywords | @agent-sd |
 | DEFECT | bug, broken, error, fix, not working | @agent-qa |
 | TECHNICAL | refactor, optimize, architecture, performance | @agent-ta |
+| INFRA | deploy, staging, docker, ci, kubernetes, terraform, aws, dns, ssl | @agent-do |
 | CLARIFICATION | improve, enhance, update (ambiguous) | None (ask user) |
 
 ---
@@ -399,16 +437,13 @@ When agents need to hand off work to other specialists:
 | From | To | When |
 |------|-----|------|
 | Any | @agent-ta | Architecture decisions, system design, PRD-to-tasks |
-| Any | @agent-sec | Security review, threat modeling, vulnerability analysis |
 | Any | @agent-me | Code implementation, bug fixes, refactoring |
 | Any | @agent-qa | Testing strategy, test coverage, bug verification |
 | Any | @agent-doc | Documentation, API docs, guides |
 | Any | @agent-do | CI/CD, deployment, infrastructure |
-| @agent-sd | @agent-uxd | After journey mapping, for interaction design |
-| @agent-uxd | @agent-uids | After wireframes, for visual design |
-| @agent-uids | @agent-uid | After visual design, for component implementation |
-| @agent-uxd | @agent-cw | Content strategy, microcopy |
-| Any | @agent-cw | Marketing copy, user-facing content |
+| @agent-sd | @agent-design | After journey mapping, for interaction/visual design |
+| Load skill | stride-dread/SKILL.md | Security review, threat modeling, vulnerability analysis |
+| Load skill | voice-tone/SKILL.md | Marketing copy, user-facing content, microcopy |
 
 ---
 
@@ -570,12 +605,12 @@ When routing to agents or making technical decisions, reference Constitution con
 4. Wait for @agent-sd checkpoint summary
 5. Present checkpoint to user with options 1-5
 6. User responds:
-   - Option 1 (Approve): Extract handoff context, invoke @agent-uxd
+   - Option 1 (Approve): Extract handoff context, invoke @agent-design
    - Option 2 (Changes): Re-invoke @agent-sd with feedback
-   - Option 3 (Skip): Show skip warning, invoke @agent-uxd
+   - Option 3 (Skip): Show skip warning, invoke @agent-design
    - Option 4 (Go back): Not applicable (first stage)
    - Option 5 (Show details): Call work_product_get(), display, re-present options
-7. Repeat steps 4-6 for @agent-uxd, @agent-uids, @agent-ta
+7. Repeat steps 4-6 for @agent-design, @agent-ta
 8. After @agent-ta (final design stage):
    - User approves: Ask "Ready to begin implementation?"
    - If yes: Invoke @agent-me with task IDs
@@ -649,9 +684,42 @@ When routing to agents or making technical decisions, reference Constitution con
    4. Not sure, help me decide
 
 4. User selects option [1-4]
-5. Route to Flow A, B, or C based on selection
+5. Route to Flow A, B, C, or E based on selection
 6. If option 4: Provide suggestions based on context, then let user choose
 ```
+
+### Orchestration Flow: Infrastructure (Flow E)
+
+```
+1. User: /protocol set up staging for the auth service OR /protocol --infra deploy auth
+2. Main Session: Detect intent (infra keywords detected OR --infra flag)
+3. Main Session: Show protocol declaration
+   [PROTOCOL: INFRA | Agent: @agent-do | Action: INVOKING]
+
+   Routing to infrastructure flow:
+   do (deploy planning) → me (config/code changes) → qa (deploy + verification)
+
+   Invoking @agent-do for deployment planning...
+
+4. Wait for @agent-do planning checkpoint
+5. Present checkpoint: "Deployment plan ready. Proceed with implementation?"
+   Options:
+   - Yes: Extract handoff context, invoke @agent-me
+   - No/Changes: Re-invoke @agent-do with feedback
+   - Show details: Call work_product_get(), re-present options
+6. Wait for @agent-me implementation checkpoint (if code/config changes needed)
+7. Present checkpoint: "Changes implemented. Ready for deployment verification?"
+   Options:
+   - Yes: Invoke @agent-qa for verification
+   - No/Show changes: Call work_product_get(), re-present options
+   - Skip (no code changes needed): Invoke @agent-qa directly with do's plan
+8. Wait for @agent-qa verification
+   - @agent-qa uses `tc deploy wait <app> --test <spec>` for deploy verification (Phase 3)
+   - If tc deploy wait unavailable: @agent-qa verifies manually via health checks
+9. Present verification results (no checkpoint needed - final stage)
+```
+
+**Note on infra keyword precedence:** When a message contains both infra-specific keywords (deploy, staging, docker, ci, kubernetes) AND technical keywords (refactor, optimize), Flow E takes precedence. Pure technical keywords without infra context still route to Flow C.
 
 ### Checkpoint Handling Logic
 
@@ -767,8 +835,8 @@ Main session must track:
 
 ```
 {
-  currentFlow: "EXPERIENCE" | "DEFECT" | "TECHNICAL" | "CLARIFYING",
-  currentStage: "sd" | "uxd" | "uids" | "ta" | "me" | "qa",
+  currentFlow: "EXPERIENCE" | "DEFECT" | "TECHNICAL" | "CLARIFYING" | "INFRA",
+  currentStage: "sd" | "uxd" | "uids" | "ta" | "me" | "qa" | "do",
   stageHistory: ["sd", "uxd", ...],
   workProducts: ["WP-001", "WP-002", ...],
   handoffContexts: {

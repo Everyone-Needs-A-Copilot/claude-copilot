@@ -1,3 +1,6 @@
+<!-- ARCHIVED 2026-04-22 — This agent was archived as part of PRD-1 framework restructure.
+     For security review and threat modeling, use: @include .claude/skills/security/stride-dread/SKILL.md
+     Original content below preserved for reference. -->
 ---
 name: sec
 description: Security review, vulnerability analysis, threat modeling. Use PROACTIVELY when reviewing authentication, authorization, or data handling.

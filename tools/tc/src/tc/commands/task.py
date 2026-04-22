@@ -158,6 +158,8 @@ def task_update(
     agent: Optional[str] = typer.Option(None, "--agent", help="Assigned agent."),
     description: Optional[str] = typer.Option(None, "--description", help="New description."),
     priority: Optional[int] = typer.Option(None, "--priority", help="New priority 0-3."),
+    title: Optional[str] = typer.Option(None, "--title", help="New title."),
+    metadata: Optional[str] = typer.Option(None, "--metadata", help="JSON metadata to merge into existing metadata."),
     json: bool = typer.Option(False, "--json", help="Output as JSON."),
 ) -> None:
     """Update a task."""
@@ -169,6 +171,15 @@ def task_update(
         )
     if priority is not None and (priority < 0 or priority > 3):
         error_exit("Priority must be between 0 and 3", EXIT_VALIDATION)
+    if title is not None and title == "":
+        error_exit("Title cannot be empty", EXIT_VALIDATION)
+
+    new_metadata: Optional[dict] = None
+    if metadata is not None:
+        try:
+            new_metadata = json_mod.loads(metadata)
+        except json_mod.JSONDecodeError as e:
+            error_exit(f"Invalid metadata JSON: {e}", EXIT_VALIDATION)
 
     db_path = require_db()
     conn = get_db(db_path)
@@ -194,6 +205,15 @@ def task_update(
     if priority is not None:
         updates.append("priority = ?")
         params.append(priority)
+    if title is not None:
+        updates.append("title = ?")
+        params.append(title)
+    if new_metadata is not None:
+        existing_raw = row["metadata"]
+        existing: dict = json_mod.loads(existing_raw) if existing_raw else {}
+        merged = {**existing, **new_metadata}
+        updates.append("metadata = ?")
+        params.append(json_mod.dumps(merged))
 
     if not updates:
         conn.close()

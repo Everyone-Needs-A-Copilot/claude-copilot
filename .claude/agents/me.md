@@ -106,5 +106,7 @@ Summary: [2-3 sentences]
 | Route To | When |
 |----------|------|
 | @agent-qa | **ALWAYS** — every implementation MUST route to QA (mandatory) |
-| @agent-sec | Authentication, authorization, sensitive data |
 | @agent-doc | API changes need documentation |
+
+For auth, crypto, or PII handling, load the STRIDE+DREAD skill before implementation:
+`@include .claude/skills/security/stride-dread/SKILL.md`

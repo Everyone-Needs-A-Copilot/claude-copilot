@@ -1,3 +1,6 @@
+<!-- ARCHIVED 2026-04-22 — This agent was archived as part of PRD-1 framework restructure.
+     For UX copy and microcopy, use: @include .claude/skills/voice-tone/SKILL.md
+     Original content below preserved for reference. -->
 ---
 name: cw
 description: UX copy, microcopy, error messages, button labels, help text. Use PROACTIVELY when writing user-facing content.

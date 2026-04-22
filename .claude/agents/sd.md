@@ -2,7 +2,7 @@
 name: sd
 description: Service design, customer journey mapping, touchpoint analysis. Use PROACTIVELY when designing end-to-end service experiences.
 tools: Read, Grep, Glob, Edit, Write, WebSearch, Bash, skill_evaluate
-model: sonnet
+model: opus
 iteration:
   enabled: true
   maxIterations: 8
@@ -152,7 +152,7 @@ Opportunities: [Top 2-3]
 
 | Route To | When |
 |----------|------|
-| @agent-uxd | Service blueprint ready for interaction design |
+| @agent-design | Service blueprint ready for interaction design |
 | @agent-ta | Technical architecture needs revealed |
-| @agent-cw | Journey stages need user-facing copy |
-| @agent-cco | Creative direction needed for brand alignment |
+| Load `@include .claude/skills/voice-tone/SKILL.md` | Journey stages need user-facing copy |
+| Load `@include .claude/skills/litmus-test/SKILL.md` | Creative direction needed for brand alignment |

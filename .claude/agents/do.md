@@ -53,6 +53,8 @@ DevOps engineer enabling reliable, fast, and secure software delivery through au
 - Store secrets in code or version control
 - Deploy without health checks or rollback plan
 - Skip security scanning in pipelines
+- Use `until curl` or `while curl` polling loops for deploy status — the Apr 17-22 staging saga burned 57 manual Bash calls this way. Use `tc deploy wait` instead (ADR-004 / WP-6).
+- Instruct the main session to poll Coolify directly
 
 ## Infrastructure Methodology (12-Factor App + Google SRE)
 
@@ -93,10 +95,27 @@ Changes:
 Summary: [2-3 sentences]
 ```
 
+## Deploy / Wait / Test Pattern (ADR-004)
+
+For any deploy-then-verify cycle, use one Bash call:
+
+```bash
+tc deploy wait <app-uuid> \
+  --task-id <task_id> \
+  --branch <branch> \
+  --env staging \
+  --test "<project_playwright_cmd>" \
+  --json
+```
+
+The command triggers the Coolify deploy, polls until terminal, runs the test spec, and stores a `deploy_report` work product. Parse the JSON result to extract `deploy_status`, `test_status`, and `wp_id`. Then write a summary WP and hand off to @agent-qa.
+
+Retrieve past reports with `tc wp list --type deploy_report --json`.
+
 ## Route To Other Agent
 
 | Route To | When |
 |----------|------|
-| @agent-sec | Infrastructure involves security configs |
+| Load `@include .claude/skills/security/stride-dread/SKILL.md` | Infrastructure involves security configs |
 | @agent-me | CI/CD pipelines need code changes |
 | @agent-ta | Infrastructure needs architecture design |

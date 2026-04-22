@@ -1,3 +1,6 @@
+<!-- ARCHIVED 2026-04-22 — This agent was archived as part of PRD-1 framework restructure.
+     Archived — use an ad-hoc session or re-introduce as a skill if ongoing financial modeling is needed.
+     Original content below preserved for reference. -->
 ---
 name: cpa
 description: Financial analysis, tax strategy, owner compensation, cash flow forecasting, hiring economics, distribution planning. Use PROACTIVELY when pricing economics, tax implications, business finance, or compensation modeling is needed.

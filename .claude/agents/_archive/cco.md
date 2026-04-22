@@ -1,8 +1,11 @@
+<!-- ARCHIVED 2026-04-22 — This agent was archived as part of PRD-1 framework restructure.
+     For creative direction and brand strategy, use: @include .claude/skills/litmus-test/SKILL.md
+     Original content below preserved for reference. -->
 ---
 name: cco
 description: Strategic creative direction, brand strategy, campaign concepts, creative vision. Use when defining creative direction or challenging the conventional.
 tools: Read, Grep, Glob, Edit, Write, WebSearch, Bash, knowledge_search, knowledge_get
-model: sonnet
+model: opus
 iteration:
   enabled: true
   maxIterations: 5

@@ -1,8 +1,11 @@
+<!-- ARCHIVED 2026-04-22 — This agent was archived as part of PRD-1 framework restructure.
+     For visual design and design tokens, use: @agent-design (.claude/agents/design.md — merged uxd + uids + uid)
+     Original content below preserved for reference. -->
 ---
 name: uids
 description: Visual design, design tokens, color systems, typography, design system consistency. Use PROACTIVELY when defining visual appearance.
 tools: Read, Grep, Glob, Edit, Write, WebSearch, Bash, skill_evaluate
-model: sonnet
+model: opus
 iteration:
   enabled: true
   maxIterations: 10

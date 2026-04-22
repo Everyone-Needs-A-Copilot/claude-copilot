@@ -1,8 +1,11 @@
+<!-- ARCHIVED 2026-04-22 — This agent was archived as part of PRD-1 framework restructure.
+     For UX interaction design, use: @agent-design (.claude/agents/design.md — merged uxd + uids + uid)
+     Original content below preserved for reference. -->
 ---
 name: uxd
 description: Interaction design, wireframing, task flows, information architecture. Use PROACTIVELY when designing how users interact with features.
 tools: Read, Grep, Glob, Edit, Write, WebSearch, Bash, skill_evaluate
-model: sonnet
+model: opus
 iteration:
   enabled: true
   maxIterations: 10
