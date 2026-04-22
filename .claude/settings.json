@@ -2,11 +2,11 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|Read|Edit|Agent",
+        "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/pretool-check.sh"
+            "command": "/Volumes/Dev/Sites/COPILOT/claude-copilot/.claude/hooks/pretool-check.sh"
           }
         ]
       }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/subagent-stop.sh"
+            "command": "/Volumes/Dev/Sites/COPILOT/claude-copilot/.claude/hooks/subagent-stop.sh"
           }
         ]
       }
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/user-prompt-submit.sh"
+            "command": "/Volumes/Dev/Sites/COPILOT/claude-copilot/.claude/hooks/user-prompt-submit.sh"
           }
         ]
       }

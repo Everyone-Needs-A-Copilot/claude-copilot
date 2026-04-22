@@ -42,12 +42,17 @@
 #      while any task is in pending-qa state for this session.
 #      Task: 16 (P4.1). Bypass: COPILOT_QA_GATE=off
 
-set -euo pipefail
+set -uo pipefail
+
+# Emit a diagnostic and exit 0 (fail-open) on any unexpected ERR so that
+# hook failures never silently block legitimate tool calls.
+trap 'echo "[pretool-check] unexpected exit $? at line $LINENO" >&2; exit 0' ERR
 
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)" \
+  || { echo "[pretool-check] could not resolve SCRIPT_DIR" >&2; exit 0; }
 STATE_DIR="${SCRIPT_DIR}/state"
 JQ="/usr/bin/jq"
 
@@ -60,8 +65,10 @@ if [[ -z "$PAYLOAD" ]]; then
   exit 0
 fi
 
-SESSION_ID="$(printf '%s' "$PAYLOAD" | "$JQ" -r '.session_id // ""' 2>/dev/null || echo "")"
-TOOL_NAME="$(printf '%s' "$PAYLOAD" | "$JQ" -r '.tool_name // ""' 2>/dev/null || echo "")"
+SESSION_ID="$("$JQ" -r '.session_id // ""' <<< "$PAYLOAD" 2>/dev/null)" \
+  || { echo "[pretool-check] jq parse failed reading session_id" >&2; exit 0; }
+TOOL_NAME="$("$JQ" -r '.tool_name // ""' <<< "$PAYLOAD" 2>/dev/null)" \
+  || { echo "[pretool-check] jq parse failed reading tool_name" >&2; exit 0; }
 
 if [[ -z "$SESSION_ID" || -z "$TOOL_NAME" ]]; then
   # Malformed payload — allow and let Claude handle it
@@ -99,7 +106,9 @@ read_streak() {
     return
   fi
   local updated_at
-  updated_at="$("$JQ" -r '.updatedAt // ""' "$STATE_FILE" 2>/dev/null || echo "")"
+  updated_at="$("$JQ" -r '.updatedAt // ""' "$STATE_FILE" 2>/dev/null)" \
+    || { echo "[pretool-check] jq parse failed reading updatedAt from $STATE_FILE" >&2
+         echo '{"lastTool":"","streak":0}'; return; }
   if [[ -n "$updated_at" ]]; then
     local now_epoch file_epoch
     now_epoch="$(date -u +%s)"
@@ -116,8 +125,11 @@ read_streak() {
       return
     fi
   fi
-  "$JQ" '{lastTool: .lastTool, streak: .streak}' "$STATE_FILE" 2>/dev/null \
-    || echo '{"lastTool":"","streak":0}'
+  local result
+  result="$("$JQ" '{lastTool: .lastTool, streak: .streak}' "$STATE_FILE" 2>/dev/null)" \
+    || { echo "[pretool-check] jq parse failed reading streak from $STATE_FILE" >&2
+         echo '{"lastTool":"","streak":0}'; return; }
+  echo "$result"
 }
 
 write_streak() {
@@ -139,13 +151,42 @@ deny() {
 }
 
 # ---------------------------------------------------------------------------
+# Safe Bash command prefixes that are always allowed in force-delegate rule.
+# These are single-shot, non-looping operations that must not count toward the
+# consecutive-tool streak.
+# ---------------------------------------------------------------------------
+FORCE_DELEGATE_SAFE_PREFIXES=(
+  "git push"
+  "git pull"
+  "git fetch"
+  "git status"
+  "git log"
+  "git diff"
+  "git show"
+  "git stash"
+  "git tag"
+  "git remote"
+)
+
+is_force_delegate_safe_bash() {
+  local cmd="$1"
+  local prefix
+  for prefix in "${FORCE_DELEGATE_SAFE_PREFIXES[@]}"; do
+    if [[ "$cmd" == "${prefix}"* ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# ---------------------------------------------------------------------------
 # Rule: force-delegate
 # Deny when the same tool (Bash|Read|Edit) is called 5+ times consecutively.
 # The Agent tool is never subject to this rule (delegation is always allowed).
-# Bypass: COPILOT_FORCE_DELEGATE=off
+# Bypass: COPILOT_FORCE_DELEGATE=off (env var or command prefix)
 # ---------------------------------------------------------------------------
 rule_force_delegate() {
-  # Check escape hatch
+  # Check escape hatch via environment variable
   if [[ "${COPILOT_FORCE_DELEGATE:-}" == "off" ]]; then
     return 0
   fi
@@ -156,14 +197,35 @@ rule_force_delegate() {
     *) return 0 ;;
   esac
 
+  # For Bash calls: check command-string escape hatch and safe-prefix allowlist
+  if [[ "$TOOL_NAME" == "Bash" ]]; then
+    local cmd
+    cmd="$("$JQ" -r '.tool_input.command // ""' <<< "$PAYLOAD" 2>/dev/null)" \
+      || { echo "[pretool-check] jq parse failed reading command in force-delegate" >&2; return 0; }
+
+    # Command-string escape hatch: COPILOT_FORCE_DELEGATE=off as command prefix
+    if [[ "$cmd" == COPILOT_FORCE_DELEGATE=off* ]]; then
+      return 0
+    fi
+
+    # Safe single-shot git operations don't count toward the streak
+    if is_force_delegate_safe_bash "$cmd"; then
+      return 0
+    fi
+  fi
+
   acquire_lock
   trap 'release_lock' EXIT
 
   local state
   state="$(read_streak)"
   local last_tool streak
-  last_tool="$(printf '%s' "$state" | "$JQ" -r '.lastTool')"
-  streak="$(printf '%s' "$state" | "$JQ" -r '.streak')"
+  last_tool="$("$JQ" -r '.lastTool // ""' <<< "$state" 2>/dev/null)" \
+    || { echo "[pretool-check] jq parse failed reading lastTool from streak state" >&2
+         release_lock; trap - EXIT; return 0; }
+  streak="$("$JQ" -r '.streak // 0' <<< "$state" 2>/dev/null)" \
+    || { echo "[pretool-check] jq parse failed reading streak from streak state" >&2
+         release_lock; trap - EXIT; return 0; }
 
   if [[ "$TOOL_NAME" == "$last_tool" ]]; then
     streak=$((streak + 1))
@@ -232,10 +294,14 @@ rule_qa_gate() {
   # Read pending_tasks for this session
   local pending_json
   pending_json="$("$JQ" -r --arg sid "$SESSION_ID" \
-    '.[$sid].pending_tasks // [] | @json' "$gate_file" 2>/dev/null || echo "[]")"
+    '.[$sid].pending_tasks // [] | @json' "$gate_file" 2>/dev/null)" \
+    || { echo "[pretool-check] jq parse failed reading qa-gate pending_tasks" >&2; return 0; }
+  pending_json="${pending_json:-[]}"
 
   local pending_count
-  pending_count="$(printf '%s' "$pending_json" | "$JQ" 'length' 2>/dev/null || echo 0)"
+  pending_count="$("$JQ" 'length' <<< "$pending_json" 2>/dev/null)" \
+    || { echo "[pretool-check] jq parse failed counting pending_tasks" >&2; return 0; }
+  pending_count="${pending_count:-0}"
 
   if [[ "$pending_count" -eq 0 ]]; then
     return 0
@@ -243,12 +309,15 @@ rule_qa_gate() {
 
   # Build a readable list of blocking task IDs
   local blocking_ids
-  blocking_ids="$(printf '%s' "$pending_json" | "$JQ" -r 'join(", ")' 2>/dev/null || echo "unknown")"
+  blocking_ids="$("$JQ" -r 'join(", ")' <<< "$pending_json" 2>/dev/null)" \
+    || blocking_ids="unknown"
+  blocking_ids="${blocking_ids:-unknown}"
 
   # Allow: Agent tool with subagent_type == "qa"
   if [[ "$TOOL_NAME" == "Agent" ]]; then
     local subagent_type
-    subagent_type="$(printf '%s' "$PAYLOAD" | "$JQ" -r '.tool_input.subagent_type // ""' 2>/dev/null || echo "")"
+    subagent_type="$("$JQ" -r '.tool_input.subagent_type // ""' <<< "$PAYLOAD" 2>/dev/null)" \
+      || subagent_type=""
     if [[ "$subagent_type" == "qa" ]]; then
       return 0
     fi
@@ -259,7 +328,8 @@ rule_qa_gate() {
   # Allow: Bash with safe tc introspection command
   if [[ "$TOOL_NAME" == "Bash" ]]; then
     local cmd
-    cmd="$(printf '%s' "$PAYLOAD" | "$JQ" -r '.tool_input.command // ""' 2>/dev/null || echo "")"
+    cmd="$("$JQ" -r '.tool_input.command // ""' <<< "$PAYLOAD" 2>/dev/null)" \
+      || cmd=""
     if is_safe_bash_command "$cmd"; then
       return 0
     fi
