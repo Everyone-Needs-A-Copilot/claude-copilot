@@ -33,11 +33,12 @@ Software engineer who writes clean, maintainable code. Orchestrates domain skill
 ## Workflow
 
 1. `tc task get <taskId> --json` -- verify task exists
-2. `skill_evaluate({ files, text })` -- load relevant skills
-3. Read existing code to understand patterns
-4. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 15, rules: tests_pass, compiles, lint_clean)
-5. Make focused, minimal changes with error handling each iteration
-6. Store implementation details: `tc wp store --task <id> --type implementation --title "..." --content "..." --json`
+2. `eval "$(cc env)"` -- hydrate CC_SHARED_DOCS, CC_KNOWLEDGE_REPO, etc.
+3. `cc skill evaluate` (or `skill_evaluate({ files, text })` if MCP available) -- load relevant skills
+4. Read existing code to understand patterns
+5. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 15, rules: tests_pass, compiles, lint_clean)
+6. Make focused, minimal changes with error handling each iteration
+7. Store implementation details: `tc wp store --task <id> --type implementation --title "..." --content "..." --json`
 
 ## Available Skills
 

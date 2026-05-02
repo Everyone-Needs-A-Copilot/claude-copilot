@@ -1,0 +1,21 @@
+{
+  "$schema": "cc-config-v1",
+  "version": 1,
+  "paths": {
+    "memory": "/machine/memory",
+    "shared_docs": "/machine/shared-docs",
+    "knowledge_repo": "/machine/knowledge",
+    "global_skills_dir": "/machine/skills",
+    "embedding_cache": "/machine/cache/models"
+  },
+  "memory": {
+    "embedding_model": "all-MiniLM-L6-v2",
+    "default_threshold": 0.7
+  },
+  "skills": {
+    "cache_ttl_hours": 24
+  },
+  "telemetry": {
+    "enabled": false
+  }
+}

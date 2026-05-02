@@ -200,6 +200,34 @@ Fix: Run /setup from ~/.claude/copilot first to build MCP servers
 
 ---
 
+## Step 7B: Initialize cc Project Config
+
+Tell user: "Initializing cc project config..."
+
+```bash
+cc config init --project
+```
+
+This creates `.claude/cc/config.json` with `@machine` sentinel defaults so project config can reference machine-level paths without duplicating them.
+
+**Add memory files to .gitignore:**
+
+```bash
+# Add SQLite index (gitignored — local cache only)
+if ! grep -q '\.claude/memory/memory\.db' .gitignore 2>/dev/null; then
+  printf '\n# cc memory index (local SQLite cache)\n.claude/memory/memory.db\n.claude/memory/memory.db-*\n' >> .gitignore
+fi
+```
+
+**Track the entries directory:**
+
+```bash
+mkdir -p .claude/memory/entries
+touch .claude/memory/entries/.gitkeep
+```
+
+---
+
 ## Step 8: Detect Knowledge
 
 ### 8.1: Check Global Knowledge

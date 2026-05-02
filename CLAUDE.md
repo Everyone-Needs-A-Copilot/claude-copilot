@@ -77,7 +77,7 @@ This file provides guidance to Claude Code when working with the Claude Copilot 
 | Skip design stages | `/protocol --skip-sd add feature` | Jumps to specified stage |
 | Resume yesterday's work | `/continue` | Memory loads automatically |
 | Run parallel work streams | `/orchestrate generate` then `/orchestrate start` | Create PRD + tasks → set up worktrees |
-| Search past decisions | Use `memory_search` tool | Semantic search across sessions |
+| Search past decisions | `cc memory search "<query>"` | Semantic search across sessions |
 | Load local skill | `@include .claude/skills/NAME/SKILL.md` | Direct file include |
 
 ---
@@ -88,9 +88,11 @@ This file provides guidance to Claude Code when working with the Claude Copilot 
 
 Persistent memory across sessions with semantic search.
 
-**Essential Tools:** `initiative_get`, `initiative_start`, `initiative_update`, `initiative_complete`, `memory_store`, `memory_search`
+**Storage:** `.claude/memory/entries/<uuid>.md` (committed, travels with repo)
+**Commands:** `cc memory store`, `cc memory search`, `cc memory get`, `cc memory list`
+**Index:** `cc memory index --rebuild` (local SQLite cache, gitignored)
 
-**Location:** `mcp-servers/copilot-memory/`
+**Location:** `tools/cc/`
 
 ### 2. Agents
 
@@ -100,13 +102,13 @@ Persistent memory across sessions with semantic search.
 
 ### 3. Skills
 
-Load via native @include (recommended) or Skills Copilot MCP server (optional).
+Load via native @include (recommended), `cc skill` CLI, or Skills Copilot MCP server (optional).
 
 **Native:** `@include .claude/skills/NAME/SKILL.md`
 
-**MCP Tools:** `skill_get`, `skill_search`, `skill_list`, `skill_evaluate`, `knowledge_search`, `knowledge_get`
+**cc CLI:** `cc skill get <name>`, `cc skill search "<query>"`, `cc skill list`, `cc skill evaluate`
 
-**Location:** `mcp-servers/skills-copilot/`
+**Location:** `tools/cc/`
 
 ### 4. Task Copilot
 
@@ -167,12 +169,14 @@ Agents verify their task exists and check environment health before starting wor
 
 All agents inherit these. Individual agent files should NOT repeat them.
 
-- **Skill Loading:** Call `skill_evaluate({ files, text, threshold: 0.5 })` at start
+- **Env Hydration:** Run `eval "$(cc env)"` at start to hydrate `CC_SHARED_DOCS`, `CC_KNOWLEDGE_REPO`, and other machine-level paths
+- **Skill Loading:** Run `cc skill evaluate` (or call `skill_evaluate({ files, text, threshold: 0.5 })` if MCP available) at start
+- **Memory:** Use `cc memory store --type <type> "<content>"` and `cc memory search "<query>"` instead of MCP `memory_store`/`memory_search`
 - **Task Copilot Pattern:** `tc task get` → do work → `tc wp store` → `tc task update --status completed`
 - **Iteration Loop:** Self-manage iterations (max from frontmatter). Pass → complete. Blocked → emit `<promise>BLOCKED</promise>`. Else → iterate.
 - **Return Format:** Return ONLY ~100 tokens to main session. Store all details via `tc wp store`.
 - **Context Compaction:** If response exceeds ~14K tokens, store as work product and return summary only.
-- **Knowledge:** Check `knowledge_search()` for voice/brand context when working on user-facing features. Never block work for missing knowledge.
+- **Knowledge:** Run `cc memory search "<voice/brand query>"` for user-facing features. Never block work for missing knowledge.
 - **Specification Workflow:** Domain agents (sd, design) store as `type: 'specification'`, route to @agent-ta.
 - **Multi-Agent Handoff:** Intermediate agents: `tc handoff` then route to next agent. Final agent: `tc log --task <id>`, return consolidated summary.
 - **Testing Gate (MANDATORY):** @agent-me is NEVER final. After implementation, @agent-qa MUST run tests. No implementation ships without QA.
@@ -187,6 +191,12 @@ All agents inherit these. Individual agent files should NOT repeat them.
 2. Project setup (per project): Run `/setup-project`
 3. Update projects: Run `/update-project` in each project
 4. Knowledge (optional): Run `/knowledge-copilot`
+
+**cc CLI** — unified tool for memory and skill management:
+- Install: `bash tools/cc/install.sh`
+- Machine config: `cc config set shared_docs /path/to/docs`
+- Env hydration: `eval "$(cc env)"` in agent preamble
+- Full docs: `cc --help`
 
 **Model pinning (recommended for Copilot-style projects):** Use `.claude/claude-launcher` instead of `claude` directly. It reads `.claude/.model` (default: `claude-sonnet-4-6[1m]`) and passes `--model` automatically. Override with `CLAUDE_MODEL` env var. See [SETUP.md](SETUP.md) for details.
 
@@ -216,7 +226,7 @@ Use `/continue` to load context from Memory Copilot.
 
 ### End of Session
 
-Call `initiative_update` with:
+Call `cc memory store --type initiative` with session context, or use `initiative_update` (legacy MCP) with:
 
 | Field | Content |
 |-------|---------|

@@ -1,0 +1,12 @@
+{
+  "$schema": "cc-config-v1",
+  "version": 1,
+  "paths": {
+    "memory": ".claude/memory",
+    "shared_docs": "@machine",
+    "knowledge_repo": "@machine"
+  },
+  "memory": {
+    "scope": "project"
+  }
+}

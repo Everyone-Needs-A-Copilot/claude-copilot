@@ -1,3 +1,6 @@
+> **Deprecated:** `copilot-memory` and `skills-copilot` are superseded by the `cc` CLI (`tools/cc/`).
+> See `mcp-servers/copilot-memory/DEPRECATED.md` and `mcp-servers/skills-copilot/DEPRECATED.md` for migration guides.
+
 # MCP Servers Directory
 
 This directory contains MCP (Model Context Protocol) server configurations and the universal launcher script.

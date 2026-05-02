@@ -156,7 +156,45 @@ Should show: `setup-copilot.md`, `setup-project.md`, `update-project.md`, `updat
 
 ---
 
-## Step 9: Check for Global Knowledge
+## Step 9: Install cc CLI
+
+Tell user: "Installing cc CLI (memory and skills manager)..."
+
+```bash
+bash ~/.claude/copilot/tools/cc/install.sh
+```
+
+**Verify:**
+```bash
+cc --version
+```
+
+### Step 9B: Configure Machine-Level Paths
+
+Use AskUserQuestion to gather optional paths:
+
+**Question 1:** "Path to your shared-docs repository (optional, press Enter to skip)"
+- Header: "Shared Docs Path"
+- Let user type freely or press Enter
+
+**Question 2:** "Path to your knowledge repository (optional, press Enter to skip)"
+- Header: "Knowledge Repo Path"
+- Let user type freely or press Enter
+
+For each non-empty path provided, run:
+```bash
+cc config set shared_docs <path>   # if provided
+cc config set knowledge_repo <path>  # if provided
+```
+
+Then verify:
+```bash
+cc doctor
+```
+
+---
+
+## Step 11: Check for Global Knowledge
 
 ```bash
 ls ~/.claude/knowledge/knowledge-manifest.json 2>/dev/null && echo "KNOWLEDGE_EXISTS" || echo "NO_KNOWLEDGE"
@@ -166,7 +204,7 @@ Store result for reporting.
 
 ---
 
-## Step 10: Report Success
+## Step 12: Report Success
 
 ---
 
@@ -178,6 +216,7 @@ Claude Copilot is installed at `~/.claude/copilot`
 - Memory Server - Persists decisions, lessons, and progress
 - Skills Server - Powers agents and knowledge search
 - tc CLI - Manages PRDs, tasks, and work products
+- cc CLI - Unified memory and skills manager
 - 12 Specialized Agents - Expert guidance for any task
 
 **Global commands installed:**

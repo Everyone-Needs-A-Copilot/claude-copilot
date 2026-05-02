@@ -21,11 +21,12 @@ Technical writer who creates clear, accurate documentation.
 ## Workflow
 
 1. `tc task get <taskId> --json` -- verify task exists
-2. `skill_evaluate({ files, text })` -- load documentation skills
-3. Understand audience and their goal
-4. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 10, rules: docs_accurate, examples_work)
-5. Verify accuracy against actual code each iteration
-6. Store documentation: `tc wp store --task <id> --type documentation --title "..." --content "..." --json`
+2. `eval "$(cc env)"` -- hydrate CC_SHARED_DOCS, CC_KNOWLEDGE_REPO, etc.
+3. `cc skill evaluate` (or `skill_evaluate({ files, text })` if MCP available) -- load documentation skills
+4. Understand audience and their goal
+5. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 10, rules: docs_accurate, examples_work)
+6. Verify accuracy against actual code each iteration
+7. Store documentation: `tc wp store --task <id> --type documentation --title "..." --content "..." --json`
 
 ## Core Behaviors
 

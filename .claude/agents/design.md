@@ -280,15 +280,16 @@ Atomic Design (Brad Frost) — composition hierarchy:
 ## Workflow
 
 1. `tc task get <taskId> --json` — verify task exists
-2. `skill_evaluate({ files, text })` — load relevant skills
-3. Understand inputs; write JTBD for each flow (Steps 1–2)
-4. Diverge with 3+ approaches; evaluate against Nielsen's Heuristics (Steps 3–4)
-5. Converge; detail all 8 states; map accessibility (Steps 5–7)
-6. Check for existing design system; set mode (Step 8)
-7. Choose aesthetic direction; build token system (Steps 9–10)
-8. Plan atomic composition (Step 11)
-9. Self-critique via Rams + Anti-Slop Detector
-10. Store as specification: `tc wp store --task <id> --type specification --title "..." --content "..." --json`, route to @agent-ta
+2. `eval "$(cc env)"` — hydrate CC_SHARED_DOCS, CC_KNOWLEDGE_REPO, etc.
+3. `cc skill evaluate` (or `skill_evaluate({ files, text })` if MCP available) — load relevant skills
+4. Understand inputs; write JTBD for each flow (Steps 1–2)
+5. Diverge with 3+ approaches; evaluate against Nielsen's Heuristics (Steps 3–4)
+6. Converge; detail all 8 states; map accessibility (Steps 5–7)
+7. Check for existing design system; set mode (Step 8)
+8. Choose aesthetic direction; build token system (Steps 9–10)
+9. Plan atomic composition (Step 11)
+10. Self-critique via Rams + Anti-Slop Detector
+11. Store as specification: `tc wp store --task <id> --type specification --title "..." --content "..." --json`, route to @agent-ta
 
 Design does NOT implement production code — implementation flows design → ta → me to preserve architecture gate. Prototypes and component stubs are allowed in the design work product.
 

@@ -290,7 +290,91 @@ fi
 
 ---
 
-## Step 10: Verify Update
+## Step 10: Update cc CLI and Project Config
+
+### 10A: Check cc Is Installed
+
+```bash
+which cc >/dev/null 2>&1 && echo "CC_OK" || echo "CC_MISSING"
+```
+
+**If CC_MISSING:**
+
+Tell user: "Installing cc CLI..."
+
+```bash
+bash ~/.claude/copilot/tools/cc/install.sh
+```
+
+After install, verify:
+
+```bash
+which cc >/dev/null 2>&1 && echo "CC_INSTALLED" || echo "CC_INSTALL_FAILED"
+```
+
+If CC_INSTALL_FAILED, tell user:
+
+---
+
+**cc install failed.**
+
+Try installing manually:
+```bash
+bash ~/.claude/copilot/tools/cc/install.sh
+```
+
+---
+
+Then continue (do not stop — remaining steps may still work).
+
+### 10B: Check cc Project Config
+
+```bash
+ls .claude/cc/config.json 2>/dev/null && echo "CC_CONFIG_OK" || echo "CC_CONFIG_MISSING"
+```
+
+**If CC_CONFIG_MISSING:**
+
+Tell user: "Initializing cc project config..."
+
+```bash
+cc config init --project
+```
+
+### 10C: Ensure Memory Directory and .gitignore
+
+```bash
+# Ensure entries directory exists with a tracking file
+if [ ! -d ".claude/memory/entries" ]; then
+  mkdir -p .claude/memory/entries
+  touch .claude/memory/entries/.gitkeep
+  echo "Created .claude/memory/entries/"
+fi
+
+# Ensure .claude/memory/.gitignore exists with correct entries
+if [ ! -f ".claude/memory/.gitignore" ]; then
+  printf 'memory.db\nmemory.db-*\n' > .claude/memory/.gitignore
+  echo "Created .claude/memory/.gitignore"
+fi
+```
+
+### 10D: Run cc doctor
+
+```bash
+cc doctor 2>&1
+```
+
+If `cc doctor` reports any issues (non-zero exit or lines containing "WARN" or "ERROR"), print the output and tell user:
+
+---
+
+**cc doctor reported issues. Please review and resolve the items above before continuing.**
+
+---
+
+---
+
+## Step 11: Verify Update
 
 ```bash
 echo "=== Updated Commands ==="
@@ -326,7 +410,7 @@ fi
 
 ---
 
-## Step 11: Report Success
+## Step 12: Report Success
 
 ```bash
 # Get Claude Copilot version
@@ -378,6 +462,11 @@ Tell user:
 - `.mcp.json` unchanged (all servers already configured)
 {{END_IF}}
 
+**cc CLI:**
+- cc installed and project config verified
+- Memory directory and `.gitignore` ensured
+- `cc doctor` passed (or issues printed above)
+
 **Unchanged:**
 - `CLAUDE.md`
 - `.claude/skills/`
@@ -394,6 +483,8 @@ $SUMMARY
 **Full details:** `~/.claude/copilot/CHANGELOG.md`
 
 Your project now has the latest Claude Copilot commands and agents.
+
+**Next step:** Run `cc memory index --rebuild` to refresh your local search index with any new memory entries.
 
 ---
 

@@ -30,11 +30,12 @@ Quality assurance engineer who ensures software works through comprehensive test
 ## Workflow
 
 1. `tc task get <taskId> --json` -- verify task exists
-2. `skill_evaluate({ files, text })` -- load testing skills
-3. Understand feature/bug being tested
-4. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 12, rules: tests_written, tests_pass, coverage_sufficient)
-5. Design and write tests: happy path + edge cases, following testing pyramid (unit > integration > E2E)
-6. Store test plan: `tc wp store --task <id> --type test-plan --title "..." --content "..." --json`
+2. `eval "$(cc env)"` -- hydrate CC_SHARED_DOCS, CC_KNOWLEDGE_REPO, etc.
+3. `cc skill evaluate` (or `skill_evaluate({ files, text })` if MCP available) -- load testing skills
+4. Understand feature/bug being tested
+5. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 12, rules: tests_written, tests_pass, coverage_sufficient)
+6. Design and write tests: happy path + edge cases, following testing pyramid (unit > integration > E2E)
+7. Store test plan: `tc wp store --task <id> --type test-plan --title "..." --content "..." --json`
 
 ## Testing Priorities
 

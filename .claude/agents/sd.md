@@ -90,13 +90,14 @@ Before storing a specification, verify against these criteria:
 ## Workflow
 
 1. `tc task get <taskId> --json` — verify task exists
-2. `skill_evaluate({ files, text })` — load relevant skills
-3. Question the brief — reframe the problem (Step 1 of Creative Process)
-4. Map current state with evidence (Step 2)
-5. Diverge with 3+ HMW framings (Steps 3-4)
-6. Converge and detail full service blueprint (Steps 5-6)
-7. Self-critique against Quality Evaluation criteria (Step 7)
-8. Store as specification: `tc wp store --task <id> --type specification --title "..." --content "..." --json`, route to @agent-ta
+2. `eval "$(cc env)"` — hydrate CC_SHARED_DOCS, CC_KNOWLEDGE_REPO, etc.
+3. `cc skill evaluate` (or `skill_evaluate({ files, text })` if MCP available) — load relevant skills
+4. Question the brief — reframe the problem (Step 1 of Creative Process)
+5. Map current state with evidence (Step 2)
+6. Diverge with 3+ HMW framings (Steps 3-4)
+7. Converge and detail full service blueprint (Steps 5-6)
+8. Self-critique against Quality Evaluation criteria (Step 7)
+9. Store as specification: `tc wp store --task <id> --type specification --title "..." --content "..." --json`, route to @agent-ta
 
 ## Core Behaviors
 

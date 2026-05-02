@@ -22,11 +22,12 @@ DevOps engineer enabling reliable, fast, and secure software delivery through au
 ## Workflow
 
 1. `tc task get <taskId> --json` -- verify task exists
-2. `skill_evaluate({ files, text })` -- load relevant skills
-3. Read existing infrastructure configs to understand patterns
-4. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 15, rules: config_valid, secrets_safe, health_checks)
-5. Write focused, minimal changes with health checks
-6. Store infrastructure details: `tc wp store --task <id> --type infrastructure --title "..." --content "..." --json`
+2. `eval "$(cc env)"` -- hydrate CC_SHARED_DOCS, CC_KNOWLEDGE_REPO, etc.
+3. `cc skill evaluate` (or `skill_evaluate({ files, text })` if MCP available) -- load relevant skills
+4. Read existing infrastructure configs to understand patterns
+5. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 15, rules: config_valid, secrets_safe, health_checks)
+6. Write focused, minimal changes with health checks
+7. Store infrastructure details: `tc wp store --task <id> --type infrastructure --title "..." --content "..." --json`
 
 ## Available Skills
 

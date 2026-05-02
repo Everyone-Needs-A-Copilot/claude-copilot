@@ -112,9 +112,10 @@ This creates a knowledge repository for company/product information that's share
 
 | Component | Purpose |
 |-----------|---------|
-| `mcp-servers/copilot-memory/` | Persistent memory across sessions (required) |
+| `mcp-servers/copilot-memory/` | Persistent memory across sessions (legacy; replaced by `cc`) |
 | `mcp-servers/skills-copilot/` | OPTIONAL: Advanced skill management + marketplace access |
 | `tools/tc/` | `tc` CLI for PRD, task, and work product management (required) |
+| `tools/cc/` | `cc` CLI — unified memory + skills tool replacing the MCP servers (required) |
 | `.claude/agents/` | 14 specialized agent definitions |
 | `.claude/commands/` | Source command files |
 | `templates/` | Project setup templates |
@@ -176,6 +177,9 @@ npm run build
 
 # tc CLI - Task Copilot (required)
 pip install -e ~/.claude/copilot/tools/tc
+
+# cc CLI - unified memory + skills (required)
+bash ~/.claude/copilot/tools/cc/install.sh
 ```
 
 **Optional - Skills Copilot (only if you need marketplace/database):**
@@ -259,9 +263,10 @@ Optional (if configured):
 ● skills-copilot
 ```
 
-Also verify the `tc` CLI is installed:
+Also verify the `tc` and `cc` CLIs are installed:
 ```bash
 tc version
+cc --version
 ```
 
 **Using Skills:**
