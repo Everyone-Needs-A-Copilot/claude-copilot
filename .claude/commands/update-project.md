@@ -35,8 +35,7 @@ Then STOP. Do not continue.
 ## Step 2: Verify Machine Setup
 
 ```bash
-ls ~/.claude/copilot/mcp-servers/copilot-memory/dist/index.js 2>/dev/null && echo "MEMORY_OK" || echo "MEMORY_MISSING"
-ls ~/.claude/copilot/mcp-servers/skills-copilot/dist/index.js 2>/dev/null && echo "SKILLS_OK" || echo "SKILLS_MISSING"
+which cc >/dev/null 2>&1 && echo "CC_CLI_OK" || echo "CC_CLI_MISSING"
 which tc >/dev/null 2>&1 && echo "TC_CLI_OK" || echo "TC_CLI_MISSING"
 ```
 
@@ -46,17 +45,21 @@ Tell user:
 
 ---
 
-**Claude Copilot installation not found.**
+**Claude Copilot CLIs not found.**
 
-The MCP servers at `~/.claude/copilot/` are missing or not built.
+One or more required CLIs (`cc`, `tc`) are missing.
 
-Please verify your Claude Copilot installation:
+Please run machine setup first:
 ```bash
 cd ~/.claude/copilot
-git pull
+/setup
 ```
 
-Then rebuild the MCP servers following the instructions in `SETUP.md`.
+Or install manually:
+```bash
+bash ~/.claude/copilot/tools/cc/install.sh
+pip install -e ~/.claude/copilot/tools/tc
+```
 
 ---
 
