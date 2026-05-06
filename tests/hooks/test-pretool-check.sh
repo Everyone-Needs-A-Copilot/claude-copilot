@@ -620,6 +620,99 @@ test_qa_gate_cleared_allows_calls() {
 }
 
 # ---------------------------------------------------------------------------
+# Test 12: git push / git pull are allowlisted — never count toward streak
+# ---------------------------------------------------------------------------
+test_git_push_pull_allowlisted() {
+  clean_state
+
+  # Pre-fill streak=4 (one below deny threshold) to prove git ops don't advance it
+  printf '{"session_id":"%s","lastTool":"Bash","streak":4,"updatedAt":"%s"}\n' \
+    "$TEST_SESSION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    > "${STATE_DIR}/streak-${TEST_SESSION}.json"
+
+  local result exit_code
+  # git push should be allowed even with streak=4 (bypasses counter entirely)
+  result="$(invoke_hook_bash_cmd "git push origin main")"
+  exit_code="$(get_exit_code "$result")"
+  if [[ "$exit_code" -eq 0 ]]; then
+    ok "git push allowlisted: allowed even at streak=4"
+  else
+    fail "git push should be allowed at streak=4, got exit $exit_code"
+  fi
+
+  # git pull should also be allowed
+  result="$(invoke_hook_bash_cmd "git pull origin main")"
+  exit_code="$(get_exit_code "$result")"
+  if [[ "$exit_code" -eq 0 ]]; then
+    ok "git pull allowlisted: allowed even at streak=4"
+  else
+    fail "git pull should be allowed at streak=4, got exit $exit_code"
+  fi
+
+  # Streak should still be 4 (git ops don't advance it)
+  local streak_after
+  streak_after="$(/usr/bin/jq -r '.streak // "?"' "${STATE_DIR}/streak-${TEST_SESSION}.json" 2>/dev/null || echo "?")"
+  if [[ "$streak_after" == "4" ]]; then
+    ok "git push/pull do not advance the streak counter (still 4)"
+  else
+    fail "streak should remain 4 after git ops, got: $streak_after"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Test 13: command-string escape hatch — COPILOT_FORCE_DELEGATE=off prefix
+# ---------------------------------------------------------------------------
+test_command_string_escape_hatch() {
+  clean_state
+
+  # Simulate high streak (5 consecutive would normally deny)
+  local i
+  for i in 1 2 3 4; do
+    invoke_hook "Bash" > /dev/null 2>&1 || true
+  done
+
+  # Verify 5th plain Bash is denied (pre-condition)
+  local result exit_code
+  result="$(invoke_hook "Bash")"
+  exit_code="$(get_exit_code "$result")"
+  if [[ "$exit_code" -eq 2 ]]; then
+    ok "command-string escape hatch pre-condition: 5th Bash denied (streak at limit)"
+  else
+    fail "expected 5th Bash denied as pre-condition, got exit $exit_code"
+    return
+  fi
+
+  # Reset streak to 4 by writing state directly, then test escape hatch
+  printf '{"session_id":"%s","lastTool":"Bash","streak":4,"updatedAt":"%s"}\n' \
+    "$TEST_SESSION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    > "${STATE_DIR}/streak-${TEST_SESSION}.json"
+
+  result="$(invoke_hook_bash_cmd "COPILOT_FORCE_DELEGATE=off git push origin main")"
+  exit_code="$(get_exit_code "$result")"
+  if [[ "$exit_code" -eq 0 ]]; then
+    ok "command-string escape hatch: COPILOT_FORCE_DELEGATE=off prefix bypasses deny at streak=4"
+  else
+    fail "command-string escape hatch failed, got exit $exit_code"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Test 14: crash fix — git push exits 0 with no error (regression for Issue 1)
+# ---------------------------------------------------------------------------
+test_git_push_no_crash() {
+  clean_state
+  local payload exit_code stderr_out
+  payload='{"session_id":"test","tool_name":"Bash","tool_input":{"command":"git push origin main"}}'
+  stderr_out="$(bash "$HOOK" <<< "$payload" 2>&1 >/dev/null)" || exit_code=$?
+  exit_code="${exit_code:-0}"
+  if [[ "$exit_code" -eq 0 ]]; then
+    ok "crash fix: git push exits 0 (no hook crash)"
+  else
+    fail "crash fix: git push produced exit $exit_code (stderr: $stderr_out)"
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Run all tests
 # ---------------------------------------------------------------------------
 echo "=== pretool-check.sh tests ==="
@@ -668,6 +761,12 @@ echo "--- QA-gate Test 9: COPILOT_QA_GATE=off escape hatch"
 test_qa_gate_escape_hatch
 echo "--- QA-gate Test 10: Pending tasks cleared → subsequent calls allowed"
 test_qa_gate_cleared_allows_calls
+echo "--- Test 12: git push / git pull allowlisted"
+test_git_push_pull_allowlisted
+echo "--- Test 13: command-string escape hatch (COPILOT_FORCE_DELEGATE=off prefix)"
+test_command_string_escape_hatch
+echo "--- Test 14: crash fix — git push exits 0 (no hook crash)"
+test_git_push_no_crash
 
 # Clean up test session state
 clean_state
