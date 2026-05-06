@@ -4,35 +4,39 @@ Show the status of the extension system, including knowledge repositories, activ
 
 ## Step 1: Check Knowledge Repository Status
 
-Call `manifest_status` to get the status of both global and project knowledge repositories:
+Run these commands to discover knowledge repositories:
 
-```
-manifest_status()
+```bash
+# Check for global knowledge repo
+ls ~/.claude/knowledge/knowledge-manifest.json 2>/dev/null && echo "GLOBAL_EXISTS" || echo "GLOBAL_MISSING"
+
+# Check for project knowledge repo
+ls ./knowledge-manifest.json 2>/dev/null && echo "PROJECT_EXISTS" || echo "PROJECT_MISSING"
+
+# Check project cc config for knowledge_repo path
+cc config get paths.knowledge_repo 2>/dev/null || echo "not set"
 ```
 
-This returns:
-- Global repository: `~/.claude/knowledge/` (auto-detected, no configuration needed)
-- Project repository: If `KNOWLEDGE_REPO_PATH` is set in `.mcp.json`
-- Repository metadata: Name, version, description
-- Extension and skill counts
+If a manifest exists, read its name/description:
+```bash
+cat ~/.claude/knowledge/knowledge-manifest.json 2>/dev/null | head -10
+cat ./knowledge-manifest.json 2>/dev/null | head -10
+```
 
 Store the results.
 
 ---
 
-## Step 2: List Active Extensions
+## Step 2: List Active Skills and Extensions
 
-Call `extension_list` to retrieve all active extensions:
+```bash
+# List all discovered skills
+cc skill list
 
+# Check for local extensions directory
+ls .claude/extensions/ 2>/dev/null && echo "PROJECT_EXTENSIONS_EXIST" || echo "NO_PROJECT_EXTENSIONS"
+ls ~/.claude/knowledge/.claude/extensions/ 2>/dev/null && echo "GLOBAL_EXTENSIONS_EXIST" || echo "NO_GLOBAL_EXTENSIONS"
 ```
-extension_list()
-```
-
-This returns all extensions with:
-- Agent ID (e.g., "sd", "uxd")
-- Extension type ("override", "extension", "skills")
-- Source ("global" or "project")
-- Description (from extension frontmatter)
 
 Store the results.
 
@@ -40,9 +44,9 @@ Store the results.
 
 ## Step 3: Present Status
 
-Based on the results from Steps 1 and 2, present the extension status.
+Based on the results, present the extension status.
 
-### If extensions are configured:
+### If extensions or skills are configured:
 
 ```
 ## Knowledge Repositories
@@ -51,16 +55,20 @@ Based on the results from Steps 1 and 2, present the extension status.
 Location: ~/.claude/knowledge/
 Status: [✓ Configured / ✗ Not found]
 Name: [manifest name]
-Extensions: [count]
-Skills: [count]
+Extensions: [count from extensions dir]
+Skills: [count from cc skill list with source: global]
 
 ### Project (This Directory)
-Location: [path or "Not configured"]
+Location: [./knowledge-manifest.json path or "Not configured"]
 Status: [✓ Configured / Using global only]
 Name: [manifest name if configured]
 Extensions: [count if configured]
 
 Resolution Priority: Project > Global > Base agents
+
+## Active Skills
+
+[Output from `cc skill list`]
 
 ## Active Extensions
 
@@ -124,6 +132,10 @@ Status: ✗ Not found
 ### Project (This Directory)
 Status: Not configured
 
+## Active Skills
+
+[Output from `cc skill list`, or "No skills found"]
+
 ## Why Use Extensions?
 
 Extensions customize Claude Copilot agents for your team:
@@ -164,18 +176,15 @@ This creates ~/.claude/knowledge/ with:
 Only needed when this project requires different extensions than global.
 
 1. Create knowledge repository in your project
-2. Add to .mcp.json:
+2. Set the path in `.claude/cc/config.json`:
    ```json
    {
-     "mcpServers": {
-       "skills-copilot": {
-         "env": {
-           "KNOWLEDGE_REPO_PATH": "/path/to/knowledge"
-         }
-       }
+     "paths": {
+       "knowledge_repo": "/absolute/path/to/knowledge"
      }
    }
    ```
+3. Or run: `cc config set paths.knowledge_repo /path/to/knowledge`
 
 ## Two-Tier Resolution
 
@@ -189,22 +198,6 @@ Set up global once, override per-project only when needed.
 ## Learn More
 
 See: docs/40-extensions/00-extension-spec.md
-```
-
-### If warnings exist:
-
-If `manifest_status` or `extension_list` includes warnings about missing required skills or fallback behaviors:
-
-```
-## Warnings
-
-- @agent-sd extension requires skill "moments-mapping" (not found)
-  Fallback: Using base agent with warning
-
-- @agent-uxd extension requires skill "design-system" (not found)
-  Fallback: Using base agent silently
-
-To resolve: Add required skills to your knowledge repository or adjust fallbackBehavior in extension frontmatter.
 ```
 
 ---
@@ -222,16 +215,13 @@ To resolve: Add required skills to your knowledge repository or adjust fallbackB
 
 ## Error Handling
 
-**If manifest_status fails:**
-- Still show the status structure
-- Mark both repositories as "Connection failed"
-- Suggest checking .mcp.json configuration
-- Recommend running `/mcp` to verify Skills Copilot is connected
+**If cc skill list fails:**
+- Check that `cc` CLI is installed: `which cc`
+- Install if missing: `bash ~/.claude/copilot/tools/cc/install.sh`
 
-**If extension_list fails:**
+**If manifest files are unreadable:**
 - Show knowledge repository status (may still work)
-- Display "Unable to load extensions" message
-- Suggest checking manifest file in knowledge repository
+- Display "Unable to read manifest" message
 
 ---
 
