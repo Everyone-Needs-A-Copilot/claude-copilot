@@ -1,30 +1,24 @@
 {
-  "framework": "3.5.0",
-  "lastUpdated": "2026-03-29T00:00:00.000Z",
+  "framework": "5.0.1",
+  "lastUpdated": "2026-05-06T00:00:00.000Z",
   "components": {
-    "mcp-servers": {
-      "copilot-memory": {
-        "version": "3.0.0",
-        "path": "mcp-servers/copilot-memory",
-        "buildRequired": true,
-        "checkFile": "dist/index.js"
-      },
-      "skills-copilot": {
-        "version": "3.0.0",
-        "path": "mcp-servers/skills-copilot",
-        "buildRequired": true,
-        "checkFile": "dist/index.js"
-      }
+    "cc": {
+      "version": "1.0.0",
+      "path": "tools/cc",
+      "installScript": "tools/cc/install.sh",
+      "provides": ["cc memory", "cc skill", "cc config", "cc env", "cc mcp"]
+    },
+    "tc": {
+      "version": "1.0.0",
+      "path": "tools/tc",
+      "installCommand": "pip install -e ~/.claude/copilot/tools/tc"
     },
     "agents": {
-      "version": "3.1.0",
+      "version": "4.0.0",
       "path": ".claude/agents",
-      "count": 14,
+      "count": 8,
       "frameworkAgents": [
-        "cco", "cw", "do", "doc", "kc", "me", "qa", "sd", "sec", "ta", "uid", "uids", "uxd"
-      ],
-      "nativeAgents": [
-        "cs"
+        "design", "do", "doc", "kc", "me", "qa", "sd", "ta"
       ],
       "requiredSections": [
         "Core Behaviors",
@@ -32,7 +26,7 @@
       ]
     },
     "commands": {
-      "version": "3.0.0",
+      "version": "5.0.1",
       "path": ".claude/commands",
       "projectCommands": [
         "protocol.md",
@@ -49,8 +43,7 @@
         "update-project.md",
         "update-copilot.md",
         "setup-copilot.md",
-        "knowledge-copilot.md",
-        "setup-knowledge-sync.md"
+        "knowledge-copilot.md"
       ]
     },
     "skills": {
@@ -64,21 +57,13 @@
         "security",
         "testing"
       ]
-    },
-    "templates": {
-      "version": "3.0.0",
-      "path": "templates",
-      "includes": [
-        "mcp.json",
-        "orchestration/",
-        "hooks/"
-      ]
     }
   },
   "globalPaths": {
     "skills": "~/.claude/skills",
     "knowledge": "~/.claude/knowledge",
-    "memory": "~/.claude/memory",
-    "tasks": "~/.claude/tasks"
+    "memory": "~/.claude/memory/entries",
+    "tasks": "~/.claude/tasks",
+    "ccConfig": "~/.claude/cc/config.json"
   }
 }

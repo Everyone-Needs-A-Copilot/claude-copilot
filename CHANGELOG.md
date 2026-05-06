@@ -7,6 +7,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.1] - 2026-05-06
+
+### Fixed
+- **`/setup` command** (`.claude/commands/setup.md`): removed MCP server build steps (Steps 4-5 that built `copilot-memory` and `skills-copilot` no longer exist); setup now installs `tc` and `cc` CLIs only; prerequisites reduced to Python 3 (Node.js no longer required)
+- **`/update-project` command** (`.claude/commands/update-project.md`): Step 2 verification now checks for `cc` and `tc` CLIs instead of defunct MCP `dist/index.js` files; error message updated accordingly
+- **Hook tests** (`tests/hooks/test-pretool-check.sh`): added Tests 12–14 for git push/pull allowlist, `COPILOT_FORCE_DELEGATE=off` escape hatch, and crash-fix regression
+
+---
+
+## [5.0.0] - 2026-05-06
+
+### Changed (Breaking)
+- **MCP servers removed**: `mcp-servers/copilot-memory/` and `mcp-servers/skills-copilot/` deleted from the repository — no MCP servers remain
+- **Memory storage format**: from MCP server + PostgreSQL/SQLite to committed Markdown files at `.claude/memory/entries/<uuid>.md`; index is a local SQLite cache (`memory.db`, gitignored) rebuilt on demand
+- **Skills access**: from MCP `skill_get`/`skill_search` tools to `cc skill get`/`cc skill search` CLI commands
+- **Agent env hydration**: from `initiative_get`/MCP context to `eval "$(cc env)"` at agent start, which exports `CC_SHARED_DOCS`, `CC_KNOWLEDGE_REPO`, and other machine-level paths
+- **VERSION.json**: `mcp-servers` section replaced with `cc` and `tc` component entries
+
+### Added
+- **`cc` CLI** (`tools/cc/`): unified Python CLI replacing both MCP servers
+  - `cc memory store/get/list/delete/search/index` — persistent cross-session memory as committed files
+  - `cc skill get/search/list/evaluate` — local and global skill discovery
+  - `cc config get/set/list/init/doctor` — layered config (machine → project)
+  - `cc env` — emits shell-eval-able `CC_*` exports for agent env hydration
+  - `cc mcp serve` — optional MCP adapter so agents can still use MCP tooling if preferred
+  - Installed at `~/.local/bin/cc` via `tools/cc/install.sh`
+
+### Migration Guide (4.x → 5.0.0)
+
+**Action Required:**
+
+1. **Install `cc` CLI**:
+   ```bash
+   bash ~/.claude/copilot/tools/cc/install.sh
+   cc config init --machine
+   ```
+
+2. **Initialize project memory directory**:
+   ```bash
+   mkdir -p .claude/memory/entries
+   touch .claude/memory/entries/.gitkeep
+   printf 'memory.db\nmemory.db-*\n' > .claude/memory/.gitignore
+   cc config init --project
+   ```
+
+3. **Update all projects** with `/update-project` — this handles steps 2 automatically
+
+4. **Remove MCP server entries** from `.mcp.json` (if you added them manually):
+   - `copilot-memory` — delete this entry
+   - `skills-copilot` — delete this entry
+   - `.mcp.json` can be empty `{"mcpServers":{}}` or removed if no other servers remain
+
+5. **Update agent calls**: replace `memory_store()`/`initiative_get()` MCP calls with `cc memory store` / `eval "$(cc env)"` CLI calls (agents in `.claude/agents/` are already updated)
+
+**Breaking Changes:**
+- `memory_store`, `memory_search`, `initiative_get`, `initiative_start`, `initiative_update`, `initiative_complete` MCP tools no longer exist
+- `skill_get`, `skill_search`, `skill_list`, `skill_evaluate` MCP tools no longer exist
+- The copilot-memory and skills-copilot MCP servers will not be found in `.mcp.json` — remove those entries to avoid connection errors at session start
+
+---
+
+## [4.0.1] - 2026-04-22
+
+### Fixed
+- **PreToolUse hook deadlock** (`.claude/hooks/pretool-check.sh`): matcher narrowed from `Bash|Read|Edit|Agent` to `Bash` only — a crashing hook previously blocked `Read` and `Edit`, making it impossible to repair without deleting the hook file
+- **Hook paths**: replaced `$CLAUDE_PROJECT_DIR/...` with absolute paths — env var was not reliably expanded in hook subprocess environments
+- **Hook fail-open**: replaced `set -euo pipefail` with `set -u` + ERR trap that exits 0 with a stderr warning — hook errors now degrade gracefully instead of blocking all tool use
+- `git push`/`git pull` covered by `FORCE_DELEGATE_SAFE_PREFIXES` allowlist — never counted toward streak or force-delegate threshold
+
+---
+
 ## [4.0.0] - 2026-04-22
 
 ### Changed (Breaking)
@@ -810,6 +881,11 @@ After updating from pre-1.7.1, optionally run `stream_archive_all({ confirm: tru
 
 | Version | Release Date | Key Features |
 |---------|-------------|--------------|
+| **5.0.1** | 2026-05-06 | Setup command fixes for cc CLI migration; hook tests 12-14 |
+| **5.0.0** | 2026-05-06 | `cc` CLI replaces Memory + Skills MCP servers; memory as committed files |
+| **4.0.1** | 2026-04-22 | Hook deadlock fix; fail-open ERR trap; git push/pull allowlisted |
+| **4.0.0** | 2026-04-22 | 8-agent roster, mechanical delegation enforcement, model-tier inversion |
+| **3.5.0** | 2026-03-29 | Elite Craft design methodology layer |
 | **3.0.0** | 2026-02-21 | `tc` CLI replaces Task Copilot MCP server, 225 tests, full MCP-to-CLI migration |
 | **2.10.0** | 2026-02-20 | Stream token budgets, path ownership, security hardening |
 | **2.9.0** | 2026-02-12 | Multi-agent Foreman architecture, agent assignment rules, task-data status dashboard |
@@ -912,7 +988,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
 ---
 
-[unreleased]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v3.0.0...HEAD
+[unreleased]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.0.1...HEAD
+[5.0.1]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.0.0...v5.0.1
+[5.0.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v4.0.1...v5.0.0
+[4.0.1]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v4.0.0...v4.0.1
+[4.0.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v3.5.0...v4.0.0
+[3.5.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v3.0.0...v3.5.0
 [3.0.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v2.10.0...v3.0.0
 [2.10.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v2.9.0...v2.10.0
 [2.9.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v2.8.0...v2.9.0

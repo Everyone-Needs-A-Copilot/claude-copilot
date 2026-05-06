@@ -44,16 +44,17 @@ Look at the user's message for keywords: "minimal", "quick start", "memory only"
 ## Step 2: Verify Machine Setup
 
 ```bash
-ls ~/.claude/copilot/mcp-servers/copilot-memory/dist/index.js 2>/dev/null && echo "MEMORY_OK" || echo "MEMORY_MISSING"
+which cc >/dev/null 2>&1 && echo "CC_OK" || echo "CC_MISSING"
+which tc >/dev/null 2>&1 && echo "TC_OK" || echo "TC_MISSING"
 ```
 
-**If MEMORY_MISSING:**
+**If any MISSING:**
 
 Tell user:
 
 ---
 
-**Claude Copilot is not installed on this machine.**
+**Claude Copilot CLIs not found.**
 
 Please complete machine setup first:
 
@@ -64,15 +65,13 @@ Please complete machine setup first:
    git clone https://github.com/Everyone-Needs-A-Copilot/claude-copilot.git copilot
    ```
 
-2. Open Claude Code in `~/.claude/copilot` and follow the setup instructions in `SETUP.md`
+2. Open Claude Code in `~/.claude/copilot` and run `/setup`
 
 Then return here and run `/setup-project` again.
 
 ---
 
 Then STOP.
-
-**Note:** Skills Copilot MCP is optional. For local skills, use native `@include` directives instead. Install Skills Copilot if you want access to the skills.sh public catalog (free, no API key needed) or private database skill storage.
 
 **If SETUP_MODE = "MINIMAL":** Skip to [Minimal Setup Flow](#minimal-setup-flow).
 
@@ -136,66 +135,17 @@ Should show 12+ files.
 
 ---
 
-## Step 7: Create .mcp.json with Template Variable Expansion
+## Step 7: Create .mcp.json
 
-Read the template and expand variables automatically:
-
-```bash
-cat ~/.claude/copilot/templates/mcp.json
-```
-
-**Expand these variables:**
-
-| Variable | Value | Example |
-|----------|-------|---------|
-| `$HOME` | User's home directory | `/Users/yourname` |
-| `$PROJECT_PATH` | Current working directory | `/path/to/my-app` |
-| `$PROJECT_NAME` | Directory basename | `my-app` |
-| `$COPILOT_PATH` | Claude Copilot location | `$HOME/.claude/copilot` |
-
-**Process:**
-
-1. Read template from `~/.claude/copilot/templates/mcp.json`
-2. Replace all variables:
-   - `$HOME` → actual home path (NO tilde)
-   - `$PROJECT_PATH` → result of `pwd`
-   - `$PROJECT_NAME` → result of `basename $(pwd)`
-   - `$COPILOT_PATH` → `$HOME/.claude/copilot` (expanded)
-3. Validate expansion (see validation below)
-4. Write to `.mcp.json`
-
-**CRITICAL:**
-- All paths must be absolute (no `~` or `$HOME` in final output)
-- No unexpanded variables (`$xxx`) in final file
-- Verify JSON is valid
-
-**Validation After Expansion:**
+Claude Copilot no longer ships MCP servers. The `.mcp.json` file is still created as a marker that this project is set up, and to allow adding third-party MCP servers later.
 
 ```bash
-# Check for unexpanded variables
-grep -E '\$[A-Z_]+' .mcp.json && echo "ERROR: Unexpanded variables found" || echo "Variables OK"
-
-# Verify critical paths exist
-ls -l "$HOME/.claude/copilot/mcp-servers/copilot-memory/dist/index.js" && echo "Memory server OK" || echo "Memory server MISSING"
-
-# Note: Skills Copilot is optional - only check if configured in template
-
-# Validate JSON
-node -e "JSON.parse(require('fs').readFileSync('.mcp.json', 'utf8'))" && echo "JSON valid" || echo "JSON INVALID"
+printf '{"mcpServers":{}}\n' > .mcp.json
 ```
 
-**If validation fails:**
-
-Report clear error with fix instructions:
-
-```
-ERROR: Template expansion failed
-
-Variable: $COPILOT_PATH
-Expected: ~/.claude/copilot/mcp-servers/copilot-memory/dist/index.js
-Found: File does not exist
-
-Fix: Run /setup from ~/.claude/copilot first to build MCP servers
+**Validate JSON:**
+```bash
+python3 -c "import json,sys; json.load(open('.mcp.json')); print('JSON valid')"
 ```
 
 ---
@@ -328,15 +278,17 @@ All must exist.
 **Project Setup Complete!**
 
 **Created:**
-- `.mcp.json` - MCP server configuration
+- `.mcp.json` - Project marker (empty MCP config; add third-party servers here as needed)
 - `CLAUDE.md` - Project instructions
 - `.claude/commands/` - Protocol commands (/protocol, /continue)
-- `.claude/agents/` - 12 specialized agents
+- `.claude/agents/` - 8 specialized agents
 - `.claude/skills/` - For project-specific skills
+- `.claude/memory/entries/` - Project memory (committed to git)
+- `.claude/cc/config.json` - cc CLI project config
 
 **Configuration:**
-- Memory workspace: `{{PROJECT_NAME}}`
-- Skills: Local (.claude/skills)
+- Memory: `.claude/memory/entries/` (committed files)
+- Skills: Local (`.claude/skills/`)
 {{IF GLOBAL_KNOWLEDGE_EXISTS}}
 - Knowledge: `{{KNOWLEDGE_NAME}}` (global)
 {{ELSE}}
@@ -345,17 +297,12 @@ All must exist.
 
 **Next steps:**
 
-1. **Restart Claude Code** to load the MCP servers
-2. Run `/mcp` to verify servers are connected:
-   ```
-   ● copilot-memory
-   ```
-   Note: Skills Copilot (optional) only shows if configured in `.mcp.json`
-3. Run `/protocol` to start working
+1. Run `/protocol` to start working
+2. Use `cc memory search "<query>"` to search past decisions
 
 **Using Skills:**
-- For local skills: Use `@include .claude/skills/NAME/SKILL.md` in your prompts
-- For marketplace access: Install Skills Copilot MCP (see mcp-servers/skills-copilot/README.md)
+- Local skills: `@include .claude/skills/NAME/SKILL.md` in your prompts
+- Search skills: `cc skill search "<query>"`
 
 {{IF NO_GLOBAL_KNOWLEDGE AND NOT SETUP_KNOWLEDGE_NOW}}
 **Optional: Set up shared knowledge**
@@ -382,20 +329,18 @@ Since you chose to set up knowledge now, running `/knowledge-copilot`:
 
 ## Minimal Setup Flow
 
-This flow is triggered when `SETUP_MODE` = "MINIMAL". It installs only Memory Copilot for the fastest path to getting started.
+This flow is triggered when `SETUP_MODE` = "MINIMAL". It installs only the `continue` command for the fastest path to getting started.
 
 Report:
 ```
-Mode: Minimal Setup (Memory Only)
+Mode: Minimal Setup
 
 What you'll get:
-- Memory Copilot - Session persistence and context
 - /continue command - Resume previous work
-- Automatic progress tracking
+- cc memory - Persistent session memory via CLI
 
 What you WON'T get:
 - Agents - No specialized expertise
-- Skills Copilot - No on-demand skills
 - /protocol command - No Agent-First workflow
 
 You can upgrade to the full framework anytime by running /setup-project again (without "minimal").
@@ -404,13 +349,11 @@ You can upgrade to the full framework anytime by running /setup-project again (w
 ### Minimal Step 1: Get Project Info
 
 ```bash
-echo $HOME
 pwd
 basename $(pwd)
 ```
 
 Store:
-- `HOME_PATH` = result of $HOME
 - `PROJECT_PATH` = result of pwd
 - `PROJECT_NAME` = result of basename
 
@@ -428,32 +371,22 @@ ls .claude/commands/
 
 Should show: `continue.md`
 
-### Minimal Step 3: Create .mcp.json with Minimal Template
+### Minimal Step 3: Create .mcp.json
 
 ```bash
-cat ~/.claude/copilot/templates/minimal-mcp.json
+printf '{"mcpServers":{}}\n' > .mcp.json
 ```
 
-**Expand variables** (same rules as Step 7 above):
-
-| Variable | Value |
-|----------|-------|
-| `$HOME` | User's home directory (absolute, no tilde) |
-| `$PROJECT_PATH` | Current working directory |
-| `$PROJECT_NAME` | Directory basename |
-| `$COPILOT_PATH` | `$HOME/.claude/copilot` |
-
-Write expanded JSON to `.mcp.json`.
-
-**Validate:**
+### Minimal Step 4: Initialize cc Project Config and Memory
 
 ```bash
-grep -E '\$[A-Z_]+' .mcp.json && echo "ERROR: Unexpanded variables found" || echo "Variables OK"
-ls -l "$HOME/.claude/copilot/mcp-servers/copilot-memory/dist/index.js" && echo "Memory server OK" || echo "Memory server MISSING"
-node -e "JSON.parse(require('fs').readFileSync('.mcp.json', 'utf8'))" && echo "JSON valid" || echo "JSON INVALID"
+cc config init --project
+mkdir -p .claude/memory/entries
+touch .claude/memory/entries/.gitkeep
+printf 'memory.db\nmemory.db-*\n' > .claude/memory/.gitignore
 ```
 
-### Minimal Step 4: Create Minimal CLAUDE.md
+### Minimal Step 5: Create Minimal CLAUDE.md
 
 Create a minimal CLAUDE.md:
 
@@ -470,64 +403,45 @@ This file provides guidance to Claude Code when working in this repository.
 
 ## Claude Copilot (Minimal Setup)
 
-This project uses Memory Copilot only - the minimal Claude Copilot configuration.
-
-**Full documentation:** `~/.claude/copilot/docs/00-overview.md`
+This project uses the minimal Claude Copilot configuration.
 
 ### What You Have
 
 | Feature | Status |
 |---------|--------|
-| **Memory Copilot** | Enabled - Persistent session memory |
-| **`/continue` command** | Enabled - Resume previous work |
+| **cc memory** | Enabled — persistent cross-session memory as committed files |
+| **`/continue` command** | Enabled — resume previous work |
 | **Agents** | Not installed |
-| **Skills** | Not installed |
 | **`/protocol`** | Not installed |
 
 ### Commands
 
 | Command | Purpose |
 |---------|---------|
-| `/continue` | Resume previous work via Memory Copilot |
+| `/continue` | Resume previous work |
 
-### Memory Tools
+### Memory CLI
 
-| Tool | Purpose |
-|------|---------|
-| `initiative_start` | Begin new initiative |
-| `initiative_get` | Retrieve current initiative |
-| `initiative_update` | Update progress, decisions, lessons |
-| `initiative_complete` | Archive completed initiative |
-| `memory_store` | Store decisions, lessons, context |
-| `memory_search` | Semantic search across memories |
-
-### Configuration
-
-- Memory workspace: `{{PROJECT_NAME}}`
-- Memory path: `~/.claude/memory/`
+| Command | Purpose |
+|---------|---------|
+| `cc memory store "<note>"` | Store decisions, lessons, context |
+| `cc memory search "<query>"` | Semantic search across memories |
+| `cc memory list` | List recent entries |
 
 ---
 
 ## Upgrading to Full Framework
 
-When you're ready for agents, skills, and the full protocol:
+When you're ready for agents and the full protocol:
 
 1. Run `/setup-project` again (without "minimal")
-2. This will add all agents, skills, and commands
+2. This will add all agents and commands
 3. Your memory will be preserved
-
----
-
-## Session Management
-
-**Resume work:** `/continue` - Loads from Memory Copilot
-
-**End session:** Just close Claude Code - progress auto-saves
 ```
 
 Replace `{{PROJECT_NAME}}` with the actual project name. Write to `CLAUDE.md`.
 
-### Minimal Step 5: Verify and Report
+### Minimal Step 6: Verify and Report
 
 ```bash
 ls -la .mcp.json
@@ -539,22 +453,19 @@ Report:
 
 ---
 
-**Minimal Setup Complete! (Memory Only)**
+**Minimal Setup Complete!**
 
 **Created:**
-- `.mcp.json` - Memory Copilot configuration
+- `.mcp.json` - Project marker
 - `CLAUDE.md` - Project instructions (minimal)
 - `.claude/commands/continue.md` - Resume command
-
-**Configuration:**
-- Memory workspace: `{{PROJECT_NAME}}`
-- Memory path: `~/.claude/memory/`
+- `.claude/memory/entries/` - Memory storage
+- `.claude/cc/config.json` - cc project config
 
 **Next steps:**
 
-1. **Restart Claude Code** to load Memory Copilot
-2. Run `/mcp` to verify connection
-3. Test with `/continue` or start using memory tools directly
+1. Run `/continue` to resume previous work
+2. Use `cc memory store "<note>"` to persist decisions
 
 **To upgrade to full framework later:**
 Run `/setup-project` again (without saying "minimal").
