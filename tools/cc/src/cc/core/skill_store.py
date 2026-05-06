@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import subprocess
 from dataclasses import dataclass, field
+import os
 from pathlib import Path
 from typing import Any
 
@@ -133,8 +134,15 @@ def discover_skills(
             continue
 
         # Walk one level: base/<name>/SKILL.md
-        # Also supports nested: base/<category>/<name>/SKILL.md
-        for skill_file in sorted(base.rglob("SKILL.md")):
+        # Also supports nested: base/<category>/<name>/SKILL.md.
+        # Follow symlinked directories so shared framework skills can be bridged
+        # into project-local .claude/skills without copying the framework.
+        skill_files = []
+        for root, _dirs, files in os.walk(base, followlinks=True):
+            if "SKILL.md" in files:
+                skill_files.append(Path(root) / "SKILL.md")
+
+        for skill_file in sorted(skill_files):
             try:
                 text = skill_file.read_text(encoding="utf-8")
             except OSError:

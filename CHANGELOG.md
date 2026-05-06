@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.2] - 2026-05-06
+
+### Fixed
+- **`cc skill` discovery** (`tools/cc/src/cc/core/skill_store.py`): follows symlinked skill directories so projects can bridge shared framework skills into `.claude/skills` without copying them
+
 ## [5.0.1] - 2026-05-06
 
 ### Fixed
