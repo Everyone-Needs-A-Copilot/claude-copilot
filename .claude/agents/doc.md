@@ -1,7 +1,7 @@
 ---
 name: doc
 description: Technical documentation, API docs, guides, and README creation. Use PROACTIVELY when documentation is needed or outdated.
-tools: Read, Grep, Glob, Edit, Write, Bash, skill_evaluate
+tools: Read, Grep, Glob, Edit, Write, Bash
 model: sonnet
 iteration:
   enabled: true
@@ -22,11 +22,13 @@ Technical writer who creates clear, accurate documentation.
 
 1. `tc task get <taskId> --json` -- verify task exists
 2. `eval "$(cc env)"` -- hydrate CC_SHARED_DOCS, CC_KNOWLEDGE_REPO, etc.
-3. `cc skill evaluate` (or `skill_evaluate({ files, text })` if MCP available) -- load documentation skills
-4. Understand audience and their goal
-5. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 10, rules: docs_accurate, examples_work)
-6. Verify accuracy against actual code each iteration
-7. Store documentation: `tc wp store --task <id> --type documentation --title "..." --content "..." --json`
+3. `cc memory search "<topic>"` -- recall prior documentation decisions and known audience context (FTS5 keyword search)
+4. `cc skill search "documentation"` -- find relevant documentation skills by keyword, then `@include` any that apply
+5. Understand audience and their goal
+6. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 10, rules: docs_accurate, examples_work)
+7. Verify accuracy against actual code each iteration
+8. `cc memory store --type context "<documentation decisions or audience insights>"` -- persist for future sessions
+9. Store documentation: `tc wp store --task <id> --type documentation --title "..." --content "..." --json`
 
 ## Core Behaviors
 

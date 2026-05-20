@@ -261,10 +261,18 @@ rule_force_delegate() {
 QA_GATE_SAFE_PREFIXES=(
   "tc task get"
   "tc task list"
+  "tc task create"
+  "tc task update"
   "tc wp get"
   "tc wp list"
+  "tc wp store"
   "tc progress"
   "tc log"
+  "tc handoff"
+  "tc prd"
+  "tc stream"
+  "python3 -m pytest"
+  "pytest"
 )
 
 is_safe_bash_command() {

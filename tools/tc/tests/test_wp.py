@@ -4,6 +4,8 @@ import json
 
 import pytest
 
+from tc import WP_CONTENT_SIZE_THRESHOLD
+
 
 def _setup_task(cli):
     """Create a task for work product association. Returns task_id."""
@@ -85,8 +87,8 @@ class TestWpStore:
 
     def test_store_large_content_uses_file_storage(self, cli, db_path):
         task_id = _setup_task(cli)
-        # WP_CONTENT_SIZE_THRESHOLD is 100KB
-        large_content = "x" * (100 * 1024 + 1)
+        # One byte over threshold → must offload to file
+        large_content = "x" * (WP_CONTENT_SIZE_THRESHOLD + 1)
         result = cli([
             "wp", "store",
             "--task", str(task_id),
@@ -106,6 +108,40 @@ class TestWpStore:
         assert fp.exists()
         assert len(fp.read_text(encoding="utf-8")) == len(large_content)
 
+    def test_store_content_at_threshold_stays_inline(self, cli, db_path):
+        """Content exactly at the threshold is stored inline (boundary: <= threshold)."""
+        task_id = _setup_task(cli)
+        at_threshold = "y" * WP_CONTENT_SIZE_THRESHOLD
+        result = cli([
+            "wp", "store",
+            "--task", str(task_id),
+            "--type", "analysis",
+            "--title", "At Threshold WP",
+            "--content", at_threshold,
+            "--json",
+        ])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["file_path"] is None
+        assert data["content"] == at_threshold
+
+    def test_store_small_content_stays_inline(self, cli, db_path):
+        """Content well below the threshold is always stored inline."""
+        task_id = _setup_task(cli)
+        small_content = "Short note. " * 10  # well under 8 KB
+        result = cli([
+            "wp", "store",
+            "--task", str(task_id),
+            "--type", "note",
+            "--title", "Small WP",
+            "--content", small_content,
+            "--json",
+        ])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["file_path"] is None
+        assert data["content"] == small_content
+
     def test_store_no_content(self, cli):
         task_id = _setup_task(cli)
         result = cli([
@@ -123,7 +159,7 @@ class TestWpStore:
     def test_store_large_content_human_readable(self, cli, db_path):
         """Large content in human readable mode shows file path."""
         task_id = _setup_task(cli)
-        large = "x" * (100 * 1024 + 1)
+        large = "x" * (WP_CONTENT_SIZE_THRESHOLD + 1)
         result = cli([
             "wp", "store",
             "--task", str(task_id),
@@ -154,7 +190,7 @@ class TestWpGet:
     def test_get_file_based_content(self, cli, db_path):
         """Work product stored to file should have content read back."""
         task_id = _setup_task(cli)
-        large = "y" * (100 * 1024 + 1)
+        large = "y" * (WP_CONTENT_SIZE_THRESHOLD + 1)
         cli([
             "wp", "store", "--task", str(task_id),
             "--type", "code", "--title", "File WP",
@@ -196,7 +232,7 @@ class TestWpGet:
         """When file_path is set but file is deleted, show error message."""
         task_id = _setup_task(cli)
         # Store large content to trigger file-based storage
-        large = "z" * (100 * 1024 + 1)
+        large = "z" * (WP_CONTENT_SIZE_THRESHOLD + 1)
         store_result = cli([
             "wp", "store", "--task", str(task_id),
             "--type", "code", "--title", "Deleted File WP",

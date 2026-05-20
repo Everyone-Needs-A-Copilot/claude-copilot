@@ -107,10 +107,9 @@ cc skill get python-idioms
 cc skill path stride-dread
 # → /path/to/.claude/skills/security/stride-dread/SKILL.md
 
-# Evaluate which skills are relevant for given context
-cc skill evaluate --files "auth.py,tests/test_auth.py"
-cc skill evaluate --text "implementing JWT authentication"
-cc skill evaluate --files "auth.py" --text "security review"
+# Search for skills relevant to a topic (keyword match on name, description, tags)
+cc skill search "security"
+cc skill search "testing python"
 ```
 
 ---
@@ -224,6 +223,52 @@ cc --version     # print installed version
 
 ---
 
+## Code-Execution Path (Programmatic API)
+
+For agents performing 3+ related memory operations, import `cc.api` in a single `python3` Bash block instead of multiple CLI calls. Each CLI call echoes a full JSON payload back into context; a python3 block returns only what you `print()`.
+
+**Import surface:** `from cc.api import memory_store, memory_get, memory_list, memory_delete, memory_search, skill_get, skill_search`
+
+**Worked example — store 5 decisions and search in one Bash call:**
+
+```bash
+python3 - << 'PY'
+from cc.api import memory_store, memory_search
+
+entries = [
+    ("decision", "Use WAL mode for all SQLite connections"),
+    ("lesson",   "Always add --dry-run to migration scripts"),
+    ("decision", "JWT expiry set to 1h; refresh token 30 days"),
+    ("context",  "Checkout v2 uses server-side cart"),
+    ("lesson",   "Monkeypatch _git_root in tests for isolation"),
+]
+ids = []
+for t, c in entries:
+    ids.append(memory_store(entry_type=t, content=c)["id"][:8])
+results = memory_search("SQLite WAL")
+print(f"stored {len(ids)}: {ids}; search returned {len(results)} hits")
+PY
+```
+
+Returns to context: one line (~25 tokens) instead of 5 CLI calls (~250-600 tokens each).
+
+**Rules:**
+- PREFER code-execution for >=3 related cc ops (batch stores, search-then-act, list-then-filter).
+- KEEP CLI for single one-shot ops: `cc memory search "topic"`, `cc memory store --type decision "..."`.
+- CRITICAL: cc and tc are in separate environments. Keep each block to ONE tool (cc-only OR tc-only).
+- Typed exceptions: `EntryNotFound`, `EntryValidationError`, `SkillNotFound` — wrap in try/except and print a compact error line.
+
+**Typed exceptions:**
+```python
+from cc.api import memory_get, EntryNotFound
+try:
+    entry = memory_get("abc123")
+except EntryNotFound as e:
+    print(f"ERROR: {e}")
+```
+
+---
+
 ## Two-Layer Config
 
 | Layer | File | Purpose |
@@ -270,6 +315,7 @@ tools/cc/
       env.py              # cc env (shell hydration)
       mcp.py              # serve, config
       doctor.py           # cc doctor (standalone health check)
+    api.py                # flat importable facade for code-execution use (memory_store/get/list/search, skill_get/search)
     core/                 # entry_store, entry_format, memory_index, skill_store, config, config_paths
     utils/                # output helpers
   tests/

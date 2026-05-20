@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Optional
 from unittest.mock import MagicMock, patch
 
@@ -114,6 +115,114 @@ def _copilot_mock(
 # ---------------------------------------------------------------------------
 # CLI check helper
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# _get_deploy_cli — config resolution
+# ---------------------------------------------------------------------------
+
+
+def _inject_cc_config_mock(resolve_key_return_value):
+    """Context manager: inject a fake cc.core.config into sys.modules.
+
+    The tc test environment does not install the cc package, so we inject
+    a lightweight module stub instead of using ``patch("cc.core.config..."``.
+    Returns a context manager that cleans up after itself.
+    """
+    import sys
+    import types
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _ctx():
+        originals = {}
+        for name in ("cc", "cc.core", "cc.core.config"):
+            originals[name] = sys.modules.get(name)
+
+        cc_mod = types.ModuleType("cc")
+        cc_core_mod = types.ModuleType("cc.core")
+        cc_config_mod = types.ModuleType("cc.core.config")
+        cc_config_mod.resolve_key = (
+            lambda key: resolve_key_return_value if key == "deploy.cli" else None
+        )
+        sys.modules["cc"] = cc_mod
+        sys.modules["cc.core"] = cc_core_mod
+        sys.modules["cc.core.config"] = cc_config_mod
+        try:
+            yield
+        finally:
+            for name, orig in originals.items():
+                if orig is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = orig
+
+    return _ctx()
+
+
+class TestGetDeployCli:
+    """_get_deploy_cli resolves the CLI command from env / cc config / default."""
+
+    def test_default_when_nothing_configured(self):
+        """No env var, no cc config → default (python -m copilot_cli) is used."""
+        from tc.commands.deploy import _get_deploy_cli, _DEPLOY_CLI_DEFAULT
+        import shlex
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CC_DEPLOY_CLI", None)
+            # cc not importable in this env → falls back to default
+            result = _get_deploy_cli()
+        assert result == shlex.split(_DEPLOY_CLI_DEFAULT)
+
+    def test_env_var_overrides_default(self):
+        """CC_DEPLOY_CLI env var wins over everything."""
+        from tc.commands.deploy import _get_deploy_cli
+        with patch.dict(os.environ, {"CC_DEPLOY_CLI": "my-deploy-tool --profile prod"}):
+            result = _get_deploy_cli()
+        assert result == ["my-deploy-tool", "--profile", "prod"]
+
+    def test_env_var_overrides_cc_config(self):
+        """CC_DEPLOY_CLI beats cc config even when cc config is set."""
+        from tc.commands.deploy import _get_deploy_cli
+        with patch.dict(os.environ, {"CC_DEPLOY_CLI": "env-tool"}):
+            with _inject_cc_config_mock("config-tool"):
+                result = _get_deploy_cli()
+        assert result == ["env-tool"]
+
+    def test_cc_config_overrides_default(self):
+        """deploy.cli from cc config overrides the built-in default."""
+        from tc.commands.deploy import _get_deploy_cli
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CC_DEPLOY_CLI", None)
+            with _inject_cc_config_mock("custom-cli deploy"):
+                result = _get_deploy_cli()
+        assert result == ["custom-cli", "deploy"]
+
+    def test_cc_import_failure_falls_back_to_default(self):
+        """If cc.core.config raises ImportError, fall back to built-in default."""
+        from tc.commands.deploy import _get_deploy_cli, _DEPLOY_CLI_DEFAULT
+        import shlex
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CC_DEPLOY_CLI", None)
+            # Inject a stub that raises on import of resolve_key
+            with _inject_cc_config_mock(None):
+                import sys
+                # Overwrite the stub's resolve_key to raise
+                sys.modules["cc.core.config"].resolve_key = MagicMock(
+                    side_effect=ImportError("cc not found")
+                )
+                result = _get_deploy_cli()
+        assert result == shlex.split(_DEPLOY_CLI_DEFAULT)
+
+    def test_run_copilot_uses_configured_cli(self):
+        """_run_copilot prepends the configured CLI prefix."""
+        from tc.commands.deploy import _run_copilot
+        with patch("tc.commands.deploy._get_deploy_cli", return_value=["my-cli"]):
+            with patch("tc.commands.deploy.subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+                _run_copilot(["arg1", "arg2"])
+        mock_run.assert_called_once()
+        called_cmd = mock_run.call_args[0][0]
+        assert called_cmd == ["my-cli", "arg1", "arg2"]
 
 
 class TestCliAvailabilityCheck:

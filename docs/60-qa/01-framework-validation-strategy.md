@@ -9,7 +9,7 @@
 This document defines the complete validation strategy for the Claude Copilot framework. It includes smoke tests for rapid feedback, integration tests for component interaction, and manual scenarios for developer experience validation.
 
 **Framework Components:**
-- Memory Copilot MCP server (initiative tracking, semantic search)
+- Memory Copilot MCP server (initiative tracking, full-text keyword search)
 - Skills Copilot MCP server (skill loading, knowledge search, extensions)
 - 12 Specialized Agents (routing, context isolation)
 - Protocol commands (/protocol, /continue, /setup-project, /update-project, /update-copilot, /knowledge-copilot)
@@ -167,7 +167,7 @@ memory_store("Added user login form to dashboard", "context")
 
 **Pass Criteria:**
 - [ ] Embedding generation succeeds
-- [ ] Search returns semantically similar results
+- [ ] Search returns keyword-matched results
 - [ ] Results ranked by similarity score
 - [ ] No errors in vector operations
 

@@ -78,12 +78,13 @@ triggers:
 
 ---
 
-## Step 5: Evaluate Skill Relevance
+## Step 5: Find Relevant Skills by Keyword
 
-Let `cc` recommend which skills apply to the current context:
+Search for skills relevant to the current task:
 
 ```bash
-cc skill evaluate --files "src/auth/*.ts" --text "implementing JWT auth"
+cc skill search "auth security"
+cc skill search "testing"
 ```
 
 ---
@@ -96,7 +97,7 @@ Use `@include` to inject a skill into the current session:
 @include .claude/skills/<category>/SKILL.md
 ```
 
-Or let agents auto-load via `cc skill evaluate` at session start.
+Skills are plain prose files — the model reads them directly via `@include` or by running `cc skill get <name>` and reading the output.
 
 ---
 

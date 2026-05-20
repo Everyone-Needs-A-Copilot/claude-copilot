@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json as json_mod
+import shlex
 import subprocess
 import sys
 import time
@@ -22,29 +23,79 @@ EXIT_TIMEOUT = 2
 EXIT_TEST_FAILED = 3
 EXIT_BAD_CONFIG = 4
 
-# Coolify terminal statuses
-_COOLIFY_SUCCESS_STATUSES = {"finished"}
-_COOLIFY_FAILURE_STATUSES = {"failed", "error", "cancelled", "canceled"}
-_COOLIFY_TERMINAL_STATUSES = _COOLIFY_SUCCESS_STATUSES | _COOLIFY_FAILURE_STATUSES
+# Terminal deploy statuses — generic enough to work with any provider that
+# reports a string status field.  The set of values is kept here as a named
+# constant so tests can assert against it and a future provider can extend it
+# via config without touching this module.
+_DEPLOY_SUCCESS_STATUSES = {"finished"}
+_DEPLOY_FAILURE_STATUSES = {"failed", "error", "cancelled", "canceled"}
+_DEPLOY_TERMINAL_STATUSES = _DEPLOY_SUCCESS_STATUSES | _DEPLOY_FAILURE_STATUSES
+
+# ---------------------------------------------------------------------------
+# Deploy CLI resolution
+# ---------------------------------------------------------------------------
+
+#: Config key read from cc machine/project config (cc config set deploy.cli "...").
+#: Override via env var CC_DEPLOY_CLI or by writing deploy.cli to cc config.
+_DEPLOY_CLI_CONFIG_KEY = "deploy.cli"
+
+#: Fallback used when the config key is absent.  Written here as a constant so
+#: the framework code contains no hardcoded vendor name — the default is the
+#: constant, and users who never set the config key get the same behaviour.
+_DEPLOY_CLI_DEFAULT = "python -m copilot_cli"
+
+
+def _get_deploy_cli() -> list[str]:
+    """Return the deploy CLI command prefix as a list of tokens.
+
+    Resolution order (highest wins):
+      1. CC_DEPLOY_CLI environment variable
+      2. deploy.cli key in cc machine or project config
+      3. Built-in default: ``python -m copilot_cli``
+
+    The returned list is ready to prepend to subprocess args, e.g.::
+
+        cmd = _get_deploy_cli() + ["--json", "coolify", "deploy", "trigger", app_id]
+    """
+    import os
+    # Env var override (CC_DEPLOY_CLI)
+    env_val = os.environ.get("CC_DEPLOY_CLI")
+    if env_val:
+        return shlex.split(env_val)
+
+    # cc config lookup — graceful: if cc is not importable, fall through
+    try:
+        from cc.core.config import resolve_key
+        val = resolve_key(_DEPLOY_CLI_CONFIG_KEY)
+        if val:
+            return shlex.split(str(val))
+    except Exception:
+        pass
+
+    return shlex.split(_DEPLOY_CLI_DEFAULT)
 
 
 def _run_copilot(args: list[str]) -> subprocess.CompletedProcess:
-    """Run a copilot_cli command and return the CompletedProcess.
+    """Run the configured deploy CLI command and return the CompletedProcess.
 
+    The CLI prefix is resolved via :func:`_get_deploy_cli` on each call so
+    that tests can patch ``_get_deploy_cli`` or ``_run_copilot`` independently.
     Extracted so tests can mock this single function without intercepting
     unrelated subprocess calls (git, etc.).
     """
-    cmd = [sys.executable, "-m", "copilot_cli"] + args
+    cmd = _get_deploy_cli() + args
     return subprocess.run(cmd, capture_output=True, text=True)
 
 
 def _check_cli_available() -> None:
-    """Exit with code 4 if python -m copilot_cli is not runnable."""
+    """Exit with code 4 if the configured deploy CLI is not runnable."""
     result = _run_copilot(["coolify", "deploy", "--help"])
     if result.returncode != 0:
+        cli_cmd = " ".join(_get_deploy_cli())
         error_exit(
-            "cli-copilot is not available (`python -m copilot_cli coolify deploy --help` failed). "
-            "Install it per SETUP.md section P5.2.",
+            f"Deploy CLI is not available (`{cli_cmd} coolify deploy --help` failed). "
+            "Set deploy.cli in cc config (cc config set deploy.cli \"<command>\") "
+            "or install the CLI per SETUP.md section P5.2.",
             EXIT_BAD_CONFIG,
         )
 
@@ -52,7 +103,10 @@ def _check_cli_available() -> None:
 def _trigger_deploy(app_id: str, force: bool) -> str:
     """Trigger a deploy and return the deployment UUID.
 
-    Shells out to: python -m copilot_cli --json coolify deploy trigger <app_id> [--force]
+    Shells out to the config-resolved deploy CLI (see _get_deploy_cli), e.g.:
+      <deploy-cli> --json coolify deploy trigger <app_id> [--force]
+    The "coolify" token and subsequent subcommands are the provider CLI's own
+    verbs — they are not part of the framework CLI name.
 
     Returns the deployment UUID string.
     Exits with EXIT_BAD_CONFIG on unexpected output.
@@ -131,8 +185,8 @@ def _poll_deploy(deployment_uuid: str, poll_interval: int, timeout: int) -> dict
 
         raw_status = (data.get("status") or "").lower()
 
-        if raw_status in _COOLIFY_TERMINAL_STATUSES:
-            outcome = "success" if raw_status in _COOLIFY_SUCCESS_STATUSES else "failed"
+        if raw_status in _DEPLOY_TERMINAL_STATUSES:
+            outcome = "success" if raw_status in _DEPLOY_SUCCESS_STATUSES else "failed"
             return {
                 "status": raw_status,
                 "outcome": outcome,

@@ -28,7 +28,7 @@ This file provides guidance to Claude Code when working with the Claude Copilot 
 
 | Challenge | Solution | Component |
 |-----------|----------|-----------|
-| Lost memory, wasted tokens | Persistent memory + semantic search | **Memory Copilot** |
+| Lost memory, wasted tokens | Persistent memory + full-text keyword search | **Memory Copilot** |
 | Generic AI lacks expertise | Specialized agents for complex tasks | **Agents** |
 | Manual skill management | Native @include + optional MCP | **Skills** |
 | Context bloat from agents | Ephemeral task/work product storage | **Task Copilot** |
@@ -77,7 +77,7 @@ This file provides guidance to Claude Code when working with the Claude Copilot 
 | Skip design stages | `/protocol --skip-sd add feature` | Jumps to specified stage |
 | Resume yesterday's work | `/continue` | Memory loads automatically |
 | Run parallel work streams | `/orchestrate generate` then `/orchestrate start` | Create PRD + tasks → set up worktrees |
-| Search past decisions | `cc memory search "<query>"` | Semantic search across sessions |
+| Search past decisions | `cc memory search "<query>"` | Full-text keyword search across sessions |
 | Load local skill | `@include .claude/skills/NAME/SKILL.md` | Direct file include |
 
 ---
@@ -86,7 +86,7 @@ This file provides guidance to Claude Code when working with the Claude Copilot 
 
 ### 1. Memory Copilot
 
-Persistent memory across sessions with semantic search.
+Persistent memory across sessions with full-text (FTS5 keyword) search.
 
 **Storage:** `.claude/memory/entries/<uuid>.md` (committed, travels with repo)
 **Commands:** `cc memory store`, `cc memory search`, `cc memory get`, `cc memory list`
@@ -106,7 +106,7 @@ Load via native @include (recommended), `cc skill` CLI, or Skills Copilot MCP se
 
 **Native:** `@include .claude/skills/NAME/SKILL.md`
 
-**cc CLI:** `cc skill get <name>`, `cc skill search "<query>"`, `cc skill list`, `cc skill evaluate`
+**cc CLI:** `cc skill get <name>`, `cc skill search "<query>"`, `cc skill list`
 
 **Location:** `tools/cc/`
 
@@ -170,9 +170,18 @@ Agents verify their task exists and check environment health before starting wor
 All agents inherit these. Individual agent files should NOT repeat them.
 
 - **Env Hydration:** Run `eval "$(cc env)"` at start to hydrate `CC_SHARED_DOCS`, `CC_KNOWLEDGE_REPO`, and other machine-level paths
-- **Skill Loading:** Run `cc skill evaluate` (or call `skill_evaluate({ files, text, threshold: 0.5 })` if MCP available) at start
-- **Memory:** Use `cc memory store --type <type> "<content>"` and `cc memory search "<query>"` instead of MCP `memory_store`/`memory_search`
+- **Skill Discovery:** Skills are plain prose files discovered by description. Use `cc skill search "<topic>"` to find relevant skills by keyword, then `@include` the path. No `evaluate` step needed — skills are model-readable markdown, not code.
+- **Memory — Recall at start:** Run `cc memory search "<task topic>"` to recall prior decisions, lessons, and context relevant to the current task.
+- **Memory — Store at end:** After completing meaningful work, run `cc memory store --type <decision|context|lesson|reference> "<content>"` to persist decisions and lessons for future sessions. Do NOT call it "semantic" — it is FTS5 keyword search.
+- **Memory commands:** `cc memory store`, `cc memory search`, `cc memory get`, `cc memory list` (not MCP `memory_store`/`memory_search`)
 - **Task Copilot Pattern:** `tc task get` → do work → `tc wp store` → `tc task update --status completed`
+- **Code-Execution Path (PREFER for >=3 related ops):** When performing 3+ related tc or cc operations (create PRD + tasks, wire deps, store multiple WPs, batch memory stores), use a SINGLE `python3` Bash block importing `tc.api` or `cc.api` instead of multiple CLI calls. Each CLI round-trip echoes a full JSON payload back into context; a python3 block returns only what you `print()`.
+  - tc-only block: `from tc.api import create_prd, create_task, add_dependency, transaction`
+  - cc-only block: `from cc.api import memory_store, memory_search, memory_list`
+  - CRITICAL: tc and cc are in separate environments — keep each block to ONE tool.
+  - Keep CLI for single one-shot ops (`tc task get 40 --json`; one `tc wp store`; one `cc memory search`).
+  - Token win example: PRD + 18 tasks + 17 deps = 36 CLI calls (~9-20K tokens echoed) vs one python3 block (~25 tokens returned).
+  - See `tools/tc/README.md` and `tools/cc/README.md` for the full usage pattern.
 - **Iteration Loop:** Self-manage iterations (max from frontmatter). Pass → complete. Blocked → emit `<promise>BLOCKED</promise>`. Else → iterate.
 - **Return Format:** Return ONLY ~100 tokens to main session. Store all details via `tc wp store`.
 - **Context Compaction:** If response exceeds ~14K tokens, store as work product and return summary only.
@@ -194,9 +203,14 @@ All agents inherit these. Individual agent files should NOT repeat them.
 
 **cc CLI** — unified tool for memory and skill management:
 - Install: `bash tools/cc/install.sh`
-- Machine config: `cc config set shared_docs /path/to/docs`
+- Machine config: `cc config set paths.shared_docs /path/to/docs`
 - Env hydration: `eval "$(cc env)"` in agent preamble
 - Full docs: `cc --help`
+
+**Known References** — stable paths and values injected automatically into every session:
+- Register: `cc config set refs.<name> <value>` (e.g. `cc config set refs.cli_copilot /path/to/cli`)
+- Or: `cc memory store --type reference "<content>"` for free-text entries
+- The `UserPromptSubmit` hook surfaces these on the first prompt of each session so the main session and protocol always have them without re-supplying paths.
 
 **Model pinning (recommended for Copilot-style projects):** Use `.claude/claude-launcher` instead of `claude` directly. It reads `.claude/.model` (default: `claude-sonnet-4-6[1m]`) and passes `--model` automatically. Override with `CLAUDE_MODEL` env var. See [SETUP.md](SETUP.md) for details.
 
@@ -255,6 +269,15 @@ Call `cc memory store --type initiative` with session context, or use `initiativ
 | "Q1 delivery" | "After Phase 2 completes" |
 
 Use dependency chains, phases, priority levels, and complexity ratings instead.
+
+### Version Source of Truth
+
+**`VERSION.json` is the single canonical source for the framework version.**
+
+- `VERSION.json` → `framework` field is the authoritative framework version
+- `package.json` → `version` MUST match `VERSION.json.framework` (it is a mirror only)
+- Component versions (`cc`, `tc`, `agents`, `commands`, `skills`) are independent semver tracked inside `VERSION.json.components`
+- Do NOT update `package.json` independently — update `VERSION.json` first, then sync `package.json` to match
 
 ### When Modifying Agents
 

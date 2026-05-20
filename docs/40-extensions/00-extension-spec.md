@@ -71,7 +71,7 @@ fallback: use_base_with_warning
 
 ```markdown
 ---
-extends: uxd
+extends: design
 type: extension
 description: Company design system integration
 overrideSections:
@@ -82,7 +82,7 @@ preserveSections:
   - Quality Gates
 ---
 
-# UX Designer Extensions
+# Design Extensions
 
 ## Design System
 [OVERRIDES base Design System section]
@@ -159,7 +159,7 @@ When an agent is invoked, the system uses **two-tier resolution**:
 |--------------|-------------|--------|
 | SD override | SD override | Uses **project** SD override |
 | (none) | SD override | Uses **global** SD override |
-| UXD extension | SD override | UXD from project, SD from global |
+| design extension | SD override | design from project, SD from global |
 | (none) | (none) | Base agents only |
 
 ## File Structure
@@ -173,14 +173,11 @@ claude-copilot/
 │       ├── me.md      # Engineer (base)
 │       ├── ta.md      # Tech Architect (base)
 │       ├── qa.md      # QA Engineer (base)
-│       ├── sec.md     # Security Engineer (base)
 │       ├── doc.md     # Documentation (base)
 │       ├── do.md      # DevOps (base)
 │       ├── sd.md      # Service Designer (base)
-│       ├── uxd.md     # UX Designer (base)
-│       ├── uids.md    # UI Designer (base)
-│       ├── uid.md     # UI Developer (base)
-│       └── cw.md      # Copywriter (base)
+│       ├── design.md  # Interaction/Visual Designer (base)
+│       └── kc.md      # Knowledge Copilot setup (base)
 └── docs/
     └── EXTENSION-SPEC.md  # This file
 ```
@@ -194,9 +191,9 @@ Located at `~/.claude/knowledge` - automatically detected, no configuration need
 ├── knowledge-manifest.json    # REQUIRED: Declares extensions
 ├── .claude/
 │   └── extensions/
-│       ├── sd.override.md     # Override example
-│       ├── uxd.extension.md   # Extension example
-│       └── ta.skills.json     # Skills injection example
+│       ├── sd.override.md       # Override example
+│       ├── design.extension.md  # Extension example
+│       └── ta.skills.json       # Skills injection example
 ├── skills/
 │   ├── company-skill-1.md
 │   └── company-skill-2.md
@@ -432,7 +429,7 @@ Retrieves the extension for a specific agent.
 **Input:**
 ```json
 {
-  "agent": "sd"  // Agent ID: me, ta, qa, sec, doc, do, sd, uxd, uids, uid, cw
+  "agent": "sd"  // Agent ID: me, ta, qa, doc, do, sd, design, kc
 }
 ```
 
@@ -448,7 +445,7 @@ Lists all available extensions from both global and project repositories.
 | Agent | Type | Source | Description | Required Skills |
 |-------|------|--------|-------------|-----------------|
 | @agent-sd | override | global | Moments Framework | moments-mapping |
-| @agent-uxd | extension | project (overrides global) | Project design system | - |
+| @agent-design | extension | project (overrides global) | Project design system | - |
 ```
 
 The `source` column indicates where each extension comes from:
