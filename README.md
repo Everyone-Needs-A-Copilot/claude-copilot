@@ -24,20 +24,20 @@
 
 **Claude Copilot is a set of instructions that sit on top of Claude Code.** This is an independent, community-driven framework for Claude Code, unaffiliated with Microsoft Copilot or GitHub Copilot.
 
-It's not separate software—it's markdown files (agents, commands, project instructions) and three MCP servers that give Claude Code new capabilities:
+It's not separate software—it's markdown files (agents, commands, project instructions) and two CLI tools (`cc` and `tc`) that give Claude Code new capabilities:
 
 | You Get                    | What It Does                                                                       |
 | -------------------------- | ---------------------------------------------------------------------------------- |
-| **Persistent Memory**      | Decisions, lessons, and progress survive across sessions                           |
+| **Persistent Memory**      | Decisions, lessons, and progress survive across sessions (FTS5 keyword search)     |
 | **8 Specialist Agents**    | Lean agents with on-demand skill loading; design agents include creative methodology |
-| **Auto-Load Skills**       | Agents detect and load relevant skills based on context (file patterns + keywords) |
+| **Code-Bearing Skills**    | Skills with executable scripts; output enters context, not implementation code     |
 | **Parallel Orchestration** | Headless workers execute streams concurrently with `/orchestrate`                  |
 | **Pause & Resume**         | Context switch mid-task with `/pause`, return with `/continue`                     |
-| **Task Management**        | PRDs, tasks, and work products with minimal context usage                          |
+| **Task Management**        | PRDs, tasks, and work products via `tc` CLI with minimal context usage             |
 | **Stream Management**      | Parallel work streams with conflict detection and dependencies                     |
-| **Knowledge Search**       | Your company docs, available in every project                                      |
+| **Knowledge Search**       | Your company docs, available in every project via Known References registry        |
 | **Extensions System**      | Override or extend agents with your company methodologies                          |
-| **Skills on Demand**       | 25K+ patterns and best practices, loaded when needed                               |
+| **Code-Execution Path**    | `tc.api` / `cc.api` facades for multi-step ops without CLI round-trip token cost   |
 | **Context Engineering**    | Auto-compaction, continuation enforcement, activation modes                        |
 
 When Claude Code reads these instructions, it transforms from a generic assistant into a full development team that remembers your work.
@@ -104,11 +104,12 @@ A diagnostic of 15 sessions (Apr 17-22 2026) found a 6% delegation rate — 94% 
               │                 │                 │
               ▼                 ▼                 ▼
 ┌────────────────────┐ ┌────────────────────┐ ┌────────────────────────────────┐
-│   MEMORY COPILOT   │ │   TASK COPILOT     │ │       SKILLS COPILOT           │
-│                    │ │                    │ │                                │
-│ • Decisions made   │ │ • PRDs & tasks     │ │ • 25,000+ public skills        │
-│ • Lessons learned  │ │ • Work products    │ │ • Your private skills          │
-│ • Enables /continue│ │ • 96% less context │ │ • Knowledge search             │
+│   MEMORY COPILOT   │ │   TASK COPILOT     │ │          cc SKILLS             │
+│   (cc memory)      │ │   (tc CLI)         │ │                                │
+│ • Decisions made   │ │ • PRDs & tasks     │ │ • Code-bearing skills (L1/L2)  │
+│ • Lessons learned  │ │ • Work products    │ │ • Prose skills (L3)            │
+│ • FTS5 keyword     │ │ • ~94% less context│ │ • Known References registry    │
+│ • Enables /continue│ │ • tc.api facade    │ │ • cc.api facade                │
 └────────────────────┘ └────────────────────┘ └────────────────────────────────┘
 ```
 
@@ -357,8 +358,8 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 | Level          | What You Get                                          |
 | -------------- | ----------------------------------------------------- |
 | **Solo**       | 8 agents, persistent memory, local skills             |
-| **Team**       | + shared knowledge, private skills via PostgreSQL     |
-| **Enterprise** | + Skill Marketplace (25K+ skills), full customization |
+| **Team**       | + shared knowledge repo, Known References registry    |
+| **Enterprise** | + Extensions system, company-specific agent overrides |
 
 → [Customization guide](docs/20-configuration/02-customization.md) | [Extension Spec](docs/40-extensions/00-extension-spec.md)
 
@@ -368,14 +369,14 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 
 | Requirement | Version |
 | ----------- | ------- |
-| Node.js     | 18+     |
+| Python      | 3.9+    |
 | Claude Code | Latest  |
-| Disk space  | ~300MB  |
+| Disk space  | ~100MB  |
 
-**Build tools:**
+**Build tools (for Python packages):**
 
 - macOS: `xcode-select --install`
-- Linux: `sudo apt-get install build-essential python3`
+- Linux: `sudo apt-get install build-essential`
 
 ---
 
