@@ -5,7 +5,14 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator, Optional
 
-from .schema import SCHEMA_SQL
+from .fts5_core import create_content_triggers, create_fts
+from .schema import (
+    SCHEMA_SQL,
+    WP_BASE_ROWID,
+    WP_BASE_TABLE,
+    WP_FTS_COLUMNS,
+    WP_FTS_TABLE,
+)
 from tc import DEFAULT_DB_DIR, DEFAULT_DB_NAME
 
 
@@ -96,7 +103,25 @@ def init_db(path: Optional[Path] = None) -> Path:
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA synchronous = NORMAL")
 
+    # Base tables, indexes, schema_version row
     conn.executescript(SCHEMA_SQL)
+
+    # FTS5 virtual table + trigger trio via shared fts5_core builders
+    # (IF NOT EXISTS — safe on existing databases, no schema_version bump needed)
+    create_fts(
+        conn,
+        WP_FTS_TABLE,
+        WP_FTS_COLUMNS,
+        content_table=WP_BASE_TABLE,
+        content_rowid=WP_BASE_ROWID,
+    )
+    create_content_triggers(
+        conn,
+        WP_BASE_TABLE,
+        WP_FTS_TABLE,
+        WP_FTS_COLUMNS,
+        rowid=WP_BASE_ROWID,
+    )
     conn.commit()
     conn.close()
 
