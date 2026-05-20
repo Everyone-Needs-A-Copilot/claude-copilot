@@ -266,6 +266,8 @@ def memory_index(
     if rebuild:
         stats = rebuild_index(memory_root)
         console.print(f"[green]Index rebuilt.[/green] Indexed: {stats['indexed']}  Errors: {stats['errors']}")
+        if "vectors_recomputed" in stats:
+            console.print(f"  Vectors recomputed: {stats['vectors_recomputed']}")
 
     if status:
         info = index_status(memory_root)
@@ -273,6 +275,16 @@ def memory_index(
         console.print(
             f"Files: {info['files']}  Indexed: {info['indexed']}  Status: {sync_label}"
         )
+        # Embedding-specific fields (present only when EmbeddingBackend active)
+        if "embedding_model" in info:
+            model_label = info["embedding_model"]
+            vec_sync = "[green]in sync[/green]" if info.get("vectors_in_sync") else "[yellow]out of sync[/yellow]"
+            console.print(
+                f"  Backend: embedding  Model: {model_label}"
+                f"  Vectors: {info.get('vectors', 0)}  Vectors: {vec_sync}"
+            )
+        else:
+            console.print("  Backend: fts5 (embedding disabled)")
         if not info["in_sync"]:
             raise typer.Exit(3)
 
