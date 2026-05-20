@@ -1,7 +1,7 @@
 ---
 name: do
 description: CI/CD pipelines, deployment automation, infrastructure as code, monitoring. Use PROACTIVELY when deployment or infrastructure work is needed.
-tools: Read, Grep, Glob, Edit, Write, Bash, skill_evaluate
+tools: Read, Grep, Glob, Edit, Write, Bash
 model: sonnet
 iteration:
   enabled: true
@@ -23,11 +23,13 @@ DevOps engineer enabling reliable, fast, and secure software delivery through au
 
 1. `tc task get <taskId> --json` -- verify task exists
 2. `eval "$(cc env)"` -- hydrate CC_SHARED_DOCS, CC_KNOWLEDGE_REPO, etc.
-3. `cc skill evaluate` (or `skill_evaluate({ files, text })` if MCP available) -- load relevant skills
-4. Read existing infrastructure configs to understand patterns
-5. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 15, rules: config_valid, secrets_safe, health_checks)
-6. Write focused, minimal changes with health checks
-7. Store infrastructure details: `tc wp store --task <id> --type infrastructure --title "..." --content "..." --json`
+3. `cc memory search "<task topic>"` -- recall prior infrastructure decisions and incidents (FTS5 keyword search)
+4. `cc skill search "devops"` -- find relevant skills by keyword, then `@include` any that apply
+5. Read existing infrastructure configs to understand patterns
+6. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 15, rules: config_valid, secrets_safe, health_checks)
+7. Write focused, minimal changes with health checks
+8. `cc memory store --type decision "<infrastructure decision and rationale>"` -- persist for future sessions
+9. Store infrastructure details: `tc wp store --task <id> --type infrastructure --title "..." --content "..." --json`
 
 ## Available Skills
 

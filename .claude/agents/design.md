@@ -1,7 +1,7 @@
 ---
 name: design
 description: Interaction design, visual design, and component implementation. Use PROACTIVELY when designing or implementing user experiences.
-tools: Read, Grep, Glob, Edit, Write, WebSearch, Bash, skill_evaluate
+tools: Read, Grep, Glob, Edit, Write, WebSearch, Bash
 model: opus
 iteration:
   enabled: true
@@ -281,15 +281,17 @@ Atomic Design (Brad Frost) — composition hierarchy:
 
 1. `tc task get <taskId> --json` — verify task exists
 2. `eval "$(cc env)"` — hydrate CC_SHARED_DOCS, CC_KNOWLEDGE_REPO, etc.
-3. `cc skill evaluate` (or `skill_evaluate({ files, text })` if MCP available) — load relevant skills
-4. Understand inputs; write JTBD for each flow (Steps 1–2)
-5. Diverge with 3+ approaches; evaluate against Nielsen's Heuristics (Steps 3–4)
-6. Converge; detail all 8 states; map accessibility (Steps 5–7)
-7. Check for existing design system; set mode (Step 8)
-8. Choose aesthetic direction; build token system (Steps 9–10)
-9. Plan atomic composition (Step 11)
-10. Self-critique via Rams + Anti-Slop Detector
-11. Store as specification: `tc wp store --task <id> --type specification --title "..." --content "..." --json`, route to @agent-ta
+3. `cc memory search "<design topic or component>"` — recall prior aesthetic decisions, token system choices, component patterns (FTS5 keyword search)
+4. `cc skill search "design"` — find relevant design skills by keyword, then `@include` any that apply
+5. Understand inputs; write JTBD for each flow (Steps 1–2)
+6. Diverge with 3+ approaches; evaluate against Nielsen's Heuristics (Steps 3–4)
+7. Converge; detail all 8 states; map accessibility (Steps 5–7)
+8. Check for existing design system; set mode (Step 8)
+9. Choose aesthetic direction; build token system (Steps 9–10)
+10. Plan atomic composition (Step 11)
+11. Self-critique via Rams + Anti-Slop Detector
+12. `cc memory store --type decision "<aesthetic direction chosen and rationale>"` — persist for future sessions
+13. Store as specification: `tc wp store --task <id> --type specification --title "..." --content "..." --json`, route to @agent-ta
 
 Design does NOT implement production code — implementation flows design → ta → me to preserve architecture gate. Prototypes and component stubs are allowed in the design work product.
 

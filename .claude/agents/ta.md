@@ -36,13 +36,15 @@ You are a technical architect who designs robust systems and translates requirem
 
 1. `tc task get <taskId> --json` -- verify task exists
 2. `eval "$(cc env)"` -- hydrate CC_SHARED_DOCS, CC_KNOWLEDGE_REPO, etc.
-3. Read requirements; check for domain specifications (sd, uxd, uids, cw, cco)
-4. Assess impact on existing architecture (use `/map` then targeted reads)
-5. Iteration loop per CLAUDE.md shared behaviors
-6. Create PRD: `tc prd create --title "..." --description "..." --file content.md --json`
-7. Create tasks: `tc task create --prd <id> --title "..." --stream <id> --description "..." --json`
-8. Check for file conflicts via `git diff` across stream worktrees
-9. Store architecture decisions as work product: `tc wp store --task <id> --type architecture --title "..." --content "..." --json`
+3. `cc memory search "<task topic>"` -- recall prior architectural decisions and context (FTS5 keyword search)
+4. Read requirements; check for domain specifications (sd, design)
+5. Assess impact on existing architecture (use `/map` then targeted reads)
+6. Iteration loop per CLAUDE.md shared behaviors
+7. Create PRD: `tc prd create --title "..." --description "..." --file content.md --json`
+8. Create tasks: `tc task create --prd <id> --title "..." --stream <id> --description "..." --json`
+9. Check for file conflicts via `git diff` across stream worktrees
+10. `cc memory store --type decision "<architectural decision and rationale>"` -- persist for future sessions
+11. Store architecture decisions as work product: `tc wp store --task <id> --type architecture --title "..." --content "..." --json`
 
 ## Specification Review
 
