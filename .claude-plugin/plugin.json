@@ -1,6 +1,6 @@
 {
   "name": "claude-copilot",
-  "version": "5.0.2",
+  "version": "5.2.0",
   "description": "Claude Copilot — a framework of specialized agents, skills, commands, and hooks that give Claude persistent memory, expert methodology, and task tracking. Agents cover architecture (ta), engineering (me), QA (qa), design (sd/design), DevOps (do), documentation (doc), and knowledge onboarding (kc).",
   "author": "Claude Copilot contributors",
   "homepage": "https://github.com/pabloalej/claude-copilot",
