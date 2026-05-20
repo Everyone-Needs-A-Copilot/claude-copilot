@@ -1,13 +1,19 @@
 ---
-skill_name: jest-patterns
+name: jest-patterns
 skill_category: testing
-description: Jest testing patterns, anti-patterns, and quality rules
-allowed_tools: [Read, Edit, Write, Grep, Bash]
-token_estimate: 1800
-version: 1.0
-last_updated: 2026-01-13
-owner: Claude Copilot
-status: active
+description: Jest testing patterns, anti-patterns, and quality rules. Includes a deterministic test-smell detector (jest_smell.py) for .only/.skip left in, missing expects, async-without-await, setTimeout(0), console.log, and done callbacks.
+version: 2.0.0
+source: migrated from testing/jest-patterns.md (v1.0, 2026-01-13); L3 smell detector added 2026-05-20
+when_to_use:
+  - Reviewing or writing Jest test files (JS/TS)
+  - Diagnosing a flaky or unreliable JavaScript test suite
+  - Code review of *.test.ts / *.spec.js files
+  - CI quality gate on test file hygiene
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
 tags: [jest, testing, javascript, typescript, unit-test, integration-test, quality]
 related_skills: [javascript-patterns, react-patterns, pytest-patterns]
 trigger_files: ["*.test.ts", "*.test.js", "*.spec.ts", "*.spec.js", "jest.config.*", "__tests__/**"]
@@ -17,6 +23,8 @@ trigger_keywords: [jest, test, spec, mock, describe, it, expect, beforeEach, aft
 # Jest Patterns
 
 Modern Jest testing patterns, anti-patterns, and quality rules for JavaScript/TypeScript.
+
+jest_smell.py detects structural test smells deterministically via regex. The prose sections below cover judgment-level guidance that the script cannot evaluate. Never re-derive smell detection by eye when the script can do it; always run the script for consistent, auditable findings.
 
 ## Core Principles
 
@@ -348,3 +356,66 @@ module.exports = {
 | Minimal mocking | Only mock what's necessary |
 | Descriptive names | Test name describes behavior |
 | Cleanup | afterEach/afterAll for side effects |
+
+---
+
+## Invocation — Test Smell Detector (L3 Script)
+
+After reviewing or writing Jest test files, run the smell detector to get a structured, auditable finding list. Consume the script's **output only** — the script source never enters context.
+
+**Smells detected:**
+
+| ID | Name | Severity | Rule |
+|----|------|----------|------|
+| SMELL-01 | test_only | ERROR | `.only()` left in — silently skips rest of suite |
+| SMELL-02 | test_skip | WARN | `.skip()` left in — tests silently disabled |
+| SMELL-03 | no_expect | ERROR | Test block has no `expect()` call |
+| SMELL-04 | async_no_await | ERROR | `async` test body has no `await` |
+| SMELL-05 | setTimeout_zero | WARN | `setTimeout(fn, 0)` in test — use `jest.useFakeTimers()` |
+| SMELL-06 | console_log | WARN | `console.log()` left in test — pollutes CI output |
+| SMELL-07 | done_callback | WARN | `done` callback pattern — rewrite with async/await |
+
+**Run via Bash (single file):**
+```bash
+python .claude/skills/testing/jest-patterns/scripts/jest_smell.py path/to/example.test.ts
+```
+
+**Run via Bash (directory — walks *.test.* / *.spec.* files recursively):**
+```bash
+python .claude/skills/testing/jest-patterns/scripts/jest_smell.py src/
+```
+
+**Run via Bash (stdin):**
+```bash
+cat example.test.js | python .claude/skills/testing/jest-patterns/scripts/jest_smell.py -
+```
+
+**Output fields (JSON):**
+```json
+{
+  "findings": [
+    {
+      "smell_id": "SMELL-01",
+      "name": "test_only",
+      "severity": "ERROR",
+      "message": ".only() found at line 5 — silently skips all other tests",
+      "file": "src/user.test.ts",
+      "line": 5,
+      "function": "<suite>"
+    }
+  ],
+  "summary": {
+    "total": 2,
+    "error": 1,
+    "warn": 1,
+    "files_analyzed": 1
+  }
+}
+```
+
+**What the agent does with the output:**
+1. Address all `ERROR` severity findings first — these are broken/useless tests.
+2. Review `WARN` severity findings — remove debugging artifacts and flaky patterns.
+3. Use `summary.error` count when making a CI gate decision.
+
+**Error handling:** Invalid file path → exits 1 with `ERROR:` message on stderr. Non-JS/TS file for a named argument → exits 1. Empty input → exits 0 with zero findings.
