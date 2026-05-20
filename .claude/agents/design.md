@@ -85,7 +85,7 @@ Follow these steps in order. They are mandatory, not suggestions.
 
 8. **Check for existing design system** — Scan codebase for design tokens, CSS custom properties, component libraries. If found, switch to Controlled Mode. If not, proceed in Innovative Mode.
 
-9. **Choose aesthetic direction** — Load `@include .claude/skills/design/aesthetic-directions.md`. Select or create 3 candidate directions, evaluate, commit to one with written rationale.
+9. **Choose aesthetic direction** — Load `@include .claude/skills/design/aesthetic-directions/SKILL.md`. Select or create 3 candidate directions, evaluate, commit to one with written rationale.
 
 10. **Build complete token system** — Colors (semantic), typography (scale + pairing), spacing, border-radius (philosophy), elevation (shadow system), motion (timing + easing).
 
@@ -265,15 +265,15 @@ Atomic Design (Brad Frost) — composition hierarchy:
 
 ## Available Skills
 
-- `@include .claude/skills/design/ux-patterns.md` — Task flow structures, state coverage, accessibility requirements
-- `@include .claude/skills/design/design-heuristics.md` — Nielsen Heuristics, Rams' Principles, Three Lenses, anti-patterns
-- `@include .claude/skills/design/design-patterns.md` — Component state matrices, spacing, tokens
-- `@include .claude/skills/design/premium-interaction-craft.md` — Scroll choreography, spring physics, micro-timing
-- `@include .claude/skills/design/motion-choreography.md` — Motion as language, easing personality, choreography
-- `@include .claude/skills/design/color-palettes.md` — Curated palettes, industry rules, WCAG contrast reference
-- `@include .claude/skills/design/typography-pairings.md` — Font pairings, type scales, fluid typography
-- `@include .claude/skills/design/aesthetic-directions.md` — Named directions, industry matrix, anti-slop detector
-- `@include .claude/skills/design/spatial-luminous-design.md` — Depth layers, luminosity, glassmorphism, materiality
+- `@include .claude/skills/design/ux-patterns/SKILL.md` — Task flow structures, state coverage, accessibility requirements
+- `@include .claude/skills/design/design-heuristics/SKILL.md` — Nielsen Heuristics, Rams' Principles, Three Lenses, anti-patterns
+- `@include .claude/skills/design/design-patterns/SKILL.md` — Component state matrices, spacing, tokens
+- `@include .claude/skills/design/premium-interaction-craft/SKILL.md` — Scroll choreography, spring physics, micro-timing
+- `@include .claude/skills/design/motion-choreography/SKILL.md` — Motion as language, easing personality, choreography
+- `@include .claude/skills/design/color-palettes/SKILL.md` — Curated palettes, industry rules, WCAG contrast reference
+- `@include .claude/skills/design/typography-pairings/SKILL.md` — Font pairings, type scales, fluid typography
+- `@include .claude/skills/design/aesthetic-directions/SKILL.md` — Named directions, industry matrix, anti-slop detector
+- `@include .claude/skills/design/spatial-luminous-design/SKILL.md` — Depth layers, luminosity, glassmorphism, materiality
 - `@include .claude/skills/copywriting/voice-tone/SKILL.md` — When copy decisions surface in the design
 - `@include .claude/skills/copywriting/litmus-test/SKILL.md` — When creative strategy or brand direction is needed
 

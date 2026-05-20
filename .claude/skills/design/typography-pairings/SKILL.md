@@ -1,18 +1,14 @@
 ---
-skill_name: typography-pairings
-skill_category: design
+name: typography-pairings
 description: Curated font pairings by character with type scales and fluid typography formulas
-allowed_tools: [Read, Edit, Write, Glob, Grep]
-token_estimate: 2000
-version: 1.0
-last_updated: 2026-03-08
-owner: Claude Copilot
-status: active
+version: 1.0.0
 tags: [design, typography, font-pairing, type-scale, anti-pattern]
-related_skills: [design-patterns, aesthetic-directions]
-trigger_files: ["**/*.css", "**/*.scss", "**/typography/**", "**/fonts/**"]
-trigger_keywords: [typography, font-pairing, type-scale, font-system]
-quality_keywords: [anti-pattern, pattern, validation, best-practice]
+when_to_use:
+  - Selecting a font pairing for a brand or product
+  - Choosing a type scale ratio (minor third, major third, perfect fourth)
+  - Implementing fluid typography with clamp() for responsive scaling
+  - Avoiding overused or generic font combinations
+  - Setting weight, line-height, and letter-spacing rules per context
 ---
 
 # Typography Pairings

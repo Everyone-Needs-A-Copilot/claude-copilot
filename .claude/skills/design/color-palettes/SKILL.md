@@ -1,18 +1,14 @@
 ---
-skill_name: color-palettes
-skill_category: design
+name: color-palettes
 description: Curated color palettes by mood/industry with anti-generic rules and WCAG contrast reference
-allowed_tools: [Read, Edit, Write, Glob, Grep]
-token_estimate: 2500
-version: 1.0
-last_updated: 2026-03-08
-owner: Claude Copilot
-status: active
+version: 1.0.0
 tags: [design, color, palette, tokens, anti-pattern, brand, accessibility]
-related_skills: [design-patterns, aesthetic-directions]
-trigger_files: ["**/*.css", "**/*.scss", "**/tokens/**", "**/theme/**"]
-trigger_keywords: [color-palette, color-system, brand-colors, theme, palette]
-quality_keywords: [anti-pattern, pattern, validation, best-practice, accessibility]
+when_to_use:
+  - Selecting or creating a color system for a brand or product
+  - Verifying WCAG contrast compliance for text and UI elements
+  - Avoiding overused or generic color combinations
+  - Deriving dark mode variants from a light palette
+  - Matching palette mood to industry and emotional context
 ---
 
 # Color Palettes

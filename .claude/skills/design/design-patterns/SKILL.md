@@ -1,18 +1,14 @@
 ---
-skill_name: design-patterns
-skill_category: design
+name: design-patterns
 description: Visual design patterns, design tokens, component specifications, WCAG compliance
-allowed_tools: [Read, Edit, Write, Glob, Grep]
-token_estimate: 1400
-version: 1.0
-last_updated: 2026-01-13
-owner: Claude Copilot
-status: active
+version: 1.0.0
 tags: [design, tokens, visual, components, accessibility, pattern, anti-pattern]
-related_skills: [ux-patterns]
-trigger_files: ["**/*.css", "**/*.scss", "**/tokens/**", "**/design/**", "**/styles/**"]
-trigger_keywords: [design-tokens, visual-design, component-spec, color-system, typography, spacing, WCAG, contrast, design-system]
-quality_keywords: [anti-pattern, pattern, validation, best-practice, accessibility]
+when_to_use:
+  - Defining a design token system for colors, spacing, or typography
+  - Specifying component states across all interactive conditions
+  - Verifying WCAG 2.1 AA compliance for contrast and touch targets
+  - Building a consistent, accessible design system
+  - Reviewing components for missing states or hard-coded values
 ---
 
 # Design Patterns

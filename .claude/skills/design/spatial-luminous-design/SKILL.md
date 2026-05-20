@@ -1,18 +1,14 @@
 ---
-skill_name: spatial-luminous-design
-skill_category: design
+name: spatial-luminous-design
 description: Spatial depth systems, luminosity techniques, glassmorphism, material reference, atmospheric color, mesh gradients
-allowed_tools: [Read, Edit, Write, Glob, Grep, Bash]
-token_estimate: 2000
-version: 1.0
-last_updated: 2026-03-29
-owner: Claude Copilot
-status: active
+version: 1.0.0
 tags: [design, spatial, depth, luminosity, glass, material, atmosphere, gradient, light]
-related_skills: [premium-interaction-craft, motion-choreography, color-palettes, aesthetic-directions]
-trigger_files: ["**/theme/**", "**/tokens/**", "**/styles/**", "**/design/**", "*.css", "*.scss"]
-trigger_keywords: [spatial, depth, glass, glassmorphism, luminous, glow, backdrop-filter, blur, gradient, mesh, atmosphere, material, translucent]
-quality_keywords: [anti-pattern, pattern, depth, layer, light, premium]
+when_to_use:
+  - Assigning z-axis layers and shadow depth tokens to interface elements
+  - Implementing glassmorphism at the correct tier for context
+  - Applying luminosity effects — ambient glow, neon, rim lighting
+  - Choosing material surfaces (glass, metal, paper, fabric) as design tokens
+  - Building atmospheric color and animated mesh gradients
 ---
 
 # Spatial & Luminous Design

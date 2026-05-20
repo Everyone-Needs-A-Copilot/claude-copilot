@@ -1,18 +1,14 @@
 ---
-skill_name: motion-choreography
-skill_category: design
+name: motion-choreography
 description: Motion as design language — grammar, easing personality, choreography patterns, restraint philosophy, animation principles
-allowed_tools: [Read, Edit, Write, Glob, Grep, Bash]
-token_estimate: 2000
-version: 1.0
-last_updated: 2026-03-29
-owner: Claude Copilot
-status: active
+version: 1.0.0
 tags: [design, motion, animation, choreography, easing, timing, restraint, premium]
-related_skills: [premium-interaction-craft, spatial-luminous-design, ux-patterns]
-trigger_files: ["**/animation/**", "**/motion/**", "**/transitions/**", "*.css", "*.scss"]
-trigger_keywords: [motion, choreography, easing, timing, animation, transition, stagger, sequence, spring, anticipation]
-quality_keywords: [anti-pattern, pattern, easing, restraint, choreography]
+when_to_use:
+  - Designing multi-element animation sequences or entrance/exit choreography
+  - Selecting easing curves with personality for each interaction type
+  - Applying restraint principles to avoid over-animation
+  - Implementing anticipation and follow-through in UI interactions
+  - Auditing animation systems for motion budget and prefers-reduced-motion compliance
 ---
 
 # Motion Choreography

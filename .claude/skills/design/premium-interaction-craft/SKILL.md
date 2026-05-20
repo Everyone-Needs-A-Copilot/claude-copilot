@@ -1,18 +1,14 @@
 ---
-skill_name: premium-interaction-craft
-skill_category: design
+name: premium-interaction-craft
 description: Elite interaction patterns — scroll choreography, spring physics, micro-timing, text reveals, magnetic elements, page transitions
-allowed_tools: [Read, Edit, Write, Glob, Grep, Bash]
-token_estimate: 2200
-version: 1.0
-last_updated: 2026-03-29
-owner: Claude Copilot
-status: active
+version: 1.0.0
 tags: [design, interaction, animation, gsap, spring-physics, scroll, motion, premium]
-related_skills: [motion-choreography, spatial-luminous-design, ux-patterns]
-trigger_files: ["**/animation/**", "**/motion/**", "**/transitions/**", "**/components/**/*.tsx", "**/hooks/use*Animation*"]
-trigger_keywords: [animation, scroll-trigger, spring, gsap, framer-motion, transition, micro-interaction, parallax, magnetic, reveal]
-quality_keywords: [anti-pattern, pattern, easing, choreography, timing]
+when_to_use:
+  - Implementing scroll-driven choreography with GSAP ScrollTrigger
+  - Applying spring physics to user-initiated drag, toggle, or swipe interactions
+  - Selecting precise timing durations from the elite micro-timing scale
+  - Building text reveal effects or magnetic/tilt interactions
+  - Engineering page transitions with shared element morphing
 ---
 
 # Premium Interaction Craft
