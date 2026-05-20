@@ -237,21 +237,40 @@ class TestConfig:
         )
 
     def test_sentinel_resolution(self):
-        """If machine config has shared_docs, cc env includes CC_SHARED_DOCS."""
-        # Check if the machine config has shared_docs set
-        result_machine = run(["config", "list", "--scope", "machine"])
-        assert result_machine.returncode == 0
+        """cc env emits CC_PATHS_SHARED_DOCS when the value is set, and omits it when absent.
 
-        result_env = run(["env"])
-        assert result_env.returncode == 0
+        This test is hermetic: it injects a sentinel value via the CC_PATHS_SHARED_DOCS env
+        var (highest-precedence config layer) rather than relying on whatever is stored in
+        the developer's machine config file.  The same test therefore passes on every machine
+        regardless of local configuration — whether shared_docs is configured, null, or absent.
+        """
+        test_path = "/tmp/cc-test-shared-docs-sentinel"
 
-        if "shared_docs" in result_machine.stdout:
-            # Sentinel should resolve — CC_SHARED_DOCS should appear in env
-            assert "CC_SHARED_DOCS" in result_env.stdout, (
-                f"CC_SHARED_DOCS not in env output even though shared_docs is configured:\n"
-                f"{result_env.stdout}"
-            )
-        # If shared_docs is not set, this test passes trivially (sentinel not configured)
+        # --- Case 1: value IS configured (via env var) → cc env MUST emit it ---
+        env_with = {**os.environ, "CC_PATHS_SHARED_DOCS": test_path}
+        result_with = run(["env"], env=env_with)
+        assert result_with.returncode == 0, (
+            f"cc env failed when CC_PATHS_SHARED_DOCS was set:\n{result_with.stderr}"
+        )
+        assert "CC_PATHS_SHARED_DOCS" in result_with.stdout, (
+            f"CC_PATHS_SHARED_DOCS not emitted by cc env even though it was provided via env var:\n"
+            f"{result_with.stdout}"
+        )
+        assert test_path in result_with.stdout, (
+            f"Expected path {test_path!r} not found in cc env output:\n{result_with.stdout}"
+        )
+
+        # --- Case 2: value is NOT configured (env var stripped) → test_path must be absent ---
+        # This verifies cc env does not hallucinate the key when its value is null/unset.
+        env_without = {k: v for k, v in os.environ.items() if k != "CC_PATHS_SHARED_DOCS"}
+        result_without = run(["env"], env=env_without)
+        assert result_without.returncode == 0, (
+            f"cc env failed when CC_PATHS_SHARED_DOCS was absent:\n{result_without.stderr}"
+        )
+        assert test_path not in result_without.stdout, (
+            f"Sentinel test_path {test_path!r} leaked into cc env output without being configured:\n"
+            f"{result_without.stdout}"
+        )
 
 
 # ---------------------------------------------------------------------------
