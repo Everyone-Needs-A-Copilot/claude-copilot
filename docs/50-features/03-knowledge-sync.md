@@ -320,7 +320,7 @@ const workProducts = await task_copilot.query({
 // Include in knowledge:
 // - Architecture decisions from PRDs
 // - Technical designs from @agent-ta
-// - Security reviews from @agent-sec
+// - Security reviews (from stride-dread skill runs)
 // - Test strategies from @agent-qa
 ```
 

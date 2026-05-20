@@ -530,6 +530,5 @@ To start using worktrees:
 
 ## See Also
 
-- [Stream System](./01-streams.md) - Parallel work streams that benefit from worktree isolation
-- [Task Lifecycle](../20-architecture/02-task-lifecycle.md) - Complete task status transition flow
-- [Quality Gates](./04-quality-gates.md) - Pre-merge validation
+- [Orchestration Workflow](./01-orchestration-workflow.md) - Parallel work streams that benefit from worktree isolation
+- [Enhancement Features](./00-enhancement-features.md) - Quality gates and other agent reliability features
