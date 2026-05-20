@@ -1,8 +1,9 @@
 """Database connection management for Task Copilot CLI."""
 
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional
+from typing import Generator, Optional
 
 from .schema import SCHEMA_SQL
 from tc import DEFAULT_DB_DIR, DEFAULT_DB_NAME
@@ -45,6 +46,32 @@ def get_db(path: Optional[Path] = None) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA synchronous = NORMAL")
     return conn
+
+
+@contextmanager
+def transaction(conn: sqlite3.Connection) -> Generator[sqlite3.Connection, None, None]:
+    """Context manager for explicit transaction management.
+
+    Commits on normal exit; rolls back on any exception so the batch is
+    all-or-nothing — safer than today's partial-progress across N CLI calls.
+
+    Usage::
+
+        with transaction(conn) as conn:
+            create_task(title="...", conn=conn)
+            create_task(title="...", conn=conn)
+            add_dependency(task_id=..., depends_on=..., conn=conn)
+        # committed once here
+
+    Note: ``conn`` is yielded back for ergonomic use in ``with`` blocks, but
+    callers may also close it after the block if they hold the only reference.
+    """
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
 
 
 def init_db(path: Optional[Path] = None) -> Path:

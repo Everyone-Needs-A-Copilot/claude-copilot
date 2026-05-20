@@ -4,7 +4,6 @@ from typing import Optional
 
 import typer
 
-from tc.db.connection import get_db
 from tc.formatting import output_json, output_table
 from tc.utils.errors import require_db
 
@@ -21,74 +20,22 @@ def progress_summary(
     if ctx.invoked_subcommand is not None:
         return
 
+    from tc.services.progress import get_progress as _get_progress
+
     db_path = require_db()
-    conn = get_db(db_path)
-
-    query = """
-        SELECT
-            stream_id,
-            status,
-            COUNT(*) as count
-        FROM tasks
-        WHERE 1=1
-    """
-    params: list = []
-    if stream is not None:
-        query += " AND stream_id = ?"
-        params.append(stream)
-
-    query += " GROUP BY stream_id, status ORDER BY stream_id, status"
-
-    rows = conn.execute(query, params).fetchall()
-
-    # Build totals
-    total_query = "SELECT status, COUNT(*) as count FROM tasks"
-    total_params: list = []
-    if stream is not None:
-        total_query += " WHERE stream_id = ?"
-        total_params.append(stream)
-    total_query += " GROUP BY status"
-
-    total_rows = conn.execute(total_query, total_params).fetchall()
-
-    # Stream info
-    stream_rows = conn.execute("SELECT id, name FROM streams ORDER BY id").fetchall()
-    stream_map = {r["id"]: r["name"] for r in stream_rows}
-
-    conn.close()
-
-    # Organize by stream
-    by_stream: dict = {}
-    for row in rows:
-        sid = row["stream_id"]
-        if sid not in by_stream:
-            by_stream[sid] = {}
-        by_stream[sid][row["status"]] = row["count"]
-
-    totals: dict = {}
-    for row in total_rows:
-        totals[row["status"]] = row["count"]
+    result = _get_progress(stream=stream, db_path=db_path)
 
     if json:
-        result = {
-            "by_stream": [
-                {
-                    "stream_id": sid,
-                    "stream_name": stream_map.get(sid, "unassigned"),
-                    "counts": counts,
-                }
-                for sid, counts in by_stream.items()
-            ],
-            "totals": totals,
-        }
         output_json(result)
     else:
         statuses = ["pending", "in_progress", "completed", "blocked", "cancelled"]
 
         # Per-stream table
         table_rows = []
-        for sid, counts in by_stream.items():
-            row_dict = {"stream": stream_map.get(sid, f"#{sid}" if sid else "unassigned")}
+        for entry in result["by_stream"]:
+            sid = entry["stream_id"]
+            counts = entry["counts"]
+            row_dict = {"stream": entry["stream_name"] if entry["stream_name"] else (f"#{sid}" if sid else "unassigned")}
             for s in statuses:
                 row_dict[s] = counts.get(s, 0)
             table_rows.append(row_dict)
@@ -101,6 +48,7 @@ def progress_summary(
             )
 
         # Totals
+        totals = result["totals"]
         print("\nTotals:")
         for s in statuses:
             count = totals.get(s, 0)
