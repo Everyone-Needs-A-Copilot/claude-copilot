@@ -1,18 +1,14 @@
 ---
-skill_name: design-heuristics
-skill_category: design
+name: design-heuristics
 description: Rams principles, Nielsen heuristics, Three Lenses evaluation, and senior thinking frameworks
-allowed_tools: [Read, Edit, Write, Glob, Grep]
-token_estimate: 2000
-version: 1.0
-last_updated: 2026-03-08
-owner: Claude Copilot
-status: active
+version: 1.0.0
 tags: [design, heuristics, evaluation, critique, anti-pattern, best-practice]
-related_skills: [ux-patterns, design-patterns]
-trigger_files: ["**/*.css", "**/*.tsx", "**/*.jsx", "**/design/**"]
-trigger_keywords: [design-review, design-critique, heuristic-evaluation, design-quality, usability-review]
-quality_keywords: [anti-pattern, pattern, validation, best-practice, heuristic]
+when_to_use:
+  - Evaluating a design before shipping
+  - Running a structured design critique or review
+  - Applying Rams' 10 principles or Nielsen's usability heuristics
+  - Distinguishing senior from junior design thinking
+  - Identifying design anti-patterns before they reach users
 ---
 
 # Design Heuristics

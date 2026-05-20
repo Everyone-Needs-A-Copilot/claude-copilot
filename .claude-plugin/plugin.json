@@ -1,0 +1,58 @@
+{
+  "name": "claude-copilot",
+  "version": "5.0.2",
+  "description": "Claude Copilot — a framework of specialized agents, skills, commands, and hooks that give Claude persistent memory, expert methodology, and task tracking. Agents cover architecture (ta), engineering (me), QA (qa), design (sd/design), DevOps (do), documentation (doc), and knowledge onboarding (kc).",
+  "author": "Claude Copilot contributors",
+  "homepage": "https://github.com/pabloalej/claude-copilot",
+  "license": "MIT",
+  "claude_plugin_spec": "1.0",
+
+  "agents": "../.claude/agents",
+
+  "skills": "../.claude/skills",
+
+  "commands": "../.claude/commands",
+
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/../.claude/hooks/pretool-check.sh"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "me|qa",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/../.claude/hooks/subagent-stop.sh"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/../.claude/hooks/user-prompt-submit.sh"
+          }
+        ]
+      }
+    ]
+  },
+
+  "_notes": {
+    "hook_portability": "Hooks reference the same scripts in .claude/hooks/ whether installed as a plugin (${CLAUDE_PLUGIN_ROOT} resolves to the plugin install dir) or as a direct clone (settings.json wires the same scripts with absolute paths). No script changes were needed — only the path-reference style differs between the two wiring mechanisms.",
+    "override_layer": "This plugin ships the BASE agents only (the floor). The knowledge-repo per-agent override layer (project $KNOWLEDGE_REPO_PATH -> global ~/.claude/knowledge -> base) remains a RUNTIME prompt-assembly step performed by the cc CLI at agent-invocation time. Plugin distribution does not affect this: cc extension_get reads the override/extension/skills files and merges them on top of the base agent the plugin provides. See docs/50-features/14-plugin-install.md for the floor/ceiling model.",
+    "bundled_vs_installed": "This plugin bundles only prompt-layer assets (agents, skills, commands, hooks). The cc CLI (memory, skills CLI, extension resolution) and the tc CLI (task copilot) are NOT bundled — they are separate installs (see install story below). Agents call cc/tc via Bash; if those binaries are absent, memory and task features degrade but agent markdown still loads.",
+    "cc_tc_install": "cc: bash tools/cc/install.sh  OR  pipx install claude-cli. tc: pip install -e tools/tc  OR  homebrew (see SETUP.md). Run 'cc doctor' after install to verify both binaries are reachable and see which features are degraded if not.",
+    "version_source": "version field above is sourced from VERSION.json .framework at build/update time. Keep in sync via 'update-project' command."
+  }
+}

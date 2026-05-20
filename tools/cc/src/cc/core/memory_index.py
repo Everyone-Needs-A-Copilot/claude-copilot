@@ -235,11 +235,20 @@ class FTS5Backend:
 # Module-level default backend
 # ---------------------------------------------------------------------------
 
-_default_backend: SearchBackend = FTS5Backend()
+# _default_backend is resolved lazily on first use via resolve_backend()
+# (backend_factory.py).  When memory.embedding_model == "none" (the default),
+# resolve_backend() returns FTS5Backend() with ZERO extra imports — byte-identical
+# to the old direct assignment.  Tests may still call set_default_backend() to
+# inject a stub; that explicit override bypasses the factory.
+_default_backend: SearchBackend | None = None
 
 
 def get_default_backend() -> SearchBackend:
-    """Return the active default backend (FTS5 keyword/BM25)."""
+    """Return the active default backend (config-resolved; FTS5 when off)."""
+    global _default_backend
+    if _default_backend is None:
+        from cc.core.backend_factory import resolve_backend
+        _default_backend = resolve_backend()
     return _default_backend
 
 
@@ -258,7 +267,7 @@ def rebuild_index(memory_root: Path, *, backend: SearchBackend | None = None) ->
 
     Returns {"indexed": <count>, "errors": <count>}.
     """
-    return (backend or _default_backend).rebuild(memory_root)
+    return (backend or get_default_backend()).rebuild(memory_root)
 
 
 def index_status(memory_root: Path, *, backend: SearchBackend | None = None) -> dict[str, Any]:
@@ -266,7 +275,7 @@ def index_status(memory_root: Path, *, backend: SearchBackend | None = None) -> 
 
     Returns {"files": <n>, "indexed": <n>, "in_sync": <bool>}.
     """
-    return (backend or _default_backend).status(memory_root)
+    return (backend or get_default_backend()).status(memory_root)
 
 
 def search_index(query: str, memory_root: Path, *, backend: SearchBackend | None = None) -> list[dict[str, Any]]:
@@ -275,7 +284,7 @@ def search_index(query: str, memory_root: Path, *, backend: SearchBackend | None
     Returns list of dicts with id, type, tags, content snippet.
     Falls back to empty list if index does not exist.
     """
-    return (backend or _default_backend).search(query, memory_root)
+    return (backend or get_default_backend()).search(query, memory_root)
 
 
 def index_entry(
@@ -288,7 +297,7 @@ def index_entry(
     backend: SearchBackend | None = None,
 ) -> None:
     """Insert or replace a single entry in the index."""
-    (backend or _default_backend).index(entry_id, entry_type, tags, content, memory_root)
+    (backend or get_default_backend()).index(entry_id, entry_type, tags, content, memory_root)
 
 
 def remove_from_index(
@@ -298,4 +307,4 @@ def remove_from_index(
     backend: SearchBackend | None = None,
 ) -> None:
     """Remove a single entry from the index."""
-    (backend or _default_backend).remove(entry_id, memory_root)
+    (backend or get_default_backend()).remove(entry_id, memory_root)

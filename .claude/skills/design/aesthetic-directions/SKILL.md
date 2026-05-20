@@ -1,18 +1,14 @@
 ---
-skill_name: aesthetic-directions
-skill_category: design
+name: aesthetic-directions
 description: Named aesthetic directions with visual moves, industry mapping, and anti-slop detection
-allowed_tools: [Read, Edit, Write, Glob, Grep]
-token_estimate: 2500
-version: 1.0
-last_updated: 2026-03-08
-owner: Claude Copilot
-status: active
+version: 1.0.0
 tags: [design, aesthetic, visual-direction, brand-identity, anti-pattern]
-related_skills: [color-palettes, typography-pairings, design-patterns]
-trigger_files: ["**/design/**", "**/brand/**", "**/tokens/**", "**/theme/**", "**/styles/brand**"]
-trigger_keywords: [aesthetic, visual-direction, design-style, brand-identity, look-and-feel]
-quality_keywords: [anti-pattern, pattern, validation, best-practice]
+when_to_use:
+  - Choosing a visual direction before starting any design work
+  - Evaluating whether an aesthetic is generic or intentional
+  - Mapping aesthetic choices to industry and audience
+  - Detecting and rejecting AI-generated visual clichés
+  - Presenting multiple direction options with rationale
 ---
 
 # Aesthetic Directions
