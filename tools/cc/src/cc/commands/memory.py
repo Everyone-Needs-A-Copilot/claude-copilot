@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import sqlite3
 from pathlib import Path
 from typing import List, Optional
@@ -30,6 +31,8 @@ from cc.core.memory_index import (
     remove_from_index,
     search_index,
 )
+
+_log = logging.getLogger(__name__)
 
 memory_app = typer.Typer(
     name="memory",
@@ -84,14 +87,13 @@ def memory_store(
         err_console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(1)
 
-    # Update index if DB already exists (best-effort, never blocks file write)
+    # Update index (first-class incremental: auto-creates DB on first write)
+    # Never blocks the file write — errors are logged at DEBUG, not swallowed silently.
     memory_root = resolve_memory_root(resolved_scope)
-    db_path = memory_root / "memory.db"
-    if db_path.exists():
-        try:
-            index_entry(result["id"], entry_type, tag_list, content, memory_root)
-        except Exception:
-            pass
+    try:
+        index_entry(result["id"], entry_type, tag_list, content, memory_root)
+    except Exception as exc:
+        _log.debug("Incremental index update failed for %s: %s", result["id"], exc)
 
     if output_json:
         typer.echo(json.dumps(result))
@@ -193,11 +195,11 @@ def memory_delete(
         err_console.print(f"[yellow]Not found:[/yellow] {entry_id}")
         raise typer.Exit(1)
 
-    # Remove from index too
+    # Remove from index too (best-effort: DB may not exist yet)
     try:
         remove_from_index(entry_id, memory_root)
-    except Exception:
-        pass
+    except Exception as exc:
+        _log.debug("Incremental index remove failed for %s: %s", entry_id, exc)
 
     console.print(f"[green]Deleted[/green] {entry_id}")
 
