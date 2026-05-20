@@ -118,6 +118,10 @@ cc skill search "testing python"
 
 Two-layer configuration: machine config (`~/.claude/cc/config.json`) is the base; project config (`.claude/cc/config.json` in git root) overrides specific keys. Use the `@machine` sentinel in project config to inherit the machine value explicitly.
 
+Config keys live under two namespaces:
+- **`paths.*`** — well-known directory paths (`memory`, `shared_docs`, `knowledge_repo`)
+- **`refs.*`** — arbitrary named references surfaced to the main session at turn 1 (via the `user-prompt-submit` hook). Use this to register project boards, design system URLs, or any stable reference you want available every session without manual retrieval.
+
 ```bash
 # Read a value (effective = project overrides machine)
 cc config get paths.memory
@@ -126,6 +130,10 @@ cc config get paths.shared_docs
 # Write a value
 cc config set paths.knowledge_repo /path/to/repo        # machine (default)
 cc config set --project paths.shared_docs /team/docs    # project layer
+
+# Register named references (surfaced to main session at turn 1)
+cc config set refs.project_board https://linear.app/...
+cc config set refs.design_system /path/to/tokens
 
 # List all keys with source annotation
 cc config list
@@ -310,7 +318,7 @@ tools/cc/
     main.py               # Typer app + subgroup registration
     commands/             # one module per subcommand group
       memory.py           # store, get, list, delete, search, index, migrate
-      skill.py            # list, search, get, path, evaluate
+      skill.py            # list, search, get, path
       config.py           # get, set, unset, list, where, validate, edit, init, export, doctor
       env.py              # cc env (shell hydration)
       mcp.py              # serve, config

@@ -166,12 +166,38 @@ tc handoff --from me --to qa --task <id> --context "..."
 tc log --task <id> [--limit 20]
 ```
 
+### `tc deploy`
+
+Deploy commands for CI/CD integration. The deploy CLI used is config-gated — no vendor is hardcoded.
+
+```bash
+tc deploy wait <app_id> --task <id>   # trigger deploy, poll until terminal, store report as WP
+```
+
+**Configure the deploy CLI** (required before first use):
+
+```bash
+# Via cc config (machine or project layer)
+cc config set deploy.cli "my-deploy-tool"
+
+# Or via env var (takes precedence)
+export CC_DEPLOY_CLI="my-deploy-tool"
+```
+
+---
+
 ### `tc watch`
 
 ```bash
 tc watch                           # live dashboard
 tc watch --compact --refresh 10
 ```
+
+---
+
+## Work Product Externalization
+
+When a WP's `--content` exceeds **8 KB** (`WP_CONTENT_SIZE_THRESHOLD`), `tc wp store` writes the payload to a file in `.copilot/wp/` and stores a reference in the database rather than inlining the content. This prevents large analysis outputs from bloating context when the WP is retrieved via `tc wp get`. The threshold is exposed as `WP_CONTENT_SIZE_THRESHOLD` in `tc/__init__.py` and can be adjusted for local environments.
 
 ---
 

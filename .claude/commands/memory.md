@@ -6,9 +6,9 @@ Display current memory state for transparency and debugging.
 
 Run these CLI commands to gather memory state:
 
-1. **Get recent initiative entries:**
+1. **Get recent decisions:**
    ```bash
-   cc memory list --type initiative --limit 3
+   cc memory list --type decision --limit 5
    ```
 
 2. **Get recent memories:**
@@ -16,9 +16,9 @@ Run these CLI commands to gather memory state:
    cc memory list --limit 10
    ```
 
-3. **Get agent improvement suggestions:**
+3. **Get recent context entries:**
    ```bash
-   cc memory list --type agent_improvement
+   cc memory list --type context --limit 5
    ```
 
 4. **If Task Copilot is linked, get progress:**
@@ -38,12 +38,6 @@ Format the output as a clean, scannable dashboard:
 ```
 ## Memory Dashboard
 
-**Initiative:** [name from most recent initiative entry, or "None"]
-**Status:** [status - IN PROGRESS / COMPLETED / BLOCKED]
-
-**Focus:** [currentFocus]
-**Next:** [nextAction]
-
 ### Recent Decisions
 [List last 3-5 decisions, or "None recorded"]
 
@@ -55,18 +49,6 @@ Type       | Content Preview                    | Created
 ---------- | ---------------------------------- | ----------
 decision   | [First 50 chars...]                | 2025-01-15
 lesson     | [First 50 chars...]                | 2025-01-14
-
-### Agent Improvements
-[If agent improvements exist, show summary:]
-**Pending:** [count] | **Approved:** [count] | **Rejected:** [count]
-
-[Table format for pending suggestions:]
-Agent | Section           | Rationale                           | Created
------ | ----------------- | ----------------------------------- | ----------
-me    | Core Behaviors    | [First 40 chars...]                 | 2025-01-15
-ta    | Output format     | [First 40 chars...]                 | 2025-01-14
-
-[If no improvements: "No agent improvements recorded"]
 
 **Storage:** ~/.claude/memory/ (machine) | .claude/memory/entries/ (project)
 
@@ -89,33 +71,13 @@ generic_agent_used       | critical | Used "Explore" agent            | 2025-01-
 
 ## Step 3: Handle Edge Cases
 
-### No Active Initiative
-
-If `cc memory list --type initiative` returns no entries:
-```
-## Memory Dashboard
-
-**Status:** No active initiative
-
-Use `/protocol` to start fresh work or `/continue` to resume.
-
-**Storage:** ~/.claude/memory/ (machine) | .claude/memory/entries/ (project)
-```
-
 ### No Memories
 
 If `cc memory list` returns empty:
 ```
 ### Recent Memories
 No memories stored yet.
-```
-
-### No Agent Improvements
-
-If `cc memory list --type agent_improvement` returns empty:
-```
-### Agent Improvements
-No agent improvements recorded
+Use `cc memory store --type decision "..."` to start recording.
 ```
 
 ## Display Notes
@@ -125,9 +87,7 @@ No agent improvements recorded
 - Show timestamps in YYYY-MM-DD format
 - Group decisions and lessons separately from other memory types
 - Highlight if Task Copilot is linked
-- For agent improvements, parse metadata to extract AgentImprovementMetadata fields
-- Show status counts (pending/approved/rejected) from metadata.status field
-- Truncate rationale to 40 characters for table display
+- Valid entry types: `decision` | `context` | `lesson` | `reference` | `person`
 - For protocol violations, show summary counts by severity
 - Only show violations section if Task Copilot is linked
 - Highlight critical and high-severity violations
@@ -136,12 +96,6 @@ No agent improvements recorded
 
 ```
 ## Memory Dashboard
-
-**Initiative:** Framework Improvements v2.0
-**Status:** IN PROGRESS
-
-**Focus:** 4 remaining tasks for v2.0 release
-**Next:** Complete CMD-1 memory command
 
 ### Recent Decisions
 - Migrate to cc CLI for memory and skills management
