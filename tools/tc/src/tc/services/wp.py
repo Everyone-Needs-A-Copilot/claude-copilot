@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from tc.db.exceptions import TaskNotFound, ValidationError
+from tc.db.fts5_core import fts_match
+from tc.db.schema import WP_FTS_COLUMNS, WP_FTS_TABLE
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
@@ -298,16 +300,17 @@ def search_wps(
         conn = _open_conn(resolved)
 
     try:
-        rows = conn.execute(
-            """SELECT wp.*,
-                      snippet(work_products_fts, 1, '[', ']', '...', 20) as snippet
-               FROM work_products wp
-               JOIN work_products_fts ON wp.id = work_products_fts.rowid
-               WHERE work_products_fts MATCH ?
-               ORDER BY rank
-               LIMIT ?""",
-            (query, limit),
-        ).fetchall()
+        # content column is index 1 in WP_FTS_COLUMNS: ["title", "content", "type", "agent"]
+        content_col_idx = WP_FTS_COLUMNS.index("content")
+        rows = fts_match(
+            conn,
+            WP_FTS_TABLE,
+            query,
+            select="wp.*",
+            join="JOIN work_products wp ON wp.id = work_products_fts.rowid",
+            limit=limit,
+            snippet_col=content_col_idx,
+        )
         return [_row_to_dict(r) for r in rows]
     except Exception as exc:
         raise DatabaseError(f"search error: {exc}") from exc
