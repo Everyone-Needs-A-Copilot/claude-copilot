@@ -40,6 +40,14 @@ cc config doctor
 cc env                    # eval "$(cc env)" to hydrate shell
 cc env --json
 cc env --include-secrets
+
+# paths.* — well-known directory paths
+cc config set paths.shared_docs /path/to/docs
+cc config set paths.knowledge_repo /path/to/knowledge
+
+# refs.* — named references surfaced to main session at turn 1
+cc config set refs.project_board https://...
+cc config set refs.design_system /path/to/tokens
 ```
 
 ## MCP Shim

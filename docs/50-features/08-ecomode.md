@@ -52,11 +52,11 @@ The complexity scorer analyzes multiple factors to produce a normalized score.
 
 | Agent | Score | Reasoning |
 |-------|-------|-----------|
-| qa, doc, cw | 0.2 | Typically lower complexity work |
-| me, uid | 0.4 | Implementation work |
-| uids, uxd | 0.5 | Design work |
-| sd, cco | 0.6 | Strategic/creative work |
-| ta, sec, do | 0.7 | Architecture/security/infrastructure |
+| qa, doc | 0.2 | Typically lower complexity work |
+| me | 0.4 | Implementation work |
+| design | 0.5 | Design work |
+| sd | 0.6 | Strategic/service design work |
+| ta, do | 0.7 | Architecture/infrastructure |
 
 ---
 

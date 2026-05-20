@@ -354,7 +354,7 @@ fallback: use_base
 
 When a project uses both claude-copilot framework and a knowledge repository:
 
-1. **Setup:** Configure `KNOWLEDGE_REPO_PATH` in your MCP server configuration
+1. **Setup:** Configure `KNOWLEDGE_REPO_PATH` via `cc config set paths.knowledge_repo <path>` or the env variable
 2. **Resolution:** Framework automatically detects and applies extensions
 3. **Runtime:** Agents use extended behavior when invoking `@agent-[name]`
 
@@ -377,50 +377,33 @@ Extensions are validated against framework version at setup time.
 
 ## Implementation Details
 
-### MCP Server Configuration
+### Knowledge Repository Configuration
 
-The skills-copilot server automatically checks for a global knowledge repository at `~/.claude/knowledge`. No configuration is required for global extensions.
+The framework automatically checks for a global knowledge repository at `~/.claude/knowledge`. No configuration is required for global extensions.
 
-**Minimal configuration (global repo auto-detected):**
+**Register the global knowledge repo path (recommended):**
 
-```json
-{
-  "mcpServers": {
-    "skills-copilot": {
-      "command": "node",
-      "args": ["/Users/yourname/.claude/copilot/mcp-servers/skills-copilot/dist/index.js"],
-      "env": {
-        "LOCAL_SKILLS_PATH": "./.claude/skills"
-      }
-    }
-  }
-}
+```bash
+cc config set paths.knowledge_repo ~/.claude/knowledge
 ```
 
 **With project-specific override:**
 
-Add `KNOWLEDGE_REPO_PATH` only when you need project-specific extensions that differ from global:
+Set `KNOWLEDGE_REPO_PATH` only when you need project-specific extensions that differ from global:
 
-```json
-{
-  "mcpServers": {
-    "skills-copilot": {
-      "command": "node",
-      "args": ["/Users/yourname/.claude/copilot/mcp-servers/skills-copilot/dist/index.js"],
-      "env": {
-        "LOCAL_SKILLS_PATH": "./.claude/skills",
-        "KNOWLEDGE_REPO_PATH": "/path/to/project-specific/knowledge"
-      }
-    }
-  }
-}
+```bash
+# In your project shell or .env
+export KNOWLEDGE_REPO_PATH=/path/to/project-specific/knowledge
+
+# Or register with cc config
+cc config set paths.knowledge_repo /path/to/project-specific/knowledge
 ```
 
-> **Note:** Replace `/Users/yourname` with your actual home directory path. The `~` tilde does **NOT** expand in MCP args.
+> **Note:** The `cc env` command exports these as environment variables. Use `eval "$(cc env)"` in agent preambles.
 
-### Available MCP Tools
+### Available Extension Tools
 
-Three tools are available for extension resolution:
+Three tools are available for extension resolution (provided by the cc CLI layer):
 
 #### `extension_get`
 
@@ -429,7 +412,7 @@ Retrieves the extension for a specific agent.
 **Input:**
 ```json
 {
-  "agent": "sd"  // Agent ID: me, ta, qa, doc, do, sd, design, kc
+  "agent": "sd"  // Agent ID: ta, me, qa, do, doc, sd, design, kc
 }
 ```
 

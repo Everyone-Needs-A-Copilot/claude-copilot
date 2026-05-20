@@ -376,10 +376,10 @@ react-team-knowledge/
 │   ├── 01-development.md     # React patterns, hooks, testing
 │   └── 02-design.md          # Component library, design tokens
 └── .claude/extensions/
-    └── uid.extension.md      # UI Developer extensions
+    └── design.extension.md   # Design agent extensions
 ```
 
-**uid.extension.md:**
+**design.extension.md:**
 ```markdown
 # UI Developer Extension
 

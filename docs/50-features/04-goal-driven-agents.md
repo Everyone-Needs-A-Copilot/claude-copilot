@@ -106,7 +106,7 @@ Validation checks are executed via Bash commands. Agents can define custom check
 ## Workflow
 
 1. Check task state: `tc task get <id> --json`
-2. Use `skill_evaluate({ files, text })` to load relevant skills
+2. Run `cc skill search "<task context>"` to discover and load relevant skills
 3. Read existing code to understand patterns
 4. FOR EACH iteration (up to max retries):
    - Make changes to code
@@ -293,7 +293,7 @@ When the maximum number of attempts is reached without success:
    ### Recommended Next Steps
    - Review token refresh timing logic
    - Add synchronization mechanism
-   - Consider involving @agent-sec for security review
+   - Consider loading `@include .claude/skills/security/stride-dread/SKILL.md` for security review
    ```
 2. Update task status to "blocked" with human-readable summary: `tc task update <id> --status blocked --json`
 

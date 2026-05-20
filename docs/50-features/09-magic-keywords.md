@@ -106,7 +106,7 @@ Action keywords route your task to specific agent flows.
 | Keyword | Agent Flow | Agent Chain | Use When |
 |---------|-----------|-------------|----------|
 | `fix:` | Defect | qa → me → qa | Fixing bugs, errors, broken features |
-| `add:` | Experience | sd → uxd → uids → ta → me → qa | Adding new features, UI, functionality |
+| `add:` | Experience | sd → design → ta → me → qa | Adding new features, UI, functionality |
 | `refactor:` | Technical | ta → me → qa | Restructuring code, improving architecture |
 | `optimize:` | Technical | ta → me → qa | Performance improvements, efficiency |
 | `test:` | QA | qa | Writing tests, test coverage |
@@ -130,7 +130,7 @@ Action keywords route your task to specific agent flows.
 **Add features:**
 ```
 /protocol add: dark mode toggle to settings
-→ Routes to Experience Flow: sd → uxd → uids → ta → me → qa
+→ Routes to Experience Flow: sd → design → ta → me → qa
 ```
 
 **Refactor code:**
@@ -204,7 +204,7 @@ Effort: (complexity-based)
 Action: add → Experience Flow
 
 [PROTOCOL: EXPERIENCE | Agent: @agent-sd | Action: INVOKING]
-Routing to experience-first flow: sd → uxd → uids → ta → me → qa
+Routing to experience-first flow: sd → design → ta → me → qa
 Model selection: Claude Opus (forced override)
 Effort level: high (complex feature, standard reasoning)
 ```
@@ -372,7 +372,7 @@ The parser only matches exact keywords at the start of the message to prevent fa
 | Flow override | `fix:`, `add:`, `refactor:` | `--defect`, `--experience`, `--technical` |
 | Typing speed | Faster (5-10 chars) | Slower (15-20 chars) |
 | Clarity | Implicit | Explicit |
-| Skip stages | Not available | `--skip-sd`, `--skip-uxd`, etc. |
+| Skip stages | Not available | `--skip-sd`, `--skip-design`, etc. |
 
 **Recommendation:** Use magic keywords for quick commands. Use flags for advanced control (skip stages, checkpoint control, etc.).
 
@@ -402,7 +402,7 @@ haiku:   → Claude Haiku (effort based on complexity)
 
 ```
 fix:      → Defect Flow (qa → me → qa)
-add:      → Experience Flow (sd → uxd → uids → ta → me → qa)
+add:      → Experience Flow (sd → design → ta → me → qa)
 refactor: → Technical Flow (ta → me → qa)
 optimize: → Technical Flow (ta → me → qa)
 test:     → QA Testing (@agent-qa)

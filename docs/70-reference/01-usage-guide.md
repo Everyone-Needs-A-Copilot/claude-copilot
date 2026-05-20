@@ -183,20 +183,11 @@ You: /protocol add dark mode to the dashboard
 
 Service Designer:
   1. Creates journey map for dark mode toggle
-  2. Routes to @agent-uxd
+  2. Routes to @agent-design
 
-UX Designer:
-  1. Designs interaction patterns
-  2. Routes to @agent-uids
-
-UI Designer:
-  1. Creates color tokens for dark theme
-  2. Routes to @agent-uid
-
-UI Developer:
-  1. Implements theme toggle
-  2. Creates components
-  3. Routes to @agent-me for integration
+Design Agent:
+  1. Designs interaction patterns, color tokens for dark theme, component variants
+  2. Routes to @agent-me for implementation
 
 Engineer:
   1. Integrates with app
@@ -465,7 +456,7 @@ Prefix your `/protocol` commands for model and routing control:
 | Keyword | Flow | Agent Chain |
 |---------|------|-------------|
 | `fix:` | Defect | qa → me → qa |
-| `add:` | Experience | sd → uxd → uids → ta → me → qa |
+| `add:` | Experience | sd → design → ta → me → qa |
 | `refactor:` | Technical | ta → me → qa |
 | `test:` | QA | qa |
 | `doc:` | Documentation | doc |

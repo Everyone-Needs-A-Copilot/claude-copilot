@@ -6,7 +6,7 @@
       "version": "1.0.1",
       "path": "tools/cc",
       "installScript": "tools/cc/install.sh",
-      "provides": ["cc memory", "cc skill", "cc config", "cc env", "cc mcp"]
+      "provides": ["cc memory", "cc skill", "cc config", "cc env"]
     },
     "tc": {
       "version": "1.0.0",

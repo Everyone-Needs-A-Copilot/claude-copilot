@@ -1,10 +1,10 @@
 # Meet Your Team
 
-Claude Copilot gives you access to **14 specialized agents**—each an expert in their domain, built using the **lean agent model** with on-demand skill loading.
+Claude Copilot provides **8 specialized agents** plus a setup agent — each an expert in their domain, built using the lean agent model with on-demand skill loading.
 
 ## Architecture: Lean Agents + Deep Skills
 
-Agents are kept minimal (under 120 lines) and auto-load domain expertise on demand. Shared boilerplate (skill loading, Task Copilot pattern, iteration loop, return format, etc.) is extracted to the "Agent Shared Behaviors" section in CLAUDE.md, so individual agent files contain only domain-specific logic.
+Agents are kept minimal (under 120 lines) and load domain expertise on demand. Shared boilerplate (skill loading, Task Copilot pattern, iteration loop, return format, handoffs) is extracted to the "Agent Shared Behaviors" section in CLAUDE.md so individual agent files contain only domain-specific logic.
 
 | Component | Size | Purpose |
 |-----------|------|---------|
@@ -14,41 +14,22 @@ Agents are kept minimal (under 120 lines) and auto-load domain expertise on dema
 | Total context | ~1,000 tokens | Agent + relevant skills only |
 
 **How it works:**
-1. Agent calls `skill_evaluate({ files, text })` to detect relevant skills
-2. Skills ranked by confidence (file patterns + keyword matching)
-3. Agent loads top skills via `@include` directive
-4. Work executes with specialized knowledge
-
-**Benefits:**
-- ~70% less context per agent (3,000 → 1,000 tokens)
-- Skills loaded only when needed
-- Extensible without modifying agents
-- Faster agent startup
+1. Agent discovers relevant skills via `cc skill search "<query>"`
+2. Agent loads skill content via `cc skill get <name>` or native `@include`
+3. Work executes with specialized knowledge
+4. ~70% less context per agent vs. monolithic agents
 
 ### Required Tools
 
-All lean agents MUST include these tools:
+All lean agents include these tools:
 
 | Tool / Command | Purpose |
 |------|---------|
-| `skill_evaluate` | Auto-detect and load skills (Skills Copilot MCP) |
+| `cc skill search "<query>"` | Discover relevant skills by keyword |
+| `cc skill get <name>` | Load a specific skill |
 | `tc task get <id> --json` | Retrieve task details |
 | `tc task update <id> --status <s> --json` | Update task status |
-| `tc wp store --task <id> ...` | Store output |
-
-> **Note:** `preflight_check` has been replaced by `tc task get <id> --json` which returns task state including environment context.
-
-### Skill Metadata
-
-Skills must have trigger metadata for auto-detection:
-
-```yaml
----
-skill_name: python-idioms
-trigger_files: ["*.py", "**/*.py", "requirements.txt"]
-trigger_keywords: [python, django, flask, pytest, pythonic]
----
-```
+| `tc wp store --task <id> ...` | Store agent output |
 
 ### Extension Compatibility
 
@@ -64,20 +45,18 @@ Extensions continue to work with lean agents:
 
 ## Quick Reference
 
-| Agent | Name | Domain | When to Use |
-|-------|------|--------|-------------|
-| `ta` | Tech Architect | System design | "Design the auth system", "Break down this PRD" |
-| `me` | Engineer | Code implementation | "Implement the login endpoint", "Fix this bug" |
-| `qa` | QA Engineer | Testing | "Write tests for this feature", "What edge cases?" |
-| `sec` | Security | Security review | "Review this auth code", "Is this API secure?" |
-| `doc` | Documentation | Technical writing | "Document this API", "Update the README" |
-| `do` | DevOps | CI/CD, infrastructure | "Set up the CI pipeline", "Configure Docker" |
-| `sd` | Service Designer | Experience strategy | "Map the onboarding journey", "Where are users dropping off?" |
-| `uxd` | UX Designer | Interaction design | "Design the checkout flow", "Is this form usable?" |
-| `uids` | UI Designer | Visual design | "Create a color palette", "Design the component library" |
-| `uid` | UI Developer | UI implementation | "Build this component", "Make this responsive" |
-| `cw` | Copywriter | Content/copy | "Write the error messages", "Create onboarding copy" |
-| `kc` | Knowledge Copilot | Shared knowledge | Run `/knowledge-copilot` |
+| Agent | Domain | When to Use |
+|-------|--------|-------------|
+| `ta` | Technical architecture — ADR/fitness functions | "Design the auth system", "Break down this PRD" |
+| `me` | Engineering — Kent Beck simple design | "Implement the login endpoint", "Fix this bug" |
+| `qa` | QA — Meszaros patterns | "Write tests for this feature", "What edge cases?" |
+| `do` | DevOps/infra — 12-Factor/SRE | "Set up the CI pipeline", "Configure Docker" |
+| `doc` | Documentation — Diátaxis | "Document this API", "Update the README" |
+| `sd` | Service design — IDEO methodology | "Map the onboarding journey", "Where are users dropping off?" |
+| `design` | Interaction/visual design — Nielsen + Rams + Atomic Design | "Design the checkout flow", "Create the component library" |
+| `kc` | Knowledge copilot setup | Run `/knowledge-copilot` |
+
+> **Security:** Security concerns are handled via the `security/stride-dread` skill rather than a dedicated agent. Load it with `cc skill get stride-dread` or `@include .claude/skills/security/stride-dread/SKILL.md`.
 
 ---
 
@@ -137,42 +116,6 @@ Extensions continue to work with lean agents:
 
 ---
 
-### `@agent-sec` — Security Engineer
-
-**Your security expert who protects users and data.**
-
-- Reviews code for vulnerabilities (OWASP Top 10)
-- Performs threat modeling (STRIDE methodology)
-- Ensures authentication/authorization is solid
-- Balances security with usability
-
-**Value:** Vulnerabilities caught before exploitation. Security built in, not bolted on. Compliance requirements met.
-
-**When to use:**
-- "Review this auth code"
-- "Is this API secure?"
-- "What are the security risks here?"
-
----
-
-### `@agent-doc` — Documentation
-
-**Your technical writer who makes complex things clear.**
-
-- Creates accurate, useful documentation
-- Structures information for findability
-- Maintains API documentation
-- Keeps READMEs current
-
-**Value:** Users find what they need. New team members onboard faster. Less "how does this work?" questions.
-
-**When to use:**
-- "Document this API"
-- "Update the README"
-- "Create a getting started guide"
-
----
-
 ### `@agent-do` — DevOps Engineer
 
 **Your infrastructure expert who makes deployment reliable.**
@@ -191,9 +134,27 @@ Extensions continue to work with lean agents:
 
 ---
 
+### `@agent-doc` — Documentation
+
+**Your technical writer who makes complex things clear.**
+
+- Creates accurate, useful documentation using the Diátaxis framework
+- Structures information for findability
+- Maintains API documentation
+- Keeps READMEs current
+
+**Value:** Users find what they need. New team members onboard faster. Less "how does this work?" questions.
+
+**When to use:**
+- "Document this API"
+- "Update the README"
+- "Create a getting started guide"
+
+---
+
 ## Human Advocates
 
-These agents ensure your software serves real human needs—not just technical requirements.
+These agents ensure your software serves real human needs — not just technical requirements.
 
 ### `@agent-sd` — Service Designer
 
@@ -213,75 +174,27 @@ These agents ensure your software serves real human needs—not just technical r
 
 ---
 
-### `@agent-uxd` — UX Designer
+### `@agent-design` — Design
 
-**Your interaction designer who makes things intuitive.**
+**Your interaction and visual designer who makes interfaces intuitive and beautiful.**
+
+Consolidates interaction design (flows, wireframes, usability), visual design (tokens, color, typography), and UI implementation patterns.
 
 - Designs task flows that users can follow
 - Creates wireframes and interaction specifications
 - Ensures accessibility (WCAG 2.1 AA)
-- Validates usability before development
+- Creates design systems and tokens
+- Designs color palettes (WCAG compliant)
+- Establishes typography hierarchies
 
-**Value:** Users complete tasks without confusion. Interfaces accessible to everyone. Designs validated before code.
+**Value:** Users complete tasks without confusion. Visual design reinforces usability. Scalable design systems. WCAG compliance. Designs validated before code.
 
 **When to use:**
 - "Design the checkout flow"
 - "Is this form usable?"
-- "How should error states work?"
-
----
-
-### `@agent-uids` — UI Designer
-
-**Your visual designer who makes interfaces beautiful and functional.**
-
-- Creates design systems and tokens
-- Designs color palettes (WCAG compliant)
-- Establishes typography hierarchies
-- Ensures brand consistency
-
-**Value:** Visual design that reinforces usability. Scalable design systems. WCAG compliance. Documented design decisions.
-
-**When to use:**
 - "Create a color palette"
 - "Design the component library"
 - "Is this visually consistent?"
-
----
-
-### `@agent-uid` — UI Developer
-
-**Your frontend specialist who brings designs to life.**
-
-- Implements accessible, responsive components
-- Translates designs to pixel-perfect code
-- Optimizes frontend performance
-- Builds reusable component libraries
-
-**Value:** UI matches design specs. Components work on all devices. Accessible to screen readers. Maintainable code.
-
-**When to use:**
-- "Build this component"
-- "Make this responsive"
-- "Implement the design system"
-
----
-
-### `@agent-cw` — Copywriter
-
-**Your content designer who writes words that work.**
-
-- Crafts clear microcopy and button labels
-- Writes helpful error messages
-- Creates onboarding flows that guide users
-- Establishes voice and tone guidelines
-
-**Value:** Users understand without thinking. Error messages help recovery. Consistent voice throughout.
-
-**When to use:**
-- "Write the error messages"
-- "What should this button say?"
-- "Create onboarding copy"
 
 ---
 
@@ -304,7 +217,7 @@ These agents ensure your software serves real human needs—not just technical r
 
 ## How Agents Collaborate
 
-Agents don't work in isolation—they route to each other based on expertise.
+Agents don't work in isolation — they route to each other based on expertise.
 
 ### Technical Flow
 
@@ -315,9 +228,7 @@ User Request: "Add user authentication"
     @agent-ta ──────────────────────────────────────────────┐
     (designs architecture)                                   │
          │                                                   │
-         ├──→ @agent-sec (security review)                  │
-         │         │                                         │
-         │         └──→ returns recommendations              │
+         │   [security/stride-dread skill loaded inline]     │
          │                                                   │
          └──→ @agent-me (implementation) ◄──────────────────┘
                    │
@@ -326,7 +237,7 @@ User Request: "Add user authentication"
                    └──→ @agent-doc (documentation)
 ```
 
-### Human Advocate Flow
+### Experience Flow
 
 ```
 User Request: "Redesign our onboarding experience"
@@ -335,15 +246,13 @@ User Request: "Redesign our onboarding experience"
     @agent-sd ─────────────────────────────────────────────────────┐
     (maps customer journey, identifies pain points)                 │
          │                                                          │
-         ├──→ @agent-uxd (designs task flows, wireframes)          │
-         │         │                                                │
-         │         └──→ @agent-uids (visual design, tokens)        │
-         │                   │                                      │
-         │                   └──→ @agent-cw (onboarding copy)      │
-         │                                                          │
-         └──→ @agent-uid (implements components) ◄─────────────────┘
-                   │
-                   └──→ @agent-qa (accessibility testing)
+         └──→ @agent-design (interaction + visual design)          │
+                   │                                                │
+                   └──→ @agent-ta (spec to architecture) ◄─────────┘
+                             │
+                             └──→ @agent-me (implementation)
+                                       │
+                                       └──→ @agent-qa (accessibility + regression)
 ```
 
 ### Routing Table
@@ -351,95 +260,39 @@ User Request: "Redesign our onboarding experience"
 | From | Routes To | When |
 |------|-----------|------|
 | Any | `ta` | Architecture decisions needed |
-| Any | `sec` | Security concerns arise |
-| `sd` | `uxd` | Interaction design needed |
-| `uxd` | `uids` | Visual design needed |
-| `uids` | `uid` | Implementation needed |
+| `sd` | `design` | Interaction/visual design needed |
+| `design` | `ta` | Specification ready for architecture |
 | Any | `me` | Code implementation needed |
 | Any | `qa` | Testing needed |
 | Any | `doc` | Documentation needed |
+| Any | `do` | CI/CD or infrastructure needed |
+
+For security reviews: load the `security/stride-dread` skill rather than routing to a separate agent.
 
 ---
 
 ## Task Copilot Integration
 
-Lean agents store their detailed work products in Task Copilot instead of returning them to the main session. This reduces context usage by ~96%.
-
-### How It Works
-
-```
-User Request: "Design the auth system"
-         │
-         ▼
-    @agent-ta (lean agent)
-         │
-         ├──→ Calls skill_evaluate() to load relevant skills
-         │
-         ├──→ Creates PRD, breaks down tasks
-         │
-         ├──→ Stores PRD in Task Copilot (tc prd create ...)
-         │
-         ├──→ Creates tasks (tc task create ...)
-         │
-         └──→ Returns summary to main session (~100 tokens)
-              "Created PRD-001 with 5 tasks. Ready to proceed."
-```
+Lean agents store detailed work products in Task Copilot instead of returning them to the main session. This reduces context usage by ~96%.
 
 ### Work Product Types
-
-Each agent stores specific types of work:
 
 | Agent | Work Product Type | What's Stored |
 |-------|------------------|---------------|
 | `ta` | `architecture`, `technical_design` | System designs, ADRs, task breakdowns |
 | `me` | `implementation` | Code changes, refactoring notes |
 | `qa` | `test_plan` | Test strategies, coverage reports |
-| `sec` | `security_review` | Vulnerability assessments, threat models |
 | `doc` | `documentation` | API docs, guides, READMEs |
 | `do` | `technical_design` | Pipeline configs, infrastructure designs |
-| `sd`, `uxd`, `uids`, `uid`, `cw` | `other` | Journey maps, wireframes, design specs, copy |
-
-### Benefits
-
-- **Reduced context**: Main session stays focused (~200 tokens vs ~8000)
-- **Persistent storage**: Work products survive session restarts
-- **Progress tracking**: `tc progress --json` shows compact status
-- **Work retrieval**: `tc wp get <id> --json` retrieves full details when needed
-
-### Agent Workflow
-
-1. Agent receives task (with Task ID if assigned)
-2. Agent stores detailed work in Task Copilot
-3. Agent returns minimal summary to main session
-4. Main session continues with low context overhead
+| `sd`, `design` | `specification` | Journey maps, wireframes, design specs |
 
 ---
 
 ## Custom Agents
 
-Teams can add domain-specific agents. Example with a custom `@agent-cpa`:
+Teams can add domain-specific agents by creating `.md` files in `.claude/agents/`. Custom agents can reference any of the 8 base agents for handoffs.
 
-```
-User Request: "Add expense reporting with tax categorization"
-         │
-         ▼
-    @agent-ta ──────────────────────────────────────────────┐
-    (designs data model, API structure)                      │
-         │                                                   │
-         ├──→ @agent-cpa (tax categories, compliance rules) │  ← Your custom agent
-         │         │                                         │
-         │         └──→ returns IRS category mappings        │
-         │                                                   │
-         └──→ @agent-me (implementation) ◄──────────────────┘
-                   │
-                   ├──→ @agent-sec (financial data protection)
-                   │
-                   └──→ @agent-cpa (validates tax logic)
-```
-
-Your CPA agent encodes tax law expertise, IRS requirements, and accounting standards—knowledge that doesn't exist in generic AI tools.
-
-See [Customization](CUSTOMIZATION.md) for how to create custom agents.
+See [Customization](../20-configuration/02-customization.md) for how to create custom agents.
 
 ---
 
@@ -451,12 +304,11 @@ Agents are automatically routed when you use `/protocol`. You can also invoke th
 |--------|---------|
 | Via protocol | `/protocol` then describe your task |
 | Direct mention | `@agent-ta design the auth system` |
-| Task tool | `subagent_type: "ta"` |
 
 ---
 
 ## Next Steps
 
-- [User Journey](USER-JOURNEY.md) - Complete setup walkthrough
-- [Configuration](CONFIGURATION.md) - Detailed setup options
-- [Customization](CUSTOMIZATION.md) - Create custom agents
+- [User Journey](../01-getting-started/01-user-journey.md) - Complete setup walkthrough
+- [Configuration](../20-configuration/01-configuration.md) - Detailed setup options
+- [Customization](../20-configuration/02-customization.md) - Create custom agents and extensions

@@ -81,7 +81,7 @@ Topic-based navigation for Claude Code to quickly locate relevant content:
 ### Company Voice
 | Document | Location | Tokens | For Agent |
 |----------|----------|--------|-----------|
-| Identity | 01-company/02-voice/01-identity.md | ~600 | @cw, @sd |
+| Identity | 01-company/02-voice/01-identity.md | ~600 | @design, @sd |
 
 ### Methodologies
 | Document | Location | Tokens | For Agent |
@@ -225,7 +225,7 @@ Maps which documents each agent requires:
 |----------|-------------|--------|
 | 01-company/05-patterns/20-tension-patterns.md | Forces analysis | ~1,000 |
 
-## Copywriter (@cw)
+## Design Agent (@design) and Voice/Copy Context
 
 ### Required Context
 | Document | Reason | Tokens |

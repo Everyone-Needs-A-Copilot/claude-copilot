@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.0] - 2026-05-20
+
+### Changed (Breaking)
+- **Memory search renamed**: `cc memory search` now documented as FTS5/BM25 keyword search — "semantic search" language removed throughout; no embeddings or vector similarity; the `SearchBackend` seam exists for future opt-in embeddings (config-gated, default off)
+- **`cc skill evaluate` removed**: confidence-scorer subcommand removed; native progressive skill discovery replaces it — use `cc skill search "<topic>"` to find skills by keyword, then `@include` the returned path
+- **`@include` de-emphasized as primary**: `@include` remains the load mechanism, but `cc skill search` is now the discovery step; agents no longer call a separate evaluate step
+- **MCP bridge retired from docs**: `cc mcp serve` still exists as an escape hatch but is no longer listed in `VERSION.json` provides[] or featured in setup docs
+
+### Added
+- **Code-bearing skills (L1/L2)**: Skills can now be directories containing an executable script (`run.sh` or `run.py`); script output enters context; implementation code does NOT; 16 skills converted to code-bearing form
+- **Known References registry**: `cc config set refs.<name> <value>` registers stable paths/values; the `UserPromptSubmit` hook injects them at session turn 1 so every session starts with correct paths without manual re-supply; `type:reference` memory entries also surface at turn 1
+- **Code-execution path (tc.api + cc.api)**: `tc.api` and `cc.api` Python facades over the services layer; agents performing 3+ related ops use a single `python3` block importing the facade instead of multiple CLI calls; eliminates round-trip token cost (~9-20K tokens saved for PRD+tasks batches)
+- **QA-gate clearing fix**: `@agent-qa` pass verdict now correctly clears the gate state in `.claude/hooks/state/qa-gate.json`; 3-retry fallback to advisory after repeated hook failures
+- **Coolify config-gate** (`tc deploy wait`): deploy command now gates on `CC_DEPLOY_CLI` config presence; fails fast with actionable message if not configured, instead of silently running wrong binary
+- **100MB repository cleanup**: `.claude/skills/design/` and `.claude/skills/documentation/` large binary assets removed; replaced by code-bearing skill scripts that generate equivalent output on demand
+
+### Removed
+- `cc skill evaluate` subcommand and `--threshold` flag (confidence scorer removed; native discovery replaces it)
+- 100MB of binary assets from `.claude/skills/design/` and `.claude/skills/documentation/`
+- `KEYWORD_UPDATES_V2.8.md` root file (v2.8-era point-in-time doc; superseded by CHANGELOG 2.8.0)
+- `STREAM-E-IMPLEMENTATION-SUMMARY.md` root file (one-off Stream-E summary; content preserved in CHANGELOG 2.8.0 and tc WP history)
+
+---
+
 ## [5.0.2] - 2026-05-06
 
 ### Fixed
@@ -886,6 +910,7 @@ After updating from pre-1.7.1, optionally run `stream_archive_all({ confirm: tru
 
 | Version | Release Date | Key Features |
 |---------|-------------|--------------|
+| **5.1.0** | 2026-05-20 | PRD-2 correctness: FTS5 honesty, skills-as-code (L1/L2), Known References registry, code-exec path, QA-gate fix, Coolify config-gate, 100MB cleanup |
 | **5.0.1** | 2026-05-06 | Setup command fixes for cc CLI migration; hook tests 12-14 |
 | **5.0.0** | 2026-05-06 | `cc` CLI replaces Memory + Skills MCP servers; memory as committed files |
 | **4.0.1** | 2026-04-22 | Hook deadlock fix; fail-open ERR trap; git push/pull allowlisted |
@@ -993,7 +1018,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
 ---
 
-[unreleased]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.0.1...HEAD
+[unreleased]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.1.0...HEAD
+[5.1.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.0.2...v5.1.0
 [5.0.1]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.0.0...v5.0.1
 [5.0.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v4.0.1...v5.0.0
 [4.0.1]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v4.0.0...v4.0.1

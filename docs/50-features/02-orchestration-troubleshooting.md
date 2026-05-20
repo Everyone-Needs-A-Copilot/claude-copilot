@@ -1064,8 +1064,7 @@ tail -100 .claude/orchestrator/logs/*.log
 
 ## See Also
 
-- **Workflow Guide:** [02-orchestration-workflow.md](./02-orchestration-workflow.md)
-- **Full Feature Guide:** [02-orchestration-workflow.md](./02-orchestration-workflow.md)
+- **Workflow Guide:** [01-orchestration-workflow.md](./01-orchestration-workflow.md)
 
 ---
 

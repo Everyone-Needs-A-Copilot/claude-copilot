@@ -28,9 +28,9 @@ This file provides guidance to Claude Code when working with the Claude Copilot 
 
 | Challenge | Solution | Component |
 |-----------|----------|-----------|
-| Lost memory, wasted tokens | Persistent memory + full-text keyword search | **Memory Copilot** |
+| Lost memory, wasted tokens | Persistent memory + FTS5 keyword search | **Memory Copilot** |
 | Generic AI lacks expertise | Specialized agents for complex tasks | **Agents** |
-| Manual skill management | Native @include + optional MCP | **Skills** |
+| Manual skill management | Progressive skill discovery via `cc skill search` | **Skills** |
 | Context bloat from agents | Ephemeral task/work product storage | **Task Copilot** |
 | Inconsistent processes | Battle-tested workflows | **Protocol** |
 
@@ -40,7 +40,7 @@ This file provides guidance to Claude Code when working with the Claude Copilot 
 |---------|------------|-------------|----------|
 | **Memory** | Auto | Cross-session | Context preservation, decisions, lessons |
 | **Agents** | Protocol | Session | Expert tasks, complex work |
-| **Skills** | @include or MCP | On-demand | Reusable patterns, marketplace |
+| **Skills** | `cc skill search` + `@include` | On-demand | Reusable patterns, code-bearing scripts |
 | **Tasks** | CLI (`tc`) | Per-initiative | PRDs, task tracking, work products |
 | **Commands** | Manual | Session | Quick shortcuts, workflows |
 | **Extensions** | Auto | Permanent | Team standards, custom methodologies |
@@ -102,11 +102,13 @@ Persistent memory across sessions with full-text (FTS5 keyword) search.
 
 ### 3. Skills
 
-Load via native @include (recommended), `cc skill` CLI, or Skills Copilot MCP server (optional).
+Discover via `cc skill search`, then load the returned path with `@include`. Skills are plain markdown prose files (L3) or directories containing an executable script (L1/L2 code-bearing). No MCP server required.
 
-**Native:** `@include .claude/skills/NAME/SKILL.md`
+**Discovery:** `cc skill search "<topic>"` — returns matching skill paths by keyword
 
-**cc CLI:** `cc skill get <name>`, `cc skill search "<query>"`, `cc skill list`
+**Load:** `@include <path returned by search>` or `@include .claude/skills/NAME/SKILL.md`
+
+**Inspect:** `cc skill get <name>`, `cc skill list`
 
 **Location:** `tools/cc/`
 
@@ -240,7 +242,7 @@ Use `/continue` to load context from Memory Copilot.
 
 ### End of Session
 
-Call `cc memory store --type initiative` with session context, or use `initiative_update` (legacy MCP) with:
+Call `cc memory store --type initiative "<content>"` with session context. Include:
 
 | Field | Content |
 |-------|---------|

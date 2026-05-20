@@ -146,10 +146,10 @@ Corrections are routed to appropriate targets based on context:
 
 | Agent ID | Default Target |
 |----------|----------------|
-| `me`, `uid` | `skill` (agent-specific) |
-| `doc`, `cw` | `skill` (agent-specific) |
-| `sd`, `uxd`, `uids` | `skill` (agent-specific) |
-| `ta`, `qa`, `sec`, `do` | `agent` |
+| `me` | `skill` (agent-specific) |
+| `doc` | `skill` (agent-specific) |
+| `sd`, `design` | `skill` (agent-specific) |
+| `ta`, `qa`, `do` | `agent` |
 
 ### Keyword-Based Routing
 
@@ -362,5 +362,5 @@ Corrections are stored in the Memory Copilot database:
 ## Related Documentation
 
 - Lifecycle Hooks (removed in v3.0.0 — security rules now built-in)
-- [Skill Evaluation](./skill-evaluation.md)
+- [Memory Copilot FTS5 Search](./13-memory-fts5.md)
 - [Memory Copilot](../../CLAUDE.md#1-memory-copilot)

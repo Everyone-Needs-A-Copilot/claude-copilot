@@ -75,9 +75,9 @@ git clone [repository-url] .
 
 **What gets installed:**
 - Framework core files
-- All 14 agents
+- All 8 agents
 - All commands
-- 3 MCP servers (built and ready)
+- `cc` and `tc` CLI tools
 - Installation scripts
 - Documentation
 
@@ -173,7 +173,7 @@ sudo pacman -S nodejs npm git
 
 The framework includes 2 MCP servers that need to be built:
 
-1. **copilot-memory** - Persistent memory and semantic search
+1. **copilot-memory** - Persistent memory and full-text (FTS5) keyword search
 2. **skills-copilot** - Skill loading and knowledge repositories
 
 Task management is handled by the `tc` CLI tool (no MCP server needed).
@@ -216,9 +216,9 @@ npx claude-copilot validate --project . --verbose
 
 **Validation checks:**
 - Framework structure (directories and files)
-- All 14 agents present
-- All 6 commands present
-- All 2 MCP servers built
+- All 8 agents present
+- All commands present
+- `cc` and `tc` CLI tools installed
 - Optional components (knowledge repo, skills)
 
 ## Troubleshooting
