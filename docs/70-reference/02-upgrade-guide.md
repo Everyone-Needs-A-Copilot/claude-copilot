@@ -1,10 +1,51 @@
-# Claude Copilot v2.0.0 Upgrade Guide
+# Claude Copilot Upgrade Guide
 
-## Overview
+## Upgrading to v5.1.0 (PRD-2 — May 2026)
 
-This guide walks you through upgrading to Claude Copilot v2.0.0, which introduces parallel stream orchestration, WebSocket event streaming, and a paradigm shift to multi-session agent coordination.
+This release modernizes the framework from MCP-server dependencies to the `cc`/`tc` CLI architecture.
 
-**Estimated Time:** 15-20 minutes
+**Breaking Changes:**
+- `cc skill evaluate` is removed. Use `cc skill search "<query>"` + `cc skill get <name>` instead.
+- MCP server setup (copilot-memory, skills-copilot Node.js servers) is no longer required. The `cc` and `tc` CLIs replace them entirely.
+- Memory uses FTS5 keyword search. Semantic/vector search was never shipped; if docs or agents referenced it, that was incorrect.
+- Agent roster reduced from 14 to 8: `uxd`, `uids`, `uid`, `cw`, `cco`, and `sec` are removed. Their capabilities are covered by `design` (for UX/UI/visual/copy) and the `security/stride-dread` skill.
+- `@include` is not the primary skill mechanism. Use `cc skill search` / `cc skill get` for discovery and loading.
+
+**Migration steps:**
+
+```bash
+# 1. Install CLIs
+bash ~/.claude/copilot/tools/cc/install.sh
+
+# 2. Configure paths
+cc config set paths.shared_docs /path/to/your/shared/docs
+cc config set paths.knowledge_repo ~/.claude/knowledge
+
+# 3. Register any stable references
+cc config set refs.staging_url https://staging.example.com
+
+# 4. Update project files
+cd ~/your-project && claude
+/update-project
+
+# 5. Rebuild memory index if needed
+cc memory index --rebuild
+```
+
+**Verify:**
+```bash
+cc --version
+tc --version
+cc skill list | head -3
+cc memory search "test"
+```
+
+---
+
+## Upgrading to v2.0.0 (Earlier — Orchestration)
+
+This section documents the v2.0.0 upgrade introducing parallel stream orchestration and WebSocket event streaming.
+
 **Difficulty:** Easy (backwards compatible)
 **Breaking Changes:** None
 

@@ -49,11 +49,11 @@ git clone https://github.com/Everyone-Needs-A-Copilot/claude-copilot.git copilot
 
 ```
 ~/.claude/copilot/
-├── mcp-servers/            ← Not built yet
-│   ├── copilot-memory/     ← Persistence layer
-│   └── skills-copilot/     ← Knowledge layer
+├── tools/
+│   ├── cc/                 ← Memory + skills CLI (install via install.sh)
+│   └── tc/                 ← Task Copilot CLI (install via install.sh)
 ├── .claude/
-│   ├── agents/             ← 12 agent definitions (markdown)
+│   ├── agents/             ← 8 agent definitions (markdown)
 │   └── commands/           ← Slash commands (markdown)
 ├── templates/              ← Project templates
 ├── SETUP.md                ← Setup instructions
@@ -88,28 +88,28 @@ Or simply:
 
 **What happens:**
 
-1. **Prerequisites check** - Verifies Node.js 18+ and build tools
-2. **Build Memory Server** - `npm install && npm run build`
-3. **Build Skills Server** - `npm install && npm run build`
+1. **Prerequisites check** - Verifies Python 3.9+ is available
+2. **Install cc CLI** - `bash tools/cc/install.sh`
+3. **Install tc CLI** - `bash tools/tc/install.sh` (or follows same pattern)
 4. **Create directories** - `~/.claude/memory/` and `~/.claude/tasks/` for databases
-6. **Install global commands** - Copies `/setup-project`, `/update-project`, `/update-copilot`, and `/knowledge-copilot` to `~/.claude/commands/`
-7. **Check for knowledge** - Detects existing knowledge repository
+5. **Install global commands** - Copies `/setup-project`, `/update-project`, `/update-copilot`, and `/knowledge-copilot` to `~/.claude/commands/`
+6. **Check for knowledge** - Detects existing knowledge repository
 
 **What you now have:**
 
 ```
 ~/.claude/
 ├── copilot/
-│   └── mcp-servers/
-│       ├── copilot-memory/dist/   ← Built!
-│       └── skills-copilot/dist/   ← Built!
-├── commands/                       ← NEW
-│   ├── setup-project.md            ← Works in any folder
-│   ├── update-project.md           ← Works in any folder
-│   ├── update-copilot.md           ← Works in any folder
-│   └── knowledge-copilot.md        ← Works in any folder
-├── memory/                         ← NEW - Memory database storage
-└── tasks/                          ← NEW - Task database storage
+│   └── tools/
+│       ├── cc/             ← cc CLI (installed to PATH)
+│       └── tc/             ← tc CLI (installed to PATH)
+├── commands/               ← NEW
+│   ├── setup-project.md   ← Works in any folder
+│   ├── update-project.md  ← Works in any folder
+│   ├── update-copilot.md  ← Works in any folder
+│   └── knowledge-copilot.md ← Works in any folder
+├── memory/                 ← NEW - Memory database storage
+└── tasks/                  ← NEW - Task database storage
 ```
 
 **You'll see:**
@@ -118,11 +118,10 @@ Or simply:
 Machine Setup Complete!
 
 What's ready:
-- Memory Server - Persists decisions, lessons, and progress
-- Skills Server - Powers agents and knowledge search
-- Task Management - Use `tc` CLI for PRDs, tasks, and work products
-- 12 Specialized Agents - Expert guidance for any task
-- Global Commands - /setup-project, /update-project, /update-copilot, and /knowledge-copilot work anywhere
+- cc CLI - Memory (FTS5 keyword search) + Skills management
+- tc CLI - Task Copilot (PRDs, tasks, work products)
+- 8 Specialized Agents - Expert guidance for any task
+- Global Commands - /setup-project, /update-project, /update-copilot work anywhere
 
 Next: Set up a project
 Open Claude Code in any project directory and run /setup-project
@@ -181,7 +180,7 @@ Created:
 - .mcp.json - MCP server configuration
 - CLAUDE.md - Project instructions
 - .claude/commands/ - Protocol commands
-- .claude/agents/ - 14 specialist agents
+- .claude/agents/ - 8 specialist agents
 - .claude/skills/ - For project-specific skills
 
 Next steps:
@@ -432,7 +431,7 @@ Note: `/setup` only works when run from `~/.claude/copilot`. For projects, use `
 
 ## Next Steps
 
-- [Meet Your Team](AGENTS.md) - Learn about all 12 specialist agents
+- [Meet Your Team](../10-architecture/01-agents.md) - Learn about all 8 specialist agents
 - [Configuration Guide](CONFIGURATION.md) - Detailed setup options
 - [Customization](CUSTOMIZATION.md) - Extend and personalize
 - [Philosophy](PHILOSOPHY.md) - Why we built it this way

@@ -9,9 +9,10 @@
 This document defines the complete validation strategy for the Claude Copilot framework. It includes smoke tests for rapid feedback, integration tests for component interaction, and manual scenarios for developer experience validation.
 
 **Framework Components:**
-- Memory Copilot MCP server (initiative tracking, full-text keyword search)
-- Skills Copilot MCP server (skill loading, knowledge search, extensions)
-- 12 Specialized Agents (routing, context isolation)
+- Memory Copilot (`cc memory` CLI, SQLite + FTS5 keyword search)
+- Skills Copilot (`cc skill` CLI, local skills + knowledge repo)
+- 8 Specialized Agents (ta, me, qa, do, doc, sd, design, kc)
+- Task Copilot (`tc` CLI, PRD/task/work-product storage)
 - Protocol commands (/protocol, /continue, /setup-project, /update-project, /update-copilot, /knowledge-copilot)
 - Extension system (override, extension, skills injection)
 
@@ -138,40 +139,36 @@ SELECT * FROM initiatives WHERE title = 'Test Initiative';
 
 ---
 
-### ST-04: Memory Copilot Semantic Search
+### ST-04: Memory Copilot Keyword Search (FTS5)
 
-**Purpose:** Verify embeddings and vector search work
+**Purpose:** Verify full-text keyword search works correctly
 
 **Test Data:**
-```javascript
-// Store 3 memories with related content
-memory_store("Implemented authentication using JWT", "decision")
-memory_store("Learned that bcrypt is slow for API routes", "lesson")
-memory_store("Added user login form to dashboard", "context")
+```bash
+cc memory store --type decision "Implemented authentication using JWT"
+cc memory store --type lesson "Learned that bcrypt is slow for API routes"
+cc memory store --type context "Added user login form to dashboard"
 ```
 
 **Steps:**
 1. Store test memories
-2. Search for "authentication decisions"
-3. Search for "performance lessons"
+2. Search for "authentication"
+3. Search for "bcrypt"
 
 **Expected Results:**
 ```json
-{
-  "query": "authentication decisions",
-  "results": [
-    {"content": "Implemented authentication using JWT", "similarity": 0.85}
-  ]
-}
+[
+  {"type": "decision", "content": "Implemented authentication using JWT"}
+]
 ```
 
 **Pass Criteria:**
-- [ ] Embedding generation succeeds
-- [ ] Search returns keyword-matched results
-- [ ] Results ranked by similarity score
-- [ ] No errors in vector operations
+- [ ] FTS5 keyword search returns relevant results
+- [ ] Results ranked by BM25 relevance
+- [ ] No vector/embedding dependencies
+- [ ] Empty query returns no error
 
-**Failure Mode:** Embeddings not generated, vector search fails, wrong results
+**Failure Mode:** FTS5 index not rebuilt, keyword mismatch, search returns nothing
 
 **Frequency:** Every build
 
@@ -319,7 +316,7 @@ EOF
 ```bash
 # Check all agent files exist
 ls -1 .claude/agents/*.md | wc -l
-# Should be 14 agents
+# Should be 8 agents
 
 # Verify each has required sections
 for agent in .claude/agents/*.md; do
@@ -339,7 +336,7 @@ done
 7. ## Decision Authority
 
 **Pass Criteria:**
-- [ ] 12 agent files present
+- [ ] 8 agent files present (ta, me, qa, do, doc, sd, design, kc)
 - [ ] All required sections present in each
 - [ ] No time estimate language (per policy)
 
@@ -415,33 +412,30 @@ sqlite3 ~/.claude/memory/<workspace>/memory.db \
 
 **Purpose:** Verify agents correctly route to each other
 
-**Scenario:** User requests feature requiring SD → UXD → UID flow
+**Scenario:** User requests feature requiring SD → design flow
 
 **Steps:**
 1. User: "Design a new user onboarding flow"
 2. Should trigger @agent-sd
-3. SD completes service design, routes to @agent-uxd
-4. UXD completes interaction design, routes to @agent-uid
-5. UID produces implementation
+3. SD completes service design, routes to @agent-design
+4. design completes interaction + visual design, routes to @agent-ta
 
 **Verification:**
 Check conversation log for:
 ```
 [PROTOCOL: EXPERIENCE | Agent: @agent-sd | Action: INVOKING]
 [... SD work ...]
-Routing to @agent-uxd for interaction design
+Routing to @agent-design for interaction/visual design
 
-[PROTOCOL: EXPERIENCE | Agent: @agent-uxd | Action: INVOKING]
-[... UXD work ...]
-Routing to @agent-uid for implementation
-
-[PROTOCOL: TECHNICAL | Agent: @agent-uid | Action: INVOKING]
+[PROTOCOL: EXPERIENCE | Agent: @agent-design | Action: INVOKING]
+[... design work ...]
+Routing to @agent-ta for architecture specification
 ```
 
 **Pass Criteria:**
 - [ ] Correct agent invoked first (SD)
-- [ ] SD routes to UXD
-- [ ] UXD routes to UID
+- [ ] SD routes to design
+- [ ] design routes to ta (for architecture)
 - [ ] Each agent completes its domain work
 - [ ] No duplicate work across agents
 
@@ -689,7 +683,7 @@ claude
 - [ ] `.mcp.json` created with correct server configs
 - [ ] `CLAUDE.md` created with project instructions
 - [ ] `.claude/commands/` directory created with protocol and continue
-- [ ] `.claude/agents/` directory created with all 14 agents
+- [ ] `.claude/agents/` directory created with all 8 agents
 - [ ] `.claude/skills/` directory created for project skills
 - [ ] User informed of next steps
 
@@ -706,7 +700,7 @@ test -d .claude/skills && echo "✓ Skills"
 jq . .mcp.json > /dev/null && echo "✓ Valid JSON"
 
 # Check all agents present
-[[ $(ls .claude/agents/*.md | wc -l) -ge 14 ]] && echo "✓ All 14 agents"
+[[ $(ls .claude/agents/*.md | wc -l) -ge 8 ]] && echo "✓ All 8 agents"
 ```
 
 **Pass Criteria:**
@@ -821,10 +815,9 @@ Fix validated. Closing defect.
 **Steps:**
 1. User: "Add dark mode to the application"
 2. @agent-ta: Architecture decisions (state management, theme system)
-3. @agent-uxd: Interaction design (toggle placement, preferences)
-4. @agent-uids: Visual design (color palette, component variants)
-5. @agent-uid: Implementation (CSS variables, toggle component)
-6. @agent-qa: Test plan (visual regression, state persistence)
+3. @agent-design: Interaction + visual design (toggle, color palette, component variants)
+4. @agent-me: Implementation (CSS variables, toggle component)
+5. @agent-qa: Test plan (visual regression, state persistence)
 
 **Expected Results:**
 - [ ] Architecture documented

@@ -79,16 +79,16 @@ Are you using Claude Copilot for the first time?
 | Task Type | Primary Agent | Secondary Agent(s) | Why This Flow |
 |-----------|---------------|-------------------|---------------|
 | **Bug Fix** | `qa` | → `me` | QA reproduces, Engineer fixes |
-| **New Feature** | `sd` | → `uxd` → `uid` | Service → UX → Implementation |
+| **New Feature** | `sd` | → `design` → `ta` → `me` | Service → Design → Architecture → Code |
 | **API Design** | `ta` | → `me` → `doc` | Architecture → Code → Docs |
-| **Security Review** | `sec` | | Security expertise |
+| **Security Review** | (skill) | load `security/stride-dread` | Security skill, no dedicated agent |
 | **Performance Issue** | `ta` | → `me` | Design analysis → Implementation |
-| **UI Component** | `uids` | → `uid` | Visual design → Code |
+| **UI Component** | `design` | → `me` | Visual design → Implementation |
 | **Documentation** | `doc` | | Technical writing |
 | **Deployment** | `do` | | DevOps expertise |
 | **Architecture Decision** | `ta` | | System design |
 | **User Research** | `sd` | | Experience strategy |
-| **Copy/Messaging** | `cw` | | Content writing |
+| **Copy/Messaging** | `design` | | Content included in design agent |
 
 ### Scenario-Based Agent Selection
 
@@ -98,10 +98,10 @@ Are you using Claude Copilot for the first time?
 | "Add dark mode" | `/protocol` (EXPERIENCE) → `@agent-sd` | Experience change requires journey analysis |
 | "Optimize database queries" | `/protocol` (FEATURE) → `@agent-ta` | Architecture-level optimization |
 | "Deploy to production" | `/protocol` (DEVOPS) → `@agent-do` | Infrastructure task |
-| "Security audit" | `/protocol` (SECURITY) → `@agent-sec` | Security expertise required |
+| "Security audit" | load `security/stride-dread` skill | Security skill, not a dedicated agent |
 | "Write API docs" | `/protocol` (DOCUMENTATION) → `@agent-doc` | Documentation specialist |
 | "Refactor auth module" | `/protocol` (ARCHITECTURE) → `@agent-ta` | Design decision needed |
-| "Fix button alignment" | `/protocol` (DEFECT) → `@agent-uid` | UI implementation fix |
+| "Fix button alignment" | `/protocol` (DEFECT) → `@agent-design` | UI design/implementation fix |
 
 ---
 
@@ -257,11 +257,11 @@ metadata: {
 | Problem | Check First | Then Try | Last Resort |
 |---------|-------------|----------|-------------|
 | Command not found | Machine setup complete? | `/setup` in `~/.claude/copilot` | Reinstall |
-| MCP not connecting | `.mcp.json` paths absolute? | Rebuild servers | Check Node version |
+| `cc` or `tc` not found | Check PATH | Run `bash tools/cc/install.sh` | Check install script |
 | Agent not routing | Is task description clear? | Rephrase request | Use agent directly |
-| Memory not persisting | `WORKSPACE_ID` set? | Check `.mcp.json` | Rebuild memory server |
+| Memory not persisting | `cc config get paths.shared_docs` | `cc memory index --rebuild` | Check SQLite path |
 | Knowledge not found | Symlink exists? | `/knowledge-copilot` | Manual link |
-| Skills not loading | Skills server running? | `/mcp` to verify | Check logs |
+| Skills not loading | `cc skill list` returns results? | `cc config set paths.shared_docs <path>` | Check cc config |
 
 ---
 

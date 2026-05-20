@@ -10,22 +10,22 @@ Five-pillar framework: persistent memory, expert agents, on-demand skills, ephem
 |-------|--------|-----------|---------|
 | Persistence | 1 | Memory Copilot | Cross-session context, decisions, lessons |
 | Expertise | 2 | 8 Specialist Agents | Lean agents with on-demand skills |
-| Knowledge | 3 | Skills (cc CLI) | On-demand skill loading via `cc skill search` / `@include` |
+| Knowledge | 3 | Skills (cc CLI) | On-demand skill loading via `cc skill search` / `cc skill get` |
 | Tasks | 4 | Task Copilot | Ephemeral PRD, task, work product storage |
 | Workflow | 5 | Protocol | /protocol and /continue commands |
 
 ### Data Flow
 
 ```
-User Request → Protocol → Lean Agent → cc skill search → @include Skill → Execute → Store Work Product (tc wp store) → cc memory store
+User Request → Protocol → Lean Agent → cc skill search → cc skill get → Execute → Store Work Product (tc wp store) → cc memory store
 ```
 
 **Lean Agent Pattern:**
 - Agent files are under 120 lines (workflow, routing, core behaviors)
 - Shared boilerplate extracted to "Agent Shared Behaviors" in CLAUDE.md
 - Domain expertise lives in skill files (200-500 lines each)
-- Skills discovered by description match via `cc skill search` or `cc skill evaluate`
-- Skills loaded on-demand via `@include` directive
+- Skills discovered by keyword match via `cc skill search "<query>"`
+- Skills loaded on-demand via `cc skill get <name>` or native `@include`
 - ~70% token reduction vs. monolithic agents
 
 ---
@@ -59,7 +59,7 @@ User Request → Protocol → Lean Agent → cc skill search → @include Skill 
 | Testing required | qa |
 | Deployment concerns | do |
 
-### Current Agent Roster (8 agents)
+### Current Agent Roster (8 agents + kc)
 
 | Agent | Role |
 |-------|------|
@@ -70,7 +70,9 @@ User Request → Protocol → Lean Agent → cc skill search → @include Skill 
 | `doc` | Documentation — Diátaxis |
 | `sd` | Service design — IDEO methodology |
 | `design` | Interaction/visual design — Nielsen + Rams + Atomic Design |
-| `kc` | Knowledge copilot setup |
+| `kc` | Knowledge copilot setup (run `/knowledge-copilot`) |
+
+> Security reviews use the `security/stride-dread` skill, not a dedicated agent.
 
 ---
 
@@ -86,17 +88,16 @@ User Request → Protocol → Lean Agent → cc skill search → @include Skill 
 
 Location: `~/.claude/memory/{workspace-id}/memory.db`
 
-**Search:** Full-text keyword search (FTS5) with BM25 ranking — embeddings/vector search not used.
+**Search:** Full-text keyword search (FTS5) with BM25 ranking. No embeddings or vector search — keyword matching only.
 
 ### Skills (cc CLI)
 
 | Command | Purpose |
 |---------|---------|
-| `cc skill search "<query>"` | Discover skills by keyword |
+| `cc skill search "<query>"` | Discover skills by keyword (FTS5) |
 | `cc skill get <name>` | Fetch a skill by name |
 | `cc skill list` | List all available skills |
-| `cc skill evaluate` | Evaluate skills relevant to current context |
-| `@include .claude/skills/NAME/SKILL.md` | Load directly in agent prompt |
+| `@include .claude/skills/NAME/SKILL.md` | Load directly in agent prompt (native) |
 
 ---
 

@@ -47,7 +47,7 @@ graph TD
 |-----------|-------|------------|--------------|----------------|------------------|
 | **1** | [Memory](#milestone-1-persistent-memory) | Beginner | None | Never lose context again | /continue, decisions persist |
 | **2** | [Protocol](#milestone-2-agent-workflow) | Beginner+ | Memory | Structured work sessions | Task breakdown, routing |
-| **3** | [Agents](#milestone-3-full-framework) | Intermediate | Protocol | Expert guidance | 12 specialists, auto-routing |
+| **3** | [Agents](#milestone-3-full-framework) | Intermediate | Protocol | Expert guidance | 8 specialists, auto-routing |
 | **4** | [Extensions](#milestone-4-team-setup) | Intermediate+ | Agents | Company knowledge | Shared standards, custom agents |
 | **5** | [Mastery](#milestone-5-power-user) | Advanced | All previous | Complete customization | Private skills, workflows |
 
@@ -261,8 +261,8 @@ graph TD
     A[User Request] --> B{Protocol Classifies}
     B -->|Bug Fix| C[Engineer me]
     B -->|Feature| D[Tech Architect ta]
-    B -->|Security| E[Security sec]
-    B -->|Design| F[UX Designer uxd]
+    B -->|Security| E[security/stride-dread skill]
+    B -->|Design| F[Design design]
     C --> G[Work + Save]
     D --> G
     E --> G
@@ -277,10 +277,10 @@ graph TD
 | Bug Fix | Engineer (me) | "Login fails with 404" |
 | Feature | Tech Architect (ta) | "Add user profiles" |
 | Architecture | Tech Architect (ta) | "Design API structure" |
-| Security | Security (sec) | "Review auth flow" |
+| Security | load `security/stride-dread` skill | "Review auth flow" |
 | Documentation | Documentation (doc) | "Write API docs" |
 | Testing | QA Engineer (qa) | "Test edge cases" |
-| Design | UX Designer (uxd) | "Design onboarding" |
+| Design | Design agent (design) | "Design onboarding" |
 
 ### Verification
 
@@ -326,7 +326,7 @@ You've seen one agent in action. Milestone 3 introduces all 12 specialists and s
 
 **Complexity**: Intermediate
 **Prerequisites**: Protocol working
-**Goal**: Master all 14 agents and understand when to use each
+**Goal**: Master all 8 agents and understand when to use each
 
 ### What You'll Achieve
 
@@ -346,15 +346,13 @@ Complex work requires multiple perspectives: architecture, security, UX, impleme
 | **ta** | Tech Architect | System design, task breakdown, ADRs |
 | **me** | Engineer | Implementation, bug fixes, refactoring |
 | **qa** | QA Engineer | Testing strategy, edge cases, verification |
-| **sec** | Security | Vulnerabilities, threat modeling, OWASP |
 | **doc** | Documentation | READMEs, API docs, architecture docs |
 | **do** | DevOps | CI/CD, containers, infrastructure |
 | **sd** | Service Designer | Customer journeys, experience strategy |
-| **uxd** | UX Designer | Task flows, wireframes, accessibility |
-| **uids** | UI Designer | Visual design, design systems, tokens |
-| **uid** | UI Developer | Component implementation, responsive UI |
-| **cw** | Copywriter | Microcopy, error messages, voice/tone |
+| **design** | Design | Interaction + visual design, components, copy |
 | **kc** | Knowledge Copilot | Shared knowledge setup |
+
+> Security: load the `security/stride-dread` skill instead of using a dedicated agent.
 
 ### Hands-on Exercises
 
@@ -371,9 +369,9 @@ Design and implement a user profile page with avatar upload
 
 Watch the routing:
 1. **ta** (Tech Architect) - Breaks down architecture
-2. **uxd** (UX Designer) - Designs the flow
-3. **sec** (Security) - Reviews file upload security
-4. **uid** (UI Developer) - Implements components
+2. **design** (Design Agent) - Designs the flow + UI components
+3. [security/stride-dread skill loaded inline for file upload review]
+4. **me** (Engineer) - Implements components
 5. **qa** (QA Engineer) - Tests edge cases
 
 #### Exercise 2: Direct Agent Invocation
@@ -385,12 +383,10 @@ You can also talk directly to agents:
 ```
 
 ```
-@sec Review this authentication middleware
+@design Design an onboarding flow for first-time users
 ```
 
-```
-@uxd Design an onboarding flow for first-time users
-```
+(Security: use `cc skill get stride-dread` to load the security skill for code review.)
 
 #### Exercise 3: Agent Collaboration
 
@@ -407,9 +403,9 @@ We need to add payment processing to the checkout flow
 
 Expected routing:
 - **ta** - Architecture (payment providers, webhook handling)
-- **sec** - Security (PCI compliance, token handling)
-- **uxd** - UX (payment form, error states)
-- **uid** - Implementation (form components)
+- [security/stride-dread skill] - Security (PCI compliance, token handling)
+- **design** - UX + UI (payment form, error states, components)
+- **me** - Implementation
 - **qa** - Testing (failed payments, edge cases)
 
 ### Understanding Agent Routing
@@ -419,13 +415,12 @@ Agents route to each other based on expertise:
 ```mermaid
 graph LR
     A[Any Agent] --> B[ta: Architecture]
-    A --> C[sec: Security]
-    D[sd: Service Design] --> E[uxd: UX Design]
-    E --> F[uids: UI Design]
-    F --> G[uid: UI Dev]
+    D[sd: Service Design] --> E[design: UX + Visual]
+    E --> B
     A --> H[me: Engineering]
     A --> I[qa: Testing]
     A --> J[doc: Documentation]
+    A --> K[skill: security/stride-dread]
 ```
 
 ### Agent Decision Authority
@@ -437,7 +432,6 @@ Each agent knows when to work autonomously vs. escalate:
 | **ta** | Task breakdown, tech selection | Architecture shifts → team |
 | **me** | Bug fixes, features | Breaking changes → ta |
 | **qa** | Test strategy, scenarios | Release decisions → team |
-| **sec** | Vulnerability review | Security incidents → team |
 | **doc** | README updates, guides | Major restructuring → team |
 
 ### Verification Exercise
@@ -456,14 +450,14 @@ We need to migrate our authentication from sessions to JWTs
 Expected flow:
 1. **ta** classifies as architecture change
 2. **ta** breaks down migration strategy
-3. **sec** reviews security implications
+3. [security/stride-dread skill loaded] — reviews security implications
 4. **me** implements changes
 5. **qa** creates test scenarios
 6. **doc** updates authentication docs
 
 ### Success Criteria
 
-- [ ] Understand all 14 agents and their domains
+- [ ] Understand all 8 agents and their domains
 - [ ] Completed multi-agent feature exercise
 - [ ] Invoked agents directly with @
 - [ ] Saw agents route to each other
@@ -476,7 +470,7 @@ Expected flow:
 | **Complex features** | /protocol handles multi-domain work |
 | **Direct expertise** | @ agent for specific guidance |
 | **Quality assurance** | qa reviews automatically |
-| **Security review** | sec checks vulnerabilities |
+| **Security review** | load `@include .claude/skills/security/stride-dread/SKILL.md` for STRIDE/DREAD analysis |
 | **Complete documentation** | doc writes as features develop |
 
 ### What's Next?
@@ -539,8 +533,8 @@ your-company-knowledge/
 └── .claude/
     └── extensions/
         ├── ta.extension.md       # Custom architect guidance
-        ├── sec.override.md       # Company security policies
-        └── uxd.extension.md      # Design system patterns
+        ├── design.extension.md   # Company design system patterns
+        └── sd.extension.md       # Service design methodology
 ```
 
 ### Extension Types
@@ -551,19 +545,19 @@ your-company-knowledge/
 | **extension** | `agent.extension.md` | Adds to base agent (merges sections) |
 | **skills** | `agent.skills.json` | Injects additional skills |
 
-### Example Extension: Custom Security Standards
+### Example Extension: Custom Tech Architect Standards
 
-Create `~/.claude/knowledge/.claude/extensions/sec.extension.md`:
+Create `~/.claude/knowledge/.claude/extensions/ta.extension.md`:
 
 ```markdown
 ---
-name: sec
+name: ta
 type: extension
-extends: sec
-description: Company security standards
+extends: ta
+description: Company architecture standards
 ---
 
-## Security Standards
+## Architecture Standards
 
 ### Authentication
 - Use Auth0 for all applications
@@ -576,12 +570,12 @@ description: Company security standards
 - Log access to sensitive data
 
 ### Code Review Requirements
-- Security-sensitive code needs sec team approval
-- Use our SAST tool in CI/CD
+- Security-sensitive code needs architecture team review
 - Document threat model in ADRs
+- Use stride-dread skill for security analysis
 ```
 
-This extends the base `sec` agent with your company's specific requirements.
+> Security standards are best encoded as a skill extension to the `security/stride-dread` skill or as a `ta.extension.md` that includes your company's security requirements in the architecture checklist.
 
 ### Team Member Setup
 
@@ -605,10 +599,10 @@ ln -sf ~/company-knowledge ~/.claude/knowledge
 
 Request:
 ```
-@sec Review this authentication code
+@ta Review this authentication architecture
 ```
 
-Security agent should now reference your company standards (Auth0, JWT expiry, etc.) instead of just generic advice.
+The ta agent extension should now reference your company standards (Auth0, JWT expiry, etc.) instead of just generic advice. For security analysis, load the security skill: `cc skill get stride-dread`.
 
 ### Check Extension Status
 
@@ -705,7 +699,7 @@ Access the curated skills.sh public catalog (free, no API key needed):
 }
 ```
 
-skills.sh is automatically available once Skills Copilot MCP is installed. Skills auto-invoke based on context. No manual management or API key required. Install skills locally via `npx skills add` or browse the catalog at https://skills.sh/.
+Skills are discovered via `cc skill search "<query>"` and loaded with `cc skill get <name>`. Local skills in `.claude/skills/` are auto-listed by `cc skill list`.
 
 #### 3. Custom Workflows
 
@@ -721,8 +715,8 @@ description: Deploy with our company process
 
 # Deploy Process
 
-1. Load deployment skill: skill_get("company-deployment")
-2. Check for sec approval in initiative
+1. Load deployment skill: `cc skill get company-deployment`
+2. Check for security review in initiative
 3. Run pre-deployment checklist
 4. Execute deployment steps
 5. Update initiative with deployment info
@@ -733,19 +727,12 @@ description: Deploy with our company process
 
 Preserve memory across renames/moves:
 
-```json
-{
-  "mcpServers": {
-    "copilot-memory": {
-      "env": {
-        "WORKSPACE_ID": "explicit-project-name"
-      }
-    }
-  }
-}
+```bash
+# Workspace identity is set via cc config or the TASK_DB_PATH env var
+# The tc CLI infers workspace from the current project directory
+# For portability, use explicit TASK_DB_PATH:
+export TASK_DB_PATH=~/.claude/tasks/explicit-project-name
 ```
-
-Default is path-based hash. Set explicitly for portability.
 
 ### Hands-on Exercises
 
@@ -771,7 +758,7 @@ You are managing a release following our company process.
 ## Steps
 
 1. Verify all tests pass (check with qa)
-2. Review security concerns (check with sec)
+2. Review security concerns (load security/stride-dread skill)
 3. Update changelog (check with doc)
 4. Create release branch
 5. Deploy to staging
@@ -943,7 +930,7 @@ Use this checklist to track your journey:
 - [ ] Understand protocol → agent → memory flow
 
 ### Milestone 3: Agents
-- [ ] Know all 14 agents and their domains
+- [ ] Know all 8 agents and their domains
 - [ ] Completed multi-agent feature
 - [ ] Used @ to invoke agents directly
 - [ ] Saw agents route to each other
@@ -1017,7 +1004,8 @@ Use this checklist to track your journey:
 
 **Solution:**
 - Use /protocol - routing is automatic
-- For direct invocation: @ta (design), @me (code), @qa (test), @sec (security), @doc (write)
+- For direct invocation: @ta (design), @me (code), @qa (test), @doc (write), @design (UX/UI), @do (infra)
+- Security: load `cc skill get stride-dread` for security analysis
 - Check the agent routing diagram in Milestone 3
 
 ### Challenge 5: "Team members have different experiences"

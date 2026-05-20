@@ -21,7 +21,7 @@
 **Examples:**
 - `[PROTOCOL: DEFECT | Agent: @agent-qa | Action: INVOKING]`
 - `[PROTOCOL: DEFECT | Agent: none | Action: ASKING]` (when you need info first)
-- `[PROTOCOL: EXPERIENCE | Agent: @agent-sd, @agent-uxd | Action: INVOKING]`
+- `[PROTOCOL: EXPERIENCE | Agent: @agent-sd, @agent-design | Action: INVOKING]`
 - `[PROTOCOL: TECHNICAL | Agent: @agent-ta | Action: INVOKING]`
 - `[PROTOCOL: QUESTION | Agent: none | Action: RESPONDING]`
 
@@ -34,7 +34,7 @@
 | Type | Indicators | First Agent |
 |------|------------|-------------|
 | **Defect/Bug** | "broken", "not working", "error", unexpected behavior | `@agent-qa` |
-| **Experience** | UI, UX, feature, user-facing change | `@agent-sd` + `@agent-uxd` |
+| **Experience** | UI, UX, feature, user-facing change | `@agent-sd` + `@agent-design` |
 | **Technical** | Architecture, backend, refactor, performance | `@agent-ta` |
 | **Question** | "How does...", "Where is...", "Explain..." | None (respond directly) |
 
@@ -53,7 +53,7 @@
 ### Experience Request
 ```
 1. INVOKE @agent-sd (map user journey)
-2. INVOKE @agent-uxd (interaction design) - parallel
+2. INVOKE @agent-design (interaction + visual design)
 3. WAIT for results
 4. THEN respond with recommendations/questions
 ```
@@ -160,17 +160,14 @@ Your response MUST include:
 
 | Task | Agent | Purpose |
 |------|-------|---------|
-| UX/Interaction | `@agent-uxd` | Task flows, wireframes, usability |
-| Visual Design | `@agent-uids` | Colors, typography, visual hierarchy |
-| UI Implementation | `@agent-uid` | CSS, Tailwind, component styling |
-| Content/Copy | `@agent-cw` | Microcopy, error messages, UI text |
+| UX/Interaction + Visual Design | `@agent-design` | Task flows, wireframes, color, typography, components |
 
 ### Verification Phase
 
 | Task | Agent | Purpose |
 |------|-------|---------|
 | Test writing | `@agent-qa` | Unit, integration, E2E tests |
-| Security review | `@agent-sec` | Vulnerability assessment |
+| Security review | load `security/stride-dread` skill | STRIDE/DREAD analysis — not a dedicated agent |
 
 ---
 

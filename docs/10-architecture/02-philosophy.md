@@ -59,16 +59,17 @@ They help with the task at hand but miss the bigger picture. No one asks "should
 
 Claude Copilot is an instruction layer for Claude Code.
 
-It's not separate software—it's a collection of markdown files (agents, commands, project instructions) and two MCP servers that give Claude Code persistent memory and on-demand skills.
+It's not separate software — it's a collection of markdown files (agents, commands, project instructions) and two CLI tools (`cc` for memory and skills, `tc` for task management) that give Claude Code persistent memory, on-demand skills, and ephemeral task storage.
 
 When you run Claude Code in a project with Claude Copilot, Claude reads these instructions and gains new capabilities:
 
 | Capability | What It Does | How It Works |
 |------------|--------------|--------------|
-| **Memory** | Remembers across sessions | MCP server with SQLite |
-| **Specialists** | Expert guidance for any task | Agent definitions (markdown) |
-| **Knowledge** | Your company docs, everywhere | Knowledge files + search |
-| **Skills** | Best practices on demand | Skill library + loading |
+| **Memory** | Remembers across sessions | `cc memory` CLI + SQLite (FTS5 keyword search) |
+| **Specialists** | Expert guidance for any task | 8 agent definitions (markdown) |
+| **Knowledge** | Your company docs, everywhere | Knowledge files + `cc` CLI search |
+| **Skills** | Best practices on demand | Skill library + `cc skill` CLI |
+| **Tasks** | Ephemeral work product storage | `tc` CLI (PRDs, tasks, work products) |
 | **Protocol** | Consistent quality | Command definitions (markdown) |
 
 ---
@@ -83,7 +84,7 @@ Claude Copilot gives you access to specialized expertise when you need it. Not a
 
 ### Human Advocates Have Equal Standing
 
-The "Human Advocate" agents (Service Designer, UX Designer, UI Designer, UI Developer, Copywriter) aren't secondary to technical agents.
+The "Human Advocate" agents (Service Designer, Design) aren't secondary to technical agents.
 
 Software exists to serve humans. These agents ensure that happens. They have equal authority, equal importance, equal voice in the process.
 
@@ -97,7 +98,7 @@ Decisions, lessons, and progress persist so you never waste tokens rebuilding co
 
 Load specialized knowledge when you need it, not as bloated context at the start of every session.
 
-25,000+ skills available, each loaded only when relevant. Your token budget goes to actual work, not background context.
+Skills are discovered via keyword search (`cc skill search`) and loaded on-demand. Your token budget goes to actual work, not background context.
 
 ### Your Standards, Not Ours
 
