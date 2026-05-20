@@ -26,19 +26,19 @@
 
 It's not separate software—it's markdown files (agents, commands, project instructions) and two CLI tools (`cc` and `tc`) that give Claude Code new capabilities:
 
-| You Get                    | What It Does                                                                       |
-| -------------------------- | ---------------------------------------------------------------------------------- |
-| **Persistent Memory**      | Decisions, lessons, and progress survive across sessions (FTS5 keyword search)     |
+| You Get                    | What It Does                                                                         |
+| -------------------------- | ------------------------------------------------------------------------------------ |
+| **Persistent Memory**      | Decisions, lessons, and progress survive across sessions (FTS5 keyword search)       |
 | **8 Specialist Agents**    | Lean agents with on-demand skill loading; design agents include creative methodology |
-| **Code-Bearing Skills**    | Skills with executable scripts; output enters context, not implementation code     |
-| **Parallel Orchestration** | Headless workers execute streams concurrently with `/orchestrate`                  |
-| **Pause & Resume**         | Context switch mid-task with `/pause`, return with `/continue`                     |
-| **Task Management**        | PRDs, tasks, and work products via `tc` CLI with minimal context usage             |
-| **Stream Management**      | Parallel work streams with conflict detection and dependencies                     |
-| **Knowledge Search**       | Your company docs, available in every project via Known References registry        |
-| **Extensions System**      | Override or extend agents with your company methodologies                          |
-| **Code-Execution Path**    | `tc.api` / `cc.api` facades for multi-step ops without CLI round-trip token cost   |
-| **Context Engineering**    | Auto-compaction, continuation enforcement, activation modes                        |
+| **Code-Bearing Skills**    | Skills with executable scripts; output enters context, not implementation code       |
+| **Parallel Orchestration** | Headless workers execute streams concurrently with `/orchestrate`                    |
+| **Pause & Resume**         | Context switch mid-task with `/pause`, return with `/continue`                       |
+| **Task Management**        | PRDs, tasks, and work products via `tc` CLI with minimal context usage               |
+| **Stream Management**      | Parallel work streams with conflict detection and dependencies                       |
+| **Knowledge Search**       | Your company docs, available in every project via Known References registry          |
+| **Extensions System**      | Override or extend agents with your company methodologies                            |
+| **Code-Execution Path**    | `tc.api` / `cc.api` facades for multi-step ops without CLI round-trip token cost     |
+| **Context Engineering**    | Auto-compaction, continuation enforcement, activation modes                          |
 
 When Claude Code reads these instructions, it transforms from a generic assistant into a full development team that remembers your work.
 
