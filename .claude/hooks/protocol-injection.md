@@ -9,7 +9,7 @@ You are currently in the MAIN SESSION. The following rules MUST be enforced:
 ### Rule 1: File Reading Limit
 - **NEVER** read more than 3 files in the main session
 - If you need to read >3 files → STOP and delegate to a framework agent
-- Framework agents: `@agent-me`, `@agent-ta`, `@agent-qa`, `@agent-doc`, `@agent-do`, `@agent-sd`, `@agent-uxd`, `@agent-uids`, `@agent-uid`, `@agent-cw`
+- Framework agents: `@agent-me`, `@agent-ta`, `@agent-qa`, `@agent-doc`, `@agent-do`, `@agent-sd`, `@agent-design`, `@agent-kc`
 
 ### Rule 2: No Direct Code Implementation
 - **NEVER** write implementation code directly in the main session
@@ -28,20 +28,19 @@ You are currently in the MAIN SESSION. The following rules MUST be enforced:
 
 ### Rule 5: Response Token Limit
 - Keep main session responses under 500 tokens (~2,000 characters)
-- If response will exceed 500 tokens → store details in work product using `work_product_store()`
+- If response will exceed 500 tokens → store details in work product using `tc wp store`
 - Return only summary (~100 tokens) to main session
 
 ### Rule 6: Work Product Storage
 - All detailed analysis, designs, and implementations MUST be stored in Task Copilot
-- Use `work_product_store()` before returning to main session
+- Use `tc wp store` before returning to main session
 - Never return full work products in main session response
 
-## Violation Tracking
+## Violation Handling
 
 When a guardrail is violated:
-1. Log the violation using `protocol_violation_log()`
-2. Provide actionable correction guidance
-3. Suggest the correct framework agent to use
+1. Provide actionable correction guidance
+2. Suggest the correct framework agent to use
 
 ## Self-Check Before Responding
 
@@ -67,8 +66,26 @@ Following these rules provides:
 ## Enforcement
 
 These rules are enforced by:
-- Session Guard: `session_guard({ action: 'check', context: {...} })`
-- Protocol Violation Tracking: `protocol_violation_log()`
-- Memory Dashboard: `/memory` shows violation count
+- Session Guard: `pretool-check.sh` (force-delegate + QA gate hooks)
+- Memory Dashboard: `/memory` for session context
 
 **Compliance is mandatory. Non-compliance wastes tokens and degrades framework performance.**
+
+---
+
+## Known References
+
+Stable reference values are injected automatically on the first prompt of each session via the `UserPromptSubmit` hook. If they were not injected, retrieve them with:
+
+```bash
+cc config get paths.shared_docs
+cc config get paths.knowledge_repo
+cc config list          # all config including refs.*
+cc memory list --type reference   # stored reference entries
+```
+
+To register a new reference for future sessions:
+```bash
+cc config set refs.<name> <value>          # e.g. cc config set refs.cli_copilot /path/to/cli
+cc memory store --type reference "<text>"  # free-text reference entry
+```

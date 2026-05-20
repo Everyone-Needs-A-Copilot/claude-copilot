@@ -173,6 +173,20 @@ extract_task_id() {
   printf '%s' "$msg" | grep -oE 'TASK-[0-9]+' | head -1 || echo ""
 }
 
+# Extract ALL TASK-N references from a message string.
+# Returns a JSON array of unique task IDs, e.g. '["TASK-5","TASK-12"]'
+extract_all_task_ids() {
+  local msg="$1"
+  local ids_raw
+  ids_raw="$(printf '%s' "$msg" | grep -oE 'TASK-[0-9]+' | sort -u)" || ids_raw=""
+  if [[ -z "$ids_raw" ]]; then
+    echo '[]'
+    return
+  fi
+  # Build a JSON array
+  printf '%s\n' "$ids_raw" | "$JQ" -R . | "$JQ" -sc . 2>/dev/null || echo '[]'
+}
+
 # ---------------------------------------------------------------------------
 # QA verdict parsing
 # Returns: "pass", "fail", or "unknown"
@@ -269,14 +283,19 @@ handle_me_completion() {
 # Handle @agent-qa completion
 # ---------------------------------------------------------------------------
 handle_qa_completion() {
-  local task_id verdict
+  local task_id verdict all_task_ids
   task_id="$(extract_task_id "$LAST_MSG")"
   verdict="$(parse_qa_verdict "$LAST_MSG")"
 
-  if [[ -z "$task_id" ]]; then
+  # On a pass verdict, we can proceed even without a task_id — QA's approval
+  # unblocks ALL pending tasks for the session (a passing QA run clears the gate).
+  # On a fail verdict, we need a task_id to track retries.
+  if [[ -z "$task_id" && "$verdict" != "pass" ]]; then
     log_warn "agent-qa completed but no TASK-N found in last_assistant_message (session: ${SESSION_ID}, verdict: ${verdict})"
     exit 0
   fi
+
+  all_task_ids="$(extract_all_task_ids "$LAST_MSG")"
 
   acquire_lock
   trap 'release_lock' EXIT
@@ -289,19 +308,62 @@ handle_qa_completion() {
   local updated_entry advisory_msg=""
 
   if [[ "$verdict" == "pass" ]]; then
-    # Remove task from pending_tasks, clear retries
-    updated_entry="$(printf '%s' "$session_entry" | "$JQ" \
-      --arg tid "$task_id" \
-      --arg now "$now" \
-      --arg event "qa_passed" '
-      .pending_tasks = (.pending_tasks | map(select(. != $tid))) |
-      .retries = (.retries | del(.[$tid])) |
-      .history = .history + [{"taskId": $tid, "event": $event, "ts": $now}] |
-      .lastSeen = $now
-    ' 2>/dev/null)"
-    log_info "qa_passed: removed ${task_id} from pending_tasks (session: ${SESSION_ID})"
+    # Strategy: clear all pending_tasks that appear in the QA message OR (when
+    # the message references a different set of tasks) clear ALL pending tasks.
+    # Rationale: a passing QA verdict means the work round-trip is complete.
+    # The common failure mode is QA mentioning an old/different TASK-N while a
+    # *different* task sits in pending_tasks — the pass should still unblock.
+    #
+    # Algorithm:
+    #   1. Find the intersection of pending_tasks with all IDs mentioned in msg.
+    #   2. If the intersection is non-empty → clear only those (targeted).
+    #   3. If the intersection is empty (QA mentioned unrelated IDs) → clear ALL
+    #      pending tasks (QA has approved work for this session).
+    local pending_json
+    pending_json="$(printf '%s' "$session_entry" | "$JQ" '.pending_tasks // []' 2>/dev/null || echo '[]')"
+    local intersection_count
+    intersection_count="$(printf '%s' "$pending_json" | "$JQ" \
+      --argjson mentioned "$all_task_ids" \
+      '[.[] | select(. as $t | $mentioned | map(. == $t) | any)] | length' 2>/dev/null || echo 0)"
+
+    if [[ "$intersection_count" -gt 0 ]]; then
+      # Targeted clear: remove only the tasks QA mentioned
+      local history_entries
+      history_entries="$(printf '%s' "$all_task_ids" | "$JQ" \
+        --arg now "$now" \
+        --arg event "qa_passed" \
+        '[.[] | {"taskId": ., "event": $event, "ts": $now}]' 2>/dev/null || echo '[]')"
+      updated_entry="$(printf '%s' "$session_entry" | "$JQ" \
+        --argjson mentioned "$all_task_ids" \
+        --argjson hist "$history_entries" \
+        --arg now "$now" '
+        .pending_tasks = (.pending_tasks | map(select(. as $t | $mentioned | map(. == $t) | any | not))) |
+        .retries = (reduce $mentioned[] as $tid (.retries; del(.[$tid]))) |
+        .history = .history + $hist |
+        .lastSeen = $now
+      ' 2>/dev/null)"
+      log_info "qa_passed (targeted): cleared tasks ${all_task_ids} from pending_tasks (session: ${SESSION_ID})"
+    else
+      # Full clear: QA passed but mentioned different task IDs — unblock entire session
+      local pending_arr
+      pending_arr="$(printf '%s' "$pending_json" | "$JQ" -c '.' 2>/dev/null || echo '[]')"
+      local history_entries
+      history_entries="$(printf '%s' "$pending_json" | "$JQ" \
+        --arg now "$now" \
+        --arg event "qa_passed_full_clear" \
+        '[.[] | {"taskId": ., "event": $event, "ts": $now}]' 2>/dev/null || echo '[]')"
+      updated_entry="$(printf '%s' "$session_entry" | "$JQ" \
+        --argjson hist "$history_entries" \
+        --arg now "$now" '
+        .pending_tasks = [] |
+        .retries = {} |
+        .history = .history + $hist |
+        .lastSeen = $now
+      ' 2>/dev/null)"
+      log_info "qa_passed (full clear): cleared all pending tasks ${pending_arr} because QA approved for session ${SESSION_ID} (mentioned: ${all_task_ids})"
+    fi
   else
-    # Increment retry counter
+    # Fail path: track retries by task_id
     local current_retries
     current_retries="$(printf '%s' "$session_entry" | "$JQ" -r --arg tid "$task_id" \
       '.retries[$tid] // 0' 2>/dev/null || echo 0)"
@@ -338,7 +400,7 @@ handle_qa_completion() {
   fi
 
   if [[ -z "$updated_entry" ]]; then
-    log_warn "Failed to compute updated entry for qa completion (task: ${task_id})"
+    log_warn "Failed to compute updated entry for qa completion (task: ${task_id:-unknown})"
     release_lock
     trap - EXIT
     exit 0
