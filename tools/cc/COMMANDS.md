@@ -22,7 +22,6 @@ cc skill list [--scope project|machine|all]
 cc skill search "<query>"
 cc skill get <name>
 cc skill path <name>
-cc skill evaluate [--files file1,file2] [--text "<text>"] [--scope all]
 ```
 
 ## Config

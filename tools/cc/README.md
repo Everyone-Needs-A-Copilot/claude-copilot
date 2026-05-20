@@ -107,10 +107,9 @@ cc skill get python-idioms
 cc skill path stride-dread
 # → /path/to/.claude/skills/security/stride-dread/SKILL.md
 
-# Evaluate which skills are relevant for given context
-cc skill evaluate --files "auth.py,tests/test_auth.py"
-cc skill evaluate --text "implementing JWT authentication"
-cc skill evaluate --files "auth.py" --text "security review"
+# Search for skills relevant to a topic (keyword match on name, description, tags)
+cc skill search "security"
+cc skill search "testing python"
 ```
 
 ---

@@ -39,13 +39,13 @@ def test_memory_help(cli):
 
 
 def test_skill_help(cli):
-    """cc skill --help exits cleanly and lists skill subcommands."""
+    """cc skill --help exits cleanly and lists skill subcommands (evaluate removed per TASK-29)."""
     result = cli(["skill", "--help"])
     assert result.exit_code == 0
     assert "get" in result.output
     assert "search" in result.output
     assert "list" in result.output
-    assert "evaluate" in result.output
+    assert "evaluate" not in result.output
 
 
 def test_config_help(cli):

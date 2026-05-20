@@ -406,6 +406,21 @@ class TestSkillGetCommand:
         assert "[/bold]" not in result.output
 
 
+class TestSkillEvaluateRemoved:
+    """TASK-29: cc skill evaluate must no longer be a registered subcommand."""
+
+    def test_evaluate_not_in_help(self, patched_runner: CliRunner) -> None:
+        """cc skill --help must not list 'evaluate' as a subcommand."""
+        result = patched_runner.invoke(app, ["skill", "--help"])
+        assert result.exit_code == 0
+        assert "evaluate" not in result.output
+
+    def test_evaluate_subcommand_exits_nonzero(self, patched_runner: CliRunner) -> None:
+        """Invoking cc skill evaluate directly must exit non-zero (unknown command)."""
+        result = patched_runner.invoke(app, ["skill", "evaluate"])
+        assert result.exit_code != 0
+
+
 class TestSkillPathCommand:
     def test_returns_absolute_path(self, patched_runner: CliRunner, skills_root: Path) -> None:
         result = patched_runner.invoke(app, ["skill", "path", "alpha"])
