@@ -1,20 +1,20 @@
 {
-  "framework": "5.0.2",
-  "lastUpdated": "2026-05-06T00:00:00.000Z",
+  "framework": "5.2.0",
+  "lastUpdated": "2026-05-20T00:00:00.000Z",
   "components": {
     "cc": {
-      "version": "1.0.1",
+      "version": "1.1.0",
       "path": "tools/cc",
       "installScript": "tools/cc/install.sh",
       "provides": ["cc memory", "cc skill", "cc config", "cc env"]
     },
     "tc": {
-      "version": "1.0.0",
+      "version": "1.1.0",
       "path": "tools/tc",
       "installCommand": "pip install -e ~/.claude/copilot/tools/tc"
     },
     "agents": {
-      "version": "4.0.0",
+      "version": "5.2.0",
       "path": ".claude/agents",
       "count": 8,
       "frameworkAgents": [
@@ -26,7 +26,7 @@
       ]
     },
     "commands": {
-      "version": "5.0.2",
+      "version": "5.2.0",
       "path": ".claude/commands",
       "projectCommands": [
         "protocol.md",
@@ -47,7 +47,7 @@
       ]
     },
     "skills": {
-      "version": "3.1.0",
+      "version": "3.2.0",
       "path": ".claude/skills",
       "categories": [
         "code",

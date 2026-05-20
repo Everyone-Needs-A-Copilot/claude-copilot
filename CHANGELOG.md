@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.2.0] - 2026-05-20
+
+### Added
+- **Opt-in semantic embeddings** (`cc memory search --semantic`): sentence-transformers backend wired behind `search.backend: semantic` config key; default remains `fts5` (keyword/BM25); zero behavior change for existing installs — no model downloaded unless explicitly enabled
+- **Native plugin packaging** (`.claude-plugin/`): `plugin.json` manifest + `marketplace.json` for `/plugin install claude-copilot` distribution; `check-manifest.py` fitness guard added to CI; version field in both files now auto-validated against `VERSION.json.framework`
+- **`check-manifest.py` CI guard**: validates agent/skill/command/hook paths, version sync between `plugin.json` and `VERSION.json`, marketplace→plugin manifest cross-reference, and `settings.json` clone-wiring integrity
+
+### Changed
+- **FTS5 stack unified**: `cc` and `tc` now share a single vendored `fts5_core` module; BM25 ranking available in `cc memory search` and `tc wp search`; removes duplicate trigram-index code that existed in both tools independently
+- **Design-skill normalization**: 9 flat `.md` design skills migrated to `SKILL.md` directory format (matching all other skill categories); `cc skill search` and `@include` discovery now resolves them correctly; fixes the discoverability regression introduced in 5.0.0 skill restructure
+- **Documentation modernization**: setup, update-project, and agent docs fully aligned to `cc`/`tc` CLI; all remaining MCP-era code snippets replaced; `CC_SHARED_DOCS` paths corrected throughout
+
+### Fixed
+- **`test_sentinel_resolution` hermetic fix** (`tools/tc/tests/`): test no longer relies on ambient `COPILOT_ROOT` env var; fixture now creates a hermetic temp dir with sentinel file so CI passes on clean machines without framework installed
+
+### Removed
+- Duplicate FTS trigram-index implementation in `tools/cc/src/cc/core/` (replaced by shared `fts5_core`)
+
+---
+
 ## [5.1.0] - 2026-05-20
 
 ### Changed (Breaking)
@@ -910,6 +930,7 @@ After updating from pre-1.7.1, optionally run `stream_archive_all({ confirm: tru
 
 | Version | Release Date | Key Features |
 |---------|-------------|--------------|
+| **5.2.0** | 2026-05-20 | FTS5 stack unification (shared fts5_core, BM25 in cc+tc), opt-in semantic embeddings, native plugin packaging + CI guard, design-skill normalization (9 skills → SKILL.md dirs), doc modernization, hermetic test_sentinel_resolution fix |
 | **5.1.0** | 2026-05-20 | PRD-2 correctness: FTS5 honesty, skills-as-code (L1/L2), Known References registry, code-exec path, QA-gate fix, Coolify config-gate, 100MB cleanup |
 | **5.0.1** | 2026-05-06 | Setup command fixes for cc CLI migration; hook tests 12-14 |
 | **5.0.0** | 2026-05-06 | `cc` CLI replaces Memory + Skills MCP servers; memory as committed files |
@@ -1018,7 +1039,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
 ---
 
-[unreleased]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.1.0...HEAD
+[unreleased]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.2.0...HEAD
+[5.2.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.1.0...v5.2.0
 [5.1.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.0.2...v5.1.0
 [5.0.1]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.0.0...v5.0.1
 [5.0.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v4.0.1...v5.0.0
