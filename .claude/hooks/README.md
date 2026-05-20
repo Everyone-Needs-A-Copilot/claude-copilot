@@ -195,6 +195,7 @@ Enforces the mandatory QA checkpoint after `@agent-me` completes. When `subagent
 
 - `Agent` with `subagent_type == "qa"` — always allowed (lets QA proceed)
 - `Bash` with a safe `tc` command prefix: `tc task get`, `tc task list`, `tc task create`, `tc task update`, `tc wp get`, `tc wp list`, `tc wp store`, `tc progress`, `tc log`, `tc handoff`, `tc prd`, `tc stream`
+- `Bash` starting with `python3 -m pytest` or `pytest` — allowed because test runs are read-only with respect to product state (they never mutate the codebase, they only verify it). This lets QA subagents run tests while the gate is active. Note: the prefix match only allows commands that literally start with these strings, so `python3 -m pytest` does NOT widen to arbitrary `python3` commands.
 
 When `@agent-qa` completes and the verdict is parsed as a pass, the task is removed from `pending_tasks` and subsequent tool calls flow normally.
 

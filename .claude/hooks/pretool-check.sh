@@ -271,6 +271,8 @@ QA_GATE_SAFE_PREFIXES=(
   "tc handoff"
   "tc prd"
   "tc stream"
+  "python3 -m pytest"
+  "pytest"
 )
 
 is_safe_bash_command() {
