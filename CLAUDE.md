@@ -175,6 +175,13 @@ All agents inherit these. Individual agent files should NOT repeat them.
 - **Memory — Store at end:** After completing meaningful work, run `cc memory store --type <decision|context|lesson|reference> "<content>"` to persist decisions and lessons for future sessions. Do NOT call it "semantic" — it is FTS5 keyword search.
 - **Memory commands:** `cc memory store`, `cc memory search`, `cc memory get`, `cc memory list` (not MCP `memory_store`/`memory_search`)
 - **Task Copilot Pattern:** `tc task get` → do work → `tc wp store` → `tc task update --status completed`
+- **Code-Execution Path (PREFER for >=3 related ops):** When performing 3+ related tc or cc operations (create PRD + tasks, wire deps, store multiple WPs, batch memory stores), use a SINGLE `python3` Bash block importing `tc.api` or `cc.api` instead of multiple CLI calls. Each CLI round-trip echoes a full JSON payload back into context; a python3 block returns only what you `print()`.
+  - tc-only block: `from tc.api import create_prd, create_task, add_dependency, transaction`
+  - cc-only block: `from cc.api import memory_store, memory_search, memory_list`
+  - CRITICAL: tc and cc are in separate environments — keep each block to ONE tool.
+  - Keep CLI for single one-shot ops (`tc task get 40 --json`; one `tc wp store`; one `cc memory search`).
+  - Token win example: PRD + 18 tasks + 17 deps = 36 CLI calls (~9-20K tokens echoed) vs one python3 block (~25 tokens returned).
+  - See `tools/tc/README.md` and `tools/cc/README.md` for the full usage pattern.
 - **Iteration Loop:** Self-manage iterations (max from frontmatter). Pass → complete. Blocked → emit `<promise>BLOCKED</promise>`. Else → iterate.
 - **Return Format:** Return ONLY ~100 tokens to main session. Store all details via `tc wp store`.
 - **Context Compaction:** If response exceeds ~14K tokens, store as work product and return summary only.
