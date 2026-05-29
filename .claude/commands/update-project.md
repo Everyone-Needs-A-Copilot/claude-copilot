@@ -361,17 +361,17 @@ if [ ! -f ".claude/memory/.gitignore" ]; then
 fi
 ```
 
-### 10D: Run cc doctor
+### 10D: Run cc config doctor
 
 ```bash
-cc doctor 2>&1
+cc config doctor 2>&1
 ```
 
-If `cc doctor` reports any issues (non-zero exit or lines containing "WARN" or "ERROR"), print the output and tell user:
+If `cc config doctor` reports any issues (non-zero exit or lines containing "WARN" or "ERROR"), print the output and tell user:
 
 ---
 
-**cc doctor reported issues. Please review and resolve the items above before continuing.**
+**cc config doctor reported issues. Please review and resolve the items above before continuing.**
 
 ---
 
@@ -404,9 +404,10 @@ if [ -f ~/.claude/copilot/VERSION.json ]; then
     const v = require('$HOME/.claude/copilot/VERSION.json');
     console.log('Framework: v' + v.framework);
     console.log('Agents: v' + v.components.agents.version);
-    Object.entries(v.components['mcp-servers']).forEach(([k,s]) =>
-      console.log(k + ': v' + s.version)
-    );
+    console.log('Commands: v' + v.components.commands.version);
+    console.log('Skills: v' + v.components.skills.version);
+    console.log('cc: v' + v.components.cc.version);
+    console.log('tc: v' + v.components.tc.version);
   "
 fi
 ```
@@ -468,7 +469,7 @@ Tell user:
 **cc CLI:**
 - cc installed and project config verified
 - Memory directory and `.gitignore` ensured
-- `cc doctor` passed (or issues printed above)
+- `cc config doctor` passed (or issues printed above)
 
 **Unchanged:**
 - `CLAUDE.md`
