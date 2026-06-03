@@ -12,7 +12,7 @@ This command supports an optional task description argument for quick task initi
 
 **Examples:**
 ```
-/protocol add user voice profiles          → Experience Flow (sd → uxd → uids → ta → me)
+/protocol add user voice profiles          → Experience Flow (sd → uxd → uids → uid → ta → me)
 /protocol fix login authentication bug     → Defect Flow (qa → me → qa)
 /protocol refactor auth module             → Technical Flow (ta → me)
 /protocol improve the dashboard            → Clarification Flow (ask user)
@@ -33,9 +33,12 @@ screen, page, modal, form, component, dashboard, profile, settings
 flow, journey, interaction, visual, layout, redesign
 ```
 
-**Agent Chain:** sd → uxd → uids → ta → me
+**Agent Chain:** sd → uxd → uids → uid → ta → me
 
-**Checkpoints:** After sd, uxd, uids (user approves/changes/skips each stage)
+**Checkpoints:** After sd, uxd, uids, uid (user approves/changes/skips each stage)
+
+Optional upstream step: Insert `@agent-ind` before uxd when product essentialism review is needed.
+Optional creative step: Insert `@agent-cco` and/or `@agent-cw` after sd when brand direction or copy is needed.
 
 **Example:**
 ```
@@ -44,7 +47,7 @@ User: /protocol add dark mode to dashboard
 [PROTOCOL: EXPERIENCE | Agent: @agent-sd | Action: INVOKING]
 
 Routing to experience-first flow:
-sd (journey mapping) → uxd (interactions) → uids (visual design) → ta (tasks) → me (implementation)
+sd (journey mapping) → uxd (interactions) → uids (visual design) → uid (components) → ta (tasks) → me (implementation)
 
 Invoking @agent-sd for service design...
 ```
@@ -300,8 +303,10 @@ Override default behavior with flags:
 | `--verbose` | Show detailed summaries (~200 tokens) |
 | `--minimal` | Show minimal summaries (~50 tokens, y/n only) |
 | `--skip-sd` | Skip service design stage |
+| `--skip-ind` | Skip industrial design (essentialism) stage |
 | `--skip-uxd` | Skip UX design stage |
-| `--skip-uids` | Skip UI design stage |
+| `--skip-uids` | Skip UI design (visual) stage |
+| `--skip-uid` | Skip UI component implementation stage |
 | `--design-only` | Stop after design stages (no ta/me) |
 
 **Examples:**
@@ -354,9 +359,15 @@ This framework exists to prevent context bloat. Violating these rules wastes tok
 | `@agent-doc` | Documentation, API docs |
 | `@agent-do` | CI/CD, deployment, infrastructure |
 | `@agent-sd` | Service design, journey mapping |
-| `@agent-design` | Interaction design, visual design, UI implementation (merged) |
-| `@include .claude/skills/security/stride-dread/SKILL.md` | Security review, threat modeling |
-| `@include .claude/skills/voice-tone/SKILL.md` | Content, microcopy |
+| `@agent-ind` | Industrial design: essentialism, reduction, Rams audit (upstream of uxd/uids) |
+| `@agent-uxd` | Interaction design, task flows, wireframing |
+| `@agent-uids` | Visual design, design tokens, component specs |
+| `@agent-uid` | UI component implementation, CSS/Tailwind, accessibility |
+| `@agent-cco` | Creative direction, brand strategy, campaign concepts |
+| `@agent-cw` | UX copy, microcopy, error messages, button labels |
+| `@agent-sec` | Security review, threat modeling (STRIDE+DREAD) |
+| `@agent-cs` | Sales strategy, discovery, objection handling, qualification |
+| `@agent-cpa` | Financial analysis, tax strategy, compensation modeling |
 
 **NEVER use generic agents for framework work:**
 
@@ -441,9 +452,16 @@ When agents need to hand off work to other specialists:
 | Any | @agent-qa | Testing strategy, test coverage, bug verification |
 | Any | @agent-doc | Documentation, API docs, guides |
 | Any | @agent-do | CI/CD, deployment, infrastructure |
-| @agent-sd | @agent-design | After journey mapping, for interaction/visual design |
-| Load skill | stride-dread/SKILL.md | Security review, threat modeling, vulnerability analysis |
-| Load skill | voice-tone/SKILL.md | Marketing copy, user-facing content, microcopy |
+| Any | @agent-sec | Security review, threat modeling, vulnerability analysis |
+| @agent-sd | @agent-ind | Essentialism/object review needed before interaction design |
+| @agent-sd | @agent-uxd | After journey mapping, for interaction/visual design |
+| @agent-ind | @agent-uxd | Element verdict ready, interaction must be designed within it |
+| @agent-uxd | @agent-uids | Task flows ready for visual design |
+| @agent-uids | @agent-uid | Design tokens and specs ready for component implementation |
+| @agent-uid | @agent-ta | Components complete, ready for task planning |
+| @agent-sd | @agent-cco | Creative direction or brand strategy needed |
+| @agent-cco | @agent-cw | Copy execution, messaging, microcopy |
+| @agent-cs | @agent-cpa | Tax implications, financial modeling needed |
 
 ---
 
@@ -598,19 +616,19 @@ When routing to agents or making technical decisions, reference Constitution con
    [PROTOCOL: EXPERIENCE | Agent: @agent-sd | Action: INVOKING]
 
    Routing to experience-first flow:
-   sd (journey mapping) → uxd (interactions) → uids (visual design) → ta (tasks) → me (implementation)
+   sd (journey mapping) → uxd (interactions) → uids (visual design) → uid (components) → ta (tasks) → me (implementation)
 
    Invoking @agent-sd for service design...
 
 4. Wait for @agent-sd checkpoint summary
 5. Present checkpoint to user with options 1-5
 6. User responds:
-   - Option 1 (Approve): Extract handoff context, invoke @agent-design
+   - Option 1 (Approve): Extract handoff context, invoke @agent-uxd
    - Option 2 (Changes): Re-invoke @agent-sd with feedback
-   - Option 3 (Skip): Show skip warning, invoke @agent-design
+   - Option 3 (Skip): Show skip warning, invoke @agent-uxd
    - Option 4 (Go back): Not applicable (first stage)
    - Option 5 (Show details): Call work_product_get(), display, re-present options
-7. Repeat steps 4-6 for @agent-design, @agent-ta
+7. Repeat steps 4-6 for @agent-uxd, @agent-uids, @agent-uid, @agent-ta
 8. After @agent-ta (final design stage):
    - User approves: Ask "Ready to begin implementation?"
    - If yes: Invoke @agent-me with task IDs
@@ -836,7 +854,7 @@ Main session must track:
 ```
 {
   currentFlow: "EXPERIENCE" | "DEFECT" | "TECHNICAL" | "CLARIFYING" | "INFRA",
-  currentStage: "sd" | "uxd" | "uids" | "ta" | "me" | "qa" | "do",
+  currentStage: "sd" | "ind" | "uxd" | "uids" | "uid" | "cco" | "cw" | "ta" | "me" | "qa" | "do" | "sec" | "cs" | "cpa",
   stageHistory: ["sd", "uxd", ...],
   workProducts: ["WP-001", "WP-002", ...],
   handoffContexts: {

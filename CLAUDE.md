@@ -18,7 +18,7 @@ This file provides guidance to Claude Code when working with the Claude Copilot 
 
 **Mechanical enforcement:** The force-delegate rule, QA-gate rule, and session-cap advisory are enforced by hooks in `.claude/hooks/` — not just policy. Attempting >5 consecutive Bash/Read/Edit calls will be blocked automatically. After `@agent-me` completes, all main-session tools are gated until `@agent-qa` provides a pass verdict. See `.claude/hooks/README.md` for escape hatches and debug tools.
 
-**Framework agents:** ta, me, qa, do, sd, doc, design (plus `kc` for knowledge repo setup)
+**Framework agents:** ta, me, qa, do, doc, sd, kc · design chain sd→uxd→uids→uid→ta→me · branches ind/cco/cw · sec · business cs/cpa (16 total; `design` retired)
 
 ---
 
@@ -96,7 +96,11 @@ Persistent memory across sessions with full-text (FTS5 keyword) search.
 
 ### 2. Agents
 
-7 specialized agents + 1 setup agent (kc). Every agent embeds named industry methodology — IDEO (sd), Nielsen + Rams + Atomic Design (design), ADR/Fitness Functions (ta), Kent Beck (me), Diátaxis (doc), 12-Factor/SRE (do), Meszaros (qa). Security (STRIDE/DREAD), copywriting (MailChimp Voice & Tone), and creative direction (Litmus Test) are available as @include skills.
+16 framework agents + 1 setup agent (kc). Every agent embeds named industry methodology — IDEO (sd), Dieter Rams/Jony Ive (ind), Nielsen/JTBD (uxd), Rams Principles/Atomic Design (uids), Atomic Design/CDD (uid), Litmus Test (cco), MailChimp Voice & Tone (cw), STRIDE+DREAD (sec), Socratic Sales (cs), S-Corp Tax Advisory (cpa), ADR/Fitness Functions (ta), Kent Beck (me), Diátaxis (doc), 12-Factor/SRE (do), Meszaros (qa).
+
+**Design chain:** sd → uxd → uids → uid → ta → me (ind and cco/cw are optional branches)
+**Security:** @agent-sec routes to me/ta/do; @includes stride-dread skill
+**Business:** cs/cpa operate as independent branches
 
 **Location:** `.claude/agents/`
 
@@ -139,19 +143,25 @@ Battle-tested workflow commands.
 | From | Routes To | When |
 |------|-----------|------|
 | Any | `ta` | Architecture decisions |
-| `sd` | `design` | Interaction/visual design needed |
-| `design` | `ta` | Specification ready for architecture review |
 | Any | `me` | Code implementation |
 | Any | `qa` | Testing needed |
 | Any | `doc` | Documentation needed |
-
-For security reviews, load `@include .claude/skills/security/stride-dread/SKILL.md` rather than routing to a separate agent.
+| Any | `sec` | Security review, threat modeling, vulnerability analysis |
+| `sd` | `ind` | Object-level essentialism review needed (optional, upstream) |
+| `sd` | `uxd` | Interaction/task flow design needed |
+| `ind` | `uxd` | Element verdict ready, interaction must be designed within it |
+| `uxd` | `uids` | Task flows ready for visual design |
+| `uids` | `uid` | Design tokens and specs ready for component implementation |
+| `uid` | `ta` | Components complete, ready for task planning |
+| `sd` | `cco` | Creative direction or brand strategy needed |
+| `cco` | `cw` | Copy execution, messaging, microcopy |
+| `cs` | `cpa` | Tax implications, financial modeling needed |
 
 ---
 
 ## Specification Workflow
 
-Domain agents (sd, design) **MUST NOT create tasks directly**. They create specification work products (`type: 'specification'`) and route to @agent-ta. TA discovers all specifications via `tc wp list`, reviews them, and creates tasks with `metadata.sourceSpecifications` linking back to each spec.
+Domain agents (sd, ind, uxd, uids, cco, cw) **MUST NOT create tasks directly**. They create specification work products (`type: 'specification'`) and route to @agent-ta. TA discovers all specifications via `tc wp list`, reviews them, and creates tasks with `metadata.sourceSpecifications` linking back to each spec.
 
 ---
 

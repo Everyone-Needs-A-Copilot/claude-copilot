@@ -229,7 +229,7 @@ Load minimal context to preserve token budget:
 | Type | Indicators | Agent to Invoke |
 |------|------------|-----------------|
 | DEFECT | bug, broken, error, not working | @agent-qa |
-| EXPERIENCE | UI, UX, feature, modal, form | @agent-sd + @agent-design |
+| EXPERIENCE | UI, UX, feature, modal, form | @agent-sd → @agent-uxd → @agent-uids → @agent-uid |
 | TECHNICAL | architecture, refactor, API, backend | @agent-ta |
 | QUESTION | how does, where is, explain | none |
 

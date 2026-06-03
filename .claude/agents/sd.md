@@ -155,7 +155,8 @@ Opportunities: [Top 2-3]
 
 | Route To | When |
 |----------|------|
-| @agent-design | Service blueprint ready for interaction design |
+| @agent-ind | Object-level essentialism review needed before interaction design |
+| @agent-uxd | Service blueprint ready for interaction design (default next step) |
+| @agent-cco | Creative direction or brand strategy needed |
+| @agent-cw | Journey stages need user-facing copy |
 | @agent-ta | Technical architecture needs revealed |
-| Load `@include .claude/skills/voice-tone/SKILL.md` | Journey stages need user-facing copy |
-| Load `@include .claude/skills/litmus-test/SKILL.md` | Creative direction needed for brand alignment |

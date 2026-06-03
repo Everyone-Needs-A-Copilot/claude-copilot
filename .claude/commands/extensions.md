@@ -75,7 +75,7 @@ Resolution Priority: Project > Global > Base agents
 | Agent | Type | Source | Description |
 |-------|------|--------|-------------|
 | @agent-sd | override | global | [description from frontmatter] |
-| @agent-design | extension | project (overrides global) | [description] |
+| @agent-uxd | extension | project (overrides global) | [description] |
 | @agent-ta | (base) | framework | Industry-standard methodologies |
 
 Note: Only agents listed above have extensions. All other agents use base framework instructions.
