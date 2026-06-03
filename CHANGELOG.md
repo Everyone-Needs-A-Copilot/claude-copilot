@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.3.0] - 2026-06-03
+
+### Added
+- **`fitness-check.sh` FF6** (`.claude/fitness-check.sh`): new fitness function scans repo-root `CLAUDE.md` for `@agent-design` literals and routing-stage uses of bare `design` (e.g. `→ design →`); false-positive-safe — ignores legitimate prose ("Atomic Design", "Design chain", "design tokens", "service design"); closes the guard gap that allowed stale design refs to slip through in the 5.3.0 restoration
+
+### Changed
+- **16-agent specialist roster restored**: `design` agent retired; full specialist chain restored — sd → uxd → uids → uid → ta → me with ind (Industrial Designer) and cco/cw (Creative Direction/Copywriting) as optional branches; sec, cs, cpa re-introduced as independent agents
+- **Roster-aware update-project / setup-project**: no longer clobbers project-local agent customizations; syncs only agents in the current VERSION.json roster, skipping agents absent from the manifest
+- **CLAUDE.md Use Case Mapping**: "Build a feature" row updated from stale `sd → design → ta → me → qa` to correct `sd → uxd → uids → uid → ta → me → qa` experience flow
+- **CLAUDE.md Agent Shared Behaviors**: `Specification Workflow` bullet updated from `(sd, design)` to full specialist list `(sd, ind, uxd, uids, cco, cw)`
+
+### Fixed
+- Stale `@agent-design` and `design`-as-routing-stage references purged from CLAUDE.md; FF6 now catches this class of defect automatically on every fitness check run
+
 ## [5.2.0] - 2026-05-20
 
 ### Added
@@ -930,6 +944,7 @@ After updating from pre-1.7.1, optionally run `stream_archive_all({ confirm: tru
 
 | Version | Release Date | Key Features |
 |---------|-------------|--------------|
+| **5.3.0** | 2026-06-03 | 16-agent specialist roster restored (`design` retired), fitness-check FF6 scans CLAUDE.md for stale design refs, stale `design` routing purged from CLAUDE.md |
 | **5.2.0** | 2026-05-20 | FTS5 stack unification (shared fts5_core, BM25 in cc+tc), opt-in semantic embeddings, native plugin packaging + CI guard, design-skill normalization (9 skills → SKILL.md dirs), doc modernization, hermetic test_sentinel_resolution fix |
 | **5.1.0** | 2026-05-20 | PRD-2 correctness: FTS5 honesty, skills-as-code (L1/L2), Known References registry, code-exec path, QA-gate fix, Coolify config-gate, 100MB cleanup |
 | **5.0.1** | 2026-05-06 | Setup command fixes for cc CLI migration; hook tests 12-14 |
@@ -1039,7 +1054,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
 ---
 
-[unreleased]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.2.0...HEAD
+[unreleased]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.3.0...HEAD
+[5.3.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.2.0...v5.3.0
 [5.2.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.1.0...v5.2.0
 [5.1.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.0.2...v5.1.0
 [5.0.1]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.0.0...v5.0.1

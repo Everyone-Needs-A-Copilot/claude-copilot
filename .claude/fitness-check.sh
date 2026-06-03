@@ -186,6 +186,35 @@ for agent_file in "${AGENTS_DIR}"/*.md; do
 done
 
 # ---------------------------------------------------------------------------
+# FF6: No stale design agent refs in CLAUDE.md
+#      Catches @agent-design and routing-stage usage of bare "design" (e.g.
+#      "sd → design →" or "design →") while ignoring legitimate prose such as
+#      "Atomic Design", "Design chain", "design tokens", "service design", etc.
+# ---------------------------------------------------------------------------
+section "FF6: No Stale Design Agent Refs in CLAUDE.md"
+
+CLAUDE_MD="CLAUDE.md"
+if [ ! -f "$CLAUDE_MD" ]; then
+  pass "CLAUDE.md not found at repo root — skipping"
+else
+  # Check for @agent-design literal reference
+  if grep -q '@agent-design' "$CLAUDE_MD" 2>/dev/null; then
+    fail "CLAUDE.md contains '@agent-design' — retired agent reference must be removed"
+  else
+    pass "CLAUDE.md: no @agent-design reference"
+  fi
+
+  # Check for routing-stage pattern: "design" used as a pipeline stage
+  # Matches "→ design →", "→ design" at line end, or "design →" at start of routing
+  # Does NOT match "Design chain", "Atomic Design", "design tokens", "service design", etc.
+  if grep -E '(→\s*design\s*→|→\s*design\s*$|\bdesign\s*→)' "$CLAUDE_MD" 2>/dev/null | grep -qv 'Design chain\|Atomic Design\|design tokens\|service design\|visual design\|design chain'; then
+    fail "CLAUDE.md contains 'design' used as a routing stage — replace with specialist agent(s)"
+  else
+    pass "CLAUDE.md: no 'design' routing-stage references"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo

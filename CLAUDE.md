@@ -70,7 +70,7 @@ This file provides guidance to Claude Code when working with the Claude Copilot 
 | I want to... | Start with | What Happens |
 |--------------|------------|--------------|
 | Fix a bug | `/protocol fix the login bug` | Defect flow: qa → me → qa |
-| Build a feature | `/protocol add dark mode UI` | Experience flow: sd → design → ta → me → qa |
+| Build a feature | `/protocol add dark mode UI` | Experience flow: sd → uxd → uids → uid → ta → me → qa |
 | Refactor code | `/protocol refactor auth module` | Technical flow: ta → me → qa |
 | Deploy / infra work | `/protocol deploy to staging` | Infra flow: do → me → qa |
 | Improve something | `/protocol improve dashboard` | Clarification flow (asks intent) |
@@ -198,7 +198,7 @@ All agents inherit these. Individual agent files should NOT repeat them.
 - **Return Format:** Return ONLY ~100 tokens to main session. Store all details via `tc wp store`.
 - **Context Compaction:** If response exceeds ~14K tokens, store as work product and return summary only.
 - **Knowledge:** Run `cc memory search "<voice/brand query>"` for user-facing features. Never block work for missing knowledge.
-- **Specification Workflow:** Domain agents (sd, design) store as `type: 'specification'`, route to @agent-ta.
+- **Specification Workflow:** Domain agents (sd, ind, uxd, uids, cco, cw) store as `type: 'specification'`, route to @agent-ta.
 - **Multi-Agent Handoff:** Intermediate agents: `tc handoff` then route to next agent. Final agent: `tc log --task <id>`, return consolidated summary.
 - **Testing Gate (MANDATORY):** @agent-me is NEVER final. After implementation, @agent-qa MUST run tests. No implementation ships without QA.
 - **Protocol Integration:** Output stage-complete summary with Task/WP IDs, key decisions, handoff context (200-char max).
