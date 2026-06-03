@@ -122,8 +122,24 @@ Should show: `continue.md` and `protocol.md`
 
 ## Step 6: Copy Agents
 
+Copy only framework-owned agents (from the roster manifest in VERSION.json). This preserves any project-specific agents that may already exist.
+
 ```bash
-cp ~/.claude/copilot/.claude/agents/*.md .claude/agents/
+# Read framework agent roster from VERSION.json
+COPILOT_PATH=~/.claude/copilot
+ROSTER=$(python3 -c "
+import json, sys
+with open('$COPILOT_PATH/VERSION.json') as f:
+    v = json.load(f)
+agents = v['components']['agents']['frameworkAgents']
+print(' '.join(agents))
+" 2>/dev/null || echo "cco cpa cs cw do doc ind kc me qa sd sec ta uid uids uxd")
+
+for agent in $ROSTER; do
+  if [ -f "$COPILOT_PATH/.claude/agents/${agent}.md" ]; then
+    cp "$COPILOT_PATH/.claude/agents/${agent}.md" .claude/agents/
+  fi
+done
 ```
 
 **Verify:**
@@ -131,7 +147,7 @@ cp ~/.claude/copilot/.claude/agents/*.md .claude/agents/
 ls .claude/agents/ | wc -l
 ```
 
-Should show 12+ files.
+Should show 16 framework agents.
 
 ---
 
@@ -271,6 +287,32 @@ All must exist.
 
 ---
 
+## Step 11B: Run Fitness Check
+
+Run the fitness check to verify the agent roster is healthy:
+
+```bash
+# Copy fitness-check.sh from copilot source
+cp ~/.claude/copilot/.claude/fitness-check.sh .claude/fitness-check.sh
+chmod +x .claude/fitness-check.sh
+
+bash .claude/fitness-check.sh \
+  --agents-dir .claude/agents \
+  --commands-dir .claude/commands \
+  --copilot-path ~/.claude/copilot
+FITNESS_RESULT=$?
+```
+
+If `FITNESS_RESULT` is non-zero (check failed), print the failures and tell the user:
+
+---
+
+**Fitness check reported issues.** Review the failures above. The project was created but the agent roster has problems. Run `/update-project` after resolving them.
+
+---
+
+---
+
 ## Step 12: Report Success
 
 ---
@@ -281,7 +323,7 @@ All must exist.
 - `.mcp.json` - Project marker (empty MCP config; add third-party servers here as needed)
 - `CLAUDE.md` - Project instructions
 - `.claude/commands/` - Protocol commands (/protocol, /continue)
-- `.claude/agents/` - 8 specialized agents
+- `.claude/agents/` - 16 framework agents (full specialist roster)
 - `.claude/skills/` - For project-specific skills
 - `.claude/memory/entries/` - Project memory (committed to git)
 - `.claude/cc/config.json` - cc CLI project config

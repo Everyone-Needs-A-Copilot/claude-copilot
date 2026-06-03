@@ -191,7 +191,7 @@ Tell the user:
 
 This will refresh:
 - `.claude/commands/` (7 project commands)
-- `.claude/agents/*.md` (all 14 agents)
+- `.claude/agents/` (16 framework agents — roster-aware: preserves project-specific agents, removes retired agents)
 - `.claude/orchestrator/` (if present - Python scripts and shell utilities)
 
 This will ONLY update if needed:
@@ -200,6 +200,7 @@ This will ONLY update if needed:
 This will NOT touch:
 - `CLAUDE.md` (your project instructions)
 - `.claude/skills/` (your project skills)
+- Project-specific agent files (only framework-owned agents from VERSION.json roster are updated)
 - Existing MCP server configurations in `.mcp.json`
 
 ---
@@ -244,18 +245,59 @@ echo "Commands updated (7 project commands)"
 
 ---
 
-## Step 8: Update Agents
+## Step 8: Update Agents (Roster-Aware Sync)
 
-Remove old agent files and copy fresh ones:
+Refresh only framework-owned agents; preserve any project-specific agents.
 
 ```bash
-# Remove all old agents
-rm -f .claude/agents/*.md 2>/dev/null
+COPILOT_PATH=~/.claude/copilot
 
-# Copy fresh from source
-cp ~/.claude/copilot/.claude/agents/*.md .claude/agents/
+# Read framework agent roster from VERSION.json
+ROSTER=$(python3 -c "
+import json, sys
+with open('$COPILOT_PATH/VERSION.json') as f:
+    v = json.load(f)
+agents = v['components']['agents']['frameworkAgents']
+print(' '.join(agents))
+" 2>/dev/null || echo "cco cpa cs cw do doc ind kc me qa sd sec ta uid uids uxd")
 
-echo "Agents updated"
+# Also read retired agents list to remove any stale copies
+RETIRED=$(python3 -c "
+import json, sys
+with open('$COPILOT_PATH/VERSION.json') as f:
+    v = json.load(f)
+retired = v['components']['agents'].get('retired', [])
+print(' '.join(retired))
+" 2>/dev/null || echo "design")
+
+# Remove retired agents from project (they should not remain)
+for agent in $RETIRED; do
+  if [ -f ".claude/agents/${agent}.md" ]; then
+    rm -f ".claude/agents/${agent}.md"
+    echo "Removed retired agent: ${agent}.md"
+  fi
+done
+
+# Refresh framework-owned agents only (preserve project-specific agents)
+UPDATED=0
+for agent in $ROSTER; do
+  if [ -f "$COPILOT_PATH/.claude/agents/${agent}.md" ]; then
+    cp "$COPILOT_PATH/.claude/agents/${agent}.md" ".claude/agents/"
+    UPDATED=$((UPDATED + 1))
+  fi
+done
+
+# Report any project-specific agents that were preserved
+echo "Framework agents refreshed: $UPDATED"
+PRESERVED=$(ls .claude/agents/*.md 2>/dev/null | while read f; do
+  name=$(basename "$f" .md)
+  is_framework=0
+  for a in $ROSTER; do [ "$a" = "$name" ] && is_framework=1 && break; done
+  [ $is_framework -eq 0 ] && echo "$name"
+done | tr '\n' ' ')
+[ -n "$PRESERVED" ] && echo "Project-specific agents preserved: $PRESERVED"
+
+echo "Agents updated (roster-aware)"
 ```
 
 ---
@@ -414,6 +456,46 @@ fi
 
 ---
 
+## Step 11B: Run Fitness Check
+
+After updating agents, run the fitness check to verify the roster is healthy:
+
+```bash
+if [ -f .claude/fitness-check.sh ]; then
+  bash .claude/fitness-check.sh \
+    --agents-dir .claude/agents \
+    --commands-dir .claude/commands \
+    --copilot-path ~/.claude/copilot
+  FITNESS_RESULT=$?
+else
+  # fitness-check.sh not yet copied — copy it first
+  cp ~/.claude/copilot/.claude/fitness-check.sh .claude/fitness-check.sh
+  chmod +x .claude/fitness-check.sh
+  bash .claude/fitness-check.sh \
+    --agents-dir .claude/agents \
+    --commands-dir .claude/commands \
+    --copilot-path ~/.claude/copilot
+  FITNESS_RESULT=$?
+fi
+```
+
+If `FITNESS_RESULT` is non-zero (check failed), print the failures and tell the user:
+
+---
+
+**Fitness check reported issues.** Review the failures above. Common fixes:
+- Missing agent: `cp ~/.claude/copilot/.claude/agents/<name>.md .claude/agents/`
+- Orphan route: Edit the agent file's Route To table to point to a valid agent
+- Retired agent still present: `rm .claude/agents/design.md` (or other retired agent)
+
+The project is updated but the fitness check should be resolved before using protocol chains.
+
+---
+
+Store `FITNESS_RESULT` to include in Step 12 report.
+
+---
+
 ## Step 12: Report Success
 
 ```bash
@@ -454,7 +536,7 @@ Tell user:
 
 **Refreshed:**
 - `.claude/commands/` (7 project commands: protocol, continue, pause, map, memory, extensions, orchestrate)
-- `.claude/agents/` (14 agents)
+- `.claude/agents/` (16 framework agents, roster-aware sync)
 {{IF_ORCHESTRATOR_UPDATED}}
 - `.claude/orchestrator/` (Python scripts and shell utilities)
 {{END_IF}}
