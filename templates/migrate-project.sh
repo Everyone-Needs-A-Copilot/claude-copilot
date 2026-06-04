@@ -50,16 +50,10 @@ if [ ! -f "$FRAMEWORK_PATH/templates/CLAUDE.template.md" ]; then
   exit 1
 fi
 
-# Check MCP servers are built
-if [ ! -f "$FRAMEWORK_PATH/mcp-servers/copilot-memory/dist/index.js" ]; then
-  echo "✗ ERROR: copilot-memory MCP server not built"
-  echo "  Run: cd $FRAMEWORK_PATH/mcp-servers/copilot-memory && npm install && npm run build"
-  exit 1
-fi
-
-if [ ! -f "$FRAMEWORK_PATH/mcp-servers/skills-copilot/dist/index.js" ]; then
-  echo "✗ ERROR: skills-copilot MCP server not built"
-  echo "  Run: cd $FRAMEWORK_PATH/mcp-servers/skills-copilot && npm install && npm run build"
+# Check cc CLI is available (replaced MCP servers in v5.1.0)
+if [ ! -d "$FRAMEWORK_PATH/tools/cc" ]; then
+  echo "✗ ERROR: cc CLI not found at $FRAMEWORK_PATH/tools/cc"
+  echo "  Run: bash $FRAMEWORK_PATH/tools/cc/install.sh"
   exit 1
 fi
 

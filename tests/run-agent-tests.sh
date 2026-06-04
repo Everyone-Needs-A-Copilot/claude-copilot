@@ -85,7 +85,6 @@ if [ "$RUN_UNIT" == "true" ]; then
   echo "------------------------------------------------------------------------"
 
   run_test "unit/agent-assignment.test.ts"
-  run_test "unit/skill-loading.test.ts"
 
   echo ""
 fi
@@ -96,7 +95,6 @@ if [ "$RUN_INT" == "true" ]; then
   echo "------------------------------------------------------------------------"
 
   run_test "integration/agent-skill-orchestration.test.ts"
-  run_test "integration/hooks-evaluation-corrections.test.ts"
   run_test "integration/lean-agents-skills.test.ts"
   run_test "integration/orchestration-lifecycle.test.ts"
   run_test "integration/memory-copilot.test.ts"

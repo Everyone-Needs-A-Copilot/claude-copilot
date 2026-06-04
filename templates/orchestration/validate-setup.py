@@ -286,57 +286,6 @@ class SetupValidator:
                 "Not found in PATH. Install with: pip install -e ~/.claude/copilot/tools/tc"
             )
 
-    def check_mcp_servers_built(self) -> bool:
-        """Check if MCP servers are built (node_modules exist)."""
-        # Check memory copilot
-        memory_copilot_dir = self.project_root / "mcp-servers" / "copilot-memory"
-        memory_copilot_modules = memory_copilot_dir / "node_modules"
-
-        if self.verbose:
-            print(f"  Memory Copilot: {memory_copilot_dir}")
-
-        memory_built = memory_copilot_modules.exists()
-
-        if memory_built:
-            return self.check("MCP servers built", True, "Memory server ready")
-        else:
-            missing = ["copilot-memory"]
-
-            def rebuild_servers():
-                for server in missing:
-                    server_dir = self.project_root / "mcp-servers" / server
-                    if not server_dir.exists():
-                        return False
-
-                    # Run npm install
-                    subprocess.run(
-                        ["npm", "install"],
-                        cwd=server_dir,
-                        capture_output=True,
-                        check=True
-                    )
-
-                    # Run npm run build
-                    subprocess.run(
-                        ["npm", "run", "build"],
-                        cwd=server_dir,
-                        capture_output=True,
-                        check=True
-                    )
-
-                return True
-
-            passed = self.check(
-                "MCP servers built",
-                False,
-                f"Missing node_modules: {', '.join(missing)}"
-            )
-
-            if not passed:
-                self.attempt_fix(f"Build {', '.join(missing)}", rebuild_servers)
-
-            return passed
-
     def check_orchestrator_templates(self) -> bool:
         """Check if orchestration templates exist in Claude Copilot framework."""
         # Look for templates in ~/.claude/copilot/templates/orchestration
@@ -384,7 +333,6 @@ class SetupValidator:
         self.check_git_repository()
         self.check_directory_permissions()
         self.check_tc_cli()
-        self.check_mcp_servers_built()
         self.check_orchestrator_templates()
 
         return self.checks_failed == 0

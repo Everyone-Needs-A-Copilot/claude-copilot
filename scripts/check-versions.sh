@@ -32,43 +32,19 @@ echo ""
 
 ERRORS=0
 
-# Check MCP Servers
-echo -e "${BLUE}MCP Servers:${NC}"
-
-check_mcp_server() {
-    local name=$1
-    local expected_version=$(node -p "require('$VERSION_FILE').components['mcp-servers']['$name'].version")
-    local server_path="$COPILOT_PATH/mcp-servers/$name"
-
-    if [ ! -d "$server_path" ]; then
-        echo -e "  ${RED}❌ $name: Directory not found${NC}"
-        ((ERRORS++))
-        return
-    fi
-
-    # Check package.json version
-    local actual_version=$(node -p "require('$server_path/package.json').version" 2>/dev/null || echo "unknown")
-
-    # Check if built
-    local check_file=$(node -p "require('$VERSION_FILE').components['mcp-servers']['$name'].checkFile")
-    local is_built="no"
-    if [ -f "$server_path/$check_file" ]; then
-        is_built="yes"
-    fi
-
-    if [ "$actual_version" = "$expected_version" ] && [ "$is_built" = "yes" ]; then
-        echo -e "  ${GREEN}✅ $name: v$actual_version (built)${NC}"
-    elif [ "$actual_version" != "$expected_version" ]; then
-        echo -e "  ${YELLOW}⚠️  $name: v$actual_version (expected v$expected_version)${NC}"
-        ((ERRORS++))
-    elif [ "$is_built" = "no" ]; then
-        echo -e "  ${RED}❌ $name: v$actual_version (NOT BUILT - run npm run build)${NC}"
-        ((ERRORS++))
-    fi
-}
-
-check_mcp_server "copilot-memory"
-check_mcp_server "skills-copilot"
+# MCP servers removed — check cc CLI instead
+echo -e "${BLUE}cc CLI (replaces MCP servers):${NC}"
+if command -v cc >/dev/null 2>&1; then
+    CC_VERSION=$(cc --version 2>/dev/null || echo "installed")
+    echo -e "  ${GREEN}✅ cc CLI: $CC_VERSION${NC}"
+elif [ -d "$COPILOT_PATH/tools/cc" ]; then
+    echo -e "  ${YELLOW}⚠️  cc CLI: found at tools/cc/ but not on PATH${NC}"
+    echo -e "      Install: bash $COPILOT_PATH/tools/cc/install.sh"
+    ((ERRORS++))
+else
+    echo -e "  ${RED}❌ cc CLI: not found${NC}"
+    ((ERRORS++))
+fi
 
 echo ""
 
@@ -212,7 +188,7 @@ else
     echo -e "${YELLOW}⚠️  $ERRORS issue(s) found${NC}"
     echo ""
     echo "To fix issues:"
-    echo "  1. Rebuild MCP servers: cd ~/.claude/copilot && npm run build:all"
+    echo "  1. Install cc CLI: bash ~/.claude/copilot/tools/cc/install.sh"
     echo "  2. Install tc CLI: cd ~/.claude/copilot/tools/tc && pip install -e ."
     echo "  3. Update framework: /update-copilot"
 fi
