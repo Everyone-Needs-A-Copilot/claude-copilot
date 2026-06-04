@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.4.0] - 2026-06-04
+
+### Added
+- **`owner: project` agent preservation** (`update-project.md`, `setup-project.md`): agents with `owner: project` in their frontmatter are never overwritten by framework sync — project teams can customize or extend any agent file and that file is permanently preserved across updates and re-setups; `fitness-check.sh` FF3 recognizes the flag and passes retired agents that carry it as intentional project overrides
+
+### Fixed
+- **`fitness-check.sh` hyphenated agent names** (`.claude/fitness-check.sh`): FF1 and FF5 `@agent-X` regexes now correctly match multi-segment names (e.g. `@agent-line-editor`, `@agent-structural-editor`); prior regex stopped at the first hyphen, causing false orphan-route failures for any project-owned hyphenated agent
+- **`fitness-check.sh` on-disk orphan resolution** (`.claude/fitness-check.sh`): FF5 now seeds `KNOWN_AGENTS` from the actual `.md` files present on disk in addition to the VERSION.json roster; project-owned agents (e.g. `critic.md`, `structural-editor.md`) are treated as known without requiring a roster entry or allowlist addition
+
+### Changed
+- **cs / cpa optional-advisory labeling**: `cs.md` (Customer Success) and `cpa.md` (Copywriting Assistant) documented as optional business-advisory agents — present in the roster but not required in every project's flow; references in docs and roster notes updated accordingly
+
 ## [5.3.0] - 2026-06-03
 
 ### Added
@@ -944,6 +956,7 @@ After updating from pre-1.7.1, optionally run `stream_archive_all({ confirm: tru
 
 | Version | Release Date | Key Features |
 |---------|-------------|--------------|
+| **5.4.0** | 2026-06-04 | `owner: project` agent preservation in sync commands; fitness-check hyphenated-name + on-disk orphan resolution fix; cs/cpa optional-advisory labeling |
 | **5.3.0** | 2026-06-03 | 16-agent specialist roster restored (`design` retired), fitness-check FF6 scans CLAUDE.md for stale design refs, stale `design` routing purged from CLAUDE.md |
 | **5.2.0** | 2026-05-20 | FTS5 stack unification (shared fts5_core, BM25 in cc+tc), opt-in semantic embeddings, native plugin packaging + CI guard, design-skill normalization (9 skills → SKILL.md dirs), doc modernization, hermetic test_sentinel_resolution fix |
 | **5.1.0** | 2026-05-20 | PRD-2 correctness: FTS5 honesty, skills-as-code (L1/L2), Known References registry, code-exec path, QA-gate fix, Coolify config-gate, 100MB cleanup |
@@ -1054,7 +1067,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
 ---
 
-[unreleased]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.3.0...HEAD
+[unreleased]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.4.0...HEAD
+[5.4.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.3.0...v5.4.0
 [5.3.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.2.0...v5.3.0
 [5.2.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.1.0...v5.2.0
 [5.1.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.0.2...v5.1.0
