@@ -1,6 +1,13 @@
 ---
 name: design-patterns
-description: Visual design patterns, design tokens, component specifications, WCAG compliance
+description: >-
+  Visual design patterns covering design tokens (color, spacing, typography),
+  component state specifications, WCAG 2.1 AA compliance rules, and
+  anti-patterns for hard-coded values or missing states. Use proactively when
+  defining a design token system, specifying component states across all
+  interactive conditions, verifying WCAG 2.1 AA compliance for contrast and
+  touch targets, building a consistent accessible design system, or reviewing
+  components for missing states or hard-coded values.
 version: 1.0.0
 tags: [design, tokens, visual, components, accessibility, pattern, anti-pattern]
 when_to_use:

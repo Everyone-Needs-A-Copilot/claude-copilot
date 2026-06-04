@@ -1,6 +1,15 @@
 ---
 name: threat-modeling
-description: STRIDE threat identification with coverage checking (prose judgment) + deterministic STRIDE coverage + DREAD severity scoring (executable script)
+description: >-
+  STRIDE threat identification with coverage checking (prose judgment) plus
+  deterministic STRIDE coverage and DREAD severity scoring via executable script.
+  Covers system architecture security review, trust boundaries across services,
+  auth, payments, and PII feature pre-implementation review, and threat model
+  refresh sessions. Use proactively when designing or reviewing a new system
+  architecture or API, running pre-implementation security review for features
+  touching auth, payments, or PII, conducting threat modeling sessions (initial
+  or refresh), or reviewing another team's threat model for completeness. Run
+  the coverage checker for deterministic STRIDE gap and DREAD scoring.
 version: 2.0.0
 source: derived from .claude/skills/security/threat-modeling.md (v1.0); L3 coverage checker added 2026-05-20
 when_to_use:

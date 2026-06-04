@@ -1,6 +1,13 @@
 ---
 name: premium-interaction-craft
-description: Elite interaction patterns — scroll choreography, spring physics, micro-timing, text reveals, magnetic elements, page transitions
+description: >-
+  Elite interaction patterns covering scroll choreography with GSAP
+  ScrollTrigger, spring physics for drag/toggle/swipe, the elite micro-timing
+  scale, text reveal effects, magnetic and tilt elements, and page transitions
+  with shared element morphing. Use proactively when implementing scroll-driven
+  choreography, applying spring physics to user-initiated interactions, selecting
+  precise timing durations, building text reveal or magnetic effects, or
+  engineering page transitions with shared element morphing.
 version: 1.0.0
 tags: [design, interaction, animation, gsap, spring-physics, scroll, motion, premium]
 when_to_use:

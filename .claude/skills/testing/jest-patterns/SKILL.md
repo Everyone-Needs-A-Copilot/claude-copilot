@@ -1,7 +1,15 @@
 ---
 name: jest-patterns
 skill_category: testing
-description: Jest testing patterns, anti-patterns, and quality rules. Includes a deterministic test-smell detector (jest_smell.py) for .only/.skip left in, missing expects, async-without-await, setTimeout(0), console.log, and done callbacks.
+description: >-
+  Jest testing patterns, anti-patterns, and quality rules for JavaScript and
+  TypeScript test files (*.test.ts, *.spec.js, __tests__). Includes deterministic
+  test-smell detector (jest_smell.py) for .only/.skip left in, missing expects,
+  async-without-await, setTimeout(0), console.log, and done callbacks. Use
+  proactively when reviewing or writing Jest test files, diagnosing flaky or
+  unreliable JavaScript test suites, code-reviewing test files, or running a CI
+  quality gate on test file hygiene. Run the smell detector for deterministic
+  issue detection.
 version: 2.0.0
 source: migrated from testing/jest-patterns.md (v1.0, 2026-01-13); L3 smell detector added 2026-05-20
 when_to_use:

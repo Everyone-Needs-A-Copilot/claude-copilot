@@ -1,6 +1,14 @@
 ---
 name: motion-choreography
-description: Motion as design language — grammar, easing personality, choreography patterns, restraint philosophy, animation principles
+description: >-
+  Motion as design language — easing grammar, easing-curve personality profiles,
+  multi-element choreography patterns, restraint philosophy, anticipation and
+  follow-through principles, and prefers-reduced-motion compliance. Use
+  proactively when designing multi-element animation sequences or entrance/exit
+  choreography, selecting easing curves with personality for each interaction
+  type, applying restraint principles to avoid over-animation, implementing
+  anticipation and follow-through in UI interactions, or auditing animation
+  systems for motion budget and prefers-reduced-motion compliance.
 version: 1.0.0
 tags: [design, motion, animation, choreography, easing, timing, restraint, premium]
 when_to_use:

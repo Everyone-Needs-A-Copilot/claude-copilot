@@ -10,21 +10,22 @@ Five-pillar framework: persistent memory, expert agents, on-demand skills, ephem
 |-------|--------|-----------|---------|
 | Persistence | 1 | Memory Copilot | Cross-session context, decisions, lessons |
 | Expertise | 2 | 8 Specialist Agents | Lean agents with on-demand skills |
-| Knowledge | 3 | Skills (cc CLI) | On-demand skill loading via `cc skill search` / `cc skill get` |
+| Knowledge | 3 | Skills | Auto-fire from trigger-rich description; `cc skill search` / `cc skill get` as fallback |
 | Tasks | 4 | Task Copilot | Ephemeral PRD, task, work product storage |
 | Workflow | 5 | Protocol | /protocol and /continue commands |
 
 ### Data Flow
 
 ```
-User Request → Protocol → Lean Agent → cc skill search → cc skill get → Execute → Store Work Product (tc wp store) → cc memory store
+User Request → Protocol → Lean Agent → [skills auto-fire from description match] → Execute → Store Work Product (tc wp store) → cc memory store
 ```
 
 **Lean Agent Pattern:**
 - Agent files are under 120 lines (workflow, routing, core behaviors)
 - Shared boilerplate extracted to "Agent Shared Behaviors" in CLAUDE.md
 - Domain expertise lives in skill files (200-500 lines each)
-- Skills discovered by keyword match via `cc skill search "<query>"`
+- Skills auto-fire from their trigger-rich `description` field when prompt context matches
+- Fallback: `cc skill search "<query>"` (case-insensitive substring match) for explicit discovery
 - Skills loaded on-demand via `cc skill get <name>` or native `@include`
 - ~70% token reduction vs. monolithic agents
 
@@ -112,7 +113,7 @@ Location: `~/.claude/memory/{workspace-id}/memory.db`
 
 | Command | Purpose |
 |---------|---------|
-| `cc skill search "<query>"` | Discover skills by keyword (FTS5) |
+| `cc skill search "<query>"` | Discover skills by case-insensitive substring match |
 | `cc skill get <name>` | Fetch a skill by name |
 | `cc skill list` | List all available skills |
 | `@include .claude/skills/NAME/SKILL.md` | Load directly in agent prompt (native) |

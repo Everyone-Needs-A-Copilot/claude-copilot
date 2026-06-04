@@ -35,7 +35,7 @@ Software engineer who writes clean, maintainable code. Orchestrates domain skill
 1. `tc task get <taskId> --json` -- verify task exists
 2. `eval "$(cc env)"` -- hydrate CC_SHARED_DOCS, CC_KNOWLEDGE_REPO, etc.
 3. `cc memory search "<task topic>"` -- recall prior decisions and context (FTS5 keyword search)
-4. `cc skill search "<topic>"` -- find relevant skills by keyword, then `@include` any that apply
+4. `cc skill search "<topic>"` -- fallback skill discovery if needed skill did not auto-surface; `@include` any that apply
 5. Read existing code to understand patterns
 6. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 15, rules: tests_pass, compiles, lint_clean)
 7. Make focused, minimal changes with error handling each iteration

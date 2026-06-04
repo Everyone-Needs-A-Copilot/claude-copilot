@@ -1,6 +1,13 @@
 ---
 name: voice-tone
-description: MailChimp Voice & Tone framework for UX copy, microcopy, error messages, and interface text
+description: >-
+  MailChimp Voice & Tone framework for UX copy, microcopy, error messages, and
+  interface text — calibrates tone to user emotional state and context. Covers
+  the four-quadrant tone map, plain-language rules, and anti-patterns for
+  corporate or condescending copy. Use proactively when writing error messages,
+  button labels, help text, onboarding flows, empty states, success
+  confirmations, destructive action warnings, or any user-facing copy in product
+  UI, or when reviewing copy for tone consistency.
 version: 1.0.0
 source: derived from .claude/agents/_archive/cw.md (2026-04-22)
 when_to_use:

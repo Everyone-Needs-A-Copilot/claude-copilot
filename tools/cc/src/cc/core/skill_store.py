@@ -15,6 +15,12 @@ import os
 from pathlib import Path
 from typing import Any
 
+try:
+    import yaml as _yaml  # type: ignore[import]
+    _YAML_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    _YAML_AVAILABLE = False
+
 
 @dataclass
 class SkillMeta:
@@ -66,11 +72,68 @@ def default_skill_paths() -> list[tuple[Path, str]]:
     return paths
 
 
+def _resolve_block_scalar(lines: list[str], start: int, indicator: str = ">-") -> tuple[str, int]:
+    """Resolve a YAML block scalar starting at *start* (the line containing >- or |).
+
+    *indicator* is the block scalar indicator string (">-", ">", "|-", or "|").
+
+    Returns (resolved_string, next_line_index). The resolved string has leading/
+    trailing whitespace stripped. Continuation lines are joined with a space
+    (folded, >-) or newlines (literal, |).
+    """
+    # Determine fold vs literal and chomp style
+    # We treat >- / > as folded (join with space, strip trailing newlines)
+    # and | / |- as literal (preserve newlines)
+    folded = indicator.startswith(">")
+
+    # Detect the indentation of the next non-empty continuation line
+    i = start + 1
+    # Skip blank lines immediately after the indicator to find indent level
+    while i < len(lines) and lines[i].strip() == "":
+        i += 1
+
+    if i >= len(lines):
+        return "", i
+
+    indent = len(lines[i]) - len(lines[i].lstrip())
+    parts: list[str] = []
+
+    while i < len(lines):
+        line = lines[i]
+        if line.strip() == "":
+            parts.append("")
+            i += 1
+            continue
+        current_indent = len(line) - len(line.lstrip())
+        if current_indent < indent:
+            # De-dented back to parent — end of block scalar
+            break
+        parts.append(line[indent:].rstrip())
+        i += 1
+
+    # Remove trailing empty strings (strip chomp for >- and |-)
+    while parts and parts[-1] == "":
+        parts.pop()
+
+    if folded:
+        resolved = " ".join(p for p in parts if p)
+    else:
+        resolved = "\n".join(parts)
+
+    return resolved, i
+
+
 def _parse_skill_frontmatter(text: str) -> dict[str, Any]:
     """Parse YAML frontmatter from a SKILL.md file.
 
-    Returns a dict of frontmatter fields. If no frontmatter block is present,
-    returns an empty dict.
+    Prefers yaml.safe_load() when PyYAML is available (handles all valid YAML).
+    Falls back to a block-scalar-aware line-by-line parser when PyYAML is not
+    installed. The fallback correctly resolves >- and | block scalar indicators
+    so that skills using those syntaxes in their description field index the
+    resolved prose rather than the literal ">-" string.
+
+    Returns a dict of frontmatter fields. If no frontmatter block is present
+    or parsing fails, returns an empty dict.
     """
     if not text.startswith("---"):
         return {}
@@ -80,19 +143,48 @@ def _parse_skill_frontmatter(text: str) -> dict[str, Any]:
         return {}
 
     raw_yaml = text[3:end].strip()
-    fm: dict[str, Any] = {}
 
-    for line in raw_yaml.splitlines():
+    # --- Fast path: PyYAML handles all valid YAML including block scalars ---
+    if _YAML_AVAILABLE:
+        try:
+            parsed = _yaml.safe_load(raw_yaml)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:  # noqa: BLE001
+            pass
+        return {}
+
+    # --- Fallback: block-scalar-aware line-by-line parser ---
+    fm: dict[str, Any] = {}
+    lines = raw_yaml.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
         if ":" not in line:
+            i += 1
             continue
         key, _, val = line.partition(":")
         key = key.strip()
+        if not key or key.startswith(" "):
+            # Indented line — continuation of previous value, skip
+            i += 1
+            continue
         val = val.strip()
-        if val.startswith("[") and val.endswith("]"):
+        if val in (">-", ">", "|-", "|"):
+            # Block scalar: consume subsequent indented lines
+            resolved, i = _resolve_block_scalar(lines, i, indicator=val)
+            fm[key] = resolved
+        elif val.startswith("[") and val.endswith("]"):
             inner = val[1:-1]
-            fm[key] = [v.strip() for v in inner.split(",") if v.strip()] if inner.strip() else []
+            fm[key] = (
+                [v.strip() for v in inner.split(",") if v.strip()]
+                if inner.strip()
+                else []
+            )
+            i += 1
         else:
             fm[key] = val
+            i += 1
 
     return fm
 

@@ -1,7 +1,14 @@
 ---
 name: python-idioms
 skill_category: code
-description: Pythonic code patterns, anti-patterns, and quality rules — with deterministic AST-based anti-idiom detection
+description: >-
+  Pythonic code patterns, anti-patterns, and quality rules — with deterministic
+  AST-based anti-idiom detection for Python, Django, Flask, pytest, and
+  pyproject.toml projects. Catches non-Pythonic patterns, PEP8 violations,
+  type-hint gaps, and pre-commit quality issues. Use proactively when reviewing
+  Python source files for anti-patterns, enforcing Pythonic idioms in code
+  review, running pre-commit quality checks on .py files, or auditing Django or
+  Flask codebases. Run the AST checker for deterministic detection.
 version: 2.0.0
 source: converted from .claude/skills/code/python-idioms.md (2026-05-20); L3 AST checker added
 when_to_use:

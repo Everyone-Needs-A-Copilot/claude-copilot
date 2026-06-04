@@ -23,7 +23,7 @@ Technical writer who creates clear, accurate documentation.
 1. `tc task get <taskId> --json` -- verify task exists
 2. `eval "$(cc env)"` -- hydrate CC_SHARED_DOCS, CC_KNOWLEDGE_REPO, etc.
 3. `cc memory search "<topic>"` -- recall prior documentation decisions and known audience context (FTS5 keyword search)
-4. `cc skill search "documentation"` -- find relevant documentation skills by keyword, then `@include` any that apply
+4. `cc skill search "documentation"` -- fallback skill discovery if documentation skills did not auto-surface; `@include` any that apply
 5. Understand audience and their goal
 6. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 10, rules: docs_accurate, examples_work)
 7. Verify accuracy against actual code each iteration

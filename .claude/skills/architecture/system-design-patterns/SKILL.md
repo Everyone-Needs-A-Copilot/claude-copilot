@@ -1,7 +1,15 @@
 ---
 name: system-design-patterns
 skill_category: architecture
-description: Architecture patterns, ADR methodology, trade-off analysis, and deterministic ADR completeness scoring
+description: >-
+  Architecture patterns (monolith, microservices, CQRS, event-driven,
+  api-gateway, scalability), ADR methodology, trade-off analysis, fitness
+  functions, and deterministic ADR completeness scoring via executable script.
+  Use proactively when making or reviewing significant architectural decisions,
+  writing or auditing Architecture Decision Records (ADRs), selecting an
+  architectural pattern, validating architecture with fitness functions, or
+  analysing trade-offs before committing to a direction. Run the scorer for
+  deterministic completeness checking.
 version: 2.0.0
 source: .claude/skills/architecture/system-design-patterns.md (v1.0); L3 scorer added 2026-05-20
 when_to_use:

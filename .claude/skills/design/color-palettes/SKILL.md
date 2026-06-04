@@ -1,6 +1,14 @@
 ---
 name: color-palettes
-description: Curated color palettes by mood/industry with anti-generic rules and WCAG contrast reference
+description: >-
+  Curated color palettes by mood and industry with anti-generic rules, WCAG
+  contrast reference tables, dark mode derivation formulas, and named palette
+  tokens. Covers brand color, accessibility compliance, and the anti-patterns
+  that make palettes look AI-generated. Use proactively when selecting or
+  creating a color system for a brand or product, verifying WCAG contrast
+  compliance for text and UI elements, avoiding overused or generic color
+  combinations, deriving dark mode variants from a light palette, or matching
+  palette mood to industry and emotional context.
 version: 1.0.0
 tags: [design, color, palette, tokens, anti-pattern, brand, accessibility]
 when_to_use:

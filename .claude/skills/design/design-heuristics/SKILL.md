@@ -1,6 +1,13 @@
 ---
 name: design-heuristics
-description: Rams principles, Nielsen heuristics, Three Lenses evaluation, and senior thinking frameworks
+description: >-
+  Rams' 10 principles, Nielsen's usability heuristics, Three Lenses evaluation,
+  and senior-vs-junior design thinking frameworks — structured rubrics for
+  design critique, not vibes. Identifies design anti-patterns with fixes before
+  they reach users. Use proactively when evaluating a design before shipping,
+  running a structured design critique or review, applying Rams or Nielsen
+  heuristics, distinguishing senior from junior design thinking, or identifying
+  design anti-patterns.
 version: 1.0.0
 tags: [design, heuristics, evaluation, critique, anti-pattern, best-practice]
 when_to_use:

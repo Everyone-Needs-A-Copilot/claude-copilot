@@ -1,6 +1,13 @@
 ---
 name: typography-pairings
-description: Curated font pairings by character with type scales and fluid typography formulas
+description: >-
+  Curated font pairings by character with type scale ratios (minor third, major
+  third, perfect fourth), fluid typography formulas using clamp(), weight and
+  line-height rules per context, and anti-patterns for overused or generic font
+  combinations. Use proactively when selecting a font pairing for a brand or
+  product, choosing a type scale ratio, implementing fluid typography for
+  responsive scaling, avoiding generic font combinations, or setting weight,
+  line-height, and letter-spacing rules per context.
 version: 1.0.0
 tags: [design, typography, font-pairing, type-scale, anti-pattern]
 when_to_use:

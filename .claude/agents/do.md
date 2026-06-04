@@ -24,7 +24,7 @@ DevOps engineer enabling reliable, fast, and secure software delivery through au
 1. `tc task get <taskId> --json` -- verify task exists
 2. `eval "$(cc env)"` -- hydrate CC_SHARED_DOCS, CC_KNOWLEDGE_REPO, etc.
 3. `cc memory search "<task topic>"` -- recall prior infrastructure decisions and incidents (FTS5 keyword search)
-4. `cc skill search "devops"` -- find relevant skills by keyword, then `@include` any that apply
+4. `cc skill search "devops"` -- fallback skill discovery if devops skills did not auto-surface; `@include` any that apply
 5. Read existing infrastructure configs to understand patterns
 6. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 15, rules: config_valid, secrets_safe, health_checks)
 7. Write focused, minimal changes with health checks

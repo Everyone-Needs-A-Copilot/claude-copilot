@@ -1,7 +1,15 @@
 ---
 name: refactoring-patterns
 skill_category: code
-description: Code smell detection, refactoring triggers, and safe transformation patterns. Includes a deterministic code-structure metrics analyzer (refactor_metrics.py) for long functions, deep nesting, long parameter lists, large files, and function count.
+description: >-
+  Code smell detection, refactoring triggers, and safe transformation patterns
+  for extract, inline, and rename operations. Includes deterministic
+  code-structure metrics analyzer (refactor_metrics.py) for long functions,
+  deep nesting, long parameter lists, large files, and function count — covers
+  TypeScript, JavaScript, Python, Go, Java, and Ruby. Use proactively when
+  identifying refactoring opportunities, code-reviewing for structural complexity
+  signals, prioritizing technical debt, or establishing a complexity baseline for
+  a module. Run the metrics analyzer for deterministic scoring.
 version: 2.0.0
 source: migrated from code/refactoring-patterns.md (v1.0, 2026-03-29); L3 metrics analyzer added 2026-05-20
 when_to_use:

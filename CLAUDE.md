@@ -30,7 +30,7 @@ This file provides guidance to Claude Code when working with the Claude Copilot 
 |-----------|----------|-----------|
 | Lost memory, wasted tokens | Persistent memory + FTS5 keyword search | **Memory Copilot** |
 | Generic AI lacks expertise | Specialized agents for complex tasks | **Agents** |
-| Manual skill management | Progressive skill discovery via `cc skill search` | **Skills** |
+| Manual skill management | Auto-fire from trigger-rich `description`; `cc skill search` as fallback | **Skills** |
 | Context bloat from agents | Ephemeral task/work product storage | **Task Copilot** |
 | Inconsistent processes | Battle-tested workflows | **Protocol** |
 
@@ -40,7 +40,7 @@ This file provides guidance to Claude Code when working with the Claude Copilot 
 |---------|------------|-------------|----------|
 | **Memory** | Auto | Cross-session | Context preservation, decisions, lessons |
 | **Agents** | Protocol | Session | Expert tasks, complex work |
-| **Skills** | `cc skill search` + `@include` | On-demand | Reusable patterns, code-bearing scripts |
+| **Skills** | Auto-fire (description match) | On-demand | Reusable patterns, code-bearing scripts |
 | **Tasks** | CLI (`tc`) | Per-initiative | PRDs, task tracking, work products |
 | **Commands** | Manual | Session | Quick shortcuts, workflows |
 | **Extensions** | Auto | Permanent | Team standards, custom methodologies |
@@ -106,11 +106,13 @@ Persistent memory across sessions with full-text (FTS5 keyword) search.
 
 ### 3. Skills
 
-Discover via `cc skill search`, then load the returned path with `@include`. Skills are plain markdown prose files (L3) or directories containing an executable script (L1/L2 code-bearing). No MCP server required.
+Skills auto-fire based on their trigger-rich `description` field — native Claude Code surfaces every skill's `name` + `description` at session start and fires the skill when a prompt matches. For prose-only skills, auto-firing handles discovery. For code-bearing skills, auto-firing handles discovery but the agent must still invoke the L3 script via Bash. No MCP server required.
 
-**Discovery:** `cc skill search "<topic>"` — returns matching skill paths by keyword
+**Primary discovery:** Auto-fire from `description` match (no agent action needed)
 
-**Load:** `@include <path returned by search>` or `@include .claude/skills/NAME/SKILL.md`
+**Fallback discovery:** `cc skill search "<topic>"` — case-insensitive substring match over name, description, and tags. Use this fallback when a needed skill did not auto-surface (e.g., in a subagent context).
+
+**Load:** `@include .claude/skills/NAME/SKILL.md` (explicit fallback path)
 
 **Inspect:** `cc skill get <name>`, `cc skill list`
 
@@ -182,7 +184,7 @@ Agents verify their task exists and check environment health before starting wor
 All agents inherit these. Individual agent files should NOT repeat them.
 
 - **Env Hydration:** Run `eval "$(cc env)"` at start to hydrate `CC_SHARED_DOCS`, `CC_KNOWLEDGE_REPO`, and other machine-level paths
-- **Skill Discovery:** Skills are plain prose files discovered by description. Use `cc skill search "<topic>"` to find relevant skills by keyword, then `@include` the path. No `evaluate` step needed — skills are model-readable markdown, not code.
+- **Skill Discovery:** Skills auto-fire from their trigger-rich `description` field — no explicit search step needed in normal operation. If a needed skill did not auto-surface, use `cc skill search "<topic>"` (case-insensitive substring match over name, description, tags) as a fallback, then `@include` the returned path. No `evaluate` step needed — skills are model-readable markdown, not code.
 - **Memory — Recall at start:** Run `cc memory search "<task topic>"` to recall prior decisions, lessons, and context relevant to the current task.
 - **Memory — Store at end:** After completing meaningful work, run `cc memory store --type <decision|context|lesson|reference> "<content>"` to persist decisions and lessons for future sessions. Do NOT call it "semantic" — it is FTS5 keyword search.
 - **Memory commands:** `cc memory store`, `cc memory search`, `cc memory get`, `cc memory list` (not MCP `memory_store`/`memory_search`)

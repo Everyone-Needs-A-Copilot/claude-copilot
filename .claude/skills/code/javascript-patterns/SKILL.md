@@ -1,7 +1,14 @@
 ---
 name: javascript-patterns
 skill_category: code
-description: JavaScript/TypeScript patterns, anti-patterns, and quality rules — with deterministic regex-based anti-pattern detection
+description: >-
+  JavaScript and TypeScript patterns, anti-patterns, and quality rules — with
+  deterministic regex-based anti-pattern detection for var usage, loose equality
+  (==), leftover console.log, async without await, and common JS pitfalls.
+  Covers Node.js, npm, ESLint, promise patterns, and async code. Use proactively
+  when reviewing JS or TS source files for anti-patterns, running a pre-review
+  scan before ESLint, catching known JS pitfalls, or auditing Node.js or browser
+  codebases. Run the checker for deterministic scanning.
 version: 2.0.0
 source: converted from .claude/skills/code/javascript-patterns.md (2026-05-20); L3 lint-lite checker added
 when_to_use:

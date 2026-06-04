@@ -1,6 +1,13 @@
 ---
 name: litmus-test
-description: Creative direction Litmus Test for evaluating ideas, concepts, and messaging — cuts through generic thinking
+description: >-
+  Creative direction Litmus Test for evaluating ideas, concepts, and messaging
+  against a rigorous differentiation standard — cuts through generic thinking
+  to identify whether a concept is safe/forgettable or genuinely distinct.
+  Applies the CCO creative brief, concept scoring rubric, and challenge-the-brief
+  protocol. Use proactively when evaluating campaign concepts, reviewing brand
+  messaging for differentiation, testing creative directions, preparing concept
+  presentations, or challenging a brief before accepting it.
 version: 1.0.0
 source: derived from .claude/agents/_archive/cco.md (2026-04-22)
 when_to_use:

@@ -1,6 +1,14 @@
 ---
 name: aesthetic-directions
-description: Named aesthetic directions with visual moves, industry mapping, and anti-slop detection
+description: >-
+  Named aesthetic directions (brutalist, warm-minimal, neo-brutalist, organic,
+  high-gloss, etc.) with visual moves, industry mapping, anti-slop detection,
+  and rationale templates. Identifies intentional aesthetic choices vs.
+  AI-generated visual clichés. Use proactively when choosing a visual direction
+  before starting design work, evaluating whether an aesthetic is generic or
+  intentional, mapping aesthetic choices to industry and audience, detecting and
+  rejecting AI visual clichés, or presenting multiple direction options with
+  rationale.
 version: 1.0.0
 tags: [design, aesthetic, visual-direction, brand-identity, anti-pattern]
 when_to_use:

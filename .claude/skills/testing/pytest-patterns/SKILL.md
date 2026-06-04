@@ -1,7 +1,15 @@
 ---
 name: pytest-patterns
 skill_category: testing
-description: Pytest testing patterns, anti-patterns, and quality rules. Includes a deterministic test-smell detector (pytest_smell.py) for no-assertion tests, empty tests, bare excepts, magic numbers, sleep calls, and print calls.
+description: >-
+  Pytest testing patterns, anti-patterns, and quality rules for Python test
+  files (test_*.py, *_test.py, conftest.py). Includes deterministic test-smell
+  detector (pytest_smell.py) for no-assertion tests, empty tests, bare excepts,
+  magic numbers, sleep calls, and print calls. Covers fixtures, parametrize,
+  mock, patch, and assert patterns. Use proactively when reviewing or writing
+  pytest test files, diagnosing flaky or unreliable Python test suites,
+  code-reviewing test files, or running a CI quality gate on test file hygiene.
+  Run the smell detector for deterministic issue detection.
 version: 2.0.0
 source: migrated from testing/pytest-patterns.md (v1.0, 2026-01-13); L3 smell detector added 2026-05-20
 when_to_use:

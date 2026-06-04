@@ -1,6 +1,14 @@
 ---
 name: web-security
-description: Web application security covering OWASP Top 10 (2021) with prose guidance (judgment) + deterministic OWASP coverage scoring (executable script)
+description: >-
+  Web application security covering OWASP Top 10 (2021) — injection, broken
+  auth, XSS, insecure design, security misconfiguration, vulnerable components,
+  IDOR, SSRF, and more — with prose guidance and deterministic OWASP coverage
+  scoring via executable script. Use proactively when reviewing web application
+  or API security, running a pre-launch security checklist, performing
+  post-incident gap analysis against OWASP Top 10, or any review touching
+  authentication, authorization, injection, or session management. Run the OWASP
+  scorer for deterministic coverage assessment.
 version: 2.0.0
 source: derived from .claude/skills/security/web-security.md (v1.0); L3 OWASP scorer added 2026-05-20
 when_to_use:

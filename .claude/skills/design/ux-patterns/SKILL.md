@@ -1,6 +1,14 @@
 ---
 name: ux-patterns
-description: UX patterns for task flows, wireframes, accessibility, and user interactions
+description: >-
+  UX patterns for task flows, wireframes, accessibility, and user interactions
+  — covering all user paths, error states and recovery actions, service
+  blueprints (frontstage and backstage), all UI states (default, loading, empty,
+  error, success, partial), keyboard navigation, screen reader accessibility,
+  and wireframe specifications with component behaviors. Use proactively when
+  designing task flows, mapping service blueprints, specifying UI states,
+  ensuring keyboard and screen reader accessibility, or writing wireframe
+  specifications.
 version: 1.0.0
 tags: [ux, interaction, wireframe, task-flow, accessibility, pattern, anti-pattern]
 when_to_use:

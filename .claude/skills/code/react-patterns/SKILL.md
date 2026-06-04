@@ -1,7 +1,14 @@
 ---
 name: react-patterns
 skill_category: code
-description: React component patterns, hooks, anti-patterns, and quality rules — with deterministic regex-based React anti-pattern detection
+description: >-
+  React component patterns, hooks, anti-patterns, and quality rules — with
+  deterministic regex-based React anti-pattern detection for JSX, TSX, useState,
+  useEffect, conditional hooks, key-prop anti-patterns, and context usage. Use
+  proactively when reviewing React component files (.jsx, .tsx), enforcing hooks
+  rules (no conditional hooks), catching key-prop anti-patterns in list
+  rendering, or running a pre-review scan of React codebases. Run the checker
+  for deterministic scanning.
 version: 2.0.0
 source: converted from .claude/skills/code/react-patterns.md (2026-05-20); L3 checker added
 when_to_use:

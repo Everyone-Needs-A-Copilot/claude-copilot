@@ -1,7 +1,14 @@
 ---
 name: git-workflows
 skill_category: devops
-description: Git workflows, branching strategies, commit conventions, and version control best practices — with deterministic convention checker script
+description: >-
+  Git workflows, branching strategies (gitflow, trunk-based), Conventional
+  Commits, commit message quality, version control best practices, and
+  pull-request conventions — with deterministic convention checker script. Use
+  proactively when reviewing commit message quality before merge, enforcing
+  branch naming conventions, onboarding a team to Conventional Commits, or
+  running a CI hook that validates commits in a PR. Run the checker for
+  deterministic commit and branch convention validation.
 version: 2.0.0
 source: .claude/skills/devops/git-workflows.md (retired flat file); L3 checker added 2026-05-20
 when_to_use:

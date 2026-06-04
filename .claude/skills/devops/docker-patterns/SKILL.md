@@ -1,7 +1,14 @@
 ---
 name: docker-patterns
 skill_category: devops
-description: Dockerfile optimization, multi-stage builds, image security, and container best practices — with deterministic linting script
+description: >-
+  Dockerfile optimization, multi-stage builds, image security, container best
+  practices, and docker-compose patterns — with deterministic linting script.
+  Covers image size reduction, layer caching, registry hygiene, and production
+  deployment readiness. Use proactively when reviewing or writing Dockerfiles,
+  debugging image size or build speed issues, running a container security
+  review, or preparing images for production deployment. Run the linter for
+  deterministic issue detection.
 version: 2.0.0
 source: .claude/skills/devops/docker-patterns.md (retired flat file); L3 linter added 2026-05-20
 when_to_use:

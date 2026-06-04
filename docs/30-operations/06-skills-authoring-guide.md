@@ -47,23 +47,33 @@ Some skills have no genuine deterministic core. Converting them would produce fa
 
 ### L1 — Frontmatter
 
-The YAML frontmatter in SKILL.md controls discovery and tooling:
+The YAML frontmatter in SKILL.md controls auto-firing and tooling. The canonical target shape:
 
 ```yaml
 ---
-skill_name: stride-dread
+name: stride-dread
+description: >-
+  STRIDE threat enumeration and DREAD severity scoring for security reviews.
+  Covers auth, authorization, session management, PII handling, and API design.
+  Use proactively when reviewing authentication flows, designing APIs that
+  handle PII, performing threat modeling, or running security-critical code
+  review. Run the DREAD scorer for deterministic severity bands.
 version: 2.0.0
-description: STRIDE threat modeling + DREAD risk scoring for security reviews
-trigger_files: ["*.py", "*.ts", "*.go", "*.java", "*.yaml", "*.yml"]
-trigger_keywords: [security, threat, vulnerability, owasp, stride, dread, auth, authz, injection]
-allowed-tools: [Read, Grep, Glob, Bash]
+when_to_use:               # keep — cc fallback still reads this
+  - Reviewing authentication flows
+trigger_files: ["*.py", "*.ts"]   # keep — cc fallback reads these
+trigger_keywords: [security, threat, stride, dread, auth, injection]  # keep
+allowed-tools: [Read, Grep, Glob, Bash]   # required for code-bearing scripts
 ---
 ```
 
 Key fields:
+- `name`: Always use `name` (not `skill_name` — that field does not exist in any skill file).
+- `description`: **This is the auto-firing trigger surface.** Write a multi-sentence, trigger-rich description ending in "Use proactively when..." that folds in all the trigger phrases from `when_to_use` and `trigger_keywords`. Native Claude Code surfaces `name` + `description` into the model's available-skills context; the model fires the skill when a prompt matches.
 - `version`: Use `1.0.0` for prose-only, `2.0.0` for code-bearing.
 - `allowed-tools`: Include `Bash` if the skill has a script. Required for the execution path.
-- `trigger_keywords`: Used by FTS5 keyword search (`cc skill search`). More keywords = better discoverability.
+- `when_to_use`, `trigger_keywords`, `trigger_files`: Retain as supplementary fields — the `cc skill search` fallback reads them, and native Claude Code ignores unknown YAML keys harmlessly.
+- `cc skill search` is a **case-insensitive substring match** over `name + description + tags`. It is NOT FTS5 full-text search. More descriptive text in `description` improves substring discoverability.
 
 ### L2 — Prose
 

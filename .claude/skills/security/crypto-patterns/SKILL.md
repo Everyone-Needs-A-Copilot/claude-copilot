@@ -1,6 +1,15 @@
 ---
 name: crypto-patterns
-description: Cryptographic patterns for encryption, hashing, KDFs, TLS, and JWT — with deterministic weak-algorithm detection (executable script)
+description: >-
+  Cryptographic patterns for encryption, hashing, key derivation functions
+  (KDFs), TLS configuration, JWT signing, password storage, and authentication
+  tokens — with deterministic weak-algorithm detection script. Identifies use of
+  deprecated algorithms (MD5, SHA1, DES, ECB mode) and insecure configurations.
+  Use proactively when reviewing code that uses encryption, hashing, or key
+  management, auditing password storage or authentication tokens, checking TLS
+  configuration, reviewing JWT signing algorithms, or any context where
+  cryptographic primitives are chosen or configured. Run the validator for
+  deterministic weak-algorithm detection.
 version: 2.0.0
 source: derived from .claude/skills/security/crypto-patterns.md (v1.0); L3 validator added 2026-05-20
 when_to_use:

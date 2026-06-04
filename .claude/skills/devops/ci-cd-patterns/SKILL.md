@@ -1,7 +1,15 @@
 ---
 name: ci-cd-patterns
 skill_category: devops
-description: CI/CD pipeline patterns, GitHub Actions, build automation best practices — with deterministic pipeline linting script
+description: >-
+  CI/CD pipeline patterns, GitHub Actions workflow best practices, build
+  automation, continuous integration, Scorecard and CodeQL security findings,
+  and supply-chain security review — with deterministic pipeline linting script.
+  Covers GitHub Actions, Jenkinsfile, GitLab CI, and Azure Pipelines. Use
+  proactively when reviewing or writing GitHub Actions workflows, debugging slow
+  or flaky pipelines, addressing CI pipeline security findings, or running a
+  supply-chain security review. Run the linter for deterministic issue
+  detection.
 version: 2.0.0
 source: .claude/skills/devops/ci-cd-patterns.md (retired flat file); L3 linter added 2026-05-20
 when_to_use:

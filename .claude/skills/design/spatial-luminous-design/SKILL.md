@@ -1,6 +1,14 @@
 ---
 name: spatial-luminous-design
-description: Spatial depth systems, luminosity techniques, glassmorphism, material reference, atmospheric color, mesh gradients
+description: >-
+  Spatial depth systems, luminosity techniques, glassmorphism tiers, material
+  surface reference (glass, metal, paper, fabric), atmospheric color, and
+  animated mesh gradients — the vocabulary for premium three-dimensional UI.
+  Use proactively when assigning z-axis layers and shadow depth tokens to
+  interface elements, implementing glassmorphism at the correct tier, applying
+  luminosity effects (ambient glow, neon, rim lighting), choosing material
+  surfaces as design tokens, or building atmospheric color and animated mesh
+  gradients.
 version: 1.0.0
 tags: [design, spatial, depth, luminosity, glass, material, atmosphere, gradient, light]
 when_to_use:

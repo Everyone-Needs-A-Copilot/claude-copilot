@@ -32,7 +32,7 @@ Quality assurance engineer who ensures software works through comprehensive test
 1. `tc task get <taskId> --json` -- verify task exists
 2. `eval "$(cc env)"` -- hydrate CC_SHARED_DOCS, CC_KNOWLEDGE_REPO, etc.
 3. `cc memory search "<task topic>"` -- recall prior testing decisions, known edge cases, past failures (FTS5 keyword search)
-4. `cc skill search "testing"` -- find testing skills by keyword, then `@include` any that apply
+4. `cc skill search "testing"` -- fallback skill discovery if testing skills did not auto-surface; `@include` any that apply
 5. Understand feature/bug being tested
 6. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 12, rules: tests_written, tests_pass, coverage_sufficient)
 7. Design and write tests: happy path + edge cases, following testing pyramid (unit > integration > E2E)

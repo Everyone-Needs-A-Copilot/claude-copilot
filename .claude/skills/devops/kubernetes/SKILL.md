@@ -1,7 +1,15 @@
 ---
 name: kubernetes
 skill_category: devops
-description: Kubernetes deployment patterns, resource management, and cluster best practices — with deterministic manifest linting script
+description: >-
+  Kubernetes deployment patterns, resource management, cluster best practices,
+  pod scheduling, OOM kill diagnosis, Helm chart conventions, and container
+  orchestration security review — with deterministic manifest linting script.
+  Covers k8s, kubectl, deployment, service, ingress, and Helm. Use proactively
+  when reviewing or writing Kubernetes manifests, debugging pod scheduling
+  failures or OOM kills, running a cluster security review, or preparing
+  workloads for production deployment. Run the linter for deterministic manifest
+  validation.
 version: 2.0.0
 source: .claude/skills/devops/kubernetes.md (retired flat file); L3 linter added 2026-05-20
 when_to_use:

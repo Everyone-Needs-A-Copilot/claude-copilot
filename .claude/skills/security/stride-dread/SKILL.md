@@ -1,6 +1,16 @@
 ---
 name: stride-dread
-description: STRIDE threat enumeration (prose judgment) + deterministic DREAD severity scoring (executable script)
+description: >-
+  STRIDE threat enumeration (Spoofing, Tampering, Repudiation, Information
+  Disclosure, Denial of Service, Elevation of Privilege) via prose judgment,
+  plus deterministic DREAD severity scoring via executable script. Covers auth,
+  authorization, session management, PII handling, API design, cryptography,
+  secrets management, and key storage. Use proactively when reviewing
+  authentication, authorization, or session management, designing APIs that
+  handle user data or PII, reviewing cryptography or secrets management,
+  performing threat modeling on new architecture, or running security-critical
+  code review. Run the DREAD scorer for deterministic severity bands.
+  Fallback: @include .claude/skills/security/stride-dread/SKILL.md
 version: 2.0.0
 source: derived from .claude/agents/_archive/sec.md (2026-04-22); L3 scorer added 2026-05-20
 when_to_use:

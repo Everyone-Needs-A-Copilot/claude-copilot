@@ -1,7 +1,14 @@
 ---
 name: api-docs
 skill_category: documentation
-description: API documentation patterns with endpoint specs, auth flows, and error handling — plus deterministic OpenAPI/Swagger coverage linting
+description: >-
+  API documentation patterns covering REST endpoint specs, auth flows, error
+  handling, OpenAPI/Swagger completeness, api-first design, and versioning best
+  practices — plus deterministic OpenAPI/Swagger coverage linting script. Use
+  proactively when documenting REST API endpoints, reviewing OpenAPI or Swagger
+  specs for completeness, ensuring auth flows, error codes, and examples are
+  documented, or running an api-first design review. Run the linter for
+  deterministic coverage scoring.
 version: 2.0.0
 source: .claude/skills/documentation/api-docs.md (v1.0); L3 linter added 2026-05-20
 when_to_use:
