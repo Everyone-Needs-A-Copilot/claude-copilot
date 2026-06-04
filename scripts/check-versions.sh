@@ -105,18 +105,17 @@ else
     ((ERRORS++))
 fi
 
-# Verify native agents exist
-NATIVE_AGENTS=$(node -p "require('$VERSION_FILE').components.agents.nativeAgents.join(' ')")
+# Verify all frameworkAgents exist on disk (nativeAgents field was removed; frameworkAgents is the full set)
 MISSING_NATIVE=0
-for agent_name in $NATIVE_AGENTS; do
+for agent_name in $FRAMEWORK_AGENTS; do
     if [ ! -f "$AGENT_PATH/$agent_name.md" ]; then
-        echo -e "  ${RED}❌ $agent_name.md (native): not found${NC}"
+        echo -e "  ${RED}❌ $agent_name.md: not found on disk${NC}"
         MISSING_NATIVE=$((MISSING_NATIVE + 1))
     fi
 done
 
 if [ $MISSING_NATIVE -eq 0 ]; then
-    echo -e "  ${GREEN}✅ All native agents present${NC}"
+    echo -e "  ${GREEN}✅ All framework agents present on disk${NC}"
 else
     ((ERRORS++))
 fi

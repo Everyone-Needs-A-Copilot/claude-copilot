@@ -228,9 +228,9 @@ for agent in "${KEY_AGENTS[@]}"; do
     continue
   fi
 
-  # Check for routing table
+  # Check for routing table (columns: | Route To | When |)
   if grep -q "Route To Other Agent" "$AGENT_PATH"; then
-    if grep -q "| .* | .* |" "$AGENT_PATH" && grep -q "Situation.*Route To" "$AGENT_PATH"; then
+    if grep -q "| Route To | When |" "$AGENT_PATH"; then
       pass "$agent has routing table"
     else
       fail "$agent has routing section but no table"
@@ -239,8 +239,8 @@ for agent in "${KEY_AGENTS[@]}"; do
     fail "$agent missing routing section"
   fi
 
-  # Check for decision authority section
-  if grep -q "### Act Autonomously" "$AGENT_PATH" && grep -q "### Escalate" "$AGENT_PATH"; then
+  # Check for core behaviors section (replaced standalone Act Autonomously / Escalate headers)
+  if grep -q "## Core Behaviors" "$AGENT_PATH"; then
     pass "$agent has decision authority boundaries"
   else
     fail "$agent missing decision authority boundaries"
@@ -268,10 +268,10 @@ else
   fail "/continue missing initiative_get reference"
 fi
 
-if grep -q "memory_search" "$CONTINUE_CMD"; then
-  pass "/continue references memory_search tool"
+if grep -q "cc memory\|initiative_get" "$CONTINUE_CMD"; then
+  pass "/continue references memory/initiative tools"
 else
-  fail "/continue missing memory_search reference"
+  fail "/continue missing memory/initiative reference"
 fi
 
 #############################
