@@ -19,6 +19,7 @@ from enum import Enum
 
 class TaskStatus(Enum):
     """Task status values"""
+
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
@@ -28,6 +29,7 @@ class TaskStatus(Enum):
 @dataclass
 class StreamInfo:
     """Stream information"""
+
     stream_id: str
     stream_name: str
     dependencies: List[str]
@@ -39,6 +41,7 @@ class StreamInfo:
 @dataclass
 class StreamProgress:
     """Stream progress statistics"""
+
     stream_id: str
     total_tasks: int
     completed_tasks: int
@@ -65,6 +68,7 @@ class StreamProgress:
 @dataclass
 class ProgressSummary:
     """Overall progress summary across all streams"""
+
     total_tasks: int
     completed_tasks: int
     in_progress_tasks: int
@@ -84,6 +88,7 @@ class ProgressSummary:
 @dataclass
 class InitiativeDetails:
     """Initiative details from Memory Copilot"""
+
     id: str
     name: str
     goal: Optional[str]
@@ -107,7 +112,9 @@ class TaskCopilotClient:
         """
         self.workspace_id = workspace_id
         self.db_path = Path.home() / ".claude" / "tasks" / workspace_id / "tasks.db"
-        self.memory_db_path = Path.home() / ".claude" / "memory" / workspace_id / "memory.db"
+        self.memory_db_path = (
+            Path.home() / ".claude" / "memory" / workspace_id / "memory.db"
+        )
 
     def _connect(self) -> sqlite3.Connection:
         """Create database connection with timeout"""
@@ -136,7 +143,8 @@ class TaskCopilotClient:
 
             # Build query with optional initiative filter
             if initiative_id:
-                cursor.execute("""
+                cursor.execute(
+                    """
                     SELECT
                         json_extract(t.metadata, '$.streamId') as stream_id,
                         MIN(json_extract(t.metadata, '$.streamName')) as stream_name,
@@ -148,7 +156,9 @@ class TaskCopilotClient:
                       AND p.initiative_id = ?
                     GROUP BY json_extract(t.metadata, '$.streamId')
                     ORDER BY stream_id
-                """, (initiative_id,))
+                """,
+                    (initiative_id,),
+                )
             else:
                 cursor.execute("""
                     SELECT
@@ -169,23 +179,28 @@ class TaskCopilotClient:
                 if dependencies_json:
                     try:
                         import json
+
                         deps = json.loads(dependencies_json)
                         if isinstance(deps, list):
                             dependencies = deps
                     except (json.JSONDecodeError, TypeError):
                         pass
 
-                streams.append(StreamInfo(
-                    stream_id=stream_id,
-                    stream_name=stream_name or stream_id,
-                    dependencies=dependencies
-                ))
+                streams.append(
+                    StreamInfo(
+                        stream_id=stream_id,
+                        stream_name=stream_name or stream_id,
+                        dependencies=dependencies,
+                    )
+                )
 
             return streams
         finally:
             conn.close()
 
-    def stream_get(self, stream_id: str, initiative_id: Optional[str] = None) -> Optional[StreamProgress]:
+    def stream_get(
+        self, stream_id: str, initiative_id: Optional[str] = None
+    ) -> Optional[StreamProgress]:
         """
         Get progress information for a specific stream.
 
@@ -205,7 +220,8 @@ class TaskCopilotClient:
             cursor = conn.cursor()
 
             if initiative_id:
-                cursor.execute("""
+                cursor.execute(
+                    """
                     SELECT
                         COUNT(*) as total,
                         SUM(CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END) as completed,
@@ -217,9 +233,12 @@ class TaskCopilotClient:
                     WHERE json_extract(t.metadata, '$.streamId') = ?
                       AND t.archived = 0
                       AND p.initiative_id = ?
-                """, (stream_id, initiative_id))
+                """,
+                    (stream_id, initiative_id),
+                )
             else:
-                cursor.execute("""
+                cursor.execute(
+                    """
                     SELECT
                         COUNT(*) as total,
                         SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
@@ -229,7 +248,9 @@ class TaskCopilotClient:
                     FROM tasks
                     WHERE json_extract(metadata, '$.streamId') = ?
                       AND archived = 0
-                """, (stream_id,))
+                """,
+                    (stream_id,),
+                )
 
             row = cursor.fetchone()
             if not row or row[0] == 0:
@@ -243,7 +264,7 @@ class TaskCopilotClient:
                 completed_tasks=completed or 0,
                 in_progress_tasks=in_progress or 0,
                 pending_tasks=pending or 0,
-                blocked_tasks=blocked or 0
+                blocked_tasks=blocked or 0,
             )
         finally:
             conn.close()
@@ -268,7 +289,8 @@ class TaskCopilotClient:
 
             # Get overall task counts with optional initiative filter
             if initiative_id:
-                cursor.execute("""
+                cursor.execute(
+                    """
                     SELECT
                         COUNT(*) as total,
                         SUM(CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END) as completed,
@@ -280,7 +302,9 @@ class TaskCopilotClient:
                     WHERE json_extract(t.metadata, '$.streamId') IS NOT NULL
                       AND t.archived = 0
                       AND p.initiative_id = ?
-                """, (initiative_id,))
+                """,
+                    (initiative_id,),
+                )
             else:
                 cursor.execute("""
                     SELECT
@@ -318,7 +342,7 @@ class TaskCopilotClient:
                 pending_tasks=pending,
                 blocked_tasks=blocked,
                 stream_count=stream_count,
-                completed_stream_count=completed_stream_count
+                completed_stream_count=completed_stream_count,
             )
         finally:
             conn.close()
@@ -383,11 +407,14 @@ class TaskCopilotClient:
             conn = sqlite3.connect(str(self.memory_db_path), timeout=5)
             cursor = conn.cursor()
 
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT id, name, goal, status
                 FROM initiatives
                 WHERE id = ?
-            """, (initiative_id,))
+            """,
+                (initiative_id,),
+            )
 
             row = cursor.fetchone()
             conn.close()
@@ -399,7 +426,7 @@ class TaskCopilotClient:
                 id=row[0],
                 name=row[1] or "Unnamed Initiative",
                 goal=row[2],
-                status=row[3] or "UNKNOWN"
+                status=row[3] or "UNKNOWN",
             )
         except sqlite3.Error:
             return None
@@ -426,7 +453,8 @@ class TaskCopilotClient:
         try:
             cursor = conn.cursor()
             if initiative_id:
-                cursor.execute(f"""
+                cursor.execute(
+                    f"""
                     SELECT t.id, t.title, t.status, t.description,
                            t.assigned_agent,
                            json_extract(t.metadata, '$.phase') as phase
@@ -436,9 +464,12 @@ class TaskCopilotClient:
                       AND t.archived = 0
                       AND p.initiative_id = ?
                     {phase_order_sql.format(prefix='t.')}
-                """, (stream_id, initiative_id))
+                """,
+                    (stream_id, initiative_id),
+                )
             else:
-                cursor.execute(f"""
+                cursor.execute(
+                    f"""
                     SELECT id, title, status, description,
                            assigned_agent,
                            json_extract(metadata, '$.phase') as phase
@@ -446,19 +477,27 @@ class TaskCopilotClient:
                     WHERE json_extract(metadata, '$.streamId') = ?
                       AND archived = 0
                     {phase_order_sql.format(prefix='')}
-                """, (stream_id,))
+                """,
+                    (stream_id,),
+                )
 
             return [
                 {
-                    "id": row[0], "title": row[1], "status": row[2], "description": row[3],
-                    "assigned_agent": row[4] or "me", "phase": row[5] or "backend"
+                    "id": row[0],
+                    "title": row[1],
+                    "status": row[2],
+                    "description": row[3],
+                    "assigned_agent": row[4] or "me",
+                    "phase": row[5] or "backend",
                 }
                 for row in cursor.fetchall()
             ]
         finally:
             conn.close()
 
-    def get_stream_tasks_by_status(self, stream_id: str, status: TaskStatus) -> List[Dict]:
+    def get_stream_tasks_by_status(
+        self, stream_id: str, status: TaskStatus
+    ) -> List[Dict]:
         """
         Get tasks for a stream filtered by status.
 
@@ -472,7 +511,8 @@ class TaskCopilotClient:
         conn = self._connect()
         try:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT
                     id,
                     title,
@@ -483,16 +523,20 @@ class TaskCopilotClient:
                   AND status = ?
                   AND archived = 0
                 ORDER BY created_at
-            """, (stream_id, status.value))
+            """,
+                (stream_id, status.value),
+            )
 
             tasks = []
             for task_id, title, task_status, metadata in cursor.fetchall():
-                tasks.append({
-                    'id': task_id,
-                    'title': title,
-                    'status': task_status,
-                    'metadata': metadata
-                })
+                tasks.append(
+                    {
+                        "id": task_id,
+                        "title": title,
+                        "status": task_status,
+                        "metadata": metadata,
+                    }
+                )
 
             return tasks
         finally:
@@ -516,7 +560,8 @@ class TaskCopilotClient:
             cursor = conn.cursor()
 
             if initiative_id:
-                cursor.execute("""
+                cursor.execute(
+                    """
                     SELECT
                         t.id,
                         t.title,
@@ -530,7 +575,9 @@ class TaskCopilotClient:
                       AND t.assigned_agent IS NOT NULL
                       AND t.assigned_agent != 'me'
                     ORDER BY json_extract(t.metadata, '$.streamId'), t.created_at
-                """, (initiative_id,))
+                """,
+                    (initiative_id,),
+                )
             else:
                 cursor.execute("""
                     SELECT
@@ -548,12 +595,14 @@ class TaskCopilotClient:
 
             tasks = []
             for task_id, title, agent, stream_id in cursor.fetchall():
-                tasks.append({
-                    'id': task_id,
-                    'title': title,
-                    'assigned_agent': agent,
-                    'stream_id': stream_id
-                })
+                tasks.append(
+                    {
+                        "id": task_id,
+                        "title": title,
+                        "assigned_agent": agent,
+                        "stream_id": stream_id,
+                    }
+                )
 
             return tasks
         finally:
@@ -572,12 +621,15 @@ class TaskCopilotClient:
         conn = self._connect()
         try:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 UPDATE tasks
                 SET assigned_agent = 'me',
                     updated_at = datetime('now')
                 WHERE id = ?
-            """, (task_id,))
+            """,
+                (task_id,),
+            )
             conn.commit()
             return cursor.rowcount > 0
         except sqlite3.Error:
@@ -608,7 +660,8 @@ class TaskCopilotClient:
             now = datetime.now().isoformat()
 
             # Archive tasks that have streamId and belong to this initiative (via PRD join)
-            cursor.execute("""
+            cursor.execute(
+                """
                 UPDATE tasks
                 SET archived = 1,
                     archived_at = ?,
@@ -618,11 +671,14 @@ class TaskCopilotClient:
                     SELECT id FROM prds WHERE initiative_id = ?
                   )
                   AND archived = 0
-            """, (now, initiative_id, initiative_id))
+            """,
+                (now, initiative_id, initiative_id),
+            )
             count1 = cursor.rowcount
 
             # Also archive orphaned stream tasks (no PRD) that aren't already archived
-            cursor.execute("""
+            cursor.execute(
+                """
                 UPDATE tasks
                 SET archived = 1,
                     archived_at = ?,
@@ -630,7 +686,9 @@ class TaskCopilotClient:
                 WHERE json_extract(metadata, '$.streamId') IS NOT NULL
                   AND prd_id IS NULL
                   AND archived = 0
-            """, (now, initiative_id))
+            """,
+                (now, initiative_id),
+            )
             count2 = cursor.rowcount
 
             conn.commit()
@@ -641,7 +699,9 @@ class TaskCopilotClient:
         finally:
             conn.close()
 
-    def complete_initiative(self, initiative_id: str, summary: Optional[str] = None) -> bool:
+    def complete_initiative(
+        self, initiative_id: str, summary: Optional[str] = None
+    ) -> bool:
         """
         Mark an initiative as COMPLETE in Memory Copilot.
 
@@ -668,20 +728,26 @@ class TaskCopilotClient:
             now = datetime.now().isoformat()
 
             if summary:
-                cursor.execute("""
+                cursor.execute(
+                    """
                     UPDATE initiatives
                     SET status = 'COMPLETE',
                         resume_instructions = ?,
                         updated_at = ?
                     WHERE id = ?
-                """, (summary, now, initiative_id))
+                """,
+                    (summary, now, initiative_id),
+                )
             else:
-                cursor.execute("""
+                cursor.execute(
+                    """
                     UPDATE initiatives
                     SET status = 'COMPLETE',
                         updated_at = ?
                     WHERE id = ?
-                """, (now, initiative_id))
+                """,
+                    (now, initiative_id),
+                )
 
             conn.commit()
             success = cursor.rowcount > 0
@@ -739,11 +805,15 @@ if __name__ == "__main__":
         print("=== Overall Summary ===")
         summary = client.progress_summary()
         print(f"  Total Tasks: {summary.total_tasks}")
-        print(f"  Completed: {summary.completed_tasks} ({summary.completion_percentage}%)")
+        print(
+            f"  Completed: {summary.completed_tasks} ({summary.completion_percentage}%)"
+        )
         print(f"  In Progress: {summary.in_progress_tasks}")
         print(f"  Pending: {summary.pending_tasks}")
         print(f"  Blocked: {summary.blocked_tasks}")
-        print(f"  Streams: {summary.completed_stream_count}/{summary.stream_count} complete")
+        print(
+            f"  Streams: {summary.completed_stream_count}/{summary.stream_count} complete"
+        )
 
     except FileNotFoundError as e:
         print(f"Error: {e}")
@@ -751,5 +821,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

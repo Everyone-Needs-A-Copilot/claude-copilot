@@ -52,15 +52,15 @@ WORKSPACE_ID = PROJECT_NAME
 
 
 class Colors:
-    RED = '\033[0;31m'
-    GREEN = '\033[0;32m'
-    YELLOW = '\033[1;33m'
-    BLUE = '\033[0;34m'
-    CYAN = '\033[0;36m'
-    MAGENTA = '\033[0;35m'
-    BOLD = '\033[1m'
-    DIM = '\033[2m'
-    NC = '\033[0m'
+    RED = "\033[0;31m"
+    GREEN = "\033[0;32m"
+    YELLOW = "\033[1;33m"
+    BLUE = "\033[0;34m"
+    CYAN = "\033[0;36m"
+    MAGENTA = "\033[0;35m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    NC = "\033[0m"
 
 
 def log_message(msg: str, level: str = "INFO"):
@@ -80,8 +80,8 @@ def log_message(msg: str, level: str = "INFO"):
 
     # File output
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    with open(MONITOR_LOG, 'a') as f:
-        f.write(log_entry + '\n')
+    with open(MONITOR_LOG, "a") as f:
+        f.write(log_entry + "\n")
 
 
 def success(msg: str):
@@ -97,7 +97,9 @@ def error(msg: str):
 
 
 class WorkerMonitor:
-    def __init__(self, max_restarts: int = DEFAULT_MAX_RESTARTS, auto_restart: bool = False):
+    def __init__(
+        self, max_restarts: int = DEFAULT_MAX_RESTARTS, auto_restart: bool = False
+    ):
         self.tc_client = TaskCopilotClient(WORKSPACE_ID)
         self.max_restarts = max_restarts
         self.auto_restart = auto_restart
@@ -111,7 +113,9 @@ class WorkerMonitor:
             return
 
         # Get initiative details
-        self.initiative_details = self.tc_client.get_initiative_details(self.initiative_id)
+        self.initiative_details = self.tc_client.get_initiative_details(
+            self.initiative_id
+        )
         if self.initiative_details:
             log_message(f"Monitoring initiative: {self.initiative_details.name}")
 
@@ -133,7 +137,11 @@ class WorkerMonitor:
 
             streams = {}
             for stream_info in stream_infos:
-                worktree = "." if stream_info.stream_id == "main" else f".claude/worktrees/{stream_info.stream_id}"
+                worktree = (
+                    "."
+                    if stream_info.stream_id == "main"
+                    else f".claude/worktrees/{stream_info.stream_id}"
+                )
 
                 streams[stream_info.stream_id] = {
                     "id": stream_info.stream_id,
@@ -188,9 +196,7 @@ class WorkerMonitor:
 
             # Double-check with ps to catch zombies
             result = subprocess.run(
-                ["ps", "-p", str(pid), "-o", "pid="],
-                capture_output=True,
-                timeout=5
+                ["ps", "-p", str(pid), "-o", "pid="], capture_output=True, timeout=5
             )
 
             if result.returncode != 0:
@@ -215,7 +221,7 @@ class WorkerMonitor:
                 "total_tasks": progress.total_tasks,
                 "completed_tasks": progress.completed_tasks,
                 "in_progress_tasks": progress.in_progress_tasks,
-                "is_complete": progress.is_complete
+                "is_complete": progress.is_complete,
             }
         except Exception as e:
             warn(f"Failed to get status for {stream_id}: {e}")
@@ -268,7 +274,9 @@ class WorkerMonitor:
             log_file = self._get_log_file(stream_id)
             if log_file.exists() and log_file.stat().st_size > 100:
                 # Worker ran but died - has incomplete tasks
-                if status and (status["completed_tasks"] > 0 or status["in_progress_tasks"] > 0):
+                if status and (
+                    status["completed_tasks"] > 0 or status["in_progress_tasks"] > 0
+                ):
                     dead_workers.append(stream_id)
                 elif status and status["total_tasks"] > 0:
                     # Had tasks but no progress - likely died early
@@ -278,7 +286,7 @@ class WorkerMonitor:
 
     def _build_prompt(self, stream: dict) -> str:
         """Build the prompt for a Claude Code worker."""
-        dependencies = self.stream_dependencies.get(stream['id'], set())
+        dependencies = self.stream_dependencies.get(stream["id"], set())
         deps_str = ", ".join(dependencies) if dependencies else "None"
 
         return f"""You are a worker agent in the Claude Copilot orchestration system.
@@ -350,7 +358,9 @@ Begin by querying your task list with task_list.
 
         # Check restart limit
         if self.restart_counts[stream_id] >= self.max_restarts:
-            error(f"Worker {stream_id} has reached max restart limit ({self.max_restarts})")
+            error(
+                f"Worker {stream_id} has reached max restart limit ({self.max_restarts})"
+            )
             return False
 
         # Increment restart count
@@ -365,7 +375,9 @@ Begin by querying your task list with task_list.
         if not work_dir.exists():
             work_dir.mkdir(parents=True, exist_ok=True)
 
-        log_message(f"Restarting worker {stream_id} (attempt {self.restart_counts[stream_id]}/{self.max_restarts})")
+        log_message(
+            f"Restarting worker {stream_id} (attempt {self.restart_counts[stream_id]}/{self.max_restarts})"
+        )
 
         prompt = self._build_prompt(stream)
         pid_file = PID_DIR / f"{stream_id}.pid"
@@ -380,7 +392,7 @@ Begin by querying your task list with task_list.
                 str(LOG_DIR),
                 str(work_dir),
                 self.initiative_id,
-                prompt
+                prompt,
             ],
             start_new_session=True,
             stdout=subprocess.DEVNULL,
@@ -424,14 +436,13 @@ Begin by querying your task list with task_list.
         else:
             log_message("Auto-restart disabled. Use --auto-restart to enable.")
 
-        return {
-            "dead_workers": dead_workers,
-            "restart_performed": restart_performed
-        }
+        return {"dead_workers": dead_workers, "restart_performed": restart_performed}
 
     def run_daemon(self, interval: int = DEFAULT_CHECK_INTERVAL):
         """Run as background daemon with periodic checks."""
-        log_message(f"Starting monitor daemon (interval: {interval}s, max_restarts: {self.max_restarts})")
+        log_message(
+            f"Starting monitor daemon (interval: {interval}s, max_restarts: {self.max_restarts})"
+        )
 
         # Signal handlers for graceful shutdown
         def signal_handler(sig, frame):
@@ -460,39 +471,39 @@ Examples:
   python monitor-workers.py --auto-restart        # Background daemon
   python monitor-workers.py --auto-restart --max-restarts 3
   python monitor-workers.py --daemon --interval 60
-        """
+        """,
     )
 
     parser.add_argument(
         "--auto-restart",
         action="store_true",
-        help="Enable automatic restart of dead workers"
+        help="Enable automatic restart of dead workers",
     )
 
     parser.add_argument(
         "--max-restarts",
         type=int,
         default=DEFAULT_MAX_RESTARTS,
-        help=f"Maximum restart attempts per worker (default: {DEFAULT_MAX_RESTARTS})"
+        help=f"Maximum restart attempts per worker (default: {DEFAULT_MAX_RESTARTS})",
     )
 
     parser.add_argument(
         "--daemon",
         action="store_true",
-        help="Run as background daemon (continuous monitoring)"
+        help="Run as background daemon (continuous monitoring)",
     )
 
     parser.add_argument(
         "--interval",
         type=int,
         default=DEFAULT_CHECK_INTERVAL,
-        help=f"Check interval in seconds for daemon mode (default: {DEFAULT_CHECK_INTERVAL})"
+        help=f"Check interval in seconds for daemon mode (default: {DEFAULT_CHECK_INTERVAL})",
     )
 
     parser.add_argument(
         "--quiet",
         action="store_true",
-        help="Quiet mode - only output when action is taken (for integration with watch-status)"
+        help="Quiet mode - only output when action is taken (for integration with watch-status)",
     )
 
     args = parser.parse_args()
@@ -500,12 +511,12 @@ Examples:
     # In quiet mode, suppress all output unless there's an action
     if args.quiet:
         import io
+
         sys.stdout = io.StringIO()
 
     # Create monitor instance
     monitor = WorkerMonitor(
-        max_restarts=args.max_restarts,
-        auto_restart=args.auto_restart
+        max_restarts=args.max_restarts, auto_restart=args.auto_restart
     )
 
     # Run daemon or one-shot check

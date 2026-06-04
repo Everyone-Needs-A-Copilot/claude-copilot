@@ -81,13 +81,33 @@ SEV_ERROR = "ERROR"
 SEV_WARN = "WARN"
 
 SMELL_META = {
-    "SMELL-01": ("test_only",      SEV_ERROR, ".only() left in — silently skips rest of suite"),
-    "SMELL-02": ("test_skip",      SEV_WARN,  ".skip() left in — tests silently disabled"),
-    "SMELL-03": ("no_expect",      SEV_ERROR, "Test block has no expect() call"),
-    "SMELL-04": ("async_no_await", SEV_ERROR, "async test body has no await — promise not awaited"),
-    "SMELL-05": ("setTimeout_zero",SEV_WARN,  "setTimeout(fn, 0) in test — use fake timers"),
-    "SMELL-06": ("console_log",    SEV_WARN,  "console.log() left in test — pollutes CI output"),
-    "SMELL-07": ("done_callback",  SEV_WARN,  "done callback pattern — use async/await instead"),
+    "SMELL-01": (
+        "test_only",
+        SEV_ERROR,
+        ".only() left in — silently skips rest of suite",
+    ),
+    "SMELL-02": ("test_skip", SEV_WARN, ".skip() left in — tests silently disabled"),
+    "SMELL-03": ("no_expect", SEV_ERROR, "Test block has no expect() call"),
+    "SMELL-04": (
+        "async_no_await",
+        SEV_ERROR,
+        "async test body has no await — promise not awaited",
+    ),
+    "SMELL-05": (
+        "setTimeout_zero",
+        SEV_WARN,
+        "setTimeout(fn, 0) in test — use fake timers",
+    ),
+    "SMELL-06": (
+        "console_log",
+        SEV_WARN,
+        "console.log() left in test — pollutes CI output",
+    ),
+    "SMELL-07": (
+        "done_callback",
+        SEV_WARN,
+        "done callback pattern — use async/await instead",
+    ),
 }
 
 VALID_EXTENSIONS = {".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs"}
@@ -96,40 +116,40 @@ VALID_EXTENSIONS = {".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs"}
 # Regex patterns (compiled once)
 # ---------------------------------------------------------------------------
 # Lines that contain .only( — covers it.only, test.only, describe.only, fit, fdescribe
-RE_ONLY = re.compile(r'\b(?:it|test|describe|fit|fdescribe)\.only\s*\(')
+RE_ONLY = re.compile(r"\b(?:it|test|describe|fit|fdescribe)\.only\s*\(")
 
 # Lines that contain .skip(
-RE_SKIP = re.compile(r'\b(?:it|test|describe|xit|xdescribe)\.skip\s*\(')
+RE_SKIP = re.compile(r"\b(?:it|test|describe|xit|xdescribe)\.skip\s*\(")
 
 # Line that starts a test block: it(, test(, it.each(, test.each( etc.
 RE_TEST_OPEN = re.compile(
-    r'^\s*(?:it|test)(?:\.each\([^)]*\))?\s*\('
-    r'|^\s*(?:it|test)\s*\(\s*[\'"`]',
+    r"^\s*(?:it|test)(?:\.each\([^)]*\))?\s*\(" r'|^\s*(?:it|test)\s*\(\s*[\'"`]',
     re.MULTILINE,
 )
 
 # setTimeout with 0
-RE_SETTIMEOUT_ZERO = re.compile(r'\bsetTimeout\s*\(\s*\w+\s*,\s*0\s*\)')
+RE_SETTIMEOUT_ZERO = re.compile(r"\bsetTimeout\s*\(\s*\w+\s*,\s*0\s*\)")
 
 # console.log
-RE_CONSOLE_LOG = re.compile(r'\bconsole\.log\s*\(')
+RE_CONSOLE_LOG = re.compile(r"\bconsole\.log\s*\(")
 
 # done callback: (done) => or function(done)
-RE_DONE_CALLBACK = re.compile(r'(?:async\s+)?\([^)]*\bdone\b[^)]*\)\s*(?:=>|{)')
+RE_DONE_CALLBACK = re.compile(r"(?:async\s+)?\([^)]*\bdone\b[^)]*\)\s*(?:=>|{)")
 
 # async test: async () => or async function
-RE_ASYNC_TEST = re.compile(r'\basync\s+(?:\([^)]*\)\s*=>|\bfunction\b)')
+RE_ASYNC_TEST = re.compile(r"\basync\s+(?:\([^)]*\)\s*=>|\bfunction\b)")
 
 # await keyword
-RE_AWAIT = re.compile(r'\bawait\b')
+RE_AWAIT = re.compile(r"\bawait\b")
 
 # expect( call
-RE_EXPECT = re.compile(r'\bexpect\s*\(')
+RE_EXPECT = re.compile(r"\bexpect\s*\(")
 
 
 # ---------------------------------------------------------------------------
 # Per-file analysis
 # ---------------------------------------------------------------------------
+
 
 def extract_test_blocks(source: str) -> list[tuple[int, str]]:
     """
@@ -177,18 +197,28 @@ def analyze_source(source: str, filename: str = "<input>") -> list[dict]:
     # SMELL-01: .only() — line-level scan
     for lineno, line in enumerate(lines, 1):
         if RE_ONLY.search(line):
-            findings.append(_make_finding(
-                "SMELL-01", filename, lineno, "<suite>",
-                f".only() found at line {lineno} — silently skips all other tests",
-            ))
+            findings.append(
+                _make_finding(
+                    "SMELL-01",
+                    filename,
+                    lineno,
+                    "<suite>",
+                    f".only() found at line {lineno} — silently skips all other tests",
+                )
+            )
 
     # SMELL-02: .skip() — line-level scan
     for lineno, line in enumerate(lines, 1):
         if RE_SKIP.search(line):
-            findings.append(_make_finding(
-                "SMELL-02", filename, lineno, "<suite>",
-                f".skip() found at line {lineno} — test silently disabled",
-            ))
+            findings.append(
+                _make_finding(
+                    "SMELL-02",
+                    filename,
+                    lineno,
+                    "<suite>",
+                    f".skip() found at line {lineno} — test silently disabled",
+                )
+            )
 
     # Block-level smells
     blocks = extract_test_blocks(source)
@@ -197,38 +227,63 @@ def analyze_source(source: str, filename: str = "<input>") -> list[dict]:
 
         # SMELL-03: no expect
         if not RE_EXPECT.search(block):
-            findings.append(_make_finding(
-                "SMELL-03", filename, start_line, func_name,
-                f"Test '{func_name}' has no expect() call — can never fail",
-            ))
+            findings.append(
+                _make_finding(
+                    "SMELL-03",
+                    filename,
+                    start_line,
+                    func_name,
+                    f"Test '{func_name}' has no expect() call — can never fail",
+                )
+            )
 
         # SMELL-04: async with no await
         if RE_ASYNC_TEST.search(block) and not RE_AWAIT.search(block):
-            findings.append(_make_finding(
-                "SMELL-04", filename, start_line, func_name,
-                f"Test '{func_name}' is async but has no await — promise not awaited",
-            ))
+            findings.append(
+                _make_finding(
+                    "SMELL-04",
+                    filename,
+                    start_line,
+                    func_name,
+                    f"Test '{func_name}' is async but has no await — promise not awaited",
+                )
+            )
 
         # SMELL-05: setTimeout(fn, 0)
         if RE_SETTIMEOUT_ZERO.search(block):
-            findings.append(_make_finding(
-                "SMELL-05", filename, start_line, func_name,
-                f"Test '{func_name}' uses setTimeout(fn, 0) — use jest.useFakeTimers()",
-            ))
+            findings.append(
+                _make_finding(
+                    "SMELL-05",
+                    filename,
+                    start_line,
+                    func_name,
+                    f"Test '{func_name}' uses setTimeout(fn, 0) — use jest.useFakeTimers()",
+                )
+            )
 
         # SMELL-06: console.log
         if RE_CONSOLE_LOG.search(block):
-            findings.append(_make_finding(
-                "SMELL-06", filename, start_line, func_name,
-                f"Test '{func_name}' contains console.log() — remove before committing",
-            ))
+            findings.append(
+                _make_finding(
+                    "SMELL-06",
+                    filename,
+                    start_line,
+                    func_name,
+                    f"Test '{func_name}' contains console.log() — remove before committing",
+                )
+            )
 
         # SMELL-07: done callback
         if RE_DONE_CALLBACK.search(block):
-            findings.append(_make_finding(
-                "SMELL-07", filename, start_line, func_name,
-                f"Test '{func_name}' uses done callback — rewrite with async/await",
-            ))
+            findings.append(
+                _make_finding(
+                    "SMELL-07",
+                    filename,
+                    start_line,
+                    func_name,
+                    f"Test '{func_name}' uses done callback — rewrite with async/await",
+                )
+            )
 
     return findings
 
@@ -241,8 +296,9 @@ def _extract_test_name(block: str) -> str:
     return "<unnamed>"
 
 
-def _make_finding(smell_id: str, filename: str, line: int,
-                  function: str, message: str) -> dict:
+def _make_finding(
+    smell_id: str, filename: str, line: int, function: str, message: str
+) -> dict:
     meta = SMELL_META[smell_id]
     return {
         "smell_id": smell_id,
@@ -258,6 +314,7 @@ def _make_finding(smell_id: str, filename: str, line: int,
 # ---------------------------------------------------------------------------
 # Input loading
 # ---------------------------------------------------------------------------
+
 
 def load_sources(source: str | None) -> list[tuple[str, str]]:
     """
@@ -282,7 +339,12 @@ def load_sources(source: str | None) -> list[tuple[str, str]]:
             if p.suffix not in VALID_EXTENSIONS:
                 continue
             stem = p.stem
-            if ".test" in stem or ".spec" in stem or stem.endswith("test") or stem.endswith("spec"):
+            if (
+                ".test" in stem
+                or ".spec" in stem
+                or stem.endswith("test")
+                or stem.endswith("spec")
+            ):
                 try:
                     pairs.append((str(p), p.read_text(encoding="utf-8")))
                 except OSError as exc:
@@ -305,6 +367,7 @@ def load_sources(source: str | None) -> list[tuple[str, str]]:
 # Output
 # ---------------------------------------------------------------------------
 
+
 def render_markdown(findings: list[dict]) -> str:
     if not findings:
         return "_No test smells detected._\n"
@@ -326,6 +389,7 @@ def render_markdown(findings: list[dict]) -> str:
 # Main
 # ---------------------------------------------------------------------------
 
+
 def run(source: str | None) -> int:
     try:
         sources = load_sources(source)
@@ -340,8 +404,9 @@ def run(source: str | None) -> int:
         all_findings.extend(analyze_source(text, filename))
 
     # Sort: ERROR first, then file + line
-    all_findings.sort(key=lambda f: (0 if f["severity"] == SEV_ERROR else 1,
-                                     f["file"], f["line"]))
+    all_findings.sort(
+        key=lambda f: (0 if f["severity"] == SEV_ERROR else 1, f["file"], f["line"])
+    )
 
     summary = {
         "total": len(all_findings),

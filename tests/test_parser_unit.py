@@ -3,12 +3,13 @@
 These tests run entirely in-process — no cc subprocess needed — so they
 complete quickly and verify the parser directly.
 """
+
 import sys
+
 sys.path.insert(0, "/Volumes/Dev/Sites/COPILOT/claude-copilot/tools/cc/src")
 
 from cc.core.skill_store import _parse_skill_frontmatter, search_skills, SkillMeta
 from pathlib import Path
-
 
 STRIDE_PATH = "/Volumes/Dev/Sites/COPILOT/claude-copilot/.claude/skills/security/stride-dread/SKILL.md"
 
@@ -32,9 +33,9 @@ class TestParserBlockScalar:
         assert desc != ">-", "Description not resolved from >- block scalar"
         assert len(desc) > 50, f"Description suspiciously short: {desc!r}"
         # The word 'security' appears in the resolved prose
-        assert "security" in desc.lower() or "stride" in desc.lower(), (
-            f"Expected 'security' or 'stride' in resolved description, got: {desc[:120]!r}"
-        )
+        assert (
+            "security" in desc.lower() or "stride" in desc.lower()
+        ), f"Expected 'security' or 'stride' in resolved description, got: {desc[:120]!r}"
 
     def test_search_finds_stride_dread_by_security(self):
         """search_skills('security') must return stride-dread when description is resolved."""
@@ -66,9 +67,9 @@ class TestParserBlockScalar:
         )
         fm = _parse_skill_frontmatter(fm_text)
         desc = fm.get("description", "")
-        assert "First sentence. Second sentence." == desc, (
-            f"Folded block scalar not joined correctly: {desc!r}"
-        )
+        assert (
+            "First sentence. Second sentence." == desc
+        ), f"Folded block scalar not joined correctly: {desc!r}"
 
     def test_plain_string_description_unchanged(self):
         """A plain (non-block-scalar) description must pass through unchanged."""
@@ -78,7 +79,9 @@ class TestParserBlockScalar:
 
     def test_tags_as_yaml_list(self):
         """Tags written as YAML flow sequence [a, b, c] must parse to a list."""
-        fm_text = "---\nname: test\ndescription: desc\ntags: [python, testing, pytest]\n---\n"
+        fm_text = (
+            "---\nname: test\ndescription: desc\ntags: [python, testing, pytest]\n---\n"
+        )
         fm = _parse_skill_frontmatter(fm_text)
         tags = fm.get("tags", [])
         assert isinstance(tags, list), f"tags should be list, got {type(tags)}"

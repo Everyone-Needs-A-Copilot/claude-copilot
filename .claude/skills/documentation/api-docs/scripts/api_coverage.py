@@ -68,6 +68,7 @@ CLIENT_ERROR_CODES = {"400", "401", "403", "404", "409", "422", "429"}
 # Finding builder
 # ---------------------------------------------------------------------------
 
+
 def finding(rule: str, severity: str, location: str, message: str) -> dict:
     return {
         "rule": rule,
@@ -81,6 +82,7 @@ def finding(rule: str, severity: str, location: str, message: str) -> dict:
 # Spec introspection helpers
 # ---------------------------------------------------------------------------
 
+
 def get_paths(spec: dict) -> dict:
     """Return the paths object regardless of spec version."""
     return spec.get("paths") or {}
@@ -89,7 +91,11 @@ def get_paths(spec: dict) -> dict:
 def get_operations(path_item: dict) -> list[tuple[str, dict]]:
     """Return (method, operation) pairs from a path item object."""
     http_methods = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
-    return [(m, path_item[m]) for m in http_methods if m in path_item and isinstance(path_item[m], dict)]
+    return [
+        (m, path_item[m])
+        for m in http_methods
+        if m in path_item and isinstance(path_item[m], dict)
+    ]
 
 
 def get_global_security_schemes(spec: dict) -> set[str]:
@@ -135,9 +141,7 @@ def has_example_in_media_type(media_type_obj: dict) -> bool:
 
 def has_any_4xx_response(codes: set[str]) -> bool:
     """Return True if at least one 4xx code is declared."""
-    return bool(codes & CLIENT_ERROR_CODES) or any(
-        c.startswith("4") for c in codes
-    )
+    return bool(codes & CLIENT_ERROR_CODES) or any(c.startswith("4") for c in codes)
 
 
 def has_auth_error_response(codes: set[str]) -> bool:
@@ -149,14 +153,23 @@ def has_auth_error_response(codes: set[str]) -> bool:
 # Rule checkers
 # ---------------------------------------------------------------------------
 
+
 def check_info(spec: dict) -> list[dict]:
     """R13 — info block missing contact/license."""
     findings = []
     info = spec.get("info") or {}
     if not info.get("contact"):
-        findings.append(finding("R13", "LOW", "info", "Missing 'contact' in info block [OAS3 §4.8.2]"))
+        findings.append(
+            finding(
+                "R13", "LOW", "info", "Missing 'contact' in info block [OAS3 §4.8.2]"
+            )
+        )
     if not info.get("license"):
-        findings.append(finding("R13", "LOW", "info", "Missing 'license' in info block [OAS3 §4.8.2]"))
+        findings.append(
+            finding(
+                "R13", "LOW", "info", "Missing 'license' in info block [OAS3 §4.8.2]"
+            )
+        )
     return findings
 
 
@@ -165,10 +178,14 @@ def check_operation_id_casing(op_id: str, location: str) -> list[dict]:
     if not op_id:
         return []
     if not CAMEL_CASE_RE.match(op_id):
-        return [finding(
-            "R12", "LOW", location,
-            f"operationId '{op_id}' is not camelCase [OAS3 community convention]"
-        )]
+        return [
+            finding(
+                "R12",
+                "LOW",
+                location,
+                f"operationId '{op_id}' is not camelCase [OAS3 community convention]",
+            )
+        ]
     return []
 
 
@@ -179,11 +196,19 @@ def check_operation(method: str, path: str, op: dict, spec: dict) -> list[dict]:
 
     # R01 — missing summary
     if not (op.get("summary") or "").strip():
-        results.append(finding("R01", "MEDIUM", loc, "Operation missing 'summary' [OAS3 §4.8.10.1]"))
+        results.append(
+            finding(
+                "R01", "MEDIUM", loc, "Operation missing 'summary' [OAS3 §4.8.10.1]"
+            )
+        )
 
     # R02 — missing description
     if not (op.get("description") or "").strip():
-        results.append(finding("R02", "LOW", loc, "Operation missing 'description' [OAS3 §4.8.10.1]"))
+        results.append(
+            finding(
+                "R02", "LOW", loc, "Operation missing 'description' [OAS3 §4.8.10.1]"
+            )
+        )
 
     # R12 — operationId casing
     op_id = op.get("operationId") or ""
@@ -200,23 +225,38 @@ def check_operation(method: str, path: str, op: dict, spec: dict) -> list[dict]:
         rule = "R03" if param_in == "path" else "R04"
         sev = "MEDIUM" if param_in == "path" else "LOW"
         if not (param.get("description") or "").strip():
-            results.append(finding(
-                rule, sev, param_loc,
-                f"Parameter '{param_name}' ({param_in}) missing description [OAS3 §4.8.12.1]"
-            ))
+            results.append(
+                finding(
+                    rule,
+                    sev,
+                    param_loc,
+                    f"Parameter '{param_name}' ({param_in}) missing description [OAS3 §4.8.12.1]",
+                )
+            )
 
     # Request body (R05, R06) — OAS3 only
     req_body = op.get("requestBody")
     if isinstance(req_body, dict):
         if not (req_body.get("description") or "").strip():
-            results.append(finding("R05", "MEDIUM", loc, "Request body missing description [OAS3 §4.8.13.1]"))
+            results.append(
+                finding(
+                    "R05",
+                    "MEDIUM",
+                    loc,
+                    "Request body missing description [OAS3 §4.8.13.1]",
+                )
+            )
         content = req_body.get("content") or {}
         for media_type, mt_obj in content.items():
             if not has_example_in_media_type(mt_obj):
-                results.append(finding(
-                    "R06", "LOW", f"{loc} requestBody[{media_type}]",
-                    f"Request body media type '{media_type}' missing example [OAS3 §4.8.14.1]"
-                ))
+                results.append(
+                    finding(
+                        "R06",
+                        "LOW",
+                        f"{loc} requestBody[{media_type}]",
+                        f"Request body media type '{media_type}' missing example [OAS3 §4.8.14.1]",
+                    )
+                )
 
     # Responses (R07, R08, R09, R10, R11)
     responses = op.get("responses") or {}
@@ -228,26 +268,53 @@ def check_operation(method: str, path: str, op: dict, spec: dict) -> list[dict]:
         resp_loc = f"{loc} response[{code}]"
         # R07 — response missing description
         if not (resp_obj.get("description") or "").strip():
-            results.append(finding("R07", "MEDIUM", resp_loc, f"Response {code} missing description [OAS3 §4.8.17.1]"))
+            results.append(
+                finding(
+                    "R07",
+                    "MEDIUM",
+                    resp_loc,
+                    f"Response {code} missing description [OAS3 §4.8.17.1]",
+                )
+            )
         # R08 — response schema missing example
         content = resp_obj.get("content") or {}
         for media_type, mt_obj in content.items():
-            if isinstance(mt_obj, dict) and (mt_obj.get("schema") or mt_obj.get("content")):
+            if isinstance(mt_obj, dict) and (
+                mt_obj.get("schema") or mt_obj.get("content")
+            ):
                 # Only flag if a schema is present but no example
                 schema = mt_obj.get("schema")
                 if schema and not has_example_in_media_type(mt_obj):
-                    results.append(finding(
-                        "R08", "LOW", f"{resp_loc}[{media_type}]",
-                        f"Response {code} media type '{media_type}' schema has no example [OAS3 §4.8.14.1]"
-                    ))
+                    results.append(
+                        finding(
+                            "R08",
+                            "LOW",
+                            f"{resp_loc}[{media_type}]",
+                            f"Response {code} media type '{media_type}' schema has no example [OAS3 §4.8.14.1]",
+                        )
+                    )
 
     # R09 — no 4xx response documented
     if not has_any_4xx_response(codes):
-        results.append(finding("R09", "HIGH", loc, "No 4xx error response documented [RFC 7231 §6 / OAS3 best practice]"))
+        results.append(
+            finding(
+                "R09",
+                "HIGH",
+                loc,
+                "No 4xx error response documented [RFC 7231 §6 / OAS3 best practice]",
+            )
+        )
 
     # R10 — secured endpoint missing 401/403
     if operation_has_security(op, spec) and not has_auth_error_response(codes):
-        results.append(finding("R10", "HIGH", loc, "Secured operation missing 401/403 response [OAS3 §4.8.21]"))
+        results.append(
+            finding(
+                "R10",
+                "HIGH",
+                loc,
+                "Secured operation missing 401/403 response [OAS3 §4.8.21]",
+            )
+        )
 
     # R11 — global security schemes defined but operation declares no security
     global_schemes = get_global_security_schemes(spec)
@@ -281,13 +348,14 @@ def rank_findings(findings: list[dict]) -> list[dict]:
     """Sort findings by severity (HIGH → MEDIUM → LOW), then rule, then location."""
     return sorted(
         findings,
-        key=lambda f: (SEVERITY_ORDER.get(f["severity"], 99), f["rule"], f["location"])
+        key=lambda f: (SEVERITY_ORDER.get(f["severity"], 99), f["rule"], f["location"]),
     )
 
 
 # ---------------------------------------------------------------------------
 # Spec format detection
 # ---------------------------------------------------------------------------
+
 
 def detect_spec_version(spec: dict) -> str:
     """Return 'oas3', 'swagger2', or 'unknown'."""
@@ -301,6 +369,7 @@ def detect_spec_version(spec: dict) -> str:
 # ---------------------------------------------------------------------------
 # Output rendering
 # ---------------------------------------------------------------------------
+
 
 def render_markdown(findings: list[dict]) -> str:
     if not findings:
@@ -332,6 +401,7 @@ def build_summary(findings: list[dict]) -> dict:
 # ---------------------------------------------------------------------------
 # Input loading
 # ---------------------------------------------------------------------------
+
 
 def load_input(source: str | None) -> Any:
     """
@@ -373,6 +443,7 @@ def load_input(source: str | None) -> Any:
 # Main
 # ---------------------------------------------------------------------------
 
+
 def run(source: str | None) -> int:
     """Main logic. Returns exit code."""
     try:
@@ -382,7 +453,10 @@ def run(source: str | None) -> int:
         return 1
 
     if spec is None:
-        output = {"findings": [], "summary": {"total": 0, "high": 0, "medium": 0, "low": 0}}
+        output = {
+            "findings": [],
+            "summary": {"total": 0, "high": 0, "medium": 0, "low": 0},
+        }
         print(json.dumps(output, indent=2))
         print()
         print("_No input provided._")
@@ -390,7 +464,10 @@ def run(source: str | None) -> int:
 
     version = detect_spec_version(spec)
     if version == "unknown":
-        print("ERROR: Unrecognised spec format. Expected 'openapi: 3.x' or 'swagger: 2.x'.", file=sys.stderr)
+        print(
+            "ERROR: Unrecognised spec format. Expected 'openapi: 3.x' or 'swagger: 2.x'.",
+            file=sys.stderr,
+        )
         return 1
 
     findings = run_checks(spec)

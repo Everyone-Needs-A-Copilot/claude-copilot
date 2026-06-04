@@ -17,15 +17,16 @@ from typing import Any
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(autouse=True)
 def isolated_memory(tmp_path, monkeypatch):
     """Redirect all memory operations to a tmp dir and fake a git root."""
     import cc.core.entry_store as es
+
     monkeypatch.setattr(es, "_git_root", lambda: tmp_path)
     return tmp_path / ".claude" / "memory"
 
@@ -39,10 +40,12 @@ def memory_root(isolated_memory):
 # Import / side-effect tests
 # ---------------------------------------------------------------------------
 
+
 def test_import_no_side_effects(tmp_path, monkeypatch):
     """Importing cc.api must NOT touch the filesystem."""
     # Force a clean import by removing from sys.modules if cached
     import sys
+
     for key in list(sys.modules):
         if key.startswith("cc.api"):
             del sys.modules[key]
@@ -51,12 +54,14 @@ def test_import_no_side_effects(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     import cc.api  # should not raise
+
     assert cc.api is not None
 
 
 def test_all_exports_importable():
     """Every symbol in __all__ must be importable from cc.api."""
     import cc.api
+
     for name in cc.api.__all__:
         assert hasattr(cc.api, name), f"cc.api missing __all__ member: {name}"
 
@@ -65,8 +70,10 @@ def test_all_exports_importable():
 # memory_store
 # ---------------------------------------------------------------------------
 
+
 def test_memory_store_returns_id_and_path(memory_root):
     from cc.api import memory_store
+
     result = memory_store(entry_type="decision", content="Use WAL mode for SQLite")
     assert "id" in result
     assert "path" in result
@@ -75,25 +82,31 @@ def test_memory_store_returns_id_and_path(memory_root):
 
 def test_memory_store_empty_content_raises():
     from cc.api import memory_store, EntryValidationError
+
     with pytest.raises(EntryValidationError):
         memory_store(entry_type="context", content="")
 
 
 def test_memory_store_whitespace_content_raises():
     from cc.api import memory_store, EntryValidationError
+
     with pytest.raises(EntryValidationError):
         memory_store(entry_type="context", content="   ")
 
 
 def test_memory_store_invalid_type_raises():
     from cc.api import memory_store, EntryValidationError
+
     with pytest.raises(EntryValidationError):
         memory_store(entry_type="nonexistent_type_xyz", content="hello")
 
 
 def test_memory_store_with_tags(memory_root):
     from cc.api import memory_store, memory_get
-    result = memory_store(entry_type="lesson", content="Always test", tags=["testing", "quality"])
+
+    result = memory_store(
+        entry_type="lesson", content="Always test", tags=["testing", "quality"]
+    )
     entry = memory_get(result["id"])
     assert "testing" in entry.get("tags", [])
 
@@ -102,8 +115,10 @@ def test_memory_store_with_tags(memory_root):
 # memory_get
 # ---------------------------------------------------------------------------
 
+
 def test_memory_get_returns_entry(memory_root):
     from cc.api import memory_store, memory_get
+
     stored = memory_store(entry_type="context", content="Context content here")
     retrieved = memory_get(stored["id"])
     assert retrieved["id"] == stored["id"]
@@ -112,12 +127,14 @@ def test_memory_get_returns_entry(memory_root):
 
 def test_memory_get_not_found_raises():
     from cc.api import memory_get, EntryNotFound
+
     with pytest.raises(EntryNotFound):
         memory_get("00000000-0000-0000-0000-000000000000")
 
 
 def test_memory_get_prefix_match(memory_root):
     from cc.api import memory_store, memory_get
+
     stored = memory_store(entry_type="reference", content="Prefix test content")
     prefix = stored["id"][:8]
     retrieved = memory_get(prefix)
@@ -128,13 +145,16 @@ def test_memory_get_prefix_match(memory_root):
 # memory_list
 # ---------------------------------------------------------------------------
 
+
 def test_memory_list_empty(memory_root):
     from cc.api import memory_list
+
     assert memory_list() == []
 
 
 def test_memory_list_returns_entries(memory_root):
     from cc.api import memory_store, memory_list
+
     memory_store(entry_type="decision", content="Decision A")
     memory_store(entry_type="lesson", content="Lesson B")
     entries = memory_list()
@@ -143,6 +163,7 @@ def test_memory_list_returns_entries(memory_root):
 
 def test_memory_list_filter_by_type(memory_root):
     from cc.api import memory_store, memory_list
+
     memory_store(entry_type="decision", content="Decision X")
     memory_store(entry_type="lesson", content="Lesson Y")
     decisions = memory_list(entry_type="decision")
@@ -152,6 +173,7 @@ def test_memory_list_filter_by_type(memory_root):
 
 def test_memory_list_filter_by_tag(memory_root):
     from cc.api import memory_store, memory_list
+
     memory_store(entry_type="context", content="Tagged A", tags=["alpha"])
     memory_store(entry_type="context", content="Tagged B", tags=["beta"])
     alpha = memory_list(tag="alpha")
@@ -163,8 +185,10 @@ def test_memory_list_filter_by_tag(memory_root):
 # memory_delete
 # ---------------------------------------------------------------------------
 
+
 def test_memory_delete_removes_entry(memory_root):
     from cc.api import memory_store, memory_get, memory_delete, EntryNotFound
+
     stored = memory_store(entry_type="context", content="To be deleted")
     assert memory_delete(stored["id"]) is True
     with pytest.raises(EntryNotFound):
@@ -173,6 +197,7 @@ def test_memory_delete_removes_entry(memory_root):
 
 def test_memory_delete_nonexistent_returns_false(memory_root):
     from cc.api import memory_delete
+
     assert memory_delete("00000000-0000-0000-0000-000000000000") is False
 
 
@@ -180,9 +205,13 @@ def test_memory_delete_nonexistent_returns_false(memory_root):
 # memory_search — file-based fallback path
 # ---------------------------------------------------------------------------
 
+
 def test_memory_search_file_fallback(memory_root):
     from cc.api import memory_store, memory_search
-    memory_store(entry_type="decision", content="WAL mode is best for SQLite concurrency")
+
+    memory_store(
+        entry_type="decision", content="WAL mode is best for SQLite concurrency"
+    )
     results = memory_search("WAL")
     assert len(results) >= 1
     assert any("WAL" in r.get("content", "") for r in results)
@@ -190,6 +219,7 @@ def test_memory_search_file_fallback(memory_root):
 
 def test_memory_search_no_results(memory_root):
     from cc.api import memory_store, memory_search
+
     memory_store(entry_type="context", content="Completely unrelated content")
     results = memory_search("xyznonexistentquery")
     assert results == []
@@ -212,21 +242,26 @@ def test_memory_search_fts_index_path(memory_root):
 # skill_search / skill_get (no skills in tmp env)
 # ---------------------------------------------------------------------------
 
+
 def test_skill_search_returns_empty_when_no_skills(tmp_path, monkeypatch):
     """skill_search returns [] when no skill dirs exist."""
     import cc.core.skill_store as ss
+
     monkeypatch.setattr(ss, "default_skill_paths", lambda: [])
 
     from cc.api import skill_search
+
     results = skill_search("anything")
     assert results == []
 
 
 def test_skill_get_raises_not_found_when_no_skills(tmp_path, monkeypatch):
     import cc.core.skill_store as ss
+
     monkeypatch.setattr(ss, "default_skill_paths", lambda: [])
 
     from cc.api import skill_get, SkillNotFound
+
     with pytest.raises(SkillNotFound):
         skill_get("nonexistent-skill")
 
@@ -249,6 +284,7 @@ def test_skill_get_returns_content(tmp_path, monkeypatch):
     )
 
     from cc.api import skill_get
+
     result = skill_get("my-skill")
     assert result["name"] == "my-skill"
     assert "Skill body." in result["content"]
@@ -272,6 +308,7 @@ def test_skill_search_finds_by_tag(tmp_path, monkeypatch):
     )
 
     from cc.api import skill_search
+
     results = skill_search("security")
     assert len(results) == 1
     assert results[0]["name"] == "tagged-skill"

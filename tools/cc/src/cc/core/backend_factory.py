@@ -52,6 +52,7 @@ def resolve_backend(
         model = _model_override
     else:
         from cc.core.config import resolve_key
+
         model = str(resolve_key("memory.embedding_model") or "none")
 
     # Return cached backend if model unchanged and not forced
@@ -74,12 +75,14 @@ def _build_backend(model: str) -> SearchBackend:
         from cc.core.embedding_backend import EmbeddingBackend, EmbeddingUnavailable
     except ImportError as exc:
         _log.warning(
-            "Embedding backend module unavailable; falling back to FTS5 keyword search: %s", exc
+            "Embedding backend module unavailable; falling back to FTS5 keyword search: %s",
+            exc,
         )
         return FTS5Backend()
 
     try:
         from cc.core.config import resolve_key
+
         threshold = float(resolve_key("memory.default_threshold") or 0.7)
         backend = EmbeddingBackend(model, threshold=threshold)
         _log.info("Embedding backend active: model=%r threshold=%s", model, threshold)

@@ -21,12 +21,18 @@ task_app = typer.Typer(name="task", help="Task management commands.")
 def task_create(
     title: str = typer.Option(..., "--title", help="Task title."),
     prd: Optional[int] = typer.Option(None, "--prd", help="Associated PRD ID."),
-    stream: Optional[int] = typer.Option(None, "--stream", help="Associated stream ID."),
+    stream: Optional[int] = typer.Option(
+        None, "--stream", help="Associated stream ID."
+    ),
     agent: Optional[str] = typer.Option(None, "--agent", help="Assigned agent."),
     priority: int = typer.Option(2, "--priority", help="Priority 0-3 (0=highest)."),
     parent: Optional[int] = typer.Option(None, "--parent", help="Parent task ID."),
-    description: Optional[str] = typer.Option(None, "--description", help="Task description."),
-    metadata: Optional[str] = typer.Option(None, "--metadata", help="JSON metadata string."),
+    description: Optional[str] = typer.Option(
+        None, "--description", help="Task description."
+    ),
+    metadata: Optional[str] = typer.Option(
+        None, "--metadata", help="JSON metadata string."
+    ),
     json: bool = typer.Option(False, "--json", help="Output as JSON."),
 ) -> None:
     """Create a new task."""
@@ -67,7 +73,9 @@ def task_list(
 
     db_path = require_db()
     try:
-        data = _list_tasks(status=status, agent=agent, stream=stream, prd=prd, db_path=db_path)
+        data = _list_tasks(
+            status=status, agent=agent, stream=stream, prd=prd, db_path=db_path
+        )
     except ValidationError as exc:
         error_exit(str(exc), EXIT_VALIDATION)
 
@@ -109,10 +117,16 @@ def task_update(
     task_id: int = typer.Argument(..., help="Task ID."),
     status: Optional[str] = typer.Option(None, "--status", help="New status."),
     agent: Optional[str] = typer.Option(None, "--agent", help="Assigned agent."),
-    description: Optional[str] = typer.Option(None, "--description", help="New description."),
-    priority: Optional[int] = typer.Option(None, "--priority", help="New priority 0-3."),
+    description: Optional[str] = typer.Option(
+        None, "--description", help="New description."
+    ),
+    priority: Optional[int] = typer.Option(
+        None, "--priority", help="New priority 0-3."
+    ),
     title: Optional[str] = typer.Option(None, "--title", help="New title."),
-    metadata: Optional[str] = typer.Option(None, "--metadata", help="JSON metadata to merge into existing metadata."),
+    metadata: Optional[str] = typer.Option(
+        None, "--metadata", help="JSON metadata to merge into existing metadata."
+    ),
     json: bool = typer.Option(False, "--json", help="Output as JSON."),
 ) -> None:
     """Update a task."""
@@ -140,7 +154,14 @@ def task_update(
     if json:
         output_json(row)
     else:
-        if status is None and agent is None and description is None and priority is None and title is None and metadata is None:
+        if (
+            status is None
+            and agent is None
+            and description is None
+            and priority is None
+            and title is None
+            and metadata is None
+        ):
             print("Nothing to update.")
         else:
             print(f"Updated task #{row['id']}: {row['title']} [{row['status']}]")
@@ -234,7 +255,9 @@ def deps_add(
 @deps_app.command("remove")
 def deps_remove(
     task_id: int = typer.Argument(..., help="Task ID."),
-    depends_on: int = typer.Option(..., "--depends-on", help="Dependency task ID to remove."),
+    depends_on: int = typer.Option(
+        ..., "--depends-on", help="Dependency task ID to remove."
+    ),
     json: bool = typer.Option(False, "--json", help="Output as JSON."),
 ) -> None:
     """Remove a dependency from a task."""
@@ -242,11 +265,15 @@ def deps_remove(
 
     db_path = require_db()
     try:
-        result = _remove_dependency(task_id=task_id, depends_on=depends_on, db_path=db_path)
+        result = _remove_dependency(
+            task_id=task_id, depends_on=depends_on, db_path=db_path
+        )
     except TaskNotFound as exc:
         error_exit(str(exc), EXIT_NOT_FOUND)
 
     if json:
         output_json(result)
     else:
-        print(f"Removed dependency: task #{task_id} no longer depends on task #{depends_on}")
+        print(
+            f"Removed dependency: task #{task_id} no longer depends on task #{depends_on}"
+        )

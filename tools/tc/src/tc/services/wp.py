@@ -21,6 +21,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
 
 def _open_conn(db_path: Path) -> sqlite3.Connection:
     from tc.db.connection import get_db
+
     return get_db(db_path)
 
 
@@ -28,6 +29,7 @@ def _require_db_path(db_path: Optional[Path]) -> Path:
     if db_path is not None:
         return db_path
     from tc.db.connection import find_db_path
+
     found = find_db_path()
     if found is None:
         raise FileNotFoundError(
@@ -92,11 +94,14 @@ def store_wp(
             resolved_db = db_path
         else:
             from tc.db.connection import find_db_path
+
             resolved_db = find_db_path()
 
     try:
         # Verify task exists
-        task_row = conn.execute("SELECT id FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        task_row = conn.execute(
+            "SELECT id FROM tasks WHERE id = ?", (task_id,)
+        ).fetchone()
         if task_row is None:
             raise TaskNotFound(f"task #{task_id} not found")
 
@@ -110,18 +115,22 @@ def store_wp(
                 # We need the future WP id to name the file; use a temp name
                 # then rename after we have the id.
                 import tempfile as _tf
+
                 tmp_fd, tmp_path_str = _tf.mkstemp(dir=wp_dir, suffix=".md.tmp")
                 try:
                     import os as _os
+
                     _os.write(tmp_fd, content.encode("utf-8"))
                     _os.close(tmp_fd)
                 except Exception:
                     try:
                         import os as _os2
+
                         _os2.close(tmp_fd)
                     except Exception:
                         pass
                     import os as _os3
+
                     _os3.unlink(tmp_path_str)
                     raise
 
@@ -134,6 +143,7 @@ def store_wp(
                 wp_id = cursor.lastrowid
 
                 import os as _os4
+
                 final_path = wp_dir / f"{wp_id}.md"
                 _os4.rename(tmp_path_str, str(final_path))
 
@@ -205,7 +215,9 @@ def get_wp(
         conn = _open_conn(resolved)
 
     try:
-        row = conn.execute("SELECT * FROM work_products WHERE id = ?", (wp_id,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM work_products WHERE id = ?", (wp_id,)
+        ).fetchone()
         if row is None:
             raise WorkProductNotFound(f"work product #{wp_id} not found")
 

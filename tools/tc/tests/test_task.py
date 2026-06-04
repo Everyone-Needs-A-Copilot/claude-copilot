@@ -4,10 +4,10 @@ import json
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _setup_prd_and_stream(cli):
     """Create a PRD and stream for task tests. Returns (prd_id, stream_id)."""
@@ -34,22 +34,33 @@ def _create_task(cli, title="Test Task", stream=None, agent=None, priority=2, pr
 # Create
 # ---------------------------------------------------------------------------
 
+
 class TestTaskCreate:
     """Tests for `tc task create`."""
 
     def test_create_with_all_options(self, cli):
         _setup_prd_and_stream(cli)
-        result = cli([
-            "task", "create",
-            "--title", "Full Task",
-            "--prd", "1",
-            "--stream", "1",
-            "--agent", "me",
-            "--priority", "0",
-            "--description", "A detailed description",
-            "--metadata", '{"key": "value"}',
-            "--json",
-        ])
+        result = cli(
+            [
+                "task",
+                "create",
+                "--title",
+                "Full Task",
+                "--prd",
+                "1",
+                "--stream",
+                "1",
+                "--agent",
+                "me",
+                "--priority",
+                "0",
+                "--description",
+                "A detailed description",
+                "--metadata",
+                '{"key": "value"}',
+                "--json",
+            ]
+        )
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["title"] == "Full Task"
@@ -98,6 +109,7 @@ class TestTaskCreate:
 # ---------------------------------------------------------------------------
 # List
 # ---------------------------------------------------------------------------
+
 
 class TestTaskList:
     """Tests for `tc task list`."""
@@ -176,6 +188,7 @@ class TestTaskList:
 # Get
 # ---------------------------------------------------------------------------
 
+
 class TestTaskGet:
     """Tests for `tc task get`."""
 
@@ -217,6 +230,7 @@ class TestTaskGet:
 # ---------------------------------------------------------------------------
 # Update
 # ---------------------------------------------------------------------------
+
 
 class TestTaskUpdate:
     """Tests for `tc task update`."""
@@ -311,7 +325,16 @@ class TestTaskUpdate:
 
     def test_update_metadata_sets_new_field(self, cli):
         _create_task(cli, "Meta Task")
-        result = cli(["task", "update", "1", "--metadata", '{"decidedApproach":"launcher-script"}', "--json"])
+        result = cli(
+            [
+                "task",
+                "update",
+                "1",
+                "--metadata",
+                '{"decidedApproach":"launcher-script"}',
+                "--json",
+            ]
+        )
         assert result.exit_code == 0
         data = json.loads(result.output)
         stored = json.loads(data["metadata"])
@@ -324,7 +347,9 @@ class TestTaskUpdate:
 
     def test_update_title_and_metadata_atomic(self, cli):
         _create_task(cli, "Original")
-        result = cli(["task", "update", "1", "--title", "X", "--metadata", '{"k":"v"}', "--json"])
+        result = cli(
+            ["task", "update", "1", "--title", "X", "--metadata", '{"k":"v"}', "--json"]
+        )
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["title"] == "X"
@@ -333,7 +358,17 @@ class TestTaskUpdate:
 
     def test_update_metadata_merges_new_key(self, cli):
         """Existing {a:1} + new {b:2} => {a:1, b:2}."""
-        cli(["task", "create", "--title", "Merge Task", "--metadata", '{"a":1}', "--json"])
+        cli(
+            [
+                "task",
+                "create",
+                "--title",
+                "Merge Task",
+                "--metadata",
+                '{"a":1}',
+                "--json",
+            ]
+        )
         result = cli(["task", "update", "1", "--metadata", '{"b":2}', "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -343,7 +378,17 @@ class TestTaskUpdate:
 
     def test_update_metadata_overrides_existing_key(self, cli):
         """Existing {a:1} + new {a:2} => {a:2}."""
-        cli(["task", "create", "--title", "Override Task", "--metadata", '{"a":1}', "--json"])
+        cli(
+            [
+                "task",
+                "create",
+                "--title",
+                "Override Task",
+                "--metadata",
+                '{"a":1}',
+                "--json",
+            ]
+        )
         result = cli(["task", "update", "1", "--metadata", '{"a":2}', "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -354,6 +399,7 @@ class TestTaskUpdate:
 # ---------------------------------------------------------------------------
 # Claim
 # ---------------------------------------------------------------------------
+
 
 class TestTaskClaim:
     """Tests for `tc task claim`."""
@@ -423,6 +469,7 @@ class TestTaskClaim:
 # ---------------------------------------------------------------------------
 # Next
 # ---------------------------------------------------------------------------
+
 
 class TestTaskNext:
     """Tests for `tc task next`."""
@@ -511,6 +558,7 @@ class TestTaskNext:
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
+
 
 class TestTaskDeps:
     """Tests for `tc task deps add` and `tc task deps remove`."""

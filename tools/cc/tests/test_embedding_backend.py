@@ -22,10 +22,10 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Stub embedder helpers
 # ---------------------------------------------------------------------------
+
 
 def _unit_vec(dim: int, index: int) -> np.ndarray:
     """Return a unit vector with a 1.0 at position *index* (mod dim)."""
@@ -40,6 +40,7 @@ def make_stub_embedder(dim: int = 4) -> Any:
     The vector for text T is determined by hash(T) % dim  (one-hot in *dim*).
     This keeps cosine distances deterministic without loading any model.
     """
+
     def stub(texts: list[str]) -> list[np.ndarray]:
         return [_unit_vec(dim, hash(t) % dim) for t in texts]
 
@@ -50,9 +51,11 @@ def make_stub_embedder(dim: int = 4) -> Any:
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def memory_root(tmp_path, monkeypatch):
     import cc.core.entry_store as es
+
     monkeypatch.setattr(es, "_git_root", lambda: tmp_path)
     return tmp_path / ".claude" / "memory"
 
@@ -72,6 +75,7 @@ def stub_backend(memory_root):
 # 43.3-A: EmbeddingBackend satisfies SearchBackend Protocol
 # ---------------------------------------------------------------------------
 
+
 class TestProtocolConformance:
     def test_satisfies_protocol(self, stub_backend):
         from cc.core.memory_index import SearchBackend
@@ -82,6 +86,7 @@ class TestProtocolConformance:
 # ---------------------------------------------------------------------------
 # 43.3-B: index / remove / status basic
 # ---------------------------------------------------------------------------
+
 
 class TestIndexAndRemove:
     def test_index_stores_vector(self, stub_backend, memory_root):
@@ -133,6 +138,7 @@ class TestIndexAndRemove:
 # 43.3-C: Hybrid search — rerank ordering
 # ---------------------------------------------------------------------------
 
+
 class TestHybridSearch:
     def test_fts_prefilter_reranked_by_cosine(self, memory_root):
         """FTS candidates are cosine-reranked; most semantically similar first."""
@@ -152,7 +158,9 @@ class TestHybridSearch:
         backend = EmbeddingBackend("test-model", embedder=custom_embed)
 
         # Index two entries that both match "memory" via FTS
-        backend.index("e-alpha", "lesson", ["memory"], "alpha memory lesson", memory_root)
+        backend.index(
+            "e-alpha", "lesson", ["memory"], "alpha memory lesson", memory_root
+        )
         backend.index("e-beta", "lesson", ["memory"], "beta memory lesson", memory_root)
 
         results = backend.search("alpha memory", memory_root)
@@ -170,6 +178,7 @@ class TestHybridSearch:
 # 43.3-D: Rebuild — recompute + staleness
 # ---------------------------------------------------------------------------
 
+
 class TestRebuild:
     def test_rebuild_indexes_entries(self, memory_root, monkeypatch):
         """rebuild() indexes all .md files and stores vectors."""
@@ -180,8 +189,12 @@ class TestRebuild:
         from cc.core.entry_store import store_entry
 
         # Store two entries via entry_store
-        store_entry(entry_type="lesson", content="unique lesson content alpha", scope="project")
-        store_entry(entry_type="context", content="unique context content beta", scope="project")
+        store_entry(
+            entry_type="lesson", content="unique lesson content alpha", scope="project"
+        )
+        store_entry(
+            entry_type="context", content="unique context content beta", scope="project"
+        )
 
         backend = EmbeddingBackend("stub-model", embedder=make_stub_embedder(dim=4))
         stats = backend.rebuild(memory_root)
@@ -205,7 +218,9 @@ class TestRebuild:
         from cc.core.embedding_store import get_vectors
         from cc.core.entry_store import store_entry
 
-        store_entry(entry_type="lesson", content="model mismatch test gamma", scope="project")
+        store_entry(
+            entry_type="lesson", content="model mismatch test gamma", scope="project"
+        )
 
         # First build with model-A
         backend_a = EmbeddingBackend("model-A", embedder=make_stub_embedder(dim=4))
@@ -238,7 +253,9 @@ class TestRebuild:
             call_count[0] += len(texts)
             return original_embed(texts)
 
-        store_entry(entry_type="lesson", content="stable content omega", scope="project")
+        store_entry(
+            entry_type="lesson", content="stable content omega", scope="project"
+        )
 
         backend = EmbeddingBackend("model-X", embedder=counting_embed)
         backend.rebuild(memory_root)
@@ -256,25 +273,27 @@ class TestRebuild:
 # 43.3-E: Lazy import — sentence-transformers NOT loaded when stub injected
 # ---------------------------------------------------------------------------
 
+
 class TestLazyImport:
     def test_sentence_transformers_not_in_sys_modules_with_stub(self, stub_backend):
         """Using EmbeddingBackend with injected stub must not load sentence-transformers."""
-        assert "sentence_transformers" not in sys.modules, (
-            "sentence_transformers should not be imported when using a stub embedder"
-        )
+        assert (
+            "sentence_transformers" not in sys.modules
+        ), "sentence_transformers should not be imported when using a stub embedder"
 
     def test_importing_embedding_backend_module_does_not_import_model_lib(self):
         """Importing embedding_backend at module level must not trigger sentence-transformers."""
         import cc.core.embedding_backend  # noqa: F401
 
-        assert "sentence_transformers" not in sys.modules, (
-            "sentence_transformers must not be imported at module import time"
-        )
+        assert (
+            "sentence_transformers" not in sys.modules
+        ), "sentence_transformers must not be imported at module import time"
 
 
 # ---------------------------------------------------------------------------
 # 43.3-F: Graceful degradation when embedder raises
 # ---------------------------------------------------------------------------
+
 
 class TestGracefulDegradation:
     def test_index_fallback_when_encode_fails(self, memory_root, caplog):
@@ -290,12 +309,16 @@ class TestGracefulDegradation:
             backend.index("e-fail", "lesson", [], "content to index", memory_root)
 
         # Should have logged a warning
-        assert any("Embedding encode failed" in r.message or "encode" in r.message.lower()
-                   for r in caplog.records), f"Expected warning; records: {caplog.records}"
+        assert any(
+            "Embedding encode failed" in r.message or "encode" in r.message.lower()
+            for r in caplog.records
+        ), f"Expected warning; records: {caplog.records}"
 
         # FTS5 row should still exist
         results = backend._fts.search("content to index", memory_root)
-        assert any(r["id"] == "e-fail" for r in results), "FTS5 entry should exist despite embed failure"
+        assert any(
+            r["id"] == "e-fail" for r in results
+        ), "FTS5 entry should exist despite embed failure"
 
     def test_search_fallback_when_query_encode_fails(self, memory_root):
         """If query encoding fails during search(), return FTS5 results."""
@@ -312,7 +335,9 @@ class TestGracefulDegradation:
             return ok_embed(texts)
 
         backend = EmbeddingBackend("selective-model", embedder=selective_embed)
-        backend.index("e1", "lesson", ["tag"], "search fallback test content", memory_root)
+        backend.index(
+            "e1", "lesson", ["tag"], "search fallback test content", memory_root
+        )
 
         # Reset call count and force failure
         fail_count[0] = 100
@@ -324,6 +349,7 @@ class TestGracefulDegradation:
 # ---------------------------------------------------------------------------
 # 43.4-A: backend_factory — off path returns FTS5
 # ---------------------------------------------------------------------------
+
 
 class TestBackendFactory:
     def test_none_returns_fts5(self):
@@ -356,21 +382,26 @@ class TestBackendFactory:
 
         # Patch the embedding_backend module import inside _build_backend
         import cc.core.backend_factory as bf
+
         original = bf._build_backend
 
         def patched_build(model: str):
             if model == "none":
                 from cc.core.memory_index import FTS5Backend as F
+
                 return F()
             # Simulate ImportError on the embedding_backend import
             try:
                 raise ImportError("sentence-transformers not installed (simulated)")
             except ImportError as exc:
                 import logging as _log
+
                 _log.getLogger("cc.core.backend_factory").warning(
-                    "Embedding backend module unavailable; falling back to FTS5 keyword search: %s", exc
+                    "Embedding backend module unavailable; falling back to FTS5 keyword search: %s",
+                    exc,
                 )
                 from cc.core.memory_index import FTS5Backend as F
+
                 return F()
 
         # Actually test the resolve_backend() with a model name but no sentence-transformers

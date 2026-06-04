@@ -47,6 +47,7 @@ DEFAULTS: dict[str, Any] = {
 # Flat dict helpers (dotted-key access)
 # ---------------------------------------------------------------------------
 
+
 def _flatten(obj: Any, prefix: str = "") -> dict[str, Any]:
     """Recursively flatten a nested dict to dotted-key notation."""
     result: dict[str, Any] = {}
@@ -85,6 +86,7 @@ def _dotted_set(obj: dict[str, Any], key: str, value: Any) -> None:
 # ---------------------------------------------------------------------------
 # Config file I/O
 # ---------------------------------------------------------------------------
+
 
 def _read_json(path: Path) -> dict[str, Any]:
     """Read JSON from path; return empty dict if missing or invalid."""
@@ -136,6 +138,7 @@ def load_project_secrets() -> dict[str, str]:
 # ---------------------------------------------------------------------------
 # Merge + resolution
 # ---------------------------------------------------------------------------
+
 
 def _expand_path(value: Any) -> Any:
     """Expand ~ in path-like string values."""
@@ -260,7 +263,9 @@ def write_config(key: str, value: Any, *, project: bool = False) -> Path:
     if project:
         cfg_path = project_config_path()
         if cfg_path is None:
-            raise ValueError("Not inside a git repository; cannot write project config.")
+            raise ValueError(
+                "Not inside a git repository; cannot write project config."
+            )
     else:
         cfg_path = machine_config_path()
 
@@ -281,7 +286,9 @@ def unset_config(key: str, *, project: bool = False) -> bool:
     if project:
         cfg_path = project_config_path()
         if cfg_path is None:
-            raise ValueError("Not inside a git repository; cannot modify project config.")
+            raise ValueError(
+                "Not inside a git repository; cannot modify project config."
+            )
     else:
         cfg_path = machine_config_path()
 
@@ -328,7 +335,9 @@ def where_key(key: str) -> dict[str, Any]:
     if key in project_flat:
         raw_val = project_flat[key]
         if is_sentinel(raw_val):
-            resolved = resolve_sentinel(raw_val, same_key=key, machine_config=machine_flat)
+            resolved = resolve_sentinel(
+                raw_val, same_key=key, machine_config=machine_flat
+            )
             return {
                 "value": _expand_path(resolved),
                 "source": "project",

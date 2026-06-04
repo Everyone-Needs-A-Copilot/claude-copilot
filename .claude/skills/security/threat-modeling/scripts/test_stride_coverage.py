@@ -29,6 +29,7 @@ spec.loader.exec_module(stride_coverage)
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def make_finding(**overrides):
     base = {
         "title": "Test Finding",
@@ -43,7 +44,11 @@ def make_scored_finding(**overrides):
     base = {
         "title": "Scored Finding",
         "stride": ["S"],
-        "D": 5, "R": 5, "E": 5, "A": 5, "D2": 5,
+        "D": 5,
+        "R": 5,
+        "E": 5,
+        "A": 5,
+        "D2": 5,
     }
     base.update(overrides)
     return base
@@ -63,6 +68,7 @@ def parse_json_output(out: str) -> dict:
 # ---------------------------------------------------------------------------
 # STRIDE alias normalization
 # ---------------------------------------------------------------------------
+
 
 class TestStrideAliasNormalization:
     def test_canonical_key_s(self):
@@ -109,6 +115,7 @@ class TestStrideAliasNormalization:
 # validate_finding
 # ---------------------------------------------------------------------------
 
+
 class TestValidateFinding:
     def test_minimal_valid(self):
         f = stride_coverage.validate_finding(make_finding(), 0)
@@ -136,11 +143,15 @@ class TestValidateFinding:
             stride_coverage.validate_finding({"title": "x", "stride": [1]}, 0)
 
     def test_duplicate_tags_deduplicated(self):
-        f = stride_coverage.validate_finding({"title": "x", "stride": ["S", "S", "T"]}, 0)
+        f = stride_coverage.validate_finding(
+            {"title": "x", "stride": ["S", "S", "T"]}, 0
+        )
         assert f["stride"] == ["S", "T"]
 
     def test_full_name_normalized(self):
-        f = stride_coverage.validate_finding({"title": "x", "stride": ["Spoofing", "Tampering"]}, 0)
+        f = stride_coverage.validate_finding(
+            {"title": "x", "stride": ["Spoofing", "Tampering"]}, 0
+        )
         assert f["stride"] == ["S", "T"]
 
     def test_non_dict_raises(self):
@@ -151,6 +162,7 @@ class TestValidateFinding:
 # ---------------------------------------------------------------------------
 # compute_coverage
 # ---------------------------------------------------------------------------
+
 
 class TestComputeCoverage:
     def _make_validated(self, stride_keys: list[str], title: str = "T") -> dict:
@@ -192,6 +204,7 @@ class TestComputeCoverage:
 # ---------------------------------------------------------------------------
 # score_finding (DREAD)
 # ---------------------------------------------------------------------------
+
 
 class TestScoreFinding:
     def test_no_dread_dims_returns_none(self):
@@ -259,6 +272,7 @@ class TestScoreFinding:
 # load_input
 # ---------------------------------------------------------------------------
 
+
 class TestLoadInput:
     def test_empty_stdin_returns_empty(self, monkeypatch):
         monkeypatch.setattr("sys.stdin", io.StringIO(""))
@@ -296,6 +310,7 @@ class TestLoadInput:
 # Integration (subprocess)
 # ---------------------------------------------------------------------------
 
+
 class TestSubprocessIntegration:
     def test_full_coverage_exits_zero(self):
         findings = [
@@ -320,8 +335,18 @@ class TestSubprocessIntegration:
 
     def test_dread_scoring_integrated(self):
         findings = [
-            make_scored_finding(title="Critical threat", stride=["S", "E"], D=10, R=10, E=10, A=10, D2=10),
-            make_scored_finding(title="Low threat", stride=["T"], D=1, R=1, E=1, A=1, D2=1),
+            make_scored_finding(
+                title="Critical threat",
+                stride=["S", "E"],
+                D=10,
+                R=10,
+                E=10,
+                A=10,
+                D2=10,
+            ),
+            make_scored_finding(
+                title="Low threat", stride=["T"], D=1, R=1, E=1, A=1, D2=1
+            ),
         ]
         code, out, _ = run_script(args=("-",), stdin_text=json.dumps(findings))
         assert code == 0

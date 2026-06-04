@@ -31,7 +31,9 @@ def env_cmd(
         "--include-secrets",
         help="Also emit values from secrets.env files. CAUTION: exposes secrets to shell history.",
     ),
-    output_json: bool = typer.Option(False, "--json", help="Output JSON instead of shell exports."),
+    output_json: bool = typer.Option(
+        False, "--json", help="Output JSON instead of shell exports."
+    ),
 ) -> None:
     """Emit shell-eval-able CC_* exports for the effective config.
 
@@ -55,8 +57,12 @@ def env_cmd(
 
 @app.command("resolve")
 def resolve_cmd(
-    key: str = typer.Argument(..., help="Dotted config key to resolve (e.g. paths.shared_docs)."),
-    scope: Optional[str] = typer.Option(None, "--scope", help="machine | project | effective"),
+    key: str = typer.Argument(
+        ..., help="Dotted config key to resolve (e.g. paths.shared_docs)."
+    ),
+    scope: Optional[str] = typer.Option(
+        None, "--scope", help="machine | project | effective"
+    ),
     output_json: bool = typer.Option(False, "--json"),
 ) -> None:
     """Print the resolved value of a single config key (for template substitution)."""

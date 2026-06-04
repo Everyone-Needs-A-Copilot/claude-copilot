@@ -27,6 +27,7 @@ spec.loader.exec_module(python_lint)
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def run_script(args=(), stdin_text=None):
     """Run python_lint.py as a subprocess. Returns (returncode, stdout, stderr)."""
     cmd = [sys.executable, str(SCRIPT)] + list(args)
@@ -47,6 +48,7 @@ def rules(source: str) -> list[str]:
 # ---------------------------------------------------------------------------
 # MUTABLE_DEFAULT — HIGH
 # ---------------------------------------------------------------------------
+
 
 class TestMutableDefault:
     def test_list_default_flagged(self):
@@ -96,6 +98,7 @@ class TestMutableDefault:
 # BARE_EXCEPT — HIGH
 # ---------------------------------------------------------------------------
 
+
 class TestBareExcept:
     def test_bare_except_flagged(self):
         src = "try:\n    x()\nexcept:\n    pass"
@@ -116,11 +119,7 @@ class TestBareExcept:
         assert all(f["severity"] == "HIGH" for f in bare)
 
     def test_multiple_except_handlers(self):
-        src = (
-            "try:\n    x()\n"
-            "except ValueError:\n    pass\n"
-            "except:\n    pass"
-        )
+        src = "try:\n    x()\n" "except ValueError:\n    pass\n" "except:\n    pass"
         result = rules(src)
         assert result.count("BARE_EXCEPT") == 1
 
@@ -128,6 +127,7 @@ class TestBareExcept:
 # ---------------------------------------------------------------------------
 # EQ_NONE — MEDIUM
 # ---------------------------------------------------------------------------
+
 
 class TestEqNone:
     def test_eq_none_flagged(self):
@@ -161,6 +161,7 @@ class TestEqNone:
 # RANGE_LEN — MEDIUM
 # ---------------------------------------------------------------------------
 
+
 class TestRangeLen:
     def test_range_len_flagged(self):
         src = "for i in range(len(items)):\n    pass"
@@ -189,6 +190,7 @@ class TestRangeLen:
 # TYPE_COMPARE — MEDIUM
 # ---------------------------------------------------------------------------
 
+
 class TestTypeCompare:
     def test_type_eq_class_flagged(self):
         src = "if type(x) == list: pass"
@@ -209,12 +211,10 @@ class TestTypeCompare:
 # Sorting: HIGH before MEDIUM
 # ---------------------------------------------------------------------------
 
+
 class TestSortOrder:
     def test_high_before_medium(self):
-        src = (
-            "if x == None: pass\n"
-            "try:\n    x()\nexcept:\n    pass\n"
-        )
+        src = "if x == None: pass\n" "try:\n    x()\nexcept:\n    pass\n"
         findings = check(src)
         severities = [f["severity"] for f in findings]
         high_indices = [i for i, s in enumerate(severities) if s == "HIGH"]
@@ -226,6 +226,7 @@ class TestSortOrder:
 # ---------------------------------------------------------------------------
 # Empty and invalid input
 # ---------------------------------------------------------------------------
+
 
 class TestEdgeCases:
     def test_empty_source_no_findings(self):
@@ -251,6 +252,7 @@ class TestEdgeCases:
 # ---------------------------------------------------------------------------
 # Script I/O via subprocess
 # ---------------------------------------------------------------------------
+
 
 class TestScriptSubprocess:
     def test_stdin_empty_exits_zero(self):
@@ -287,10 +289,7 @@ class TestScriptSubprocess:
         assert "ERROR" in err
 
     def test_findings_sorted_high_first(self):
-        src = (
-            "if x == None: pass\n"
-            "try:\n    x()\nexcept:\n    pass\n"
-        )
+        src = "if x == None: pass\n" "try:\n    x()\nexcept:\n    pass\n"
         rc, out, err = run_script(["-"], stdin_text=src)
         assert rc == 0
         json_text = out.split("\n\n")[0]
@@ -306,8 +305,8 @@ class TestScriptSubprocess:
 
     def test_summary_counts_correct(self):
         src = (
-            "def foo(items=[]): pass\n"   # HIGH x1
-            "if x == None: pass\n"         # MEDIUM x1
+            "def foo(items=[]): pass\n"  # HIGH x1
+            "if x == None: pass\n"  # MEDIUM x1
             "for i in range(len(x)):\n    pass\n"  # MEDIUM x1
         )
         rc, out, err = run_script(["-"], stdin_text=src)

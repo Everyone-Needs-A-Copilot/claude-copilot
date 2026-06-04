@@ -15,6 +15,7 @@ from tc.db.exceptions import TaskNotFound
 
 def _open_conn(db_path: Path) -> sqlite3.Connection:
     from tc.db.connection import get_db
+
     return get_db(db_path)
 
 
@@ -22,6 +23,7 @@ def _require_db_path(db_path: Optional[Path]) -> Path:
     if db_path is not None:
         return db_path
     from tc.db.connection import find_db_path
+
     found = find_db_path()
     if found is None:
         raise FileNotFoundError(
@@ -66,7 +68,9 @@ def handoff_task(
         conn = _open_conn(resolved)
 
     try:
-        task_row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        task_row = conn.execute(
+            "SELECT * FROM tasks WHERE id = ?", (task_id,)
+        ).fetchone()
         if task_row is None:
             raise TaskNotFound(f"task #{task_id} not found")
 

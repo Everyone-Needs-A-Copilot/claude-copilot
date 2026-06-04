@@ -37,7 +37,9 @@ from task_copilot_client import TaskCopilotClient
 
 # Configuration
 SCRIPT_DIR = Path(__file__).parent
-PROJECT_ROOT = SCRIPT_DIR.parent.parent  # Go up from .claude/orchestrator to project root
+PROJECT_ROOT = (
+    SCRIPT_DIR.parent.parent
+)  # Go up from .claude/orchestrator to project root
 PROJECT_NAME = PROJECT_ROOT.name  # Auto-detect from directory name
 LOG_DIR = SCRIPT_DIR / "logs"
 PID_DIR = SCRIPT_DIR / "pids"
@@ -49,15 +51,15 @@ WORKSPACE_ID = PROJECT_NAME
 
 
 class Colors:
-    RED = '\033[0;31m'
-    GREEN = '\033[0;32m'
-    YELLOW = '\033[1;33m'
-    BLUE = '\033[0;34m'
-    CYAN = '\033[0;36m'
-    MAGENTA = '\033[0;35m'
-    BOLD = '\033[1m'
-    DIM = '\033[2m'
-    NC = '\033[0m'  # No Color
+    RED = "\033[0;31m"
+    GREEN = "\033[0;32m"
+    YELLOW = "\033[1;33m"
+    BLUE = "\033[0;34m"
+    CYAN = "\033[0;36m"
+    MAGENTA = "\033[0;35m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    NC = "\033[0m"  # No Color
 
 
 def log(msg: str, color: str = Colors.BLUE):
@@ -117,14 +119,14 @@ class PreflightValidator:
     def validate_claude_cli(self) -> bool:
         """Check Claude CLI is in PATH and executable."""
         # First check with shutil.which
-        claude_path = shutil.which('claude')
+        claude_path = shutil.which("claude")
 
         # If not found, check common installation locations
         if not claude_path:
             common_paths = [
-                '/opt/homebrew/bin/claude',
-                '/usr/local/bin/claude',
-                os.path.expanduser('~/.local/bin/claude')
+                "/opt/homebrew/bin/claude",
+                "/usr/local/bin/claude",
+                os.path.expanduser("~/.local/bin/claude"),
             ]
             for path in common_paths:
                 if os.path.exists(path) and os.access(path, os.X_OK):
@@ -132,18 +134,22 @@ class PreflightValidator:
                     break
 
         if not claude_path:
-            self.errors.append((
-                "Claude CLI",
-                "NOT FOUND\n   → Install with: brew install anthropics/tap/claude\n   → Or add claude to PATH"
-            ))
+            self.errors.append(
+                (
+                    "Claude CLI",
+                    "NOT FOUND\n   → Install with: brew install anthropics/tap/claude\n   → Or add claude to PATH",
+                )
+            )
             return False
 
         # Verify it's executable
         if not os.access(claude_path, os.X_OK):
-            self.errors.append((
-                "Claude CLI",
-                f"Found at {claude_path} but NOT EXECUTABLE\n   → Run: chmod +x {claude_path}"
-            ))
+            self.errors.append(
+                (
+                    "Claude CLI",
+                    f"Found at {claude_path} but NOT EXECUTABLE\n   → Run: chmod +x {claude_path}",
+                )
+            )
             return False
 
         return True
@@ -151,133 +157,134 @@ class PreflightValidator:
     def validate_git_worktree_support(self) -> bool:
         """Check git supports worktrees and project is a git repo."""
         # Check if project is a git repository
-        if not (self.project_root / '.git').exists():
-            self.errors.append((
-                "Git Repository",
-                f"NOT A GIT REPO: {self.project_root}\n   → Initialize with: git init"
-            ))
+        if not (self.project_root / ".git").exists():
+            self.errors.append(
+                (
+                    "Git Repository",
+                    f"NOT A GIT REPO: {self.project_root}\n   → Initialize with: git init",
+                )
+            )
             return False
 
         # Check git version supports worktrees (requires git >= 2.5)
         try:
             result = subprocess.run(
-                ['git', '--version'],
-                capture_output=True,
-                text=True,
-                timeout=5
+                ["git", "--version"], capture_output=True, text=True, timeout=5
             )
             if result.returncode != 0:
-                self.errors.append((
-                    "Git Version",
-                    "Could not determine git version"
-                ))
+                self.errors.append(("Git Version", "Could not determine git version"))
                 return False
 
             # Parse version (output format: "git version 2.43.0")
             version_str = result.stdout.strip()
             # Extract version number
             import re
-            match = re.search(r'git version (\d+)\.(\d+)', version_str)
+
+            match = re.search(r"git version (\d+)\.(\d+)", version_str)
             if match:
                 major, minor = int(match.group(1)), int(match.group(2))
                 if major < 2 or (major == 2 and minor < 5):
-                    self.errors.append((
-                        "Git Version",
-                        f"Git {major}.{minor} found - worktrees require >= 2.5\n   → Update git: brew upgrade git"
-                    ))
+                    self.errors.append(
+                        (
+                            "Git Version",
+                            f"Git {major}.{minor} found - worktrees require >= 2.5\n   → Update git: brew upgrade git",
+                        )
+                    )
                     return False
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-            self.errors.append((
-                "Git Check",
-                f"Failed to check git version: {e}"
-            ))
+            self.errors.append(("Git Check", f"Failed to check git version: {e}"))
             return False
 
         # Test worktree support by running 'git worktree list'
         try:
             result = subprocess.run(
-                ['git', 'worktree', 'list'],
+                ["git", "worktree", "list"],
                 cwd=self.project_root,
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
             )
             if result.returncode != 0:
-                self.errors.append((
-                    "Git Worktree",
-                    f"Git worktree command failed\n   → {result.stderr.strip()}"
-                ))
+                self.errors.append(
+                    (
+                        "Git Worktree",
+                        f"Git worktree command failed\n   → {result.stderr.strip()}",
+                    )
+                )
                 return False
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-            self.errors.append((
-                "Git Worktree",
-                f"Failed to test worktree support: {e}"
-            ))
+            self.errors.append(
+                ("Git Worktree", f"Failed to test worktree support: {e}")
+            )
             return False
 
         return True
 
     def validate_directory_permissions(self) -> bool:
         """Check write permissions for worktree directory."""
-        worktree_base = self.project_root / '.claude' / 'worktrees'
+        worktree_base = self.project_root / ".claude" / "worktrees"
 
         # If it doesn't exist, check parent directory
         if not worktree_base.exists():
-            check_dir = self.project_root / '.claude'
+            check_dir = self.project_root / ".claude"
             if not check_dir.exists():
                 check_dir = self.project_root
         else:
             check_dir = worktree_base
 
         if not os.access(check_dir, os.W_OK):
-            self.errors.append((
-                "Directory Permissions",
-                f"Cannot write to {check_dir}\n   → Check permissions: ls -la {check_dir.parent}"
-            ))
+            self.errors.append(
+                (
+                    "Directory Permissions",
+                    f"Cannot write to {check_dir}\n   → Check permissions: ls -la {check_dir.parent}",
+                )
+            )
             return False
 
         # Also check PID and log directories
-        orchestrator_dir = self.project_root / '.claude' / 'orchestrator'
+        orchestrator_dir = self.project_root / ".claude" / "orchestrator"
         if orchestrator_dir.exists():
-            for subdir in ['pids', 'logs']:
+            for subdir in ["pids", "logs"]:
                 subdir_path = orchestrator_dir / subdir
                 if subdir_path.exists() and not os.access(subdir_path, os.W_OK):
-                    self.warnings.append((
-                        f"{subdir.title()} Directory",
-                        f"Warning - Cannot write to {subdir_path}"
-                    ))
+                    self.warnings.append(
+                        (
+                            f"{subdir.title()} Directory",
+                            f"Warning - Cannot write to {subdir_path}",
+                        )
+                    )
 
         return True
 
     def validate_task_copilot(self) -> bool:
         """Check tc CLI is installed and accessible."""
-        tc_path = shutil.which('tc')
+        tc_path = shutil.which("tc")
 
         if not tc_path:
-            self.errors.append((
-                "Task Copilot",
-                "NOT FOUND - tc CLI not installed\n   → Install with: pip install -e ~/.claude/copilot/tools/tc"
-            ))
+            self.errors.append(
+                (
+                    "Task Copilot",
+                    "NOT FOUND - tc CLI not installed\n   → Install with: pip install -e ~/.claude/copilot/tools/tc",
+                )
+            )
             return False
 
         # Verify tc works by checking version
         try:
             result = subprocess.run(
-                ['tc', 'version'],
-                capture_output=True,
-                text=True,
-                timeout=5
+                ["tc", "version"], capture_output=True, text=True, timeout=5
             )
             if result.returncode != 0:
-                self.warnings.append((
-                    "Task Copilot",
-                    f"Warning - tc CLI returned error: {result.stderr.strip()}"
-                ))
+                self.warnings.append(
+                    (
+                        "Task Copilot",
+                        f"Warning - tc CLI returned error: {result.stderr.strip()}",
+                    )
+                )
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-            self.warnings.append((
-                "Task Copilot",
-                f"Warning - Could not verify tc CLI: {e}"
-            ))
+            self.warnings.append(
+                ("Task Copilot", f"Warning - Could not verify tc CLI: {e}")
+            )
 
         return True
 
@@ -302,33 +309,34 @@ class PreflightValidator:
 
         # Check 1: Directory exists
         if not worktree_path.exists():
-            self.errors.append((
-                "Worktree Validation",
-                f"Directory does not exist: {worktree_path}"
-            ))
+            self.errors.append(
+                ("Worktree Validation", f"Directory does not exist: {worktree_path}")
+            )
             return False
 
         # Check 2: .git file exists (worktrees have a .git file, not directory)
-        git_file = worktree_path / '.git'
+        git_file = worktree_path / ".git"
         if not git_file.exists():
             worktree_errors.append(f"Missing .git file in worktree")
         elif git_file.is_dir():
-            worktree_errors.append(f".git is a directory (should be a file in worktrees)")
+            worktree_errors.append(
+                f".git is a directory (should be a file in worktrees)"
+            )
 
         # Check 3: Git recognizes it as a worktree
         try:
             result = subprocess.run(
-                ['git', 'worktree', 'list'],
+                ["git", "worktree", "list"],
                 cwd=main_project_path,
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
             )
 
             if result.returncode == 0:
                 # Check if worktree_path is in the output
                 worktree_listed = False
-                for line in result.stdout.strip().split('\n'):
+                for line in result.stdout.strip().split("\n"):
                     # Lines are like: "/path/to/worktree <hash> [branch]"
                     if str(worktree_path.resolve()) in line:
                         worktree_listed = True
@@ -348,7 +356,11 @@ class PreflightValidator:
             main_files = []
             for root, dirs, files in os.walk(main_project_path):
                 # Skip .git and common directories
-                dirs[:] = [d for d in dirs if d not in ['.git', 'node_modules', '__pycache__', '.venv', 'venv']]
+                dirs[:] = [
+                    d
+                    for d in dirs
+                    if d not in [".git", "node_modules", "__pycache__", ".venv", "venv"]
+                ]
                 main_files.extend(files)
 
             main_file_count = len(main_files)
@@ -356,7 +368,11 @@ class PreflightValidator:
             # Count files in worktree
             worktree_files = []
             for root, dirs, files in os.walk(worktree_path):
-                dirs[:] = [d for d in dirs if d not in ['.git', 'node_modules', '__pycache__', '.venv', 'venv']]
+                dirs[:] = [
+                    d
+                    for d in dirs
+                    if d not in [".git", "node_modules", "__pycache__", ".venv", "venv"]
+                ]
                 worktree_files.extend(files)
 
             worktree_file_count = len(worktree_files)
@@ -379,12 +395,11 @@ class PreflightValidator:
             for err in worktree_errors:
                 error_msg += f"   → {err}\n"
             error_msg += "   → This usually means 'mkdir' was used instead of 'git worktree add'\n"
-            error_msg += f"   → Fix: Remove directory and re-create with 'git worktree add'"
+            error_msg += (
+                f"   → Fix: Remove directory and re-create with 'git worktree add'"
+            )
 
-            self.errors.append((
-                "Worktree Validation",
-                error_msg
-            ))
+            self.errors.append(("Worktree Validation", error_msg))
             return False
 
         return True
@@ -399,7 +414,7 @@ class PreflightValidator:
             "Claude CLI": True,
             "Git Worktree": True,
             "Permissions": True,
-            "Task Copilot": True
+            "Task Copilot": True,
         }
 
         # Mark failed checks
@@ -410,28 +425,49 @@ class PreflightValidator:
         for check_name, passed in all_checks.items():
             if passed:
                 # Check if there's a warning for this check
-                warning = next((msg for name, msg in self.warnings if name == check_name), None)
+                warning = next(
+                    (msg for name, msg in self.warnings if name == check_name), None
+                )
                 if warning:
                     print(f"⚠️  {Colors.YELLOW}{check_name}{Colors.NC}: {warning}")
                 else:
                     # Need to show details for passing checks
                     if check_name == "Claude CLI":
-                        claude_path = shutil.which('claude') or '/opt/homebrew/bin/claude'
-                        print(f"✅ {Colors.GREEN}{check_name}{Colors.NC}: Found at {claude_path}")
+                        claude_path = (
+                            shutil.which("claude") or "/opt/homebrew/bin/claude"
+                        )
+                        print(
+                            f"✅ {Colors.GREEN}{check_name}{Colors.NC}: Found at {claude_path}"
+                        )
                     elif check_name == "Git Worktree":
                         try:
-                            result = subprocess.run(['git', '--version'], capture_output=True, text=True, timeout=5)
+                            result = subprocess.run(
+                                ["git", "--version"],
+                                capture_output=True,
+                                text=True,
+                                timeout=5,
+                            )
                             version = result.stdout.strip()
-                            print(f"✅ {Colors.GREEN}{check_name}{Colors.NC}: Supported ({version})")
+                            print(
+                                f"✅ {Colors.GREEN}{check_name}{Colors.NC}: Supported ({version})"
+                            )
                         except:
-                            print(f"✅ {Colors.GREEN}{check_name}{Colors.NC}: Supported")
+                            print(
+                                f"✅ {Colors.GREEN}{check_name}{Colors.NC}: Supported"
+                            )
                     elif check_name == "Permissions":
-                        print(f"✅ {Colors.GREEN}{check_name}{Colors.NC}: Write access confirmed")
+                        print(
+                            f"✅ {Colors.GREEN}{check_name}{Colors.NC}: Write access confirmed"
+                        )
                     elif check_name == "Task Copilot":
-                        print(f"✅ {Colors.GREEN}{check_name}{Colors.NC}: tc CLI installed")
+                        print(
+                            f"✅ {Colors.GREEN}{check_name}{Colors.NC}: tc CLI installed"
+                        )
             else:
                 # Print error details
-                error_msg = next((msg for name, msg in self.errors if name == check_name), "FAILED")
+                error_msg = next(
+                    (msg for name, msg in self.errors if name == check_name), "FAILED"
+                )
                 print(f"❌ {Colors.RED}{check_name}{Colors.NC}: {error_msg}")
 
         print()
@@ -439,11 +475,17 @@ class PreflightValidator:
         # Print summary
         if len(self.errors) == 0:
             if len(self.warnings) > 0:
-                print(f"{Colors.YELLOW}All checks passed with {len(self.warnings)} warning(s). Orchestration should work.{Colors.NC}\n")
+                print(
+                    f"{Colors.YELLOW}All checks passed with {len(self.warnings)} warning(s). Orchestration should work.{Colors.NC}\n"
+                )
             else:
-                print(f"{Colors.GREEN}All checks passed. Ready to orchestrate.{Colors.NC}\n")
+                print(
+                    f"{Colors.GREEN}All checks passed. Ready to orchestrate.{Colors.NC}\n"
+                )
         else:
-            print(f"{Colors.RED}Pre-flight failed with {len(self.errors)} error(s). Fix issues above before running orchestration.{Colors.NC}\n")
+            print(
+                f"{Colors.RED}Pre-flight failed with {len(self.errors)} error(s). Fix issues above before running orchestration.{Colors.NC}\n"
+            )
 
 
 class Orchestrator:
@@ -454,11 +496,15 @@ class Orchestrator:
         # Require active initiative
         self.initiative_id = self.tc_client.get_active_initiative_id()
         if not self.initiative_id:
-            error("No active initiative found. Start an initiative with /protocol first.")
+            error(
+                "No active initiative found. Start an initiative with /protocol first."
+            )
             sys.exit(1)
 
         # Get initiative details for display
-        self.initiative_details = self.tc_client.get_initiative_details(self.initiative_id)
+        self.initiative_details = self.tc_client.get_initiative_details(
+            self.initiative_id
+        )
         if self.initiative_details:
             log(f"Initiative: {self.initiative_details.name}")
             if self.initiative_details.goal:
@@ -489,10 +535,16 @@ class Orchestrator:
             streams = {}
             for stream_info in stream_infos:
                 # All parallel streams use worktrees, main stream uses project root
-                worktree = "." if stream_info.stream_id == "main" else f".claude/worktrees/{stream_info.stream_id}"
+                worktree = (
+                    "."
+                    if stream_info.stream_id == "main"
+                    else f".claude/worktrees/{stream_info.stream_id}"
+                )
 
                 # Fetch tasks for this stream
-                tasks = self.tc_client.stream_tasks(stream_info.stream_id, self.initiative_id)
+                tasks = self.tc_client.stream_tasks(
+                    stream_info.stream_id, self.initiative_id
+                )
 
                 streams[stream_info.stream_id] = {
                     "id": stream_info.stream_id,
@@ -582,7 +634,9 @@ class Orchestrator:
         """Get stream status using Task Copilot client."""
         try:
             # Filter by initiative
-            progress = self.tc_client.stream_get(stream_id, initiative_id=self.initiative_id)
+            progress = self.tc_client.stream_get(
+                stream_id, initiative_id=self.initiative_id
+            )
             if not progress:
                 return None
 
@@ -590,7 +644,7 @@ class Orchestrator:
                 "total_tasks": progress.total_tasks,
                 "completed_tasks": progress.completed_tasks,
                 "in_progress_tasks": progress.in_progress_tasks,
-                "is_complete": progress.is_complete
+                "is_complete": progress.is_complete,
             }
         except Exception as e:
             warn(f"Failed to get status for {stream_id}: {e}")
@@ -693,7 +747,9 @@ class Orchestrator:
             if log_file.exists() and log_file.stat().st_size > 100:
                 # Worker ran but died - has incomplete tasks
                 # Check if there's at least one in_progress or we had progress
-                if status and (status["completed_tasks"] > 0 or status["in_progress_tasks"] > 0):
+                if status and (
+                    status["completed_tasks"] > 0 or status["in_progress_tasks"] > 0
+                ):
                     dead_workers.append(stream_id)
                 elif status and status["total_tasks"] > 0:
                     # Had tasks but no progress - likely died early
@@ -711,13 +767,15 @@ class Orchestrator:
             True (always passes now that routing is enabled)
         """
         # Specialized agent routing is now enabled - no need to check/reassign
-        non_me_tasks = self.tc_client.get_non_me_agent_tasks(initiative_id=self.initiative_id)
+        non_me_tasks = self.tc_client.get_non_me_agent_tasks(
+            initiative_id=self.initiative_id
+        )
 
         if non_me_tasks:
             # Group by agent for informational display
             by_agent: Dict[str, int] = defaultdict(int)
             for task in non_me_tasks:
-                by_agent[task['assigned_agent']] += 1
+                by_agent[task["assigned_agent"]] += 1
 
             log(f"Found {len(non_me_tasks)} task(s) assigned to specialized agents:")
             for agent, count in sorted(by_agent.items()):
@@ -746,9 +804,7 @@ class Orchestrator:
             os.kill(pid, 0)
             # Double-check with ps to catch zombies (kill -0 succeeds for zombies)
             result = subprocess.run(
-                ["ps", "-p", str(pid), "-o", "pid="],
-                capture_output=True,
-                timeout=5
+                ["ps", "-p", str(pid), "-o", "pid="], capture_output=True, timeout=5
             )
             if result.returncode != 0:
                 # Process is zombie or doesn't exist
@@ -776,7 +832,7 @@ class Orchestrator:
         Returns:
             Tuple of (success_count, list_of_failed_stream_ids)
         """
-        worktree_base = PROJECT_ROOT / '.claude' / 'worktrees'
+        worktree_base = PROJECT_ROOT / ".claude" / "worktrees"
         success_count = 0
         failures = []
 
@@ -791,7 +847,7 @@ class Orchestrator:
                 cwd=PROJECT_ROOT,
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=10,
             )
             main_branch = result.stdout.strip() or "main"
         except Exception:
@@ -809,7 +865,7 @@ class Orchestrator:
                     cwd=worktree_path,
                     capture_output=True,
                     text=True,
-                    timeout=30
+                    timeout=30,
                 )
 
                 if not result.stdout.strip():
@@ -817,7 +873,7 @@ class Orchestrator:
                     log(f"  {stream_id}: No new commits to merge")
                     continue
 
-                commits = result.stdout.strip().split('\n')
+                commits = result.stdout.strip().split("\n")
                 log(f"  {stream_id}: {len(commits)} commit(s) to merge")
 
                 # Get the worktree's branch name (usually same as stream_id)
@@ -826,18 +882,24 @@ class Orchestrator:
                     cwd=worktree_path,
                     capture_output=True,
                     text=True,
-                    timeout=10
+                    timeout=10,
                 )
                 worktree_branch = branch_result.stdout.strip()
 
                 # Merge the worktree branch into main from the main project root
                 merge_result = subprocess.run(
-                    ["git", "merge", worktree_branch, "--no-edit", "-m",
-                     f"Merge {stream_id} into {main_branch}"],
+                    [
+                        "git",
+                        "merge",
+                        worktree_branch,
+                        "--no-edit",
+                        "-m",
+                        f"Merge {stream_id} into {main_branch}",
+                    ],
                     cwd=PROJECT_ROOT,
                     capture_output=True,
                     text=True,
-                    timeout=60
+                    timeout=60,
                 )
 
                 if merge_result.returncode == 0:
@@ -845,12 +907,23 @@ class Orchestrator:
                     log(f"  {stream_id}: Merged successfully")
                 else:
                     # Check if it's a conflict
-                    if "CONFLICT" in merge_result.stdout or "CONFLICT" in merge_result.stderr:
-                        warn(f"  {stream_id}: Merge conflict - manual resolution required")
+                    if (
+                        "CONFLICT" in merge_result.stdout
+                        or "CONFLICT" in merge_result.stderr
+                    ):
+                        warn(
+                            f"  {stream_id}: Merge conflict - manual resolution required"
+                        )
                         # Abort the merge
-                        subprocess.run(["git", "merge", "--abort"], cwd=PROJECT_ROOT, capture_output=True)
+                        subprocess.run(
+                            ["git", "merge", "--abort"],
+                            cwd=PROJECT_ROOT,
+                            capture_output=True,
+                        )
                     else:
-                        warn(f"  {stream_id}: Merge failed - {merge_result.stderr[:100]}")
+                        warn(
+                            f"  {stream_id}: Merge failed - {merge_result.stderr[:100]}"
+                        )
                     failures.append(stream_id)
 
             except subprocess.TimeoutExpired:
@@ -864,7 +937,7 @@ class Orchestrator:
 
     def _cleanup_worktrees(self):
         """Remove all worktrees after successful merge."""
-        worktree_base = PROJECT_ROOT / '.claude' / 'worktrees'
+        worktree_base = PROJECT_ROOT / ".claude" / "worktrees"
 
         if not worktree_base.exists():
             return
@@ -882,7 +955,7 @@ class Orchestrator:
                     cwd=PROJECT_ROOT,
                     capture_output=True,
                     text=True,
-                    timeout=30
+                    timeout=30,
                 )
                 if result.returncode == 0:
                     cleaned += 1
@@ -896,7 +969,9 @@ class Orchestrator:
                 shutil.rmtree(worktree_path, ignore_errors=True)
 
         # Prune worktree metadata
-        subprocess.run(["git", "worktree", "prune"], cwd=PROJECT_ROOT, capture_output=True)
+        subprocess.run(
+            ["git", "worktree", "prune"], cwd=PROJECT_ROOT, capture_output=True
+        )
 
         if cleaned > 0:
             log(f"Cleaned up {cleaned} worktree(s)")
@@ -910,7 +985,8 @@ class Orchestrator:
         conn = self.tc_client._connect()
         try:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT
                     t.id,
                     t.title,
@@ -934,20 +1010,24 @@ class Orchestrator:
                         WHEN 'integration' THEN 6
                         ELSE 99
                     END, t.created_at
-            """, (self.initiative_id,))
+            """,
+                (self.initiative_id,),
+            )
 
             tasks = []
             for row in cursor.fetchall():
                 task_id, title, status, agent, stream_id, files, phase = row
-                tasks.append({
-                    'id': task_id,
-                    'title': title,
-                    'status': status,
-                    'assigned_agent': agent or 'me',
-                    'stream_id': stream_id,
-                    'files': files,
-                    'phase': phase or 'backend'
-                })
+                tasks.append(
+                    {
+                        "id": task_id,
+                        "title": title,
+                        "status": status,
+                        "assigned_agent": agent or "me",
+                        "stream_id": stream_id,
+                        "files": files,
+                        "phase": phase or "backend",
+                    }
+                )
 
             return tasks
         finally:
@@ -962,16 +1042,16 @@ class Orchestrator:
         agent_counts = defaultdict(int)
 
         for task in tasks:
-            stream_id = task['stream_id']
-            agent = task['assigned_agent']
+            stream_id = task["stream_id"]
+            agent = task["assigned_agent"]
 
             streams_tasks[stream_id].append(task)
             agent_counts[agent] += 1
 
         return {
-            'streams': streams_tasks,
-            'agent_counts': agent_counts,
-            'total_tasks': len(tasks)
+            "streams": streams_tasks,
+            "agent_counts": agent_counts,
+            "total_tasks": len(tasks),
         }
 
     def _build_prompt(self, stream: dict) -> str:
@@ -980,7 +1060,7 @@ class Orchestrator:
         Loads foreman-prompt.md template and populates it with stream data,
         including a task table with Agent and Phase columns.
         """
-        dependencies = self.stream_dependencies.get(stream['id'], set())
+        dependencies = self.stream_dependencies.get(stream["id"], set())
         deps_str = ", ".join(dependencies) if dependencies else "None"
 
         # Determine worktree path
@@ -991,7 +1071,10 @@ class Orchestrator:
 
         # Build task table with Agent + Phase columns
         tasks = stream.get("tasks", [])
-        table_lines = ["| Task ID | Title | Agent | Phase |", "|---------|-------|-------|-------|"]
+        table_lines = [
+            "| Task ID | Title | Agent | Phase |",
+            "|---------|-------|-------|-------|",
+        ]
         for task in tasks:
             table_lines.append(
                 f"| {task['id']} | {task['title']} | {task.get('assigned_agent', 'me')} | {task.get('phase', 'backend')} |"
@@ -999,7 +1082,7 @@ class Orchestrator:
         task_table = "\n".join(table_lines)
 
         # Get any task ID for the completion summary placeholder
-        any_task_id = tasks[0]['id'] if tasks else "TASK-xxx"
+        any_task_id = tasks[0]["id"] if tasks else "TASK-xxx"
         task_count = len(tasks)
 
         # Load foreman-prompt.md template
@@ -1019,8 +1102,8 @@ class Orchestrator:
             template = template[marker_pos:]
 
         # Replace placeholders
-        prompt = template.replace("{stream_id}", stream['id'])
-        prompt = prompt.replace("{stream_name}", stream['name'])
+        prompt = template.replace("{stream_id}", stream["id"])
+        prompt = prompt.replace("{stream_name}", stream["name"])
         prompt = prompt.replace("{worktree_path}", worktree_path)
         prompt = prompt.replace("{dependencies}", deps_str)
         prompt = prompt.replace("{task_table}", task_table)
@@ -1029,7 +1112,9 @@ class Orchestrator:
 
         return prompt
 
-    def spawn_worker(self, stream_id: str, wait_for_deps: bool = True, skip_preflight: bool = False) -> bool:
+    def spawn_worker(
+        self, stream_id: str, wait_for_deps: bool = True, skip_preflight: bool = False
+    ) -> bool:
         """Spawn a Claude Code worker for a stream.
 
         Args:
@@ -1059,7 +1144,9 @@ class Orchestrator:
         # Check dependencies
         if wait_for_deps and not self._are_dependencies_complete(stream_id):
             dependencies = self.stream_dependencies.get(stream_id, set())
-            warn(f"Dependencies not complete for {stream_id}: {', '.join(dependencies)}")
+            warn(
+                f"Dependencies not complete for {stream_id}: {', '.join(dependencies)}"
+            )
             return False
 
         # Determine working directory
@@ -1077,7 +1164,7 @@ class Orchestrator:
                 ["git", "branch", stream_id],
                 cwd=PROJECT_ROOT,
                 capture_output=True,
-                text=True
+                text=True,
             )
             # Ignore error if branch already exists
 
@@ -1086,25 +1173,40 @@ class Orchestrator:
                 ["git", "worktree", "add", str(work_dir), stream_id],
                 cwd=PROJECT_ROOT,
                 capture_output=True,
-                text=True
+                text=True,
             )
 
             if worktree_result.returncode != 0:
                 # Check if worktree already exists but directory was deleted
-                if "already checked out" in worktree_result.stderr or "already exists" in worktree_result.stderr:
-                    warn(f"Worktree issue for {stream_id}: {worktree_result.stderr.strip()}")
+                if (
+                    "already checked out" in worktree_result.stderr
+                    or "already exists" in worktree_result.stderr
+                ):
+                    warn(
+                        f"Worktree issue for {stream_id}: {worktree_result.stderr.strip()}"
+                    )
                     warn(f"Attempting to repair by removing and recreating...")
-                    subprocess.run(["git", "worktree", "remove", str(work_dir), "--force"], cwd=PROJECT_ROOT, capture_output=True)
-                    subprocess.run(["git", "worktree", "prune"], cwd=PROJECT_ROOT, capture_output=True)
+                    subprocess.run(
+                        ["git", "worktree", "remove", str(work_dir), "--force"],
+                        cwd=PROJECT_ROOT,
+                        capture_output=True,
+                    )
+                    subprocess.run(
+                        ["git", "worktree", "prune"],
+                        cwd=PROJECT_ROOT,
+                        capture_output=True,
+                    )
                     worktree_result = subprocess.run(
                         ["git", "worktree", "add", str(work_dir), stream_id],
                         cwd=PROJECT_ROOT,
                         capture_output=True,
-                        text=True
+                        text=True,
                     )
 
                 if worktree_result.returncode != 0:
-                    error(f"Failed to create worktree for {stream_id}: {worktree_result.stderr}")
+                    error(
+                        f"Failed to create worktree for {stream_id}: {worktree_result.stderr}"
+                    )
                     return False
 
             success(f"Created git worktree at {work_dir}")
@@ -1120,20 +1222,30 @@ class Orchestrator:
                     subprocess.run(
                         ["git", "worktree", "remove", str(work_dir), "--force"],
                         cwd=PROJECT_ROOT,
-                        capture_output=True
+                        capture_output=True,
                     )
-                    subprocess.run(["git", "worktree", "prune"], cwd=PROJECT_ROOT, capture_output=True)
+                    subprocess.run(
+                        ["git", "worktree", "prune"],
+                        cwd=PROJECT_ROOT,
+                        capture_output=True,
+                    )
                 except Exception as cleanup_err:
                     warn(f"Cleanup warning: {cleanup_err}")
 
                 error(f"Worktree validation failed for {stream_id}")
-                error(f"Please remove the directory manually and re-run orchestrate generate")
+                error(
+                    f"Please remove the directory manually and re-run orchestrate generate"
+                )
                 return False
 
             success(f"Worktree validated successfully")
 
         dependencies = self.stream_dependencies.get(stream_id, set())
-        deps_str = f" (depends on: {', '.join(dependencies)})" if dependencies else " (no dependencies)"
+        deps_str = (
+            f" (depends on: {', '.join(dependencies)})"
+            if dependencies
+            else " (no dependencies)"
+        )
 
         log(f"Spawning worker for {stream_id}")
         log(f"  Name: {stream['name']}")
@@ -1153,7 +1265,7 @@ class Orchestrator:
                 str(LOG_DIR),  # Wrapper constructs per-initiative log filename
                 str(work_dir),
                 self.initiative_id,  # For per-initiative log naming
-                prompt
+                prompt,
             ],
             start_new_session=True,  # Detach from parent
             stdout=subprocess.DEVNULL,
@@ -1222,7 +1334,9 @@ class Orchestrator:
             if new_ready:
                 log(f"Found {len(new_ready)} ready streams: {', '.join(new_ready)}")
                 for stream_id in new_ready:
-                    self.spawn_worker(stream_id, wait_for_deps=False, skip_preflight=True)
+                    self.spawn_worker(
+                        stream_id, wait_for_deps=False, skip_preflight=True
+                    )
                     attempted.add(stream_id)
                     print()
 
@@ -1231,11 +1345,17 @@ class Orchestrator:
             for stream_id in dead_workers:
                 if restart_counts[stream_id] < MAX_RESTARTS:
                     restart_counts[stream_id] += 1
-                    warn(f"Worker {stream_id} died with incomplete tasks - restarting (attempt {restart_counts[stream_id]}/{MAX_RESTARTS})")
-                    self.spawn_worker(stream_id, wait_for_deps=False, skip_preflight=True)
+                    warn(
+                        f"Worker {stream_id} died with incomplete tasks - restarting (attempt {restart_counts[stream_id]}/{MAX_RESTARTS})"
+                    )
+                    self.spawn_worker(
+                        stream_id, wait_for_deps=False, skip_preflight=True
+                    )
                     print()
                 else:
-                    error(f"Worker {stream_id} failed {MAX_RESTARTS} times - marking as stuck")
+                    error(
+                        f"Worker {stream_id} failed {MAX_RESTARTS} times - marking as stuck"
+                    )
 
             # Check if all streams are complete
             all_complete = True
@@ -1255,12 +1375,16 @@ class Orchestrator:
                 if merge_success:
                     success(f"Merged {merge_success} stream(s) to main")
                 if merge_failures:
-                    warn(f"Failed to merge {len(merge_failures)} stream(s): {', '.join(merge_failures)}")
+                    warn(
+                        f"Failed to merge {len(merge_failures)} stream(s): {', '.join(merge_failures)}"
+                    )
                 print()
 
                 # Archive streams for this initiative
                 log(f"Archiving streams for initiative {self.initiative_id}")
-                archived_count = self.tc_client.archive_initiative_streams(self.initiative_id)
+                archived_count = self.tc_client.archive_initiative_streams(
+                    self.initiative_id
+                )
                 success(f"Archived {archived_count} tasks")
 
                 # Clean up worktrees after successful merge
@@ -1272,7 +1396,9 @@ class Orchestrator:
                 if self.tc_client.complete_initiative(self.initiative_id):
                     success("Initiative marked as COMPLETE")
                 else:
-                    warn("Failed to mark initiative as complete (Memory Copilot database may not be accessible)")
+                    warn(
+                        "Failed to mark initiative as complete (Memory Copilot database may not be accessible)"
+                    )
 
                 print()
                 success("Initiative complete - all streams merged and archived")
@@ -1325,14 +1451,18 @@ class Orchestrator:
                 else:
                     deps_str = ""
 
-                print(f"    • {Colors.BOLD}{stream_id}{Colors.NC} ({stream['name']}){deps_str}")
+                print(
+                    f"    • {Colors.BOLD}{stream_id}{Colors.NC} ({stream['name']}){deps_str}"
+                )
 
             print()
 
     def check_status(self):
         """Display status of all workers grouped by dependency depth."""
         print(f"\n{Colors.BOLD}{'='*75}{Colors.NC}")
-        print(f"{Colors.BOLD}              {PROJECT_NAME.upper()} - WORKER STATUS{Colors.NC}")
+        print(
+            f"{Colors.BOLD}              {PROJECT_NAME.upper()} - WORKER STATUS{Colors.NC}"
+        )
         print(f"{Colors.BOLD}{'='*75}{Colors.NC}\n")
 
         # Group streams by dependency depth
@@ -1352,7 +1482,9 @@ class Orchestrator:
             if self._is_running(stream_id):
                 running_streams += 1
 
-        print(f"  {Colors.BOLD}Overall:{Colors.NC} {completed_streams}/{total_streams} complete, {running_streams} running")
+        print(
+            f"  {Colors.BOLD}Overall:{Colors.NC} {completed_streams}/{total_streams} complete, {running_streams} running"
+        )
         print()
 
         # Display each depth level
@@ -1398,7 +1530,9 @@ class Orchestrator:
                     pct = int(status["completed_tasks"] / status["total_tasks"] * 100)
                     bar_filled = pct // 7
                     bar = "=" * bar_filled + "-" * (15 - bar_filled)
-                    progress = f"[{bar}] {status['completed_tasks']}/{status['total_tasks']}"
+                    progress = (
+                        f"[{bar}] {status['completed_tasks']}/{status['total_tasks']}"
+                    )
                 else:
                     progress = "[---------------] ?/?"
 
@@ -1409,7 +1543,9 @@ class Orchestrator:
                     if pid_file.exists():
                         pid_str = f" (PID: {pid_file.read_text().strip()})"
 
-                print(f"    {icon} {Colors.BOLD}{stream_id}{Colors.NC} | {stream['name']}")
+                print(
+                    f"    {icon} {Colors.BOLD}{stream_id}{Colors.NC} | {stream['name']}"
+                )
                 print(f"      {progress} | {status_text}{pid_str}")
             print()
 
@@ -1468,7 +1604,9 @@ class Orchestrator:
         print(f"{Colors.BOLD}           ROUTING PLAN - TEST MODE (DRY RUN){Colors.NC}")
         print(f"{Colors.BOLD}{'='*75}{Colors.NC}\n")
 
-        log(f"Initiative: {self.initiative_details.name if self.initiative_details else self.initiative_id}")
+        log(
+            f"Initiative: {self.initiative_details.name if self.initiative_details else self.initiative_id}"
+        )
         print()
 
         # Generate routing plan
@@ -1486,71 +1624,92 @@ class Orchestrator:
             stream_ids = sorted(depths[depth])
 
             for stream_id in stream_ids:
-                if stream_id not in plan['streams']:
+                if stream_id not in plan["streams"]:
                     continue
 
                 stream = self.streams[stream_id]
-                tasks = plan['streams'][stream_id]
+                tasks = plan["streams"][stream_id]
 
                 # Display stream header
                 deps = self.stream_dependencies.get(stream_id, set())
                 deps_str = f" (depends on: {', '.join(sorted(deps))})" if deps else ""
 
-                print(f"  {Colors.MAGENTA}{stream_id}{Colors.NC}: {stream['name']}{deps_str}")
+                print(
+                    f"  {Colors.MAGENTA}{stream_id}{Colors.NC}: {stream['name']}{deps_str}"
+                )
 
                 # Display tasks with agent assignments, grouped by phase
                 agent_colors = {
-                    'me': Colors.GREEN,
-                    'uid': Colors.CYAN,
-                    'uxd': Colors.CYAN,
-                    'qa': Colors.YELLOW,
-                    'sec': Colors.RED,
-                    'ta': Colors.BLUE,
-                    'sd': Colors.BLUE,
-                    'doc': Colors.DIM,
-                    'do': Colors.DIM,
+                    "me": Colors.GREEN,
+                    "uid": Colors.CYAN,
+                    "uxd": Colors.CYAN,
+                    "qa": Colors.YELLOW,
+                    "sec": Colors.RED,
+                    "ta": Colors.BLUE,
+                    "sd": Colors.BLUE,
+                    "doc": Colors.DIM,
+                    "do": Colors.DIM,
                 }
 
                 # Group tasks by phase
-                phase_order = ['backend', 'frontend', 'quality', 'docs', 'devops', 'integration']
+                phase_order = [
+                    "backend",
+                    "frontend",
+                    "quality",
+                    "docs",
+                    "devops",
+                    "integration",
+                ]
                 tasks_by_phase = defaultdict(list)
                 for task in tasks:
-                    phase = task.get('phase', 'backend')
+                    phase = task.get("phase", "backend")
                     tasks_by_phase[phase].append(task)
 
                 for phase in phase_order:
                     if phase not in tasks_by_phase:
                         continue
                     phase_tasks = tasks_by_phase[phase]
-                    parallel_label = f" ({len(phase_tasks)} parallel)" if len(phase_tasks) > 1 else ""
+                    parallel_label = (
+                        f" ({len(phase_tasks)} parallel)"
+                        if len(phase_tasks) > 1
+                        else ""
+                    )
                     print(f"    {Colors.BOLD}Phase: {phase}{parallel_label}{Colors.NC}")
 
                     for task in phase_tasks:
-                        agent = task['assigned_agent']
+                        agent = task["assigned_agent"]
                         color = agent_colors.get(agent, Colors.NC)
                         status_icon = {
-                            'completed': f"{Colors.GREEN}✓{Colors.NC}",
-                            'in_progress': f"{Colors.YELLOW}◐{Colors.NC}",
-                            'pending': f"{Colors.DIM}○{Colors.NC}",
-                            'blocked': f"{Colors.RED}✗{Colors.NC}",
-                        }.get(task['status'], "?")
+                            "completed": f"{Colors.GREEN}✓{Colors.NC}",
+                            "in_progress": f"{Colors.YELLOW}◐{Colors.NC}",
+                            "pending": f"{Colors.DIM}○{Colors.NC}",
+                            "blocked": f"{Colors.RED}✗{Colors.NC}",
+                        }.get(task["status"], "?")
 
                         # Truncate title if too long
-                        title = task['title']
+                        title = task["title"]
                         if len(title) > 55:
                             title = title[:52] + "..."
 
-                        print(f"      {status_icon} {task['id']} → {color}@agent-{agent}{Colors.NC}  {Colors.DIM}{title}{Colors.NC}")
+                        print(
+                            f"      {status_icon} {task['id']} → {color}@agent-{agent}{Colors.NC}  {Colors.DIM}{title}{Colors.NC}"
+                        )
 
                 # Show any phases not in the standard order
                 for phase, phase_tasks in tasks_by_phase.items():
                     if phase not in phase_order:
                         print(f"    {Colors.BOLD}Phase: {phase}{Colors.NC}")
                         for task in phase_tasks:
-                            agent = task['assigned_agent']
+                            agent = task["assigned_agent"]
                             color = agent_colors.get(agent, Colors.NC)
-                            title = task['title'][:52] + "..." if len(task['title']) > 55 else task['title']
-                            print(f"      {Colors.DIM}○{Colors.NC} {task['id']} → {color}@agent-{agent}{Colors.NC}  {Colors.DIM}{title}{Colors.NC}")
+                            title = (
+                                task["title"][:52] + "..."
+                                if len(task["title"]) > 55
+                                else task["title"]
+                            )
+                            print(
+                                f"      {Colors.DIM}○{Colors.NC} {task['id']} → {color}@agent-{agent}{Colors.NC}  {Colors.DIM}{title}{Colors.NC}"
+                            )
 
                 print()
 
@@ -1558,24 +1717,36 @@ class Orchestrator:
         print(f"{Colors.BOLD}Routing Summary:{Colors.NC}\n")
 
         # Sort agents by count
-        sorted_agents = sorted(plan['agent_counts'].items(), key=lambda x: x[1], reverse=True)
+        sorted_agents = sorted(
+            plan["agent_counts"].items(), key=lambda x: x[1], reverse=True
+        )
 
         summary_agent_colors = {
-            'me': Colors.GREEN, 'uid': Colors.CYAN, 'uxd': Colors.CYAN,
-            'qa': Colors.YELLOW, 'sec': Colors.RED, 'ta': Colors.BLUE,
-            'sd': Colors.BLUE, 'doc': Colors.DIM, 'do': Colors.DIM,
+            "me": Colors.GREEN,
+            "uid": Colors.CYAN,
+            "uxd": Colors.CYAN,
+            "qa": Colors.YELLOW,
+            "sec": Colors.RED,
+            "ta": Colors.BLUE,
+            "sd": Colors.BLUE,
+            "doc": Colors.DIM,
+            "do": Colors.DIM,
         }
 
-        total_tasks = plan['total_tasks']
+        total_tasks = plan["total_tasks"]
         for agent, count in sorted_agents:
             color = summary_agent_colors.get(agent, Colors.NC)
             pct = int(count / total_tasks * 100) if total_tasks > 0 else 0
             bar_filled = pct // 5
             bar = "█" * bar_filled + "░" * (20 - bar_filled)
-            print(f"  {color}@agent-{agent:6}{Colors.NC} {bar} {count:3} tasks ({pct:3}%)")
+            print(
+                f"  {color}@agent-{agent:6}{Colors.NC} {bar} {count:3} tasks ({pct:3}%)"
+            )
 
         print()
-        print(f"  {Colors.BOLD}Total:{Colors.NC} {total_tasks} tasks across {len(plan['streams'])} streams")
+        print(
+            f"  {Colors.BOLD}Total:{Colors.NC} {total_tasks} tasks across {len(plan['streams'])} streams"
+        )
         print()
 
         # Display execution order
@@ -1583,31 +1754,40 @@ class Orchestrator:
 
         for depth in sorted(depths.keys()):
             stream_ids = sorted(depths[depth])
-            stream_ids_with_tasks = [s for s in stream_ids if s in plan['streams']]
+            stream_ids_with_tasks = [s for s in stream_ids if s in plan["streams"]]
 
             if not stream_ids_with_tasks:
                 continue
 
             if depth == 0:
-                print(f"  {Colors.GREEN}Depth {depth} (Independent - can run in parallel):{Colors.NC}")
+                print(
+                    f"  {Colors.GREEN}Depth {depth} (Independent - can run in parallel):{Colors.NC}"
+                )
             else:
-                print(f"  {Colors.CYAN}Depth {depth} (will start after depth {depth-1} completes):{Colors.NC}")
+                print(
+                    f"  {Colors.CYAN}Depth {depth} (will start after depth {depth-1} completes):{Colors.NC}"
+                )
 
             for stream_id in stream_ids_with_tasks:
-                task_count = len(plan['streams'][stream_id])
+                task_count = len(plan["streams"][stream_id])
                 print(f"    • {stream_id} ({task_count} tasks)")
 
             print()
 
-        print(f"{Colors.YELLOW}[DRY RUN] No workers will be spawned. Use 'orchestrate.py start' to execute.{Colors.NC}\n")
+        print(
+            f"{Colors.YELLOW}[DRY RUN] No workers will be spawned. Use 'orchestrate.py start' to execute.{Colors.NC}\n"
+        )
 
 
 def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="Claude Copilot Orchestrator")
-    parser.add_argument("command", choices=["start", "status", "stop", "logs", "test-routing", "preflight"],
-                       help="Command to run")
+    parser.add_argument(
+        "command",
+        choices=["start", "status", "stop", "logs", "test-routing", "preflight"],
+        help="Command to run",
+    )
     parser.add_argument("stream_id", nargs="?", help="Stream ID (for start/stop/logs)")
 
     args = parser.parse_args()

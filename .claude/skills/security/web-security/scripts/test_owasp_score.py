@@ -29,6 +29,7 @@ spec.loader.exec_module(owasp_score)
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def make_finding(**overrides):
     base = {"title": "Test Finding", "owasp": "A03"}
     base.update(overrides)
@@ -48,6 +49,7 @@ def parse_json_output(out: str) -> dict:
 # ---------------------------------------------------------------------------
 # normalize_owasp
 # ---------------------------------------------------------------------------
+
 
 class TestNormalizeOwasp:
     def test_short_code_a01(self):
@@ -93,6 +95,7 @@ class TestNormalizeOwasp:
 # normalize_severity
 # ---------------------------------------------------------------------------
 
+
 class TestNormalizeSeverity:
     def test_critical(self):
         assert owasp_score.normalize_severity("Critical", "x") == "Critical"
@@ -111,6 +114,7 @@ class TestNormalizeSeverity:
 # ---------------------------------------------------------------------------
 # normalize_status
 # ---------------------------------------------------------------------------
+
 
 class TestNormalizeStatus:
     def test_open(self):
@@ -133,6 +137,7 @@ class TestNormalizeStatus:
 # ---------------------------------------------------------------------------
 # validate_finding
 # ---------------------------------------------------------------------------
+
 
 class TestValidateFinding:
     def test_minimal_valid(self):
@@ -178,9 +183,14 @@ class TestValidateFinding:
 # compute_category_counts
 # ---------------------------------------------------------------------------
 
+
 class TestComputeCategoryCounts:
     def _vf(self, owasp: str, title: str = "T") -> dict:
-        return {"title": title, "owasp": owasp, "owasp_name": owasp_score.OWASP_CATEGORIES[owasp]}
+        return {
+            "title": title,
+            "owasp": owasp,
+            "owasp_name": owasp_score.OWASP_CATEGORIES[owasp],
+        }
 
     def test_counts_single_category(self):
         findings = [self._vf("A03", "f1"), self._vf("A03", "f2")]
@@ -199,6 +209,7 @@ class TestComputeCategoryCounts:
 # ---------------------------------------------------------------------------
 # compute_gaps
 # ---------------------------------------------------------------------------
+
 
 class TestComputeGaps:
     def test_all_empty_gives_all_gaps(self):
@@ -220,6 +231,7 @@ class TestComputeGaps:
 # ---------------------------------------------------------------------------
 # sort_findings
 # ---------------------------------------------------------------------------
+
 
 class TestSortFindings:
     def _f(self, severity=None, owasp="A03"):
@@ -243,6 +255,7 @@ class TestSortFindings:
 # ---------------------------------------------------------------------------
 # load_input
 # ---------------------------------------------------------------------------
+
 
 class TestLoadInput:
     def test_empty_stdin(self, monkeypatch):
@@ -274,6 +287,7 @@ class TestLoadInput:
 # ---------------------------------------------------------------------------
 # Subprocess integration
 # ---------------------------------------------------------------------------
+
 
 class TestSubprocessIntegration:
     def test_basic_valid_exits_zero(self):

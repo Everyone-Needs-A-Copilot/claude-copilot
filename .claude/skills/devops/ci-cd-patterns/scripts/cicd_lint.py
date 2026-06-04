@@ -103,7 +103,9 @@ SECRET_VALUE_RE = re.compile(
 
 # Permissions that grant write access
 WRITE_PERMISSIONS = {
-    "write", "write-all", "read-write",
+    "write",
+    "write-all",
+    "read-write",
 }
 
 # Known safe (docker-hub-style) action refs that should be excluded
@@ -113,6 +115,7 @@ SKIP_PREFIXES = ("docker://",)
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _iter_jobs(workflow: dict):
     """Yield (job_id, job_dict) pairs."""
@@ -137,7 +140,9 @@ def _has_write_permissions(perms: object) -> bool:
     if isinstance(perms, str):
         return perms.lower() in WRITE_PERMISSIONS
     if isinstance(perms, dict):
-        return any(v.lower() in WRITE_PERMISSIONS for v in perms.values() if isinstance(v, str))
+        return any(
+            v.lower() in WRITE_PERMISSIONS for v in perms.values() if isinstance(v, str)
+        )
     return False
 
 
@@ -157,6 +162,7 @@ def _action_label(uses: str) -> str:
 # ---------------------------------------------------------------------------
 # Check functions
 # ---------------------------------------------------------------------------
+
 
 def check_unpinned_actions(workflow: dict) -> list[dict]:
     """CICD-001: Action uses without SHA pin."""
@@ -195,14 +201,16 @@ def check_unpinned_actions(workflow: dict) -> list[dict]:
                     "Pin to a full commit SHA: uses: owner/repo@<40-char-sha>  # vN.M"
                 )
 
-            findings.append({
-                "id": "CICD-001",
-                "severity": severity,
-                "job": job_id,
-                "title": f"Unpinned action: {_action_label(uses)}",
-                "detail": detail,
-                "reference": "GitHub Actions Security Hardening Guide — Pinning actions to a full length commit SHA",
-            })
+            findings.append(
+                {
+                    "id": "CICD-001",
+                    "severity": severity,
+                    "job": job_id,
+                    "title": f"Unpinned action: {_action_label(uses)}",
+                    "detail": detail,
+                    "reference": "GitHub Actions Security Hardening Guide — Pinning actions to a full length commit SHA",
+                }
+            )
 
     return findings
 
@@ -212,19 +220,21 @@ def check_missing_timeout(workflow: dict) -> list[dict]:
     findings = []
     for job_id, job in _iter_jobs(workflow):
         if "timeout-minutes" not in job:
-            findings.append({
-                "id": "CICD-002",
-                "severity": MEDIUM,
-                "job": job_id,
-                "title": f"Missing timeout-minutes on job '{job_id}'",
-                "detail": (
-                    f"Job '{job_id}' has no timeout-minutes set. GitHub Actions defaults "
-                    "to 360 minutes (6 hours). A hung build wastes runner minutes and "
-                    "blocks the pipeline for hours. Set timeout-minutes based on expected "
-                    "duration (typically 2–3× normal run time)."
-                ),
-                "reference": "GitHub Actions docs — timeout-minutes",
-            })
+            findings.append(
+                {
+                    "id": "CICD-002",
+                    "severity": MEDIUM,
+                    "job": job_id,
+                    "title": f"Missing timeout-minutes on job '{job_id}'",
+                    "detail": (
+                        f"Job '{job_id}' has no timeout-minutes set. GitHub Actions defaults "
+                        "to 360 minutes (6 hours). A hung build wastes runner minutes and "
+                        "blocks the pipeline for hours. Set timeout-minutes based on expected "
+                        "duration (typically 2–3× normal run time)."
+                    ),
+                    "reference": "GitHub Actions docs — timeout-minutes",
+                }
+            )
     return findings
 
 
@@ -234,29 +244,33 @@ def check_permissions_block(workflow: dict) -> list[dict]:
     top_level_perms = workflow.get("permissions")
 
     # If top-level permissions is 'read-all' or empty dict, that's restrictive — OK
-    top_level_restrictive = (
-        top_level_perms is not None and
-        (top_level_perms == "read-all" or
-         (isinstance(top_level_perms, dict) and not _has_write_permissions(top_level_perms)) or
-         (isinstance(top_level_perms, str) and top_level_perms.lower() == "read-all"))
+    top_level_restrictive = top_level_perms is not None and (
+        top_level_perms == "read-all"
+        or (
+            isinstance(top_level_perms, dict)
+            and not _has_write_permissions(top_level_perms)
+        )
+        or (isinstance(top_level_perms, str) and top_level_perms.lower() == "read-all")
     )
 
     for job_id, job in _iter_jobs(workflow):
         job_perms = job.get("permissions")
         if job_perms is None and top_level_perms is None:
-            findings.append({
-                "id": "CICD-003",
-                "severity": HIGH,
-                "job": job_id,
-                "title": f"No permissions block on job '{job_id}'",
-                "detail": (
-                    f"Job '{job_id}' has no permissions block and the workflow has no "
-                    "top-level permissions. GITHUB_TOKEN defaults to broad write access "
-                    "on many repositories. Add an explicit permissions block (at workflow "
-                    "or job level) with the minimum required access."
-                ),
-                "reference": "OSSF Scorecard — Token-Permissions; GitHub docs — permissions",
-            })
+            findings.append(
+                {
+                    "id": "CICD-003",
+                    "severity": HIGH,
+                    "job": job_id,
+                    "title": f"No permissions block on job '{job_id}'",
+                    "detail": (
+                        f"Job '{job_id}' has no permissions block and the workflow has no "
+                        "top-level permissions. GITHUB_TOKEN defaults to broad write access "
+                        "on many repositories. Add an explicit permissions block (at workflow "
+                        "or job level) with the minimum required access."
+                    ),
+                    "reference": "OSSF Scorecard — Token-Permissions; GitHub docs — permissions",
+                }
+            )
 
     return findings
 
@@ -276,21 +290,25 @@ def check_hardcoded_secrets(workflow: dict) -> list[dict]:
                 for key, value in env.items():
                     if SECRET_KEY_NAMES_RE.search(key) and key not in seen_keys:
                         # Only flag if the value is NOT a ${{ secrets.X }} reference
-                        if isinstance(value, str) and not value.strip().startswith("${{"):
+                        if isinstance(value, str) and not value.strip().startswith(
+                            "${{"
+                        ):
                             seen_keys.add(key)
-                            findings.append({
-                                "id": "CICD-004",
-                                "severity": CRITICAL,
-                                "job": job_id,
-                                "title": f"Hardcoded secret in env: {key} (step: {step_name})",
-                                "detail": (
-                                    f"Step '{step_name}' in job '{job_id}' sets env.{key} "
-                                    "to a literal value. Hardcoded credentials appear in "
-                                    "workflow file history, forks, and PR diffs. "
-                                    "Use ${{ secrets.NAME }} instead."
-                                ),
-                                "reference": "GitHub Actions Security — encrypted secrets",
-                            })
+                            findings.append(
+                                {
+                                    "id": "CICD-004",
+                                    "severity": CRITICAL,
+                                    "job": job_id,
+                                    "title": f"Hardcoded secret in env: {key} (step: {step_name})",
+                                    "detail": (
+                                        f"Step '{step_name}' in job '{job_id}' sets env.{key} "
+                                        "to a literal value. Hardcoded credentials appear in "
+                                        "workflow file history, forks, and PR diffs. "
+                                        "Use ${{ secrets.NAME }} instead."
+                                    ),
+                                    "reference": "GitHub Actions Security — encrypted secrets",
+                                }
+                            )
 
             # Check run block for inline credential patterns
             run = step.get("run", "")
@@ -305,19 +323,21 @@ def check_hardcoded_secrets(workflow: dict) -> list[dict]:
                     label = key_name.group(0) if key_name else "credential"
                     if label not in seen_keys:
                         seen_keys.add(label)
-                        findings.append({
-                            "id": "CICD-004",
-                            "severity": CRITICAL,
-                            "job": job_id,
-                            "title": f"Possible hardcoded secret in run block: {label} (step: {step_name})",
-                            "detail": (
-                                f"Step '{step_name}' in job '{job_id}' has a run command "
-                                f"containing a credential-like assignment ({label}=...). "
-                                "Use ${{ secrets.NAME }} to keep credentials out of "
-                                "the workflow file and build logs."
-                            ),
-                            "reference": "GitHub Actions Security — encrypted secrets",
-                        })
+                        findings.append(
+                            {
+                                "id": "CICD-004",
+                                "severity": CRITICAL,
+                                "job": job_id,
+                                "title": f"Possible hardcoded secret in run block: {label} (step: {step_name})",
+                                "detail": (
+                                    f"Step '{step_name}' in job '{job_id}' has a run command "
+                                    f"containing a credential-like assignment ({label}=...). "
+                                    "Use ${{ secrets.NAME }} to keep credentials out of "
+                                    "the workflow file and build logs."
+                                ),
+                                "reference": "GitHub Actions Security — encrypted secrets",
+                            }
+                        )
 
     return findings
 
@@ -339,7 +359,9 @@ def lint_workflow(workflow: dict) -> list[dict]:
     all_findings = []
     for check in ALL_CHECKS:
         all_findings.extend(check(workflow))
-    all_findings.sort(key=lambda f: (SEVERITY_RANK[f["severity"]], f["id"], f.get("job", "")))
+    all_findings.sort(
+        key=lambda f: (SEVERITY_RANK[f["severity"]], f["id"], f.get("job", ""))
+    )
     return all_findings
 
 
@@ -360,6 +382,7 @@ def render_markdown(findings: list[dict]) -> str:
 # ---------------------------------------------------------------------------
 # I/O
 # ---------------------------------------------------------------------------
+
 
 def load_input(source: str | None) -> dict | None:
     """Load JSON workflow from file or stdin. Returns None for empty input."""
@@ -391,9 +414,7 @@ def load_input(source: str | None) -> dict | None:
         )
 
     if "jobs" not in data:
-        raise ValueError(
-            f"Workflow object from {label} missing required field 'jobs'"
-        )
+        raise ValueError(f"Workflow object from {label} missing required field 'jobs'")
 
     return data
 
@@ -406,7 +427,10 @@ def run(source: str | None) -> int:
         return 1
 
     if workflow is None:
-        output = {"findings": [], "summary": {"total": 0, "critical": 0, "high": 0, "medium": 0, "info": 0}}
+        output = {
+            "findings": [],
+            "summary": {"total": 0, "critical": 0, "high": 0, "medium": 0, "info": 0},
+        }
         print(json.dumps(output, indent=2))
         print()
         print("_No workflow content provided._")
@@ -435,7 +459,7 @@ def run(source: str | None) -> int:
         )
         print(
             "\n**Note:** Input must be JSON. Convert YAML workflow with: "
-            "`python3 -c \"import sys,json,yaml; print(json.dumps(yaml.safe_load(sys.stdin)))\" < .github/workflows/ci.yml`"
+            '`python3 -c "import sys,json,yaml; print(json.dumps(yaml.safe_load(sys.stdin)))" < .github/workflows/ci.yml`'
         )
 
     return 0

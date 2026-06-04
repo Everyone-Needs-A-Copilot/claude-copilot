@@ -31,6 +31,7 @@ SEV_WARN = jest_smell.SEV_WARN
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def run_script(args=(), stdin_text=None):
     cmd = [sys.executable, str(SCRIPT)] + list(args)
     result = subprocess.run(cmd, input=stdin_text, capture_output=True, text=True)
@@ -44,6 +45,7 @@ def findings_with_smell(source: str, smell_id: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 # SMELL-01: test_only
 # ---------------------------------------------------------------------------
+
 
 class TestTestOnly:
     def test_detects_it_only(self):
@@ -77,6 +79,7 @@ class TestTestOnly:
 # SMELL-02: test_skip
 # ---------------------------------------------------------------------------
 
+
 class TestTestSkip:
     def test_detects_it_skip(self):
         source = "it.skip('should work', () => { expect(1).toBe(1); });\n"
@@ -102,6 +105,7 @@ class TestTestSkip:
 # ---------------------------------------------------------------------------
 # SMELL-03: no_expect
 # ---------------------------------------------------------------------------
+
 
 class TestNoExpect:
     def test_detects_missing_expect(self):
@@ -129,6 +133,7 @@ class TestNoExpect:
 # SMELL-04: async_no_await
 # ---------------------------------------------------------------------------
 
+
 class TestAsyncNoAwait:
     def test_detects_async_without_await(self):
         source = (
@@ -151,11 +156,7 @@ class TestAsyncNoAwait:
         assert hits == []
 
     def test_sync_test_not_flagged(self):
-        source = (
-            "it('should work', () => {\n"
-            "  expect(1).toBe(1);\n"
-            "});\n"
-        )
+        source = "it('should work', () => {\n" "  expect(1).toBe(1);\n" "});\n"
         hits = findings_with_smell(source, "SMELL-04")
         assert hits == []
 
@@ -173,6 +174,7 @@ class TestAsyncNoAwait:
 # ---------------------------------------------------------------------------
 # SMELL-05: setTimeout_zero
 # ---------------------------------------------------------------------------
+
 
 class TestSetTimeoutZero:
     def test_detects_settimeout_zero(self):
@@ -210,6 +212,7 @@ class TestSetTimeoutZero:
 # SMELL-06: console_log
 # ---------------------------------------------------------------------------
 
+
 class TestConsoleLog:
     def test_detects_console_log(self):
         source = (
@@ -222,20 +225,13 @@ class TestConsoleLog:
         assert len(hits) == 1
 
     def test_no_false_positive_without_log(self):
-        source = (
-            "it('should work', () => {\n"
-            "  expect(1).toBe(1);\n"
-            "});\n"
-        )
+        source = "it('should work', () => {\n" "  expect(1).toBe(1);\n" "});\n"
         hits = findings_with_smell(source, "SMELL-06")
         assert hits == []
 
     def test_severity_is_warn(self):
         source = (
-            "it('x', () => {\n"
-            "  console.log('x');\n"
-            "  expect(1).toBe(1);\n"
-            "});\n"
+            "it('x', () => {\n" "  console.log('x');\n" "  expect(1).toBe(1);\n" "});\n"
         )
         hits = findings_with_smell(source, "SMELL-06")
         assert hits[0]["severity"] == SEV_WARN
@@ -244,6 +240,7 @@ class TestConsoleLog:
 # ---------------------------------------------------------------------------
 # SMELL-07: done_callback
 # ---------------------------------------------------------------------------
+
 
 class TestDoneCallback:
     def test_detects_done_callback(self):
@@ -259,12 +256,7 @@ class TestDoneCallback:
         assert len(hits) == 1
 
     def test_severity_is_warn(self):
-        source = (
-            "it('x', (done) => {\n"
-            "  expect(1).toBe(1);\n"
-            "  done();\n"
-            "});\n"
-        )
+        source = "it('x', (done) => {\n" "  expect(1).toBe(1);\n" "  done();\n" "});\n"
         hits = findings_with_smell(source, "SMELL-07")
         assert hits[0]["severity"] == SEV_WARN
 
@@ -272,6 +264,7 @@ class TestDoneCallback:
 # ---------------------------------------------------------------------------
 # Output structure
 # ---------------------------------------------------------------------------
+
 
 class TestOutputStructure:
     def test_json_block_present(self):
@@ -302,7 +295,7 @@ class TestOutputStructure:
     def test_summary_counts(self):
         source = (
             "it.only('x', () => { expect(1).toBe(1); });\n"  # ERROR
-            "it.skip('y', () => { expect(1).toBe(1); });\n"   # WARN
+            "it.skip('y', () => { expect(1).toBe(1); });\n"  # WARN
         )
         rc, stdout, _ = run_script(stdin_text=source)
         data = json.loads(stdout.split("\n\n")[0])
@@ -313,6 +306,7 @@ class TestOutputStructure:
 # ---------------------------------------------------------------------------
 # Input modes
 # ---------------------------------------------------------------------------
+
 
 class TestInputModes:
     def test_stdin_dash_arg(self):

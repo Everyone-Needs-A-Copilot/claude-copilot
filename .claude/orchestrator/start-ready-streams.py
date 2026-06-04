@@ -31,10 +31,10 @@ LOG_DIR = SCRIPT_DIR / "logs"
 
 
 class Colors:
-    GREEN = '\033[0;32m'
-    YELLOW = '\033[1;33m'
-    CYAN = '\033[0;36m'
-    NC = '\033[0m'
+    GREEN = "\033[0;32m"
+    YELLOW = "\033[1;33m"
+    CYAN = "\033[0;36m"
+    NC = "\033[0m"
 
 
 def log(msg: str):
@@ -53,13 +53,12 @@ def is_running(stream_id: str) -> bool:
 
     try:
         import os
+
         pid = int(pid_file.read_text().strip())
         os.kill(pid, 0)
         # Double-check with ps to catch zombies
         result = subprocess.run(
-            ["ps", "-p", str(pid), "-o", "pid="],
-            capture_output=True,
-            timeout=5
+            ["ps", "-p", str(pid), "-o", "pid="], capture_output=True, timeout=5
         )
         return result.returncode == 0
     except:
@@ -67,8 +66,12 @@ def is_running(stream_id: str) -> bool:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Start streams whose dependencies are ready")
-    parser.add_argument("--completed-stream", help="Stream that just completed (filters dependents)")
+    parser = argparse.ArgumentParser(
+        description="Start streams whose dependencies are ready"
+    )
+    parser.add_argument(
+        "--completed-stream", help="Stream that just completed (filters dependents)"
+    )
     args = parser.parse_args()
 
     client = TaskCopilotClient(WORKSPACE_ID)
@@ -94,7 +97,7 @@ def main():
             stream_status[stream_info.stream_id] = {
                 "complete": progress.is_complete,
                 "total": progress.total_tasks,
-                "completed": progress.completed_tasks
+                "completed": progress.completed_tasks,
             }
 
     # Find streams that are ready to start
@@ -138,7 +141,7 @@ def main():
         result = subprocess.run(
             [sys.executable, str(SCRIPT_DIR / "orchestrate.py"), "start", stream_id],
             capture_output=True,
-            text=True
+            text=True,
         )
 
         if result.returncode == 0:

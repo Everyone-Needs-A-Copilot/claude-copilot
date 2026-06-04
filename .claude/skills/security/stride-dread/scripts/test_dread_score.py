@@ -30,6 +30,7 @@ spec.loader.exec_module(dread_score)
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def make_finding(**overrides):
     """Return a minimal valid finding dict, optionally overriding fields."""
     base = {"title": "Test Finding", "D": 5, "R": 5, "E": 5, "A": 5, "D2": 5}
@@ -52,6 +53,7 @@ def run_script(args=(), stdin_text=None):
 # ---------------------------------------------------------------------------
 # assign_band — boundary values
 # ---------------------------------------------------------------------------
+
 
 class TestAssignBand:
     def test_low_boundary_low_end(self):
@@ -92,6 +94,7 @@ class TestAssignBand:
 # ---------------------------------------------------------------------------
 # score_finding — arithmetic correctness
 # ---------------------------------------------------------------------------
+
 
 class TestScoreFinding:
     def test_all_tens_is_critical(self):
@@ -137,6 +140,7 @@ class TestScoreFinding:
 # ---------------------------------------------------------------------------
 # validate_finding — invalid dimension rejection
 # ---------------------------------------------------------------------------
+
 
 class TestValidateFinding:
     def test_zero_is_invalid(self):
@@ -192,6 +196,7 @@ class TestValidateFinding:
 # load_input — stdin vs file path
 # ---------------------------------------------------------------------------
 
+
 class TestLoadInput:
     def test_stdin_hyphen(self, monkeypatch):
         data = [make_finding()]
@@ -236,6 +241,7 @@ class TestLoadInput:
 # Ranking order — subprocess integration tests
 # ---------------------------------------------------------------------------
 
+
 class TestRankingOrder:
     def _run_with_findings(self, findings):
         payload = json.dumps(findings)
@@ -244,13 +250,17 @@ class TestRankingOrder:
 
     def test_ranked_by_score_descending(self):
         findings = [
-            make_finding(title="Low Finding", D=1, R=1, E=1, A=1, D2=1),       # score 1.0
-            make_finding(title="Critical Finding", D=10, R=10, E=10, A=10, D2=10),  # score 10.0
-            make_finding(title="Medium Finding", D=5, R=5, E=5, A=5, D2=5),    # score 5.0
+            make_finding(title="Low Finding", D=1, R=1, E=1, A=1, D2=1),  # score 1.0
+            make_finding(
+                title="Critical Finding", D=10, R=10, E=10, A=10, D2=10
+            ),  # score 10.0
+            make_finding(title="Medium Finding", D=5, R=5, E=5, A=5, D2=5),  # score 5.0
         ]
         code, out, _ = self._run_with_findings(findings)
         assert code == 0
-        result = json.loads(out.split("\n\n")[0])  # first block before blank line is JSON
+        result = json.loads(
+            out.split("\n\n")[0]
+        )  # first block before blank line is JSON
         titles = [f["title"] for f in result["findings"]]
         assert titles[0] == "Critical Finding"
         assert titles[-1] == "Low Finding"
@@ -282,6 +292,7 @@ class TestRankingOrder:
 # Empty input
 # ---------------------------------------------------------------------------
 
+
 class TestEmptyInput:
     def test_empty_array_exits_zero(self):
         code, out, err = run_script(args=("-",), stdin_text="[]")
@@ -301,6 +312,7 @@ class TestEmptyInput:
 # ---------------------------------------------------------------------------
 # Invalid input — subprocess must exit non-zero
 # ---------------------------------------------------------------------------
+
 
 class TestInvalidInputSubprocess:
     def test_invalid_dim_value_exits_nonzero(self):
@@ -327,6 +339,7 @@ class TestInvalidInputSubprocess:
 # ---------------------------------------------------------------------------
 # File-path argument integration
 # ---------------------------------------------------------------------------
+
 
 class TestFilePathArgument:
     def test_file_path_argument(self, tmp_path):

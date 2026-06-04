@@ -47,14 +47,14 @@ def resolve_sentinel(
         return machine_config.get(same_key)
 
     if value.startswith("@machine:"):
-        other_key = value[len("@machine:"):]
+        other_key = value[len("@machine:") :]
         return machine_config.get(other_key)
 
     if value == "@disabled":
         return None
 
     if value.startswith("@env:"):
-        var_name = value[len("@env:"):]
+        var_name = value[len("@env:") :]
         return os.environ.get(var_name)
 
     # Unknown sentinel — return literal (forward-compatible)

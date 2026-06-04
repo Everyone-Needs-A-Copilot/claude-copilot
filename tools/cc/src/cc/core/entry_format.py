@@ -87,7 +87,7 @@ def parse_frontmatter(text: str) -> tuple[dict[str, Any], str]:
         raise EntryValidationError("Frontmatter block is not closed.")
 
     raw_yaml = text[3:end].strip()
-    body = text[end + 4:].lstrip("\n")
+    body = text[end + 4 :].lstrip("\n")
 
     fm: dict[str, Any] = {}
     for line in raw_yaml.splitlines():
@@ -99,7 +99,11 @@ def parse_frontmatter(text: str) -> tuple[dict[str, Any], str]:
         # Parse list values: [a, b, c]
         if val.startswith("[") and val.endswith("]"):
             inner = val[1:-1]
-            fm[key] = [v.strip() for v in inner.split(",") if v.strip()] if inner.strip() else []
+            fm[key] = (
+                [v.strip() for v in inner.split(",") if v.strip()]
+                if inner.strip()
+                else []
+            )
         else:
             fm[key] = val
 

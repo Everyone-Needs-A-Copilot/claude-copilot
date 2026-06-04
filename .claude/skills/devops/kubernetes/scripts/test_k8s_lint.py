@@ -23,6 +23,7 @@ spec.loader.exec_module(k8s_lint)
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def run_script(args=(), stdin_text=None):
     cmd = [sys.executable, str(SCRIPT)] + list(args)
     result = subprocess.run(cmd, input=stdin_text, capture_output=True, text=True)
@@ -49,31 +50,34 @@ GOOD_DEPLOYMENT = {
         "replicas": 2,
         "template": {
             "spec": {
-                "containers": [{
-                    "name": "api",
-                    "image": "api:v1.2.3",
-                    "resources": {
-                        "requests": {"cpu": "250m", "memory": "256Mi"},
-                        "limits": {"cpu": "500m", "memory": "512Mi"},
-                    },
-                    "livenessProbe": {"httpGet": {"path": "/health", "port": 8080}},
-                    "readinessProbe": {"httpGet": {"path": "/ready", "port": 8080}},
-                    "securityContext": {
-                        "runAsNonRoot": True,
-                        "runAsUser": 1000,
-                        "readOnlyRootFilesystem": True,
-                        "capabilities": {"drop": ["ALL"]},
-                    },
-                }]
+                "containers": [
+                    {
+                        "name": "api",
+                        "image": "api:v1.2.3",
+                        "resources": {
+                            "requests": {"cpu": "250m", "memory": "256Mi"},
+                            "limits": {"cpu": "500m", "memory": "512Mi"},
+                        },
+                        "livenessProbe": {"httpGet": {"path": "/health", "port": 8080}},
+                        "readinessProbe": {"httpGet": {"path": "/ready", "port": 8080}},
+                        "securityContext": {
+                            "runAsNonRoot": True,
+                            "runAsUser": 1000,
+                            "readOnlyRootFilesystem": True,
+                            "capabilities": {"drop": ["ALL"]},
+                        },
+                    }
+                ]
             }
-        }
-    }
+        },
+    },
 }
 
 
 # ---------------------------------------------------------------------------
 # K8S-001: Missing resource requests
 # ---------------------------------------------------------------------------
+
 
 class TestResourceRequests:
     def _make_deployment(self, resources=None):
@@ -108,6 +112,7 @@ class TestResourceRequests:
 # K8S-002: Missing resource limits
 # ---------------------------------------------------------------------------
 
+
 class TestResourceLimits:
     def _make_deployment(self, resources=None):
         d = json.loads(json.dumps(GOOD_DEPLOYMENT))
@@ -137,6 +142,7 @@ class TestResourceLimits:
 # K8S-003: Missing liveness probe
 # ---------------------------------------------------------------------------
 
+
 class TestLivenessProbe:
     def test_no_liveness_probe_raises_k8s003(self):
         d = json.loads(json.dumps(GOOD_DEPLOYMENT))
@@ -165,6 +171,7 @@ class TestLivenessProbe:
 # K8S-004: Missing readiness probe
 # ---------------------------------------------------------------------------
 
+
 class TestReadinessProbe:
     def test_no_readiness_probe_raises_k8s004(self):
         d = json.loads(json.dumps(GOOD_DEPLOYMENT))
@@ -188,6 +195,7 @@ class TestReadinessProbe:
 # ---------------------------------------------------------------------------
 # K8S-005: Latest image tag
 # ---------------------------------------------------------------------------
+
 
 class TestLatestImageTag:
     def _make_with_image(self, image):
@@ -228,16 +236,21 @@ class TestLatestImageTag:
 # K8S-006: Privileged container
 # ---------------------------------------------------------------------------
 
+
 class TestPrivilegedContainer:
     def test_privileged_true_raises_k8s006(self):
         d = json.loads(json.dumps(GOOD_DEPLOYMENT))
-        d["spec"]["template"]["spec"]["containers"][0]["securityContext"]["privileged"] = True
+        d["spec"]["template"]["spec"]["containers"][0]["securityContext"][
+            "privileged"
+        ] = True
         findings = k8s_lint.check_privileged_container(d)
         assert "K8S-006" in finding_ids(findings)
 
     def test_privileged_false_no_finding(self):
         d = json.loads(json.dumps(GOOD_DEPLOYMENT))
-        d["spec"]["template"]["spec"]["containers"][0]["securityContext"]["privileged"] = False
+        d["spec"]["template"]["spec"]["containers"][0]["securityContext"][
+            "privileged"
+        ] = False
         findings = k8s_lint.check_privileged_container(d)
         assert findings == []
 
@@ -247,7 +260,9 @@ class TestPrivilegedContainer:
 
     def test_severity_is_critical(self):
         d = json.loads(json.dumps(GOOD_DEPLOYMENT))
-        d["spec"]["template"]["spec"]["containers"][0]["securityContext"]["privileged"] = True
+        d["spec"]["template"]["spec"]["containers"][0]["securityContext"][
+            "privileged"
+        ] = True
         findings = k8s_lint.check_privileged_container(d)
         assert findings[0]["severity"] == "CRITICAL"
 
@@ -255,6 +270,7 @@ class TestPrivilegedContainer:
 # ---------------------------------------------------------------------------
 # K8S-007: hostNetwork
 # ---------------------------------------------------------------------------
+
 
 class TestHostNetwork:
     def test_host_network_true_raises_k8s007(self):
@@ -284,6 +300,7 @@ class TestHostNetwork:
 # K8S-008: Security context
 # ---------------------------------------------------------------------------
 
+
 class TestSecurityContext:
     def test_no_security_context_raises_k8s008(self):
         d = json.loads(json.dumps(GOOD_DEPLOYMENT))
@@ -297,13 +314,17 @@ class TestSecurityContext:
 
     def test_run_as_user_nonzero_no_finding(self):
         d = json.loads(json.dumps(GOOD_DEPLOYMENT))
-        d["spec"]["template"]["spec"]["containers"][0]["securityContext"] = {"runAsUser": 1000}
+        d["spec"]["template"]["spec"]["containers"][0]["securityContext"] = {
+            "runAsUser": 1000
+        }
         findings = k8s_lint.check_security_context(d)
         assert findings == []
 
     def test_run_as_user_zero_raises(self):
         d = json.loads(json.dumps(GOOD_DEPLOYMENT))
-        d["spec"]["template"]["spec"]["containers"][0]["securityContext"] = {"runAsUser": 0}
+        d["spec"]["template"]["spec"]["containers"][0]["securityContext"] = {
+            "runAsUser": 0
+        }
         findings = k8s_lint.check_security_context(d)
         assert "K8S-008" in finding_ids(findings)
 
@@ -317,6 +338,7 @@ class TestSecurityContext:
 # ---------------------------------------------------------------------------
 # K8S-009: Single replica
 # ---------------------------------------------------------------------------
+
 
 class TestSingleReplica:
     def test_replicas_1_raises_k8s009(self):
@@ -353,6 +375,7 @@ class TestSingleReplica:
 # Good Deployment — zero findings
 # ---------------------------------------------------------------------------
 
+
 class TestGoodDeployment:
     def test_good_deployment_no_findings(self):
         findings = k8s_lint.lint_manifest(GOOD_DEPLOYMENT)
@@ -363,12 +386,15 @@ class TestGoodDeployment:
 # Sort order
 # ---------------------------------------------------------------------------
 
+
 class TestSortOrder:
     def test_critical_before_high_before_medium(self):
         d = json.loads(json.dumps(GOOD_DEPLOYMENT))
         d["spec"]["replicas"] = 1  # MEDIUM: K8S-009
         del d["spec"]["template"]["spec"]["containers"][0]["resources"]  # HIGH + MEDIUM
-        d["spec"]["template"]["spec"]["containers"][0]["securityContext"]["privileged"] = True  # CRITICAL
+        d["spec"]["template"]["spec"]["containers"][0]["securityContext"][
+            "privileged"
+        ] = True  # CRITICAL
         findings = k8s_lint.lint_manifest(d)
         severities = [f["severity"] for f in findings]
         crit_idx = next((i for i, s in enumerate(severities) if s == "CRITICAL"), None)
@@ -381,11 +407,14 @@ class TestSortOrder:
 # Load input — array vs single object
 # ---------------------------------------------------------------------------
 
+
 class TestLoadInput:
     def test_single_object_accepted(self, monkeypatch):
         import io
+
         data = json.dumps(GOOD_DEPLOYMENT)
         import sys as _sys
+
         monkeypatch.setattr(_sys, "stdin", io.StringIO(data))
         result = k8s_lint.load_input(None)
         assert len(result) == 1
@@ -393,6 +422,7 @@ class TestLoadInput:
     def test_array_accepted(self, monkeypatch):
         import io
         import sys as _sys
+
         data = json.dumps([GOOD_DEPLOYMENT, GOOD_DEPLOYMENT])
         monkeypatch.setattr(_sys, "stdin", io.StringIO(data))
         result = k8s_lint.load_input(None)
@@ -401,6 +431,7 @@ class TestLoadInput:
     def test_missing_kind_raises(self, monkeypatch):
         import io
         import sys as _sys
+
         data = json.dumps({"apiVersion": "v1", "metadata": {"name": "x"}})
         monkeypatch.setattr(_sys, "stdin", io.StringIO(data))
         with pytest.raises(ValueError, match="kind"):
@@ -409,6 +440,7 @@ class TestLoadInput:
     def test_empty_stdin_returns_empty(self, monkeypatch):
         import io
         import sys as _sys
+
         monkeypatch.setattr(_sys, "stdin", io.StringIO(""))
         result = k8s_lint.load_input(None)
         assert result == []
@@ -417,6 +449,7 @@ class TestLoadInput:
 # ---------------------------------------------------------------------------
 # Subprocess integration
 # ---------------------------------------------------------------------------
+
 
 class TestSubprocess:
     def test_valid_deployment_exits_zero(self):

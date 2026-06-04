@@ -14,7 +14,9 @@ def handoff(
     from_agent: str = typer.Option(..., "--from", help="Handing-off agent."),
     to_agent: str = typer.Option(..., "--to", help="Receiving agent."),
     task: int = typer.Option(..., "--task", help="Task ID being handed off."),
-    context: str = typer.Option(..., "--context", help="Handoff context (max 200 chars)."),
+    context: str = typer.Option(
+        ..., "--context", help="Handoff context (max 200 chars)."
+    ),
     json: bool = typer.Option(False, "--json", help="Output as JSON."),
 ) -> None:
     """Log a handoff between agents and update the task's assigned agent."""

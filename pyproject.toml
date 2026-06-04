@@ -113,6 +113,8 @@ extend-exclude = '''
   | \.venv
   | build
   | dist
+  | src/claude_monitor
+  | tests/tui
 )/
 '''
 

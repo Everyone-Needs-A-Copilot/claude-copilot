@@ -59,12 +59,12 @@ import sys
 # Canonical STRIDE keys and their display names
 STRIDE_KEYS = ("S", "T", "R2", "I", "D3", "E")
 STRIDE_NAMES = {
-    "S":  "Spoofing",
-    "T":  "Tampering",
+    "S": "Spoofing",
+    "T": "Tampering",
     "R2": "Repudiation",
-    "I":  "Information Disclosure",
+    "I": "Information Disclosure",
     "D3": "Denial of Service",
-    "E":  "Elevation of Privilege",
+    "E": "Elevation of Privilege",
 }
 
 # Alias map: everything that can appear in input -> canonical key
@@ -155,6 +155,7 @@ def score_finding(finding: dict) -> tuple[float, str] | None:
 # Finding validation
 # ---------------------------------------------------------------------------
 
+
 def normalize_stride_tag(raw: str, finding_title: str) -> str:
     """Normalize one STRIDE tag to its canonical key; raise ValueError if unknown."""
     normalized = raw.strip().lower()
@@ -171,19 +172,23 @@ def normalize_stride_tag(raw: str, finding_title: str) -> str:
 def validate_finding(finding: object, index: int) -> dict:
     """Validate one finding dict. Returns cleaned dict or raises ValueError."""
     if not isinstance(finding, dict):
-        raise ValueError(f"Finding at index {index} must be a JSON object, got {type(finding).__name__}")
+        raise ValueError(
+            f"Finding at index {index} must be a JSON object, got {type(finding).__name__}"
+        )
 
     if "title" not in finding:
         raise ValueError(f"Finding at index {index} missing required field 'title'")
 
     title = finding["title"]
     if not isinstance(title, str) or not title.strip():
-        raise ValueError(f"Finding at index {index}: 'title' must be a non-empty string")
+        raise ValueError(
+            f"Finding at index {index}: 'title' must be a non-empty string"
+        )
 
     if "stride" not in finding:
         raise ValueError(
             f"Finding '{title}' (index {index}) missing required field 'stride'. "
-            f"Provide a JSON array of STRIDE category tags, e.g. [\"S\", \"T\"]."
+            f'Provide a JSON array of STRIDE category tags, e.g. ["S", "T"].'
         )
 
     stride_raw = finding["stride"]
@@ -216,6 +221,7 @@ def validate_finding(finding: object, index: int) -> dict:
 # Coverage analysis
 # ---------------------------------------------------------------------------
 
+
 def compute_coverage(findings: list[dict]) -> tuple[dict[str, list[str]], list[str]]:
     """
     Returns:
@@ -233,6 +239,7 @@ def compute_coverage(findings: list[dict]) -> tuple[dict[str, list[str]], list[s
 # ---------------------------------------------------------------------------
 # I/O
 # ---------------------------------------------------------------------------
+
 
 def load_input(source: str | None) -> list:
     if source is None or source == "-":
@@ -268,6 +275,7 @@ def load_input(source: str | None) -> list:
 # Rendering
 # ---------------------------------------------------------------------------
 
+
 def render_coverage_table(coverage: dict[str, list[str]], gaps: list[str]) -> str:
     lines = [
         "## STRIDE Coverage\n",
@@ -282,7 +290,9 @@ def render_coverage_table(coverage: dict[str, list[str]], gaps: list[str]) -> st
     if gaps:
         gap_names = ", ".join(STRIDE_NAMES[g] for g in gaps)
         lines.append(f"> **Coverage gaps:** {gap_names}")
-        lines.append("> Review the threat model — missing categories indicate blind spots.")
+        lines.append(
+            "> Review the threat model — missing categories indicate blind spots."
+        )
     else:
         lines.append("> **All six STRIDE categories covered.**")
     return "\n".join(lines) + "\n"
@@ -313,6 +323,7 @@ def render_dread_table(scored_findings: list[dict]) -> str:
 # ---------------------------------------------------------------------------
 # Main logic
 # ---------------------------------------------------------------------------
+
 
 def run(source: str | None) -> int:
     try:
@@ -356,7 +367,9 @@ def run(source: str | None) -> int:
         scored.append(entry)
 
     # Sort findings with scores by score desc; unscored append at end
-    with_scores = sorted([f for f in scored if "score" in f], key=lambda x: x["score"], reverse=True)
+    with_scores = sorted(
+        [f for f in scored if "score" in f], key=lambda x: x["score"], reverse=True
+    )
     without_scores = [f for f in scored if "score" not in f]
     all_findings = with_scores + without_scores
 

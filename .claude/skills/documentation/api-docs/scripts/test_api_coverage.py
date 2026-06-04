@@ -28,6 +28,7 @@ spec.loader.exec_module(api_coverage)
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def run_script(args=(), stdin_text=None):
     """Run api_coverage.py as a subprocess; return (returncode, stdout, stderr)."""
     cmd = [sys.executable, str(SCRIPT)] + list(args)
@@ -71,6 +72,7 @@ def parse_json_block(stdout: str) -> dict:
 # detect_spec_version
 # ---------------------------------------------------------------------------
 
+
 class TestDetectSpecVersion:
     def test_oas3(self):
         assert api_coverage.detect_spec_version({"openapi": "3.0.0"}) == "oas3"
@@ -88,6 +90,7 @@ class TestDetectSpecVersion:
 # ---------------------------------------------------------------------------
 # assign_band equivalents — rule triggering
 # ---------------------------------------------------------------------------
+
 
 class TestRuleR01MissingSummary:
     def test_missing_summary_flagged(self):
@@ -147,7 +150,16 @@ class TestRuleR03R04Parameters:
         assert any(f["rule"] == "R04" for f in findings)
 
     def test_param_with_description_not_flagged(self):
-        op = minimal_get_op(parameters=[{"name": "id", "in": "path", "required": True, "description": "Resource ID"}])
+        op = minimal_get_op(
+            parameters=[
+                {
+                    "name": "id",
+                    "in": "path",
+                    "required": True,
+                    "description": "Resource ID",
+                }
+            ]
+        )
         paths = {"/items/{id}": {"get": op}}
         spec = minimal_oas3(paths=paths)
         findings = api_coverage.run_checks(spec)
@@ -188,9 +200,12 @@ class TestRuleR05R06RequestBody:
                 "description": "New item",
                 "content": {
                     "application/json": {
-                        "schema": {"type": "object", "properties": {"name": {"type": "string"}}}
+                        "schema": {
+                            "type": "object",
+                            "properties": {"name": {"type": "string"}},
+                        }
                     }
-                }
+                },
             }
         )
         paths = {"/items": {"post": op}}
@@ -207,7 +222,7 @@ class TestRuleR05R06RequestBody:
                         "schema": {"type": "object"},
                         "example": {"name": "test"},
                     }
-                }
+                },
             }
         )
         paths = {"/items": {"post": op}}
@@ -218,7 +233,9 @@ class TestRuleR05R06RequestBody:
 
 class TestRuleR07R08Responses:
     def test_response_missing_desc_r07(self):
-        op = minimal_get_op(responses={"200": {}, "400": {"description": "Bad Request"}})
+        op = minimal_get_op(
+            responses={"200": {}, "400": {"description": "Bad Request"}}
+        )
         paths = {"/items": {"get": op}}
         spec = minimal_oas3(paths=paths)
         findings = api_coverage.run_checks(spec)
@@ -231,9 +248,12 @@ class TestRuleR07R08Responses:
                     "description": "OK",
                     "content": {
                         "application/json": {
-                            "schema": {"type": "object", "properties": {"id": {"type": "string"}}}
+                            "schema": {
+                                "type": "object",
+                                "properties": {"id": {"type": "string"}},
+                            }
                         }
-                    }
+                    },
                 },
                 "400": {"description": "Bad Request"},
             }
@@ -253,7 +273,7 @@ class TestRuleR07R08Responses:
                             "schema": {"type": "object"},
                             "example": {"id": "abc"},
                         }
-                    }
+                    },
                 },
                 "400": {"description": "Bad Request"},
             }
@@ -281,7 +301,12 @@ class TestRuleR09Missing4xx:
         assert not any(f["rule"] == "R09" for f in findings)
 
     def test_has_404_not_flagged(self):
-        op = minimal_get_op(responses={"200": {"description": "OK"}, "404": {"description": "Not found"}})
+        op = minimal_get_op(
+            responses={
+                "200": {"description": "OK"},
+                "404": {"description": "Not found"},
+            }
+        )
         paths = {"/items/{id}": {"get": op}}
         spec = minimal_oas3(paths=paths)
         findings = api_coverage.run_checks(spec)
@@ -292,7 +317,7 @@ class TestRuleR10SecuredMissingAuthErrors:
     def test_secured_op_no_401_403_flagged(self):
         op = minimal_get_op(
             security=[{"bearerAuth": []}],
-            responses={"200": {"description": "OK"}, "400": {"description": "Bad"}}
+            responses={"200": {"description": "OK"}, "400": {"description": "Bad"}},
         )
         paths = {"/secure": {"get": op}}
         spec = minimal_oas3(paths=paths)
@@ -308,7 +333,7 @@ class TestRuleR10SecuredMissingAuthErrors:
                 "200": {"description": "OK"},
                 "401": {"description": "Unauthorized"},
                 "400": {"description": "Bad"},
-            }
+            },
         )
         paths = {"/secure": {"get": op}}
         spec = minimal_oas3(paths=paths)
@@ -318,7 +343,7 @@ class TestRuleR10SecuredMissingAuthErrors:
     def test_unsecured_op_no_r10(self):
         op = minimal_get_op(
             security=[],  # explicitly no security
-            responses={"200": {"description": "OK"}, "400": {"description": "Bad"}}
+            responses={"200": {"description": "OK"}, "400": {"description": "Bad"}},
         )
         paths = {"/public": {"get": op}}
         spec = minimal_oas3(paths=paths)
@@ -402,12 +427,23 @@ class TestRuleR13InfoBlock:
 # rank_findings — sort order
 # ---------------------------------------------------------------------------
 
+
 class TestRankFindings:
     def test_high_before_medium_before_low(self):
         raw = [
             {"rule": "R02", "severity": "LOW", "location": "GET /a", "message": "low"},
-            {"rule": "R09", "severity": "HIGH", "location": "GET /b", "message": "high"},
-            {"rule": "R01", "severity": "MEDIUM", "location": "GET /c", "message": "medium"},
+            {
+                "rule": "R09",
+                "severity": "HIGH",
+                "location": "GET /b",
+                "message": "high",
+            },
+            {
+                "rule": "R01",
+                "severity": "MEDIUM",
+                "location": "GET /c",
+                "message": "medium",
+            },
         ]
         ranked = api_coverage.rank_findings(raw)
         severities = [f["severity"] for f in ranked]
@@ -417,6 +453,7 @@ class TestRankFindings:
 # ---------------------------------------------------------------------------
 # load_input — stdin vs file path
 # ---------------------------------------------------------------------------
+
 
 class TestLoadInput:
     def test_stdin_hyphen(self, monkeypatch):
@@ -461,6 +498,7 @@ class TestLoadInput:
 # ---------------------------------------------------------------------------
 # Subprocess integration — exit codes and output structure
 # ---------------------------------------------------------------------------
+
 
 class TestSubprocess:
     def test_valid_spec_exits_zero(self):
@@ -524,7 +562,12 @@ class TestSubprocess:
         assert code == 0
         result = parse_json_block(out)
         total = result["summary"]["total"]
-        assert total == result["summary"]["high"] + result["summary"]["medium"] + result["summary"]["low"]
+        assert (
+            total
+            == result["summary"]["high"]
+            + result["summary"]["medium"]
+            + result["summary"]["low"]
+        )
         assert total == len(result["findings"])
 
     def test_clean_spec_zero_findings(self):
@@ -547,7 +590,7 @@ class TestSubprocess:
                             "schema": {"type": "array"},
                             "example": [{"id": "1"}],
                         }
-                    }
+                    },
                 },
                 "400": {"description": "Bad Request"},
             },

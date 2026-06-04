@@ -26,7 +26,9 @@ def log_list(
     from tc.services.log import list_log as _list_log
 
     db_path = require_db()
-    data = _list_log(agent=agent, stream=stream, task=task, limit=limit, db_path=db_path)
+    data = _list_log(
+        agent=agent, stream=stream, task=task, limit=limit, db_path=db_path
+    )
 
     if json:
         output_json(data)

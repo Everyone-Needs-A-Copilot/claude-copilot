@@ -32,6 +32,7 @@ _log = logging.getLogger(__name__)
 # SearchBackend protocol — the pluggable seam
 # ---------------------------------------------------------------------------
 
+
 @runtime_checkable
 class SearchBackend(Protocol):
     """Interface every search backend must satisfy.
@@ -75,6 +76,7 @@ class SearchBackend(Protocol):
 # ---------------------------------------------------------------------------
 # FTS5Backend — SQLite FTS5 keyword / BM25 implementation
 # ---------------------------------------------------------------------------
+
 
 class FTS5Backend:
     """SQLite FTS5 full-text keyword search (BM25 ranking).
@@ -201,7 +203,12 @@ class FTS5Backend:
             return []
 
         return [
-            {"id": r[0], "type": r[1], "tags": r[2].split() if r[2] else [], "content": r[3]}
+            {
+                "id": r[0],
+                "type": r[1],
+                "tags": r[2].split() if r[2] else [],
+                "content": r[3],
+            }
             for r in rows
         ]
 
@@ -248,6 +255,7 @@ def get_default_backend() -> SearchBackend:
     global _default_backend
     if _default_backend is None:
         from cc.core.backend_factory import resolve_backend
+
         _default_backend = resolve_backend()
     return _default_backend
 
@@ -262,7 +270,10 @@ def set_default_backend(backend: SearchBackend) -> None:
 # Public module-level functions (thin wrappers; callers unchanged)
 # ---------------------------------------------------------------------------
 
-def rebuild_index(memory_root: Path, *, backend: SearchBackend | None = None) -> dict[str, int]:
+
+def rebuild_index(
+    memory_root: Path, *, backend: SearchBackend | None = None
+) -> dict[str, int]:
     """Drop and rebuild the full-text index from all entries on disk.
 
     Returns {"indexed": <count>, "errors": <count>}.
@@ -270,7 +281,9 @@ def rebuild_index(memory_root: Path, *, backend: SearchBackend | None = None) ->
     return (backend or get_default_backend()).rebuild(memory_root)
 
 
-def index_status(memory_root: Path, *, backend: SearchBackend | None = None) -> dict[str, Any]:
+def index_status(
+    memory_root: Path, *, backend: SearchBackend | None = None
+) -> dict[str, Any]:
     """Compare file count vs indexed entry count.
 
     Returns {"files": <n>, "indexed": <n>, "in_sync": <bool>}.
@@ -278,7 +291,9 @@ def index_status(memory_root: Path, *, backend: SearchBackend | None = None) -> 
     return (backend or get_default_backend()).status(memory_root)
 
 
-def search_index(query: str, memory_root: Path, *, backend: SearchBackend | None = None) -> list[dict[str, Any]]:
+def search_index(
+    query: str, memory_root: Path, *, backend: SearchBackend | None = None
+) -> list[dict[str, Any]]:
     """Full-text keyword (FTS5/BM25) search against the index.
 
     Returns list of dicts with id, type, tags, content snippet.
@@ -297,7 +312,9 @@ def index_entry(
     backend: SearchBackend | None = None,
 ) -> None:
     """Insert or replace a single entry in the index."""
-    (backend or get_default_backend()).index(entry_id, entry_type, tags, content, memory_root)
+    (backend or get_default_backend()).index(
+        entry_id, entry_type, tags, content, memory_root
+    )
 
 
 def remove_from_index(

@@ -70,31 +70,45 @@ SEVERITY_ORDER = {"HIGH": 2, "MEDIUM": 1, "LOW": 0}
 # Matches `var ` at the start of a statement (after optional whitespace).
 # Avoids matching `var` as part of an identifier (e.g., `varName`).
 # The word-boundary \b before a space isn't needed because we require a space.
-_RE_VAR = re.compile(r'\bvar\s+')
+_RE_VAR = re.compile(r"\bvar\s+")
 
 # Matches loose equality == or != that is NOT already === or !==.
 # Uses negative lookbehind (for =) and lookahead (for =) to exclude === and !==.
-_RE_LOOSE_EQ = re.compile(r'(?<![=!])(?:==(?!=)|!=(?!=))')
+_RE_LOOSE_EQ = re.compile(r"(?<![=!])(?:==(?!=)|!=(?!=))")
 
 # Matches console.log( — leftover debug call.
-_RE_CONSOLE_LOG = re.compile(r'\bconsole\.log\s*\(')
+_RE_CONSOLE_LOG = re.compile(r"\bconsole\.log\s*\(")
 
 # Callback nesting: detect lines that open a callback-style function expression.
 # Matches patterns like: function(...) {, (...) => {, function() {
 # Used to track nesting depth across lines.
-_RE_CALLBACK_OPEN = re.compile(r'(?:function\s*\w*\s*\([^)]*\)\s*\{|=>\s*\{|\([^)]*\)\s*=>\s*\{)')
-_RE_BRACE_OPEN = re.compile(r'\{')
-_RE_BRACE_CLOSE = re.compile(r'\}')
+_RE_CALLBACK_OPEN = re.compile(
+    r"(?:function\s*\w*\s*\([^)]*\)\s*\{|=>\s*\{|\([^)]*\)\s*=>\s*\{)"
+)
+_RE_BRACE_OPEN = re.compile(r"\{")
+_RE_BRACE_CLOSE = re.compile(r"\}")
 
 LINE_RULES = [
-    ("VAR_DECL", "MEDIUM", _RE_VAR,
-     "Use `const` (or `let`) instead of `var`. `var` has function-scoped hoisting "
-     "which causes hard-to-trace bugs."),
-    ("LOOSE_EQUALITY", "MEDIUM", _RE_LOOSE_EQ,
-     "Use `===` / `!==` instead of `==` / `!=`. Loose equality performs implicit "
-     "type coercion which can produce unexpected results."),
-    ("CONSOLE_LOG", "LOW", _RE_CONSOLE_LOG,
-     "Leftover `console.log(` call. Remove debug logging before merging."),
+    (
+        "VAR_DECL",
+        "MEDIUM",
+        _RE_VAR,
+        "Use `const` (or `let`) instead of `var`. `var` has function-scoped hoisting "
+        "which causes hard-to-trace bugs.",
+    ),
+    (
+        "LOOSE_EQUALITY",
+        "MEDIUM",
+        _RE_LOOSE_EQ,
+        "Use `===` / `!==` instead of `==` / `!=`. Loose equality performs implicit "
+        "type coercion which can produce unexpected results.",
+    ),
+    (
+        "CONSOLE_LOG",
+        "LOW",
+        _RE_CONSOLE_LOG,
+        "Leftover `console.log(` call. Remove debug logging before merging.",
+    ),
 ]
 
 
@@ -107,11 +121,11 @@ def _strip_string_literals(line: str) -> str:
     with placeholder characters.
     """
     # Remove single-line comments (// ...)
-    line = re.sub(r'//.*$', '', line)
+    line = re.sub(r"//.*$", "", line)
     # Remove string contents (single, double, template — non-greedy)
     line = re.sub(r'"(?:[^"\\]|\\.)*"', '""', line)
     line = re.sub(r"'(?:[^'\\]|\\.)*'", "''", line)
-    line = re.sub(r'`(?:[^`\\]|\\.)*`', '``', line)
+    line = re.sub(r"`(?:[^`\\]|\\.)*`", "``", line)
     return line
 
 
@@ -122,13 +136,15 @@ def _check_line_rules(lines: list[str]) -> list[dict]:
         stripped = _strip_string_literals(raw_line)
         for rule, severity, pattern, message in LINE_RULES:
             if pattern.search(stripped):
-                findings.append({
-                    "rule": rule,
-                    "severity": severity,
-                    "line": lineno,
-                    "col": (pattern.search(stripped).start() + 1),
-                    "message": message,
-                })
+                findings.append(
+                    {
+                        "rule": rule,
+                        "severity": severity,
+                        "line": lineno,
+                        "col": (pattern.search(stripped).start() + 1),
+                        "message": message,
+                    }
+                )
     return findings
 
 
@@ -153,20 +169,22 @@ def _check_callback_nesting(lines: list[str]) -> list[dict]:
         if _RE_CALLBACK_OPEN.search(stripped):
             # The callback opens at current depth
             if depth >= CALLBACK_NESTING_THRESHOLD:
-                findings.append({
-                    "rule": "CALLBACK_NESTING",
-                    "severity": "MEDIUM",
-                    "line": lineno,
-                    "col": 1,
-                    "message": (
-                        f"Callback function opened at nesting depth {depth + 1} "
-                        f"(threshold: {CALLBACK_NESTING_THRESHOLD}). "
-                        "Refactor to async/await to flatten the structure."
-                    ),
-                })
+                findings.append(
+                    {
+                        "rule": "CALLBACK_NESTING",
+                        "severity": "MEDIUM",
+                        "line": lineno,
+                        "col": 1,
+                        "message": (
+                            f"Callback function opened at nesting depth {depth + 1} "
+                            f"(threshold: {CALLBACK_NESTING_THRESHOLD}). "
+                            "Refactor to async/await to flatten the structure."
+                        ),
+                    }
+                )
 
         # Update depth by counting braces on this line
-        depth += stripped.count('{') - stripped.count('}')
+        depth += stripped.count("{") - stripped.count("}")
         depth = max(depth, 0)  # never go negative (handles mismatched braces)
 
     return findings
@@ -178,9 +196,7 @@ def check_source(source: str) -> list[dict]:
     findings = _check_line_rules(lines) + _check_callback_nesting(lines)
 
     # Sort: severity DESC, line ASC
-    findings.sort(
-        key=lambda f: (-SEVERITY_ORDER.get(f["severity"], 0), f["line"])
-    )
+    findings.sort(key=lambda f: (-SEVERITY_ORDER.get(f["severity"], 0), f["line"]))
     return findings
 
 

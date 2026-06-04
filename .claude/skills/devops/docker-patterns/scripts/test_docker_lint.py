@@ -23,6 +23,7 @@ spec.loader.exec_module(docker_lint)
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def run_script(args=(), stdin_text=None):
     cmd = [sys.executable, str(SCRIPT)] + list(args)
     result = subprocess.run(cmd, input=stdin_text, capture_output=True, text=True)
@@ -72,6 +73,7 @@ CMD ["python", "app.py"]
 # DOCKER-001: Root user
 # ---------------------------------------------------------------------------
 
+
 class TestRootUser:
     def test_no_user_directive_raises_docker001(self):
         content = "FROM python:3.12-slim\nCMD python app.py\n"
@@ -110,6 +112,7 @@ class TestRootUser:
 # ---------------------------------------------------------------------------
 # DOCKER-002: Latest tag
 # ---------------------------------------------------------------------------
+
 
 class TestLatestTag:
     def test_from_latest_raises_docker002(self):
@@ -152,6 +155,7 @@ class TestLatestTag:
 # DOCKER-003: HEALTHCHECK
 # ---------------------------------------------------------------------------
 
+
 class TestHealthcheck:
     def test_missing_healthcheck_raises_docker003(self):
         content = "FROM python:3.12-slim\nUSER appuser\nCMD python app.py\n"
@@ -181,6 +185,7 @@ class TestHealthcheck:
 # DOCKER-004: apt-get without --no-install-recommends
 # ---------------------------------------------------------------------------
 
+
 class TestAptNoRecommends:
     def test_apt_without_no_install_recommends_raises(self):
         content = "FROM ubuntu:22.04\nRUN apt-get update && apt-get install -y curl\n"
@@ -204,6 +209,7 @@ class TestAptNoRecommends:
 # ---------------------------------------------------------------------------
 # DOCKER-005: Secrets in ENV/ARG
 # ---------------------------------------------------------------------------
+
 
 class TestSecretsInEnv:
     def test_env_password_raises_docker005(self):
@@ -247,6 +253,7 @@ class TestSecretsInEnv:
 # DOCKER-006: Layer bloat
 # ---------------------------------------------------------------------------
 
+
 class TestLayerBloat:
     def test_apt_without_cleanup_raises_docker006(self):
         content = (
@@ -280,6 +287,7 @@ class TestLayerBloat:
 # DOCKER-007: COPY order
 # ---------------------------------------------------------------------------
 
+
 class TestCopyOrder:
     def test_copy_all_before_manifest_raises_docker007(self):
         content = (
@@ -303,9 +311,7 @@ class TestCopyOrder:
 
     def test_no_copy_all_no_finding(self):
         content = (
-            "FROM python:3.12-slim\n"
-            "COPY requirements.txt .\n"
-            "COPY src/ ./src/\n"
+            "FROM python:3.12-slim\n" "COPY requirements.txt .\n" "COPY src/ ./src/\n"
         )
         findings = docker_lint.check_copy_order(content)
         assert findings == []
@@ -314,6 +320,7 @@ class TestCopyOrder:
 # ---------------------------------------------------------------------------
 # Severity sort order
 # ---------------------------------------------------------------------------
+
 
 class TestSortOrder:
     def test_critical_before_high_before_medium(self):
@@ -339,6 +346,7 @@ class TestSortOrder:
 # Good Dockerfile — zero findings
 # ---------------------------------------------------------------------------
 
+
 class TestGoodDockerfile:
     def test_good_dockerfile_no_findings(self):
         findings = docker_lint.lint_dockerfile(GOOD_DOCKERFILE)
@@ -348,6 +356,7 @@ class TestGoodDockerfile:
 # ---------------------------------------------------------------------------
 # Empty input
 # ---------------------------------------------------------------------------
+
 
 class TestEmptyInput:
     def test_empty_stdin_exits_zero(self):
@@ -369,6 +378,7 @@ class TestEmptyInput:
 # File path argument
 # ---------------------------------------------------------------------------
 
+
 class TestFilePathArgument:
     def test_file_path_argument(self, tmp_path):
         p = tmp_path / "Dockerfile"
@@ -388,9 +398,12 @@ class TestFilePathArgument:
 # Subprocess: markdown table present
 # ---------------------------------------------------------------------------
 
+
 class TestMarkdownOutput:
     def test_markdown_table_present_when_findings(self):
-        code, out, _ = run_script(args=("-",), stdin_text="FROM python:latest\nCMD python app.py\n")
+        code, out, _ = run_script(
+            args=("-",), stdin_text="FROM python:latest\nCMD python app.py\n"
+        )
         assert code == 0
         assert "## Docker Linter Findings" in out
         assert "| # |" in out

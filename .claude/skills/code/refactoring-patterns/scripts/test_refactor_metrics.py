@@ -38,13 +38,16 @@ SEV_LOW = rm.SEV_LOW
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def run_script(args=(), stdin_text=None):
     cmd = [sys.executable, str(SCRIPT)] + list(args)
     result = subprocess.run(cmd, input=stdin_text, capture_output=True, text=True)
     return result.returncode, result.stdout, result.stderr
 
 
-def findings_with_metric(source: str, metric_id: str, lang: str = "python") -> list[dict]:
+def findings_with_metric(
+    source: str, metric_id: str, lang: str = "python"
+) -> list[dict]:
     fn = analyze_python if lang == "python" else analyze_js
     return [f for f in fn(source, "<test>") if f["metric_id"] == metric_id]
 
@@ -58,6 +61,7 @@ def make_long_function(n_lines: int, name: str = "test_func") -> str:
 # ---------------------------------------------------------------------------
 # Threshold constants are defined (not guessed)
 # ---------------------------------------------------------------------------
+
 
 class TestThresholdConstants:
     def test_max_function_lines_is_20(self):
@@ -79,6 +83,7 @@ class TestThresholdConstants:
 # ---------------------------------------------------------------------------
 # METRIC-01: long_function (Python)
 # ---------------------------------------------------------------------------
+
 
 class TestLongFunctionPython:
     def test_detects_function_over_threshold(self):
@@ -113,6 +118,7 @@ class TestLongFunctionPython:
 # METRIC-02: deep_nesting (Python)
 # ---------------------------------------------------------------------------
 
+
 class TestDeepNestingPython:
     def _make_nested(self, depth: int) -> str:
         """Build a function with exactly `depth` nesting levels."""
@@ -141,6 +147,7 @@ class TestDeepNestingPython:
 # ---------------------------------------------------------------------------
 # METRIC-03: long_param_list (Python)
 # ---------------------------------------------------------------------------
+
 
 class TestLongParamListPython:
     def test_detects_over_threshold(self):
@@ -178,6 +185,7 @@ class TestLongParamListPython:
 # METRIC-04: large_file
 # ---------------------------------------------------------------------------
 
+
 class TestLargeFile:
     def test_detects_file_over_threshold(self):
         source = "\n".join(f"x{i} = {i}" for i in range(MAX_FILE_LINES + 1))
@@ -198,6 +206,7 @@ class TestLargeFile:
 # ---------------------------------------------------------------------------
 # METRIC-05: many_functions
 # ---------------------------------------------------------------------------
+
 
 class TestManyFunctions:
     def _make_functions(self, n: int) -> str:
@@ -223,6 +232,7 @@ class TestManyFunctions:
 # Output structure
 # ---------------------------------------------------------------------------
 
+
 class TestOutputStructure:
     def test_json_block_present(self):
         source = make_long_function(MAX_FUNCTION_LINES + 1)
@@ -246,7 +256,9 @@ class TestOutputStructure:
 
     def test_findings_sorted_high_first(self):
         # Generate both HIGH (long function) and LOW (many functions) findings
-        funcs = "\n".join(f"def func_{i}():\n    pass\n" for i in range(MAX_FUNCTIONS + 1))
+        funcs = "\n".join(
+            f"def func_{i}():\n    pass\n" for i in range(MAX_FUNCTIONS + 1)
+        )
         long_f = make_long_function(MAX_FUNCTION_LINES + 1, "long_func")
         source = funcs + "\n" + long_f
         rc, stdout, _ = run_script(stdin_text=source)
@@ -267,6 +279,7 @@ class TestOutputStructure:
 # ---------------------------------------------------------------------------
 # Input modes
 # ---------------------------------------------------------------------------
+
 
 class TestInputModes:
     def test_stdin_dash_arg(self):
@@ -321,6 +334,7 @@ class TestInputModes:
 # JS-specific analysis
 # ---------------------------------------------------------------------------
 
+
 class TestJsAnalysis:
     def test_detects_long_js_function(self):
         lines = ["function longFunc() {"]
@@ -338,7 +352,7 @@ class TestJsAnalysis:
             "    if (b) {\n"
             "      if (c) {\n"
             "        if (d) {\n"
-            "          if (e) {\n"           # depth 5
+            "          if (e) {\n"  # depth 5
             "            x = 1;\n"
             "          }\n"
             "        }\n"

@@ -7,7 +7,11 @@ from unittest.mock import patch
 
 import pytest
 
-from tc.formatting.json_output import output_json, output_error_json, _default_serializer
+from tc.formatting.json_output import (
+    output_json,
+    output_error_json,
+    _default_serializer,
+)
 from tc.formatting.table_output import output_table, _output_plain_table
 
 
@@ -17,14 +21,18 @@ class TestDefaultSerializer:
     def test_object_with_keys(self):
         """Objects with .keys() method should be converted to dict."""
         import sqlite3
+
         # Simulate sqlite3.Row-like object
         class FakeRow:
             def keys(self):
                 return ["a", "b"]
+
             def __getitem__(self, key):
                 return {"a": 1, "b": 2}[key]
+
             def __iter__(self):
                 return iter(["a", "b"])
+
         row = FakeRow()
         result = _default_serializer(row)
         assert isinstance(result, dict)
@@ -36,6 +44,7 @@ class TestDefaultSerializer:
 
     def test_datetime_fallback(self):
         from datetime import datetime
+
         dt = datetime(2025, 1, 1, 12, 0)
         result = _default_serializer(dt)
         assert "2025" in result
@@ -99,13 +108,17 @@ class TestOutputTable:
 
     def test_normalizes_row_objects(self, capsys):
         """Rows with .keys() method should be normalized to dicts."""
+
         class FakeRow:
             def keys(self):
                 return ["a"]
+
             def __getitem__(self, key):
                 return 1
+
             def __iter__(self):
                 return iter(["a"])
+
         output_table(["a"], [FakeRow()])
         captured = capsys.readouterr()
         assert "1" in captured.out
@@ -115,7 +128,9 @@ class TestPlainTable:
     """Tests for _output_plain_table fallback."""
 
     def test_plain_with_title(self, capsys):
-        _output_plain_table(["col1", "col2"], [{"col1": "a", "col2": "b"}], title="Plain")
+        _output_plain_table(
+            ["col1", "col2"], [{"col1": "a", "col2": "b"}], title="Plain"
+        )
         captured = capsys.readouterr()
         assert "=== Plain ===" in captured.out
         assert "col1" in captured.out

@@ -103,7 +103,9 @@ for _alias, _key in _OWASP_EXTRA:
 # ---------------------------------------------------------------------------
 SEVERITIES = ("Critical", "High", "Medium", "Low")
 SEVERITY_ALIASES: dict[str, str] = {s.lower(): s for s in SEVERITIES}
-SEVERITY_ORDER = {s: i for i, s in enumerate(SEVERITIES)}  # lower index = higher severity
+SEVERITY_ORDER = {
+    s: i for i, s in enumerate(SEVERITIES)
+}  # lower index = higher severity
 
 # ---------------------------------------------------------------------------
 # Status values
@@ -115,6 +117,7 @@ STATUS_ALIASES: dict[str, str] = {s.lower(): s for s in STATUSES}
 # ---------------------------------------------------------------------------
 # Normalization helpers
 # ---------------------------------------------------------------------------
+
 
 def normalize_owasp(raw: str, finding_title: str) -> str:
     """Normalize raw OWASP value to canonical key (e.g. 'A03'). Raises ValueError if unknown."""
@@ -154,24 +157,31 @@ def normalize_status(raw: str, finding_title: str) -> str:
 # Finding validation
 # ---------------------------------------------------------------------------
 
+
 def validate_finding(finding: object, index: int) -> dict:
     if not isinstance(finding, dict):
-        raise ValueError(f"Finding at index {index} must be a JSON object, got {type(finding).__name__}")
+        raise ValueError(
+            f"Finding at index {index} must be a JSON object, got {type(finding).__name__}"
+        )
 
     if "title" not in finding:
         raise ValueError(f"Finding at index {index} missing required field 'title'")
     title = finding["title"]
     if not isinstance(title, str) or not title.strip():
-        raise ValueError(f"Finding at index {index}: 'title' must be a non-empty string")
+        raise ValueError(
+            f"Finding at index {index}: 'title' must be a non-empty string"
+        )
 
     if "owasp" not in finding:
         raise ValueError(
             f"Finding '{title}' (index {index}) missing required field 'owasp'. "
-            f"Provide an OWASP Top 10 (2021) category code, e.g. \"A03\"."
+            f'Provide an OWASP Top 10 (2021) category code, e.g. "A03".'
         )
     owasp_raw = finding["owasp"]
     if not isinstance(owasp_raw, str):
-        raise ValueError(f"Finding '{title}' (index {index}): 'owasp' must be a string.")
+        raise ValueError(
+            f"Finding '{title}' (index {index}): 'owasp' must be a string."
+        )
 
     owasp_key = normalize_owasp(owasp_raw, title)
 
@@ -184,13 +194,17 @@ def validate_finding(finding: object, index: int) -> dict:
     if "severity" in finding:
         sev_raw = finding["severity"]
         if not isinstance(sev_raw, str):
-            raise ValueError(f"Finding '{title}' (index {index}): 'severity' must be a string.")
+            raise ValueError(
+                f"Finding '{title}' (index {index}): 'severity' must be a string."
+            )
         result["severity"] = normalize_severity(sev_raw, title)
 
     if "status" in finding:
         status_raw = finding["status"]
         if not isinstance(status_raw, str):
-            raise ValueError(f"Finding '{title}' (index {index}): 'status' must be a string.")
+            raise ValueError(
+                f"Finding '{title}' (index {index}): 'status' must be a string."
+            )
         result["status"] = normalize_status(status_raw, title)
 
     return result
@@ -199,6 +213,7 @@ def validate_finding(finding: object, index: int) -> dict:
 # ---------------------------------------------------------------------------
 # Coverage computation
 # ---------------------------------------------------------------------------
+
 
 def compute_category_counts(findings: list[dict]) -> dict[str, list[str]]:
     """Returns { owasp_key -> [finding titles] } for all findings."""
@@ -217,11 +232,13 @@ def compute_gaps(category_counts: dict[str, list[str]]) -> list[str]:
 # Sorting
 # ---------------------------------------------------------------------------
 
+
 def sort_findings(findings: list[dict]) -> list[dict]:
     """
     Sort: first by severity (Critical > High > Medium > Low > unscored),
     then alphabetically by OWASP key within same severity.
     """
+
     def sort_key(f: dict) -> tuple[int, str]:
         sev = f.get("severity")
         sev_order = SEVERITY_ORDER.get(sev, len(SEVERITIES)) if sev else len(SEVERITIES)
@@ -233,6 +250,7 @@ def sort_findings(findings: list[dict]) -> list[dict]:
 # ---------------------------------------------------------------------------
 # I/O
 # ---------------------------------------------------------------------------
+
 
 def load_input(source: str | None) -> list:
     if source is None or source == "-":
@@ -268,7 +286,10 @@ def load_input(source: str | None) -> list:
 # Rendering
 # ---------------------------------------------------------------------------
 
-def render_category_table(category_counts: dict[str, list[str]], gaps: list[str]) -> str:
+
+def render_category_table(
+    category_counts: dict[str, list[str]], gaps: list[str]
+) -> str:
     lines = [
         "## OWASP Top 10 (2021) Coverage\n",
         "| Code | Category | Findings | Status |",
@@ -282,7 +303,9 @@ def render_category_table(category_counts: dict[str, list[str]], gaps: list[str]
     if gaps:
         gap_names = ", ".join(f"{k} ({OWASP_CATEGORIES[k]})" for k in gaps)
         lines.append(f"> **Coverage gaps ({len(gaps)}):** {gap_names}")
-        lines.append("> These categories were not reviewed. Add explicit findings or 'not applicable' notes.")
+        lines.append(
+            "> These categories were not reviewed. Add explicit findings or 'not applicable' notes."
+        )
     else:
         lines.append("> **All 10 OWASP categories reviewed.**")
     return "\n".join(lines) + "\n"
@@ -293,7 +316,14 @@ def render_severity_summary(findings: list[dict]) -> str:
     if not scored:
         return ""
     counts = {s: sum(1 for f in scored if f.get("severity") == s) for s in SEVERITIES}
-    open_counts = {s: sum(1 for f in scored if f.get("severity") == s and f.get("status", "open") == "open") for s in SEVERITIES}
+    open_counts = {
+        s: sum(
+            1
+            for f in scored
+            if f.get("severity") == s and f.get("status", "open") == "open"
+        )
+        for s in SEVERITIES
+    }
     lines = [
         "\n## Severity Summary\n",
         "| Severity | Total | Open |",
@@ -307,6 +337,7 @@ def render_severity_summary(findings: list[dict]) -> str:
 # ---------------------------------------------------------------------------
 # Main logic
 # ---------------------------------------------------------------------------
+
 
 def run(source: str | None) -> int:
     try:
@@ -339,7 +370,9 @@ def run(source: str | None) -> int:
     category_counts = compute_category_counts(validated)
     gaps = compute_gaps(category_counts)
 
-    severity_counts = {s: sum(1 for f in validated if f.get("severity") == s) for s in SEVERITIES}
+    severity_counts = {
+        s: sum(1 for f in validated if f.get("severity") == s) for s in SEVERITIES
+    }
     open_findings = [f for f in validated if f.get("status", "open") == "open"]
 
     output = {

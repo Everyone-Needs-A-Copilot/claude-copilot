@@ -31,7 +31,9 @@ UNIQUE_TAG = "cc-integration-test"
 UNIQUE_CONTENT_PREFIX = "cc-integration-test-entry"
 
 
-def run(args: list[str], cwd: str | None = None, **kwargs) -> subprocess.CompletedProcess:
+def run(
+    args: list[str], cwd: str | None = None, **kwargs
+) -> subprocess.CompletedProcess:
     """Run cc with the given args, capture stdout+stderr."""
     return subprocess.run(
         [CC] + args,
@@ -50,7 +52,9 @@ def project_root() -> str:
         text=True,
     )
     if result.returncode != 0:
-        pytest.skip("Not inside a git repository — integration tests require a git project")
+        pytest.skip(
+            "Not inside a git repository — integration tests require a git project"
+        )
     return result.stdout.strip()
 
 
@@ -83,6 +87,7 @@ def cleanup_test_entries():
 # Installation checks
 # ---------------------------------------------------------------------------
 
+
 class TestInstallation:
     def test_cc_installed(self):
         """cc --version exits 0 from /tmp, proving global install."""
@@ -105,6 +110,7 @@ class TestInstallation:
 # Machine config
 # ---------------------------------------------------------------------------
 
+
 class TestMachineConfig:
     def test_machine_config_readable(self):
         """cc config list --scope machine exits 0."""
@@ -121,9 +127,9 @@ class TestMachineConfig:
         lines = [l for l in result.stdout.splitlines() if l.strip()]
         assert len(lines) > 0, "cc env produced no output"
         for line in lines:
-            assert line.startswith("export "), (
-                f"Line does not start with 'export ': {line!r}"
-            )
+            assert line.startswith(
+                "export "
+            ), f"Line does not start with 'export ': {line!r}"
             assert "=" in line, f"Export line missing '=': {line!r}"
 
 
@@ -131,20 +137,26 @@ class TestMachineConfig:
 # Memory — project scope
 # ---------------------------------------------------------------------------
 
+
 class TestMemoryProjectScope:
     def _store_test_entry(self, content: str | None = None) -> dict:
         """Store a tagged test entry and return the JSON result."""
         text = content or f"{UNIQUE_CONTENT_PREFIX} {os.getpid()}"
-        result = run([
-            "memory", "store",
-            "--type", "context",
-            "--tags", UNIQUE_TAG,
-            "--json",
-            text,
-        ])
-        assert result.returncode == 0, (
-            f"store failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
+        result = run(
+            [
+                "memory",
+                "store",
+                "--type",
+                "context",
+                "--tags",
+                UNIQUE_TAG,
+                "--json",
+                text,
+            ]
         )
+        assert (
+            result.returncode == 0
+        ), f"store failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
         return json.loads(result.stdout.strip())
 
     def test_memory_store_creates_file(self):
@@ -173,18 +185,18 @@ class TestMemoryProjectScope:
 
         result = run(["memory", "search", unique_word])
         assert result.returncode == 0, f"search failed: {result.stderr}"
-        assert unique_word in result.stdout, (
-            f"Entry not found in search results:\n{result.stdout}"
-        )
+        assert (
+            unique_word in result.stdout
+        ), f"Entry not found in search results:\n{result.stdout}"
 
     def test_memory_list_shows_entry(self):
         """list shows the stored entry with correct type."""
         self._store_test_entry()
         result = run(["memory", "list", "--type", "context"])
         assert result.returncode == 0, f"list failed: {result.stderr}"
-        assert UNIQUE_TAG in result.stdout, (
-            f"Tag {UNIQUE_TAG!r} not found in list output:\n{result.stdout}"
-        )
+        assert (
+            UNIQUE_TAG in result.stdout
+        ), f"Tag {UNIQUE_TAG!r} not found in list output:\n{result.stdout}"
 
     def test_memory_gitignore_exists(self):
         """The .claude/memory/.gitignore file contains memory.db."""
@@ -193,13 +205,9 @@ class TestMemoryProjectScope:
         # If it doesn't exist yet, trigger a store to create it
         if not gitignore_path.exists():
             self._store_test_entry()
-        assert gitignore_path.exists(), (
-            f".gitignore not found at {gitignore_path}"
-        )
+        assert gitignore_path.exists(), f".gitignore not found at {gitignore_path}"
         content = gitignore_path.read_text(encoding="utf-8")
-        assert "memory.db" in content, (
-            f"memory.db not in .gitignore:\n{content}"
-        )
+        assert "memory.db" in content, f"memory.db not in .gitignore:\n{content}"
 
     def test_memory_entries_dir_tracked(self):
         """The .claude/memory/entries/ directory exists (has .gitkeep or entries)."""
@@ -211,7 +219,9 @@ class TestMemoryProjectScope:
         assert entries_dir.exists(), f"entries/ dir not found at {entries_dir}"
         # Should have .gitkeep or at least one .md file
         contents = list(entries_dir.iterdir())
-        assert len(contents) > 0, "entries/ directory is completely empty (not even .gitkeep)"
+        assert (
+            len(contents) > 0
+        ), "entries/ directory is completely empty (not even .gitkeep)"
 
     def test_memory_delete_removes_file(self):
         """delete removes the .md file from disk."""
@@ -228,13 +238,14 @@ class TestMemoryProjectScope:
 # Config — two layers
 # ---------------------------------------------------------------------------
 
+
 class TestConfig:
     def test_project_config_or_default(self):
         """cc config list exits 0 whether or not a project config exists."""
         result = run(["config", "list"])
-        assert result.returncode == 0, (
-            f"cc config list failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
-        )
+        assert (
+            result.returncode == 0
+        ), f"cc config list failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
 
     def test_sentinel_resolution(self):
         """cc env emits CC_PATHS_SHARED_DOCS when the value is set, and omits it when absent.
@@ -249,24 +260,26 @@ class TestConfig:
         # --- Case 1: value IS configured (via env var) → cc env MUST emit it ---
         env_with = {**os.environ, "CC_PATHS_SHARED_DOCS": test_path}
         result_with = run(["env"], env=env_with)
-        assert result_with.returncode == 0, (
-            f"cc env failed when CC_PATHS_SHARED_DOCS was set:\n{result_with.stderr}"
-        )
+        assert (
+            result_with.returncode == 0
+        ), f"cc env failed when CC_PATHS_SHARED_DOCS was set:\n{result_with.stderr}"
         assert "CC_PATHS_SHARED_DOCS" in result_with.stdout, (
             f"CC_PATHS_SHARED_DOCS not emitted by cc env even though it was provided via env var:\n"
             f"{result_with.stdout}"
         )
-        assert test_path in result_with.stdout, (
-            f"Expected path {test_path!r} not found in cc env output:\n{result_with.stdout}"
-        )
+        assert (
+            test_path in result_with.stdout
+        ), f"Expected path {test_path!r} not found in cc env output:\n{result_with.stdout}"
 
         # --- Case 2: value is NOT configured (env var stripped) → test_path must be absent ---
         # This verifies cc env does not hallucinate the key when its value is null/unset.
-        env_without = {k: v for k, v in os.environ.items() if k != "CC_PATHS_SHARED_DOCS"}
+        env_without = {
+            k: v for k, v in os.environ.items() if k != "CC_PATHS_SHARED_DOCS"
+        }
         result_without = run(["env"], env=env_without)
-        assert result_without.returncode == 0, (
-            f"cc env failed when CC_PATHS_SHARED_DOCS was absent:\n{result_without.stderr}"
-        )
+        assert (
+            result_without.returncode == 0
+        ), f"cc env failed when CC_PATHS_SHARED_DOCS was absent:\n{result_without.stderr}"
         assert test_path not in result_without.stdout, (
             f"Sentinel test_path {test_path!r} leaked into cc env output without being configured:\n"
             f"{result_without.stdout}"
@@ -277,18 +290,20 @@ class TestConfig:
 # Skills
 # ---------------------------------------------------------------------------
 
+
 class TestSkills:
     def test_skill_list_exits_zero(self):
         """cc skill list exits 0 (may find 0 or more skills, both are ok)."""
         result = run(["skill", "list"])
-        assert result.returncode == 0, (
-            f"cc skill list failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
-        )
+        assert (
+            result.returncode == 0
+        ), f"cc skill list failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
 
 
 # ---------------------------------------------------------------------------
 # Migration
 # ---------------------------------------------------------------------------
+
 
 class TestMigration:
     def test_migrate_status_exits_zero(self):
@@ -304,6 +319,7 @@ class TestMigration:
 # MCP shim
 # ---------------------------------------------------------------------------
 
+
 class TestMcpShim:
     def test_mcp_config_valid_json(self):
         """cc mcp config outputs valid JSON with a 'cc' key."""
@@ -312,11 +328,11 @@ class TestMcpShim:
         try:
             data = json.loads(result.stdout)
         except json.JSONDecodeError as exc:
-            pytest.fail(f"cc mcp config output is not valid JSON: {exc}\n{result.stdout}")
+            pytest.fail(
+                f"cc mcp config output is not valid JSON: {exc}\n{result.stdout}"
+            )
         assert "cc" in data, f"'cc' key missing from mcp config output: {data}"
         entry = data["cc"]
         assert "command" in entry, "'command' missing from cc mcp config entry"
         assert "args" in entry, "'args' missing from cc mcp config entry"
-        assert entry["args"] == ["mcp", "serve"], (
-            f"Unexpected args: {entry['args']}"
-        )
+        assert entry["args"] == ["mcp", "serve"], f"Unexpected args: {entry['args']}"

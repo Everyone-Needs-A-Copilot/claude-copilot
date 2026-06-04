@@ -30,10 +30,10 @@ import re
 import sqlite3
 from typing import Any, Optional
 
-
 # ---------------------------------------------------------------------------
 # DDL builders
 # ---------------------------------------------------------------------------
+
 
 def create_fts(
     conn: sqlite3.Connection,
@@ -125,8 +125,8 @@ def create_content_triggers(
 # ---------------------------------------------------------------------------
 
 _BARE_OPERATOR = re.compile(
-    r'\b(AND|OR|NOT)\b'          # bare FTS5 boolean operators
-    r'|\*',                       # trailing star (prefix query)
+    r"\b(AND|OR|NOT)\b"  # bare FTS5 boolean operators
+    r"|\*",  # trailing star (prefix query)
     re.ASCII,
 )
 

@@ -68,7 +68,14 @@ SEVERITY_RANK = {CRITICAL: 1, HIGH: 2, MEDIUM: 3, INFO: 4}
 # ---------------------------------------------------------------------------
 
 # Kinds that have pod templates
-POD_TEMPLATE_KINDS = {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob", "ReplicaSet"}
+POD_TEMPLATE_KINDS = {
+    "Deployment",
+    "StatefulSet",
+    "DaemonSet",
+    "Job",
+    "CronJob",
+    "ReplicaSet",
+}
 
 # Kinds that should have readiness probes (traffic-receiving workloads)
 READINESS_PROBE_KINDS = {"Deployment", "StatefulSet", "ReplicaSet"}
@@ -79,6 +86,7 @@ LATEST_TAG_RE = re.compile(r":latest$")
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _get_containers(spec: dict) -> list[dict]:
     """Extract containers list from a pod spec dict."""
@@ -92,8 +100,7 @@ def _get_pod_spec(manifest: dict) -> dict | None:
         return manifest.get("spec", {})
     if kind == "CronJob":
         return (
-            manifest
-            .get("spec", {})
+            manifest.get("spec", {})
             .get("jobTemplate", {})
             .get("spec", {})
             .get("template", {})
@@ -115,6 +122,7 @@ def _manifest_label(manifest: dict) -> str:
 # Per-check functions — each returns a list of finding dicts
 # ---------------------------------------------------------------------------
 
+
 def check_resource_requests(manifest: dict) -> list[dict]:
     """K8S-001: Missing resource requests."""
     pod_spec = _get_pod_spec(manifest)
@@ -126,19 +134,21 @@ def check_resource_requests(manifest: dict) -> list[dict]:
         name = c.get("name", "<unnamed>")
         requests = c.get("resources", {}).get("requests")
         if not requests:
-            findings.append({
-                "id": "K8S-001",
-                "severity": MEDIUM,
-                "manifest": label,
-                "container": name,
-                "title": f"Missing resource requests: {label} → {name}",
-                "detail": (
-                    "No resources.requests set. Without requests, the scheduler cannot "
-                    "make informed placement decisions and QoS is Burstable or BestEffort, "
-                    "making the pod first in line for OOM kills. Set CPU and memory requests."
-                ),
-                "reference": "Kubernetes Resource Management docs",
-            })
+            findings.append(
+                {
+                    "id": "K8S-001",
+                    "severity": MEDIUM,
+                    "manifest": label,
+                    "container": name,
+                    "title": f"Missing resource requests: {label} → {name}",
+                    "detail": (
+                        "No resources.requests set. Without requests, the scheduler cannot "
+                        "make informed placement decisions and QoS is Burstable or BestEffort, "
+                        "making the pod first in line for OOM kills. Set CPU and memory requests."
+                    ),
+                    "reference": "Kubernetes Resource Management docs",
+                }
+            )
     return findings
 
 
@@ -153,19 +163,21 @@ def check_resource_limits(manifest: dict) -> list[dict]:
         name = c.get("name", "<unnamed>")
         limits = c.get("resources", {}).get("limits")
         if not limits:
-            findings.append({
-                "id": "K8S-002",
-                "severity": HIGH,
-                "manifest": label,
-                "container": name,
-                "title": f"Missing resource limits: {label} → {name}",
-                "detail": (
-                    "No resources.limits set. An unlimited container can exhaust node "
-                    "resources and starve other pods. Set memory and CPU limits to prevent "
-                    "runaway resource consumption."
-                ),
-                "reference": "Kubernetes Resource Management docs; CIS Kubernetes Benchmark §5.3",
-            })
+            findings.append(
+                {
+                    "id": "K8S-002",
+                    "severity": HIGH,
+                    "manifest": label,
+                    "container": name,
+                    "title": f"Missing resource limits: {label} → {name}",
+                    "detail": (
+                        "No resources.limits set. An unlimited container can exhaust node "
+                        "resources and starve other pods. Set memory and CPU limits to prevent "
+                        "runaway resource consumption."
+                    ),
+                    "reference": "Kubernetes Resource Management docs; CIS Kubernetes Benchmark §5.3",
+                }
+            )
     return findings
 
 
@@ -183,19 +195,21 @@ def check_liveness_probe(manifest: dict) -> list[dict]:
     for c in pod_spec.get("containers", []):
         name = c.get("name", "<unnamed>")
         if not c.get("livenessProbe"):
-            findings.append({
-                "id": "K8S-003",
-                "severity": HIGH,
-                "manifest": label,
-                "container": name,
-                "title": f"Missing liveness probe: {label} → {name}",
-                "detail": (
-                    "No livenessProbe set. Without it, Kubernetes cannot detect a deadlocked "
-                    "or hung process and will not restart it. Add a livenessProbe pointing "
-                    "to a health endpoint or a process check."
-                ),
-                "reference": "Kubernetes Configure Liveness Probes docs",
-            })
+            findings.append(
+                {
+                    "id": "K8S-003",
+                    "severity": HIGH,
+                    "manifest": label,
+                    "container": name,
+                    "title": f"Missing liveness probe: {label} → {name}",
+                    "detail": (
+                        "No livenessProbe set. Without it, Kubernetes cannot detect a deadlocked "
+                        "or hung process and will not restart it. Add a livenessProbe pointing "
+                        "to a health endpoint or a process check."
+                    ),
+                    "reference": "Kubernetes Configure Liveness Probes docs",
+                }
+            )
     return findings
 
 
@@ -212,19 +226,21 @@ def check_readiness_probe(manifest: dict) -> list[dict]:
     for c in pod_spec.get("containers", []):
         name = c.get("name", "<unnamed>")
         if not c.get("readinessProbe"):
-            findings.append({
-                "id": "K8S-004",
-                "severity": MEDIUM,
-                "manifest": label,
-                "container": name,
-                "title": f"Missing readiness probe: {label} → {name}",
-                "detail": (
-                    "No readinessProbe set. Without it, Kubernetes sends traffic to a pod "
-                    "as soon as it starts, before the app is ready. Slow-starting apps "
-                    "will receive requests they cannot serve. Add a readinessProbe."
-                ),
-                "reference": "Kubernetes Configure Readiness Probes docs",
-            })
+            findings.append(
+                {
+                    "id": "K8S-004",
+                    "severity": MEDIUM,
+                    "manifest": label,
+                    "container": name,
+                    "title": f"Missing readiness probe: {label} → {name}",
+                    "detail": (
+                        "No readinessProbe set. Without it, Kubernetes sends traffic to a pod "
+                        "as soon as it starts, before the app is ready. Slow-starting apps "
+                        "will receive requests they cannot serve. Add a readinessProbe."
+                    ),
+                    "reference": "Kubernetes Configure Readiness Probes docs",
+                }
+            )
     return findings
 
 
@@ -243,19 +259,21 @@ def check_latest_image_tag(manifest: dict) -> list[dict]:
         is_latest = LATEST_TAG_RE.search(image) is not None
         if not has_tag or is_latest:
             tag_desc = ":latest" if is_latest else "(no tag)"
-            findings.append({
-                "id": "K8S-005",
-                "severity": HIGH,
-                "manifest": label,
-                "container": name,
-                "title": f"Unpinned image tag {tag_desc}: {label} → {name} ({image!r})",
-                "detail": (
-                    f"Container '{name}' uses image '{image}' with an unpinned tag. "
-                    "Different nodes may pull different versions; rollbacks are impossible. "
-                    "Pin to a specific version tag or SHA digest."
-                ),
-                "reference": "Kubernetes best practices — image tagging",
-            })
+            findings.append(
+                {
+                    "id": "K8S-005",
+                    "severity": HIGH,
+                    "manifest": label,
+                    "container": name,
+                    "title": f"Unpinned image tag {tag_desc}: {label} → {name} ({image!r})",
+                    "detail": (
+                        f"Container '{name}' uses image '{image}' with an unpinned tag. "
+                        "Different nodes may pull different versions; rollbacks are impossible. "
+                        "Pin to a specific version tag or SHA digest."
+                    ),
+                    "reference": "Kubernetes best practices — image tagging",
+                }
+            )
     return findings
 
 
@@ -270,20 +288,22 @@ def check_privileged_container(manifest: dict) -> list[dict]:
         name = c.get("name", "<unnamed>")
         sc = c.get("securityContext", {})
         if sc.get("privileged") is True:
-            findings.append({
-                "id": "K8S-006",
-                "severity": CRITICAL,
-                "manifest": label,
-                "container": name,
-                "title": f"Privileged container: {label} → {name}",
-                "detail": (
-                    f"Container '{name}' runs with securityContext.privileged=true. "
-                    "A privileged container has full access to the host kernel and can "
-                    "trivially escape to the node. Remove privileged: true and grant "
-                    "only the specific capabilities required."
-                ),
-                "reference": "CIS Kubernetes Benchmark §5.2.1",
-            })
+            findings.append(
+                {
+                    "id": "K8S-006",
+                    "severity": CRITICAL,
+                    "manifest": label,
+                    "container": name,
+                    "title": f"Privileged container: {label} → {name}",
+                    "detail": (
+                        f"Container '{name}' runs with securityContext.privileged=true. "
+                        "A privileged container has full access to the host kernel and can "
+                        "trivially escape to the node. Remove privileged: true and grant "
+                        "only the specific capabilities required."
+                    ),
+                    "reference": "CIS Kubernetes Benchmark §5.2.1",
+                }
+            )
     return findings
 
 
@@ -294,20 +314,22 @@ def check_host_network(manifest: dict) -> list[dict]:
         return []
     if pod_spec.get("hostNetwork") is True:
         label = _manifest_label(manifest)
-        return [{
-            "id": "K8S-007",
-            "severity": CRITICAL,
-            "manifest": label,
-            "container": None,
-            "title": f"hostNetwork: true on {label}",
-            "detail": (
-                "hostNetwork: true allows the pod to see all network interfaces on the host. "
-                "This bypasses network isolation and can expose internal cluster services "
-                "or allow traffic sniffing. Remove hostNetwork unless strictly required "
-                "by a node-level agent (e.g., CNI plugin, monitoring agent)."
-            ),
-            "reference": "CIS Kubernetes Benchmark §5.2.4",
-        }]
+        return [
+            {
+                "id": "K8S-007",
+                "severity": CRITICAL,
+                "manifest": label,
+                "container": None,
+                "title": f"hostNetwork: true on {label}",
+                "detail": (
+                    "hostNetwork: true allows the pod to see all network interfaces on the host. "
+                    "This bypasses network isolation and can expose internal cluster services "
+                    "or allow traffic sniffing. Remove hostNetwork unless strictly required "
+                    "by a node-level agent (e.g., CNI plugin, monitoring agent)."
+                ),
+                "reference": "CIS Kubernetes Benchmark §5.2.4",
+            }
+        ]
     return []
 
 
@@ -325,21 +347,23 @@ def check_security_context(manifest: dict) -> list[dict]:
         has_non_root = sc.get("runAsNonRoot") is True
         has_run_as_user = sc.get("runAsUser") is not None and sc.get("runAsUser") != 0
         if not has_non_root and not has_run_as_user:
-            findings.append({
-                "id": "K8S-008",
-                "severity": HIGH,
-                "manifest": label,
-                "container": name,
-                "title": f"No non-root securityContext: {label} → {name}",
-                "detail": (
-                    f"Container '{name}' has no securityContext.runAsNonRoot or "
-                    "securityContext.runAsUser set. Defaults to root. Set "
-                    "runAsNonRoot: true and a specific runAsUser (>=1000) to enforce "
-                    "least privilege. Also consider readOnlyRootFilesystem: true and "
-                    "capabilities.drop: [ALL]."
-                ),
-                "reference": "CIS Kubernetes Benchmark §5.2.6",
-            })
+            findings.append(
+                {
+                    "id": "K8S-008",
+                    "severity": HIGH,
+                    "manifest": label,
+                    "container": name,
+                    "title": f"No non-root securityContext: {label} → {name}",
+                    "detail": (
+                        f"Container '{name}' has no securityContext.runAsNonRoot or "
+                        "securityContext.runAsUser set. Defaults to root. Set "
+                        "runAsNonRoot: true and a specific runAsUser (>=1000) to enforce "
+                        "least privilege. Also consider readOnlyRootFilesystem: true and "
+                        "capabilities.drop: [ALL]."
+                    ),
+                    "reference": "CIS Kubernetes Benchmark §5.2.6",
+                }
+            )
     return findings
 
 
@@ -351,20 +375,22 @@ def check_single_replica(manifest: dict) -> list[dict]:
     # replicas defaults to 1 if unset — flag both explicit 1 and absent
     if replicas is None or replicas == 1:
         label = _manifest_label(manifest)
-        return [{
-            "id": "K8S-009",
-            "severity": MEDIUM,
-            "manifest": label,
-            "container": None,
-            "title": f"Single replica Deployment: {label}",
-            "detail": (
-                f"Deployment has replicas={replicas if replicas is not None else '(default 1)'}. "
-                "A single replica means pod restart = downtime. Set replicas >= 2 for "
-                "production and add a PodDisruptionBudget to preserve availability during "
-                "rolling updates and node maintenance."
-            ),
-            "reference": "Kubernetes HA best practices",
-        }]
+        return [
+            {
+                "id": "K8S-009",
+                "severity": MEDIUM,
+                "manifest": label,
+                "container": None,
+                "title": f"Single replica Deployment: {label}",
+                "detail": (
+                    f"Deployment has replicas={replicas if replicas is not None else '(default 1)'}. "
+                    "A single replica means pod restart = downtime. Set replicas >= 2 for "
+                    "production and add a PodDisruptionBudget to preserve availability during "
+                    "rolling updates and node maintenance."
+                ),
+                "reference": "Kubernetes HA best practices",
+            }
+        ]
     return []
 
 
@@ -399,7 +425,9 @@ def lint_manifests(manifests: list[dict]) -> list[dict]:
     all_findings = []
     for m in manifests:
         all_findings.extend(lint_manifest(m))
-    all_findings.sort(key=lambda f: (SEVERITY_RANK[f["severity"]], f["id"], f["manifest"]))
+    all_findings.sort(
+        key=lambda f: (SEVERITY_RANK[f["severity"]], f["id"], f["manifest"])
+    )
     return all_findings
 
 
@@ -420,6 +448,7 @@ def render_markdown(findings: list[dict]) -> str:
 # ---------------------------------------------------------------------------
 # I/O
 # ---------------------------------------------------------------------------
+
 
 def load_input(source: str | None) -> list[dict]:
     """Load JSON from file or stdin; return list of manifest dicts."""
@@ -472,7 +501,10 @@ def run(source: str | None) -> int:
         return 1
 
     if not manifests:
-        output = {"findings": [], "summary": {"total": 0, "critical": 0, "high": 0, "medium": 0, "info": 0}}
+        output = {
+            "findings": [],
+            "summary": {"total": 0, "critical": 0, "high": 0, "medium": 0, "info": 0},
+        }
         print(json.dumps(output, indent=2))
         print()
         print("_No manifest content provided._")
@@ -501,7 +533,7 @@ def run(source: str | None) -> int:
         )
         print(
             "\n**Note:** Input must be JSON. Convert YAML with: "
-            "`python3 -c \"import sys,json,yaml; print(json.dumps(yaml.safe_load(sys.stdin)))\" < manifest.yaml`"
+            '`python3 -c "import sys,json,yaml; print(json.dumps(yaml.safe_load(sys.stdin)))" < manifest.yaml`'
         )
 
     return 0

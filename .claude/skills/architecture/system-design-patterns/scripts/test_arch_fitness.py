@@ -28,6 +28,7 @@ spec.loader.exec_module(arch_fitness)
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def run_script(args=(), stdin_text=None):
     cmd = [sys.executable, str(SCRIPT)] + list(args)
     result = subprocess.run(cmd, input=stdin_text, capture_output=True, text=True)
@@ -84,6 +85,7 @@ def minimal_adr(**overrides):
 # assign_band — boundary values
 # ---------------------------------------------------------------------------
 
+
 class TestAssignBand:
     def test_100_is_complete(self):
         assert arch_fitness.assign_band(100.0) == "COMPLETE"
@@ -113,6 +115,7 @@ class TestAssignBand:
 # ---------------------------------------------------------------------------
 # score_document — coverage arithmetic
 # ---------------------------------------------------------------------------
+
 
 class TestScoreDocument:
     def test_all_required_fields_100_percent(self):
@@ -220,7 +223,9 @@ class TestScoreDocument:
         checklist = {k: True for k in arch_fitness.TRADE_OFF_FIELDS}
         doc = minimal_adr(trade_off_checklist=checklist)
         result = arch_fitness.score_document(doc)
-        checklist_gaps = [g for g in result["gaps"] if "trade_off_checklist" in g["location"]]
+        checklist_gaps = [
+            g for g in result["gaps"] if "trade_off_checklist" in g["location"]
+        ]
         assert len(checklist_gaps) == 0
 
     def test_no_trade_off_checklist_has_single_advisory(self):
@@ -240,6 +245,7 @@ class TestScoreDocument:
 # ---------------------------------------------------------------------------
 # coverage_pct arithmetic correctness
 # ---------------------------------------------------------------------------
+
 
 class TestCoverageArithmetic:
     def test_7_of_7_is_100(self):
@@ -263,6 +269,7 @@ class TestCoverageArithmetic:
 # ---------------------------------------------------------------------------
 # load_input
 # ---------------------------------------------------------------------------
+
 
 class TestLoadInput:
     def test_stdin_hyphen(self, monkeypatch):
@@ -307,6 +314,7 @@ class TestLoadInput:
 # ---------------------------------------------------------------------------
 # Subprocess integration
 # ---------------------------------------------------------------------------
+
 
 class TestSubprocess:
     def test_valid_input_exits_zero(self):

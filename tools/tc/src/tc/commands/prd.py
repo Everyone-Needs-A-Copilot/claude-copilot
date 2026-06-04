@@ -15,7 +15,9 @@ prd_app = typer.Typer(name="prd", help="PRD management commands.")
 @prd_app.command("create")
 def prd_create(
     title: str = typer.Option(..., "--title", help="PRD title."),
-    description: Optional[str] = typer.Option(None, "--description", help="Short description."),
+    description: Optional[str] = typer.Option(
+        None, "--description", help="Short description."
+    ),
     content: Optional[str] = typer.Option(None, "--content", help="Full PRD content."),
     file: Optional[Path] = typer.Option(None, "--file", help="Read content from file."),
     json: bool = typer.Option(False, "--json", help="Output as JSON."),

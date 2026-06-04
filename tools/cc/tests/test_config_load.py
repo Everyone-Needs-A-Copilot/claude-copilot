@@ -19,10 +19,10 @@ from cc.core.config import (
 )
 from cc.core.config_paths import machine_config_path
 
-
 # ---------------------------------------------------------------------------
 # Flatten helper
 # ---------------------------------------------------------------------------
+
 
 def test_flatten_simple():
     obj = {"paths": {"memory": "/tmp/mem", "docs": None}, "version": 1}
@@ -46,6 +46,7 @@ def test_flatten_empty():
 # Machine config defaults when file missing
 # ---------------------------------------------------------------------------
 
+
 def test_machine_defaults_when_missing(tmp_path, monkeypatch):
     """Machine config falls back to DEFAULTS when file doesn't exist."""
     # Point machine config to a non-existent file
@@ -56,6 +57,7 @@ def test_machine_defaults_when_missing(tmp_path, monkeypatch):
     )
     # load_machine_config returns {} when file is absent
     from cc.core.config import load_machine_config as _load
+
     result = _load()
     assert result == {}
 
@@ -80,6 +82,7 @@ def test_default_memory_path_expanded():
 # Path expansion: ~ → absolute
 # ---------------------------------------------------------------------------
 
+
 def test_tilde_expansion_in_machine_config():
     cfg = get_resolved_config(
         _machine={"paths": {"memory": "~/my-memory"}},
@@ -102,6 +105,7 @@ def test_tilde_expansion_in_project_config():
 # Machine config wins over defaults
 # ---------------------------------------------------------------------------
 
+
 def test_machine_overrides_defaults():
     cfg = get_resolved_config(
         _machine={"memory": {"embedding_model": "all-MiniLM-L6-v2"}},
@@ -113,6 +117,7 @@ def test_machine_overrides_defaults():
 # ---------------------------------------------------------------------------
 # write_config / unset_config
 # ---------------------------------------------------------------------------
+
 
 def test_write_and_read_machine_config(tmp_path, monkeypatch):
     cfg_file = tmp_path / "config.json"

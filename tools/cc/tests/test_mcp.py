@@ -28,6 +28,7 @@ def runner() -> CliRunner:
 # cc mcp config
 # ---------------------------------------------------------------------------
 
+
 class TestMcpConfig:
     def test_outputs_valid_json(self, runner):
         result = runner.invoke(app, ["mcp", "config"])
@@ -81,6 +82,7 @@ class TestMcpConfig:
 # cc mcp serve — graceful degradation
 # ---------------------------------------------------------------------------
 
+
 class TestMcpServeGracefulDegradation:
     """Test that mcp serve exits cleanly when the mcp package is absent."""
 
@@ -129,6 +131,7 @@ _SENTINEL = object()
 # MCP tool schema definitions (tested without running the server)
 # ---------------------------------------------------------------------------
 
+
 class TestMcpToolSchemas:
     """Verify tool definitions without requiring mcp package to be installed."""
 
@@ -159,6 +162,7 @@ class TestMcpToolSchemas:
             # Alternate introspection path
             from cc.commands.mcp_serve import build_server as bs
             import inspect
+
             srv = bs()
             # The server exposes _list_tools_handler
             tools = asyncio.run(srv._list_tools_handler())
@@ -242,6 +246,7 @@ class TestMcpToolSchemas:
 # Schema tests that run WITHOUT mcp package (inspect the raw dict)
 # ---------------------------------------------------------------------------
 
+
 class TestMcpToolSchemasNoMcpPackage:
     """These tests introspect mcp_serve.build_server() tool definitions
     without requiring the mcp package, by looking at the raw schema dicts
@@ -252,7 +257,13 @@ class TestMcpToolSchemasNoMcpPackage:
         import ast
         import pathlib
 
-        src = pathlib.Path(__file__).parent.parent / "src" / "cc" / "commands" / "mcp_serve.py"
+        src = (
+            pathlib.Path(__file__).parent.parent
+            / "src"
+            / "cc"
+            / "commands"
+            / "mcp_serve.py"
+        )
         tree = ast.parse(src.read_text())
 
         # Collect all string constants that look like tool names

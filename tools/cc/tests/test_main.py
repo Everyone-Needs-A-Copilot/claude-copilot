@@ -77,6 +77,7 @@ def test_env_emits_exports(cli):
 def test_env_json_flag(cli):
     """cc env --json exits 0 and outputs valid JSON."""
     import json
+
     result = cli(["env", "--json"])
     assert result.exit_code == 0
     data = json.loads(result.output)

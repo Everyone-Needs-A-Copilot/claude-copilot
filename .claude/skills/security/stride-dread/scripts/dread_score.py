@@ -55,10 +55,10 @@ BANDS = [
 
 DIMENSIONS = ("D", "R", "E", "A", "D2")
 DIM_LABELS = {
-    "D":  "Damage",
-    "R":  "Reproducibility",
-    "E":  "Exploitability",
-    "A":  "Affected Users",
+    "D": "Damage",
+    "R": "Reproducibility",
+    "E": "Exploitability",
+    "A": "Affected Users",
     "D2": "Discoverability",
 }
 
@@ -77,14 +77,18 @@ def validate_finding(finding: object, index: int) -> dict:
     Returns the validated dict or raises ValueError with a clear message.
     """
     if not isinstance(finding, dict):
-        raise ValueError(f"Finding at index {index} must be a JSON object, got {type(finding).__name__}")
+        raise ValueError(
+            f"Finding at index {index} must be a JSON object, got {type(finding).__name__}"
+        )
 
     if "title" not in finding:
         raise ValueError(f"Finding at index {index} missing required field 'title'")
 
     title = finding["title"]
     if not isinstance(title, str) or not title.strip():
-        raise ValueError(f"Finding at index {index}: 'title' must be a non-empty string")
+        raise ValueError(
+            f"Finding at index {index}: 'title' must be a non-empty string"
+        )
 
     validated = {"title": title.strip()}
 

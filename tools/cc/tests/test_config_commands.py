@@ -21,6 +21,7 @@ def invoke(*args):
 # cc config help
 # ---------------------------------------------------------------------------
 
+
 def test_config_help_lists_commands():
     result = invoke("config", "--help")
     assert result.exit_code == 0
@@ -37,6 +38,7 @@ def test_config_help_lists_commands():
 # ---------------------------------------------------------------------------
 # cc config get
 # ---------------------------------------------------------------------------
+
 
 def test_config_get_returns_value(monkeypatch, tmp_path):
     cfg = {"paths": {"memory": "/test/memory"}}
@@ -94,6 +96,7 @@ def test_config_get_unset_key(monkeypatch, tmp_path):
 # cc config set
 # ---------------------------------------------------------------------------
 
+
 def test_config_set_writes_to_machine(monkeypatch, tmp_path):
     cfg_file = tmp_path / "config.json"
     monkeypatch.setattr("cc.core.config_paths.machine_config_path", lambda: cfg_file)
@@ -132,12 +135,16 @@ def test_config_set_output_mentions_layer(monkeypatch, tmp_path):
 # cc config list
 # ---------------------------------------------------------------------------
 
+
 def test_config_list_machine_scope(monkeypatch, tmp_path):
     cfg_file = tmp_path / "config.json"
     cfg_file.write_text(json.dumps({"paths": {"memory": "/list/memory"}}))
     monkeypatch.setattr("cc.core.config_paths.machine_config_path", lambda: cfg_file)
     monkeypatch.setattr("cc.core.config.machine_config_path", lambda: cfg_file)
-    monkeypatch.setattr("cc.core.config.load_machine_config", lambda: {"paths": {"memory": "/list/memory"}})
+    monkeypatch.setattr(
+        "cc.core.config.load_machine_config",
+        lambda: {"paths": {"memory": "/list/memory"}},
+    )
 
     result = invoke("config", "list", "--scope", "machine")
     assert result.exit_code == 0
@@ -161,12 +168,16 @@ def test_config_list_json_flag(monkeypatch, tmp_path):
 # cc config where
 # ---------------------------------------------------------------------------
 
+
 def test_config_where_shows_source(monkeypatch, tmp_path):
     cfg_file = tmp_path / "config.json"
     cfg_file.write_text(json.dumps({"paths": {"memory": "/where/memory"}}))
     monkeypatch.setattr("cc.core.config_paths.machine_config_path", lambda: cfg_file)
     monkeypatch.setattr("cc.core.config.machine_config_path", lambda: cfg_file)
-    monkeypatch.setattr("cc.core.config.load_machine_config", lambda: {"paths": {"memory": "/where/memory"}})
+    monkeypatch.setattr(
+        "cc.core.config.load_machine_config",
+        lambda: {"paths": {"memory": "/where/memory"}},
+    )
     monkeypatch.setattr("cc.core.config.load_project_config", lambda: {})
 
     result = invoke("config", "where", "paths.memory")
@@ -188,6 +199,7 @@ def test_config_where_json_flag(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 # cc config init
 # ---------------------------------------------------------------------------
+
 
 def test_config_init_machine_creates_file(monkeypatch, tmp_path):
     cfg_file = tmp_path / "config.json"
@@ -221,6 +233,7 @@ def test_config_init_does_not_overwrite_existing(monkeypatch, tmp_path):
 # cc config validate
 # ---------------------------------------------------------------------------
 
+
 def test_config_validate_passes_valid_json(monkeypatch, tmp_path):
     cfg_file = tmp_path / "config.json"
     cfg_file.write_text(json.dumps({"paths": {"memory": "/valid"}}))
@@ -246,6 +259,7 @@ def test_config_validate_fails_invalid_json(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 # Round-trip: set → get
 # ---------------------------------------------------------------------------
+
 
 def test_round_trip_set_get(monkeypatch, tmp_path):
     cfg_file = tmp_path / "config.json"

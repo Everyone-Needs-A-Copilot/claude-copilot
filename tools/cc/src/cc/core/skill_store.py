@@ -17,6 +17,7 @@ from typing import Any
 
 try:
     import yaml as _yaml  # type: ignore[import]
+
     _YAML_AVAILABLE = True
 except ImportError:  # pragma: no cover
     _YAML_AVAILABLE = False
@@ -72,7 +73,9 @@ def default_skill_paths() -> list[tuple[Path, str]]:
     return paths
 
 
-def _resolve_block_scalar(lines: list[str], start: int, indicator: str = ">-") -> tuple[str, int]:
+def _resolve_block_scalar(
+    lines: list[str], start: int, indicator: str = ">-"
+) -> tuple[str, int]:
     """Resolve a YAML block scalar starting at *start* (the line containing >- or |).
 
     *indicator* is the block scalar indicator string (">-", ">", "|-", or "|").

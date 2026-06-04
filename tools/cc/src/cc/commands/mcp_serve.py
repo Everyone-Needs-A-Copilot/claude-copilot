@@ -121,7 +121,11 @@ def _skill_list_fn(scope: str = "all") -> list[dict[str, Any]]:
 
 
 def _skill_search_fn(query: str, scope: str = "all") -> list[dict[str, Any]]:
-    from cc.core.skill_store import _git_root, discover_skills_with_sources, search_skills
+    from cc.core.skill_store import (
+        _git_root,
+        discover_skills_with_sources,
+        search_skills,
+    )
     from pathlib import Path
 
     pairs: list[tuple[Path, str]] = []
@@ -197,6 +201,7 @@ def _config_set_fn(key: str, value: str, project: bool = False) -> dict[str, Any
 # MCP server definition
 # ---------------------------------------------------------------------------
 
+
 def build_server():
     """Build and return the configured MCP Server instance."""
     from mcp.server import Server
@@ -214,7 +219,10 @@ def build_server():
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "content": {"type": "string", "description": "Memory content to store."},
+                        "content": {
+                            "type": "string",
+                            "description": "Memory content to store.",
+                        },
                         "entry_type": {
                             "type": "string",
                             "description": "Entry type: decision|context|lesson|reference|person",
@@ -240,7 +248,10 @@ def build_server():
                     "type": "object",
                     "properties": {
                         "query": {"type": "string", "description": "Search query."},
-                        "scope": {"type": "string", "description": "Scope: project or global."},
+                        "scope": {
+                            "type": "string",
+                            "description": "Scope: project or global.",
+                        },
                     },
                     "required": ["query"],
                 },
@@ -251,8 +262,14 @@ def build_server():
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "entry_id": {"type": "string", "description": "Entry UUID (full or prefix)."},
-                        "scope": {"type": "string", "description": "Scope: project or global."},
+                        "entry_id": {
+                            "type": "string",
+                            "description": "Entry UUID (full or prefix).",
+                        },
+                        "scope": {
+                            "type": "string",
+                            "description": "Scope: project or global.",
+                        },
                     },
                     "required": ["entry_id"],
                 },
@@ -263,9 +280,15 @@ def build_server():
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "entry_type": {"type": "string", "description": "Filter by entry type."},
+                        "entry_type": {
+                            "type": "string",
+                            "description": "Filter by entry type.",
+                        },
                         "tag": {"type": "string", "description": "Filter by tag."},
-                        "scope": {"type": "string", "description": "Scope: project or global."},
+                        "scope": {
+                            "type": "string",
+                            "description": "Scope: project or global.",
+                        },
                     },
                     "required": [],
                 },
@@ -276,8 +299,14 @@ def build_server():
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "entry_id": {"type": "string", "description": "Entry UUID (full or prefix)."},
-                        "scope": {"type": "string", "description": "Scope: project or global."},
+                        "entry_id": {
+                            "type": "string",
+                            "description": "Entry UUID (full or prefix).",
+                        },
+                        "scope": {
+                            "type": "string",
+                            "description": "Scope: project or global.",
+                        },
                     },
                     "required": ["entry_id"],
                 },
@@ -335,8 +364,14 @@ def build_server():
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "key": {"type": "string", "description": "Dotted config key (e.g. paths.shared_docs)."},
-                        "scope": {"type": "string", "description": "machine | project | effective"},
+                        "key": {
+                            "type": "string",
+                            "description": "Dotted config key (e.g. paths.shared_docs).",
+                        },
+                        "scope": {
+                            "type": "string",
+                            "description": "machine | project | effective",
+                        },
                     },
                     "required": ["key"],
                 },
@@ -382,7 +417,11 @@ def build_server():
                 scope=arguments.get("scope"),
             )
             if entry is None:
-                return [TextContent(type="text", text=f"Entry not found: {arguments['entry_id']}")]
+                return [
+                    TextContent(
+                        type="text", text=f"Entry not found: {arguments['entry_id']}"
+                    )
+                ]
             result = entry
         elif name == "memory_list":
             result = _memory_list_fn(
@@ -409,7 +448,11 @@ def build_server():
                 scope=arguments.get("scope", "all"),
             )
             if content is None:
-                return [TextContent(type="text", text=f"Skill not found: {arguments['name']}")]
+                return [
+                    TextContent(
+                        type="text", text=f"Skill not found: {arguments['name']}"
+                    )
+                ]
             return [TextContent(type="text", text=content)]
         elif name == "config_get":
             result = _config_get_fn(

@@ -18,10 +18,10 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-
 # ---------------------------------------------------------------------------
 # Data models
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class StreamProgress:
@@ -92,6 +92,7 @@ class DashboardData:
 # ---------------------------------------------------------------------------
 # Database queries
 # ---------------------------------------------------------------------------
+
 
 def _fetch_dashboard_data(
     conn: sqlite3.Connection,
@@ -221,6 +222,7 @@ def _truncate(text: str, max_len: int) -> str:
 # ---------------------------------------------------------------------------
 # Rendering
 # ---------------------------------------------------------------------------
+
 
 def _render_header(data: DashboardData, refresh: int) -> Panel:
     """Render the top header panel with overall progress."""
@@ -421,6 +423,7 @@ def _build_layout(data: DashboardData, refresh: int, compact: bool) -> Layout:
 # ---------------------------------------------------------------------------
 # Main command entry point
 # ---------------------------------------------------------------------------
+
 
 def watch(
     refresh: int = 5,

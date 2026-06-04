@@ -7,10 +7,10 @@ import pytest
 from cc.core.config import get_resolved_config, resolve_key
 from cc.core.sentinels import resolve_sentinel, is_sentinel
 
-
 # ---------------------------------------------------------------------------
 # is_sentinel
 # ---------------------------------------------------------------------------
+
 
 def test_is_sentinel_at_machine():
     assert is_sentinel("@machine") is True
@@ -44,21 +44,27 @@ def test_is_sentinel_number():
 # resolve_sentinel: @machine (same key)
 # ---------------------------------------------------------------------------
 
+
 def test_at_machine_resolves_same_key():
     machine = {"paths.shared_docs": "/machine/docs"}
-    result = resolve_sentinel("@machine", same_key="paths.shared_docs", machine_config=machine)
+    result = resolve_sentinel(
+        "@machine", same_key="paths.shared_docs", machine_config=machine
+    )
     assert result == "/machine/docs"
 
 
 def test_at_machine_returns_none_when_key_missing():
     machine = {}
-    result = resolve_sentinel("@machine", same_key="paths.shared_docs", machine_config=machine)
+    result = resolve_sentinel(
+        "@machine", same_key="paths.shared_docs", machine_config=machine
+    )
     assert result is None
 
 
 # ---------------------------------------------------------------------------
 # resolve_sentinel: @machine:<other_key>
 # ---------------------------------------------------------------------------
+
 
 def test_at_machine_other_key():
     machine = {"paths.shared_docs": "/machine/docs"}
@@ -84,8 +90,11 @@ def test_at_machine_other_key_missing_returns_none():
 # resolve_sentinel: @disabled
 # ---------------------------------------------------------------------------
 
+
 def test_at_disabled_returns_none():
-    result = resolve_sentinel("@disabled", same_key="paths.shared_docs", machine_config={})
+    result = resolve_sentinel(
+        "@disabled", same_key="paths.shared_docs", machine_config={}
+    )
     assert result is None
 
 
@@ -101,21 +110,27 @@ def test_at_disabled_in_get_resolved_config():
 # resolve_sentinel: @env
 # ---------------------------------------------------------------------------
 
+
 def test_at_env_resolves_env_var(monkeypatch):
     monkeypatch.setenv("MY_CUSTOM_VAR", "/env/path")
-    result = resolve_sentinel("@env:MY_CUSTOM_VAR", same_key="paths.x", machine_config={})
+    result = resolve_sentinel(
+        "@env:MY_CUSTOM_VAR", same_key="paths.x", machine_config={}
+    )
     assert result == "/env/path"
 
 
 def test_at_env_returns_none_when_var_missing(monkeypatch):
     monkeypatch.delenv("NONEXISTENT_VAR", raising=False)
-    result = resolve_sentinel("@env:NONEXISTENT_VAR", same_key="paths.x", machine_config={})
+    result = resolve_sentinel(
+        "@env:NONEXISTENT_VAR", same_key="paths.x", machine_config={}
+    )
     assert result is None
 
 
 # ---------------------------------------------------------------------------
 # Unknown sentinel passes through
 # ---------------------------------------------------------------------------
+
 
 def test_unknown_sentinel_passthrough():
     """Unknown @-prefixed values are returned literally (forward-compat)."""
@@ -126,6 +141,7 @@ def test_unknown_sentinel_passthrough():
 # ---------------------------------------------------------------------------
 # Integration: project config with @machine sentinel
 # ---------------------------------------------------------------------------
+
 
 def test_project_at_machine_resolves_via_get_resolved_config():
     """Property test: project @machine always returns machine value for the same key."""

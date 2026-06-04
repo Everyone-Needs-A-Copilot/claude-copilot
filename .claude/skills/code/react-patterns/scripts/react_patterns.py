@@ -76,21 +76,19 @@ SEVERITY_ORDER = {"HIGH": 2, "MEDIUM": 1, "LOW": 0}
 # Pattern rationale: we match `key=` followed by `{` then an index-like name or
 # digit(s). We do NOT match `key={item.id}` or `key={user.uuid}` — those are
 # property accesses and are correct.
-_RE_INDEX_KEY = re.compile(
-    r'\bkey=\{(?:index|idx|i\b|n\b|k\b|\d+)\}'
-)
+_RE_INDEX_KEY = re.compile(r"\bkey=\{(?:index|idx|i\b|n\b|k\b|\d+)\}")
 
 # .map( opening — detect start of a map call that will render JSX.
 # We look for .map( followed by content on the same or next lines.
-_RE_MAP_OPEN = re.compile(r'\.map\s*\(')
+_RE_MAP_OPEN = re.compile(r"\.map\s*\(")
 
 # key= prop — used to confirm presence within lookahead window.
-_RE_KEY_PROP = re.compile(r'\bkey\s*=')
+_RE_KEY_PROP = re.compile(r"\bkey\s*=")
 
 # JSX element opening — a < followed by an uppercase letter (component) or
 # lowercase with common HTML tag names. Used to detect JSX inside .map().
 # We look for a return ( or direct JSX after the map callback arrow.
-_RE_JSX_OPEN = re.compile(r'<[A-Za-z][A-Za-z0-9.]*[\s>]')
+_RE_JSX_OPEN = re.compile(r"<[A-Za-z][A-Za-z0-9.]*[\s>]")
 
 # HOOK_IN_CONDITIONAL: Detect hook calls (use* pattern) inside if blocks.
 # Matches: `if (...)` on one line, then `use<HookName>(` within a few lines.
@@ -99,9 +97,9 @@ _RE_JSX_OPEN = re.compile(r'<[A-Za-z][A-Za-z0-9.]*[\s>]')
 # Two-pass approach:
 #   Pass 1: Note lines with `if (` or `&& ` that open a conditional block.
 #   Pass 2: Check if next N lines contain a `use[A-Z]` call.
-_RE_IF_BLOCK = re.compile(r'\bif\s*\(')
-_RE_AND_SHORT_CIRCUIT = re.compile(r'&&\s*$|&&\s+use[A-Z]')
-_RE_HOOK_CALL = re.compile(r'\buse[A-Z]\w*\s*\(')
+_RE_IF_BLOCK = re.compile(r"\bif\s*\(")
+_RE_AND_SHORT_CIRCUIT = re.compile(r"&&\s*$|&&\s+use[A-Z]")
+_RE_HOOK_CALL = re.compile(r"\buse[A-Z]\w*\s*\(")
 
 # Lines to look ahead after an `if (` for a hook call
 HOOK_CONDITIONAL_LOOKAHEAD = 3
@@ -111,23 +109,26 @@ HOOK_CONDITIONAL_LOOKAHEAD = 3
 # Check functions
 # ---------------------------------------------------------------------------
 
+
 def _check_index_as_key(lines: list[str]) -> list[dict]:
     """Detect key={index} / key={i} / key={idx} in JSX."""
     findings = []
     for lineno, line in enumerate(lines, 1):
         if _RE_INDEX_KEY.search(line):
             match = _RE_INDEX_KEY.search(line)
-            findings.append({
-                "rule": "INDEX_AS_KEY",
-                "severity": "HIGH",
-                "line": lineno,
-                "col": match.start() + 1,
-                "message": (
-                    "Array index used as React `key` prop. Index keys cause "
-                    "incorrect reconciliation when list items are reordered, "
-                    "inserted, or deleted. Use a stable unique identifier."
-                ),
-            })
+            findings.append(
+                {
+                    "rule": "INDEX_AS_KEY",
+                    "severity": "HIGH",
+                    "line": lineno,
+                    "col": match.start() + 1,
+                    "message": (
+                        "Array index used as React `key` prop. Index keys cause "
+                        "incorrect reconciliation when list items are reordered, "
+                        "inserted, or deleted. Use a stable unique identifier."
+                    ),
+                }
+            )
     return findings
 
 
@@ -155,7 +156,7 @@ def _check_missing_key(lines: list[str]) -> list[dict]:
         # Scan lookahead window for JSX and key=
         window_start = lineno  # 1-indexed, already on this line
         window_end = min(lineno + MISSING_KEY_LOOKAHEAD_LINES, n)
-        window = lines[window_start - 1:window_end]  # 0-indexed slice
+        window = lines[window_start - 1 : window_end]  # 0-indexed slice
         window_text = "\n".join(window)
 
         # Only flag if we see JSX opening in this window (confirms it's rendering)
@@ -166,17 +167,19 @@ def _check_missing_key(lines: list[str]) -> list[dict]:
         if _RE_KEY_PROP.search(window_text):
             continue
 
-        findings.append({
-            "rule": "MISSING_KEY",
-            "severity": "MEDIUM",
-            "line": lineno,
-            "col": (_RE_MAP_OPEN.search(line).start() + 1),
-            "message": (
-                f"`.map()` call renders JSX but no `key=` prop found within "
-                f"{MISSING_KEY_LOOKAHEAD_LINES} lines. Each element in a list "
-                "must have a stable unique `key` prop."
-            ),
-        })
+        findings.append(
+            {
+                "rule": "MISSING_KEY",
+                "severity": "MEDIUM",
+                "line": lineno,
+                "col": (_RE_MAP_OPEN.search(line).start() + 1),
+                "message": (
+                    f"`.map()` call renders JSX but no `key=` prop found within "
+                    f"{MISSING_KEY_LOOKAHEAD_LINES} lines. Each element in a list "
+                    "must have a stable unique `key` prop."
+                ),
+            }
+        )
 
     return findings
 
@@ -206,18 +209,20 @@ def _check_hook_in_conditional(lines: list[str]) -> list[dict]:
             if _RE_HOOK_CALL.search(check_line):
                 match = _RE_HOOK_CALL.search(check_line)
                 hook_name = match.group(0).rstrip("(").strip()
-                findings.append({
-                    "rule": "HOOK_IN_CONDITIONAL",
-                    "severity": "HIGH",
-                    "line": check_lineno + 1,  # back to 1-indexed
-                    "col": match.start() + 1,
-                    "message": (
-                        f"Hook `{hook_name}` appears to be called inside a "
-                        "conditional block. Hooks must be called at the top level "
-                        "of a React function — never inside if/else, loops, or "
-                        "nested functions (Rules of Hooks)."
-                    ),
-                })
+                findings.append(
+                    {
+                        "rule": "HOOK_IN_CONDITIONAL",
+                        "severity": "HIGH",
+                        "line": check_lineno + 1,  # back to 1-indexed
+                        "col": match.start() + 1,
+                        "message": (
+                            f"Hook `{hook_name}` appears to be called inside a "
+                            "conditional block. Hooks must be called at the top level "
+                            "of a React function — never inside if/else, loops, or "
+                            "nested functions (Rules of Hooks)."
+                        ),
+                    }
+                )
                 break  # One finding per if-block is sufficient
 
     return findings
@@ -233,9 +238,7 @@ def check_source(source: str) -> list[dict]:
         + _check_hook_in_conditional(lines)
     )
 
-    findings.sort(
-        key=lambda f: (-SEVERITY_ORDER.get(f["severity"], 0), f["line"])
-    )
+    findings.sort(key=lambda f: (-SEVERITY_ORDER.get(f["severity"], 0), f["line"]))
     return findings
 
 

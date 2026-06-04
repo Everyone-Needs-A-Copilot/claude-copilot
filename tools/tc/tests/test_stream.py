@@ -20,8 +20,17 @@ class TestStreamCreate:
     def test_create_stream_with_worktree(self, cli):
         cli(["prd", "create", "--title", "PRD"])
         result = cli(
-            ["stream", "create", "--name", "beta", "--prd", "1",
-             "--worktree-path", "/tmp/beta-tree", "--json"]
+            [
+                "stream",
+                "create",
+                "--name",
+                "beta",
+                "--prd",
+                "1",
+                "--worktree-path",
+                "/tmp/beta-tree",
+                "--json",
+            ]
         )
         assert result.exit_code == 0
         data = json.loads(result.output)

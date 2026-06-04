@@ -17,7 +17,9 @@ def wp_store(
     task: int = typer.Option(..., "--task", help="Associated task ID."),
     type_: str = typer.Option(..., "--type", metavar="TYPE", help="Work product type."),
     title: str = typer.Option(..., "--title", help="Work product title."),
-    content: Optional[str] = typer.Option(None, "--content", help="Work product content."),
+    content: Optional[str] = typer.Option(
+        None, "--content", help="Work product content."
+    ),
     file: Optional[Path] = typer.Option(None, "--file", help="Read content from file."),
     agent: Optional[str] = typer.Option(None, "--agent", help="Authoring agent."),
     json: bool = typer.Option(False, "--json", help="Output as JSON."),
@@ -49,7 +51,9 @@ def wp_store(
         if json:
             output_json(row)
         else:
-            print(f"Stored work product #{row['id']}: {row['title']} (file: {row['file_path']})")
+            print(
+                f"Stored work product #{row['id']}: {row['title']} (file: {row['file_path']})"
+            )
     else:
         if json:
             output_json(row)
@@ -87,7 +91,9 @@ def wp_get(
 @wp_app.command("list")
 def wp_list(
     task: Optional[int] = typer.Option(None, "--task", help="Filter by task ID."),
-    type_: Optional[str] = typer.Option(None, "--type", metavar="TYPE", help="Filter by type."),
+    type_: Optional[str] = typer.Option(
+        None, "--type", metavar="TYPE", help="Filter by type."
+    ),
     agent: Optional[str] = typer.Option(None, "--agent", help="Filter by agent."),
     json: bool = typer.Option(False, "--json", help="Output as JSON."),
 ) -> None:

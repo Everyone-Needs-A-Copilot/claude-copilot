@@ -52,9 +52,9 @@ ALL_SKILLS = get_all_skill_files()
 class TestSkillCount:
     def test_at_least_27_skills_exist(self):
         """At least 27 SKILL.md files must exist (WP-96 claims 27 were migrated)."""
-        assert len(ALL_SKILLS) >= 27, (
-            f"Expected >= 27 SKILL.md files, found {len(ALL_SKILLS)}"
-        )
+        assert (
+            len(ALL_SKILLS) >= 27
+        ), f"Expected >= 27 SKILL.md files, found {len(ALL_SKILLS)}"
 
     def test_no_skills_are_empty(self):
         """No SKILL.md file should be empty/truncated."""
@@ -89,9 +89,9 @@ class TestNoStaleFields:
                 continue  # Already caught in YAML validity test
             if fm and "skill_name" in fm:
                 stale.append(fp.replace(BASE, ""))
-        assert not stale, (
-            "Files still containing stale 'skill_name' field:\n" + "\n".join(stale)
-        )
+        assert (
+            not stale
+        ), "Files still containing stale 'skill_name' field:\n" + "\n".join(stale)
 
     def test_no_skill_name_in_raw_text(self):
         """Double-check: grep for skill_name: anywhere in SKILL.md files."""
@@ -102,9 +102,7 @@ class TestNoStaleFields:
             for i, line in enumerate(content.splitlines(), 1):
                 if "skill_name:" in line:
                     hits.append(f"{fp.replace(BASE, '')}:{i}: {line.strip()}")
-        assert not hits, (
-            "Raw 'skill_name:' occurrences found:\n" + "\n".join(hits)
-        )
+        assert not hits, "Raw 'skill_name:' occurrences found:\n" + "\n".join(hits)
 
 
 class TestRequiredShape:
@@ -117,9 +115,7 @@ class TestRequiredShape:
                 continue
             if not fm or not fm.get("name"):
                 missing.append(fp.replace(BASE, ""))
-        assert not missing, (
-            "Skills missing 'name' field:\n" + "\n".join(missing)
-        )
+        assert not missing, "Skills missing 'name' field:\n" + "\n".join(missing)
 
     def test_every_skill_has_nonempty_description(self):
         """Every SKILL.md frontmatter must have a non-empty 'description' field."""
@@ -130,8 +126,8 @@ class TestRequiredShape:
                 continue
             if not fm or not fm.get("description"):
                 missing.append(fp.replace(BASE, ""))
-        assert not missing, (
-            "Skills missing non-empty 'description':\n" + "\n".join(missing)
+        assert not missing, "Skills missing non-empty 'description':\n" + "\n".join(
+            missing
         )
 
     def test_description_meets_minimum_length(self):
@@ -143,10 +139,13 @@ class TestRequiredShape:
                 continue
             desc = (fm or {}).get("description", "") or ""
             if len(str(desc)) < 80:
-                short.append(f"{fp.replace(BASE, '')}: {len(str(desc))} chars: '{desc[:60]}'")
-        assert not short, (
-            "Skills with description < 80 chars (WP-95 spec violation):\n"
-            + "\n".join(short)
+                short.append(
+                    f"{fp.replace(BASE, '')}: {len(str(desc))} chars: '{desc[:60]}'"
+                )
+        assert (
+            not short
+        ), "Skills with description < 80 chars (WP-95 spec violation):\n" + "\n".join(
+            short
         )
 
 
@@ -181,12 +180,15 @@ class TestCodeBearingSkills:
         for fp, fm, content in self._find_code_bearing():
             body = content.split("---", 2)[-1] if "---" in content else content
             # Check for bash, Bash, or shell execution references
-            has_bash = any(kw in body for kw in ["Bash", "bash", "shell", "Shell", "```bash", "run"])
+            has_bash = any(
+                kw in body
+                for kw in ["Bash", "bash", "shell", "Shell", "```bash", "run"]
+            )
             if not has_bash:
                 no_bash.append(fp.replace(BASE, ""))
-        assert not no_bash, (
-            "Code-bearing skills missing Bash instructions:\n" + "\n".join(no_bash)
-        )
+        assert (
+            not no_bash
+        ), "Code-bearing skills missing Bash instructions:\n" + "\n".join(no_bash)
 
 
 class TestCCSkillSearch:
@@ -194,9 +196,7 @@ class TestCCSkillSearch:
 
     def _run_search(self, query):
         result = subprocess.run(
-            ["cc", "skill", "search", query],
-            capture_output=True, text=True,
-            cwd=BASE
+            ["cc", "skill", "search", query], capture_output=True, text=True, cwd=BASE
         )
         return result.stdout + result.stderr
 
@@ -223,23 +223,23 @@ class TestCCSkillSearch:
     def test_search_testing_finds_pytest(self):
         """'testing' search should return pytest-patterns skill."""
         output = self._run_search("testing")
-        assert "pytest" in output.lower(), (
-            f"'testing' search did not return pytest-patterns. Output:\n{output}"
-        )
+        assert (
+            "pytest" in output.lower()
+        ), f"'testing' search did not return pytest-patterns. Output:\n{output}"
 
     def test_search_javascript_finds_skill(self):
         """'javascript' search should return javascript-patterns skill."""
         output = self._run_search("javascript")
-        assert "javascript" in output.lower(), (
-            f"'javascript' search did not find javascript skill. Output:\n{output}"
-        )
+        assert (
+            "javascript" in output.lower()
+        ), f"'javascript' search did not find javascript skill. Output:\n{output}"
 
     def test_search_docker_finds_skill(self):
         """'docker' search should return docker-patterns skill."""
         output = self._run_search("docker")
-        assert "docker" in output.lower(), (
-            f"'docker' search did not find docker skill. Output:\n{output}"
-        )
+        assert (
+            "docker" in output.lower()
+        ), f"'docker' search did not find docker skill. Output:\n{output}"
 
 
 class TestDocsFixed:
@@ -264,9 +264,9 @@ class TestDocsFixed:
         We only flag lines that affirmatively state cc skill search IS FTS5.
         """
         content = self._read(self.DOCS_TO_CHECK[0])
-        assert os.path.exists(self.DOCS_TO_CHECK[0]), (
-            f"Skills authoring guide not found at {self.DOCS_TO_CHECK[0]}"
-        )
+        assert os.path.exists(
+            self.DOCS_TO_CHECK[0]
+        ), f"Skills authoring guide not found at {self.DOCS_TO_CHECK[0]}"
         lines = content.splitlines()
         violations = []
         for i, line in enumerate(lines, 1):
@@ -290,9 +290,9 @@ class TestDocsFixed:
             # Looking for template usage like "skill_name: my-skill" as instruction
             if "skill_name:" in line and not line.strip().startswith("#"):
                 violations.append(f"line {i}: {line.strip()}")
-        assert not violations, (
-            "Authoring guide still templates 'skill_name:':\n" + "\n".join(violations)
-        )
+        assert (
+            not violations
+        ), "Authoring guide still templates 'skill_name:':\n" + "\n".join(violations)
 
     def test_no_fts5_skill_claim_in_overview(self):
         """Architecture overview must not affirmatively claim FTS5 for skill search."""
@@ -306,8 +306,10 @@ class TestDocsFixed:
                 if "NOT FTS5" in line or "not FTS5" in line:
                     continue
                 violations.append(f"line {i}: {line.strip()}")
-        assert not violations, (
-            "overview.md still affirmatively claims FTS5 for skills:\n" + "\n".join(violations)
+        assert (
+            not violations
+        ), "overview.md still affirmatively claims FTS5 for skills:\n" + "\n".join(
+            violations
         )
 
     def test_no_fts5_skill_claim_in_claude_md(self):
@@ -321,8 +323,10 @@ class TestDocsFixed:
                 if "NOT FTS5" in line or "not FTS5" in line:
                     continue
                 violations.append(f"line {i}: {line.strip()}")
-        assert not violations, (
-            "CLAUDE.md still affirmatively claims FTS5 for skill search:\n" + "\n".join(violations)
+        assert (
+            not violations
+        ), "CLAUDE.md still affirmatively claims FTS5 for skill search:\n" + "\n".join(
+            violations
         )
 
     def test_no_skill_name_template_in_claude_md(self):
@@ -333,6 +337,6 @@ class TestDocsFixed:
         for i, line in enumerate(lines, 1):
             if "skill_name:" in line:
                 violations.append(f"line {i}: {line.strip()}")
-        assert not violations, (
-            "CLAUDE.md still has 'skill_name:' references:\n" + "\n".join(violations)
-        )
+        assert (
+            not violations
+        ), "CLAUDE.md still has 'skill_name:' references:\n" + "\n".join(violations)

@@ -58,6 +58,7 @@ def _get_deploy_cli() -> list[str]:
         cmd = _get_deploy_cli() + ["--json", "coolify", "deploy", "trigger", app_id]
     """
     import os
+
     # Env var override (CC_DEPLOY_CLI)
     env_val = os.environ.get("CC_DEPLOY_CLI")
     if env_val:
@@ -66,6 +67,7 @@ def _get_deploy_cli() -> list[str]:
     # cc config lookup — graceful: if cc is not importable, fall through
     try:
         from cc.core.config import resolve_key
+
         val = resolve_key(_DEPLOY_CLI_CONFIG_KEY)
         if val:
             return shlex.split(str(val))
@@ -94,7 +96,7 @@ def _check_cli_available() -> None:
         cli_cmd = " ".join(_get_deploy_cli())
         error_exit(
             f"Deploy CLI is not available (`{cli_cmd} coolify deploy --help` failed). "
-            "Set deploy.cli in cc config (cc config set deploy.cli \"<command>\") "
+            'Set deploy.cli in cc config (cc config set deploy.cli "<command>") '
             "or install the CLI per SETUP.md section P5.2.",
             EXIT_BAD_CONFIG,
         )
@@ -135,7 +137,10 @@ def _trigger_deploy(app_id: str, force: bool) -> str:
     # or a list of such dicts for tag deploys.
     if isinstance(data, list):
         if not data:
-            error_exit("Deploy trigger returned an empty list — no deployment started.", EXIT_BAD_CONFIG)
+            error_exit(
+                "Deploy trigger returned an empty list — no deployment started.",
+                EXIT_BAD_CONFIG,
+            )
         data = data[0]
 
     uuid = data.get("deployment_uuid") or data.get("uuid")
@@ -224,7 +229,8 @@ def _get_git_branch() -> Optional[str]:
     """Return the current git branch, or None if not in a git repo."""
     result = subprocess.run(
         ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if result.returncode == 0:
         return result.stdout.strip() or None
@@ -235,7 +241,8 @@ def _get_git_sha() -> Optional[str]:
     """Return the current git commit SHA (short), or None."""
     result = subprocess.run(
         ["git", "rev-parse", "--short", "HEAD"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if result.returncode == 0:
         return result.stdout.strip() or None
@@ -301,18 +308,28 @@ def deploy_wait(
     branch: Optional[str] = typer.Option(
         None, "--branch", help="Branch to deploy (default: current git branch)."
     ),
-    timeout: int = typer.Option(600, "--timeout", help="Max wait time in seconds (default: 600)."),
-    test_cmd: Optional[str] = typer.Option(
-        None, "--test", help="Command to run after successful deploy (e.g. Playwright spec)."
+    timeout: int = typer.Option(
+        600, "--timeout", help="Max wait time in seconds (default: 600)."
     ),
-    env: str = typer.Option("staging", "--env", help="Environment name (staging|production)."),
+    test_cmd: Optional[str] = typer.Option(
+        None,
+        "--test",
+        help="Command to run after successful deploy (e.g. Playwright spec).",
+    ),
+    env: str = typer.Option(
+        "staging", "--env", help="Environment name (staging|production)."
+    ),
     use_json: bool = typer.Option(False, "--json", help="Emit JSON to stdout."),
     task_id: Optional[int] = typer.Option(
         None, "--task-id", help="Link deploy_report WP to this task."
     ),
     force: bool = typer.Option(False, "--force", help="Force rebuild."),
-    trigger: bool = typer.Option(True, "--trigger/--no-trigger", help="Trigger deploy (default: true)."),
-    poll_interval: int = typer.Option(5, "--poll-interval", help="Polling interval in seconds."),
+    trigger: bool = typer.Option(
+        True, "--trigger/--no-trigger", help="Trigger deploy (default: true)."
+    ),
+    poll_interval: int = typer.Option(
+        5, "--poll-interval", help="Polling interval in seconds."
+    ),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Exercise the flow without hitting Coolify."
     ),

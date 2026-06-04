@@ -51,6 +51,7 @@ MUTABLE_DEFAULT_NODE_TYPES = (ast.List, ast.Dict, ast.Set)
 # AST visitors — each returns a list of finding dicts
 # ---------------------------------------------------------------------------
 
+
 class _Visitor(ast.NodeVisitor):
     """Base visitor that accumulates findings."""
 
@@ -58,13 +59,15 @@ class _Visitor(ast.NodeVisitor):
         self.findings = []
 
     def _add(self, node, rule, severity, message):
-        self.findings.append({
-            "rule": rule,
-            "severity": severity,
-            "line": getattr(node, "lineno", 0),
-            "col": getattr(node, "col_offset", 0),
-            "message": message,
-        })
+        self.findings.append(
+            {
+                "rule": rule,
+                "severity": severity,
+                "line": getattr(node, "lineno", 0),
+                "col": getattr(node, "col_offset", 0),
+                "message": message,
+            }
+        )
 
 
 class MutableDefaultVisitor(_Visitor):
@@ -132,7 +135,11 @@ class EqNoneVisitor(_Visitor):
 
     def visit_Compare(self, node):
         for op, comparator in zip(node.ops, node.comparators):
-            if isinstance(op, (ast.Eq, ast.NotEq)) and isinstance(comparator, ast.Constant) and comparator.value is None:
+            if (
+                isinstance(op, (ast.Eq, ast.NotEq))
+                and isinstance(comparator, ast.Constant)
+                and comparator.value is None
+            ):
                 op_str = "==" if isinstance(op, ast.Eq) else "!="
                 correct = "is" if isinstance(op, ast.Eq) else "is not"
                 self._add(
@@ -241,9 +248,7 @@ def check_source(source: str, filename: str = "<source>") -> list[dict]:
         all_findings.extend(v.findings)
 
     # Sort: severity DESC, line ASC
-    all_findings.sort(
-        key=lambda f: (-SEVERITY_ORDER.get(f["severity"], 0), f["line"])
-    )
+    all_findings.sort(key=lambda f: (-SEVERITY_ORDER.get(f["severity"], 0), f["line"]))
     return all_findings
 
 
@@ -290,7 +295,10 @@ def run(source_arg: str | None) -> int:
 
     source = source.strip()
     if not source:
-        output = {"findings": [], "summary": {"total": 0, "high": 0, "medium": 0, "low": 0}}
+        output = {
+            "findings": [],
+            "summary": {"total": 0, "high": 0, "medium": 0, "low": 0},
+        }
         print(json.dumps(output, indent=2))
         print()
         print("_No source provided — no findings._")

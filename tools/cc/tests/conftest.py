@@ -19,6 +19,7 @@ def cli(runner: CliRunner):
     Usage:
         result = cli(["version"])
     """
+
     def invoke(*args, **kwargs):
         return runner.invoke(app, *args, **kwargs)
 

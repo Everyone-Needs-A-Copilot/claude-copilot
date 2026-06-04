@@ -97,11 +97,23 @@ SEV_LOW = "LOW"
 SEVERITY_ORDER = {SEV_HIGH: 0, SEV_MEDIUM: 1, SEV_LOW: 2}
 
 METRIC_META = {
-    "METRIC-01": ("long_function",   SEV_HIGH,   "Function exceeds {} lines (threshold: {})"),
-    "METRIC-02": ("deep_nesting",    SEV_HIGH,   "Function has nesting depth {} (threshold: {})"),
-    "METRIC-03": ("long_param_list", SEV_MEDIUM, "Function has {} parameters (threshold: {})"),
-    "METRIC-04": ("large_file",      SEV_MEDIUM, "File has {} lines (threshold: {})"),
-    "METRIC-05": ("many_functions",  SEV_LOW,    "File has {} functions (threshold: {})"),
+    "METRIC-01": (
+        "long_function",
+        SEV_HIGH,
+        "Function exceeds {} lines (threshold: {})",
+    ),
+    "METRIC-02": (
+        "deep_nesting",
+        SEV_HIGH,
+        "Function has nesting depth {} (threshold: {})",
+    ),
+    "METRIC-03": (
+        "long_param_list",
+        SEV_MEDIUM,
+        "Function has {} parameters (threshold: {})",
+    ),
+    "METRIC-04": ("large_file", SEV_MEDIUM, "File has {} lines (threshold: {})"),
+    "METRIC-05": ("many_functions", SEV_LOW, "File has {} functions (threshold: {})"),
 }
 
 SUPPORTED_PYTHON_EXTS = {".py"}
@@ -113,52 +125,68 @@ SUPPORTED_EXTS = SUPPORTED_PYTHON_EXTS | SUPPORTED_JS_EXTS
 # Python analysis (AST-based — accurate)
 # ---------------------------------------------------------------------------
 
+
 def analyze_python(source: str, filename: str) -> list[dict]:
     findings = []
 
     try:
         tree = ast.parse(source, filename=filename)
     except SyntaxError as exc:
-        return [{
-            "metric_id": "PARSE-ERROR",
-            "name": "parse_error",
-            "severity": SEV_HIGH,
-            "message": f"SyntaxError: {exc.msg} (line {exc.lineno})",
-            "file": filename,
-            "line": exc.lineno or 0,
-            "function": "<module>",
-            "value": 0,
-            "threshold": 0,
-        }]
+        return [
+            {
+                "metric_id": "PARSE-ERROR",
+                "name": "parse_error",
+                "severity": SEV_HIGH,
+                "message": f"SyntaxError: {exc.msg} (line {exc.lineno})",
+                "file": filename,
+                "line": exc.lineno or 0,
+                "function": "<module>",
+                "value": 0,
+                "threshold": 0,
+            }
+        ]
 
     lines = source.splitlines()
 
     # METRIC-04: large file
     line_count = len(lines)
     if line_count > MAX_FILE_LINES:
-        findings.append(_make_finding(
-            "METRIC-04", filename, 1, "<file>", line_count, MAX_FILE_LINES,
-            f"File has {line_count} lines (threshold: {MAX_FILE_LINES})",
-        ))
+        findings.append(
+            _make_finding(
+                "METRIC-04",
+                filename,
+                1,
+                "<file>",
+                line_count,
+                MAX_FILE_LINES,
+                f"File has {line_count} lines (threshold: {MAX_FILE_LINES})",
+            )
+        )
 
     # Collect all function/method definitions
     func_nodes = [
-        n for n in ast.walk(tree)
+        n
+        for n in ast.walk(tree)
         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
     ]
 
     # METRIC-05: many functions at module level
     top_level_funcs = [
-        n for n in tree.body
-        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
     ]
     if len(top_level_funcs) > MAX_FUNCTIONS:
-        findings.append(_make_finding(
-            "METRIC-05", filename, 1, "<module>",
-            len(top_level_funcs), MAX_FUNCTIONS,
-            f"File has {len(top_level_funcs)} top-level functions "
-            f"(threshold: {MAX_FUNCTIONS})",
-        ))
+        findings.append(
+            _make_finding(
+                "METRIC-05",
+                filename,
+                1,
+                "<module>",
+                len(top_level_funcs),
+                MAX_FUNCTIONS,
+                f"File has {len(top_level_funcs)} top-level functions "
+                f"(threshold: {MAX_FUNCTIONS})",
+            )
+        )
 
     for node in func_nodes:
         name = node.name
@@ -170,10 +198,17 @@ def analyze_python(source: str, filename: str) -> list[dict]:
         # not the signature line itself. end - start gives body line count.
         func_lines = end - start
         if func_lines > MAX_FUNCTION_LINES:
-            findings.append(_make_finding(
-                "METRIC-01", filename, start, name, func_lines, MAX_FUNCTION_LINES,
-                f"Function '{name}' is {func_lines} lines (threshold: {MAX_FUNCTION_LINES})",
-            ))
+            findings.append(
+                _make_finding(
+                    "METRIC-01",
+                    filename,
+                    start,
+                    name,
+                    func_lines,
+                    MAX_FUNCTION_LINES,
+                    f"Function '{name}' is {func_lines} lines (threshold: {MAX_FUNCTION_LINES})",
+                )
+            )
 
         # METRIC-03: long param list
         args = node.args
@@ -188,31 +223,51 @@ def analyze_python(source: str, filename: str) -> list[dict]:
         if args.args and args.args[0].arg in ("self", "cls"):
             param_count = max(0, param_count - 1)
         if param_count > MAX_PARAMS:
-            findings.append(_make_finding(
-                "METRIC-03", filename, start, name, param_count, MAX_PARAMS,
-                f"Function '{name}' has {param_count} parameters "
-                f"(threshold: {MAX_PARAMS})",
-            ))
+            findings.append(
+                _make_finding(
+                    "METRIC-03",
+                    filename,
+                    start,
+                    name,
+                    param_count,
+                    MAX_PARAMS,
+                    f"Function '{name}' has {param_count} parameters "
+                    f"(threshold: {MAX_PARAMS})",
+                )
+            )
 
         # METRIC-02: deep nesting — count max indentation depth within func
         max_depth = _max_nesting_python(node)
         if max_depth > MAX_NESTING_DEPTH:
-            findings.append(_make_finding(
-                "METRIC-02", filename, start, name, max_depth, MAX_NESTING_DEPTH,
-                f"Function '{name}' has nesting depth {max_depth} "
-                f"(threshold: {MAX_NESTING_DEPTH})",
-            ))
+            findings.append(
+                _make_finding(
+                    "METRIC-02",
+                    filename,
+                    start,
+                    name,
+                    max_depth,
+                    MAX_NESTING_DEPTH,
+                    f"Function '{name}' has nesting depth {max_depth} "
+                    f"(threshold: {MAX_NESTING_DEPTH})",
+                )
+            )
 
     return findings
 
 
 def _max_nesting_python(func_node: ast.FunctionDef) -> int:
     """Compute max block-nesting depth inside a function node."""
+
     def _depth(node: ast.AST, current: int) -> int:
         max_d = current
         nesting_types = (
-            ast.If, ast.For, ast.While, ast.With, ast.Try,
-            ast.AsyncFor, ast.AsyncWith,
+            ast.If,
+            ast.For,
+            ast.While,
+            ast.With,
+            ast.Try,
+            ast.AsyncFor,
+            ast.AsyncWith,
         )
         for child in ast.iter_child_nodes(node):
             child_depth = current
@@ -230,17 +285,17 @@ def _max_nesting_python(func_node: ast.FunctionDef) -> int:
 
 # Match function declarations and arrow functions assigned to const/let/var
 RE_JS_FUNC_START = re.compile(
-    r'^\s*(?:'
-    r'(?:export\s+)?(?:async\s+)?function\s+(\w+)'          # function foo
-    r'|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?\('     # const foo = (
-    r'|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?(?:\w+)\s*=>'  # const foo = x =>
-    r')',
+    r"^\s*(?:"
+    r"(?:export\s+)?(?:async\s+)?function\s+(\w+)"  # function foo
+    r"|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?\("  # const foo = (
+    r"|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?(?:\w+)\s*=>"  # const foo = x =>
+    r")",
     re.MULTILINE,
 )
 
 # Match class method definitions
 RE_JS_METHOD = re.compile(
-    r'^\s*(?:async\s+)?(?:static\s+)?(?:get\s+|set\s+)?(\w+)\s*\([^)]*\)\s*\{'
+    r"^\s*(?:async\s+)?(?:static\s+)?(?:get\s+|set\s+)?(\w+)\s*\([^)]*\)\s*\{"
 )
 
 
@@ -251,50 +306,84 @@ def analyze_js(source: str, filename: str) -> list[dict]:
     # METRIC-04: large file
     line_count = len(lines)
     if line_count > MAX_FILE_LINES:
-        findings.append(_make_finding(
-            "METRIC-04", filename, 1, "<file>", line_count, MAX_FILE_LINES,
-            f"File has {line_count} lines (threshold: {MAX_FILE_LINES})",
-        ))
+        findings.append(
+            _make_finding(
+                "METRIC-04",
+                filename,
+                1,
+                "<file>",
+                line_count,
+                MAX_FILE_LINES,
+                f"File has {line_count} lines (threshold: {MAX_FILE_LINES})",
+            )
+        )
 
     # Extract function blocks
     func_blocks = _extract_js_functions(source, lines)
 
     # METRIC-05: many functions
     if len(func_blocks) > MAX_FUNCTIONS:
-        findings.append(_make_finding(
-            "METRIC-05", filename, 1, "<module>",
-            len(func_blocks), MAX_FUNCTIONS,
-            f"File has {len(func_blocks)} functions/methods "
-            f"(threshold: {MAX_FUNCTIONS})",
-        ))
+        findings.append(
+            _make_finding(
+                "METRIC-05",
+                filename,
+                1,
+                "<module>",
+                len(func_blocks),
+                MAX_FUNCTIONS,
+                f"File has {len(func_blocks)} functions/methods "
+                f"(threshold: {MAX_FUNCTIONS})",
+            )
+        )
 
-    for (name, start_line, func_source) in func_blocks:
+    for name, start_line, func_source in func_blocks:
         func_line_count = func_source.count("\n") + 1
 
         # METRIC-01: long function
         if func_line_count > MAX_FUNCTION_LINES:
-            findings.append(_make_finding(
-                "METRIC-01", filename, start_line, name, func_line_count, MAX_FUNCTION_LINES,
-                f"Function '{name}' is {func_line_count} lines (threshold: {MAX_FUNCTION_LINES})",
-            ))
+            findings.append(
+                _make_finding(
+                    "METRIC-01",
+                    filename,
+                    start_line,
+                    name,
+                    func_line_count,
+                    MAX_FUNCTION_LINES,
+                    f"Function '{name}' is {func_line_count} lines (threshold: {MAX_FUNCTION_LINES})",
+                )
+            )
 
         # METRIC-02: deep nesting
         max_depth = _max_nesting_js(func_source)
         if max_depth > MAX_NESTING_DEPTH:
-            findings.append(_make_finding(
-                "METRIC-02", filename, start_line, name, max_depth, MAX_NESTING_DEPTH,
-                f"Function '{name}' has nesting depth {max_depth} "
-                f"(threshold: {MAX_NESTING_DEPTH})",
-            ))
+            findings.append(
+                _make_finding(
+                    "METRIC-02",
+                    filename,
+                    start_line,
+                    name,
+                    max_depth,
+                    MAX_NESTING_DEPTH,
+                    f"Function '{name}' has nesting depth {max_depth} "
+                    f"(threshold: {MAX_NESTING_DEPTH})",
+                )
+            )
 
         # METRIC-03: long param list — count params in the opening signature
         params = _count_js_params(func_source)
         if params > MAX_PARAMS:
-            findings.append(_make_finding(
-                "METRIC-03", filename, start_line, name, params, MAX_PARAMS,
-                f"Function '{name}' has {params} parameters "
-                f"(threshold: {MAX_PARAMS})",
-            ))
+            findings.append(
+                _make_finding(
+                    "METRIC-03",
+                    filename,
+                    start_line,
+                    name,
+                    params,
+                    MAX_PARAMS,
+                    f"Function '{name}' has {params} parameters "
+                    f"(threshold: {MAX_PARAMS})",
+                )
+            )
 
     return findings
 
@@ -361,7 +450,7 @@ def _max_nesting_js(func_source: str) -> int:
 def _count_js_params(func_source: str) -> int:
     """Count params in the first (...) group of the function signature."""
     # Extract the param list between the first ( and its matching )
-    m = re.search(r'\(([^)]*)\)', func_source[:300])
+    m = re.search(r"\(([^)]*)\)", func_source[:300])
     if not m:
         return 0
     param_str = m.group(1).strip()
@@ -369,8 +458,8 @@ def _count_js_params(func_source: str) -> int:
         return 0
     # Count comma-separated segments, handling destructuring crudely
     # Remove nested brackets to avoid counting commas inside destructuring
-    cleaned = re.sub(r'\{[^}]*\}', '_obj_', param_str)
-    cleaned = re.sub(r'\[[^\]]*\]', '_arr_', cleaned)
+    cleaned = re.sub(r"\{[^}]*\}", "_obj_", param_str)
+    cleaned = re.sub(r"\[[^\]]*\]", "_arr_", cleaned)
     return len([p for p in cleaned.split(",") if p.strip()])
 
 
@@ -378,8 +467,16 @@ def _count_js_params(func_source: str) -> int:
 # Shared helpers
 # ---------------------------------------------------------------------------
 
-def _make_finding(metric_id: str, filename: str, line: int, function: str,
-                  value: int, threshold: int, message: str) -> dict:
+
+def _make_finding(
+    metric_id: str,
+    filename: str,
+    line: int,
+    function: str,
+    value: int,
+    threshold: int,
+    message: str,
+) -> dict:
     meta = METRIC_META.get(metric_id, (metric_id, SEV_MEDIUM, message))
     return {
         "metric_id": metric_id,
@@ -397,6 +494,7 @@ def _make_finding(metric_id: str, filename: str, line: int, function: str,
 # ---------------------------------------------------------------------------
 # Input loading
 # ---------------------------------------------------------------------------
+
 
 def load_source(source: str | None) -> tuple[str, str]:
     """
@@ -430,7 +528,7 @@ def detect_language(filename: str, source: str) -> str:
     if ext in SUPPORTED_JS_EXTS:
         return "javascript"
     # stdin heuristic: presence of `def ` or `import ` at line start → python
-    if re.search(r'^def |^import |^from ', source, re.MULTILINE):
+    if re.search(r"^def |^import |^from ", source, re.MULTILINE):
         return "python"
     return "javascript"
 
@@ -438,6 +536,7 @@ def detect_language(filename: str, source: str) -> str:
 # ---------------------------------------------------------------------------
 # Output rendering
 # ---------------------------------------------------------------------------
+
 
 def render_markdown(findings: list[dict]) -> str:
     if not findings:
@@ -462,6 +561,7 @@ def render_markdown(findings: list[dict]) -> str:
 # Main
 # ---------------------------------------------------------------------------
 
+
 def run(source: str | None) -> int:
     try:
         filename, text = load_source(source)
@@ -470,9 +570,16 @@ def run(source: str | None) -> int:
         return 1
 
     if not text.strip():
-        output = {"findings": [], "summary": {
-            "total": 0, "high": 0, "medium": 0, "low": 0, "language": "unknown"
-        }}
+        output = {
+            "findings": [],
+            "summary": {
+                "total": 0,
+                "high": 0,
+                "medium": 0,
+                "low": 0,
+                "language": "unknown",
+            },
+        }
         print(json.dumps(output, indent=2))
         print()
         print("## Refactoring Metrics Report\n")
@@ -486,10 +593,12 @@ def run(source: str | None) -> int:
         findings = analyze_js(text, filename)
 
     # Sort: HIGH first, then by line number
-    findings.sort(key=lambda f: (
-        SEVERITY_ORDER.get(f["severity"], 99),
-        f["line"],
-    ))
+    findings.sort(
+        key=lambda f: (
+            SEVERITY_ORDER.get(f["severity"], 99),
+            f["line"],
+        )
+    )
 
     summary = {
         "total": len(findings),

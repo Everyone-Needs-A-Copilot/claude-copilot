@@ -16,15 +16,16 @@ from __future__ import annotations
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Fixtures  (mirror conftest.py pattern)
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def db_path(tmp_path):
     """Fresh initialised DB in tmp dir."""
     from tc.db.connection import init_db
+
     path = tmp_path / ".copilot" / "tasks.db"
     init_db(path)
     return path
@@ -33,6 +34,7 @@ def db_path(tmp_path):
 @pytest.fixture
 def conn(db_path):
     from tc.db.connection import get_db
+
     c = get_db(db_path)
     yield c
     c.close()
@@ -41,6 +43,7 @@ def conn(db_path):
 # ---------------------------------------------------------------------------
 # tc.db.exceptions — importability
 # ---------------------------------------------------------------------------
+
 
 def test_exceptions_importable():
     from tc.db.exceptions import (
@@ -52,6 +55,7 @@ def test_exceptions_importable():
         ConflictError,
         DatabaseError,
     )
+
     # All are subclasses of TcError (except DatabaseError is also TcError)
     assert issubclass(TaskNotFound, TcError)
     assert issubclass(PrdNotFound, TcError)
@@ -64,6 +68,7 @@ def test_exceptions_importable():
 # ---------------------------------------------------------------------------
 # transaction() context manager
 # ---------------------------------------------------------------------------
+
 
 def test_transaction_commits_on_success(db_path):
     from tc.db.connection import get_db, transaction
@@ -110,8 +115,10 @@ def test_transaction_rolls_back_on_error(db_path):
 # tc.services.tasks.create_task
 # ---------------------------------------------------------------------------
 
+
 def test_create_task_returns_dict(db_path):
     from tc.services.tasks import create_task
+
     task = create_task(title="New task", db_path=db_path)
     assert isinstance(task, dict)
     assert task["title"] == "New task"
@@ -121,6 +128,7 @@ def test_create_task_returns_dict(db_path):
 
 def test_create_task_with_all_fields(db_path):
     from tc.services.tasks import create_task
+
     task = create_task(
         title="Full task",
         agent="me",
@@ -137,6 +145,7 @@ def test_create_task_with_all_fields(db_path):
 def test_create_task_priority_validation(db_path):
     from tc.services.tasks import create_task
     from tc.db.exceptions import ValidationError
+
     with pytest.raises(ValidationError, match="priority"):
         create_task(title="Bad priority", priority=5, db_path=db_path)
 
@@ -144,6 +153,7 @@ def test_create_task_priority_validation(db_path):
 def test_create_task_empty_title_raises(db_path):
     from tc.services.tasks import create_task
     from tc.db.exceptions import ValidationError
+
     with pytest.raises(ValidationError, match="title"):
         create_task(title="", db_path=db_path)
 
@@ -151,6 +161,7 @@ def test_create_task_empty_title_raises(db_path):
 def test_create_task_invalid_metadata_raises(db_path):
     from tc.services.tasks import create_task
     from tc.db.exceptions import ValidationError
+
     with pytest.raises(ValidationError, match="metadata"):
         create_task(title="Bad meta", metadata="not-valid-json", db_path=db_path)
 
@@ -159,8 +170,10 @@ def test_create_task_invalid_metadata_raises(db_path):
 # tc.services.tasks.add_dependency
 # ---------------------------------------------------------------------------
 
+
 def test_add_dependency_success(db_path):
     from tc.services.tasks import create_task, add_dependency
+
     t1 = create_task(title="Task 1", db_path=db_path)
     t2 = create_task(title="Task 2", db_path=db_path)
     result = add_dependency(task_id=t2["id"], depends_on=t1["id"], db_path=db_path)
@@ -172,6 +185,7 @@ def test_add_dependency_success(db_path):
 def test_add_dependency_self_raises(db_path):
     from tc.services.tasks import create_task, add_dependency
     from tc.db.exceptions import ValidationError
+
     task = create_task(title="Self dep", db_path=db_path)
     with pytest.raises(ValidationError, match="itself"):
         add_dependency(task_id=task["id"], depends_on=task["id"], db_path=db_path)
@@ -180,6 +194,7 @@ def test_add_dependency_self_raises(db_path):
 def test_add_dependency_missing_task_raises(db_path):
     from tc.services.tasks import create_task, add_dependency
     from tc.db.exceptions import TaskNotFound
+
     task = create_task(title="Real task", db_path=db_path)
     with pytest.raises(TaskNotFound):
         add_dependency(task_id=task["id"], depends_on=99999, db_path=db_path)
@@ -188,6 +203,7 @@ def test_add_dependency_missing_task_raises(db_path):
 def test_add_dependency_duplicate_raises(db_path):
     from tc.services.tasks import create_task, add_dependency
     from tc.db.exceptions import ConflictError
+
     t1 = create_task(title="T1", db_path=db_path)
     t2 = create_task(title="T2", db_path=db_path)
     add_dependency(task_id=t2["id"], depends_on=t1["id"], db_path=db_path)
@@ -199,8 +215,10 @@ def test_add_dependency_duplicate_raises(db_path):
 # tc.services.prds.create_prd
 # ---------------------------------------------------------------------------
 
+
 def test_create_prd_returns_dict(db_path):
     from tc.services.prds import create_prd
+
     prd = create_prd(title="My PRD", db_path=db_path)
     assert isinstance(prd, dict)
     assert prd["title"] == "My PRD"
@@ -209,6 +227,7 @@ def test_create_prd_returns_dict(db_path):
 
 def test_create_prd_with_description_and_content(db_path):
     from tc.services.prds import create_prd
+
     prd = create_prd(
         title="Full PRD",
         description="Short desc",
@@ -222,6 +241,7 @@ def test_create_prd_with_description_and_content(db_path):
 def test_create_prd_empty_title_raises(db_path):
     from tc.services.prds import create_prd
     from tc.db.exceptions import ValidationError
+
     with pytest.raises(ValidationError, match="title"):
         create_prd(title="", db_path=db_path)
 
@@ -230,11 +250,19 @@ def test_create_prd_empty_title_raises(db_path):
 # tc.services.wp.store_wp
 # ---------------------------------------------------------------------------
 
+
 def test_store_wp_inline_returns_dict(db_path):
     from tc.services.tasks import create_task
     from tc.services.wp import store_wp
+
     task = create_task(title="WP task", db_path=db_path)
-    wp = store_wp(task_id=task["id"], type_="analysis", title="My WP", content="Short content", db_path=db_path)
+    wp = store_wp(
+        task_id=task["id"],
+        type_="analysis",
+        title="My WP",
+        content="Short content",
+        db_path=db_path,
+    )
     assert isinstance(wp, dict)
     assert wp["title"] == "My WP"
     assert wp["content"] == "Short content"
@@ -245,6 +273,7 @@ def test_store_wp_large_content_writes_file(db_path, tmp_path):
     from tc.services.tasks import create_task
     from tc.services.wp import store_wp
     from tc import WP_CONTENT_SIZE_THRESHOLD
+
     task = create_task(title="WP large task", db_path=db_path)
     large_content = "x" * (WP_CONTENT_SIZE_THRESHOLD + 100)
     wp = store_wp(
@@ -256,12 +285,14 @@ def test_store_wp_large_content_writes_file(db_path, tmp_path):
     )
     assert wp["file_path"] is not None
     from pathlib import Path
+
     assert Path(wp["file_path"]).exists()
 
 
 def test_store_wp_missing_task_raises(db_path):
     from tc.services.wp import store_wp
     from tc.db.exceptions import TaskNotFound
+
     with pytest.raises(TaskNotFound):
         store_wp(task_id=99999, type_="analysis", title="Orphan WP", db_path=db_path)
 
@@ -270,6 +301,7 @@ def test_store_wp_empty_title_raises(db_path):
     from tc.services.tasks import create_task
     from tc.services.wp import store_wp
     from tc.db.exceptions import ValidationError
+
     task = create_task(title="WP task", db_path=db_path)
     with pytest.raises(ValidationError, match="title"):
         store_wp(task_id=task["id"], type_="analysis", title="", db_path=db_path)
@@ -279,6 +311,7 @@ def test_store_wp_empty_type_raises(db_path):
     from tc.services.tasks import create_task
     from tc.services.wp import store_wp
     from tc.db.exceptions import ValidationError
+
     task = create_task(title="WP task", db_path=db_path)
     with pytest.raises(ValidationError, match="type"):
         store_wp(task_id=task["id"], type_="", title="Valid title", db_path=db_path)
@@ -287,6 +320,7 @@ def test_store_wp_empty_type_raises(db_path):
 # ---------------------------------------------------------------------------
 # Batch transaction: create_prd + N tasks + wire deps in one transaction
 # ---------------------------------------------------------------------------
+
 
 def test_batch_prd_tasks_deps_in_transaction(db_path):
     """The headline token-win use case: PRD + tasks + deps in one conn."""
@@ -299,8 +333,7 @@ def test_batch_prd_tasks_deps_in_transaction(db_path):
         with transaction(conn):
             prd = create_prd(title="Batch PRD", conn=conn)
             specs = [
-                {"title": f"Task {i}", "priority": 0, "agent": "me"}
-                for i in range(5)
+                {"title": f"Task {i}", "priority": 0, "agent": "me"} for i in range(5)
             ]
             ids = [create_task(prd=prd["id"], **s, conn=conn)["id"] for s in specs]
             for prev, cur in zip(ids, ids[1:]):
@@ -313,9 +346,7 @@ def test_batch_prd_tasks_deps_in_transaction(db_path):
     task_count = conn2.execute(
         "SELECT COUNT(*) FROM tasks WHERE prd_id = ?", (prd["id"],)
     ).fetchone()[0]
-    dep_count = conn2.execute(
-        "SELECT COUNT(*) FROM task_dependencies"
-    ).fetchone()[0]
+    dep_count = conn2.execute("SELECT COUNT(*) FROM task_dependencies").fetchone()[0]
     conn2.close()
 
     assert task_count == 5
@@ -351,9 +382,11 @@ def test_batch_rollback_on_error_leaves_no_partial_state(db_path):
 # tc.api facade — import side-effect free + __all__
 # ---------------------------------------------------------------------------
 
+
 def test_tc_api_import_no_side_effects(tmp_path, monkeypatch):
     """Importing tc.api must NOT touch the filesystem."""
     import sys
+
     for key in list(sys.modules):
         if key == "tc.api":
             del sys.modules[key]
@@ -361,17 +394,20 @@ def test_tc_api_import_no_side_effects(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)  # no DB in tmp_path
 
     import tc.api  # must not raise FileNotFoundError
+
     assert tc.api is not None
 
 
 def test_tc_api_all_exports_importable():
     import tc.api
+
     for name in tc.api.__all__:
         assert hasattr(tc.api, name), f"tc.api missing __all__ member: {name}"
 
 
 def test_tc_api_facade_functions_accessible():
     from tc.api import create_task, create_prd, add_dependency, store_wp, transaction
+
     assert callable(create_task)
     assert callable(create_prd)
     assert callable(add_dependency)
@@ -381,6 +417,7 @@ def test_tc_api_facade_functions_accessible():
 
 def test_tc_api_create_task_end_to_end(db_path):
     from tc.api import create_task
+
     task = create_task(title="Via facade", priority=0, db_path=db_path)
     assert task["title"] == "Via facade"
     assert task["priority"] == 0
@@ -388,24 +425,41 @@ def test_tc_api_create_task_end_to_end(db_path):
 
 def test_tc_api_create_prd_end_to_end(db_path):
     from tc.api import create_prd
+
     prd = create_prd(title="Facade PRD", db_path=db_path)
     assert prd["title"] == "Facade PRD"
 
 
 def test_tc_api_store_wp_end_to_end(db_path):
     from tc.api import create_task, store_wp
+
     task = create_task(title="WP facade task", db_path=db_path)
-    wp = store_wp(task_id=task["id"], type_="implementation", title="Impl notes", db_path=db_path)
+    wp = store_wp(
+        task_id=task["id"], type_="implementation", title="Impl notes", db_path=db_path
+    )
     assert wp["task_id"] == task["id"]
     assert wp["type"] == "implementation"
 
 
 def test_tc_api_exceptions_accessible():
     from tc.api import (
-        TcError, TaskNotFound, PrdNotFound, WorkProductNotFound,
-        ValidationError, ConflictError, DatabaseError,
+        TcError,
+        TaskNotFound,
+        PrdNotFound,
+        WorkProductNotFound,
+        ValidationError,
+        ConflictError,
+        DatabaseError,
     )
+
     # Sanity check they are all exceptions
-    for exc_cls in (TcError, TaskNotFound, PrdNotFound, WorkProductNotFound,
-                    ValidationError, ConflictError, DatabaseError):
+    for exc_cls in (
+        TcError,
+        TaskNotFound,
+        PrdNotFound,
+        WorkProductNotFound,
+        ValidationError,
+        ConflictError,
+        DatabaseError,
+    ):
         assert issubclass(exc_cls, Exception)

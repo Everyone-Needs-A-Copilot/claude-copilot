@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Helpers to build a fake legacy memory.db
 # ---------------------------------------------------------------------------
@@ -61,6 +60,7 @@ def _content_hash(content: str) -> str:
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def fake_home(tmp_path, monkeypatch):
     """Redirect Path.home() and LEGACY_MEMORY_DIR to tmp_path."""
@@ -84,18 +84,21 @@ def patched_project_root(tmp_path, monkeypatch):
 @pytest.fixture
 def cli_runner():
     from typer.testing import CliRunner
+
     return CliRunner()
 
 
 @pytest.fixture
 def cli_app():
     from cc.main import app
+
     return app
 
 
 # ---------------------------------------------------------------------------
 # Unit tests for internal helpers
 # ---------------------------------------------------------------------------
+
 
 class TestFindLegacyDbs:
     def test_finds_db_in_workspace_subdir(self, fake_home):
@@ -130,10 +133,13 @@ class TestCountEntries:
         import cc.commands.memory as mem_mod
 
         db_path = fake_home / "ws" / "memory.db"
-        _make_legacy_db(db_path, [
-            {"content": "a", "type": "context"},
-            {"content": "b", "type": "decision"},
-        ])
+        _make_legacy_db(
+            db_path,
+            [
+                {"content": "a", "type": "context"},
+                {"content": "b", "type": "decision"},
+            ],
+        )
         assert mem_mod._count_entries(db_path) == 2
 
     def test_empty_db_returns_zero(self, fake_home):
@@ -150,14 +156,19 @@ class TestReadLegacyEntries:
 
         entry_id = str(uuid.uuid4())
         db_path = fake_home / "ws" / "memory.db"
-        _make_legacy_db(db_path, [{
-            "id": entry_id,
-            "content": "test content",
-            "type": "lesson",
-            "tags": ["auth", "security"],
-            "created_at": "2024-03-01T10:00:00Z",
-            "updated_at": "2024-03-02T11:00:00Z",
-        }])
+        _make_legacy_db(
+            db_path,
+            [
+                {
+                    "id": entry_id,
+                    "content": "test content",
+                    "type": "lesson",
+                    "tags": ["auth", "security"],
+                    "created_at": "2024-03-01T10:00:00Z",
+                    "updated_at": "2024-03-02T11:00:00Z",
+                }
+            ],
+        )
 
         rows = mem_mod._read_legacy_entries(db_path)
         assert len(rows) == 1
@@ -174,14 +185,16 @@ class TestMigrateEntries:
         from cc.core.entry_format import parse_frontmatter
 
         entry_id = str(uuid.uuid4())
-        rows = [{
-            "id": entry_id,
-            "content": "a useful decision",
-            "type": "decision",
-            "tags": json.dumps(["auth"]),
-            "created_at": "2024-01-15T09:00:00Z",
-            "updated_at": "2024-01-15T09:00:00Z",
-        }]
+        rows = [
+            {
+                "id": entry_id,
+                "content": "a useful decision",
+                "type": "decision",
+                "tags": json.dumps(["auth"]),
+                "created_at": "2024-01-15T09:00:00Z",
+                "updated_at": "2024-01-15T09:00:00Z",
+            }
+        ]
 
         stats = mem_mod._migrate_entries(rows, "project", dry_run=False)
         assert stats["migrated"] == 1
@@ -189,6 +202,7 @@ class TestMigrateEntries:
         assert stats["errors"] == 0
 
         from cc.core.entry_store import resolve_memory_root
+
         memory_root = resolve_memory_root("project")
         entry_file = memory_root / "entries" / f"{entry_id}.md"
         assert entry_file.exists()
@@ -202,8 +216,16 @@ class TestMigrateEntries:
         import cc.commands.memory as mem_mod
         from cc.core.entry_store import resolve_memory_root
 
-        rows = [{"id": str(uuid.uuid4()), "content": "dry run content", "type": "context",
-                 "tags": "[]", "created_at": "2024-01-01T00:00:00Z", "updated_at": "2024-01-01T00:00:00Z"}]
+        rows = [
+            {
+                "id": str(uuid.uuid4()),
+                "content": "dry run content",
+                "type": "context",
+                "tags": "[]",
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:00:00Z",
+            }
+        ]
 
         stats = mem_mod._migrate_entries(rows, "project", dry_run=True)
         assert stats["migrated"] == 1
@@ -216,17 +238,31 @@ class TestMigrateEntries:
         import cc.commands.memory as mem_mod
 
         rows = [
-            {"id": str(uuid.uuid4()), "content": "same content", "type": "context",
-             "tags": "[]", "created_at": "2024-01-01T00:00:00Z", "updated_at": "2024-01-01T00:00:00Z"},
-            {"id": str(uuid.uuid4()), "content": "same content", "type": "context",
-             "tags": "[]", "created_at": "2024-01-02T00:00:00Z", "updated_at": "2024-01-02T00:00:00Z"},
+            {
+                "id": str(uuid.uuid4()),
+                "content": "same content",
+                "type": "context",
+                "tags": "[]",
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:00:00Z",
+            },
+            {
+                "id": str(uuid.uuid4()),
+                "content": "same content",
+                "type": "context",
+                "tags": "[]",
+                "created_at": "2024-01-02T00:00:00Z",
+                "updated_at": "2024-01-02T00:00:00Z",
+            },
         ]
 
         stats = mem_mod._migrate_entries(rows, "project", dry_run=False)
         assert stats["migrated"] == 1
         assert stats["skipped"] == 1
 
-    def test_skips_existing_content_already_on_disk(self, fake_home, patched_project_root):
+    def test_skips_existing_content_already_on_disk(
+        self, fake_home, patched_project_root
+    ):
         """If an entry with same content already exists in entries/, it should be skipped."""
         import cc.commands.memory as mem_mod
         from cc.core.entry_store import store_entry
@@ -234,8 +270,16 @@ class TestMigrateEntries:
         # Pre-store an entry with the same content
         store_entry(entry_type="context", content="existing content", scope="project")
 
-        rows = [{"id": str(uuid.uuid4()), "content": "existing content", "type": "context",
-                 "tags": "[]", "created_at": "2024-01-01T00:00:00Z", "updated_at": "2024-01-01T00:00:00Z"}]
+        rows = [
+            {
+                "id": str(uuid.uuid4()),
+                "content": "existing content",
+                "type": "context",
+                "tags": "[]",
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:00:00Z",
+            }
+        ]
 
         stats = mem_mod._migrate_entries(rows, "project", dry_run=False)
         assert stats["migrated"] == 0
@@ -244,21 +288,39 @@ class TestMigrateEntries:
     def test_skips_empty_content(self, fake_home, patched_project_root):
         import cc.commands.memory as mem_mod
 
-        rows = [{"id": str(uuid.uuid4()), "content": "", "type": "context",
-                 "tags": "[]", "created_at": "2024-01-01T00:00:00Z", "updated_at": "2024-01-01T00:00:00Z"}]
+        rows = [
+            {
+                "id": str(uuid.uuid4()),
+                "content": "",
+                "type": "context",
+                "tags": "[]",
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:00:00Z",
+            }
+        ]
 
         stats = mem_mod._migrate_entries(rows, "project", dry_run=False)
         assert stats["migrated"] == 0
         assert stats["skipped"] == 1
 
-    def test_type_mapping_discussion_becomes_context(self, fake_home, patched_project_root):
+    def test_type_mapping_discussion_becomes_context(
+        self, fake_home, patched_project_root
+    ):
         import cc.commands.memory as mem_mod
         from cc.core.entry_format import parse_frontmatter
         from cc.core.entry_store import resolve_memory_root
 
         entry_id = str(uuid.uuid4())
-        rows = [{"id": entry_id, "content": "a discussion", "type": "discussion",
-                 "tags": "[]", "created_at": "2024-01-01T00:00:00Z", "updated_at": "2024-01-01T00:00:00Z"}]
+        rows = [
+            {
+                "id": entry_id,
+                "content": "a discussion",
+                "type": "discussion",
+                "tags": "[]",
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:00:00Z",
+            }
+        ]
 
         mem_mod._migrate_entries(rows, "project", dry_run=False)
 
@@ -267,14 +329,24 @@ class TestMigrateEntries:
         fm, _ = parse_frontmatter(entry_file.read_text())
         assert fm["type"] == "context"
 
-    def test_type_mapping_agent_improvement_becomes_lesson(self, fake_home, patched_project_root):
+    def test_type_mapping_agent_improvement_becomes_lesson(
+        self, fake_home, patched_project_root
+    ):
         import cc.commands.memory as mem_mod
         from cc.core.entry_format import parse_frontmatter
         from cc.core.entry_store import resolve_memory_root
 
         entry_id = str(uuid.uuid4())
-        rows = [{"id": entry_id, "content": "an improvement note", "type": "agent_improvement",
-                 "tags": "[]", "created_at": "2024-01-01T00:00:00Z", "updated_at": "2024-01-01T00:00:00Z"}]
+        rows = [
+            {
+                "id": entry_id,
+                "content": "an improvement note",
+                "type": "agent_improvement",
+                "tags": "[]",
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:00:00Z",
+            }
+        ]
 
         mem_mod._migrate_entries(rows, "project", dry_run=False)
 
@@ -289,8 +361,16 @@ class TestMigrateEntries:
         from cc.core.entry_store import resolve_memory_root
 
         entry_id = str(uuid.uuid4())
-        rows = [{"id": entry_id, "content": "some file info", "type": "file",
-                 "tags": "[]", "created_at": "2024-01-01T00:00:00Z", "updated_at": "2024-01-01T00:00:00Z"}]
+        rows = [
+            {
+                "id": entry_id,
+                "content": "some file info",
+                "type": "file",
+                "tags": "[]",
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:00:00Z",
+            }
+        ]
 
         mem_mod._migrate_entries(rows, "project", dry_run=False)
 
@@ -305,9 +385,16 @@ class TestMigrateEntries:
         from cc.core.entry_store import resolve_memory_root
 
         entry_id = str(uuid.uuid4())
-        rows = [{"id": entry_id, "content": "tagged entry", "type": "decision",
-                 "tags": json.dumps(["auth", "api"]),
-                 "created_at": "2024-01-01T00:00:00Z", "updated_at": "2024-01-01T00:00:00Z"}]
+        rows = [
+            {
+                "id": entry_id,
+                "content": "tagged entry",
+                "type": "decision",
+                "tags": json.dumps(["auth", "api"]),
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:00:00Z",
+            }
+        ]
 
         mem_mod._migrate_entries(rows, "project", dry_run=False)
 
@@ -323,10 +410,16 @@ class TestMigrateEntries:
         from cc.core.entry_store import resolve_memory_root
 
         entry_id = str(uuid.uuid4())
-        rows = [{"id": entry_id, "content": "timestamp test", "type": "context",
-                 "tags": "[]",
-                 "created_at": "2023-06-15T08:30:00Z",
-                 "updated_at": "2023-07-01T12:00:00Z"}]
+        rows = [
+            {
+                "id": entry_id,
+                "content": "timestamp test",
+                "type": "context",
+                "tags": "[]",
+                "created_at": "2023-06-15T08:30:00Z",
+                "updated_at": "2023-07-01T12:00:00Z",
+            }
+        ]
 
         mem_mod._migrate_entries(rows, "project", dry_run=False)
 
@@ -341,13 +434,17 @@ class TestMigrateEntries:
 # CLI integration tests
 # ---------------------------------------------------------------------------
 
+
 class TestMigrateCLI:
     def _setup(self, monkeypatch, tmp_path, fake_home):
         """Patch git root for project scope."""
         import cc.core.entry_store as es
+
         monkeypatch.setattr(es, "_git_root", lambda: tmp_path)
 
-    def test_no_flags_exits_nonzero(self, cli_runner, cli_app, monkeypatch, tmp_path, fake_home):
+    def test_no_flags_exits_nonzero(
+        self, cli_runner, cli_app, monkeypatch, tmp_path, fake_home
+    ):
         self._setup(monkeypatch, tmp_path, fake_home)
         result = cli_runner.invoke(cli_app, ["memory", "migrate"])
         assert result.exit_code == 1
@@ -359,23 +456,32 @@ class TestMigrateCLI:
         assert result.exit_code == 0
         assert "No legacy databases" in result.output
 
-    def test_status_shows_db_counts(self, cli_runner, cli_app, monkeypatch, tmp_path, fake_home):
+    def test_status_shows_db_counts(
+        self, cli_runner, cli_app, monkeypatch, tmp_path, fake_home
+    ):
         self._setup(monkeypatch, tmp_path, fake_home)
         db_path = fake_home / "ws-abc" / "memory.db"
-        _make_legacy_db(db_path, [
-            {"content": "entry one", "type": "context"},
-            {"content": "entry two", "type": "lesson"},
-        ])
+        _make_legacy_db(
+            db_path,
+            [
+                {"content": "entry one", "type": "context"},
+                {"content": "entry two", "type": "lesson"},
+            ],
+        )
         result = cli_runner.invoke(cli_app, ["memory", "migrate", "--status"])
         assert result.exit_code == 0
         assert "entries: 2" in result.output
 
-    def test_dry_run_prints_without_creating_files(self, cli_runner, cli_app, monkeypatch, tmp_path, fake_home):
+    def test_dry_run_prints_without_creating_files(
+        self, cli_runner, cli_app, monkeypatch, tmp_path, fake_home
+    ):
         self._setup(monkeypatch, tmp_path, fake_home)
         db_path = fake_home / "ws-1" / "memory.db"
         _make_legacy_db(db_path, [{"content": "my dry run entry", "type": "context"}])
 
-        result = cli_runner.invoke(cli_app, ["memory", "migrate", "--from-global", "--dry-run", "--all"])
+        result = cli_runner.invoke(
+            cli_app, ["memory", "migrate", "--from-global", "--dry-run", "--all"]
+        )
         assert result.exit_code == 0
         assert "would migrate" in result.output
         assert "my dry run entry" in result.output
@@ -384,39 +490,57 @@ class TestMigrateCLI:
         entries_path = tmp_path / ".claude" / "memory" / "entries"
         assert not entries_path.exists() or len(list(entries_path.glob("*.md"))) == 0
 
-    def test_from_global_migrates_single_db(self, cli_runner, cli_app, monkeypatch, tmp_path, fake_home):
+    def test_from_global_migrates_single_db(
+        self, cli_runner, cli_app, monkeypatch, tmp_path, fake_home
+    ):
         self._setup(monkeypatch, tmp_path, fake_home)
         entry_id = str(uuid.uuid4())
         db_path = fake_home / "ws-2" / "memory.db"
-        _make_legacy_db(db_path, [{"id": entry_id, "content": "migrated entry content", "type": "lesson"}])
+        _make_legacy_db(
+            db_path,
+            [{"id": entry_id, "content": "migrated entry content", "type": "lesson"}],
+        )
 
-        result = cli_runner.invoke(cli_app, ["memory", "migrate", "--from-global", "--all"])
+        result = cli_runner.invoke(
+            cli_app, ["memory", "migrate", "--from-global", "--all"]
+        )
         assert result.exit_code == 0
         assert "migrated: 1" in result.output
 
         entries_path = tmp_path / ".claude" / "memory" / "entries"
         assert (entries_path / f"{entry_id}.md").exists()
 
-    def test_duplicate_content_skipped(self, cli_runner, cli_app, monkeypatch, tmp_path, fake_home):
+    def test_duplicate_content_skipped(
+        self, cli_runner, cli_app, monkeypatch, tmp_path, fake_home
+    ):
         self._setup(monkeypatch, tmp_path, fake_home)
         db_path = fake_home / "ws-3" / "memory.db"
-        _make_legacy_db(db_path, [
-            {"content": "duplicate content", "type": "context"},
-            {"content": "duplicate content", "type": "context"},
-        ])
+        _make_legacy_db(
+            db_path,
+            [
+                {"content": "duplicate content", "type": "context"},
+                {"content": "duplicate content", "type": "context"},
+            ],
+        )
 
-        result = cli_runner.invoke(cli_app, ["memory", "migrate", "--from-global", "--all"])
+        result = cli_runner.invoke(
+            cli_app, ["memory", "migrate", "--from-global", "--all"]
+        )
         assert result.exit_code == 0
         assert "migrated: 1" in result.output
         assert "skipped" in result.output
 
-    def test_no_dbs_exits_zero(self, cli_runner, cli_app, monkeypatch, tmp_path, fake_home):
+    def test_no_dbs_exits_zero(
+        self, cli_runner, cli_app, monkeypatch, tmp_path, fake_home
+    ):
         self._setup(monkeypatch, tmp_path, fake_home)
         result = cli_runner.invoke(cli_app, ["memory", "migrate", "--from-global"])
         assert result.exit_code == 0
         assert "No legacy databases" in result.output
 
-    def test_global_scope_flag(self, cli_runner, cli_app, monkeypatch, tmp_path, fake_home):
+    def test_global_scope_flag(
+        self, cli_runner, cli_app, monkeypatch, tmp_path, fake_home
+    ):
         """Entries with --scope global go to patched global root's entries/."""
         import cc.commands.memory as mem_mod
         from cc.core import entry_store as es
@@ -438,9 +562,15 @@ class TestMigrateCLI:
 
         entry_id = str(uuid.uuid4())
         db_path = fake_home / "ws-g" / "memory.db"
-        _make_legacy_db(db_path, [{"id": entry_id, "content": "global scope entry", "type": "decision"}])
+        _make_legacy_db(
+            db_path,
+            [{"id": entry_id, "content": "global scope entry", "type": "decision"}],
+        )
 
-        result = cli_runner.invoke(cli_app, ["memory", "migrate", "--from-global", "--all", "--scope", "global"])
+        result = cli_runner.invoke(
+            cli_app,
+            ["memory", "migrate", "--from-global", "--all", "--scope", "global"],
+        )
         assert result.exit_code == 0
 
         entries_path = global_root / "entries"

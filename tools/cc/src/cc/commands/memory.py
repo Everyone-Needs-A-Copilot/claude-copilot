@@ -126,14 +126,18 @@ def memory_get(
     else:
         console.print(f"[bold]{entry.get('id')}[/bold]  [{entry.get('type')}]")
         console.print(f"Tags: {', '.join(entry.get('tags') or []) or '(none)'}")
-        console.print(f"Created: {entry.get('created')}  Updated: {entry.get('updated')}")
+        console.print(
+            f"Created: {entry.get('created')}  Updated: {entry.get('updated')}"
+        )
         console.print()
         console.print(entry.get("content", "").strip())
 
 
 @memory_app.command("list")
 def memory_list(
-    entry_type: Optional[str] = typer.Option(None, "--type", "-t", help="Filter by type."),
+    entry_type: Optional[str] = typer.Option(
+        None, "--type", "-t", help="Filter by type."
+    ),
     tag: Optional[str] = typer.Option(None, "--tags", help="Filter by tag."),
     scope: Optional[str] = typer.Option(None, "--scope", "-s"),
     output_json: bool = typer.Option(False, "--json"),
@@ -238,7 +242,9 @@ def memory_search(
         return
 
     for entry in results:
-        console.print(f"[bold cyan]{entry.get('id', '')[:8]}[/bold cyan]  [{entry.get('type', '')}]  {', '.join(entry.get('tags') or [])}")
+        console.print(
+            f"[bold cyan]{entry.get('id', '')[:8]}[/bold cyan]  [{entry.get('type', '')}]  {', '.join(entry.get('tags') or [])}"
+        )
         snippet = (entry.get("content") or "").strip()[:120]
         console.print(f"  {snippet}")
         console.print()
@@ -246,7 +252,9 @@ def memory_search(
 
 @memory_app.command("index")
 def memory_index(
-    rebuild: bool = typer.Option(False, "--rebuild", help="Rebuild the FTS index from files."),
+    rebuild: bool = typer.Option(
+        False, "--rebuild", help="Rebuild the FTS index from files."
+    ),
     status: bool = typer.Option(False, "--status", help="Show index freshness."),
     scope: Optional[str] = typer.Option(None, "--scope", "-s"),
 ) -> None:
@@ -265,20 +273,30 @@ def memory_index(
 
     if rebuild:
         stats = rebuild_index(memory_root)
-        console.print(f"[green]Index rebuilt.[/green] Indexed: {stats['indexed']}  Errors: {stats['errors']}")
+        console.print(
+            f"[green]Index rebuilt.[/green] Indexed: {stats['indexed']}  Errors: {stats['errors']}"
+        )
         if "vectors_recomputed" in stats:
             console.print(f"  Vectors recomputed: {stats['vectors_recomputed']}")
 
     if status:
         info = index_status(memory_root)
-        sync_label = "[green]in sync[/green]" if info["in_sync"] else "[yellow]out of sync[/yellow]"
+        sync_label = (
+            "[green]in sync[/green]"
+            if info["in_sync"]
+            else "[yellow]out of sync[/yellow]"
+        )
         console.print(
             f"Files: {info['files']}  Indexed: {info['indexed']}  Status: {sync_label}"
         )
         # Embedding-specific fields (present only when EmbeddingBackend active)
         if "embedding_model" in info:
             model_label = info["embedding_model"]
-            vec_sync = "[green]in sync[/green]" if info.get("vectors_in_sync") else "[yellow]out of sync[/yellow]"
+            vec_sync = (
+                "[green]in sync[/green]"
+                if info.get("vectors_in_sync")
+                else "[yellow]out of sync[/yellow]"
+            )
             console.print(
                 f"  Backend: embedding  Model: {model_label}"
                 f"  Vectors: {info.get('vectors', 0)}  Vectors: {vec_sync}"
@@ -413,8 +431,13 @@ def _migrate_entries(
         # Reuse original id if it looks like a UUID, else generate new one
         import re
         import uuid as _uuid
+
         original_id = row.get("id") or ""
-        if re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", original_id, re.IGNORECASE):
+        if re.match(
+            r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            original_id,
+            re.IGNORECASE,
+        ):
             entry_id = original_id
         else:
             entry_id = str(_uuid.uuid4())
@@ -452,6 +475,7 @@ def _migrate_entries(
 # ---------------------------------------------------------------------------
 # cc memory migrate command
 # ---------------------------------------------------------------------------
+
 
 @memory_app.command("migrate")
 def memory_migrate(
@@ -504,14 +528,20 @@ def memory_migrate(
 
         if memory_root is not None:
             entries_path = memory_root / "entries"
-            existing = len(list(entries_path.glob("*.md"))) if entries_path.exists() else 0
-            console.print(f"\nTarget ({resolved_scope}): {memory_root / 'entries'}  files: {existing}")
+            existing = (
+                len(list(entries_path.glob("*.md"))) if entries_path.exists() else 0
+            )
+            console.print(
+                f"\nTarget ({resolved_scope}): {memory_root / 'entries'}  files: {existing}"
+            )
         return
 
     # --from-global migration flow
     dbs = _find_legacy_dbs()
     if not dbs:
-        console.print("[yellow]No legacy databases found in ~/.claude/memory/.[/yellow]")
+        console.print(
+            "[yellow]No legacy databases found in ~/.claude/memory/.[/yellow]"
+        )
         raise typer.Exit(0)
 
     # Select which DB(s) to migrate
@@ -545,7 +575,9 @@ def memory_migrate(
     resolved_scope = _resolve_scope(scope)
 
     if dry_run:
-        console.print(f"[bold yellow]Dry run[/bold yellow] — no files will be written. Target scope: {resolved_scope}")
+        console.print(
+            f"[bold yellow]Dry run[/bold yellow] — no files will be written. Target scope: {resolved_scope}"
+        )
 
     total_migrated = 0
     total_skipped = 0

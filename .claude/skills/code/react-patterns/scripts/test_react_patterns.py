@@ -27,6 +27,7 @@ spec.loader.exec_module(react_patterns)
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def run_script(args=(), stdin_text=None):
     """Run react_patterns.py as a subprocess. Returns (returncode, stdout, stderr)."""
     cmd = [sys.executable, str(SCRIPT)] + list(args)
@@ -47,6 +48,7 @@ def rules(source: str) -> list[str]:
 # ---------------------------------------------------------------------------
 # INDEX_AS_KEY — HIGH
 # ---------------------------------------------------------------------------
+
 
 class TestIndexAsKey:
     def test_key_index_flagged(self):
@@ -88,12 +90,11 @@ class TestIndexAsKey:
 # MISSING_KEY — MEDIUM
 # ---------------------------------------------------------------------------
 
+
 class TestMissingKey:
     def test_map_without_key_flagged(self):
         src = (
-            "{items.map(item => (\n"
-            "  <div className='item'>{item.name}</div>\n"
-            "))}"
+            "{items.map(item => (\n" "  <div className='item'>{item.name}</div>\n" "))}"
         )
         assert "MISSING_KEY" in rules(src)
 
@@ -111,11 +112,7 @@ class TestMissingKey:
         assert "MISSING_KEY" not in rules(src)
 
     def test_severity_is_medium(self):
-        src = (
-            "{items.map(item => (\n"
-            "  <div>{item.name}</div>\n"
-            "))}"
-        )
+        src = "{items.map(item => (\n" "  <div>{item.name}</div>\n" "))}"
         findings = [f for f in check(src) if f["rule"] == "MISSING_KEY"]
         assert all(f["severity"] == "MEDIUM" for f in findings)
 
@@ -139,6 +136,7 @@ class TestMissingKey:
 # ---------------------------------------------------------------------------
 # HOOK_IN_CONDITIONAL — HIGH
 # ---------------------------------------------------------------------------
+
 
 class TestHookInConditional:
     def test_use_state_in_if_flagged(self):
@@ -174,20 +172,12 @@ class TestHookInConditional:
         assert "HOOK_IN_CONDITIONAL" not in rules(src)
 
     def test_severity_is_high(self):
-        src = (
-            "if (flag) {\n"
-            "  const x = useCustomHook();\n"
-            "}\n"
-        )
+        src = "if (flag) {\n" "  const x = useCustomHook();\n" "}\n"
         findings = [f for f in check(src) if f["rule"] == "HOOK_IN_CONDITIONAL"]
         assert all(f["severity"] == "HIGH" for f in findings)
 
     def test_hook_name_in_message(self):
-        src = (
-            "if (show) {\n"
-            "  const data = useFetch('/api');\n"
-            "}\n"
-        )
+        src = "if (show) {\n" "  const data = useFetch('/api');\n" "}\n"
         findings = [f for f in check(src) if f["rule"] == "HOOK_IN_CONDITIONAL"]
         assert findings, "Expected a HOOK_IN_CONDITIONAL finding"
         assert "useFetch" in findings[0]["message"]
@@ -196,6 +186,7 @@ class TestHookInConditional:
 # ---------------------------------------------------------------------------
 # Sorting: HIGH before MEDIUM
 # ---------------------------------------------------------------------------
+
 
 class TestSortOrder:
     def test_high_before_medium(self):
@@ -214,6 +205,7 @@ class TestSortOrder:
 # ---------------------------------------------------------------------------
 # Empty and edge cases
 # ---------------------------------------------------------------------------
+
 
 class TestEdgeCases:
     def test_empty_source_no_findings(self):
@@ -241,6 +233,7 @@ class TestEdgeCases:
 # ---------------------------------------------------------------------------
 # Script I/O via subprocess
 # ---------------------------------------------------------------------------
+
 
 class TestScriptSubprocess:
     def test_stdin_empty_exits_zero(self):
@@ -273,7 +266,7 @@ class TestScriptSubprocess:
     def test_summary_counts_correct(self):
         src = (
             "{items.map((item, index) => <Item key={index} />)}\n"  # HIGH
-            "{items.map(item => <div>{item.name}</div>)}\n"           # MEDIUM
+            "{items.map(item => <div>{item.name}</div>)}\n"  # MEDIUM
         )
         rc, out, err = run_script(["-"], stdin_text=src)
         json_text = out.split("\n\n")[0]

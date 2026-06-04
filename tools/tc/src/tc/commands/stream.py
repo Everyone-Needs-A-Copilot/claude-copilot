@@ -15,7 +15,9 @@ stream_app = typer.Typer(name="stream", help="Stream management commands.")
 def stream_create(
     name: str = typer.Option(..., "--name", help="Stream name (unique)."),
     prd: int = typer.Option(..., "--prd", help="Associated PRD ID."),
-    worktree_path: Optional[str] = typer.Option(None, "--worktree-path", help="Git worktree path."),
+    worktree_path: Optional[str] = typer.Option(
+        None, "--worktree-path", help="Git worktree path."
+    ),
     json: bool = typer.Option(False, "--json", help="Output as JSON."),
 ) -> None:
     """Create a new stream."""
@@ -23,7 +25,9 @@ def stream_create(
 
     db_path = require_db()
     try:
-        row = _create_stream(name=name, prd=prd, worktree_path=worktree_path, db_path=db_path)
+        row = _create_stream(
+            name=name, prd=prd, worktree_path=worktree_path, db_path=db_path
+        )
     except PrdNotFound:
         error_exit(f"PRD #{prd} not found", EXIT_NOT_FOUND)
     except ConflictError:

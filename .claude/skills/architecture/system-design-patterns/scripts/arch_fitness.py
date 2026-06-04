@@ -74,12 +74,12 @@ from typing import Any
 # Required ADR fields with human-readable labels
 # Source: Nygard ADR format (https://adr.github.io); Thoughtworks TechRadar
 REQUIRED_FIELDS = [
-    ("id",           "Identifier (id)"),
-    ("title",        "Short title (title)"),
-    ("status",       "Decision status (status)"),
-    ("date",         "Date (date)"),
-    ("context",      "Context section"),
-    ("decision",     "Decision statement"),
+    ("id", "Identifier (id)"),
+    ("title", "Short title (title)"),
+    ("status", "Decision status (status)"),
+    ("date", "Date (date)"),
+    ("context", "Context section"),
+    ("decision", "Decision statement"),
     ("consequences", "Consequences section"),
 ]
 
@@ -109,7 +109,7 @@ COVERAGE_BANDS = [
     (90.0, "COMPLETE"),
     (70.0, "ADEQUATE"),
     (50.0, "PARTIAL"),
-    (0.0,  "INCOMPLETE"),
+    (0.0, "INCOMPLETE"),
 ]
 
 # Date pattern for basic ISO 8601 validation (YYYY-MM-DD)
@@ -122,6 +122,7 @@ SEVERITY_ORDER = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def assign_band(coverage_pct: float) -> str:
     """Map coverage percentage to a completeness band."""
@@ -143,6 +144,7 @@ def finding(severity: str, location: str, message: str) -> dict:
 # ---------------------------------------------------------------------------
 # Document validator / scorer
 # ---------------------------------------------------------------------------
+
 
 def validate_document(doc: Any, index: int) -> dict:
     """
@@ -173,31 +175,59 @@ def score_document(doc: dict) -> dict:
         value = doc.get(field_key)
         if field_key == "status":
             if not is_nonempty_string(value):
-                gaps.append(finding("MEDIUM", f"{doc_id}.{field_key}", f"Missing required field: {field_label}"))
+                gaps.append(
+                    finding(
+                        "MEDIUM",
+                        f"{doc_id}.{field_key}",
+                        f"Missing required field: {field_label}",
+                    )
+                )
             elif value.strip().lower() not in VALID_STATUSES:
-                gaps.append(finding(
-                    "MEDIUM", f"{doc_id}.{field_key}",
-                    f"Invalid status '{value}'. Must be one of: {', '.join(sorted(VALID_STATUSES))} "
-                    f"[adr.github.io status vocabulary]"
-                ))
+                gaps.append(
+                    finding(
+                        "MEDIUM",
+                        f"{doc_id}.{field_key}",
+                        f"Invalid status '{value}'. Must be one of: {', '.join(sorted(VALID_STATUSES))} "
+                        f"[adr.github.io status vocabulary]",
+                    )
+                )
                 present += 1  # field present but invalid — still counts as present for coverage
             else:
                 present += 1
         elif field_key == "date":
             if not is_nonempty_string(value):
-                gaps.append(finding("MEDIUM", f"{doc_id}.{field_key}", f"Missing required field: {field_label}"))
+                gaps.append(
+                    finding(
+                        "MEDIUM",
+                        f"{doc_id}.{field_key}",
+                        f"Missing required field: {field_label}",
+                    )
+                )
             elif not ISO_DATE_RE.match(value.strip()):
-                gaps.append(finding(
-                    "LOW", f"{doc_id}.{field_key}",
-                    f"Date '{value}' does not match ISO 8601 format YYYY-MM-DD"
-                ))
+                gaps.append(
+                    finding(
+                        "LOW",
+                        f"{doc_id}.{field_key}",
+                        f"Date '{value}' does not match ISO 8601 format YYYY-MM-DD",
+                    )
+                )
                 present += 1
             else:
                 present += 1
         else:
             if not is_nonempty_string(value):
-                sev = "HIGH" if field_key in ("context", "decision", "consequences") else "MEDIUM"
-                gaps.append(finding(sev, f"{doc_id}.{field_key}", f"Missing required field: {field_label}"))
+                sev = (
+                    "HIGH"
+                    if field_key in ("context", "decision", "consequences")
+                    else "MEDIUM"
+                )
+                gaps.append(
+                    finding(
+                        sev,
+                        f"{doc_id}.{field_key}",
+                        f"Missing required field: {field_label}",
+                    )
+                )
             else:
                 present += 1
 
@@ -213,17 +243,23 @@ def score_document(doc: dict) -> dict:
     if isinstance(checklist, dict):
         for tf_key in TRADE_OFF_FIELDS:
             if checklist.get(tf_key) is None:
-                gaps.append(finding(
-                    "LOW", f"{doc_id}.trade_off_checklist.{tf_key}",
-                    f"Trade-off checklist item '{tf_key}' not answered "
-                    f"[system-design-patterns SKILL.md §Trade-Off Analysis Checklist]"
-                ))
+                gaps.append(
+                    finding(
+                        "LOW",
+                        f"{doc_id}.trade_off_checklist.{tf_key}",
+                        f"Trade-off checklist item '{tf_key}' not answered "
+                        f"[system-design-patterns SKILL.md §Trade-Off Analysis Checklist]",
+                    )
+                )
     elif "trade_off_checklist" not in doc:
-        gaps.append(finding(
-            "LOW", f"{doc_id}.trade_off_checklist",
-            "Optional trade-off checklist not provided "
-            "[system-design-patterns SKILL.md §Trade-Off Analysis Checklist]"
-        ))
+        gaps.append(
+            finding(
+                "LOW",
+                f"{doc_id}.trade_off_checklist",
+                "Optional trade-off checklist not provided "
+                "[system-design-patterns SKILL.md §Trade-Off Analysis Checklist]",
+            )
+        )
 
     coverage_pct = round((present / total) * 100, 1)
     band = assign_band(coverage_pct)
@@ -233,7 +269,9 @@ def score_document(doc: dict) -> dict:
         "title": doc.get("title", ""),
         "coverage_pct": coverage_pct,
         "band": band,
-        "gaps": sorted(gaps, key=lambda g: (SEVERITY_ORDER.get(g["severity"], 99), g["location"])),
+        "gaps": sorted(
+            gaps, key=lambda g: (SEVERITY_ORDER.get(g["severity"], 99), g["location"])
+        ),
         "optional_present": optional_present,
     }
 
@@ -241,6 +279,7 @@ def score_document(doc: dict) -> dict:
 # ---------------------------------------------------------------------------
 # Output rendering
 # ---------------------------------------------------------------------------
+
 
 def render_markdown(scored_docs: list[dict]) -> str:
     if not scored_docs:
@@ -267,9 +306,9 @@ def build_summary(scored_docs: list[dict]) -> dict:
         return {"total": 0, "complete": 0, "adequate": 0, "partial": 0, "incomplete": 0}
     return {
         "total": len(scored_docs),
-        "complete":   sum(1 for d in scored_docs if d["band"] == "COMPLETE"),
-        "adequate":   sum(1 for d in scored_docs if d["band"] == "ADEQUATE"),
-        "partial":    sum(1 for d in scored_docs if d["band"] == "PARTIAL"),
+        "complete": sum(1 for d in scored_docs if d["band"] == "COMPLETE"),
+        "adequate": sum(1 for d in scored_docs if d["band"] == "ADEQUATE"),
+        "partial": sum(1 for d in scored_docs if d["band"] == "PARTIAL"),
         "incomplete": sum(1 for d in scored_docs if d["band"] == "INCOMPLETE"),
     }
 
@@ -277,6 +316,7 @@ def build_summary(scored_docs: list[dict]) -> dict:
 # ---------------------------------------------------------------------------
 # Input loading
 # ---------------------------------------------------------------------------
+
 
 def load_input(source: str | None) -> Any:
     if source is None or source == "-":
@@ -313,6 +353,7 @@ def load_input(source: str | None) -> Any:
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 def run(source: str | None) -> int:
     try:

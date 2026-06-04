@@ -23,6 +23,7 @@ spec.loader.exec_module(cicd_lint)
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def run_script(args=(), stdin_text=None):
     cmd = [sys.executable, str(SCRIPT)] + list(args)
     result = subprocess.run(cmd, input=stdin_text, capture_output=True, text=True)
@@ -69,6 +70,7 @@ GOOD_WORKFLOW = {
 # CICD-001: Unpinned actions
 # ---------------------------------------------------------------------------
 
+
 class TestUnpinnedActions:
     def _make_workflow(self, uses_ref):
         w = json.loads(json.dumps(GOOD_WORKFLOW))
@@ -76,13 +78,17 @@ class TestUnpinnedActions:
         return w
 
     def test_branch_ref_raises_cicd001_critical(self):
-        findings = cicd_lint.check_unpinned_actions(self._make_workflow("actions/checkout@main"))
+        findings = cicd_lint.check_unpinned_actions(
+            self._make_workflow("actions/checkout@main")
+        )
         ids = finding_ids(findings)
         assert "CICD-001" in ids
         assert findings[0]["severity"] == "CRITICAL"
 
     def test_tag_ref_raises_cicd001_high(self):
-        findings = cicd_lint.check_unpinned_actions(self._make_workflow("actions/checkout@v4"))
+        findings = cicd_lint.check_unpinned_actions(
+            self._make_workflow("actions/checkout@v4")
+        )
         ids = finding_ids(findings)
         assert "CICD-001" in ids
         assert findings[0]["severity"] == "HIGH"
@@ -93,11 +99,15 @@ class TestUnpinnedActions:
         assert findings == []
 
     def test_local_action_no_finding(self):
-        findings = cicd_lint.check_unpinned_actions(self._make_workflow("./local-action"))
+        findings = cicd_lint.check_unpinned_actions(
+            self._make_workflow("./local-action")
+        )
         assert findings == []
 
     def test_docker_action_no_finding(self):
-        findings = cicd_lint.check_unpinned_actions(self._make_workflow("docker://alpine:3.19"))
+        findings = cicd_lint.check_unpinned_actions(
+            self._make_workflow("docker://alpine:3.19")
+        )
         assert findings == []
 
     def test_no_uses_step_no_finding(self):
@@ -119,6 +129,7 @@ class TestUnpinnedActions:
 # ---------------------------------------------------------------------------
 # CICD-002: Missing timeout
 # ---------------------------------------------------------------------------
+
 
 class TestMissingTimeout:
     def test_no_timeout_raises_cicd002(self):
@@ -150,6 +161,7 @@ class TestMissingTimeout:
 # ---------------------------------------------------------------------------
 # CICD-003: Missing permissions
 # ---------------------------------------------------------------------------
+
 
 class TestMissingPermissions:
     def test_no_permissions_anywhere_raises_cicd003(self):
@@ -185,6 +197,7 @@ class TestMissingPermissions:
 # CICD-004: Hardcoded secrets
 # ---------------------------------------------------------------------------
 
+
 class TestHardcodedSecrets:
     def test_env_block_secret_raises_cicd004(self):
         w = json.loads(json.dumps(GOOD_WORKFLOW))
@@ -200,7 +213,9 @@ class TestHardcodedSecrets:
 
     def test_run_block_inline_secret_raises_cicd004(self):
         w = json.loads(json.dumps(GOOD_WORKFLOW))
-        w["jobs"]["build"]["steps"][1]["run"] = "curl -H 'Authorization: Bearer SECRET=mytoken123' https://api.example.com"
+        w["jobs"]["build"]["steps"][1][
+            "run"
+        ] = "curl -H 'Authorization: Bearer SECRET=mytoken123' https://api.example.com"
         findings = cicd_lint.check_hardcoded_secrets(w)
         assert "CICD-004" in finding_ids(findings)
 
@@ -212,7 +227,10 @@ class TestHardcodedSecrets:
 
     def test_env_without_secret_name_no_finding(self):
         w = json.loads(json.dumps(GOOD_WORKFLOW))
-        w["jobs"]["build"]["steps"][1]["env"] = {"PORT": "8080", "NODE_ENV": "production"}
+        w["jobs"]["build"]["steps"][1]["env"] = {
+            "PORT": "8080",
+            "NODE_ENV": "production",
+        }
         findings = cicd_lint.check_hardcoded_secrets(w)
         assert findings == []
 
@@ -220,6 +238,7 @@ class TestHardcodedSecrets:
 # ---------------------------------------------------------------------------
 # Good workflow — zero findings
 # ---------------------------------------------------------------------------
+
 
 class TestGoodWorkflow:
     def test_good_workflow_no_findings(self):
@@ -230,6 +249,7 @@ class TestGoodWorkflow:
 # ---------------------------------------------------------------------------
 # Sort order
 # ---------------------------------------------------------------------------
+
 
 class TestSortOrder:
     def test_critical_before_medium(self):
@@ -248,27 +268,32 @@ class TestSortOrder:
 # Load input validation
 # ---------------------------------------------------------------------------
 
+
 class TestLoadInput:
     def test_missing_jobs_raises(self, monkeypatch):
         import io, sys as _sys
+
         monkeypatch.setattr(_sys, "stdin", io.StringIO('{"name": "CI", "on": {}}'))
         with pytest.raises(ValueError, match="jobs"):
             cicd_lint.load_input(None)
 
     def test_non_object_raises(self, monkeypatch):
         import io, sys as _sys
+
         monkeypatch.setattr(_sys, "stdin", io.StringIO("[1, 2, 3]"))
         with pytest.raises(ValueError, match="JSON object"):
             cicd_lint.load_input(None)
 
     def test_empty_input_returns_none(self, monkeypatch):
         import io, sys as _sys
+
         monkeypatch.setattr(_sys, "stdin", io.StringIO(""))
         result = cicd_lint.load_input(None)
         assert result is None
 
     def test_invalid_json_raises(self, monkeypatch):
         import io, sys as _sys
+
         monkeypatch.setattr(_sys, "stdin", io.StringIO("{bad json"))
         with pytest.raises(ValueError, match="Invalid JSON"):
             cicd_lint.load_input(None)
@@ -277,6 +302,7 @@ class TestLoadInput:
 # ---------------------------------------------------------------------------
 # Subprocess integration
 # ---------------------------------------------------------------------------
+
 
 class TestSubprocess:
     def test_good_workflow_exits_zero(self):

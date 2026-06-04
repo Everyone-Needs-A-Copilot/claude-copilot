@@ -139,11 +139,15 @@ def _find_entry_path(memory_root: Path, entry_id: str) -> Path | None:
         return exact
 
     # Prefix match
-    matches = [p for p in e_dir.iterdir() if p.name.startswith(entry_id) and p.suffix == ".md"]
+    matches = [
+        p for p in e_dir.iterdir() if p.name.startswith(entry_id) and p.suffix == ".md"
+    ]
     if len(matches) == 1:
         return matches[0]
     if len(matches) > 1:
-        raise ValueError(f"Ambiguous prefix {entry_id!r} matches {len(matches)} entries.")
+        raise ValueError(
+            f"Ambiguous prefix {entry_id!r} matches {len(matches)} entries."
+        )
     return None
 
 

@@ -14,7 +14,12 @@ from typing import Optional
 import typer
 from rich.console import Console
 
-from cc.core.config import get_resolved_config, load_machine_secrets, load_project_secrets, resolve_key
+from cc.core.config import (
+    get_resolved_config,
+    load_machine_secrets,
+    load_project_secrets,
+    resolve_key,
+)
 
 err_console = Console(stderr=True)
 

@@ -29,15 +29,16 @@ from cc.core.memory_index import (
 )
 from cc.core.entry_store import store_entry
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def memory_root(tmp_path, monkeypatch):
     """Patch git root so stores resolve to tmp_path."""
     import cc.core.entry_store as es
+
     monkeypatch.setattr(es, "_git_root", lambda: tmp_path)
     return tmp_path / ".claude" / "memory"
 
@@ -53,6 +54,7 @@ def reset_default_backend():
 # ---------------------------------------------------------------------------
 # Protocol conformance
 # ---------------------------------------------------------------------------
+
 
 class TestSearchBackendProtocol:
     def test_fts5_backend_satisfies_protocol(self):
@@ -87,6 +89,7 @@ class TestSearchBackendProtocol:
         class IncompleteBackend:
             def index(self, entry_id, entry_type, tags, content, memory_root):
                 pass
+
             # missing remove, rebuild, search, status
 
         assert not isinstance(IncompleteBackend(), SearchBackend)
@@ -96,6 +99,7 @@ class TestSearchBackendProtocol:
 # Default backend registry
 # ---------------------------------------------------------------------------
 
+
 class TestDefaultBackendRegistry:
     def test_default_is_fts5(self):
         backend = get_default_backend()
@@ -103,11 +107,20 @@ class TestDefaultBackendRegistry:
 
     def test_set_then_get(self):
         class DummyBackend:
-            def index(self, *a, **kw): pass
-            def remove(self, *a, **kw): pass
-            def rebuild(self, memory_root): return {"indexed": 0, "errors": 0}
-            def search(self, query, memory_root): return []
-            def status(self, memory_root): return {"files": 0, "indexed": 0, "in_sync": True}
+            def index(self, *a, **kw):
+                pass
+
+            def remove(self, *a, **kw):
+                pass
+
+            def rebuild(self, memory_root):
+                return {"indexed": 0, "errors": 0}
+
+            def search(self, query, memory_root):
+                return []
+
+            def status(self, memory_root):
+                return {"files": 0, "indexed": 0, "in_sync": True}
 
         dummy = DummyBackend()
         set_default_backend(dummy)
@@ -118,6 +131,7 @@ class TestDefaultBackendRegistry:
 # Backend injection into module-level helpers
 # ---------------------------------------------------------------------------
 
+
 class TestBackendInjection:
     """Verify that passing a backend= to module helpers routes to that backend."""
 
@@ -125,13 +139,21 @@ class TestBackendInjection:
         called_with = []
 
         class RecordingBackend:
-            def index(self, *a, **kw): pass
-            def remove(self, *a, **kw): pass
+            def index(self, *a, **kw):
+                pass
+
+            def remove(self, *a, **kw):
+                pass
+
             def rebuild(self, mr):
                 called_with.append(("rebuild", mr))
                 return {"indexed": 0, "errors": 0}
-            def search(self, q, mr): return []
-            def status(self, mr): return {"files": 0, "indexed": 0, "in_sync": True}
+
+            def search(self, q, mr):
+                return []
+
+            def status(self, mr):
+                return {"files": 0, "indexed": 0, "in_sync": True}
 
         backend = RecordingBackend()
         rebuild_index(memory_root, backend=backend)
@@ -143,13 +165,23 @@ class TestBackendInjection:
         queries_seen = []
 
         class RecordingBackend:
-            def index(self, *a, **kw): pass
-            def remove(self, *a, **kw): pass
-            def rebuild(self, mr): return {"indexed": 0, "errors": 0}
+            def index(self, *a, **kw):
+                pass
+
+            def remove(self, *a, **kw):
+                pass
+
+            def rebuild(self, mr):
+                return {"indexed": 0, "errors": 0}
+
             def search(self, q, mr):
                 queries_seen.append(q)
-                return [{"id": "fake", "type": "context", "tags": [], "content": "injected"}]
-            def status(self, mr): return {"files": 0, "indexed": 0, "in_sync": True}
+                return [
+                    {"id": "fake", "type": "context", "tags": [], "content": "injected"}
+                ]
+
+            def status(self, mr):
+                return {"files": 0, "indexed": 0, "in_sync": True}
 
         backend = RecordingBackend()
         results = search_index("hello", memory_root, backend=backend)
@@ -162,13 +194,23 @@ class TestBackendInjection:
         class RecordingBackend:
             def index(self, entry_id, entry_type, tags, content, mr):
                 indexed.append({"id": entry_id, "type": entry_type})
-            def remove(self, *a, **kw): pass
-            def rebuild(self, mr): return {"indexed": 0, "errors": 0}
-            def search(self, q, mr): return []
-            def status(self, mr): return {"files": 0, "indexed": 0, "in_sync": True}
+
+            def remove(self, *a, **kw):
+                pass
+
+            def rebuild(self, mr):
+                return {"indexed": 0, "errors": 0}
+
+            def search(self, q, mr):
+                return []
+
+            def status(self, mr):
+                return {"files": 0, "indexed": 0, "in_sync": True}
 
         backend = RecordingBackend()
-        index_entry("abc-123", "decision", ["tag"], "content", memory_root, backend=backend)
+        index_entry(
+            "abc-123", "decision", ["tag"], "content", memory_root, backend=backend
+        )
         assert len(indexed) == 1
         assert indexed[0]["id"] == "abc-123"
         assert indexed[0]["type"] == "decision"
@@ -177,12 +219,20 @@ class TestBackendInjection:
         removed = []
 
         class RecordingBackend:
-            def index(self, *a, **kw): pass
+            def index(self, *a, **kw):
+                pass
+
             def remove(self, entry_id, mr):
                 removed.append(entry_id)
-            def rebuild(self, mr): return {"indexed": 0, "errors": 0}
-            def search(self, q, mr): return []
-            def status(self, mr): return {"files": 0, "indexed": 0, "in_sync": True}
+
+            def rebuild(self, mr):
+                return {"indexed": 0, "errors": 0}
+
+            def search(self, q, mr):
+                return []
+
+            def status(self, mr):
+                return {"files": 0, "indexed": 0, "in_sync": True}
 
         backend = RecordingBackend()
         remove_from_index("abc-123", memory_root, backend=backend)
@@ -192,6 +242,7 @@ class TestBackendInjection:
 # ---------------------------------------------------------------------------
 # FTS5 keyword search behavior (unchanged from before the refactor)
 # ---------------------------------------------------------------------------
+
 
 class TestFTS5BackendBehavior:
     def test_rebuild_and_search(self, memory_root):

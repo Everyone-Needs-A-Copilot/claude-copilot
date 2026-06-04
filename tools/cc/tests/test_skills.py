@@ -29,7 +29,6 @@ from cc.core.skill_store import (
 )
 from cc.main import app
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -120,7 +119,9 @@ class TestDiscoverSkills:
         names = {s.name for s in skills}
         assert "beta-skill" in names
 
-    def test_falls_back_to_directory_name_when_no_frontmatter(self, tmp_skills: Path) -> None:
+    def test_falls_back_to_directory_name_when_no_frontmatter(
+        self, tmp_skills: Path
+    ) -> None:
         """When frontmatter is absent, the parent directory name is used."""
         skills = discover_skills([tmp_skills])
         names = {s.name for s in skills}
@@ -181,7 +182,7 @@ class TestDiscoverSkillsWithSources:
         """First match (earlier source) wins on name collision."""
         src1 = tmp_path / "src1"
         src1.mkdir()
-        (src1 / "dupe" ).mkdir()
+        (src1 / "dupe").mkdir()
         (src1 / "dupe" / "SKILL.md").write_text(
             "---\nname: dupe-skill\ndescription: From source 1\ntags: []\nversion: 1.0\n---\nBody 1.\n",
             encoding="utf-8",
@@ -246,7 +247,9 @@ class TestSearchSkills:
         assert len(results) == 1
         assert results[0].name == "pytest-patterns"
 
-    def test_matches_multiple_skills_on_shared_tag(self, skill_set: list[SkillMeta]) -> None:
+    def test_matches_multiple_skills_on_shared_tag(
+        self, skill_set: list[SkillMeta]
+    ) -> None:
         results = search_skills("python", skill_set)
         names = {s.name for s in results}
         assert "python-idioms" in names
@@ -268,8 +271,8 @@ class TestSearchSkills:
         """Multi-token query: a skill matching ANY token is included."""
         results = search_skills("security patterns", skill_set)
         names = {s.name for s in results}
-        assert "stride-dread" in names      # matches "security"
-        assert "python-idioms" in names      # matches "patterns"
+        assert "stride-dread" in names  # matches "security"
+        assert "python-idioms" in names  # matches "patterns"
 
 
 # ---------------------------------------------------------------------------
@@ -318,12 +321,15 @@ def skills_root(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def patched_runner(runner: CliRunner, skills_root: Path, monkeypatch: pytest.MonkeyPatch):
+def patched_runner(
+    runner: CliRunner, skills_root: Path, monkeypatch: pytest.MonkeyPatch
+):
     """Runner with skill discovery patched to use tmp skills_root."""
     import cc.commands.skill as skill_cmd
 
     def _patched_load(scope="all"):
         from cc.core.skill_store import discover_skills_with_sources
+
         pairs = [(skills_root, "project")]
         return discover_skills_with_sources(pairs)
 
@@ -422,14 +428,18 @@ class TestSkillEvaluateRemoved:
 
 
 class TestSkillPathCommand:
-    def test_returns_absolute_path(self, patched_runner: CliRunner, skills_root: Path) -> None:
+    def test_returns_absolute_path(
+        self, patched_runner: CliRunner, skills_root: Path
+    ) -> None:
         result = patched_runner.invoke(app, ["skill", "path", "alpha"])
         assert result.exit_code == 0
         path = Path(result.output.strip())
         assert path.is_absolute()
         assert path.name == "SKILL.md"
 
-    def test_path_points_to_correct_skill(self, patched_runner: CliRunner, skills_root: Path) -> None:
+    def test_path_points_to_correct_skill(
+        self, patched_runner: CliRunner, skills_root: Path
+    ) -> None:
         result = patched_runner.invoke(app, ["skill", "path", "beta"])
         assert result.exit_code == 0
         path = Path(result.output.strip())

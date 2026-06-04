@@ -10,8 +10,17 @@ class TestPrdCreate:
 
     def test_create_with_all_fields(self, cli):
         result = cli(
-            ["prd", "create", "--title", "Full PRD", "--description", "A description",
-             "--content", "Some long content here", "--json"]
+            [
+                "prd",
+                "create",
+                "--title",
+                "Full PRD",
+                "--description",
+                "A description",
+                "--content",
+                "Some long content here",
+                "--json",
+            ]
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -38,7 +47,15 @@ class TestPrdCreate:
         content_file = tmp_dir / "prd_content.md"
         content_file.write_text("# PRD from file\nContent here.", encoding="utf-8")
         result = cli(
-            ["prd", "create", "--title", "File PRD", "--file", str(content_file), "--json"]
+            [
+                "prd",
+                "create",
+                "--title",
+                "File PRD",
+                "--file",
+                str(content_file),
+                "--json",
+            ]
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -46,7 +63,15 @@ class TestPrdCreate:
 
     def test_create_from_missing_file(self, cli, tmp_dir):
         result = cli(
-            ["prd", "create", "--title", "Bad", "--file", str(tmp_dir / "nope.md"), "--json"]
+            [
+                "prd",
+                "create",
+                "--title",
+                "Bad",
+                "--file",
+                str(tmp_dir / "nope.md"),
+                "--json",
+            ]
         )
         assert result.exit_code == 4  # EXIT_VALIDATION
 

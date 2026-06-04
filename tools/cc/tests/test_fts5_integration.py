@@ -25,15 +25,16 @@ from cc.core.memory_index import (
     search_index,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def memory_root(tmp_path, monkeypatch):
     """Patch git root so stores resolve to tmp_path."""
     import cc.core.entry_store as es
+
     monkeypatch.setattr(es, "_git_root", lambda: tmp_path)
     return tmp_path / ".claude" / "memory"
 
@@ -41,6 +42,7 @@ def memory_root(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # 39.3: BM25 ordering — result membership unchanged, order improved
 # ---------------------------------------------------------------------------
+
 
 class TestBM25Ordering:
     def test_search_result_id_set_unchanged_after_bm25(self, memory_root):
@@ -52,9 +54,19 @@ class TestBM25Ordering:
         """
         from cc.core.entry_store import search_entries_files
 
-        store_entry(entry_type="lesson", content="FTS5 mentioned once here", scope="project")
-        store_entry(entry_type="context", content="FTS5 FTS5 FTS5 mentioned three times", scope="project")
-        store_entry(entry_type="decision", content="FTS5 FTS5 mentioned twice in decision", scope="project")
+        store_entry(
+            entry_type="lesson", content="FTS5 mentioned once here", scope="project"
+        )
+        store_entry(
+            entry_type="context",
+            content="FTS5 FTS5 FTS5 mentioned three times",
+            scope="project",
+        )
+        store_entry(
+            entry_type="decision",
+            content="FTS5 FTS5 mentioned twice in decision",
+            scope="project",
+        )
 
         backend = FTS5Backend()
         backend.rebuild(memory_root)
@@ -73,8 +85,14 @@ class TestBM25Ordering:
 
     def test_bm25_ranks_higher_frequency_first(self, memory_root):
         """Entry with more occurrences of query term should rank first."""
-        store_entry(entry_type="lesson", content="alpha mentioned once", scope="project")
-        store_entry(entry_type="context", content="alpha alpha alpha mentioned three times alpha", scope="project")
+        store_entry(
+            entry_type="lesson", content="alpha mentioned once", scope="project"
+        )
+        store_entry(
+            entry_type="context",
+            content="alpha alpha alpha mentioned three times alpha",
+            scope="project",
+        )
 
         backend = FTS5Backend()
         backend.rebuild(memory_root)
@@ -86,7 +104,12 @@ class TestBM25Ordering:
 
     def test_search_returns_correct_fields(self, memory_root):
         """search() returns dicts with id, type, tags, content fields."""
-        store_entry(entry_type="decision", content="field check content", tags=["tag1"], scope="project")
+        store_entry(
+            entry_type="decision",
+            content="field check content",
+            tags=["tag1"],
+            scope="project",
+        )
         backend = FTS5Backend()
         backend.rebuild(memory_root)
 
@@ -104,14 +127,18 @@ class TestBM25Ordering:
 # 39.4: Incremental indexing first-class
 # ---------------------------------------------------------------------------
 
+
 class TestIncrementalIndexing:
     def test_store_then_search_without_rebuild(self, memory_root, monkeypatch):
         """Storing an entry auto-creates the index; search works without --rebuild."""
         import cc.core.entry_store as es
+
         monkeypatch.setattr(es, "_git_root", lambda: memory_root.parent.parent)
 
         # No rebuild needed — auto-index on store
-        result = store_entry(entry_type="lesson", content="incremental_unique_xyz", scope="project")
+        result = store_entry(
+            entry_type="lesson", content="incremental_unique_xyz", scope="project"
+        )
         entry_id = result["id"]
 
         # Trigger index_entry as the store command does (auto-create)
@@ -133,7 +160,9 @@ class TestIncrementalIndexing:
 
     def test_index_then_remove_clears_entry(self, memory_root):
         """remove_from_index() reliably removes an indexed entry."""
-        index_entry("rem-id-456", "lesson", [], "remove this content please", memory_root)
+        index_entry(
+            "rem-id-456", "lesson", [], "remove this content please", memory_root
+        )
 
         # Confirm indexed
         results = search_index("remove this content", memory_root)
@@ -148,7 +177,9 @@ class TestIncrementalIndexing:
     def test_index_replace_updates_content(self, memory_root):
         """Re-indexing an entry (same id) replaces the old content."""
         index_entry("upd-id-789", "context", [], "original content here", memory_root)
-        index_entry("upd-id-789", "context", [], "completely different now", memory_root)
+        index_entry(
+            "upd-id-789", "context", [], "completely different now", memory_root
+        )
 
         old_results = search_index("original", memory_root)
         new_results = search_index("completely different", memory_root)
@@ -171,7 +202,9 @@ class TestIncrementalIndexing:
         # Write a file directly bypassing store_entry (simulates git pull)
         e_dir = _ensure_entries_dir(memory_root)
         uid = str(uuid.uuid4())
-        fm = build_frontmatter(entry_id=uid, entry_type="reference", tags=[], scope="project")
+        fm = build_frontmatter(
+            entry_id=uid, entry_type="reference", tags=[], scope="project"
+        )
         _atomic_write(e_dir / f"{uid}.md", render_entry(fm, "out_of_band_content_zqr"))
 
         # Index doesn't know about it yet — search returns nothing
@@ -201,7 +234,9 @@ class TestIncrementalIndexing:
         # Add another file directly to disk
         e_dir = _ensure_entries_dir(memory_root)
         uid = str(uuid.uuid4())
-        fm = build_frontmatter(entry_id=uid, entry_type="lesson", tags=[], scope="project")
+        fm = build_frontmatter(
+            entry_id=uid, entry_type="lesson", tags=[], scope="project"
+        )
         _atomic_write(e_dir / f"{uid}.md", render_entry(fm, "unindexed"))
 
         info_after = index_status(memory_root)
@@ -212,6 +247,7 @@ class TestIncrementalIndexing:
 # ---------------------------------------------------------------------------
 # 39.6: Cross-tool contract test — shared ranking/escaping/snippet contract
 # ---------------------------------------------------------------------------
+
 
 class TestCrossToolContract:
     """Assert that cc (standalone FTS5) and tc (external-content FTS5) use
@@ -259,10 +295,14 @@ class TestCrossToolContract:
             create_fts_fn(conn, "test_fts", ["id", "content"])
             conn.commit()
             # Insert corpus with varying term frequencies
-            conn.execute("INSERT INTO test_fts(id, content) VALUES (?, ?)",
-                         ("low", "contract once"))
-            conn.execute("INSERT INTO test_fts(id, content) VALUES (?, ?)",
-                         ("high", "contract contract contract many times contract"))
+            conn.execute(
+                "INSERT INTO test_fts(id, content) VALUES (?, ?)",
+                ("low", "contract once"),
+            )
+            conn.execute(
+                "INSERT INTO test_fts(id, content) VALUES (?, ?)",
+                ("high", "contract contract contract many times contract"),
+            )
             conn.commit()
             rows = fts_match_fn(conn, "test_fts", "contract", select="id")
             conn.close()
@@ -272,9 +312,7 @@ class TestCrossToolContract:
         tc_order = _populate(tc_create_fts, tc_fts_match)
 
         assert cc_order == tc_order, (
-            f"fts_match ranking diverged:\n"
-            f"  cc: {cc_order}\n"
-            f"  tc: {tc_order}"
+            f"fts_match ranking diverged:\n" f"  cc: {cc_order}\n" f"  tc: {tc_order}"
         )
         # Both should rank high-frequency first
         assert cc_order[0] == "high"

@@ -32,6 +32,7 @@ SEV_WARN = pytest_smell.SEV_WARN
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def run_script(args=(), stdin_text=None):
     """Run pytest_smell.py as a subprocess; return (returncode, stdout, stderr)."""
     cmd = [sys.executable, str(SCRIPT)] + list(args)
@@ -46,6 +47,7 @@ def findings_with_smell(source: str, smell_id: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 # SMELL-01: no_assert
 # ---------------------------------------------------------------------------
+
 
 class TestNoAssert:
     def test_detects_function_with_no_assertion(self):
@@ -88,6 +90,7 @@ class TestNoAssert:
 # ---------------------------------------------------------------------------
 # SMELL-02: bare_except
 # ---------------------------------------------------------------------------
+
 
 class TestBareExcept:
     def test_detects_bare_except(self):
@@ -139,6 +142,7 @@ class TestBareExcept:
 # SMELL-04: magic_number
 # ---------------------------------------------------------------------------
 
+
 class TestMagicNumber:
     def test_threshold_constant_is_1000(self):
         """MAGIC_NUMBER_THRESHOLD is defined in the module, not guessed."""
@@ -176,6 +180,7 @@ class TestMagicNumber:
 # SMELL-05: empty_test
 # ---------------------------------------------------------------------------
 
+
 class TestEmptyTest:
     def test_detects_pass_only(self):
         source = "def test_foo():\n    pass\n"
@@ -204,6 +209,7 @@ class TestEmptyTest:
 # ---------------------------------------------------------------------------
 # SMELL-06: sleep_in_test
 # ---------------------------------------------------------------------------
+
 
 class TestSleepInTest:
     def test_detects_time_sleep(self):
@@ -236,13 +242,10 @@ class TestSleepInTest:
 # SMELL-07: print_in_test
 # ---------------------------------------------------------------------------
 
+
 class TestPrintInTest:
     def test_detects_print_call(self):
-        source = (
-            "def test_foo():\n"
-            "    print('debug')\n"
-            "    assert True\n"
-        )
+        source = "def test_foo():\n" "    print('debug')\n" "    assert True\n"
         hits = findings_with_smell(source, "SMELL-07")
         assert len(hits) == 1
 
@@ -255,6 +258,7 @@ class TestPrintInTest:
 # ---------------------------------------------------------------------------
 # Severity levels
 # ---------------------------------------------------------------------------
+
 
 class TestSeverityLevels:
     def test_no_assert_is_error(self):
@@ -293,6 +297,7 @@ class TestSeverityLevels:
 # Output structure
 # ---------------------------------------------------------------------------
 
+
 class TestOutputStructure:
     def test_json_block_present_in_stdout(self):
         rc, stdout, _ = run_script(stdin_text="def test_foo():\n    pass\n")
@@ -310,8 +315,8 @@ class TestOutputStructure:
 
     def test_summary_counts_correct(self):
         source = (
-            "def test_foo():\n    pass\n"           # SMELL-05 ERROR
-            "def test_bar():\n    x = 1\n"          # SMELL-01 ERROR
+            "def test_foo():\n    pass\n"  # SMELL-05 ERROR
+            "def test_bar():\n    x = 1\n"  # SMELL-01 ERROR
             "import time\n"
             "def test_baz():\n    time.sleep(1)\n    assert True\n"  # SMELL-06 WARN
         )
@@ -336,6 +341,7 @@ class TestOutputStructure:
 # ---------------------------------------------------------------------------
 # stdin and file-path argument parsing
 # ---------------------------------------------------------------------------
+
 
 class TestInputModes:
     def test_stdin_dash_arg(self, tmp_path):

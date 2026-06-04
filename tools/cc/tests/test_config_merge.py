@@ -6,10 +6,10 @@ import pytest
 
 from cc.core.config import get_resolved_config, resolve_key
 
-
 # ---------------------------------------------------------------------------
 # Project wins over machine
 # ---------------------------------------------------------------------------
+
 
 def test_project_wins_over_machine():
     cfg = get_resolved_config(
@@ -45,6 +45,7 @@ def test_project_partial_override_preserves_machine_keys():
 # Env var wins over everything
 # ---------------------------------------------------------------------------
 
+
 def test_env_var_wins_over_project_and_machine(monkeypatch):
     monkeypatch.setenv("CC_PATHS_MEMORY", "/env/memory")
     cfg = get_resolved_config(
@@ -73,6 +74,7 @@ def test_env_var_not_set_falls_through(monkeypatch):
 # ---------------------------------------------------------------------------
 # Scope-restricted resolve_key
 # ---------------------------------------------------------------------------
+
 
 def test_resolve_key_machine_scope_returns_machine():
     value = resolve_key(

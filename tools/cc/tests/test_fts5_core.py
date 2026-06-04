@@ -22,10 +22,10 @@ from cc.core.fts5_core import (
     fts_match,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def conn():
@@ -39,6 +39,7 @@ def conn():
 # ---------------------------------------------------------------------------
 # 39.1 Tests: DDL builders
 # ---------------------------------------------------------------------------
+
 
 class TestCreateFts:
     def test_standalone_table_created(self, conn):
@@ -54,7 +55,9 @@ class TestCreateFts:
         """Standalone FTS5 table supports INSERT and MATCH."""
         create_fts(conn, "mem_fts", ["id", "content"])
         conn.commit()
-        conn.execute("INSERT INTO mem_fts(id, content) VALUES (?, ?)", ("abc", "hello world"))
+        conn.execute(
+            "INSERT INTO mem_fts(id, content) VALUES (?, ?)", ("abc", "hello world")
+        )
         conn.commit()
         rows = conn.execute(
             "SELECT id FROM mem_fts WHERE mem_fts MATCH ? ORDER BY rank", ("hello",)
@@ -64,12 +67,13 @@ class TestCreateFts:
 
     def test_external_content_table_created(self, conn):
         """create_fts() with content_table creates an external-content FTS5 table."""
-        conn.execute(
-            "CREATE TABLE wp (id INTEGER PRIMARY KEY, title TEXT, body TEXT)"
-        )
+        conn.execute("CREATE TABLE wp (id INTEGER PRIMARY KEY, title TEXT, body TEXT)")
         create_fts(
-            conn, "wp_fts", ["title", "body"],
-            content_table="wp", content_rowid="id",
+            conn,
+            "wp_fts",
+            ["title", "body"],
+            content_table="wp",
+            content_rowid="id",
         )
         conn.commit()
         rows = conn.execute(
@@ -100,8 +104,13 @@ class TestCreateContentTriggers:
         conn.execute(
             "CREATE TABLE base (id INTEGER PRIMARY KEY, title TEXT, body TEXT)"
         )
-        create_fts(conn, "base_fts", ["title", "body"],
-                   content_table="base", content_rowid="id")
+        create_fts(
+            conn,
+            "base_fts",
+            ["title", "body"],
+            content_table="base",
+            content_rowid="id",
+        )
         create_content_triggers(conn, "base", "base_fts", ["title", "body"])
         conn.commit()
 
@@ -118,12 +127,19 @@ class TestCreateContentTriggers:
         conn.execute(
             "CREATE TABLE base (id INTEGER PRIMARY KEY, title TEXT, body TEXT)"
         )
-        create_fts(conn, "base_fts", ["title", "body"],
-                   content_table="base", content_rowid="id")
+        create_fts(
+            conn,
+            "base_fts",
+            ["title", "body"],
+            content_table="base",
+            content_rowid="id",
+        )
         create_content_triggers(conn, "base", "base_fts", ["title", "body"])
         conn.commit()
 
-        conn.execute("INSERT INTO base (title, body) VALUES (?, ?)", ("Hello", "World content"))
+        conn.execute(
+            "INSERT INTO base (title, body) VALUES (?, ?)", ("Hello", "World content")
+        )
         conn.commit()
 
         rows = conn.execute(
@@ -140,12 +156,19 @@ class TestCreateContentTriggers:
         conn.execute(
             "CREATE TABLE base (id INTEGER PRIMARY KEY, title TEXT, body TEXT)"
         )
-        create_fts(conn, "base_fts", ["title", "body"],
-                   content_table="base", content_rowid="id")
+        create_fts(
+            conn,
+            "base_fts",
+            ["title", "body"],
+            content_table="base",
+            content_rowid="id",
+        )
         create_content_triggers(conn, "base", "base_fts", ["title", "body"])
         conn.commit()
 
-        conn.execute("INSERT INTO base (title, body) VALUES (?, ?)", ("Gone", "ephemeral"))
+        conn.execute(
+            "INSERT INTO base (title, body) VALUES (?, ?)", ("Gone", "ephemeral")
+        )
         conn.commit()
         conn.execute("DELETE FROM base WHERE title = 'Gone'")
         conn.commit()
@@ -161,14 +184,23 @@ class TestCreateContentTriggers:
         conn.execute(
             "CREATE TABLE base (id INTEGER PRIMARY KEY, title TEXT, body TEXT)"
         )
-        create_fts(conn, "base_fts", ["title", "body"],
-                   content_table="base", content_rowid="id")
+        create_fts(
+            conn,
+            "base_fts",
+            ["title", "body"],
+            content_table="base",
+            content_rowid="id",
+        )
         create_content_triggers(conn, "base", "base_fts", ["title", "body"])
         conn.commit()
 
-        conn.execute("INSERT INTO base (title, body) VALUES (?, ?)", ("Old title", "old body"))
+        conn.execute(
+            "INSERT INTO base (title, body) VALUES (?, ?)", ("Old title", "old body")
+        )
         conn.commit()
-        conn.execute("UPDATE base SET title='New title', body='new body' WHERE title='Old title'")
+        conn.execute(
+            "UPDATE base SET title='New title', body='new body' WHERE title='Old title'"
+        )
         conn.commit()
 
         old_rows = conn.execute(
@@ -185,11 +217,10 @@ class TestCreateContentTriggers:
 
     def test_triggers_idempotent(self, conn):
         """create_content_triggers() can be called twice without error."""
-        conn.execute(
-            "CREATE TABLE base2 (id INTEGER PRIMARY KEY, title TEXT)"
+        conn.execute("CREATE TABLE base2 (id INTEGER PRIMARY KEY, title TEXT)")
+        create_fts(
+            conn, "base2_fts", ["title"], content_table="base2", content_rowid="id"
         )
-        create_fts(conn, "base2_fts", ["title"],
-                   content_table="base2", content_rowid="id")
         create_content_triggers(conn, "base2", "base2_fts", ["title"])
         conn.commit()
         create_content_triggers(conn, "base2", "base2_fts", ["title"])  # must not raise
@@ -199,6 +230,7 @@ class TestCreateContentTriggers:
 # ---------------------------------------------------------------------------
 # 39.1 Tests: escape_fts_query
 # ---------------------------------------------------------------------------
+
 
 class TestEscapeFtsQuery:
     def test_plain_query_unchanged(self):
@@ -272,17 +304,24 @@ class TestEscapeFtsQuery:
 # 39.1 Tests: fts_match
 # ---------------------------------------------------------------------------
 
+
 class TestFtsMatch:
     def test_basic_match_returns_results(self, conn):
         """fts_match returns rows for a matching query."""
         create_fts(conn, "fm_fts", ["id", "content"])
         conn.commit()
-        conn.execute("INSERT INTO fm_fts(id, content) VALUES (?, ?)", ("id-1", "unique_term_xyz"))
-        conn.execute("INSERT INTO fm_fts(id, content) VALUES (?, ?)", ("id-2", "other content"))
+        conn.execute(
+            "INSERT INTO fm_fts(id, content) VALUES (?, ?)", ("id-1", "unique_term_xyz")
+        )
+        conn.execute(
+            "INSERT INTO fm_fts(id, content) VALUES (?, ?)", ("id-2", "other content")
+        )
         conn.commit()
 
         rows = fts_match(
-            conn, "fm_fts", "unique_term_xyz",
+            conn,
+            "fm_fts",
+            "unique_term_xyz",
             select="id, content",
         )
         assert len(rows) == 1
@@ -293,8 +332,13 @@ class TestFtsMatch:
         create_fts(conn, "rank_fts", ["content"])
         conn.commit()
         # "relevance" appears once in each; second row has it twice
-        conn.execute("INSERT INTO rank_fts(content) VALUES (?)", ("relevance mentioned once",))
-        conn.execute("INSERT INTO rank_fts(content) VALUES (?)", ("relevance relevance twice here",))
+        conn.execute(
+            "INSERT INTO rank_fts(content) VALUES (?)", ("relevance mentioned once",)
+        )
+        conn.execute(
+            "INSERT INTO rank_fts(content) VALUES (?)",
+            ("relevance relevance twice here",),
+        )
         conn.commit()
 
         rows = fts_match(conn, "rank_fts", "relevance", select="content")
@@ -307,7 +351,9 @@ class TestFtsMatch:
         create_fts(conn, "lim_fts", ["content"])
         conn.commit()
         for i in range(5):
-            conn.execute("INSERT INTO lim_fts(content) VALUES (?)", (f"item number {i}",))
+            conn.execute(
+                "INSERT INTO lim_fts(content) VALUES (?)", (f"item number {i}",)
+            )
         conn.commit()
 
         rows = fts_match(conn, "lim_fts", "item", select="content", limit=3)
@@ -324,7 +370,9 @@ class TestFtsMatch:
         conn.commit()
 
         rows = fts_match(
-            conn, "snip_fts", "fox",
+            conn,
+            "snip_fts",
+            "fox",
             select="content",
             snippet_col=0,
         )
@@ -344,13 +392,23 @@ class TestFtsMatch:
 
     def test_join_form(self, conn):
         """fts_match supports a JOIN clause for external-content tables."""
-        conn.execute("CREATE TABLE base (id INTEGER PRIMARY KEY, title TEXT, body TEXT)")
-        create_fts(conn, "base_fts", ["title", "body"],
-                   content_table="base", content_rowid="id")
+        conn.execute(
+            "CREATE TABLE base (id INTEGER PRIMARY KEY, title TEXT, body TEXT)"
+        )
+        create_fts(
+            conn,
+            "base_fts",
+            ["title", "body"],
+            content_table="base",
+            content_rowid="id",
+        )
         create_content_triggers(conn, "base", "base_fts", ["title", "body"])
         conn.commit()
 
-        conn.execute("INSERT INTO base (title, body) VALUES (?, ?)", ("join test", "xyzzy content"))
+        conn.execute(
+            "INSERT INTO base (title, body) VALUES (?, ?)",
+            ("join test", "xyzzy content"),
+        )
         conn.commit()
 
         rows = fts_match(
@@ -367,6 +425,7 @@ class TestFtsMatch:
 # ---------------------------------------------------------------------------
 # 39.2 Byte-identity guard
 # ---------------------------------------------------------------------------
+
 
 class TestByteIdentityGuard:
     """Fitness function: canonical cc copy == vendored tc copy.

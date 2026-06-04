@@ -22,10 +22,10 @@ from tc.db.fts5_core import (
     fts_match,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def conn():
@@ -39,6 +39,7 @@ def conn():
 # ---------------------------------------------------------------------------
 # Byte-identity guard
 # ---------------------------------------------------------------------------
+
 
 class TestByteIdentityGuard:
     """Fitness function: tc vendored copy == cc canonical copy."""
@@ -67,6 +68,7 @@ class TestByteIdentityGuard:
 # ---------------------------------------------------------------------------
 # Smoke tests — confirm vendored module works in tc's install env
 # ---------------------------------------------------------------------------
+
 
 class TestFts5CoreSmoke:
     def test_import_has_no_side_effects(self):

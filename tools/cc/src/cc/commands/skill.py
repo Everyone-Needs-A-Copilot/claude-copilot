@@ -63,7 +63,9 @@ def skill_list(
     """List all discovered skills with name and description."""
     valid_scopes = {"project", "machine", "all"}
     if scope not in valid_scopes:
-        err_console.print(f"[red]Error:[/red] --scope must be one of: {', '.join(sorted(valid_scopes))}")
+        err_console.print(
+            f"[red]Error:[/red] --scope must be one of: {', '.join(sorted(valid_scopes))}"
+        )
         raise typer.Exit(1)
 
     skills = _load_all_skills(scope)
@@ -119,7 +121,9 @@ def skill_search(
 
     valid_scopes = {"project", "machine", "all"}
     if scope not in valid_scopes:
-        err_console.print(f"[red]Error:[/red] --scope must be one of: {', '.join(sorted(valid_scopes))}")
+        err_console.print(
+            f"[red]Error:[/red] --scope must be one of: {', '.join(sorted(valid_scopes))}"
+        )
         raise typer.Exit(1)
 
     all_skills = _load_all_skills(scope)
@@ -156,7 +160,9 @@ def skill_search(
 
 @skill_app.command("get")
 def skill_get(
-    name: str = typer.Argument(..., help="Skill name (from frontmatter or directory name)."),
+    name: str = typer.Argument(
+        ..., help="Skill name (from frontmatter or directory name)."
+    ),
     scope: Optional[str] = typer.Option(
         "all",
         "--scope",
@@ -184,7 +190,9 @@ def skill_get(
 
 @skill_app.command("path")
 def skill_path(
-    name: str = typer.Argument(..., help="Skill name (from frontmatter or directory name)."),
+    name: str = typer.Argument(
+        ..., help="Skill name (from frontmatter or directory name)."
+    ),
     scope: Optional[str] = typer.Option(
         "all",
         "--scope",
@@ -209,5 +217,3 @@ def skill_path(
 
     # Plain text — deliberately no newline decoration so output is pipeable
     typer.echo(str(skill.path))
-
-

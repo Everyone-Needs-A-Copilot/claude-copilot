@@ -59,6 +59,7 @@ class EmbeddingUnavailable(Exception):
 # EmbeddingBackend
 # ---------------------------------------------------------------------------
 
+
 class EmbeddingBackend:
     """Hybrid FTS5 + vector embedding SearchBackend.
 
@@ -130,7 +131,9 @@ class EmbeddingBackend:
         except Exception as exc:
             raise EmbeddingUnavailable(f"Embedding encode failed: {exc}") from exc
 
-    def _encode_body(self, entry_id: str, entry_type: str, tags: list[str], content: str) -> str:
+    def _encode_body(
+        self, entry_id: str, entry_type: str, tags: list[str], content: str
+    ) -> str:
         """Compose the text body that gets embedded (same formula for store + rebuild)."""
         tag_str = " ".join(tags) if tags else ""
         return f"{entry_type} {tag_str} {content}".strip()
@@ -160,7 +163,9 @@ class EmbeddingBackend:
             finally:
                 conn.close()
         except EmbeddingUnavailable as exc:
-            _log.warning("Embedding encode failed for %s; FTS5 index kept: %s", entry_id, exc)
+            _log.warning(
+                "Embedding encode failed for %s; FTS5 index kept: %s", entry_id, exc
+            )
 
     def remove(self, entry_id: str, memory_root: Path) -> None:
         """Remove from FTS5 AND from embeddings table."""
@@ -208,7 +213,9 @@ class EmbeddingBackend:
                             continue
                         entry_type = fm.get("type", "")
                         tag_list = fm.get("tags") or []
-                        body = self._encode_body(entry_id, entry_type, tag_list, body_text)
+                        body = self._encode_body(
+                            entry_id, entry_type, tag_list, body_text
+                        )
                         chash = content_hash(body)
 
                         # Check staleness: missing, model mismatch, or content changed
@@ -245,7 +252,11 @@ class EmbeddingBackend:
         finally:
             conn.close()
 
-        return {"indexed": stats["indexed"], "errors": stats["errors"] + errors, "vectors_recomputed": recomputed}
+        return {
+            "indexed": stats["indexed"],
+            "errors": stats["errors"] + errors,
+            "vectors_recomputed": recomputed,
+        }
 
     def search(self, query: str, memory_root: Path) -> list[dict[str, Any]]:
         """Hybrid FTS5 prefilter + cosine rerank + bounded fallback.
@@ -314,12 +325,14 @@ class EmbeddingBackend:
         output = []
         for r in ranked:
             if "content" in r:
-                output.append({
-                    "id": r["id"],
-                    "type": r.get("type", ""),
-                    "tags": r.get("tags", []),
-                    "content": r.get("content", ""),
-                })
+                output.append(
+                    {
+                        "id": r["id"],
+                        "type": r.get("type", ""),
+                        "tags": r.get("tags", []),
+                        "content": r.get("content", ""),
+                    }
+                )
             # If content missing (pure vector-only full-scan hit without FTS row),
             # skip — we can't reconstruct the full dict without reading disk here.
             # This is a rare edge case; next rebuild will sync them.

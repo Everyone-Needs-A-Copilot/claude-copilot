@@ -93,7 +93,9 @@ if plugin and version_data:
     plugin_version = plugin.get("version")
     if fw_version and plugin_version:
         if fw_version == plugin_version:
-            ok(f"Version in sync: plugin.json={plugin_version} == VERSION.json.framework={fw_version}")
+            ok(
+                f"Version in sync: plugin.json={plugin_version} == VERSION.json.framework={fw_version}"
+            )
         else:
             fail(
                 f"Version drift: plugin.json={plugin_version} != VERSION.json.framework={fw_version}"
@@ -111,13 +113,24 @@ if plugin:
     if os.path.isdir(agents_full):
         ok(f"agents dir exists → {os.path.relpath(agents_full, REPO_ROOT)}")
         # Verify each base agent
-        expected_agents = ["design.md", "do.md", "doc.md", "kc.md", "me.md", "qa.md", "sd.md", "ta.md"]
+        expected_agents = [
+            "design.md",
+            "do.md",
+            "doc.md",
+            "kc.md",
+            "me.md",
+            "qa.md",
+            "sd.md",
+            "ta.md",
+        ]
         for agent_file in expected_agents:
             agent_path = os.path.join(agents_full, agent_file)
             if os.path.exists(agent_path):
                 ok(f"  agent {agent_file} exists")
             else:
-                fail(f"  agent {agent_file} MISSING in {os.path.relpath(agents_full, REPO_ROOT)}")
+                fail(
+                    f"  agent {agent_file} MISSING in {os.path.relpath(agents_full, REPO_ROOT)}"
+                )
     else:
         fail(f"agents dir NOT FOUND → {os.path.relpath(agents_full, REPO_ROOT)}")
     print()
@@ -130,7 +143,11 @@ if plugin:
         ok(f"skills dir exists → {os.path.relpath(skills_full, REPO_ROOT)}")
         # Verify categories match VERSION.json
         if version_data:
-            expected_cats = version_data.get("components", {}).get("skills", {}).get("categories", [])
+            expected_cats = (
+                version_data.get("components", {})
+                .get("skills", {})
+                .get("categories", [])
+            )
             for cat in expected_cats:
                 cat_path = os.path.join(skills_full, cat)
                 if os.path.isdir(cat_path):
@@ -149,9 +166,10 @@ if plugin:
         ok(f"commands dir exists → {os.path.relpath(commands_full, REPO_ROOT)}")
         # Verify key commands
         if version_data:
-            all_commands = (
-                version_data.get("components", {}).get("commands", {}).get("projectCommands", [])
-                + version_data.get("components", {}).get("commands", {}).get("machineCommands", [])
+            all_commands = version_data.get("components", {}).get("commands", {}).get(
+                "projectCommands", []
+            ) + version_data.get("components", {}).get("commands", {}).get(
+                "machineCommands", []
             )
             for cmd in all_commands:
                 cmd_path = os.path.join(commands_full, cmd)
@@ -175,7 +193,9 @@ if plugin:
                     hook_scripts.add(cmd)
 
     for script_ref in sorted(hook_scripts):
-        check_path_exists(PLUGIN_DIR, script_ref, f"hook script ({script_ref.split('/')[-1]})")
+        check_path_exists(
+            PLUGIN_DIR, script_ref, f"hook script ({script_ref.split('/')[-1]})"
+        )
     print()
 
 # ── 7. Marketplace references plugin manifest ─────────────────────────────────
@@ -211,9 +231,13 @@ if os.path.exists(settings_path):
         with open(settings_path) as f:
             settings_text = f.read()
         if "${CLAUDE_PLUGIN_ROOT}" in settings_text:
-            fail(".claude/settings.json contains ${CLAUDE_PLUGIN_ROOT} — this would break clone users")
+            fail(
+                ".claude/settings.json contains ${CLAUDE_PLUGIN_ROOT} — this would break clone users"
+            )
         else:
-            ok(".claude/settings.json does not reference ${CLAUDE_PLUGIN_ROOT} (correct for clone users)")
+            ok(
+                ".claude/settings.json does not reference ${CLAUDE_PLUGIN_ROOT} (correct for clone users)"
+            )
     except Exception as e:
         warn(f"Could not read .claude/settings.json: {e}")
 else:

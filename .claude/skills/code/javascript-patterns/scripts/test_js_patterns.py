@@ -27,6 +27,7 @@ spec.loader.exec_module(js_patterns)
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def run_script(args=(), stdin_text=None):
     """Run js_patterns.py as a subprocess. Returns (returncode, stdout, stderr)."""
     cmd = [sys.executable, str(SCRIPT)] + list(args)
@@ -47,6 +48,7 @@ def rules(source: str) -> list[str]:
 # ---------------------------------------------------------------------------
 # VAR_DECL — MEDIUM
 # ---------------------------------------------------------------------------
+
 
 class TestVarDecl:
     def test_var_declaration_flagged(self):
@@ -86,6 +88,7 @@ class TestVarDecl:
 # LOOSE_EQUALITY — MEDIUM
 # ---------------------------------------------------------------------------
 
+
 class TestLooseEquality:
     def test_double_eq_flagged(self):
         assert "LOOSE_EQUALITY" in rules("if (x == y) {}")
@@ -119,6 +122,7 @@ class TestLooseEquality:
 # CONSOLE_LOG — LOW
 # ---------------------------------------------------------------------------
 
+
 class TestConsoleLog:
     def test_console_log_flagged(self):
         assert "CONSOLE_LOG" in rules("console.log('debug');")
@@ -146,6 +150,7 @@ class TestConsoleLog:
 # CALLBACK_NESTING — MEDIUM
 # (threshold = 3, i.e., depth >= 3 when a callback opens)
 # ---------------------------------------------------------------------------
+
 
 class TestCallbackNesting:
     def test_shallow_nesting_clean(self):
@@ -197,11 +202,12 @@ class TestCallbackNesting:
 # Sorting: MEDIUM before LOW
 # ---------------------------------------------------------------------------
 
+
 class TestSortOrder:
     def test_medium_before_low(self):
         src = (
             "console.log('debug');\n"  # LOW
-            "var x = 1;\n"              # MEDIUM
+            "var x = 1;\n"  # MEDIUM
         )
         findings = check(src)
         severities = [f["severity"] for f in findings]
@@ -214,6 +220,7 @@ class TestSortOrder:
 # ---------------------------------------------------------------------------
 # Empty and edge cases
 # ---------------------------------------------------------------------------
+
 
 class TestEdgeCases:
     def test_empty_source_no_findings(self):
@@ -243,6 +250,7 @@ class TestEdgeCases:
 # Script I/O via subprocess
 # ---------------------------------------------------------------------------
 
+
 class TestScriptSubprocess:
     def test_stdin_empty_exits_zero(self):
         rc, out, err = run_script(["-"], stdin_text="")
@@ -270,9 +278,9 @@ class TestScriptSubprocess:
 
     def test_summary_counts_correct(self):
         src = (
-            "var a = 1;\n"           # MEDIUM (VAR_DECL)
-            "if (x == y) {}\n"       # MEDIUM (LOOSE_EQUALITY)
-            "console.log('hi');\n"   # LOW (CONSOLE_LOG)
+            "var a = 1;\n"  # MEDIUM (VAR_DECL)
+            "if (x == y) {}\n"  # MEDIUM (LOOSE_EQUALITY)
+            "console.log('hi');\n"  # LOW (CONSOLE_LOG)
         )
         rc, out, err = run_script(["-"], stdin_text=src)
         json_text = out.split("\n\n")[0]

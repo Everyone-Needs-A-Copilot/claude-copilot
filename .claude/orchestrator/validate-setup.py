@@ -27,14 +27,14 @@ from typing import List, Tuple, Optional
 
 
 class Colors:
-    RED = '\033[0;31m'
-    GREEN = '\033[0;32m'
-    YELLOW = '\033[1;33m'
-    BLUE = '\033[0;34m'
-    CYAN = '\033[0;36m'
-    BOLD = '\033[1m'
-    DIM = '\033[2m'
-    NC = '\033[0m'  # No Color
+    RED = "\033[0;31m"
+    GREEN = "\033[0;32m"
+    YELLOW = "\033[1;33m"
+    BLUE = "\033[0;34m"
+    CYAN = "\033[0;36m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    NC = "\033[0m"  # No Color
 
 
 class SetupValidator:
@@ -62,14 +62,18 @@ class SetupValidator:
         print("=" * 60)
 
         if self.checks_failed == 0:
-            print(f"{Colors.GREEN}{Colors.BOLD}✓ All {self.checks_passed} checks passed. Ready for orchestration!{Colors.NC}")
+            print(
+                f"{Colors.GREEN}{Colors.BOLD}✓ All {self.checks_passed} checks passed. Ready for orchestration!{Colors.NC}"
+            )
             print()
             print("Next steps:")
             print("  1. Run: /orchestrate generate")
             print("  2. Review generated streams")
             print("  3. Run: /orchestrate start")
         else:
-            print(f"{Colors.RED}{Colors.BOLD}✗ {self.checks_failed} check(s) failed{Colors.NC}")
+            print(
+                f"{Colors.RED}{Colors.BOLD}✗ {self.checks_failed} check(s) failed{Colors.NC}"
+            )
             print()
             print("Failed checks:")
             for name, error in self.failures:
@@ -77,7 +81,9 @@ class SetupValidator:
 
             if self.fix and self.fixes_attempted > 0:
                 print()
-                print(f"Fix attempts: {self.fixes_succeeded}/{self.fixes_attempted} succeeded")
+                print(
+                    f"Fix attempts: {self.fixes_succeeded}/{self.fixes_attempted} succeeded"
+                )
 
             if not self.fix:
                 print()
@@ -135,9 +141,7 @@ class SetupValidator:
             return self.check("Python version", True, f"Version {version_str}")
         else:
             return self.check(
-                "Python version",
-                False,
-                f"Version {version_str} found, need >= 3.8"
+                "Python version", False, f"Version {version_str} found, need >= 3.8"
             )
 
     def check_claude_cli(self) -> bool:
@@ -153,51 +157,45 @@ class SetupValidator:
             return self.check(
                 "Claude CLI",
                 False,
-                "Not found in PATH. Install from https://docs.anthropic.com/en/docs/claude-code"
+                "Not found in PATH. Install from https://docs.anthropic.com/en/docs/claude-code",
             )
 
     def check_git_version(self) -> bool:
         """Check Git version >= 2.5 (worktree support)."""
         try:
             result = subprocess.run(
-                ["git", "--version"],
-                capture_output=True,
-                text=True,
-                check=True
+                ["git", "--version"], capture_output=True, text=True, check=True
             )
 
             # Parse version from "git version 2.43.0"
             version_str = result.stdout.strip().split()[-1]
-            major, minor = map(int, version_str.split('.')[:2])
+            major, minor = map(int, version_str.split(".")[:2])
 
             if self.verbose:
                 print(f"  Git version: {version_str}")
 
             # Check for worktree command support
-            has_worktree = subprocess.run(
-                ["git", "worktree", "--help"],
-                capture_output=True,
-                check=False
-            ).returncode == 0
+            has_worktree = (
+                subprocess.run(
+                    ["git", "worktree", "--help"], capture_output=True, check=False
+                ).returncode
+                == 0
+            )
 
             if major >= 2 and minor >= 5 and has_worktree:
                 return self.check(
-                    "Git version",
-                    True,
-                    f"Version {version_str} with worktree support"
+                    "Git version", True, f"Version {version_str} with worktree support"
                 )
             else:
                 return self.check(
                     "Git version",
                     False,
-                    f"Version {version_str} found, need >= 2.5 with worktree support"
+                    f"Version {version_str} found, need >= 2.5 with worktree support",
                 )
 
         except (subprocess.CalledProcessError, FileNotFoundError, ValueError):
             return self.check(
-                "Git version",
-                False,
-                "Git not found or unable to determine version"
+                "Git version", False, "Git not found or unable to determine version"
             )
 
     def check_git_repository(self) -> bool:
@@ -217,24 +215,21 @@ class SetupValidator:
                     ["git", "rev-parse", "--git-dir"],
                     cwd=self.project_root,
                     capture_output=True,
-                    check=True
+                    check=True,
                 )
                 return self.check("Git repository", True)
             except subprocess.CalledProcessError:
+
                 def init_repo():
                     subprocess.run(
                         ["git", "init"],
                         cwd=self.project_root,
                         capture_output=True,
-                        check=True
+                        check=True,
                     )
                     return True
 
-                passed = self.check(
-                    "Git repository",
-                    False,
-                    "Not a git repository"
-                )
+                passed = self.check("Git repository", False, "Not a git repository")
 
                 if not passed:
                     self.attempt_fix("Initialize git repository", init_repo)
@@ -253,7 +248,7 @@ class SetupValidator:
             return self.check(
                 "Directory permissions",
                 False,
-                f"Cannot write to project root: {str(e)}"
+                f"Cannot write to project root: {str(e)}",
             )
 
     def check_tc_cli(self) -> bool:
@@ -267,10 +262,7 @@ class SetupValidator:
             # Verify it works
             try:
                 result = subprocess.run(
-                    ["tc", "version"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5
+                    ["tc", "version"], capture_output=True, text=True, timeout=5
                 )
                 if result.returncode == 0:
                     version_str = result.stdout.strip()
@@ -283,7 +275,7 @@ class SetupValidator:
             return self.check(
                 "tc CLI",
                 False,
-                "Not found in PATH. Install with: pip install -e ~/.claude/copilot/tools/tc"
+                "Not found in PATH. Install with: pip install -e ~/.claude/copilot/tools/tc",
             )
 
     def check_orchestrator_templates(self) -> bool:
@@ -299,7 +291,7 @@ class SetupValidator:
             return self.check(
                 "Orchestration templates",
                 False,
-                f"Template directory not found: {template_dir}"
+                f"Template directory not found: {template_dir}",
             )
 
         required_files = [
@@ -307,7 +299,7 @@ class SetupValidator:
             "task_copilot_client.py",
             "check_streams_data.py",
             "check-streams",
-            "watch-status"
+            "watch-status",
         ]
 
         missing = [f for f in required_files if not (template_dir / f).exists()]
@@ -316,7 +308,7 @@ class SetupValidator:
             return self.check(
                 "Orchestration templates",
                 False,
-                f"Missing templates: {', '.join(missing)}"
+                f"Missing templates: {', '.join(missing)}",
             )
         else:
             return self.check("Orchestration templates", True, "All templates present")
@@ -340,24 +332,22 @@ class SetupValidator:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Validate orchestration setup',
+        description="Validate orchestration setup",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   python validate-setup.py              # Run all checks
   python validate-setup.py --verbose    # Show detailed information
   python validate-setup.py --fix        # Attempt automatic fixes
-        """
+        """,
     )
     parser.add_argument(
-        '--verbose', '-v',
-        action='store_true',
-        help='Show detailed check information'
+        "--verbose", "-v", action="store_true", help="Show detailed check information"
     )
     parser.add_argument(
-        '--fix',
-        action='store_true',
-        help='Attempt to fix issues automatically (where possible)'
+        "--fix",
+        action="store_true",
+        help="Attempt to fix issues automatically (where possible)",
     )
 
     args = parser.parse_args()
@@ -381,5 +371,5 @@ Examples:
     sys.exit(0 if success else 1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -21,6 +21,7 @@ def invoke(*args):
 # run_doctor unit tests (mock-FS via tmp_path)
 # ---------------------------------------------------------------------------
 
+
 def test_doctor_clean_when_configs_exist(tmp_path):
     machine_cfg = tmp_path / "machine" / "config.json"
     machine_cfg.parent.mkdir(parents=True)
@@ -155,8 +156,13 @@ def test_doctor_not_in_repo(tmp_path):
 # CLI integration test
 # ---------------------------------------------------------------------------
 
+
 def test_config_doctor_command_accessible():
     """cc config doctor is a registered command."""
     result = invoke("config", "doctor", "--help")
     assert result.exit_code == 0
-    assert "doctor" in result.output.lower() or "check" in result.output.lower() or "health" in result.output.lower()
+    assert (
+        "doctor" in result.output.lower()
+        or "check" in result.output.lower()
+        or "health" in result.output.lower()
+    )

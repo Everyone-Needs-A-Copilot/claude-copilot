@@ -21,6 +21,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
 
 def _open_conn(db_path: Path) -> sqlite3.Connection:
     from tc.db.connection import get_db
+
     return get_db(db_path)
 
 
@@ -28,6 +29,7 @@ def _require_db_path(db_path: Optional[Path]) -> Path:
     if db_path is not None:
         return db_path
     from tc.db.connection import find_db_path
+
     found = find_db_path()
     if found is None:
         raise FileNotFoundError(

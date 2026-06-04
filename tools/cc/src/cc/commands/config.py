@@ -27,7 +27,6 @@ from cc.core.config_paths import (
     project_config_path,
 )
 
-
 config_app = typer.Typer(
     name="config",
     help="Manage cc configuration (get, set, list, where, validate, edit, init, doctor, export).",
@@ -78,7 +77,9 @@ def config_get(
         "--scope",
         help="Restrict to: machine | project | effective (default).",
     ),
-    raw: bool = typer.Option(False, "--raw", help="Print raw value without formatting."),
+    raw: bool = typer.Option(
+        False, "--raw", help="Print raw value without formatting."
+    ),
     output_json: bool = typer.Option(False, "--json", help="Output as JSON."),
 ) -> None:
     """Get a resolved configuration value."""
@@ -124,7 +125,9 @@ def config_set(
 @config_app.command("unset")
 def config_unset(
     key: str = typer.Argument(..., help="Dotted config key to remove."),
-    project: bool = typer.Option(False, "--project", help="Remove from project config."),
+    project: bool = typer.Option(
+        False, "--project", help="Remove from project config."
+    ),
 ) -> None:
     """Remove a key from machine or project config."""
     try:
@@ -152,12 +155,18 @@ def config_list(
 ) -> None:
     """List configuration keys and values with source annotation."""
     if scope == "machine":
-        data = {k: v for k, v in _flatten(load_machine_config()).items()
-                if k not in ("$schema", "version")}
+        data = {
+            k: v
+            for k, v in _flatten(load_machine_config()).items()
+            if k not in ("$schema", "version")
+        }
         source_label = "machine"
     elif scope == "project":
-        data = {k: v for k, v in _flatten(load_project_config()).items()
-                if k not in ("$schema", "version")}
+        data = {
+            k: v
+            for k, v in _flatten(load_project_config()).items()
+            if k not in ("$schema", "version")
+        }
         source_label = "project"
     else:
         data = get_resolved_config()
@@ -209,7 +218,9 @@ def config_where(
 
 @config_app.command("validate")
 def config_validate(
-    scope: str = typer.Option("both", "--scope", help="Validate: machine | project | both."),
+    scope: str = typer.Option(
+        "both", "--scope", help="Validate: machine | project | both."
+    ),
 ) -> None:
     """Validate config files against the schema."""
     errors: list[str] = []
@@ -219,9 +230,12 @@ def config_validate(
         if path.exists():
             try:
                 import json as _json
+
                 data = _json.loads(path.read_text(encoding="utf-8"))
                 if not isinstance(data, dict):
-                    errors.append(f"Machine config: expected object, got {type(data).__name__}")
+                    errors.append(
+                        f"Machine config: expected object, got {type(data).__name__}"
+                    )
             except _json.JSONDecodeError as exc:
                 errors.append(f"Machine config JSON parse error: {exc}")
         else:
@@ -232,9 +246,12 @@ def config_validate(
         if path and path.exists():
             try:
                 import json as _json
+
                 data = _json.loads(path.read_text(encoding="utf-8"))
                 if not isinstance(data, dict):
-                    errors.append(f"Project config: expected object, got {type(data).__name__}")
+                    errors.append(
+                        f"Project config: expected object, got {type(data).__name__}"
+                    )
             except _json.JSONDecodeError as exc:
                 errors.append(f"Project config JSON parse error: {exc}")
         else:
@@ -272,8 +289,12 @@ def config_edit(
 
 @config_app.command("init")
 def config_init(
-    machine: bool = typer.Option(False, "--machine", help="Create machine config template."),
-    project: bool = typer.Option(False, "--project", help="Create project config template."),
+    machine: bool = typer.Option(
+        False, "--machine", help="Create machine config template."
+    ),
+    project: bool = typer.Option(
+        False, "--project", help="Create project config template."
+    ),
 ) -> None:
     """Write a default config template to machine or project config."""
     if not machine and not project:
@@ -298,26 +319,38 @@ def config_init(
         if cfg_path.exists():
             console.print(f"[yellow]Already exists:[/yellow] {cfg_path}")
         else:
-            cfg_path.write_text(json.dumps(_PROJECT_TEMPLATE, indent=2), encoding="utf-8")
+            cfg_path.write_text(
+                json.dumps(_PROJECT_TEMPLATE, indent=2), encoding="utf-8"
+            )
             console.print(f"[green]Created[/green] project config: {cfg_path}")
 
 
 @config_app.command("export")
 def config_export(
-    machine: bool = typer.Option(False, "--machine", help="Export machine config only."),
-    mask_secrets: bool = typer.Option(False, "--mask-secrets", help="Mask secret values."),
+    machine: bool = typer.Option(
+        False, "--machine", help="Export machine config only."
+    ),
+    mask_secrets: bool = typer.Option(
+        False, "--mask-secrets", help="Mask secret values."
+    ),
     output_json: bool = typer.Option(False, "--json"),
 ) -> None:
     """Export the effective (or machine-only) config for sharing or debugging."""
     if machine:
-        data = {k: v for k, v in _flatten(load_machine_config()).items()
-                if k not in ("$schema", "version")}
+        data = {
+            k: v
+            for k, v in _flatten(load_machine_config()).items()
+            if k not in ("$schema", "version")
+        }
     else:
         data = get_resolved_config()
 
     if mask_secrets:
         for k in list(data.keys()):
-            if any(word in k.lower() for word in ("secret", "token", "password", "key", "url")):
+            if any(
+                word in k.lower()
+                for word in ("secret", "token", "password", "key", "url")
+            ):
                 if data[k] is not None:
                     data[k] = "***"
 

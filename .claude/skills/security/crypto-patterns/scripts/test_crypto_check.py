@@ -33,6 +33,7 @@ FAIL = crypto_check.FAIL
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def make_usage(**overrides):
     base = {"name": "test-usage", "type": "symmetric", "algorithm": "aes-256"}
     base.update(overrides)
@@ -52,6 +53,7 @@ def parse_json_output(out: str) -> dict:
 # ---------------------------------------------------------------------------
 # validate_usage
 # ---------------------------------------------------------------------------
+
 
 class TestValidateUsage:
     def test_minimal_valid(self):
@@ -92,73 +94,115 @@ class TestValidateUsage:
 # check_usage — symmetric
 # ---------------------------------------------------------------------------
 
+
 class TestCheckSymmetric:
     def test_aes256_pass(self):
-        f = crypto_check.check_usage({"name": "x", "type": "symmetric", "algorithm": "aes-256"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "symmetric", "algorithm": "aes-256"}
+        )
         assert f["result"] == PASS
 
     def test_des_fail(self):
-        f = crypto_check.check_usage({"name": "x", "type": "symmetric", "algorithm": "des"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "symmetric", "algorithm": "des"}
+        )
         assert f["result"] == FAIL
 
     def test_rc4_fail(self):
-        f = crypto_check.check_usage({"name": "x", "type": "symmetric", "algorithm": "rc4"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "symmetric", "algorithm": "rc4"}
+        )
         assert f["result"] == FAIL
 
     def test_3des_fail(self):
-        f = crypto_check.check_usage({"name": "x", "type": "symmetric", "algorithm": "3des"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "symmetric", "algorithm": "3des"}
+        )
         assert f["result"] == FAIL
 
     def test_blowfish_warn(self):
-        f = crypto_check.check_usage({"name": "x", "type": "symmetric", "algorithm": "blowfish"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "symmetric", "algorithm": "blowfish"}
+        )
         assert f["result"] == WARN
 
     def test_short_key_fail(self):
         # AES-128 algorithm is PASS but 64-bit key is FAIL
-        f = crypto_check.check_usage({"name": "x", "type": "symmetric", "algorithm": "aes", "key_bits": 64})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "symmetric", "algorithm": "aes", "key_bits": 64}
+        )
         assert f["result"] == FAIL
 
     def test_adequate_key_pass(self):
-        f = crypto_check.check_usage({"name": "x", "type": "symmetric", "algorithm": "aes", "key_bits": 256})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "symmetric", "algorithm": "aes", "key_bits": 256}
+        )
         assert f["result"] == PASS
 
     def test_ecb_mode_fail(self):
-        f = crypto_check.check_usage({"name": "x", "type": "symmetric", "algorithm": "aes", "mode": "ECB"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "symmetric", "algorithm": "aes", "mode": "ECB"}
+        )
         assert f["result"] == FAIL
 
     def test_gcm_mode_pass(self):
-        f = crypto_check.check_usage({"name": "x", "type": "symmetric", "algorithm": "aes-256", "mode": "GCM"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "symmetric", "algorithm": "aes-256", "mode": "GCM"}
+        )
         assert f["result"] == PASS
 
     def test_cbc_mode_warn(self):
-        f = crypto_check.check_usage({"name": "x", "type": "symmetric", "algorithm": "aes", "mode": "CBC"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "symmetric", "algorithm": "aes", "mode": "CBC"}
+        )
         assert f["result"] == WARN  # PASS alg + WARN mode -> WARN overall
 
     def test_iv_reuse_fail(self):
-        f = crypto_check.check_usage({"name": "x", "type": "symmetric", "algorithm": "aes-256", "iv_reuse": True})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "symmetric", "algorithm": "aes-256", "iv_reuse": True}
+        )
         assert f["result"] == FAIL
 
     def test_iv_no_reuse_no_extra_result(self):
         # iv_reuse=False should not add FAIL
-        f = crypto_check.check_usage({"name": "x", "type": "symmetric", "algorithm": "aes-256", "iv_reuse": False})
+        f = crypto_check.check_usage(
+            {
+                "name": "x",
+                "type": "symmetric",
+                "algorithm": "aes-256",
+                "iv_reuse": False,
+            }
+        )
         assert f["result"] == PASS
 
     def test_key_bits_not_int_raises(self):
         with pytest.raises(ValueError, match="'key_bits' must be an integer"):
-            crypto_check.check_usage({"name": "x", "type": "symmetric", "algorithm": "aes", "key_bits": "256"})
+            crypto_check.check_usage(
+                {
+                    "name": "x",
+                    "type": "symmetric",
+                    "algorithm": "aes",
+                    "key_bits": "256",
+                }
+            )
 
 
 # ---------------------------------------------------------------------------
 # check_usage — hash
 # ---------------------------------------------------------------------------
 
+
 class TestCheckHash:
     def test_sha256_pass(self):
-        f = crypto_check.check_usage({"name": "x", "type": "hash", "algorithm": "sha256"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "hash", "algorithm": "sha256"}
+        )
         assert f["result"] == PASS
 
     def test_sha_256_hyphen_pass(self):
-        f = crypto_check.check_usage({"name": "x", "type": "hash", "algorithm": "sha-256"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "hash", "algorithm": "sha-256"}
+        )
         assert f["result"] == PASS
 
     def test_md5_fail(self):
@@ -170,23 +214,33 @@ class TestCheckHash:
         assert f["result"] == FAIL
 
     def test_crc32_fail(self):
-        f = crypto_check.check_usage({"name": "x", "type": "hash", "algorithm": "crc32"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "hash", "algorithm": "crc32"}
+        )
         assert f["result"] == FAIL
 
     def test_sha3_pass(self):
-        f = crypto_check.check_usage({"name": "x", "type": "hash", "algorithm": "sha3-256"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "hash", "algorithm": "sha3-256"}
+        )
         assert f["result"] == PASS
 
     def test_blake2b_pass(self):
-        f = crypto_check.check_usage({"name": "x", "type": "hash", "algorithm": "blake2b"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "hash", "algorithm": "blake2b"}
+        )
         assert f["result"] == PASS
 
     def test_ripemd160_warn(self):
-        f = crypto_check.check_usage({"name": "x", "type": "hash", "algorithm": "ripemd-160"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "hash", "algorithm": "ripemd-160"}
+        )
         assert f["result"] == WARN
 
     def test_unknown_hash_warn(self):
-        f = crypto_check.check_usage({"name": "x", "type": "hash", "algorithm": "sha999"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "hash", "algorithm": "sha999"}
+        )
         assert f["result"] == WARN
 
 
@@ -194,21 +248,30 @@ class TestCheckHash:
 # check_usage — kdf
 # ---------------------------------------------------------------------------
 
+
 class TestCheckKdf:
     def test_argon2id_pass(self):
-        f = crypto_check.check_usage({"name": "x", "type": "kdf", "algorithm": "argon2id"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "kdf", "algorithm": "argon2id"}
+        )
         assert f["result"] == PASS
 
     def test_bcrypt_pass(self):
-        f = crypto_check.check_usage({"name": "x", "type": "kdf", "algorithm": "bcrypt"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "kdf", "algorithm": "bcrypt"}
+        )
         assert f["result"] == PASS
 
     def test_bcrypt_low_work_factor_warn(self):
-        f = crypto_check.check_usage({"name": "x", "type": "kdf", "algorithm": "bcrypt", "work_factor": 4})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "kdf", "algorithm": "bcrypt", "work_factor": 4}
+        )
         assert f["result"] == WARN
 
     def test_bcrypt_adequate_work_factor_pass(self):
-        f = crypto_check.check_usage({"name": "x", "type": "kdf", "algorithm": "bcrypt", "work_factor": 12})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "kdf", "algorithm": "bcrypt", "work_factor": 12}
+        )
         assert f["result"] == PASS
 
     def test_md5_as_kdf_fail(self):
@@ -216,7 +279,9 @@ class TestCheckKdf:
         assert f["result"] == FAIL
 
     def test_sha256_as_kdf_fail(self):
-        f = crypto_check.check_usage({"name": "x", "type": "kdf", "algorithm": "sha256"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "kdf", "algorithm": "sha256"}
+        )
         assert f["result"] == FAIL
 
     def test_plain_fail(self):
@@ -224,75 +289,117 @@ class TestCheckKdf:
         assert f["result"] == FAIL
 
     def test_pbkdf2_warn(self):
-        f = crypto_check.check_usage({"name": "x", "type": "kdf", "algorithm": "pbkdf2"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "kdf", "algorithm": "pbkdf2"}
+        )
         assert f["result"] == WARN
 
     def test_work_factor_not_number_raises(self):
         with pytest.raises(ValueError, match="'work_factor' must be a number"):
-            crypto_check.check_usage({"name": "x", "type": "kdf", "algorithm": "bcrypt", "work_factor": "high"})
+            crypto_check.check_usage(
+                {
+                    "name": "x",
+                    "type": "kdf",
+                    "algorithm": "bcrypt",
+                    "work_factor": "high",
+                }
+            )
 
 
 # ---------------------------------------------------------------------------
 # check_usage — asymmetric
 # ---------------------------------------------------------------------------
 
+
 class TestCheckAsymmetric:
     def test_rsa_2048_pass(self):
-        f = crypto_check.check_usage({"name": "x", "type": "asymmetric", "algorithm": "rsa", "key_bits": 2048})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "asymmetric", "algorithm": "rsa", "key_bits": 2048}
+        )
         assert f["result"] == PASS
 
     def test_rsa_1024_fail(self):
-        f = crypto_check.check_usage({"name": "x", "type": "asymmetric", "algorithm": "rsa", "key_bits": 1024})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "asymmetric", "algorithm": "rsa", "key_bits": 1024}
+        )
         assert f["result"] == FAIL
 
     def test_ecdsa_256_pass(self):
-        f = crypto_check.check_usage({"name": "x", "type": "asymmetric", "algorithm": "ecdsa", "key_bits": 256})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "asymmetric", "algorithm": "ecdsa", "key_bits": 256}
+        )
         assert f["result"] == PASS
 
     def test_ecdsa_160_fail(self):
-        f = crypto_check.check_usage({"name": "x", "type": "asymmetric", "algorithm": "ecdsa", "key_bits": 160})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "asymmetric", "algorithm": "ecdsa", "key_bits": 160}
+        )
         assert f["result"] == FAIL
 
     def test_ed25519_pass(self):
-        f = crypto_check.check_usage({"name": "x", "type": "asymmetric", "algorithm": "ed25519"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "asymmetric", "algorithm": "ed25519"}
+        )
         assert f["result"] == PASS
 
     def test_dsa_warn(self):
-        f = crypto_check.check_usage({"name": "x", "type": "asymmetric", "algorithm": "dsa"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "asymmetric", "algorithm": "dsa"}
+        )
         assert f["result"] == WARN
 
     def test_key_bits_not_int_raises(self):
         with pytest.raises(ValueError, match="'key_bits' must be an integer"):
-            crypto_check.check_usage({"name": "x", "type": "asymmetric", "algorithm": "rsa", "key_bits": "2048"})
+            crypto_check.check_usage(
+                {
+                    "name": "x",
+                    "type": "asymmetric",
+                    "algorithm": "rsa",
+                    "key_bits": "2048",
+                }
+            )
 
 
 # ---------------------------------------------------------------------------
 # check_usage — prng
 # ---------------------------------------------------------------------------
 
+
 class TestCheckPrng:
     def test_math_random_fail(self):
-        f = crypto_check.check_usage({"name": "x", "type": "prng", "algorithm": "Math.random"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "prng", "algorithm": "Math.random"}
+        )
         assert f["result"] == FAIL
 
     def test_crypto_randombytes_pass(self):
-        f = crypto_check.check_usage({"name": "x", "type": "prng", "algorithm": "crypto.randomBytes"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "prng", "algorithm": "crypto.randomBytes"}
+        )
         assert f["result"] == PASS
 
     def test_os_urandom_pass(self):
-        f = crypto_check.check_usage({"name": "x", "type": "prng", "algorithm": "os.urandom"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "prng", "algorithm": "os.urandom"}
+        )
         assert f["result"] == PASS
 
     def test_securerandom_pass(self):
-        f = crypto_check.check_usage({"name": "x", "type": "prng", "algorithm": "SecureRandom"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "prng", "algorithm": "SecureRandom"}
+        )
         assert f["result"] == PASS
 
     def test_secrets_pass(self):
-        f = crypto_check.check_usage({"name": "x", "type": "prng", "algorithm": "secrets"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "prng", "algorithm": "secrets"}
+        )
         assert f["result"] == PASS
 
     def test_unknown_warn(self):
-        f = crypto_check.check_usage({"name": "x", "type": "prng", "algorithm": "rand_custom"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "prng", "algorithm": "rand_custom"}
+        )
         assert f["result"] == WARN
 
 
@@ -300,25 +407,36 @@ class TestCheckPrng:
 # check_usage — tls
 # ---------------------------------------------------------------------------
 
+
 class TestCheckTls:
     def test_tls13_pass(self):
-        f = crypto_check.check_usage({"name": "x", "type": "tls", "algorithm": "TLS1.3", "tls_version": "TLS1.3"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "tls", "algorithm": "TLS1.3", "tls_version": "TLS1.3"}
+        )
         assert f["result"] == PASS
 
     def test_tls12_pass(self):
-        f = crypto_check.check_usage({"name": "x", "type": "tls", "algorithm": "TLS1.2", "tls_version": "TLS1.2"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "tls", "algorithm": "TLS1.2", "tls_version": "TLS1.2"}
+        )
         assert f["result"] == PASS
 
     def test_tls11_fail(self):
-        f = crypto_check.check_usage({"name": "x", "type": "tls", "algorithm": "TLS", "tls_version": "TLS1.1"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "tls", "algorithm": "TLS", "tls_version": "TLS1.1"}
+        )
         assert f["result"] == FAIL
 
     def test_tls10_fail(self):
-        f = crypto_check.check_usage({"name": "x", "type": "tls", "algorithm": "TLS", "tls_version": "TLS1.0"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "tls", "algorithm": "TLS", "tls_version": "TLS1.0"}
+        )
         assert f["result"] == FAIL
 
     def test_ssl3_fail(self):
-        f = crypto_check.check_usage({"name": "x", "type": "tls", "algorithm": "TLS", "tls_version": "SSL3"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "tls", "algorithm": "TLS", "tls_version": "SSL3"}
+        )
         assert f["result"] == FAIL
 
     def test_algorithm_fallback(self):
@@ -331,25 +449,34 @@ class TestCheckTls:
 # check_usage — jwt
 # ---------------------------------------------------------------------------
 
+
 class TestCheckJwt:
     def test_none_alg_fail(self):
         f = crypto_check.check_usage({"name": "x", "type": "jwt", "algorithm": "none"})
         assert f["result"] == FAIL
 
     def test_rs256_pass(self):
-        f = crypto_check.check_usage({"name": "x", "type": "jwt", "algorithm": "RS256", "jwt_alg": "RS256"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "jwt", "algorithm": "RS256", "jwt_alg": "RS256"}
+        )
         assert f["result"] == PASS
 
     def test_es256_pass(self):
-        f = crypto_check.check_usage({"name": "x", "type": "jwt", "algorithm": "ES256", "jwt_alg": "ES256"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "jwt", "algorithm": "ES256", "jwt_alg": "ES256"}
+        )
         assert f["result"] == PASS
 
     def test_hs256_warn(self):
-        f = crypto_check.check_usage({"name": "x", "type": "jwt", "algorithm": "HS256", "jwt_alg": "HS256"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "jwt", "algorithm": "HS256", "jwt_alg": "HS256"}
+        )
         assert f["result"] == WARN
 
     def test_eddsa_pass(self):
-        f = crypto_check.check_usage({"name": "x", "type": "jwt", "algorithm": "EdDSA", "jwt_alg": "EdDSA"})
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "jwt", "algorithm": "EdDSA", "jwt_alg": "EdDSA"}
+        )
         assert f["result"] == PASS
 
     def test_jwt_alg_fallback_to_algorithm(self):
@@ -362,25 +489,27 @@ class TestCheckJwt:
 # Aggregate result — FAIL wins over WARN wins over PASS
 # ---------------------------------------------------------------------------
 
+
 class TestAggregateResult:
     def test_fail_overrides_pass_in_same_entry(self):
         # AES-256 (PASS) + ECB mode (FAIL) = FAIL overall
-        f = crypto_check.check_usage({
-            "name": "x", "type": "symmetric", "algorithm": "aes-256", "mode": "ECB"
-        })
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "symmetric", "algorithm": "aes-256", "mode": "ECB"}
+        )
         assert f["result"] == FAIL
 
     def test_warn_overrides_pass(self):
         # AES-256 (PASS) + CBC mode (WARN) = WARN overall
-        f = crypto_check.check_usage({
-            "name": "x", "type": "symmetric", "algorithm": "aes-256", "mode": "CBC"
-        })
+        f = crypto_check.check_usage(
+            {"name": "x", "type": "symmetric", "algorithm": "aes-256", "mode": "CBC"}
+        )
         assert f["result"] == WARN
 
 
 # ---------------------------------------------------------------------------
 # load_input
 # ---------------------------------------------------------------------------
+
 
 class TestLoadInput:
     def test_empty_stdin(self, monkeypatch):
@@ -412,6 +541,7 @@ class TestLoadInput:
 # ---------------------------------------------------------------------------
 # Subprocess integration
 # ---------------------------------------------------------------------------
+
 
 class TestSubprocessIntegration:
     def test_valid_input_exits_zero(self):
@@ -504,9 +634,9 @@ class TestSubprocessIntegration:
 
     def test_mixed_result_counts(self):
         usages = [
-            make_usage(name="f1", type="hash", algorithm="md5"),      # FAIL
-            make_usage(name="f2", type="hash", algorithm="sha256"),   # PASS
-            make_usage(name="f3", type="kdf", algorithm="pbkdf2"),    # WARN
+            make_usage(name="f1", type="hash", algorithm="md5"),  # FAIL
+            make_usage(name="f2", type="hash", algorithm="sha256"),  # PASS
+            make_usage(name="f3", type="kdf", algorithm="pbkdf2"),  # WARN
         ]
         code, out, _ = run_script(args=("-",), stdin_text=json.dumps(usages))
         assert code == 0

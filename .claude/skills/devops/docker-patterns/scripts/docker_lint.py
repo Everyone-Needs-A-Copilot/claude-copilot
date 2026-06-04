@@ -124,6 +124,7 @@ DEP_MANIFEST_COPY = re.compile(
 # Root-user detection helpers
 # ---------------------------------------------------------------------------
 
+
 def _is_root_user(user_val: str) -> bool:
     """Return True if the USER value indicates root."""
     stripped = user_val.strip().split(":")[0]  # handle user:group
@@ -134,38 +135,43 @@ def _is_root_user(user_val: str) -> bool:
 # Core checks
 # ---------------------------------------------------------------------------
 
+
 def check_root_user(content: str) -> list[dict]:
     """DOCKER-001: No USER directive, or USER root."""
     findings = []
     user_matches = USER_PATTERN.findall(content)
 
     if not user_matches:
-        findings.append({
-            "id": "DOCKER-001",
-            "severity": CRITICAL,
-            "title": "No USER directive — container runs as root",
-            "detail": (
-                "No USER instruction found. Containers default to root, which means a "
-                "container escape gives the attacker root on the host. Add a non-root USER "
-                "before the final CMD/ENTRYPOINT."
-            ),
-            "reference": "CIS Docker Benchmark §4.1",
-        })
+        findings.append(
+            {
+                "id": "DOCKER-001",
+                "severity": CRITICAL,
+                "title": "No USER directive — container runs as root",
+                "detail": (
+                    "No USER instruction found. Containers default to root, which means a "
+                    "container escape gives the attacker root on the host. Add a non-root USER "
+                    "before the final CMD/ENTRYPOINT."
+                ),
+                "reference": "CIS Docker Benchmark §4.1",
+            }
+        )
     else:
         root_users = [u for u in user_matches if _is_root_user(u)]
         if root_users and len(root_users) == len(user_matches):
             # All USER directives set root (or no non-root USER ever set)
-            findings.append({
-                "id": "DOCKER-001",
-                "severity": CRITICAL,
-                "title": f"USER set to root (USER {root_users[-1].strip()})",
-                "detail": (
-                    "The final USER directive sets the process to root. "
-                    "Use a named non-root user (e.g., appuser with uid >=1000) "
-                    "for the runtime stage."
-                ),
-                "reference": "CIS Docker Benchmark §4.1",
-            })
+            findings.append(
+                {
+                    "id": "DOCKER-001",
+                    "severity": CRITICAL,
+                    "title": f"USER set to root (USER {root_users[-1].strip()})",
+                    "detail": (
+                        "The final USER directive sets the process to root. "
+                        "Use a named non-root user (e.g., appuser with uid >=1000) "
+                        "for the runtime stage."
+                    ),
+                    "reference": "CIS Docker Benchmark §4.1",
+                }
+            )
     return findings
 
 
@@ -184,35 +190,39 @@ def check_latest_tag(content: str) -> list[dict]:
         if ":" in image_ref and not image_ref.endswith(":latest"):
             continue
         tag = ":latest" if ":latest" in image_ref else "(no tag)"
-        findings.append({
-            "id": "DOCKER-002",
-            "severity": HIGH,
-            "title": f"FROM uses unpinned tag: {image_ref} {tag}",
-            "detail": (
-                f"Image '{image_ref}' uses :latest or no tag. This makes builds "
-                "non-reproducible — the same Dockerfile can pull different images on "
-                "different days. Pin to a specific version or digest."
-            ),
-            "reference": "Docker best practices — pinned base images",
-        })
+        findings.append(
+            {
+                "id": "DOCKER-002",
+                "severity": HIGH,
+                "title": f"FROM uses unpinned tag: {image_ref} {tag}",
+                "detail": (
+                    f"Image '{image_ref}' uses :latest or no tag. This makes builds "
+                    "non-reproducible — the same Dockerfile can pull different images on "
+                    "different days. Pin to a specific version or digest."
+                ),
+                "reference": "Docker best practices — pinned base images",
+            }
+        )
     return findings
 
 
 def check_healthcheck(content: str) -> list[dict]:
     """DOCKER-003: Missing HEALTHCHECK."""
     if not HEALTHCHECK_PATTERN.search(content):
-        return [{
-            "id": "DOCKER-003",
-            "severity": HIGH,
-            "title": "Missing HEALTHCHECK directive",
-            "detail": (
-                "No HEALTHCHECK instruction found. Without it, Docker/Kubernetes cannot "
-                "distinguish a started container from a healthy one. Add HEALTHCHECK with "
-                "appropriate --interval, --timeout, --start-period, and --retries values. "
-                "If health checks are managed externally, add HEALTHCHECK NONE explicitly."
-            ),
-            "reference": "Docker best practices — container health",
-        }]
+        return [
+            {
+                "id": "DOCKER-003",
+                "severity": HIGH,
+                "title": "Missing HEALTHCHECK directive",
+                "detail": (
+                    "No HEALTHCHECK instruction found. Without it, Docker/Kubernetes cannot "
+                    "distinguish a started container from a healthy one. Add HEALTHCHECK with "
+                    "appropriate --interval, --timeout, --start-period, and --retries values. "
+                    "If health checks are managed externally, add HEALTHCHECK NONE explicitly."
+                ),
+                "reference": "Docker best practices — container health",
+            }
+        ]
     return []
 
 
@@ -221,21 +231,25 @@ def check_apt_no_install_recommends(content: str) -> list[dict]:
     findings = []
     for match in RUN_BLOCK_PATTERN.finditer(content):
         block = match.group(1)
-        if APT_INSTALL_PATTERN.search(block) and not APT_NO_RECOMMENDS_PATTERN.search(block):
+        if APT_INSTALL_PATTERN.search(block) and not APT_NO_RECOMMENDS_PATTERN.search(
+            block
+        ):
             # Extract a short snippet for context
             snippet = block.strip().splitlines()[0][:80]
-            findings.append({
-                "id": "DOCKER-004",
-                "severity": MEDIUM,
-                "title": "apt-get install without --no-install-recommends",
-                "detail": (
-                    f"RUN block starts with: {snippet!r}. "
-                    "Without --no-install-recommends, apt installs suggested and "
-                    "recommended packages, significantly inflating image size. "
-                    "Add --no-install-recommends to every apt-get install."
-                ),
-                "reference": "Docker slim-image best practices",
-            })
+            findings.append(
+                {
+                    "id": "DOCKER-004",
+                    "severity": MEDIUM,
+                    "title": "apt-get install without --no-install-recommends",
+                    "detail": (
+                        f"RUN block starts with: {snippet!r}. "
+                        "Without --no-install-recommends, apt installs suggested and "
+                        "recommended packages, significantly inflating image size. "
+                        "Add --no-install-recommends to every apt-get install."
+                    ),
+                    "reference": "Docker slim-image best practices",
+                }
+            )
     return findings
 
 
@@ -248,22 +262,24 @@ def check_secrets_in_env(content: str) -> list[dict]:
         rest = match.group(2)
         # ENV/ARG can set multiple vars: KEY=val KEY2=val2
         # Simple split: look for KEY=value pairs or just KEY
-        pairs = re.findall(r'([A-Za-z_][A-Za-z0-9_]*)=\S+', rest)
+        pairs = re.findall(r"([A-Za-z_][A-Za-z0-9_]*)=\S+", rest)
         for key in pairs:
             if SECRET_KEY_NAMES.search(key) and key not in seen_keys:
                 seen_keys.add(key)
-                findings.append({
-                    "id": "DOCKER-005",
-                    "severity": CRITICAL,
-                    "title": f"Secret-like value in {directive}: {key}",
-                    "detail": (
-                        f"{directive} {key}=... bakes a credential into the image. "
-                        "Values set in ENV/ARG persist in the image layer history and are "
-                        "visible via 'docker inspect'. Use Docker secrets (--secret), "
-                        "Vault, or runtime environment injection instead."
-                    ),
-                    "reference": "CIS Docker Benchmark §4.10",
-                })
+                findings.append(
+                    {
+                        "id": "DOCKER-005",
+                        "severity": CRITICAL,
+                        "title": f"Secret-like value in {directive}: {key}",
+                        "detail": (
+                            f"{directive} {key}=... bakes a credential into the image. "
+                            "Values set in ENV/ARG persist in the image layer history and are "
+                            "visible via 'docker inspect'. Use Docker secrets (--secret), "
+                            "Vault, or runtime environment injection instead."
+                        ),
+                        "reference": "CIS Docker Benchmark §4.10",
+                    }
+                )
     return findings
 
 
@@ -274,31 +290,35 @@ def check_layer_bloat(content: str) -> list[dict]:
         block = match.group(1)
         if RUN_APT_PATTERN.search(block) and not RUN_APT_CLEANUP.search(block):
             snippet = block.strip().splitlines()[0][:80]
-            findings.append({
-                "id": "DOCKER-006",
-                "severity": MEDIUM,
-                "title": "apt-get used without cache cleanup in same RUN layer",
-                "detail": (
-                    f"RUN block starts with: {snippet!r}. "
-                    "apt-get leaves package lists in /var/lib/apt/lists/ which bloat the "
-                    "layer. Add '&& rm -rf /var/lib/apt/lists/*' in the same RUN "
-                    "instruction to keep the layer small."
-                ),
-                "reference": "Docker best practices — layer hygiene",
-            })
+            findings.append(
+                {
+                    "id": "DOCKER-006",
+                    "severity": MEDIUM,
+                    "title": "apt-get used without cache cleanup in same RUN layer",
+                    "detail": (
+                        f"RUN block starts with: {snippet!r}. "
+                        "apt-get leaves package lists in /var/lib/apt/lists/ which bloat the "
+                        "layer. Add '&& rm -rf /var/lib/apt/lists/*' in the same RUN "
+                        "instruction to keep the layer small."
+                    ),
+                    "reference": "Docker best practices — layer hygiene",
+                }
+            )
         elif RUN_APK_PATTERN.search(block) and not RUN_APK_CLEANUP.search(block):
             snippet = block.strip().splitlines()[0][:80]
-            findings.append({
-                "id": "DOCKER-006",
-                "severity": MEDIUM,
-                "title": "apk add used without --no-cache",
-                "detail": (
-                    f"RUN block starts with: {snippet!r}. "
-                    "apk without --no-cache writes to the local cache, bloating the layer. "
-                    "Use 'apk add --no-cache <package>'."
-                ),
-                "reference": "Alpine Docker best practices",
-            })
+            findings.append(
+                {
+                    "id": "DOCKER-006",
+                    "severity": MEDIUM,
+                    "title": "apk add used without --no-cache",
+                    "detail": (
+                        f"RUN block starts with: {snippet!r}. "
+                        "apk without --no-cache writes to the local cache, bloating the layer. "
+                        "Use 'apk add --no-cache <package>'."
+                    ),
+                    "reference": "Alpine Docker best practices",
+                }
+            )
     return findings
 
 
@@ -317,18 +337,20 @@ def check_copy_order(content: str) -> list[dict]:
     last_dep_manifest = max(m.start() for m in dep_manifest_matches)
 
     if first_copy_all < last_dep_manifest:
-        findings.append({
-            "id": "DOCKER-007",
-            "severity": MEDIUM,
-            "title": "COPY . . appears before dependency manifest COPY",
-            "detail": (
-                "COPY . . is placed before a dependency manifest COPY (e.g., package.json, "
-                "requirements.txt). Any code change will invalidate the dependency "
-                "install layer, forcing a full reinstall on every build. "
-                "Reorder: copy manifests first, run install, then COPY . ."
-            ),
-            "reference": "Docker layer cache optimisation best practices",
-        })
+        findings.append(
+            {
+                "id": "DOCKER-007",
+                "severity": MEDIUM,
+                "title": "COPY . . appears before dependency manifest COPY",
+                "detail": (
+                    "COPY . . is placed before a dependency manifest COPY (e.g., package.json, "
+                    "requirements.txt). Any code change will invalidate the dependency "
+                    "install layer, forcing a full reinstall on every build. "
+                    "Reorder: copy manifests first, run install, then COPY . ."
+                ),
+                "reference": "Docker layer cache optimisation best practices",
+            }
+        )
     return findings
 
 
@@ -367,15 +389,14 @@ def render_markdown(findings: list[dict]) -> str:
         "|---|----|----------|-------|",
     ]
     for i, f in enumerate(findings, 1):
-        lines.append(
-            f"| {i} | {f['id']} | {f['severity']} | {f['title']} |"
-        )
+        lines.append(f"| {i} | {f['id']} | {f['severity']} | {f['title']} |")
     return "\n".join(lines) + "\n"
 
 
 # ---------------------------------------------------------------------------
 # I/O
 # ---------------------------------------------------------------------------
+
 
 def load_input(source: str | None) -> str:
     """Load Dockerfile text from file path or stdin."""
@@ -400,7 +421,10 @@ def run(source: str | None) -> int:
 
     content = content.strip()
     if not content:
-        output = {"findings": [], "summary": {"total": 0, "critical": 0, "high": 0, "medium": 0, "info": 0}}
+        output = {
+            "findings": [],
+            "summary": {"total": 0, "critical": 0, "high": 0, "medium": 0, "info": 0},
+        }
         print(json.dumps(output, indent=2))
         print()
         print("_No Dockerfile content provided._")

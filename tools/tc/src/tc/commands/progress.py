@@ -35,7 +35,13 @@ def progress_summary(
         for entry in result["by_stream"]:
             sid = entry["stream_id"]
             counts = entry["counts"]
-            row_dict = {"stream": entry["stream_name"] if entry["stream_name"] else (f"#{sid}" if sid else "unassigned")}
+            row_dict = {
+                "stream": (
+                    entry["stream_name"]
+                    if entry["stream_name"]
+                    else (f"#{sid}" if sid else "unassigned")
+                )
+            }
             for s in statuses:
                 row_dict[s] = counts.get(s, 0)
             table_rows.append(row_dict)

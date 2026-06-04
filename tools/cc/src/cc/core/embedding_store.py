@@ -38,14 +38,14 @@ _log = logging.getLogger(__name__)
 # Table lifecycle
 # ---------------------------------------------------------------------------
 
+
 def ensure_embeddings_table(conn: sqlite3.Connection) -> None:
     """Create the embeddings table if it does not yet exist.
 
     Called ONLY from the enabled path (EmbeddingBackend).  The off-path
     (FTS5Backend / embeddings disabled) never calls this.
     """
-    conn.execute(
-        f"""
+    conn.execute(f"""
         CREATE TABLE IF NOT EXISTS {_TABLE} (
             id           TEXT PRIMARY KEY,
             model        TEXT NOT NULL,
@@ -53,14 +53,14 @@ def ensure_embeddings_table(conn: sqlite3.Connection) -> None:
             vector       BLOB NOT NULL,
             content_hash TEXT NOT NULL
         )
-        """
-    )
+        """)
     conn.commit()
 
 
 # ---------------------------------------------------------------------------
 # Content hash
 # ---------------------------------------------------------------------------
+
 
 def content_hash(text: str) -> str:
     """Return sha256 hex digest of *text* (UTF-8 encoded)."""
@@ -70,6 +70,7 @@ def content_hash(text: str) -> str:
 # ---------------------------------------------------------------------------
 # CRUD
 # ---------------------------------------------------------------------------
+
 
 def upsert_vector(
     conn: sqlite3.Connection,
@@ -160,6 +161,7 @@ def count_vectors(conn: sqlite3.Connection) -> int:
 # Cosine similarity
 # ---------------------------------------------------------------------------
 
+
 def cosine_similarity(a: "np.ndarray", b: "np.ndarray") -> float:
     """Cosine similarity between two 1-D float32 arrays.
 
@@ -187,7 +189,6 @@ def cosine_rerank(
     Does NOT filter by threshold — caller decides the cutoff.
     """
     scored = [
-        {**c, "score": cosine_similarity(query_vec, c["vector"])}
-        for c in candidates
+        {**c, "score": cosine_similarity(query_vec, c["vector"])} for c in candidates
     ]
     return sorted(scored, key=lambda x: x["score"], reverse=True)

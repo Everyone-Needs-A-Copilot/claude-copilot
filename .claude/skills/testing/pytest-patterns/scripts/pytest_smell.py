@@ -72,13 +72,21 @@ SEV_ERROR = "ERROR"
 SEV_WARN = "WARN"
 
 SMELL_META = {
-    "SMELL-01": ("no_assert",    SEV_ERROR, "Test has no assertion — can never fail"),
-    "SMELL-02": ("bare_except",  SEV_WARN,  "Bare except/except Exception without re-raise"),
-    "SMELL-03": ("test_naming",  SEV_ERROR, "Test function does not start with `test_`"),
-    "SMELL-04": ("magic_number", SEV_WARN,  "Large magic number (>=1000) in assert"),
-    "SMELL-05": ("empty_test",   SEV_ERROR, "Empty test body (only pass or docstring)"),
-    "SMELL-06": ("sleep_in_test",SEV_WARN,  "time.sleep() call inside test — flaky"),
-    "SMELL-07": ("print_in_test",SEV_WARN,  "print() call inside test — pollutes CI output"),
+    "SMELL-01": ("no_assert", SEV_ERROR, "Test has no assertion — can never fail"),
+    "SMELL-02": (
+        "bare_except",
+        SEV_WARN,
+        "Bare except/except Exception without re-raise",
+    ),
+    "SMELL-03": ("test_naming", SEV_ERROR, "Test function does not start with `test_`"),
+    "SMELL-04": ("magic_number", SEV_WARN, "Large magic number (>=1000) in assert"),
+    "SMELL-05": ("empty_test", SEV_ERROR, "Empty test body (only pass or docstring)"),
+    "SMELL-06": ("sleep_in_test", SEV_WARN, "time.sleep() call inside test — flaky"),
+    "SMELL-07": (
+        "print_in_test",
+        SEV_WARN,
+        "print() call inside test — pollutes CI output",
+    ),
 }
 
 # Threshold for SMELL-04: magic number lower bound.
@@ -92,6 +100,7 @@ MAGIC_NUMBER_THRESHOLD = 1000
 # AST-based smell detectors
 # ---------------------------------------------------------------------------
 
+
 def _has_assertion(func_node: ast.FunctionDef) -> bool:
     """Return True if the function contains any form of assertion."""
     for node in ast.walk(func_node):
@@ -100,7 +109,11 @@ def _has_assertion(func_node: ast.FunctionDef) -> bool:
         # pytest.raises(...) — Call where attr is 'raises' on name 'pytest'
         if isinstance(node, ast.Call):
             fn = node.func
-            if isinstance(fn, ast.Attribute) and fn.attr in ("raises", "warns", "approx"):
+            if isinstance(fn, ast.Attribute) and fn.attr in (
+                "raises",
+                "warns",
+                "approx",
+            ):
                 return True
             # assertRaises, assertEqual, etc. — unittest style
             if isinstance(fn, ast.Attribute) and fn.attr.startswith("assert"):
@@ -139,7 +152,7 @@ def _has_bare_except(func_node: ast.FunctionDef) -> bool:
             else:
                 return True
         # except Exception:
-        if (isinstance(node.type, ast.Name) and node.type.id == "Exception"):
+        if isinstance(node.type, ast.Name) and node.type.id == "Exception":
             for child in ast.walk(node):
                 if isinstance(child, ast.Raise):
                     break
@@ -154,7 +167,9 @@ def _has_magic_number_in_assert(func_node: ast.FunctionDef) -> bool:
         if not isinstance(node, ast.Assert):
             continue
         for child in ast.walk(node):
-            if isinstance(child, ast.Constant) and isinstance(child.value, (int, float)):
+            if isinstance(child, ast.Constant) and isinstance(
+                child.value, (int, float)
+            ):
                 if abs(child.value) >= MAGIC_NUMBER_THRESHOLD:
                     return True
     return False
@@ -166,10 +181,12 @@ def _has_sleep(func_node: ast.FunctionDef) -> bool:
         if isinstance(node, ast.Call):
             fn = node.func
             # time.sleep(...)
-            if (isinstance(fn, ast.Attribute)
-                    and fn.attr == "sleep"
-                    and isinstance(fn.value, ast.Name)
-                    and fn.value.id == "time"):
+            if (
+                isinstance(fn, ast.Attribute)
+                and fn.attr == "sleep"
+                and isinstance(fn.value, ast.Name)
+                and fn.value.id == "time"
+            ):
                 return True
             # from time import sleep; sleep(...)
             if isinstance(fn, ast.Name) and fn.id == "sleep":
@@ -191,6 +208,7 @@ def _has_print(func_node: ast.FunctionDef) -> bool:
 # Per-file analysis
 # ---------------------------------------------------------------------------
 
+
 def analyze_source(source: str, filename: str = "<input>") -> list[dict]:
     """
     Parse source and return a list of finding dicts.
@@ -200,15 +218,17 @@ def analyze_source(source: str, filename: str = "<input>") -> list[dict]:
         tree = ast.parse(source, filename=filename)
     except SyntaxError as exc:
         # SyntaxError is not a smell — report as an error finding
-        return [{
-            "smell_id": "PARSE-ERROR",
-            "name": "parse_error",
-            "severity": SEV_ERROR,
-            "message": f"SyntaxError: {exc.msg} (line {exc.lineno})",
-            "file": filename,
-            "line": exc.lineno or 0,
-            "function": "<module>",
-        }]
+        return [
+            {
+                "smell_id": "PARSE-ERROR",
+                "name": "parse_error",
+                "severity": SEV_ERROR,
+                "message": f"SyntaxError: {exc.msg} (line {exc.lineno})",
+                "file": filename,
+                "line": exc.lineno or 0,
+                "function": "<module>",
+            }
+        ]
 
     findings = []
 
@@ -226,16 +246,27 @@ def analyze_source(source: str, filename: str = "<input>") -> list[dict]:
             # is hard to detect with simple AST; so we only flag functions inside
             # classes named Test* or at module-level with "test" substring in name)
             parent_classes = [
-                n for n in ast.walk(tree)
+                n
+                for n in ast.walk(tree)
                 if isinstance(n, ast.ClassDef)
-                and any(isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
-                        and child is node for child in ast.walk(n))
+                and any(
+                    isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and child is node
+                    for child in ast.walk(n)
+                )
             ]
             is_in_test_class = any(c.name.startswith("Test") for c in parent_classes)
             # Only flag if it's in a Test* class and doesn't start with test_
             if is_in_test_class and not name.startswith("test"):
-                findings.append(_make_finding("SMELL-03", filename, line, name,
-                    f"Function '{name}' in a Test class does not start with 'test_'"))
+                findings.append(
+                    _make_finding(
+                        "SMELL-03",
+                        filename,
+                        line,
+                        name,
+                        f"Function '{name}' in a Test class does not start with 'test_'",
+                    )
+                )
 
         # Skip non-test functions for further checks
         if not (name.startswith("test_") or name.startswith("test")):
@@ -245,40 +276,83 @@ def analyze_source(source: str, filename: str = "<input>") -> list[dict]:
 
         # SMELL-05: empty body (check before no_assert to avoid double-reporting)
         if _is_empty_body(node):
-            findings.append(_make_finding("SMELL-05", filename, line, name,
-                f"Test '{name}' has an empty body (only pass or docstring)"))
+            findings.append(
+                _make_finding(
+                    "SMELL-05",
+                    filename,
+                    line,
+                    name,
+                    f"Test '{name}' has an empty body (only pass or docstring)",
+                )
+            )
             continue  # empty → no assertion by definition; don't double-report
 
         # SMELL-01: no assertion
         if not _has_assertion(node):
-            findings.append(_make_finding("SMELL-01", filename, line, name,
-                f"Test '{name}' has no assertion — it can never fail"))
+            findings.append(
+                _make_finding(
+                    "SMELL-01",
+                    filename,
+                    line,
+                    name,
+                    f"Test '{name}' has no assertion — it can never fail",
+                )
+            )
 
         # SMELL-02: bare except
         if _has_bare_except(node):
-            findings.append(_make_finding("SMELL-02", filename, line, name,
-                f"Test '{name}' uses bare except / except Exception without re-raise"))
+            findings.append(
+                _make_finding(
+                    "SMELL-02",
+                    filename,
+                    line,
+                    name,
+                    f"Test '{name}' uses bare except / except Exception without re-raise",
+                )
+            )
 
         # SMELL-04: magic number in assert
         if _has_magic_number_in_assert(node):
-            findings.append(_make_finding("SMELL-04", filename, line, name,
-                f"Test '{name}' contains a magic number (>={MAGIC_NUMBER_THRESHOLD}) in an assert"))
+            findings.append(
+                _make_finding(
+                    "SMELL-04",
+                    filename,
+                    line,
+                    name,
+                    f"Test '{name}' contains a magic number (>={MAGIC_NUMBER_THRESHOLD}) in an assert",
+                )
+            )
 
         # SMELL-06: sleep
         if _has_sleep(node):
-            findings.append(_make_finding("SMELL-06", filename, line, name,
-                f"Test '{name}' calls time.sleep() — use polling helpers or fake timers"))
+            findings.append(
+                _make_finding(
+                    "SMELL-06",
+                    filename,
+                    line,
+                    name,
+                    f"Test '{name}' calls time.sleep() — use polling helpers or fake timers",
+                )
+            )
 
         # SMELL-07: print
         if _has_print(node):
-            findings.append(_make_finding("SMELL-07", filename, line, name,
-                f"Test '{name}' calls print() — use capfd/capsys or logging instead"))
+            findings.append(
+                _make_finding(
+                    "SMELL-07",
+                    filename,
+                    line,
+                    name,
+                    f"Test '{name}' calls print() — use capfd/capsys or logging instead",
+                )
+            )
 
     return findings
 
 
-def _make_finding(smell_id: str, filename: str, line: int, function: str,
-                  message: str) -> dict:
+def _make_finding(
+    smell_id: str, filename: str, line: int, function: str, message: str
+) -> dict:
     meta = SMELL_META.get(smell_id, (smell_id, SEV_WARN, message))
     return {
         "smell_id": smell_id,
@@ -294,6 +368,7 @@ def _make_finding(smell_id: str, filename: str, line: int, function: str,
 # ---------------------------------------------------------------------------
 # Input loading
 # ---------------------------------------------------------------------------
+
 
 def load_sources(source: str | None) -> list[tuple[str, str]]:
     """
@@ -333,6 +408,7 @@ def load_sources(source: str | None) -> list[tuple[str, str]]:
 # Output rendering
 # ---------------------------------------------------------------------------
 
+
 def render_markdown(findings: list[dict]) -> str:
     if not findings:
         return "_No test smells detected._\n"
@@ -354,6 +430,7 @@ def render_markdown(findings: list[dict]) -> str:
 # Main
 # ---------------------------------------------------------------------------
 
+
 def run(source: str | None) -> int:
     try:
         sources = load_sources(source)
@@ -368,8 +445,9 @@ def run(source: str | None) -> int:
         all_findings.extend(analyze_source(text, filename))
 
     # Sort: ERROR first, then by file+line
-    all_findings.sort(key=lambda f: (0 if f["severity"] == SEV_ERROR else 1,
-                                     f["file"], f["line"]))
+    all_findings.sort(
+        key=lambda f: (0 if f["severity"] == SEV_ERROR else 1, f["file"], f["line"])
+    )
 
     summary = {
         "total": len(all_findings),

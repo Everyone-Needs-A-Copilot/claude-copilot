@@ -124,7 +124,9 @@ def progress(
         statuses = ["pending", "in_progress", "completed", "blocked", "cancelled"]
         table_rows = []
         for sid, counts in by_stream.items():
-            row_dict = {"stream": stream_map.get(sid, f"#{sid}" if sid else "unassigned")}
+            row_dict = {
+                "stream": stream_map.get(sid, f"#{sid}" if sid else "unassigned")
+            }
             for s in statuses:
                 row_dict[s] = counts.get(s, 0)
             table_rows.append(row_dict)
@@ -144,7 +146,9 @@ def handoff(
     from_agent: str = typer.Option(..., "--from", help="Handing-off agent."),
     to_agent: str = typer.Option(..., "--to", help="Receiving agent."),
     task: int = typer.Option(..., "--task", help="Task ID being handed off."),
-    context: str = typer.Option(..., "--context", help="Handoff context (max 200 chars)."),
+    context: str = typer.Option(
+        ..., "--context", help="Handoff context (max 200 chars)."
+    ),
     json: bool = typer.Option(False, "--json", help="Output as JSON."),
 ) -> None:
     """Log an agent handoff and update the task's assigned agent."""
@@ -239,9 +243,15 @@ def log_cmd(
 
 @app.command("watch")
 def watch_cmd(
-    refresh: int = typer.Option(5, "--refresh", "-r", help="Refresh interval in seconds."),
-    compact: bool = typer.Option(False, "--compact", help="Simplified view without activity log."),
-    stream: Optional[int] = typer.Option(None, "--stream", "-s", help="Filter to single stream."),
+    refresh: int = typer.Option(
+        5, "--refresh", "-r", help="Refresh interval in seconds."
+    ),
+    compact: bool = typer.Option(
+        False, "--compact", help="Simplified view without activity log."
+    ),
+    stream: Optional[int] = typer.Option(
+        None, "--stream", "-s", help="Filter to single stream."
+    ),
 ) -> None:
     """Live dashboard showing task progress, agents, and activity."""
     from tc.commands.watch import watch

@@ -17,10 +17,16 @@ from task_copilot_client import TaskCopilotClient
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Fetch stream data from Task Copilot')
-    parser.add_argument('workspace_id', help='Workspace identifier')
-    parser.add_argument('--initiative-id', help='Filter by initiative ID (default: auto-detect active)')
-    parser.add_argument('--no-filter', action='store_true', help='Show all streams (no initiative filtering)')
+    parser = argparse.ArgumentParser(description="Fetch stream data from Task Copilot")
+    parser.add_argument("workspace_id", help="Workspace identifier")
+    parser.add_argument(
+        "--initiative-id", help="Filter by initiative ID (default: auto-detect active)"
+    )
+    parser.add_argument(
+        "--no-filter",
+        action="store_true",
+        help="Show all streams (no initiative filtering)",
+    )
     args = parser.parse_args()
 
     workspace_id = args.workspace_id
@@ -74,7 +80,9 @@ def main():
 
         # Get overall summary (filtered by initiative if applicable)
         summary = client.progress_summary(initiative_id)
-        print(f"OVERALL {summary.completed_tasks} {summary.total_tasks} {summary.in_progress_tasks} {summary.pending_tasks} {summary.completion_percentage}")
+        print(
+            f"OVERALL {summary.completed_tasks} {summary.total_tasks} {summary.in_progress_tasks} {summary.pending_tasks} {summary.completion_percentage}"
+        )
 
         # Check if ALL streams are 100% complete
         all_complete = True
@@ -94,7 +102,9 @@ def main():
             if progress:
                 # Format: STREAM <id> <completed> <total> <pct> <in_progress> <pending> <blocked> <stream_name>
                 stream_name = stream_info.stream_name if stream_info.stream_name else ""
-                print(f"STREAM {progress.stream_id} {progress.completed_tasks} {progress.total_tasks} {progress.completion_percentage} {progress.in_progress_tasks} {progress.pending_tasks} {progress.blocked_tasks} {stream_name}")
+                print(
+                    f"STREAM {progress.stream_id} {progress.completed_tasks} {progress.total_tasks} {progress.completion_percentage} {progress.in_progress_tasks} {progress.pending_tasks} {progress.blocked_tasks} {stream_name}"
+                )
 
     except FileNotFoundError:
         # Database doesn't exist - this is okay

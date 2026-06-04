@@ -20,6 +20,7 @@ def invoke(*args):
 # cc env — shell exports
 # ---------------------------------------------------------------------------
 
+
 def test_env_outputs_shell_exports(monkeypatch):
     """cc env outputs export NAME="value" lines."""
     monkeypatch.setattr(
@@ -147,6 +148,7 @@ def test_env_handles_spaces_in_values(monkeypatch):
 # ---------------------------------------------------------------------------
 # cc resolve <key>
 # ---------------------------------------------------------------------------
+
 
 def test_resolve_key_command(monkeypatch):
     monkeypatch.setattr(

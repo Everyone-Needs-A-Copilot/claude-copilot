@@ -23,6 +23,7 @@ spec.loader.exec_module(git_check)
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def run_script(args=(), stdin_text=None):
     cmd = [sys.executable, str(SCRIPT)] + list(args)
     result = subprocess.run(cmd, input=stdin_text, capture_output=True, text=True)
@@ -41,38 +42,45 @@ def finding_ids(findings):
 # GIT-001: Conventional Commits validation
 # ---------------------------------------------------------------------------
 
+
 class TestConventionalCommits:
     # Valid messages
-    @pytest.mark.parametrize("msg", [
-        "feat(auth): add OAuth2 login support",
-        "fix(api): handle null response from payment service",
-        "docs: update README",
-        "chore: bump dependencies",
-        "feat!: remove deprecated endpoint",
-        "fix(ui)!: change button color (breaking)",
-        "refactor(db): extract connection pool",
-        "perf: improve query caching",
-        "test: add unit tests for auth module",
-        "build: upgrade webpack to v5",
-        "ci: add matrix builds",
-        "revert: feat(auth): add OAuth2 login",
-        "style: fix indentation",
-    ])
+    @pytest.mark.parametrize(
+        "msg",
+        [
+            "feat(auth): add OAuth2 login support",
+            "fix(api): handle null response from payment service",
+            "docs: update README",
+            "chore: bump dependencies",
+            "feat!: remove deprecated endpoint",
+            "fix(ui)!: change button color (breaking)",
+            "refactor(db): extract connection pool",
+            "perf: improve query caching",
+            "test: add unit tests for auth module",
+            "build: upgrade webpack to v5",
+            "ci: add matrix builds",
+            "revert: feat(auth): add OAuth2 login",
+            "style: fix indentation",
+        ],
+    )
     def test_valid_commit_no_finding(self, msg):
         findings = git_check.check_commit_message(msg, 0)
         assert findings == [], f"Unexpected finding for: {msg!r}"
 
     # Invalid messages
-    @pytest.mark.parametrize("msg", [
-        "Add new feature",                          # no type
-        "Fixed the bug",                            # no type
-        "feat add login",                           # missing colon
-        "FEAT: add login",                          # uppercase type
-        "feat:add login",                           # missing space after colon
-        "random: add login",                        # unknown type
-        "Update dependencies",                      # vague, no type
-        "",                                         # empty (allowed — skipped)
-    ])
+    @pytest.mark.parametrize(
+        "msg",
+        [
+            "Add new feature",  # no type
+            "Fixed the bug",  # no type
+            "feat add login",  # missing colon
+            "FEAT: add login",  # uppercase type
+            "feat:add login",  # missing space after colon
+            "random: add login",  # unknown type
+            "Update dependencies",  # vague, no type
+            "",  # empty (allowed — skipped)
+        ],
+    )
     def test_invalid_commit_finding_or_skip(self, msg):
         findings = git_check.check_commit_message(msg, 0)
         if msg == "":
@@ -81,7 +89,9 @@ class TestConventionalCommits:
             assert "GIT-001" in finding_ids(findings), f"Expected GIT-001 for: {msg!r}"
 
     def test_merge_commit_skipped(self):
-        findings = git_check.check_commit_message("Merge branch 'main' into feature/x", 0)
+        findings = git_check.check_commit_message(
+            "Merge branch 'main' into feature/x", 0
+        )
         assert findings == []
 
     def test_revert_commit_skipped(self):
@@ -112,37 +122,44 @@ class TestConventionalCommits:
 # GIT-002: Branch naming validation
 # ---------------------------------------------------------------------------
 
+
 class TestBranchNaming:
     # Valid branches
-    @pytest.mark.parametrize("branch", [
-        "feature/user-authentication",
-        "fix/login-null-pointer",
-        "hotfix/payment-crash",
-        "release/v2-0-0",
-        "chore/update-deps",
-        "docs/add-api-reference",
-        "refactor/auth-module",
-        "feat/dark-mode",
-        "dependabot/npm-lodash-4-17-21",
-        "main",    # protected — exempt
-        "master",  # protected — exempt
-        "develop", # protected — exempt
-    ])
+    @pytest.mark.parametrize(
+        "branch",
+        [
+            "feature/user-authentication",
+            "fix/login-null-pointer",
+            "hotfix/payment-crash",
+            "release/v2-0-0",
+            "chore/update-deps",
+            "docs/add-api-reference",
+            "refactor/auth-module",
+            "feat/dark-mode",
+            "dependabot/npm-lodash-4-17-21",
+            "main",  # protected — exempt
+            "master",  # protected — exempt
+            "develop",  # protected — exempt
+        ],
+    )
     def test_valid_branch_no_finding(self, branch):
         findings = git_check.check_branch_name(branch, 0)
         assert findings == [], f"Unexpected finding for: {branch!r}"
 
     # Invalid branches
-    @pytest.mark.parametrize("branch", [
-        "FEATURE/auth",          # uppercase prefix
-        "Feature/auth",          # mixed case prefix
-        "feature/User-Auth",     # uppercase in description
-        "my-branch",             # no prefix/separator
-        "bugfix/login thing",    # space in name
-        "random/feature",        # unrecognised prefix
-        "fix/",                  # empty description
-        "feature",               # no slash
-    ])
+    @pytest.mark.parametrize(
+        "branch",
+        [
+            "FEATURE/auth",  # uppercase prefix
+            "Feature/auth",  # mixed case prefix
+            "feature/User-Auth",  # uppercase in description
+            "my-branch",  # no prefix/separator
+            "bugfix/login thing",  # space in name
+            "random/feature",  # unrecognised prefix
+            "fix/",  # empty description
+            "feature",  # no slash
+        ],
+    )
     def test_invalid_branch_raises_git002(self, branch):
         findings = git_check.check_branch_name(branch, 0)
         assert "GIT-002" in finding_ids(findings), f"Expected GIT-002 for: {branch!r}"
@@ -166,16 +183,17 @@ class TestBranchNaming:
 # Full check_all integration
 # ---------------------------------------------------------------------------
 
+
 class TestCheckAll:
     def test_mixed_commits_and_branches(self):
         data = {
             "commits": [
-                "feat(auth): add login",         # valid
-                "bad commit",                     # invalid
+                "feat(auth): add login",  # valid
+                "bad commit",  # invalid
             ],
             "branches": [
-                "feature/user-auth",              # valid
-                "FEATURE/auth",                   # invalid
+                "feature/user-auth",  # valid
+                "FEATURE/auth",  # invalid
             ],
         }
         findings = git_check.check_all(data)
@@ -193,8 +211,8 @@ class TestCheckAll:
 
     def test_sort_order_high_before_medium(self):
         data = {
-            "commits": ["bad commit"],    # HIGH
-            "branches": ["mybranch"],      # MEDIUM
+            "commits": ["bad commit"],  # HIGH
+            "branches": ["mybranch"],  # MEDIUM
         }
         findings = git_check.check_all(data)
         severities = [f["severity"] for f in findings]
@@ -222,27 +240,32 @@ class TestCheckAll:
 # Load input validation
 # ---------------------------------------------------------------------------
 
+
 class TestLoadInput:
     def test_non_array_commits_raises(self, monkeypatch):
         import io, sys as _sys
+
         monkeypatch.setattr(_sys, "stdin", io.StringIO('{"commits": "not an array"}'))
         with pytest.raises(ValueError, match="commits"):
             git_check.load_input(None)
 
     def test_non_string_commit_raises(self, monkeypatch):
         import io, sys as _sys
+
         monkeypatch.setattr(_sys, "stdin", io.StringIO('{"commits": [1, 2]}'))
         with pytest.raises(ValueError, match="string"):
             git_check.load_input(None)
 
     def test_non_object_raises(self, monkeypatch):
         import io, sys as _sys
+
         monkeypatch.setattr(_sys, "stdin", io.StringIO('["feat: test"]'))
         with pytest.raises(ValueError, match="JSON object"):
             git_check.load_input(None)
 
     def test_empty_input_returns_none(self, monkeypatch):
         import io, sys as _sys
+
         monkeypatch.setattr(_sys, "stdin", io.StringIO(""))
         result = git_check.load_input(None)
         assert result is None
@@ -262,6 +285,7 @@ class TestLoadInput:
 # ---------------------------------------------------------------------------
 # Subprocess integration
 # ---------------------------------------------------------------------------
+
 
 class TestSubprocess:
     def test_valid_input_exits_zero(self):
@@ -306,6 +330,6 @@ class TestSubprocess:
         code, out, _ = run_script(args=("-",), stdin_text=json.dumps(data))
         assert code == 0
         result = parse_output(out)
-        assert result["summary"]["high"] == 2    # two bad commits
+        assert result["summary"]["high"] == 2  # two bad commits
         assert result["summary"]["medium"] == 1  # one bad branch
         assert result["summary"]["total"] == 3

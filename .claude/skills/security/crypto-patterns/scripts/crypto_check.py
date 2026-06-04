@@ -78,32 +78,53 @@ USAGE_TYPES = ("symmetric", "hash", "kdf", "asymmetric", "prng", "tls", "jwt")
 # Algorithms: FAIL (broken), WARN (legacy), PASS (modern)
 SYMMETRIC_ALG_RESULTS: dict[str, tuple[str, str]] = {
     # Broken — FAIL
-    "des":          (FAIL, "DES has 56-bit effective key size; broken since 1998 (NIST deprecated 2004)."),
-    "3des":         (FAIL, "Triple-DES deprecated by NIST SP 800-131A Rev 2 (2019); vulnerable to Sweet32."),
-    "tdea":         (FAIL, "TDEA (=3DES) deprecated by NIST SP 800-131A Rev 2 (2019)."),
-    "rc4":          (FAIL, "RC4 is cryptographically broken; prohibited by RFC 7465."),
-    "rc2":          (FAIL, "RC2 is obsolete and broken."),
-    "blowfish":     (WARN, "Blowfish has 64-bit block size (vulnerable to SWEET32 at high volumes); migrate to AES."),
+    "des": (
+        FAIL,
+        "DES has 56-bit effective key size; broken since 1998 (NIST deprecated 2004).",
+    ),
+    "3des": (
+        FAIL,
+        "Triple-DES deprecated by NIST SP 800-131A Rev 2 (2019); vulnerable to Sweet32.",
+    ),
+    "tdea": (FAIL, "TDEA (=3DES) deprecated by NIST SP 800-131A Rev 2 (2019)."),
+    "rc4": (FAIL, "RC4 is cryptographically broken; prohibited by RFC 7465."),
+    "rc2": (FAIL, "RC2 is obsolete and broken."),
+    "blowfish": (
+        WARN,
+        "Blowfish has 64-bit block size (vulnerable to SWEET32 at high volumes); migrate to AES.",
+    ),
     # Modern — PASS
-    "aes":          (PASS, "AES is the NIST-approved symmetric cipher. Verify key size and mode separately."),
-    "aes-128":      (PASS, "AES-128 is NIST-approved (128 bits meets security level 1)."),
-    "aes-192":      (PASS, "AES-192 is NIST-approved."),
-    "aes-256":      (PASS, "AES-256 is NIST-approved. Preferred for high-security contexts."),
-    "chacha20":     (PASS, "ChaCha20 is a modern stream cipher; always pair with Poly1305 for authentication."),
+    "aes": (
+        PASS,
+        "AES is the NIST-approved symmetric cipher. Verify key size and mode separately.",
+    ),
+    "aes-128": (PASS, "AES-128 is NIST-approved (128 bits meets security level 1)."),
+    "aes-192": (PASS, "AES-192 is NIST-approved."),
+    "aes-256": (
+        PASS,
+        "AES-256 is NIST-approved. Preferred for high-security contexts.",
+    ),
+    "chacha20": (
+        PASS,
+        "ChaCha20 is a modern stream cipher; always pair with Poly1305 for authentication.",
+    ),
     "chacha20-poly1305": (PASS, "ChaCha20-Poly1305 is a modern AEAD cipher."),
 }
 
 # Modes: FAIL (broken), WARN (unauthenticated), PASS (authenticated)
 MODE_RESULTS: dict[str, tuple[str, str]] = {
-    "ecb":          (FAIL, "ECB mode leaks patterns; never use for data with repeating blocks."),
-    "cbc":          (WARN, "CBC mode is unauthenticated; requires separate HMAC or use GCM instead."),
-    "cfb":          (WARN, "CFB mode is unauthenticated; use GCM or pair with HMAC."),
-    "ofb":          (WARN, "OFB mode is unauthenticated; use GCM or pair with HMAC."),
-    "ctr":          (WARN, "CTR mode is unauthenticated; use GCM or pair with HMAC."),
-    "gcm":          (PASS, "GCM mode provides authenticated encryption (AEAD)."),
-    "ccm":          (PASS, "CCM mode provides authenticated encryption (AEAD)."),
-    "siv":          (PASS, "SIV mode provides nonce-misuse-resistant AEAD."),
-    "poly1305":     (PASS, "Poly1305 provides authentication (used with ChaCha20)."),
+    "ecb": (FAIL, "ECB mode leaks patterns; never use for data with repeating blocks."),
+    "cbc": (
+        WARN,
+        "CBC mode is unauthenticated; requires separate HMAC or use GCM instead.",
+    ),
+    "cfb": (WARN, "CFB mode is unauthenticated; use GCM or pair with HMAC."),
+    "ofb": (WARN, "OFB mode is unauthenticated; use GCM or pair with HMAC."),
+    "ctr": (WARN, "CTR mode is unauthenticated; use GCM or pair with HMAC."),
+    "gcm": (PASS, "GCM mode provides authenticated encryption (AEAD)."),
+    "ccm": (PASS, "CCM mode provides authenticated encryption (AEAD)."),
+    "siv": (PASS, "SIV mode provides nonce-misuse-resistant AEAD."),
+    "poly1305": (PASS, "Poly1305 provides authentication (used with ChaCha20)."),
 }
 
 # ---------------------------------------------------------------------------
@@ -111,23 +132,32 @@ MODE_RESULTS: dict[str, tuple[str, str]] = {
 # Reference: NIST SP 800-131A Rev 2
 # ---------------------------------------------------------------------------
 HASH_RESULTS: dict[str, tuple[str, str]] = {
-    "md5":          (FAIL, "MD5 is cryptographically broken (collision attacks practical since 2005)."),
-    "md4":          (FAIL, "MD4 is broken."),
-    "sha1":         (FAIL, "SHA-1 deprecated by NIST (SHAttered collision attack 2017)."),
-    "sha-1":        (FAIL, "SHA-1 deprecated by NIST (SHAttered collision attack 2017)."),
-    "sha256":       (PASS, "SHA-256 is NIST-approved and recommended."),
-    "sha-256":      (PASS, "SHA-256 is NIST-approved and recommended."),
-    "sha384":       (PASS, "SHA-384 is NIST-approved."),
-    "sha-384":      (PASS, "SHA-384 is NIST-approved."),
-    "sha512":       (PASS, "SHA-512 is NIST-approved."),
-    "sha-512":      (PASS, "SHA-512 is NIST-approved."),
-    "sha3-256":     (PASS, "SHA3-256 is NIST-approved."),
-    "sha3-512":     (PASS, "SHA3-512 is NIST-approved."),
-    "blake2b":      (PASS, "BLAKE2b is a modern, fast hash function."),
-    "blake2s":      (PASS, "BLAKE2s is a modern, fast hash function."),
-    "blake3":       (PASS, "BLAKE3 is a modern hash function."),
-    "ripemd-160":   (WARN, "RIPEMD-160 is not NIST-approved; prefer SHA-256 for new designs."),
-    "crc32":        (FAIL, "CRC32 is a checksum, NOT a cryptographic hash; do not use for security purposes."),
+    "md5": (
+        FAIL,
+        "MD5 is cryptographically broken (collision attacks practical since 2005).",
+    ),
+    "md4": (FAIL, "MD4 is broken."),
+    "sha1": (FAIL, "SHA-1 deprecated by NIST (SHAttered collision attack 2017)."),
+    "sha-1": (FAIL, "SHA-1 deprecated by NIST (SHAttered collision attack 2017)."),
+    "sha256": (PASS, "SHA-256 is NIST-approved and recommended."),
+    "sha-256": (PASS, "SHA-256 is NIST-approved and recommended."),
+    "sha384": (PASS, "SHA-384 is NIST-approved."),
+    "sha-384": (PASS, "SHA-384 is NIST-approved."),
+    "sha512": (PASS, "SHA-512 is NIST-approved."),
+    "sha-512": (PASS, "SHA-512 is NIST-approved."),
+    "sha3-256": (PASS, "SHA3-256 is NIST-approved."),
+    "sha3-512": (PASS, "SHA3-512 is NIST-approved."),
+    "blake2b": (PASS, "BLAKE2b is a modern, fast hash function."),
+    "blake2s": (PASS, "BLAKE2s is a modern, fast hash function."),
+    "blake3": (PASS, "BLAKE3 is a modern hash function."),
+    "ripemd-160": (
+        WARN,
+        "RIPEMD-160 is not NIST-approved; prefer SHA-256 for new designs.",
+    ),
+    "crc32": (
+        FAIL,
+        "CRC32 is a checksum, NOT a cryptographic hash; do not use for security purposes.",
+    ),
 }
 
 # ---------------------------------------------------------------------------
@@ -136,32 +166,47 @@ HASH_RESULTS: dict[str, tuple[str, str]] = {
 # ---------------------------------------------------------------------------
 # Minimum work factors to avoid WARN:
 KDF_MIN_WORK_FACTOR: dict[str, int] = {
-    "bcrypt": 10,          # cost parameter; OWASP recommends >= 10
-    "argon2": 3,           # iterations (memory factor also matters but not captured here)
+    "bcrypt": 10,  # cost parameter; OWASP recommends >= 10
+    "argon2": 3,  # iterations (memory factor also matters but not captured here)
     "argon2id": 3,
     "argon2i": 3,
     "argon2d": 3,
-    "scrypt": 14,          # N as log2 (2^14 = 16384 minimum)
-    "pbkdf2": 310000,      # OWASP 2023 recommendation for PBKDF2-HMAC-SHA256
+    "scrypt": 14,  # N as log2 (2^14 = 16384 minimum)
+    "pbkdf2": 310000,  # OWASP 2023 recommendation for PBKDF2-HMAC-SHA256
 }
 
 KDF_ALG_RESULTS: dict[str, tuple[str, str]] = {
     # Good KDFs
-    "argon2id":     (PASS, "Argon2id is the OWASP-recommended password hashing algorithm."),
-    "argon2i":      (PASS, "Argon2i is suitable for password hashing (prefer Argon2id)."),
-    "argon2d":      (WARN, "Argon2d is vulnerable to side-channel attacks in some contexts; prefer Argon2id."),
-    "argon2":       (PASS, "Argon2 (unspecified variant); prefer Argon2id explicitly."),
-    "bcrypt":       (PASS, "bcrypt is a proven, widely-supported password hash. Check work factor >= 10."),
-    "scrypt":       (PASS, "scrypt is a memory-hard KDF; check N >= 2^14."),
-    "pbkdf2":       (WARN, "PBKDF2 is acceptable but weaker than Argon2id/bcrypt; ensure high iteration count."),
+    "argon2id": (PASS, "Argon2id is the OWASP-recommended password hashing algorithm."),
+    "argon2i": (PASS, "Argon2i is suitable for password hashing (prefer Argon2id)."),
+    "argon2d": (
+        WARN,
+        "Argon2d is vulnerable to side-channel attacks in some contexts; prefer Argon2id.",
+    ),
+    "argon2": (PASS, "Argon2 (unspecified variant); prefer Argon2id explicitly."),
+    "bcrypt": (
+        PASS,
+        "bcrypt is a proven, widely-supported password hash. Check work factor >= 10.",
+    ),
+    "scrypt": (PASS, "scrypt is a memory-hard KDF; check N >= 2^14."),
+    "pbkdf2": (
+        WARN,
+        "PBKDF2 is acceptable but weaker than Argon2id/bcrypt; ensure high iteration count.",
+    ),
     # Broken as KDFs
-    "md5":          (FAIL, "MD5 is broken and must never be used as a KDF or password hash."),
-    "sha1":         (FAIL, "SHA-1 is broken; never use as a password hash."),
-    "sha256":       (FAIL, "SHA-256 without memory/time hardening is not a KDF; use bcrypt or Argon2id."),
-    "sha512":       (FAIL, "SHA-512 without memory/time hardening is not a KDF; use bcrypt or Argon2id."),
-    "plain":        (FAIL, "Plain text password storage is catastrophic."),
-    "plaintext":    (FAIL, "Plain text password storage is catastrophic."),
-    "none":         (FAIL, "No KDF specified for password storage is catastrophic."),
+    "md5": (FAIL, "MD5 is broken and must never be used as a KDF or password hash."),
+    "sha1": (FAIL, "SHA-1 is broken; never use as a password hash."),
+    "sha256": (
+        FAIL,
+        "SHA-256 without memory/time hardening is not a KDF; use bcrypt or Argon2id.",
+    ),
+    "sha512": (
+        FAIL,
+        "SHA-512 without memory/time hardening is not a KDF; use bcrypt or Argon2id.",
+    ),
+    "plain": (FAIL, "Plain text password storage is catastrophic."),
+    "plaintext": (FAIL, "Plain text password storage is catastrophic."),
+    "none": (FAIL, "No KDF specified for password storage is catastrophic."),
 }
 
 # ---------------------------------------------------------------------------
@@ -171,22 +216,31 @@ KDF_ALG_RESULTS: dict[str, tuple[str, str]] = {
 # EC: >= 224 bits (112-bit security); >= 256 for 128-bit security.
 # ---------------------------------------------------------------------------
 ASYMMETRIC_ALG_RESULTS: dict[str, tuple[str, str]] = {
-    "rsa":          (PASS, "RSA is acceptable; check key_bits >= 2048 (prefer 3072+)."),
-    "dsa":          (WARN, "DSA (classic) is largely superseded; prefer ECDSA or RSA. Check key_bits >= 2048."),
-    "dh":           (WARN, "Classic DH key exchange; prefer ECDH. Check group >= 2048 bits."),
-    "ecdsa":        (PASS, "ECDSA is approved; check curve/key_bits >= 224 (prefer P-256 / 256-bit)."),
-    "ecdh":         (PASS, "ECDH is approved for key agreement; check curve/key_bits >= 224."),
-    "ed25519":      (PASS, "Ed25519 uses a 256-bit key on Curve25519; modern and recommended."),
-    "ed448":        (PASS, "Ed448 provides higher security margin."),
-    "x25519":       (PASS, "X25519 (ECDH on Curve25519) is modern and recommended."),
-    "x448":         (PASS, "X448 provides higher security margin."),
-    "elgamal":      (WARN, "ElGamal is non-standard for modern use; prefer RSA or EC."),
+    "rsa": (PASS, "RSA is acceptable; check key_bits >= 2048 (prefer 3072+)."),
+    "dsa": (
+        WARN,
+        "DSA (classic) is largely superseded; prefer ECDSA or RSA. Check key_bits >= 2048.",
+    ),
+    "dh": (WARN, "Classic DH key exchange; prefer ECDH. Check group >= 2048 bits."),
+    "ecdsa": (
+        PASS,
+        "ECDSA is approved; check curve/key_bits >= 224 (prefer P-256 / 256-bit).",
+    ),
+    "ecdh": (PASS, "ECDH is approved for key agreement; check curve/key_bits >= 224."),
+    "ed25519": (
+        PASS,
+        "Ed25519 uses a 256-bit key on Curve25519; modern and recommended.",
+    ),
+    "ed448": (PASS, "Ed448 provides higher security margin."),
+    "x25519": (PASS, "X25519 (ECDH on Curve25519) is modern and recommended."),
+    "x448": (PASS, "X448 provides higher security margin."),
+    "elgamal": (WARN, "ElGamal is non-standard for modern use; prefer RSA or EC."),
 }
 # Minimum key sizes for asymmetric algorithms
 ASYMMETRIC_MIN_KEY_BITS: dict[str, tuple[int, str]] = {
     "rsa": (2048, "RSA key must be >= 2048 bits (NIST SP 800-131A). Prefer 3072+."),
     "dsa": (2048, "DSA key must be >= 2048 bits."),
-    "dh":  (2048, "DH group must be >= 2048 bits."),
+    "dh": (2048, "DH group must be >= 2048 bits."),
 }
 ASYMMETRIC_WEAK_EC_BITS = 224  # anything < this is FAIL for EC
 
@@ -200,17 +254,23 @@ SYMMETRIC_MIN_KEY_BITS = 128  # below this -> FAIL for symmetric
 # PRNG rules
 # ---------------------------------------------------------------------------
 PRNG_RESULTS: dict[str, tuple[str, str]] = {
-    "math.random":      (FAIL, "Math.random() is NOT cryptographically secure; use crypto.randomBytes()."),
-    "random":           (WARN, "Unspecified 'random'; verify this is a CSPRNG (e.g. crypto.randomBytes)."),
-    "rand":             (WARN, "Unspecified 'rand'; verify this is a CSPRNG."),
+    "math.random": (
+        FAIL,
+        "Math.random() is NOT cryptographically secure; use crypto.randomBytes().",
+    ),
+    "random": (
+        WARN,
+        "Unspecified 'random'; verify this is a CSPRNG (e.g. crypto.randomBytes).",
+    ),
+    "rand": (WARN, "Unspecified 'rand'; verify this is a CSPRNG."),
     "crypto.randombytes": (PASS, "crypto.randomBytes() is a CSPRNG."),
     "crypto.randombytes()": (PASS, "crypto.randomBytes() is a CSPRNG."),
-    "securerandom":     (PASS, "SecureRandom (Java) is a CSPRNG."),
-    "os.urandom":       (PASS, "os.urandom() is a CSPRNG backed by the OS."),
-    "secrets":          (PASS, "Python secrets module uses os.urandom(); CSPRNG."),
-    "crypto/rand":      (PASS, "Go crypto/rand is a CSPRNG."),
+    "securerandom": (PASS, "SecureRandom (Java) is a CSPRNG."),
+    "os.urandom": (PASS, "os.urandom() is a CSPRNG backed by the OS."),
+    "secrets": (PASS, "Python secrets module uses os.urandom(); CSPRNG."),
+    "crypto/rand": (PASS, "Go crypto/rand is a CSPRNG."),
     "openssl_random_pseudo_bytes": (PASS, "openssl_random_pseudo_bytes is a CSPRNG."),
-    "random_bytes":     (PASS, "PHP random_bytes() is a CSPRNG."),
+    "random_bytes": (PASS, "PHP random_bytes() is a CSPRNG."),
 }
 
 # ---------------------------------------------------------------------------
@@ -218,25 +278,28 @@ PRNG_RESULTS: dict[str, tuple[str, str]] = {
 # Reference: Mozilla Server Side TLS (modern profile)
 # ---------------------------------------------------------------------------
 TLS_VERSION_RESULTS: dict[str, tuple[str, str]] = {
-    "ssl2":     (FAIL, "SSLv2 is broken; deprecated by RFC 6176."),
-    "ssl3":     (FAIL, "SSLv3 is broken (POODLE); deprecated by RFC 7568."),
-    "sslv2":    (FAIL, "SSLv2 is broken."),
-    "sslv3":    (FAIL, "SSLv3 is broken."),
-    "tls1":     (FAIL, "TLS 1.0 is deprecated by RFC 8996 (2021)."),
-    "tls1.0":   (FAIL, "TLS 1.0 is deprecated by RFC 8996 (2021)."),
-    "tls 1.0":  (FAIL, "TLS 1.0 is deprecated by RFC 8996 (2021)."),
-    "tls1.1":   (FAIL, "TLS 1.1 is deprecated by RFC 8996 (2021)."),
-    "tls 1.1":  (FAIL, "TLS 1.1 is deprecated by RFC 8996 (2021)."),
-    "1.0":      (FAIL, "TLS 1.0 is deprecated."),
-    "1.1":      (FAIL, "TLS 1.1 is deprecated."),
-    "tls1.2":   (PASS, "TLS 1.2 is acceptable (Mozilla intermediate profile)."),
-    "tls 1.2":  (PASS, "TLS 1.2 is acceptable."),
-    "1.2":      (PASS, "TLS 1.2 is acceptable."),
-    "tls1.3":   (PASS, "TLS 1.3 is the current recommended version (Mozilla modern profile)."),
-    "tls 1.3":  (PASS, "TLS 1.3 is recommended."),
-    "1.3":      (PASS, "TLS 1.3 is recommended."),
-    "tlsv1.2":  (PASS, "TLS 1.2 is acceptable."),
-    "tlsv1.3":  (PASS, "TLS 1.3 is recommended."),
+    "ssl2": (FAIL, "SSLv2 is broken; deprecated by RFC 6176."),
+    "ssl3": (FAIL, "SSLv3 is broken (POODLE); deprecated by RFC 7568."),
+    "sslv2": (FAIL, "SSLv2 is broken."),
+    "sslv3": (FAIL, "SSLv3 is broken."),
+    "tls1": (FAIL, "TLS 1.0 is deprecated by RFC 8996 (2021)."),
+    "tls1.0": (FAIL, "TLS 1.0 is deprecated by RFC 8996 (2021)."),
+    "tls 1.0": (FAIL, "TLS 1.0 is deprecated by RFC 8996 (2021)."),
+    "tls1.1": (FAIL, "TLS 1.1 is deprecated by RFC 8996 (2021)."),
+    "tls 1.1": (FAIL, "TLS 1.1 is deprecated by RFC 8996 (2021)."),
+    "1.0": (FAIL, "TLS 1.0 is deprecated."),
+    "1.1": (FAIL, "TLS 1.1 is deprecated."),
+    "tls1.2": (PASS, "TLS 1.2 is acceptable (Mozilla intermediate profile)."),
+    "tls 1.2": (PASS, "TLS 1.2 is acceptable."),
+    "1.2": (PASS, "TLS 1.2 is acceptable."),
+    "tls1.3": (
+        PASS,
+        "TLS 1.3 is the current recommended version (Mozilla modern profile).",
+    ),
+    "tls 1.3": (PASS, "TLS 1.3 is recommended."),
+    "1.3": (PASS, "TLS 1.3 is recommended."),
+    "tlsv1.2": (PASS, "TLS 1.2 is acceptable."),
+    "tlsv1.3": (PASS, "TLS 1.3 is recommended."),
 }
 
 # ---------------------------------------------------------------------------
@@ -244,20 +307,26 @@ TLS_VERSION_RESULTS: dict[str, tuple[str, str]] = {
 # Reference: RFC 8725 — JWT Best Current Practices
 # ---------------------------------------------------------------------------
 JWT_ALG_RESULTS: dict[str, tuple[str, str]] = {
-    "none":     (FAIL, "JWT 'none' algorithm disables signature verification; prohibited by RFC 8725."),
-    "hs256":    (WARN, "HS256 is symmetric; safe only if the secret is shared securely between all verifiers."),
-    "hs384":    (WARN, "HS384 is symmetric; same caveat as HS256."),
-    "hs512":    (WARN, "HS512 is symmetric; same caveat as HS256."),
-    "rs256":    (PASS, "RS256 (RSA + SHA-256) is widely supported and safe."),
-    "rs384":    (PASS, "RS384 is safe."),
-    "rs512":    (PASS, "RS512 is safe."),
-    "ps256":    (PASS, "PS256 (RSA-PSS) is preferred over RS256 by RFC 8725."),
-    "ps384":    (PASS, "PS384 is preferred."),
-    "ps512":    (PASS, "PS512 is preferred."),
-    "es256":    (PASS, "ES256 (ECDSA P-256) is recommended for compact tokens."),
-    "es384":    (PASS, "ES384 is safe."),
-    "es512":    (PASS, "ES512 is safe."),
-    "eddsa":    (PASS, "EdDSA (Ed25519/Ed448) is modern and recommended."),
+    "none": (
+        FAIL,
+        "JWT 'none' algorithm disables signature verification; prohibited by RFC 8725.",
+    ),
+    "hs256": (
+        WARN,
+        "HS256 is symmetric; safe only if the secret is shared securely between all verifiers.",
+    ),
+    "hs384": (WARN, "HS384 is symmetric; same caveat as HS256."),
+    "hs512": (WARN, "HS512 is symmetric; same caveat as HS256."),
+    "rs256": (PASS, "RS256 (RSA + SHA-256) is widely supported and safe."),
+    "rs384": (PASS, "RS384 is safe."),
+    "rs512": (PASS, "RS512 is safe."),
+    "ps256": (PASS, "PS256 (RSA-PSS) is preferred over RS256 by RFC 8725."),
+    "ps384": (PASS, "PS384 is preferred."),
+    "ps512": (PASS, "PS512 is preferred."),
+    "es256": (PASS, "ES256 (ECDSA P-256) is recommended for compact tokens."),
+    "es384": (PASS, "ES384 is safe."),
+    "es512": (PASS, "ES512 is safe."),
+    "eddsa": (PASS, "EdDSA (Ed25519/Ed448) is modern and recommended."),
 }
 
 
@@ -265,10 +334,13 @@ JWT_ALG_RESULTS: dict[str, tuple[str, str]] = {
 # Validation logic
 # ---------------------------------------------------------------------------
 
+
 def validate_usage(usage: object, index: int) -> dict:
     """Validate one usage dict. Returns cleaned dict with required fields, or raises ValueError."""
     if not isinstance(usage, dict):
-        raise ValueError(f"Entry at index {index} must be a JSON object, got {type(usage).__name__}")
+        raise ValueError(
+            f"Entry at index {index} must be a JSON object, got {type(usage).__name__}"
+        )
 
     if "name" not in usage:
         raise ValueError(f"Entry at index {index} missing required field 'name'")
@@ -294,13 +366,26 @@ def validate_usage(usage: object, index: int) -> dict:
         )
     algorithm = usage["algorithm"]
     if not isinstance(algorithm, str) or not algorithm.strip():
-        raise ValueError(f"Entry '{name}' (index {index}): 'algorithm' must be a non-empty string")
+        raise ValueError(
+            f"Entry '{name}' (index {index}): 'algorithm' must be a non-empty string"
+        )
 
     return {
         "name": name.strip(),
         "type": usage_type.strip().lower(),
         "algorithm": algorithm.strip(),
-        **{k: usage[k] for k in ("key_bits", "mode", "iv_reuse", "work_factor", "tls_version", "jwt_alg") if k in usage},
+        **{
+            k: usage[k]
+            for k in (
+                "key_bits",
+                "mode",
+                "iv_reuse",
+                "work_factor",
+                "tls_version",
+                "jwt_alg",
+            )
+            if k in usage
+        },
     }
 
 
@@ -316,7 +401,13 @@ def check_usage(usage: dict) -> dict:
     results: list[str] = []
 
     if utype == "symmetric":
-        alg_result, alg_msg = SYMMETRIC_ALG_RESULTS.get(alg, (WARN, f"Unknown symmetric algorithm '{usage['algorithm']}'; cannot verify safety."))
+        alg_result, alg_msg = SYMMETRIC_ALG_RESULTS.get(
+            alg,
+            (
+                WARN,
+                f"Unknown symmetric algorithm '{usage['algorithm']}'; cannot verify safety.",
+            ),
+        )
         results.append(alg_result)
         rationale.append(alg_msg)
 
@@ -327,30 +418,54 @@ def check_usage(usage: dict) -> dict:
                 raise ValueError(f"Entry '{name}': 'key_bits' must be an integer.")
             if kb < SYMMETRIC_MIN_KEY_BITS:
                 results.append(FAIL)
-                rationale.append(f"key_bits={kb} is below minimum {SYMMETRIC_MIN_KEY_BITS} bits (NIST SP 800-131A).")
+                rationale.append(
+                    f"key_bits={kb} is below minimum {SYMMETRIC_MIN_KEY_BITS} bits (NIST SP 800-131A)."
+                )
             else:
                 results.append(PASS)
-                rationale.append(f"key_bits={kb} meets the {SYMMETRIC_MIN_KEY_BITS}-bit minimum.")
+                rationale.append(
+                    f"key_bits={kb} meets the {SYMMETRIC_MIN_KEY_BITS}-bit minimum."
+                )
 
         # Check mode
         if "mode" in usage:
             mode = usage["mode"].lower()
-            mode_result, mode_msg = MODE_RESULTS.get(mode, (WARN, f"Unknown mode '{usage['mode']}'; verify it provides authentication."))
+            mode_result, mode_msg = MODE_RESULTS.get(
+                mode,
+                (
+                    WARN,
+                    f"Unknown mode '{usage['mode']}'; verify it provides authentication.",
+                ),
+            )
             results.append(mode_result)
             rationale.append(mode_msg)
 
         # IV reuse
         if usage.get("iv_reuse") is True:
             results.append(FAIL)
-            rationale.append("IV/nonce reuse breaks confidentiality and (in GCM) authentication. Always generate a fresh random IV per encryption.")
+            rationale.append(
+                "IV/nonce reuse breaks confidentiality and (in GCM) authentication. Always generate a fresh random IV per encryption."
+            )
 
     elif utype == "hash":
-        hash_result, hash_msg = HASH_RESULTS.get(alg, (WARN, f"Unknown hash algorithm '{usage['algorithm']}'; verify it is NIST-approved."))
+        hash_result, hash_msg = HASH_RESULTS.get(
+            alg,
+            (
+                WARN,
+                f"Unknown hash algorithm '{usage['algorithm']}'; verify it is NIST-approved.",
+            ),
+        )
         results.append(hash_result)
         rationale.append(hash_msg)
 
     elif utype == "kdf":
-        kdf_result, kdf_msg = KDF_ALG_RESULTS.get(alg, (WARN, f"Unknown KDF '{usage['algorithm']}'; verify it is a memory-hard password hashing function."))
+        kdf_result, kdf_msg = KDF_ALG_RESULTS.get(
+            alg,
+            (
+                WARN,
+                f"Unknown KDF '{usage['algorithm']}'; verify it is a memory-hard password hashing function.",
+            ),
+        )
         results.append(kdf_result)
         rationale.append(kdf_msg)
 
@@ -370,7 +485,13 @@ def check_usage(usage: dict) -> dict:
                 rationale.append(f"work_factor={wf} meets the recommended minimum.")
 
     elif utype == "asymmetric":
-        asym_result, asym_msg = ASYMMETRIC_ALG_RESULTS.get(alg, (WARN, f"Unknown asymmetric algorithm '{usage['algorithm']}'; verify it meets current standards."))
+        asym_result, asym_msg = ASYMMETRIC_ALG_RESULTS.get(
+            alg,
+            (
+                WARN,
+                f"Unknown asymmetric algorithm '{usage['algorithm']}'; verify it meets current standards.",
+            ),
+        )
         results.append(asym_result)
         rationale.append(asym_msg)
 
@@ -386,32 +507,56 @@ def check_usage(usage: dict) -> dict:
                     rationale.append(f"key_bits={kb}: {min_msg}")
                 else:
                     results.append(PASS)
-                    rationale.append(f"key_bits={kb} meets the {min_kb}-bit minimum for {usage['algorithm'].upper()}.")
+                    rationale.append(
+                        f"key_bits={kb} meets the {min_kb}-bit minimum for {usage['algorithm'].upper()}."
+                    )
             # EC algorithms
             elif alg in ("ecdsa", "ecdh"):
                 if kb < ASYMMETRIC_WEAK_EC_BITS:
                     results.append(FAIL)
-                    rationale.append(f"key_bits={kb} is below 224 bits; EC keys must be >= 224 bits (NIST).")
+                    rationale.append(
+                        f"key_bits={kb} is below 224 bits; EC keys must be >= 224 bits (NIST)."
+                    )
                 else:
                     results.append(PASS)
-                    rationale.append(f"key_bits={kb} meets the {ASYMMETRIC_WEAK_EC_BITS}-bit EC minimum.")
+                    rationale.append(
+                        f"key_bits={kb} meets the {ASYMMETRIC_WEAK_EC_BITS}-bit EC minimum."
+                    )
 
     elif utype == "prng":
-        prng_result, prng_msg = PRNG_RESULTS.get(alg, (WARN, f"Unknown PRNG '{usage['algorithm']}'; verify it is a CSPRNG backed by the OS."))
+        prng_result, prng_msg = PRNG_RESULTS.get(
+            alg,
+            (
+                WARN,
+                f"Unknown PRNG '{usage['algorithm']}'; verify it is a CSPRNG backed by the OS.",
+            ),
+        )
         results.append(prng_result)
         rationale.append(prng_msg)
 
     elif utype == "tls":
         # Check tls_version field (preferred) or fall back to algorithm field
         tls_ver = usage.get("tls_version", usage["algorithm"]).strip().lower()
-        tls_result, tls_msg = TLS_VERSION_RESULTS.get(tls_ver, (WARN, f"Unknown TLS version '{usage.get('tls_version', usage['algorithm'])}'; verify >= TLS 1.2."))
+        tls_result, tls_msg = TLS_VERSION_RESULTS.get(
+            tls_ver,
+            (
+                WARN,
+                f"Unknown TLS version '{usage.get('tls_version', usage['algorithm'])}'; verify >= TLS 1.2.",
+            ),
+        )
         results.append(tls_result)
         rationale.append(tls_msg)
 
     elif utype == "jwt":
         # Check jwt_alg field (preferred) or fall back to algorithm field
         jwt_alg = usage.get("jwt_alg", usage["algorithm"]).strip().lower()
-        jwt_result, jwt_msg = JWT_ALG_RESULTS.get(jwt_alg, (WARN, f"Unknown JWT algorithm '{usage.get('jwt_alg', usage['algorithm'])}'; verify against RFC 8725."))
+        jwt_result, jwt_msg = JWT_ALG_RESULTS.get(
+            jwt_alg,
+            (
+                WARN,
+                f"Unknown JWT algorithm '{usage.get('jwt_alg', usage['algorithm'])}'; verify against RFC 8725.",
+            ),
+        )
         results.append(jwt_result)
         rationale.append(jwt_msg)
 
@@ -429,6 +574,7 @@ def check_usage(usage: dict) -> dict:
 # ---------------------------------------------------------------------------
 # I/O
 # ---------------------------------------------------------------------------
+
 
 def load_input(source: str | None) -> list:
     if source is None or source == "-":
@@ -475,7 +621,9 @@ def render_table(findings: list[dict]) -> str:
     for i, f in enumerate(findings, 1):
         result = f["result"]
         marker = f"**{result}**" if result in (WARN, FAIL) else result
-        notes = "; ".join(f["rationale"][:2])  # first 2 rationale lines to keep table readable
+        notes = "; ".join(
+            f["rationale"][:2]
+        )  # first 2 rationale lines to keep table readable
         lines.append(
             f"| {i} | {f['name']} | {f['type']} | {f['algorithm']} | {marker} | {notes} |"
         )
@@ -485,6 +633,7 @@ def render_table(findings: list[dict]) -> str:
 # ---------------------------------------------------------------------------
 # Main logic
 # ---------------------------------------------------------------------------
+
 
 def run(source: str | None) -> int:
     try:
@@ -537,7 +686,9 @@ def run(source: str | None) -> int:
     if fails:
         print("\n**FAIL items require immediate action:**")
         for f in fails:
-            print(f"- **{f['name']}** ({f['type']}/{f['algorithm']}): {f['rationale'][0]}")
+            print(
+                f"- **{f['name']}** ({f['type']}/{f['algorithm']}): {f['rationale'][0]}"
+            )
 
     return 0
 
