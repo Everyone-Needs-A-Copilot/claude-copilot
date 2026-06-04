@@ -44,8 +44,21 @@ Look at the user's message for keywords: "minimal", "quick start", "memory only"
 ## Step 2: Verify Machine Setup
 
 ```bash
-which cc >/dev/null 2>&1 && echo "CC_OK" || echo "CC_MISSING"
-which tc >/dev/null 2>&1 && echo "TC_OK" || echo "TC_MISSING"
+# Resolve cc: prefer PATH, but also check ~/.local/bin directly.
+# Guard against /usr/bin/cc (macOS C compiler) by verifying the banner.
+_cc_bin=""
+_cc_candidate="$(command -v cc 2>/dev/null)"
+if [ -n "$_cc_candidate" ] && "$_cc_candidate" --version 2>/dev/null | grep -q "^cc version"; then
+  _cc_bin="$_cc_candidate"
+elif [ -x "$HOME/.local/bin/cc" ] && "$HOME/.local/bin/cc" --version 2>/dev/null | grep -q "^cc version"; then
+  _cc_bin="$HOME/.local/bin/cc"
+  export PATH="$HOME/.local/bin:$PATH"
+fi
+[ -n "$_cc_bin" ] && echo "CC_OK" || echo "CC_MISSING"
+
+# Resolve tc: pip installs into the active Python's bin (e.g. /opt/homebrew/bin),
+# which is already on PATH. No fallback path needed.
+command -v tc >/dev/null 2>&1 && echo "TC_OK" || echo "TC_MISSING"
 ```
 
 **If any MISSING:**
@@ -68,6 +81,8 @@ Please complete machine setup first:
 2. Open Claude Code in `~/.claude/copilot` and run `/setup`
 
 Then return here and run `/setup-project` again.
+
+**Note:** If `cc` was just installed, your shell may not have picked up `~/.local/bin` yet. Try opening a new terminal first, then re-run `/setup-project`.
 
 ---
 

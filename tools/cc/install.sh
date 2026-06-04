@@ -54,6 +54,18 @@ else
 fi
 
 echo ""
-echo "cc is installed. Make sure $SHIM_DIR is in your PATH."
-echo "  Add to ~/.zshrc or ~/.bashrc if needed:"
-echo "    export PATH=\"\$HOME/.local/bin:\$PATH\""
+
+# Step 6: Add ~/.local/bin to PATH in shell profiles (idempotent)
+PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
+PATH_COMMENT='# Added by cc install'
+PROFILES=("$HOME/.zshrc" "$HOME/.zprofile" "$HOME/.bashrc" "$HOME/.bash_profile")
+
+for profile in "${PROFILES[@]}"; do
+    if [ -f "$profile" ] && ! grep -qF '.local/bin' "$profile"; then
+        printf '\n%s\n%s\n' "$PATH_COMMENT" "$PATH_LINE" >> "$profile"
+        echo "==> Added ~/.local/bin to PATH in $profile"
+    fi
+done
+
+echo "cc is installed. Reload your shell or run:"
+echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
