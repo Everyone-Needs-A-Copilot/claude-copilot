@@ -47,7 +47,7 @@ graph TD
 |-----------|-------|------------|--------------|----------------|------------------|
 | **1** | [Memory](#milestone-1-persistent-memory) | Beginner | None | Never lose context again | /continue, decisions persist |
 | **2** | [Protocol](#milestone-2-agent-workflow) | Beginner+ | Memory | Structured work sessions | Task breakdown, routing |
-| **3** | [Agents](#milestone-3-full-framework) | Intermediate | Protocol | Expert guidance | 8 specialists, auto-routing |
+| **3** | [Agents](#milestone-3-full-framework) | Intermediate | Protocol | Expert guidance | 16 specialists, auto-routing |
 | **4** | [Extensions](#milestone-4-team-setup) | Intermediate+ | Agents | Company knowledge | Shared standards, custom agents |
 | **5** | [Mastery](#milestone-5-power-user) | Advanced | All previous | Complete customization | Private skills, workflows |
 

@@ -53,7 +53,7 @@ git clone https://github.com/Everyone-Needs-A-Copilot/claude-copilot.git copilot
 │   ├── cc/                 ← Memory + skills CLI (install via install.sh)
 │   └── tc/                 ← Task Copilot CLI (install via install.sh)
 ├── .claude/
-│   ├── agents/             ← 8 agent definitions (markdown)
+│   ├── agents/             ← 16 agent definitions (markdown)
 │   └── commands/           ← Slash commands (markdown)
 ├── templates/              ← Project templates
 ├── SETUP.md                ← Setup instructions
@@ -64,7 +64,7 @@ git clone https://github.com/Everyone-Needs-A-Copilot/claude-copilot.git copilot
 
 ## Phase 2: Machine Setup
 
-This is done once per machine. It builds the MCP servers and installs global commands.
+This is done once per machine. It installs the `cc` and `tc` CLIs and copies global commands.
 
 ### Step 2: Open Claude Code in the Copilot Directory
 

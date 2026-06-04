@@ -1,5 +1,39 @@
 # Claude Copilot Upgrade Guide
 
+## Upgrading to v5.5.0
+
+This release makes skills auto-firing the **primary** discovery path and demotes `cc skill search` to a fallback.
+
+**Component versions:** skills 3.3.0 · cc 1.1.1 · agents 5.3.1
+
+**What changed:**
+- Skills now auto-fire as the primary discovery mechanism. Native Claude Code reads each skill's `description` field and fires matching skills automatically when a prompt matches — no explicit `cc skill search` call needed.
+- `cc skill search` is now a **fallback** — used by subagents that do not receive hook-injected context, or when explicit lookup is needed.
+- `@include` remains valid for code-bearing skills but is not the primary mechanism.
+- No breaking changes for existing skills: `name`, `description`, `version` frontmatter fields continue to work. Legacy fields (`skill_name`, `trigger_files`, `trigger_keywords`) are harmless if present.
+
+**Migration steps:**
+
+```bash
+# Pull latest framework
+cd ~/.claude/copilot
+git pull origin main
+
+# Reinstall cc CLI (picks up 1.1.1 changes)
+bash tools/cc/install.sh
+
+# Sync your projects
+cd /your/project && claude
+# Run: /update-project
+
+# Verify skill auto-fire is working
+cc skill list  # confirm skills present
+```
+
+**No action required** if your skills already have a trigger-rich `description` field. If your skills have sparse descriptions, add context so the model can match them automatically. See the [Skills Authoring Guide](../30-operations/06-skills-authoring-guide.md) for the canonical `description` format.
+
+---
+
 ## Upgrading to v5.1.0 (PRD-2 — May 2026)
 
 This release modernizes the framework from MCP-server dependencies to the `cc`/`tc` CLI architecture.
@@ -9,7 +43,7 @@ This release modernizes the framework from MCP-server dependencies to the `cc`/`
 - MCP server setup (copilot-memory, skills-copilot Node.js servers) is no longer required. The `cc` and `tc` CLIs replace them entirely.
 - Memory uses FTS5 keyword search. Semantic/vector search was never shipped; if docs or agents referenced it, that was incorrect.
 - At v5.1, agent roster was reduced from 14 to 8: `uxd`, `uids`, `uid`, `cw`, `cco`, and `sec` were consolidated into `design` and the `security/stride-dread` skill. The current framework (v5.2+) has restored the full 16-agent roster; `design` is retired and replaced by the `uxd`→`uids`→`uid` design chain.
-- `@include` is not the primary skill mechanism. Use `cc skill search` / `cc skill get` for discovery and loading.
+- Skills now auto-fire from their trigger-rich `description` field (primary path). `cc skill search` / `cc skill get` are the fallback for explicit discovery. `@include` is a valid manual-load convention for code-bearing skills but is not the primary mechanism.
 
 **Migration steps:**
 

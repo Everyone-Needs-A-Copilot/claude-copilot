@@ -1,17 +1,13 @@
 ---
-skill_name: frontmatter-validation
-skill_category: documentation
-description: Validate and fix YAML frontmatter in markdown documentation
-allowed_tools: [Read, Edit, Glob, Grep]
-token_estimate: 950
-version: 1.0
-last_updated: 2025-12-21
-owner: Claude Copilot
-status: active
+name: frontmatter-validation
+description: >-
+  Validate and fix YAML frontmatter metadata in markdown documentation files.
+  Covers required fields, field formats, and schema compliance for SKILL.md and
+  shared-docs files. Use proactively when auditing documentation frontmatter,
+  reviewing SKILL.md files, or fixing YAML metadata errors.
+version: 1.0.0
+allowed-tools: [Read, Edit, Glob, Grep]
 tags: [frontmatter, yaml, documentation, validation, metadata, shared-docs]
-related_skills: [token-budget-check, link-validation]
-trigger_files: ["*.md", "**\/SKILL.md"]
-trigger_keywords: [frontmatter, yaml, metadata, validation, headers]
 ---
 
 # Frontmatter Validation
@@ -28,18 +24,12 @@ Frontmatter enables efficient AI navigation of documentation. This skill ensures
 
 ```yaml
 ---
-skill_name: forces-analysis          # required, kebab-case
-skill_category: analysis             # required: analysis, engineering, facilitation, strategy
-description: One-line description    # required, max 100 chars
-allowed_tools: [Read, Write, Edit]   # required, array
-token_estimate: 1850                 # required, integer
+name: forces-analysis                # required, kebab-case
+description: >-                      # required, trigger-rich — used by `cc skill search` for keyword matching
+  One-line description covering use cases and when to invoke this skill.
 version: 1.2                         # required, semver
-last_updated: 2025-01-15             # required, ISO date
-owner: Service Design Team           # required
-status: active                       # required: active, deprecated, draft
+allowed-tools: [Read, Write, Edit]   # required, array
 tags: [forces, organization]         # required, array
-related_skills: [moments-mapping]    # optional, array
-methodology: path/to/methodology.md  # optional, relative path
 ---
 ```
 
@@ -127,7 +117,7 @@ Check for:
 | `token_estimate` | Calculate from word count × 1.4 |
 | `last_updated` | Use current date |
 | `status` | Default to "active" |
-| `skill_name` | Derive from directory name |
+| `name` | Derive from directory name |
 | `doc_type` | Infer from path/filename |
 
 ### 6. Generate Missing Frontmatter
@@ -160,7 +150,7 @@ token_estimate: [Calculated]
 
 | File | Issue | Field | Details |
 |------|-------|-------|---------|
-| skills/x/SKILL.md | Missing required | skill_name | Add skill name |
+| skills/x/SKILL.md | Missing required | name | Add skill name |
 | products/y.md | Invalid value | status | "live" not valid, use "active" |
 
 ### Warnings

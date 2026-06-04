@@ -1,32 +1,19 @@
 ---
-# SKILL.md Template - Quality-Focused Structure
-# This template provides the standard structure for creating skills
-# with embedded quality rules, anti-patterns, and validation checklists.
+# SKILL.md Template
+# Canonical frontmatter shape: name + trigger-rich description.
+# Native Claude Code surfaces name + description to the model; the model
+# fires the skill automatically when a prompt matches. cc skill search is a
+# fallback (case-insensitive substring match over name + description + tags).
 #
-# To use: Copy this file to your skill directory as SKILL.md
-# and fill in the sections below.
+# To use: Copy this file to your skill directory as SKILL.md and fill in the sections.
 ---
-skill_name: your-skill-name                    # required, kebab-case
-skill_category: engineering                    # required: analysis, engineering, testing, security, documentation, devops, design
-description: One-line description of the skill # required, max 100 chars
-allowed_tools: [Read, Edit, Glob, Grep]        # required, array of allowed tools
-token_estimate: 500                            # required, estimated token count (actual should be within 10%)
-version: 1.0                                   # required, semver
-last_updated: 2026-01-13                       # required, ISO date
-owner: Your Team                               # required
-status: active                                 # required: active, deprecated, draft
-
-# Quality-focused metadata (enables quality skill detection)
-tags: [pattern, anti-pattern, best-practice, validation]  # Include quality tags for detection
-related_skills: []                             # optional, array of related skill names
-
-# Trigger configuration for auto-detection
-trigger_files: ["**/*.ts", "**/*.js"]          # File patterns that activate this skill
-trigger_keywords: [keyword1, keyword2]          # Keywords in prompts that activate this skill
-
-# Quality keywords (optional, helps with quality detection boosting)
-# Include terms like: anti-pattern, best-practice, validation, pattern, idiom, etc.
-quality_keywords: [anti-pattern, pattern, validation, best-practice]
+name: your-skill-name          # required, kebab-case; used by cc skill get / cc skill search
+description: >-
+  One paragraph describing what this skill covers. End with "Use proactively
+  when <trigger conditions>." This text drives both native auto-firing and
+  cc skill search substring matching — make it trigger-rich.
+version: 1.0.0                 # semver; use 2.0.0 for code-bearing (L3 script) skills
+allowed-tools: [Read, Glob, Grep]  # add Bash if the skill has an executable script
 ---
 
 # Skill Name

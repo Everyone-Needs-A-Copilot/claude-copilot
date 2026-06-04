@@ -59,21 +59,17 @@ description: >-
   handle PII, performing threat modeling, or running security-critical code
   review. Run the DREAD scorer for deterministic severity bands.
 version: 2.0.0
-when_to_use:               # keep — cc fallback still reads this
-  - Reviewing authentication flows
-trigger_files: ["*.py", "*.ts"]   # keep — cc fallback reads these
-trigger_keywords: [security, threat, stride, dread, auth, injection]  # keep
 allowed-tools: [Read, Grep, Glob, Bash]   # required for code-bearing scripts
 ---
 ```
 
 Key fields:
 - `name`: Always use `name` (not `skill_name` — that field does not exist in any skill file).
-- `description`: **This is the auto-firing trigger surface.** Write a multi-sentence, trigger-rich description ending in "Use proactively when..." that folds in all the trigger phrases from `when_to_use` and `trigger_keywords`. Native Claude Code surfaces `name` + `description` into the model's available-skills context; the model fires the skill when a prompt matches.
+- `description`: **This is the primary auto-firing trigger surface.** Write a multi-sentence, trigger-rich description ending in "Use proactively when..." that folds in all the trigger phrases that should activate this skill. Native Claude Code surfaces `name` + `description` into the model's available-skills context; the model fires the skill automatically when a prompt matches.
 - `version`: Use `1.0.0` for prose-only, `2.0.0` for code-bearing.
 - `allowed-tools`: Include `Bash` if the skill has a script. Required for the execution path.
-- `when_to_use`, `trigger_keywords`, `trigger_files`: Retain as supplementary fields — the `cc skill search` fallback reads them, and native Claude Code ignores unknown YAML keys harmlessly.
-- `cc skill search` is a **case-insensitive substring match** over `name + description + tags`. It is NOT FTS5 full-text search. More descriptive text in `description` improves substring discoverability.
+- `when_to_use`, `trigger_keywords`, `trigger_files`: These legacy fields are harmless if present (native Claude Code ignores unknown YAML keys) but are no longer the discovery mechanism. They can be removed from new skills; existing skills need not be edited solely to remove them.
+- `cc skill search` is a **case-insensitive substring match** over `name + description + tags`. It is NOT FTS5 full-text search. It serves as a **fallback** for agents (especially subagents that do not receive hook-injected context) and for explicit lookup. More descriptive text in `description` improves both auto-firing and substring discoverability.
 
 ### L2 — Prose
 
@@ -314,6 +310,7 @@ def test_high_band_boundary():
 | Languages/Code | refactoring-patterns, python-idioms, javascript-patterns, react-patterns |
 | DevOps | docker-patterns, kubernetes, ci-cd-patterns, git-workflows |
 | Docs/Architecture | api-docs, system-design-patterns |
+| Sales (vertical) | copilot-fireflies (call notes → CRM fields), copilot-crm (deal hygiene, pipeline review) — wired to `@agent-cs` |
 
 ---
 

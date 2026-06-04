@@ -1,21 +1,13 @@
 ---
-skill_name: tutorial-patterns
-skill_category: documentation
-description: Tutorial and how-to guide patterns for progressive learning experiences
-allowed_tools: [Read, Edit, Glob, Grep, Write]
-token_estimate: 600
-version: 1.0
-last_updated: 2026-01-13
-owner: Claude Copilot
-status: active
-
-tags: [tutorial, guide, how-to, quickstart, documentation, anti-pattern, best-practice, validation]
-related_skills: [api-docs]
-
-trigger_files: ["**/docs/**", "**/guides/**", "**/tutorials/**", "**/*README*", "**/*GUIDE*"]
-trigger_keywords: [tutorial, how-to, guide, quickstart, getting started, walkthrough, step by step]
-
-quality_keywords: [anti-pattern, pattern, validation, best-practice, progressive-disclosure, user-journey]
+name: tutorial-patterns
+description: >-
+  Tutorial and how-to guide patterns for progressive learning experiences.
+  Covers Diátaxis tutorial/how-to structure, quickstart design, step-by-step
+  walkthrough writing, anti-patterns, and progressive disclosure. Use proactively
+  when writing tutorials, how-to guides, getting-started docs, or README files.
+version: 1.0.0
+allowed-tools: [Read, Edit, Glob, Grep, Write]
+tags: [tutorial, guide, how-to, quickstart, documentation, anti-pattern, best-practice]
 ---
 
 # Tutorial Patterns

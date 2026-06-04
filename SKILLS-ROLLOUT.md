@@ -99,11 +99,11 @@ tc task update --task <id> --status completed
 
 ## The @include Note
 
-`@include .claude/skills/NAME/SKILL.md` is a documentation convention — the `@include` syntax causes Claude Code to literally insert the file contents, which is fine for loading skills manually. It is NOT a parsed contract; no framework component reads or enforces it. Skills are discovered via `cc skill evaluate` (FTS5 keyword search) or loaded directly by the agent using the Read tool.
+`@include .claude/skills/NAME/SKILL.md` is a documentation convention — the `@include` syntax causes Claude Code to literally insert the file contents, which is fine for loading skills manually. It is NOT a parsed contract; no framework component reads or enforces it. Skills are primarily surfaced via native auto-firing (the model reads each skill's `name` + `description` frontmatter and fires automatically when a prompt matches). The `cc skill search` CLI is a fallback for explicit discovery (case-insensitive substring match over `name + description + tags`).
 
 Going forward:
 - SKILL.md is the canonical skill contract (frontmatter + prose).
-- `@include` may be mentioned in SKILL.md as an optional manual-load note.
+- `@include` may be mentioned in SKILL.md as an optional manual-load note for code-bearing (L1/L2/L3) skills.
 - Do NOT describe `@include` as the primary invocation mechanism anywhere.
 
 ---

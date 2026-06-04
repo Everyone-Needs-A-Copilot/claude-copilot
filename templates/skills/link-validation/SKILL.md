@@ -1,17 +1,13 @@
 ---
-skill_name: link-validation
-skill_category: documentation
-description: Validate markdown links and cross-references in documentation
-allowed_tools: [Read, Bash, Glob, Grep]
-token_estimate: 900
-version: 1.0
-last_updated: 2025-12-21
-owner: Claude Copilot
-status: active
+name: link-validation
+description: >-
+  Validate markdown links and cross-references to ensure documentation integrity.
+  Detects broken links, missing anchors, and invalid cross-reference paths in
+  markdown files. Use proactively when auditing documentation, reviewing PRs that
+  touch markdown files, or checking shared-docs for broken links.
+version: 1.0.0
+allowed-tools: [Read, Bash, Glob, Grep]
 tags: [links, documentation, validation, shared-docs, cross-references]
-related_skills: [token-budget-check, frontmatter-validation]
-trigger_files: ["*.md", "**\/docs/**\/*.md"]
-trigger_keywords: [links, broken-links, validation, cross-reference, anchor, markdown-links]
 ---
 
 # Link Validation

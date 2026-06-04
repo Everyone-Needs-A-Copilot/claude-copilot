@@ -30,7 +30,7 @@ Comprehensive testing strategy covering:
 - ✅ Agent routing chains (sd → uxd → uids → uid, me → qa, all → ta)
 - ✅ Worker prompt generation with agent invocations
 - ✅ Agent bypass detection (work product validation)
-- ✅ Agent file structure (skill_evaluate, preflight_check, Skill Loading Protocol)
+- ✅ Agent file structure (required sections, routing table, tool list)
 
 **Key Test Cases:**
 ```typescript
@@ -40,7 +40,7 @@ Comprehensive testing strategy covering:
 ✅ uxd → uids routing valid
 ✅ Prompt includes agent invocation
 ✅ Work product with correct agent_id passes
-✅ All agents have skill_evaluate tool
+✅ All agents have required sections
 ```
 
 #### Skill Loading Tests (15 tests)
@@ -143,15 +143,14 @@ Comprehensive testing strategy covering:
 - ✅ Agent routing chains preserved (sd → uxd → uids → uid)
 - ✅ Worker prompts include `@agent-X` invocations
 - ✅ Work products linked to assigned agents
-- ✅ Agent file structure validated (skill_evaluate, preflight_check)
+- ✅ Agent file structure validated (required sections, routing table)
 
 ### Skill System
 - ✅ Skills discovered in `.claude/skills/`
-- ✅ Frontmatter validated (required fields)
-- ✅ File patterns match correctly (glob patterns)
-- ✅ Keywords match text content (TF-IDF simulation)
-- ✅ Combined signals boost confidence
-- ✅ Threshold filtering works
+- ✅ Frontmatter validated (`name`, `description`, `version` required; legacy `skill_name`/`trigger_files`/`trigger_keywords` ignored)
+- ✅ Auto-fire surface: `description` field consumed by native Claude Code
+- ✅ Fallback: `cc skill search` substring match on name + description
+- ✅ Code-bearing scripts (L3): tested via pytest (`test_skill_frontmatter.py`, `test_parser_unit.py`)
 - ✅ Token budgets respected
 
 ### Orchestration System
@@ -214,12 +213,10 @@ tests/
 
 ### Requirement B: Skill Loading Tests ✅
 - [x] Global skills discovered (`~/.claude/skills/`)
-- [x] Skills have valid frontmatter
-- [x] `skill_evaluate` returns correct skills for context
-- [x] File patterns match (*.test.ts → testing-patterns)
-- [x] Keywords match text content
-- [x] Combined signals boost confidence
-- [x] Threshold filtering works
+- [x] Skills have valid frontmatter (`name`, `description`, `version`)
+- [x] Skills auto-fire via native Claude Code `description` field (primary path)
+- [x] `cc skill search` provides fallback substring discovery
+- [x] L3 script validity tested via pytest (`test_skill_frontmatter.py`, `test_parser_unit.py`)
 - [x] Token budgets respected
 
 ### Requirement C: Orchestration Tests ✅
@@ -281,7 +278,7 @@ npx tsx integration/agent-skill-orchestration.test.ts
 
 ### Quality Gates ✅
 - [x] No agent bypass in orchestration
-- [x] All skills discoverable via skill_evaluate
+- [x] All skills have valid frontmatter (`name` + `description` fields present)
 - [x] Stream dependencies validated
 - [x] Agent routing chains preserved
 
@@ -294,10 +291,10 @@ npx tsx integration/agent-skill-orchestration.test.ts
 
 ## Known Limitations
 
-1. **No MCP Server Mocking**
+1. **No Live tc/cc API Mocking**
    - Tests use mock implementations (MockTaskCopilot)
-   - Do not test against actual Task Copilot MCP server
-   - Sufficient for logic validation, not for protocol validation
+   - Do not test against the actual `tc` CLI at runtime
+   - Sufficient for logic validation; smoke tests (ST-01/ST-02) cover the live CLI layer
 
 2. **Simulated Agent Responses**
    - Cannot test actual Claude agent responses
@@ -321,7 +318,7 @@ npx tsx integration/agent-skill-orchestration.test.ts
 ### Phase 2 (Optional)
 - [ ] Contract tests for Task Copilot MCP server
 - [ ] Snapshot tests for agent outputs
-- [ ] Performance benchmarks for skill_evaluate
+- [ ] Performance benchmarks for `cc skill search` and skill auto-fire latency
 - [ ] Property-based testing for stream dependencies
 - [ ] Chaos testing for orchestration failures
 

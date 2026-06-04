@@ -11,8 +11,8 @@ Claude Copilot is an instruction layer for Claude Code. It gives you persistent 
 | Feature | Status | How |
 |---------|--------|-----|
 | **Persistent memory** | Enabled after setup | `cc memory` CLI + SQLite (FTS5 keyword search) |
-| **8 specialist agents** | Enabled after setup | Markdown agent files in `.claude/agents/` |
-| **On-demand skills** | Enabled after setup | `cc skill` CLI, local `.claude/skills/` |
+| **16 specialist agents** | Enabled after setup | Markdown agent files in `.claude/agents/` |
+| **Auto-firing skills** | Enabled after setup | Native auto-fire from skill `description`; `cc skill` CLI as fallback |
 | **Task management** | Enabled after setup | `tc` CLI (PRDs, tasks, work products) |
 | **`/protocol` command** | Enabled after setup | Agent-first workflow enforcement |
 | **`/continue` command** | Enabled after setup | Resume previous work from memory |
@@ -60,7 +60,7 @@ This creates `CLAUDE.md`, `.claude/agents/`, `.claude/commands/`, and `.claude/s
 # Search memory
 cc memory search "authentication"
 
-# Find a skill
+# Find a skill explicitly (fallback; skills auto-fire from their description)
 cc skill search "docker"
 cc skill get docker-patterns
 
@@ -77,13 +77,15 @@ tc progress
 |--------|------|----------|
 | **Memory** | `cc memory` | Decisions, lessons, cross-session context |
 | **Agents** | `/protocol` | Expert tasks: architecture, testing, docs, design |
-| **Skills** | `cc skill` | On-demand best practices, code-checking scripts |
+| **Skills** | Auto-fire + `cc skill` | Best practices auto-surface; code-bearing skills run executable scripts |
 | **Tasks** | `tc` | PRDs, task tracking, agent work products |
 | **Protocol** | `/protocol`, `/continue` | Consistent workflows, agent routing |
 
 ---
 
-## The 8 Agents
+## The 16 Agents
+
+**Core:**
 
 | Agent | Domain |
 |-------|--------|
@@ -93,10 +95,26 @@ tc progress
 | `do` | DevOps — CI/CD, infrastructure |
 | `doc` | Documentation — READMEs, API docs (Diátaxis) |
 | `sd` | Service design — journey maps, user experience strategy |
-| `design` | Interaction + visual design — flows, components, color, typography |
+| `sec` | Security — STRIDE/DREAD threat modeling |
 | `kc` | Knowledge Copilot setup (run `/knowledge-copilot`) |
 
-> Security reviews: load the `security/stride-dread` skill instead of using a dedicated agent.
+**Design chain (sd → uxd → uids → uid → ta → me):**
+
+| Agent | Domain |
+|-------|--------|
+| `uxd` | UX Designer — interaction flows, task design |
+| `uids` | UI Design System — visual tokens, color, typography |
+| `uid` | UI Developer — component implementation specs |
+
+**Specialist branches:**
+
+| Agent | Domain |
+|-------|--------|
+| `ind` | Industrial Designer — object-level essentialism (upstream of uxd) |
+| `cco` | Creative Director — brand strategy, creative direction |
+| `cw` | Copywriter — copy execution, messaging, microcopy |
+| `cs` | Customer Success — support patterns, retention (business advisory) |
+| `cpa` | CPA / Financial — tax implications, financial modeling (business advisory) |
 
 ---
 

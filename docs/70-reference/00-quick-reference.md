@@ -41,36 +41,26 @@ cd ~/your-project && claude
 
 ### Individual Components
 
-#### Memory Copilot
+#### Reinstall CLIs
 ```bash
-cd ~/.claude/copilot/mcp-servers/copilot-memory
-npm install
-npm run build
-```
+# cc CLI (memory + skills)
+bash ~/.claude/copilot/tools/cc/install.sh
 
-#### Skills Copilot
-```bash
-cd ~/.claude/copilot/mcp-servers/skills-copilot
-npm install
-npm run build
+# tc CLI (Task Copilot)
+pip install -e ~/.claude/copilot/tools/tc
 ```
 
 #### Agents
 ```bash
 # Copy all agents to project
-cp ~/.claude/copilot/templates/agents/*.md ~/your-project/.claude/agents/
-
-# Copy specific agent
-cp ~/.claude/copilot/templates/agents/ta.md ~/your-project/.claude/agents/
+cp ~/.claude/copilot/.claude/agents/*.md ~/your-project/.claude/agents/
 ```
 
 #### Commands
 ```bash
 # Copy all commands to project
-cp ~/.claude/copilot/templates/commands/*.md ~/your-project/.claude/commands/
-
-# Copy specific command
-cp ~/.claude/copilot/templates/commands/protocol.md ~/your-project/.claude/commands/
+cp ~/.claude/copilot/.claude/commands/protocol.md ~/your-project/.claude/commands/
+cp ~/.claude/copilot/.claude/commands/continue.md ~/your-project/.claude/commands/
 ```
 
 ---
@@ -81,7 +71,7 @@ cp ~/.claude/copilot/templates/commands/protocol.md ~/your-project/.claude/comma
 |---------|-----------|-------------|----------|
 | **Memory Copilot** | `cc memory` CLI | SQLite FTS5 (~/.claude/memory) | Decisions, lessons, resuming work |
 | **Agents** | `/protocol` or direct | None (stateless) | Complex tasks needing expertise |
-| **Skills** | `cc skill` CLI | Local .claude/skills/ | Loading best practices on demand |
+| **Skills** | Auto-fire from description; `cc skill` CLI as fallback | Local .claude/skills/ | Best practices auto-surface; explicit lookup via `cc skill search` |
 | **Knowledge** | `cc memory search` / knowledge repo | Git repo | Company docs, shared standards |
 | **Tasks** | `tc` CLI | SQLite (~/.claude/tasks) | PRDs, tasks, work products |
 | **Protocol** | `/protocol` | Via Memory Copilot | Starting fresh work |
@@ -157,12 +147,12 @@ your-project/
 ```
 ~/.claude/
 ├── copilot/                     # Claude Copilot framework (cloned repo)
-│   ├── mcp-servers/            # MCP server source code
-│   │   ├── copilot-memory/     # Memory Copilot
-│   │   └── skills-copilot/     # Skills Copilot
-│   ├── templates/              # Source templates
-│   │   ├── agents/             # Base agents
-│   │   └── commands/           # Base commands
+│   ├── tools/
+│   │   ├── cc/                 # cc CLI source (memory + skills)
+│   │   └── tc/                 # tc CLI source (Task Copilot)
+│   ├── .claude/
+│   │   ├── agents/             # 16 agent definitions
+│   │   └── commands/           # Slash command sources
 │   └── docs/                   # Documentation
 ├── knowledge/                   # Global knowledge repository (optional)
 │   ├── knowledge-manifest.json
@@ -177,22 +167,15 @@ your-project/
 ```
 ~/.claude/copilot/              # Framework installation
 ├── .claude/
-│   ├── commands/               # Machine-level commands
-│   │   └── setup.md           # /setup command
-│   └── agents/                # (Unused - agents are in templates/)
-├── mcp-servers/               # MCP servers
-│   ├── copilot-memory/
-│   │   ├── src/
-│   │   ├── package.json
-│   │   └── build/             # Built JS files
-│   └── skills-copilot/
-│       ├── src/
-│       ├── package.json
-│       └── build/             # Built JS files
+│   ├── agents/                # 16 agent definitions (source of truth)
+│   ├── commands/              # Machine and project command sources
+│   └── skills/                # Skill library
+├── tools/
+│   ├── cc/                    # cc CLI (memory + skills)
+│   └── tc/                    # tc CLI (Task Copilot)
 └── templates/                 # Source for project setup
-    ├── agents/
-    ├── commands/
-    └── mcp.json
+    ├── CLAUDE.template.md
+    └── skills/
 ```
 
 ### Memory Storage (`~/.claude/memory/`)
@@ -227,9 +210,9 @@ your-project/
 - `cc config set paths.knowledge_repo <path>`: Knowledge repo path (→ `CC_KNOWLEDGE_REPO`)
 
 ### 2. Agents
-**8 lean agents with on-demand skill loading**
+**16 lean agents with auto-firing skill loading**
 
-Agents are under 120 lines each and load relevant skills via `cc skill search` / `cc skill get`. Shared boilerplate is extracted to the "Agent Shared Behaviors" section in CLAUDE.md.
+Agents are under 120 lines each. Skills auto-fire from their trigger-rich `description` when the model matches a prompt; agents use `cc skill search` / `cc skill get` as fallback. Shared boilerplate is extracted to the "Agent Shared Behaviors" section in CLAUDE.md.
 
 | Agent | Name | Domain |
 |-------|------|--------|
@@ -239,18 +222,24 @@ Agents are under 120 lines each and load relevant skills via `cc skill search` /
 | `doc` | Documentation | READMEs, API docs, technical writing |
 | `do` | DevOps | CI/CD, infrastructure, containers |
 | `sd` | Service Designer | Experience strategy, customer journeys |
-| `design` | Design | Interaction + visual design, design systems, components |
+| `uxd` | UX Designer | Interaction flows, task design |
+| `uids` | UI Design System | Visual tokens, color, typography |
+| `uid` | UI Developer | Component implementation specs |
+| `sec` | Security | STRIDE/DREAD threat modeling |
+| `ind` | Industrial Designer | Object-level essentialism (upstream of uxd) |
+| `cco` | Creative Director | Brand strategy, creative direction |
+| `cw` | Copywriter | Copy execution, messaging, microcopy |
+| `cs` | Customer Success | Support patterns, retention (business advisory) |
+| `cpa` | CPA / Financial | Tax implications, financial modeling (business advisory) |
 | `kc` | Knowledge Copilot | Shared knowledge setup |
 
-> Security: use the `security/stride-dread` skill (`cc skill get stride-dread`).
-
 ### 3. Skills (cc CLI)
-**Command-line tool for on-demand skill loading and knowledge search**
+**Skills auto-fire from their `description` field; `cc skill` CLI provides explicit fallback**
 
 | Command | Purpose |
 |---------|---------|
 | `cc skill get <name>` | Load specific skill by name |
-| `cc skill search "<query>"` | Search skills by keyword (FTS5) |
+| `cc skill search "<query>"` | Fallback discovery — case-insensitive substring match (not FTS5) |
 | `cc skill list` | List available skills |
 | `cc memory search "<query>"` | Full-text keyword search across memories |
 | `cc memory store --type <t> "<content>"` | Store a memory entry |
@@ -455,8 +444,8 @@ Agents automatically route to each other based on expertise:
 | Any | `qa` | Testing strategy, verification |
 | Any | `doc` | Documentation needed |
 | Any | `do` | CI/CD, infrastructure |
-| `sd` | `design` | Interaction + visual design needed |
-| `design` | `ta` | Specification ready for architecture |
+| `sd` | `uxd` | Interaction design needed |
+| `uid` | `ta` | Component spec ready for architecture |
 | Any | (skill) | Security: load `security/stride-dread` |
 
 ---

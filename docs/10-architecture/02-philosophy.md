@@ -66,9 +66,9 @@ When you run Claude Code in a project with Claude Copilot, Claude reads these in
 | Capability | What It Does | How It Works |
 |------------|--------------|--------------|
 | **Memory** | Remembers across sessions | `cc memory` CLI + SQLite (FTS5 keyword search) |
-| **Specialists** | Expert guidance for any task | 8 agent definitions (markdown) |
+| **Specialists** | Expert guidance for any task | 16 agent definitions (markdown) |
 | **Knowledge** | Your company docs, everywhere | Knowledge files + `cc` CLI search |
-| **Skills** | Best practices on demand | Skill library + `cc skill` CLI |
+| **Skills** | Auto-fire from trigger-rich descriptions; code-bearing skills run scripts | Skill library; `cc skill` CLI as fallback |
 | **Tasks** | Ephemeral work product storage | `tc` CLI (PRDs, tasks, work products) |
 | **Protocol** | Consistent quality | Command definitions (markdown) |
 
@@ -98,7 +98,7 @@ Decisions, lessons, and progress persist so you never waste tokens rebuilding co
 
 Load specialized knowledge when you need it, not as bloated context at the start of every session.
 
-Skills are discovered via keyword search (`cc skill search`) and loaded on-demand. Your token budget goes to actual work, not background context.
+Skills auto-fire from their trigger-rich `description` field — the model surfaces them automatically when a prompt matches. `cc skill search` provides explicit fallback discovery (case-insensitive substring match). Your token budget goes to actual work, not background context.
 
 ### Your Standards, Not Ours
 

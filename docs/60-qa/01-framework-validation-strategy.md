@@ -10,8 +10,8 @@ This document defines the complete validation strategy for the Claude Copilot fr
 
 **Framework Components:**
 - Memory Copilot (`cc memory` CLI, SQLite + FTS5 keyword search)
-- Skills Copilot (`cc skill` CLI, local skills + knowledge repo)
-- 8 Specialized Agents (ta, me, qa, do, doc, sd, design, kc)
+- Skills Copilot (`cc skill` CLI, auto-firing via description + local skills + knowledge repo)
+- 16 Specialized Agents (ta, me, qa, do, doc, sd, uxd, uids, uid, sec, ind, cco, cw, cs, cpa, kc)
 - Task Copilot (`tc` CLI, PRD/task/work-product storage)
 - Protocol commands (/protocol, /continue, /setup-project, /update-project, /update-copilot, /knowledge-copilot)
 - Extension system (override, extension, skills injection)
@@ -22,7 +22,7 @@ This document defines the complete validation strategy for the Claude Copilot fr
 
 | Level | Focus | Tools | Execution |
 |-------|-------|-------|-----------|
-| **Smoke** | Each component works in isolation | MCP Inspector, manual CLI | Every build |
+| **Smoke** | Each component works in isolation | Manual CLI (`cc`, `tc`) | Every build |
 | **Integration** | Components work together | Custom test scripts | Every PR |
 | **E2E** | Developer workflows succeed | Real Claude Code sessions | Weekly |
 | **Regression** | Previous bugs don't return | Automated + manual | Every release |
@@ -31,109 +31,64 @@ This document defines the complete validation strategy for the Claude Copilot fr
 
 ## 1. Smoke Tests (Component Isolation)
 
-### ST-01: Memory Copilot MCP Server Connectivity
+> **Architecture note (v5.1.0+):** The `copilot-memory` and `skills-copilot` MCP Node.js servers have been replaced by the `cc` and `tc` CLIs. Smoke tests validate the CLI layer. The legacy `mcp-servers/` directories still exist in the repo as archived artifacts but are not active.
 
-**Purpose:** Verify MCP server starts and responds to requests
+### ST-01: cc CLI Availability
+
+**Purpose:** Verify the `cc` CLI is installed and reachable
 
 **Steps:**
 ```bash
-# 1. Start MCP server manually
-cd mcp-servers/copilot-memory
-npm run build
-node dist/index.js
+cc --version
+cc memory list --limit 1
 ```
 
-**Verification:**
-- [ ] Server starts without errors
-- [ ] Server responds to stdio transport
-- [ ] Database initializes correctly
-- [ ] No missing dependencies
+**Pass Criteria:**
+- [ ] `cc --version` prints a version string
+- [ ] `cc memory list` returns valid output (empty list is acceptable)
+- [ ] No import errors or missing-dependency messages
 
-**Pass Criteria:** Server running, no error logs
-
-**Failure Mode:** Server crashes, missing node modules, TypeScript errors
+**Failure Mode:** `cc: command not found`, Python import error
 
 **Frequency:** Every build, before commit
 
 ---
 
-### ST-02: Memory Copilot Tool Registration
+### ST-02: tc CLI Availability
 
-**Purpose:** Verify all memory tools are registered and callable
+**Purpose:** Verify the `tc` CLI is installed and reachable
 
 **Steps:**
 ```bash
-# Use MCP Inspector to list tools
-mcp-inspector connect stdio "node dist/index.js"
-# Send ListTools request
+tc --version
 ```
 
-**Expected Tools:**
-- `memory_store`
-- `memory_update`
-- `memory_delete`
-- `memory_get`
-- `memory_list`
-- `memory_search`
-- `initiative_start`
-- `initiative_update`
-- `initiative_get`
-- `initiative_complete`
+**Pass Criteria:**
+- [ ] `tc --version` prints a version string
+- [ ] Command exits 0
 
-**Verification:**
-```json
-{
-  "method": "tools/list",
-  "result": {
-    "tools": [
-      {"name": "memory_store", "description": "..."},
-      {"name": "initiative_start", "description": "..."}
-    ]
-  }
-}
-```
-
-**Pass Criteria:** All 10 tools listed with valid schemas
-
-**Failure Mode:** Missing tool, invalid schema, wrong parameter types
+**Failure Mode:** `tc: command not found`, missing package
 
 **Frequency:** Every build
 
 ---
 
-### ST-03: Memory Copilot Basic Initiative Flow
+### ST-03: Memory Store and Retrieve Round-Trip
 
-**Purpose:** Verify core initiative lifecycle works
-
-**Test Data:**
-```json
-{
-  "title": "Test Initiative",
-  "description": "Smoke test for initiative tracking",
-  "scope": ["component-a", "component-b"]
-}
-```
+**Purpose:** Verify core memory write → read lifecycle works
 
 **Steps:**
-1. Call `initiative_start` with test data
-2. Call `initiative_get` to retrieve
-3. Call `initiative_update` with progress
-4. Call `initiative_complete` to archive
-
-**Verification:**
 ```bash
-# Check SQLite database directly
-sqlite3 ~/.claude/memory/<workspace-hash>/memory.db
-SELECT * FROM initiatives WHERE title = 'Test Initiative';
+cc memory store --type context "Smoke test: ST-03 verification entry"
+cc memory search "ST-03 verification"
 ```
 
 **Pass Criteria:**
-- [ ] Initiative created with valid ID
-- [ ] Retrieved initiative matches input
-- [ ] Update reflected in database
-- [ ] Complete changes status to 'complete'
+- [ ] `memory store` exits 0 and prints the new entry ID
+- [ ] `memory search` returns the stored entry in results
+- [ ] Content matches what was stored
 
-**Failure Mode:** Database write fails, invalid ID returned, status not updated
+**Failure Mode:** Write exits non-zero, search returns empty, content mismatch
 
 **Frequency:** Every build
 
@@ -174,137 +129,89 @@ cc memory store --type context "Added user login form to dashboard"
 
 ---
 
-### ST-05: Skills Copilot MCP Server Connectivity
+### ST-05: cc skill list
 
-**Purpose:** Verify Skills Copilot starts and responds
-
-**Steps:**
-```bash
-cd mcp-servers/skills-copilot
-npm run build
-node dist/index.js
-```
-
-**Verification:**
-- [ ] Server starts without errors
-- [ ] Cache directory created if missing
-- [ ] Knowledge repo paths resolved
-
-**Pass Criteria:** Server running, no error logs
-
-**Failure Mode:** Server crashes, path resolution fails
-
-**Frequency:** Every build
-
----
-
-### ST-06: Skills Copilot Tool Registration
-
-**Purpose:** Verify all skill tools are registered
-
-**Expected Tools:**
-- `skill_get`
-- `skill_search`
-- `skill_list`
-- `skill_save`
-- `knowledge_search`
-- `knowledge_get`
-- `extension_get`
-- `extension_list`
-- `manifest_status`
-
-**Verification:**
-```bash
-# List tools via MCP Inspector
-mcp-inspector connect stdio "node dist/index.js"
-```
-
-**Pass Criteria:** All 9 tools listed with valid schemas
-
-**Failure Mode:** Missing tool, invalid schema
-
-**Frequency:** Every build
-
----
-
-### ST-07: Skills Copilot Knowledge Search (Two-Tier)
-
-**Purpose:** Verify two-tier knowledge resolution works
-
-**Test Setup:**
-```bash
-# Create global knowledge repo
-mkdir -p ~/.claude/knowledge/.claude/extensions
-echo "# Test Knowledge" > ~/.claude/knowledge/test.md
-
-# Create project knowledge repo (if testing override)
-mkdir -p /tmp/test-project-knowledge/.claude/extensions
-echo "# Project Knowledge" > /tmp/test-project-knowledge/test.md
-```
+**Purpose:** Verify skill discovery is functional
 
 **Steps:**
-1. Call `knowledge_search("test")` with no KNOWLEDGE_REPO_PATH
-2. Call `knowledge_search("test")` with KNOWLEDGE_REPO_PATH set
-3. Call `manifest_status()`
-
-**Expected Behavior:**
-- Without project path: Returns global knowledge only
-- With project path: Returns project knowledge (higher priority)
-- Manifest status shows both repos if configured
-
-**Pass Criteria:**
-- [ ] Global repo auto-detected at ~/.claude/knowledge
-- [ ] Project repo used when KNOWLEDGE_REPO_PATH set
-- [ ] Priority ordering correct (project > global > base)
-
-**Failure Mode:** Can't find global repo, wrong priority, missing manifests
-
-**Frequency:** Every build
-
----
-
-### ST-08: Skills Copilot Extension Resolution
-
-**Purpose:** Verify extension resolution algorithm works
-
-**Test Data:**
 ```bash
-# Create test extension in global repo
-cat > ~/.claude/knowledge/.claude/extensions/sd.override.md <<'EOF'
----
-extends: sd
-type: override
-description: Test override
----
-# Test Service Designer Override
-EOF
-```
-
-**Steps:**
-1. Call `extension_get("sd")`
-2. Call `extension_list()`
-
-**Expected Result:**
-```json
-{
-  "agentId": "sd",
-  "type": "override",
-  "content": "# Test Service Designer Override",
-  "source": "global",
-  "requiredSkills": [],
-  "fallbackBehavior": "use_base"
-}
+cc skill list
+cc skill search "security"
 ```
 
 **Pass Criteria:**
-- [ ] Extension found in global repo
-- [ ] Frontmatter parsed correctly
-- [ ] Type and source identified
-- [ ] Content returned complete
+- [ ] `cc skill list` returns at least one skill entry
+- [ ] `cc skill search "security"` returns the `stride-dread` skill or equivalent
+- [ ] Both commands exit 0
 
-**Failure Mode:** Extension not found, parsing fails, wrong source
+**Failure Mode:** Empty list when `.claude/skills/` contains skills, command error
 
 **Frequency:** Every build
+
+---
+
+### ST-06: pytest L3 Skill Tests
+
+**Purpose:** Verify code-bearing skill scripts pass their unit tests
+
+**Steps:**
+```bash
+python -m pytest tests/test_skill_frontmatter.py -v
+python -m pytest tests/test_parser_unit.py -v
+```
+
+**Pass Criteria:**
+- [ ] All tests pass (0 failures)
+- [ ] No import errors
+
+**Failure Mode:** Test failures, missing test file, Python version mismatch
+
+**Frequency:** Every build, every commit (pre-commit hook)
+
+---
+
+### ST-07: Knowledge Repo Priority (cc env)
+
+**Purpose:** Verify knowledge repo paths resolve correctly
+
+**Steps:**
+```bash
+eval "$(cc env)"
+echo "CC_KNOWLEDGE_REPO=$CC_KNOWLEDGE_REPO"
+echo "CC_SHARED_DOCS=$CC_SHARED_DOCS"
+```
+
+**Pass Criteria:**
+- [ ] `cc env` exits 0 and emits valid shell export statements
+- [ ] `CC_KNOWLEDGE_REPO` resolves to an existing path (if configured)
+- [ ] No unbound variable errors
+
+**Failure Mode:** `cc env` exits non-zero, variables empty when configured, path does not exist
+
+**Frequency:** Every build
+
+---
+
+### ST-08: Extension File Resolution
+
+**Purpose:** Verify agent extension files in the knowledge repo are found and readable
+
+**Steps:**
+```bash
+# If a knowledge repo is configured:
+ls "${CC_KNOWLEDGE_REPO}/.claude/extensions/" 2>/dev/null || echo "no extensions"
+
+# Verify extension frontmatter is parseable
+python -m pytest tests/test_skill_frontmatter.py -v -k "extension" 2>/dev/null || echo "no extension-specific tests"
+```
+
+**Pass Criteria:**
+- [ ] Extensions directory accessible if repo configured
+- [ ] No YAML parse errors in extension files
+
+**Failure Mode:** Directory not found when repo is set, malformed frontmatter
+
+**Frequency:** Every PR
 
 ---
 
@@ -336,7 +243,7 @@ done
 7. ## Decision Authority
 
 **Pass Criteria:**
-- [ ] 8 agent files present (ta, me, qa, do, doc, sd, design, kc)
+- [ ] 16 agent files present (ta, me, qa, do, doc, sd, uxd, uids, uid, sec, ind, cco, cw, cs, cpa, kc)
 - [ ] All required sections present in each
 - [ ] No time estimate language (per policy)
 
@@ -960,30 +867,27 @@ initiative_update({
 
 ---
 
-### RT-02: MCP Server Compatibility
+### RT-02: cc/tc CLI Compatibility
 
-**Purpose:** Verify MCP servers work with latest @modelcontextprotocol/sdk
+**Purpose:** Verify CLIs work after Python or dependency updates
 
 **Steps:**
 ```bash
-# Update SDK to latest
-cd mcp-servers/copilot-memory
-npm update @modelcontextprotocol/sdk
-npm run build
-
-# Test connectivity
-node dist/index.js
+pip install -e ~/.claude/copilot/tools/tc
+bash ~/.claude/copilot/tools/cc/install.sh
+cc --version
+tc --version
+cc memory search "test"
 ```
 
 **Pass Criteria:**
-- [ ] Build succeeds
-- [ ] Server starts
-- [ ] All tools still callable
-- [ ] No breaking changes
+- [ ] Both CLIs install without errors
+- [ ] Version strings print correctly
+- [ ] Memory search executes without traceback
 
-**Failure Mode:** Build fails, tools missing, protocol changes break server
+**Failure Mode:** Install fails, import error after Python upgrade, broken CLI entrypoint
 
-**Frequency:** Monthly, when SDK updates
+**Frequency:** Monthly, after Python or dependency updates
 
 ---
 
@@ -1264,14 +1168,21 @@ type: override
 
 ### Required Tools
 ```bash
-# MCP Inspector (for protocol testing)
-npm install -g @modelcontextprotocol/inspector
+# Python 3.9+ (required for cc/tc CLIs)
+python3 --version
 
-# SQLite (for database verification)
-brew install sqlite3
+# pytest (for L3 skill tests)
+pip install pytest
 
-# jq (for JSON validation)
-brew install jq
+# cc CLI
+bash ~/.claude/copilot/tools/cc/install.sh
+
+# tc CLI
+pip install -e ~/.claude/copilot/tools/tc
+
+# jq (for JSON validation in shell scripts — optional)
+brew install jq  # macOS
+# apt-get install jq  # Debian/Ubuntu
 
 # Claude Code CLI
 # (Already installed)

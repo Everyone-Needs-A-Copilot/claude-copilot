@@ -1,366 +1,89 @@
-# Correction Detection System
+# Correction Detection and Reflection
 
-The correction detection system automatically captures user corrections and feedback, enabling continuous improvement of agents and skills through a two-stage workflow.
+**Diátaxis mode:** Reference
 
-## Overview
+This page documents the surviving mechanism for capturing and acting on user corrections after the MCP-server era. The MCP `correction_detect` tool and its associated Node.js server were removed in the v5.1.0 CLI migration. What remains is the `/reflect` command and the `cc memory` CLI.
 
-Correction detection implements a two-stage learning workflow:
+---
 
-| Stage | Trigger | Action |
-|-------|---------|--------|
-| **Auto-Capture** | User message matches correction patterns | Store with confidence score |
-| **Manual Review** | `/reflect` command | User confirms, rejects, or modifies |
+## What Was Removed
 
-## Architecture
+The MCP-era correction detection system included a `correction_detect` tool (TypeScript, in `mcp-servers/copilot-memory`), a SQLite `corrections` table, and six correction-specific MCP tools (`correction_list`, `correction_update`, `correction_route`, `correction_apply`, `correction_stats`). These are no longer active. The `mcp-servers/copilot-memory/` directory still exists as a legacy artifact but is not wired into any active session.
+
+---
+
+## What Exists Now
+
+### /reflect Command
+
+The `/reflect` command at `.claude/commands/reflect.md` is the surviving mechanism for periodic review of session context, decisions, and lessons.
+
+**Usage:**
 
 ```
-User Message
-      │
-      ▼
-┌─────────────────────┐
-│ Pattern Detection   │ → Regex matching against known patterns
-└─────────────────────┘
-      │
-      ▼
-┌─────────────────────┐
-│ Confidence Scoring  │ → Combine pattern weights + context
-└─────────────────────┘
-      │
-      ▼
-┌─────────────────────┐
-│ Value Extraction    │ → Extract old/new values from captures
-└─────────────────────┘
-      │
-      ▼
-┌─────────────────────┐
-│ Target Inference    │ → Determine where correction applies
-└─────────────────────┘
-      │
-      ▼
-┌─────────────────────┐
-│ Storage (pending)   │ → Store for /reflect review
-└─────────────────────┘
-```
-
-## Correction Patterns
-
-The system recognizes various correction pattern types:
-
-| Type | Pattern Examples | Weight |
-|------|------------------|--------|
-| `explicit_correction` | "Correction: X should be Y" | 0.95 |
-| `negation` | "No, that's wrong" | 0.90 |
-| `replacement` | "Not X, but Y", "Use X instead of Y" | 0.90 |
-| `factual_error` | "That's incorrect, the actual..." | 0.90 |
-| `clarification` | "What I meant was...", "I said X, not Y" | 0.80-0.90 |
-| `preference` | "I prefer X over Y" | 0.75 |
-| `style_preference` | "Don't use X, use Y", "Never/Always use X" | 0.80-0.85 |
-
-### Pattern Detection
-
-```typescript
-import { matchCorrectionPatterns } from 'copilot-memory/tools/correction-tools';
-
-const message = 'Actually, use TypeScript instead of JavaScript';
-const matches = matchCorrectionPatterns(message);
-
-// Returns:
-// [{
-//   patternId: 'actually-instead',
-//   type: 'replacement',
-//   matchedText: 'Actually, use TypeScript instead of JavaScript',
-//   position: { start: 0, end: 46 },
-//   captures: { group1: 'TypeScript', group2: 'JavaScript' }
-// }]
-```
-
-## Confidence Scoring
-
-Confidence is calculated from multiple factors:
-
-| Factor | Effect |
-|--------|--------|
-| Pattern weight | Base score from matched pattern |
-| Multiple patterns | Boost for cross-validation |
-| Message length | Short = boost (focused), Long = penalty (embedded) |
-| Previous context | Boost when agent output available |
-
-### Score Interpretation
-
-| Confidence | Suggested Action |
-|------------|------------------|
-| >= 0.85 | `auto_capture` - High confidence, store automatically |
-| 0.50 - 0.84 | `prompt_user` - Ask user to confirm |
-| < 0.50 | `ignore` - Below threshold, likely not a correction |
-
-### API
-
-```typescript
-import { calculateConfidence } from 'copilot-memory/tools/correction-tools';
-
-const matches = matchCorrectionPatterns(message);
-const confidence = calculateConfidence(
-  matches,
-  message,
-  previousAgentOutput  // Optional context
-);
-// Returns: 0.0 - 1.0
-```
-
-## Value Extraction
-
-The system extracts old and new values from matched patterns:
-
-```typescript
-import { extractValues } from 'copilot-memory/tools/correction-tools';
-
-const message = 'Not src/index.ts, but src/main.ts';
-const matches = matchCorrectionPatterns(message);
-const { oldValue, newValue } = extractValues(matches);
-
-// oldValue: 'src/index.ts'
-// newValue: 'src/main.ts'
-```
-
-### Extraction Priority
-
-1. Explicit correction patterns (highest priority)
-2. Replacement patterns
-3. Negation patterns
-4. Factual error patterns
-5. Clarification patterns
-6. Preference patterns
-
-## Target Inference
-
-Corrections are routed to appropriate targets based on context:
-
-| Target | When Routed | Storage Location |
-|--------|-------------|------------------|
-| `skill` | Code/design agent corrections | `.claude/skills/` or agent file |
-| `agent` | Architecture/QA agent corrections | `.claude/agents/` |
-| `memory` | General knowledge corrections | Memory Copilot (lesson) |
-| `preference` | Style/preference corrections | Memory Copilot (context) |
-
-### Agent-Based Routing
-
-| Agent ID | Default Target |
-|----------|----------------|
-| `me` | `skill` (agent-specific) |
-| `doc` | `skill` (agent-specific) |
-| `sd`, `design` | `skill` (agent-specific) |
-| `ta`, `qa`, `do` | `agent` |
-
-### Keyword-Based Routing
-
-| Keywords | Target |
-|----------|--------|
-| "skill", "pattern", "template" | `skill` |
-| "prefer", "style", "always", "never" | `preference` |
-| "remember", "note", "important" | `memory` |
-
-## Full Detection Flow
-
-```typescript
-import { detectCorrections } from 'copilot-memory/tools/correction-tools';
-
-const result = detectCorrections({
-  userMessage: 'Correction: use async/await instead of callbacks',
-  previousAgentOutput: 'Using callbacks for async...',
-  agentId: 'me',
-  threshold: 0.5
-}, 'project-id');
-
-// Returns:
-// {
-//   detected: true,
-//   corrections: [{
-//     id: 'uuid',
-//     originalContent: 'Using callbacks for async...',
-//     correctedContent: 'async/await',
-//     rawUserMessage: 'Correction: use async/await...',
-//     matchedPatterns: [...],
-//     target: 'skill',
-//     targetId: 'agent-me',
-//     confidence: 0.95,
-//     status: 'pending',
-//     expiresAt: '...'  // 7 days
-//   }],
-//   patternMatchCount: 1,
-//   maxConfidence: 0.95,
-//   suggestedAction: 'auto_capture'
-// }
-```
-
-## /reflect Command
-
-The `/reflect` command provides a review interface for pending corrections.
-
-### Usage
-
-```bash
-# Review all pending corrections
 /reflect
-
-# Filter by status
-/reflect --status pending
-/reflect --status approved
-
-# Filter by agent
-/reflect --agent me
-
-# Include applied corrections
-/reflect --include-applied
 ```
 
-### Review Actions
+Run `/reflect` at the end of a work session to review decisions made, surface gaps or errors in reasoning, and store corrections as memory entries.
 
-| Action | Effect |
-|--------|--------|
-| Approve | Mark as approved, queue for application |
-| Reject | Mark as rejected (false positive) |
-| Modify | Edit correction before approval |
-| Skip | Leave pending for later review |
+### cc memory — Storing Corrections Manually
 
-### Deduplication
-
-Use `--dedupe` to consolidate similar corrections:
+When a user identifies that an agent made an error or a decision needs revision, store the correction directly via the memory CLI:
 
 ```bash
-/reflect --dedupe
+# Store a lesson (preferred type for "we got this wrong")
+cc memory store --type lesson "Correction: use async/await instead of callbacks in Express middleware. Previous guidance was wrong."
+
+# Store a context correction
+cc memory store --type context "Project uses Yarn workspaces, not npm — correction to earlier assumption."
 ```
 
-This groups corrections with similar content and allows bulk approval/rejection.
+**Memory types for corrections:**
 
-## Correction Routing
+| Memory Type | When to Use |
+|-------------|-------------|
+| `lesson` | Process or technique that was wrong and is now corrected |
+| `context` | Factual correction about the project, codebase, or environment |
+| `decision` | Revised architectural or design decision |
+| `reference` | Corrected external fact (API endpoint, library version, etc.) |
 
-After approval, corrections are routed to their target:
+---
 
-### To Skill/Agent Files
+## Workflow: Capturing a Correction
 
-```typescript
-import { routeCorrection } from 'copilot-memory/tools/correction-tools';
+1. User identifies an error in agent output during a session.
+2. User states the correction conversationally.
+3. Agent (or user directly) stores it via `cc memory store --type lesson "..."`.
+4. At session end, run `/reflect` to review stored context and flag anything missed.
+5. Next session: `cc memory search "<topic>"` retrieves the correction before work begins.
 
-const route = routeCorrection(db, correctionId);
-// Returns:
-// {
-//   correctionId: '...',
-//   target: 'skill',
-//   targetPath: '.claude/agents/me.md',
-//   responsibleAgent: 'me',
-//   confidence: 0.95,
-//   applyInstructions: 'Update .claude/agents/me.md:\n- Find section...'
-// }
+---
+
+## Search and Retrieval
+
+Memory is FTS5 keyword search — not semantic or vector search.
+
+```bash
+# Find all corrections on a topic
+cc memory search "async await"
+
+# List recent lessons
+cc memory list --type lesson --limit 10
 ```
 
-### To Memory
+---
 
-For `memory` and `preference` targets, corrections are stored via Memory Copilot:
+## What /reflect Does Not Do
 
-```typescript
-// memory_store is called with:
-{
-  type: 'lesson',  // or 'context' for preferences
-  content: 'User prefers: async/await over callbacks',
-  tags: ['correction', 'user-feedback']
-}
-```
+- It does not automatically detect patterns in user messages (the `correction_detect` pattern-matching engine was MCP-era and is removed).
+- It does not maintain a pending/approved/rejected queue.
+- It does not route corrections to skill or agent files automatically.
 
-## MCP Tools
+If you need to update a skill based on a correction, edit the SKILL.md file directly or delegate to `@agent-me`.
 
-| Tool | Purpose |
-|------|---------|
-| `correction_detect` | Detect corrections in user message |
-| `correction_list` | List corrections with filters |
-| `correction_update` | Update correction status |
-| `correction_route` | Get routing info for correction |
-| `correction_apply` | Apply approved correction |
-| `correction_stats` | Get correction statistics |
-
-### correction_detect
-
-```typescript
-const result = await correction_detect({
-  userMessage: 'Actually, use the other approach',
-  previousAgentOutput: '...',
-  agentId: 'me',
-  threshold: 0.5,
-  autoStore: false  // If true, stores automatically above threshold
-});
-```
-
-### correction_list
-
-```typescript
-const corrections = await correction_list({
-  status: 'pending',
-  agentId: 'me',
-  target: 'skill',
-  limit: 20,
-  includeExpired: false
-});
-```
-
-### correction_update
-
-```typescript
-await correction_update({
-  correctionId: '...',
-  status: 'approved',  // or 'rejected'
-  rejectionReason: 'False positive'  // If rejecting
-});
-```
-
-## Database Schema
-
-Corrections are stored in the Memory Copilot database:
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | TEXT | Unique identifier |
-| `project_id` | TEXT | Project context |
-| `session_id` | TEXT | Session where detected |
-| `task_id` | TEXT | Task context (if any) |
-| `agent_id` | TEXT | Agent that received correction |
-| `original_content` | TEXT | What was corrected |
-| `corrected_content` | TEXT | The correction |
-| `raw_user_message` | TEXT | Full user message |
-| `matched_patterns` | JSON | Pattern matches |
-| `target` | TEXT | skill/agent/memory/preference |
-| `target_id` | TEXT | Specific target identifier |
-| `confidence` | REAL | 0-1 confidence score |
-| `status` | TEXT | pending/approved/rejected/applied |
-| `expires_at` | TEXT | Expiration timestamp (7 days) |
-
-## Best Practices
-
-1. **Threshold Tuning**: Start with 0.5 threshold, adjust based on false positive rate
-2. **Review Regularly**: Use `/reflect` periodically to prevent expiration
-3. **Agent Context**: Provide `agentId` for better target inference
-4. **Previous Output**: Include `previousAgentOutput` for context-aware detection
-
-## Troubleshooting
-
-### Missing Detections
-
-1. Check if message matches any pattern: `matchCorrectionPatterns(message)`
-2. Verify threshold isn't too high
-3. Try lowering `threshold` parameter
-
-### False Positives
-
-1. Increase threshold (0.6-0.7)
-2. Review and reject via `/reflect`
-3. Check if patterns are too broad
-
-### Routing Issues
-
-1. Provide `agentId` for agent-based routing
-2. Check keyword detection for target inference
-3. Use `forceTarget` parameter if needed
+---
 
 ## Related Documentation
 
-- Lifecycle Hooks (removed in v3.0.0 — security rules now built-in)
 - [Memory Copilot FTS5 Search](./13-memory-fts5.md)
-- [Memory Copilot](../../CLAUDE.md#1-memory-copilot)
+- [Skills Authoring Guide](../30-operations/06-skills-authoring-guide.md)

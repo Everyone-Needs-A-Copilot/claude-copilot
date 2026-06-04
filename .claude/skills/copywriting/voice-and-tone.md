@@ -1,17 +1,13 @@
 ---
-skill_name: voice-and-tone
-skill_category: copywriting
-description: Voice definition, tone matrix by situation, and readability engineering for UX copy
-allowed_tools: [Read, Grep, Glob, Edit, Write]
-token_estimate: 1200
-version: 1.0
-last_updated: 2026-03-29
-owner: Claude Copilot
-status: active
+name: voice-and-tone
+description: >-
+  Voice definition, tone matrix by situation, and readability engineering for UX copy
+  that serves users rather than the business. Covers copywriting, microcopy, content
+  strategy, active voice, clarity, and avoiding jargon. Use proactively when writing
+  user-facing copy, microcopy, error messages, onboarding text, or any UX writing task.
+version: 1.0.0
+allowed-tools: [Read, Grep, Glob, Edit, Write]
 tags: [copywriting, voice, tone, ux-writing, readability, content]
-trigger_files: ["**/copy/**", "**/content/**", "**/i18n/**", "**/locales/**"]
-trigger_keywords: [voice, tone, copy, microcopy, ux-writing, content-strategy, readability]
-quality_keywords: [anti-pattern, clarity, readability, active-voice, jargon]
 ---
 
 # Voice and Tone

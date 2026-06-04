@@ -146,18 +146,14 @@ Topic-based navigation for Claude Code to quickly locate relevant content:
 
 ```yaml
 ---
-skill_name: forces-analysis
-skill_category: analysis
-description: One-line description for skill search
-allowed_tools: [Read, Write, Edit]
-token_estimate: 1850
-version: 1.2
-last_updated: 2025-01-15
-owner: Service Design Team
-status: active
+name: forces-analysis
+description: >-
+  Forces analysis for organizational design, leadership frameworks, and
+  facilitation methods. Use proactively when analyzing organizational forces,
+  designing change initiatives, or facilitating strategic decision-making.
+version: 1.0.0
+allowed-tools: [Read, Write, Edit]
 tags: [forces, organizational-design, leadership]
-methodology: 01-company/06-methodologies/10-forces-framework.md
-related_skills: [moments-mapping, colab-facilitation]
 ---
 ```
 

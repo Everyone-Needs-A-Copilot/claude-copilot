@@ -29,8 +29,8 @@ It's not separate software—it's markdown files (agents, commands, project inst
 | You Get                    | What It Does                                                                         |
 | -------------------------- | ------------------------------------------------------------------------------------ |
 | **Persistent Memory**      | Decisions, lessons, and progress survive across sessions (FTS5 keyword search)       |
-| **8 Specialist Agents**    | Lean agents with on-demand skill loading; design agents include creative methodology |
-| **Code-Bearing Skills**    | Skills with executable scripts; output enters context, not implementation code       |
+| **16 Specialist Agents**   | Lean agents with on-demand skill loading; methodology-embedded from IDEO to Kent Beck |
+| **Auto-Firing Skills**     | Skills surface automatically from trigger-rich descriptions; code-bearing skills run executable scripts |
 | **Parallel Orchestration** | Headless workers execute streams concurrently with `/orchestrate`                    |
 | **Pause & Resume**         | Context switch mid-task with `/pause`, return with `/continue`                       |
 | **Task Management**        | PRDs, tasks, and work products via `tc` CLI with minimal context usage               |
@@ -106,8 +106,8 @@ A diagnostic of 15 sessions (Apr 17-22 2026) found a 6% delegation rate — 94% 
 ┌────────────────────┐ ┌────────────────────┐ ┌────────────────────────────────┐
 │   MEMORY COPILOT   │ │   TASK COPILOT     │ │          cc SKILLS             │
 │   (cc memory)      │ │   (tc CLI)         │ │                                │
-│ • Decisions made   │ │ • PRDs & tasks     │ │ • Code-bearing skills (L1/L2)  │
-│ • Lessons learned  │ │ • Work products    │ │ • Prose skills (L3)            │
+│ • Decisions made   │ │ • PRDs & tasks     │ │ • Auto-fires from description  │
+│ • Lessons learned  │ │ • Work products    │ │ • Code-bearing: L1/L2/L3      │
 │ • FTS5 keyword     │ │ • ~94% less context│ │ • Known References registry    │
 │ • Enables /continue│ │ • tc.api facade    │ │ • cc.api facade                │
 └────────────────────┘ └────────────────────┘ └────────────────────────────────┘

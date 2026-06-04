@@ -14,10 +14,11 @@ Agents are kept minimal (under 120 lines) and load domain expertise on demand. S
 | Total context | ~1,000 tokens | Agent + relevant skills only |
 
 **How it works:**
-1. Agent discovers relevant skills via `cc skill search "<query>"`
-2. Agent loads skill content via `cc skill get <name>` or native `@include`
-3. Work executes with specialized knowledge
-4. ~70% less context per agent vs. monolithic agents
+1. Skills auto-fire from their trigger-rich `description` field when the model recognizes a prompt match (primary path)
+2. Agent uses `cc skill search "<query>"` as a fallback for explicit discovery (case-insensitive substring match — not FTS5)
+3. Agent loads skill content via `cc skill get <name>` or native `@include`
+4. Work executes with specialized knowledge
+5. ~70% less context per agent vs. monolithic agents
 
 ### Required Tools
 
@@ -25,7 +26,7 @@ All lean agents include these tools:
 
 | Tool / Command | Purpose |
 |------|---------|
-| `cc skill search "<query>"` | Discover relevant skills by keyword |
+| `cc skill search "<query>"` | Fallback skill discovery by keyword (substring match) |
 | `cc skill get <name>` | Load a specific skill |
 | `tc task get <id> --json` | Retrieve task details |
 | `tc task update <id> --status <s> --json` | Update task status |
