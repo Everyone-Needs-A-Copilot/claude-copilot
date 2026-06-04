@@ -10,7 +10,12 @@
 # Arguments:
 #   --agents-dir DIR      Path to agents directory (default: .claude/agents)
 #   --commands-dir DIR    Path to commands directory (default: .claude/commands)
-#   --copilot-path PATH   Path to copilot source (default: ~/.claude/copilot)
+#   --copilot-path PATH   Path to copilot source (overrides CC_COPILOT_PATH env var and
+#                         project-relative resolution; default: ~/.claude/copilot)
+#
+# Environment:
+#   CC_COPILOT_PATH       Explicit override for copilot source path (lower priority than
+#                         --copilot-path flag, higher than project-relative resolution)
 #
 # Exit codes:
 #   0 = all checks passed
@@ -23,16 +28,16 @@ set -uo pipefail
 # ---------------------------------------------------------------------------
 AGENTS_DIR=".claude/agents"
 COMMANDS_DIR=".claude/commands"
-COPILOT_PATH="${HOME}/.claude/copilot"
+COPILOT_PATH_FLAG=""   # set only when --copilot-path is passed explicitly
 
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --agents-dir)   AGENTS_DIR="$2";    shift 2 ;;
-    --commands-dir) COMMANDS_DIR="$2";  shift 2 ;;
-    --copilot-path) COPILOT_PATH="$2";  shift 2 ;;
+    --agents-dir)   AGENTS_DIR="$2";        shift 2 ;;
+    --commands-dir) COMMANDS_DIR="$2";      shift 2 ;;
+    --copilot-path) COPILOT_PATH_FLAG="$2"; shift 2 ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
   esac
 done
@@ -49,10 +54,41 @@ fail() { echo "  [FAIL] $1"; FAIL_COUNT=$((FAIL_COUNT + 1)); FAILURES+=("$1"); }
 section() { echo; echo "=== $1 ==="; }
 
 # ---------------------------------------------------------------------------
+# Resolve VERSION.json — hermetic precedence:
+#   1. --copilot-path flag (explicit CLI override)
+#   2. CC_COPILOT_PATH env var (explicit env override)
+#   3. Project's own VERSION.json (repo root, resolved relative to this script)
+#   4. Machine install ~/.claude/copilot/VERSION.json
+#   5. Hardcoded fallback (emits WARNING — stale-prone)
+# ---------------------------------------------------------------------------
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
+_PROJECT_VERSION="${_SCRIPT_DIR}/VERSION.json"
+_MACHINE_VERSION="${HOME}/.claude/copilot/VERSION.json"
+
+if [ -n "$COPILOT_PATH_FLAG" ]; then
+  VERSION_FILE="${COPILOT_PATH_FLAG}/VERSION.json"
+  VERSION_SOURCE="--copilot-path flag"
+elif [ -n "${CC_COPILOT_PATH:-}" ]; then
+  VERSION_FILE="${CC_COPILOT_PATH}/VERSION.json"
+  VERSION_SOURCE="CC_COPILOT_PATH env var"
+elif [ -f "$_PROJECT_VERSION" ]; then
+  VERSION_FILE="$_PROJECT_VERSION"
+  VERSION_SOURCE="project root (${_PROJECT_VERSION})"
+elif [ -f "$_MACHINE_VERSION" ]; then
+  VERSION_FILE="$_MACHINE_VERSION"
+  VERSION_SOURCE="machine install (${_MACHINE_VERSION})"
+else
+  VERSION_FILE=""
+  VERSION_SOURCE=""
+fi
+
+# Keep COPILOT_PATH for the restore-guidance footer (best-effort)
+COPILOT_PATH="${COPILOT_PATH_FLAG:-${CC_COPILOT_PATH:-${HOME}/.claude/copilot}}"
+
+# ---------------------------------------------------------------------------
 # Read roster from VERSION.json
 # ---------------------------------------------------------------------------
-VERSION_FILE="${COPILOT_PATH}/VERSION.json"
-if [ -f "$VERSION_FILE" ]; then
+if [ -n "$VERSION_FILE" ] && [ -f "$VERSION_FILE" ]; then
   ROSTER=$(python3 -c "
 import json, sys
 with open('$VERSION_FILE') as f:
@@ -67,8 +103,10 @@ with open('$VERSION_FILE') as f:
 retired = v['components']['agents'].get('retired', [])
 print(' '.join(retired))
 " 2>/dev/null) || RETIRED=""
+  echo "Using manifest: $VERSION_SOURCE" >&2
 else
-  echo "WARNING: VERSION.json not found at $VERSION_FILE — using hardcoded defaults" >&2
+  echo "WARNING: VERSION.json not found via any resolution path — using hardcoded defaults (stale-prone)" >&2
+  echo "  Checked: --copilot-path flag, CC_COPILOT_PATH env, ${_PROJECT_VERSION}, ${_MACHINE_VERSION}" >&2
   ROSTER="cco cpa cs cw do doc ind kc me qa sd sec ta uid uids uxd"
   RETIRED="design"
 fi
