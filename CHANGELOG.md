@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.6.0] - 2026-06-04
+
+### Added
+- **`cc install.sh` auto-PATH** (`tools/cc/install.sh`): installer now automatically appends `~/.local/bin` to shell rc if not already on `PATH`; eliminates manual PATH configuration step after install
+
+### Changed
+- **Python floor raised to 3.9→3.10** (`pyproject.toml`, root `requires-python`): drops EOL Python 3.9; cc and tc already required 3.10 — root package now declares the same floor consistently
+- **Black formatting applied** to all copilot-owned Python source files (no logic changes)
+
+### Fixed
+- **`setup-project` cc precheck** (`.claude/commands/setup-project.md`): distinguishes framework `cc` from system `/usr/bin/cc` (C compiler) so precheck no longer false-passes on machines without the framework CLI installed
+- **`check-versions.sh` TypeError** (`.claude/fitness-check.sh` / version scripts): fixed TypeError that caused version validation to fail on clean installs
+- **Smoke-test agent count** (CI): corrected assertion from 8 to 16 agents; stale integration-test assertions updated to match current CLI contracts
+- **pytest config** (`pyproject.toml`): excludes vendored `claude_monitor` directory to prevent collection errors on test runs
+- **uv.lock security patch**: resolved 35 vulnerability alerts in locked dependency tree
+
+### Removed
+- **`mcp-servers/` tree**: entire legacy MCP server implementation removed — framework fully migrated to cc/tc CLI
+- **Legacy TypeScript test suite + `keyword-parser.ts`**: dead TS code removed; no replacement needed (functionality lives in Python)
+- **Dead `.mjs` scripts**: stale ESM utility scripts with no callers removed
+- **`packages/installer/`**: legacy NPM installer removed; `install.sh` is the sole install path
+
 ## [5.4.0] - 2026-06-04
 
 ### Added
