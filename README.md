@@ -312,26 +312,38 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 
 ## Your Team
 
-| Agent    | Role              | When to Use                                |
-| -------- | ----------------- | ------------------------------------------ |
-| `ta`     | Tech Architect    | System design, task breakdown, ADRs        |
-| `me`     | Engineer          | Implementation, bug fixes, refactoring     |
-| `qa`     | QA Engineer       | Testing strategy, edge cases, verification |
-| `doc`    | Documentation     | READMEs, API docs, technical writing       |
-| `do`     | DevOps            | CI/CD, infrastructure, deploy, containers  |
-| `sd`     | Service Designer  | Customer journeys, experience strategy     |
-| `design` | UX + UI + Visual  | Interaction design, visual design, components |
-| `kc`     | Knowledge Copilot | Shared knowledge setup (utility)           |
+**Core agents (always available):**
 
-**Skills (loaded on demand, not standalone agents):**
+| Agent | Role              | When to Use                                |
+| ----- | ----------------- | ------------------------------------------ |
+| `ta`  | Tech Architect    | System design, task breakdown, ADRs        |
+| `me`  | Engineer          | Implementation, bug fixes, refactoring     |
+| `qa`  | QA Engineer       | Testing strategy, edge cases, verification |
+| `doc` | Documentation     | READMEs, API docs, technical writing       |
+| `do`  | DevOps            | CI/CD, infrastructure, deploy, containers  |
+| `sd`  | Service Designer  | Customer journeys, experience strategy     |
+| `kc`  | Knowledge Copilot | Shared knowledge setup (utility)           |
 
-| Skill | Replaces | Load with |
-|-------|----------|-----------|
-| Security (STRIDE/DREAD) | `@agent-sec` | `@include .claude/skills/security/stride-dread/SKILL.md` |
-| Voice & Tone | `@agent-cw` | `@include .claude/skills/voice-tone/SKILL.md` |
-| Creative Direction | `@agent-cco` | `@include .claude/skills/litmus-test/SKILL.md` |
+**Design chain (sd → uxd → uids → uid → ta → me):**
 
-→ [Meet your full team](docs/10-architecture/01-agents.md) | [Why we restructured from 14 to 8 agents](docs/10-architecture/04-framework-restructure-2026-04.md)
+| Agent  | Role                           | When to Use                             |
+| ------ | ------------------------------ | --------------------------------------- |
+| `uxd`  | UX Designer                    | Interaction flows, task design          |
+| `uids` | UI Design System               | Visual tokens, color, typography        |
+| `uid`  | UI Developer                   | Component implementation specs          |
+
+**Specialist branches:**
+
+| Agent | Role                    | When to Use                                      |
+| ----- | ----------------------- | ------------------------------------------------ |
+| `sec` | Security                | Threat modeling, STRIDE/DREAD analysis           |
+| `ind` | Industrial Designer     | Object-level essentialism review (upstream of uxd) |
+| `cco` | Creative Director       | Brand strategy, creative direction               |
+| `cw`  | Copywriter              | Copy execution, messaging, microcopy             |
+| `cs`  | Customer Success        | Support patterns, retention strategy             |
+| `cpa` | CPA / Financial         | Tax implications, financial modeling             |
+
+→ [Meet your full team](docs/10-architecture/01-agents.md) | [Agent roster history](docs/10-architecture/04-framework-restructure-2026-04.md)
 
 ---
 
@@ -357,7 +369,7 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 
 | Level          | What You Get                                          |
 | -------------- | ----------------------------------------------------- |
-| **Solo**       | 8 agents, persistent memory, local skills             |
+| **Solo**       | 16 agents, persistent memory, local skills            |
 | **Team**       | + shared knowledge repo, Known References registry    |
 | **Enterprise** | + Extensions system, company-specific agent overrides |
 

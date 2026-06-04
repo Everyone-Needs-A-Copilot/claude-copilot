@@ -100,11 +100,12 @@ cp ~/.claude/copilot/templates/commands/protocol.md ~/your-project/.claude/comma
 | Monitor orchestration | Orchestrate | `/orchestrate status` |
 | Get architecture help | Tech Architect agent | `/protocol` → routes to `ta` |
 | Implement code | Engineer agent | `/protocol` → routes to `me` |
-| Security review | `security/stride-dread` skill | `cc skill get stride-dread` (not an agent) |
+| Security review | Security agent | `/protocol` → routes to `sec` |
 | Write tests | QA agent | `/protocol` → routes to `qa` |
 | Write documentation | Documentation agent | `/protocol` → routes to `doc` |
 | Set up CI/CD | DevOps agent | `/protocol` → routes to `do` |
-| Design UX flows + UI | Design agent | `/protocol` → routes to `design` |
+| Design UX flows | UX Designer agent | `/protocol` → routes to `uxd` (via `sd`) |
+| Design visual system | UI Design System agent | `/protocol` → routes to `uids` (via `uxd`) |
 | Design services | Service Designer agent | `/protocol` → routes to `sd` |
 | Load a skill | cc CLI | `cc skill get <name>` |
 | Search skills | cc CLI | `cc skill search "<query>"` |
@@ -132,14 +133,22 @@ your-project/
     ├── commands/                # /protocol, /continue
     │   ├── protocol.md
     │   └── continue.md
-    ├── agents/                  # 8 specialist agents
+    ├── agents/                  # 16 specialist agents
     │   ├── ta.md               # Tech Architect
     │   ├── me.md               # Engineer
     │   ├── qa.md               # QA Engineer
     │   ├── do.md               # DevOps
     │   ├── doc.md              # Documentation
     │   ├── sd.md               # Service Designer
-    │   ├── design.md           # Interaction + Visual Design
+    │   ├── uxd.md              # UX Designer
+    │   ├── uids.md             # UI Design System
+    │   ├── uid.md              # UI Developer
+    │   ├── sec.md              # Security
+    │   ├── ind.md              # Industrial Designer
+    │   ├── cco.md              # Creative Director
+    │   ├── cw.md               # Copywriter
+    │   ├── cs.md               # Customer Success
+    │   ├── cpa.md              # CPA / Financial
     │   └── kc.md               # Knowledge Copilot
     └── skills/                  # Project-specific skills (optional)
 ```

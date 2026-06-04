@@ -318,7 +318,7 @@ You should see your previous session load with full context.
 
 ### What's Next?
 
-You've seen one agent in action. Milestone 3 introduces all 12 specialists and shows how they work together.
+You've seen one agent in action. Milestone 3 introduces all 16 specialists and shows how they work together.
 
 ---
 
@@ -326,11 +326,11 @@ You've seen one agent in action. Milestone 3 introduces all 12 specialists and s
 
 **Complexity**: Intermediate
 **Prerequisites**: Protocol working
-**Goal**: Master all 8 agents and understand when to use each
+**Goal**: Master all 16 agents and understand when to use each
 
 ### What You'll Achieve
 
-- Know all 12 specialist agents
+- Know all 16 specialist agents
 - Understand agent routing patterns
 - Use agents for complex multi-domain tasks
 - See agents collaborate on solutions
@@ -341,6 +341,8 @@ Complex work requires multiple perspectives: architecture, security, UX, impleme
 
 ### Your Team
 
+**Core agents:**
+
 | Agent | Role | When Used |
 |-------|------|-----------|
 | **ta** | Tech Architect | System design, task breakdown, ADRs |
@@ -349,10 +351,26 @@ Complex work requires multiple perspectives: architecture, security, UX, impleme
 | **doc** | Documentation | READMEs, API docs, architecture docs |
 | **do** | DevOps | CI/CD, containers, infrastructure |
 | **sd** | Service Designer | Customer journeys, experience strategy |
-| **design** | Design | Interaction + visual design, components, copy |
 | **kc** | Knowledge Copilot | Shared knowledge setup |
 
-> Security: load the `security/stride-dread` skill instead of using a dedicated agent.
+**Design chain (sd → uxd → uids → uid → ta → me):**
+
+| Agent | Role | When Used |
+|-------|------|-----------|
+| **uxd** | UX Designer | Interaction flows, task design |
+| **uids** | UI Design System | Visual tokens, color, typography |
+| **uid** | UI Developer | Component specs |
+
+**Specialist branches:**
+
+| Agent | Role | When Used |
+|-------|------|-----------|
+| **sec** | Security | Threat modeling, STRIDE/DREAD |
+| **ind** | Industrial Designer | Object-level essentialism review |
+| **cco** | Creative Director | Brand strategy, creative direction |
+| **cw** | Copywriter | Copy execution, messaging, microcopy |
+| **cs** | Customer Success | Support patterns |
+| **cpa** | CPA / Financial | Financial modeling, tax implications |
 
 ### Hands-on Exercises
 
@@ -369,10 +387,12 @@ Design and implement a user profile page with avatar upload
 
 Watch the routing:
 1. **ta** (Tech Architect) - Breaks down architecture
-2. **design** (Design Agent) - Designs the flow + UI components
-3. [security/stride-dread skill loaded inline for file upload review]
-4. **me** (Engineer) - Implements components
-5. **qa** (QA Engineer) - Tests edge cases
+2. **uxd** (UX Designer) - Designs the flow + interaction specs
+3. **uids** (UI Design System) - Defines component visual tokens
+4. **uid** (UI Developer) - Specs the component implementation
+5. **sec** (Security) - Reviews file upload security
+6. **me** (Engineer) - Implements components
+7. **qa** (QA Engineer) - Tests edge cases
 
 #### Exercise 2: Direct Agent Invocation
 
@@ -383,10 +403,10 @@ You can also talk directly to agents:
 ```
 
 ```
-@design Design an onboarding flow for first-time users
+@uxd Design an onboarding flow for first-time users
 ```
 
-(Security: use `cc skill get stride-dread` to load the security skill for code review.)
+(Security: use `@agent-sec` or `cc skill get stride-dread` to load the security skill for code review.)
 
 #### Exercise 3: Agent Collaboration
 
@@ -403,8 +423,10 @@ We need to add payment processing to the checkout flow
 
 Expected routing:
 - **ta** - Architecture (payment providers, webhook handling)
-- [security/stride-dread skill] - Security (PCI compliance, token handling)
-- **design** - UX + UI (payment form, error states, components)
+- **sec** - Security (PCI compliance, token handling)
+- **uxd** - Interaction design (payment form, error states)
+- **uids** - Visual design tokens
+- **uid** - Component specs
 - **me** - Implementation
 - **qa** - Testing (failed payments, edge cases)
 
@@ -415,12 +437,14 @@ Agents route to each other based on expertise:
 ```mermaid
 graph LR
     A[Any Agent] --> B[ta: Architecture]
-    D[sd: Service Design] --> E[design: UX + Visual]
-    E --> B
+    D[sd: Service Design] --> E[uxd: Interaction Design]
+    E --> F[uids: Visual Design System]
+    F --> G[uid: Component Specs]
+    G --> B
     A --> H[me: Engineering]
     A --> I[qa: Testing]
     A --> J[doc: Documentation]
-    A --> K[skill: security/stride-dread]
+    A --> K[sec: Security]
 ```
 
 ### Agent Decision Authority
@@ -457,7 +481,7 @@ Expected flow:
 
 ### Success Criteria
 
-- [ ] Understand all 8 agents and their domains
+- [ ] Understand all 16 agents and their domains
 - [ ] Completed multi-agent feature exercise
 - [ ] Invoked agents directly with @
 - [ ] Saw agents route to each other
@@ -930,7 +954,7 @@ Use this checklist to track your journey:
 - [ ] Understand protocol → agent → memory flow
 
 ### Milestone 3: Agents
-- [ ] Know all 8 agents and their domains
+- [ ] Know all 16 agents and their domains
 - [ ] Completed multi-agent feature
 - [ ] Used @ to invoke agents directly
 - [ ] Saw agents route to each other
@@ -1004,7 +1028,7 @@ Use this checklist to track your journey:
 
 **Solution:**
 - Use /protocol - routing is automatic
-- For direct invocation: @ta (design), @me (code), @qa (test), @doc (write), @design (UX/UI), @do (infra)
+- For direct invocation: @ta (architecture), @me (code), @qa (test), @doc (write), @uxd (interaction design), @uids (visual design), @uid (component specs), @sec (security), @do (infra)
 - Security: load `cc skill get stride-dread` for security analysis
 - Check the agent routing diagram in Milestone 3
 

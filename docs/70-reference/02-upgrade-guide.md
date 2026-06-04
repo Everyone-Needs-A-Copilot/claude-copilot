@@ -8,7 +8,7 @@ This release modernizes the framework from MCP-server dependencies to the `cc`/`
 - `cc skill evaluate` is removed. Use `cc skill search "<query>"` + `cc skill get <name>` instead.
 - MCP server setup (copilot-memory, skills-copilot Node.js servers) is no longer required. The `cc` and `tc` CLIs replace them entirely.
 - Memory uses FTS5 keyword search. Semantic/vector search was never shipped; if docs or agents referenced it, that was incorrect.
-- Agent roster reduced from 14 to 8: `uxd`, `uids`, `uid`, `cw`, `cco`, and `sec` are removed. Their capabilities are covered by `design` (for UX/UI/visual/copy) and the `security/stride-dread` skill.
+- At v5.1, agent roster was reduced from 14 to 8: `uxd`, `uids`, `uid`, `cw`, `cco`, and `sec` were consolidated into `design` and the `security/stride-dread` skill. The current framework (v5.2+) has restored the full 16-agent roster; `design` is retired and replaced by the `uxd`→`uids`→`uid` design chain.
 - `@include` is not the primary skill mechanism. Use `cc skill search` / `cc skill get` for discovery and loading.
 
 **Migration steps:**
@@ -203,7 +203,7 @@ In Claude Code:
 Updating Project with Claude Copilot v1.8.0
 
 Files updated:
-✓ .claude/agents/ (14 agents)
+✓ .claude/agents/ (16 agents)
 ✓ .claude/commands/ (added orchestrate.md)
 ✓ .gitignore (added .claude/orchestrator/)
 

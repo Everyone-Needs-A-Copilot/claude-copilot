@@ -59,7 +59,9 @@ User Request → Protocol → Lean Agent → cc skill search → cc skill get �
 | Testing required | qa |
 | Deployment concerns | do |
 
-### Current Agent Roster (8 agents + kc)
+### Current Agent Roster (16 agents + kc)
+
+**Core:**
 
 | Agent | Role |
 |-------|------|
@@ -69,10 +71,26 @@ User Request → Protocol → Lean Agent → cc skill search → cc skill get �
 | `do` | DevOps/infra — 12-Factor/SRE |
 | `doc` | Documentation — Diátaxis |
 | `sd` | Service design — IDEO methodology |
-| `design` | Interaction/visual design — Nielsen + Rams + Atomic Design |
 | `kc` | Knowledge copilot setup (run `/knowledge-copilot`) |
 
-> Security reviews use the `security/stride-dread` skill, not a dedicated agent.
+**Design chain (sd → uxd → uids → uid → ta → me):**
+
+| Agent | Role |
+|-------|------|
+| `uxd` | UX Designer — interaction flows, task design |
+| `uids` | UI Design System — visual tokens, color, typography |
+| `uid` | UI Developer — component implementation specs |
+
+**Specialist branches:**
+
+| Agent | Role |
+|-------|------|
+| `sec` | Security — STRIDE/DREAD threat modeling |
+| `ind` | Industrial Designer — object-level essentialism (upstream of uxd) |
+| `cco` | Creative Director — brand strategy, creative direction |
+| `cw` | Copywriter — copy execution, messaging, microcopy |
+| `cs` | Customer Success — support patterns, retention |
+| `cpa` | CPA / Financial — tax implications, financial modeling |
 
 ---
 

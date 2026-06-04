@@ -118,14 +118,22 @@ your-project/
     │   ├── continue.md
     │   ├── setup.md
     │   └── knowledge-copilot.md
-    ├── agents/            # Agent definitions (8 agents)
+    ├── agents/            # Agent definitions (16 agents)
     │   ├── ta.md
     │   ├── me.md
     │   ├── qa.md
     │   ├── do.md
     │   ├── doc.md
     │   ├── sd.md
-    │   ├── design.md
+    │   ├── uxd.md
+    │   ├── uids.md
+    │   ├── uid.md
+    │   ├── sec.md
+    │   ├── ind.md
+    │   ├── cco.md
+    │   ├── cw.md
+    │   ├── cs.md
+    │   ├── cpa.md
     │   └── kc.md
     └── skills/            # Project-specific skills (optional)
 ```

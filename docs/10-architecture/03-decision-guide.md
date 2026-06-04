@@ -101,7 +101,7 @@ Are you using Claude Copilot for the first time?
 | "Security audit" | load `security/stride-dread` skill | Security skill, not a dedicated agent |
 | "Write API docs" | `/protocol` (DOCUMENTATION) → `@agent-doc` | Documentation specialist |
 | "Refactor auth module" | `/protocol` (ARCHITECTURE) → `@agent-ta` | Design decision needed |
-| "Fix button alignment" | `/protocol` (DEFECT) → `@agent-design` | UI design/implementation fix |
+| "Fix button alignment" | `/protocol` (DEFECT) → `@agent-uxd` | UI interaction fix |
 
 ---
 

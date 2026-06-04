@@ -21,7 +21,7 @@
 **Examples:**
 - `[PROTOCOL: DEFECT | Agent: @agent-qa | Action: INVOKING]`
 - `[PROTOCOL: DEFECT | Agent: none | Action: ASKING]` (when you need info first)
-- `[PROTOCOL: EXPERIENCE | Agent: @agent-sd, @agent-design | Action: INVOKING]`
+- `[PROTOCOL: EXPERIENCE | Agent: @agent-sd, @agent-uxd | Action: INVOKING]`
 - `[PROTOCOL: TECHNICAL | Agent: @agent-ta | Action: INVOKING]`
 - `[PROTOCOL: QUESTION | Agent: none | Action: RESPONDING]`
 
@@ -34,7 +34,7 @@
 | Type | Indicators | First Agent |
 |------|------------|-------------|
 | **Defect/Bug** | "broken", "not working", "error", unexpected behavior | `@agent-qa` |
-| **Experience** | UI, UX, feature, user-facing change | `@agent-sd` + `@agent-design` |
+| **Experience** | UI, UX, feature, user-facing change | `@agent-sd` + `@agent-uxd` |
 | **Technical** | Architecture, backend, refactor, performance | `@agent-ta` |
 | **Question** | "How does...", "Where is...", "Explain..." | None (respond directly) |
 
@@ -53,7 +53,7 @@
 ### Experience Request
 ```
 1. INVOKE @agent-sd (map user journey)
-2. INVOKE @agent-design (interaction + visual design)
+2. INVOKE @agent-uxd (interaction + task flow design)
 3. WAIT for results
 4. THEN respond with recommendations/questions
 ```
@@ -160,7 +160,9 @@ Your response MUST include:
 
 | Task | Agent | Purpose |
 |------|-------|---------|
-| UX/Interaction + Visual Design | `@agent-design` | Task flows, wireframes, color, typography, components |
+| Interaction + Task Flow Design | `@agent-uxd` | Task flows, wireframes, usability |
+| Visual Design System | `@agent-uids` | Color, typography, design tokens |
+| Component Specs | `@agent-uid` | Component implementation blueprints |
 
 ### Verification Phase
 

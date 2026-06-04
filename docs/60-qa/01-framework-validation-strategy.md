@@ -316,7 +316,7 @@ EOF
 ```bash
 # Check all agent files exist
 ls -1 .claude/agents/*.md | wc -l
-# Should be 8 agents
+# Should be 16 agents
 
 # Verify each has required sections
 for agent in .claude/agents/*.md; do
@@ -412,30 +412,32 @@ sqlite3 ~/.claude/memory/<workspace>/memory.db \
 
 **Purpose:** Verify agents correctly route to each other
 
-**Scenario:** User requests feature requiring SD → design flow
+**Scenario:** User requests feature requiring SD → design chain flow
 
 **Steps:**
 1. User: "Design a new user onboarding flow"
 2. Should trigger @agent-sd
-3. SD completes service design, routes to @agent-design
-4. design completes interaction + visual design, routes to @agent-ta
+3. SD completes service design, routes to @agent-uxd
+4. uxd completes interaction design, routes to @agent-uids
+5. uids completes visual design tokens, routes to @agent-uid
+6. uid completes component specs, routes to @agent-ta
 
 **Verification:**
 Check conversation log for:
 ```
 [PROTOCOL: EXPERIENCE | Agent: @agent-sd | Action: INVOKING]
 [... SD work ...]
-Routing to @agent-design for interaction/visual design
+Routing to @agent-uxd for interaction design
 
-[PROTOCOL: EXPERIENCE | Agent: @agent-design | Action: INVOKING]
-[... design work ...]
+[PROTOCOL: EXPERIENCE | Agent: @agent-uxd | Action: INVOKING]
+[... uxd work ...]
 Routing to @agent-ta for architecture specification
 ```
 
 **Pass Criteria:**
 - [ ] Correct agent invoked first (SD)
-- [ ] SD routes to design
-- [ ] design routes to ta (for architecture)
+- [ ] SD routes to uxd
+- [ ] uxd routes to ta (for architecture, or uids for visual design)
 - [ ] Each agent completes its domain work
 - [ ] No duplicate work across agents
 
@@ -683,7 +685,7 @@ claude
 - [ ] `.mcp.json` created with correct server configs
 - [ ] `CLAUDE.md` created with project instructions
 - [ ] `.claude/commands/` directory created with protocol and continue
-- [ ] `.claude/agents/` directory created with all 8 agents
+- [ ] `.claude/agents/` directory created with all 16 agents
 - [ ] `.claude/skills/` directory created for project skills
 - [ ] User informed of next steps
 
@@ -700,7 +702,7 @@ test -d .claude/skills && echo "✓ Skills"
 jq . .mcp.json > /dev/null && echo "✓ Valid JSON"
 
 # Check all agents present
-[[ $(ls .claude/agents/*.md | wc -l) -ge 8 ]] && echo "✓ All 8 agents"
+[[ $(ls .claude/agents/*.md | wc -l) -ge 16 ]] && echo "✓ All 16 agents"
 ```
 
 **Pass Criteria:**
@@ -815,9 +817,10 @@ Fix validated. Closing defect.
 **Steps:**
 1. User: "Add dark mode to the application"
 2. @agent-ta: Architecture decisions (state management, theme system)
-3. @agent-design: Interaction + visual design (toggle, color palette, component variants)
-4. @agent-me: Implementation (CSS variables, toggle component)
-5. @agent-qa: Test plan (visual regression, state persistence)
+3. @agent-uxd: Interaction design (toggle flow, interaction patterns)
+4. @agent-uids: Visual design (color palette, design tokens for dark theme)
+5. @agent-me: Implementation (CSS variables, toggle component)
+6. @agent-qa: Test plan (visual regression, state persistence)
 
 **Expected Results:**
 - [ ] Architecture documented

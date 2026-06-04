@@ -84,7 +84,7 @@ If any test fails, see the detailed logs for which specific test failed and why.
 
 **Lean Agent Model**
 
-Current state: 8 agents total, all using the lean agent model (under 120 lines) with on-demand skill loading via `cc skill search` / `cc skill get`. Shared boilerplate is extracted to "Agent Shared Behaviors" in CLAUDE.md.
+Current state: 16 agents total, all using the lean agent model (under 120 lines) with on-demand skill loading via `cc skill search` / `cc skill get`. Shared boilerplate is extracted to "Agent Shared Behaviors" in CLAUDE.md.
 
 **Current agents:**
 - ta.md (Tech Architect)
@@ -93,7 +93,15 @@ Current state: 8 agents total, all using the lean agent model (under 120 lines) 
 - do.md (DevOps)
 - doc.md (Documentation)
 - sd.md (Service Designer)
-- design.md (Interaction + Visual Design)
+- uxd.md (UX Designer)
+- uids.md (UI Design System)
+- uid.md (UI Developer)
+- sec.md (Security)
+- ind.md (Industrial Designer)
+- cco.md (Creative Director)
+- cw.md (Copywriter)
+- cs.md (Customer Success)
+- cpa.md (CPA / Financial)
 - kc.md (Knowledge Copilot)
 
 **Required sections per CLAUDE.md:**

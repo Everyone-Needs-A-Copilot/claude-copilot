@@ -1,6 +1,6 @@
 # Meet Your Team
 
-Claude Copilot provides **8 specialized agents** plus a setup agent — each an expert in their domain, built using the lean agent model with on-demand skill loading.
+Claude Copilot provides **16 specialized agents** plus a setup agent — each an expert in their domain, built using the lean agent model with on-demand skill loading.
 
 ## Architecture: Lean Agents + Deep Skills
 
@@ -45,6 +45,8 @@ Extensions continue to work with lean agents:
 
 ## Quick Reference
 
+**Core agents:**
+
 | Agent | Domain | When to Use |
 |-------|--------|-------------|
 | `ta` | Technical architecture — ADR/fitness functions | "Design the auth system", "Break down this PRD" |
@@ -53,10 +55,26 @@ Extensions continue to work with lean agents:
 | `do` | DevOps/infra — 12-Factor/SRE | "Set up the CI pipeline", "Configure Docker" |
 | `doc` | Documentation — Diátaxis | "Document this API", "Update the README" |
 | `sd` | Service design — IDEO methodology | "Map the onboarding journey", "Where are users dropping off?" |
-| `design` | Interaction/visual design — Nielsen + Rams + Atomic Design | "Design the checkout flow", "Create the component library" |
 | `kc` | Knowledge copilot setup | Run `/knowledge-copilot` |
 
-> **Security:** Security concerns are handled via the `security/stride-dread` skill rather than a dedicated agent. Load it with `cc skill get stride-dread` or `@include .claude/skills/security/stride-dread/SKILL.md`.
+**Design chain (sd → uxd → uids → uid → ta → me):**
+
+| Agent | Domain | When to Use |
+|-------|--------|-------------|
+| `uxd` | UX Designer — interaction flows, task design | "Design the checkout task flow", "Map the error recovery flow" |
+| `uids` | UI Design System — visual tokens, color, typography | "Create the design tokens", "Define color palette" |
+| `uid` | UI Developer — component implementation specs | "Spec the button component", "Create the form component library" |
+
+**Specialist branches:**
+
+| Agent | Domain | When to Use |
+|-------|--------|-------------|
+| `sec` | Security — STRIDE/DREAD threat modeling | "Review auth for vulnerabilities", "Threat model the payment flow" |
+| `ind` | Industrial Designer — object-level essentialism | "Review what's essential in this feature" (upstream of uxd) |
+| `cco` | Creative Director — brand strategy | "Review brand alignment", "Creative direction for campaign" |
+| `cw` | Copywriter — messaging and microcopy | "Write the error messages", "Copy for onboarding" |
+| `cs` | Customer Success — support patterns | "Design the support escalation flow" |
+| `cpa` | CPA / Financial — financial modeling | "Model the pricing implications", "Tax considerations" |
 
 ---
 
@@ -174,27 +192,53 @@ These agents ensure your software serves real human needs — not just technical
 
 ---
 
-### `@agent-design` — Design
+### `@agent-uxd` — UX Designer
 
-**Your interaction and visual designer who makes interfaces intuitive and beautiful.**
+**Your interaction designer who makes flows users can follow.**
 
-Consolidates interaction design (flows, wireframes, usability), visual design (tokens, color, typography), and UI implementation patterns.
-
-- Designs task flows that users can follow
+- Designs task flows and interaction models
 - Creates wireframes and interaction specifications
 - Ensures accessibility (WCAG 2.1 AA)
-- Creates design systems and tokens
-- Designs color palettes (WCAG compliant)
+- Validates usability before visual polish
+
+**Value:** Users complete tasks without confusion. Designs validated before code is written.
+
+**When to use:** "Design the checkout flow", "Is this form usable?", "Map the error recovery task flow"
+
+Routes to `@agent-uids` when task flows are approved.
+
+---
+
+### `@agent-uids` — UI Design System
+
+**Your visual design system specialist.**
+
+- Creates design tokens (color, spacing, typography)
+- Designs WCAG-compliant color palettes
 - Establishes typography hierarchies
+- Produces visual specs for components
 
-**Value:** Users complete tasks without confusion. Visual design reinforces usability. Scalable design systems. WCAG compliance. Designs validated before code.
+**Value:** Scalable design systems. Visual consistency. WCAG compliance.
 
-**When to use:**
-- "Design the checkout flow"
-- "Is this form usable?"
-- "Create a color palette"
-- "Design the component library"
-- "Is this visually consistent?"
+**When to use:** "Create design tokens", "Define the color palette", "Set the typography scale"
+
+Routes to `@agent-uid` when tokens and specs are ready.
+
+---
+
+### `@agent-uid` — UI Developer
+
+**Your component specification expert.**
+
+- Translates design tokens into component specs
+- Creates component implementation blueprints
+- Ensures design-to-code fidelity
+
+**Value:** Components built from design intent, not guesswork.
+
+**When to use:** "Spec the button component", "Create the form component library"
+
+Routes to `@agent-ta` when component specs are ready for task planning.
 
 ---
 
@@ -246,13 +290,17 @@ User Request: "Redesign our onboarding experience"
     @agent-sd ─────────────────────────────────────────────────────┐
     (maps customer journey, identifies pain points)                 │
          │                                                          │
-         └──→ @agent-design (interaction + visual design)          │
+         └──→ @agent-uxd (interaction + task flow design)         │
                    │                                                │
-                   └──→ @agent-ta (spec to architecture) ◄─────────┘
-                             │
-                             └──→ @agent-me (implementation)
-                                       │
-                                       └──→ @agent-qa (accessibility + regression)
+                   └──→ @agent-uids (visual design system)         │
+                             │                                      │
+                             └──→ @agent-uid (component specs)     │
+                                       │                            │
+                                       └──→ @agent-ta (spec to architecture) ◄─┘
+                                                 │
+                                                 └──→ @agent-me (implementation)
+                                                           │
+                                                           └──→ @agent-qa (accessibility + regression)
 ```
 
 ### Routing Table
@@ -260,14 +308,17 @@ User Request: "Redesign our onboarding experience"
 | From | Routes To | When |
 |------|-----------|------|
 | Any | `ta` | Architecture decisions needed |
-| `sd` | `design` | Interaction/visual design needed |
-| `design` | `ta` | Specification ready for architecture |
+| `sd` | `uxd` | Interaction/task flow design needed |
+| `uxd` | `uids` | Task flows approved, visual design next |
+| `uids` | `uid` | Design tokens ready for component specs |
+| `uid` | `ta` | Component specs ready for task planning |
+| `sd` | `cco` | Creative direction or brand strategy needed |
+| `cco` | `cw` | Copy execution, messaging, microcopy |
 | Any | `me` | Code implementation needed |
 | Any | `qa` | Testing needed |
 | Any | `doc` | Documentation needed |
 | Any | `do` | CI/CD or infrastructure needed |
-
-For security reviews: load the `security/stride-dread` skill rather than routing to a separate agent.
+| Any | `sec` | Security review, threat modeling |
 
 ---
 

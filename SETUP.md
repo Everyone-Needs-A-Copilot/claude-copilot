@@ -63,7 +63,7 @@ This creates a knowledge repository for company/product information shared acros
 |-----------|---------|
 | `tools/tc/` | `tc` CLI — PRD, task, and work product management (required) |
 | `tools/cc/` | `cc` CLI — unified memory + skills tool (required) |
-| `.claude/agents/` | 8 specialized agent definitions |
+| `.claude/agents/` | 16 specialized agent definitions |
 | `.claude/commands/` | Source command files |
 | `templates/` | Project setup templates |
 

@@ -183,10 +183,14 @@ You: /protocol add dark mode to the dashboard
 
 Service Designer:
   1. Creates journey map for dark mode toggle
-  2. Routes to @agent-design
+  2. Routes to @agent-uxd
 
-Design Agent:
-  1. Designs interaction patterns, color tokens for dark theme, component variants
+UX Designer:
+  1. Designs interaction patterns for dark mode toggle
+  2. Routes to @agent-uids for visual design tokens
+
+UI Design System:
+  1. Creates color tokens for dark theme
   2. Routes to @agent-me for implementation
 
 Engineer:

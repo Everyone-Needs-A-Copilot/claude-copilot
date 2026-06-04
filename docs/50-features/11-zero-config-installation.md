@@ -75,7 +75,7 @@ git clone [repository-url] .
 
 **What gets installed:**
 - Framework core files
-- All 8 agents
+- All 16 agents
 - All commands
 - `cc` and `tc` CLI tools
 - Installation scripts
@@ -216,7 +216,7 @@ npx claude-copilot validate --project . --verbose
 
 **Validation checks:**
 - Framework structure (directories and files)
-- All 8 agents present
+- All 16 agents present
 - All commands present
 - `cc` and `tc` CLI tools installed
 - Optional components (knowledge repo, skills)
