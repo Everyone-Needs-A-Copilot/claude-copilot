@@ -100,7 +100,7 @@ Persistent memory across sessions with full-text (FTS5 keyword) search.
 
 **Design chain:** sd → uxd → uids → uid → ta → me (ind and cco/cw are optional branches)
 **Security:** @agent-sec routes to me/ta/do; @includes stride-dread skill
-**Business:** cs/cpa operate as independent branches
+**Business advisory (optional, outside the build chain):** cs (sales) and cpa (finance/tax) are standalone agents for founder/agency business needs — they do not route into the software build chain; invoke them directly
 
 **Location:** `.claude/agents/`
 

@@ -147,8 +147,8 @@ your-project/
     │   ├── ind.md              # Industrial Designer
     │   ├── cco.md              # Creative Director
     │   ├── cw.md               # Copywriter
-    │   ├── cs.md               # Customer Success
-    │   ├── cpa.md              # CPA / Financial
+    │   ├── cs.md               # Customer Success  [business advisory — invoke standalone]
+    │   ├── cpa.md              # CPA / Financial   [business advisory — invoke standalone]
     │   └── kc.md               # Knowledge Copilot
     └── skills/                  # Project-specific skills (optional)
 ```

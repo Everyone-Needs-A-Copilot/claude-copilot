@@ -73,8 +73,15 @@ Extensions continue to work with lean agents:
 | `ind` | Industrial Designer — object-level essentialism | "Review what's essential in this feature" (upstream of uxd) |
 | `cco` | Creative Director — brand strategy | "Review brand alignment", "Creative direction for campaign" |
 | `cw` | Copywriter — messaging and microcopy | "Write the error messages", "Copy for onboarding" |
-| `cs` | Customer Success — support patterns | "Design the support escalation flow" |
-| `cpa` | CPA / Financial — financial modeling | "Model the pricing implications", "Tax considerations" |
+
+**Business advisory (optional — outside the software build chain):**
+
+> `cs` and `cpa` are standalone advisory agents for founder/agency business needs. They do not route into or out of the build chain (sd → uxd → uids → uid → ta → me). Invoke them directly when you need business guidance.
+
+| Agent | Domain | When to Use |
+|-------|--------|-------------|
+| `cs` | Customer Success — Socratic sales patterns | "Design the support escalation flow", "Sales conversation strategy" |
+| `cpa` | CPA / Financial — S-Corp tax advisory | "Model the pricing implications", "Tax considerations" |
 
 ---
 

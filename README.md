@@ -340,6 +340,13 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 | `ind` | Industrial Designer     | Object-level essentialism review (upstream of uxd) |
 | `cco` | Creative Director       | Brand strategy, creative direction               |
 | `cw`  | Copywriter              | Copy execution, messaging, microcopy             |
+
+**Business advisory (optional — outside the software build chain):**
+
+> `cs` and `cpa` are standalone advisory agents for founder/agency business needs. They do not route into the build chain (sd → uxd → uids → uid → ta → me). Invoke them directly.
+
+| Agent | Role                    | When to Use                                      |
+| ----- | ----------------------- | ------------------------------------------------ |
 | `cs`  | Customer Success        | Support patterns, retention strategy             |
 | `cpa` | CPA / Financial         | Tax implications, financial modeling             |
 
