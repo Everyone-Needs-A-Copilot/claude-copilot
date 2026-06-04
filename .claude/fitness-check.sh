@@ -118,11 +118,12 @@ fi
 section "FF1: No Orphan Routes"
 
 # Scan agents/ (excluding _archive/) and commands/ for @agent-X references
-REFERENCED_AGENTS=$(grep -rh '@agent-[a-z][a-z]*' \
+REFERENCED_AGENTS=$(grep -rh '@agent-[a-z][a-z-]*' \
   --exclude-dir=_archive \
   "${AGENTS_DIR}/" "${COMMANDS_DIR}/" 2>/dev/null \
-  | grep -oE '@agent-[a-z]+' \
+  | grep -oE '@agent-[a-z][a-z-]*' \
   | sed 's/@agent-//' \
+  | sed 's/-$//' \
   | sort -u)
 
 # sec is allowlisted — it routes externally but is a valid agent
@@ -208,12 +209,16 @@ done
 # ---------------------------------------------------------------------------
 section "FF5: No Orphan Agent-to-Agent Routes"
 
-KNOWN_AGENTS="$ROSTER $ALLOWLIST"
+# Include on-disk agent basenames so project-owned custom agents (e.g. critic,
+# structural-editor, line-editor) are treated as known without needing to be in
+# the framework roster or allowlist.
+ON_DISK_AGENTS=$(for f in "${AGENTS_DIR}"/*.md; do [ -f "$f" ] && basename "$f" .md; done 2>/dev/null | tr '\n' ' ')
+KNOWN_AGENTS="$ROSTER $ON_DISK_AGENTS $ALLOWLIST"
 
 for agent_file in "${AGENTS_DIR}"/*.md; do
   agent_name=$(basename "$agent_file" .md)
-  # Find all @agent-X references in this file
-  refs=$(grep -oE '@agent-[a-z]+' "$agent_file" 2>/dev/null | sed 's/@agent-//' | sort -u)
+  # Find all @agent-X references in this file (allow hyphens in agent names)
+  refs=$(grep -oE '@agent-[a-z][a-z-]*' "$agent_file" 2>/dev/null | sed 's/@agent-//' | sed 's/-$//' | sort -u)
   for ref in $refs; do
     # Check if ref is in known agents (roster + allowlist)
     is_known=0
