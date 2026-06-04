@@ -228,6 +228,20 @@ All agents inherit these. Individual agent files should NOT repeat them.
 
 ---
 
+## Project-Owned Agents
+
+To override a framework agent at the project level, add `owner: project` to its frontmatter. Sync (`/update-project`, `/setup-project`) will never overwrite or remove it. Files without that marker are framework-owned and refresh normally.
+
+```yaml
+---
+name: cco
+owner: project   # ← sync will never touch this file
+...
+---
+```
+
+---
+
 ## Extension System
 
 Extensions allow company-specific methodologies to override or enhance base agents via knowledge repositories.

@@ -168,7 +168,12 @@ if [ -z "$RETIRED" ]; then
 else
   for agent in $RETIRED; do
     if [ -f "${AGENTS_DIR}/${agent}.md" ]; then
-      fail "${agent}.md still present but is listed as retired in VERSION.json — remove it"
+      # Exception: a project-owned override (owner: project) is intentionally kept
+      if grep -q '^owner: project' "${AGENTS_DIR}/${agent}.md" 2>/dev/null; then
+        pass "Retired agent ${agent}.md kept as project-owned override (owner: project)"
+      else
+        fail "${agent}.md still present but is listed as retired in VERSION.json — remove it"
+      fi
     else
       pass "Retired agent ${agent}.md correctly absent"
     fi

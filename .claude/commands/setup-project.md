@@ -137,7 +137,12 @@ print(' '.join(agents))
 
 for agent in $ROSTER; do
   if [ -f "$COPILOT_PATH/.claude/agents/${agent}.md" ]; then
-    cp "$COPILOT_PATH/.claude/agents/${agent}.md" .claude/agents/
+    existing=".claude/agents/${agent}.md"
+    if [ -f "$existing" ] && grep -q '^owner: project' "$existing" 2>/dev/null; then
+      echo "preserved project-owned agent: ${agent}"
+    else
+      cp "$COPILOT_PATH/.claude/agents/${agent}.md" .claude/agents/
+    fi
   fi
 done
 ```

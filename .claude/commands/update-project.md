@@ -249,6 +249,8 @@ echo "Commands updated (7 project commands)"
 
 Refresh only framework-owned agents; preserve any project-specific agents.
 
+**Project-owned agent override:** If an existing agent file contains `owner: project` in its frontmatter, sync will never overwrite or remove it — even if its name appears in the framework roster. To override a framework agent at the project level, add `owner: project` to its frontmatter.
+
 ```bash
 COPILOT_PATH=~/.claude/copilot
 
@@ -271,24 +273,38 @@ print(' '.join(retired))
 " 2>/dev/null || echo "design")
 
 # Remove retired agents from project (they should not remain)
+# Exception: never remove an agent marked owner: project
 for agent in $RETIRED; do
   if [ -f ".claude/agents/${agent}.md" ]; then
-    rm -f ".claude/agents/${agent}.md"
-    echo "Removed retired agent: ${agent}.md"
+    if grep -q '^owner: project' ".claude/agents/${agent}.md" 2>/dev/null; then
+      echo "preserved project-owned agent: ${agent} (skipping retired-agent removal)"
+    else
+      rm -f ".claude/agents/${agent}.md"
+      echo "Removed retired agent: ${agent}.md"
+    fi
   fi
 done
 
 # Refresh framework-owned agents only (preserve project-specific agents)
+# Convention: if an existing agent file has frontmatter "owner: project", skip it
 UPDATED=0
+PROJECT_OWNED_SKIPPED=""
 for agent in $ROSTER; do
   if [ -f "$COPILOT_PATH/.claude/agents/${agent}.md" ]; then
-    cp "$COPILOT_PATH/.claude/agents/${agent}.md" ".claude/agents/"
-    UPDATED=$((UPDATED + 1))
+    existing=".claude/agents/${agent}.md"
+    if [ -f "$existing" ] && grep -q '^owner: project' "$existing" 2>/dev/null; then
+      echo "preserved project-owned agent: ${agent}"
+      PROJECT_OWNED_SKIPPED="$PROJECT_OWNED_SKIPPED $agent"
+    else
+      cp "$COPILOT_PATH/.claude/agents/${agent}.md" ".claude/agents/"
+      UPDATED=$((UPDATED + 1))
+    fi
   fi
 done
 
 # Report any project-specific agents that were preserved
 echo "Framework agents refreshed: $UPDATED"
+[ -n "$PROJECT_OWNED_SKIPPED" ] && echo "Project-owned agents preserved (owner: project):$PROJECT_OWNED_SKIPPED"
 PRESERVED=$(ls .claude/agents/*.md 2>/dev/null | while read f; do
   name=$(basename "$f" .md)
   is_framework=0
