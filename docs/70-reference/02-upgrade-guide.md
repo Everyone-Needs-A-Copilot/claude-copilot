@@ -349,14 +349,12 @@ echo ".claude/orchestrator/" >> .gitignore
 ### Step 4: Verify Installation
 
 ```bash
-# Check MCP servers built successfully
-ls -la ~/.claude/copilot/mcp-servers/*/dist/
-
-# Should see dist/ directories for:
-# - copilot-memory
-# - skills-copilot
-# - websocket-bridge
+# Verify CLIs are installed and functional
+cc --version
+tc version
 ```
+
+**Expected:** Both commands print their version strings without error.
 
 ---
 
@@ -471,39 +469,7 @@ python3 .claude/orchestrator/start-streams.py
 
 ### 2. Enable WebSocket Bridge (Optional)
 
-**For real-time event streaming to UIs or dashboards:**
-
-```bash
-cd ~/.claude/copilot/mcp-servers/websocket-bridge
-
-# Create .env file
-cat > .env << EOF
-JWT_SECRET=your-random-secret-key-here
-WORKSPACE_ID=your-workspace-id
-WS_PORT=8765
-POLL_INTERVAL=100
-EOF
-
-# Start bridge
-npm start
-```
-
-**Test connection:**
-```javascript
-const jwt = require('jsonwebtoken');
-const WebSocket = require('ws');
-
-const token = jwt.sign(
-  { initiativeId: 'INIT-xxx' },
-  'your-random-secret-key-here',
-  { expiresIn: '24h' }
-);
-
-const ws = new WebSocket(`ws://localhost:8765?token=${token}`);
-ws.on('message', (data) => {
-  console.log('Event:', JSON.parse(data));
-});
-```
+> **Removed in v5.6.0.** The `mcp-servers/websocket-bridge` component no longer exists. Real-time event streaming via WebSocket is not available in the current architecture. `cc` and `tc` CLIs are the complete tooling surface.
 
 ### 3. Configure Quality Gates
 
@@ -871,7 +837,7 @@ After successful upgrade:
 2. **Read Documentation:**
    - [Orchestration Guide](../50-features/02-orchestration-workflow.md)
    - [Enhancement Features](../50-features/00-enhancement-features.md)
-   - [WebSocket Bridge](../../mcp-servers/websocket-bridge/README.md)
+   - [Skills Authoring Guide](../30-operations/06-skills-authoring-guide.md)
 
 3. **Update Team:**
    - Share upgrade guide with team members

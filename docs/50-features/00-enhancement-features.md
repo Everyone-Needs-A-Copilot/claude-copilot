@@ -1618,36 +1618,7 @@ worktree_conflict_resolve({ taskId: "TASK-xxx" })
 
 ### 12. WebSocket Bridge (Real-time Events)
 
-**Purpose:** Streams task events to external consumers (UIs, dashboards).
-
-**Architecture:**
-- Standalone service polling the task activity_log
-- JWT authentication per connection
-- Events filtered by initiative
-
-**Starting the bridge:**
-```bash
-cd mcp-servers/websocket-bridge
-JWT_SECRET="secret" WORKSPACE_ID="your-workspace" npm start
-```
-
-**Event types:**
-- `task.create`, `task.update`, `task.complete`
-- `work_product.store`
-- `prd.create`
-- `checkpoint.create`
-
-**Client connection:**
-```javascript
-const ws = new WebSocket('ws://localhost:8765', {
-  headers: { Authorization: 'Bearer <jwt-token>' }
-});
-
-ws.on('message', (data) => {
-  const event = JSON.parse(data);
-  console.log(event.type, event.payload);
-});
-```
+> **Removed in v5.6.0.** The WebSocket Bridge (`mcp-servers/websocket-bridge`) was deleted along with the rest of the MCP-era servers. Real-time event streaming to external UIs/dashboards is not part of the current `cc`/`tc` CLI architecture. Task activity remains queryable via the `tc` CLI (e.g. `tc log`, `tc progress`).
 
 ---
 
@@ -1669,7 +1640,7 @@ These 12 enhancement features transform Claude Copilot into a robust, self-impro
 9. **Preflight Check** - Environment health verification before work
 10. **Scope Lock** - Two-agent separation of planning and execution
 11. **Task Worktree Isolation** - Isolate risky changes in git worktrees
-12. **WebSocket Bridge** - Real-time event streaming for UIs
+12. **WebSocket Bridge** - Removed in v5.6.0 (was real-time event streaming; MCP-era)
 
 **Key Benefits:**
 
