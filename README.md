@@ -27,12 +27,12 @@ It's not separate software—it's markdown files (agents, commands, project inst
 
 | You Get                    | What It Does                                                                         |
 | -------------------------- | ------------------------------------------------------------------------------------ |
-| **Persistent Memory**      | Decisions, lessons, and progress survive across sessions (FTS5 keyword search)       |
+| **Persistent Memory**      | Decisions, lessons, and progress survive across sessions ([FTS5](docs/70-reference/05-glossary.md#fts5) keyword search)       |
 | **16 Specialist Agents**   | Lean agents with on-demand skill loading; methodology-embedded from IDEO to Kent Beck |
 | **Auto-Firing Skills**     | Skills surface automatically from trigger-rich descriptions; code-bearing skills run executable scripts |
 | **Parallel Orchestration** | Headless workers execute streams concurrently with `/orchestrate` _(works; unproven at large scale — no proven >5-stream run; tests are mock-only)_ |
 | **Pause & Resume**         | Context switch mid-task with `/pause`, return with `/continue`                       |
-| **Task Management**        | PRDs, tasks, and work products via `tc` CLI with minimal context usage               |
+| **Task Management**        | [PRD](docs/70-reference/05-glossary.md#prd)s, tasks, and work products ([WP](docs/70-reference/05-glossary.md#wp-work-product)) via `tc` CLI with minimal context usage               |
 | **Stream Management**      | Parallel work streams with conflict detection and dependencies                       |
 | **Known References**       | Configured paths and refs surface into every session via the Known References registry (`cc config set refs.*`); `cc memory` search is available manually — agents do not yet auto-search a company knowledge repo _(roadmap: agent auto-pull)_ |
 | **Extensions System**      | Override or extend agents with your company methodologies                            |
@@ -319,7 +319,7 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 
 | Agent | Role              | When to Use                                |
 | ----- | ----------------- | ------------------------------------------ |
-| `ta`  | Tech Architect    | System design, task breakdown, ADRs        |
+| `ta`  | Tech Architect    | System design, task breakdown, [ADR](docs/70-reference/05-glossary.md#adr)s        |
 | `me`  | Engineer          | Implementation, bug fixes, refactoring     |
 | `qa`  | QA Engineer       | Testing strategy, edge cases, verification |
 | `doc` | Documentation     | READMEs, API docs, technical writing       |
@@ -431,6 +431,12 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 |----------|---------|
 | [Working Protocol](docs/30-operations/01-working-protocol.md) | Agent-First Protocol details |
 | [Documentation Guide](docs/30-operations/02-documentation-guide.md) | Doc standards, token budgets |
+
+**Reference:**
+| Document | Purpose |
+|----------|---------|
+| [Quick Reference](docs/70-reference/00-quick-reference.md) | Command cheatsheet |
+| [Glossary](docs/70-reference/05-glossary.md) | FTS5, BM25, ADR, PRD, WP, L1/L2/L3, all 16 agent codes |
 
 ---
 

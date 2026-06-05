@@ -10,10 +10,10 @@ Claude Copilot is an instruction layer for Claude Code. It gives you persistent 
 
 | Feature | Status | How |
 |---------|--------|-----|
-| **Persistent memory** | Enabled after setup | `cc memory` CLI + SQLite (FTS5 keyword search) |
+| **Persistent memory** | Enabled after setup | `cc memory` CLI + SQLite ([FTS5](./70-reference/05-glossary.md#fts5) keyword search) |
 | **16 specialist agents** | Enabled after setup | Markdown agent files in `.claude/agents/` |
 | **Auto-firing skills** | Enabled after setup | Native auto-fire from skill `description`; `cc skill` CLI as fallback |
-| **Task management** | Enabled after setup | `tc` CLI (PRDs, tasks, work products) |
+| **Task management** | Enabled after setup | `tc` CLI ([PRD](./70-reference/05-glossary.md#prd)s, tasks, [WP](./70-reference/05-glossary.md#wp-work-product)s) |
 | **`/protocol` command** | Enabled after setup | Agent-first workflow enforcement |
 | **`/continue` command** | Enabled after setup | Resume previous work from memory |
 | **Knowledge repository** | Optional | Git-managed, shared via `~/.claude/knowledge` |
@@ -89,7 +89,7 @@ tc progress
 
 | Agent | Domain |
 |-------|--------|
-| `ta` | Technical architecture — ADRs, system design |
+| `ta` | Technical architecture — [ADR](./70-reference/05-glossary.md#adr)s, system design |
 | `me` | Engineering — implementation, bug fixes |
 | `qa` | QA — test strategy, edge cases |
 | `do` | DevOps — CI/CD, infrastructure |
@@ -125,3 +125,4 @@ tc progress
 - [Agents](./10-architecture/01-agents.md) — meet the 16 specialists
 - [Configuration](./20-configuration/01-configuration.md) — cc config, references registry
 - [Working Protocol](./30-operations/01-working-protocol.md) — the Agent-First Protocol
+- [Glossary](./70-reference/05-glossary.md) — FTS5, BM25, ADR, PRD, WP, L1/L2/L3, agent codes, and more
