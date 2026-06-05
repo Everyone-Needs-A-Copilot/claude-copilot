@@ -105,7 +105,7 @@ Then in each project:
 
 ```bash
 cc --version
-tc --version
+tc version
 cc skill list | head -5
 cc memory search "test"
 ```

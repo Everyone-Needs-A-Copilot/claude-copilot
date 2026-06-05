@@ -156,7 +156,7 @@ This installs:
 In your terminal, run:
 ```bash
 cc --version
-tc --version
+tc version
 ```
 
 Both should print their version numbers. No MCP servers or Node.js required.
@@ -186,7 +186,7 @@ Claude Copilot uses the `cc` CLI for memory and `tc` CLI for tasks:
 ### Success Criteria
 
 - [ ] Machine setup completed
-- [ ] Both MCP servers show as connected
+- [ ] Both CLIs respond (cc --version, tc version)
 - [ ] You understand what Memory Copilot does
 - [ ] You're ready to set up a project
 
@@ -901,7 +901,7 @@ Use this checklist to track your journey:
 ### Milestone 1: Memory
 - [ ] Cloned claude-copilot to ~/.claude/copilot
 - [ ] Ran machine setup (/setup)
-- [ ] Verified MCP servers connected
+- [ ] Verified cc/tc CLIs work
 - [ ] Understand memory_store and memory_search
 - [ ] Can explain what Memory Copilot does
 
@@ -964,7 +964,7 @@ Use this checklist to track your journey:
 **Solution:**
 1. Reinstall: `bash ~/.claude/copilot/tools/cc/install.sh` and `pip install -e ~/.claude/copilot/tools/tc`
 2. Reload your shell: `source ~/.zshrc` (installer auto-appends `~/.local/bin` to your profile)
-3. Verify: `cc --version` and `tc --version`
+3. Verify: `cc --version` and `tc version`
 4. Restart Claude Code
 
 ### Challenge 2: "/continue doesn't load context"

@@ -351,7 +351,7 @@ cd ~/your-project && claude
 
 | Issue | Solution |
 |-------|----------|
-| **`cc` or `tc` not found** | Run `bash ~/.claude/copilot/tools/cc/install.sh` and `tc install` |
+| **`cc` or `tc` not found** | Run `bash ~/.claude/copilot/tools/cc/install.sh` and `pip install -e ~/.claude/copilot/tools/tc` |
 | **Memory not persisting** | Run `cc memory index --rebuild`, check `~/.claude/memory/` |
 | **Skill search empty** | Run `cc skill list` — confirm local skills path is set |
 | **Commands not working** | Verify `.claude/commands/*.md` exist, restart Claude Code |
@@ -365,7 +365,7 @@ cd ~/your-project && claude
 ```bash
 # Check cc and tc CLIs
 cc --version
-tc --version
+tc version
 
 # Check project setup
 ls .claude/agents/ .claude/commands/

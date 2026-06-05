@@ -262,7 +262,7 @@ cc --version
 pytest tools/cc/tests/ -p no:cov
 
 # Verify tc CLI
-tc --version
+tc version
 pytest tools/tc/tests/ -p no:cov
 
 # Run copilot framework tests (exclude vendored TUI tests)
@@ -619,7 +619,7 @@ fi
 
 # Verify CLIs are installed
 cc --version
-tc --version
+tc version
 
 # Inspect Memory database
 sqlite3 ~/.claude/memory/<hash>/memory.db

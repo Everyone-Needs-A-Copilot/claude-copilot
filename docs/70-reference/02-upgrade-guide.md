@@ -102,7 +102,7 @@ cc memory index --rebuild
 **Verify:**
 ```bash
 cc --version
-tc --version
+tc version
 cc skill list | head -3
 cc memory search "test"
 ```
@@ -619,7 +619,7 @@ source ~/.zshrc
 pip install -e ~/.claude/copilot/tools/tc
 
 # Verify
-cc --version && tc --version
+cc --version && tc version
 ```
 
 ---

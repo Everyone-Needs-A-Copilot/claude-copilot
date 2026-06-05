@@ -260,7 +260,7 @@ cc memory search "test"
 
 ```bash
 # Verify tc is installed
-tc --version
+tc version
 
 # List tasks
 tc task list
@@ -290,7 +290,7 @@ ls "$(cc config get paths.knowledge_repo --raw)"
 bash ~/.claude/copilot/tools/cc/install.sh
 
 # Install tc CLI
-bash ~/.claude/copilot/tools/tc/install.sh
+pip install -e ~/.claude/copilot/tools/tc
 
 # Or add to PATH manually
 export PATH="$PATH:~/.claude/copilot/tools/cc/src"

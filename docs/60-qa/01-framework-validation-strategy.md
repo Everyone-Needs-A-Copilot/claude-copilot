@@ -60,11 +60,11 @@ cc memory list --limit 1
 
 **Steps:**
 ```bash
-tc --version
+tc version
 ```
 
 **Pass Criteria:**
-- [ ] `tc --version` prints a version string
+- [ ] `tc version` prints a version string
 - [ ] Command exits 0
 
 **Failure Mode:** `tc: command not found`, missing package
@@ -876,7 +876,7 @@ initiative_update({
 pip install -e ~/.claude/copilot/tools/tc
 bash ~/.claude/copilot/tools/cc/install.sh
 cc --version
-tc --version
+tc version
 cc memory search "test"
 ```
 

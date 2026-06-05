@@ -49,7 +49,7 @@ A comprehensive guide to help you choose the right tools, commands, agents, and 
 | Run parallel work streams | `/orchestrate start` | Set up worktrees, launch via Task tool | Project root |
 | Monitor orchestration | `/orchestrate status` | During parallel execution | Project root |
 | Merge completed streams | `/orchestrate merge` | After streams complete | Project root |
-| Verify MCP servers | `/mcp` | After setup, troubleshooting | Project root |
+| Verify CLIs installed | `cc version && tc version` | After setup, troubleshooting | Any directory |
 
 **Command Arguments:**
 - `/protocol <task>` - Auto-detect task type and route to agent (e.g., `/protocol fix the login bug`)
@@ -282,7 +282,7 @@ metadata: {
 |------------------|------------|------------|
 | `/continue` to resume | Work naturally with agents | `initiative_update` to save progress |
 | Or `/protocol` for new task | Route complex work to specialists | Document decisions in memory |
-| Check `/mcp` if needed | Use skills as needed | Note lessons learned |
+| Run `cc doctor` if needed | Use skills as needed | Note lessons learned |
 
 ---
 

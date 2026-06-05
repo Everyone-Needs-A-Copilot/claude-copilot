@@ -16,7 +16,7 @@ which claude || echo "❌ NOT FOUND"
 git worktree list
 
 # 3. Check cc/tc CLIs are installed
-cc --version && tc --version || echo "❌ CLI(s) NOT FOUND"
+cc --version && tc version || echo "❌ CLI(s) NOT FOUND"
 
 # 4. Check orchestrator files exist
 ls -la .claude/orchestrator/
@@ -57,7 +57,7 @@ ps aux | grep claude | grep -v grep
 - [ ] **cc and tc CLIs installed**
   ```bash
   cc --version
-  tc --version
+  tc version
   # Both must return a version number
   ```
 
@@ -121,7 +121,7 @@ checks = [
     ("Claude CLI", "which claude", "/claude"),
     ("Git version", "git --version", "git version"),
     ("cc CLI", "cc --version", "cc"),
-    ("tc CLI", "tc --version", "tc"),
+    ("tc CLI", "tc version", "tc"),
     ("Orchestrator directory", "ls .claude/orchestrator", "orchestrate.py"),
 ]
 
@@ -999,7 +999,7 @@ cc --version
 cc memory list
 
 # Test tc CLI
-tc --version
+tc version
 tc --help
 # Should show available commands
 ```
