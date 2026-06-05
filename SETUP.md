@@ -106,7 +106,7 @@ If you prefer to run steps manually:
 
 | Requirement | Version | Check |
 |-------------|---------|-------|
-| Python | 3.9+ | `python3 --version` |
+| Python | 3.10+ | `python3 --version` |
 
 ### Install CLIs
 
@@ -206,12 +206,11 @@ Then verify in Claude Code:
 ### `cc` Not Found
 
 ```bash
-# Reinstall
+# Reinstall (install.sh auto-appends ~/.local/bin to your shell profile)
 bash ~/.claude/copilot/tools/cc/install.sh
 
-# Ensure ~/.local/bin is in PATH
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
+# Reload your shell — the installer updated your profile automatically
+source ~/.zshrc   # or ~/.bash_profile / ~/.zprofile
 ```
 
 ### `tc` Not Found

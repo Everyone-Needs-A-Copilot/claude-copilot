@@ -508,19 +508,15 @@ If the extension has `requiredSkills`:
 
 ### Provider Architecture
 
-The extension resolution is handled by `KnowledgeRepoProvider` in the skills-copilot MCP server:
+Extension resolution is handled by the `cc` CLI (`tools/cc/`). Resolution order: project knowledge repo → global knowledge (`~/.claude/knowledge`) → base framework agents.
 
 ```
-mcp-servers/skills-copilot/
-├── src/
-│   ├── index.ts                    # MCP server with extension tools
-│   ├── types.ts                    # Extension type definitions
-│   └── providers/
-│       ├── index.ts                # Provider exports
-│       ├── knowledge-repo.ts       # Extension resolution provider
-│       ├── local.ts                # Local skills provider
-│       ├── cache.ts                # Skill caching
-│       └── ...
+tools/cc/
+├── cc/
+│   ├── api.py                      # Public API (memory_store, memory_search, etc.)
+│   ├── skills.py                   # Skill discovery and loading
+│   ├── knowledge.py                # Extension/knowledge repo resolution
+│   └── config.py                  # cc config management
 ```
 
 ### Type Definitions

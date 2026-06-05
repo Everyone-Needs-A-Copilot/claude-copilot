@@ -8,7 +8,7 @@
 
 ## Prerequisites
 
-- Python 3.9+
+- Python 3.10+
 - Git
 - Claude Code CLI
 
@@ -141,11 +141,10 @@ Creates `~/.claude/knowledge/` with a knowledge manifest and agent extensions fo
 
 ### `cc: command not found`
 
-The `~/.local/bin/` directory may not be on your PATH. Add it:
+`install.sh` automatically appends `~/.local/bin` to `~/.zshrc`, `~/.zprofile`, `~/.bashrc`, and `~/.bash_profile` idempotently — no manual PATH edit is needed. If `cc` is still not found after running the installer, reload your shell:
 
 ```bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
+source ~/.zshrc   # or ~/.bash_profile / ~/.zprofile on macOS
 ```
 
 ### `tc: command not found`
@@ -158,7 +157,7 @@ pip install -e ~/.claude/copilot/tools/tc
 
 ### Python version too old
 
-The framework requires Python 3.9+. Check with `python3 --version`. On macOS, install via `brew install python@3.12`.
+The framework requires Python 3.10+. Check with `python3 --version`. On macOS, install via `brew install python@3.12`.
 
 ### Agent files missing after `/setup-project`
 

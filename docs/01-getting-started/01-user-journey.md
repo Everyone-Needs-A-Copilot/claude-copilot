@@ -88,7 +88,7 @@ Or simply:
 
 **What happens:**
 
-1. **Prerequisites check** - Verifies Python 3.9+ is available
+1. **Prerequisites check** - Verifies Python 3.10+ is available
 2. **Install cc CLI** - `bash tools/cc/install.sh`
 3. **Install tc CLI** - `bash tools/tc/install.sh` (or follows same pattern)
 4. **Create directories** - `~/.claude/memory/` and `~/.claude/tasks/` for databases
@@ -199,20 +199,14 @@ Next steps:
 claude
 ```
 
-This loads the MCP servers configured in `.mcp.json`.
-
 ### Step 7: Verify Setup
 
-```
-/mcp
+```bash
+cc --version
+tc --version
 ```
 
-You should see:
-
-```
-● copilot-memory
-● skills-copilot
-```
+Both commands should print their version numbers, confirming the CLIs are installed and on PATH.
 
 ### Step 8: Start Working
 
@@ -414,12 +408,12 @@ Or simply:
 
 Note: `/setup` only works when run from `~/.claude/copilot`. For projects, use `/setup-project`.
 
-### MCP servers not connecting
+### CLI tools not found
 
-1. Check `.mcp.json` uses absolute paths (not `~`)
-2. Verify all servers are built: `ls ~/.claude/copilot/mcp-servers/*/dist/index.js`
-   - Should show: `copilot-memory`, `skills-copilot`
-3. Restart Claude Code
+1. Run `cc --version` and `tc --version` to confirm both are installed
+2. If missing, reinstall: `bash ~/.claude/copilot/tools/cc/install.sh` and `pip install -e ~/.claude/copilot/tools/tc`
+3. Reload your shell: `source ~/.zshrc` (the installer auto-appends `~/.local/bin` to your profile)
+4. Restart Claude Code
 
 ### Knowledge not found
 

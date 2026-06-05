@@ -15,8 +15,8 @@ which claude || echo "❌ NOT FOUND"
 # 2. Check git worktrees
 git worktree list
 
-# 3. Check MCP servers configured
-cat .mcp.json | grep -A 5 copilot-memory
+# 3. Check cc/tc CLIs are installed
+cc --version && tc --version || echo "❌ CLI(s) NOT FOUND"
 
 # 4. Check orchestrator files exist
 ls -la .claude/orchestrator/
@@ -54,19 +54,17 @@ ps aux | grep claude | grep -v grep
   # Must be: 2.5.0 or higher
   ```
 
-- [ ] **MCP servers configured**
+- [ ] **cc and tc CLIs installed**
   ```bash
-  cat .mcp.json | grep -E "(copilot-memory|skills-copilot)"
-  # Both servers must be present
+  cc --version
+  tc --version
+  # Both must return a version number
   ```
 
-- [ ] **MCP servers built**
+- [ ] **cc memory accessible**
   ```bash
-  cd ~/.claude/copilot/mcp-servers/copilot-memory
-  npm run build
-
-  cd ~/.claude/copilot/mcp-servers/skills-copilot
-  npm run build
+  cc memory list
+  # Should return entries or empty list without error
   ```
 
 - [ ] **Claude Copilot framework updated**
@@ -122,8 +120,8 @@ def check(name, command, expected=None):
 checks = [
     ("Claude CLI", "which claude", "/claude"),
     ("Git version", "git --version", "git version"),
-    ("Memory Copilot MCP", "cat .mcp.json | grep copilot-memory", "copilot-memory"),
-    ("Skills Copilot MCP", "cat .mcp.json | grep skills-copilot", "skills-copilot"),
+    ("cc CLI", "cc --version", "cc"),
+    ("tc CLI", "tc --version", "tc"),
     ("Orchestrator directory", "ls .claude/orchestrator", "orchestrate.py"),
 ]
 
@@ -993,15 +991,15 @@ for stream in Stream-A Stream-B Stream-C Stream-D Stream-E; do
 done
 ```
 
-### 6. Test MCP Servers and CLI Before Orchestrating
+### 6. Test cc and tc CLIs Before Orchestrating
 
 ```bash
-# Test Memory Copilot MCP
-cd ~/.claude/copilot/mcp-servers/copilot-memory
-npm run dev
-# Should start without errors, Ctrl-C to stop
+# Test cc CLI
+cc --version
+cc memory list
 
 # Test tc CLI
+tc --version
 tc --help
 # Should show available commands
 ```

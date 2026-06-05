@@ -10,7 +10,7 @@ For the live conversion queue and completion status, see [`SKILLS-ROLLOUT.md`](.
 
 ## Prerequisites
 
-- Python 3.9+, pytest (`pip install pytest`)
+- Python 3.10+, pytest (`pip install pytest`)
 - Familiarity with the `cc skill` CLI (`cc skill list`, `cc skill get <name>`)
 - A clear problem to encode: something the model currently re-derives from scratch every session
 

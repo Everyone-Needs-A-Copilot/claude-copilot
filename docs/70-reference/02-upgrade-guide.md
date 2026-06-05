@@ -1,5 +1,38 @@
 # Claude Copilot Upgrade Guide
 
+## Upgrading to v5.6.0
+
+**Component versions:** cc 1.2.0 · commands 5.3.1
+
+**What changed:**
+- **Python 3.9 dropped (EOL).** The framework now requires Python 3.10+. Run `python3 --version` to verify.
+- **`install.sh` auto-appends `~/.local/bin` to PATH.** `bash tools/cc/install.sh` now idempotently adds `~/.local/bin` to `~/.zshrc`, `~/.zprofile`, `~/.bashrc`, and `~/.bash_profile`. No manual PATH step is required; reload your shell after install.
+- **`packages/installer/` removed.** The `@copilot/installer` NPM package is gone. Installation is `bash tools/cc/install.sh` + `pip install -e tools/tc` — no Node.js required.
+- **`mcp-servers/` fully removed.** The remaining MCP server directories are gone. `cc` and `tc` CLIs are the complete architecture.
+
+**Migration steps:**
+
+```bash
+# Verify Python version (3.10+ required)
+python3 --version
+
+# Reinstall cc CLI (picks up 1.2.0 changes + auto-PATH logic)
+bash tools/cc/install.sh
+# Reload shell (installer updated your profile automatically)
+source ~/.zshrc   # or ~/.bash_profile / ~/.zprofile
+
+# Reinstall tc CLI
+pip install -e ~/.claude/copilot/tools/tc
+
+# Sync your projects
+cd /your/project && claude
+# Run: /update-project
+```
+
+**No action required** for PATH if you reinstall — `install.sh` handles it. If upgrading from v5.5.0, the only breaking change is the Python 3.10 floor.
+
+---
+
 ## Upgrading to v5.5.0
 
 This release makes skills auto-firing the **primary** discovery path and demotes `cc skill search` to a fallback.
@@ -283,23 +316,15 @@ Receiving objects: 100% (847/847), 1.23 MiB | 2.45 MiB/s, done.
 Resolving deltas: 100% (324/324), done.
 ```
 
-### Step 2: Rebuild MCP Servers
+### Step 2: Reinstall CLIs
 
 ```bash
-# Memory Copilot
-cd ~/.claude/copilot/mcp-servers/copilot-memory
-npm install
-npm run build
+# cc CLI — memory and skills
+bash ~/.claude/copilot/tools/cc/install.sh
+source ~/.zshrc   # installer auto-appends ~/.local/bin to your profile
 
-# Skills Copilot
-cd ../skills-copilot
-npm install
-npm run build
-
-# WebSocket Bridge (NEW)
-cd ../websocket-bridge
-npm install
-npm run build
+# tc CLI — Task Copilot
+pip install -e ~/.claude/copilot/tools/tc
 ```
 
 ### Step 3: Update Project Files
@@ -577,22 +602,24 @@ For orchestration with auto-recovery, edit generated config:
 
 ---
 
-### Issue: MCP servers fail to build
+### Issue: cc or tc CLI not found after upgrade
 
 **Symptom:**
 ```
-npm ERR! Build failed
+cc: command not found
 ```
 
 **Solution:**
 ```bash
-# Clear node_modules and rebuild
-cd ~/.claude/copilot/mcp-servers/copilot-memory
-rm -rf node_modules package-lock.json
-npm install
-npm run build
+# Reinstall cc CLI (auto-appends ~/.local/bin to your shell profile)
+bash ~/.claude/copilot/tools/cc/install.sh
+source ~/.zshrc
 
-# Repeat for skills-copilot
+# Reinstall tc CLI
+pip install -e ~/.claude/copilot/tools/tc
+
+# Verify
+cc --version && tc --version
 ```
 
 ---
@@ -736,11 +763,11 @@ git reset --hard <commit-hash>
 git checkout v1.7.1
 ```
 
-### Step 3: Rebuild MCP Servers
+### Step 3: Reinstall CLIs
 
 ```bash
-cd mcp-servers/copilot-memory && npm install && npm run build
-cd ../skills-copilot && npm install && npm run build
+bash ~/.claude/copilot/tools/cc/install.sh && source ~/.zshrc
+pip install -e ~/.claude/copilot/tools/tc
 ```
 
 ### Step 4: Restore Project Files

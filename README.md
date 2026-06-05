@@ -14,7 +14,6 @@
   <a href="https://github.com/Everyone-Needs-A-Copilot/claude-copilot/releases/latest"><img src="https://img.shields.io/github/v/release/Everyone-Needs-A-Copilot/claude-copilot?color=green" alt="Version"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/github/license/Everyone-Needs-A-Copilot/claude-copilot" alt="License"></a>
   <a href="https://github.com/Everyone-Needs-A-Copilot/claude-copilot"><img src="https://img.shields.io/github/stars/Everyone-Needs-A-Copilot/claude-copilot?style=social" alt="GitHub stars"></a>
-  <a href="https://nodejs.org"><img src="https://img.shields.io/badge/Node.js-18%2B-339933?logo=node.js" alt="Node.js"></a>
   <a href="https://claude.com/claude-code"><img src="https://img.shields.io/badge/Claude_Code-Compatible-7C3AED" alt="Claude Code"></a>
 </p>
 
@@ -388,7 +387,7 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 
 | Requirement | Version |
 | ----------- | ------- |
-| Python      | 3.9+    |
+| Python      | 3.10+   |
 | Claude Code | Latest  |
 | Disk space  | ~100MB  |
 
@@ -406,7 +405,7 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 |-------|---------|
 | [Usage Guide](docs/70-reference/01-usage-guide.md) | **How to actually use this** - real workflows and scenarios |
 | [Decision Guide](docs/10-architecture/03-decision-guide.md) | When to use what - quick reference matrices |
-| [Agents](docs/10-architecture/01-agents.md) | All 8 specialists in detail |
+| [Agents](docs/10-architecture/01-agents.md) | All 16 specialists in detail |
 
 **Setup & Configuration:**
 | Guide | Purpose |

@@ -122,6 +122,6 @@ tc progress
 
 - [User Journey](./01-getting-started/01-user-journey.md) — full setup walkthrough
 - [Architecture Overview](./10-architecture/00-overview.md) — how the five pillars fit together
-- [Agents](./10-architecture/01-agents.md) — meet the 8 specialists
+- [Agents](./10-architecture/01-agents.md) — meet the 16 specialists
 - [Configuration](./20-configuration/01-configuration.md) — cc config, references registry
 - [Working Protocol](./30-operations/01-working-protocol.md) — the Agent-First Protocol

@@ -8,7 +8,7 @@ This page documents the surviving mechanism for capturing and acting on user cor
 
 ## What Was Removed
 
-The MCP-era correction detection system included a `correction_detect` tool (TypeScript, in `mcp-servers/copilot-memory`), a SQLite `corrections` table, and six correction-specific MCP tools (`correction_list`, `correction_update`, `correction_route`, `correction_apply`, `correction_stats`). These are no longer active. The `mcp-servers/copilot-memory/` directory still exists as a legacy artifact but is not wired into any active session.
+The MCP-era correction detection system included a `correction_detect` tool (TypeScript, in `mcp-servers/copilot-memory`), a SQLite `corrections` table, and six correction-specific MCP tools (`correction_list`, `correction_update`, `correction_route`, `correction_apply`, `correction_stats`). These are no longer active. The `mcp-servers/copilot-memory/` directory and the MCP-era system were removed entirely in the 5.6.0 cleanup and are no longer present in the repo.
 
 ---
 

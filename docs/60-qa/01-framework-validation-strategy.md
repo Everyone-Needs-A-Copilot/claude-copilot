@@ -31,7 +31,7 @@ This document defines the complete validation strategy for the Claude Copilot fr
 
 ## 1. Smoke Tests (Component Isolation)
 
-> **Architecture note (v5.1.0+):** The `copilot-memory` and `skills-copilot` MCP Node.js servers have been replaced by the `cc` and `tc` CLIs. Smoke tests validate the CLI layer. The legacy `mcp-servers/` directories still exist in the repo as archived artifacts but are not active.
+> **Architecture note (v5.1.0+):** The `copilot-memory` and `skills-copilot` MCP Node.js servers have been replaced by the `cc` and `tc` CLIs. Smoke tests validate the CLI layer. The `mcp-servers/` directories (`copilot-memory`, `skills-copilot`) have since been removed from the repo entirely. Smoke tests validate the CLI layer.
 
 ### ST-01: cc CLI Availability
 
@@ -971,34 +971,33 @@ time memory_search("specific content query")
 
 ---
 
-### PT-02: Skills Copilot Cache Hit Rate
+### PT-02: cc skill search Latency
 
-**Scenario:** Repeated skill requests measure cache effectiveness
+**Scenario:** Repeated skill searches measure `cc skill search` lookup speed. Note: `cc skill search` is a case-insensitive **substring** match over each skill's `name + description + tags` (NOT FTS5 — only Memory Copilot uses FTS5). The `skills-copilot` MCP server this test previously targeted was removed in the 5.6.0 cleanup; the `cc` CLI is the current interface.
 
 **Test Data:**
 ```bash
-# Request same skill 10 times
+# Run the same skill search 10 times and time it
 for i in {1..10}; do
-  skill_get("react-testing")
+  time cc skill search "react testing"
 done
 ```
 
 **Performance Target:**
-- First request: < 2 seconds (network fetch)
-- Cached requests: < 100ms
+- Every request: < 500ms (local substring scan over skill metadata, no network)
 
 **Measurement:**
 ```bash
-# Check cache logs
-grep "cache hit" /tmp/skills-copilot.log
+# Time a single search and inspect output
+time cc skill search "documentation"
 ```
 
 **Pass Criteria:**
-- [ ] Cache hit rate > 90% for repeated requests
-- [ ] Cache invalidation works correctly
-- [ ] Stale content not served
+- [ ] All 10 searches complete in < 500ms
+- [ ] Results are consistent across repeated calls
+- [ ] No missing-index errors
 
-**Failure Mode:** Low cache hits, stale content, cache corruption
+**Failure Mode:** `cc: command not found`, or no skills found (verify `.claude/skills/` is populated and skill frontmatter has searchable `name`/`description`/`tags`)
 
 **Frequency:** Monthly
 
@@ -1168,7 +1167,7 @@ type: override
 
 ### Required Tools
 ```bash
-# Python 3.9+ (required for cc/tc CLIs)
+# Python 3.10+ (required for cc/tc CLIs)
 python3 --version
 
 # pytest (for L3 skill tests)

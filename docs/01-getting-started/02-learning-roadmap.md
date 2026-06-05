@@ -147,44 +147,41 @@ Read @~/.claude/copilot/SETUP.md and set up Claude Copilot on this machine
 ```
 
 This installs:
-- Memory Copilot MCP server (persistent storage)
-- Skills Copilot MCP server (knowledge + skills)
+- `cc` CLI — memory search, skill discovery, env hydration
+- `tc` CLI — task and work product storage (Task Copilot)
 - Global commands (/setup-project, /knowledge-copilot, etc.)
 
 ### Verification
 
-In Claude Code, run:
-```
-/mcp
+In your terminal, run:
+```bash
+cc --version
+tc --version
 ```
 
-You should see:
-```
-● copilot-memory
-● skills-copilot
-```
+Both should print their version numbers. No MCP servers or Node.js required.
 
 ### What You Can Do Now
 
 | Capability | How |
 |------------|-----|
-| **Store decisions** | Claude automatically stores via `memory_store` |
+| **Store decisions** | `cc memory store --type decision "<content>"` |
 | **Resume work** | `/continue` loads your last session |
-| **Search history** | `memory_search` finds past decisions |
-| **Track initiatives** | Automatic progress tracking |
+| **Search history** | `cc memory search "<query>"` finds past decisions |
+| **Track tasks** | `tc task create`, `tc wp store` for work products |
 
-### Understanding Memory Tools
+### Understanding Memory CLI
 
-Claude Copilot adds these tools to Claude Code:
+Claude Copilot uses the `cc` CLI for memory and `tc` CLI for tasks:
 
-| Tool | Purpose | When Used |
-|------|---------|-----------|
-| `initiative_get` | Retrieve current work | On /continue |
-| `initiative_start` | Begin new work | On /protocol |
-| `initiative_update` | Save progress | End of session |
-| `initiative_complete` | Archive finished work | Task complete |
-| `memory_store` | Store decision/lesson | Whenever noteworthy |
-| `memory_search` | Find past decisions | When context needed |
+| Command | Purpose | When Used |
+|---------|---------|-----------|
+| `cc memory store` | Store decision/lesson | After meaningful work |
+| `cc memory search` | Find past decisions | When context needed |
+| `cc memory list` | List recent entries | Review prior sessions |
+| `tc task create` | Create a task | New work item |
+| `tc wp store` | Store a work product | After agent completes |
+| `tc progress` | View task status | Check initiative state |
 
 ### Success Criteria
 
@@ -684,46 +681,34 @@ Every team has proprietary patterns, internal tools, and unique workflows. Power
 
 ### Advanced Capabilities
 
-#### 1. Private Skills Database
+#### 1. Private Skills
 
-Store proprietary skills in PostgreSQL:
+Store proprietary skills as markdown files in `.claude/skills/`:
 
-```json
-// .mcp.json
-{
-  "mcpServers": {
-    "skills-copilot": {
-      "env": {
-        "POSTGRES_URL": "postgresql://user:pass@localhost/skills",
-        "LOCAL_SKILLS_PATH": "./.claude/skills"
-      }
-    }
-  }
-}
-```
+```bash
+# Create a skill directory
+mkdir -p .claude/skills/my-error-handling
 
-Then use `skill_save` to store company-specific patterns:
-
-```
-Ask Claude: "Save this error handling pattern as a private skill"
-```
-
-#### 2. Skills Catalog Integration
-
-Access the curated skills.sh public catalog (free, no API key needed):
-
-```json
-{
-  "mcpServers": {
-    "skills-copilot": {
-      "command": "node",
-      "args": ["/path/to/mcp-servers/skills-copilot/dist/index.js"]
-    }
-  }
-}
+# Author the skill (prose markdown, no Node.js required)
+# .claude/skills/my-error-handling/SKILL.md
 ```
 
 Skills are discovered via `cc skill search "<query>"` and loaded with `cc skill get <name>`. Local skills in `.claude/skills/` are auto-listed by `cc skill list`.
+
+#### 2. Skills Discovery
+
+Use the `cc` CLI to find and load skills:
+
+```bash
+# Search for a skill by keyword
+cc skill search "error handling"
+
+# Load a skill into context
+cc skill get my-error-handling
+
+# List all available skills
+cc skill list
+```
 
 #### 3. Custom Workflows
 
@@ -798,35 +783,17 @@ Then use: `/release`
 
 #### Exercise 3: Multi-Project Memory
 
-Set up related projects to share memory:
+Set up related projects to share memory by pointing both to the same memory directory. The `cc` CLI stores entries as markdown files in `.claude/memory/entries/` — committed to the repo and searchable with `cc memory search`. For cross-project memory, use a shared knowledge repository:
 
-Project A `.mcp.json`:
-```json
-{
-  "mcpServers": {
-    "copilot-memory": {
-      "env": {
-        "WORKSPACE_ID": "shared-platform"
-      }
-    }
-  }
-}
+```bash
+# Register a shared knowledge repo (machine-level config, run once)
+cc config set paths.knowledge_repo ~/.claude/knowledge
+
+# Both projects read from the same knowledge repo
+# Run /knowledge-copilot once to initialize it
 ```
 
-Project B `.mcp.json`:
-```json
-{
-  "mcpServers": {
-    "copilot-memory": {
-      "env": {
-        "WORKSPACE_ID": "shared-platform"
-      }
-    }
-  }
-}
-```
-
-Now decisions in Project A are accessible in Project B.
+Memory entries in each project's `.claude/memory/entries/` travel with that repo. Knowledge repo entries are accessible from any project on the machine.
 
 ### Advanced Patterns
 
@@ -883,19 +850,11 @@ Confirm each step before proceeding.
 
 #### Pattern 3: Knowledge Layering
 
-Override global knowledge at project level:
+Override global knowledge at project level via `cc` config:
 
-`.mcp.json`:
-```json
-{
-  "mcpServers": {
-    "skills-copilot": {
-      "env": {
-        "KNOWLEDGE_REPO_PATH": "./project-knowledge"
-      }
-    }
-  }
-}
+```bash
+# Point this project to a local knowledge repo (takes precedence over global)
+cc config set paths.knowledge_repo ./project-knowledge
 ```
 
 Resolution order:
@@ -1000,21 +959,21 @@ Use this checklist to track your journey:
 
 ## Common Challenges
 
-### Challenge 1: "MCP servers won't connect"
+### Challenge 1: "cc or tc not found"
 
 **Solution:**
-1. Check `.mcp.json` uses absolute paths (not `~`)
-2. Verify `dist/index.js` files exist
-3. Run: `cd ~/.claude/copilot/mcp-servers/copilot-memory && npm run build`
+1. Reinstall: `bash ~/.claude/copilot/tools/cc/install.sh` and `pip install -e ~/.claude/copilot/tools/tc`
+2. Reload your shell: `source ~/.zshrc` (installer auto-appends `~/.local/bin` to your profile)
+3. Verify: `cc --version` and `tc --version`
 4. Restart Claude Code
 
 ### Challenge 2: "/continue doesn't load context"
 
 **Solution:**
-1. Verify copilot-memory is connected: `/mcp`
+1. Verify `cc memory list` returns recent entries
 2. Check you ran /protocol (not just chatted)
-3. Look for `initiative_update` calls in previous session
-4. Ensure WORKSPACE_ID is consistent
+3. Confirm memory entries exist in `.claude/memory/entries/`
+4. Run `cc memory search "<topic>"` to find prior context manually
 
 ### Challenge 3: "Agents give generic advice"
 
