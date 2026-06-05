@@ -9,7 +9,7 @@ Five-pillar framework: persistent memory, expert agents, on-demand skills, ephem
 | Layer | Pillar | Component | Purpose |
 |-------|--------|-----------|---------|
 | Persistence | 1 | Memory Copilot | Cross-session context, decisions, lessons |
-| Expertise | 2 | 8 Specialist Agents | Lean agents with on-demand skills |
+| Expertise | 2 | 16 Specialist Agents | Lean agents with on-demand skills |
 | Knowledge | 3 | Skills | Auto-fire from trigger-rich description; `cc skill search` / `cc skill get` as fallback |
 | Tasks | 4 | Task Copilot | Ephemeral PRD, task, work product storage |
 | Workflow | 5 | Protocol | /protocol and /continue commands |
@@ -47,7 +47,7 @@ User Request → Protocol → Lean Agent → [skills auto-fire from description 
 | Request Type | First Agent | Routes To | Finally |
 |--------------|-------------|-----------|---------|
 | Bug/Defect | qa | me (fix) | qa (verify) |
-| Experience/UX | sd | design | ta → me |
+| Experience/UX | sd | uxd → uids → uid | ta → me |
 | Technical | ta | me | qa |
 | Architecture | ta | do (if infra) | me → qa |
 
@@ -171,7 +171,7 @@ Detected via `knowledge-manifest.json` in project or `docs/shared/`.
 | Included | External |
 |----------|----------|
 | Memory persistence | Claude Code CLI |
-| 8 lean agents with cc CLI skill loading | Git, project files |
+| 16 specialist agents with cc CLI skill loading | Git, project files |
 | Skills loading (cc CLI / @include) | skills.sh API |
 | Task storage (tc CLI) | PostgreSQL (optional org skills) |
 | Protocol commands | |

@@ -376,10 +376,10 @@ react-team-knowledge/
 │   ├── 01-development.md     # React patterns, hooks, testing
 │   └── 02-design.md          # Component library, design tokens
 └── .claude/extensions/
-    └── design.extension.md   # Design agent extensions
+    └── uid.extension.md      # UI Developer agent extensions
 ```
 
-**design.extension.md:**
+**uid.extension.md:**
 ```markdown
 # UI Developer Extension
 
@@ -469,5 +469,5 @@ Before approving any feature:
 ## Next Steps
 
 - [Extension Specification](EXTENSION-SPEC.md) - Technical details
-- [Agents](AGENTS.md) - All 12 specialist agents
+- [Agents](AGENTS.md) - All 16 specialist agents
 - [Configuration](CONFIGURATION.md) - Setup options

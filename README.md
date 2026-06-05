@@ -61,7 +61,7 @@ Teams face the same challenges at scale—plus knowledge silos, inconsistent sta
 
 ## April 2026 Restructure
 
-A diagnostic of 15 sessions (Apr 17-22 2026) found a 6% delegation rate — 94% of work stayed in the main session despite a 14-agent roster. A 5-day staging deployment saga (57 manual bash polling calls, 26 loops) exposed missing primitives. The April 2026 restructure fixes this with mechanical hook enforcement, a consolidated 8-agent roster, the `tc deploy wait` primitive, and model pinning so the cheap-and-fast model handles orchestration.
+A diagnostic of 15 sessions (Apr 17-22 2026) found a 6% delegation rate — 94% of work stayed in the main session despite a 14-agent roster. A 5-day staging deployment saga (57 manual bash polling calls, 26 loops) exposed missing primitives. The April 2026 restructure introduced mechanical hook enforcement, the `tc deploy wait` primitive, and model pinning. The roster was consolidated to 8 agents as an interim step to reduce complexity during the hook rollout; it has since been restored and expanded to the current 16-agent roster as the enforcement layer proved stable.
 
 → [Full diagnostic and rationale](docs/10-architecture/04-framework-restructure-2026-04.md)
 
@@ -93,10 +93,11 @@ A diagnostic of 15 sessions (Apr 17-22 2026) found a 6% delegation rate — 94% 
 │   │Architect│ │Engineer │ │   QA    │ │  Docs   │ │ DevOps  │ │ Service │  │
 │   │         │ │         │ │         │ │         │ │         │ │Designer │  │
 │   └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘  │
-│             ┌────────────┐  ┌─────────┐                                     │
-│             │   design   │  │   kc    │  Knowledge Copilot (utility)        │
-│             │UX+UI+Visual│  └─────────┘                                     │
-│             └────────────┘                                                  │
+│   ┌─────────┐ ┌─────────┐ ┌─────────┐  ┌─────────┐                          │
+│   │   uxd   │ │  uids   │ │   uid   │  │   kc    │  Knowledge Copilot       │
+│   │UX Design│ │UI Design│ │UI Dev   │  │ (util)  │                          │
+│   │         │ │ System  │ │         │  └─────────┘                          │
+│   └─────────┘ └─────────┘ └─────────┘                                      │
 └───────────────────────────────┼─────────────────────────────────────────────┘
                                 │
               ┌─────────────────┼─────────────────┐

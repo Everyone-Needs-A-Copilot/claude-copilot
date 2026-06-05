@@ -79,16 +79,16 @@ Are you using Claude Copilot for the first time?
 | Task Type | Primary Agent | Secondary Agent(s) | Why This Flow |
 |-----------|---------------|-------------------|---------------|
 | **Bug Fix** | `qa` | → `me` | QA reproduces, Engineer fixes |
-| **New Feature** | `sd` | → `design` → `ta` → `me` | Service → Design → Architecture → Code |
+| **New Feature** | `sd` | → `uxd` → `uids` → `uid` → `ta` → `me` | Service → Design chain → Architecture → Code |
 | **API Design** | `ta` | → `me` → `doc` | Architecture → Code → Docs |
 | **Security Review** | (skill) | load `security/stride-dread` | Security skill, no dedicated agent |
 | **Performance Issue** | `ta` | → `me` | Design analysis → Implementation |
-| **UI Component** | `design` | → `me` | Visual design → Implementation |
+| **UI Component** | `uxd` | → `uids` → `uid` → `me` | UX → Design system → Component → Implementation |
 | **Documentation** | `doc` | | Technical writing |
 | **Deployment** | `do` | | DevOps expertise |
 | **Architecture Decision** | `ta` | | System design |
 | **User Research** | `sd` | | Experience strategy |
-| **Copy/Messaging** | `design` | | Content included in design agent |
+| **Copy/Messaging** | `cw` | | Copywriter — copy execution, messaging, microcopy |
 
 ### Scenario-Based Agent Selection
 

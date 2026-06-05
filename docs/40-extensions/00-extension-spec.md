@@ -71,28 +71,28 @@ fallback: use_base_with_warning
 
 ```markdown
 ---
-extends: design
+extends: uid
 type: extension
-description: Company design system integration
+description: Company UI component standards integration
 overrideSections:
-  - Design System
+  - Component Standards
   - Output Formats
 preserveSections:
   - Core Methodologies
   - Quality Gates
 ---
 
-# Design Extensions
+# UI Developer Extensions
 
-## Design System
-[OVERRIDES base Design System section]
+## Component Standards
+[OVERRIDES base Component Standards section]
 
 Check Figma design system before creating new components...
 
 ## Output Formats
 [OVERRIDES base Output Formats section]
 
-All wireframes must include Figma component references...
+All components must include Figma component references...
 ```
 
 ### 3. Skills Injection (`type: "skills"`)
@@ -159,7 +159,7 @@ When an agent is invoked, the system uses **two-tier resolution**:
 |--------------|-------------|--------|
 | SD override | SD override | Uses **project** SD override |
 | (none) | SD override | Uses **global** SD override |
-| design extension | SD override | design from project, SD from global |
+| uid extension | SD override | uid from project, SD from global |
 | (none) | (none) | Base agents only |
 
 ## File Structure
@@ -176,7 +176,9 @@ claude-copilot/
 │       ├── doc.md     # Documentation (base)
 │       ├── do.md      # DevOps (base)
 │       ├── sd.md      # Service Designer (base)
-│       ├── design.md  # Interaction/Visual Designer (base)
+│       ├── uxd.md     # UX Designer (base)
+│       ├── uids.md    # UI Design System (base)
+│       ├── uid.md     # UI Developer (base)
 │       └── kc.md      # Knowledge Copilot setup (base)
 └── docs/
     └── EXTENSION-SPEC.md  # This file
@@ -192,7 +194,7 @@ Located at `~/.claude/knowledge` - automatically detected, no configuration need
 ├── .claude/
 │   └── extensions/
 │       ├── sd.override.md       # Override example
-│       ├── design.extension.md  # Extension example
+│       ├── uid.extension.md     # Extension example
 │       └── ta.skills.json       # Skills injection example
 ├── skills/
 │   ├── company-skill-1.md
@@ -412,7 +414,7 @@ Retrieves the extension for a specific agent.
 **Input:**
 ```json
 {
-  "agent": "sd"  // Agent ID: ta, me, qa, do, doc, sd, design, kc
+  "agent": "sd"  // Agent ID: ta, me, qa, do, doc, sd, uxd, uids, uid, sec, ind, cco, cw, cs, cpa, kc
 }
 ```
 
@@ -428,7 +430,7 @@ Lists all available extensions from both global and project repositories.
 | Agent | Type | Source | Description | Required Skills |
 |-------|------|--------|-------------|-----------------|
 | @agent-sd | override | global | Moments Framework | moments-mapping |
-| @agent-design | extension | project (overrides global) | Project design system | - |
+| @agent-uid | extension | project (overrides global) | Project UI component standards | - |
 ```
 
 The `source` column indicates where each extension comes from:

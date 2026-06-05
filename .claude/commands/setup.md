@@ -186,7 +186,7 @@ Claude Copilot is installed at `~/.claude/copilot`
 **What's ready:**
 - tc CLI - Manages PRDs, tasks, and work products
 - cc CLI - Unified memory and skills manager (replaces MCP servers)
-- 8 Specialized Agents - Expert guidance for any task
+- 16 Specialist Agents - Expert guidance for any task
 
 **Global commands installed:**
 | Command | Purpose |

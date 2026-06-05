@@ -30,7 +30,7 @@ The `model` field specifies the default Claude model for the agent:
 | Model | Use Case | Default Agents |
 |-------|----------|----------------|
 | `opus` | Complex architectural decisions, system design | ta (Tech Architect) |
-| `sonnet` | Standard implementation, testing, documentation | me (Engineer), qa (QA), doc, do, sd, design |
+| `sonnet` | Standard implementation, testing, documentation | me (Engineer), qa (QA), doc, do, sd, uxd, uids, uid |
 | `haiku` | Simple tasks, quick operations | (None by default, can be set per-task) |
 
 ### Model Override Priority

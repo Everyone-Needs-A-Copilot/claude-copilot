@@ -79,7 +79,7 @@ All items verified live by QA (WP-48, WP-49).
 | TASK-24 | Removed dead `protocol_violation_log()` instruction | `.claude/hooks/protocol-injection.md` lines 42, 71 |
 | TASK-25 | Purged retired-MCP tool docs (violations / security / auto-checkpoint sections) | `.claude/hooks/README.md` |
 | TASK-26 | Established single canonical version source; reconciled version drift | `package.json`, `VERSION.json`, component fields |
-| TASK-27 | Removed `skill_evaluate` fake-tool from 6 agent frontmatters + preamble calls | `me.md`, `qa.md`, `do.md`, `doc.md`, `sd.md`, `design.md` |
+| TASK-27 | Removed `skill_evaluate` fake-tool from 6 agent frontmatters + preamble calls | `me.md`, `qa.md`, `do.md`, `doc.md`, `sd.md`, `design.md` (historical — design.md archived; see restructure-2026-04) |
 | TASK-28 | Fixed archived agent names (`uxd/uids/cw/cco`) | `ta.md`, `extension-spec.md`, `project-context.md` |
 
 ### Done — P1 Infrastructure and Honesty
@@ -90,7 +90,7 @@ All items verified live by QA (WP-48, WP-49).
 | TASK-30 | Deleted ~100MB pre-migration `Stream-Foundation` worktree + `cc mcp` bridge remnant | Local cleanup; not shipped |
 | TASK-31 | Config-gated deploy vendor | Resolution chain: `CC_DEPLOY_CLI` env → `cc config deploy.cli` → built-in default (`python -m copilot_cli`); `_COOLIFY_*` constants renamed; vendor name no longer hardcoded in shared framework |
 | TASK-32 | Honest FTS5 rename + pluggable `SearchBackend` | `SearchBackend` Protocol (runtime_checkable) with index/remove/rebuild/search/status; `FTS5Backend` implements it; module-level functions accept `backend=` injection; 17 test cases |
-| TASK-33 | Wired `cc memory` store/search into 7 agent preambles | `me`, `ta`, `qa`, `do`, `doc`, `sd`, `design` — memory was dormant (zero entries, no agent called it before this fix) |
+| TASK-33 | Wired `cc memory` store/search into 7 agent preambles | `me`, `ta`, `qa`, `do`, `doc`, `sd`, `design` — memory was dormant (zero entries, no agent called it before this fix) (historical — design.md archived; see restructure-2026-04) |
 | TASK-34 | WP externalization threshold lowered 100KB→8KB | `WP_CONTENT_SIZE_THRESHOLD` in `tc/__init__.py`; observed WP range is 300B–20KB; 8KB keeps short/medium inline, externalizes large WPs correctly |
 | TASK-35 | Exemplar L1/L2/L3 skill: `stride-dread` | `dread_score.py` (190 lines, stdlib); 45 pytest cases, all green; establishes the reusable pattern |
 | TASK-36 | Skills rollout recipe + `SKILLS-ROLLOUT.md` | `@include` dropped as primary contract; 16-skill queue documented with batches; security batch (skills 1–4) converted in same task |

@@ -343,7 +343,7 @@ Lean agents store detailed work products in Task Copilot instead of returning th
 | `qa` | `test_plan` | Test strategies, coverage reports |
 | `doc` | `documentation` | API docs, guides, READMEs |
 | `do` | `technical_design` | Pipeline configs, infrastructure designs |
-| `sd`, `design` | `specification` | Journey maps, wireframes, design specs |
+| `sd`, `uxd`, `uids`, `uid` | `specification` | Journey maps, wireframes, design specs |
 
 ---
 

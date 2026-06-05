@@ -167,7 +167,7 @@ This works because `/setup-project` was installed globally in Phase 2.
 ├── CLAUDE.md              ← Project instructions for Claude
 └── .claude/
     ├── commands/          ← /protocol, /continue, etc.
-    ├── agents/            ← 12 specialist agents
+    ├── agents/            ← 16 specialist agents
     └── skills/            ← For project-specific skills
 ```
 
@@ -180,7 +180,7 @@ Created:
 - .mcp.json - MCP server configuration
 - CLAUDE.md - Project instructions
 - .claude/commands/ - Protocol commands
-- .claude/agents/ - 8 specialist agents
+- .claude/agents/ - 16 specialist agents
 - .claude/skills/ - For project-specific skills
 
 Next steps:
@@ -425,7 +425,7 @@ Note: `/setup` only works when run from `~/.claude/copilot`. For projects, use `
 
 ## Next Steps
 
-- [Meet Your Team](../10-architecture/01-agents.md) - Learn about all 8 specialist agents
+- [Meet Your Team](../10-architecture/01-agents.md) - Learn about all 16 specialist agents
 - [Configuration Guide](CONFIGURATION.md) - Detailed setup options
 - [Customization](CUSTOMIZATION.md) - Extend and personalize
 - [Philosophy](PHILOSOPHY.md) - Why we built it this way

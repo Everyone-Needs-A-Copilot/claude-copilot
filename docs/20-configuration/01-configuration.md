@@ -320,6 +320,6 @@ cc config get test.key
 ## Next Steps
 
 - [User Journey](../01-getting-started/01-user-journey.md) - Complete setup walkthrough
-- [Agents](../10-architecture/01-agents.md) - All 8 specialist agents
+- [Agents](../10-architecture/01-agents.md) - All 16 specialist agents
 - [Customization](./02-customization.md) - Extensions and private skills
 - [References Registry](./03-references-registry.md) - Stable reference injection

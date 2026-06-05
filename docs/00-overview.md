@@ -2,7 +2,7 @@
 
 **Diátaxis mode:** Tutorial (quick-start orientation)
 
-Claude Copilot is an instruction layer for Claude Code. It gives you persistent memory, 8 specialized agents, on-demand skills, ephemeral task storage, and battle-tested workflows — entirely through markdown files and two CLI tools.
+Claude Copilot is an instruction layer for Claude Code. It gives you persistent memory, 16 specialist agents, on-demand skills, ephemeral task storage, and battle-tested workflows — entirely through markdown files and two CLI tools.
 
 ---
 

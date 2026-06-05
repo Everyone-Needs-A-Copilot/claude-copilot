@@ -230,7 +230,7 @@ your-project/
 ├── CLAUDE.md              # Project instructions
 └── .claude/
     ├── commands/          # /protocol, /continue
-    └── agents/            # 12 specialist agents
+    └── agents/            # 16 specialist agents
 ```
 
 ### Try Your First Protocol Session
@@ -259,7 +259,7 @@ graph TD
     B -->|Bug Fix| C[Engineer me]
     B -->|Feature| D[Tech Architect ta]
     B -->|Security| E[security/stride-dread skill]
-    B -->|Design| F[Design design]
+    B -->|Design| F[Design chain uxd/uids/uid]
     C --> G[Work + Save]
     D --> G
     E --> G
@@ -277,7 +277,7 @@ graph TD
 | Security | load `security/stride-dread` skill | "Review auth flow" |
 | Documentation | Documentation (doc) | "Write API docs" |
 | Testing | QA Engineer (qa) | "Test edge cases" |
-| Design | Design agent (design) | "Design onboarding" |
+| Design | Design chain (uxd/uids/uid) | "Design onboarding" |
 
 ### Verification
 
@@ -554,7 +554,7 @@ your-company-knowledge/
 └── .claude/
     └── extensions/
         ├── ta.extension.md       # Custom architect guidance
-        ├── design.extension.md   # Company design system patterns
+        ├── uid.extension.md      # Company UI component standards
         └── sd.extension.md       # Service design methodology
 ```
 
