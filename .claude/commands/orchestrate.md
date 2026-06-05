@@ -46,25 +46,20 @@ Creates PRD and tasks with stream metadata. Prompt user for feature description 
 
 ## `start`
 
-Sets up git isolation and prints launch instructions. Does NOT launch agents.
+Validates streams, creates git worktrees, then **auto-spawns headless `claude` workers** for each stream whose dependencies are satisfied. Workers run in the background and are polled, automatically restarted (up to 2 times) if they die with incomplete tasks, and merged back to main when all streams complete.
 
 1. `tc stream list --json` -- stop if no streams (tell user to run `generate` first)
-2. Check for file overlaps between streams using `git diff` across worktrees -- stop if conflicts detected
-3. For each stream task: `worktree_create({ taskId })` to create git worktree
-4. Print:
+2. Run preflight validation (Python 3.10+, `claude` on PATH, `tc` CLI, git repo)
+3. Check for file overlaps between streams -- stop if conflicts detected
+4. Display dependency structure
+5. Enter polling loop:
+   - For each stream whose dependencies are complete: `orchestrate.py start <stream-id>` spawns a headless `claude` worker in that stream's git worktree
+   - Poll for dead workers and restart (max 2 attempts per stream)
+   - Exit when all streams are complete; auto-merge worktrees to main branch
 
-```
-Scaffolding ready. Each stream has an isolated worktree.
+Workers are spawned by `orchestrate.py` (`spawn_worker` / `start_all`) — not by the main session. The `/orchestrate start` command delegates to this script.
 
-To launch, the MAIN SESSION should run Task agents:
-  - For each stream task, use Task tool with run_in_background: true
-  - Pass the task description, worktree path, and stream context
-  - Agents work in parallel in isolated worktrees
-
-I'll launch the stream agents now.
-```
-
-The **main session** (not this command) then launches `Task` agents with `run_in_background: true` for each stream.
+> **Maturity note:** Worker spawning is real and functional. It has not been proven at >5 concurrent streams; integration tests are mock-only.
 
 ---
 

@@ -67,7 +67,7 @@ When you run Claude Code in a project with Claude Copilot, Claude reads these in
 |------------|--------------|--------------|
 | **Memory** | Remembers across sessions | `cc memory` CLI + SQLite (FTS5 keyword search) |
 | **Specialists** | Expert guidance for any task | 16 agent definitions (markdown) |
-| **Knowledge** | Your company docs, everywhere | Knowledge files + `cc` CLI search |
+| **Known References** | Configured paths/refs surface into every session via the Known References registry; `cc memory` search is available manually — agents do not yet auto-search a company knowledge repo _(roadmap: agent auto-pull)_ | `cc config set refs.*` + UserPromptSubmit hook |
 | **Skills** | Auto-fire from trigger-rich descriptions; code-bearing skills run scripts | Skill library; `cc skill` CLI as fallback |
 | **Tasks** | Ephemeral work product storage | `tc` CLI (PRDs, tasks, work products) |
 | **Protocol** | Consistent quality | Command definitions (markdown) |
@@ -148,11 +148,13 @@ It's structured instructions that make Claude more effective. The quality still 
 
 ## The Vision
 
-### Today
+### What It Is Today
 
-Claude Copilot gives individual developers and small teams access to specialized expertise, persistent memory, and proven processes.
+Claude Copilot gives individual developers and small teams a team of 16 specialist agents with strict points of view, a design-led process enforced by mechanical hooks, persistent memory across sessions, and real task/worker orchestration.
 
-### Tomorrow
+The design goal is more disciplined, resumable work built from the practices that tend to produce better software. We measure process and context efficiency, not output quality — there is no defect/rework data yet. The "Not magic" framing applies here too: structured instructions that make Claude's process repeatable and inspectable, not a guarantee of outcomes.
+
+### The Direction
 
 As AI capabilities grow, the instruction layer becomes more powerful:
 - More sophisticated agents
@@ -162,9 +164,9 @@ As AI capabilities grow, the instruction layer becomes more powerful:
 
 The architecture is designed to grow with AI capabilities while remaining simple to use and modify.
 
-### The End State
+### The Goal
 
-Every developer has access to a full team of specialists—not to replace human expertise, but to augment human capability.
+Every developer has access to a full team of specialists — not to replace human expertise, but to augment human capability.
 
 The best practices of the best teams, encoded and available to everyone.
 

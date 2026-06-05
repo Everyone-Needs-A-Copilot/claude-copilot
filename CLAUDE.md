@@ -120,7 +120,7 @@ Skills auto-fire based on their trigger-rich `description` field — native Clau
 
 ### 4. Task Copilot
 
-Ephemeral PRD, task, and work product storage. Reduces context bloat by ~94%. Uses the `tc` CLI tool (installed at `tools/tc/`). Agents call `tc` commands via Bash.
+Ephemeral PRD, task, and work product storage. Reduces context for externalized work products by ~94% vs inlining outputs above the 8KB threshold (not end-to-end session savings — see [derivation](docs/70-reference/04-framework-modernization-analysis.md)). Uses the `tc` CLI tool (installed at `tools/tc/`). Agents call `tc` commands via Bash.
 
 **Core Commands:** `tc prd create`, `tc task create`, `tc task update`, `tc task get`, `tc wp store`, `tc wp get`, `tc progress`
 

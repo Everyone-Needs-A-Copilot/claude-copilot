@@ -7,7 +7,7 @@
 <h1 align="center">Claude Copilot</h1>
 
 <p align="center">
-  <strong>An instruction layer for Claude Code that gives every developer access to a full team of specialists.</strong>
+  <strong>An instruction layer for Claude Code — a team of 16 specialist agents with strict points of view, a design-led process enforced by mechanical hooks, persistent memory across sessions, and real task/worker orchestration. It makes Claude Code's process repeatable, inspectable, and stateful.</strong>
 </p>
 
 <p align="center">
@@ -30,16 +30,16 @@ It's not separate software—it's markdown files (agents, commands, project inst
 | **Persistent Memory**      | Decisions, lessons, and progress survive across sessions (FTS5 keyword search)       |
 | **16 Specialist Agents**   | Lean agents with on-demand skill loading; methodology-embedded from IDEO to Kent Beck |
 | **Auto-Firing Skills**     | Skills surface automatically from trigger-rich descriptions; code-bearing skills run executable scripts |
-| **Parallel Orchestration** | Headless workers execute streams concurrently with `/orchestrate`                    |
+| **Parallel Orchestration** | Headless workers execute streams concurrently with `/orchestrate` _(works; unproven at large scale — no proven >5-stream run; tests are mock-only)_ |
 | **Pause & Resume**         | Context switch mid-task with `/pause`, return with `/continue`                       |
 | **Task Management**        | PRDs, tasks, and work products via `tc` CLI with minimal context usage               |
 | **Stream Management**      | Parallel work streams with conflict detection and dependencies                       |
-| **Knowledge Search**       | Your company docs, available in every project via Known References registry          |
+| **Known References**       | Configured paths and refs surface into every session via the Known References registry (`cc config set refs.*`); `cc memory` search is available manually — agents do not yet auto-search a company knowledge repo _(roadmap: agent auto-pull)_ |
 | **Extensions System**      | Override or extend agents with your company methodologies                            |
 | **Code-Execution Path**    | `tc.api` / `cc.api` facades for multi-step ops without CLI round-trip token cost     |
 | **Context Engineering**    | Auto-compaction, continuation enforcement, activation modes                          |
 
-When Claude Code reads these instructions, it transforms from a generic assistant into a full development team that remembers your work.
+When Claude Code reads these instructions, it gains persistent memory, 16 specialist agents, and a structured process — the design goal being more disciplined, resumable work built from the practices that tend to produce better software. We measure process and context efficiency, not output quality; there is no defect/rework data yet.
 
 → [Why we built this](docs/10-architecture/02-philosophy.md)
 
@@ -109,6 +109,9 @@ A diagnostic of 15 sessions (Apr 17-22 2026) found a 6% delegation rate — 94% 
 │ • Decisions made   │ │ • PRDs & tasks     │ │ • Auto-fires from description  │
 │ • Lessons learned  │ │ • Work products    │ │ • Code-bearing: L1/L2/L3      │
 │ • FTS5 keyword     │ │ • ~94% less context│ │ • Known References registry    │
+│                    │ │   for externalized │ │   (configured paths/refs only) │
+│                    │ │   work products vs │ │ • Agent auto-pull: roadmap     │
+│                    │ │   inlining outputs │ │                                │
 │ • Enables /continue│ │ • tc.api facade    │ │ • cc.api facade                │
 └────────────────────┘ └────────────────────┘ └────────────────────────────────┘
 ```
@@ -165,6 +168,8 @@ Two patterns cover most development work:
 
 ### Pattern 1: Fix a Bug
 
+_Illustrative (not a captured transcript)._
+
 ```bash
 /protocol the checkout form submits twice on Enter key
 ```
@@ -200,8 +205,6 @@ Two patterns cover most development work:
    Verification: PASS ✓
    Git commit: fix(TASK-abc): Prevent double submission on Enter key
    ```
-
-**Total time: 6-12 minutes from report to commit.**
 
 ---
 
@@ -294,7 +297,7 @@ All streams completed. 18 git commits created.
 | ----------- | ------------------------- | ----------------------------------- |
 | `quick`     | Typos, obvious fixes      | `/protocol quick fix the typo`      |
 | `thorough`  | Deep review, full testing | `/protocol thorough review auth`    |
-| `ultrawork` | Multi-day features        | `/protocol ultrawork redesign auth` |
+| `ultrawork` | Large multi-stream features | `/protocol ultrawork redesign auth` |
 
 → [Full usage guide with more scenarios](docs/70-reference/01-usage-guide.md)
 
