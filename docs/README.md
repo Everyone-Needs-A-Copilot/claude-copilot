@@ -95,6 +95,7 @@ Feature reference and explanation pages. One page per major system feature.
 | `50-features/11-zero-config-installation.md` | NPM-package and source-based installation, platform setup, MCP server builds |
 | `50-features/12-code-execution-path.md` | How to compose multi-step `tc.api` / `cc.api` operations in one python3 block for ~99% intermediate-output savings |
 | `50-features/13-memory-fts5.md` | Memory Copilot is FTS5/BM25 keyword search, not semantic; entry types, storage layout, pluggable backend seam |
+| `50-features/15-live-docs.md` | Live Docs (`cc docs`): version-exact package documentation for agents; local-first source order, optional fetch extra, Context7 deferred |
 
 ---
 

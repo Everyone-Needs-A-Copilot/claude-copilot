@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.7.0] - 2026-06-08
+
+### Added
+- **Live Docs — `cc docs` command family** (`tools/cc/`): agents now fetch version-exact documentation for installed packages instead of relying on stale training-data memory; `@agent-me` and `@agent-ta` are wired to reach for `cc docs get <pkg>` before implementing against any third-party API; closes the silent correctness gap where agents code confidently against APIs that moved between their training cutoff and the project's installed version
+  - **Verbs:** `cc docs get <pkg>` (main — returns relevant docs slice), `cc docs resolve <pkg>` (print detected version + source), `cc docs search <pkg> <query>` (keyword search within cached docs), `cc docs sources` (list all registered source backends), `cc docs cache --status|--clear [<pkg>]` (inspect or flush the local cache)
+  - **Local-first source order:** (1) installed package files on disk (primary — version-exact, fully offline); (2) fetch fallback (`httpx` extra only) — tries `llms.txt`, then GitHub raw at the version tag, then the package's docs site; core install stays network-free
+  - **Honest version flag:** every `cc docs get` response includes `exact: bool` — `true` when docs were sourced from the installed version on disk, `false` when the fetch path was used (docs may lag by a patch)
+  - **Gitignored cache** with configurable TTL (`docs.cache_ttl_hours`, default 168 h / 7 days)
+  - **npm + pip** package ecosystems supported
+  - **Optional `httpx` extra:** `pip install cc[fetch]` enables the network fallback; the base `pip install cc` install remains fully offline/headless
+  - **Context7 deferred** (ADR-002): Context7 was evaluated and deliberately excluded — its external service dependency reintroduces the headless/offline fragility the local-first design avoids; a pluggable `SourceBackend` seam and reserved `docs.context7_endpoint` config key let it drop in later without interface changes
+  - **CLAUDE.md shared behavior** added: agents check `cc docs` before implementing against installed third-party packages; me.md and ta.md updated with explicit pointers
+
+### Changed
+- **`cc` component version bumped to 1.3.0**: Live Docs is the only net-new surface in this component release; all other cc command families (memory, skill, config, env) are unchanged
+
+[See feature page](docs/50-features/15-live-docs.md)
+
 ## [5.6.0] - 2026-06-04
 
 ### Added

@@ -21,3 +21,9 @@ htmlcov/
 
 # Editor
 .DS_Store
+
+# Docs cache (local-only derived artifact)
+# The actual cache lives at docs.cache_dir (default ~/.claude/cache/docs) and
+# is outside this repo, so no repo-level ignore is strictly required. The
+# entry below guards any accidental in-repo placement.
+.claude/cache/docs/

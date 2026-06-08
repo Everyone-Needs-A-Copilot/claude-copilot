@@ -40,6 +40,12 @@ DEFAULTS: dict[str, Any] = {
     "memory.default_threshold": 0.7,
     "skills.cache_ttl_hours": 24,
     "telemetry.enabled": False,
+    # docs subsystem
+    "docs.cache_dir": "~/.claude/cache/docs",
+    "docs.cache_ttl_hours": 168,
+    "docs.source_order": "local,fetch",
+    # Reserved for future Context7 integration; intentionally unset at launch.
+    "docs.context7_endpoint": None,
 }
 
 

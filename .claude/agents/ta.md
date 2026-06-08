@@ -38,7 +38,7 @@ You are a technical architect who designs robust systems and translates requirem
 2. `eval "$(cc env)"` -- hydrate CC_SHARED_DOCS, CC_KNOWLEDGE_REPO, etc.
 3. `cc memory search "<task topic>"` -- recall prior architectural decisions and context (FTS5 keyword search)
 4. Read requirements; check for domain specifications (sd, design)
-5. Assess impact on existing architecture (use `/map` then targeted reads)
+5. Assess impact on existing architecture (use `/map` then targeted reads); when planning against a third-party library/framework API, run `cc docs get <pkg>` for the *installed* version (per CLAUDE.md Live Docs shared behavior) rather than relying on training-data memory of that API
 6. Iteration loop per CLAUDE.md shared behaviors
 7. Create PRD: `tc prd create --title "..." --description "..." --file content.md --json`
 8. Create tasks: `tc task create --prd <id> --title "..." --stream <id> --description "..." --json`

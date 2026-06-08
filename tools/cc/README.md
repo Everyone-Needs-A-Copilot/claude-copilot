@@ -185,6 +185,101 @@ Keys set to `"@machine"` fall through to the machine config value, letting proje
 
 ---
 
+### Docs (Live Docs)
+
+Fetch version-exact documentation for installed packages so agents code against the real API, not stale training-data memory.
+
+**Source model — two ordered backends:**
+
+| Backend | When it runs | Network required |
+|---------|--------------|-----------------|
+| `local` | Always (default first) | No — reads files the package ships on disk |
+| `fetch` | Fallback (or explicit `--source fetch`) | Yes — requires `cc[fetch]` extra |
+
+`auto` mode (the default) tries `local` first. If local docs are absent, it falls back to `fetch` — but only when `httpx` is installed. A core `cc` install never makes network calls.
+
+**Install the fetch extra (optional):**
+
+```bash
+pip install 'cc[fetch]'    # enables network fallback
+```
+
+**Commands:**
+
+```bash
+# Detect installed/declared version of a package
+cc docs resolve requests
+cc docs resolve react --lang js
+cc docs resolve requests --json
+
+# Fetch documentation (main verb)
+cc docs get requests
+cc docs get requests --topic authentication
+cc docs get react --lang js --topic hooks
+cc docs get requests --source local       # force local only (offline-safe)
+cc docs get requests --source fetch       # force network fetch
+cc docs get requests --refresh            # bypass cache, fetch fresh
+cc docs get requests --json               # machine-readable output
+
+# Search documentation for a topic (returns a snippet)
+cc docs search requests "session cookies"
+cc docs search react "useState" --lang js --json
+
+# List registered backends and whether each is available
+cc docs sources
+cc docs sources --json
+
+# Inspect or clear the docs cache
+cc docs cache --status
+cc docs cache --clear
+```
+
+**How version detection works:**
+
+`cc docs` resolves the installed version before fetching so docs match your exact dependency.
+
+- Python priority: `importlib.metadata` (installed env) → `uv.lock` → `poetry.lock` → `pyproject.toml` constraint → `requirements*.txt`
+- npm priority: `package-lock.json` → `yarn.lock` → `pnpm-lock.yaml` → `node_modules/<pkg>/package.json` → `package.json` declared range
+
+When only a range is detected, the resolved version is marked `exact: false`.
+
+**Caching:**
+
+Results are cached locally at `~/.claude/cache/docs/` in a gitignored SQLite file. Default TTL is 168 hours (one week). Use `--refresh` to bypass cache for a single call.
+
+**Limitations:**
+
+- `local` docs are only as good as what a package ships on disk. Not all packages include full docs in their distribution.
+- `fetch` requires the `cc[fetch]` extra and an active network connection. The fetch backend tries `llms.txt` → GitHub raw at the detected version tag → the package's docs site.
+- **Context7 is not included at this release.** The `SourceBackend` seam accepts a Context7 backend as a future drop-in via `cc.core.docs_resolver.register_backend`. The config key `docs.context7_endpoint` is reserved but unused.
+
+**Config keys:**
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `docs.source_order` | `local,fetch` | Comma-separated backend order |
+| `docs.cache_ttl_hours` | `168` | Cache TTL in hours |
+| `docs.cache_dir` | `~/.claude/cache/docs` | Override cache directory |
+| `docs.context7_endpoint` | *(reserved)* | Future Context7 backend endpoint |
+
+```bash
+# Override source order (local only — fully offline)
+cc config set docs.source_order local
+
+# Shorten TTL to 24 hours
+cc config set docs.cache_ttl_hours 24
+```
+
+**Agent usage pattern:**
+
+```bash
+# Get docs before writing code against an API
+cc docs get pydantic --topic validators --json
+cc docs search fastapi "dependency injection" --json
+```
+
+---
+
 ### `cc env` — Agent Shell Hydration
 
 Exports effective config as `CC_*` environment variables, suitable for `eval` in agent preambles:
@@ -321,10 +416,15 @@ tools/cc/
       skill.py            # list, search, get, path
       config.py           # get, set, unset, list, where, validate, edit, init, export, doctor
       env.py              # cc env (shell hydration)
+      docs.py             # resolve, get, search, sources, cache (Live Docs)
       mcp.py              # serve, config
       doctor.py           # cc doctor (standalone health check)
     api.py                # flat importable facade for code-execution use (memory_store/get/list/search, skill_get/search)
     core/                 # entry_store, entry_format, memory_index, skill_store, config, config_paths
+      docs_resolver.py    # version detection + SourceBackend seam + layered lookup
+      docs_cache.py       # SQLite cache (TTL-based, gitignored)
+      docs_paths.py       # cache path helpers and config key resolution
+      docs_backends/      # local.py (offline), fetch.py (httpx, optional)
     utils/                # output helpers
   tests/
     conftest.py

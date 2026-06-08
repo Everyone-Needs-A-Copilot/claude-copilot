@@ -9,6 +9,7 @@ from cc.commands.memory import memory_app
 from cc.commands.skill import skill_app
 from cc.commands.config import config_app
 from cc.commands.mcp import mcp_app
+from cc.commands.docs import docs_app
 from cc.core.config import resolve_key
 
 app = typer.Typer(
@@ -22,6 +23,7 @@ app.add_typer(memory_app, name="memory")
 app.add_typer(skill_app, name="skill")
 app.add_typer(config_app, name="config")
 app.add_typer(mcp_app, name="mcp")
+app.add_typer(docs_app, name="docs")
 
 
 @app.command("env")

@@ -50,6 +50,21 @@ cc config set refs.project_board https://...
 cc config set refs.design_system /path/to/tokens
 ```
 
+## Docs (Live Docs)
+
+```bash
+cc docs resolve <pkg> [--lang js|npm|python|pip] [--json]
+cc docs get <pkg> [--topic TOPIC] [--lang LANG] [--source auto|local|fetch] [--refresh] [--json]
+cc docs search <pkg> <query> [--lang LANG] [--json]
+cc docs sources [--json]
+cc docs cache --status [--json]
+cc docs cache --clear [--json]
+```
+
+**Source order:** `local` (installed package on disk, offline) → `fetch` (network, requires `cc[fetch]` extra).
+**Config keys:** `docs.source_order`, `docs.cache_ttl_hours` (default 168), `docs.cache_dir`, `docs.context7_endpoint` (reserved).
+**Note:** Context7 is not included at this release; the `SourceBackend` seam accepts it as a future drop-in.
+
 ## MCP Shim
 
 ```bash

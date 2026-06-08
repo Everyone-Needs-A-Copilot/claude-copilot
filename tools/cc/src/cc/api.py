@@ -47,6 +47,14 @@ class SkillNotFound(Exception):
     """Raised when a requested skill cannot be located."""
 
 
+class DocsError(Exception):
+    """Base exception for cc.api docs operations."""
+
+
+class DocSourceUnavailable(DocsError):
+    """Raised when no backend can satisfy the request (all miss or unavailable)."""
+
+
 # ---------------------------------------------------------------------------
 # Memory: store / get / list / delete
 # ---------------------------------------------------------------------------
@@ -294,6 +302,120 @@ def skill_search(query: str) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
+# Docs: resolve / get / search
+# ---------------------------------------------------------------------------
+
+
+def docs_resolve(
+    pkg: str,
+    lang: str | None = None,
+) -> dict[str, Any]:
+    """Detect the installed/declared version of a package.
+
+    Args:
+        pkg:  Package name (e.g. "react", "requests").
+        lang: Ecosystem hint: "js"/"npm" or "python"/"pip".
+              When omitted both ecosystems are probed in order: python, js.
+
+    Returns:
+        Dict with keys: ``name``, ``version``, ``version_source``, ``exact``.
+
+    Raises:
+        DocSourceUnavailable: if the version cannot be determined.
+    """
+    from cc.core.docs_resolver import detect_version
+
+    langs = [lang] if lang else ["python", "js"]
+    for l in langs:
+        result = detect_version(pkg, l)
+        if result is not None:
+            return {
+                "name": result.name,
+                "version": result.version,
+                "version_source": result.version_source,
+                "exact": result.exact,
+            }
+
+    raise DocSourceUnavailable(f"version not found for package {pkg!r}")
+
+
+def docs_get(
+    pkg: str,
+    *,
+    topic: str | None = None,
+    lang: str | None = None,
+    source: str | None = None,
+    refresh: bool = False,
+) -> dict[str, Any]:
+    """Fetch documentation for a package.
+
+    Args:
+        pkg:     Package name.
+        topic:   Documentation topic / query string (defaults to pkg name).
+        lang:    Ecosystem hint: "js"/"npm" or "python"/"pip".
+        source:  Override source_order: "local", "fetch", or None (config default).
+        refresh: Bypass cache and fetch fresh docs.
+
+    Returns:
+        Dict with keys: ``package``, ``version``, ``topic``, ``source``,
+        ``cached``, ``url``, ``metadata``, ``content``.
+
+    Raises:
+        DocSourceUnavailable: if no backend can return docs for the package.
+    """
+    from cc.core.docs_resolver import detect_version, resolve_docs
+
+    langs = [lang] if lang else ["python", "js"]
+    version_result = None
+    for l in langs:
+        version_result = detect_version(pkg, l)
+        if version_result is not None:
+            break
+
+    version = version_result.version if version_result else "unknown"
+
+    source_order: list[str] | None = [source] if source else None
+
+    result = resolve_docs(
+        pkg,
+        version,
+        topic or pkg,
+        source_order=source_order,
+        refresh=refresh,
+    )
+
+    if result is None:
+        raise DocSourceUnavailable(f"no docs found for package {pkg!r}")
+
+    return {
+        "package": result.package,
+        "version": result.version,
+        "topic": result.topic,
+        "source": result.source,
+        "cached": result.cached,
+        "url": result.url,
+        "metadata": result.metadata,
+        "content": result.content,
+    }
+
+
+def docs_search(
+    pkg: str,
+    query: str,
+    *,
+    lang: str | None = None,
+) -> dict[str, Any]:
+    """Search package documentation for a query/topic.
+
+    Thin wrapper over :func:`docs_get` — returns the same dict structure.
+
+    Raises:
+        DocSourceUnavailable: if no docs are found.
+    """
+    return docs_get(pkg, topic=query, lang=lang)
+
+
+# ---------------------------------------------------------------------------
 # Public re-exports (flat surface)
 # ---------------------------------------------------------------------------
 
@@ -303,6 +425,8 @@ __all__ = [
     "EntryNotFound",
     "EntryValidationError",
     "SkillNotFound",
+    "DocsError",
+    "DocSourceUnavailable",
     # memory ops
     "memory_store",
     "memory_get",
@@ -312,4 +436,8 @@ __all__ = [
     # skill ops
     "skill_get",
     "skill_search",
+    # docs ops
+    "docs_resolve",
+    "docs_get",
+    "docs_search",
 ]

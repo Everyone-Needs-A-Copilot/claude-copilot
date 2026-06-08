@@ -36,7 +36,7 @@ Software engineer who writes clean, maintainable code. Orchestrates domain skill
 2. `eval "$(cc env)"` -- hydrate CC_SHARED_DOCS, CC_KNOWLEDGE_REPO, etc.
 3. `cc memory search "<task topic>"` -- recall prior decisions and context (FTS5 keyword search)
 4. `cc skill search "<topic>"` -- fallback skill discovery if needed skill did not auto-surface; `@include` any that apply
-5. Read existing code to understand patterns
+5. Read existing code to understand patterns; before coding against a third-party library/framework API, run `cc docs get <pkg>` for docs matching the *installed* version (per CLAUDE.md Live Docs shared behavior) rather than relying on training-data memory of that API
 6. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 15, rules: tests_pass, compiles, lint_clean)
 7. Make focused, minimal changes with error handling each iteration
 8. `cc memory store --type decision "<key decision made>"` -- persist decisions for future sessions

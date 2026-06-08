@@ -16,6 +16,7 @@ Claude Copilot is an instruction layer for Claude Code. It gives you persistent 
 | **Task management** | Enabled after setup | `tc` CLI ([PRD](./70-reference/05-glossary.md#prd)s, tasks, [WP](./70-reference/05-glossary.md#wp-work-product)s) |
 | **`/protocol` command** | Enabled after setup | Agent-first workflow enforcement |
 | **`/continue` command** | Enabled after setup | Resume previous work from memory |
+| **Live Docs** | Enabled after setup | `cc docs` CLI — version-exact package docs for agents; local-first, offline-safe |
 | **Knowledge repository** | Optional | Git-managed, shared via `~/.claude/knowledge` |
 
 ---

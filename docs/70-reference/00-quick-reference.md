@@ -72,6 +72,7 @@ cp ~/.claude/copilot/.claude/commands/continue.md ~/your-project/.claude/command
 | **Memory Copilot** | `cc memory` CLI | SQLite FTS5 (~/.claude/memory) | Decisions, lessons, resuming work |
 | **Agents** | `/protocol` or direct | None (stateless) | Complex tasks needing expertise |
 | **Skills** | Auto-fire from description; `cc skill` CLI as fallback | Local .claude/skills/ | Best practices auto-surface; explicit lookup via `cc skill search` |
+| **Live Docs** | `cc docs` CLI | Gitignored cache (~/.claude/cache/docs) | Version-exact package docs; agents coding against real installed APIs |
 | **Knowledge** | `cc memory search` / knowledge repo | Git repo | Company docs, shared standards |
 | **Tasks** | `tc` CLI | SQLite (~/.claude/tasks) | PRDs, tasks, work products |
 | **Protocol** | `/protocol` | Via Memory Copilot | Starting fresh work |
@@ -99,6 +100,7 @@ cp ~/.claude/copilot/.claude/commands/continue.md ~/your-project/.claude/command
 | Design services | Service Designer agent | `/protocol` → routes to `sd` |
 | Load a skill | cc CLI | `cc skill get <name>` |
 | Search skills | cc CLI | `cc skill search "<query>"` |
+| Look up API docs for an installed package | cc CLI | `cc docs get <pkg> --topic <topic>` |
 | Find company docs | knowledge repo | `cc memory search "<query>"` |
 | Store a decision | cc CLI | `cc memory store --type decision "<content>"` |
 | Search past decisions | cc CLI | `cc memory search "<query>"` |

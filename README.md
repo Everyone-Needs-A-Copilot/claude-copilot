@@ -37,6 +37,7 @@ It's not separate software—it's markdown files (agents, commands, project inst
 | **Known References**       | Configured paths and refs surface into every session via the Known References registry (`cc config set refs.*`); `cc memory` search is available manually — agents do not yet auto-search a company knowledge repo _(roadmap: agent auto-pull)_ |
 | **Extensions System**      | Override or extend agents with your company methodologies                            |
 | **Code-Execution Path**    | `tc.api` / `cc.api` facades for multi-step ops without CLI round-trip token cost     |
+| **Live Docs**              | `cc docs get <pkg>` — version-exact package documentation; agents code against the real installed API, not stale training memory; local-first, offline-safe |
 | **Context Engineering**    | Auto-compaction, continuation enforcement, activation modes                          |
 
 When Claude Code reads these instructions, it gains persistent memory, 16 specialist agents, and a structured process — the design goal being more disciplined, resumable work built from the practices that tend to produce better software. We measure process and context efficiency, not output quality; there is no defect/rework data yet.
