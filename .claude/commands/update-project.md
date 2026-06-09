@@ -4,8 +4,16 @@ Update an existing Claude Copilot project with the latest files. This command on
 
 ## Step 1: Verify This Is an Existing Project
 
+A set-up project has a `.claude/` directory with framework commands and/or agents.
+(`.mcp.json` is NOT a reliable marker: memory and skills moved to the `cc`/`tc`
+CLIs in v5.0.0, so many set-up projects legitimately have no `.mcp.json`.)
+
 ```bash
-ls .mcp.json 2>/dev/null && echo "PROJECT_EXISTS" || echo "NEW_PROJECT"
+if [ -d .claude ] && { ls .claude/commands/*.md >/dev/null 2>&1 || ls .claude/agents/*.md >/dev/null 2>&1; }; then
+  echo "PROJECT_EXISTS"
+else
+  echo "NEW_PROJECT"
+fi
 ```
 
 **If NEW_PROJECT:**
@@ -16,7 +24,7 @@ Stop and tell the user:
 
 **This project hasn't been set up yet.**
 
-No `.mcp.json` found - this project needs initial setup first.
+No `.claude/` framework files found - this project needs initial setup first.
 
 To set up this project with Claude Copilot, use:
 
