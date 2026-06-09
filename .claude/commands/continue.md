@@ -10,91 +10,51 @@ This command supports an optional stream name argument for resuming work on spec
 - `/continue` - Interactive mode (check pause checkpoints, then resume main initiative or select from streams)
 - `/continue Stream-B` - Resume work on specific stream directly
 
-## Step 0: Check for Pause Checkpoints (Priority Check)
+## Step 0: Check for Paused Tasks (Priority Check)
 
-**BEFORE loading standard initiative context**, check for recent pause checkpoints:
+**BEFORE loading standard context**, check for paused tasks:
 
-```typescript
-// Find all non-expired checkpoints with pause characteristics
-const pauseCheckpoints = await findPauseCheckpoints();
-
-function findPauseCheckpoints() {
-  // Get current initiative (lean mode)
-  const initiative = await initiative_get({ mode: "lean" });
-  if (!initiative) return [];
-
-  // Get all in-progress tasks
-  const tasks = await task_list({ status: 'in_progress' });
-
-  // For each task, check for pause checkpoints
-  const checkpoints = [];
-  for (const task of tasks) {
-    const taskCheckpoints = await checkpoint_list({ taskId: task.id, limit: 5 });
-
-    // Find checkpoints with pause characteristics
-    for (const cp of taskCheckpoints.checkpoints) {
-      const fullCheckpoint = await checkpoint_get({ id: cp.id });
-
-      if (fullCheckpoint &&
-          fullCheckpoint.trigger === 'manual' &&
-          fullCheckpoint.executionPhase === 'paused' &&
-          fullCheckpoint.agentContext?.pausedBy === 'user') {
-        checkpoints.push({
-          checkpointId: cp.id,
-          taskId: task.id,
-          taskTitle: task.title,
-          pauseReason: fullCheckpoint.agentContext.pauseReason,
-          pausedAt: fullCheckpoint.agentContext.pausedAt,
-          hasDraft: cp.hasDraft,
-          expiresAt: cp.expiresAt
-        });
-      }
-    }
-  }
-
-  // Sort by most recent pause
-  return checkpoints.sort((a, b) =>
-    new Date(b.pausedAt).getTime() - new Date(a.pausedAt).getTime()
-  );
-}
+```bash
+tc task list --status paused --json
 ```
 
-**If pause checkpoints found**, present resume options:
+**If paused tasks found**, present resume options:
 
 ```
 ## Paused Work Detected
 
-Found ${pauseCheckpoints.length} paused task(s) from recent session:
+Found N paused task(s) from recent session:
 
-${pauseCheckpoints.map((cp, idx) => `
-${idx + 1}. ${cp.taskTitle}
-   Paused: ${formatTimeAgo(cp.pausedAt)}
-   Reason: ${cp.pauseReason}
-   Has draft: ${cp.hasDraft ? 'Yes' : 'No'}
-   Expires: ${formatTimeAgo(cp.expiresAt)}
-`).join('\n')}
+1. <task title>
+   Paused reason: <from task metadata.pauseReason if set>
+
+2. <task title>
+   ...
 
 Options:
-[1-${pauseCheckpoints.length}] Resume specific paused task
-[c] Continue with standard initiative resume (ignore paused work)
-[s] Show all streams (include paused tasks)
+[1-N] Resume specific paused task
+[c] Continue with standard resume (ignore paused work)
+[s] Show all streams
 
 Select option:
 ```
 
 **User selections:**
-- Number (1-N): Call `checkpoint_resume({ taskId, checkpointId })` and begin work
+- Number (1-N): Set the chosen task back to in_progress and begin work:
+  ```bash
+  tc task update <id> --status in_progress --json
+  ```
 - `c`: Proceed to standard resume flow (Step 1 below)
 - `s`: Proceed to stream selection flow (Step 1 below, then stream list)
 
-**If no pause checkpoints found**, proceed to standard resume flow.
+**If no paused tasks found**, proceed to standard resume flow.
 
 **Auto-Detection Logic:**
 When a stream argument is provided:
 
 1. **Query stream details**:
-   ```
-   stream_get({ streamId: "Stream-B" })
+   ```bash
+   tc stream get Stream-B --json
    ```
 
 2. **Setup git worktree isolation** (if parallel stream and worktree not already created):
@@ -103,15 +63,8 @@ When a stream argument is provided:
      - Create worktree: `.claude/worktrees/{streamId}`
      - Create branch: `stream-{streamId}` (lowercase)
      - Update all stream tasks with worktree metadata:
-       ```
-       task_update({
-         id: taskId,
-         metadata: {
-           ...existingMetadata,
-           worktreePath: ".claude/worktrees/Stream-B",
-           branchName: "stream-b"
-         }
-       })
+       ```bash
+       tc task update <id> --metadata '{"worktreePath": ".claude/worktrees/Stream-B", "branchName": "stream-b"}' --json
        ```
    - Foundation and integration streams work in main worktree (no isolation needed)
 
@@ -143,16 +96,12 @@ When a stream argument is provided:
 
 **When no argument provided:**
 
-1. **Check for streams** in current initiative:
-   ```
-   stream_list()
+1. **Check for streams** in current project:
+   ```bash
+   tc stream list
    ```
 
-   **Note:** By default, `stream_list()` excludes archived streams. Archived streams are tasks from previous initiatives that were automatically archived when switching initiatives. If you need to resume an archived stream, use:
-   ```
-   stream_list({ includeArchived: true })
-   stream_unarchive({ streamId: "Stream-X" })
-   ```
+   **Note:** `tc stream list` shows all current streams. There is no archived-stream concept in the current CLI; streams that are no longer relevant simply have no pending tasks.
 
 2. **If streams exist**, present formatted list:
    ```
@@ -184,25 +133,30 @@ When a stream argument is provided:
 Load minimal context to preserve token budget:
 
 1. **From Memory Copilot** (permanent knowledge):
-   ```
-   initiative_get({ mode: "lean" }) → currentFocus, nextAction, status (~150 tokens)
+   ```bash
+   cc memory search "current focus"
+   cc memory list --type context
    ```
 
-   **Note:** Use lean mode (default) for session resume. Only use `mode: "full"` if you specifically need to review all decisions, lessons, or keyFiles.
+   Recall recent context, decisions, and lessons. For a broad sweep, `cc memory list --type context` surfaces all current-focus entries.
 
 2. **From Task Copilot** (work progress):
+   ```bash
+   tc progress
    ```
-   progress_summary() → PRD counts, task status, recent activity
-   ```
+   Shows PRD counts, task status by stream, and totals.
 
 3. **From Project Constitution** (if exists):
    - Try to read `CONSTITUTION.md` from project root
    - If exists: Inject into context, note `[Constitution: Active]`
    - If missing: Continue without it (graceful fallback), note `[Constitution: Not Found]`
 
-4. If no initiative exists, ask user what they're working on and call `initiative_start`
+4. If no context exists, ask user what they're working on and store the focus:
+   ```bash
+   cc memory store --type context "Focus: <what user described>"
+   ```
 
-**Important:** Do NOT load full task lists. Use `progress_summary` for compact status.
+**Important:** Do NOT load full task lists. Use `tc progress` for compact status.
 
 ## Step 2: Activate Protocol
 
@@ -258,12 +212,12 @@ Present a compact summary (~300 tokens max):
 - [Key decisions from Memory Copilot]
 
 **Recent Activity:**
-- [From Task Copilot progress_summary]
+- [From `tc progress` output]
 ```
 
 **Do NOT list all completed/in-progress tasks.** That data lives in Task Copilot.
 
-**Worktree Info:** If resuming a parallel stream, include the worktree path and branch name from `stream_get` output.
+**Worktree Info:** If resuming a parallel stream, include the worktree path and branch name from `tc stream get` output.
 
 ## Step 4: Ask
 
@@ -289,12 +243,12 @@ Agents will store work products in Task Copilot and return minimal summaries.
 ### Progress Updates
 
 Use Task Copilot for task management:
-- `task_update({ id, status, notes })` - Update task status
-- `progress_summary()` - Check overall progress
+- `tc task update <id> --status <status> --json` - Update task status
+- `tc progress` - Check overall progress
 
 Use Memory Copilot for permanent knowledge:
-- `memory_store({ type: "decision", content })` - Strategic decisions
-- `memory_store({ type: "lesson", content })` - Key learnings
+- `cc memory store --type decision "<content>"` - Strategic decisions
+- `cc memory store --type lesson "<content>"` - Key learnings
 
 ## Worktree Management
 
@@ -306,7 +260,7 @@ Git worktrees provide complete isolation for parallel streams, eliminating file 
 |------|---------|
 | Resume parallel stream | `/continue Stream-B` (creates worktree if needed) |
 | List all worktrees | `git worktree list` |
-| Check stream completion | `stream_get({ streamId: "Stream-B" })` |
+| Check stream completion | `tc stream get Stream-B --json` |
 | Merge completed stream | `git checkout main && git merge stream-b --no-ff` |
 | Remove worktree | `git worktree remove .claude/worktrees/Stream-B` |
 | Clean up stale worktrees | `git worktree prune` |
@@ -324,7 +278,7 @@ Git worktrees provide complete isolation for parallel streams, eliminating file 
 
 The `/continue` command automatically:
 
-1. **Detects if worktree exists** via `stream_get` (checks `worktreePath` and `branchName` fields)
+1. **Detects if worktree exists** via `tc stream get` (checks `worktreePath` and `branchName` fields in metadata)
 2. **Creates worktree if needed**:
    - Path: `.claude/worktrees/{streamId}`
    - Branch: `stream-{streamId}` (lowercase)
@@ -354,13 +308,13 @@ When all tasks in a parallel stream are completed, you have two options:
 
 The WorktreeManager provides a merge helper:
 
-```
-Use stream_get to verify completion:
-  stream_get({ streamId: "Stream-B" })
+```bash
+# Verify completion
+tc stream get Stream-B --json
 
-Then merge:
-  git checkout main
-  git merge stream-b --no-ff -m "Merge Stream-B: <description>"
+# Then merge
+git checkout main
+git merge stream-b --no-ff -m "Merge Stream-B: <description>"
 ```
 
 #### Option 2: Manual Merge
@@ -473,28 +427,23 @@ git stash push -m "Stream-B checkpoint"
 
 Update Memory Copilot with **slim context only**:
 
-```
-initiative_update({
-  currentFocus: "Brief description of current focus",  // 100 chars max
-  nextAction: "Specific next step: TASK-xxx",          // 100 chars max
-  decisions: [{ decision, rationale }],                // Strategic only
-  lessons: [{ lesson, context }],                      // Key learnings only
-  keyFiles: ["important/files/touched.ts"]
-})
+```bash
+# Store current focus and next action (100 chars max each)
+cc memory store --type context "Focus: <brief description of current focus>. Next: TASK-xxx — <specific next step>"
+
+# Store strategic decisions (one entry per decision)
+cc memory store --type decision "<decision>: <rationale>"
+
+# Store key learnings (one entry per lesson)
+cc memory store --type lesson "<lesson> [context: <where it applies>]"
 ```
 
 **Do NOT store in Memory Copilot:**
 - `completed` - Lives in Task Copilot (task status = completed)
 - `inProgress` - Lives in Task Copilot (task status = in_progress)
 - `blocked` - Lives in Task Copilot (task status = blocked)
-- `resumeInstructions` - Replaced by `currentFocus` + `nextAction`
+- `resumeInstructions` - Replaced by a context entry with current focus and next action
 
-### If Initiative is Bloated
+### Memory is Self-Trimming
 
-If `initiative_get` returns a bloated initiative (many tasks inline):
-
-1. Call `initiative_slim({ archiveDetails: true })` to migrate
-2. Archive is saved to `~/.claude/memory/archives/`
-3. Continue with slim initiative
-
-This ensures the next session loads quickly with minimal context usage.
+Memory entries are stored as individual files (one per entry). There is no "bloated initiative" to slim — each `cc memory store` call creates a discrete file. Old or superseded context entries can be removed with `cc memory delete <uuid>` if needed. The next session's `cc memory search` naturally surfaces the most relevant recent entries.
