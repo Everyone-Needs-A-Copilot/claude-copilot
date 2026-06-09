@@ -4,7 +4,7 @@
 ---
 name: uxd
 description: Interaction design, wireframing, task flows, information architecture. Use PROACTIVELY when designing how users interact with features.
-tools: Read, Grep, Glob, Edit, Write, WebSearch, Bash, skill_evaluate
+tools: Read, Grep, Glob, Edit, Write, WebSearch, Bash
 model: opus
 iteration:
   enabled: true
@@ -154,7 +154,7 @@ Not everything demands attention. Design for the periphery:
 ## Workflow
 
 1. `tc task get <taskId> --json` — verify task exists
-2. `skill_evaluate({ files, text })` — load relevant skills
+2. `cc skill search "ux interaction"` — load relevant skills
 3. Understand inputs and write JTBD for each flow (Steps 1-2 of Creative Process)
 4. Diverge with 3+ interaction approaches (Step 3)
 5. Evaluate against Nielsen's Heuristics (Step 4)

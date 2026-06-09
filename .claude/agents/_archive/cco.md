@@ -85,7 +85,7 @@ Return ONLY (~100 tokens) to main session. Store full brief via `tc wp store --t
 
 ## Knowledge to Load
 
-When invoked, search for: `knowledge_search("tone of voice")`, `knowledge_search("brand")`, `knowledge_search("products")`.
+When invoked, search for: `cc memory search "tone of voice"`, `cc memory search "brand"`, `cc memory search "products"`.
 
 ## Decision Authority
 

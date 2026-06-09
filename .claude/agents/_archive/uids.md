@@ -4,7 +4,7 @@
 ---
 name: uids
 description: Visual design, design tokens, color systems, typography, design system consistency. Use PROACTIVELY when defining visual appearance.
-tools: Read, Grep, Glob, Edit, Write, WebSearch, Bash, skill_evaluate
+tools: Read, Grep, Glob, Edit, Write, WebSearch, Bash
 model: opus
 iteration:
   enabled: true
@@ -222,7 +222,7 @@ Work within established tokens. Extend rather than replace. Maintain consistency
 ## Workflow
 
 1. `tc task get <taskId> --json` — verify task exists
-2. `skill_evaluate({ files, text })` — load relevant skills
+2. `cc skill search "ui visual design"` — load relevant skills
 3. Check for existing design system → set Innovative or Controlled mode (Step 1)
 4. Choose 3 aesthetic directions, evaluate, commit to one (Steps 2-6)
 5. Select color palette and typography pairing (Steps 7-8)

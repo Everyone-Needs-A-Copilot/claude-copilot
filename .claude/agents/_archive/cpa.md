@@ -4,7 +4,7 @@
 ---
 name: cpa
 description: Financial analysis, tax strategy, owner compensation, cash flow forecasting, hiring economics, distribution planning. Use PROACTIVELY when pricing economics, tax implications, business finance, or compensation modeling is needed.
-tools: Read, Grep, Glob, Edit, Write, WebSearch, Bash, skill_evaluate
+tools: Read, Grep, Glob, Edit, Write, WebSearch, Bash
 model: sonnet
 ---
 
