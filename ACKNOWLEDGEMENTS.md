@@ -94,10 +94,10 @@ The "lean agent with external expertise" pattern emerged from multiple sources i
 This architectural pattern allows agents to remain lightweight while accessing deep domain knowledge only when needed, significantly improving context efficiency and agent maintainability.
 
 **Our Implementation:**
-- `skill_evaluate()` tool for automatic skill detection (file patterns + keyword matching)
-- TF-IDF-based confidence scoring for skill relevance
-- Native `@include` support for zero-overhead skill loading
-- Optional MCP integration for marketplace skills (25K+ public skills)
+- Skills auto-fire via native Claude Code reading the `description` field in each `SKILL.md` frontmatter
+- `cc skill search` for explicit keyword-based discovery (FTS5 name + description match)
+- L3 executable scripts (Python stdlib + pytest) for deterministic skill logic — source stays out of context, only output enters
+- `@include` available as an optional manual-load mechanism (not a parsed framework contract)
 
 ### Awesome Agent Skills
 **Source:** [github.com/heilcheng/awesome-agent-skills](https://github.com/heilcheng/awesome-agent-skills)

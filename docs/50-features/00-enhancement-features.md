@@ -1571,10 +1571,13 @@ tc task create --title "Risky refactor" --prd <id> --json
 **Conflict handling:**
 ```bash
 # Check conflict status
-worktree_conflict_status({ taskId: "TASK-xxx" })
+git status
+git diff --name-only --diff-filter=U
 
-# After manual resolution
-worktree_conflict_resolve({ taskId: "TASK-xxx" })
+# Resolve conflicts manually (edit files to remove <<<<<<<, =======, >>>>>>> markers)
+# then stage and complete the merge:
+git add <resolved-files>
+git commit
 ```
 
 ---

@@ -258,8 +258,8 @@ Engineer Agent (Task 1):
 
   If merge conflicts:
   - Task auto-blocked
-  - You resolve manually
-  - Run: worktree_conflict_resolve({ taskId: "TASK-001" })
+  - Check conflicts: git status / git diff --name-only --diff-filter=U
+  - Resolve manually in .worktrees/TASK-001 (remove conflict markers, git add, git commit)
 
 Result: Safe incremental refactor, main never broken.
 ```
@@ -394,12 +394,20 @@ With worktree isolation:
 
 ```bash
 # Check conflict status
-worktree_conflict_status({ taskId: "TASK-xxx" })
+git status
+git diff --name-only --diff-filter=U
 
-# Resolve conflicts manually in .worktrees/TASK-xxx
+# Navigate to the worktree and resolve conflicts manually
+# (edit files to remove <<<<<<<, =======, >>>>>>> markers)
+cd .worktrees/TASK-xxx
+# ... edit conflicting files ...
 
-# Then retry
-worktree_conflict_resolve({ taskId: "TASK-xxx" })
+# Stage resolved files and complete the merge
+git add <resolved-files>
+git commit
+
+# Then update task status
+tc task update TASK-xxx --status completed --json
 ```
 
 ### "Lost my context"

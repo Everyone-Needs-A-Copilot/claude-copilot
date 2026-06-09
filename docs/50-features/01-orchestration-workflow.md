@@ -61,7 +61,7 @@ Sets up git isolation. Does NOT launch agents.
 |------|--------|
 | 1 | `tc stream list --json` -- stop if no streams |
 | 2 | Check for file overlaps between streams using `git diff` -- stop if conflicts |
-| 3 | `worktree_create({ taskId })` for each stream task |
+| 3 | `git worktree add .worktrees/<stream-id> -b stream/<stream-id>` for each ready stream |
 | 4 | Print launch instructions for the main session |
 
 After this command completes, the **main session** launches `Task` agents with `run_in_background: true` for each stream. Each agent receives its stream context, worktree path, and task list.
@@ -86,8 +86,8 @@ Merges completed stream worktrees back to main.
 
 | Outcome | Action |
 |---------|--------|
-| Clean merge | `worktree_merge()`, then `worktree_cleanup()` |
-| Conflicts | Report files, suggest `worktree_conflict_resolve()` |
+| Clean merge | `git merge --no-ff stream/<stream-id>`, then `git worktree remove` + `git branch -d` |
+| Conflicts | Report conflicting files; resolve manually, then commit and clean up |
 | Not complete | Skip stream, note in output |
 
 ---
@@ -127,12 +127,12 @@ Each stream gets a dedicated git worktree for complete filesystem isolation.
 
 | Aspect | Detail |
 |--------|--------|
-| Location | `.worktrees/{TASK-xxx}` per task |
-| Branch naming | `task/{task-id-lowercase}` |
-| Creation | `worktree_create({ taskId })` during `start` |
-| Merge | `worktree_merge({ taskId })` during `merge` |
-| Cleanup | `worktree_cleanup({ taskId })` after successful merge |
-| Conflict resolution | `worktree_conflict_status()` then `worktree_conflict_resolve()` |
+| Location | `.worktrees/<stream-id>` per stream |
+| Branch naming | `stream/<stream-id>` |
+| Creation | `git worktree add .worktrees/<stream-id> -b stream/<stream-id>` during `start` |
+| Merge | `git merge --no-ff stream/<stream-id>` during `merge` |
+| Cleanup | `git worktree remove .worktrees/<stream-id>` + `git branch -d stream/<stream-id>` after merge |
+| Conflict resolution | Resolve manually in working tree, then `git add` + `git commit` |
 
 For full worktree details, see [05-worktree-isolation.md](./05-worktree-isolation.md).
 
@@ -143,17 +143,6 @@ For full worktree details, see [05-worktree-isolation.md](./05-worktree-isolatio
 ### From Claude Code
 
 Run `/orchestrate status` for a quick snapshot.
-
-### Live Dashboard (Legacy)
-
-The `./watch-status` script (from `templates/orchestration/`) provides a live terminal dashboard if the legacy infrastructure is installed:
-
-```
-Stream-A [===============] 100%  DONE  2h31m  Foundation
-Stream-B [==========-----]  70%  RUN   1h45m  API Layer
-Stream-C [========-------]  40%  RUN     52m  UI Components
-Stream-Z [---------------]   0%  ---    ---   Integration
-```
 
 ---
 
@@ -176,8 +165,8 @@ Stream-Z [---------------]   0%  ---    ---   Integration
 | "No streams found" on `start` | `generate` not run, or @agent-ta output markdown instead of calling tools | Run `/orchestrate generate`; verify with `tc stream list --json` |
 | File overlap detected | Two streams declare the same file in `files` metadata | Restructure streams or merge overlapping ones |
 | Circular dependency detected | Streams depend on each other in a cycle | Break cycle by making one stream foundation (`dependencies: []`) |
-| Worktree already exists | Previous run not cleaned up | `worktree_cleanup({ taskId, force: true })` or `git worktree remove --force` |
-| Merge conflicts on `merge` | Parallel changes touched same lines | Use `worktree_conflict_status()` to inspect, resolve manually, then `worktree_conflict_resolve()` |
+| Worktree already exists | Previous run not cleaned up | `git worktree prune` then `git worktree remove --force .worktrees/<stream-id>` |
+| Merge conflicts on `merge` | Parallel changes touched same lines | Resolve manually in worktree, `git add` + `git commit`, then remove worktree |
 | Streams missing after workspace switch | Tasks scoped to a different workspace | Verify `tc stream list --json` returns expected streams |
 | Database locked | Another process has SQLite open | Close other Claude sessions, wait 30s, retry |
 | Task agent not starting | Main session did not launch Task tool | Main session must call `Task` with `run_in_background: true` per stream |
@@ -192,11 +181,11 @@ Stream-Z [---------------]   0%  ---    ---   Integration
 | `tc task create` | generate | Create stream tasks with metadata |
 | `tc stream list` | start, status, merge | List streams with progress |
 | `git diff` | start | Validate no file overlaps between streams |
-| `worktree_create` | start | Create git worktree per stream |
-| `worktree_merge` | merge | Merge branch to main |
-| `worktree_conflict_status` | merge | Inspect merge conflicts |
-| `worktree_conflict_resolve` | merge | Complete conflict resolution |
-| `worktree_cleanup` | merge | Remove worktree and branch |
+| `git worktree add` | start | Create git worktree per stream |
+| `git merge --no-ff` | merge | Merge stream branch to main |
+| `git worktree remove` | merge | Remove worktree after merge |
+| `git branch -d` | merge | Delete merged stream branch |
+| `git worktree prune` | troubleshooting | Clean up stale worktree references |
 | `tc progress` | status | Overall completion percentage |
 
 ---

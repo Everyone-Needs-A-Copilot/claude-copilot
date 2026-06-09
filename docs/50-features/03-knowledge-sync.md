@@ -738,20 +738,23 @@ git commit -m "Remove my-product knowledge"
 
 **Implementation:**
 ```bash
-# Query Task Copilot for work products
-work_products=$(task_copilot_client query \
-  --from-date "2026-01-01" \
-  --to-date "2026-01-14" \
-  --types "architecture,technical_design,security_review")
+# List work products for review (filter by type if needed)
+tc wp list --type architecture --json
+tc wp list --type technical_design --json
+tc wp list --type security_review --json
 
-# Include in knowledge update
+# Or search across all work products by keyword
+tc wp search "architecture" --json
+tc wp search "security" --json
+
+# Include relevant findings in knowledge update:
 # - Architecture decisions
 # - Technical designs
 # - Security findings
 # - Test strategies
 ```
 
-**Requires:** Task Copilot CLI or API
+**Requires:** `tc` CLI (Task Copilot)
 
 ### 2. Real-Time Updates via Lifecycle Hooks
 

@@ -336,14 +336,11 @@ cd ~/your-project
 # Copy new command
 cp ~/.claude/copilot/.claude/commands/orchestrate.md .claude/commands/
 
-# Update agents (all 12 files)
+# Update agents (all 16 files)
 cp -r ~/.claude/copilot/.claude/agents/ .claude/
-
-# Update .gitignore
-echo "" >> .gitignore
-echo "# Claude Copilot orchestration" >> .gitignore
-echo ".claude/orchestrator/" >> .gitignore
 ```
+
+Note: `.claude/orchestrator/` is retired. No scripts need to be copied; `/orchestrate` is native-Task-only.
 
 ### Step 4: Verify Installation
 
@@ -449,9 +446,11 @@ Configure new features introduced in v1.8.0.
 ### 1. Enable Orchestration
 
 **Prerequisites:**
-- tmux installed: `brew install tmux` (macOS) or `apt install tmux` (Linux)
-- Python 3.8+: `python3 --version`
 - `tc` CLI installed and in PATH
+- `claude` CLI in PATH (for native Task agents)
+- Git 2.5+ (for worktree support)
+
+> **Note:** The Python orchestrator (`orchestrate.py`, `start-streams.py`, tmux) was retired. `/orchestrate` is now native-Task-only — no background scripts or tmux required.
 
 **Usage:**
 ```bash
@@ -460,10 +459,11 @@ claude
 # Create a PRD with multiple streams via @agent-ta
 
 /orchestrate generate
-# Generates scripts in .claude/orchestrator/
+# Creates PRD + stream tasks via tc CLI
 
-# Outside Claude Code:
-python3 .claude/orchestrator/start-streams.py
+/orchestrate start
+# Validates streams, creates git worktrees, prints launch instructions
+# Main session then spawns Task agents per stream
 ```
 
 ### 2. Enable WebSocket Bridge (Optional)
@@ -535,25 +535,15 @@ tc stream list --json
 - Prevents stream pollution when using `/continue`
 - One-time operation only needed after upgrade
 
-### 5. Configure Context Recovery (Optional)
+### 5. Context Recovery
 
-For orchestration with auto-recovery, edit generated config:
+Context recovery in the native model is handled by re-running `/orchestrate status` to check stream progress and resuming incomplete `Task` agents manually. There is no separate config file — stream state is tracked in the `tc` database.
 
-**.claude/orchestrator/orchestrate-config.json:**
-```json
-{
-  "version": "1.0",
-  "generatedAt": "...",
-  "initiative": { ... },
-  "apiEndpoint": "http://127.0.0.1:9090",
-  "streams": [ ... ],
-  "executionPlan": { ... },
-  "contextRecovery": {
-    "stallTimeoutMinutes": 10,
-    "autoRecoveryEnabled": true,
-    "maxRecoveryAttempts": 3
-  }
-}
+```bash
+# Check what is complete and what is still pending
+tc progress --json
+tc stream list --json
+tc task list --json
 ```
 
 ---
@@ -612,63 +602,6 @@ cat .claude/quality-gates.json | jq
 
 # If error, fix JSON syntax
 # Ensure gates match task metadata
-```
-
----
-
-### Issue: WebSocket bridge fails to start
-
-**Symptom:**
-```
-Error: WORKSPACE_ID required
-```
-
-**Solution:**
-```bash
-# Get workspace ID
-ls ~/.claude/tasks/
-# Use directory name as WORKSPACE_ID
-
-# Set in .env
-echo "WORKSPACE_ID=<directory-name>" >> .env
-```
-
----
-
-### Issue: Orchestration script fails
-
-**Symptom:**
-```
-ModuleNotFoundError: No module named 'requests'
-```
-
-**Solution:**
-```bash
-pip3 install requests
-
-# Verify
-python3 -c "import requests; print('OK')"
-```
-
----
-
-### Issue: tmux not found
-
-**Symptom:**
-```
-tmux: command not found
-```
-
-**Solution:**
-```bash
-# macOS
-brew install tmux
-
-# Ubuntu/Debian
-sudo apt install tmux
-
-# Fedora/CentOS
-sudo dnf install tmux
 ```
 
 ---

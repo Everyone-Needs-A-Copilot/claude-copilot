@@ -44,20 +44,26 @@ Creates PRD and tasks with stream metadata. Prompt user for feature description 
 
 ## `start`
 
-Validates streams, creates git worktrees, then **auto-spawns headless `claude` workers** for each stream whose dependencies are satisfied. Workers run in the background and are polled, automatically restarted (up to 2 times) if they die with incomplete tasks, and merged back to main when all streams complete.
+Validates streams, creates an isolated git worktree per ready stream, and prints
+launch instructions. Claude Code's native `Task` tool runs the agents —
+`/orchestrate` does not spawn background workers.
 
 1. `tc stream list --json` -- stop if no streams (tell user to run `generate` first)
-2. Run preflight validation (Python 3.10+, `claude` on PATH, `tc` CLI, git repo)
-3. Check for file overlaps between streams -- stop if conflicts detected
-4. Display dependency structure
-5. Enter polling loop:
-   - For each stream whose dependencies are complete: `orchestrate.py start <stream-id>` spawns a headless `claude` worker in that stream's git worktree
-   - Poll for dead workers and restart (max 2 attempts per stream)
-   - Exit when all streams are complete; auto-merge worktrees to main branch
+2. Preflight: confirm `tc` is on PATH, you're inside a git repo, and the working tree is clean
+3. Check for file overlaps between parallel streams (compare each stream's `files` metadata) -- stop if two parallel streams touch the same file
+4. For each stream whose dependencies are all satisfied, create an isolated worktree:
+   ```bash
+   git worktree add .worktrees/<stream-id> -b stream/<stream-id>
+   ```
+5. Print launch instructions: dispatch one native `Task` agent per ready stream. Each agent works in its `.worktrees/<stream-id>` directory on that stream's tasks:
+   ```bash
+   tc task list --stream <stream-id> --json   # the agent's work list
+   ```
+6. As streams finish, run `/orchestrate merge` to integrate them.
 
-Workers are spawned by `orchestrate.py` (`spawn_worker` / `start_all`) — not by the main session. The `/orchestrate start` command delegates to this script.
-
-> **Maturity note:** Worker spawning is real and functional. It has not been proven at >5 concurrent streams; integration tests are mock-only.
+> **Note:** Agent execution is handled by the native `Task` tool, not a background
+> worker pool. Dependency ordering is your call — only start a stream once the
+> streams it depends on have merged.
 
 ---
 
@@ -79,17 +85,24 @@ Stream-C   | pending     | 0%
 
 ## `merge`
 
-Merges completed stream worktrees back to the main branch.
+Merges completed stream worktrees back into the main branch using plain git.
 
 1. `tc stream list --json` to find completed streams
-2. For each completed stream: `worktree_merge({ taskId })`
-3. If conflicts: `worktree_conflict_status({ taskId })` and report files
-4. If clean: `worktree_cleanup({ taskId })` and report success
+2. For each completed stream, merge its branch:
+   ```bash
+   git merge stream/<stream-id> --no-ff -m "Merge <stream-id>: <description>"
+   ```
+3. If the merge reports conflicts: list the conflicting files and stop for manual resolution (do not auto-resolve)
+4. If clean: remove the worktree and branch:
+   ```bash
+   git worktree remove .worktrees/<stream-id>
+   git branch -d stream/<stream-id>
+   ```
 
 | Outcome | Action |
 |---------|--------|
-| Clean merge | Cleanup worktree, report success |
-| Conflicts | Report conflicting files, suggest `worktree_conflict_resolve()` |
+| Clean merge | Remove worktree + branch, report success |
+| Conflicts | Report conflicting files, leave for manual `git` resolution |
 | Not complete | Skip stream, note in output |
 
 ---
@@ -100,11 +113,9 @@ Merges completed stream worktrees back to the main branch.
 |------|---------|---------|
 | `tc prd create` | generate | Create PRD |
 | `tc task create` | generate | Create stream tasks |
+| `tc task list --stream <id>` | start | The work list for each stream's agent |
 | `tc stream list` | start, status, merge | List streams |
-| `git diff` across worktrees | start | Validate no file overlaps |
-| `worktree_create` | start | Git isolation per stream |
-| `worktree_merge` | merge | Merge branch to main |
-| `worktree_conflict_status` | merge | Check merge conflicts |
-| `worktree_conflict_resolve` | merge | Resolve conflicts |
-| `worktree_cleanup` | merge | Remove merged worktree |
 | `tc progress` | status | Overall progress |
+| `git worktree add` | start | Create isolated worktree per stream |
+| `git merge --no-ff` | merge | Merge a stream branch to main |
+| `git worktree remove` / `git branch -d` | merge | Clean up after a successful merge |

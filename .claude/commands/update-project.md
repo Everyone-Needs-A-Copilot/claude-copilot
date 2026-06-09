@@ -192,7 +192,7 @@ Tell the user:
 This will refresh:
 - `.claude/commands/` (7 project commands)
 - `.claude/agents/` (16 framework agents — roster-aware: preserves project-specific agents, removes retired agents)
-- `.claude/orchestrator/` (if present - Python scripts and shell utilities)
+- `.claude/orchestrator/` (if present — retired Python scripts will be removed)
 
 This will ONLY update if needed:
 - `.mcp.json` (only to add new MCP servers, preserving all existing configuration)
@@ -318,34 +318,22 @@ echo "Agents updated (roster-aware)"
 
 ---
 
-## Step 9: Update Orchestrator Files (if present)
+## Step 9: Remove Retired Orchestrator Files (if present)
 
-**Only update if orchestrator directory exists** (project has used `/orchestrate` before):
+The Python orchestration layer (`orchestrate.py`, `task_copilot_client.py`,
+`monitor-workers.py`, etc.) is **retired**. `/orchestrate` now uses native `Task`
+agents + `tc` + `git worktree` directly — no project-level scripts. If a project
+still carries the old `.claude/orchestrator/` directory, remove it:
 
 ```bash
 if [ -d ".claude/orchestrator" ]; then
-  echo "=== Updating Orchestrator Files ==="
-
-  # Copy Python scripts (preserve symlinks or update files)
-  cp ~/.claude/copilot/templates/orchestration/task_copilot_client.py .claude/orchestrator/
-  cp ~/.claude/copilot/templates/orchestration/check_streams_data.py .claude/orchestrator/
-  cp ~/.claude/copilot/templates/orchestration/orchestrate.py .claude/orchestrator/
-  cp ~/.claude/copilot/templates/orchestration/monitor-workers.py .claude/orchestrator/
-
-  # Copy shell scripts
-  cp ~/.claude/copilot/templates/orchestration/check-streams .claude/orchestrator/
-  cp ~/.claude/copilot/templates/orchestration/watch-status .claude/orchestrator/
-
-  # Ensure scripts are executable
-  chmod +x .claude/orchestrator/check-streams
-  chmod +x .claude/orchestrator/watch-status
-  chmod +x .claude/orchestrator/orchestrate.py
-
-  echo "Orchestrator files updated"
-  ORCHESTRATOR_UPDATED=true
+  echo "=== Removing retired orchestrator scripts ==="
+  rm -rf .claude/orchestrator
+  echo "Removed .claude/orchestrator (Python orchestrator retired; see /orchestrate)"
+  ORCHESTRATOR_REMOVED=true
 else
-  echo "No orchestrator directory found (skipping)"
-  ORCHESTRATOR_UPDATED=false
+  echo "No orchestrator directory found (nothing to remove)"
+  ORCHESTRATOR_REMOVED=false
 fi
 ```
 
@@ -553,8 +541,8 @@ Tell user:
 **Refreshed:**
 - `.claude/commands/` (7 project commands: protocol, continue, pause, map, memory, extensions, orchestrate)
 - `.claude/agents/` (16 framework agents, roster-aware sync)
-{{IF_ORCHESTRATOR_UPDATED}}
-- `.claude/orchestrator/` (Python scripts and shell utilities)
+{{IF_ORCHESTRATOR_REMOVED}}
+- `.claude/orchestrator/` (retired Python orchestrator removed)
 {{END_IF}}
 
 **MCP Configuration:**
@@ -574,7 +562,7 @@ Tell user:
 - `.claude/skills/`
 - Existing MCP server configurations
 {{IF_NO_ORCHESTRATOR}}
-- `.claude/orchestrator/` not present (run `/orchestrate setup` to initialize)
+- `.claude/orchestrator/` not present (no action needed — `/orchestrate` requires no project-level scripts)
 {{END_IF}}
 
 **Claude Copilot Version:** $COPILOT_VERSION

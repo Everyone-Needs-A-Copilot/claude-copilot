@@ -1,81 +1,39 @@
 # Orchestration Troubleshooting Guide
 
-This guide helps diagnose and fix common orchestration issues quickly. Based on real incidents and production debugging sessions.
-
----
-
-## Quick Diagnostics
-
-Run these one-liners to check common issues:
-
-```bash
-# 1. Check Claude CLI is in PATH
-which claude || echo "❌ NOT FOUND"
-
-# 2. Check git worktrees
-git worktree list
-
-# 3. Check cc/tc CLIs are installed
-cc --version && tc version || echo "❌ CLI(s) NOT FOUND"
-
-# 4. Check orchestrator files exist
-ls -la .claude/orchestrator/
-
-# 5. Check worker logs
-tail -f .claude/orchestrator/logs/Stream-*.log
-
-# 6. Check PID files
-ls -la .claude/orchestrator/pids/
-
-# 7. Check stream status
-python .claude/orchestrator/check_streams_data.py
-
-# 8. Check for zombie processes
-ps aux | grep claude | grep -v grep
-```
+Diagnosing and fixing common issues with the native `/orchestrate` model: `tc` CLI, `git worktree`, and Claude Code `Task` agents.
 
 ---
 
 ## Pre-Orchestration Checklist
 
-**Run BEFORE starting orchestration to prevent issues:**
+Run these checks before starting orchestration to catch problems early.
 
-### Required Environment
+### Required Tools
 
 - [ ] **Claude CLI in PATH**
   ```bash
   which claude
-  # Must return: /opt/homebrew/bin/claude (or similar)
+  # Must return a path, e.g. /opt/homebrew/bin/claude
   ```
 
 - [ ] **Git version >= 2.5** (for worktree support)
   ```bash
   git --version
-  # Must be: 2.5.0 or higher
   ```
 
-- [ ] **cc and tc CLIs installed**
+- [ ] **`cc` and `tc` CLIs installed**
   ```bash
   cc --version
   tc version
-  # Both must return a version number
   ```
 
-- [ ] **cc memory accessible**
+- [ ] **Framework up to date**
   ```bash
-  cc memory list
-  # Should return entries or empty list without error
+  cd ~/.claude/copilot && git log --oneline -1
   ```
 
-- [ ] **Claude Copilot framework updated**
+- [ ] **Project up to date**
   ```bash
-  cd ~/.claude/copilot
-  git pull
-  ```
-
-- [ ] **Project updated to latest templates**
-  ```bash
-  # In your project
   /update-project
   ```
 
@@ -87,978 +45,280 @@ ps aux | grep claude | grep -v grep
   # Should show: "nothing to commit, working tree clean"
   ```
 
-- [ ] **On a feature branch** (not main)
+- [ ] **On intended branch** (not main if streaming feature work)
   ```bash
   git branch --show-current
-  # Should NOT be: main or master
   ```
-
-### Validation Script
-
-**Recommended:** Run the validation script before orchestration:
-
-```bash
-# Create validation script
-cat > validate-setup.py << 'EOF'
-#!/usr/bin/env python3
-import subprocess
-import sys
-from pathlib import Path
-
-def check(name, command, expected=None):
-    try:
-        result = subprocess.run(command, shell=True, capture_output=True, text=True)
-        if expected and expected not in result.stdout:
-            print(f"❌ {name}: Failed")
-            return False
-        print(f"✅ {name}")
-        return True
-    except Exception as e:
-        print(f"❌ {name}: {e}")
-        return False
-
-checks = [
-    ("Claude CLI", "which claude", "/claude"),
-    ("Git version", "git --version", "git version"),
-    ("cc CLI", "cc --version", "cc"),
-    ("tc CLI", "tc version", "tc"),
-    ("Orchestrator directory", "ls .claude/orchestrator", "orchestrate.py"),
-]
-
-print("Running pre-orchestration checks...\n")
-results = [check(name, cmd, exp) for name, cmd, exp in checks]
-
-if all(results):
-    print("\n✅ All checks passed. Ready for orchestration.")
-    sys.exit(0)
-else:
-    print("\n❌ Some checks failed. Fix issues before orchestrating.")
-    sys.exit(1)
-EOF
-
-chmod +x validate-setup.py
-python validate-setup.py
-```
 
 ---
 
 ## Common Issues
 
-### Issue 1: Workers Start But Produce No Output
+### Issue 1: "No streams found" on `/orchestrate start`
 
-#### Symptoms
-- `./watch-status` shows workers running
-- Log files exist but contain minimal content:
-  ```
-  Starting claude...
-  ```
-  ...and nothing else
+#### Symptom
+`/orchestrate start` reports no streams exist.
 
-#### Root Cause
-Claude CLI not found in worker's PATH. Non-login shells (spawned by `#!/bin/bash`) don't include `/opt/homebrew/bin` on macOS by default.
-
-#### Diagnosis
-Check worker log for Claude path:
-```bash
-tail .claude/orchestrator/logs/Stream-A_*.log
-```
-
-Look for:
-```
-Claude path: NOT FOUND
-```
-
-Or absence of "Claude path:" line entirely (indicates old worker-wrapper.sh).
-
-#### Solution
-
-**1. Update worker-wrapper.sh template:**
-```bash
-# Check if PATH export exists
-head -20 ~/.claude/copilot/templates/orchestration/worker-wrapper.sh | grep PATH
-
-# If missing, update Claude Copilot
-cd ~/.claude/copilot
-git pull
-
-# Verify fix is present (should see line 14-15):
-# export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"
-```
-
-**2. Update project symlinks:**
-```bash
-# In your project
-/update-project
-```
-
-**3. Restart workers:**
-```bash
-# Kill existing workers
-pkill -f "worker-wrapper.sh"
-
-# Restart orchestration
-/orchestrate start
-```
-
-#### Prevention
-- Always run `/update-project` after updating Claude Copilot
-- Check `validate-setup.py` script before orchestrating
-- Verify worker-wrapper.sh has PATH export
-
----
-
-### Issue 2: Worktrees Created But Empty
-
-#### Symptoms
-- Worktree directories exist in `.claude/worktrees/`
-- Directory has only 6-10 files instead of full project (68+ items)
-- Workers fail with "file not found" errors
-- `git worktree list` doesn't show worktrees
-
-#### Root Cause
-`orchestrate.py` uses `mkdir` instead of `git worktree add`, creating empty directories instead of git worktrees.
-
-#### Diagnosis
-```bash
-# Check worktree count
-git worktree list
-# Should show: main branch + all Stream-* worktrees
-
-# Check directory contents
-ls -la .claude/worktrees/Stream-A/ | wc -l
-# Should be: 68+ items (same as project root)
-```
-
-#### Solution
-
-**Option 1: Manual worktree creation (immediate fix):**
-```bash
-# From project root
-for stream in Stream-A Stream-B Stream-C Stream-D Stream-E; do
-    # Create branch if doesn't exist
-    git branch "$stream" 2>/dev/null || true
-
-    # Create git worktree
-    git worktree add ".claude/worktrees/$stream" "$stream"
-done
-
-# Verify
-git worktree list
-```
-
-**Option 2: Fix orchestrate.py (permanent fix):**
-
-Edit `~/.claude/copilot/templates/orchestration/orchestrate.py` at lines 620-623:
-
-**Before (broken):**
-```python
-if not work_dir.exists():
-    log(f"Creating worktree for {stream_id}...")
-    work_dir.mkdir(parents=True, exist_ok=True)  # ❌ Creates empty directory
-```
-
-**After (fixed):**
-```python
-if not work_dir.exists():
-    log(f"Creating git worktree for {stream_id}...")
-    branch_name = stream_id
-
-    # Create branch if doesn't exist
-    subprocess.run(
-        ["git", "branch", branch_name],
-        cwd=PROJECT_ROOT,
-        capture_output=True
-    )
-
-    # Create git worktree
-    result = subprocess.run(
-        ["git", "worktree", "add", str(work_dir), branch_name],
-        cwd=PROJECT_ROOT,
-        capture_output=True,
-        text=True
-    )
-
-    if result.returncode != 0:
-        error(f"Failed to create worktree: {result.stderr}")
-        return False
-```
-
-#### Prevention
-- Always verify worktrees with `git worktree list` before starting
-- Run manual worktree creation as part of pre-flight checklist
-- Monitor for "file not found" errors in worker logs
-
----
-
-### Issue 3: "Command not found: claude"
-
-#### Symptoms
-- Workers fail immediately
-- Logs show: `line 105: claude: command not found`
-- Exit code: 127
-
-#### Root Cause
-Same as Issue 1 - PATH doesn't include Claude CLI location.
-
-#### Diagnosis
-```bash
-# In interactive shell
-which claude
-# Returns: /opt/homebrew/bin/claude
-
-# In non-login shell (like worker)
-/bin/bash -c "which claude"
-# Returns: (nothing) ← PROBLEM
-```
-
-#### Solution
-Follow steps in **Issue 1: Workers Start But Produce No Output**.
-
-#### Prevention
-Add to your shell profile to ensure PATH is consistent:
-```bash
-# In ~/.zshrc or ~/.bashrc
-export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"
-```
-
----
-
-### Issue 4: Permission Denied Errors
-
-#### Symptoms
-- Workers fail with: `Permission denied: .claude/orchestrator/orchestrate.py`
-- Or: `Permission denied: worker-wrapper.sh`
-
-#### Root Cause
-Scripts not marked executable after template copy.
-
-#### Diagnosis
-```bash
-ls -la .claude/orchestrator/ | grep -E "(orchestrate|worker-wrapper)"
-# Should show: -rwxr-xr-x (executable)
-# Not: -rw-r--r-- (not executable)
-```
+#### Cause
+`/orchestrate generate` was not run, or `@agent-ta` returned markdown instead of calling `tc task create` / `tc prd create`.
 
 #### Solution
 ```bash
-# Make scripts executable
-chmod +x .claude/orchestrator/orchestrate.py
-chmod +x .claude/orchestrator/worker-wrapper.sh
-chmod +x .claude/orchestrator/check-streams
-chmod +x .claude/orchestrator/monitor-workers.py
-chmod +x .claude/orchestrator/start-ready-streams.py
-
-# Make root-level symlinks executable
-chmod +x watch-status
-```
-
-#### Prevention
-`/update-project` command should handle this automatically. If not:
-```bash
-# One-time fix for all orchestrator scripts
-find .claude/orchestrator -type f -name "*.py" -exec chmod +x {} \;
-find .claude/orchestrator -type f -name "*.sh" -exec chmod +x {} \;
-find .claude/orchestrator -type f -name "check-*" -exec chmod +x {} \;
-find .claude/orchestrator -type f -name "watch-*" -exec chmod +x {} \;
-```
-
----
-
-### Issue 5: `tc` CLI Not Found
-
-#### Symptoms
-- Workers start but fail immediately
-- Logs show: `tc: command not found`
-
-#### Root Cause
-- `tc` CLI not installed or not in PATH
-
-#### Diagnosis
-```bash
-which tc
-# Should return a path to the tc binary
-```
-
-#### Solution
-Ensure the `tc` CLI is installed and available in PATH. Verify by running:
-```bash
-tc --help
-```
-
-#### Prevention
-- Check that `tc` is installed during machine setup
-- Add `tc` location to PATH in shell profile
-
----
-
-### Issue 6: Streams Not Showing in watch-status
-
-#### Symptoms
-- `/orchestrate generate` succeeds
-- `tc stream list --json` shows streams
-- But `./watch-status` shows: "No streams found" or empty dashboard
-
-#### Root Cause
-- Initiative scoping mismatch
-- Streams from different initiative (auto-archived)
-- Task database corruption
-
-#### Diagnosis
-```bash
-# 1. Check streams exist
+# Verify streams exist
 tc stream list --json
 
-# 2. Check database exists
-ls -lh ~/.claude/tasks/$(basename $(pwd)).db
-
-# 3. Check for archived streams
-python .claude/orchestrator/check_streams_data.py | grep -i archived
-```
-
-#### Solution
-
-**If streams from different workspace scope:**
-```bash
-# Verify the current workspace identifier
-tc progress --json
-
-# Regenerate to re-scope streams to this workspace
+# If empty, re-run generate
 /orchestrate generate
 
-# Then verify streams are visible
+# Confirm tasks were actually created (not just described in markdown)
 tc stream list --json
+tc task list --json
 ```
-
-**If database corrupted:**
-```bash
-# Backup database
-cp ~/.claude/tasks/$(basename $(pwd)).db ~/.claude/tasks/$(basename $(pwd)).db.backup
-
-# Delete and regenerate
-rm ~/.claude/tasks/$(basename $(pwd)).db
-/orchestrate generate  # Recreate PRD and tasks
-```
-
-#### Prevention
-- Always use `/orchestrate generate` to start new orchestration runs
-- Don't manually switch workspaces mid-orchestration
-- Use `tc stream list --json` to verify stream scope before starting
 
 ---
 
-### Issue 7: Symlink Path Resolution Errors
+### Issue 2: File Overlap Detected Between Streams
 
-#### Symptoms
-- `./watch-status` shows wrong project name
-- Or: `check-streams` can't find files
-- Or: Scripts work from `.claude/orchestrator/` but not from project root
+#### Symptom
+`/orchestrate start` stops with a file overlap error.
 
-#### Root Cause
-Multiple levels of symlinks cause path resolution to point to template directory instead of project root.
-
-#### Diagnosis
-```bash
-# Check symlink structure
-ls -la watch-status
-# Should show: watch-status -> .claude/orchestrator/watch-status
-
-ls -la .claude/orchestrator/watch-status
-# Should show: watch-status -> ~/.claude/copilot/templates/orchestration/watch-status
-
-# Check what PROJECT_ROOT resolves to
-bash -x ./watch-status 2>&1 | grep PROJECT_ROOT
-# Should show your project path, NOT ~/.claude/copilot/templates
-```
+#### Cause
+Two or more streams declare the same file in their `files` metadata. The conflict check prevents this before worktrees are created.
 
 #### Solution
+Restructure the stream plan so each file belongs to exactly one stream. Options:
+- Move the shared file to a foundation stream that upstream streams depend on.
+- Merge the two conflicting streams into one.
 
-**Update to latest templates with symlink fix:**
-```bash
-# Update Claude Copilot
-cd ~/.claude/copilot
-git pull
-
-# Update project
-cd /your/project
-/update-project
-```
-
-**Verify fix is present** in `~/.claude/copilot/templates/orchestration/watch-status` (lines 26-51):
-```bash
-# Should see logic like:
-# Handle multiple symlink scenarios
-if [ -L "$INVOCATION_PATH" ]; then
-    FIRST_TARGET="$(readlink "$INVOCATION_PATH")"
-    if [[ "$FIRST_TARGET" == *".claude/orchestrator"* ]]; then
-        # Called from project root via symlink
-        PROJECT_ROOT="$INVOCATION_DIR"
-```
-
-#### Prevention
-- Always use `./watch-status` from project root (not `.claude/orchestrator/watch-status`)
-- Update projects after framework updates
-- Test scripts from both locations to verify symlink resolution
+Then re-run `/orchestrate generate` to recreate tasks with the corrected metadata.
 
 ---
 
-### Issue 8: Workers Never Start (Blocked Forever)
+### Issue 3: Circular Dependency Detected
 
-#### Symptoms
-- `/orchestrate start` runs without error
-- `./watch-status` shows all streams with status: `---` (not started)
-- No workers spawn
-- No progress for extended period
+#### Symptom
+`/orchestrate generate` or `start` reports a dependency cycle.
 
-#### Root Cause
-- All streams have dependencies that aren't satisfied
-- Circular dependency in stream graph
-- No foundation streams (streams with empty dependencies)
+#### Cause
+Stream A depends on Stream B, and Stream B depends on Stream A (directly or transitively).
 
 #### Diagnosis
 ```bash
-# Check stream dependencies
-python .claude/orchestrator/check_streams_data.py | grep -A 5 "Dependencies"
-
-# Check for circular dependencies
 tc stream list --json
-# Review streamDependencies in each stream's metadata
+# Inspect streamDependencies for each stream
 ```
-
-**Look for:**
-- Stream-A depends on Stream-B
-- Stream-B depends on Stream-A
-- No stream with `dependencies: []`
 
 #### Solution
-
-**If circular dependency:**
+Identify the true starting point and set its `dependencies` to `[]`. Then update the task metadata:
 ```bash
-# Identify cycle and break it by making one stream foundation
-# List tasks for the stream
 tc task list --stream Stream-A --json
-
-# Update each task to remove dependencies
 tc task update <task-id> --status pending --json
-# Set metadata.dependencies to [] for each task in the stream
+# Set metadata.streamDependencies to [] for the foundation stream's tasks
 ```
-
-**If no foundation streams:**
-```bash
-# Identify the true starting point and remove its dependencies
-# Usually this is "database setup" or "configuration" stream
-tc task list --stream Stream-A --json
-
-# Update foundation tasks to have no dependencies
-tc task update <task-id> --status pending --json
-# Set metadata.dependencies to []
-
-# Restart orchestration
-/orchestrate start
-```
-
-#### Prevention
-- During `/orchestrate generate`, verify at least one foundation stream
-- Review dependency graph before starting:
-  ```
-  Depth 0 (Foundation):
-    • Stream-A - 3 tasks  ← Must have at least one foundation
-  ```
-- Use dependency validation in @agent-ta planning phase
 
 ---
 
-### Issue 9: Worker Keeps Restarting Infinitely
+### Issue 4: Stale or Broken Git Worktree
 
-#### Symptoms
-- `./watch-status` shows worker alternating between `RUN` and `---`
-- Monitor log shows repeated restart attempts
-- Eventually hits max restart limit
-
-#### Root Cause
-- Worker completes but doesn't mark tasks as complete
-- Worker crashes consistently (environment issue)
-- Task blocked on external dependency
+#### Symptom
+`git worktree add` fails saying the path already exists, or a worktree directory exists but `git worktree list` does not show it.
 
 #### Diagnosis
 ```bash
-# Check monitor log for restart pattern
-tail -50 .claude/orchestrator/logs/monitor.log
-# Look for: "Restarting dead worker: Stream-A (attempt 1 of 2)"
+git worktree list
+# List all registered worktrees
 
-# Check worker log for errors
-tail -100 .claude/orchestrator/logs/Stream-A_*.log
-# Look for: exceptions, exit codes, task verification failures
-
-# Check task status
-tc task list --stream Stream-A --json
+ls -la .worktrees/
+# Check what directories exist on disk
 ```
 
 #### Solution
 
-**If worker completes but tasks show incomplete:**
+**Prune stale references first:**
 ```bash
-# Worker isn't calling tc task update properly
-# Check worker prompt includes mandatory protocol
-tail .claude/orchestrator/logs/Stream-A_*.log | grep -A 10 "MANDATORY PROTOCOL"
+git worktree prune
+git worktree list
+```
 
-# Manually complete tasks if worker finished work
+**Remove a specific broken worktree:**
+```bash
+git worktree remove --force .worktrees/<stream-id>
+```
+
+**If the directory still exists after removal:**
+```bash
+rm -rf .worktrees/<stream-id>
+git worktree prune
+```
+
+**Recreate cleanly:**
+```bash
+git worktree add .worktrees/<stream-id> -b stream/<stream-id>
+```
+
+---
+
+### Issue 5: Merge Conflicts on `/orchestrate merge`
+
+#### Symptom
+`/orchestrate merge` reports conflicts on one or more stream branches.
+
+#### Diagnosis
+```bash
+# After a failed merge attempt, check which files conflict
+git status
+git diff --name-only --diff-filter=U
+```
+
+#### Solution
+
+**Resolve manually:**
+```bash
+# Open conflicting files, edit to resolve
+git add <resolved-files>
+git commit -m "Merge stream/<stream-id>: resolve conflicts"
+```
+
+**Then clean up the worktree:**
+```bash
+git worktree remove .worktrees/<stream-id>
+git branch -d stream/<stream-id>
+```
+
+**Prevention:** Run `/orchestrate merge` promptly after each stream completes. Long-lived worktrees diverge from main and accumulate conflicts.
+
+---
+
+### Issue 6: Stream Dependency Not Progressing (Waiting Forever)
+
+#### Symptom
+A downstream stream never starts — its dependency stream appears stuck at incomplete.
+
+#### Diagnosis
+```bash
+# Check stream and task statuses
+tc stream list --json
 tc task list --stream Stream-A --json
-# For each in-progress task:
+tc progress --json
+```
+
+**Look for:** tasks in `in_progress` state that are not advancing, or tasks that completed without being marked `completed`.
+
+#### Solution
+
+**If tasks finished but were not marked complete:**
+```bash
+# Manually mark tasks completed
 tc task update <task-id> --status completed --json
 ```
 
-**If environment issue (missing package, permissions):**
+**If dependency ordering is wrong:**
 ```bash
-# Check worker log for error
-tail -100 .claude/orchestrator/logs/Stream-A_*.log | grep -i error
-
-# Fix environment issue (example: missing package)
-cd .claude/worktrees/Stream-A
-npm install  # or pip install, etc.
-
-# Restart worker manually
-python .claude/orchestrator/orchestrate.py start Stream-A
+# Verify which streams are ready
+tc stream list --json
+# A stream is ready when all streams in its dependencies[] are 100% complete
 ```
-
-**If hitting max restarts:**
-```bash
-# Increase restart limit temporarily
-# Edit monitor-workers.py or watch-status
-./watch-status  # Uses --max-restarts 2 by default
-
-# Or run monitor manually with higher limit
-python .claude/orchestrator/monitor-workers.py --auto-restart --max-restarts 5
-```
-
-#### Prevention
-- Verify worker prompt includes task update protocol
-- Test environment in worktree before orchestrating
-- Monitor first few runs for consistent failures
 
 ---
 
-### Issue 10: Zombie Processes Blocking Workers
+### Issue 7: `tc` CLI Returns Errors or Inconsistent Data
 
-#### Symptoms
-- Worker shows as "already running" but no visible process
-- `ps aux | grep Stream-A` shows `<defunct>` or zombie
-- PID file exists but process doesn't respond
-
-#### Root Cause
-Worker terminated abnormally (killed, segfault, OOM) leaving zombie process.
+#### Symptom
+`tc task list` or `tc stream list` returns errors, empty results, or data from a different workspace.
 
 #### Diagnosis
 ```bash
-# Check for zombies
-ps aux | grep claude | grep defunct
+tc progress --json
+# Check workspace identifier in output
 
-# Check PID file
-cat .claude/orchestrator/pids/Stream-A.pid
-# Note PID number
-
-# Check if process exists
-ps -p <PID>
-# If shows "<defunct>" → zombie
+tc task list --json
+# Verify tasks exist and are scoped to this project
 ```
 
 #### Solution
 
-**Automatic (should happen automatically):**
-- Zombie detection runs on every `_is_running()` check
-- Stale PID cleanup runs on orchestrator startup
-- Monitor should detect and restart
+**If scoped to wrong workspace:** The `tc` CLI scopes data by project directory. Verify you are in the correct project root before running orchestrate commands.
 
-**Manual cleanup if needed:**
+**If database is corrupted:**
 ```bash
-# Kill zombie (parent needs to reap it)
-pkill -9 -f worker-wrapper.sh
+# Backup first
+cp ~/.claude/tasks/$(basename $(pwd)).db ~/.claude/tasks/$(basename $(pwd)).db.backup
 
-# Clean up PID files
-rm .claude/orchestrator/pids/*.pid
-
-# Restart orchestration
-/orchestrate start
-```
-
-#### Prevention
-- Ensure `worker-wrapper.sh` has EXIT trap (should be in template)
-- Monitor system resources (prevent OOM kills)
-- Use `./watch-status` with auto-restart enabled
-
----
-
-## Diagnostic Commands
-
-### Stream Status
-```bash
-# Comprehensive stream data
-python .claude/orchestrator/check_streams_data.py
-
-# Just stream list
-tc stream list --json
-
-# Stream with full details
-tc stream get Stream-A --json
-```
-
-### Worker Status
-```bash
-# Check running workers
-ps aux | grep worker-wrapper.sh | grep -v grep
-
-# Check worker PIDs
-ls -la .claude/orchestrator/pids/
-
-# Check specific worker
-if [ -f .claude/orchestrator/pids/Stream-A.pid ]; then
-    pid=$(cat .claude/orchestrator/pids/Stream-A.pid)
-    ps -p $pid
-fi
-```
-
-### Log Analysis
-```bash
-# Latest log entries across all streams
-tail -n 20 .claude/orchestrator/logs/Stream-*.log
-
-# Follow all logs in real-time
-tail -f .claude/orchestrator/logs/*.log
-
-# Search for errors
-grep -i error .claude/orchestrator/logs/*.log
-
-# Search for Claude path issues
-grep "Claude path:" .claude/orchestrator/logs/*.log
-
-# Check exit codes
-grep "exited with code" .claude/orchestrator/logs/*.log
-```
-
-### Git Worktree Status
-```bash
-# List all worktrees
-git worktree list
-
-# Check worktree file count
-for dir in .claude/worktrees/Stream-*; do
-    echo "$dir: $(find "$dir" -maxdepth 1 | wc -l) items"
-done
-
-# Compare worktree to main
-diff -r .claude/worktrees/Stream-A/ . --exclude=.git --exclude=.claude | head -20
-```
-
-### Task Status (via `tc` CLI)
-```bash
-# Query task counts and progress
-tc progress --json
-
-# List all tasks
-tc task list --json
+# Delete and re-generate
+rm ~/.claude/tasks/$(basename $(pwd)).db
+/orchestrate generate
 ```
 
 ---
 
 ## Recovery Procedures
 
-### 1. Clean Up Failed Worktrees
+### Clean Up Failed Worktrees
 
-**When:** Orchestration failed mid-setup, worktrees are in bad state.
+When orchestration failed mid-setup and worktrees are in a bad state:
 
 ```bash
-# Remove all worktrees
-git worktree list | grep -v "main" | awk '{print $1}' | xargs -I {} git worktree remove {} --force
-
-# Prune stale references
+# Prune all stale worktree references
 git worktree prune
 
-# Delete worktree directories
-rm -rf .claude/worktrees/*
+# Force-remove any remaining worktrees
+git worktree list | grep '.worktrees/' | awk '{print $1}' | \
+  xargs -I {} git worktree remove {} --force 2>/dev/null || true
 
-# Delete stream branches (optional - if you want fresh start)
-git branch | grep "Stream-" | xargs -I {} git branch -D {}
+# Remove orphaned directories
+rm -rf .worktrees/
 
-# Recreate worktrees
-for stream in Stream-A Stream-B Stream-C Stream-D Stream-E; do
-    git branch "$stream" 2>/dev/null || true
-    git worktree add ".claude/worktrees/$stream" "$stream"
-done
+# Delete stream branches (optional — for a clean restart)
+git branch | grep 'stream/' | xargs -I {} git branch -D {} 2>/dev/null || true
 
-# Verify
+# Verify clean state
 git worktree list
 ```
 
-### 2. Reset Orchestration State
+### Reset Stream Task Statuses
 
-**When:** Orchestration is in inconsistent state, need to start fresh.
+When you need to restart orchestration without re-running `generate`:
 
 ```bash
-# Stop all workers
-pkill -f worker-wrapper.sh
-
-# Clean up PID files
-rm -f .claude/orchestrator/pids/*.pid
-
-# Archive old logs
-mkdir -p .claude/orchestrator/logs/archive
-mv .claude/orchestrator/logs/*.log .claude/orchestrator/logs/archive/ 2>/dev/null || true
-
-# Clean up worktrees (see procedure above)
-
-# Reset task statuses to pending
+# List all tasks
 tc task list --json
-# For each in_progress or completed task:
-tc task update <task-id> --status pending --json
 
-# Start fresh
+# Reset each in-progress or stuck task to pending
+tc task update <task-id> --status pending --json
+```
+
+### Full Restart from Scratch
+
+```bash
+# 1. Clean up worktrees (see above)
+
+# 2. Reset task statuses to pending
+tc task list --json
+# Run: tc task update <id> --status pending --json  for each task
+
+# 3. Start fresh
 /orchestrate start
 ```
 
-### 3. Kill Orphaned Worker Processes
+---
 
-**When:** Workers running but not managed by orchestrator.
-
-```bash
-# Find worker processes
-ps aux | grep -E "(worker-wrapper|claude.*Stream-)" | grep -v grep
-
-# Kill all worker-related processes
-pkill -f worker-wrapper.sh
-pkill -f "claude.*Stream-"
-
-# Wait for processes to die
-sleep 2
-
-# Force kill if still alive
-pkill -9 -f worker-wrapper.sh
-pkill -9 -f "claude.*Stream-"
-
-# Clean up PID files
-rm -f .claude/orchestrator/pids/*.pid
-
-# Verify clean
-ps aux | grep -E "(worker-wrapper|claude.*Stream-)" | grep -v grep
-# Should return nothing
-```
-
-### 4. Restart from Scratch
-
-**When:** Everything is broken, need complete reset.
+## Diagnostic Commands
 
 ```bash
-#!/bin/bash
-# save as: reset-orchestration.sh
-
-set -e
-
-echo "🧹 Cleaning up orchestration state..."
-
-# 1. Stop all workers
-echo "  Stopping workers..."
-pkill -f worker-wrapper.sh 2>/dev/null || true
-sleep 2
-pkill -9 -f worker-wrapper.sh 2>/dev/null || true
-
-# 2. Clean up PID files
-echo "  Removing PID files..."
-rm -f .claude/orchestrator/pids/*.pid
-
-# 3. Archive logs
-echo "  Archiving logs..."
-mkdir -p .claude/orchestrator/logs/archive
-mv .claude/orchestrator/logs/*.log .claude/orchestrator/logs/archive/ 2>/dev/null || true
-
-# 4. Clean up worktrees
-echo "  Removing worktrees..."
-git worktree list | grep -v "main" | awk '{print $1}' | xargs -I {} git worktree remove {} --force 2>/dev/null || true
-git worktree prune
-rm -rf .claude/worktrees/*
-
-# 5. Delete stream branches
-echo "  Deleting stream branches..."
-git branch | grep "Stream-" | xargs -I {} git branch -D {} 2>/dev/null || true
-
-# 6. Archive streams
-echo "  Archiving streams..."
-# List current streams (archiving handled by /orchestrate generate)
-tc stream list --json 2>/dev/null || true
-
-echo "✅ Cleanup complete. Run '/orchestrate generate' to start fresh."
-```
-
-Run with:
-```bash
-chmod +x reset-orchestration.sh
-./reset-orchestration.sh
-```
-
-### 5. Fix Corrupted Task Database
-
-**When:** `tc` CLI returning errors or inconsistent data.
-
-```bash
-# Verify task data
+# Stream and task status
+tc stream list --json
 tc task list --json
+tc progress --json
 
-# If issues persist, re-run /orchestrate generate to recreate PRD and tasks
-```
-
-### 6. Recover from Max Restarts Exceeded
-
-**When:** Worker hit max restart limit, needs manual intervention.
-
-```bash
-# 1. Identify the failing stream
-grep "max restart limit" .claude/orchestrator/logs/monitor.log
-# Example: Stream-A hit max restart limit
-
-# 2. Investigate root cause
-tail -100 .claude/orchestrator/logs/Stream-A_*.log
-
-# 3. Fix the underlying issue (examples):
-#    - Install missing dependency in worktree
-#    - Fix environment variable
-#    - Correct task definition
-
-# 4. Reset restart counter
-python -c "
-# Restart counter is in-memory, so just restart orchestrator
-print('Restart counter will reset on next orchestrate.py start')
-"
-
-# 5. Manually restart the worker
-python .claude/orchestrator/orchestrate.py start Stream-A
-
-# 6. Monitor for success
-tail -f .claude/orchestrator/logs/Stream-A_*.log
-```
-
----
-
-## Prevention Best Practices
-
-### 1. Always Validate Before Orchestrating
-
-Create and run validation script before every orchestration:
-```bash
-python validate-setup.py
-```
-
-### 2. Use watch-status with Auto-Restart
-
-```bash
-# Default mode includes auto-restart
-./watch-status
-
-# Monitors workers and auto-restarts failures
-```
-
-### 3. Monitor Logs During First Run
-
-For the first orchestration run in a project:
-```bash
-# Terminal 1: Status dashboard
-./watch-status
-
-# Terminal 2: Live logs
-tail -f .claude/orchestrator/logs/*.log
-```
-
-Watch for:
-- "Claude path: NOT FOUND" → PATH issue
-- "File not found" → Worktree issue
-- Repeated restarts → Task or environment issue
-
-### 4. Update Framework and Projects Regularly
-
-```bash
-# Weekly or after major releases
-cd ~/.claude/copilot
-git pull
-
-# Then update each project
-cd /your/project
-/update-project
-```
-
-### 5. Keep Worktrees in Sync
-
-```bash
-# Before orchestrating, verify worktrees
+# Git worktree state
 git worktree list
-# Should show all expected streams
+git worktree prune --dry-run
 
-# Recreate if missing
-for stream in Stream-A Stream-B Stream-C Stream-D Stream-E; do
-    git worktree add ".claude/worktrees/$stream" "$stream" 2>/dev/null || true
-done
-```
-
-### 6. Test cc and tc CLIs Before Orchestrating
-
-```bash
-# Test cc CLI
-cc --version
-cc memory list
-
-# Test tc CLI
-tc version
-tc --help
-# Should show available commands
-```
-
-### 7. Use Initiative Scoping Properly
-
-```bash
-# Always start with /orchestrate generate
-/orchestrate generate  # Creates initiative link, PRD, tasks
-
-# Don't manually call tc task create outside of generate phase
-# Don't switch initiatives mid-orchestration
-```
-
----
-
-## When to Escalate
-
-Contact framework maintainers if:
-
-1. **Issues persist after following all procedures**
-   - Provide: full logs, database state, system info
-
-2. **Database corruption is recurring**
-   - Provide: backup database, steps to reproduce
-
-3. **Worker-wrapper.sh changes don't fix PATH issues**
-   - Provide: `echo $PATH` output from login and non-login shells
-
-4. **Zombie process detection isn't working**
-   - Provide: `ps aux` output, PID file contents, OS version
-
-5. **Circular dependency detection fails**
-   - Provide: stream dependency graph, task metadata
-
-**Information to include:**
-```bash
-# System info
-uname -a
+# Preflight: verify required tools
+which claude && echo "claude OK" || echo "claude NOT FOUND"
+which tc && echo "tc OK" || echo "tc NOT FOUND"
+which cc && echo "cc OK" || echo "cc NOT FOUND"
 git --version
-which claude
-echo $PATH
-
-# Framework version
-cd ~/.claude/copilot && git log -1 --oneline
-
-# Project state
-git worktree list
-ls -la .claude/orchestrator/
-cat .mcp.json
-
-# Database state
-python .claude/orchestrator/check_streams_data.py
-
-# Recent logs
-tail -100 .claude/orchestrator/logs/*.log
 ```
 
 ---
@@ -1066,7 +326,8 @@ tail -100 .claude/orchestrator/logs/*.log
 ## See Also
 
 - **Workflow Guide:** [01-orchestration-workflow.md](./01-orchestration-workflow.md)
+- **Worktree Isolation:** [05-worktree-isolation.md](./05-worktree-isolation.md)
 
 ---
 
-*Updated: January 2026 - Based on production incidents and debugging sessions*
+*Updated: June 2026 — Rewritten for native Task model; Python orchestrator retired*
