@@ -11,11 +11,15 @@ Auto-detects your context and runs the correct setup command.
 
 ```bash
 pwd
-ls .mcp.json 2>/dev/null && echo "MCP_EXISTS" || echo "NO_MCP"
+if [ -d .claude ] && { ls .claude/commands/*.md >/dev/null 2>&1 || ls .claude/agents/*.md >/dev/null 2>&1; }; then
+  echo "PROJECT_EXISTS"
+else
+  echo "NEW_PROJECT"
+fi
 echo $HOME
 ```
 
-Store: `CURRENT_DIR`, `HOME_PATH`, `MCP_STATUS`
+Store: `CURRENT_DIR`, `HOME_PATH`, `PROJECT_STATUS` (PROJECT_EXISTS or NEW_PROJECT)
 
 Check user's message for keywords: "minimal", "quick start", "memory only", "simple", "fast"
 If found, set `MINIMAL_REQUESTED` = true.
@@ -27,9 +31,9 @@ If found, set `MINIMAL_REQUESTED` = true.
 Tell user: "Detected: Claude Copilot directory. Running machine setup."
 Follow `/setup` command.
 
-**Else if MCP_STATUS = "MCP_EXISTS":**
+**Else if PROJECT_STATUS = "PROJECT_EXISTS":**
 
-Tell user: "Detected: Existing project (.mcp.json found). Running project update."
+Tell user: "Detected: Existing project (.claude/ framework files found). Running project update."
 Follow `/update-project` command.
 
 **Else if MINIMAL_REQUESTED:**

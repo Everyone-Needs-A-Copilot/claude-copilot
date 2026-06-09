@@ -75,74 +75,7 @@ Then STOP.
 
 ---
 
-## Step 3: Check and Update MCP Server Configuration
-
-**Read both configurations:**
-
-```bash
-cat .mcp.json
-cat ~/.claude/copilot/templates/mcp.json
-```
-
-**Identify missing servers:**
-
-Compare the `mcpServers` keys in project's `.mcp.json` with the template.
-
-For each server in the template that is NOT in the project's `.mcp.json`:
-1. Note the server name
-2. Prepare to add it with variable expansion:
-   - `$HOME` → actual home directory path
-   - `$PROJECT_PATH` → result of `pwd`
-   - `$PROJECT_NAME` → result of `basename $(pwd)`
-   - `$COPILOT_PATH` → `$HOME/.claude/copilot`
-
-**If missing servers found:**
-
-Tell the user:
-
----
-
-**New MCP servers available**
-
-The following servers will be added to your `.mcp.json`:
-
-{{LIST_MISSING_SERVERS}}
-
-This will preserve all existing server configurations and only add new ones.
-
----
-
-Use AskUserQuestion:
-
-**Question:** "Add these new servers to .mcp.json?"
-- Header: "MCP Configuration Update"
-- Options:
-  - "Yes, add new servers"
-  - "No, skip this step"
-
-**If user says "Yes, add new servers":**
-
-1. Read the existing `.mcp.json` as JSON
-2. For each missing server from template:
-   - Expand all variables (`$HOME`, `$PROJECT_PATH`, `$PROJECT_NAME`, `$COPILOT_PATH`)
-   - Add the server entry to `mcpServers` object
-3. Write the merged JSON back to `.mcp.json` with proper formatting (2-space indent)
-4. Validate the JSON is well-formed
-5. Report success: "Added {{SERVER_NAMES}} to .mcp.json"
-
-**If user says "No, skip this step":**
-
-Continue to Step 4 without modifying `.mcp.json`.
-
-**If no missing servers:**
-
-Report: "All MCP servers already configured, no updates needed."
-
-Continue to Step 4.
-
----
-
-## Step 4: Check for Broken Symlinks
+## Step 3: Check for Broken Symlinks
 
 **CRITICAL:** Regular `ls` passes for broken symlinks. Must check if target exists.
 
@@ -173,7 +106,7 @@ Note any broken symlinks found - they will be fixed in the update.
 
 ---
 
-## Step 5: Show Current State
+## Step 4: Show Current State
 
 ```bash
 echo "=== Current Commands ==="
@@ -189,7 +122,7 @@ cd ~/.claude/copilot && git log --oneline -1
 
 ---
 
-## Step 6: Confirm Update
+## Step 5: Confirm Update
 
 Tell the user:
 
@@ -202,14 +135,11 @@ This will refresh:
 - `.claude/agents/` (16 framework agents — roster-aware: preserves project-specific agents, removes retired agents)
 - `.claude/orchestrator/` (if present — retired Python scripts will be removed)
 
-This will ONLY update if needed:
-- `.mcp.json` (only to add new MCP servers, preserving all existing configuration)
-
 This will NOT touch:
 - `CLAUDE.md` (your project instructions)
 - `.claude/skills/` (your project skills)
 - Project-specific agent files (only framework-owned agents from VERSION.json roster are updated)
-- Existing MCP server configurations in `.mcp.json`
+- `.mcp.json` (any third-party MCP servers you added manually are left untouched)
 
 ---
 
@@ -225,7 +155,7 @@ Use AskUserQuestion:
 
 ---
 
-## Step 7: Update Commands
+## Step 6: Update Commands
 
 Remove old command files and copy fresh ones:
 
@@ -253,7 +183,7 @@ echo "Commands updated (7 project commands)"
 
 ---
 
-## Step 8: Update Agents (Roster-Aware Sync)
+## Step 7: Update Agents (Roster-Aware Sync)
 
 Refresh only framework-owned agents; preserve any project-specific agents.
 
@@ -326,7 +256,7 @@ echo "Agents updated (roster-aware)"
 
 ---
 
-## Step 9: Remove Retired Orchestrator Files (if present)
+## Step 8: Remove Retired Orchestrator Files (if present)
 
 The Python orchestration layer (`orchestrate.py`, `task_copilot_client.py`,
 `monitor-workers.py`, etc.) is **retired**. `/orchestrate` now uses native `Task`
@@ -347,9 +277,9 @@ fi
 
 ---
 
-## Step 10: Update cc CLI and Project Config
+## Step 9: Update cc CLI and Project Config
 
-### 10A: Check cc Is Installed
+### 9A: Check cc Is Installed
 
 ```bash
 which cc >/dev/null 2>&1 && echo "CC_OK" || echo "CC_MISSING"
@@ -384,7 +314,7 @@ bash ~/.claude/copilot/tools/cc/install.sh
 
 Then continue (do not stop — remaining steps may still work).
 
-### 10B: Check cc Project Config
+### 9B: Check cc Project Config
 
 ```bash
 ls .claude/cc/config.json 2>/dev/null && echo "CC_CONFIG_OK" || echo "CC_CONFIG_MISSING"
@@ -398,7 +328,7 @@ Tell user: "Initializing cc project config..."
 cc config init --project
 ```
 
-### 10C: Ensure Memory Directory and .gitignore
+### 9C: Ensure Memory Directory and .gitignore
 
 ```bash
 # Ensure entries directory exists with a tracking file
@@ -415,7 +345,7 @@ if [ ! -f ".claude/memory/.gitignore" ]; then
 fi
 ```
 
-### 10D: Run cc config doctor
+### 9D: Run cc config doctor
 
 ```bash
 cc config doctor 2>&1
@@ -431,7 +361,7 @@ If `cc config doctor` reports any issues (non-zero exit or lines containing "WAR
 
 ---
 
-## Step 11: Verify Update
+## Step 10: Verify Update
 
 ```bash
 echo "=== Updated Commands ==="
@@ -468,7 +398,7 @@ fi
 
 ---
 
-## Step 11B: Run Fitness Check
+## Step 10B: Run Fitness Check
 
 After updating agents, run the fitness check to verify the roster is healthy:
 
@@ -504,11 +434,11 @@ The project is updated but the fitness check should be resolved before using pro
 
 ---
 
-Store `FITNESS_RESULT` to include in Step 12 report.
+Store `FITNESS_RESULT` to include in Step 11 report.
 
 ---
 
-## Step 12: Report Success
+## Step 11: Report Success
 
 ```bash
 # Get Claude Copilot version
@@ -553,13 +483,6 @@ Tell user:
 - `.claude/orchestrator/` (retired Python orchestrator removed)
 {{END_IF}}
 
-**MCP Configuration:**
-{{IF_SERVERS_ADDED}}
-- `.mcp.json` updated: Added {{SERVER_NAMES}}
-{{ELSE}}
-- `.mcp.json` unchanged (all servers already configured)
-{{END_IF}}
-
 **cc CLI:**
 - cc installed and project config verified
 - Memory directory and `.gitignore` ensured
@@ -568,7 +491,7 @@ Tell user:
 **Unchanged:**
 - `CLAUDE.md`
 - `.claude/skills/`
-- Existing MCP server configurations
+- `.mcp.json` (any third-party MCP servers you added manually are left untouched)
 {{IF_NO_ORCHESTRATOR}}
 - `.claude/orchestrator/` not present (no action needed — `/orchestrate` requires no project-level scripts)
 {{END_IF}}

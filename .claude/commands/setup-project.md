@@ -5,7 +5,11 @@ Initialize a new project with Claude Copilot. This command only works on project
 ## Step 1: Verify This Is a New Project
 
 ```bash
-ls .mcp.json 2>/dev/null && echo "PROJECT_EXISTS" || echo "NEW_PROJECT"
+if [ -d .claude ] && { ls .claude/commands/*.md >/dev/null 2>&1 || ls .claude/agents/*.md >/dev/null 2>&1; }; then
+  echo "PROJECT_EXISTS"
+else
+  echo "NEW_PROJECT"
+fi
 ```
 
 **If PROJECT_EXISTS:**
@@ -16,7 +20,7 @@ Stop and tell the user:
 
 **This project is already configured.**
 
-Found `.mcp.json` - this project has already been set up with Claude Copilot.
+A `.claude/` directory with framework files was found — this project has already been set up with Claude Copilot.
 
 To update this project with the latest Claude Copilot files, use:
 
