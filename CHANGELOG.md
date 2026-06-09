@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.8.0] - 2026-06-09
+
+Framework-wide remediation: completed the migration off the MCP tool API removed in
+v5.0.0, retired the broken Python orchestrator, and fixed runtime/CI/doc gaps surfaced
+by a full audit. No `cc`/`tc` source changes (components stay cc 1.3.0 / tc 1.1.0).
+
+### Removed
+- **Python orchestration layer retired in full** — deleted `.claude/orchestrator/` and `templates/orchestration/` (`orchestrate.py`, `task_copilot_client.py`, `monitor-workers.py`, `start-ready-streams.py`, `check_streams_data.py`, shell wrappers, `validate-setup.py`, guides; ~12.6K lines). `task_copilot_client.py` queried a removed SQLite `initiative` schema and crashed against the current `tc` backend; the CHANGELOG-claimed `subprocess(["tc", ...])` rewrite never landed. `/orchestrate` is now native-`Task`-only.
+- **Dead integration test suites** (`tests/integration/*.test.ts` for initiative/correction/stream-unarchive) and their README/summary.
+- **Duplicate `docs/EXTENSION-SPEC.md`** (consolidated into `docs/40-extensions/00-extension-spec.md`).
+
+### Changed
+- **Slash-command flows migrated to the `cc`/`tc` CLIs** — `/protocol`, `/continue`, `/pause`, `/config`, `/knowledge-copilot`, `/orchestrate` (+ templates). Removed-concept mappings: `initiative_*`/`checkpoint_*` → file-based memory + `tc task --status paused`; `progress_summary` → `tc progress`; `task_*`/`prd_*`/`stream_*`/`work_product_get` → `tc`; `memory_*` → `cc memory`; `skill_get`/`skill_evaluate` → `cc skill`.
+- **`/reflect` repurposed** from the removed `correction_*` queue to a `cc memory` review command (matching its feature doc).
+- **`/orchestrate` rewritten to native execution** — `generate`/`status`/`merge` via `tc` + plain `git worktree`/`git merge` (dead `worktree_*` MCP calls removed); `start` scaffolds worktrees and prints launch instructions for native `Task` agents.
+- **`CLAUDE.template.md`** corrected to the real 16-agent roster (was "11 specialists"; removed non-existent `cmo`/`ccro`, restored `cco`/`ind`).
+- **Skills discoverability** — `documentation/tutorial-patterns` converted to `SKILL.md` directory form; duplicate flat `copywriting/voice-and-tone.md` folded into canonical `voice-tone/SKILL.md`.
+- **Security-hooks docs** corrected to reflect what `pretool-check.sh` actually enforces (force-delegate + qa-gate); `security-rules.json` flagged as present-but-unwired.
+- **`_archive/` agents** scrubbed of removed-tool references.
+
+### Fixed
+- **SessionStart hook wired** in `settings.json` (+ `plugin.json`) — the protocol-injection guardrail was silently never firing for clone/plugin installs.
+- **Version-sync CI guard restored** — `plugin.json`/`marketplace.json` corrected from a stale 5.2.0; `check-manifest.py` now derives the expected agent roster from `VERSION.json` instead of hard-coding the retired `design` agent.
+- **`/update-project` existence check** now gates on `.claude/` presence, not `.mcp.json` — projects without MCP servers (the norm post-CLI-migration) are no longer misreported as un-set-up.
+- **Invalid CLI flags** in docs/commands corrected: `cc memory list --limit`/`--verbose`, `tc task update --notes` (none exist).
+- **~40 broken internal doc links** repaired (post-restructure stale paths); `docs/README.md` index gaps filled.
+- **Agent metadata** — `cs` reconciled to "Sales Advisor"; glossary agent-count corrected.
+- **`CONTRIBUTING.md`** dev-setup updated from the removed `mcp-servers/` build to the `cc`/`tc` install path.
+
 ## [5.7.0] - 2026-06-08
 
 ### Added

@@ -5,7 +5,7 @@
   "plugins": [
     {
       "name": "claude-copilot",
-      "version": "5.7.0",
+      "version": "5.8.0",
       "description": "Claude Copilot — specialized agents (ta/me/qa/sd/do/doc/kc), skills, commands, and hooks that give Claude persistent memory, expert methodology, and task tracking.",
       "author": "Claude Copilot contributors",
       "homepage": "https://github.com/pabloalej/claude-copilot",
