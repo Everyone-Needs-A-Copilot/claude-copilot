@@ -8,17 +8,17 @@ Run these CLI commands to gather memory state:
 
 1. **Get recent decisions:**
    ```bash
-   cc memory list --type decision --limit 5
+   cc memory list --type decision
    ```
 
 2. **Get recent memories:**
    ```bash
-   cc memory list --limit 10
+   cc memory list
    ```
 
 3. **Get recent context entries:**
    ```bash
-   cc memory list --type context --limit 5
+   cc memory list --type context
    ```
 
 4. **If Task Copilot is linked, get progress:**

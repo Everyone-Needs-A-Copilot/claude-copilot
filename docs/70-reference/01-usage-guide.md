@@ -467,7 +467,7 @@ Prefix your `/protocol` commands for model and routing control:
 
 **Combine them:** `/protocol eco: fix: the login bug`
 
-See [Magic Keywords](../50-features/magic-keywords.md) for full documentation.
+See [Magic Keywords](../50-features/09-magic-keywords.md) for full documentation.
 
 ### Workflow Cheat Sheet
 
@@ -486,10 +486,10 @@ End of day:  /pause [notes]
 
 ## Next Steps
 
-- [Magic Keywords](../50-features/magic-keywords.md) - Model selection and action routing
-- [Ecomode](../50-features/ecomode.md) - Smart model routing based on complexity
-- [Agent Details](AGENTS.md) - Learn each specialist
-- [Decision Guide](DECISION-GUIDE.md) - When to use what
-- [Customization](CUSTOMIZATION.md) - Extensions and knowledge repos
-- [Enhancement Features](ENHANCEMENT-FEATURES.md) - Advanced context engineering
+- [Magic Keywords](../50-features/09-magic-keywords.md) - Model selection and action routing
+- [Ecomode](../50-features/08-ecomode.md) - Smart model routing based on complexity
+- [Agent Details](../10-architecture/01-agents.md) - Learn each specialist
+- [Decision Guide](../10-architecture/03-decision-guide.md) - When to use what
+- [Customization](../20-configuration/02-customization.md) - Extensions and knowledge repos
+- [Enhancement Features](../50-features/00-enhancement-features.md) - Advanced context engineering
 - [Token Efficiency Playbook](../30-operations/04-token-efficiency-playbook.md) - Keep usage low without losing rigor

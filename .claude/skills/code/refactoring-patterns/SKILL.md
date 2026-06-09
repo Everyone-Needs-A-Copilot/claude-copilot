@@ -151,7 +151,7 @@ Complete all steps before beginning a refactoring session.
 
 - [Refactoring.Guru](https://refactoring.guru/refactoring/catalog) — full refactoring catalog
 - [Working Effectively with Legacy Code — Michael Feathers](https://www.goodreads.com/book/show/44919.Working_Effectively_with_Legacy_Code) — adding tests to untested code
-- Related skills: `skill_get("testing-patterns")`
+- Related skills: `cc skill get testing-patterns`
 
 ---
 

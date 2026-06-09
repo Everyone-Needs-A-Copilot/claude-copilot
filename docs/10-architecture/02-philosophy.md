@@ -186,7 +186,7 @@ When contributing:
 - Include routing to other agents
 - Document decision authority
 
-See [CONTRIBUTING.md](../CONTRIBUTING.md) for guidelines.
+See [CONTRIBUTING.md](../../CONTRIBUTING.md) for guidelines.
 
 ---
 

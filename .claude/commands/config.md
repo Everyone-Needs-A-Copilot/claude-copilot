@@ -20,8 +20,8 @@ Parse user input to determine action:
 Configuration is stored in Memory Copilot metadata. Use these tools:
 
 1. **Get ecomode configuration from memory:**
-   ```
-   memory_list({ tags: ['ecomode_config'], limit: 1 })
+   ```bash
+   cc memory list --tags ecomode_config
    ```
 
 2. **If no config exists, use defaults:**

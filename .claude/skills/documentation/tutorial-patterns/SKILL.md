@@ -316,7 +316,7 @@ postgresql://user:password@host:port/database.
 
 ## Related Resources
 
-- Related skills: `skill_get("api-docs")`
+- Related skills: `cc skill get api-docs`
 - Divio documentation system: https://documentation.divio.com/
 
 ---

@@ -112,17 +112,23 @@ if plugin:
     agents_full = os.path.normpath(os.path.join(agents_base, agents_rel))
     if os.path.isdir(agents_full):
         ok(f"agents dir exists → {os.path.relpath(agents_full, REPO_ROOT)}")
-        # Verify each base agent
-        expected_agents = [
-            "design.md",
-            "do.md",
-            "doc.md",
-            "kc.md",
-            "me.md",
-            "qa.md",
-            "sd.md",
-            "ta.md",
-        ]
+        # Derive expected agents from VERSION.json (frameworkAgents minus retired)
+        if version_data:
+            framework_agents = (
+                version_data.get("components", {})
+                .get("agents", {})
+                .get("frameworkAgents", [])
+            )
+            retired_agents = (
+                version_data.get("components", {})
+                .get("agents", {})
+                .get("retired", [])
+            )
+            expected_agents = [
+                f"{a}.md" for a in framework_agents if a not in retired_agents
+            ]
+        else:
+            expected_agents = []
         for agent_file in expected_agents:
             agent_path = os.path.join(agents_full, agent_file)
             if os.path.exists(agent_path):

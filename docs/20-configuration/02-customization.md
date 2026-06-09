@@ -55,19 +55,19 @@ skill_save({
 Any agent can now load your skill:
 
 ```
-skill_get("our-api-standards")
+cc skill get our-api-standards
 ```
 
 Or search for it:
 
 ```
-skill_search("api standards")
+cc skill search "api standards"
 ```
 
 ### Requirements
 
 - PostgreSQL database configured (`POSTGRES_URL` in `.mcp.json`)
-- See [Configuration](CONFIGURATION.md) for setup
+- See [Configuration](01-configuration.md) for setup
 
 ---
 
@@ -468,6 +468,6 @@ Before approving any feature:
 
 ## Next Steps
 
-- [Extension Specification](EXTENSION-SPEC.md) - Technical details
-- [Agents](AGENTS.md) - All 16 specialist agents
-- [Configuration](CONFIGURATION.md) - Setup options
+- [Extension Specification](../40-extensions/00-extension-spec.md) - Technical details
+- [Agents](../10-architecture/01-agents.md) - All 16 specialist agents
+- [Configuration](01-configuration.md) - Setup options

@@ -326,14 +326,17 @@ Guardrail violations are handled inline by returning actionable correction guida
 
 Security validation is handled inside `pretool-check.sh` as part of the PreToolUse dispatcher. No separate MCP server or `hook_register_security` tool is involved.
 
-### Default Checks
+### Currently Active Rules
 
-| Rule | Action | Severity |
-|------|--------|----------|
-| Secret Detection (AWS keys, GitHub tokens, private keys, etc.) | Block | Critical |
-| Destructive commands (`rm -rf /`, `DROP DATABASE`) | Block/Warn | High-Critical |
-| Sensitive file protection (`.env`, credential files, SSH keys) | Block | Critical |
-| Credential URLs (`http://user:pass@host`) | Block | Critical |
-| Git secret commit prevention | Warn | High |
+`pretool-check.sh` currently enforces two rules only:
 
-These checks run inline in `pretool-check.sh`. To add a new check, add a `rule_<name>()` function to that file and call it in the dispatch section.
+| Rule | Trigger | Action |
+|------|---------|--------|
+| `rule_force_delegate` | 5+ consecutive Bash/Read/Edit calls | Deny, suggest agent delegation |
+| `rule_qa_gate` | Task in pending-qa state for this session | Deny all except Agent(qa) and safe tc reads |
+
+`security-rules.json` is present in this directory but is **not yet wired into `pretool-check.sh`**. Secret detection, destructive-command blocking, and sensitive-file protection described in that file are aspirational — they are not currently enforced at runtime.
+
+### Adding Security Rules (Future)
+
+To wire in a new security check, add a `rule_<name>()` function to `pretool-check.sh` and call it in the dispatch section near the bottom of the file. Rules return 0 (allow) or call `deny "<reason>"` (which writes JSON and exits 2).

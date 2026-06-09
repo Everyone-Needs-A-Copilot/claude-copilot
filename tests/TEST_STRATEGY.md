@@ -146,11 +146,9 @@
    - [ ] Dependency resolution correct
    - [ ] Progress tracked per stream
 
-5. **Stream Archival on Initiative Switch**
-   - [ ] Old streams archived when switching initiatives
-   - [ ] `stream_list()` filters by current initiative
-   - [ ] `stream_unarchive()` recovers archived streams
-   - [ ] Archived streams not shown in watch-status
+5. **Stream Lifecycle**
+   - [ ] Streams visible in `tc stream list` for current project
+   - [ ] Completed streams not shown in active task view
 
 **Test Data:**
 ```json

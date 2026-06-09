@@ -143,7 +143,7 @@ git log --oneline -1
 
 **Expected output:**
 - If on v1.7.0 or v1.7.1: Ready to upgrade
-- If on v1.6.x or earlier: Review [CHANGELOG.md](CHANGELOG.md) for intermediate changes
+- If on v1.6.x or earlier: Review [CHANGELOG.md](../../CHANGELOG.md) for intermediate changes
 
 ### 2. Commit Uncommitted Work
 
@@ -689,7 +689,7 @@ npm run build
 npm test
 ```
 
-If tests still fail, review changes in [CHANGELOG.md](CHANGELOG.md) for breaking changes (there should be none, but verify).
+If tests still fail, review changes in [CHANGELOG.md](../../CHANGELOG.md) for breaking changes (there should be none, but verify).
 
 ---
 
@@ -834,7 +834,7 @@ After successful upgrade:
    - Test activation modes (`quick`, `thorough`, `analyze`)
 
 2. **Read Documentation:**
-   - [Orchestration Guide](../50-features/02-orchestration-workflow.md)
+   - [Orchestration Guide](../50-features/01-orchestration-workflow.md)
    - [Enhancement Features](../50-features/00-enhancement-features.md)
    - [Skills Authoring Guide](../30-operations/06-skills-authoring-guide.md)
 

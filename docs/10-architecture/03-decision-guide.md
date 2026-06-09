@@ -2,7 +2,7 @@
 
 A comprehensive guide to help you choose the right tools, commands, agents, and approaches in Claude Copilot.
 
-*Note: This is the complete reference. For a quick overview integrated into Claude Code's instructions, see [CLAUDE.md](../CLAUDE.md#quick-decision-guide).*
+*Note: This is the complete reference. For a quick overview integrated into Claude Code's instructions, see [CLAUDE.md](../../CLAUDE.md#quick-decision-guide).*
 
 ---
 
@@ -280,7 +280,7 @@ metadata: {
 
 | Beginning of Day | During Day | End of Day |
 |------------------|------------|------------|
-| `/continue` to resume | Work naturally with agents | `initiative_update` to save progress |
+| `/continue` to resume | Work naturally with agents | `cc memory store` to save progress |
 | Or `/protocol` for new task | Route complex work to specialists | Document decisions in memory |
 | Run `cc doctor` if needed | Use skills as needed | Note lessons learned |
 
@@ -349,8 +349,8 @@ START: Do you have Claude Copilot installed?
 
 | Topic | Document |
 |-------|----------|
-| Complete setup walkthrough | [USER-JOURNEY.md](USER-JOURNEY.md) |
-| Extension specifications | [EXTENSION-SPEC.md](EXTENSION-SPEC.md) |
-| Agent details | [AGENTS.md](AGENTS.md) |
-| Configuration options | [CONFIGURATION.md](CONFIGURATION.md) |
-| Customization guide | [CUSTOMIZATION.md](CUSTOMIZATION.md) |
+| Complete setup walkthrough | [User Journey](../01-getting-started/01-user-journey.md) |
+| Extension specifications | [Extension Spec](../40-extensions/00-extension-spec.md) |
+| Agent details | [Agents](01-agents.md) |
+| Configuration options | [Configuration](../20-configuration/01-configuration.md) |
+| Customization guide | [Customization](../20-configuration/02-customization.md) |

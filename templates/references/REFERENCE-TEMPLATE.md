@@ -144,7 +144,7 @@ Knowledge or tools required to use this module effectively.
 
 - Related module: `@include docs/60-references/related/module.md`
 - External resource: [Link]
-- Related skill: `skill_get("skill-name")`
+- Related skill: `cc skill get skill-name`
 
 ---
 

@@ -151,7 +151,7 @@ basicUsage();
 
 - [Link to related documentation]
 - [Link to external resources]
-- Related skills: `skill_get("related-skill-name")`
+- Related skills: `cc skill get related-skill-name`
 
 ---
 

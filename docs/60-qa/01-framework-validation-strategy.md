@@ -40,7 +40,7 @@ This document defines the complete validation strategy for the Claude Copilot fr
 **Steps:**
 ```bash
 cc --version
-cc memory list --limit 1
+cc memory list
 ```
 
 **Pass Criteria:**
@@ -469,14 +469,14 @@ QA agent investigates the defect...
 
 ---
 
-### IT-06: /continue Command Loads Initiative
+### IT-06: /continue Command Loads Session Context
 
 **Purpose:** Verify /continue command retrieves previous session context
 
 **Test Setup:**
 ```bash
-# Create initiative in previous session
-# (Use memory_store tool or run actual session)
+# Create memory in previous session
+# (Use cc memory store or run actual session)
 ```
 
 **Steps:**

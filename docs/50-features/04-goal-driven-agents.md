@@ -465,4 +465,4 @@ Run agent on actual tasks and verify:
 
 - [Agent Development Guide](../../CLAUDE.md)
 - [Task Management (`tc` CLI)](../../CLAUDE.md#4-task-copilot)
-- [Testing Patterns](./testing-patterns.md)
+- Testing Patterns (see `.claude/skills/testing-patterns/` if available in your project)

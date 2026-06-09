@@ -302,7 +302,7 @@ You should see your previous session load with full context.
 |------------|-----|
 | **Start structured work** | `/protocol` + your request |
 | **Get expert routing** | Request auto-routed to right agent |
-| **Save progress** | Automatic via `initiative_update` |
+| **Save progress** | `cc memory store --type context "<summary>"` |
 | **Resume work** | `/continue` loads full context |
 
 ### Success Criteria
@@ -725,11 +725,11 @@ description: Deploy with our company process
 # Deploy Process
 
 1. Load deployment skill: `cc skill get company-deployment`
-2. Check for security review in initiative
+2. Check for security review notes in memory: `cc memory search "security review"`
 3. Run pre-deployment checklist
 4. Execute deployment steps
-5. Update initiative with deployment info
-6. Notify team via memory_store
+5. Store deployment info: `cc memory store --type context "Deployed vX.X.X to production"`
+6. Notify team via `cc memory store --type context "<message>"`
 ```
 
 #### 4. Workspace Identity
@@ -774,7 +774,7 @@ You are managing a release following our company process.
 6. Run smoke tests
 7. Get approval
 8. Deploy to production
-9. Update initiative: "Release vX.X.X completed"
+9. Store release status: `cc memory store --type context "Release vX.X.X completed"`
 
 Follow these steps and confirm each before proceeding.
 ```
@@ -839,11 +839,11 @@ description: Full feature workflow
 Execute our complete feature workflow:
 
 1. /protocol - Let ta break down architecture
-2. Load security checklist - skill_get("security-checklist")
+2. Load security checklist - `cc skill get security-checklist`
 3. Implement with me
 4. Test with qa
 5. Document with doc
-6. Update initiative with "Feature complete"
+6. Store completion: `cc memory store --type context "Feature complete"`
 
 Confirm each step before proceeding.
 ```
@@ -902,7 +902,7 @@ Use this checklist to track your journey:
 - [ ] Cloned claude-copilot to ~/.claude/copilot
 - [ ] Ran machine setup (/setup)
 - [ ] Verified cc/tc CLIs work
-- [ ] Understand memory_store and memory_search
+- [ ] Understand `cc memory store` and `cc memory search`
 - [ ] Can explain what Memory Copilot does
 
 ### Milestone 2: Protocol

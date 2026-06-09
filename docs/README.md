@@ -95,6 +95,7 @@ Feature reference and explanation pages. One page per major system feature.
 | `50-features/11-zero-config-installation.md` | NPM-package and source-based installation, platform setup, MCP server builds |
 | `50-features/12-code-execution-path.md` | How to compose multi-step `tc.api` / `cc.api` operations in one python3 block for ~99% intermediate-output savings |
 | `50-features/13-memory-fts5.md` | Memory Copilot is FTS5/BM25 keyword search, not semantic; entry types, storage layout, pluggable backend seam |
+| `50-features/14-plugin-install.md` | Installing Claude Copilot as a native Claude Code plugin; ceiling/floor model; how `cc` runtime assembly composes with plugin-provided base agents |
 | `50-features/15-live-docs.md` | Live Docs (`cc docs`): version-exact package documentation for agents; local-first source order, optional fetch extra, Context7 deferred |
 
 ---
@@ -123,6 +124,7 @@ Reference-mode pages for quick lookup.
 | `70-reference/02-upgrade-guide.md` | Upgrade notes between framework versions |
 | `70-reference/03-competitive-landscape.md` | How Claude Copilot compares to other agent frameworks |
 | `70-reference/04-framework-modernization-analysis.md` | Analysis of the MCP → CLI migration and framework modernization |
+| `70-reference/05-glossary.md` | Definitions for framework terms: Memory Copilot, Task Copilot, extensions, work products, agent codes |
 
 ---
 

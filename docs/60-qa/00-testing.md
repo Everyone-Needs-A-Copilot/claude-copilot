@@ -219,7 +219,7 @@ cat .mcp.json
 "Implement password reset feature"
 
 # Work progresses...
-# At end of session, initiative_update called with progress
+# At end of session, cc memory store called with progress
 ```
 
 **Session 2 (new day):**
@@ -441,7 +441,7 @@ echo $KNOWLEDGE_REPO_PATH
 **Enable cc CLI verbose output:**
 ```bash
 # Run cc with debug output
-cc memory list --verbose
+cc memory list
 
 # Check cc config
 cc config list

@@ -405,22 +405,21 @@ cc config set paths.knowledge_repo /path/to/project-specific/knowledge
 
 ### Available Extension Tools
 
-Three tools are available for extension resolution (provided by the cc CLI layer):
+Extension resolution is performed by the `cc` CLI at agent-invocation time. Use `eval "$(cc env)"` in agent preambles to hydrate `CC_SHARED_DOCS`, `CC_KNOWLEDGE_REPO`, and related variables. The runtime assembles base agent + project override + global override before the agent runs.
 
-#### `extension_get`
+#### `cc env` — Runtime assembly
 
-Retrieves the extension for a specific agent.
+Run `eval "$(cc env)"` to export all configured paths and knowledge-repo variables into the shell environment. The `cc` runtime then uses these to resolve which extension files apply to the invoked agent.
 
-**Input:**
-```json
-{
-  "agent": "sd"  // Agent ID: ta, me, qa, do, doc, sd, uxd, uids, uid, sec, ind, cco, cw, cs, cpa, kc
-}
+**Example:**
+```bash
+eval "$(cc env)"
+# Sets CC_KNOWLEDGE_REPO, CC_SHARED_DOCS, KNOWLEDGE_REPO_PATH, etc.
 ```
 
 **Output:** Returns extension content with metadata (type, required skills, fallback behavior).
 
-#### `extension_list`
+#### Extension list (via `cc config`)
 
 Lists all available extensions from both global and project repositories.
 
@@ -438,7 +437,7 @@ The `source` column indicates where each extension comes from:
 - `project` - From `$KNOWLEDGE_REPO_PATH`
 - `project (overrides global)` - Project extension that takes precedence over a global one
 
-#### `manifest_status`
+#### Knowledge repo status (via `cc env` / `cc config`)
 
 Returns the status of both global and project knowledge repositories.
 
@@ -489,9 +488,9 @@ When using the Agent-First Protocol, the declaration should indicate extension s
 
 ### Extension Resolution Process
 
-When invoking an agent with extensions enabled:
+When invoking an agent with extensions enabled, the `cc` runtime (via `cc env`) resolves extensions automatically:
 
-1. **Call `extension_get(agent_id)`** to check for extensions
+1. **`cc` CLI resolves extensions** by checking project then global knowledge repo for the agent
 2. **Apply extension based on type:**
    - `override`: Use extension content AS the agent instructions (ignore base agent)
    - `extension`: Merge extension with base agent (extension sections override base)
@@ -502,7 +501,7 @@ When invoking an agent with extensions enabled:
 
 If the extension has `requiredSkills`:
 
-1. Verify each skill is available via `skill_get`
+1. Verify each skill is available via `cc skill get <name>`
 2. If skills unavailable, apply `fallbackBehavior`:
    - `use_base`: Use base agent silently
    - `use_base_with_warning`: Use base agent, warn user that proprietary features unavailable
@@ -578,7 +577,7 @@ The system degrades gracefully at each tier:
 **Global repo fails to load:**
 - Error logged for global repo
 - System continues with base agents
-- `manifest_status` reports the specific error
+- `cc env` output / cc config reports the specific error
 
 **Project repo fails to load:**
 - Error logged for project repo

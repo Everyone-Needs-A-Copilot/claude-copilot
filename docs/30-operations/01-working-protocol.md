@@ -175,7 +175,7 @@ Your response MUST include:
 
 ## Project-Specific Overrides
 
-Projects may extend this protocol with custom agents or rules via the extension system. See [EXTENSION-SPEC.md](../EXTENSION-SPEC.md) for details.
+Projects may extend this protocol with custom agents or rules via the extension system. See [the Extension Spec](../40-extensions/00-extension-spec.md) for details.
 
 ---
 

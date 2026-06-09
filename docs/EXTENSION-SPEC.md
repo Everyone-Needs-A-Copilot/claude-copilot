@@ -1,1 +1,0 @@
-40-extensions/00-extension-spec.md

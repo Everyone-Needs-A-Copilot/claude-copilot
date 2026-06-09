@@ -127,18 +127,7 @@ This creates ~/.claude/knowledge/ with:
 Only needed when this project requires different extensions than global.
 
 1. Create knowledge repository in your project
-2. Add to .mcp.json:
-   ```json
-   {
-     "mcpServers": {
-       "skills-copilot": {
-         "env": {
-           "KNOWLEDGE_REPO_PATH": "/path/to/knowledge"
-         }
-       }
-     }
-   }
-   ```
+2. Set the knowledge repo path in your project configuration so `cc skill` can discover project-local skills
 
 ## Two-Tier Resolution
 

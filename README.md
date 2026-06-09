@@ -372,7 +372,7 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 | `/setup-knowledge-sync` | Enable auto-updates on releases         |
 | `/knowledge-copilot`    | Build shared knowledge repo             |
 
-→ [Orchestration Guide](docs/50-features/02-orchestration-workflow.md) | [Knowledge Sync](docs/50-features/03-knowledge-sync.md)
+→ [Orchestration Guide](docs/50-features/01-orchestration-workflow.md) | [Knowledge Sync](docs/50-features/03-knowledge-sync.md)
 
 ---
 

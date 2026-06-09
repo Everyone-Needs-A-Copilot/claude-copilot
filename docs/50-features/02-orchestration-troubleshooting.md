@@ -417,10 +417,13 @@ python .claude/orchestrator/check_streams_data.py | grep -i archived
 
 #### Solution
 
-**If streams from different initiative:**
+**If streams from different workspace scope:**
 ```bash
-# Re-link to current initiative via Memory Copilot
-# Use initiative_link() MCP tool to reconnect
+# Verify the current workspace identifier
+tc progress --json
+
+# Regenerate to re-scope streams to this workspace
+/orchestrate generate
 
 # Then verify streams are visible
 tc stream list --json
@@ -437,9 +440,9 @@ rm ~/.claude/tasks/$(basename $(pwd)).db
 ```
 
 #### Prevention
-- Always use `/orchestrate generate` to start new initiatives
-- Don't manually switch initiatives mid-orchestration
-- Use `initiative_link()` (Memory Copilot MCP) to properly scope initiatives
+- Always use `/orchestrate generate` to start new orchestration runs
+- Don't manually switch workspaces mid-orchestration
+- Use `tc stream list --json` to verify stream scope before starting
 
 ---
 
@@ -877,7 +880,7 @@ git branch | grep "Stream-" | xargs -I {} git branch -D {} 2>/dev/null || true
 
 # 6. Archive streams
 echo "  Archiving streams..."
-# Archive handled by initiative_link in generate phase
+# List current streams (archiving handled by /orchestrate generate)
 tc stream list --json 2>/dev/null || true
 
 echo "✅ Cleanup complete. Run '/orchestrate generate' to start fresh."

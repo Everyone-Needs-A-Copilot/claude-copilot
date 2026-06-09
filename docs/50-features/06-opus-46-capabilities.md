@@ -558,8 +558,8 @@ Automatically adjust effort mid-task based on complexity signals.
 
 ## Related Documentation
 
-- [Ecomode](./ecomode.md) - Complexity scoring and model routing details
-- [Magic Keywords](./magic-keywords.md) - Effort and action keyword reference
+- [Ecomode](./08-ecomode.md) - Complexity scoring and model routing details
+- [Magic Keywords](./09-magic-keywords.md) - Effort and action keyword reference
 - [Main Session Guardrails](../../CLAUDE.md#critical-main-session-guardrails) - Updated token limits
 - [Enhancement Features](./00-enhancement-features.md) - Auto-compaction thresholds
 - [Agent Guide](../../docs/30-operations/03-agent-guide.md) - Agent-specific patterns

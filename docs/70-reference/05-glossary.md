@@ -87,7 +87,7 @@ A typed artifact stored in Task Copilot via `tc wp store`. Work products hold ag
 
 ---
 
-## The 16 Agent Codes (+ kc)
+## The 16 Agent Codes (incl. kc)
 
 | Code | Full Name | Role |
 |------|-----------|------|

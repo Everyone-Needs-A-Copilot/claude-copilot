@@ -11,7 +11,7 @@
 #
 # ESCAPE HATCH:
 #   Set COPILOT_FORCE_DELEGATE=off to bypass all force-delegate checks.
-#   Security rules are never bypassed.
+#   Set COPILOT_QA_GATE=off to bypass all QA gate checks.
 #
 # INPUT (stdin):
 #   JSON object with fields:

@@ -443,7 +443,7 @@ Validate links in the shared-docs directory
 Check frontmatter in 02-products/ and fix any issues
 ```
 
-Claude will load the skill via `skill_get` and execute the validation, providing a report and optionally fixing issues.
+Claude will load the skill via `cc skill get <skill-name>` and execute the validation, providing a report and optionally fixing issues.
 
 ### Skill Capabilities
 
@@ -507,6 +507,6 @@ Claude will load the skill via `skill_get` and execute the validation, providing
 
 ## References
 
-- Extension Specification: [EXTENSION-SPEC.md](./EXTENSION-SPEC.md)
-- Documentation Guide: [documentation-guide.md](./operations/documentation-guide.md)
-- Working Protocol: [working-protocol.md](./operations/working-protocol.md)
+- Extension Specification: [Extension Spec](./00-extension-spec.md)
+- Documentation Guide: [Documentation Guide](../30-operations/02-documentation-guide.md)
+- Working Protocol: [Working Protocol](../30-operations/01-working-protocol.md)

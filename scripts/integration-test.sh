@@ -252,26 +252,26 @@ done
 #############################
 section "IT-06: Commands Reference MCP Tools Correctly"
 
-# Check /protocol command
+# Check /protocol command — verify live mechanism references (cc env / cc memory)
 PROTOCOL_CMD="$REPO_ROOT/.claude/commands/protocol.md"
-if grep -q "extension_get" "$PROTOCOL_CMD"; then
-  pass "/protocol references extension_get tool"
+if grep -q "cc memory" "$PROTOCOL_CMD"; then
+  pass "/protocol references cc memory"
 else
-  fail "/protocol missing extension_get reference"
+  fail "/protocol missing cc memory reference"
 fi
 
-# Check /continue command
+# Check /continue command — verify live mechanism references (cc memory / tc)
 CONTINUE_CMD="$REPO_ROOT/.claude/commands/continue.md"
-if grep -q "initiative_get" "$CONTINUE_CMD"; then
-  pass "/continue references initiative_get tool"
+if grep -q "cc memory" "$CONTINUE_CMD"; then
+  pass "/continue references cc memory"
 else
-  fail "/continue missing initiative_get reference"
+  fail "/continue missing cc memory reference"
 fi
 
-if grep -q "cc memory\|initiative_get" "$CONTINUE_CMD"; then
-  pass "/continue references memory/initiative tools"
+if grep -q "tc progress\|tc task" "$CONTINUE_CMD"; then
+  pass "/continue references tc CLI commands"
 else
-  fail "/continue missing memory/initiative reference"
+  fail "/continue missing tc CLI reference"
 fi
 
 #############################

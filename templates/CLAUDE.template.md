@@ -29,10 +29,10 @@ This project uses [Claude Copilot](https://github.com/Everyone-Needs-A-Copilot/c
 
 | Capability | Tools | Purpose |
 |------------|-------|---------|
-| **Memory** | `initiative_*`, `memory_*` | Persist decisions, lessons, progress across sessions |
-| **Agents** | 11 specialists via `/protocol` | Expert guidance routed by task type |
+| **Memory** | `cc memory` | Persist decisions, lessons, progress across sessions |
+| **Agents** | 16 specialists via `/protocol` | Expert guidance routed by task type |
 | **Knowledge** | `knowledge_search`, `knowledge_get` | Search company/product documentation |
-| **Skills** | `skill_search`, `skill_get` | Load expertise on demand |
+| **Skills** | `cc skill search`, `cc skill get` | Load expertise on demand |
 
 ### Agents
 
@@ -49,7 +49,11 @@ This project uses [Claude Copilot](https://github.com/Everyone-Needs-A-Copilot/c
 | `uids` | UI Designer - visual design |
 | `uid` | UI Developer - component implementation |
 | `cw` | Copywriter - microcopy, voice |
+| `cco` | Creative Director - brand strategy, art direction, creative concepts |
+| `ind` | Industrial Designer - essentialism, reduction, product-as-object |
+| `cs` | Sales Advisor - sales strategy, pipeline, deal architecture |
 | `kc` | Knowledge Copilot - shared knowledge setup |
+| `cpa` | CPA Copilot - tax strategy, financial modeling, hiring economics |
 
 ### Configuration
 
@@ -67,7 +71,7 @@ This project uses [Claude Copilot](https://github.com/Everyone-Needs-A-Copilot/c
 
 **Resume:** `/continue` - Loads from Memory Copilot
 
-**End:** Call `initiative_update` with completed tasks, decisions, lessons, and resume instructions
+**End:** Run `cc memory store` to persist key decisions and lessons from the session
 
 ---
 

@@ -283,10 +283,12 @@ Agents store detailed work products here instead of returning them to the main s
 | Command | Level | Purpose |
 |---------|-------|---------|
 | `/setup` | Machine | One-time machine setup (run from `~/.claude/copilot`) |
+| `/setup-copilot` | Machine/User | Universal setup router — auto-detects context and runs the appropriate setup command |
 | `/setup-project` | User | Initialize a new project |
 | `/update-project` | User | Update existing project with latest Claude Copilot |
 | `/update-copilot` | User | Update Claude Copilot itself (pull + rebuild) |
 | `/knowledge-copilot` | User | Build or link shared knowledge repository |
+| `/skills-approve` | User | Browse, search, and manage reusable skills via `cc` CLI |
 | `/protocol` | Project | Start fresh work with Agent-First Protocol |
 | `/continue` | Project | Resume previous work via Memory Copilot |
 | `/orchestrate` | Project | Set up and manage parallel stream orchestration |
@@ -322,7 +324,8 @@ cd ~/your-project && claude
 /protocol
 
 # At end of session
-# Memory Copilot auto-saves via initiative_update
+# Save progress via cc memory store
+cc memory store --type context "Current state and next steps"
 ```
 
 ### Adding Company Standards
@@ -515,14 +518,14 @@ eval "$(cc env)"
 | Document | Purpose |
 |----------|---------|
 | [README.md](../README.md) | Overview and quick start |
-| [SETUP.md](../SETUP.md) | Detailed setup instructions |
-| [USER-JOURNEY.md](USER-JOURNEY.md) | Complete walkthrough |
-| [AGENTS.md](AGENTS.md) | All agents in detail |
-| [CONFIGURATION.md](CONFIGURATION.md) | Configuration reference |
-| [CUSTOMIZATION.md](CUSTOMIZATION.md) | Extensions and customization |
-| [EXTENSION-SPEC.md](EXTENSION-SPEC.md) | Extension file format |
-| [PHILOSOPHY.md](PHILOSOPHY.md) | Why we built this |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Technical architecture |
+| [SETUP.md](../../SETUP.md) | Detailed setup instructions |
+| [User Journey](../01-getting-started/01-user-journey.md) | Complete walkthrough |
+| [Agents](../10-architecture/01-agents.md) | All agents in detail |
+| [Configuration](../20-configuration/01-configuration.md) | Configuration reference |
+| [Customization](../20-configuration/02-customization.md) | Extensions and customization |
+| [Extension Spec](../40-extensions/00-extension-spec.md) | Extension file format |
+| [Philosophy](../10-architecture/02-philosophy.md) | Why we built this |
+| [Architecture](../10-architecture/00-overview.md) | Technical architecture |
 
 ---
 

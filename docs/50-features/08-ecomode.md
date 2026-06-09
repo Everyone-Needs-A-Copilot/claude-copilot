@@ -301,5 +301,5 @@ Rules:
 
 ## Related Documentation
 
-- [Magic Keywords](./magic-keywords.md) - Modifier and action keywords
-- [Progress HUD](./progress-hud.md) - Real-time status display
+- [Magic Keywords](./09-magic-keywords.md) - Modifier and action keywords
+- [Progress HUD](./10-progress-hud.md) - Real-time status display

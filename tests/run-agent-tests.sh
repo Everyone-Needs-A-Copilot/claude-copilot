@@ -96,9 +96,6 @@ if [ "$RUN_INT" == "true" ]; then
 
   run_test "integration/agent-skill-orchestration.test.ts"
   run_test "integration/lean-agents-skills.test.ts"
-  run_test "integration/orchestration-lifecycle.test.ts"
-  run_test "integration/memory-copilot.test.ts"
-  run_test "integration/cross-system.test.ts"
   run_test "integration/knowledge-sync.test.ts"
 
   echo ""

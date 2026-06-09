@@ -99,7 +99,7 @@ This is the load-bearing constraint of the plugin design:
 │  CEILING — cc + knowledge-repo override layer        │
 │  (project $KNOWLEDGE_REPO_PATH → global              │
 │   ~/.claude/knowledge → base agent)                  │
-│  Runtime prompt-assembly via cc extension_get.       │
+│  Runtime prompt-assembly via `eval "$(cc env)"`.     │
 │  Company-specific overrides, extensions, skill sets. │
 ├─────────────────────────────────────────────────────┤
 │  FLOOR — plugin-provided base agents                 │
@@ -113,7 +113,7 @@ This is the load-bearing constraint of the plugin design:
 
 - Native Claude Code plugins ADD agents (the floor). They have no mechanism to REPLACE a specific agent's methodology with a per-team override — that is intentional.
 - The knowledge-repo override layer (`.override.md`, `.extension.md`, `.skills.json` per agent) is a RUNTIME step performed by the `cc` CLI at agent-invocation time. It reads the knowledge repo, merges the override on top of the base agent's markdown, and supplies the combined prompt.
-- Installing via plugin vs clone makes NO difference to overrides. In both cases: `cc extension_get <agent>` returns `base + project-override + global-override` at invocation. The plugin merely changes how the base agent is discovered; `cc` still assembles the final prompt.
+- Installing via plugin vs clone makes NO difference to overrides. In both cases: `cc` runtime assembly (via `eval "$(cc env)"`) returns `base + project-override + global-override` at invocation. The plugin merely changes how the base agent is discovered; `cc` still assembles the final prompt.
 - This means teams can install the base framework as a plugin for easy auto-discovery and still apply their full methodology layer on top via the knowledge repo. The two layers compose cleanly.
 
 For the override layer to work, the `cc` CLI must be installed (Step 3 above) and `$KNOWLEDGE_REPO_PATH` must be set in the project or user environment.

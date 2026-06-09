@@ -365,5 +365,5 @@ FORCE_COLOR=1 npm test  # Enable colors
 
 ## Related Documentation
 
-- [Ecomode](./ecomode.md) - Model routing that feeds into HUD
-- [Magic Keywords](./magic-keywords.md) - Task keywords
+- [Ecomode](./08-ecomode.md) - Model routing that feeds into HUD
+- [Magic Keywords](./09-magic-keywords.md) - Task keywords

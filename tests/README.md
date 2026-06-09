@@ -312,8 +312,7 @@ Target coverage: 85%+ for all code paths
 ## Related Documentation
 
 - [/map command specification](../.claude/commands/map.md)
-- [Testing guidelines](../docs/operations/testing-guide.md)
-- [Project structure](../PROJECT_MAP.md)
+- [Operations documentation](../docs/30-operations/)
 
 ## Troubleshooting
 

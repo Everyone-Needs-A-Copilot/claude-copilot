@@ -555,8 +555,8 @@ interface ParsedCommand {
 ## Related Documentation
 
 - [Protocol Command](../../.claude/commands/protocol.md) - Main protocol documentation
-- [Ecomode](../50-features/ecomode.md) - Auto-select model routing details
-- [Agent Routing](../10-architecture/02-agent-routing.md) - Agent flow details
+- [Ecomode](./08-ecomode.md) - Auto-select model routing details
+- [Agent Details](../10-architecture/01-agents.md) - Agent flow details
 
 ---
 
