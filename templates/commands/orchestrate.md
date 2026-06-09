@@ -131,81 +131,34 @@ When user runs `/orchestrate generate [--technical] [description]`:
 
 2. **Prompt for feature name** if not provided as argument
 
-3. **Link to Memory Copilot initiative (REQUIRED FIRST - BLOCKING):**
-
-   a. **Get current initiative:**
-      ```
-      Call: initiative_get({ mode: "lean" })
-      ```
-
-   b. **Verify initiative exists and is active:**
-      - If no initiative found OR status is "COMPLETE":
-        ```
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        ❌ ERROR: No Active Initiative
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-        You must have an active initiative before generating orchestration tasks.
-
-        To start a new initiative:
-          initiative_start({ name: "Your Initiative Name", goal: "Description" })
-
-        Then run `/orchestrate generate` again.
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        ```
-        **STOP - Do not proceed.**
-
-   c. **Link initiative to Task Copilot:**
-      ```
-      Call: initiative_link({
-        initiativeId: "{initiative.id}",
-        title: "{initiative.name}",
-        description: "{feature_description}"
-      })
-      ```
-
-   d. **Store initiative ID for later verification:**
-      ```
-      INITIATIVE_ID = "{initiative.id}"
-      ```
-      This ID will be used in step 9 to verify streams are properly linked.
-
-   e. **Archive stale streams from previous work:**
-      The initiative_link call automatically archives old streams. Display:
-      ```
-      ✓ Initiative linked: {initiative.name}
-      ✓ Previous streams archived (clean slate)
-      ```
-
-4. **Detect workflow mode:**
-   - If `--technical` flag: Use Technical-Only workflow (skip to step 8)
+3. **Detect workflow mode:**
+   - If `--technical` flag: Use Technical-Only workflow (skip to step 6)
    - If feature contains technical keywords (refactor, optimize, migrate, performance):
      Ask user to confirm: "This sounds technical. Use technical-only flow? [y/n]"
    - Default: Use Experience-First workflow
 
-**Experience-First Workflow (Steps 5-7):**
+**Experience-First Workflow (Steps 4-6):**
 
-5. **Stage 1: Service Design (@agent-sd)**
+4. **Stage 1: Service Design (@agent-sd)**
 
    Invoke @agent-sd with this prompt:
    ```
    Create a Service Design Specification for orchestration planning.
 
    Feature: {feature_description}
-   Initiative: {INITIATIVE_ID}
 
    ╔══════════════════════════════════════════════════════════════════╗
    ║  CRITICAL: TOOL RESTRICTIONS                                     ║
    ╠══════════════════════════════════════════════════════════════════╣
    ║  You are a SPECIFICATION AUTHOR, not a task creator.             ║
    ║                                                                  ║
-   ║  ✓ ALLOWED: work_product_store() - Store your specification      ║
-   ║  ✓ ALLOWED: work_product_get() - Read prior specifications       ║
+   ║  ✓ ALLOWED: tc wp store - Store your specification               ║
+   ║  ✓ ALLOWED: tc wp get - Read prior specifications                ║
    ║  ✓ ALLOWED: knowledge_search() - Research company context        ║
    ║                                                                  ║
-   ║  ✗ FORBIDDEN: prd_create() - Only @agent-ta creates PRDs         ║
-   ║  ✗ FORBIDDEN: task_create() - Only @agent-ta creates tasks       ║
-   ║  ✗ FORBIDDEN: task_update() - You do not manage tasks            ║
+   ║  ✗ FORBIDDEN: tc prd create - Only @agent-ta creates PRDs        ║
+   ║  ✗ FORBIDDEN: tc task create - Only @agent-ta creates tasks      ║
+   ║  ✗ FORBIDDEN: tc task update - You do not manage tasks           ║
    ║                                                                  ║
    ║  If you call forbidden tools, the orchestration will fail.       ║
    ╚══════════════════════════════════════════════════════════════════╝
@@ -215,18 +168,8 @@ When user runs `/orchestrate generate [--technical] [description]`:
    2. Identify all touchpoints (frontstage and backstage)
    3. Document pain points and opportunities
    4. Identify key moments that matter to the user
-   5. Store specification using work_product_store():
-      {
-        taskId: "orchestration-planning",
-        type: "other",
-        title: "Service Design Specification: {feature}",
-        content: "<full service blueprint in markdown>",
-        metadata: {
-          "specificationType": "service-design",
-          "initiativeId": "{INITIATIVE_ID}",
-          "feature": "{feature_description}"
-        }
-      }
+   5. Store specification as a work product (title: "Service Design Specification: {feature}",
+      type: "other") and return the work product ID (WP-xxx)
    6. Return ONLY:
       - Work product ID (WP-xxx)
       - Summary (~100 tokens): key journey stages, main pain points, opportunities
@@ -235,61 +178,49 @@ When user runs `/orchestrate generate [--technical] [description]`:
 
    After @agent-sd returns:
    - **Verify work product was stored:**
+     ```bash
+     tc wp get {WP-xxx from response}
      ```
-     Call: work_product_get({ id: "{WP-xxx from response}" })
-     ```
-     If not found, agent did not call work_product_store(). Re-invoke with reminder.
+     If not found, agent did not store the work product. Re-invoke with reminder.
    - Extract WP-xxx ID from response
    - Display checkpoint summary
    - Ask: "Proceed to UX Design? [y/n/skip]"
-   - If "skip": Jump to step 8 (TA) with collected specs
+   - If "skip": Jump to step 6 (TA) with collected specs
    - If "n": Allow user to provide feedback, re-invoke @agent-sd
 
-6. **Stage 2: UX Design (@agent-uxd)**
+5. **Stage 2: UX Design (@agent-uxd)**
 
    Invoke @agent-uxd with this prompt:
    ```
    Create a UX Design Specification based on the service design.
 
    Feature: {feature_description}
-   Initiative: {INITIATIVE_ID}
-   Service Design Spec: {WP-xxx from step 5}
+   Service Design Spec: {WP-xxx from step 4}
 
    ╔══════════════════════════════════════════════════════════════════╗
    ║  CRITICAL: TOOL RESTRICTIONS                                     ║
    ╠══════════════════════════════════════════════════════════════════╣
    ║  You are a SPECIFICATION AUTHOR, not a task creator.             ║
    ║                                                                  ║
-   ║  ✓ ALLOWED: work_product_store() - Store your specification      ║
-   ║  ✓ ALLOWED: work_product_get() - Read prior specifications       ║
+   ║  ✓ ALLOWED: tc wp store - Store your specification               ║
+   ║  ✓ ALLOWED: tc wp get - Read prior specifications                ║
    ║  ✓ ALLOWED: knowledge_search() - Research company context        ║
    ║                                                                  ║
-   ║  ✗ FORBIDDEN: prd_create() - Only @agent-ta creates PRDs         ║
-   ║  ✗ FORBIDDEN: task_create() - Only @agent-ta creates tasks       ║
-   ║  ✗ FORBIDDEN: task_update() - You do not manage tasks            ║
+   ║  ✗ FORBIDDEN: tc prd create - Only @agent-ta creates PRDs        ║
+   ║  ✗ FORBIDDEN: tc task create - Only @agent-ta creates tasks      ║
+   ║  ✗ FORBIDDEN: tc task update - You do not manage tasks           ║
    ║                                                                  ║
    ║  If you call forbidden tools, the orchestration will fail.       ║
    ╚══════════════════════════════════════════════════════════════════╝
 
    REQUIREMENTS:
-   1. Call work_product_get({ id: "{WP-xxx}" }) to read service design spec
+   1. Run `tc wp get {WP-xxx}` to read service design spec
    2. Design all interaction states (default, hover, focus, error, loading, empty)
    3. Define task flows with all paths (primary, alternative, error recovery)
    4. Specify accessibility requirements (WCAG 2.1 AA)
    5. Document information architecture and navigation
-   6. Store specification using work_product_store():
-      {
-        taskId: "orchestration-planning",
-        type: "other",
-        title: "UX Design Specification: {feature}",
-        content: "<full interaction design in markdown>",
-        metadata: {
-          "specificationType": "ux-design",
-          "initiativeId": "{INITIATIVE_ID}",
-          "feature": "{feature_description}",
-          "sourceSpecs": ["{WP-xxx}"]
-        }
-      }
+   6. Store specification as a work product (title: "UX Design Specification: {feature}",
+      type: "other") and return the work product ID (WP-yyy)
    7. Return ONLY:
       - Work product ID (WP-yyy)
       - Summary (~100 tokens): key flows, interaction patterns, accessibility notes
@@ -298,62 +229,50 @@ When user runs `/orchestrate generate [--technical] [description]`:
 
    After @agent-uxd returns:
    - **Verify work product was stored:**
+     ```bash
+     tc wp get {WP-yyy from response}
      ```
-     Call: work_product_get({ id: "{WP-yyy from response}" })
-     ```
-     If not found, agent did not call work_product_store(). Re-invoke with reminder.
+     If not found, agent did not store the work product. Re-invoke with reminder.
    - Extract WP-yyy ID from response
    - Display checkpoint summary
    - Ask: "Proceed to Visual Design? [y/n/skip]"
-   - If "skip": Jump to step 8 (TA) with collected specs
+   - If "skip": Jump to step 6 (TA) with collected specs
    - If "n": Allow user to provide feedback, re-invoke @agent-uxd
 
-7. **Stage 3: UI Design (@agent-uids)**
+6. **Stage 3: UI Design (@agent-uids)**
 
    Invoke @agent-uids with this prompt:
    ```
    Create a UI Design Specification based on the UX design.
 
    Feature: {feature_description}
-   Initiative: {INITIATIVE_ID}
-   Service Design Spec: {WP-xxx from step 5}
-   UX Design Spec: {WP-yyy from step 6}
+   Service Design Spec: {WP-xxx from step 4}
+   UX Design Spec: {WP-yyy from step 5}
 
    ╔══════════════════════════════════════════════════════════════════╗
    ║  CRITICAL: TOOL RESTRICTIONS                                     ║
    ╠══════════════════════════════════════════════════════════════════╣
    ║  You are a SPECIFICATION AUTHOR, not a task creator.             ║
    ║                                                                  ║
-   ║  ✓ ALLOWED: work_product_store() - Store your specification      ║
-   ║  ✓ ALLOWED: work_product_get() - Read prior specifications       ║
+   ║  ✓ ALLOWED: tc wp store - Store your specification               ║
+   ║  ✓ ALLOWED: tc wp get - Read prior specifications                ║
    ║  ✓ ALLOWED: knowledge_search() - Research company context        ║
    ║                                                                  ║
-   ║  ✗ FORBIDDEN: prd_create() - Only @agent-ta creates PRDs         ║
-   ║  ✗ FORBIDDEN: task_create() - Only @agent-ta creates tasks       ║
-   ║  ✗ FORBIDDEN: task_update() - You do not manage tasks            ║
+   ║  ✗ FORBIDDEN: tc prd create - Only @agent-ta creates PRDs        ║
+   ║  ✗ FORBIDDEN: tc task create - Only @agent-ta creates tasks      ║
+   ║  ✗ FORBIDDEN: tc task update - You do not manage tasks           ║
    ║                                                                  ║
    ║  If you call forbidden tools, the orchestration will fail.       ║
    ╚══════════════════════════════════════════════════════════════════╝
 
    REQUIREMENTS:
-   1. Call work_product_get() for each prior spec to understand context
+   1. Run `tc wp get <id>` for each prior spec to understand context
    2. Define design tokens (colors, spacing, typography, shadows)
    3. Specify component designs with all visual states
    4. Include micro-interactions and transitions
    5. Document responsive breakpoints and behavior
-   6. Store specification using work_product_store():
-      {
-        taskId: "orchestration-planning",
-        type: "other",
-        title: "UI Design Specification: {feature}",
-        content: "<full visual design in markdown>",
-        metadata: {
-          "specificationType": "ui-design",
-          "initiativeId": "{INITIATIVE_ID}",
-          "feature": "{feature_description}",
-          "sourceSpecs": ["{WP-xxx}", "{WP-yyy}"]
-        }
-      }
+   6. Store specification as a work product (title: "UI Design Specification: {feature}",
+      type: "other") and return the work product ID (WP-zzz)
    7. Return ONLY:
       - Work product ID (WP-zzz)
       - Summary (~100 tokens): design tokens, key components, visual patterns
@@ -362,46 +281,44 @@ When user runs `/orchestrate generate [--technical] [description]`:
 
    After @agent-uids returns:
    - **Verify work product was stored:**
+     ```bash
+     tc wp get {WP-zzz from response}
      ```
-     Call: work_product_get({ id: "{WP-zzz from response}" })
-     ```
-     If not found, agent did not call work_product_store(). Re-invoke with reminder.
+     If not found, agent did not store the work product. Re-invoke with reminder.
    - Extract WP-zzz ID from response
    - Display checkpoint summary
    - Ask: "Proceed to Technical Architecture? [y/n]"
    - If "n": Allow user to provide feedback, re-invoke @agent-uids
 
-8. **Stage 4: Technical Architecture (@agent-ta) - DESIGN ONLY**
+7. **Stage 4: Technical Architecture (@agent-ta) - DESIGN ONLY**
 
-   **IMPORTANT:** Subagents cannot call MCP tools. @agent-ta designs the structure,
-   then the main session creates the PRD and tasks via MCP tools.
+   **IMPORTANT:** Subagents cannot call CLI tools directly in the main session. @agent-ta
+   designs the structure, then the main session creates the PRD and tasks via `tc` CLI.
 
    Invoke @agent-ta with this prompt:
    ```
    Design a PRD and task breakdown for parallel orchestration.
 
    Feature: {feature_description}
-   Initiative ID: {INITIATIVE_ID}
 
    SOURCE SPECIFICATIONS (READ THESE FIRST):
-   {list of WP-xxx IDs from steps 5-7, or "None - technical-only flow"}
+   {list of WP-xxx IDs from steps 4-6, or "None - technical-only flow"}
 
    ╔══════════════════════════════════════════════════════════════════╗
    ║  CRITICAL: RETURN STRUCTURED JSON                                ║
    ╠══════════════════════════════════════════════════════════════════╣
-   ║  You CANNOT call MCP tools (prd_create, task_create).            ║
-   ║  Instead, return a JSON structure that the main session will     ║
-   ║  use to create the PRD and tasks.                                ║
+   ║  Return a JSON structure that the main session will use to       ║
+   ║  create the PRD and tasks via `tc prd create` / `tc task create`.║
    ║                                                                  ║
    ║  Your response MUST include a JSON code block with the exact     ║
    ║  structure shown below. The main session will parse this JSON    ║
-   ║  and call the MCP tools on your behalf.                          ║
+   ║  and run the tc CLI commands on your behalf.                     ║
    ╚══════════════════════════════════════════════════════════════════╝
 
    WORKFLOW:
 
    STEP 1: Read all source specifications (if provided)
-   - For each WP-xxx ID provided, call work_product_get({ id: "WP-xxx" })
+   - For each WP-xxx ID provided, run `tc wp get <id>` to read the specification
    - Extract requirements, user journeys, interaction patterns, visual specs
    - These specs define WHAT to build - you define HOW to build it
 
@@ -507,7 +424,7 @@ When user runs `/orchestrate generate [--technical] [description]`:
    - Dependency structure
    ```
 
-9. **PARSE @agent-ta Response and CREATE via MCP (MAIN SESSION):**
+8. **PARSE @agent-ta Response and CREATE via tc CLI (MAIN SESSION):**
 
    After @agent-ta returns, the MAIN SESSION (not a subagent) must:
 
@@ -545,28 +462,24 @@ When user runs `/orchestrate generate [--technical] [description]`:
       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
       ```
 
-   c. **Create PRD via MCP:**
+   c. **Create PRD via tc CLI:**
+      ```bash
+      tc prd create --title "{prd.title}" --description "{prd.description}" --content "{prd.content}" --json
       ```
-      Call: prd_create({
-        title: prd.title,
-        description: prd.description,
-        content: prd.content
-      })
-      ```
-      Store result as: PRD_ID = {returned PRD ID}
+      Store result as: PRD_ID = {id from JSON output}
 
-   d. **Create each task via MCP:**
+   d. **Create each task via tc CLI:**
       For each task in tasks array:
+      ```bash
+      tc task create \
+        --title "{task.title}" \
+        --prd {PRD_ID} \
+        --description "{task.description}" \
+        --agent "{task.metadata.assignedAgent}" \
+        --metadata '{task.metadata as JSON string}' \
+        --json
       ```
-      Call: task_create({
-        prdId: PRD_ID,
-        title: task.title,
-        description: task.description,
-        assignedAgent: task.metadata.assignedAgent,  // ← From TA's JSON (me, uid, qa, sec, doc, do)
-        metadata: task.metadata
-      })
-      ```
-      **NOTE:** The `assignedAgent` field controls which specialist the Foreman spawns.
+      **NOTE:** The `--agent` field controls which specialist is assigned.
       The `metadata.phase` field controls execution ordering within the stream.
 
       Count successful creates as: TASK_COUNT
@@ -581,32 +494,25 @@ When user runs `/orchestrate generate [--technical] [description]`:
       Created {TASK_COUNT} tasks across {STREAM_COUNT} streams.
       ```
 
-10. **VERIFY Task Copilot State (MANDATORY - BLOCKING):**
+9. **VERIFY Task Copilot State (MANDATORY - BLOCKING):**
 
    This step verifies that all data was created correctly.
 
-   a. **Check PRDs exist for this initiative:**
-      ```
-      Call: prd_list({ initiativeId: "{INITIATIVE_ID}" })
-      ```
-      Store result as: PRD_COUNT = {number of PRDs returned}
-
-   b. **Check streams exist for this initiative:**
-      ```
-      Call: stream_list({ initiativeId: "{INITIATIVE_ID}" })
+   a. **Check streams exist:**
+      ```bash
+      tc stream list --json
       ```
       Store result as: STREAM_COUNT = {number of streams returned}
 
-   c. **Check tasks are linked to PRD:**
-      ```
-      Call: task_list({ prdId: "{PRD_ID}" })
+   b. **Check tasks are linked to PRD:**
+      ```bash
+      tc task list --prd {PRD_ID} --json
       ```
       Store result as: TASK_COUNT = {number of tasks returned}
 
-   d. **Evaluate verification results:**
+   c. **Evaluate verification results:**
 
-      **ALL THREE must pass:**
-      - PRD_COUNT >= 1
+      **BOTH must pass:**
       - STREAM_COUNT >= 1
       - TASK_COUNT >= 1
 
@@ -617,14 +523,12 @@ When user runs `/orchestrate generate [--technical] [description]`:
       ❌ VERIFICATION FAILED
       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-      Data creation failed despite MCP calls succeeding.
+      Data creation failed despite tc CLI calls succeeding.
 
       Verification Results:
-        • PRDs for initiative:  {PRD_COUNT}   {✓ or ✗}
         • Streams found:        {STREAM_COUNT} {✓ or ✗}
         • Tasks linked to PRD:  {TASK_COUNT}  {✓ or ✗}
 
-      This is unexpected - MCP calls succeeded but data not found.
       Check Task Copilot database: ~/.claude/tasks/{workspace}/tasks.db
 
       Aborting /orchestrate generate.
@@ -632,8 +536,8 @@ When user runs `/orchestrate generate [--technical] [description]`:
       ```
       **STOP.**
 
-   e. **Only if ALL verifications pass:**
-      Display success and proceed to step 11 (file creation):
+   d. **Only if ALL verifications pass:**
+      Display success and proceed to step 10 (file creation):
       ```
       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
       ✓ VERIFICATION PASSED
@@ -647,7 +551,7 @@ When user runs `/orchestrate generate [--technical] [description]`:
       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
       ```
 
-11. **Create Orchestrator Files:**
+10. **Create Orchestrator Files:**
 
    After verification passes, set up the orchestrator infrastructure:
 
@@ -725,32 +629,10 @@ When user runs `/orchestrate generate [--technical] [description]`:
    ```
    **STOP - Do NOT create files. Do NOT proceed.**
 
-2. **Initiative Verification (BLOCKING):**
+2. **Stream Verification (BLOCKING):**
 
-   ```
-   Call: initiative_get({ mode: "lean" })
-   ```
-
-   **If no active initiative:**
-   ```
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   ❌ NO ACTIVE INITIATIVE
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-   Orchestration requires an active initiative.
-
-   Run `/orchestrate generate` to create one, or:
-     initiative_start({ name: "...", goal: "..." })
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   ```
-   **STOP.**
-
-   Store: INITIATIVE_ID = {initiative.id}
-
-3. **Stream Verification (BLOCKING):**
-
-   ```
-   Call: stream_list({ initiativeId: "{INITIATIVE_ID}" })
+   ```bash
+   tc stream list --json
    ```
 
    **If no streams found:**
@@ -759,12 +641,11 @@ When user runs `/orchestrate generate [--technical] [description]`:
    ❌ NO STREAMS FOUND
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-   No streams found for initiative: {INITIATIVE_ID}
+   No streams found in Task Copilot.
 
    This means either:
      • /orchestrate generate was not run
      • @agent-ta did not create tasks with metadata.streamId
-     • Tasks are not linked to this initiative
 
    Run `/orchestrate generate` to create streams.
 
@@ -773,7 +654,7 @@ When user runs `/orchestrate generate [--technical] [description]`:
    ```
    **STOP - Do NOT attempt to create streams. Do NOT proceed.**
 
-4. **Foundation Stream Verification (BLOCKING):**
+3. **Foundation Stream Verification (BLOCKING):**
 
    Check that at least one stream has `dependencies: []`:
    ```
@@ -798,7 +679,7 @@ When user runs `/orchestrate generate [--technical] [description]`:
    ```
    **STOP.**
 
-5. **Circular Dependency Check (BLOCKING):**
+4. **Circular Dependency Check (BLOCKING):**
 
    Build dependency graph and check for cycles.
 
@@ -816,7 +697,7 @@ When user runs `/orchestrate generate [--technical] [description]`:
    ```
    **STOP.**
 
-6. **Stale PID Cleanup (automatic):**
+5. **Stale PID Cleanup (automatic):**
 
    Before spawning workers, clean up orphaned PID files:
    - Scan `.claude/orchestrator/pids/` for `.pid` files
@@ -824,14 +705,13 @@ When user runs `/orchestrate generate [--technical] [description]`:
    - Remove stale PID files for dead/zombie processes
    - Log count of cleaned up files
 
-7. **All Validations Passed - Display and Confirm:**
+6. **All Validations Passed - Display and Confirm:**
 
    ```
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    ✓ READY TO START ORCHESTRATION
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-   Initiative: {initiative.name}
    Streams: {stream_count}
    Tasks: {task_count}
 
@@ -846,7 +726,7 @@ When user runs `/orchestrate generate [--technical] [description]`:
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    ```
 
-8. **On User Confirmation:**
+7. **On User Confirmation:**
 
    ```bash
    python .claude/orchestrator/orchestrate.py start
@@ -1038,7 +918,6 @@ When user runs `/orchestrate [command]`:
 2. **For `generate`:**
    - **Parse arguments** for `--technical` flag and feature description
    - **Prompt for feature** if not provided as argument
-   - **Link initiative** via `initiative_link()` (see detailed steps in `/orchestrate generate` section above)
    - **Detect workflow mode:**
      - If `--technical` flag: Skip to @agent-ta invocation
      - If technical keywords detected: Ask user to confirm technical-only flow
@@ -1054,22 +933,21 @@ When user runs `/orchestrate [command]`:
    - **Stage 4:** Invoke @agent-ta with:
      - Feature description
      - Source specification IDs (from Experience-First stages, or "None" if --technical)
-     - Prompt requesting STRUCTURED JSON output (not MCP tool calls)
+     - Prompt requesting STRUCTURED JSON output
    - **Wait for @agent-ta** to return JSON structure for PRD and tasks
-   - **PARSE JSON and CREATE via MCP (MAIN SESSION):**
+   - **PARSE JSON and CREATE via tc CLI (MAIN SESSION):**
      - Extract JSON code block from @agent-ta's response
      - Validate JSON structure (prd object, tasks array, required metadata)
      - **If JSON invalid:** Display error, offer retry
-     - **If JSON valid:** Main session calls MCP tools:
-       - Call `prd_create()` with prd data → get PRD_ID
-       - For each task: Call `task_create()` with prdId and task data
+     - **If JSON valid:** Main session runs tc CLI commands:
+       - `tc prd create --title "..." --description "..." --content "..." --json` → get PRD_ID
+       - For each task: `tc task create --title "..." --prd {PRD_ID} --agent "..." --metadata '...' --json`
      - Display creation progress
    - **VERIFY creation (MANDATORY - BLOCKING):**
-     - Call `prd_list({ initiativeId })` to verify PRDs exist
-     - Call `stream_list({ initiativeId })` to verify streams exist
-     - Call `task_list({ prdId })` to verify tasks are linked
-     - **ALL THREE checks must pass** (count >= 1 for each)
-     - **If ANY check fails:** Display error (unexpected - MCP calls succeeded)
+     - `tc stream list --json` to verify streams exist
+     - `tc task list --prd {PRD_ID} --json` to verify tasks are linked
+     - **BOTH checks must pass** (count >= 1 for each)
+     - **If ANY check fails:** Display error
      - **If all checks pass:** Proceed to create files
    - **CREATE Orchestrator Files (AFTER verification passes):**
      - Create `.claude/orchestrator/` directory
@@ -1100,12 +978,8 @@ When user runs `/orchestrate [command]`:
        - `.claude/orchestrator/check-streams`
        - `.claude/orchestrator/watch-status`
      - **If any files missing:** Display error, STOP - do NOT create files
-   - **Initiative Verification (BLOCKING):**
-     - Call `initiative_get({ mode: "lean" })`
-     - **If no active initiative:** Display error, STOP
-     - Store INITIATIVE_ID for stream queries
    - **Stream Verification (BLOCKING):**
-     - Call `stream_list({ initiativeId: INITIATIVE_ID })`
+     - Run `tc stream list --json`
      - **If no streams found:** Display error, STOP - do NOT create streams
    - **Foundation Stream Verification (BLOCKING):**
      - Check at least one stream has `dependencies: []`

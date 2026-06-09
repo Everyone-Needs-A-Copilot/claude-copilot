@@ -257,14 +257,11 @@ ln -sf ~/[company]-knowledge ~/.claude/knowledge
 ls ~/.claude/knowledge/knowledge-manifest.json
 ```
 
-### Step 8: Start Initiative
+### Step 8: Record Working Context
 
-```
-initiative_start({
-  name: "[Company] Knowledge Discovery",
-  goal: "Build comprehensive knowledge repository through guided discovery",
-  status: "IN PROGRESS"
-})
+```bash
+cc memory store --type context \
+  "[Company] Knowledge Discovery — building a comprehensive knowledge repository through guided discovery."
 ```
 
 ### Step 9: Begin Discovery

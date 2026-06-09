@@ -226,10 +226,11 @@ Every task must include `streamId` and `dependencies` in metadata:
 ```bash
 tc task create \
     --title "Stream-B: Task Name" \
-    --prd-id "PRD-xxx" \
+    --prd <PRD-id> \
     --description "..." \
-    --assigned-agent "me" \
-    --metadata '{"streamId": "Stream-B", "streamName": "Extraction Pipeline", "dependencies": ["Stream-A"], "complexity": "medium"}'
+    --agent "me" \
+    --metadata '{"streamId": "Stream-B", "streamName": "Extraction Pipeline", "dependencies": ["Stream-A"], "complexity": "medium"}' \
+    --json
 ```
 
 ### How to Update Existing Tasks
@@ -285,39 +286,30 @@ Stream-E: Testing                          → depends on B, C, D
 
 ### Step 2: Create PRD
 
-```python
-prd_create({
-    "title": "Feature Name",
-    "description": "...",
-    "content": "...",
-    "metadata": {"tags": ["parallel-streams"]}
-})
+```bash
+tc prd create \
+    --title "Feature Name" \
+    --description "..." \
+    --content "..." \
+    --json
 ```
 
 ### Step 3: Create Tasks with Stream Metadata
 
-```python
+```bash
 # Foundation tasks (no dependencies)
-task_create({
-    "title": "Stream-A: Create database models",
-    "prdId": "PRD-xxx",
-    "metadata": {
-        "streamId": "Stream-A",
-        "streamName": "Foundation",
-        "dependencies": []
-    }
-})
+tc task create \
+    --title "Stream-A: Create database models" \
+    --prd <PRD-id> \
+    --metadata '{"streamId": "Stream-A", "streamName": "Foundation", "dependencies": []}' \
+    --json
 
 # Dependent tasks
-task_create({
-    "title": "Stream-B: Implement service",
-    "prdId": "PRD-xxx",
-    "metadata": {
-        "streamId": "Stream-B",
-        "streamName": "Service Layer",
-        "dependencies": ["Stream-A"]
-    }
-})
+tc task create \
+    --title "Stream-B: Implement service" \
+    --prd <PRD-id> \
+    --metadata '{"streamId": "Stream-B", "streamName": "Service Layer", "dependencies": ["Stream-A"]}' \
+    --json
 ```
 
 ### Step 4: Run Orchestration

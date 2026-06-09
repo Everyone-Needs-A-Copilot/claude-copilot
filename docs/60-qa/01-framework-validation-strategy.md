@@ -293,8 +293,8 @@ done
 2. Invoke `/protocol`
 3. User: "Create a test plan for authentication"
 4. @agent-qa creates plan
-5. Agent calls `memory_store` with lesson
-6. Call `memory_search("test plan lessons")`
+5. Agent calls `cc memory store --type lesson "..."` to store lesson
+6. Run `cc memory search "test plan lessons"`
 
 **Verification:**
 ```bash
@@ -304,12 +304,12 @@ sqlite3 ~/.claude/memory/<workspace>/memory.db \
 ```
 
 **Pass Criteria:**
-- [ ] Agent successfully calls memory_store
+- [ ] Agent successfully stores memory via `cc memory store`
 - [ ] Memory stored in database
 - [ ] Search retrieves the memory
-- [ ] No MCP tool errors
+- [ ] No CLI errors
 
-**Failure Mode:** Tool call fails, memory not stored, search returns nothing
+**Failure Mode:** CLI call fails, memory not stored, search returns nothing
 
 **Frequency:** Every PR
 
@@ -374,7 +374,7 @@ EOF
 ```
 
 **Steps:**
-1. Call `extension_get("sd")`
+1. Check the knowledge repository for the `sd` agent extension file (in `$CC_KNOWLEDGE_REPO/.claude/extensions/`)
 2. Invoke @agent-sd
 3. Verify agent uses override content, not base
 
@@ -417,7 +417,7 @@ EOF
 ```
 
 **Steps:**
-1. Call `extension_get("ta")`
+1. Check the knowledge repository for the `ta` agent extension file (in `$CC_KNOWLEDGE_REPO/.claude/extensions/`)
 2. System checks for skill "proprietary-architecture-patterns"
 3. Skill not found
 4. System applies fallbackBehavior
@@ -481,9 +481,8 @@ QA agent investigates the defect...
 
 **Steps:**
 1. Run `/continue` in new session
-2. System calls `initiative_get`
-3. System calls `memory_search("recent context")`
-4. System presents resume summary
+2. System runs `cc memory search "recent context"` to load prior context
+3. System presents resume summary
 
 **Expected Output:**
 ```markdown
@@ -507,12 +506,11 @@ Protocol active. What would you like to work on?
 ```
 
 **Pass Criteria:**
-- [ ] Initiative retrieved from Memory Copilot
-- [ ] Recent context loaded
+- [ ] Recent context loaded from Memory Copilot
 - [ ] Resume summary presented
 - [ ] Protocol activated after resume
 
-**Failure Mode:** No initiative found, incomplete context, protocol not activated
+**Failure Mode:** No context found, incomplete context, protocol not activated
 
 **Frequency:** Weekly
 
@@ -812,11 +810,8 @@ jq '.version' ~/.claude/knowledge/knowledge-manifest.json
 User: "Implement password reset flow"
 
 # 2. @agent-ta creates architecture
-# 3. Store initiative and progress
-initiative_update({
-  inProgress: ["Database schema created"],
-  resumeInstructions: "Next: implement email service"
-})
+# 3. Store progress context
+cc memory store --type context "In progress: Database schema created. Next: implement email service"
 ```
 
 **Session 2 (next day):**
@@ -824,20 +819,20 @@ initiative_update({
 # 1. Resume work
 /continue
 
-# Expected: Initiative loaded, context restored
+# Expected: Context restored from memory
 # Should see:
-## Resuming: Password Reset Flow
+## Resuming Prior Work
 **In Progress:** Database schema created
-**Resume Instructions:** Next: implement email service
+**Next:** implement email service
 ```
 
 **Pass Criteria:**
-- [ ] Initiative persisted between sessions
-- [ ] Context accurately restored
+- [ ] Context persisted between sessions via `cc memory store`
+- [ ] Context accurately restored via `cc memory search`
 - [ ] No manual file management needed
 - [ ] Seamless continuation
 
-**Failure Mode:** Context lost, initiative not found, manual recovery needed
+**Failure Mode:** Context lost, memory not found, manual recovery needed
 
 **Frequency:** Weekly
 
@@ -948,7 +943,7 @@ cc memory search "test"
 ```bash
 # Generate 10,000 test memories
 for i in {1..10000}; do
-  memory_store("Test memory $i with varying content", "context")
+  cc memory store --type context "Test memory $i with varying content"
 done
 ```
 
@@ -956,7 +951,7 @@ done
 
 **Measurement:**
 ```bash
-time memory_search("specific content query")
+time cc memory search "specific content query"
 ```
 
 **Pass Criteria:**

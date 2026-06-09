@@ -84,17 +84,9 @@ To modify settings, use `/config ecomode [command]`
 
 Actions:
 1. Update or create ecomode config memory:
-   ```
-   memory_store({
-     content: 'Ecomode configuration: enabled=true, thresholds={low: 0.3, medium: 0.7}, cost={displayInMemory: true, trackUsage: true}',
-     type: 'context',
-     tags: ['ecomode_config'],
-     metadata: {
-       enabled: true,
-       thresholds: { low: 0.3, medium: 0.7 },
-       cost: { displayInMemory: true, trackUsage: true }
-     }
-   })
+   ```bash
+   cc memory store --type context --tags ecomode_config \
+     'Ecomode configuration: enabled=true, thresholds={low: 0.3, medium: 0.7}, cost={displayInMemory: true, trackUsage: true}'
    ```
 
 2. Show confirmation:

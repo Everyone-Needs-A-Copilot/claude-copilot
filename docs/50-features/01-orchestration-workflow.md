@@ -26,12 +26,10 @@ Creates PRD and tasks with stream metadata. Default if no subcommand given.
 
 | Step | Action |
 |------|--------|
-| 1 | `initiative_get({ mode: "lean" })` -- stop if no active initiative |
-| 2 | `initiative_link()` to scope initiative and archive old streams |
-| 3 | Invoke **@agent-ta** to design architecture and return structured JSON |
-| 4 | Validate: no cycles, at least one foundation stream (`dependencies: []`) |
-| 5 | `tc prd create --title "..." --json` then `tc task create --title "..." --prd <id> --json` for each task |
-| 6 | Display plan summary, ask user to approve |
+| 1 | Invoke **@agent-ta** to design architecture and return structured JSON |
+| 2 | Validate: no cycles, at least one foundation stream (`dependencies: []`) |
+| 3 | `tc prd create --title "..." --json` then `tc task create --title "..." --prd <id> --json` for each task |
+| 4 | Display plan summary, ask user to approve |
 
 **Required task metadata:**
 
@@ -140,18 +138,6 @@ For full worktree details, see [05-worktree-isolation.md](./05-worktree-isolatio
 
 ---
 
-## Initiative Scoping
-
-Streams are scoped to the active initiative.
-
-| Action | Effect |
-|--------|--------|
-| `initiative_link()` with new initiative | Archives streams from previous initiative |
-| `tc stream list --json` | Returns only current initiative streams |
-| Switching back | Re-link old initiative via Memory Copilot |
-
----
-
 ## Monitoring
 
 ### From Claude Code
@@ -192,7 +178,7 @@ Stream-Z [---------------]   0%  ---    ---   Integration
 | Circular dependency detected | Streams depend on each other in a cycle | Break cycle by making one stream foundation (`dependencies: []`) |
 | Worktree already exists | Previous run not cleaned up | `worktree_cleanup({ taskId, force: true })` or `git worktree remove --force` |
 | Merge conflicts on `merge` | Parallel changes touched same lines | Use `worktree_conflict_status()` to inspect, resolve manually, then `worktree_conflict_resolve()` |
-| Streams missing after initiative switch | `initiative_link()` auto-archives old streams | Re-link old initiative via Memory Copilot |
+| Streams missing after workspace switch | Tasks scoped to a different workspace | Verify `tc stream list --json` returns expected streams |
 | Database locked | Another process has SQLite open | Close other Claude sessions, wait 30s, retry |
 | Task agent not starting | Main session did not launch Task tool | Main session must call `Task` with `run_in_background: true` per stream |
 
@@ -202,8 +188,6 @@ Stream-Z [---------------]   0%  ---    ---   Integration
 
 | Tool / Command | Used In | Purpose |
 |------|---------|---------|
-| `initiative_get` | generate | Check active initiative (Memory Copilot MCP) |
-| `initiative_link` | generate | Scope initiative, archive old streams (Memory Copilot MCP) |
 | `tc prd create` | generate | Create PRD |
 | `tc task create` | generate | Create stream tasks with metadata |
 | `tc stream list` | start, status, merge | List streams with progress |

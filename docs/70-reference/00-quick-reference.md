@@ -471,16 +471,12 @@ Memory Copilot automatically tracks:
 - Key files touched
 
 ### Ending Work
-Update initiative with:
-```
-initiative_update({
-  completed: ["Tasks finished"],
-  inProgress: "Current state",
-  resumeInstructions: "Next steps for /continue",
-  lessons: ["Insights gained"],
-  decisions: ["Choices made"],
-  keyFiles: ["file1.ts", "file2.ts"]
-})
+Task status (completed/in-progress) lives in Task Copilot (`tc task update`).
+Persist durable context, lessons, and decisions to memory:
+```bash
+cc memory store --type context  "Current state + next steps for /continue (key files: file1.ts, file2.ts)"
+cc memory store --type lesson    "Insights gained"
+cc memory store --type decision  "Choices made"
 ```
 
 ---

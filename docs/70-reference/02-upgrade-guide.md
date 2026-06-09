@@ -180,16 +180,15 @@ df -h ~/.claude
 
 **Required:** At least 500 MB free space
 
-### 6. List Active Initiatives
+### 6. Review Active Work Context
 
 ```bash
-# In Claude Code
-claude
-# Then query memory
-initiative_get({ mode: "lean" })
+# Review stored working context and recent progress
+cc memory list --json
+tc progress --json
 ```
 
-Note any active initiatives - you'll resume these after upgrade.
+Note any in-flight work - you'll resume it after upgrade.
 
 ---
 

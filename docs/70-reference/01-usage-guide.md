@@ -412,7 +412,7 @@ If that doesn't help, check Memory Copilot directly:
 
 ```bash
 # Check Memory Copilot
-initiative_get({ mode: "full" })
+cc memory list --json
 
 # Check Task Copilot
 tc progress --json
@@ -440,7 +440,7 @@ tc progress --json
 | `tc task get <id> --json` | Retrieve task state |
 | `tc progress --json` | See overall progress |
 | `tc stream list --json` | See parallel work streams |
-| `initiative_get()` | Get current initiative state (Memory Copilot MCP) |
+| `cc memory list --json` | Review stored memory (decisions, lessons, context) |
 
 ### Magic Keywords
 

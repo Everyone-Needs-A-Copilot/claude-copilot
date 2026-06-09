@@ -21,9 +21,7 @@ Scaffolding layer for parallel streams. Claude Code's native `Task` tool handles
 
 Creates PRD and tasks with stream metadata. Prompt user for feature description if not provided.
 
-1. `initiative_get({ mode: "lean" })` -- stop if no active initiative
-2. `initiative_link({ initiativeId, title, description })` to connect task tracking
-3. Invoke **@agent-ta** to design architecture and return structured JSON:
+1. Invoke **@agent-ta** to design architecture and return structured JSON:
 
 ```json
 {
@@ -38,9 +36,9 @@ Creates PRD and tasks with stream metadata. Prompt user for feature description 
 }
 ```
 
-4. Parse JSON, validate (no cycles, at least one task with `dependencies: []`)
-5. `tc prd create --title "..." --description "..." --json` then `tc task create --title "..." --prd <id> --json` for each task
-6. Display plan summary and ask user to approve
+2. Parse JSON, validate (no cycles, at least one task with `dependencies: []`)
+3. `tc prd create --title "..." --description "..." --json` then `tc task create --title "..." --prd <id> --json` for each task
+4. Display plan summary and ask user to approve
 
 ---
 
@@ -100,8 +98,6 @@ Merges completed stream worktrees back to the main branch.
 
 | Tool / Command | Used In | Purpose |
 |------|---------|---------|
-| `initiative_get` | generate | Check active initiative (Memory Copilot MCP) |
-| `initiative_link` | generate | Link to task tracking (Memory Copilot MCP) |
 | `tc prd create` | generate | Create PRD |
 | `tc task create` | generate | Create stream tasks |
 | `tc stream list` | start, status, merge | List streams |
