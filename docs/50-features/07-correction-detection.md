@@ -68,7 +68,7 @@ Memory is FTS5 keyword search — not semantic or vector search.
 cc memory search "async await"
 
 # List recent lessons
-cc memory list --type lesson --limit 10
+cc memory list --type lesson
 ```
 
 ---
