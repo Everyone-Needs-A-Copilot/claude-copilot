@@ -308,6 +308,7 @@ Agents should emit `<promise>BLOCKED</promise>` when:
 | Conflicting requirements | Contradictory acceptance criteria |
 | Missing information | Unclear requirements, ambiguous specifications |
 | Human decision needed | Architecture choice requires stakeholder input |
+| Invalidated upstream assumption | @agent-me discovers planned approach is infeasible — routes back to @agent-ta to re-plan rather than forward-patching |
 
 **When blocked:**
 

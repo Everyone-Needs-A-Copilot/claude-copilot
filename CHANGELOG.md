@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.9.0] - 2026-06-13
+
+Adds a re-plan-on-invalidated-assumption trigger to `@agent-me` and `@agent-ta`, closing a forward-only-flow gap identified during a review of mrtooher/fable-mode.
+
+Previously the agent chain was strictly forward: `ta → me → qa`. When `@agent-me` encountered a broken upstream assumption (infeasible approach, wrong constraint, incorrect architecture), the only options were to improvise a workaround or emit `BLOCKED` for human intervention. This left the task graph diverged from reality — patch-tasks stacked on a broken foundation, drift accumulating silently.
+
+### Added
+
+- **Re-plan loop: @agent-me → @agent-ta** (`me.md` **Never** bullet): when the planned approach, architecture, or constraint from @agent-ta proves wrong or infeasible, @agent-me now STOPs, surfaces the invalidated assumption explicitly, emits `<promise>BLOCKED</promise>`, and routes back to @agent-ta to re-plan — rather than improvising a workaround that diverges from the task graph
+- **Re-plan self-critique: @agent-ta** (`ta.md` **Self-Critique**): when a downstream finding from @agent-me or @agent-qa invalidates an upstream assumption, @agent-ta now explicitly re-plans affected tasks and dependencies rather than appending patch-tasks on top of a broken foundation
+- **BLOCKED signal table updated** (`docs/50-features/04-goal-driven-agents.md`): added "Invalidated upstream assumption" row documenting the new @agent-me → @agent-ta backward route
+
+### Changed
+
+- **Agents component bumped to 5.4.0**: behavioral change in `me.md` and `ta.md`; no cc/tc source changes (cc 1.3.0 / tc 1.1.0 unchanged)
+
 ## [5.8.0] - 2026-06-09
 
 Framework-wide remediation: completed the migration off the MCP tool API removed in

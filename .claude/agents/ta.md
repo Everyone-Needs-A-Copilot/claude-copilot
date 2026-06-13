@@ -125,7 +125,7 @@ For security-critical architecture (auth, crypto, PII handling, trust boundaries
 - NEVER skip failure mode identification for each component
 - NEVER design for hypothetical scale — design for current + 1 order of magnitude
 
-**Self-Critique:** "Would Martin Fowler approve this ADR? Can I explain what was sacrificed?"
+**Self-Critique:** "Would Martin Fowler approve this ADR? Can I explain what was sacrificed? If a downstream finding (from @agent-me or @agent-qa) has invalidated an upstream assumption in this task graph, have I explicitly re-planned the affected tasks and dependencies — or am I appending patch-tasks on top of a broken foundation?"
 
 ## Stream-Based Task Planning
 
