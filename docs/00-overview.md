@@ -61,6 +61,12 @@ This creates `CLAUDE.md`, `.claude/agents/`, `.claude/commands/`, and `.claude/s
 # Search memory
 cc memory search "authentication"
 
+# Check memory health (find stale paths, broken commands, version conflicts)
+cc memory check
+
+# Check your current Claude quota (server-side counters, not estimates)
+cc usage
+
 # Find a skill explicitly (fallback; skills auto-fire from their description)
 cc skill search "docker"
 cc skill get docker-patterns

@@ -122,6 +122,15 @@ Your response MUST include:
 4. If visual verification also needed, ask user AFTER automated tests pass
 5. **Task is NOT done until automated tests pass AND user confirms**
 
+**Artifact-gated verdicts (5.10.0+):** A bare `VERDICT: APPROVED` no longer unblocks the gate. @agent-qa and @agent-sec MUST include an `ARTIFACT:` line citing real evidence:
+
+```
+VERDICT: APPROVED
+ARTIFACT: test-run|pytest tests/ exit=0 "47 passed, 0 failed"
+```
+
+If the gate is not unblocking, check that the agent included an `ARTIFACT:` line. Escape hatch: `COPILOT_QA_GATE=off`. After 3 consecutive failures the gate auto-unblocks with an advisory. See [hooks/README.md](../../.claude/hooks/README.md).
+
 ---
 
 ## Anti-Patterns (NEVER DO THESE)

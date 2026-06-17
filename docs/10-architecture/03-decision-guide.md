@@ -50,6 +50,8 @@ A comprehensive guide to help you choose the right tools, commands, agents, and 
 | Monitor orchestration | `/orchestrate status` | During parallel execution | Project root |
 | Merge completed streams | `/orchestrate merge` | After streams complete | Project root |
 | Verify CLIs installed | `cc version && tc version` | After setup, troubleshooting | Any directory |
+| Check quota before long task | `cc usage` | Before starting a multi-step `/protocol` | Any directory |
+| Detect stale/broken memory | `cc memory check` | After restructure, rename, or framework update | Any directory |
 
 **Command Arguments:**
 - `/protocol <task>` - Auto-detect task type and route to agent (e.g., `/protocol fix the login bug`)
@@ -195,6 +197,34 @@ Do you need to customize agent behavior?
 
 ---
 
+## Artifact-Gated QA Gate
+
+The QA gate (enforced by hooks after every `@agent-me` run) now requires **external evidence** — a bare "APPROVED" verdict no longer unblocks the main session.
+
+**What this means for you:** `@agent-qa` and `@agent-sec` must cite a concrete artifact in their verdict, e.g.:
+
+```
+VERDICT: APPROVED
+ARTIFACT: test-run|pytest tests/ exit=0 "47 passed, 0 failed"
+```
+
+Valid artifact types: `test-run`, `file-check`, `diff-check`.
+
+**Escape hatches (use sparingly):**
+- `COPILOT_QA_GATE=off` — disables the gate for that shell session
+- 3 consecutive QA failures → auto-unblock with an advisory (see [hooks/README.md](../../.claude/hooks/README.md))
+
+**When to reach for the escape hatch:**
+| Situation | Use |
+|-----------|-----|
+| Trusted quick fix, no tests needed | `COPILOT_QA_GATE=off` |
+| QA agent stuck in repeated failure loop | Wait for auto-unblock after 3 fails |
+| CI handles all verification externally | `COPILOT_QA_GATE=off` per-session |
+
+Full reference: [hooks/README.md](../../.claude/hooks/README.md)
+
+---
+
 ## Stream Management Decisions
 
 ### When to Use Streams
@@ -262,6 +292,9 @@ metadata: {
 | Memory not persisting | `cc config get paths.shared_docs` | `cc memory index --rebuild` | Check SQLite path |
 | Knowledge not found | Symlink exists? | `/knowledge-copilot` | Manual link |
 | Skills not loading | `cc skill list` returns results? | `cc config set paths.shared_docs <path>` | Check cc config |
+| Memory giving wrong context | Run `cc memory check` | Review and delete flagged entries | Rebuild index |
+| Unsure about quota | Run `cc usage` | Use `eco:` prefix to reduce token cost | `/pause` and resume later |
+| QA gate not unblocking | Check that `@agent-qa` emitted `ARTIFACT:` line | Re-run QA with explicit test evidence | `COPILOT_QA_GATE=off` (escape hatch) |
 
 ---
 
@@ -281,8 +314,8 @@ metadata: {
 | Beginning of Day | During Day | End of Day |
 |------------------|------------|------------|
 | `/continue` to resume | Work naturally with agents | `cc memory store` to save progress |
-| Or `/protocol` for new task | Route complex work to specialists | Document decisions in memory |
-| Run `cc doctor` if needed | Use skills as needed | Note lessons learned |
+| `cc usage` to check quota | Route complex work to specialists | Document decisions in memory |
+| `cc memory check` after restructure | Use skills as needed | Note lessons learned |
 
 ---
 

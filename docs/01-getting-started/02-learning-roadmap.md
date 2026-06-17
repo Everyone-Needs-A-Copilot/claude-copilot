@@ -168,6 +168,8 @@ Both should print their version numbers. No MCP servers or Node.js required.
 | **Store decisions** | `cc memory store --type decision "<content>"` |
 | **Resume work** | `/continue` loads your last session |
 | **Search history** | `cc memory search "<query>"` finds past decisions |
+| **Detect stale memory** | `cc memory check` — finds broken paths, commands, version conflicts |
+| **Check quota** | `cc usage` — real server-side counters for your 5h and 7d windows |
 | **Track tasks** | `tc task create`, `tc wp store` for work products |
 
 ### Understanding Memory CLI
@@ -179,6 +181,8 @@ Claude Copilot uses the `cc` CLI for memory and `tc` CLI for tasks:
 | `cc memory store` | Store decision/lesson | After meaningful work |
 | `cc memory search` | Find past decisions | When context needed |
 | `cc memory list` | List recent entries | Review prior sessions |
+| `cc memory check` | Detect stale/broken memory references (0–100 score; exits 1 on fail) | After restructures, renames, or framework updates |
+| `cc usage` | Show current Claude quota from server-side counters | Before long `/protocol` tasks; morning check |
 | `tc task create` | Create a task | New work item |
 | `tc wp store` | Store a work product | After agent completes |
 | `tc progress` | View task status | Check initiative state |
@@ -903,6 +907,8 @@ Use this checklist to track your journey:
 - [ ] Ran machine setup (/setup)
 - [ ] Verified cc/tc CLIs work
 - [ ] Understand `cc memory store` and `cc memory search`
+- [ ] Ran `cc memory check` and understand the score
+- [ ] Ran `cc usage` and can read the quota output
 - [ ] Can explain what Memory Copilot does
 
 ### Milestone 2: Protocol
