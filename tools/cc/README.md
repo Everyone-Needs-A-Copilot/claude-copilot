@@ -77,7 +77,31 @@ cc memory migrate --from-global             # interactive — choose which DB
 cc memory migrate --from-global --all       # migrate all without prompting
 cc memory migrate --from-global --dry-run   # preview without writing
 cc memory migrate --status                  # show source DB counts vs files
+
+# Check memory entries for drift (token-free deterministic checks)
+cc memory check                             # human-readable report
+cc memory check --json                      # machine-readable JSON report
+cc memory check --scope global              # check global memory entries
+cc memory check --staleness-days 60         # custom staleness threshold (default: 90)
+cc memory check --no-paths                  # skip path-existence checks
+cc memory check --no-commands               # skip command-resolves checks
+cc memory check --no-stale                  # skip staleness checks
 ```
+
+`cc memory check` checkers (all token-free, pure Python):
+
+| Checker | Severity | Description |
+|---------|----------|-------------|
+| `path-exists` | fail/warn | Referenced filesystem paths exist on disk |
+| `command-resolves` | warn | Binaries or npm scripts are available on PATH |
+| `version-conflict` | warn | Same package has conflicting versions across entries |
+| `staleness` | warn | Entry not updated within the staleness threshold |
+
+**Negation-aware:** paths under `not yet built`, `removed`, `deprecated`, `NOT`, `no longer` sections are not flagged. URL routes (`/api/x`), HTTP verbs (`GET /api/items`), and `<placeholder>` / `{{template}}` tokens are skipped.
+
+**Scoring:** `100 − (fail×10 + warn×3 + info×1)`, floored at 0. A clean repo scores 100.
+
+Exit code 1 if any `fail`-severity checks are found; exit code 0 otherwise.
 
 Entry types: `decision` | `context` | `lesson` | `reference` | `person`
 
