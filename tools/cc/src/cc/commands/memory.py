@@ -477,6 +477,95 @@ def _migrate_entries(
 # ---------------------------------------------------------------------------
 
 
+@memory_app.command("check")
+def memory_check(
+    scope: Optional[str] = typer.Option(None, "--scope", "-s"),
+    output_json: bool = typer.Option(False, "--json", help="Output structured JSON report."),
+    no_paths: bool = typer.Option(False, "--no-paths", help="Skip path-existence checks."),
+    no_commands: bool = typer.Option(False, "--no-commands", help="Skip command-resolves checks."),
+    no_stale: bool = typer.Option(False, "--no-stale", help="Skip staleness checks."),
+    staleness_days: int = typer.Option(90, "--staleness-days", help="Days threshold for staleness warning."),
+) -> None:
+    """Check memory entries for drift: missing paths, stale claims, version conflicts.
+
+    Runs deterministic (token-free) checkers on all stored memory entries:
+
+    \b
+    - path-exists      : referenced file paths exist on disk
+    - command-resolves : binaries or npm scripts are available
+    - version-conflict : same package with conflicting versions across entries
+    - staleness        : entries not updated within the configured threshold
+
+    Negation-aware: paths under "not yet built", "removed", "deprecated" etc.
+    are not flagged. URL routes (/api/x) and <placeholder> tokens are skipped.
+
+    Scoring: 100 − (fail×10 + warn×3 + info×1), floored at 0.
+
+    Examples:
+
+    \b
+        cc memory check
+        cc memory check --json
+        cc memory check --scope global --staleness-days 60
+        cc memory check --no-commands --json
+    """
+    from cc.core.memory_check import check_all_entries
+    from cc.core.entry_store import list_entries
+
+    resolved_scope = _resolve_scope(scope)
+
+    try:
+        entries = list_entries(scope=resolved_scope)
+    except ValueError as exc:
+        err_console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1)
+
+    if not entries:
+        if output_json:
+            typer.echo(json.dumps({"verdict": "pass", "score": 100, "entries": [], "cross_entry_checks": [], "flagged": []}))
+        else:
+            console.print("[dim]No memory entries found.[/dim]")
+        return
+
+    report = check_all_entries(
+        entries,
+        check_paths=not no_paths,
+        check_commands=not no_commands,
+        check_stale=not no_stale,
+        staleness_days=staleness_days,
+    )
+
+    if output_json:
+        typer.echo(report.to_json())
+        return
+
+    # Human-readable output
+    console.print(f"\n[bold]Memory Drift Check[/bold]  entries={len(entries)}  scope={resolved_scope}")
+    console.print(f"Score: [bold cyan]{report.score}/100[/bold cyan]  verdict=[bold {'green' if report.verdict == 'pass' else 'yellow' if report.verdict == 'warn' else 'red'}]{report.verdict}[/bold {'green' if report.verdict == 'pass' else 'yellow' if report.verdict == 'warn' else 'red'}]")
+    console.print()
+
+    flagged = report.flagged()
+    if not flagged:
+        console.print("[green]All checks passed. No drift detected.[/green]")
+        return
+
+    console.print(f"[yellow]Flagged issues ({len(flagged)}):[/yellow]")
+    for item in flagged:
+        status = item["status"]
+        color = "red" if status == "fail" else "yellow" if status == "warn" else "blue"
+        eid = item.get("entry_id", "")[:8]
+        check = item.get("check", "")
+        msg = item.get("message", "")
+        console.print(f"  [{color}]{status.upper()}[/{color}]  [{check}]  {eid}  {msg}")
+
+    console.print()
+    console.print(f"[dim]Run with --json for machine-readable output.[/dim]")
+
+    # Exit with non-zero if any failures
+    if report.verdict == "fail":
+        raise typer.Exit(1)
+
+
 @memory_app.command("migrate")
 def memory_migrate(
     from_global: bool = typer.Option(

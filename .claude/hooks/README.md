@@ -264,10 +264,39 @@ Manages QA-gate state in response to `@agent-me` and `@agent-qa` subagent comple
 
 The hook parses the QA agent's final message in priority order:
 
-1. `VERDICT: APPROVED` or `VERDICT: APPROVED-WITH-MINOR-FIXES` → **pass**
-2. `VERDICT: REJECTED` → **fail**
-3. `<promise>COMPLETE</promise>` with no `REJECTED` → implicit **pass**
-4. Otherwise → **fail** (safe default)
+1. `VERDICT: APPROVED` or `VERDICT: APPROVED-WITH-MINOR-FIXES` **AND** an `ARTIFACT` marker → **pass**
+2. `VERDICT: APPROVED` without an `ARTIFACT` marker → **fail** (bare pass is invalid)
+3. `VERDICT: REJECTED` → **fail**
+4. `<promise>COMPLETE</promise>` with no `REJECTED` **AND** an `ARTIFACT` marker → implicit **pass**
+5. Otherwise → **fail** (safe default)
+
+### Artifact Marker Requirement (WS1 / TASK-115)
+
+A passing verdict MUST include an `ARTIFACT` marker line. A bare `VERDICT: APPROVED` with no
+artifact will NOT unblock the gate. This enforces the principle: "I reviewed it and it looks
+right is not a check — a model that would skip verification will also pass its own introspection."
+
+**Artifact marker format:**
+```
+ARTIFACT: <type>|<detail>
+```
+
+Where `<type>` is one of:
+- `test-run` — a failable test command with exit code and output excerpt
+- `file-check` — a file that exists in the expected shape
+- `diff-check` — a diff or comparison result against a spec
+
+**Examples:**
+```
+ARTIFACT: test-run|pytest tests/test_auth.py exit=0 "5 passed, 0 failed"
+ARTIFACT: file-check|.claude/agents/manifest.json exists agents=16
+ARTIFACT: diff-check|expected 16 agents actual 16 agents match
+```
+
+The escape hatches (`COPILOT_QA_GATE=off`) still bypass the gate entirely — including the
+artifact requirement. The 3-fail auto-unblock safety also still fires even if the artifact
+requirement is the reason for failure (risk R3: a tighter parser cannot permanently wedge
+an in-flight session).
 
 ### Pass Clear Strategy
 

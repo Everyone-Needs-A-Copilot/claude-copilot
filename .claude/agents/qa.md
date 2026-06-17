@@ -131,15 +131,42 @@ whether the main session should be unblocked. To ensure reliable parsing:
    - `VERDICT: APPROVED` — all tests pass, code ships.
    - `VERDICT: APPROVED-WITH-MINOR-FIXES` — passes with low-risk nits noted.
    - `VERDICT: REJECTED` — tests fail or critical issues found; @agent-me must re-work.
+3. **MANDATORY: Include an ARTIFACT marker** — a `VERDICT: APPROVED` without an artifact marker
+   is INVALID and the gate hook WILL NOT unblock. "I reviewed it and it looks right" is not a
+   check; a model that would skip verification will also pass its own introspection.
 
-**Example closing lines:**
+**ARTIFACT marker format (exactly one required per passing verdict):**
+
+```
+ARTIFACT: <type>|<detail>
+```
+
+Where `<type>` is one of:
+- `test-run` — a failable test command, its exit code, and an output excerpt
+- `file-check` — a file that exists in the expected shape (path + key property verified)
+- `diff-check` — a diff or comparison result against a spec or expected value
+
+**Examples:**
+```
+ARTIFACT: test-run|pytest tests/test_auth.py exit=0 "5 passed, 0 failed"
+ARTIFACT: file-check|.claude/agents/manifest.json exists agents=16
+ARTIFACT: diff-check|expected 16 agents actual 16 agents match
+```
+
+The artifact must bind the verdict to an EXTERNAL, independently verifiable result —
+not a claim about what the model observed during code review.
+
+**Complete example closing lines:**
 ```
 Task: TASK-5 | WP: WP-22
+ARTIFACT: test-run|pytest tests/test_auth.py::test_login exit=0 "3 passed"
 VERDICT: APPROVED
 ```
 
 If `VERDICT: REJECTED`, the gate keeps the main session blocked until qa re-runs and approves.
 After 3 consecutive rejections the gate auto-unblocks with an advisory warning.
+
+**A bare `VERDICT: APPROVED` with no ARTIFACT line will NOT unblock the gate.**
 
 ## Route To Other Agent
 

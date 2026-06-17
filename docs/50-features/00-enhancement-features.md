@@ -1435,6 +1435,55 @@ tc wp get <wp-id> --json
 
 ---
 
+## v5.10 Verification & Observability Features
+
+Framework 5.10.0 adds three user-facing improvements: evidence-bound QA verdicts, token-free memory drift detection, and real usage observability.
+
+### Artifact-Gated QA Gate
+
+**Purpose:** Prevents QA/security verdicts that are backed only by the agent's self-assessment. Every pass must cite an external, verifiable artifact.
+
+#### How it changes the dev loop
+
+Before 5.10.0, `@agent-qa` could emit `VERDICT: APPROVED` and the gate would unblock. Now a bare approval fails:
+
+```
+# BEFORE (accepted, now rejected)
+VERDICT: APPROVED
+
+# AFTER (required format)
+VERDICT: APPROVED
+ARTIFACT: test-run|pytest tests/ exit=0 "47 passed, 0 failed"
+```
+
+Valid artifact types:
+
+| Type | Example detail |
+|------|----------------|
+| `test-run` | `pytest tests/ exit=0 "47 passed, 0 failed"` |
+| `file-check` | `.claude/agents/manifest.json exists agents=16` |
+| `diff-check` | `expected 16 agents actual 16 agents match` |
+
+#### What this means in practice
+
+- `@agent-qa` and `@agent-sec` verdicts are now evidence-bound — you can trace every gate pass to a real test run or file inspection.
+- Agents should run tests, check files, or diff output before writing their verdict; then include the `ARTIFACT:` line.
+- The gate is enforced by `subagent-stop.sh` and `pretool-check.sh`. See [hooks/README.md](../../.claude/hooks/README.md) for the full verdict-parsing spec.
+
+#### Escape hatches
+
+| Escape hatch | When to use |
+|--------------|-------------|
+| `COPILOT_QA_GATE=off` | Trusted hotfix; CI handles verification externally |
+| Wait for 3-fail auto-unblock | QA agent is stuck in a retry loop; advisory is emitted to main session |
+
+```bash
+# Disable for one shell session
+export COPILOT_QA_GATE=off
+```
+
+---
+
 ## v1.8 Harness Features
 
 Based on Anthropic's research on long-running agents, v1.8 adds features that improve agent reliability over multi-session work.

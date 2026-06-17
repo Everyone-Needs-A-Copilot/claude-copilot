@@ -46,11 +46,11 @@ if ! git rev-parse --show-toplevel > /dev/null 2>&1; then
     exit 1
 fi
 
-CC="/Users/pabs/.local/bin/cc"
+CC="${CC_BIN:-$(command -v cc 2>/dev/null || echo "")}"
 
 # Verify cc exists
-if [ ! -x "$CC" ]; then
-    printf "${RED}ERROR${RESET}  cc binary not found at $CC\n"
+if [ -z "$CC" ] || [ ! -x "$CC" ]; then
+    printf "${RED}ERROR${RESET}  cc binary not found. Install cc or set CC_BIN=/path/to/cc\n"
     exit 1
 fi
 
@@ -271,7 +271,7 @@ for e in leftovers:
 " > /tmp/cc_integration_leftover_ids.txt 2>/dev/null; then
     while IFS= read -r leftover_id; do
         if [ -n "$leftover_id" ]; then
-            /Users/pabs/.local/bin/cc memory delete --yes "$leftover_id" > /dev/null 2>&1 || true
+            "$CC" memory delete --yes "$leftover_id" > /dev/null 2>&1 || true
             info "Cleaned up leftover entry: $leftover_id"
         fi
     done < /tmp/cc_integration_leftover_ids.txt

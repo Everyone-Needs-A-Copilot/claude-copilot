@@ -77,7 +77,31 @@ cc memory migrate --from-global             # interactive — choose which DB
 cc memory migrate --from-global --all       # migrate all without prompting
 cc memory migrate --from-global --dry-run   # preview without writing
 cc memory migrate --status                  # show source DB counts vs files
+
+# Check memory entries for drift (token-free deterministic checks)
+cc memory check                             # human-readable report
+cc memory check --json                      # machine-readable JSON report
+cc memory check --scope global              # check global memory entries
+cc memory check --staleness-days 60         # custom staleness threshold (default: 90)
+cc memory check --no-paths                  # skip path-existence checks
+cc memory check --no-commands               # skip command-resolves checks
+cc memory check --no-stale                  # skip staleness checks
 ```
+
+`cc memory check` checkers (all token-free, pure Python):
+
+| Checker | Severity | Description |
+|---------|----------|-------------|
+| `path-exists` | fail/warn | Referenced filesystem paths exist on disk |
+| `command-resolves` | warn | Binaries or npm scripts are available on PATH |
+| `version-conflict` | warn | Same package has conflicting versions across entries |
+| `staleness` | warn | Entry not updated within the staleness threshold |
+
+**Negation-aware:** paths under `not yet built`, `removed`, `deprecated`, `NOT`, `no longer` sections are not flagged. URL routes (`/api/x`), HTTP verbs (`GET /api/items`), and `<placeholder>` / `{{template}}` tokens are skipped.
+
+**Scoring:** `100 − (fail×10 + warn×3 + info×1)`, floored at 0. A clean repo scores 100.
+
+Exit code 1 if any `fail`-severity checks are found; exit code 0 otherwise.
 
 Entry types: `decision` | `context` | `lesson` | `reference` | `person`
 
@@ -276,6 +300,82 @@ cc config set docs.cache_ttl_hours 24
 # Get docs before writing code against an API
 cc docs get pydantic --topic validators --json
 cc docs search fastapi "dependency injection" --json
+```
+
+---
+
+### Usage / Quota
+
+`cc usage` queries Claude session quota state — the authoritative server-side
+counters from `anthropic-ratelimit-unified-*` response headers.
+
+**Producer/consumer split (ADR-003 correctness contract):**
+- `cc usage` is the **producer** — it writes `~/.claude/session-usage.json`.
+- The session-start hook and `/memory` dashboard are **consumers** — they read
+  the cache file without ever making a network probe.
+
+This prevents a probe from opening a fresh 5-hour window, which would corrupt
+the utilization number it is trying to report.
+
+**Idle gate:** `cc usage` only probes when Claude Code is actively in use
+(a transcript file changed within the last ~12 min). When idle, it returns
+the existing cache or falls back to transcript reconstruction.
+
+```bash
+cc usage                     # show quota (human-readable)
+cc usage --json              # machine-readable JSON cache
+cc usage --refresh           # force probe even when idle gate fires
+cc usage --no-probe          # read cache only, never probe
+
+# The session-start hook surfaces quota automatically when cache exists:
+# ~/.claude/session-usage.json → read at SessionStart, emitted in systemMessage
+```
+
+**Platform notes:**
+- **macOS:** pulls the Claude Code OAuth token from Keychain
+  (`security find-generic-password -s "Claude Code-credentials"`), makes a
+  1-token `claude-haiku-4-5` probe, reads response headers.
+- **Non-macOS / no network:** transcript reconstruction — counts messages in
+  `~/.claude/projects/**/*.jsonl` grouped into rolling 5-hour blocks.
+  Unit is messages, not tokens; accuracy is lower but no network required.
+
+**Headers captured (verified 2026-06-17, R1 note):**
+
+| Header suffix | Meaning |
+|---------------|---------|
+| `5h-status` | `allowed` / `rate_limited` |
+| `5h-utilization` | 0.0 – 1.0 fraction of 5h window used |
+| `5h-reset` | Unix epoch when 5h window resets |
+| `7d-status` | same for 7-day window |
+| `7d-utilization` | fraction of 7d window used |
+| `7d-reset` | epoch when 7d window resets |
+| `overage-status` | overage bucket status |
+| `representative-claim` | `five_hour` / `seven_day` — which limit applies |
+| `fallback-percentage` | float, purpose: fallback rate |
+
+Header names are NOT hardcoded as required — all `anthropic-ratelimit-unified-*`
+headers are captured verbatim in `raw_headers` for forward-compatibility (R1).
+
+**Cache shape (`~/.claude/session-usage.json`):**
+
+```json
+{
+  "probed_at": 1781703743.8,
+  "source": "probe",
+  "idle_gated": false,
+  "probe_error": null,
+  "five_h_status": "allowed",
+  "five_h_utilization": 0.08,
+  "five_h_reset_epoch": 1781717400,
+  "seven_d_status": "allowed",
+  "seven_d_utilization": 0.14,
+  "seven_d_reset_epoch": 1781751600,
+  "overage_status": "allowed",
+  "overage_utilization": 0.0,
+  "representative_claim": "five_hour",
+  "fallback_percentage": 0.5,
+  "raw_headers": { "...all response headers..." }
+}
 ```
 
 ---

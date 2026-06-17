@@ -226,7 +226,7 @@ if [[ "$TURNS" -eq 1 ]] && command -v cc &>/dev/null; then
   while IFS='=' read -r _key _value; do
     # Trim all spaces from keys (keys are identifiers, never contain spaces).
     # Preserve internal spaces in values — only strip leading/trailing whitespace
-    # so paths like "/Users/x/Google Drive/Shared Docs" survive intact.
+    # so paths with spaces in directory names survive intact.
     _key="${_key// /}"
     _value="${_value#"${_value%%[![:space:]]*}"}"  # ltrim
     _value="${_value%"${_value##*[![:space:]]}"}"  # rtrim

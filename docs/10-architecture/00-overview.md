@@ -60,7 +60,7 @@ User Request → Protocol → Lean Agent → [skills auto-fire from description 
 | Testing required | qa |
 | Deployment concerns | do |
 
-### Current Agent Roster (16 agents + kc)
+### Current Agent Roster (16 total: 15 framework agents + kc setup-only)
 
 **Core:**
 

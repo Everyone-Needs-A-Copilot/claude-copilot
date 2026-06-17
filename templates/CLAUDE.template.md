@@ -30,7 +30,7 @@ This project uses [Claude Copilot](https://github.com/Everyone-Needs-A-Copilot/c
 | Capability | Tools | Purpose |
 |------------|-------|---------|
 | **Memory** | `cc memory` | Persist decisions, lessons, progress across sessions |
-| **Agents** | 16 specialists via `/protocol` | Expert guidance routed by task type |
+| **Agents** | 15 framework agents + kc (setup-only) via `/protocol` | Expert guidance routed by task type |
 | **Knowledge** | `knowledge_search`, `knowledge_get` | Search company/product documentation |
 | **Skills** | `cc skill search`, `cc skill get` | Load expertise on demand |
 

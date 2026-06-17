@@ -21,12 +21,20 @@ Run these CLI commands to gather memory state:
    cc memory list --type context
    ```
 
-4. **If Task Copilot is linked, get progress:**
+4. **Get session quota / rate-limit state:**
+   ```bash
+   cc usage --json
+   ```
+   Note: `cc usage` reads the cache written by a prior probe, or falls back to
+   transcript reconstruction if no cache exists. Use `cc usage --refresh` to
+   force a fresh probe.
+
+5. **If Task Copilot is linked, get progress:**
    ```bash
    tc progress --json
    ```
 
-5. **Get protocol violations (if Task Copilot is linked):**
+6. **Get protocol violations (if Task Copilot is linked):**
    ```bash
    tc log --json
    ```
@@ -37,6 +45,14 @@ Format the output as a clean, scannable dashboard:
 
 ```
 ## Memory Dashboard
+
+### Session Quota
+Source: probe | fallback | stale (cached)
+unified-5h window: [status] [utilization%] used  resets [HH:MM UTC]
+unified-7d window: [status] [utilization%] used  resets [HH:MM UTC]
+[If fallback: "unified-5h messages: N  unified-7d messages: N  (offline estimate, not token count)"]
+[If probe error: show error message]
+Run `cc usage --refresh` to force a new probe.
 
 ### Recent Decisions
 [List last 3-5 decisions, or "None recorded"]
@@ -96,6 +112,12 @@ Use `cc memory store --type decision "..."` to start recording.
 
 ```
 ## Memory Dashboard
+
+### Session Quota
+Source: probe, updated 42s ago
+unified-5h window: allowed  7.0% used  resets 17:30 UTC
+unified-7d window: allowed 13.0% used  resets 03:00 UTC
+Run `cc usage --refresh` to force a new probe.
 
 ### Recent Decisions
 - Migrate to cc CLI for memory and skills management

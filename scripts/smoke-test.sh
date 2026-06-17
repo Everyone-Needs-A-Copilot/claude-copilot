@@ -207,7 +207,7 @@ else
   fail "SETUP.md missing"
 fi
 
-if [[ -f "docs/EXTENSION-SPEC.md" ]]; then
+if [[ -f "docs/EXTENSION-SPEC.md" ]] || [[ -f "docs/40-extensions/00-extension-spec.md" ]]; then
   pass "EXTENSION-SPEC.md exists"
 else
   fail "EXTENSION-SPEC.md missing"

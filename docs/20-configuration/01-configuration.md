@@ -118,7 +118,7 @@ your-project/
     │   ├── continue.md
     │   ├── setup.md
     │   └── knowledge-copilot.md
-    ├── agents/            # Agent definitions (16 agents)
+    ├── agents/            # Agent definitions (16 files: 15 framework + kc setup-only)
     │   ├── ta.md
     │   ├── me.md
     │   ├── qa.md

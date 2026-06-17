@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.10.0] - 2026-06-17
+
+Framework hardening initiative (PRD-7): four workstreams closing drift/verification gaps — failable QA gate, memory drift detection, usage observability, and declarative agent manifest.
+
+### Added
+
+- **WS1 — Failable-check QA gate** (`qa.md`, `sec.md`, `subagent-stop.sh`, `pretool-check.sh`): QA verdicts must now name an external artifact (`ARTIFACT: <type>|<detail>` — one of `test-run`, `file-check`, `diff-check`). A bare `VERDICT: APPROVED` with no artifact line does NOT unblock the gate. `@agent-sec` accumulates warnings silently up to a threshold (3) before halting, preventing over-flagging on minor advisory items.
+- **WS2 — `cc memory check`** (`tools/cc/`): token-free deterministic drift detection for memory/WP entries. Checkers: `path-exists`, `command-resolves`, `version-conflict`, `staleness`. 0–100 score (100 − fail×10 + warn×3 + info×1); exits 1 on any `fail`-severity finding. Negation-aware: paths under "not yet built", "removed", "deprecated" sections are not flagged.
+- **WS3 — `cc usage` + session quota statusline** (`tools/cc/`): idle-gated quota probe using Keychain OAuth + 1-token probe, reads `anthropic-ratelimit-unified-*` response headers. Producer/consumer split (ADR-003): `cc usage` writes `~/.claude/session-usage.json`; session-start hook reads the cache without probing. Transcript-reconstruction fallback for offline/non-macOS.
+- **WS4 — Declarative agent manifest** (`.claude/agents/manifest.json`): single source of truth for agent roster, routing edges, and tool grants. Consumed by the session-start banner, `pretool-check.sh` force-delegate agent list, and `/protocol`. Fixes stale banner (removes retired `design` agent and setup-only `kc` from the framework-agent list).
+
+### Changed
+
+- **Agents component → 5.5.0**: `qa.md` (artifact-gated verdicts), `sec.md` (warning-accumulation threshold), manifest-driven session-start banner (`session-start.sh`)
+- **cc component → 1.4.0**: new `cc memory check` (WS2) and `cc usage` (WS3) subcommands
+- **commands component → 5.3.2**: `/memory` command updated to reference `cc usage`
+- **CLAUDE.md**: agent count corrected to 15 framework agents + kc (setup-only); manifest named as authoritative roster; `cc memory check` and ARTIFACT gate requirement documented
+
 ## [5.9.0] - 2026-06-13
 
 Adds a re-plan-on-invalidated-assumption trigger to `@agent-me` and `@agent-ta`, closing a forward-only-flow gap identified during a review of mrtooher/fable-mode.

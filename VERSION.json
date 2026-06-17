@@ -1,12 +1,12 @@
 {
-  "framework": "5.9.0",
-  "lastUpdated": "2026-06-13T00:00:00.000Z",
+  "framework": "5.10.0",
+  "lastUpdated": "2026-06-17T00:00:00.000Z",
   "components": {
     "cc": {
-      "version": "1.3.0",
+      "version": "1.4.0",
       "path": "tools/cc",
       "installScript": "tools/cc/install.sh",
-      "provides": ["cc memory", "cc skill", "cc config", "cc env", "cc docs"]
+      "provides": ["cc memory", "cc memory check", "cc skill", "cc config", "cc env", "cc docs", "cc usage"]
     },
     "tc": {
       "version": "1.1.0",
@@ -14,11 +14,12 @@
       "installCommand": "pip install -e ~/.claude/copilot/tools/tc"
     },
     "agents": {
-      "version": "5.4.0",
+      "version": "5.5.0",
       "path": ".claude/agents",
       "count": 16,
+      "_countNote": "16 total manifest entries: 15 framework agents + 1 setup-only (kc). See frameworkAgents for the authoritative list.",
       "frameworkAgents": [
-        "cco", "cpa", "cs", "cw", "do", "doc", "ind", "kc",
+        "cco", "cpa", "cs", "cw", "do", "doc", "ind",
         "me", "qa", "sd", "sec", "ta", "uid", "uids", "uxd"
       ],
       "designChain": ["sd", "uxd", "uids", "uid", "ta", "me"],
@@ -29,7 +30,7 @@
       "retired": ["design"]
     },
     "commands": {
-      "version": "5.3.1",
+      "version": "5.3.2",
       "path": ".claude/commands",
       "projectCommands": [
         "protocol.md",

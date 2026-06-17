@@ -111,6 +111,56 @@ Curated collection of AI agent skills with standardized SKILL.md format guidelin
 - Three-stage loading pattern for token efficiency
 - Community contribution patterns for skill ecosystems
 
+### PRD-7: Verification & Observability Workstreams
+
+The following four repositories were studied during the PRD-7 initiative (framework 5.10.0 — verification and observability hardening). Each informed a distinct workstream. No code was copied; ideas were reimplemented from scratch in the framework's own idiom.
+
+#### fable-mode (WS1 — Failable-check QA gate)
+**Source:** [github.com/mrtooher/fable-mode](https://github.com/mrtooher/fable-mode)
+**Author:** [mrtooher](https://github.com/mrtooher)
+
+Introduced a sharp distinction between a *failable check* (a real test that can be run and can fail) and introspective "I think it looks right" statements. This verification epistemology directly inspired the artifact-gated QA gate in WS1: a bare `VERDICT: APPROVED` with no `ARTIFACT` marker does not unblock the gate, enforcing the principle that self-assessed correctness is not a check.
+
+**Key Learnings:**
+- A check that cannot fail is not a check
+- Model introspection and failable test execution are categorically different verification modes
+- Structural enforcement (gate requires artifact) outperforms behavioral guidance
+
+#### mex (WS2 — `cc memory check` drift detection)
+**Source:** [github.com/theDakshJaitly/mex](https://github.com/theDakshJaitly/mex)
+**Author:** [theDakshJaitly](https://github.com/theDakshJaitly)
+
+Token-free claim-extraction with deterministic, negation-aware checkers. The approach of parsing structured content without involving the model — extracting path references, command names, and version strings via pure Python — directly shaped the `cc memory check` command (WS2).
+
+**Key Learnings:**
+- Deterministic checkers are cheaper and more reliable than LLM re-evaluation
+- Negation-aware parsing prevents false positives on "removed", "deprecated", "NOT" sections
+- A 0–100 score with defined severity levels (fail/warn/info) gives actionable signal
+
+#### claude-session-widget (WS3 — `cc usage` observability)
+**Source:** [github.com/leechild4/claude-session-widget](https://github.com/leechild4/claude-session-widget)
+**Author:** [leechild4](https://github.com/leechild4)
+
+OAuth-token + rate-limit-header probe pattern for surfacing Claude session quota state. The idle-gating pattern (only probe when a transcript file changed recently) and the producer/consumer split (probe writes cache; consumers read without probing) were both inspired by this project.
+
+**Key Learnings:**
+- Probing the API to check quota can itself open a new quota window — idle gating prevents this
+- Producer/consumer split decouples probe frequency from display frequency
+- `anthropic-ratelimit-unified-*` headers are the authoritative source of quota state
+
+#### minamp-app (WS4 — Declarative agent manifest)
+**Source:** [github.com/fanfare-io/minamp-app](https://github.com/fanfare-io/minamp-app)
+**Author:** [fanfare-io](https://github.com/fanfare-io)
+
+Single declarative spec driving multiple tools with structured validation-result patterns. This architecture inspired the `.claude/agents/manifest.json` approach (WS4): one JSON file is the authoritative source of truth for agent roster, routing edges, and tool grants — consumed by the session-start banner, the force-delegate pretool hook, and `/protocol` routing.
+
+**Key Learnings:**
+- A single declarative spec eliminates drift between configuration and runtime behavior
+- Structured validation results (not prose assertions) enable programmatic consumption
+- Separating the roster from the agent implementation files makes both easier to maintain
+
+---
+
 ### Spec Kit
 **Source:** [github.com/github/spec-kit](https://github.com/github/spec-kit)
 **Author:** GitHub

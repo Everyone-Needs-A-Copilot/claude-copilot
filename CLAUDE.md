@@ -18,7 +18,7 @@ This file provides guidance to Claude Code when working with the Claude Copilot 
 
 **Mechanical enforcement:** The force-delegate rule, QA-gate rule, and session-cap advisory are enforced by hooks in `.claude/hooks/` — not just policy. Attempting >5 consecutive Bash/Read/Edit calls will be blocked automatically. After `@agent-me` completes, all main-session tools are gated until `@agent-qa` provides a pass verdict. See `.claude/hooks/README.md` for escape hatches and debug tools.
 
-**Framework agents:** ta, me, qa, do, doc, sd, kc · design chain sd→uxd→uids→uid→ta→me · branches ind/cco/cw · sec · business cs/cpa (16 total; `design` retired)
+**Framework agents:** ta, me, qa, do, doc, sd · design chain sd→uxd→uids→uid→ta→me · branches ind/cco/cw · sec · business cs/cpa (15 framework agents; kc is setup-only; `design` retired). Roster is the authoritative list in `.claude/agents/manifest.json`.
 
 ---
 
@@ -89,14 +89,15 @@ This file provides guidance to Claude Code when working with the Claude Copilot 
 Persistent memory across sessions with full-text (FTS5 keyword) search.
 
 **Storage:** `.claude/memory/entries/<uuid>.md` (committed, travels with repo)
-**Commands:** `cc memory store`, `cc memory search`, `cc memory get`, `cc memory list`
+**Commands:** `cc memory store`, `cc memory search`, `cc memory get`, `cc memory list`, `cc memory check`
 **Index:** `cc memory index --rebuild` (local SQLite cache, gitignored)
+**Drift detection:** `cc memory check` — token-free deterministic checkers for path-existence, command-resolve, version-conflict, staleness; 0–100 score; exits 1 on any `fail`-severity finding
 
 **Location:** `tools/cc/`
 
 ### 2. Agents
 
-16 framework agents + 1 setup agent (kc). Every agent embeds named industry methodology — IDEO (sd), Dieter Rams/Jony Ive (ind), Nielsen/JTBD (uxd), Rams Principles/Atomic Design (uids), Atomic Design/CDD (uid), Litmus Test (cco), MailChimp Voice & Tone (cw), STRIDE+DREAD (sec), Socratic Sales (cs), S-Corp Tax Advisory (cpa), ADR/Fitness Functions (ta), Kent Beck (me), Diátaxis (doc), 12-Factor/SRE (do), Meszaros (qa).
+15 framework agents + kc (setup-only, not in the build chain). Every framework agent embeds named industry methodology — IDEO (sd), Dieter Rams/Jony Ive (ind), Nielsen/JTBD (uxd), Rams Principles/Atomic Design (uids), Atomic Design/CDD (uid), Litmus Test (cco), MailChimp Voice & Tone (cw), STRIDE+DREAD (sec), Socratic Sales (cs), S-Corp Tax Advisory (cpa), ADR/Fitness Functions (ta), Kent Beck (me), Diátaxis (doc), 12-Factor/SRE (do), Meszaros (qa). Authoritative roster: `.claude/agents/manifest.json`.
 
 **Design chain:** sd → uxd → uids → uid → ta → me (ind and cco/cw are optional branches)
 **Security:** @agent-sec routes to me/ta/do; @includes stride-dread skill
@@ -203,7 +204,7 @@ All agents inherit these. Individual agent files should NOT repeat them.
 - **Knowledge:** Run `cc memory search "<voice/brand query>"` for user-facing features. Never block work for missing knowledge.
 - **Specification Workflow:** Domain agents (sd, ind, uxd, uids, cco, cw) store as `type: 'specification'`, route to @agent-ta.
 - **Multi-Agent Handoff:** Intermediate agents: `tc handoff` then route to next agent. Final agent: `tc log --task <id>`, return consolidated summary.
-- **Testing Gate (MANDATORY):** @agent-me is NEVER final. After implementation, @agent-qa MUST run tests. No implementation ships without QA.
+- **Testing Gate (MANDATORY):** @agent-me is NEVER final. After implementation, @agent-qa MUST run tests and include an `ARTIFACT: <type>|<detail>` marker in its verdict (`test-run`, `file-check`, or `diff-check`). A bare `VERDICT: APPROVED` with no ARTIFACT line will NOT unblock the gate. No implementation ships without QA. See `.claude/hooks/README.md` for the full verdict format.
 - **Protocol Integration:** Output stage-complete summary with Task/WP IDs, key decisions, handoff context (200-char max).
 
 ---

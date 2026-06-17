@@ -71,11 +71,11 @@ class TestMcpConfig:
     def test_command_fallback_to_argv0(self, runner):
         """When cc is not on PATH, falls back to sys.argv[0]."""
         with patch("cc.commands.mcp.shutil.which", return_value=None):
-            with patch("cc.commands.mcp.sys.argv", ["/home/user/.local/bin/cc"]):
+            with patch("cc.commands.mcp.sys.argv", ["/opt/local/bin/cc"]):
                 result = runner.invoke(app, ["mcp", "config"])
         assert result.exit_code == 0
         data = json.loads(result.output)
-        assert data["cc"]["command"] == "/home/user/.local/bin/cc"
+        assert data["cc"]["command"] == "/opt/local/bin/cc"
 
 
 # ---------------------------------------------------------------------------
