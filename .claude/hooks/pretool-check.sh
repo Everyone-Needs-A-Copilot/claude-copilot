@@ -54,7 +54,50 @@ trap 'echo "[pretool-check] unexpected exit $? at line $LINENO" >&2; exit 0' ERR
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)" \
   || { echo "[pretool-check] could not resolve SCRIPT_DIR" >&2; exit 0; }
 STATE_DIR="${SCRIPT_DIR}/state"
+MANIFEST_FILE="${SCRIPT_DIR}/../agents/manifest.json"
 JQ="/usr/bin/jq"
+
+# ---------------------------------------------------------------------------
+# Load valid agent names from manifest.json (TASK-114 / ADR-002)
+# Used to build helpful deny messages and validate subagent_type values.
+# Falls back to a hardcoded minimal set when manifest is absent (safe degradation).
+# ---------------------------------------------------------------------------
+_load_manifest_agents() {
+  if [[ -f "$MANIFEST_FILE" ]] && command -v python3 &>/dev/null; then
+    python3 - <<'PYEOF' 2>/dev/null
+import json, os, sys
+try:
+    with open(os.environ.get("MANIFEST_FILE", "")) as f:
+        data = json.load(f)
+    names = sorted(
+        name for name, desc in data["agents"].items()
+        if desc.get("role") == "framework"
+    )
+    print(" ".join(names))
+except Exception:
+    sys.exit(1)
+PYEOF
+  fi
+}
+
+# MANIFEST_AGENTS is a space-separated list of framework agent names from the manifest.
+# We export MANIFEST_FILE so the python3 heredoc can read it.
+export MANIFEST_FILE
+MANIFEST_AGENTS="$(_load_manifest_agents 2>/dev/null || echo "")"
+# Fallback when manifest unavailable
+if [[ -z "$MANIFEST_AGENTS" ]]; then
+  MANIFEST_AGENTS="cco cpa cs cw do doc ind me qa sd sec ta uid uids uxd"
+fi
+
+# Format agents as @agent-X list for deny messages
+_format_agent_list() {
+  local result=""
+  for a in $MANIFEST_AGENTS; do
+    result="${result}@agent-${a}, "
+  done
+  echo "${result%, }"
+}
+VALID_AGENT_LIST="$(_format_agent_list)"
 
 # ---------------------------------------------------------------------------
 # Read hook payload from stdin
@@ -238,7 +281,7 @@ rule_force_delegate() {
     write_streak "$TOOL_NAME" 0
     release_lock
     trap - EXIT
-    deny "Main session has issued 5+ consecutive ${TOOL_NAME} calls. Delegate to @agent-me (code), @agent-do (infra), or @agent-qa (verification) instead. This preserves context budget and matches the framework's core purpose."
+    deny "Main session has issued 5+ consecutive ${TOOL_NAME} calls. Delegate to a framework agent instead. Valid agents: ${VALID_AGENT_LIST}. This preserves context budget and matches the framework's core purpose."
   fi
 
   write_streak "$TOOL_NAME" "$streak"
@@ -329,7 +372,19 @@ rule_qa_gate() {
     if [[ "$subagent_type" == "qa" ]]; then
       return 0
     fi
-    # All other Agent calls are denied while gate is active
+    # Warn if subagent_type is not a known manifest agent
+    local is_known=0
+    for _a in $MANIFEST_AGENTS; do
+      if [[ "$subagent_type" == "$_a" ]]; then
+        is_known=1
+        break
+      fi
+    done
+    if [[ "$is_known" -eq 0 ]] && [[ -n "$subagent_type" ]]; then
+      # Unknown agent — deny with guidance (may be a typo or retired agent)
+      deny "QA gate active: ${blocking_ids} require @agent-qa verification. Unknown agent '${subagent_type}' — use @agent-qa to unblock. Valid agents: ${VALID_AGENT_LIST}."
+    fi
+    # All other known Agent calls are denied while gate is active
     deny "QA gate active: ${blocking_ids} require @agent-qa verification before further work. Invoke @agent-qa to unblock."
   fi
 

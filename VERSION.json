@@ -18,7 +18,7 @@
       "path": ".claude/agents",
       "count": 16,
       "frameworkAgents": [
-        "cco", "cpa", "cs", "cw", "do", "doc", "ind", "kc",
+        "cco", "cpa", "cs", "cw", "do", "doc", "ind",
         "me", "qa", "sd", "sec", "ta", "uid", "uids", "uxd"
       ],
       "designChain": ["sd", "uxd", "uids", "uid", "ta", "me"],

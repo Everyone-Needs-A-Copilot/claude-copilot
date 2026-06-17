@@ -27,6 +27,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INJECTION_FILE="${SCRIPT_DIR}/protocol-injection.md"
+MANIFEST_FILE="${SCRIPT_DIR}/../agents/manifest.json"
 
 # ---------------------------------------------------------------------------
 # Escape hatch
@@ -44,6 +45,55 @@ if [[ ! -f "$INJECTION_FILE" ]]; then
 fi
 
 GUARDRAILS="$(cat "$INJECTION_FILE")"
+
+# ---------------------------------------------------------------------------
+# Generate the framework-agent roster from manifest.json (TASK-114 / ADR-002)
+# Replaces the hardcoded agent list in Rule 1 with the live manifest roster
+# so the banner can never go stale.  Falls back to the static file text when
+# manifest is absent or python3 is unavailable (safe degradation).
+# Output format is byte-compatible: the systemMessage JSON envelope is
+# unchanged; only the inner text line is regenerated.
+# ---------------------------------------------------------------------------
+if [[ -f "$MANIFEST_FILE" ]] && command -v python3 &>/dev/null; then
+  # Resolve the manifest path to an absolute path for passing to python3
+  MANIFEST_ABS="$(cd "$(dirname "$MANIFEST_FILE")" && pwd)/$(basename "$MANIFEST_FILE")"
+  # Use a temp file to pass guardrails text to python3 (avoids stdin/heredoc conflicts)
+  _GUARDRAILS_TMP="$(mktemp /tmp/copilot-guardrails-XXXXXX.txt)"
+  printf '%s' "$GUARDRAILS" > "$_GUARDRAILS_TMP"
+  GUARDRAILS_UPDATED="$(python3 - "$MANIFEST_ABS" "$_GUARDRAILS_TMP" <<'PYEOF'
+import json, sys, re
+
+manifest_path = sys.argv[1]
+guardrails_path = sys.argv[2]
+
+with open(guardrails_path) as f:
+    guardrails = f.read()
+
+try:
+    with open(manifest_path) as f:
+        data = json.load(f)
+    # Only framework agents (not setup-only kc)
+    framework = sorted(
+        name for name, desc in data["agents"].items()
+        if desc.get("role") == "framework"
+    )
+    # Format as backtick-quoted @agent-X list
+    agent_list = ", ".join(f"`@agent-{a}`" for a in framework)
+    roster_line = f"- Framework agents: {agent_list}"
+    # Replace the "- Framework agents: ..." line (greedy to end of line)
+    updated = re.sub(r'- Framework agents:.*', roster_line, guardrails, count=1)
+    print(updated, end="")
+except Exception:
+    # Fall back silently — print guardrails unchanged
+    print(guardrails, end="")
+PYEOF
+  )" || GUARDRAILS_UPDATED=""
+  rm -f "$_GUARDRAILS_TMP"
+
+  if [[ -n "$GUARDRAILS_UPDATED" ]]; then
+    GUARDRAILS="$GUARDRAILS_UPDATED"
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Build "Known references" block from cc config + cc memory
