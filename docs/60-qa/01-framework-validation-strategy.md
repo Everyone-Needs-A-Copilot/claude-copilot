@@ -223,7 +223,7 @@ python -m pytest tests/test_skill_frontmatter.py -v -k "extension" 2>/dev/null |
 ```bash
 # Check all agent files exist
 ls -1 .claude/agents/*.md | wc -l
-# Should be 16 agents
+# Should be 16 agent files (15 framework + kc setup-only)
 
 # Verify each has required sections
 for agent in .claude/agents/*.md; do
@@ -590,7 +590,7 @@ claude
 - [ ] `.mcp.json` created with correct server configs
 - [ ] `CLAUDE.md` created with project instructions
 - [ ] `.claude/commands/` directory created with protocol and continue
-- [ ] `.claude/agents/` directory created with all 16 agents
+- [ ] `.claude/agents/` directory created with all 16 agent files (15 framework + kc setup-only)
 - [ ] `.claude/skills/` directory created for project skills
 - [ ] User informed of next steps
 
@@ -607,7 +607,7 @@ test -d .claude/skills && echo "✓ Skills"
 jq . .mcp.json > /dev/null && echo "✓ Valid JSON"
 
 # Check all agents present
-[[ $(ls .claude/agents/*.md | wc -l) -ge 16 ]] && echo "✓ All 16 agents"
+[[ $(ls .claude/agents/*.md | wc -l) -ge 16 ]] && echo "✓ All 16 agent files (15 framework + kc)"
 ```
 
 **Pass Criteria:**

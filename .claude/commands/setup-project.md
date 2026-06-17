@@ -171,7 +171,7 @@ done
 ls .claude/agents/ | wc -l
 ```
 
-Should show 16 framework agents.
+Should show 16 agent files (15 framework + kc setup-only).
 
 ---
 
@@ -347,7 +347,7 @@ If `FITNESS_RESULT` is non-zero (check failed), print the failures and tell the 
 - `.mcp.json` - Project marker (empty MCP config; add third-party servers here as needed)
 - `CLAUDE.md` - Project instructions
 - `.claude/commands/` - Protocol commands (/protocol, /continue)
-- `.claude/agents/` - 16 framework agents (full specialist roster)
+- `.claude/agents/` - 16 agent files: 15 framework agents + kc (setup-only, full specialist roster)
 - `.claude/skills/` - For project-specific skills
 - `.claude/memory/entries/` - Project memory (committed to git)
 - `.claude/cc/config.json` - cc CLI project config

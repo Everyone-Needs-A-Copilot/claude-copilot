@@ -132,7 +132,7 @@ Tell the user:
 
 This will refresh:
 - `.claude/commands/` (7 project commands)
-- `.claude/agents/` (16 framework agents — roster-aware: preserves project-specific agents, removes retired agents)
+- `.claude/agents/` (16 agent files: 15 framework agents + kc setup-only — roster-aware: preserves project-specific agents, removes retired agents)
 - `.claude/orchestrator/` (if present — retired Python scripts will be removed)
 
 This will NOT touch:
@@ -478,7 +478,7 @@ Tell user:
 
 **Refreshed:**
 - `.claude/commands/` (7 project commands: protocol, continue, pause, map, memory, extensions, orchestrate)
-- `.claude/agents/` (16 framework agents, roster-aware sync)
+- `.claude/agents/` (16 agent files: 15 framework agents + kc setup-only, roster-aware sync)
 {{IF_ORCHESTRATOR_REMOVED}}
 - `.claude/orchestrator/` (retired Python orchestrator removed)
 {{END_IF}}

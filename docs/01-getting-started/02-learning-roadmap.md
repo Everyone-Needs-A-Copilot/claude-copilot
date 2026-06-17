@@ -47,7 +47,7 @@ graph TD
 |-----------|-------|------------|--------------|----------------|------------------|
 | **1** | [Memory](#milestone-1-persistent-memory) | Beginner | None | Never lose context again | /continue, decisions persist |
 | **2** | [Protocol](#milestone-2-agent-workflow) | Beginner+ | Memory | Structured work sessions | Task breakdown, routing |
-| **3** | [Agents](#milestone-3-full-framework) | Intermediate | Protocol | Expert guidance | 16 specialists, auto-routing |
+| **3** | [Agents](#milestone-3-full-framework) | Intermediate | Protocol | Expert guidance | 15 framework agents + kc, auto-routing |
 | **4** | [Extensions](#milestone-4-team-setup) | Intermediate+ | Agents | Company knowledge | Shared standards, custom agents |
 | **5** | [Mastery](#milestone-5-power-user) | Advanced | All previous | Complete customization | Private skills, workflows |
 
@@ -315,7 +315,7 @@ You should see your previous session load with full context.
 
 ### What's Next?
 
-You've seen one agent in action. Milestone 3 introduces all 16 specialists and shows how they work together.
+You've seen one agent in action. Milestone 3 introduces all 15 framework agents + kc and shows how they work together.
 
 ---
 
@@ -323,11 +323,11 @@ You've seen one agent in action. Milestone 3 introduces all 16 specialists and s
 
 **Complexity**: Intermediate
 **Prerequisites**: Protocol working
-**Goal**: Master all 16 agents and understand when to use each
+**Goal**: Master all 15 framework agents + kc and understand when to use each
 
 ### What You'll Achieve
 
-- Know all 16 specialist agents
+- Know all 15 framework agents + kc (setup-only)
 - Understand agent routing patterns
 - Use agents for complex multi-domain tasks
 - See agents collaborate on solutions
@@ -478,7 +478,7 @@ Expected flow:
 
 ### Success Criteria
 
-- [ ] Understand all 16 agents and their domains
+- [ ] Understand all 15 framework agents + kc and their domains
 - [ ] Completed multi-agent feature exercise
 - [ ] Invoked agents directly with @
 - [ ] Saw agents route to each other
@@ -913,7 +913,7 @@ Use this checklist to track your journey:
 - [ ] Understand protocol → agent → memory flow
 
 ### Milestone 3: Agents
-- [ ] Know all 16 agents and their domains
+- [ ] Know all 15 framework agents + kc and their domains
 - [ ] Completed multi-agent feature
 - [ ] Used @ to invoke agents directly
 - [ ] Saw agents route to each other

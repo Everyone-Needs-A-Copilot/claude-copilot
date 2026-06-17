@@ -382,7 +382,7 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 
 | Level          | What You Get                                          |
 | -------------- | ----------------------------------------------------- |
-| **Solo**       | 16 agents, persistent memory, local skills            |
+| **Solo**       | 15 framework agents + kc (setup-only), persistent memory, local skills |
 | **Team**       | + shared knowledge repo, Known References registry    |
 | **Enterprise** | + Extensions system, company-specific agent overrides |
 
@@ -412,7 +412,7 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 |-------|---------|
 | [Usage Guide](docs/70-reference/01-usage-guide.md) | **How to actually use this** - real workflows and scenarios |
 | [Decision Guide](docs/10-architecture/03-decision-guide.md) | When to use what - quick reference matrices |
-| [Agents](docs/10-architecture/01-agents.md) | All 16 specialists in detail |
+| [Agents](docs/10-architecture/01-agents.md) | All 15 framework agents + kc in detail |
 
 **Setup & Configuration:**
 | Guide | Purpose |
@@ -439,7 +439,7 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 | Document | Purpose |
 |----------|---------|
 | [Quick Reference](docs/70-reference/00-quick-reference.md) | Command cheatsheet |
-| [Glossary](docs/70-reference/05-glossary.md) | FTS5, BM25, ADR, PRD, WP, L1/L2/L3, all 16 agent codes |
+| [Glossary](docs/70-reference/05-glossary.md) | FTS5, BM25, ADR, PRD, WP, L1/L2/L3, all 15 framework agent codes + kc |
 
 ---
 
