@@ -21,15 +21,15 @@ This command creates explicit pause checkpoints for all in-progress tasks, makin
 - **Named/contextualized**: Optional reason helps recall context when resuming
 - **Resume priority**: `/continue` checks pause checkpoints first
 
-## Step 1: Get Current Initiative Context
+## Step 1: Recall Working Context
 
-```typescript
-// Get current initiative to find active tasks
-const initiative = await initiative_get({ mode: "lean" });
+```bash
+# Recall recent working context (the legacy initiative subsystem is replaced by
+# file-based memory; type:context entries also surface at next session start).
+cc memory search "current focus" 2>/dev/null
 
-if (!initiative) {
-  return "No active initiative found. Start work with /protocol first.";
-}
+# Active work itself lives in Task Copilot. If Step 2 finds no in-progress tasks,
+# respond: "No in-progress tasks to pause. Start work with /protocol first."
 ```
 
 ## Step 2: Find In-Progress Tasks
@@ -45,24 +45,20 @@ tc task list --status in_progress --json
 For each in-progress task, update its status to capture pause state:
 
 ```bash
-# For each in-progress task, update with pause notes
-tc task update <id> --status paused --notes "Paused: <reason>. Resume with /continue." --json
+# For each in-progress task, set status to paused and record the reason in metadata
+# (tc task update has no --notes flag; /continue reads task.metadata.pauseReason).
+tc task update <id> --status paused --metadata '{"pauseReason":"<reason>","resumeWith":"/continue"}' --json
 ```
 
 This preserves the pause reason and context directly on the task for later resumption.
 
-## Step 4: Update Initiative Context
+## Step 4: Store Pause Context in Memory
 
-```typescript
-// Store pause context in Memory Copilot
-await initiative_update({
-  currentFocus: `Paused: ${pauseReason}`,
-  nextAction: `Resume with /continue to restore paused tasks`,
-  decisions: [{
-    decision: `Paused work on ${allTasks.length} task(s)`,
-    rationale: pauseReason
-  }]
-});
+```bash
+# Persist pause context as a memory entry (type:context surfaces at next session
+# start; the decision is recorded separately for the audit trail).
+cc memory store --type context "Paused work: <reason>. Resume with /continue to restore paused tasks (tc task list --status paused)."
+cc memory store --type decision "Paused <N> task(s). Rationale: <reason>."
 ```
 
 ## Step 5: Return Confirmation

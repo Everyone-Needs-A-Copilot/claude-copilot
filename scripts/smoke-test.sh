@@ -69,25 +69,20 @@ mkdir -p "$TEMP_DIR"
 #############################
 section "ST-01: File Structure"
 
-# Check MCP servers
-if [[ -f "$REPO_ROOT/mcp-servers/copilot-memory/package.json" ]]; then
-  pass "Memory Copilot package.json exists"
+# MCP servers removed — memory and skills are now handled by the cc CLI (tools/cc/)
+# Check cc CLI instead
+if [[ -d "$REPO_ROOT/tools/cc" ]]; then
+  pass "cc CLI directory exists (replaces copilot-memory + skills-copilot MCP servers)"
 else
-  fail "Memory Copilot package.json missing"
-fi
-
-if [[ -f "$REPO_ROOT/mcp-servers/skills-copilot/package.json" ]]; then
-  pass "Skills Copilot package.json exists"
-else
-  fail "Skills Copilot package.json missing"
+  fail "cc CLI directory missing"
 fi
 
 # Check agents
 AGENT_COUNT=$(find "$REPO_ROOT/.claude/agents" -maxdepth 1 -name "*.md" -type f | wc -l | tr -d ' ')
-if [[ "$AGENT_COUNT" -eq 8 ]]; then
-  pass "All 8 active agents present"
+if [[ "$AGENT_COUNT" -eq 16 ]]; then
+  pass "All 16 active agents present"
 else
-  fail "Agent count mismatch: expected 8 active agents, found $AGENT_COUNT"
+  fail "Agent count mismatch: expected 16 active agents, found $AGENT_COUNT"
 fi
 
 # Check commands
@@ -147,18 +142,8 @@ elif [[ -f "$REPO_ROOT/.mcp.json" ]]; then
   if jq . "$REPO_ROOT/.mcp.json" > /dev/null 2>&1; then
     pass ".mcp.json is valid JSON"
 
-    # Check for required servers
-    if jq -e '.mcpServers."copilot-memory"' "$REPO_ROOT/.mcp.json" > /dev/null 2>&1; then
-      pass "copilot-memory server configured"
-    else
-      fail "copilot-memory server not configured"
-    fi
-
-    if jq -e '.mcpServers."skills-copilot"' "$REPO_ROOT/.mcp.json" > /dev/null 2>&1; then
-      pass "skills-copilot server configured"
-    else
-      fail "skills-copilot server not configured"
-    fi
+    # MCP servers removed — .mcp.json may be empty (memory/skills handled by cc CLI)
+    pass ".mcp.json is valid JSON (MCP servers handled externally if needed)"
   else
     fail ".mcp.json has invalid JSON syntax"
   fi
@@ -167,107 +152,33 @@ else
 fi
 
 #############################
-# ST-04: Memory Copilot Build
+# ST-04: cc CLI Check
 #############################
-section "ST-04: Memory Copilot MCP Server"
+section "ST-04: cc CLI (replaces MCP servers)"
 
-cd "$REPO_ROOT/mcp-servers/copilot-memory"
+cd "$REPO_ROOT"
 
-# Check dependencies installed
-if [[ -d "node_modules" ]]; then
-  pass "Memory Copilot dependencies installed"
+if [[ -f "tools/cc/install.sh" ]]; then
+  pass "cc CLI install script exists"
 else
-  info "Installing Memory Copilot dependencies..."
-  npm install > /dev/null 2>&1
-  if [[ $? -eq 0 ]]; then
-    pass "Memory Copilot dependencies installed"
-  else
-    fail "Memory Copilot npm install failed"
-  fi
+  fail "cc CLI install script missing"
 fi
 
-# Check TypeScript build
-info "Building Memory Copilot..."
-npm run build > /dev/null 2>&1
-if [[ $? -eq 0 ]]; then
-  pass "Memory Copilot builds successfully"
+if [[ -d "tools/cc/src/cc" ]]; then
+  pass "cc CLI source directory exists"
 else
-  fail "Memory Copilot build failed"
-fi
-
-# Check dist output
-if [[ -f "dist/index.js" ]]; then
-  pass "Memory Copilot dist/index.js generated"
-else
-  fail "Memory Copilot dist/index.js missing"
-fi
-
-# Check dist output has required tools
-if grep -q "memory_store" "dist/index.js"; then
-  pass "memory_store tool present"
-else
-  fail "memory_store tool missing from build"
-fi
-
-if grep -q "initiative_start" "dist/index.js"; then
-  pass "initiative_start tool present"
-else
-  fail "initiative_start tool missing from build"
+  fail "cc CLI source directory missing"
 fi
 
 #############################
-# ST-05: Skills Copilot Build
+# ST-05: tc CLI Check
 #############################
-section "ST-05: Skills Copilot MCP Server"
+section "ST-05: tc CLI"
 
-cd "$REPO_ROOT/mcp-servers/skills-copilot"
-
-# Check dependencies installed
-if [[ -d "node_modules" ]]; then
-  pass "Skills Copilot dependencies installed"
+if [[ -d "tools/tc" ]]; then
+  pass "tc CLI directory exists"
 else
-  info "Installing Skills Copilot dependencies..."
-  npm install > /dev/null 2>&1
-  if [[ $? -eq 0 ]]; then
-    pass "Skills Copilot dependencies installed"
-  else
-    fail "Skills Copilot npm install failed"
-  fi
-fi
-
-# Check TypeScript build
-info "Building Skills Copilot..."
-npm run build > /dev/null 2>&1
-if [[ $? -eq 0 ]]; then
-  pass "Skills Copilot builds successfully"
-else
-  fail "Skills Copilot build failed"
-fi
-
-# Check dist output
-if [[ -f "dist/index.js" ]]; then
-  pass "Skills Copilot dist/index.js generated"
-else
-  fail "Skills Copilot dist/index.js missing"
-fi
-
-# Check dist output has required tools
-if grep -q "skill_get" "dist/index.js"; then
-  pass "skill_get tool present"
-else
-  fail "skill_get tool missing from build"
-fi
-
-if grep -q "knowledge_search" "dist/index.js"; then
-  pass "knowledge_search tool present"
-else
-  fail "knowledge_search tool missing from build"
-fi
-
-if grep -q "extension_get" "dist/index.js"; then
-  pass "extension_get tool present"
-else
-  fail "extension_get tool missing from build"
+  fail "tc CLI directory missing"
 fi
 
 #############################
@@ -296,7 +207,7 @@ else
   fail "SETUP.md missing"
 fi
 
-if [[ -f "docs/EXTENSION-SPEC.md" ]]; then
+if [[ -f "docs/EXTENSION-SPEC.md" ]] || [[ -f "docs/40-extensions/00-extension-spec.md" ]]; then
   pass "EXTENSION-SPEC.md exists"
 else
   fail "EXTENSION-SPEC.md missing"

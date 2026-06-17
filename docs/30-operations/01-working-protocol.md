@@ -53,7 +53,7 @@
 ### Experience Request
 ```
 1. INVOKE @agent-sd (map user journey)
-2. INVOKE @agent-uxd (interaction design) - parallel
+2. INVOKE @agent-uxd (interaction + task flow design)
 3. WAIT for results
 4. THEN respond with recommendations/questions
 ```
@@ -122,6 +122,15 @@ Your response MUST include:
 4. If visual verification also needed, ask user AFTER automated tests pass
 5. **Task is NOT done until automated tests pass AND user confirms**
 
+**Artifact-gated verdicts (5.10.0+):** A bare `VERDICT: APPROVED` no longer unblocks the gate. @agent-qa and @agent-sec MUST include an `ARTIFACT:` line citing real evidence:
+
+```
+VERDICT: APPROVED
+ARTIFACT: test-run|pytest tests/ exit=0 "47 passed, 0 failed"
+```
+
+If the gate is not unblocking, check that the agent included an `ARTIFACT:` line. Escape hatch: `COPILOT_QA_GATE=off`. After 3 consecutive failures the gate auto-unblocks with an advisory. See [hooks/README.md](../../.claude/hooks/README.md).
+
 ---
 
 ## Anti-Patterns (NEVER DO THESE)
@@ -160,23 +169,22 @@ Your response MUST include:
 
 | Task | Agent | Purpose |
 |------|-------|---------|
-| UX/Interaction | `@agent-uxd` | Task flows, wireframes, usability |
-| Visual Design | `@agent-uids` | Colors, typography, visual hierarchy |
-| UI Implementation | `@agent-uid` | CSS, Tailwind, component styling |
-| Content/Copy | `@agent-cw` | Microcopy, error messages, UI text |
+| Interaction + Task Flow Design | `@agent-uxd` | Task flows, wireframes, usability |
+| Visual Design System | `@agent-uids` | Color, typography, design tokens |
+| Component Specs | `@agent-uid` | Component implementation blueprints |
 
 ### Verification Phase
 
 | Task | Agent | Purpose |
 |------|-------|---------|
 | Test writing | `@agent-qa` | Unit, integration, E2E tests |
-| Security review | `@agent-sec` | Vulnerability assessment |
+| Security review | load `security/stride-dread` skill | STRIDE/DREAD analysis — not a dedicated agent |
 
 ---
 
 ## Project-Specific Overrides
 
-Projects may extend this protocol with custom agents or rules via the extension system. See [EXTENSION-SPEC.md](../EXTENSION-SPEC.md) for details.
+Projects may extend this protocol with custom agents or rules via the extension system. See [the Extension Spec](../40-extensions/00-extension-spec.md) for details.
 
 ---
 

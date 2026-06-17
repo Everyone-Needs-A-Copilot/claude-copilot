@@ -82,25 +82,27 @@ If any test fails, see the detailed logs for which specific test failed and why.
 | Invalid JSON in .mcp.json | Syntax error | Run `jq . .mcp.json` to validate |
 | Time estimate violation | Prohibited language in agent files | Remove time-based language, see policy |
 
-**Lean Agent Model (v1.8+)**
+**Lean Agent Model**
 
-Current state: 14 agents total. Design agents (sd, uxd, uids) include creative methodology, anti-generic rules, and design knowledge skills (150-230 lines). All others use the lean agent model (under 120 lines) with on-demand skill loading via `skill_evaluate()`. Shared boilerplate is extracted to "Agent Shared Behaviors" in CLAUDE.md.
+Current state: 16 agent files total (15 framework + kc setup-only), all using the lean agent model (under 120 lines) with on-demand skill loading via `cc skill search` / `cc skill get`. Shared boilerplate is extracted to "Agent Shared Behaviors" in CLAUDE.md.
 
-**Agents with full structure:**
-- cw.md (Copywriter)
-- kc.md (Knowledge Copilot)
-- uid.md (UI Developer)
-- uids.md (UI Designer)
-
-**Agents with simplified format (missing required sections):**
-- do.md (DevOps)
-- doc.md (Documentation)
+**Current agents:**
+- ta.md (Tech Architect)
 - me.md (Engineer)
 - qa.md (QA Engineer)
+- do.md (DevOps)
+- doc.md (Documentation)
 - sd.md (Service Designer)
-- sec.md (Security)
-- ta.md (Tech Architect)
 - uxd.md (UX Designer)
+- uids.md (UI Design System)
+- uid.md (UI Developer)
+- sec.md (Security)
+- ind.md (Industrial Designer)
+- cco.md (Creative Director)
+- cw.md (Copywriter)
+- cs.md (Customer Success)
+- cpa.md (CPA / Financial)
+- kc.md (Knowledge Copilot)
 
 **Required sections per CLAUDE.md:**
 - `## Identity` - Role, Mission, Success criteria
@@ -217,7 +219,7 @@ cat .mcp.json
 "Implement password reset feature"
 
 # Work progresses...
-# At end of session, initiative_update called with progress
+# At end of session, cc memory store called with progress
 ```
 
 **Session 2 (new day):**
@@ -252,23 +254,24 @@ cat .mcp.json
 
 ---
 
-#### RT-02: MCP Server Compatibility
+#### RT-02: CLI Health Check
 
 ```bash
-# Update MCP SDK
-cd mcp-servers/copilot-memory
-npm update @modelcontextprotocol/sdk
+# Verify cc CLI
+cc --version
+pytest tools/cc/tests/ -p no:cov
 
-# Rebuild
-npm run build
+# Verify tc CLI
+tc version
+pytest tools/tc/tests/ -p no:cov
 
-# Test (requires MCP Inspector)
-# Verify all tools still work
+# Run copilot framework tests (exclude vendored TUI tests)
+pytest tests/ -p no:cov --ignore=tests/tui
 ```
 
-**Expected:** Build succeeds, tools callable
+**Expected:** All pytest suites pass, both CLIs return version numbers
 
-**Frequency:** Monthly, when SDK updates
+**Frequency:** Monthly, when CLI dependencies update
 
 ---
 
@@ -396,10 +399,9 @@ set -x  # Print each command before executing
 
 **Check specific component:**
 ```bash
-# Test MCP server build manually
-cd mcp-servers/copilot-memory
-npm run build
-# Check for TypeScript errors
+# Test cc CLI directly
+pytest tools/cc/tests/ -p no:cov -v
+# Check for import or runtime errors
 ```
 
 **Check file permissions:**
@@ -436,24 +438,19 @@ echo $KNOWLEDGE_REPO_PATH
 
 ### E2E Test Failures
 
-**Enable MCP debug logging:**
-```json
-// In .mcp.json
-{
-  "mcpServers": {
-    "copilot-memory": {
-      "env": {
-        "LOG_LEVEL": "debug"
-      }
-    }
-  }
-}
+**Enable cc CLI verbose output:**
+```bash
+# Run cc with debug output
+cc memory list
+
+# Check cc config
+cc config list
 ```
 
-**Check Memory Copilot database:**
+**Check memory store:**
 ```bash
-# Find workspace hash
-ls ~/.claude/memory/
+# List memory entries
+ls ~/.claude/memory/entries/
 
 # Inspect database
 sqlite3 ~/.claude/memory/<hash>/memory.db
@@ -620,9 +617,9 @@ fi
 # Check time estimate policy
 ./scripts/audit-time-language.sh --report
 
-# Build MCP servers
-cd mcp-servers/copilot-memory && npm run build
-cd ../skills-copilot && npm run build
+# Verify CLIs are installed
+cc --version
+tc version
 
 # Inspect Memory database
 sqlite3 ~/.claude/memory/<hash>/memory.db

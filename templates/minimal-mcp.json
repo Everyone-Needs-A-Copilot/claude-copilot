@@ -1,12 +1,3 @@
 {
-  "mcpServers": {
-    "copilot-memory": {
-      "command": "node",
-      "args": ["$COPILOT_PATH/mcp-servers/copilot-memory/dist/index.js"],
-      "env": {
-        "MEMORY_PATH": "$HOME/.claude/memory",
-        "WORKSPACE_ID": "$PROJECT_NAME"
-      }
-    }
-  }
+  "mcpServers": {}
 }

@@ -109,7 +109,7 @@ View agent improvement suggestions:
 /memory
 ```
 
-Shows pending suggestions that agents have made about improving their own instructions. Review and approve/reject as needed.
+Shows improvement lessons that agents have stored about their own instructions. Review them and apply the worthwhile ones to the relevant agent/skill files.
 
 ---
 
@@ -121,69 +121,42 @@ Shows pending suggestions that agents have made about improving their own instru
 
 #### What it does
 
-Agents can identify inefficiencies, missing capabilities, or unclear instructions during their work and store structured improvement suggestions in Memory Copilot. These suggestions are categorized by agent, section, and status, allowing framework maintainers to review and implement improvements systematically.
+Agents can identify inefficiencies, missing capabilities, or unclear instructions during their work and store improvement suggestions as `lesson` entries in Memory Copilot. Tagging by agent and topic lets framework maintainers find and implement improvements systematically.
 
 #### Memory Type
 
-A new memory type `agent_improvement` is available alongside existing types (`decision`, `lesson`, `discussion`, `file`, `initiative`, `context`).
-
-#### Required Metadata Structure
-
-```typescript
-{
-  agentId: string;           // Agent making suggestion (e.g., "me", "ta", "qa")
-  targetSection: string;      // Section to improve (e.g., "Core Behaviors", "Output Format")
-  currentContent: string;     // What currently exists
-  suggestedContent: string;   // Proposed improvement
-  rationale: string;          // Why this change is needed
-  status: 'pending' | 'approved' | 'rejected'
-}
-```
+Improvement suggestions are stored as `lesson` entries. The `cc memory` CLI types are
+`decision`, `context`, `lesson`, `reference`, and `person` — there is no separate
+`agent_improvement` type or structured status queue (the MCP-era metadata workflow was
+removed in the CLI migration). Encode the target agent and rationale in the content and
+tags.
 
 #### How to use it
 
 **Store an improvement suggestion:**
 
-```typescript
-memory_store({
-  type: 'agent_improvement',
-  content: 'Agent @agent-me needs better guidance on handling TypeScript compilation errors',
-  metadata: {
-    agentId: 'me',
-    targetSection: 'Core Behaviors',
-    currentContent: 'Always do: Fix compilation errors immediately',
-    suggestedContent: 'Always do: Fix compilation errors immediately. When TypeScript errors occur, use tsc --noEmit to see all errors, then fix systematically from dependencies outward.',
-    rationale: 'Current guidance lacks specific commands and approach. Agents waste tokens debugging incrementally.',
-    status: 'pending'
-  },
-  tags: ['agent-improvement', 'typescript', 'compilation']
-})
+```bash
+cc memory store --type lesson --tags agent-improvement,me,typescript \
+  '@agent-me: handling TypeScript compilation errors. Improvement: when TS errors occur, run `tsc --noEmit` to see all errors, then fix systematically from dependencies outward. Rationale: incremental debugging wastes tokens.'
 ```
 
-**Query improvement suggestions:**
+**Find improvement suggestions:**
 
-```typescript
-// Get all pending improvements for @agent-me
-memory_search({
-  query: 'TypeScript compilation improvements',
-  type: 'agent_improvement',
-  agentId: 'me'
-})
+```bash
+# Search across stored lessons
+cc memory search "typescript compilation"
 
-// List all agent improvements
-const memories = memory_list({
-  type: 'agent_improvement',
-  limit: 50
-})
+# List all lessons (filter the agent by its tag in the output)
+cc memory list --type lesson
 ```
 
 #### Viewing suggestions via /memory
 
-The `/memory` command shows recent memory activity including agent improvements:
+The `/memory` command shows recent memory activity, including improvement lessons:
 
 ```
 Recent Memories:
-- [agent_improvement] Better TypeScript compilation guidance (@agent-me)
+- [lesson] Better TypeScript compilation guidance (tags: agent-improvement, me)
 - [decision] Use streaming responses for large datasets
 - [lesson] Always validate input schemas before processing
 ```
@@ -192,10 +165,10 @@ Recent Memories:
 
 Framework maintainers can:
 
-1. Query pending suggestions: `memory_search({ type: 'agent_improvement', agentId: 'me' })`
-2. Review suggestions and update agent files
-3. Update suggestion status: `memory_update({ id: 'MEM-123', metadata: { ...metadata, status: 'approved' } })`
-4. Track improvement history over time
+1. Find suggestions: `cc memory search "<topic>"` or `cc memory list --type lesson`
+2. Review suggestions and update the relevant agent/skill files directly (or delegate to `@agent-me`)
+3. Once applied, remove the obsolete lesson with `cc memory delete <entry-id>` (there is no status workflow)
+4. Track improvement history via `cc memory list --type lesson`
 
 #### Token efficiency
 
@@ -1237,29 +1210,19 @@ Summary of configuration files and environment variables for all enhancement fea
 
 ### Self-improving Memory Schema
 
-**Issue:** `agent_improvement type requires metadata` error
+**Issue:** Improvement lessons not showing the agent they relate to
 
-**Solution:** Ensure metadata includes all required fields:
-```typescript
-metadata: {
-  agentId: 'me',
-  targetSection: 'Core Behaviors',
-  currentContent: '...',
-  suggestedContent: '...',
-  rationale: '...',
-  status: 'pending'
-}
+**Solution:** Store with descriptive tags and lead the content with the agent handle, e.g.:
+```bash
+cc memory store --type lesson --tags agent-improvement,me "@agent-me: <improvement>"
 ```
 
 **Issue:** Cannot find improvement suggestions
 
-**Solution:** Use `agentId` filter in search:
-```typescript
-memory_search({
-  query: 'improvements',
-  type: 'agent_improvement',
-  agentId: 'me'  // Filter by specific agent
-})
+**Solution:** Search by topic, or list all lessons:
+```bash
+cc memory search "improvements"
+cc memory list --type lesson
 ```
 
 ---
@@ -1472,6 +1435,55 @@ tc wp get <wp-id> --json
 
 ---
 
+## v5.10 Verification & Observability Features
+
+Framework 5.10.0 adds three user-facing improvements: evidence-bound QA verdicts, token-free memory drift detection, and real usage observability.
+
+### Artifact-Gated QA Gate
+
+**Purpose:** Prevents QA/security verdicts that are backed only by the agent's self-assessment. Every pass must cite an external, verifiable artifact.
+
+#### How it changes the dev loop
+
+Before 5.10.0, `@agent-qa` could emit `VERDICT: APPROVED` and the gate would unblock. Now a bare approval fails:
+
+```
+# BEFORE (accepted, now rejected)
+VERDICT: APPROVED
+
+# AFTER (required format)
+VERDICT: APPROVED
+ARTIFACT: test-run|pytest tests/ exit=0 "47 passed, 0 failed"
+```
+
+Valid artifact types:
+
+| Type | Example detail |
+|------|----------------|
+| `test-run` | `pytest tests/ exit=0 "47 passed, 0 failed"` |
+| `file-check` | `.claude/agents/manifest.json exists agents=16` |
+| `diff-check` | `expected 16 agents actual 16 agents match` |
+
+#### What this means in practice
+
+- `@agent-qa` and `@agent-sec` verdicts are now evidence-bound — you can trace every gate pass to a real test run or file inspection.
+- Agents should run tests, check files, or diff output before writing their verdict; then include the `ARTIFACT:` line.
+- The gate is enforced by `subagent-stop.sh` and `pretool-check.sh`. See [hooks/README.md](../../.claude/hooks/README.md) for the full verdict-parsing spec.
+
+#### Escape hatches
+
+| Escape hatch | When to use |
+|--------------|-------------|
+| `COPILOT_QA_GATE=off` | Trusted hotfix; CI handles verification externally |
+| Wait for 3-fail auto-unblock | QA agent is stuck in a retry loop; advisory is emitted to main session |
+
+```bash
+# Disable for one shell session
+export COPILOT_QA_GATE=off
+```
+
+---
+
 ## v1.8 Harness Features
 
 Based on Anthropic's research on long-running agents, v1.8 adds features that improve agent reliability over multi-session work.
@@ -1608,46 +1620,20 @@ tc task create --title "Risky refactor" --prd <id> --json
 **Conflict handling:**
 ```bash
 # Check conflict status
-worktree_conflict_status({ taskId: "TASK-xxx" })
+git status
+git diff --name-only --diff-filter=U
 
-# After manual resolution
-worktree_conflict_resolve({ taskId: "TASK-xxx" })
+# Resolve conflicts manually (edit files to remove <<<<<<<, =======, >>>>>>> markers)
+# then stage and complete the merge:
+git add <resolved-files>
+git commit
 ```
 
 ---
 
 ### 12. WebSocket Bridge (Real-time Events)
 
-**Purpose:** Streams task events to external consumers (UIs, dashboards).
-
-**Architecture:**
-- Standalone service polling the task activity_log
-- JWT authentication per connection
-- Events filtered by initiative
-
-**Starting the bridge:**
-```bash
-cd mcp-servers/websocket-bridge
-JWT_SECRET="secret" WORKSPACE_ID="your-workspace" npm start
-```
-
-**Event types:**
-- `task.create`, `task.update`, `task.complete`
-- `work_product.store`
-- `prd.create`
-- `checkpoint.create`
-
-**Client connection:**
-```javascript
-const ws = new WebSocket('ws://localhost:8765', {
-  headers: { Authorization: 'Bearer <jwt-token>' }
-});
-
-ws.on('message', (data) => {
-  const event = JSON.parse(data);
-  console.log(event.type, event.payload);
-});
-```
+> **Removed in v5.6.0.** The WebSocket Bridge (`mcp-servers/websocket-bridge`) was deleted along with the rest of the MCP-era servers. Real-time event streaming to external UIs/dashboards is not part of the current `cc`/`tc` CLI architecture. Task activity remains queryable via the `tc` CLI (e.g. `tc log`, `tc progress`).
 
 ---
 
@@ -1669,7 +1655,7 @@ These 12 enhancement features transform Claude Copilot into a robust, self-impro
 9. **Preflight Check** - Environment health verification before work
 10. **Scope Lock** - Two-agent separation of planning and execution
 11. **Task Worktree Isolation** - Isolate risky changes in git worktrees
-12. **WebSocket Bridge** - Real-time event streaming for UIs
+12. **WebSocket Bridge** - Removed in v5.6.0 (was real-time event streaming; MCP-era)
 
 **Key Benefits:**
 

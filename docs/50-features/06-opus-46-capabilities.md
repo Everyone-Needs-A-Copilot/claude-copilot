@@ -207,10 +207,11 @@ Claude Copilot orchestration and Agent Teams serve different use cases.
 
 ```bash
 # Quick exploration without formal tracking
-"@agent-ta and @agent-sec, review this API endpoint for security issues"
+"@agent-ta, review this API endpoint for security issues"
+# (For security, load: @include .claude/skills/security/stride-dread/SKILL.md)
 
 # Rapid prototyping
-"@agent-uxd and @agent-uids, sketch out a new dashboard layout"
+"@agent-design, sketch out a new dashboard layout"
 
 # One-off analysis
 "@agent-qa and @agent-me, debug why tests are failing"
@@ -483,7 +484,8 @@ Combine Agent Teams with Claude Copilot orchestration.
 **Use case:**
 ```bash
 # Phase 1: Explore with Agent Teams
-"@agent-ta and @agent-sec, design authentication approach"
+"@agent-ta, design authentication approach"
+# (For security analysis, load: @include .claude/skills/security/stride-dread/SKILL.md)
 
 # Phase 2: Formalize discoveries in PRD
 /protocol implement OAuth2 authentication
@@ -556,8 +558,8 @@ Automatically adjust effort mid-task based on complexity signals.
 
 ## Related Documentation
 
-- [Ecomode](./ecomode.md) - Complexity scoring and model routing details
-- [Magic Keywords](./magic-keywords.md) - Effort and action keyword reference
+- [Ecomode](./08-ecomode.md) - Complexity scoring and model routing details
+- [Magic Keywords](./09-magic-keywords.md) - Effort and action keyword reference
 - [Main Session Guardrails](../../CLAUDE.md#critical-main-session-guardrails) - Updated token limits
 - [Enhancement Features](./00-enhancement-features.md) - Auto-compaction thresholds
 - [Agent Guide](../../docs/30-operations/03-agent-guide.md) - Agent-specific patterns

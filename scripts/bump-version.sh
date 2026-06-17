@@ -132,47 +132,7 @@ if [ -z "$COMPONENT" ]; then
     fi
 fi
 
-# Update MCP server versions
-update_mcp_server() {
-    local name=$1
-    local pkg_path="$COPILOT_PATH/mcp-servers/$name/package.json"
-
-    if [ -f "$pkg_path" ]; then
-        if [ "$DRY_RUN" = true ]; then
-            echo -e "${YELLOW}[DRY-RUN]${NC} Would update $name"
-        else
-            node -e "
-                const fs = require('fs');
-                const content = JSON.parse(fs.readFileSync('$pkg_path', 'utf8'));
-                content.version = '$NEW_VERSION';
-                fs.writeFileSync('$pkg_path', JSON.stringify(content, null, 2) + '\n');
-            "
-
-            # Also update VERSION.json
-            node -e "
-                const fs = require('fs');
-                const file = '$COPILOT_PATH/VERSION.json';
-                const content = JSON.parse(fs.readFileSync(file, 'utf8'));
-                content.components['mcp-servers']['$name'].version = '$NEW_VERSION';
-                fs.writeFileSync(file, JSON.stringify(content, null, 2) + '\n');
-            "
-            echo -e "${GREEN}✅ Updated $name to v$NEW_VERSION${NC}"
-        fi
-    fi
-}
-
-case "$COMPONENT" in
-    ""|"all")
-        update_mcp_server "copilot-memory"
-        update_mcp_server "skills-copilot"
-        ;;
-    "mcp-memory"|"copilot-memory")
-        update_mcp_server "copilot-memory"
-        ;;
-    "mcp-skills"|"skills-copilot")
-        update_mcp_server "skills-copilot"
-        ;;
-esac
+# MCP servers removed — no server package.json to update
 
 echo ""
 echo -e "${BLUE}========================================${NC}"
@@ -183,8 +143,7 @@ else
     echo -e "${GREEN}Version bump complete!${NC}"
     echo ""
     echo "Next steps:"
-    echo "  1. Rebuild MCP servers: cd ~/.claude/copilot && npm run build:all"
-    echo "  2. Run version check: ./scripts/check-versions.sh"
-    echo "  3. Commit changes: git add -A && git commit -m 'chore(release): Bump version to $NEW_VERSION'"
+    echo "  1. Run version check: ./scripts/check-versions.sh"
+    echo "  2. Commit changes: git add -A && git commit -m 'chore(release): Bump version to $NEW_VERSION'"
 fi
 echo -e "${BLUE}========================================${NC}"

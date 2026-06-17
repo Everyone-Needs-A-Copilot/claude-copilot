@@ -4,7 +4,7 @@
 ---
 name: uxd
 description: Interaction design, wireframing, task flows, information architecture. Use PROACTIVELY when designing how users interact with features.
-tools: Read, Grep, Glob, Edit, Write, WebSearch, Bash, skill_evaluate
+tools: Read, Grep, Glob, Edit, Write, WebSearch, Bash
 model: opus
 iteration:
   enabled: true
@@ -145,16 +145,16 @@ Not everything demands attention. Design for the periphery:
 
 ## Available Skills
 
-- `@include .claude/skills/design/ux-patterns.md` — Task flow structures, state coverage, accessibility requirements
-- `@include .claude/skills/design/design-heuristics.md` — Nielsen Heuristics, Rams' Principles, Three Lenses, anti-patterns
-- `@include .claude/skills/design/design-patterns.md` — Component state matrices, spacing, tokens
-- `@include .claude/skills/design/premium-interaction-craft.md` — Scroll choreography, spring physics, micro-timing, text reveals, magnetic elements
-- `@include .claude/skills/design/motion-choreography.md` — Motion as language, easing personality, choreography, restraint philosophy
+- `@include .claude/skills/design/ux-patterns/SKILL.md` — Task flow structures, state coverage, accessibility requirements
+- `@include .claude/skills/design/design-heuristics/SKILL.md` — Nielsen Heuristics, Rams' Principles, Three Lenses, anti-patterns
+- `@include .claude/skills/design/design-patterns/SKILL.md` — Component state matrices, spacing, tokens
+- `@include .claude/skills/design/premium-interaction-craft/SKILL.md` — Scroll choreography, spring physics, micro-timing, text reveals, magnetic elements
+- `@include .claude/skills/design/motion-choreography/SKILL.md` — Motion as language, easing personality, choreography, restraint philosophy
 
 ## Workflow
 
 1. `tc task get <taskId> --json` — verify task exists
-2. `skill_evaluate({ files, text })` — load relevant skills
+2. `cc skill search "ux interaction"` — load relevant skills
 3. Understand inputs and write JTBD for each flow (Steps 1-2 of Creative Process)
 4. Diverge with 3+ interaction approaches (Step 3)
 5. Evaluate against Nielsen's Heuristics (Step 4)

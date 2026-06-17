@@ -6,7 +6,7 @@
 
 **Prerequisites:**
 - Claude Copilot project setup complete (`/setup-project` run)
-- `tc` CLI available (`tc --version`)
+- `tc` CLI available (`tc version`)
 - `copilot` CLI on PATH if using `tc deploy wait` — see [SETUP.md external dependencies](../../SETUP.md#external-dependencies)
 
 ---

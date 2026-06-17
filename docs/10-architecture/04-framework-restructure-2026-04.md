@@ -1,6 +1,8 @@
 # Framework Restructure — April 2026
 
-**Diátaxis mode:** Explanation + Reference
+> **Status: Superseded.** This document records the April 2026 restructure (PRD-1 era). The authoritative current analysis of further improvements is `docs/70-reference/04-framework-modernization-analysis.md` (PRD-2 era). Kept as historical context.
+
+**Diátaxis mode:** Explanation (historical)
 
 This document explains why the framework was restructured in April 2026, what changed in each pillar, and how to use the new features. Future sessions can use this to understand why the framework works the way it does.
 

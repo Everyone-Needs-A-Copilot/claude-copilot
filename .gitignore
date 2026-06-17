@@ -9,6 +9,7 @@ Thumbs.db
 .idea/
 .vscode/
 *.sublime-*
+.obsidian/
 
 # Environment
 .env
@@ -68,4 +69,5 @@ PROJECT_MAP.md
 # Local/generated artifacts
 .claude/settings.local.json
 coverage.xml
+.coverage
 *.egg-info/

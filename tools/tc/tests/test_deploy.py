@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Optional
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -23,7 +23,9 @@ def _make_trigger_response(deployment_uuid: str = "deploy-uuid-123"):
     """Return a mock CompletedProcess for a successful trigger."""
     m = MagicMock()
     m.returncode = 0
-    m.stdout = json.dumps({"deployment_uuid": deployment_uuid, "message": "Deployment triggered."})
+    m.stdout = json.dumps(
+        {"deployment_uuid": deployment_uuid, "message": "Deployment triggered."}
+    )
     m.stderr = ""
     return m
 
@@ -116,6 +118,121 @@ def _copilot_mock(
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# _get_deploy_cli — config resolution
+# ---------------------------------------------------------------------------
+
+
+def _inject_cc_config_mock(resolve_key_return_value):
+    """Context manager: inject a fake cc.core.config into sys.modules.
+
+    The tc test environment does not install the cc package, so we inject
+    a lightweight module stub instead of using ``patch("cc.core.config..."``.
+    Returns a context manager that cleans up after itself.
+    """
+    import sys
+    import types
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _ctx():
+        originals = {}
+        for name in ("cc", "cc.core", "cc.core.config"):
+            originals[name] = sys.modules.get(name)
+
+        cc_mod = types.ModuleType("cc")
+        cc_core_mod = types.ModuleType("cc.core")
+        cc_config_mod = types.ModuleType("cc.core.config")
+        cc_config_mod.resolve_key = lambda key: (
+            resolve_key_return_value if key == "deploy.cli" else None
+        )
+        sys.modules["cc"] = cc_mod
+        sys.modules["cc.core"] = cc_core_mod
+        sys.modules["cc.core.config"] = cc_config_mod
+        try:
+            yield
+        finally:
+            for name, orig in originals.items():
+                if orig is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = orig
+
+    return _ctx()
+
+
+class TestGetDeployCli:
+    """_get_deploy_cli resolves the CLI command from env / cc config / default."""
+
+    def test_default_when_nothing_configured(self):
+        """No env var, no cc config → default (python -m copilot_cli) is used."""
+        from tc.commands.deploy import _get_deploy_cli, _DEPLOY_CLI_DEFAULT
+        import shlex
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CC_DEPLOY_CLI", None)
+            # cc not importable in this env → falls back to default
+            result = _get_deploy_cli()
+        assert result == shlex.split(_DEPLOY_CLI_DEFAULT)
+
+    def test_env_var_overrides_default(self):
+        """CC_DEPLOY_CLI env var wins over everything."""
+        from tc.commands.deploy import _get_deploy_cli
+
+        with patch.dict(os.environ, {"CC_DEPLOY_CLI": "my-deploy-tool --profile prod"}):
+            result = _get_deploy_cli()
+        assert result == ["my-deploy-tool", "--profile", "prod"]
+
+    def test_env_var_overrides_cc_config(self):
+        """CC_DEPLOY_CLI beats cc config even when cc config is set."""
+        from tc.commands.deploy import _get_deploy_cli
+
+        with patch.dict(os.environ, {"CC_DEPLOY_CLI": "env-tool"}):
+            with _inject_cc_config_mock("config-tool"):
+                result = _get_deploy_cli()
+        assert result == ["env-tool"]
+
+    def test_cc_config_overrides_default(self):
+        """deploy.cli from cc config overrides the built-in default."""
+        from tc.commands.deploy import _get_deploy_cli
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CC_DEPLOY_CLI", None)
+            with _inject_cc_config_mock("custom-cli deploy"):
+                result = _get_deploy_cli()
+        assert result == ["custom-cli", "deploy"]
+
+    def test_cc_import_failure_falls_back_to_default(self):
+        """If cc.core.config raises ImportError, fall back to built-in default."""
+        from tc.commands.deploy import _get_deploy_cli, _DEPLOY_CLI_DEFAULT
+        import shlex
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CC_DEPLOY_CLI", None)
+            # Inject a stub that raises on import of resolve_key
+            with _inject_cc_config_mock(None):
+                import sys
+
+                # Overwrite the stub's resolve_key to raise
+                sys.modules["cc.core.config"].resolve_key = MagicMock(
+                    side_effect=ImportError("cc not found")
+                )
+                result = _get_deploy_cli()
+        assert result == shlex.split(_DEPLOY_CLI_DEFAULT)
+
+    def test_run_copilot_uses_configured_cli(self):
+        """_run_copilot prepends the configured CLI prefix."""
+        from tc.commands.deploy import _run_copilot
+
+        with patch("tc.commands.deploy._get_deploy_cli", return_value=["my-cli"]):
+            with patch("tc.commands.deploy.subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+                _run_copilot(["arg1", "arg2"])
+        mock_run.assert_called_once()
+        called_cmd = mock_run.call_args[0][0]
+        assert called_cmd == ["my-cli", "arg1", "arg2"]
+
+
 class TestCliAvailabilityCheck:
     """_check_cli_available exits with code 4 when copilot_cli is absent."""
 
@@ -145,11 +262,16 @@ class TestDeployWaitSuccess:
         task_id = _setup_task(cli)
         with patch("tc.commands.deploy._run_copilot") as mock_copilot:
             mock_copilot.side_effect = _copilot_mock()
-            result = cli([
-                "deploy", "wait", "my-app",
-                "--task-id", str(task_id),
-                "--json",
-            ])
+            result = cli(
+                [
+                    "deploy",
+                    "wait",
+                    "my-app",
+                    "--task-id",
+                    str(task_id),
+                    "--json",
+                ]
+            )
         assert result.exit_code == 0
 
     def test_success_json_output(self, cli):
@@ -159,11 +281,16 @@ class TestDeployWaitSuccess:
                 trigger_uuid="uuid-abc",
                 poll_logs_url="https://coolify/logs/uuid-abc",
             )
-            result = cli([
-                "deploy", "wait", "my-app",
-                "--task-id", str(task_id),
-                "--json",
-            ])
+            result = cli(
+                [
+                    "deploy",
+                    "wait",
+                    "my-app",
+                    "--task-id",
+                    str(task_id),
+                    "--json",
+                ]
+            )
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["deploy_status"] == "success"
@@ -176,11 +303,16 @@ class TestDeployWaitSuccess:
         task_id = _setup_task(cli)
         with patch("tc.commands.deploy._run_copilot") as mock_copilot:
             mock_copilot.side_effect = _copilot_mock(trigger_uuid="uuid-xyz")
-            cli([
-                "deploy", "wait", "my-app",
-                "--task-id", str(task_id),
-                "--json",
-            ])
+            cli(
+                [
+                    "deploy",
+                    "wait",
+                    "my-app",
+                    "--task-id",
+                    str(task_id),
+                    "--json",
+                ]
+            )
         # Verify WP was stored with correct type
         wp_list = cli(["wp", "list", "--type", "deploy_report", "--json"])
         wps = json.loads(wp_list.output)
@@ -191,12 +323,18 @@ class TestDeployWaitSuccess:
         task_id = _setup_task(cli)
         with patch("tc.commands.deploy._run_copilot") as mock_copilot:
             mock_copilot.side_effect = _copilot_mock(trigger_uuid="uuid-content")
-            result = cli([
-                "deploy", "wait", "my-app",
-                "--task-id", str(task_id),
-                "--env", "production",
-                "--json",
-            ])
+            result = cli(
+                [
+                    "deploy",
+                    "wait",
+                    "my-app",
+                    "--task-id",
+                    str(task_id),
+                    "--env",
+                    "production",
+                    "--json",
+                ]
+            )
         assert result.exit_code == 0
         data = json.loads(result.output)
         wp_result = cli(["wp", "get", str(data["wp_id"]), "--json"])
@@ -211,10 +349,15 @@ class TestDeployWaitSuccess:
         task_id = _setup_task(cli)
         with patch("tc.commands.deploy._run_copilot") as mock_copilot:
             mock_copilot.side_effect = _copilot_mock()
-            result = cli([
-                "deploy", "wait", "my-app",
-                "--task-id", str(task_id),
-            ])
+            result = cli(
+                [
+                    "deploy",
+                    "wait",
+                    "my-app",
+                    "--task-id",
+                    str(task_id),
+                ]
+            )
         assert result.exit_code == 0
         assert "OK" in result.output
         assert "my-app" in result.output
@@ -232,12 +375,18 @@ class TestDeployWaitSuccess:
         task_id = _setup_task(cli)
         with patch("tc.commands.deploy._run_copilot") as mock_copilot:
             mock_copilot.side_effect = _copilot_mock()
-            result = cli([
-                "deploy", "wait", "my-app",
-                "--branch", "release/v2",
-                "--task-id", str(task_id),
-                "--json",
-            ])
+            result = cli(
+                [
+                    "deploy",
+                    "wait",
+                    "my-app",
+                    "--branch",
+                    "release/v2",
+                    "--task-id",
+                    str(task_id),
+                    "--json",
+                ]
+            )
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["branch"] == "release/v2"
@@ -246,12 +395,18 @@ class TestDeployWaitSuccess:
         task_id = _setup_task(cli)
         with patch("tc.commands.deploy._run_copilot") as mock_copilot:
             mock_copilot.side_effect = _copilot_mock()
-            result = cli([
-                "deploy", "wait", "my-app",
-                "--env", "production",
-                "--task-id", str(task_id),
-                "--json",
-            ])
+            result = cli(
+                [
+                    "deploy",
+                    "wait",
+                    "my-app",
+                    "--env",
+                    "production",
+                    "--task-id",
+                    str(task_id),
+                    "--json",
+                ]
+            )
         assert result.exit_code == 0
         data = json.loads(result.output)
         wp_result = cli(["wp", "get", str(data["wp_id"]), "--json"])
@@ -283,11 +438,16 @@ class TestDeployWaitFailed:
                 poll_status="failed",
                 poll_logs_url="https://coolify/logs/dep-fail",
             )
-            result = cli([
-                "deploy", "wait", "my-app",
-                "--task-id", str(task_id),
-                "--json",
-            ])
+            result = cli(
+                [
+                    "deploy",
+                    "wait",
+                    "my-app",
+                    "--task-id",
+                    str(task_id),
+                    "--json",
+                ]
+            )
         assert result.exit_code == 1
         data = json.loads(result.output)
         assert data["deploy_status"] == "failed"
@@ -300,11 +460,16 @@ class TestDeployWaitFailed:
                 poll_status="failed",
                 poll_logs_url="https://coolify/logs/dep-fail",
             )
-            result = cli([
-                "deploy", "wait", "my-app",
-                "--task-id", str(task_id),
-                "--json",
-            ])
+            result = cli(
+                [
+                    "deploy",
+                    "wait",
+                    "my-app",
+                    "--task-id",
+                    str(task_id),
+                    "--json",
+                ]
+            )
         data = json.loads(result.output)
         wp_result = cli(["wp", "get", str(data["wp_id"]), "--json"])
         report = json.loads(json.loads(wp_result.output)["content"])
@@ -340,10 +505,15 @@ class TestDeployWaitTimeout:
         with patch("tc.commands.deploy._run_copilot") as mock_copilot:
             mock_copilot.side_effect = self._non_terminal_side_effect()
             with patch("tc.commands.deploy.time.sleep"):  # skip real sleep
-                result = cli([
-                    "deploy", "wait", "my-app",
-                    "--timeout", "1",
-                ])
+                result = cli(
+                    [
+                        "deploy",
+                        "wait",
+                        "my-app",
+                        "--timeout",
+                        "1",
+                    ]
+                )
         assert result.exit_code == 2
 
     def test_timeout_json_deploy_status(self, cli):
@@ -351,12 +521,18 @@ class TestDeployWaitTimeout:
         with patch("tc.commands.deploy._run_copilot") as mock_copilot:
             mock_copilot.side_effect = self._non_terminal_side_effect()
             with patch("tc.commands.deploy.time.sleep"):
-                result = cli([
-                    "deploy", "wait", "my-app",
-                    "--timeout", "1",
-                    "--task-id", str(task_id),
-                    "--json",
-                ])
+                result = cli(
+                    [
+                        "deploy",
+                        "wait",
+                        "my-app",
+                        "--timeout",
+                        "1",
+                        "--task-id",
+                        str(task_id),
+                        "--json",
+                    ]
+                )
         assert result.exit_code == 2
         data = json.loads(result.output)
         assert data["deploy_status"] == "timeout"
@@ -395,6 +571,7 @@ class TestDeployWaitTestFailed:
             mock_copilot.side_effect = _copilot_mock()
             # Patch subprocess.run only for the test command call
             import subprocess as sp_module
+
             original_run = sp_module.run
 
             def run_side_effect(cmd, **kwargs):
@@ -407,17 +584,25 @@ class TestDeployWaitTestFailed:
                     return m
                 return original_run(cmd, **kwargs)
 
-            with patch("tc.commands.deploy.subprocess.run", side_effect=run_side_effect):
-                result = cli([
-                    "deploy", "wait", "my-app",
-                    "--test", "playwright test my-spec.ts",
-                ])
+            with patch(
+                "tc.commands.deploy.subprocess.run", side_effect=run_side_effect
+            ):
+                result = cli(
+                    [
+                        "deploy",
+                        "wait",
+                        "my-app",
+                        "--test",
+                        "playwright test my-spec.ts",
+                    ]
+                )
         assert result.exit_code == 3
 
     def test_test_pass_exits_0(self, cli):
         with patch("tc.commands.deploy._run_copilot") as mock_copilot:
             mock_copilot.side_effect = _copilot_mock()
             import subprocess as sp_module
+
             original_run = sp_module.run
 
             def run_side_effect(cmd, **kwargs):
@@ -429,11 +614,18 @@ class TestDeployWaitTestFailed:
                     return m
                 return original_run(cmd, **kwargs)
 
-            with patch("tc.commands.deploy.subprocess.run", side_effect=run_side_effect):
-                result = cli([
-                    "deploy", "wait", "my-app",
-                    "--test", "playwright test my-spec.ts",
-                ])
+            with patch(
+                "tc.commands.deploy.subprocess.run", side_effect=run_side_effect
+            ):
+                result = cli(
+                    [
+                        "deploy",
+                        "wait",
+                        "my-app",
+                        "--test",
+                        "playwright test my-spec.ts",
+                    ]
+                )
         assert result.exit_code == 0
 
     def test_test_not_run_on_deploy_failure(self, cli):
@@ -444,17 +636,22 @@ class TestDeployWaitTestFailed:
             mock_copilot.side_effect = _copilot_mock(poll_status="failed")
 
             import subprocess as sp_module
+
             original_run = sp_module.run
 
             def run_side_effect(cmd, **kwargs):
                 if kwargs.get("shell"):
                     test_was_called.append(True)
                     m = MagicMock()
-                    m.returncode = 0; m.stdout = ""; m.stderr = ""
+                    m.returncode = 0
+                    m.stdout = ""
+                    m.stderr = ""
                     return m
                 return original_run(cmd, **kwargs)
 
-            with patch("tc.commands.deploy.subprocess.run", side_effect=run_side_effect):
+            with patch(
+                "tc.commands.deploy.subprocess.run", side_effect=run_side_effect
+            ):
                 cli(["deploy", "wait", "my-app", "--test", "echo ok"])
 
         assert not test_was_called, "Test command should not run when deploy fails"
@@ -465,6 +662,7 @@ class TestDeployWaitTestFailed:
             mock_copilot.side_effect = _copilot_mock()
 
             import subprocess as sp_module
+
             original_run = sp_module.run
 
             def run_side_effect(cmd, **kwargs):
@@ -476,13 +674,21 @@ class TestDeployWaitTestFailed:
                     return m
                 return original_run(cmd, **kwargs)
 
-            with patch("tc.commands.deploy.subprocess.run", side_effect=run_side_effect):
-                result = cli([
-                    "deploy", "wait", "my-app",
-                    "--test", "pytest tests/",
-                    "--task-id", str(task_id),
-                    "--json",
-                ])
+            with patch(
+                "tc.commands.deploy.subprocess.run", side_effect=run_side_effect
+            ):
+                result = cli(
+                    [
+                        "deploy",
+                        "wait",
+                        "my-app",
+                        "--test",
+                        "pytest tests/",
+                        "--task-id",
+                        str(task_id),
+                        "--json",
+                    ]
+                )
         assert result.exit_code == 3
         data = json.loads(result.output)
         wp_result = cli(["wp", "get", str(data["wp_id"]), "--json"])
@@ -512,12 +718,17 @@ class TestDeployWaitDryRun:
 
     def test_dry_run_with_task_id_skips_wp_storage(self, cli):
         task_id = _setup_task(cli)
-        result = cli([
-            "deploy", "wait", "my-app",
-            "--dry-run",
-            "--task-id", str(task_id),
-            "--json",
-        ])
+        result = cli(
+            [
+                "deploy",
+                "wait",
+                "my-app",
+                "--dry-run",
+                "--task-id",
+                str(task_id),
+                "--json",
+            ]
+        )
         # dry_run=True skips WP storage
         data = json.loads(result.output)
         assert data["wp_id"] is None
@@ -542,10 +753,12 @@ class TestTriggerParsing:
     """Various response shapes from deploy trigger."""
 
     def test_list_response_uses_first_item(self, cli):
-        trigger_stdout = json.dumps([
-            {"deployment_uuid": "uuid-first", "application_name": "app1"},
-            {"deployment_uuid": "uuid-second", "application_name": "app2"},
-        ])
+        trigger_stdout = json.dumps(
+            [
+                {"deployment_uuid": "uuid-first", "application_name": "app1"},
+                {"deployment_uuid": "uuid-second", "application_name": "app2"},
+            ]
+        )
         with patch("tc.commands.deploy._run_copilot") as mock_copilot:
             mock_copilot.side_effect = _copilot_mock(trigger_stdout=trigger_stdout)
             result = cli(["deploy", "wait", "my-tag", "--json"])
@@ -579,10 +792,15 @@ class TestDeployReportListing:
         task_id = _setup_task(cli)
         with patch("tc.commands.deploy._run_copilot") as mock_copilot:
             mock_copilot.side_effect = _copilot_mock(trigger_uuid="uuid-list-test")
-            cli([
-                "deploy", "wait", "my-app",
-                "--task-id", str(task_id),
-            ])
+            cli(
+                [
+                    "deploy",
+                    "wait",
+                    "my-app",
+                    "--task-id",
+                    str(task_id),
+                ]
+            )
 
         result = cli(["wp", "list", "--type", "deploy_report", "--json"])
         assert result.exit_code == 0

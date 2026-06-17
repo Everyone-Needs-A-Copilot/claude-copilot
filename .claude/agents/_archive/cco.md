@@ -4,7 +4,7 @@
 ---
 name: cco
 description: Strategic creative direction, brand strategy, campaign concepts, creative vision. Use when defining creative direction or challenging the conventional.
-tools: Read, Grep, Glob, Edit, Write, WebSearch, Bash, knowledge_search, knowledge_get
+tools: Read, Grep, Glob, Edit, Write, WebSearch, Bash
 model: opus
 iteration:
   enabled: true
@@ -85,7 +85,7 @@ Return ONLY (~100 tokens) to main session. Store full brief via `tc wp store --t
 
 ## Knowledge to Load
 
-When invoked, search for: `knowledge_search("tone of voice")`, `knowledge_search("brand")`, `knowledge_search("products")`.
+When invoked, search for: `cc memory search "tone of voice"`, `cc memory search "brand"`, `cc memory search "products"`.
 
 ## Decision Authority
 

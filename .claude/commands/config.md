@@ -20,8 +20,8 @@ Parse user input to determine action:
 Configuration is stored in Memory Copilot metadata. Use these tools:
 
 1. **Get ecomode configuration from memory:**
-   ```
-   memory_list({ tags: ['ecomode_config'], limit: 1 })
+   ```bash
+   cc memory list --tags ecomode_config
    ```
 
 2. **If no config exists, use defaults:**
@@ -61,8 +61,7 @@ Format as clean dashboard:
 - Override anytime with keywords: `eco:`, `fast:`, `max:`, `opus:`, `sonnet:`, `haiku:`
 
 **Current Session Cost Summary:**
-[If ecomode enabled and cost tracking active, call cost_get_summary({ format: 'compact' })]
-[Otherwise: "No cost data yet (ecomode disabled or no usage tracked)"]
+Per-session cost summary is not currently available — no cost-tracking backend is wired into the framework. Cost figures shown in examples below are illustrative only.
 
 ### Configuration File
 
@@ -84,17 +83,9 @@ To modify settings, use `/config ecomode [command]`
 
 Actions:
 1. Update or create ecomode config memory:
-   ```
-   memory_store({
-     content: 'Ecomode configuration: enabled=true, thresholds={low: 0.3, medium: 0.7}, cost={displayInMemory: true, trackUsage: true}',
-     type: 'context',
-     tags: ['ecomode_config'],
-     metadata: {
-       enabled: true,
-       thresholds: { low: 0.3, medium: 0.7 },
-       cost: { displayInMemory: true, trackUsage: true }
-     }
-   })
+   ```bash
+   cc memory store --type context --tags ecomode_config \
+     'Ecomode configuration: enabled=true, thresholds={low: 0.3, medium: 0.7}, cost={displayInMemory: true, trackUsage: true}'
    ```
 
 2. Show confirmation:
@@ -153,15 +144,15 @@ Actions:
 ```
 
 Actions:
-1. Call cost_get_summary({ format: 'full' })
-2. Display full cost breakdown (if ecomode enabled)
+1. Display the cost tracking configuration settings stored in Memory Copilot
+2. Note that live session cost figures are not available (no cost-tracking backend is wired)
 3. Show settings:
    ```
    ### Cost Tracking Settings
 
    - **Display in /memory:** Yes
    - **Track usage:** Yes
-   - **Current session:** [summary from cost_get_summary]
+   - **Current session:** Cost summary is not available — no cost-tracking backend is active.
 
    To disable cost tracking:
    /config ecomode cost disable
@@ -210,13 +201,14 @@ Before updating thresholds:
 
 When `/memory` is called, if ecomode config exists with `cost.displayInMemory: true`:
 
-1. Call cost_get_summary({ format: 'compact' })
-2. Add to memory dashboard output:
+1. Note: per-session cost summary is not available (no cost-tracking backend is wired)
+2. Add a brief status note to the memory dashboard output:
    ```
-   ### Ecomode Cost Summary
-   [Output from cost_get_summary compact format]
+   ### Ecomode Status
+   Ecomode is enabled. Model routing thresholds: low=0.3, medium=0.7.
+   (Live cost figures are not available — no cost backend is active.)
 
-   Run `/config ecomode cost` for detailed breakdown.
+   Run `/config ecomode cost` for settings.
    ```
 
 ## Examples
@@ -282,7 +274,7 @@ Output:
 - Track usage: Yes
 
 **Current Session:**
-Ecomode: 12 calls (haiku=7, sonnet=4, opus=1) | Cost: $0.0342 (saved $0.1876 vs Opus = 84.6%)
+Ecomode is enabled. Live cost figures are not available (no cost-tracking backend is active).
 
 ### How to Modify
 
@@ -334,7 +326,7 @@ Check back with `/memory` or `/config ecomode cost` after some work.
 
 - Configuration is workspace-specific (stored per project)
 - Thresholds can be customized per team/project
-- Cost tracking uses Memory Copilot tools (cost_track_usage, cost_get_summary)
+- Cost tracking configuration is stored in Memory Copilot, but live cost figures are not available (no cost-tracking backend is wired)
 - Modifier keywords always override ecomode routing
 - Default is ecomode disabled to maintain backward compatibility
 - Cost estimates are based on current Claude pricing (Jan 2025)

@@ -47,7 +47,7 @@ graph TD
 |-----------|-------|------------|--------------|----------------|------------------|
 | **1** | [Memory](#milestone-1-persistent-memory) | Beginner | None | Never lose context again | /continue, decisions persist |
 | **2** | [Protocol](#milestone-2-agent-workflow) | Beginner+ | Memory | Structured work sessions | Task breakdown, routing |
-| **3** | [Agents](#milestone-3-full-framework) | Intermediate | Protocol | Expert guidance | 12 specialists, auto-routing |
+| **3** | [Agents](#milestone-3-full-framework) | Intermediate | Protocol | Expert guidance | 15 framework agents + kc, auto-routing |
 | **4** | [Extensions](#milestone-4-team-setup) | Intermediate+ | Agents | Company knowledge | Shared standards, custom agents |
 | **5** | [Mastery](#milestone-5-power-user) | Advanced | All previous | Complete customization | Private skills, workflows |
 
@@ -147,49 +147,50 @@ Read @~/.claude/copilot/SETUP.md and set up Claude Copilot on this machine
 ```
 
 This installs:
-- Memory Copilot MCP server (persistent storage)
-- Skills Copilot MCP server (knowledge + skills)
+- `cc` CLI — memory search, skill discovery, env hydration
+- `tc` CLI — task and work product storage (Task Copilot)
 - Global commands (/setup-project, /knowledge-copilot, etc.)
 
 ### Verification
 
-In Claude Code, run:
-```
-/mcp
+In your terminal, run:
+```bash
+cc --version
+tc version
 ```
 
-You should see:
-```
-● copilot-memory
-● skills-copilot
-```
+Both should print their version numbers. No MCP servers or Node.js required.
 
 ### What You Can Do Now
 
 | Capability | How |
 |------------|-----|
-| **Store decisions** | Claude automatically stores via `memory_store` |
+| **Store decisions** | `cc memory store --type decision "<content>"` |
 | **Resume work** | `/continue` loads your last session |
-| **Search history** | `memory_search` finds past decisions |
-| **Track initiatives** | Automatic progress tracking |
+| **Search history** | `cc memory search "<query>"` finds past decisions |
+| **Detect stale memory** | `cc memory check` — finds broken paths, commands, version conflicts |
+| **Check quota** | `cc usage` — real server-side counters for your 5h and 7d windows |
+| **Track tasks** | `tc task create`, `tc wp store` for work products |
 
-### Understanding Memory Tools
+### Understanding Memory CLI
 
-Claude Copilot adds these tools to Claude Code:
+Claude Copilot uses the `cc` CLI for memory and `tc` CLI for tasks:
 
-| Tool | Purpose | When Used |
-|------|---------|-----------|
-| `initiative_get` | Retrieve current work | On /continue |
-| `initiative_start` | Begin new work | On /protocol |
-| `initiative_update` | Save progress | End of session |
-| `initiative_complete` | Archive finished work | Task complete |
-| `memory_store` | Store decision/lesson | Whenever noteworthy |
-| `memory_search` | Find past decisions | When context needed |
+| Command | Purpose | When Used |
+|---------|---------|-----------|
+| `cc memory store` | Store decision/lesson | After meaningful work |
+| `cc memory search` | Find past decisions | When context needed |
+| `cc memory list` | List recent entries | Review prior sessions |
+| `cc memory check` | Detect stale/broken memory references (0–100 score; exits 1 on fail) | After restructures, renames, or framework updates |
+| `cc usage` | Show current Claude quota from server-side counters | Before long `/protocol` tasks; morning check |
+| `tc task create` | Create a task | New work item |
+| `tc wp store` | Store a work product | After agent completes |
+| `tc progress` | View task status | Check initiative state |
 
 ### Success Criteria
 
 - [ ] Machine setup completed
-- [ ] Both MCP servers show as connected
+- [ ] Both CLIs respond (cc --version, tc version)
 - [ ] You understand what Memory Copilot does
 - [ ] You're ready to set up a project
 
@@ -233,7 +234,7 @@ your-project/
 ├── CLAUDE.md              # Project instructions
 └── .claude/
     ├── commands/          # /protocol, /continue
-    └── agents/            # 12 specialist agents
+    └── agents/            # 16 specialist agents
 ```
 
 ### Try Your First Protocol Session
@@ -261,8 +262,8 @@ graph TD
     A[User Request] --> B{Protocol Classifies}
     B -->|Bug Fix| C[Engineer me]
     B -->|Feature| D[Tech Architect ta]
-    B -->|Security| E[Security sec]
-    B -->|Design| F[UX Designer uxd]
+    B -->|Security| E[security/stride-dread skill]
+    B -->|Design| F[Design chain uxd/uids/uid]
     C --> G[Work + Save]
     D --> G
     E --> G
@@ -277,10 +278,10 @@ graph TD
 | Bug Fix | Engineer (me) | "Login fails with 404" |
 | Feature | Tech Architect (ta) | "Add user profiles" |
 | Architecture | Tech Architect (ta) | "Design API structure" |
-| Security | Security (sec) | "Review auth flow" |
+| Security | load `security/stride-dread` skill | "Review auth flow" |
 | Documentation | Documentation (doc) | "Write API docs" |
 | Testing | QA Engineer (qa) | "Test edge cases" |
-| Design | UX Designer (uxd) | "Design onboarding" |
+| Design | Design chain (uxd/uids/uid) | "Design onboarding" |
 
 ### Verification
 
@@ -305,7 +306,7 @@ You should see your previous session load with full context.
 |------------|-----|
 | **Start structured work** | `/protocol` + your request |
 | **Get expert routing** | Request auto-routed to right agent |
-| **Save progress** | Automatic via `initiative_update` |
+| **Save progress** | `cc memory store --type context "<summary>"` |
 | **Resume work** | `/continue` loads full context |
 
 ### Success Criteria
@@ -318,7 +319,7 @@ You should see your previous session load with full context.
 
 ### What's Next?
 
-You've seen one agent in action. Milestone 3 introduces all 12 specialists and shows how they work together.
+You've seen one agent in action. Milestone 3 introduces all 15 framework agents + kc and shows how they work together.
 
 ---
 
@@ -326,11 +327,11 @@ You've seen one agent in action. Milestone 3 introduces all 12 specialists and s
 
 **Complexity**: Intermediate
 **Prerequisites**: Protocol working
-**Goal**: Master all 14 agents and understand when to use each
+**Goal**: Master all 15 framework agents + kc and understand when to use each
 
 ### What You'll Achieve
 
-- Know all 12 specialist agents
+- Know all 15 framework agents + kc (setup-only)
 - Understand agent routing patterns
 - Use agents for complex multi-domain tasks
 - See agents collaborate on solutions
@@ -341,20 +342,36 @@ Complex work requires multiple perspectives: architecture, security, UX, impleme
 
 ### Your Team
 
+**Core agents:**
+
 | Agent | Role | When Used |
 |-------|------|-----------|
 | **ta** | Tech Architect | System design, task breakdown, ADRs |
 | **me** | Engineer | Implementation, bug fixes, refactoring |
 | **qa** | QA Engineer | Testing strategy, edge cases, verification |
-| **sec** | Security | Vulnerabilities, threat modeling, OWASP |
 | **doc** | Documentation | READMEs, API docs, architecture docs |
 | **do** | DevOps | CI/CD, containers, infrastructure |
 | **sd** | Service Designer | Customer journeys, experience strategy |
-| **uxd** | UX Designer | Task flows, wireframes, accessibility |
-| **uids** | UI Designer | Visual design, design systems, tokens |
-| **uid** | UI Developer | Component implementation, responsive UI |
-| **cw** | Copywriter | Microcopy, error messages, voice/tone |
 | **kc** | Knowledge Copilot | Shared knowledge setup |
+
+**Design chain (sd → uxd → uids → uid → ta → me):**
+
+| Agent | Role | When Used |
+|-------|------|-----------|
+| **uxd** | UX Designer | Interaction flows, task design |
+| **uids** | UI Design System | Visual tokens, color, typography |
+| **uid** | UI Developer | Component specs |
+
+**Specialist branches:**
+
+| Agent | Role | When Used |
+|-------|------|-----------|
+| **sec** | Security | Threat modeling, STRIDE/DREAD |
+| **ind** | Industrial Designer | Object-level essentialism review |
+| **cco** | Creative Director | Brand strategy, creative direction |
+| **cw** | Copywriter | Copy execution, messaging, microcopy |
+| **cs** | Customer Success | Support patterns |
+| **cpa** | CPA / Financial | Financial modeling, tax implications |
 
 ### Hands-on Exercises
 
@@ -371,10 +388,12 @@ Design and implement a user profile page with avatar upload
 
 Watch the routing:
 1. **ta** (Tech Architect) - Breaks down architecture
-2. **uxd** (UX Designer) - Designs the flow
-3. **sec** (Security) - Reviews file upload security
-4. **uid** (UI Developer) - Implements components
-5. **qa** (QA Engineer) - Tests edge cases
+2. **uxd** (UX Designer) - Designs the flow + interaction specs
+3. **uids** (UI Design System) - Defines component visual tokens
+4. **uid** (UI Developer) - Specs the component implementation
+5. **sec** (Security) - Reviews file upload security
+6. **me** (Engineer) - Implements components
+7. **qa** (QA Engineer) - Tests edge cases
 
 #### Exercise 2: Direct Agent Invocation
 
@@ -385,12 +404,10 @@ You can also talk directly to agents:
 ```
 
 ```
-@sec Review this authentication middleware
-```
-
-```
 @uxd Design an onboarding flow for first-time users
 ```
+
+(Security: use `@agent-sec` or `cc skill get stride-dread` to load the security skill for code review.)
 
 #### Exercise 3: Agent Collaboration
 
@@ -408,8 +425,10 @@ We need to add payment processing to the checkout flow
 Expected routing:
 - **ta** - Architecture (payment providers, webhook handling)
 - **sec** - Security (PCI compliance, token handling)
-- **uxd** - UX (payment form, error states)
-- **uid** - Implementation (form components)
+- **uxd** - Interaction design (payment form, error states)
+- **uids** - Visual design tokens
+- **uid** - Component specs
+- **me** - Implementation
 - **qa** - Testing (failed payments, edge cases)
 
 ### Understanding Agent Routing
@@ -419,13 +438,14 @@ Agents route to each other based on expertise:
 ```mermaid
 graph LR
     A[Any Agent] --> B[ta: Architecture]
-    A --> C[sec: Security]
-    D[sd: Service Design] --> E[uxd: UX Design]
-    E --> F[uids: UI Design]
-    F --> G[uid: UI Dev]
+    D[sd: Service Design] --> E[uxd: Interaction Design]
+    E --> F[uids: Visual Design System]
+    F --> G[uid: Component Specs]
+    G --> B
     A --> H[me: Engineering]
     A --> I[qa: Testing]
     A --> J[doc: Documentation]
+    A --> K[sec: Security]
 ```
 
 ### Agent Decision Authority
@@ -437,7 +457,6 @@ Each agent knows when to work autonomously vs. escalate:
 | **ta** | Task breakdown, tech selection | Architecture shifts → team |
 | **me** | Bug fixes, features | Breaking changes → ta |
 | **qa** | Test strategy, scenarios | Release decisions → team |
-| **sec** | Vulnerability review | Security incidents → team |
 | **doc** | README updates, guides | Major restructuring → team |
 
 ### Verification Exercise
@@ -456,14 +475,14 @@ We need to migrate our authentication from sessions to JWTs
 Expected flow:
 1. **ta** classifies as architecture change
 2. **ta** breaks down migration strategy
-3. **sec** reviews security implications
+3. [security/stride-dread skill loaded] — reviews security implications
 4. **me** implements changes
 5. **qa** creates test scenarios
 6. **doc** updates authentication docs
 
 ### Success Criteria
 
-- [ ] Understand all 14 agents and their domains
+- [ ] Understand all 15 framework agents + kc and their domains
 - [ ] Completed multi-agent feature exercise
 - [ ] Invoked agents directly with @
 - [ ] Saw agents route to each other
@@ -476,7 +495,7 @@ Expected flow:
 | **Complex features** | /protocol handles multi-domain work |
 | **Direct expertise** | @ agent for specific guidance |
 | **Quality assurance** | qa reviews automatically |
-| **Security review** | sec checks vulnerabilities |
+| **Security review** | load `@include .claude/skills/security/stride-dread/SKILL.md` for STRIDE/DREAD analysis |
 | **Complete documentation** | doc writes as features develop |
 
 ### What's Next?
@@ -539,8 +558,8 @@ your-company-knowledge/
 └── .claude/
     └── extensions/
         ├── ta.extension.md       # Custom architect guidance
-        ├── sec.override.md       # Company security policies
-        └── uxd.extension.md      # Design system patterns
+        ├── uid.extension.md      # Company UI component standards
+        └── sd.extension.md       # Service design methodology
 ```
 
 ### Extension Types
@@ -551,19 +570,19 @@ your-company-knowledge/
 | **extension** | `agent.extension.md` | Adds to base agent (merges sections) |
 | **skills** | `agent.skills.json` | Injects additional skills |
 
-### Example Extension: Custom Security Standards
+### Example Extension: Custom Tech Architect Standards
 
-Create `~/.claude/knowledge/.claude/extensions/sec.extension.md`:
+Create `~/.claude/knowledge/.claude/extensions/ta.extension.md`:
 
 ```markdown
 ---
-name: sec
+name: ta
 type: extension
-extends: sec
-description: Company security standards
+extends: ta
+description: Company architecture standards
 ---
 
-## Security Standards
+## Architecture Standards
 
 ### Authentication
 - Use Auth0 for all applications
@@ -576,12 +595,12 @@ description: Company security standards
 - Log access to sensitive data
 
 ### Code Review Requirements
-- Security-sensitive code needs sec team approval
-- Use our SAST tool in CI/CD
+- Security-sensitive code needs architecture team review
 - Document threat model in ADRs
+- Use stride-dread skill for security analysis
 ```
 
-This extends the base `sec` agent with your company's specific requirements.
+> Security standards are best encoded as a skill extension to the `security/stride-dread` skill or as a `ta.extension.md` that includes your company's security requirements in the architecture checklist.
 
 ### Team Member Setup
 
@@ -605,10 +624,10 @@ ln -sf ~/company-knowledge ~/.claude/knowledge
 
 Request:
 ```
-@sec Review this authentication code
+@ta Review this authentication architecture
 ```
 
-Security agent should now reference your company standards (Auth0, JWT expiry, etc.) instead of just generic advice.
+The ta agent extension should now reference your company standards (Auth0, JWT expiry, etc.) instead of just generic advice. For security analysis, load the security skill: `cc skill get stride-dread`.
 
 ### Check Extension Status
 
@@ -666,46 +685,34 @@ Every team has proprietary patterns, internal tools, and unique workflows. Power
 
 ### Advanced Capabilities
 
-#### 1. Private Skills Database
+#### 1. Private Skills
 
-Store proprietary skills in PostgreSQL:
+Store proprietary skills as markdown files in `.claude/skills/`:
 
-```json
-// .mcp.json
-{
-  "mcpServers": {
-    "skills-copilot": {
-      "env": {
-        "POSTGRES_URL": "postgresql://user:pass@localhost/skills",
-        "LOCAL_SKILLS_PATH": "./.claude/skills"
-      }
-    }
-  }
-}
+```bash
+# Create a skill directory
+mkdir -p .claude/skills/my-error-handling
+
+# Author the skill (prose markdown, no Node.js required)
+# .claude/skills/my-error-handling/SKILL.md
 ```
 
-Then use `skill_save` to store company-specific patterns:
+Skills are discovered via `cc skill search "<query>"` and loaded with `cc skill get <name>`. Local skills in `.claude/skills/` are auto-listed by `cc skill list`.
 
+#### 2. Skills Discovery
+
+Use the `cc` CLI to find and load skills:
+
+```bash
+# Search for a skill by keyword
+cc skill search "error handling"
+
+# Load a skill into context
+cc skill get my-error-handling
+
+# List all available skills
+cc skill list
 ```
-Ask Claude: "Save this error handling pattern as a private skill"
-```
-
-#### 2. Skills Catalog Integration
-
-Access the curated skills.sh public catalog (free, no API key needed):
-
-```json
-{
-  "mcpServers": {
-    "skills-copilot": {
-      "command": "node",
-      "args": ["/path/to/mcp-servers/skills-copilot/dist/index.js"]
-    }
-  }
-}
-```
-
-skills.sh is automatically available once Skills Copilot MCP is installed. Skills auto-invoke based on context. No manual management or API key required. Install skills locally via `npx skills add` or browse the catalog at https://skills.sh/.
 
 #### 3. Custom Workflows
 
@@ -721,31 +728,24 @@ description: Deploy with our company process
 
 # Deploy Process
 
-1. Load deployment skill: skill_get("company-deployment")
-2. Check for sec approval in initiative
+1. Load deployment skill: `cc skill get company-deployment`
+2. Check for security review notes in memory: `cc memory search "security review"`
 3. Run pre-deployment checklist
 4. Execute deployment steps
-5. Update initiative with deployment info
-6. Notify team via memory_store
+5. Store deployment info: `cc memory store --type context "Deployed vX.X.X to production"`
+6. Notify team via `cc memory store --type context "<message>"`
 ```
 
 #### 4. Workspace Identity
 
 Preserve memory across renames/moves:
 
-```json
-{
-  "mcpServers": {
-    "copilot-memory": {
-      "env": {
-        "WORKSPACE_ID": "explicit-project-name"
-      }
-    }
-  }
-}
+```bash
+# Workspace identity is set via cc config or the TASK_DB_PATH env var
+# The tc CLI infers workspace from the current project directory
+# For portability, use explicit TASK_DB_PATH:
+export TASK_DB_PATH=~/.claude/tasks/explicit-project-name
 ```
-
-Default is path-based hash. Set explicitly for portability.
 
 ### Hands-on Exercises
 
@@ -771,14 +771,14 @@ You are managing a release following our company process.
 ## Steps
 
 1. Verify all tests pass (check with qa)
-2. Review security concerns (check with sec)
+2. Review security concerns (load security/stride-dread skill)
 3. Update changelog (check with doc)
 4. Create release branch
 5. Deploy to staging
 6. Run smoke tests
 7. Get approval
 8. Deploy to production
-9. Update initiative: "Release vX.X.X completed"
+9. Store release status: `cc memory store --type context "Release vX.X.X completed"`
 
 Follow these steps and confirm each before proceeding.
 ```
@@ -787,35 +787,17 @@ Then use: `/release`
 
 #### Exercise 3: Multi-Project Memory
 
-Set up related projects to share memory:
+Set up related projects to share memory by pointing both to the same memory directory. The `cc` CLI stores entries as markdown files in `.claude/memory/entries/` — committed to the repo and searchable with `cc memory search`. For cross-project memory, use a shared knowledge repository:
 
-Project A `.mcp.json`:
-```json
-{
-  "mcpServers": {
-    "copilot-memory": {
-      "env": {
-        "WORKSPACE_ID": "shared-platform"
-      }
-    }
-  }
-}
+```bash
+# Register a shared knowledge repo (machine-level config, run once)
+cc config set paths.knowledge_repo ~/.claude/knowledge
+
+# Both projects read from the same knowledge repo
+# Run /knowledge-copilot once to initialize it
 ```
 
-Project B `.mcp.json`:
-```json
-{
-  "mcpServers": {
-    "copilot-memory": {
-      "env": {
-        "WORKSPACE_ID": "shared-platform"
-      }
-    }
-  }
-}
-```
-
-Now decisions in Project A are accessible in Project B.
+Memory entries in each project's `.claude/memory/entries/` travel with that repo. Knowledge repo entries are accessible from any project on the machine.
 
 ### Advanced Patterns
 
@@ -861,30 +843,22 @@ description: Full feature workflow
 Execute our complete feature workflow:
 
 1. /protocol - Let ta break down architecture
-2. Load security checklist - skill_get("security-checklist")
+2. Load security checklist - `cc skill get security-checklist`
 3. Implement with me
 4. Test with qa
 5. Document with doc
-6. Update initiative with "Feature complete"
+6. Store completion: `cc memory store --type context "Feature complete"`
 
 Confirm each step before proceeding.
 ```
 
 #### Pattern 3: Knowledge Layering
 
-Override global knowledge at project level:
+Override global knowledge at project level via `cc` config:
 
-`.mcp.json`:
-```json
-{
-  "mcpServers": {
-    "skills-copilot": {
-      "env": {
-        "KNOWLEDGE_REPO_PATH": "./project-knowledge"
-      }
-    }
-  }
-}
+```bash
+# Point this project to a local knowledge repo (takes precedence over global)
+cc config set paths.knowledge_repo ./project-knowledge
 ```
 
 Resolution order:
@@ -931,8 +905,10 @@ Use this checklist to track your journey:
 ### Milestone 1: Memory
 - [ ] Cloned claude-copilot to ~/.claude/copilot
 - [ ] Ran machine setup (/setup)
-- [ ] Verified MCP servers connected
-- [ ] Understand memory_store and memory_search
+- [ ] Verified cc/tc CLIs work
+- [ ] Understand `cc memory store` and `cc memory search`
+- [ ] Ran `cc memory check` and understand the score
+- [ ] Ran `cc usage` and can read the quota output
 - [ ] Can explain what Memory Copilot does
 
 ### Milestone 2: Protocol
@@ -943,7 +919,7 @@ Use this checklist to track your journey:
 - [ ] Understand protocol → agent → memory flow
 
 ### Milestone 3: Agents
-- [ ] Know all 14 agents and their domains
+- [ ] Know all 15 framework agents + kc and their domains
 - [ ] Completed multi-agent feature
 - [ ] Used @ to invoke agents directly
 - [ ] Saw agents route to each other
@@ -989,21 +965,21 @@ Use this checklist to track your journey:
 
 ## Common Challenges
 
-### Challenge 1: "MCP servers won't connect"
+### Challenge 1: "cc or tc not found"
 
 **Solution:**
-1. Check `.mcp.json` uses absolute paths (not `~`)
-2. Verify `dist/index.js` files exist
-3. Run: `cd ~/.claude/copilot/mcp-servers/copilot-memory && npm run build`
+1. Reinstall: `bash ~/.claude/copilot/tools/cc/install.sh` and `pip install -e ~/.claude/copilot/tools/tc`
+2. Reload your shell: `source ~/.zshrc` (installer auto-appends `~/.local/bin` to your profile)
+3. Verify: `cc --version` and `tc version`
 4. Restart Claude Code
 
 ### Challenge 2: "/continue doesn't load context"
 
 **Solution:**
-1. Verify copilot-memory is connected: `/mcp`
+1. Verify `cc memory list` returns recent entries
 2. Check you ran /protocol (not just chatted)
-3. Look for `initiative_update` calls in previous session
-4. Ensure WORKSPACE_ID is consistent
+3. Confirm memory entries exist in `.claude/memory/entries/`
+4. Run `cc memory search "<topic>"` to find prior context manually
 
 ### Challenge 3: "Agents give generic advice"
 
@@ -1017,7 +993,8 @@ Use this checklist to track your journey:
 
 **Solution:**
 - Use /protocol - routing is automatic
-- For direct invocation: @ta (design), @me (code), @qa (test), @sec (security), @doc (write)
+- For direct invocation: @ta (architecture), @me (code), @qa (test), @doc (write), @uxd (interaction design), @uids (visual design), @uid (component specs), @sec (security), @do (infra)
+- Security: load `cc skill get stride-dread` for security analysis
 - Check the agent routing diagram in Milestone 3
 
 ### Challenge 5: "Team members have different experiences"

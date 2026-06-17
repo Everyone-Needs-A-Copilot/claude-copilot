@@ -173,15 +173,48 @@ extract_task_id() {
   printf '%s' "$msg" | grep -oE 'TASK-[0-9]+' | head -1 || echo ""
 }
 
+# Extract ALL TASK-N references from a message string.
+# Returns a JSON array of unique task IDs, e.g. '["TASK-5","TASK-12"]'
+extract_all_task_ids() {
+  local msg="$1"
+  local ids_raw
+  ids_raw="$(printf '%s' "$msg" | grep -oE 'TASK-[0-9]+' | sort -u)" || ids_raw=""
+  if [[ -z "$ids_raw" ]]; then
+    echo '[]'
+    return
+  fi
+  # Build a JSON array
+  printf '%s\n' "$ids_raw" | "$JQ" -R . | "$JQ" -sc . 2>/dev/null || echo '[]'
+}
+
 # ---------------------------------------------------------------------------
 # QA verdict parsing
 # Returns: "pass", "fail", or "unknown"
 # Precedence (case-insensitive):
-#   1. VERDICT: APPROVED or APPROVED-WITH-MINOR-FIXES → pass
-#   2. VERDICT: REJECTED → fail
-#   3. <promise>COMPLETE</promise> with no REJECTED → implicit pass
-#   4. Otherwise → unknown (treated as fail for safety)
+#   1. VERDICT: APPROVED or APPROVED-WITH-MINOR-FIXES WITH an ARTIFACT marker → pass
+#   2. VERDICT: APPROVED or APPROVED-WITH-MINOR-FIXES WITHOUT an ARTIFACT marker → fail
+#      (a bare pass with no artifact is invalid per ADR-001 / WS1 failable-check gate)
+#   3. VERDICT: REJECTED → fail
+#   4. <promise>COMPLETE</promise> with no REJECTED AND an ARTIFACT marker → implicit pass
+#   5. Otherwise → unknown (treated as fail for safety)
+#
+# ARTIFACT marker format (R3 WS1 / TASK-115):
+#   ARTIFACT: <type>|<detail>
+#   where type ∈ {test-run, file-check, diff-check}
+#   Example: ARTIFACT: test-run|pytest tests/foo.py exit=0 "3 passed"
+#
+# ESCAPE HATCH:
+#   COPILOT_QA_GATE=off bypasses all gate logic in the caller (subagent-stop.sh).
 # ---------------------------------------------------------------------------
+
+# has_artifact_marker: returns 0 (true) if the message contains a valid ARTIFACT line.
+has_artifact_marker() {
+  local msg="$1"
+  # Case-insensitive match for ARTIFACT: <type>|<detail>
+  # type must be one of: test-run, file-check, diff-check
+  printf '%s' "$msg" | grep -qiE '^[[:space:]]*ARTIFACT:[[:space:]]+(test-run|file-check|diff-check)\|.+$'
+}
+
 parse_qa_verdict() {
   local msg="$1"
   local msg_upper
@@ -189,7 +222,15 @@ parse_qa_verdict() {
 
   # Explicit VERDICT tokens (highest precedence)
   if printf '%s' "$msg_upper" | grep -qE 'VERDICT:[[:space:]]*(APPROVED-WITH-MINOR-FIXES|APPROVED)'; then
-    echo "pass"
+    # APPROVED verdict is only valid when accompanied by an ARTIFACT marker.
+    # A bare "VERDICT: APPROVED" with no artifact is an invalid/insufficient verdict
+    # and must NOT unblock the gate (ADR-001 / WS1 principle: verdicts bind to artifacts).
+    if has_artifact_marker "$msg"; then
+      echo "pass"
+    else
+      echo "fail"
+      log_warn "VERDICT: APPROVED received but NO ARTIFACT marker found — gate NOT unblocked (session: ${SESSION_ID}). QA must include ARTIFACT: test-run|..., ARTIFACT: file-check|..., or ARTIFACT: diff-check|..."
+    fi
     return
   fi
   if printf '%s' "$msg_upper" | grep -qE 'VERDICT:[[:space:]]*REJECTED'; then
@@ -197,10 +238,15 @@ parse_qa_verdict() {
     return
   fi
 
-  # Implicit pass: COMPLETE promise with no REJECTED language
+  # Implicit pass: COMPLETE promise with no REJECTED language, AND an ARTIFACT marker
   if printf '%s' "$msg" | grep -qF '<promise>COMPLETE</promise>'; then
     if ! printf '%s' "$msg_upper" | grep -qE 'REJECTED|VERDICT:[[:space:]]*FAIL'; then
-      echo "pass"
+      if has_artifact_marker "$msg"; then
+        echo "pass"
+      else
+        echo "fail"
+        log_warn "Implicit pass (<promise>COMPLETE</promise>) but NO ARTIFACT marker — gate NOT unblocked (session: ${SESSION_ID})."
+      fi
       return
     fi
   fi
@@ -269,14 +315,19 @@ handle_me_completion() {
 # Handle @agent-qa completion
 # ---------------------------------------------------------------------------
 handle_qa_completion() {
-  local task_id verdict
+  local task_id verdict all_task_ids
   task_id="$(extract_task_id "$LAST_MSG")"
   verdict="$(parse_qa_verdict "$LAST_MSG")"
 
-  if [[ -z "$task_id" ]]; then
+  # On a pass verdict, we can proceed even without a task_id — QA's approval
+  # unblocks ALL pending tasks for the session (a passing QA run clears the gate).
+  # On a fail verdict, we need a task_id to track retries.
+  if [[ -z "$task_id" && "$verdict" != "pass" ]]; then
     log_warn "agent-qa completed but no TASK-N found in last_assistant_message (session: ${SESSION_ID}, verdict: ${verdict})"
     exit 0
   fi
+
+  all_task_ids="$(extract_all_task_ids "$LAST_MSG")"
 
   acquire_lock
   trap 'release_lock' EXIT
@@ -289,19 +340,62 @@ handle_qa_completion() {
   local updated_entry advisory_msg=""
 
   if [[ "$verdict" == "pass" ]]; then
-    # Remove task from pending_tasks, clear retries
-    updated_entry="$(printf '%s' "$session_entry" | "$JQ" \
-      --arg tid "$task_id" \
-      --arg now "$now" \
-      --arg event "qa_passed" '
-      .pending_tasks = (.pending_tasks | map(select(. != $tid))) |
-      .retries = (.retries | del(.[$tid])) |
-      .history = .history + [{"taskId": $tid, "event": $event, "ts": $now}] |
-      .lastSeen = $now
-    ' 2>/dev/null)"
-    log_info "qa_passed: removed ${task_id} from pending_tasks (session: ${SESSION_ID})"
+    # Strategy: clear all pending_tasks that appear in the QA message OR (when
+    # the message references a different set of tasks) clear ALL pending tasks.
+    # Rationale: a passing QA verdict means the work round-trip is complete.
+    # The common failure mode is QA mentioning an old/different TASK-N while a
+    # *different* task sits in pending_tasks — the pass should still unblock.
+    #
+    # Algorithm:
+    #   1. Find the intersection of pending_tasks with all IDs mentioned in msg.
+    #   2. If the intersection is non-empty → clear only those (targeted).
+    #   3. If the intersection is empty (QA mentioned unrelated IDs) → clear ALL
+    #      pending tasks (QA has approved work for this session).
+    local pending_json
+    pending_json="$(printf '%s' "$session_entry" | "$JQ" '.pending_tasks // []' 2>/dev/null || echo '[]')"
+    local intersection_count
+    intersection_count="$(printf '%s' "$pending_json" | "$JQ" \
+      --argjson mentioned "$all_task_ids" \
+      '[.[] | select(. as $t | $mentioned | map(. == $t) | any)] | length' 2>/dev/null || echo 0)"
+
+    if [[ "$intersection_count" -gt 0 ]]; then
+      # Targeted clear: remove only the tasks QA mentioned
+      local history_entries
+      history_entries="$(printf '%s' "$all_task_ids" | "$JQ" \
+        --arg now "$now" \
+        --arg event "qa_passed" \
+        '[.[] | {"taskId": ., "event": $event, "ts": $now}]' 2>/dev/null || echo '[]')"
+      updated_entry="$(printf '%s' "$session_entry" | "$JQ" \
+        --argjson mentioned "$all_task_ids" \
+        --argjson hist "$history_entries" \
+        --arg now "$now" '
+        .pending_tasks = (.pending_tasks | map(select(. as $t | $mentioned | map(. == $t) | any | not))) |
+        .retries = (reduce $mentioned[] as $tid (.retries; del(.[$tid]))) |
+        .history = .history + $hist |
+        .lastSeen = $now
+      ' 2>/dev/null)"
+      log_info "qa_passed (targeted): cleared tasks ${all_task_ids} from pending_tasks (session: ${SESSION_ID})"
+    else
+      # Full clear: QA passed but mentioned different task IDs — unblock entire session
+      local pending_arr
+      pending_arr="$(printf '%s' "$pending_json" | "$JQ" -c '.' 2>/dev/null || echo '[]')"
+      local history_entries
+      history_entries="$(printf '%s' "$pending_json" | "$JQ" \
+        --arg now "$now" \
+        --arg event "qa_passed_full_clear" \
+        '[.[] | {"taskId": ., "event": $event, "ts": $now}]' 2>/dev/null || echo '[]')"
+      updated_entry="$(printf '%s' "$session_entry" | "$JQ" \
+        --argjson hist "$history_entries" \
+        --arg now "$now" '
+        .pending_tasks = [] |
+        .retries = {} |
+        .history = .history + $hist |
+        .lastSeen = $now
+      ' 2>/dev/null)"
+      log_info "qa_passed (full clear): cleared all pending tasks ${pending_arr} because QA approved for session ${SESSION_ID} (mentioned: ${all_task_ids})"
+    fi
   else
-    # Increment retry counter
+    # Fail path: track retries by task_id
     local current_retries
     current_retries="$(printf '%s' "$session_entry" | "$JQ" -r --arg tid "$task_id" \
       '.retries[$tid] // 0' 2>/dev/null || echo 0)"
@@ -338,7 +432,7 @@ handle_qa_completion() {
   fi
 
   if [[ -z "$updated_entry" ]]; then
-    log_warn "Failed to compute updated entry for qa completion (task: ${task_id})"
+    log_warn "Failed to compute updated entry for qa completion (task: ${task_id:-unknown})"
     release_lock
     trap - EXIT
     exit 0

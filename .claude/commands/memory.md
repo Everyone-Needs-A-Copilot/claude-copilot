@@ -1,33 +1,41 @@
 # Memory Dashboard
 
-Display current memory state from Memory Copilot for transparency and debugging.
+Display current memory state for transparency and debugging.
 
 ## Step 1: Retrieve Memory Data
 
-Call these tools to gather memory state:
+Run these CLI commands to gather memory state:
 
-1. **Get current initiative:**
-   ```
-   initiative_get()
+1. **Get recent decisions:**
+   ```bash
+   cc memory list --type decision
    ```
 
 2. **Get recent memories:**
-   ```
-   memory_list({ limit: 10 })
-   ```
-
-3. **Get agent improvement suggestions:**
-   ```
-   memory_list({ type: 'agent_improvement', limit: 20 })
+   ```bash
+   cc memory list
    ```
 
-4. **If Task Copilot is linked, get progress:**
+3. **Get recent context entries:**
+   ```bash
+   cc memory list --type context
    ```
+
+4. **Get session quota / rate-limit state:**
+   ```bash
+   cc usage --json
+   ```
+   Note: `cc usage` reads the cache written by a prior probe, or falls back to
+   transcript reconstruction if no cache exists. Use `cc usage --refresh` to
+   force a fresh probe.
+
+5. **If Task Copilot is linked, get progress:**
+   ```bash
    tc progress --json
    ```
 
-5. **Get protocol violations (if Task Copilot is linked):**
-   ```
+6. **Get protocol violations (if Task Copilot is linked):**
+   ```bash
    tc log --json
    ```
 
@@ -38,11 +46,13 @@ Format the output as a clean, scannable dashboard:
 ```
 ## Memory Dashboard
 
-**Initiative:** [name]
-**Status:** [status - IN PROGRESS / COMPLETED / BLOCKED]
-
-**Focus:** [currentFocus]
-**Next:** [nextAction]
+### Session Quota
+Source: probe | fallback | stale (cached)
+unified-5h window: [status] [utilization%] used  resets [HH:MM UTC]
+unified-7d window: [status] [utilization%] used  resets [HH:MM UTC]
+[If fallback: "unified-5h messages: N  unified-7d messages: N  (offline estimate, not token count)"]
+[If probe error: show error message]
+Run `cc usage --refresh` to force a new probe.
 
 ### Recent Decisions
 [List last 3-5 decisions, or "None recorded"]
@@ -50,30 +60,13 @@ Format the output as a clean, scannable dashboard:
 ### Recent Lessons
 [List last 3-5 lessons, or "None recorded"]
 
-### Key Files
-[List keyFiles, or "None tracked"]
-
 ### Recent Memories (Last 10)
-[Table format:]
 Type       | Content Preview                    | Created
 ---------- | ---------------------------------- | ----------
 decision   | [First 50 chars...]                | 2025-01-15
 lesson     | [First 50 chars...]                | 2025-01-14
 
-### Agent Improvements
-[If agent improvements exist, show summary:]
-**Pending:** [count] | **Approved:** [count] | **Rejected:** [count]
-
-[Table format for pending suggestions:]
-Agent | Section           | Rationale                           | Created
------ | ----------------- | ----------------------------------- | ----------
-me    | Core Behaviors    | [First 40 chars...]                 | 2025-01-15
-ta    | Output format     | [First 40 chars...]                 | 2025-01-14
-
-[If no improvements: "No agent improvements recorded"]
-
-**Storage:** ~/.claude/memory/[workspace-id]/memory.db
-**Workspace ID:** [workspace-id or "auto-generated hash"]
+**Storage:** ~/.claude/memory/ (machine) | .claude/memory/entries/ (project)
 
 ### Task Progress (if Task Copilot linked)
 [Show output from `tc progress --json`, or skip section if not linked]
@@ -94,42 +87,13 @@ generic_agent_used       | critical | Used "Explore" agent            | 2025-01-
 
 ## Step 3: Handle Edge Cases
 
-### No Active Initiative
-
-If `initiative_get` returns null or no initiative exists:
-```
-## Memory Dashboard
-
-**Status:** No active initiative
-
-Use `/protocol` to start fresh work or `/continue` to resume.
-
-**Storage:** ~/.claude/memory/[workspace-id]/memory.db
-```
-
 ### No Memories
 
-If `memory_list` returns empty:
+If `cc memory list` returns empty:
 ```
 ### Recent Memories
 No memories stored yet.
-```
-
-### No Agent Improvements
-
-If `memory_list({ type: 'agent_improvement' })` returns empty:
-```
-### Agent Improvements
-No agent improvements recorded
-```
-
-### Bloated Initiative Warning
-
-If the initiative contains legacy fields (`completed`, `inProgress`, `blocked`, `resumeInstructions`):
-
-```
-**WARNING:** This initiative uses legacy format with bloated task lists.
-Consider running `initiative_slim({ archiveDetails: true })` to reduce context usage by ~75%.
+Use `cc memory store --type decision "..."` to start recording.
 ```
 
 ## Display Notes
@@ -138,15 +102,10 @@ Consider running `initiative_slim({ archiveDetails: true })` to reduce context u
 - Truncate long content previews to 50 characters
 - Show timestamps in YYYY-MM-DD format
 - Group decisions and lessons separately from other memory types
-- Highlight if Task Copilot is linked (`taskCopilotLinked: true`)
-- Show `activePrdIds` if linked to Task Copilot
-- For agent improvements, parse metadata to extract AgentImprovementMetadata fields
-- Show status counts (pending/approved/rejected) from metadata.status field
-- Truncate rationale to 40 characters for table display
+- Highlight if Task Copilot is linked
+- Valid entry types: `decision` | `context` | `lesson` | `reference` | `person`
 - For protocol violations, show summary counts by severity
 - Only show violations section if Task Copilot is linked
-- Parse violation context JSON to extract description
-- Format violation dates in YYYY-MM-DD format
 - Highlight critical and high-severity violations
 
 ## Example Output
@@ -154,65 +113,39 @@ Consider running `initiative_slim({ archiveDetails: true })` to reduce context u
 ```
 ## Memory Dashboard
 
-**Initiative:** Framework Improvements v2.0
-**Status:** IN PROGRESS
-**Task Copilot:** Linked (PRDs: PRD-001, PRD-002)
-
-**Focus:** 4 remaining tasks for v2.0 release
-**Next:** Complete CMD-1 memory command
+### Session Quota
+Source: probe, updated 42s ago
+unified-5h window: allowed  7.0% used  resets 17:30 UTC
+unified-7d window: allowed 13.0% used  resets 03:00 UTC
+Run `cc usage --refresh` to force a new probe.
 
 ### Recent Decisions
-- Migrate to slim initiative format for 75% context reduction
-- Use Task Copilot for all task tracking, Memory Copilot for strategic decisions only
+- Migrate to cc CLI for memory and skills management
+- Use Task Copilot for all task tracking, cc memory for strategic decisions only
 - No time estimates policy enforced across all outputs
 
 ### Recent Lessons
-- Bloated initiatives waste tokens and slow down /continue
+- File-per-entry memory travels with the repo across machines
 - Separating task management from strategic memory improves clarity
-
-### Key Files
-- .claude/commands/continue.md
-- mcp-servers/copilot-memory/src/index.ts
-- docs/operations/working-protocol.md
 
 ### Recent Memories (Last 10)
 Type       | Content Preview                                    | Created
 ---------- | -------------------------------------------------- | ----------
-decision   | Migrate to slim initiative format for 75% cont... | 2025-01-15
-lesson     | Bloated initiatives waste tokens and slow down... | 2025-01-15
-decision   | Use Task Copilot for all task tracking, Memory... | 2025-01-14
-context    | Framework v2.0 focuses on memory optimization      | 2025-01-14
-
-### Agent Improvements
-**Pending:** 2 | **Approved:** 1 | **Rejected:** 0
-
-Agent | Section           | Rationale                           | Created
------ | ----------------- | ----------------------------------- | ----------
-me    | Core Behaviors    | Add checkpoint validation before r... | 2025-01-15
-qa    | Output format     | Include regression test considerati... | 2025-01-14
-
-**Storage:** ~/.claude/memory/abc123def456/memory.db
-**Workspace ID:** abc123def456 (auto-generated)
-
-### Protocol Violations
-**Total:** 2 | **Critical:** 1 | **High:** 1 | **Medium:** 0 | **Low:** 0
-
-Type                     | Severity | Description                     | When
------------------------- | -------- | ------------------------------- | ----------
-generic_agent_used       | critical | Used "Explore" agent            | 2025-01-15
-files_read_exceeded      | high     | Read 5 files (limit: 3)         | 2025-01-15
+decision   | Migrate to cc CLI for memory management...         | 2025-01-15
+lesson     | File-per-entry memory travels with the repo...     | 2025-01-15
+decision   | Use Task Copilot for all task tracking...          | 2025-01-14
+context    | Framework v5.0 focuses on CLI-based tooling        | 2025-01-14
 ```
 
 ## Additional Information
 
 If the user asks "where is my data stored?", explain:
 
-- Memory database location: `~/.claude/memory/<workspace-id>/memory.db`
-- Archives location: `~/.claude/memory/archives/`
-- Workspace ID is auto-generated hash of project path (unless explicitly set)
-- To preserve memories when moving/renaming projects, set `WORKSPACE_ID` in `.mcp.json`
-- See Memory Copilot README for details on workspace management
+- Machine memory: `~/.claude/memory/` (set via `cc config get paths.memory`)
+- Project memory: `.claude/memory/entries/` (committed to git, travels with repo)
+- Use `cc memory list` to see all entries
+- Use `cc config list` to see the full configuration
 
 ## End
 
-Present the dashboard and ask: "Would you like to see more details about any specific memory or initiative field?"
+Present the dashboard and ask: "Would you like to see more details about any specific memory entry?"

@@ -13,9 +13,9 @@ Worktree isolation enables tasks to run in dedicated git worktrees, providing co
 
 | Feature | Description |
 |---------|-------------|
-| **Automatic Lifecycle** | Worktrees are automatically created, merged, and cleaned up based on task status transitions |
-| **Conflict Detection** | Merge conflicts are automatically detected and block task completion |
-| **Manual Override** | Full set of tools for manual worktree management |
+| **Filesystem Isolation** | Each task or stream works in its own directory with no cross-contamination |
+| **Parallel Safety** | Multiple agents or streams can work simultaneously without file conflicts |
+| **Branch Isolation** | Each worktree operates on its own git branch |
 | **Metadata Tracking** | Worktree path and branch name stored in task metadata |
 
 ---
@@ -36,8 +36,25 @@ tc task create --title "Refactor authentication module" --prd <id> --json
 | Status Transition | Action | Metadata Updated |
 |------------------|--------|------------------|
 | **pending → in_progress** | Create worktree at `.worktrees/{TASK-xxx}` with branch `task/{task-xxx}` | `worktreePath`, `branchName`, `isolatedWorktree` |
-| **in_progress → completed** | Merge worktree branch into current branch, cleanup worktree | Metadata cleaned up |
+| **in_progress → completed** | Merge worktree branch into target branch, cleanup worktree | Metadata cleaned up |
 | **Merge conflict** | Task blocked, conflict files recorded | `mergeConflicts[]`, `mergeConflictTimestamp` |
+
+---
+
+## Git Command Reference
+
+All worktree operations use standard `git worktree` commands. There are no MCP tools for worktree management — use git directly.
+
+| Operation | Command |
+|-----------|---------|
+| Create worktree | `git worktree add .worktrees/<task-id> -b <branch>` |
+| List worktrees | `git worktree list` |
+| Remove worktree | `git worktree remove .worktrees/<task-id>` |
+| Force remove | `git worktree remove --force .worktrees/<task-id>` |
+| Prune stale refs | `git worktree prune` |
+| Merge branch | `git merge <branch> --no-ff -m "Merge <task-id>: <title>"` (run from target branch) |
+| Delete branch | `git branch -d <branch>` |
+| Check conflicts | `git status` / `git diff --name-only --diff-filter=U` |
 
 ---
 
@@ -47,185 +64,111 @@ tc task create --title "Refactor authentication module" --prd <id> --json
 
 Create a worktree for an existing task:
 
-```typescript
-await worktree_create({
-  taskId: "TASK-xxx",
-  baseBranch: "develop"  // Optional
-});
+```bash
+git worktree add .worktrees/TASK-xxx -b task/task-xxx
 ```
 
-**Returns:**
-```json
-{
-  "taskId": "TASK-xxx",
-  "worktreePath": "/project/.worktrees/TASK-xxx",
-  "branchName": "task/task-xxx",
-  "message": "Worktree created successfully"
-}
+To branch from a specific base:
+
+```bash
+git worktree add .worktrees/TASK-xxx -b task/task-xxx develop
 ```
 
 ### List Worktrees
 
-View all active task worktrees:
+View all active worktrees:
 
-```typescript
-await worktree_list({});
+```bash
+git worktree list
 ```
 
-**Returns:**
-```json
-{
-  "worktrees": [
-    {
-      "taskId": "TASK-abc123",
-      "taskTitle": "Implement feature X",
-      "taskStatus": "in_progress",
-      "worktreePath": "/project/.worktrees/TASK-abc123",
-      "branchName": "task/task-abc123"
-    }
-  ],
-  "totalCount": 1
-}
+Example output:
+```
+/project                           abc1234 [main]
+/project/.worktrees/TASK-abc123    def5678 [task/task-abc123]
+/project/.worktrees/TASK-def456    ghi9012 [task/task-def456]
 ```
 
 ### Merge Worktree
 
-Manually merge a worktree branch:
+Merge a worktree branch back into the target branch:
 
-```typescript
-await worktree_merge({
-  taskId: "TASK-xxx",
-  targetBranch: "main"  // Optional, defaults to current
-});
+```bash
+# Switch to target branch first
+git checkout main
+
+# Merge with no-fast-forward to preserve history
+git merge task/task-xxx --no-ff -m "Merge TASK-xxx: Refactor authentication"
 ```
 
-**Success Response:**
-```json
-{
-  "taskId": "TASK-xxx",
-  "merged": true,
-  "message": "Merged TASK-xxx into main: ..."
-}
-```
-
-**Conflict Response:**
-```json
-{
-  "taskId": "TASK-xxx",
-  "merged": false,
-  "conflicts": ["src/auth.ts", "src/config.ts"],
-  "message": "Merge conflicts detected: src/auth.ts, src/config.ts"
-}
-```
-
-When conflicts occur:
+**If conflicts occur:**
+- Git reports the conflicting files
 - Task status → `blocked`
-- `blockedReason` → "Merge conflicts detected: {files}"
-- Metadata updated with `mergeConflicts` and `mergeConflictTimestamp`
+- Worktree is preserved for manual resolution (see Conflict Resolution below)
 
 ### Cleanup Worktree
 
-Remove worktree and delete branch:
+Remove worktree directory and delete the branch after a successful merge:
 
-```typescript
-await worktree_cleanup({
-  taskId: "TASK-xxx",
-  force: false  // Optional, force removal even if dirty
-});
+```bash
+# Remove the worktree directory
+git worktree remove .worktrees/TASK-xxx
+
+# Delete the branch
+git branch -d task/task-xxx
 ```
 
-**Returns:**
-```json
-{
-  "taskId": "TASK-xxx",
-  "worktreeRemoved": true,
-  "branchDeleted": true,
-  "message": "Worktree cleaned up successfully"
-}
+Force-remove a dirty worktree:
+
+```bash
+git worktree remove --force .worktrees/TASK-xxx
+git branch -D task/task-xxx
 ```
 
 ---
 
 ## Conflict Resolution
 
+When `git merge` encounters conflicts, the merge pauses and leaves conflict markers in the affected files. There is no automated tool for this — resolution is a manual git workflow.
+
 ### Check Conflict Status
 
-Get detailed conflict analysis:
+```bash
+# See overall status (shows conflicted files as "both modified" / "UU")
+git status
 
-```typescript
-await worktree_conflict_status({
-  taskId: "TASK-xxx"
-});
-```
-
-**Returns:**
-```json
-{
-  "taskId": "TASK-xxx",
-  "hasConflicts": true,
-  "conflicts": [
-    {
-      "file": "src/auth.ts",
-      "type": "content",
-      "hasConflictMarkers": true,
-      "suggestedStrategy": "manual"
-    },
-    {
-      "file": "src/config.ts",
-      "type": "modify-delete",
-      "hasConflictMarkers": false,
-      "suggestedStrategy": "manual"
-    }
-  ],
-  "summary": "2 content conflict(s)",
-  "suggestedAction": "All conflicts require manual resolution. Edit files to remove conflict markers, then use worktree_conflict_resolve"
-}
+# List only unmerged files
+git diff --name-only --diff-filter=U
 ```
 
 ### Conflict Types
 
-| Type | Description | Resolution Strategy |
-|------|-------------|---------------------|
-| `content` | Both sides modified same lines | Manual merge required |
-| `add-add` | Same file added by both sides | Manual decision needed |
-| `modify-delete` | One side deleted, other modified | Manual decision needed |
-| `delete` | Both sides deleted (rare) | Manual decision needed |
-| `rename` | File renamed differently | Manual merge required |
+| Type | Description | Resolution |
+|------|-------------|------------|
+| Content conflict | Both sides modified the same lines | Edit files to remove markers, then `git add` |
+| Add-add | Same file added by both sides | Keep desired version, then `git add` |
+| Modify-delete | One side deleted, other modified | Decide which intent wins, then `git add` or `git rm` |
+| Rename conflict | File renamed differently on each side | Resolve the rename, then `git add` |
 
-### Resolve Conflicts
+### Manual Resolution Steps
 
-After manually resolving conflicts (removing `<<<<<<<`, `=======`, `>>>>>>>` markers):
-
-```typescript
-await worktree_conflict_resolve({
-  taskId: "TASK-xxx",
-  strategy: "manual",  // or "ours" / "theirs" for automatic resolution
-  targetBranch: "main"  // Optional
-});
-```
-
-**Strategy Options:**
-
-| Strategy | Behavior |
-|----------|----------|
-| `manual` | Verify conflicts are manually resolved, stage all files, complete merge |
-| `ours` | Keep our changes (task branch), discard theirs (target branch) |
-| `theirs` | Keep their changes (target branch), discard ours (task branch) |
-
-**Success Response:**
-```json
-{
-  "success": true,
-  "completed": true,
-  "resolvedFiles": ["src/auth.ts", "src/config.ts"],
-  "message": "Merge successful. Resolved 2 file(s). Task completed and worktree cleaned up."
-}
-```
-
-When successful:
-- Task status → `completed`
-- Worktree cleaned up automatically
-- Conflict metadata removed
+1. Open each conflicting file and remove the conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`)
+2. Edit the file to reflect the correct merged result
+3. Stage the resolved file:
+   ```bash
+   git add src/auth.ts
+   ```
+4. Repeat for all conflicting files
+5. Complete the merge commit:
+   ```bash
+   git commit
+   ```
+6. Update task status and clean up worktree:
+   ```bash
+   tc task update TASK-xxx --status completed --json
+   git worktree remove .worktrees/TASK-xxx
+   git branch -d task/task-xxx
+   ```
 
 ---
 
@@ -351,14 +294,14 @@ Checkpoints preserve worktree metadata (`worktreePath` and `branchName`). On res
 
 ### Conflict Resolution Validation
 
-Before allowing conflict resolution to complete, the system verifies:
+Before completing a conflict resolution, verify manually:
 
-| Check | Purpose |
-|-------|---------|
-| No conflict markers | Files must not contain `<<<<<<<`, `=======`, `>>>>>>>` |
-| All files staged | Resolved files must be added with `git add` |
+| Check | How to Verify |
+|-------|---------------|
+| No conflict markers | Search files for `<<<<<<<`, `=======`, `>>>>>>>` |
+| All files staged | `git status` shows no untracked/modified files |
 | No remaining conflicts | `git diff --name-only --diff-filter=U` returns empty |
-| Merge can complete | `git merge` completes successfully |
+| Merge can complete | `git commit` completes successfully |
 
 ---
 
@@ -368,45 +311,28 @@ Before allowing conflict resolution to complete, the system verifies:
 
 | Scenario | Use Worktree? |
 |----------|--------------|
-| Parallel stream work | ✅ Yes - prevents conflicts |
-| High-complexity refactoring | ✅ Yes - isolates risky changes |
-| Simple documentation updates | ❌ No - unnecessary overhead |
-| Sequential task work | ❌ No - no conflict risk |
+| Parallel stream work | Yes - prevents conflicts |
+| High-complexity refactoring | Yes - isolates risky changes |
+| Simple documentation updates | No - unnecessary overhead |
+| Sequential task work | No - no conflict risk |
 
 ### Cleanup
 
 Worktrees are automatically cleaned up on task completion. For manual cleanup:
 
-1. **Before completion:** Use `worktree_cleanup` if you want to abandon changes
-2. **Stale worktrees:** Use `worktree_list` to find orphaned worktrees, then cleanup
+1. **Before completion:** Use `git worktree remove --force` to abandon changes
+2. **Stale worktrees:** Use `git worktree list` to find orphaned worktrees, then `git worktree remove` + `git worktree prune`
 
 ### Error Handling
 
 If worktree operations fail:
 - Task creation/update still succeeds (worktree is optional)
 - Error logged to task notes
-- Manual worktree tools can be used to recover
+- Manual git commands can be used to recover
 
 ---
 
-## CLI Reference
-
-### All Worktree Tools
-
-| Tool | Purpose | Required Args | Optional Args |
-|------|---------|---------------|---------------|
-| `worktree_create` | Create worktree for task | `taskId` | `baseBranch` |
-| `worktree_list` | List all task worktrees | None | None |
-| `worktree_merge` | Merge worktree branch | `taskId` | `targetBranch` |
-| `worktree_cleanup` | Remove worktree & branch | `taskId` | `force` |
-| `worktree_conflict_status` | Check conflict status | `taskId` | None |
-| `worktree_conflict_resolve` | Resolve conflicts | `taskId` | `strategy`, `targetBranch` |
-
----
-
-## Examples
-
-### Complete Workflow
+## Complete Workflow Example
 
 ```bash
 # 1. Create task with automatic worktree
@@ -417,48 +343,30 @@ tc task create --title "Refactor authentication" --prd <id> --json
 tc task update <task-id> --status in_progress --json
 
 # 3. Do work in .worktrees/TASK-xxx directory
-# ...
+cd .worktrees/TASK-xxx
+# ... make changes ...
+git add .
+git commit -m "feat: refactor auth module"
 
-# 4. Complete task (automatic merge & cleanup)
+# 4. Complete task (triggers automatic merge & cleanup)
+cd /project-root
 tc task update <task-id> --status completed --json
 
-# If merge conflicts:
-# 5. Check conflict details
-worktree_conflict_status({ taskId: "<task-id>" })
+# If merge conflicts arise:
+# 5. Check which files conflict
+git status
+git diff --name-only --diff-filter=U
 
-# 6. Manually resolve conflicts in files
-# ...
+# 6. Open each conflicting file, remove markers, save correct result
+# (edit files manually)
 
-# 7. Resolve and complete
-worktree_conflict_resolve({ taskId: "<task-id>", strategy: "manual" })
-```
+# 7. Stage resolved files and complete the merge
+git add src/auth.ts src/config.ts
+git commit
 
-### Manual Worktree Management
-
-```typescript
-// Create worktree for existing task
-await worktree_create({
-  taskId: "TASK-existing",
-  baseBranch: "feature/new-api"
-});
-
-// List all worktrees
-const list = await worktree_list({});
-console.log(list.worktrees);
-
-// Manually merge when ready
-const mergeResult = await worktree_merge({
-  taskId: "TASK-existing",
-  targetBranch: "develop"
-});
-
-if (mergeResult.merged) {
-  // Success - cleanup
-  await worktree_cleanup({ taskId: "TASK-existing" });
-} else {
-  // Handle conflicts
-  console.log("Conflicts:", mergeResult.conflicts);
-}
+# 8. Clean up worktree
+git worktree remove .worktrees/TASK-xxx
+git branch -d task/task-xxx
 ```
 
 ---
@@ -467,19 +375,28 @@ if (mergeResult.merged) {
 
 ### Worktree Already Exists
 
-**Error:** "Worktree already exists for this task"
+**Error:** "fatal: 'TASK-xxx' already exists"
 
-**Solution:** Use `worktree_list` to verify, then `worktree_cleanup` to remove if stale.
+**Solution:**
+```bash
+# List all worktrees to verify
+git worktree list
+
+# Remove stale worktree if needed
+git worktree remove --force .worktrees/TASK-xxx
+git worktree prune
+```
 
 ### Merge Conflicts
 
 **Error:** Task blocked with merge conflicts
 
 **Solution:**
-1. Use `worktree_conflict_status` to see conflict details
-2. Navigate to worktree path
-3. Resolve conflicts manually (remove markers)
-4. Use `worktree_conflict_resolve` with `strategy: "manual"`
+1. `git status` to see conflicting files
+2. Navigate to the worktree path
+3. Resolve conflicts manually (remove markers, edit to desired result)
+4. `git add <resolved-files>` and `git commit`
+5. Update task status and clean up
 
 ### Stale Worktrees
 
@@ -490,11 +407,11 @@ if (mergeResult.merged) {
 # List all worktrees
 git worktree list
 
-# Remove stale worktree manually
-git worktree remove --force /path/to/worktree
+# Prune stale references (safe - only removes stale metadata)
+git worktree prune
 
-# Or use Task Copilot
-await worktree_cleanup({ taskId: "TASK-xxx", force: true });
+# Remove specific stale worktree
+git worktree remove --force /path/to/worktree
 ```
 
 ### Cannot Delete Branch
@@ -503,20 +420,11 @@ await worktree_cleanup({ taskId: "TASK-xxx", force: true });
 
 **Solution:**
 - Branch may have unmerged changes
-- Use `force: true` in `worktree_cleanup` to force deletion
-- Or manually: `git branch -D task/task-xxx`
+- Force-delete with `git branch -D task/task-xxx` if changes are already merged or abandoned
 
 ---
 
 ## Migration Guide
-
-### From Manual Worktree Management
-
-If you were managing worktrees manually:
-
-1. **Update task metadata** to include `requiresWorktree: true`
-2. **Use `tc task update`** status transitions instead of manual git commands
-3. **Conflict resolution** now handled via `worktree_conflict_resolve`
 
 ### From No Worktrees
 
@@ -524,12 +432,11 @@ To start using worktrees:
 
 1. **Update task templates** to include `requiresWorktree: true` for parallel work
 2. **No code changes** required - lifecycle is automatic
-3. **Existing tasks** can opt-in using `worktree_create`
+3. **Existing tasks** can opt-in by setting `isolatedWorktree: true` in metadata and creating the worktree manually with `git worktree add`
 
 ---
 
 ## See Also
 
-- [Stream System](./01-streams.md) - Parallel work streams that benefit from worktree isolation
-- [Task Lifecycle](../20-architecture/02-task-lifecycle.md) - Complete task status transition flow
-- [Quality Gates](./04-quality-gates.md) - Pre-merge validation
+- [Orchestration Workflow](./01-orchestration-workflow.md) - Parallel work streams that benefit from worktree isolation
+- [Enhancement Features](./00-enhancement-features.md) - Quality gates and other agent reliability features

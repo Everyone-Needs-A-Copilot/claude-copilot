@@ -30,7 +30,7 @@ The `model` field specifies the default Claude model for the agent:
 | Model | Use Case | Default Agents |
 |-------|----------|----------------|
 | `opus` | Complex architectural decisions, system design | ta (Tech Architect) |
-| `sonnet` | Standard implementation, testing, documentation | me (Engineer), qa (QA), doc, sec, do, sd, uxd, uids, uid, cw |
+| `sonnet` | Standard implementation, testing, documentation | me (Engineer), qa (QA), doc, do, sd, uxd, uids, uid |
 | `haiku` | Simple tasks, quick operations | (None by default, can be set per-task) |
 
 ### Model Override Priority
@@ -141,14 +141,11 @@ Choose the right agent for each task type:
 | Feature implementation | `me` | sonnet | Standard coding work |
 | Bug fixes | `me` | sonnet | Code changes with context |
 | Test coverage | `qa` | sonnet | Test design and execution |
-| Security review | `sec` | sonnet | Security analysis |
+| Security review | skill: `security/stride-dread` | — | Load skill, not a separate agent |
 | Documentation | `doc` | sonnet | Technical writing |
 | Infrastructure | `do` | sonnet | DevOps configuration |
 | Service design | `sd` | sonnet | User journey mapping |
-| UX design | `uxd` | sonnet | Interaction design |
-| UI design | `uids` | sonnet | Visual design |
-| UI implementation | `uid` | sonnet | Frontend code |
-| Content writing | `cw` | sonnet | Copy and messaging |
+| Interaction + visual design | `design` | sonnet | Interaction design, visual design, components |
 
 ---
 

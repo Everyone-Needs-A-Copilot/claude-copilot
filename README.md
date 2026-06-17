@@ -7,14 +7,13 @@
 <h1 align="center">Claude Copilot</h1>
 
 <p align="center">
-  <strong>An instruction layer for Claude Code that gives every developer access to a full team of specialists.</strong>
+  <strong>An instruction layer for Claude Code — 15 framework agents with strict points of view, a design-led process enforced by mechanical hooks, persistent memory across sessions, and real task/worker orchestration. It makes Claude Code's process repeatable, inspectable, and stateful.</strong>
 </p>
 
 <p align="center">
   <a href="https://github.com/Everyone-Needs-A-Copilot/claude-copilot/releases/latest"><img src="https://img.shields.io/github/v/release/Everyone-Needs-A-Copilot/claude-copilot?color=green" alt="Version"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/github/license/Everyone-Needs-A-Copilot/claude-copilot" alt="License"></a>
   <a href="https://github.com/Everyone-Needs-A-Copilot/claude-copilot"><img src="https://img.shields.io/github/stars/Everyone-Needs-A-Copilot/claude-copilot?style=social" alt="GitHub stars"></a>
-  <a href="https://nodejs.org"><img src="https://img.shields.io/badge/Node.js-18%2B-339933?logo=node.js" alt="Node.js"></a>
   <a href="https://claude.com/claude-code"><img src="https://img.shields.io/badge/Claude_Code-Compatible-7C3AED" alt="Claude Code"></a>
 </p>
 
@@ -24,23 +23,26 @@
 
 **Claude Copilot is a set of instructions that sit on top of Claude Code.** This is an independent, community-driven framework for Claude Code, unaffiliated with Microsoft Copilot or GitHub Copilot.
 
-It's not separate software—it's markdown files (agents, commands, project instructions) and three MCP servers that give Claude Code new capabilities:
+It's not separate software—it's markdown files (agents, commands, project instructions) and two CLI tools (`cc` and `tc`) that give Claude Code new capabilities:
 
-| You Get                    | What It Does                                                                       |
-| -------------------------- | ---------------------------------------------------------------------------------- |
-| **Persistent Memory**      | Decisions, lessons, and progress survive across sessions                           |
-| **8 Specialist Agents**    | Lean agents with on-demand skill loading; design agents include creative methodology |
-| **Auto-Load Skills**       | Agents detect and load relevant skills based on context (file patterns + keywords) |
-| **Parallel Orchestration** | Headless workers execute streams concurrently with `/orchestrate`                  |
-| **Pause & Resume**         | Context switch mid-task with `/pause`, return with `/continue`                     |
-| **Task Management**        | PRDs, tasks, and work products with minimal context usage                          |
-| **Stream Management**      | Parallel work streams with conflict detection and dependencies                     |
-| **Knowledge Search**       | Your company docs, available in every project                                      |
-| **Extensions System**      | Override or extend agents with your company methodologies                          |
-| **Skills on Demand**       | 25K+ patterns and best practices, loaded when needed                               |
-| **Context Engineering**    | Auto-compaction, continuation enforcement, activation modes                        |
+| You Get                    | What It Does                                                                         |
+| -------------------------- | ------------------------------------------------------------------------------------ |
+| **Persistent Memory**      | Decisions, lessons, and progress survive across sessions ([FTS5](docs/70-reference/05-glossary.md#fts5) keyword search)       |
+| **Memory Drift Detection** | `cc memory check` — token-free deterministic checkers (path-exists, command-resolves, version-conflict, staleness); 0–100 score; exits 1 on any fail-severity finding |
+| **Usage Observability**    | `cc usage` — idle-gated quota probe via Keychain OAuth + `anthropic-ratelimit-unified-*` headers; producer/consumer split so consumers never corrupt the quota window |
+| **15 Framework Agents**    | Lean agents with on-demand skill loading; methodology-embedded from IDEO to Kent Beck; `kc` is setup-only (not in the build chain). Authoritative roster: `.claude/agents/manifest.json` |
+| **Auto-Firing Skills**     | Skills surface automatically from trigger-rich descriptions; code-bearing skills run executable scripts |
+| **Parallel Orchestration** | Headless workers execute streams concurrently with `/orchestrate` _(works; unproven at large scale — no proven >5-stream run; tests are mock-only)_ |
+| **Pause & Resume**         | Context switch mid-task with `/pause`, return with `/continue`                       |
+| **Task Management**        | [PRD](docs/70-reference/05-glossary.md#prd)s, tasks, and work products ([WP](docs/70-reference/05-glossary.md#wp-work-product)) via `tc` CLI with minimal context usage               |
+| **Stream Management**      | Parallel work streams with conflict detection and dependencies                       |
+| **Known References**       | Configured paths and refs surface into every session via the Known References registry (`cc config set refs.*`); `cc memory` search is available manually — agents do not yet auto-search a company knowledge repo _(roadmap: agent auto-pull)_ |
+| **Extensions System**      | Override or extend agents with your company methodologies                            |
+| **Code-Execution Path**    | `tc.api` / `cc.api` facades for multi-step ops without CLI round-trip token cost     |
+| **Live Docs**              | `cc docs get <pkg>` — version-exact package documentation; agents code against the real installed API, not stale training memory; local-first, offline-safe |
+| **Context Engineering**    | Auto-compaction, continuation enforcement, activation modes                          |
 
-When Claude Code reads these instructions, it transforms from a generic assistant into a full development team that remembers your work.
+When Claude Code reads these instructions, it gains persistent memory, 15 framework agents (plus `kc`, setup-only), and a structured process — the design goal being more disciplined, resumable work built from the practices that tend to produce better software. We measure process and context efficiency, not output quality; there is no defect/rework data yet.
 
 → [Why we built this](docs/10-architecture/02-philosophy.md)
 
@@ -62,7 +64,7 @@ Teams face the same challenges at scale—plus knowledge silos, inconsistent sta
 
 ## April 2026 Restructure
 
-A diagnostic of 15 sessions (Apr 17-22 2026) found a 6% delegation rate — 94% of work stayed in the main session despite a 14-agent roster. A 5-day staging deployment saga (57 manual bash polling calls, 26 loops) exposed missing primitives. The April 2026 restructure fixes this with mechanical hook enforcement, a consolidated 8-agent roster, the `tc deploy wait` primitive, and model pinning so the cheap-and-fast model handles orchestration.
+A diagnostic of 15 sessions (Apr 17-22 2026) found a 6% delegation rate — 94% of work stayed in the main session despite a 14-agent roster. A 5-day staging deployment saga (57 manual bash polling calls, 26 loops) exposed missing primitives. The April 2026 restructure introduced mechanical hook enforcement, the `tc deploy wait` primitive, and model pinning. The roster was consolidated to 8 agents as an interim step to reduce complexity during the hook rollout; it has since been restored and expanded to the current 15 framework agents + `kc` (setup-only) as the enforcement layer proved stable.
 
 → [Full diagnostic and rationale](docs/10-architecture/04-framework-restructure-2026-04.md)
 
@@ -94,21 +96,26 @@ A diagnostic of 15 sessions (Apr 17-22 2026) found a 6% delegation rate — 94% 
 │   │Architect│ │Engineer │ │   QA    │ │  Docs   │ │ DevOps  │ │ Service │  │
 │   │         │ │         │ │         │ │         │ │         │ │Designer │  │
 │   └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘  │
-│             ┌────────────┐  ┌─────────┐                                     │
-│             │   design   │  │   kc    │  Knowledge Copilot (utility)        │
-│             │UX+UI+Visual│  └─────────┘                                     │
-│             └────────────┘                                                  │
+│   ┌─────────┐ ┌─────────┐ ┌─────────┐  ┌─────────┐                          │
+│   │   uxd   │ │  uids   │ │   uid   │  │   kc    │  Knowledge Copilot       │
+│   │UX Design│ │UI Design│ │UI Dev   │  │ (util)  │                          │
+│   │         │ │ System  │ │         │  └─────────┘                          │
+│   └─────────┘ └─────────┘ └─────────┘                                      │
 └───────────────────────────────┼─────────────────────────────────────────────┘
                                 │
               ┌─────────────────┼─────────────────┐
               │                 │                 │
               ▼                 ▼                 ▼
 ┌────────────────────┐ ┌────────────────────┐ ┌────────────────────────────────┐
-│   MEMORY COPILOT   │ │   TASK COPILOT     │ │       SKILLS COPILOT           │
-│                    │ │                    │ │                                │
-│ • Decisions made   │ │ • PRDs & tasks     │ │ • 25,000+ public skills        │
-│ • Lessons learned  │ │ • Work products    │ │ • Your private skills          │
-│ • Enables /continue│ │ • 96% less context │ │ • Knowledge search             │
+│   MEMORY COPILOT   │ │   TASK COPILOT     │ │          cc SKILLS             │
+│   (cc memory)      │ │   (tc CLI)         │ │                                │
+│ • Decisions made   │ │ • PRDs & tasks     │ │ • Auto-fires from description  │
+│ • Lessons learned  │ │ • Work products    │ │ • Code-bearing: L1/L2/L3      │
+│ • FTS5 keyword     │ │ • ~94% less context│ │ • Known References registry    │
+│                    │ │   for externalized │ │   (configured paths/refs only) │
+│                    │ │   work products vs │ │ • Agent auto-pull: roadmap     │
+│                    │ │   inlining outputs │ │                                │
+│ • Enables /continue│ │ • tc.api facade    │ │ • cc.api facade                │
 └────────────────────┘ └────────────────────┘ └────────────────────────────────┘
 ```
 
@@ -164,6 +171,8 @@ Two patterns cover most development work:
 
 ### Pattern 1: Fix a Bug
 
+_Illustrative (not a captured transcript)._
+
 ```bash
 /protocol the checkout form submits twice on Enter key
 ```
@@ -199,8 +208,6 @@ Two patterns cover most development work:
    Verification: PASS ✓
    Git commit: fix(TASK-abc): Prevent double submission on Enter key
    ```
-
-**Total time: 6-12 minutes from report to commit.**
 
 ---
 
@@ -293,7 +300,7 @@ All streams completed. 18 git commits created.
 | ----------- | ------------------------- | ----------------------------------- |
 | `quick`     | Typos, obvious fixes      | `/protocol quick fix the typo`      |
 | `thorough`  | Deep review, full testing | `/protocol thorough review auth`    |
-| `ultrawork` | Multi-day features        | `/protocol ultrawork redesign auth` |
+| `ultrawork` | Large multi-stream features | `/protocol ultrawork redesign auth` |
 
 → [Full usage guide with more scenarios](docs/70-reference/01-usage-guide.md)
 
@@ -311,26 +318,45 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 
 ## Your Team
 
-| Agent    | Role              | When to Use                                |
-| -------- | ----------------- | ------------------------------------------ |
-| `ta`     | Tech Architect    | System design, task breakdown, ADRs        |
-| `me`     | Engineer          | Implementation, bug fixes, refactoring     |
-| `qa`     | QA Engineer       | Testing strategy, edge cases, verification |
-| `doc`    | Documentation     | READMEs, API docs, technical writing       |
-| `do`     | DevOps            | CI/CD, infrastructure, deploy, containers  |
-| `sd`     | Service Designer  | Customer journeys, experience strategy     |
-| `design` | UX + UI + Visual  | Interaction design, visual design, components |
-| `kc`     | Knowledge Copilot | Shared knowledge setup (utility)           |
+**Core agents (always available):**
 
-**Skills (loaded on demand, not standalone agents):**
+| Agent | Role              | When to Use                                |
+| ----- | ----------------- | ------------------------------------------ |
+| `ta`  | Tech Architect    | System design, task breakdown, [ADR](docs/70-reference/05-glossary.md#adr)s        |
+| `me`  | Engineer          | Implementation, bug fixes, refactoring     |
+| `qa`  | QA Engineer       | Testing strategy, edge cases, verification |
+| `doc` | Documentation     | READMEs, API docs, technical writing       |
+| `do`  | DevOps            | CI/CD, infrastructure, deploy, containers  |
+| `sd`  | Service Designer  | Customer journeys, experience strategy     |
+| `kc`  | Knowledge Copilot | Shared knowledge setup (utility)           |
 
-| Skill | Replaces | Load with |
-|-------|----------|-----------|
-| Security (STRIDE/DREAD) | `@agent-sec` | `@include .claude/skills/security/stride-dread/SKILL.md` |
-| Voice & Tone | `@agent-cw` | `@include .claude/skills/voice-tone/SKILL.md` |
-| Creative Direction | `@agent-cco` | `@include .claude/skills/litmus-test/SKILL.md` |
+**Design chain (sd → uxd → uids → uid → ta → me):**
 
-→ [Meet your full team](docs/10-architecture/01-agents.md) | [Why we restructured from 14 to 8 agents](docs/10-architecture/04-framework-restructure-2026-04.md)
+| Agent  | Role                           | When to Use                             |
+| ------ | ------------------------------ | --------------------------------------- |
+| `uxd`  | UX Designer                    | Interaction flows, task design          |
+| `uids` | UI Design System               | Visual tokens, color, typography        |
+| `uid`  | UI Developer                   | Component implementation specs          |
+
+**Specialist branches:**
+
+| Agent | Role                    | When to Use                                      |
+| ----- | ----------------------- | ------------------------------------------------ |
+| `sec` | Security                | Threat modeling, STRIDE/DREAD analysis           |
+| `ind` | Industrial Designer     | Object-level essentialism review (upstream of uxd) |
+| `cco` | Creative Director       | Brand strategy, creative direction               |
+| `cw`  | Copywriter              | Copy execution, messaging, microcopy             |
+
+**Business advisory (optional — outside the software build chain):**
+
+> `cs` and `cpa` are standalone advisory agents for founder/agency business needs. They do not route into the build chain (sd → uxd → uids → uid → ta → me). Invoke them directly.
+
+| Agent | Role                    | When to Use                                      |
+| ----- | ----------------------- | ------------------------------------------------ |
+| `cs`  | Customer Success        | Support patterns, retention strategy             |
+| `cpa` | CPA / Financial         | Tax implications, financial modeling             |
+
+→ [Meet your full team](docs/10-architecture/01-agents.md) | [Agent roster history](docs/10-architecture/04-framework-restructure-2026-04.md)
 
 ---
 
@@ -348,7 +374,7 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 | `/setup-knowledge-sync` | Enable auto-updates on releases         |
 | `/knowledge-copilot`    | Build shared knowledge repo             |
 
-→ [Orchestration Guide](docs/50-features/02-orchestration-workflow.md) | [Knowledge Sync](docs/50-features/03-knowledge-sync.md)
+→ [Orchestration Guide](docs/50-features/01-orchestration-workflow.md) | [Knowledge Sync](docs/50-features/03-knowledge-sync.md)
 
 ---
 
@@ -356,9 +382,9 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 
 | Level          | What You Get                                          |
 | -------------- | ----------------------------------------------------- |
-| **Solo**       | 8 agents, persistent memory, local skills             |
-| **Team**       | + shared knowledge, private skills via PostgreSQL     |
-| **Enterprise** | + Skill Marketplace (25K+ skills), full customization |
+| **Solo**       | 15 framework agents + kc (setup-only), persistent memory, local skills |
+| **Team**       | + shared knowledge repo, Known References registry    |
+| **Enterprise** | + Extensions system, company-specific agent overrides |
 
 → [Customization guide](docs/20-configuration/02-customization.md) | [Extension Spec](docs/40-extensions/00-extension-spec.md)
 
@@ -368,14 +394,14 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 
 | Requirement | Version |
 | ----------- | ------- |
-| Node.js     | 18+     |
+| Python      | 3.10+   |
 | Claude Code | Latest  |
-| Disk space  | ~300MB  |
+| Disk space  | ~100MB  |
 
-**Build tools:**
+**Build tools (for Python packages):**
 
 - macOS: `xcode-select --install`
-- Linux: `sudo apt-get install build-essential python3`
+- Linux: `sudo apt-get install build-essential`
 
 ---
 
@@ -386,7 +412,7 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 |-------|---------|
 | [Usage Guide](docs/70-reference/01-usage-guide.md) | **How to actually use this** - real workflows and scenarios |
 | [Decision Guide](docs/10-architecture/03-decision-guide.md) | When to use what - quick reference matrices |
-| [Agents](docs/10-architecture/01-agents.md) | All 8 specialists in detail |
+| [Agents](docs/10-architecture/01-agents.md) | All 15 framework agents + kc in detail |
 
 **Setup & Configuration:**
 | Guide | Purpose |
@@ -408,6 +434,12 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 |----------|---------|
 | [Working Protocol](docs/30-operations/01-working-protocol.md) | Agent-First Protocol details |
 | [Documentation Guide](docs/30-operations/02-documentation-guide.md) | Doc standards, token budgets |
+
+**Reference:**
+| Document | Purpose |
+|----------|---------|
+| [Quick Reference](docs/70-reference/00-quick-reference.md) | Command cheatsheet |
+| [Glossary](docs/70-reference/05-glossary.md) | FTS5, BM25, ADR, PRD, WP, L1/L2/L3, all 15 framework agent codes + kc |
 
 ---
 

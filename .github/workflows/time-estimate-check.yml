@@ -54,10 +54,11 @@ jobs:
           # Run all checks
           check_pattern '\b(hours?|days?|weeks?|months?|years?)\b' \
             'Direct time units' \
-            'TTL|cache|testing|fast|slow|millisecond|performance|NEVER include'
+            'TTL|cache|testing|fast|slow|millisecond|performance|NEVER include|tax year|fiscal year|prior year|last year|this year|day forecast|day projections|ten years|long-lasting'
 
           check_pattern '\b(timeline|schedule|deadline|due\s+date|ETA|delivery\s+date)\b' \
-            'Time-based planning language'
+            'Time-based planning language' \
+            'tax|fiscal|quarterly|calendar|CPA|deadline risk|deadline alert'
 
           check_pattern 'Phase\s+\d+.*\((Week|Month|Q\d)' \
             'Time-based phase descriptions'

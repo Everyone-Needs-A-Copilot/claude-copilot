@@ -210,6 +210,46 @@ write_state "$PRUNED"
 release_lock
 trap - EXIT
 
+# ---------------------------------------------------------------------------
+# On the first turn of a new session: inject Known References block
+# ---------------------------------------------------------------------------
+if [[ "$TURNS" -eq 1 ]] && command -v cc &>/dev/null; then
+  _REFS=""
+
+  # Standard path keys from cc config
+  _SHARED_DOCS="$(cc config get paths.shared_docs --raw 2>/dev/null || true)"
+  _KNOWLEDGE_REPO="$(cc config get paths.knowledge_repo --raw 2>/dev/null || true)"
+  [[ -n "$_SHARED_DOCS" ]]    && _REFS="${_REFS}- shared_docs: ${_SHARED_DOCS}\n"
+  [[ -n "$_KNOWLEDGE_REPO" ]] && _REFS="${_REFS}- knowledge_repo: ${_KNOWLEDGE_REPO}\n"
+
+  # Arbitrary refs.* keys from cc config export
+  while IFS='=' read -r _key _value; do
+    # Trim all spaces from keys (keys are identifiers, never contain spaces).
+    # Preserve internal spaces in values — only strip leading/trailing whitespace
+    # so paths with spaces in directory names survive intact.
+    _key="${_key// /}"
+    _value="${_value#"${_value%%[![:space:]]*}"}"  # ltrim
+    _value="${_value%"${_value##*[![:space:]]}"}"  # rtrim
+    if [[ "$_key" == refs.* ]] && [[ -n "$_value" ]]; then
+      _ref_name="${_key#refs.}"
+      _REFS="${_REFS}- ${_ref_name}: ${_value}\n"
+    fi
+  done < <(cc config export 2>/dev/null || true)
+
+  # reference-type memory entries (show first 5, truncated)
+  if command -v jq &>/dev/null; then
+    _MEM_REFS="$(cc memory list --type reference --json 2>/dev/null | jq -r '.[0:5] | .[] | "- [memory] " + ((.content // "") | gsub("\n";" ") | .[0:100])' 2>/dev/null || true)"
+    [[ -n "$_MEM_REFS" ]] && _REFS="${_REFS}${_MEM_REFS}\n"
+  fi
+
+  if [[ -n "$_REFS" ]]; then
+    _MSG="Known references (this session):\n${_REFS}\nRegister a reference: cc config set refs.<name> <value>"
+    printf '{"systemMessage":"%s"}\n' \
+      "$(printf '%s' "$_MSG" | sed 's/"/\\"/g; s/$/\\n/g' | tr -d '\n' | sed 's/\\n$//')"
+    exit 0
+  fi
+fi
+
 # Emit advisory if needed (after lock released — output goes to Claude)
 if [[ -n "$EMIT_LEVEL" ]]; then
   emit_advisory "$EMIT_LEVEL" "$TURNS"

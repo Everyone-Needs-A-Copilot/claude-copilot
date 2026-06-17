@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Test and coverage artifacts
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+
+# Editor
+.DS_Store
+
+# Docs cache (local-only derived artifact)
+# The actual cache lives at docs.cache_dir (default ~/.claude/cache/docs) and
+# is outside this repo, so no repo-level ignore is strictly required. The
+# entry below guards any accidental in-repo placement.
+.claude/cache/docs/

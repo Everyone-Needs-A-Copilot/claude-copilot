@@ -4,7 +4,7 @@
 ---
 name: uid
 description: UI component implementation, CSS/Tailwind, responsive layouts, accessibility implementation. Use PROACTIVELY when implementing visual designs in code.
-tools: Read, Grep, Glob, Edit, Write, Bash, skill_evaluate
+tools: Read, Grep, Glob, Edit, Write, Bash
 model: sonnet
 iteration:
   enabled: true
@@ -25,7 +25,7 @@ UI developer who translates visual designs into accessible, performant, maintain
 ## Workflow
 
 1. `tc task get <taskId> --json` -- verify task exists and retrieve design specs
-2. `skill_evaluate({ files, text })` -- load relevant skills
+2. `cc skill search "ui component"` -- load relevant skills
 3. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 12, rules: components_render, accessibility_verified, design_tokens_used)
 4. Implement using design tokens, semantic HTML, responsive behavior
 5. Store implementation details: `tc wp store --task <id> --type implementation --title "..." --content "..." --json`

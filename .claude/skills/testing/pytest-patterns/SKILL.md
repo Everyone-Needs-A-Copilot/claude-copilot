@@ -1,13 +1,27 @@
 ---
-skill_name: pytest-patterns
+name: pytest-patterns
 skill_category: testing
-description: Pytest testing patterns, anti-patterns, and quality rules
-allowed_tools: [Read, Edit, Write, Grep, Bash]
-token_estimate: 1800
-version: 1.0
-last_updated: 2026-01-13
-owner: Claude Copilot
-status: active
+description: >-
+  Pytest testing patterns, anti-patterns, and quality rules for Python test
+  files (test_*.py, *_test.py, conftest.py). Includes deterministic test-smell
+  detector (pytest_smell.py) for no-assertion tests, empty tests, bare excepts,
+  magic numbers, sleep calls, and print calls. Covers fixtures, parametrize,
+  mock, patch, and assert patterns. Use proactively when reviewing or writing
+  pytest test files, diagnosing flaky or unreliable Python test suites,
+  code-reviewing test files, or running a CI quality gate on test file hygiene.
+  Run the smell detector for deterministic issue detection.
+version: 2.0.0
+source: migrated from testing/pytest-patterns.md (v1.0, 2026-01-13); L3 smell detector added 2026-05-20
+when_to_use:
+  - Reviewing or writing pytest test files
+  - Diagnosing a flaky or unreliable test suite
+  - Code review of test_*.py / *_test.py files
+  - CI quality gate on test file hygiene
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
 tags: [pytest, testing, python, unit-test, integration-test, quality, fixtures]
 related_skills: [python-idioms, jest-patterns]
 trigger_files: ["test_*.py", "*_test.py", "conftest.py", "pytest.ini", "pyproject.toml"]
@@ -17,6 +31,8 @@ trigger_keywords: [pytest, fixture, parametrize, mock, patch, assert, conftest]
 # Pytest Patterns
 
 Modern pytest testing patterns, anti-patterns, and quality rules for Python.
+
+pytest_smell.py detects structural test smells deterministically. The prose sections below cover judgment-level guidance that the script cannot evaluate. Never re-derive smell detection by eye when the script can do it; always run the script for consistent, auditable findings.
 
 ## Core Principles
 
@@ -380,3 +396,66 @@ fail_under = 80
 | Fast execution | Mock external services |
 | Descriptive names | test_<action>_<expected> format |
 | Proper scopes | Match fixture scope to usage |
+
+---
+
+## Invocation — Test Smell Detector (L3 Script)
+
+After reviewing or writing test files, run the smell detector to get a structured, auditable finding list. Consume the script's **output only** — the script source never enters context.
+
+**Smells detected:**
+
+| ID | Name | Severity | Rule |
+|----|------|----------|------|
+| SMELL-01 | no_assert | ERROR | Test has no assertion — can never fail |
+| SMELL-02 | bare_except | WARN | Bare `except:` / `except Exception:` without re-raise |
+| SMELL-03 | test_naming | ERROR | Test function in Test* class doesn't start with `test_` |
+| SMELL-04 | magic_number | WARN | Numeric literal ≥ 1000 inside an assert |
+| SMELL-05 | empty_test | ERROR | Body is only `pass` or a docstring |
+| SMELL-06 | sleep_in_test | WARN | `time.sleep()` call inside a test |
+| SMELL-07 | print_in_test | WARN | `print()` call inside a test |
+
+**Run via Bash (single file):**
+```bash
+python .claude/skills/testing/pytest-patterns/scripts/pytest_smell.py path/to/test_file.py
+```
+
+**Run via Bash (directory — walks all test_*.py / *_test.py recursively):**
+```bash
+python .claude/skills/testing/pytest-patterns/scripts/pytest_smell.py tests/
+```
+
+**Run via Bash (stdin):**
+```bash
+cat test_example.py | python .claude/skills/testing/pytest-patterns/scripts/pytest_smell.py -
+```
+
+**Output fields (JSON):**
+```json
+{
+  "findings": [
+    {
+      "smell_id": "SMELL-01",
+      "name": "no_assert",
+      "severity": "ERROR",
+      "message": "Test 'test_foo' has no assertion — it can never fail",
+      "file": "tests/test_foo.py",
+      "line": 10,
+      "function": "test_foo"
+    }
+  ],
+  "summary": {
+    "total": 3,
+    "error": 2,
+    "warn": 1,
+    "files_analyzed": 1
+  }
+}
+```
+
+**What the agent does with the output:**
+1. Address all `ERROR` severity findings first — these are broken/useless tests.
+2. Review `WARN` severity findings — these are flaky/noisy patterns; fix unless there is a documented reason.
+3. Use `summary.error` count in any CI gate decision.
+
+**Error handling:** Invalid file path → exits 1 with `ERROR:` message on stderr. Syntax error in a test file → reported as a `PARSE-ERROR` finding (not a crash). Empty input → exits 0 with zero findings.

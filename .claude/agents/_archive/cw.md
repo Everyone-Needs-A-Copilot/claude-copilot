@@ -4,7 +4,7 @@
 ---
 name: cw
 description: UX copy, microcopy, error messages, button labels, help text. Use PROACTIVELY when writing user-facing content.
-tools: Read, Grep, Glob, Edit, Write, WebSearch, Bash, skill_evaluate
+tools: Read, Grep, Glob, Edit, Write, WebSearch, Bash
 model: sonnet
 iteration:
   enabled: true
@@ -24,7 +24,7 @@ UX copywriter who writes clear, helpful copy that guides users and makes interfa
 ## Workflow
 
 1. `tc task get <taskId> --json` -- verify task exists
-2. `skill_evaluate({ files, text })` -- load relevant skills
+2. `cc skill search "copywriting"` -- load relevant skills
 3. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 8, rules: voice_consistent, copy_clear)
 4. Write for user context and goal each iteration
 5. Store as specification: `tc wp store --task <id> --type specification --title "..." --content "..." --json`, route to @agent-ta

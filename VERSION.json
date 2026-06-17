@@ -1,38 +1,36 @@
 {
-  "framework": "3.5.0",
-  "lastUpdated": "2026-03-29T00:00:00.000Z",
+  "framework": "5.10.0",
+  "lastUpdated": "2026-06-17T00:00:00.000Z",
   "components": {
-    "mcp-servers": {
-      "copilot-memory": {
-        "version": "3.0.0",
-        "path": "mcp-servers/copilot-memory",
-        "buildRequired": true,
-        "checkFile": "dist/index.js"
-      },
-      "skills-copilot": {
-        "version": "3.0.0",
-        "path": "mcp-servers/skills-copilot",
-        "buildRequired": true,
-        "checkFile": "dist/index.js"
-      }
+    "cc": {
+      "version": "1.4.0",
+      "path": "tools/cc",
+      "installScript": "tools/cc/install.sh",
+      "provides": ["cc memory", "cc memory check", "cc skill", "cc config", "cc env", "cc docs", "cc usage"]
+    },
+    "tc": {
+      "version": "1.1.0",
+      "path": "tools/tc",
+      "installCommand": "pip install -e ~/.claude/copilot/tools/tc"
     },
     "agents": {
-      "version": "3.1.0",
+      "version": "5.5.0",
       "path": ".claude/agents",
-      "count": 14,
+      "count": 16,
+      "_countNote": "16 total manifest entries: 15 framework agents + 1 setup-only (kc). See frameworkAgents for the authoritative list.",
       "frameworkAgents": [
-        "cco", "cw", "do", "doc", "kc", "me", "qa", "sd", "sec", "ta", "uid", "uids", "uxd"
+        "cco", "cpa", "cs", "cw", "do", "doc", "ind",
+        "me", "qa", "sd", "sec", "ta", "uid", "uids", "uxd"
       ],
-      "nativeAgents": [
-        "cs"
-      ],
+      "designChain": ["sd", "uxd", "uids", "uid", "ta", "me"],
       "requiredSections": [
         "Core Behaviors",
         "Route To Other Agent"
-      ]
+      ],
+      "retired": ["design"]
     },
     "commands": {
-      "version": "3.0.0",
+      "version": "5.3.2",
       "path": ".claude/commands",
       "projectCommands": [
         "protocol.md",
@@ -49,12 +47,11 @@
         "update-project.md",
         "update-copilot.md",
         "setup-copilot.md",
-        "knowledge-copilot.md",
-        "setup-knowledge-sync.md"
+        "knowledge-copilot.md"
       ]
     },
     "skills": {
-      "version": "3.1.0",
+      "version": "3.3.0",
       "path": ".claude/skills",
       "categories": [
         "code",
@@ -64,21 +61,13 @@
         "security",
         "testing"
       ]
-    },
-    "templates": {
-      "version": "3.0.0",
-      "path": "templates",
-      "includes": [
-        "mcp.json",
-        "orchestration/",
-        "hooks/"
-      ]
     }
   },
   "globalPaths": {
     "skills": "~/.claude/skills",
     "knowledge": "~/.claude/knowledge",
-    "memory": "~/.claude/memory",
-    "tasks": "~/.claude/tasks"
+    "memory": "~/.claude/memory/entries",
+    "tasks": "~/.claude/tasks",
+    "ccConfig": "~/.claude/cc/config.json"
   }
 }

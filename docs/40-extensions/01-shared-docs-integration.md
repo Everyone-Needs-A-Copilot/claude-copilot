@@ -81,7 +81,7 @@ Topic-based navigation for Claude Code to quickly locate relevant content:
 ### Company Voice
 | Document | Location | Tokens | For Agent |
 |----------|----------|--------|-----------|
-| Identity | 01-company/02-voice/01-identity.md | ~600 | @cw, @sd |
+| Identity | 01-company/02-voice/01-identity.md | ~600 | @design, @sd |
 
 ### Methodologies
 | Document | Location | Tokens | For Agent |
@@ -146,18 +146,14 @@ Topic-based navigation for Claude Code to quickly locate relevant content:
 
 ```yaml
 ---
-skill_name: forces-analysis
-skill_category: analysis
-description: One-line description for skill search
-allowed_tools: [Read, Write, Edit]
-token_estimate: 1850
-version: 1.2
-last_updated: 2025-01-15
-owner: Service Design Team
-status: active
+name: forces-analysis
+description: >-
+  Forces analysis for organizational design, leadership frameworks, and
+  facilitation methods. Use proactively when analyzing organizational forces,
+  designing change initiatives, or facilitating strategic decision-making.
+version: 1.0.0
+allowed-tools: [Read, Write, Edit]
 tags: [forces, organizational-design, leadership]
-methodology: 01-company/06-methodologies/10-forces-framework.md
-related_skills: [moments-mapping, colab-facilitation]
 ---
 ```
 
@@ -225,7 +221,7 @@ Maps which documents each agent requires:
 |----------|-------------|--------|
 | 01-company/05-patterns/20-tension-patterns.md | Forces analysis | ~1,000 |
 
-## Copywriter (@cw)
+## Design Agent (@design) and Voice/Copy Context
 
 ### Required Context
 | Document | Reason | Tokens |
@@ -447,7 +443,7 @@ Validate links in the shared-docs directory
 Check frontmatter in 02-products/ and fix any issues
 ```
 
-Claude will load the skill via `skill_get` and execute the validation, providing a report and optionally fixing issues.
+Claude will load the skill via `cc skill get <skill-name>` and execute the validation, providing a report and optionally fixing issues.
 
 ### Skill Capabilities
 
@@ -511,6 +507,6 @@ Claude will load the skill via `skill_get` and execute the validation, providing
 
 ## References
 
-- Extension Specification: [EXTENSION-SPEC.md](./EXTENSION-SPEC.md)
-- Documentation Guide: [documentation-guide.md](./operations/documentation-guide.md)
-- Working Protocol: [working-protocol.md](./operations/working-protocol.md)
+- Extension Specification: [Extension Spec](./00-extension-spec.md)
+- Documentation Guide: [Documentation Guide](../30-operations/02-documentation-guide.md)
+- Working Protocol: [Working Protocol](../30-operations/01-working-protocol.md)

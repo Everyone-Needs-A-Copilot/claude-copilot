@@ -41,36 +41,26 @@ cd ~/your-project && claude
 
 ### Individual Components
 
-#### Memory Copilot
+#### Reinstall CLIs
 ```bash
-cd ~/.claude/copilot/mcp-servers/copilot-memory
-npm install
-npm run build
-```
+# cc CLI (memory + skills)
+bash ~/.claude/copilot/tools/cc/install.sh
 
-#### Skills Copilot
-```bash
-cd ~/.claude/copilot/mcp-servers/skills-copilot
-npm install
-npm run build
+# tc CLI (Task Copilot)
+pip install -e ~/.claude/copilot/tools/tc
 ```
 
 #### Agents
 ```bash
 # Copy all agents to project
-cp ~/.claude/copilot/templates/agents/*.md ~/your-project/.claude/agents/
-
-# Copy specific agent
-cp ~/.claude/copilot/templates/agents/ta.md ~/your-project/.claude/agents/
+cp ~/.claude/copilot/.claude/agents/*.md ~/your-project/.claude/agents/
 ```
 
 #### Commands
 ```bash
 # Copy all commands to project
-cp ~/.claude/copilot/templates/commands/*.md ~/your-project/.claude/commands/
-
-# Copy specific command
-cp ~/.claude/copilot/templates/commands/protocol.md ~/your-project/.claude/commands/
+cp ~/.claude/copilot/.claude/commands/protocol.md ~/your-project/.claude/commands/
+cp ~/.claude/copilot/.claude/commands/continue.md ~/your-project/.claude/commands/
 ```
 
 ---
@@ -79,10 +69,12 @@ cp ~/.claude/copilot/templates/commands/protocol.md ~/your-project/.claude/comma
 
 | Feature | Invocation | Persistence | Best For |
 |---------|-----------|-------------|----------|
-| **Memory Copilot** | `initiative_*` tools | SQLite (~/.claude/memory) | Decisions, lessons, resuming work |
+| **Memory Copilot** | `cc memory` CLI | SQLite FTS5 (~/.claude/memory) | Decisions, lessons, resuming work |
 | **Agents** | `/protocol` or direct | None (stateless) | Complex tasks needing expertise |
-| **Skills Copilot** | `skill_get`, `skill_search` | PostgreSQL (optional) | Loading best practices on demand |
-| **Knowledge** | `knowledge_search` | Git repo | Company docs, shared standards |
+| **Skills** | Auto-fire from description; `cc skill` CLI as fallback | Local .claude/skills/ | Best practices auto-surface; explicit lookup via `cc skill search` |
+| **Live Docs** | `cc docs` CLI | Gitignored cache (~/.claude/cache/docs) | Version-exact package docs; agents coding against real installed APIs |
+| **Knowledge** | `cc memory search` / knowledge repo | Git repo | Company docs, shared standards |
+| **Tasks** | `tc` CLI | SQLite (~/.claude/tasks) | PRDs, tasks, work products |
 | **Protocol** | `/protocol` | Via Memory Copilot | Starting fresh work |
 | **Continue** | `/continue` | Via Memory Copilot | Resuming previous work |
 | **Extensions** | Auto-loaded | Knowledge repo | Company-specific agent overrides |
@@ -99,21 +91,20 @@ cp ~/.claude/copilot/templates/commands/protocol.md ~/your-project/.claude/comma
 | Monitor orchestration | Orchestrate | `/orchestrate status` |
 | Get architecture help | Tech Architect agent | `/protocol` → routes to `ta` |
 | Implement code | Engineer agent | `/protocol` → routes to `me` |
-| Review security | Security agent | `/protocol` → routes to `sec` |
+| Security review | Security agent | `/protocol` → routes to `sec` |
 | Write tests | QA agent | `/protocol` → routes to `qa` |
 | Write documentation | Documentation agent | `/protocol` → routes to `doc` |
 | Set up CI/CD | DevOps agent | `/protocol` → routes to `do` |
-| Design UX flows | UX Designer agent | `/protocol` → routes to `uxd` |
-| Design UI visuals | UI Designer agent | `/protocol` → routes to `uids` |
-| Implement UI | UI Developer agent | `/protocol` → routes to `uid` |
-| Write copy | Copywriter agent | `/protocol` → routes to `cw` |
+| Design UX flows | UX Designer agent | `/protocol` → routes to `uxd` (via `sd`) |
+| Design visual system | UI Design System agent | `/protocol` → routes to `uids` (via `uxd`) |
 | Design services | Service Designer agent | `/protocol` → routes to `sd` |
-| Load a skill | Skills Copilot | `skill_get "skill-name"` |
-| Search skills | Skills Copilot | `skill_search "query"` |
-| Find company docs | Knowledge search | `knowledge_search "query"` |
-| Store a decision | Memory Copilot | `memory_store` |
-| Search past decisions | Memory Copilot | `memory_search "query"` |
-| Track progress | Memory Copilot | `initiative_update` |
+| Load a skill | cc CLI | `cc skill get <name>` |
+| Search skills | cc CLI | `cc skill search "<query>"` |
+| Look up API docs for an installed package | cc CLI | `cc docs get <pkg> --topic <topic>` |
+| Find company docs | knowledge repo | `cc memory search "<query>"` |
+| Store a decision | cc CLI | `cc memory store --type decision "<content>"` |
+| Search past decisions | cc CLI | `cc memory search "<query>"` |
+| Track progress | tc CLI | `tc progress` |
 | Add company standards | Extensions | Create knowledge repo |
 | Override base agent | Extensions | Create `.override.md` extension |
 | Extend base agent | Extensions | Create `.extension.md` extension |
@@ -134,18 +125,22 @@ your-project/
     ├── commands/                # /protocol, /continue
     │   ├── protocol.md
     │   └── continue.md
-    ├── agents/                  # 14 specialist agents
+    ├── agents/                  # 15 framework agents + kc (setup-only)
     │   ├── ta.md               # Tech Architect
     │   ├── me.md               # Engineer
     │   ├── qa.md               # QA Engineer
-    │   ├── sec.md              # Security
-    │   ├── doc.md              # Documentation
     │   ├── do.md               # DevOps
+    │   ├── doc.md              # Documentation
     │   ├── sd.md               # Service Designer
     │   ├── uxd.md              # UX Designer
-    │   ├── uids.md             # UI Designer
+    │   ├── uids.md             # UI Design System
     │   ├── uid.md              # UI Developer
+    │   ├── sec.md              # Security
+    │   ├── ind.md              # Industrial Designer
+    │   ├── cco.md              # Creative Director
     │   ├── cw.md               # Copywriter
+    │   ├── cs.md               # Customer Success  [business advisory — invoke standalone]
+    │   ├── cpa.md              # CPA / Financial   [business advisory — invoke standalone]
     │   └── kc.md               # Knowledge Copilot
     └── skills/                  # Project-specific skills (optional)
 ```
@@ -154,12 +149,12 @@ your-project/
 ```
 ~/.claude/
 ├── copilot/                     # Claude Copilot framework (cloned repo)
-│   ├── mcp-servers/            # MCP server source code
-│   │   ├── copilot-memory/     # Memory Copilot
-│   │   └── skills-copilot/     # Skills Copilot
-│   ├── templates/              # Source templates
-│   │   ├── agents/             # Base agents
-│   │   └── commands/           # Base commands
+│   ├── tools/
+│   │   ├── cc/                 # cc CLI source (memory + skills)
+│   │   └── tc/                 # tc CLI source (Task Copilot)
+│   ├── .claude/
+│   │   ├── agents/             # 16 agent definitions
+│   │   └── commands/           # Slash command sources
 │   └── docs/                   # Documentation
 ├── knowledge/                   # Global knowledge repository (optional)
 │   ├── knowledge-manifest.json
@@ -174,22 +169,15 @@ your-project/
 ```
 ~/.claude/copilot/              # Framework installation
 ├── .claude/
-│   ├── commands/               # Machine-level commands
-│   │   └── setup.md           # /setup command
-│   └── agents/                # (Unused - agents are in templates/)
-├── mcp-servers/               # MCP servers
-│   ├── copilot-memory/
-│   │   ├── src/
-│   │   ├── package.json
-│   │   └── build/             # Built JS files
-│   └── skills-copilot/
-│       ├── src/
-│       ├── package.json
-│       └── build/             # Built JS files
+│   ├── agents/                # 16 agent definitions (15 framework + kc; manifest.json is source of truth)
+│   ├── commands/              # Machine and project command sources
+│   └── skills/                # Skill library
+├── tools/
+│   ├── cc/                    # cc CLI (memory + skills)
+│   └── tc/                    # tc CLI (Task Copilot)
 └── templates/                 # Source for project setup
-    ├── agents/
-    ├── commands/
-    └── mcp.json
+    ├── CLAUDE.template.md
+    └── skills/
 ```
 
 ### Memory Storage (`~/.claude/memory/`)
@@ -199,7 +187,7 @@ your-project/
     └── memory.db              # SQLite database
         ├── initiatives        # Current and archived initiatives
         ├── memories           # Decisions, lessons, context
-        └── embeddings         # Vector search data
+        └── fts_index          # FTS5 keyword search index
 ```
 
 ---
@@ -207,60 +195,64 @@ your-project/
 ## The Five Pillars
 
 ### 1. Memory Copilot
-**MCP server providing persistent memory across sessions**
+**`cc memory` CLI — persistent memory with FTS5 keyword search**
 
-| Tool | Purpose |
-|------|---------|
-| `initiative_get` | Retrieve current initiative |
-| `initiative_start` | Begin new initiative |
-| `initiative_update` | Update progress, decisions, lessons |
-| `initiative_complete` | Archive completed initiative |
-| `memory_store` | Store decisions, lessons, context |
-| `memory_search` | Semantic search across memories |
+| Command | Purpose |
+|---------|---------|
+| `cc memory store --type decision "<content>"` | Store a decision |
+| `cc memory store --type lesson "<content>"` | Store a lesson |
+| `cc memory store --type context "<content>"` | Store context |
+| `cc memory store --type reference "<content>"` | Store a stable reference (injected at session start) |
+| `cc memory search "<query>"` | Full-text keyword (FTS5) search across memories |
+| `cc memory list [--type <t>]` | List memories, filterable by type |
+| `cc memory index --rebuild` | Rebuild the FTS5 search index |
+| `cc memory check` | Token-free drift detection: path-exists, command-resolves, version-conflict, staleness (0–100 score; exits 1 on fail) |
+| `cc usage` | Show Claude session quota from `anthropic-ratelimit-unified-*` headers (idle-gated; `--json` for cache, `--refresh` to force probe) |
 
-**Environment:**
-- `MEMORY_PATH`: Base storage path (default: `~/.claude/memory`)
-- `WORKSPACE_ID`: Explicit workspace identifier (optional, defaults to path hash)
+**Configuration:**
+- `cc config set paths.shared_docs <path>`: Shared docs path (→ `CC_SHARED_DOCS`)
+- `cc config set paths.knowledge_repo <path>`: Knowledge repo path (→ `CC_KNOWLEDGE_REPO`)
 
 ### 2. Agents
-**14 lean agents with on-demand skill loading**
+**15 framework agents + kc (setup-only) with auto-firing skill loading**
 
-Agents are under 120 lines each and auto-load relevant skills via `skill_evaluate()`. Shared boilerplate is extracted to the "Agent Shared Behaviors" section in CLAUDE.md.
+Agents are under 120 lines each. Skills auto-fire from their trigger-rich `description` when the model matches a prompt; agents use `cc skill search` / `cc skill get` as fallback. Shared boilerplate is extracted to the "Agent Shared Behaviors" section in CLAUDE.md. Authoritative roster: `.claude/agents/manifest.json`.
 
 | Agent | Name | Domain |
 |-------|------|--------|
 | `ta` | Tech Architect | System design, ADRs, task breakdown |
 | `me` | Engineer | Code implementation, refactoring |
 | `qa` | QA Engineer | Testing strategy, edge cases |
-| `sec` | Security | Vulnerabilities, OWASP, threat modeling |
 | `doc` | Documentation | READMEs, API docs, technical writing |
 | `do` | DevOps | CI/CD, infrastructure, containers |
 | `sd` | Service Designer | Experience strategy, customer journeys |
-| `uxd` | UX Designer | Interaction design, wireframes |
-| `uids` | UI Designer | Visual design, design systems |
-| `uid` | UI Developer | UI implementation, responsive design |
-| `cw` | Copywriter | Microcopy, error messages, voice |
+| `uxd` | UX Designer | Interaction flows, task design |
+| `uids` | UI Design System | Visual tokens, color, typography |
+| `uid` | UI Developer | Component implementation specs |
+| `sec` | Security | STRIDE/DREAD threat modeling |
+| `ind` | Industrial Designer | Object-level essentialism (upstream of uxd) |
+| `cco` | Creative Director | Brand strategy, creative direction |
+| `cw` | Copywriter | Copy execution, messaging, microcopy |
+| `cs` | Customer Success | Support patterns, retention (business advisory) |
+| `cpa` | CPA / Financial | Tax implications, financial modeling (business advisory) |
 | `kc` | Knowledge Copilot | Shared knowledge setup |
 
-### 3. Skills Copilot
-**MCP server for on-demand skill loading and knowledge search**
+### 3. Skills (cc CLI)
+**Skills auto-fire from their `description` field; `cc skill` CLI provides explicit fallback**
 
-| Tool | Purpose |
-|------|---------|
-| `skill_get` | Load specific skill by name |
-| `skill_search` | Search skills across sources |
-| `skill_list` | List available skills |
-| `skill_save` | Save skill to private DB |
-| `knowledge_search` | Search knowledge files (project → global) |
-| `knowledge_get` | Get specific knowledge file by path |
-| `extension_get` | Get extension for specific agent |
-| `extension_list` | List all extensions |
-| `manifest_status` | Check knowledge repository status |
+| Command | Purpose |
+|---------|---------|
+| `cc skill get <name>` | Load specific skill by name |
+| `cc skill search "<query>"` | Fallback discovery — case-insensitive substring match (not FTS5) |
+| `cc skill list` | List available skills |
+| `cc memory search "<query>"` | Full-text keyword search across memories |
+| `cc memory store --type <t> "<content>"` | Store a memory entry |
+| `cc config set refs.<name> <value>` | Register a stable reference value |
 
-**Environment:**
-- `KNOWLEDGE_REPO_PATH`: Project-specific knowledge (optional)
+**Configuration:**
+- `cc config set paths.knowledge_repo <path>`: Project knowledge path
 - `~/.claude/knowledge`: Global knowledge (auto-detected)
-- `DATABASE_URL`: PostgreSQL for private skills (optional)
+- No PostgreSQL required for local skills
 
 ### 4. Task Copilot
 **CLI tool (`tc`) for ephemeral PRD, task, and work product storage**
@@ -293,10 +285,12 @@ Agents store detailed work products here instead of returning them to the main s
 | Command | Level | Purpose |
 |---------|-------|---------|
 | `/setup` | Machine | One-time machine setup (run from `~/.claude/copilot`) |
+| `/setup-copilot` | Machine/User | Universal setup router — auto-detects context and runs the appropriate setup command |
 | `/setup-project` | User | Initialize a new project |
 | `/update-project` | User | Update existing project with latest Claude Copilot |
 | `/update-copilot` | User | Update Claude Copilot itself (pull + rebuild) |
 | `/knowledge-copilot` | User | Build or link shared knowledge repository |
+| `/skills-approve` | User | Browse, search, and manage reusable skills via `cc` CLI |
 | `/protocol` | Project | Start fresh work with Agent-First Protocol |
 | `/continue` | Project | Resume previous work via Memory Copilot |
 | `/orchestrate` | Project | Set up and manage parallel stream orchestration |
@@ -332,7 +326,8 @@ cd ~/your-project && claude
 /protocol
 
 # At end of session
-# Memory Copilot auto-saves via initiative_update
+# Save progress via cc memory store
+cc memory store --type context "Current state and next steps"
 ```
 
 ### Adding Company Standards
@@ -363,36 +358,39 @@ cd ~/your-project && claude
 
 | Issue | Solution |
 |-------|----------|
-| **MCP servers not found** | Check `.mcp.json` has correct paths to built servers |
-| **Build fails** | Install build tools: macOS `xcode-select --install`, Linux `sudo apt-get install build-essential python3` |
-| **Memory not persisting** | Check `MEMORY_PATH` env variable, verify `~/.claude/memory/` exists |
-| **Skills not loading** | Run `npm run build` in `mcp-servers/skills-copilot/` |
+| **`cc` or `tc` not found** | Run `bash ~/.claude/copilot/tools/cc/install.sh` and `pip install -e ~/.claude/copilot/tools/tc` |
+| **Memory not persisting** | Run `cc memory index --rebuild`, check `~/.claude/memory/` |
+| **Skill search empty** | Run `cc skill list` — confirm local skills path is set |
 | **Commands not working** | Verify `.claude/commands/*.md` exist, restart Claude Code |
 | **Agents not routing** | Check frontmatter in agent files, verify file is in `.claude/agents/` |
-| **Extensions not loading** | Verify `knowledge-manifest.json` exists, check `KNOWLEDGE_REPO_PATH` |
-| **Wrong workspace** | Set `WORKSPACE_ID` explicitly in `.mcp.json` to preserve memories across renames |
+| **Extensions not loading** | Verify `knowledge-manifest.json` exists, run `cc config get paths.knowledge_repo` |
 | **Outdated project files** | Run `/update-project` to sync with latest templates |
-| **Skill search empty** | Check DATABASE_URL for PostgreSQL, or verify public skills API |
 | **Knowledge search fails** | Verify knowledge repo structure, check manifest syntax |
 | **Permission errors** | Check file permissions on `~/.claude/` directories |
 
 ### Verification Commands
 ```bash
-# Check MCP servers built
-ls ~/.claude/copilot/mcp-servers/*/build/
+# Check cc and tc CLIs
+cc --version
+tc version
 
 # Check project setup
 ls .claude/agents/ .claude/commands/
 
-# Check memory database
-ls ~/.claude/memory/*/memory.db
+# Check memory
+cc memory list | head -5
+
+# Search memory
+cc memory search "test"
+
+# Check skills
+cc skill list | head -5
 
 # Check knowledge repo
-ls ~/.claude/knowledge/knowledge-manifest.json
+ls "$(cc config get paths.knowledge_repo --raw)/knowledge-manifest.json" 2>/dev/null || echo "Not configured"
 
-# Rebuild MCP servers
-cd ~/.claude/copilot/mcp-servers/copilot-memory && npm install && npm run build
-cd ~/.claude/copilot/mcp-servers/skills-copilot && npm install && npm run build
+# Rebuild FTS5 index
+cc memory index --rebuild
 ```
 
 ---
@@ -449,14 +447,13 @@ Agents automatically route to each other based on expertise:
 | From | Routes To | When |
 |------|-----------|------|
 | Any | `ta` | Architecture decisions, system design |
-| Any | `sec` | Security concerns, vulnerabilities |
 | Any | `me` | Code implementation |
 | Any | `qa` | Testing strategy, verification |
 | Any | `doc` | Documentation needed |
 | Any | `do` | CI/CD, infrastructure |
 | `sd` | `uxd` | Interaction design needed |
-| `uxd` | `uids` | Visual design needed |
-| `uids` | `uid` | UI implementation needed |
+| `uid` | `ta` | Component spec ready for architecture |
+| Any | (skill) | Security: load `security/stride-dread` |
 
 ---
 
@@ -479,51 +476,42 @@ Memory Copilot automatically tracks:
 - Key files touched
 
 ### Ending Work
-Update initiative with:
-```
-initiative_update({
-  completed: ["Tasks finished"],
-  inProgress: "Current state",
-  resumeInstructions: "Next steps for /continue",
-  lessons: ["Insights gained"],
-  decisions: ["Choices made"],
-  keyFiles: ["file1.ts", "file2.ts"]
-})
+Task status (completed/in-progress) lives in Task Copilot (`tc task update`).
+Persist durable context, lessons, and decisions to memory:
+```bash
+cc memory store --type context  "Current state + next steps for /continue (key files: file1.ts, file2.ts)"
+cc memory store --type lesson    "Insights gained"
+cc memory store --type decision  "Choices made"
 ```
 
 ---
 
 ## Configuration Quick Reference
 
-### .mcp.json (Project Level)
-```json
-{
-  "mcpServers": {
-    "copilot-memory": {
-      "command": "node",
-      "args": ["/Users/you/.claude/copilot/mcp-servers/copilot-memory/build/index.js"],
-      "env": {
-        "MEMORY_PATH": "/Users/you/.claude/memory"
-      }
-    },
-    "skills-copilot": {
-      "command": "node",
-      "args": ["/Users/you/.claude/copilot/mcp-servers/skills-copilot/build/index.js"],
-      "env": {
-        "KNOWLEDGE_REPO_PATH": "/path/to/project/knowledge"
-      }
-    }
-  }
-}
+### cc CLI Configuration
+```bash
+# Set paths (resolved as CC_SHARED_DOCS, CC_KNOWLEDGE_REPO by agents)
+cc config set paths.shared_docs /path/to/shared/docs
+cc config set paths.knowledge_repo /path/to/knowledge-repo
+
+# Register stable references (injected at session start)
+cc config set refs.staging_url https://staging.example.com
+cc config set refs.company_wiki https://wiki.example.com
+
+# View all config
+cc config export
+
+# Hydrate env vars in agent preambles
+eval "$(cc env)"
 ```
 
-### Environment Variables
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `MEMORY_PATH` | Memory storage location | `~/.claude/memory` |
-| `WORKSPACE_ID` | Explicit workspace ID | Auto-hash from path |
-| `KNOWLEDGE_REPO_PATH` | Project knowledge repo | None (optional) |
-| `DATABASE_URL` | PostgreSQL for private skills | None (optional) |
+### Key Environment Variables
+| Variable | Source | Purpose |
+|----------|--------|---------|
+| `CC_SHARED_DOCS` | `cc config get paths.shared_docs` | Path to shared documentation |
+| `CC_KNOWLEDGE_REPO` | `cc config get paths.knowledge_repo` | Path to knowledge repository |
+| `KNOWLEDGE_REPO_PATH` | Same as above | Backward-compatible alias |
+| `TASK_DB_PATH` | Shell/env | Override tc task storage path |
 
 ---
 
@@ -532,14 +520,14 @@ initiative_update({
 | Document | Purpose |
 |----------|---------|
 | [README.md](../README.md) | Overview and quick start |
-| [SETUP.md](../SETUP.md) | Detailed setup instructions |
-| [USER-JOURNEY.md](USER-JOURNEY.md) | Complete walkthrough |
-| [AGENTS.md](AGENTS.md) | All agents in detail |
-| [CONFIGURATION.md](CONFIGURATION.md) | Configuration reference |
-| [CUSTOMIZATION.md](CUSTOMIZATION.md) | Extensions and customization |
-| [EXTENSION-SPEC.md](EXTENSION-SPEC.md) | Extension file format |
-| [PHILOSOPHY.md](PHILOSOPHY.md) | Why we built this |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Technical architecture |
+| [SETUP.md](../../SETUP.md) | Detailed setup instructions |
+| [User Journey](../01-getting-started/01-user-journey.md) | Complete walkthrough |
+| [Agents](../10-architecture/01-agents.md) | All agents in detail |
+| [Configuration](../20-configuration/01-configuration.md) | Configuration reference |
+| [Customization](../20-configuration/02-customization.md) | Extensions and customization |
+| [Extension Spec](../40-extensions/00-extension-spec.md) | Extension file format |
+| [Philosophy](../10-architecture/02-philosophy.md) | Why we built this |
+| [Architecture](../10-architecture/00-overview.md) | Technical architecture |
 
 ---
 

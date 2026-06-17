@@ -9,9 +9,10 @@
 This document defines the complete validation strategy for the Claude Copilot framework. It includes smoke tests for rapid feedback, integration tests for component interaction, and manual scenarios for developer experience validation.
 
 **Framework Components:**
-- Memory Copilot MCP server (initiative tracking, semantic search)
-- Skills Copilot MCP server (skill loading, knowledge search, extensions)
-- 12 Specialized Agents (routing, context isolation)
+- Memory Copilot (`cc memory` CLI, SQLite + FTS5 keyword search)
+- Skills Copilot (`cc skill` CLI, auto-firing via description + local skills + knowledge repo)
+- 16 Specialized Agents (ta, me, qa, do, doc, sd, uxd, uids, uid, sec, ind, cco, cw, cs, cpa, kc)
+- Task Copilot (`tc` CLI, PRD/task/work-product storage)
 - Protocol commands (/protocol, /continue, /setup-project, /update-project, /update-copilot, /knowledge-copilot)
 - Extension system (override, extension, skills injection)
 
@@ -21,7 +22,7 @@ This document defines the complete validation strategy for the Claude Copilot fr
 
 | Level | Focus | Tools | Execution |
 |-------|-------|-------|-----------|
-| **Smoke** | Each component works in isolation | MCP Inspector, manual CLI | Every build |
+| **Smoke** | Each component works in isolation | Manual CLI (`cc`, `tc`) | Every build |
 | **Integration** | Components work together | Custom test scripts | Every PR |
 | **E2E** | Developer workflows succeed | Real Claude Code sessions | Weekly |
 | **Regression** | Previous bugs don't return | Automated + manual | Every release |
@@ -30,284 +31,187 @@ This document defines the complete validation strategy for the Claude Copilot fr
 
 ## 1. Smoke Tests (Component Isolation)
 
-### ST-01: Memory Copilot MCP Server Connectivity
+> **Architecture note (v5.1.0+):** The `copilot-memory` and `skills-copilot` MCP Node.js servers have been replaced by the `cc` and `tc` CLIs. Smoke tests validate the CLI layer. The `mcp-servers/` directories (`copilot-memory`, `skills-copilot`) have since been removed from the repo entirely. Smoke tests validate the CLI layer.
 
-**Purpose:** Verify MCP server starts and responds to requests
+### ST-01: cc CLI Availability
+
+**Purpose:** Verify the `cc` CLI is installed and reachable
 
 **Steps:**
 ```bash
-# 1. Start MCP server manually
-cd mcp-servers/copilot-memory
-npm run build
-node dist/index.js
+cc --version
+cc memory list
 ```
 
-**Verification:**
-- [ ] Server starts without errors
-- [ ] Server responds to stdio transport
-- [ ] Database initializes correctly
-- [ ] No missing dependencies
+**Pass Criteria:**
+- [ ] `cc --version` prints a version string
+- [ ] `cc memory list` returns valid output (empty list is acceptable)
+- [ ] No import errors or missing-dependency messages
 
-**Pass Criteria:** Server running, no error logs
-
-**Failure Mode:** Server crashes, missing node modules, TypeScript errors
+**Failure Mode:** `cc: command not found`, Python import error
 
 **Frequency:** Every build, before commit
 
 ---
 
-### ST-02: Memory Copilot Tool Registration
+### ST-02: tc CLI Availability
 
-**Purpose:** Verify all memory tools are registered and callable
+**Purpose:** Verify the `tc` CLI is installed and reachable
 
 **Steps:**
 ```bash
-# Use MCP Inspector to list tools
-mcp-inspector connect stdio "node dist/index.js"
-# Send ListTools request
-```
-
-**Expected Tools:**
-- `memory_store`
-- `memory_update`
-- `memory_delete`
-- `memory_get`
-- `memory_list`
-- `memory_search`
-- `initiative_start`
-- `initiative_update`
-- `initiative_get`
-- `initiative_complete`
-
-**Verification:**
-```json
-{
-  "method": "tools/list",
-  "result": {
-    "tools": [
-      {"name": "memory_store", "description": "..."},
-      {"name": "initiative_start", "description": "..."}
-    ]
-  }
-}
-```
-
-**Pass Criteria:** All 10 tools listed with valid schemas
-
-**Failure Mode:** Missing tool, invalid schema, wrong parameter types
-
-**Frequency:** Every build
-
----
-
-### ST-03: Memory Copilot Basic Initiative Flow
-
-**Purpose:** Verify core initiative lifecycle works
-
-**Test Data:**
-```json
-{
-  "title": "Test Initiative",
-  "description": "Smoke test for initiative tracking",
-  "scope": ["component-a", "component-b"]
-}
-```
-
-**Steps:**
-1. Call `initiative_start` with test data
-2. Call `initiative_get` to retrieve
-3. Call `initiative_update` with progress
-4. Call `initiative_complete` to archive
-
-**Verification:**
-```bash
-# Check SQLite database directly
-sqlite3 ~/.claude/memory/<workspace-hash>/memory.db
-SELECT * FROM initiatives WHERE title = 'Test Initiative';
+tc version
 ```
 
 **Pass Criteria:**
-- [ ] Initiative created with valid ID
-- [ ] Retrieved initiative matches input
-- [ ] Update reflected in database
-- [ ] Complete changes status to 'complete'
+- [ ] `tc version` prints a version string
+- [ ] Command exits 0
 
-**Failure Mode:** Database write fails, invalid ID returned, status not updated
+**Failure Mode:** `tc: command not found`, missing package
 
 **Frequency:** Every build
 
 ---
 
-### ST-04: Memory Copilot Semantic Search
+### ST-03: Memory Store and Retrieve Round-Trip
 
-**Purpose:** Verify embeddings and vector search work
+**Purpose:** Verify core memory write → read lifecycle works
+
+**Steps:**
+```bash
+cc memory store --type context "Smoke test: ST-03 verification entry"
+cc memory search "ST-03 verification"
+```
+
+**Pass Criteria:**
+- [ ] `memory store` exits 0 and prints the new entry ID
+- [ ] `memory search` returns the stored entry in results
+- [ ] Content matches what was stored
+
+**Failure Mode:** Write exits non-zero, search returns empty, content mismatch
+
+**Frequency:** Every build
+
+---
+
+### ST-04: Memory Copilot Keyword Search (FTS5)
+
+**Purpose:** Verify full-text keyword search works correctly
 
 **Test Data:**
-```javascript
-// Store 3 memories with related content
-memory_store("Implemented authentication using JWT", "decision")
-memory_store("Learned that bcrypt is slow for API routes", "lesson")
-memory_store("Added user login form to dashboard", "context")
+```bash
+cc memory store --type decision "Implemented authentication using JWT"
+cc memory store --type lesson "Learned that bcrypt is slow for API routes"
+cc memory store --type context "Added user login form to dashboard"
 ```
 
 **Steps:**
 1. Store test memories
-2. Search for "authentication decisions"
-3. Search for "performance lessons"
+2. Search for "authentication"
+3. Search for "bcrypt"
 
 **Expected Results:**
 ```json
-{
-  "query": "authentication decisions",
-  "results": [
-    {"content": "Implemented authentication using JWT", "similarity": 0.85}
-  ]
-}
+[
+  {"type": "decision", "content": "Implemented authentication using JWT"}
+]
 ```
 
 **Pass Criteria:**
-- [ ] Embedding generation succeeds
-- [ ] Search returns semantically similar results
-- [ ] Results ranked by similarity score
-- [ ] No errors in vector operations
+- [ ] FTS5 keyword search returns relevant results
+- [ ] Results ranked by BM25 relevance
+- [ ] No vector/embedding dependencies
+- [ ] Empty query returns no error
 
-**Failure Mode:** Embeddings not generated, vector search fails, wrong results
+**Failure Mode:** FTS5 index not rebuilt, keyword mismatch, search returns nothing
 
 **Frequency:** Every build
 
 ---
 
-### ST-05: Skills Copilot MCP Server Connectivity
+### ST-05: cc skill list
 
-**Purpose:** Verify Skills Copilot starts and responds
+**Purpose:** Verify skill discovery is functional
 
 **Steps:**
 ```bash
-cd mcp-servers/skills-copilot
-npm run build
-node dist/index.js
-```
-
-**Verification:**
-- [ ] Server starts without errors
-- [ ] Cache directory created if missing
-- [ ] Knowledge repo paths resolved
-
-**Pass Criteria:** Server running, no error logs
-
-**Failure Mode:** Server crashes, path resolution fails
-
-**Frequency:** Every build
-
----
-
-### ST-06: Skills Copilot Tool Registration
-
-**Purpose:** Verify all skill tools are registered
-
-**Expected Tools:**
-- `skill_get`
-- `skill_search`
-- `skill_list`
-- `skill_save`
-- `knowledge_search`
-- `knowledge_get`
-- `extension_get`
-- `extension_list`
-- `manifest_status`
-
-**Verification:**
-```bash
-# List tools via MCP Inspector
-mcp-inspector connect stdio "node dist/index.js"
-```
-
-**Pass Criteria:** All 9 tools listed with valid schemas
-
-**Failure Mode:** Missing tool, invalid schema
-
-**Frequency:** Every build
-
----
-
-### ST-07: Skills Copilot Knowledge Search (Two-Tier)
-
-**Purpose:** Verify two-tier knowledge resolution works
-
-**Test Setup:**
-```bash
-# Create global knowledge repo
-mkdir -p ~/.claude/knowledge/.claude/extensions
-echo "# Test Knowledge" > ~/.claude/knowledge/test.md
-
-# Create project knowledge repo (if testing override)
-mkdir -p /tmp/test-project-knowledge/.claude/extensions
-echo "# Project Knowledge" > /tmp/test-project-knowledge/test.md
-```
-
-**Steps:**
-1. Call `knowledge_search("test")` with no KNOWLEDGE_REPO_PATH
-2. Call `knowledge_search("test")` with KNOWLEDGE_REPO_PATH set
-3. Call `manifest_status()`
-
-**Expected Behavior:**
-- Without project path: Returns global knowledge only
-- With project path: Returns project knowledge (higher priority)
-- Manifest status shows both repos if configured
-
-**Pass Criteria:**
-- [ ] Global repo auto-detected at ~/.claude/knowledge
-- [ ] Project repo used when KNOWLEDGE_REPO_PATH set
-- [ ] Priority ordering correct (project > global > base)
-
-**Failure Mode:** Can't find global repo, wrong priority, missing manifests
-
-**Frequency:** Every build
-
----
-
-### ST-08: Skills Copilot Extension Resolution
-
-**Purpose:** Verify extension resolution algorithm works
-
-**Test Data:**
-```bash
-# Create test extension in global repo
-cat > ~/.claude/knowledge/.claude/extensions/sd.override.md <<'EOF'
----
-extends: sd
-type: override
-description: Test override
----
-# Test Service Designer Override
-EOF
-```
-
-**Steps:**
-1. Call `extension_get("sd")`
-2. Call `extension_list()`
-
-**Expected Result:**
-```json
-{
-  "agentId": "sd",
-  "type": "override",
-  "content": "# Test Service Designer Override",
-  "source": "global",
-  "requiredSkills": [],
-  "fallbackBehavior": "use_base"
-}
+cc skill list
+cc skill search "security"
 ```
 
 **Pass Criteria:**
-- [ ] Extension found in global repo
-- [ ] Frontmatter parsed correctly
-- [ ] Type and source identified
-- [ ] Content returned complete
+- [ ] `cc skill list` returns at least one skill entry
+- [ ] `cc skill search "security"` returns the `stride-dread` skill or equivalent
+- [ ] Both commands exit 0
 
-**Failure Mode:** Extension not found, parsing fails, wrong source
+**Failure Mode:** Empty list when `.claude/skills/` contains skills, command error
 
 **Frequency:** Every build
+
+---
+
+### ST-06: pytest L3 Skill Tests
+
+**Purpose:** Verify code-bearing skill scripts pass their unit tests
+
+**Steps:**
+```bash
+python -m pytest tests/test_skill_frontmatter.py -v
+python -m pytest tests/test_parser_unit.py -v
+```
+
+**Pass Criteria:**
+- [ ] All tests pass (0 failures)
+- [ ] No import errors
+
+**Failure Mode:** Test failures, missing test file, Python version mismatch
+
+**Frequency:** Every build, every commit (pre-commit hook)
+
+---
+
+### ST-07: Knowledge Repo Priority (cc env)
+
+**Purpose:** Verify knowledge repo paths resolve correctly
+
+**Steps:**
+```bash
+eval "$(cc env)"
+echo "CC_KNOWLEDGE_REPO=$CC_KNOWLEDGE_REPO"
+echo "CC_SHARED_DOCS=$CC_SHARED_DOCS"
+```
+
+**Pass Criteria:**
+- [ ] `cc env` exits 0 and emits valid shell export statements
+- [ ] `CC_KNOWLEDGE_REPO` resolves to an existing path (if configured)
+- [ ] No unbound variable errors
+
+**Failure Mode:** `cc env` exits non-zero, variables empty when configured, path does not exist
+
+**Frequency:** Every build
+
+---
+
+### ST-08: Extension File Resolution
+
+**Purpose:** Verify agent extension files in the knowledge repo are found and readable
+
+**Steps:**
+```bash
+# If a knowledge repo is configured:
+ls "${CC_KNOWLEDGE_REPO}/.claude/extensions/" 2>/dev/null || echo "no extensions"
+
+# Verify extension frontmatter is parseable
+python -m pytest tests/test_skill_frontmatter.py -v -k "extension" 2>/dev/null || echo "no extension-specific tests"
+```
+
+**Pass Criteria:**
+- [ ] Extensions directory accessible if repo configured
+- [ ] No YAML parse errors in extension files
+
+**Failure Mode:** Directory not found when repo is set, malformed frontmatter
+
+**Frequency:** Every PR
 
 ---
 
@@ -319,7 +223,7 @@ EOF
 ```bash
 # Check all agent files exist
 ls -1 .claude/agents/*.md | wc -l
-# Should be 14 agents
+# Should be 16 agent files (15 framework + kc setup-only)
 
 # Verify each has required sections
 for agent in .claude/agents/*.md; do
@@ -339,7 +243,7 @@ done
 7. ## Decision Authority
 
 **Pass Criteria:**
-- [ ] 12 agent files present
+- [ ] 16 agent files present (ta, me, qa, do, doc, sd, uxd, uids, uid, sec, ind, cco, cw, cs, cpa, kc)
 - [ ] All required sections present in each
 - [ ] No time estimate language (per policy)
 
@@ -389,8 +293,8 @@ done
 2. Invoke `/protocol`
 3. User: "Create a test plan for authentication"
 4. @agent-qa creates plan
-5. Agent calls `memory_store` with lesson
-6. Call `memory_search("test plan lessons")`
+5. Agent calls `cc memory store --type lesson "..."` to store lesson
+6. Run `cc memory search "test plan lessons"`
 
 **Verification:**
 ```bash
@@ -400,12 +304,12 @@ sqlite3 ~/.claude/memory/<workspace>/memory.db \
 ```
 
 **Pass Criteria:**
-- [ ] Agent successfully calls memory_store
+- [ ] Agent successfully stores memory via `cc memory store`
 - [ ] Memory stored in database
 - [ ] Search retrieves the memory
-- [ ] No MCP tool errors
+- [ ] No CLI errors
 
-**Failure Mode:** Tool call fails, memory not stored, search returns nothing
+**Failure Mode:** CLI call fails, memory not stored, search returns nothing
 
 **Frequency:** Every PR
 
@@ -415,14 +319,15 @@ sqlite3 ~/.claude/memory/<workspace>/memory.db \
 
 **Purpose:** Verify agents correctly route to each other
 
-**Scenario:** User requests feature requiring SD → UXD → UID flow
+**Scenario:** User requests feature requiring SD → design chain flow
 
 **Steps:**
 1. User: "Design a new user onboarding flow"
 2. Should trigger @agent-sd
 3. SD completes service design, routes to @agent-uxd
-4. UXD completes interaction design, routes to @agent-uid
-5. UID produces implementation
+4. uxd completes interaction design, routes to @agent-uids
+5. uids completes visual design tokens, routes to @agent-uid
+6. uid completes component specs, routes to @agent-ta
 
 **Verification:**
 Check conversation log for:
@@ -432,16 +337,14 @@ Check conversation log for:
 Routing to @agent-uxd for interaction design
 
 [PROTOCOL: EXPERIENCE | Agent: @agent-uxd | Action: INVOKING]
-[... UXD work ...]
-Routing to @agent-uid for implementation
-
-[PROTOCOL: TECHNICAL | Agent: @agent-uid | Action: INVOKING]
+[... uxd work ...]
+Routing to @agent-ta for architecture specification
 ```
 
 **Pass Criteria:**
 - [ ] Correct agent invoked first (SD)
-- [ ] SD routes to UXD
-- [ ] UXD routes to UID
+- [ ] SD routes to uxd
+- [ ] uxd routes to ta (for architecture, or uids for visual design)
 - [ ] Each agent completes its domain work
 - [ ] No duplicate work across agents
 
@@ -471,7 +374,7 @@ EOF
 ```
 
 **Steps:**
-1. Call `extension_get("sd")`
+1. Check the knowledge repository for the `sd` agent extension file (in `$CC_KNOWLEDGE_REPO/.claude/extensions/`)
 2. Invoke @agent-sd
 3. Verify agent uses override content, not base
 
@@ -514,7 +417,7 @@ EOF
 ```
 
 **Steps:**
-1. Call `extension_get("ta")`
+1. Check the knowledge repository for the `ta` agent extension file (in `$CC_KNOWLEDGE_REPO/.claude/extensions/`)
 2. System checks for skill "proprietary-architecture-patterns"
 3. Skill not found
 4. System applies fallbackBehavior
@@ -566,21 +469,20 @@ QA agent investigates the defect...
 
 ---
 
-### IT-06: /continue Command Loads Initiative
+### IT-06: /continue Command Loads Session Context
 
 **Purpose:** Verify /continue command retrieves previous session context
 
 **Test Setup:**
 ```bash
-# Create initiative in previous session
-# (Use memory_store tool or run actual session)
+# Create memory in previous session
+# (Use cc memory store or run actual session)
 ```
 
 **Steps:**
 1. Run `/continue` in new session
-2. System calls `initiative_get`
-3. System calls `memory_search("recent context")`
-4. System presents resume summary
+2. System runs `cc memory search "recent context"` to load prior context
+3. System presents resume summary
 
 **Expected Output:**
 ```markdown
@@ -604,12 +506,11 @@ Protocol active. What would you like to work on?
 ```
 
 **Pass Criteria:**
-- [ ] Initiative retrieved from Memory Copilot
-- [ ] Recent context loaded
+- [ ] Recent context loaded from Memory Copilot
 - [ ] Resume summary presented
 - [ ] Protocol activated after resume
 
-**Failure Mode:** No initiative found, incomplete context, protocol not activated
+**Failure Mode:** No context found, incomplete context, protocol not activated
 
 **Frequency:** Weekly
 
@@ -689,7 +590,7 @@ claude
 - [ ] `.mcp.json` created with correct server configs
 - [ ] `CLAUDE.md` created with project instructions
 - [ ] `.claude/commands/` directory created with protocol and continue
-- [ ] `.claude/agents/` directory created with all 14 agents
+- [ ] `.claude/agents/` directory created with all 16 agent files (15 framework + kc setup-only)
 - [ ] `.claude/skills/` directory created for project skills
 - [ ] User informed of next steps
 
@@ -706,7 +607,7 @@ test -d .claude/skills && echo "✓ Skills"
 jq . .mcp.json > /dev/null && echo "✓ Valid JSON"
 
 # Check all agents present
-[[ $(ls .claude/agents/*.md | wc -l) -ge 14 ]] && echo "✓ All 14 agents"
+[[ $(ls .claude/agents/*.md | wc -l) -ge 16 ]] && echo "✓ All 16 agent files (15 framework + kc)"
 ```
 
 **Pass Criteria:**
@@ -821,9 +722,9 @@ Fix validated. Closing defect.
 **Steps:**
 1. User: "Add dark mode to the application"
 2. @agent-ta: Architecture decisions (state management, theme system)
-3. @agent-uxd: Interaction design (toggle placement, preferences)
-4. @agent-uids: Visual design (color palette, component variants)
-5. @agent-uid: Implementation (CSS variables, toggle component)
+3. @agent-uxd: Interaction design (toggle flow, interaction patterns)
+4. @agent-uids: Visual design (color palette, design tokens for dark theme)
+5. @agent-me: Implementation (CSS variables, toggle component)
 6. @agent-qa: Test plan (visual regression, state persistence)
 
 **Expected Results:**
@@ -909,11 +810,8 @@ jq '.version' ~/.claude/knowledge/knowledge-manifest.json
 User: "Implement password reset flow"
 
 # 2. @agent-ta creates architecture
-# 3. Store initiative and progress
-initiative_update({
-  inProgress: ["Database schema created"],
-  resumeInstructions: "Next: implement email service"
-})
+# 3. Store progress context
+cc memory store --type context "In progress: Database schema created. Next: implement email service"
 ```
 
 **Session 2 (next day):**
@@ -921,20 +819,20 @@ initiative_update({
 # 1. Resume work
 /continue
 
-# Expected: Initiative loaded, context restored
+# Expected: Context restored from memory
 # Should see:
-## Resuming: Password Reset Flow
+## Resuming Prior Work
 **In Progress:** Database schema created
-**Resume Instructions:** Next: implement email service
+**Next:** implement email service
 ```
 
 **Pass Criteria:**
-- [ ] Initiative persisted between sessions
-- [ ] Context accurately restored
+- [ ] Context persisted between sessions via `cc memory store`
+- [ ] Context accurately restored via `cc memory search`
 - [ ] No manual file management needed
 - [ ] Seamless continuation
 
-**Failure Mode:** Context lost, initiative not found, manual recovery needed
+**Failure Mode:** Context lost, memory not found, manual recovery needed
 
 **Frequency:** Weekly
 
@@ -964,30 +862,27 @@ initiative_update({
 
 ---
 
-### RT-02: MCP Server Compatibility
+### RT-02: cc/tc CLI Compatibility
 
-**Purpose:** Verify MCP servers work with latest @modelcontextprotocol/sdk
+**Purpose:** Verify CLIs work after Python or dependency updates
 
 **Steps:**
 ```bash
-# Update SDK to latest
-cd mcp-servers/copilot-memory
-npm update @modelcontextprotocol/sdk
-npm run build
-
-# Test connectivity
-node dist/index.js
+pip install -e ~/.claude/copilot/tools/tc
+bash ~/.claude/copilot/tools/cc/install.sh
+cc --version
+tc version
+cc memory search "test"
 ```
 
 **Pass Criteria:**
-- [ ] Build succeeds
-- [ ] Server starts
-- [ ] All tools still callable
-- [ ] No breaking changes
+- [ ] Both CLIs install without errors
+- [ ] Version strings print correctly
+- [ ] Memory search executes without traceback
 
-**Failure Mode:** Build fails, tools missing, protocol changes break server
+**Failure Mode:** Install fails, import error after Python upgrade, broken CLI entrypoint
 
-**Frequency:** Monthly, when SDK updates
+**Frequency:** Monthly, after Python or dependency updates
 
 ---
 
@@ -1048,7 +943,7 @@ node dist/index.js
 ```bash
 # Generate 10,000 test memories
 for i in {1..10000}; do
-  memory_store("Test memory $i with varying content", "context")
+  cc memory store --type context "Test memory $i with varying content"
 done
 ```
 
@@ -1056,7 +951,7 @@ done
 
 **Measurement:**
 ```bash
-time memory_search("specific content query")
+time cc memory search "specific content query"
 ```
 
 **Pass Criteria:**
@@ -1071,34 +966,33 @@ time memory_search("specific content query")
 
 ---
 
-### PT-02: Skills Copilot Cache Hit Rate
+### PT-02: cc skill search Latency
 
-**Scenario:** Repeated skill requests measure cache effectiveness
+**Scenario:** Repeated skill searches measure `cc skill search` lookup speed. Note: `cc skill search` is a case-insensitive **substring** match over each skill's `name + description + tags` (NOT FTS5 — only Memory Copilot uses FTS5). The `skills-copilot` MCP server this test previously targeted was removed in the 5.6.0 cleanup; the `cc` CLI is the current interface.
 
 **Test Data:**
 ```bash
-# Request same skill 10 times
+# Run the same skill search 10 times and time it
 for i in {1..10}; do
-  skill_get("react-testing")
+  time cc skill search "react testing"
 done
 ```
 
 **Performance Target:**
-- First request: < 2 seconds (network fetch)
-- Cached requests: < 100ms
+- Every request: < 500ms (local substring scan over skill metadata, no network)
 
 **Measurement:**
 ```bash
-# Check cache logs
-grep "cache hit" /tmp/skills-copilot.log
+# Time a single search and inspect output
+time cc skill search "documentation"
 ```
 
 **Pass Criteria:**
-- [ ] Cache hit rate > 90% for repeated requests
-- [ ] Cache invalidation works correctly
-- [ ] Stale content not served
+- [ ] All 10 searches complete in < 500ms
+- [ ] Results are consistent across repeated calls
+- [ ] No missing-index errors
 
-**Failure Mode:** Low cache hits, stale content, cache corruption
+**Failure Mode:** `cc: command not found`, or no skills found (verify `.claude/skills/` is populated and skill frontmatter has searchable `name`/`description`/`tags`)
 
 **Frequency:** Monthly
 
@@ -1268,14 +1162,21 @@ type: override
 
 ### Required Tools
 ```bash
-# MCP Inspector (for protocol testing)
-npm install -g @modelcontextprotocol/inspector
+# Python 3.10+ (required for cc/tc CLIs)
+python3 --version
 
-# SQLite (for database verification)
-brew install sqlite3
+# pytest (for L3 skill tests)
+pip install pytest
 
-# jq (for JSON validation)
-brew install jq
+# cc CLI
+bash ~/.claude/copilot/tools/cc/install.sh
+
+# tc CLI
+pip install -e ~/.claude/copilot/tools/tc
+
+# jq (for JSON validation in shell scripts — optional)
+brew install jq  # macOS
+# apt-get install jq  # Debian/Ubuntu
 
 # Claude Code CLI
 # (Already installed)
