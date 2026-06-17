@@ -125,7 +125,7 @@ your-project/
     ├── commands/                # /protocol, /continue
     │   ├── protocol.md
     │   └── continue.md
-    ├── agents/                  # 16 specialist agents
+    ├── agents/                  # 15 framework agents + kc (setup-only)
     │   ├── ta.md               # Tech Architect
     │   ├── me.md               # Engineer
     │   ├── qa.md               # QA Engineer
@@ -169,7 +169,7 @@ your-project/
 ```
 ~/.claude/copilot/              # Framework installation
 ├── .claude/
-│   ├── agents/                # 16 agent definitions (source of truth)
+│   ├── agents/                # 16 agent definitions (15 framework + kc; manifest.json is source of truth)
 │   ├── commands/              # Machine and project command sources
 │   └── skills/                # Skill library
 ├── tools/
@@ -206,15 +206,17 @@ your-project/
 | `cc memory search "<query>"` | Full-text keyword (FTS5) search across memories |
 | `cc memory list [--type <t>]` | List memories, filterable by type |
 | `cc memory index --rebuild` | Rebuild the FTS5 search index |
+| `cc memory check` | Token-free drift detection: path-exists, command-resolves, version-conflict, staleness (0–100 score; exits 1 on fail) |
+| `cc usage` | Show Claude session quota from `anthropic-ratelimit-unified-*` headers (idle-gated; `--json` for cache, `--refresh` to force probe) |
 
 **Configuration:**
 - `cc config set paths.shared_docs <path>`: Shared docs path (→ `CC_SHARED_DOCS`)
 - `cc config set paths.knowledge_repo <path>`: Knowledge repo path (→ `CC_KNOWLEDGE_REPO`)
 
 ### 2. Agents
-**16 lean agents with auto-firing skill loading**
+**15 framework agents + kc (setup-only) with auto-firing skill loading**
 
-Agents are under 120 lines each. Skills auto-fire from their trigger-rich `description` when the model matches a prompt; agents use `cc skill search` / `cc skill get` as fallback. Shared boilerplate is extracted to the "Agent Shared Behaviors" section in CLAUDE.md.
+Agents are under 120 lines each. Skills auto-fire from their trigger-rich `description` when the model matches a prompt; agents use `cc skill search` / `cc skill get` as fallback. Shared boilerplate is extracted to the "Agent Shared Behaviors" section in CLAUDE.md. Authoritative roster: `.claude/agents/manifest.json`.
 
 | Agent | Name | Domain |
 |-------|------|--------|

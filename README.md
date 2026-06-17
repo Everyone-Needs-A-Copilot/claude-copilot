@@ -7,7 +7,7 @@
 <h1 align="center">Claude Copilot</h1>
 
 <p align="center">
-  <strong>An instruction layer for Claude Code — a team of 16 specialist agents with strict points of view, a design-led process enforced by mechanical hooks, persistent memory across sessions, and real task/worker orchestration. It makes Claude Code's process repeatable, inspectable, and stateful.</strong>
+  <strong>An instruction layer for Claude Code — 15 framework agents with strict points of view, a design-led process enforced by mechanical hooks, persistent memory across sessions, and real task/worker orchestration. It makes Claude Code's process repeatable, inspectable, and stateful.</strong>
 </p>
 
 <p align="center">
@@ -28,7 +28,9 @@ It's not separate software—it's markdown files (agents, commands, project inst
 | You Get                    | What It Does                                                                         |
 | -------------------------- | ------------------------------------------------------------------------------------ |
 | **Persistent Memory**      | Decisions, lessons, and progress survive across sessions ([FTS5](docs/70-reference/05-glossary.md#fts5) keyword search)       |
-| **16 Specialist Agents**   | Lean agents with on-demand skill loading; methodology-embedded from IDEO to Kent Beck |
+| **Memory Drift Detection** | `cc memory check` — token-free deterministic checkers (path-exists, command-resolves, version-conflict, staleness); 0–100 score; exits 1 on any fail-severity finding |
+| **Usage Observability**    | `cc usage` — idle-gated quota probe via Keychain OAuth + `anthropic-ratelimit-unified-*` headers; producer/consumer split so consumers never corrupt the quota window |
+| **15 Framework Agents**    | Lean agents with on-demand skill loading; methodology-embedded from IDEO to Kent Beck; `kc` is setup-only (not in the build chain). Authoritative roster: `.claude/agents/manifest.json` |
 | **Auto-Firing Skills**     | Skills surface automatically from trigger-rich descriptions; code-bearing skills run executable scripts |
 | **Parallel Orchestration** | Headless workers execute streams concurrently with `/orchestrate` _(works; unproven at large scale — no proven >5-stream run; tests are mock-only)_ |
 | **Pause & Resume**         | Context switch mid-task with `/pause`, return with `/continue`                       |
@@ -40,7 +42,7 @@ It's not separate software—it's markdown files (agents, commands, project inst
 | **Live Docs**              | `cc docs get <pkg>` — version-exact package documentation; agents code against the real installed API, not stale training memory; local-first, offline-safe |
 | **Context Engineering**    | Auto-compaction, continuation enforcement, activation modes                          |
 
-When Claude Code reads these instructions, it gains persistent memory, 16 specialist agents, and a structured process — the design goal being more disciplined, resumable work built from the practices that tend to produce better software. We measure process and context efficiency, not output quality; there is no defect/rework data yet.
+When Claude Code reads these instructions, it gains persistent memory, 15 framework agents (plus `kc`, setup-only), and a structured process — the design goal being more disciplined, resumable work built from the practices that tend to produce better software. We measure process and context efficiency, not output quality; there is no defect/rework data yet.
 
 → [Why we built this](docs/10-architecture/02-philosophy.md)
 
@@ -62,7 +64,7 @@ Teams face the same challenges at scale—plus knowledge silos, inconsistent sta
 
 ## April 2026 Restructure
 
-A diagnostic of 15 sessions (Apr 17-22 2026) found a 6% delegation rate — 94% of work stayed in the main session despite a 14-agent roster. A 5-day staging deployment saga (57 manual bash polling calls, 26 loops) exposed missing primitives. The April 2026 restructure introduced mechanical hook enforcement, the `tc deploy wait` primitive, and model pinning. The roster was consolidated to 8 agents as an interim step to reduce complexity during the hook rollout; it has since been restored and expanded to the current 16-agent roster as the enforcement layer proved stable.
+A diagnostic of 15 sessions (Apr 17-22 2026) found a 6% delegation rate — 94% of work stayed in the main session despite a 14-agent roster. A 5-day staging deployment saga (57 manual bash polling calls, 26 loops) exposed missing primitives. The April 2026 restructure introduced mechanical hook enforcement, the `tc deploy wait` primitive, and model pinning. The roster was consolidated to 8 agents as an interim step to reduce complexity during the hook rollout; it has since been restored and expanded to the current 15 framework agents + `kc` (setup-only) as the enforcement layer proved stable.
 
 → [Full diagnostic and rationale](docs/10-architecture/04-framework-restructure-2026-04.md)
 
