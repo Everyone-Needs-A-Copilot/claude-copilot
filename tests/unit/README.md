@@ -72,9 +72,9 @@ npx tsx tests/unit/agent-assignment.test.ts
 
 📁 Testing Agent File Structure...
 
-✅ All agents have skill_evaluate tool (5ms)
-✅ All agents have Skill Loading Protocol section (4ms)
-✅ All agents include preflight_check tool (3ms)
+✅ All agents have required sections (5ms)
+✅ All agents have Route To Other Agent section (4ms)
+✅ All agents have Core Behaviors section (3ms)
 
 ======================================================================
   TEST SUMMARY
@@ -96,10 +96,10 @@ npx tsx tests/unit/agent-assignment.test.ts
 
 **Coverage:**
 - Global skill discovery (`.claude/skills/`)
-- Skill frontmatter validation
-- skill_evaluate pattern matching (files + keywords)
-- Confidence scoring and threshold filtering
-- Skill injection into agent context
+- Skill frontmatter validation (`name`, `description`, `version`)
+- Auto-fire mechanism: `description` field as primary trigger surface
+- `cc skill search` as fallback discovery path
+- Code-bearing skill script validity (L3 pytest tests)
 
 **Run:**
 ```bash
@@ -158,9 +158,7 @@ npx tsx tests/unit/skill-loading.test.ts
 ## Running All Unit Tests
 
 ```bash
-cd /Users/pabs/Sites/COPILOT/claude-copilot
-
-# Run all unit tests
+# Run all unit tests (from repo root)
 npx tsx tests/unit/agent-assignment.test.ts && \
 npx tsx tests/unit/skill-loading.test.ts
 
@@ -195,11 +193,11 @@ node --test tests/unit/**/*.test.ts
 - Work products match assigned agents
 
 ### Skill Loading
-- Skills have required frontmatter (skill_name, trigger_files, trigger_keywords)
-- File patterns match correctly (*.py → python-idioms, *.test.* → testing-patterns)
-- Keywords match text content
-- Confidence scores calculated correctly
-- Threshold filtering works
+- Skills have required frontmatter (`name`, `description`, `version`)
+- Auto-fire path: native Claude Code reads `description` field; no `skill_evaluate` tool call needed
+- Fallback path: `cc skill search` substring match on name + description
+- Code-bearing skills have `allowed-tools: [Bash]` and an Invocation section
+- L3 scripts tested via pytest (`test_skill_frontmatter.py`, `test_parser_unit.py`)
 - Token budgets respected (< 3000 tokens per skill)
 
 ## Adding New Tests

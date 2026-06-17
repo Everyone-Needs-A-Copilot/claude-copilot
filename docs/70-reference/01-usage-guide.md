@@ -186,17 +186,12 @@ Service Designer:
   2. Routes to @agent-uxd
 
 UX Designer:
-  1. Designs interaction patterns
-  2. Routes to @agent-uids
+  1. Designs interaction patterns for dark mode toggle
+  2. Routes to @agent-uids for visual design tokens
 
-UI Designer:
+UI Design System:
   1. Creates color tokens for dark theme
-  2. Routes to @agent-uid
-
-UI Developer:
-  1. Implements theme toggle
-  2. Creates components
-  3. Routes to @agent-me for integration
+  2. Routes to @agent-me for implementation
 
 Engineer:
   1. Integrates with app
@@ -238,7 +233,73 @@ Agent: Resuming TASK-abc123: "Migrate sidebar component"
 
 ---
 
-### Scenario 4: "Risky Refactor"
+### Scenario 4: "Am I About to Hit My Rate Limit?"
+
+```bash
+cc usage
+```
+
+**What you get:**
+
+```
+Claude Usage (5h window)
+  Requests:  42 / 100    [████░░░░░░] 42%
+  Tokens:    3.1M / 7M   [████░░░░░░] 44%
+
+7-day window
+  Requests:  310 / 1000  [███░░░░░░░] 31%
+```
+
+Run this before starting a long agent task to confirm quota headroom. The counters come from Anthropic's server-side rate-limit response headers — not estimates. `cc usage` is **idle-gated**: it only probes the server when Claude Code is actively in use, so running it between sessions won't consume quota.
+
+**Flags:**
+- `cc usage --json` — machine-readable cache (zero overhead, no probe)
+- `cc usage --refresh` — force a fresh probe even if idle gate fires
+- `cc usage --no-probe` — read the last cached values without touching the server
+
+Full reference: [`tools/cc/README.md`](../../tools/cc/README.md)
+
+---
+
+### Scenario 5: "My Memory Might Be Stale"
+
+After a project restructure, renamed commands, or a framework update, stored memory entries can develop broken references — pointing at deleted paths, renamed commands, or outdated version strings. Run this to find them before an agent acts on bad information:
+
+```bash
+cc memory check
+```
+
+**What you get:**
+
+```
+Memory Health Check
+  Entries checked: 47
+  Score: 82/100
+
+WARN  [2026-01-15] path /old/path/to/project not found
+WARN  [2026-05-03] command 'mcp-server' not found in PATH
+FAIL  [2026-03-20] version "5.1.0" conflicts with installed "5.9.0"
+
+  2 warnings · 1 failure
+```
+
+Exits 1 if any `FAIL`-severity finding exists, so it integrates cleanly with CI or a shell alias. Use the flags to narrow scope:
+
+| Flag | What it skips |
+|------|--------------|
+| `--no-paths` | Path-existence checks |
+| `--no-commands` | Command-resolves checks |
+| `--no-stale` | Staleness-by-age checks |
+| `--staleness-days N` | Change the staleness cutoff (default: 90 days) |
+| `--json` | Machine-readable output |
+
+**When to run it:** Before a long `/protocol` session; after renaming directories; after a major framework update; when `/continue` gives you context that feels wrong.
+
+Full reference: [`tools/cc/README.md`](../../tools/cc/README.md)
+
+---
+
+### Scenario 6: "Risky Refactor"
 
 ```bash
 /protocol ultrawork refactor the entire auth system
@@ -263,15 +324,15 @@ Engineer Agent (Task 1):
 
   If merge conflicts:
   - Task auto-blocked
-  - You resolve manually
-  - Run: worktree_conflict_resolve({ taskId: "TASK-001" })
+  - Check conflicts: git status / git diff --name-only --diff-filter=U
+  - Resolve manually in .worktrees/TASK-001 (remove conflict markers, git add, git commit)
 
 Result: Safe incremental refactor, main never broken.
 ```
 
 ---
 
-### Scenario 5: "Working on Multiple Things"
+### Scenario 7: "Working on Multiple Things"
 
 Parallel streams let you context-switch safely:
 
@@ -399,12 +460,20 @@ With worktree isolation:
 
 ```bash
 # Check conflict status
-worktree_conflict_status({ taskId: "TASK-xxx" })
+git status
+git diff --name-only --diff-filter=U
 
-# Resolve conflicts manually in .worktrees/TASK-xxx
+# Navigate to the worktree and resolve conflicts manually
+# (edit files to remove <<<<<<<, =======, >>>>>>> markers)
+cd .worktrees/TASK-xxx
+# ... edit conflicting files ...
 
-# Then retry
-worktree_conflict_resolve({ taskId: "TASK-xxx" })
+# Stage resolved files and complete the merge
+git add <resolved-files>
+git commit
+
+# Then update task status
+tc task update TASK-xxx --status completed --json
 ```
 
 ### "Lost my context"
@@ -417,11 +486,29 @@ If that doesn't help, check Memory Copilot directly:
 
 ```bash
 # Check Memory Copilot
-initiative_get({ mode: "full" })
+cc memory list --json
 
 # Check Task Copilot
 tc progress --json
 ```
+
+### "Memory feels wrong — context from an old project layout"
+
+Your memory entries may reference deleted paths or outdated commands:
+
+```bash
+cc memory check
+```
+
+Review the flagged entries (`cc memory get <id>`) and delete or update those that are no longer accurate.
+
+### "Not sure if I have quota for a long task"
+
+```bash
+cc usage
+```
+
+Check the 5h window utilization. If you're near the limit, use `/pause` to checkpoint and come back later, or use `eco:` prefix to minimize token usage.
 
 ---
 
@@ -445,7 +532,9 @@ tc progress --json
 | `tc task get <id> --json` | Retrieve task state |
 | `tc progress --json` | See overall progress |
 | `tc stream list --json` | See parallel work streams |
-| `initiative_get()` | Get current initiative state (Memory Copilot MCP) |
+| `cc memory list --json` | Review stored memory (decisions, lessons, context) |
+| `cc memory check` | Drift detection — find stale/broken references before they mislead an agent (exits 1 on fail) |
+| `cc usage` | Show current quota utilization from server-side counters; use before long tasks |
 
 ### Magic Keywords
 
@@ -465,36 +554,38 @@ Prefix your `/protocol` commands for model and routing control:
 | Keyword | Flow | Agent Chain |
 |---------|------|-------------|
 | `fix:` | Defect | qa → me → qa |
-| `add:` | Experience | sd → uxd → uids → ta → me |
-| `refactor:` | Technical | ta → me |
+| `add:` | Experience | sd → design → ta → me → qa |
+| `refactor:` | Technical | ta → me → qa |
 | `test:` | QA | qa |
 | `doc:` | Documentation | doc |
 
 **Combine them:** `/protocol eco: fix: the login bug`
 
-See [Magic Keywords](../50-features/magic-keywords.md) for full documentation.
+See [Magic Keywords](../50-features/09-magic-keywords.md) for full documentation.
 
 ### Workflow Cheat Sheet
 
 ```
-Morning:     /continue
-New task:    /protocol [description]
-Quick fix:   /protocol eco: fix: [description]
-Quality:     /protocol max: add: [description]
-Force model: /protocol opus: [description]
-Context sw:  /pause [reason] → /protocol [new task]
-Resume:      /continue [stream-name]
-End of day:  /pause [notes]
+Morning:       /continue
+Check quota:   cc usage
+Check memory:  cc memory check
+New task:      /protocol [description]
+Quick fix:     /protocol eco: fix: [description]
+Quality:       /protocol max: add: [description]
+Force model:   /protocol opus: [description]
+Context sw:    /pause [reason] → /protocol [new task]
+Resume:        /continue [stream-name]
+End of day:    /pause [notes]
 ```
 
 ---
 
 ## Next Steps
 
-- [Magic Keywords](../50-features/magic-keywords.md) - Model selection and action routing
-- [Ecomode](../50-features/ecomode.md) - Smart model routing based on complexity
-- [Agent Details](AGENTS.md) - Learn each specialist
-- [Decision Guide](DECISION-GUIDE.md) - When to use what
-- [Customization](CUSTOMIZATION.md) - Extensions and knowledge repos
-- [Enhancement Features](ENHANCEMENT-FEATURES.md) - Advanced context engineering
+- [Magic Keywords](../50-features/09-magic-keywords.md) - Model selection and action routing
+- [Ecomode](../50-features/08-ecomode.md) - Smart model routing based on complexity
+- [Agent Details](../10-architecture/01-agents.md) - Learn each specialist
+- [Decision Guide](../10-architecture/03-decision-guide.md) - When to use what
+- [Customization](../20-configuration/02-customization.md) - Extensions and knowledge repos
+- [Enhancement Features](../50-features/00-enhancement-features.md) - Advanced context engineering
 - [Token Efficiency Playbook](../30-operations/04-token-efficiency-playbook.md) - Keep usage low without losing rigor

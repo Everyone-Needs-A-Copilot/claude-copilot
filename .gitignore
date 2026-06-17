@@ -9,6 +9,7 @@ Thumbs.db
 .idea/
 .vscode/
 *.sublime-*
+.obsidian/
 
 # Environment
 .env
@@ -59,3 +60,14 @@ copilot.db
 CHANGELOG-SUMMARY.json
 PROJECT_MAP.md
 *.pid
+
+# Hook state files (ephemeral, session-local)
+.claude/hooks/state/*.json
+.claude/hooks/state/*.lock
+.claude/hooks/state/*.tmp.*
+
+# Local/generated artifacts
+.claude/settings.local.json
+coverage.xml
+.coverage
+*.egg-info/

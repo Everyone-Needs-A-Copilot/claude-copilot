@@ -53,7 +53,7 @@
 ### Experience Request
 ```
 1. INVOKE @agent-sd (map user journey)
-2. INVOKE @agent-uxd (interaction design) - parallel
+2. INVOKE @agent-uxd (interaction + task flow design)
 3. WAIT for results
 4. THEN respond with recommendations/questions
 ```
@@ -111,11 +111,25 @@ Your response MUST include:
 
 ---
 
-## Phase 4: Verify (NEVER SKIP)
+## Phase 4: Verify (MANDATORY GATE — NEVER SKIP)
 
-1. Use `@agent-qa` to verify changes work as expected
-2. If visual verification needed, ask user to test specific URL
-3. **Do NOT declare "done" until user confirms it works**
+1. @agent-qa MUST run after every @agent-me implementation — automatic, not optional
+2. @agent-qa MUST write new tests for changed/added code:
+   - Backend changes: unit tests + integration tests
+   - Frontend changes: Playwright E2E tests (zero console errors, user interactions, data flow)
+   - Both: all test types required
+3. All tests must pass before task is marked complete
+4. If visual verification also needed, ask user AFTER automated tests pass
+5. **Task is NOT done until automated tests pass AND user confirms**
+
+**Artifact-gated verdicts (5.10.0+):** A bare `VERDICT: APPROVED` no longer unblocks the gate. @agent-qa and @agent-sec MUST include an `ARTIFACT:` line citing real evidence:
+
+```
+VERDICT: APPROVED
+ARTIFACT: test-run|pytest tests/ exit=0 "47 passed, 0 failed"
+```
+
+If the gate is not unblocking, check that the agent included an `ARTIFACT:` line. Escape hatch: `COPILOT_QA_GATE=off`. After 3 consecutive failures the gate auto-unblocks with an advisory. See [hooks/README.md](../../.claude/hooks/README.md).
 
 ---
 
@@ -128,6 +142,8 @@ Your response MUST include:
 | Writing a plan before running understanding agent | Plan should be based on agent findings |
 | Skipping to code changes | No understanding = wrong fix |
 | Declaring "done" after build success | Build passing ≠ bug fixed |
+| Skipping QA after implementation | Tests catch regressions and verify correctness |
+| Relying only on existing tests passing | New code needs new tests |
 
 ---
 
@@ -153,23 +169,22 @@ Your response MUST include:
 
 | Task | Agent | Purpose |
 |------|-------|---------|
-| UX/Interaction | `@agent-uxd` | Task flows, wireframes, usability |
-| Visual Design | `@agent-uids` | Colors, typography, visual hierarchy |
-| UI Implementation | `@agent-uid` | CSS, Tailwind, component styling |
-| Content/Copy | `@agent-cw` | Microcopy, error messages, UI text |
+| Interaction + Task Flow Design | `@agent-uxd` | Task flows, wireframes, usability |
+| Visual Design System | `@agent-uids` | Color, typography, design tokens |
+| Component Specs | `@agent-uid` | Component implementation blueprints |
 
 ### Verification Phase
 
 | Task | Agent | Purpose |
 |------|-------|---------|
 | Test writing | `@agent-qa` | Unit, integration, E2E tests |
-| Security review | `@agent-sec` | Vulnerability assessment |
+| Security review | load `security/stride-dread` skill | STRIDE/DREAD analysis — not a dedicated agent |
 
 ---
 
 ## Project-Specific Overrides
 
-Projects may extend this protocol with custom agents or rules via the extension system. See [EXTENSION-SPEC.md](../EXTENSION-SPEC.md) for details.
+Projects may extend this protocol with custom agents or rules via the extension system. See [the Extension Spec](../40-extensions/00-extension-spec.md) for details.
 
 ---
 

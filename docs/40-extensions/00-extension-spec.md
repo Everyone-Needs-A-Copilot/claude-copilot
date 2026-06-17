@@ -71,28 +71,28 @@ fallback: use_base_with_warning
 
 ```markdown
 ---
-extends: uxd
+extends: uid
 type: extension
-description: Company design system integration
+description: Company UI component standards integration
 overrideSections:
-  - Design System
+  - Component Standards
   - Output Formats
 preserveSections:
   - Core Methodologies
   - Quality Gates
 ---
 
-# UX Designer Extensions
+# UI Developer Extensions
 
-## Design System
-[OVERRIDES base Design System section]
+## Component Standards
+[OVERRIDES base Component Standards section]
 
 Check Figma design system before creating new components...
 
 ## Output Formats
 [OVERRIDES base Output Formats section]
 
-All wireframes must include Figma component references...
+All components must include Figma component references...
 ```
 
 ### 3. Skills Injection (`type: "skills"`)
@@ -159,7 +159,7 @@ When an agent is invoked, the system uses **two-tier resolution**:
 |--------------|-------------|--------|
 | SD override | SD override | Uses **project** SD override |
 | (none) | SD override | Uses **global** SD override |
-| UXD extension | SD override | UXD from project, SD from global |
+| uid extension | SD override | uid from project, SD from global |
 | (none) | (none) | Base agents only |
 
 ## File Structure
@@ -173,14 +173,13 @@ claude-copilot/
 │       ├── me.md      # Engineer (base)
 │       ├── ta.md      # Tech Architect (base)
 │       ├── qa.md      # QA Engineer (base)
-│       ├── sec.md     # Security Engineer (base)
 │       ├── doc.md     # Documentation (base)
 │       ├── do.md      # DevOps (base)
 │       ├── sd.md      # Service Designer (base)
 │       ├── uxd.md     # UX Designer (base)
-│       ├── uids.md    # UI Designer (base)
+│       ├── uids.md    # UI Design System (base)
 │       ├── uid.md     # UI Developer (base)
-│       └── cw.md      # Copywriter (base)
+│       └── kc.md      # Knowledge Copilot setup (base)
 └── docs/
     └── EXTENSION-SPEC.md  # This file
 ```
@@ -194,9 +193,9 @@ Located at `~/.claude/knowledge` - automatically detected, no configuration need
 ├── knowledge-manifest.json    # REQUIRED: Declares extensions
 ├── .claude/
 │   └── extensions/
-│       ├── sd.override.md     # Override example
-│       ├── uxd.extension.md   # Extension example
-│       └── ta.skills.json     # Skills injection example
+│       ├── sd.override.md       # Override example
+│       ├── uid.extension.md     # Extension example
+│       └── ta.skills.json       # Skills injection example
 ├── skills/
 │   ├── company-skill-1.md
 │   └── company-skill-2.md
@@ -357,7 +356,7 @@ fallback: use_base
 
 When a project uses both claude-copilot framework and a knowledge repository:
 
-1. **Setup:** Configure `KNOWLEDGE_REPO_PATH` in your MCP server configuration
+1. **Setup:** Configure `KNOWLEDGE_REPO_PATH` via `cc config set paths.knowledge_repo <path>` or the env variable
 2. **Resolution:** Framework automatically detects and applies extensions
 3. **Runtime:** Agents use extended behavior when invoking `@agent-[name]`
 
@@ -380,65 +379,47 @@ Extensions are validated against framework version at setup time.
 
 ## Implementation Details
 
-### MCP Server Configuration
+### Knowledge Repository Configuration
 
-The skills-copilot server automatically checks for a global knowledge repository at `~/.claude/knowledge`. No configuration is required for global extensions.
+The framework automatically checks for a global knowledge repository at `~/.claude/knowledge`. No configuration is required for global extensions.
 
-**Minimal configuration (global repo auto-detected):**
+**Register the global knowledge repo path (recommended):**
 
-```json
-{
-  "mcpServers": {
-    "skills-copilot": {
-      "command": "node",
-      "args": ["/Users/yourname/.claude/copilot/mcp-servers/skills-copilot/dist/index.js"],
-      "env": {
-        "LOCAL_SKILLS_PATH": "./.claude/skills"
-      }
-    }
-  }
-}
+```bash
+cc config set paths.knowledge_repo ~/.claude/knowledge
 ```
 
 **With project-specific override:**
 
-Add `KNOWLEDGE_REPO_PATH` only when you need project-specific extensions that differ from global:
+Set `KNOWLEDGE_REPO_PATH` only when you need project-specific extensions that differ from global:
 
-```json
-{
-  "mcpServers": {
-    "skills-copilot": {
-      "command": "node",
-      "args": ["/Users/yourname/.claude/copilot/mcp-servers/skills-copilot/dist/index.js"],
-      "env": {
-        "LOCAL_SKILLS_PATH": "./.claude/skills",
-        "KNOWLEDGE_REPO_PATH": "/path/to/project-specific/knowledge"
-      }
-    }
-  }
-}
+```bash
+# In your project shell or .env
+export KNOWLEDGE_REPO_PATH=/path/to/project-specific/knowledge
+
+# Or register with cc config
+cc config set paths.knowledge_repo /path/to/project-specific/knowledge
 ```
 
-> **Note:** Replace `/Users/yourname` with your actual home directory path. The `~` tilde does **NOT** expand in MCP args.
+> **Note:** The `cc env` command exports these as environment variables. Use `eval "$(cc env)"` in agent preambles.
 
-### Available MCP Tools
+### Available Extension Tools
 
-Three tools are available for extension resolution:
+Extension resolution is performed by the `cc` CLI at agent-invocation time. Use `eval "$(cc env)"` in agent preambles to hydrate `CC_SHARED_DOCS`, `CC_KNOWLEDGE_REPO`, and related variables. The runtime assembles base agent + project override + global override before the agent runs.
 
-#### `extension_get`
+#### `cc env` — Runtime assembly
 
-Retrieves the extension for a specific agent.
+Run `eval "$(cc env)"` to export all configured paths and knowledge-repo variables into the shell environment. The `cc` runtime then uses these to resolve which extension files apply to the invoked agent.
 
-**Input:**
-```json
-{
-  "agent": "sd"  // Agent ID: me, ta, qa, sec, doc, do, sd, uxd, uids, uid, cw
-}
+**Example:**
+```bash
+eval "$(cc env)"
+# Sets CC_KNOWLEDGE_REPO, CC_SHARED_DOCS, KNOWLEDGE_REPO_PATH, etc.
 ```
 
 **Output:** Returns extension content with metadata (type, required skills, fallback behavior).
 
-#### `extension_list`
+#### Extension list (via `cc config`)
 
 Lists all available extensions from both global and project repositories.
 
@@ -448,7 +429,7 @@ Lists all available extensions from both global and project repositories.
 | Agent | Type | Source | Description | Required Skills |
 |-------|------|--------|-------------|-----------------|
 | @agent-sd | override | global | Moments Framework | moments-mapping |
-| @agent-uxd | extension | project (overrides global) | Project design system | - |
+| @agent-uid | extension | project (overrides global) | Project UI component standards | - |
 ```
 
 The `source` column indicates where each extension comes from:
@@ -456,7 +437,7 @@ The `source` column indicates where each extension comes from:
 - `project` - From `$KNOWLEDGE_REPO_PATH`
 - `project (overrides global)` - Project extension that takes precedence over a global one
 
-#### `manifest_status`
+#### Knowledge repo status (via `cc env` / `cc config`)
 
 Returns the status of both global and project knowledge repositories.
 
@@ -507,9 +488,9 @@ When using the Agent-First Protocol, the declaration should indicate extension s
 
 ### Extension Resolution Process
 
-When invoking an agent with extensions enabled:
+When invoking an agent with extensions enabled, the `cc` runtime (via `cc env`) resolves extensions automatically:
 
-1. **Call `extension_get(agent_id)`** to check for extensions
+1. **`cc` CLI resolves extensions** by checking project then global knowledge repo for the agent
 2. **Apply extension based on type:**
    - `override`: Use extension content AS the agent instructions (ignore base agent)
    - `extension`: Merge extension with base agent (extension sections override base)
@@ -520,7 +501,7 @@ When invoking an agent with extensions enabled:
 
 If the extension has `requiredSkills`:
 
-1. Verify each skill is available via `skill_get`
+1. Verify each skill is available via `cc skill get <name>`
 2. If skills unavailable, apply `fallbackBehavior`:
    - `use_base`: Use base agent silently
    - `use_base_with_warning`: Use base agent, warn user that proprietary features unavailable
@@ -528,19 +509,15 @@ If the extension has `requiredSkills`:
 
 ### Provider Architecture
 
-The extension resolution is handled by `KnowledgeRepoProvider` in the skills-copilot MCP server:
+Extension resolution is handled by the `cc` CLI (`tools/cc/`). Resolution order: project knowledge repo → global knowledge (`~/.claude/knowledge`) → base framework agents.
 
 ```
-mcp-servers/skills-copilot/
-├── src/
-│   ├── index.ts                    # MCP server with extension tools
-│   ├── types.ts                    # Extension type definitions
-│   └── providers/
-│       ├── index.ts                # Provider exports
-│       ├── knowledge-repo.ts       # Extension resolution provider
-│       ├── local.ts                # Local skills provider
-│       ├── cache.ts                # Skill caching
-│       └── ...
+tools/cc/
+├── cc/
+│   ├── api.py                      # Public API (memory_store, memory_search, etc.)
+│   ├── skills.py                   # Skill discovery and loading
+│   ├── knowledge.py                # Extension/knowledge repo resolution
+│   └── config.py                  # cc config management
 ```
 
 ### Type Definitions
@@ -600,7 +577,7 @@ The system degrades gracefully at each tier:
 **Global repo fails to load:**
 - Error logged for global repo
 - System continues with base agents
-- `manifest_status` reports the specific error
+- `cc env` output / cc config reports the specific error
 
 **Project repo fails to load:**
 - Error logged for project repo

@@ -59,16 +59,17 @@ They help with the task at hand but miss the bigger picture. No one asks "should
 
 Claude Copilot is an instruction layer for Claude Code.
 
-It's not separate software—it's a collection of markdown files (agents, commands, project instructions) and two MCP servers that give Claude Code persistent memory and on-demand skills.
+It's not separate software — it's a collection of markdown files (agents, commands, project instructions) and two CLI tools (`cc` for memory and skills, `tc` for task management) that give Claude Code persistent memory, on-demand skills, and ephemeral task storage.
 
 When you run Claude Code in a project with Claude Copilot, Claude reads these instructions and gains new capabilities:
 
 | Capability | What It Does | How It Works |
 |------------|--------------|--------------|
-| **Memory** | Remembers across sessions | MCP server with SQLite |
-| **Specialists** | Expert guidance for any task | Agent definitions (markdown) |
-| **Knowledge** | Your company docs, everywhere | Knowledge files + search |
-| **Skills** | Best practices on demand | Skill library + loading |
+| **Memory** | Remembers across sessions | `cc memory` CLI + SQLite (FTS5 keyword search) |
+| **Specialists** | Expert guidance for any task | 16 agent definitions (markdown) |
+| **Known References** | Configured paths/refs surface into every session via the Known References registry; `cc memory` search is available manually — agents do not yet auto-search a company knowledge repo _(roadmap: agent auto-pull)_ | `cc config set refs.*` + UserPromptSubmit hook |
+| **Skills** | Auto-fire from trigger-rich descriptions; code-bearing skills run scripts | Skill library; `cc skill` CLI as fallback |
+| **Tasks** | Ephemeral work product storage | `tc` CLI (PRDs, tasks, work products) |
 | **Protocol** | Consistent quality | Command definitions (markdown) |
 
 ---
@@ -83,7 +84,7 @@ Claude Copilot gives you access to specialized expertise when you need it. Not a
 
 ### Human Advocates Have Equal Standing
 
-The "Human Advocate" agents (Service Designer, UX Designer, UI Designer, UI Developer, Copywriter) aren't secondary to technical agents.
+The "Human Advocate" agents (Service Designer, Design) aren't secondary to technical agents.
 
 Software exists to serve humans. These agents ensure that happens. They have equal authority, equal importance, equal voice in the process.
 
@@ -97,7 +98,7 @@ Decisions, lessons, and progress persist so you never waste tokens rebuilding co
 
 Load specialized knowledge when you need it, not as bloated context at the start of every session.
 
-25,000+ skills available, each loaded only when relevant. Your token budget goes to actual work, not background context.
+Skills auto-fire from their trigger-rich `description` field — the model surfaces them automatically when a prompt matches. `cc skill search` provides explicit fallback discovery (case-insensitive substring match). Your token budget goes to actual work, not background context.
 
 ### Your Standards, Not Ours
 
@@ -147,11 +148,13 @@ It's structured instructions that make Claude more effective. The quality still 
 
 ## The Vision
 
-### Today
+### What It Is Today
 
-Claude Copilot gives individual developers and small teams access to specialized expertise, persistent memory, and proven processes.
+Claude Copilot gives individual developers and small teams a team of 16 specialist agents with strict points of view, a design-led process enforced by mechanical hooks, persistent memory across sessions, and real task/worker orchestration.
 
-### Tomorrow
+The design goal is more disciplined, resumable work built from the practices that tend to produce better software. We measure process and context efficiency, not output quality — there is no defect/rework data yet. The "Not magic" framing applies here too: structured instructions that make Claude's process repeatable and inspectable, not a guarantee of outcomes.
+
+### The Direction
 
 As AI capabilities grow, the instruction layer becomes more powerful:
 - More sophisticated agents
@@ -161,9 +164,9 @@ As AI capabilities grow, the instruction layer becomes more powerful:
 
 The architecture is designed to grow with AI capabilities while remaining simple to use and modify.
 
-### The End State
+### The Goal
 
-Every developer has access to a full team of specialists—not to replace human expertise, but to augment human capability.
+Every developer has access to a full team of specialists — not to replace human expertise, but to augment human capability.
 
 The best practices of the best teams, encoded and available to everyone.
 
@@ -183,7 +186,7 @@ When contributing:
 - Include routing to other agents
 - Document decision authority
 
-See [CONTRIBUTING.md](../CONTRIBUTING.md) for guidelines.
+See [CONTRIBUTING.md](../../CONTRIBUTING.md) for guidelines.
 
 ---
 

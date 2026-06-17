@@ -35,9 +35,8 @@ Then STOP.
 **Welcome to Claude Copilot Machine Setup!**
 
 I'll set up Claude Copilot on your machine. This includes:
-- Building the Memory server (persists your work between sessions)
-- Building the Skills server (powers specialized agents and knowledge search)
 - Installing the `tc` CLI (manages PRDs, tasks, and work products)
+- Installing the `cc` CLI (unified memory and skills manager)
 - Installing global commands (`/setup-project`, `/update-project`, `/knowledge-copilot`)
 
 Let me check what's already in place...
@@ -47,60 +46,20 @@ Let me check what's already in place...
 ## Step 3: Check Prerequisites
 
 ```bash
-# Check Node.js
-node --version
-
-# Check build tools (macOS)
-xcode-select -p 2>/dev/null && echo "XCODE_OK" || echo "XCODE_MISSING"
+# Check Python 3
+python3 --version
 
 # Get home directory
 echo $HOME
 ```
 
-**If Node.js missing or < 18:**
-Tell user: "Please install Node.js 18+ from https://nodejs.org and run this setup again."
-Then STOP.
-
-**If Xcode tools missing (macOS):**
-```bash
-xcode-select --install
-```
-Tell user: "Installing build tools. When complete, run this setup again."
+**If Python 3 missing:**
+Tell user: "Please install Python 3.9+ and run this setup again."
 Then STOP.
 
 ---
 
-## Step 4: Build Memory Server
-
-Tell user: "Building Memory Server..."
-
-```bash
-cd ~/.claude/copilot/mcp-servers/copilot-memory && npm install && npm run build
-```
-
-**Verify:**
-```bash
-ls ~/.claude/copilot/mcp-servers/copilot-memory/dist/index.js
-```
-
----
-
-## Step 5: Build Skills Server
-
-Tell user: "Building Skills Server..."
-
-```bash
-cd ~/.claude/copilot/mcp-servers/skills-copilot && npm install && npm run build
-```
-
-**Verify:**
-```bash
-ls ~/.claude/copilot/mcp-servers/skills-copilot/dist/index.js
-```
-
----
-
-## Step 6: Install tc CLI
+## Step 4: Install tc CLI
 
 Tell user: "Installing tc CLI (Task Copilot)..."
 
@@ -115,16 +74,15 @@ tc version
 
 ---
 
-## Step 7: Create Data Directories
+## Step 5: Create Data Directories
 
 ```bash
-mkdir -p ~/.claude/memory
 mkdir -p ~/.claude/tasks
 ```
 
 ---
 
-## Step 8: Install Global Commands
+## Step 6: Install Global Commands
 
 Install commands that work in any folder:
 
@@ -156,7 +114,58 @@ Should show: `setup-copilot.md`, `setup-project.md`, `update-project.md`, `updat
 
 ---
 
-## Step 9: Check for Global Knowledge
+## Step 7: Install cc CLI
+
+Tell user: "Installing cc CLI (memory and skills manager)..."
+
+```bash
+bash ~/.claude/copilot/tools/cc/install.sh
+```
+
+**Verify:**
+```bash
+cc --version
+```
+
+### Step 7B: Initialize Machine Config
+
+```bash
+cc config init --machine
+```
+
+Create required directories:
+
+```bash
+mkdir -p ~/.claude/cache/models ~/.claude/skills
+printf 'config.json\n' > ~/.claude/cc/.gitignore
+```
+
+### Step 7C: Configure Machine-Level Paths
+
+Use AskUserQuestion to gather optional paths:
+
+**Question 1:** "Path to your shared-docs repository (optional, press Enter to skip)"
+- Header: "Shared Docs Path"
+- Let user type freely or press Enter
+
+**Question 2:** "Path to your knowledge repository (optional, press Enter to skip)"
+- Header: "Knowledge Repo Path"
+- Let user type freely or press Enter
+
+For each non-empty path provided, run:
+```bash
+cc config set shared_docs <path>   # if provided
+cc config set knowledge_repo <path>  # if provided
+```
+
+Then verify:
+```bash
+cc config doctor
+```
+
+---
+
+## Step 8: Check for Global Knowledge
 
 ```bash
 ls ~/.claude/knowledge/knowledge-manifest.json 2>/dev/null && echo "KNOWLEDGE_EXISTS" || echo "NO_KNOWLEDGE"
@@ -166,7 +175,7 @@ Store result for reporting.
 
 ---
 
-## Step 10: Report Success
+## Step 9: Report Success
 
 ---
 
@@ -175,10 +184,9 @@ Store result for reporting.
 Claude Copilot is installed at `~/.claude/copilot`
 
 **What's ready:**
-- Memory Server - Persists decisions, lessons, and progress
-- Skills Server - Powers agents and knowledge search
 - tc CLI - Manages PRDs, tasks, and work products
-- 12 Specialized Agents - Expert guidance for any task
+- cc CLI - Unified memory and skills manager (replaces MCP servers)
+- 16 Specialist Agents - Expert guidance for any task
 
 **Global commands installed:**
 | Command | Purpose |
@@ -213,25 +221,25 @@ Open Claude Code in any project directory and run:
 
 ---
 
----
-
 ## Troubleshooting
 
-### Build Fails
+### cc Install Fails
 
-**"gyp ERR!" or native module errors:**
 ```bash
-# macOS
-xcode-select --install
+# Retry manually
+bash ~/.claude/copilot/tools/cc/install.sh
 
-# Then rebuild
-cd ~/.claude/copilot/mcp-servers/copilot-memory
-npm rebuild better-sqlite3
-npm run build
+# Verify PATH includes ~/.local/bin
+echo $PATH
+# Add if missing: export PATH="$HOME/.local/bin:$PATH"
 ```
 
-**"npm: command not found":**
-- Install Node.js from https://nodejs.org
+### tc Install Fails
+
+```bash
+pip3 install -e ~/.claude/copilot/tools/tc
+tc version
+```
 
 ### Permission Errors
 

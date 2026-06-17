@@ -11,9 +11,9 @@ Thank you for your interest in contributing to Claude Copilot!
 ## Development Setup
 
 ```bash
-# Install MCP server dependencies
-cd mcp-servers/copilot-memory && npm install && npm run build
-cd ../skills-copilot && npm install && npm run build
+# Install CLI tools
+bash tools/cc/install.sh
+pip install -e tools/tc
 ```
 
 ## Security Guidelines
@@ -42,11 +42,11 @@ If you accidentally commit secrets:
 - Document decision authority
 - Follow the required sections format
 
-### MCP Servers (`mcp-servers/`)
+### CLI Tools (`tools/cc/` and `tools/tc/`)
 
-- Use TypeScript
+- `tools/cc/` — cc CLI (memory, skills, env, docs): follow existing Python patterns
+- `tools/tc/` — tc CLI (task copilot): follow existing Python patterns
 - Include comprehensive error handling
-- Add JSDoc comments for public APIs
 - Write tests for new functionality
 
 ## Pull Request Process

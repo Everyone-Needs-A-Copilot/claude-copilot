@@ -1,22 +1,15 @@
 # Update Claude Copilot
 
-Update Claude Copilot to the latest version. This pulls the latest code and rebuilds the MCP servers.
+Update Claude Copilot to the latest version. This pulls the latest code and reinstalls the CLIs.
 
 ## Step 1: Check Current Version
 
 ```bash
 cd ~/.claude/copilot
 
-# Get current version from package.json if it exists
-if [ -f package.json ]; then
-  OLD_VERSION=$(node -p "require('./package.json').version" 2>/dev/null || echo "unknown")
-else
-  OLD_VERSION="unknown"
-fi
+OLD_VERSION=$(cat VERSION.json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('version','unknown'))" 2>/dev/null || echo "unknown")
 
 echo "Current version: $OLD_VERSION"
-
-# Also show git log for reference
 git log --oneline -1
 ```
 
@@ -61,54 +54,33 @@ Then STOP.
 ```bash
 cd ~/.claude/copilot
 
-# Get new version from package.json
-if [ -f package.json ]; then
-  NEW_VERSION=$(node -p "require('./package.json').version" 2>/dev/null || echo "unknown")
-else
-  NEW_VERSION="unknown"
-fi
+NEW_VERSION=$(cat VERSION.json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('version','unknown'))" 2>/dev/null || echo "unknown")
 
 echo "New version: $NEW_VERSION"
-
-# Also show git log for reference
 git log --oneline -1
 ```
 
-Compare with OLD_VERSION. If same, tell user "Already up to date" and skip to Step 7.
+Compare with OLD_VERSION. If same, tell user "Already up to date" and skip to Step 6.
 
 ---
 
-## Step 4: Rebuild Memory Server
+## Step 4: Reinstall cc CLI
 
-Tell user: "Rebuilding Memory Server..."
+Tell user: "Reinstalling cc CLI (Memory + Skills)..."
 
 ```bash
-cd ~/.claude/copilot/mcp-servers/copilot-memory && npm install && npm run build
+bash ~/.claude/copilot/tools/cc/install.sh
 ```
 
 **Verify:**
 ```bash
-ls ~/.claude/copilot/mcp-servers/copilot-memory/dist/index.js
+cc version
+cc config doctor
 ```
 
 ---
 
-## Step 5: Rebuild Skills Server
-
-Tell user: "Rebuilding Skills Server..."
-
-```bash
-cd ~/.claude/copilot/mcp-servers/skills-copilot && npm install && npm run build
-```
-
-**Verify:**
-```bash
-ls ~/.claude/copilot/mcp-servers/skills-copilot/dist/index.js
-```
-
----
-
-## Step 6: Reinstall tc CLI
+## Step 5: Reinstall tc CLI
 
 Tell user: "Reinstalling tc CLI (Task Copilot)..."
 
@@ -123,20 +95,20 @@ tc version
 
 ---
 
-## Step 7: Create Tasks Directory (if needed)
+## Step 6: Create Required Directories (if needed)
 
 ```bash
 mkdir -p ~/.claude/tasks
+mkdir -p ~/.claude/memory
 ```
 
 ---
 
-## Step 8: Update Global Commands
+## Step 7: Update Global Commands
 
 Tell user: "Updating global commands..."
 
 ```bash
-# Update user-level commands
 cp ~/.claude/copilot/.claude/commands/setup-project.md ~/.claude/commands/
 cp ~/.claude/copilot/.claude/commands/update-project.md ~/.claude/commands/
 cp ~/.claude/copilot/.claude/commands/update-copilot.md ~/.claude/commands/
@@ -150,61 +122,24 @@ ls -la ~/.claude/commands/
 
 ---
 
-## Step 9: Generate Summary (if new version)
-
-If NEW_VERSION is different from OLD_VERSION:
-
-```bash
-cd ~/.claude/copilot
-
-# Generate summary from CHANGELOG.md
-npm run generate-summary 2>/dev/null || echo "Warning: Could not generate summary"
-```
-
----
-
-## Step 10: Run Version Check
+## Step 8: Run Version Check
 
 Tell user: "Verifying all components..."
 
 ```bash
-cd ~/.claude/copilot && ./scripts/check-versions.sh
+cd ~/.claude/copilot && ./scripts/check-versions.sh 2>/dev/null || echo "check-versions.sh not found, skipping"
 ```
-
-This validates:
-- All MCP servers are built and version-matched
-- Agents have required sections
-- Global paths are configured
 
 **If errors:** Address them before continuing.
 
 ---
 
-## Step 11: Report Success
+## Step 9: Report Success
 
 ```bash
 cd ~/.claude/copilot
 
-# Read version summary if available
-if [ -f CHANGELOG-SUMMARY.json ] && [ "$NEW_VERSION" != "unknown" ]; then
-  # Extract summary for the new version using node
-  SUMMARY=$(node -p "
-    try {
-      const data = require('./CHANGELOG-SUMMARY.json');
-      const version = data.versions['$NEW_VERSION'];
-      if (version) {
-        version.summary || 'See CHANGELOG.md for details';
-      } else {
-        'Version details not found in summary';
-      }
-    } catch (e) {
-      'See CHANGELOG.md for details';
-    }
-  " 2>/dev/null || echo "See CHANGELOG.md for details")
-else
-  # Fallback to git log
-  SUMMARY=$(git log --oneline HEAD~3..HEAD 2>/dev/null | head -3 | sed 's/^[a-f0-9]* /- /' || echo "Recent updates applied")
-fi
+SUMMARY=$(git log --oneline HEAD~3..HEAD 2>/dev/null | head -3 | sed 's/^[a-f0-9]* /- /' || echo "Recent updates applied")
 ```
 
 Tell user:
@@ -219,7 +154,7 @@ Tell user:
 $SUMMARY
 
 **What was updated:**
-- MCP servers rebuilt (copilot-memory, skills-copilot)
+- cc CLI reinstalled (memory + skills)
 - tc CLI reinstalled
 - Global commands refreshed
 
@@ -233,22 +168,20 @@ cd your-project
 
 **Full details:** `~/.claude/copilot/CHANGELOG.md`
 
-**Note:** Restart Claude Code to load the updated MCP servers.
-
----
-
 ---
 
 ## Troubleshooting
 
-### Build Fails
+### cc install fails
 
-**Native module errors:**
 ```bash
-xcode-select --install  # macOS
-cd ~/.claude/copilot/mcp-servers/copilot-memory
-npm rebuild better-sqlite3
-npm run build
+# Ensure Python 3 is available
+python3 --version
+
+# Try manual install
+cd ~/.claude/copilot/tools/cc
+pip install -e .
+ln -sf $(pwd)/.venv/bin/cc ~/.local/bin/cc
 ```
 
 ### Permission Errors
@@ -265,4 +198,4 @@ git log --oneline -10  # find the commit to rollback to
 git checkout <commit-hash>
 ```
 
-Then run `/update-copilot` again to rebuild.
+Then run `/update-copilot` again to reinstall.

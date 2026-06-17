@@ -4,7 +4,6 @@ from typing import Optional
 
 import typer
 
-from tc.db.connection import get_db
 from tc.formatting import output_json, output_table
 from tc.utils.errors import require_db
 
@@ -24,29 +23,12 @@ def log_list(
     if ctx.invoked_subcommand is not None:
         return
 
+    from tc.services.log import list_log as _list_log
+
     db_path = require_db()
-    conn = get_db(db_path)
-
-    query = "SELECT * FROM agent_log WHERE 1=1"
-    params: list = []
-
-    if agent:
-        query += " AND agent = ?"
-        params.append(agent)
-    if stream is not None:
-        query += " AND stream_id = ?"
-        params.append(stream)
-    if task is not None:
-        query += " AND task_id = ?"
-        params.append(task)
-
-    query += " ORDER BY id DESC LIMIT ?"
-    params.append(limit)
-
-    rows = conn.execute(query, params).fetchall()
-    conn.close()
-
-    data = [dict(r) for r in rows]
+    data = _list_log(
+        agent=agent, stream=stream, task=task, limit=limit, db_path=db_path
+    )
 
     if json:
         output_json(data)

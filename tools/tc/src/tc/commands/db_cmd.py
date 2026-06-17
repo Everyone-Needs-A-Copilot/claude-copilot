@@ -32,7 +32,14 @@ def db_stats(
     db_path_val = require_db()
     conn = get_db(db_path_val)
 
-    tables = ["prds", "streams", "tasks", "work_products", "agent_log", "task_dependencies"]
+    tables = [
+        "prds",
+        "streams",
+        "tasks",
+        "work_products",
+        "agent_log",
+        "task_dependencies",
+    ]
     stats: dict = {}
     for table in tables:
         row = conn.execute(f"SELECT COUNT(*) as count FROM {table}").fetchone()

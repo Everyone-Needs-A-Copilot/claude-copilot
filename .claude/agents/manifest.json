@@ -1,0 +1,138 @@
+{
+  "schemaVersion": "1.0.0",
+  "generatedAt": "2026-06-17T00:00:00.000Z",
+  "_comment": "Single source of truth for agent roster, routing edges, and tool grants. DO NOT edit the agent list manually — it must match .claude/agents/*.md frontmatter. Consumers: session-start.sh (banner), pretool-check.sh (force-delegate valid-agent list), VERSION.json (frameworkAgents), /protocol (routing).",
+  "agents": {
+    "cco": {
+      "role": "framework",
+      "model": "opus",
+      "tools": ["Read", "Grep", "Glob", "Edit", "Write", "WebSearch", "Bash"],
+      "description": "Strategic creative direction, brand strategy, campaign concepts, creative vision",
+      "methodology": "Litmus Test"
+    },
+    "cpa": {
+      "role": "framework",
+      "model": "sonnet",
+      "tools": ["Read", "Grep", "Glob", "Edit", "Write", "WebSearch", "Bash"],
+      "description": "Financial analysis, tax strategy, owner compensation, cash flow forecasting",
+      "methodology": "S-Corp Tax Advisory"
+    },
+    "cs": {
+      "role": "framework",
+      "model": "sonnet",
+      "tools": ["Read", "Grep", "Glob", "Edit", "Write", "WebSearch", "Bash"],
+      "description": "Sales strategy, discovery call prep, objection handling, prospect qualification",
+      "methodology": "Socratic Sales"
+    },
+    "cw": {
+      "role": "framework",
+      "model": "opus",
+      "tools": ["Read", "Grep", "Glob", "Edit", "Write", "WebSearch", "Bash"],
+      "description": "UX copy, microcopy, error messages, button labels, help text",
+      "methodology": "MailChimp Voice and Tone"
+    },
+    "do": {
+      "role": "framework",
+      "model": "sonnet",
+      "tools": ["Read", "Grep", "Glob", "Edit", "Write", "Bash"],
+      "description": "CI/CD pipelines, deployment automation, infrastructure as code, monitoring",
+      "methodology": "12-Factor/SRE"
+    },
+    "doc": {
+      "role": "framework",
+      "model": "sonnet",
+      "tools": ["Read", "Grep", "Glob", "Edit", "Write", "Bash"],
+      "description": "Technical documentation, API docs, guides, and README creation",
+      "methodology": "Diataxis"
+    },
+    "ind": {
+      "role": "framework",
+      "model": "opus",
+      "tools": ["Read", "Grep", "Glob", "Edit", "Write", "WebSearch", "Bash"],
+      "description": "Industrial design lens, product essentialism, reduction toward essence",
+      "methodology": "Dieter Rams/Jony Ive"
+    },
+    "me": {
+      "role": "framework",
+      "model": "sonnet",
+      "tools": ["Read", "Grep", "Glob", "Edit", "Write", "Bash"],
+      "description": "Feature implementation, bug fixes, and refactoring",
+      "methodology": "Kent Beck"
+    },
+    "qa": {
+      "role": "framework",
+      "model": "sonnet",
+      "tools": ["Read", "Grep", "Glob", "Edit", "Write", "Bash"],
+      "description": "Test strategy, test coverage, and bug verification",
+      "methodology": "Meszaros"
+    },
+    "sd": {
+      "role": "framework",
+      "model": "opus",
+      "tools": ["Read", "Grep", "Glob", "Edit", "Write", "WebSearch", "Bash"],
+      "description": "Service design, customer journey mapping, touchpoint analysis",
+      "methodology": "IDEO"
+    },
+    "sec": {
+      "role": "framework",
+      "model": "sonnet",
+      "tools": ["Read", "Grep", "Glob", "Edit", "Write", "WebSearch", "Bash"],
+      "description": "Security review, vulnerability analysis, threat modeling using STRIDE+DREAD",
+      "methodology": "STRIDE+DREAD"
+    },
+    "ta": {
+      "role": "framework",
+      "model": "opus",
+      "tools": ["Read", "Grep", "Glob", "Bash"],
+      "description": "System architecture design and PRD-to-task planning",
+      "methodology": "ADR/Fitness Functions"
+    },
+    "uid": {
+      "role": "framework",
+      "model": "sonnet",
+      "tools": ["Read", "Grep", "Glob", "Edit", "Write", "Bash"],
+      "description": "UI component implementation, CSS/Tailwind, responsive layouts, accessibility",
+      "methodology": "Atomic Design/CDD"
+    },
+    "uids": {
+      "role": "framework",
+      "model": "opus",
+      "tools": ["Read", "Grep", "Glob", "Edit", "Write", "WebSearch", "Bash"],
+      "description": "Visual design, design tokens, color systems, typography, design system consistency",
+      "methodology": "Rams Principles/Atomic Design"
+    },
+    "uxd": {
+      "role": "framework",
+      "model": "opus",
+      "tools": ["Read", "Grep", "Glob", "Edit", "Write", "WebSearch", "Bash"],
+      "description": "Interaction design, wireframing, task flows, information architecture",
+      "methodology": "Nielsen/JTBD"
+    },
+    "kc": {
+      "role": "setup-only",
+      "model": "sonnet",
+      "tools": ["Read", "Grep", "Glob", "Edit", "Write", "Bash"],
+      "description": "Knowledge repo setup (invoked via /knowledge-copilot command)",
+      "methodology": null
+    }
+  },
+  "routingEdges": [
+    { "from": "any", "to": "ta", "when": "Architecture decisions needed" },
+    { "from": "any", "to": "me", "when": "Code implementation needed" },
+    { "from": "any", "to": "qa", "when": "Testing or verification needed" },
+    { "from": "any", "to": "doc", "when": "Documentation needed" },
+    { "from": "any", "to": "sec", "when": "Security review, threat modeling, vulnerability analysis needed" },
+    { "from": "sd", "to": "ind", "when": "Object-level essentialism review needed", "optional": true },
+    { "from": "sd", "to": "uxd", "when": "Interaction/task flow design needed" },
+    { "from": "ind", "to": "uxd", "when": "Element verdict ready, interaction must be designed within it" },
+    { "from": "uxd", "to": "uids", "when": "Task flows ready for visual design" },
+    { "from": "uids", "to": "uid", "when": "Design tokens and specs ready for component implementation" },
+    { "from": "uid", "to": "ta", "when": "Components complete, ready for task planning" },
+    { "from": "sd", "to": "cco", "when": "Creative direction or brand strategy needed", "optional": true },
+    { "from": "cco", "to": "cw", "when": "Copy execution, messaging, microcopy needed" },
+    { "from": "cs", "to": "cpa", "when": "Tax implications or financial modeling needed", "optional": true },
+    { "from": "me", "to": "qa", "when": "Implementation complete (MANDATORY — never skip)" },
+    { "from": "ta", "to": "me", "when": "Task planning complete, implementation ready" }
+  ],
+  "designChain": ["sd", "uxd", "uids", "uid", "ta", "me"]
+}

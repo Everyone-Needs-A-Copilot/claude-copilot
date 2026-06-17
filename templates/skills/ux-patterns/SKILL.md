@@ -1,18 +1,13 @@
 ---
-skill_name: ux-patterns
-skill_category: design
-description: UX patterns for task flows, wireframes, accessibility, and user interactions
-allowed_tools: [Read, Edit, Write, Glob, Grep]
-token_estimate: 1400
-version: 1.0
-last_updated: 2026-01-13
-owner: Claude Copilot
-status: active
+name: ux-patterns
+description: >-
+  UX patterns for task flows, service blueprints, wireframes, and user interactions
+  with comprehensive state coverage. Covers interaction design, user journeys, error
+  states, empty states, and WCAG accessibility. Use proactively when designing task
+  flows, creating wireframes, mapping user journeys, or reviewing interaction patterns.
+version: 1.0.0
+allowed-tools: [Read, Edit, Write, Glob, Grep]
 tags: [ux, interaction, wireframe, task-flow, accessibility, pattern, anti-pattern]
-related_skills: [design-patterns]
-trigger_files: ["**/*.wireframe", "**/ux/**", "**/flows/**", "**/journeys/**"]
-trigger_keywords: [task-flow, wireframe, user-journey, interaction-design, accessibility, WCAG, error-state, empty-state, service-blueprint]
-quality_keywords: [anti-pattern, pattern, validation, best-practice, accessibility]
 ---
 
 # UX Patterns

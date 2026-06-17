@@ -18,13 +18,22 @@ Claude Copilot ships with industry-standard methodologies—but your team isn't 
 
 The fastest way to customize. No code changes required.
 
-### Save a Skill
+### Author a Skill
 
-```javascript
-skill_save({
-  name: "our-api-standards",
-  description: "REST API design standards for our team",
-  content: `
+There is no `skill_save` command. Skills are authored by creating a `SKILL.md` file in a named subdirectory under `.claude/skills/`. Once the file exists, `cc skill` discovers it automatically.
+
+```bash
+# Create the skill directory
+mkdir -p .claude/skills/our-api-standards
+
+# Create the SKILL.md file
+cat > .claude/skills/our-api-standards/SKILL.md << 'EOF'
+---
+name: our-api-standards
+description: REST API design standards for our team — endpoints, response format, authentication
+version: 1.0.0
+---
+
 # Our API Standards
 
 ## Endpoints
@@ -33,41 +42,35 @@ skill_save({
 - Version in URL: /v1/users
 
 ## Response Format
-\`\`\`json
+```json
 {
   "data": {},
   "meta": {},
   "errors": []
 }
-\`\`\`
+```
 
 ## Authentication
 - All endpoints require Bearer token
 - Use short-lived JWTs
-  `,
-  keywords: ["api", "rest", "standards"],
-  isProprietary: true
-})
+EOF
 ```
+
+The `description` field in the frontmatter is the auto-fire trigger surface — Claude Code reads it to decide whether the skill is relevant to the current context.
 
 ### Use a Skill
 
 Any agent can now load your skill:
 
-```
-skill_get("our-api-standards")
+```bash
+cc skill get our-api-standards
 ```
 
 Or search for it:
 
+```bash
+cc skill search "api standards"
 ```
-skill_search("api standards")
-```
-
-### Requirements
-
-- PostgreSQL database configured (`POSTGRES_URL` in `.mcp.json`)
-- See [Configuration](CONFIGURATION.md) for setup
 
 ---
 
@@ -376,7 +379,7 @@ react-team-knowledge/
 │   ├── 01-development.md     # React patterns, hooks, testing
 │   └── 02-design.md          # Component library, design tokens
 └── .claude/extensions/
-    └── uid.extension.md      # UI Developer extensions
+    └── uid.extension.md      # UI Developer agent extensions
 ```
 
 **uid.extension.md:**
@@ -468,6 +471,6 @@ Before approving any feature:
 
 ## Next Steps
 
-- [Extension Specification](EXTENSION-SPEC.md) - Technical details
-- [Agents](AGENTS.md) - All 12 specialist agents
-- [Configuration](CONFIGURATION.md) - Setup options
+- [Extension Specification](../40-extensions/00-extension-spec.md) - Technical details
+- [Agents](../10-architecture/01-agents.md) - All 16 specialist agents
+- [Configuration](01-configuration.md) - Setup options

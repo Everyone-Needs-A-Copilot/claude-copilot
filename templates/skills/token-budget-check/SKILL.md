@@ -1,17 +1,13 @@
 ---
-skill_name: token-budget-check
-skill_category: documentation
-description: Analyze markdown files for token budget compliance
-allowed_tools: [Read, Bash, Glob]
-token_estimate: 850
-version: 1.0
-last_updated: 2025-12-21
-owner: Claude Copilot
-status: active
+name: token-budget-check
+description: >-
+  Analyze markdown files for token budget compliance. Checks word count,
+  section lengths, and overall file size against documentation guidelines.
+  Use proactively when creating or reviewing documentation files, shared-docs
+  pages, or when a doc might be over-budget for agent context loading.
+version: 1.0.0
+allowed-tools: [Read, Bash, Glob]
 tags: [tokens, documentation, budget, validation, shared-docs]
-related_skills: [frontmatter-validation, link-validation]
-trigger_files: ["*.md", "**\/docs/**\/*.md", "**\/documentation/**\/*.md"]
-trigger_keywords: [token, budget, documentation, word-count, tokens, over-budget]
 ---
 
 # Token Budget Check

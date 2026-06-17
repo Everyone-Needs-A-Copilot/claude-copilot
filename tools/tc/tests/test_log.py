@@ -33,10 +33,19 @@ class TestLog:
 
     def test_log_after_handoff(self, cli):
         cli(["task", "create", "--title", "Handoff Log"])
-        cli([
-            "handoff", "--from", "me", "--to", "qa",
-            "--task", "1", "--context", "Done",
-        ])
+        cli(
+            [
+                "handoff",
+                "--from",
+                "me",
+                "--to",
+                "qa",
+                "--task",
+                "1",
+                "--context",
+                "Done",
+            ]
+        )
         result = cli(["log", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)

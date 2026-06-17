@@ -11,6 +11,7 @@ from tc.commands.stream import stream_app
 from tc.commands.task import task_app
 from tc.commands.wp import wp_app
 from tc.commands.db_cmd import db_app
+from tc.commands.deploy import deploy_app
 
 app = typer.Typer(
     name="tc",
@@ -24,6 +25,7 @@ app.add_typer(stream_app, name="stream")
 app.add_typer(task_app, name="task")
 app.add_typer(wp_app, name="wp")
 app.add_typer(db_app, name="db")
+app.add_typer(deploy_app, name="deploy")
 
 
 @app.command("init")
@@ -122,7 +124,9 @@ def progress(
         statuses = ["pending", "in_progress", "completed", "blocked", "cancelled"]
         table_rows = []
         for sid, counts in by_stream.items():
-            row_dict = {"stream": stream_map.get(sid, f"#{sid}" if sid else "unassigned")}
+            row_dict = {
+                "stream": stream_map.get(sid, f"#{sid}" if sid else "unassigned")
+            }
             for s in statuses:
                 row_dict[s] = counts.get(s, 0)
             table_rows.append(row_dict)
@@ -142,7 +146,9 @@ def handoff(
     from_agent: str = typer.Option(..., "--from", help="Handing-off agent."),
     to_agent: str = typer.Option(..., "--to", help="Receiving agent."),
     task: int = typer.Option(..., "--task", help="Task ID being handed off."),
-    context: str = typer.Option(..., "--context", help="Handoff context (max 200 chars)."),
+    context: str = typer.Option(
+        ..., "--context", help="Handoff context (max 200 chars)."
+    ),
     json: bool = typer.Option(False, "--json", help="Output as JSON."),
 ) -> None:
     """Log an agent handoff and update the task's assigned agent."""
@@ -237,9 +243,15 @@ def log_cmd(
 
 @app.command("watch")
 def watch_cmd(
-    refresh: int = typer.Option(5, "--refresh", "-r", help="Refresh interval in seconds."),
-    compact: bool = typer.Option(False, "--compact", help="Simplified view without activity log."),
-    stream: Optional[int] = typer.Option(None, "--stream", "-s", help="Filter to single stream."),
+    refresh: int = typer.Option(
+        5, "--refresh", "-r", help="Refresh interval in seconds."
+    ),
+    compact: bool = typer.Option(
+        False, "--compact", help="Simplified view without activity log."
+    ),
+    stream: Optional[int] = typer.Option(
+        None, "--stream", "-s", help="Filter to single stream."
+    ),
 ) -> None:
     """Live dashboard showing task progress, agents, and activity."""
     from tc.commands.watch import watch

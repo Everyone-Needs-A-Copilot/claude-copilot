@@ -1,27 +1,5 @@
 version: 2
 updates:
-  # MCP server: copilot-memory
-  - package-ecosystem: "npm"
-    directory: "/mcp-servers/copilot-memory"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 10
-    groups:
-      dependencies:
-        patterns:
-          - "*"
-
-  # MCP server: skills-copilot
-  - package-ecosystem: "npm"
-    directory: "/mcp-servers/skills-copilot"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 10
-    groups:
-      dependencies:
-        patterns:
-          - "*"
-
   # GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"

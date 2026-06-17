@@ -1,0 +1,46 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Volumes/Dev/Sites/COPILOT/claude-copilot/.claude/hooks/session-start.sh"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Volumes/Dev/Sites/COPILOT/claude-copilot/.claude/hooks/pretool-check.sh"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "me|qa",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Volumes/Dev/Sites/COPILOT/claude-copilot/.claude/hooks/subagent-stop.sh"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Volumes/Dev/Sites/COPILOT/claude-copilot/.claude/hooks/user-prompt-submit.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

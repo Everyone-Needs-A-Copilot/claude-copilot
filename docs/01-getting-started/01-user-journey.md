@@ -6,14 +6,14 @@ This guide walks through the complete journey from first discovering Claude Copi
 
 ## Quick Start Decision Matrix
 
-| I am... | Start Here | Required Steps | Time |
-|---------|------------|----------------|------|
-| **First-time user (solo)** | Phase 1 → Phase 4 | Clone → Machine Setup → Project Setup → Work | 15-30 min |
-| **First-time user (team member)** | Phase 1 → Phase 6 | Clone → Machine Setup → Clone Team Knowledge → Link → Project Setup | 20-40 min |
-| **Have Copilot, new project** | Phase 3 | `/setup-project` in project | 2-5 min |
-| **Resuming work** | `/continue` | Just load and continue | Instant |
-| **Setting up team knowledge** | Phase 5 | `/knowledge-copilot` | 30-60 min |
-| **Team lead (first time)** | Phase 1 → Phase 5 | Full setup + knowledge creation | 60-90 min |
+| I am... | Start Here | Required Steps | Effort |
+|---------|------------|----------------|--------|
+| **First-time user (solo)** | Phase 1 → Phase 4 | Clone → Machine Setup → Project Setup → Work | Low — a few commands |
+| **First-time user (team member)** | Phase 1 → Phase 6 | Clone → Machine Setup → Clone Team Knowledge → Link → Project Setup | Low-Medium — includes knowledge link |
+| **Have Copilot, new project** | Phase 3 | `/setup-project` in project | Minimal — one command |
+| **Resuming work** | `/continue` | Just load and continue | None |
+| **Setting up team knowledge** | Phase 5 | `/knowledge-copilot` | Medium — guided discovery session |
+| **Team lead (first time)** | Phase 1 → Phase 5 | Full setup + knowledge creation | Medium-High — full setup plus knowledge creation |
 
 ## Overview
 
@@ -49,11 +49,11 @@ git clone https://github.com/Everyone-Needs-A-Copilot/claude-copilot.git copilot
 
 ```
 ~/.claude/copilot/
-├── mcp-servers/            ← Not built yet
-│   ├── copilot-memory/     ← Persistence layer
-│   └── skills-copilot/     ← Knowledge layer
+├── tools/
+│   ├── cc/                 ← Memory + skills CLI (install via install.sh)
+│   └── tc/                 ← Task Copilot CLI (install via install.sh)
 ├── .claude/
-│   ├── agents/             ← 12 agent definitions (markdown)
+│   ├── agents/             ← 16 agent definitions (markdown)
 │   └── commands/           ← Slash commands (markdown)
 ├── templates/              ← Project templates
 ├── SETUP.md                ← Setup instructions
@@ -64,7 +64,7 @@ git clone https://github.com/Everyone-Needs-A-Copilot/claude-copilot.git copilot
 
 ## Phase 2: Machine Setup
 
-This is done once per machine. It builds the MCP servers and installs global commands.
+This is done once per machine. It installs the `cc` and `tc` CLIs and copies global commands.
 
 ### Step 2: Open Claude Code in the Copilot Directory
 
@@ -88,28 +88,28 @@ Or simply:
 
 **What happens:**
 
-1. **Prerequisites check** - Verifies Node.js 18+ and build tools
-2. **Build Memory Server** - `npm install && npm run build`
-3. **Build Skills Server** - `npm install && npm run build`
+1. **Prerequisites check** - Verifies Python 3.10+ is available
+2. **Install cc CLI** - `bash tools/cc/install.sh`
+3. **Install tc CLI** - `pip install -e tools/tc`
 4. **Create directories** - `~/.claude/memory/` and `~/.claude/tasks/` for databases
-6. **Install global commands** - Copies `/setup-project`, `/update-project`, `/update-copilot`, and `/knowledge-copilot` to `~/.claude/commands/`
-7. **Check for knowledge** - Detects existing knowledge repository
+5. **Install global commands** - Copies `/setup-project`, `/update-project`, `/update-copilot`, and `/knowledge-copilot` to `~/.claude/commands/`
+6. **Check for knowledge** - Detects existing knowledge repository
 
 **What you now have:**
 
 ```
 ~/.claude/
 ├── copilot/
-│   └── mcp-servers/
-│       ├── copilot-memory/dist/   ← Built!
-│       └── skills-copilot/dist/   ← Built!
-├── commands/                       ← NEW
-│   ├── setup-project.md            ← Works in any folder
-│   ├── update-project.md           ← Works in any folder
-│   ├── update-copilot.md           ← Works in any folder
-│   └── knowledge-copilot.md        ← Works in any folder
-├── memory/                         ← NEW - Memory database storage
-└── tasks/                          ← NEW - Task database storage
+│   └── tools/
+│       ├── cc/             ← cc CLI (installed to PATH)
+│       └── tc/             ← tc CLI (installed to PATH)
+├── commands/               ← NEW
+│   ├── setup-project.md   ← Works in any folder
+│   ├── update-project.md  ← Works in any folder
+│   ├── update-copilot.md  ← Works in any folder
+│   └── knowledge-copilot.md ← Works in any folder
+├── memory/                 ← NEW - Memory database storage
+└── tasks/                  ← NEW - Task database storage
 ```
 
 **You'll see:**
@@ -118,11 +118,10 @@ Or simply:
 Machine Setup Complete!
 
 What's ready:
-- Memory Server - Persists decisions, lessons, and progress
-- Skills Server - Powers agents and knowledge search
-- Task Management - Use `tc` CLI for PRDs, tasks, and work products
-- 12 Specialized Agents - Expert guidance for any task
-- Global Commands - /setup-project, /update-project, /update-copilot, and /knowledge-copilot work anywhere
+- cc CLI - Memory (FTS5 keyword search) + Skills management
+- tc CLI - Task Copilot (PRDs, tasks, work products)
+- 8 Specialized Agents - Expert guidance for any task
+- Global Commands - /setup-project, /update-project, /update-copilot work anywhere
 
 Next: Set up a project
 Open Claude Code in any project directory and run /setup-project
@@ -152,7 +151,7 @@ This works because `/setup-project` was installed globally in Phase 2.
 **What happens:**
 
 1. **Detect setup type** - Recognizes this is project setup (not machine)
-2. **Verify machine setup** - Confirms MCP servers are built
+2. **Verify machine setup** - Confirms cc and tc CLIs are installed
 3. **Create directories** - `.claude/commands/`, `.claude/agents/`, `.claude/skills/`
 4. **Copy files** - All agents and commands
 5. **Create .mcp.json** - MCP server configuration with correct paths
@@ -168,7 +167,7 @@ This works because `/setup-project` was installed globally in Phase 2.
 ├── CLAUDE.md              ← Project instructions for Claude
 └── .claude/
     ├── commands/          ← /protocol, /continue, etc.
-    ├── agents/            ← 12 specialist agents
+    ├── agents/            ← 16 specialist agents
     └── skills/            ← For project-specific skills
 ```
 
@@ -181,13 +180,12 @@ Created:
 - .mcp.json - MCP server configuration
 - CLAUDE.md - Project instructions
 - .claude/commands/ - Protocol commands
-- .claude/agents/ - 14 lean agents (under 120 lines each)
+- .claude/agents/ - 16 specialist agents
 - .claude/skills/ - For project-specific skills
 
 Next steps:
-1. Restart Claude Code to load the MCP servers
-2. Run /mcp to verify servers are connected
-3. Run /protocol to start working
+1. Run cc version && tc version to verify CLIs are installed
+2. Run /protocol to start working
 ```
 
 ---
@@ -200,20 +198,14 @@ Next steps:
 claude
 ```
 
-This loads the MCP servers configured in `.mcp.json`.
-
 ### Step 7: Verify Setup
 
-```
-/mcp
+```bash
+cc --version
+tc version
 ```
 
-You should see:
-
-```
-● copilot-memory
-● skills-copilot
-```
+Both commands should print their version numbers, confirming the CLIs are installed and on PATH.
 
 ### Step 8: Start Working
 
@@ -350,7 +342,7 @@ cd ~/work-project && claude
 │  2. cd ~/.claude/copilot && claude                              │
 │     "Read @~/.claude/copilot/SETUP.md and set up..." OR /setup │
 │                                                                  │
-│     ✓ Builds MCP servers                                        │
+│     ✓ Installs cc/tc CLIs                                       │
 │     ✓ Installs /setup-project and other global commands        │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -415,12 +407,12 @@ Or simply:
 
 Note: `/setup` only works when run from `~/.claude/copilot`. For projects, use `/setup-project`.
 
-### MCP servers not connecting
+### CLI tools not found
 
-1. Check `.mcp.json` uses absolute paths (not `~`)
-2. Verify all servers are built: `ls ~/.claude/copilot/mcp-servers/*/dist/index.js`
-   - Should show: `copilot-memory`, `skills-copilot`
-3. Restart Claude Code
+1. Run `cc --version` and `tc version` to confirm both are installed
+2. If missing, reinstall: `bash ~/.claude/copilot/tools/cc/install.sh` and `pip install -e ~/.claude/copilot/tools/tc`
+3. Reload your shell: `source ~/.zshrc` (the installer auto-appends `~/.local/bin` to your profile)
+4. Restart Claude Code
 
 ### Knowledge not found
 
@@ -432,7 +424,7 @@ Note: `/setup` only works when run from `~/.claude/copilot`. For projects, use `
 
 ## Next Steps
 
-- [Meet Your Team](AGENTS.md) - Learn about all 12 specialist agents
-- [Configuration Guide](CONFIGURATION.md) - Detailed setup options
-- [Customization](CUSTOMIZATION.md) - Extend and personalize
-- [Philosophy](PHILOSOPHY.md) - Why we built it this way
+- [Meet Your Team](../10-architecture/01-agents.md) - Learn about all 16 specialist agents
+- [Configuration Guide](../20-configuration/01-configuration.md) - Detailed setup options
+- [Customization](../20-configuration/02-customization.md) - Extend and personalize
+- [Philosophy](../10-architecture/02-philosophy.md) - Why we built it this way

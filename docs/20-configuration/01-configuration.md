@@ -1,6 +1,8 @@
 # Configuration Guide
 
-This guide covers all configuration options for Claude Copilot, from basic offline setup to full external service integration.
+This guide covers all configuration options for Claude Copilot, from basic setup to full team integration.
+
+**Diátaxis mode:** Reference
 
 ---
 
@@ -8,187 +10,162 @@ This guide covers all configuration options for Claude Copilot, from basic offli
 
 | What | Where | Required |
 |------|-------|----------|
-| MCP servers | `.mcp.json` | Yes |
 | Project instructions | `CLAUDE.md` | Yes |
 | Commands | `.claude/commands/` | Yes |
 | Agents | `.claude/agents/` | Yes |
+| cc CLI config | `~/.config/cc/config.json` (managed by `cc config`) | Yes for memory/skills |
 | Local skills | `.claude/skills/` | No |
 | Global knowledge | `~/.claude/knowledge/` | No |
 
 ---
 
-## The .mcp.json File
+## cc CLI Configuration
 
-This file configures the MCP servers that power Claude Copilot.
+The `cc` CLI manages memory, skills, and stable reference values. Configure it after installing the framework.
 
-### Basic Setup (Works Offline)
+### Core Path Keys
 
-```json
-{
-  "mcpServers": {
-    "copilot-memory": {
-      "command": "node",
-      "args": ["/Users/yourname/.claude/copilot/mcp-servers/copilot-memory/dist/index.js"],
-      "env": {
-        "MEMORY_PATH": "/Users/yourname/.claude/memory",
-        "WORKSPACE_ID": "your-project-name"
-      }
-    },
-    "skills-copilot": {
-      "command": "node",
-      "args": ["/Users/yourname/.claude/copilot/mcp-servers/skills-copilot/dist/index.js"],
-      "env": {
-        "LOCAL_SKILLS_PATH": "./.claude/skills"
-      }
-    }
-  }
-}
+```bash
+# Set the shared docs location (resolves CC_SHARED_DOCS in agents)
+cc config set paths.shared_docs /path/to/shared/docs
+
+# Set the knowledge repo location
+cc config set paths.knowledge_repo /path/to/knowledge-repo
+
+# View all configuration
+cc config export
 ```
 
-> **Important:** Replace `/Users/yourname` with your actual home directory path. The `~` tilde does **NOT** expand in MCP args.
+> **macOS paths with spaces:** Wrap in quotes. Example:
+> `cc config set paths.shared_docs "/Users/you/Google Drive/Team Docs"`
 
-**What works offline:**
-- All 14 lean agents (with on-demand skill loading)
-- Memory persistence (local SQLite)
-- Local project skills
-- Knowledge search (if configured)
-- All commands (`/protocol`, `/continue`, etc.)
+### Reference Values (refs.*)
 
-### Full Setup (With External Services)
+Register stable values that get injected as Known References at the start of every session:
 
-```json
-{
-  "mcpServers": {
-    "copilot-memory": {
-      "command": "node",
-      "args": ["/Users/yourname/.claude/copilot/mcp-servers/copilot-memory/dist/index.js"],
-      "env": {
-        "MEMORY_PATH": "/Users/yourname/.claude/memory",
-        "WORKSPACE_ID": "your-project-name"
-      }
-    },
-    "skills-copilot": {
-      "command": "node",
-      "args": ["/Users/yourname/.claude/copilot/mcp-servers/skills-copilot/dist/index.js"],
-      "env": {
-        "LOCAL_SKILLS_PATH": "./.claude/skills",
-        "SKILLSMP_API_KEY": "sk_live_skillsmp_your_key_here",
-        "POSTGRES_URL": "postgresql://user:pass@host:5432/database"
-      }
-    }
-  }
-}
+```bash
+# Register a named reference
+cc config set refs.company_wiki https://wiki.example.com
+cc config set refs.design_system /path/to/design-system
+cc config set refs.staging_url https://staging.example.com
+
+# List all refs
+cc config export | grep refs
+```
+
+Reference values are injected by the `SessionStart` and `UserPromptSubmit` hooks at the first turn of each session. See [References Registry](./03-references-registry.md) for details.
+
+### Inspect Configuration
+
+```bash
+# Get a single value (raw output)
+cc config get paths.shared_docs --raw
+
+# Export all config as key=value pairs
+cc config export
+
+# Show help
+cc config --help
 ```
 
 ---
 
 ## Environment Variables
 
-### Memory Copilot
+The `cc env` command exports environment variables for use in scripts and agent preambles:
 
-| Variable | Required | Default | Purpose |
-|----------|----------|---------|---------|
-| `MEMORY_PATH` | No | `~/.claude/memory` | Where databases are stored |
-| `WORKSPACE_ID` | No | Auto-hash of path | Unique project identifier |
+```bash
+# In agent preamble or script:
+eval "$(cc env)"
+# Hydrates: CC_SHARED_DOCS, CC_KNOWLEDGE_REPO, etc.
+```
 
-**WORKSPACE_ID Notes:**
-- By default, each project gets a unique database based on its path hash
-- Set explicitly to preserve memories when renaming/moving projects
-- Use the same ID across projects to share memory
-
-### Skills Copilot
-
-| Variable | Required | Default | Purpose |
-|----------|----------|---------|---------|
-| `LOCAL_SKILLS_PATH` | No | `./.claude/skills` | Project-specific skills |
-| `SKILLSMP_API_KEY` | No | - | Access to 25K+ public skills |
-| `POSTGRES_URL` | No | - | Team-shared private skills |
-| `KNOWLEDGE_REPO_PATH` | No | - | Project-specific knowledge |
-| `GLOBAL_KNOWLEDGE_PATH` | No | `~/.claude/knowledge` | Machine-wide knowledge |
-
-### Task Copilot
-
-| Variable | Required | Default | Purpose |
-|----------|----------|---------|---------|
-| `TASK_DB_PATH` | No | - | Override SQLite database path |
-| `WORKSPACE_ID` | No | - | Workspace identifier for task scoping |
-| `LOG_LEVEL` | No | `info` | Logging level |
-| `HTTP_API_HOST` | No | `127.0.0.1` | API host |
-| `HTTP_API_PORT` | No | `9090` | API port |
-| `ECOMODE_THRESHOLD_LOW` | No | `0.3` | Ecomode low threshold (0-1) |
-| `ECOMODE_THRESHOLD_MEDIUM` | No | `0.7` | Ecomode medium threshold (0-1) |
+| Variable | Source | Purpose |
+|----------|--------|---------|
+| `CC_SHARED_DOCS` | `cc config get paths.shared_docs` | Path to shared documentation |
+| `CC_KNOWLEDGE_REPO` | `cc config get paths.knowledge_repo` | Path to knowledge repository |
+| `KNOWLEDGE_REPO_PATH` | Same as CC_KNOWLEDGE_REPO | Backward-compatible alias |
 
 ---
 
-## External Services
+## Task Copilot (tc CLI)
 
-### Skill Marketplace (SkillsMP)
+The `tc` CLI manages PRDs, tasks, and work products. No configuration file — it uses the current project directory as workspace context.
 
-[Skill Marketplace](https://skillsmp.com) provides access to 25,000+ public skills—curated prompts, workflows, and domain expertise packaged as reusable skills.
-
-**What you get:**
-- Framework patterns (React, Next.js, Laravel, Rails, Django, etc.)
-- Language idioms and best practices
-- Security checklists and compliance guides
-- Design system implementations
-- API design standards
-
-**To get your API key:**
-
-1. Visit [skillsmp.com](https://skillsmp.com)
-2. Create an account or sign in
-3. Navigate to Settings → API Keys
-4. Generate a new API key
-5. Add to your `.mcp.json` as `SKILLSMP_API_KEY`
-
-### PostgreSQL (Team Skills)
-
-For teams that want to share proprietary skills, methodologies, or company standards.
-
-**Option 1: Managed PostgreSQL (Recommended)**
-
-| Provider | Free Tier | Setup Time |
-|----------|-----------|------------|
-| [Supabase](https://supabase.com) | 500MB | 5 minutes |
-| [Neon](https://neon.tech) | 512MB | 5 minutes |
-| [Railway](https://railway.app) | $5 credit | 5 minutes |
-
-**Setup steps:**
-
-1. Create account at your chosen provider
-2. Create a new PostgreSQL database
-3. Get your connection string (format: `postgresql://user:pass@host:port/db`)
-4. Run the schema migration:
-   ```bash
-   psql "your_connection_string" -f ~/.claude/copilot/mcp-servers/skills-copilot/schema.sql
-   ```
-5. Add `POSTGRES_URL` to your `.mcp.json`
-
-**Option 2: Self-Hosted PostgreSQL**
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `TASK_DB_PATH` | `~/.claude/tasks` | Override SQLite database path |
+| `LOG_LEVEL` | `info` | Logging level |
 
 ```bash
-# Using Docker
-docker run -d \
-  --name skills-db \
-  -e POSTGRES_PASSWORD=yourpassword \
-  -p 5432:5432 \
-  postgres:15
-
-# Run migrations
-psql -h localhost -U postgres -f ~/.claude/copilot/mcp-servers/skills-copilot/schema.sql
+# Verify tc is working
+tc task list
+tc progress
 ```
 
-**Saving private skills:**
+---
 
-```javascript
-skill_save({
-  name: "company-api-standards",
-  description: "Our REST API design standards",
-  content: "Your skill content here...",
-  category: "architecture",
-  keywords: ["api", "rest", "standards"],
-  isProprietary: true
-})
+## Project Structure
+
+After setup, your project looks like:
+
+```
+your-project/
+├── CLAUDE.md              # Project instructions (auto-loaded by Claude Code)
+└── .claude/
+    ├── commands/          # Slash commands
+    │   ├── protocol.md
+    │   ├── continue.md
+    │   ├── setup.md
+    │   └── knowledge-copilot.md
+    ├── agents/            # Agent definitions (16 files: 15 framework + kc setup-only)
+    │   ├── ta.md
+    │   ├── me.md
+    │   ├── qa.md
+    │   ├── do.md
+    │   ├── doc.md
+    │   ├── sd.md
+    │   ├── uxd.md
+    │   ├── uids.md
+    │   ├── uid.md
+    │   ├── sec.md
+    │   ├── ind.md
+    │   ├── cco.md
+    │   ├── cw.md
+    │   ├── cs.md
+    │   ├── cpa.md
+    │   └── kc.md
+    └── skills/            # Project-specific skills (optional)
+```
+
+---
+
+## CLAUDE.md
+
+The `CLAUDE.md` file provides project-specific instructions to Claude Code. It is auto-loaded at the start of every session.
+
+### Template Variables
+
+When `/setup-project` creates this file, it replaces:
+
+| Variable | Source |
+|----------|--------|
+| `{{PROJECT_NAME}}` | Folder name |
+| `{{PROJECT_DESCRIPTION}}` | User input |
+| `{{TECH_STACK}}` | User input |
+| `{{KNOWLEDGE_STATUS}}` | Auto-detected |
+
+### Adding Project Rules
+
+Add your own rules in the "Project-Specific Rules" section:
+
+```markdown
+## Project-Specific Rules
+
+- Use TypeScript for all new code
+- All API endpoints require authentication
+- Run `npm test` before committing
+- Follow conventional commits
 ```
 
 ---
@@ -217,82 +194,44 @@ mkdir -p ~/.claude/knowledge
 }
 ```
 
-### Project-Specific Knowledge
+Register the path so agents always know where it is:
 
-Override global knowledge for a specific project:
-
-```json
-{
-  "mcpServers": {
-    "skills-copilot": {
-      "env": {
-        "KNOWLEDGE_REPO_PATH": "/path/to/project-specific/knowledge"
-      }
-    }
-  }
-}
+```bash
+cc config set paths.knowledge_repo ~/.claude/knowledge
 ```
 
 ### Resolution Order
 
-Knowledge is searched in order:
-1. Project-level (`KNOWLEDGE_REPO_PATH`)
+Knowledge and extensions are resolved in order:
+1. Project-level (`CC_KNOWLEDGE_REPO` / `KNOWLEDGE_REPO_PATH`)
 2. Machine-level (`~/.claude/knowledge`)
 
 ---
 
-## Project Structure
+## Deploy Configuration
 
-After setup, your project looks like:
+The `do` agent (DevOps) checks for a deploy CLI before running deployment commands:
 
-```
-your-project/
-├── .mcp.json              # MCP server configuration
-├── CLAUDE.md              # Project instructions
-└── .claude/
-    ├── commands/          # Slash commands
-    │   ├── protocol.md
-    │   ├── continue.md
-    │   ├── setup.md
-    │   └── knowledge-copilot.md
-    ├── agents/            # Agent definitions
-    │   ├── ta.md
-    │   ├── me.md
-    │   ├── qa.md
-    │   └── ... (12 total)
-    └── skills/            # Project-specific skills
+```bash
+# Register your deploy CLI
+cc config set deploy.cli /path/to/deploy-script
+
+# The do agent will check this before attempting deployment
+# If absent, deployment steps requiring it are skipped with a warning
 ```
 
 ---
 
-## CLAUDE.md
+## Model Pinning (Recommended)
 
-The `CLAUDE.md` file provides project-specific instructions to Claude.
+Use `.claude/claude-launcher` instead of `claude` directly. It reads `.claude/.model` (default: `claude-sonnet-4-6`) and passes `--model` automatically.
 
-### Template Variables
+```bash
+# Set default model for this project
+echo "claude-sonnet-4-6" > .claude/.model
 
-When `/setup` creates this file, it replaces:
-
-| Variable | Source |
-|----------|--------|
-| `{{PROJECT_NAME}}` | Folder name |
-| `{{PROJECT_DESCRIPTION}}` | User input |
-| `{{TECH_STACK}}` | User input |
-| `{{WORKSPACE_ID}}` | From .mcp.json |
-| `{{KNOWLEDGE_STATUS}}` | Auto-detected |
-| `{{EXTERNAL_SKILLS_STATUS}}` | Auto-detected |
-
-### Adding Project Rules
-
-Add your own rules in the "Project-Specific Rules" section:
-
-```markdown
-## Project-Specific Rules
-
-- Use TypeScript for all new code
-- All API endpoints require authentication
-- Run `npm test` before committing
-- Follow conventional commits
+# Override per-session
+CLAUDE_MODEL=claude-opus-4-5 .claude/claude-launcher
 ```
 
 ---
@@ -301,91 +240,86 @@ Add your own rules in the "Project-Specific Rules" section:
 
 After configuration, verify everything works:
 
-### Check MCP Servers
+### Check cc CLI
 
-```
-/mcp
-```
+```bash
+# Verify cc is installed
+cc --version
 
-Expected:
-```
-● copilot-memory
-● skills-copilot
-```
+# Verify configuration
+cc config export
 
-### Check Memory
+# Search for a skill
+cc skill list | head -5
 
-```
-/continue
+# Search memory
+cc memory search "test"
 ```
 
-Should load any existing initiative or report none found.
+### Check tc CLI
+
+```bash
+# Verify tc is installed
+tc version
+
+# List tasks
+tc task list
+
+# View progress
+tc progress
+```
 
 ### Check Knowledge
 
-```
-knowledge_search("company")
-```
+```bash
+# Verify knowledge path
+cc config get paths.knowledge_repo --raw
 
-Should return results if knowledge is configured.
-
-### Check Skills
-
+# Should return your knowledge repo path
+ls "$(cc config get paths.knowledge_repo --raw)"
 ```
-skill_search("react")
-```
-
-Should return results (from local, Postgres, and/or SkillsMP).
 
 ---
 
 ## Troubleshooting
 
-### MCP Servers Not Connecting
+### cc or tc Not Found
 
-1. **Check paths are absolute** (not `~`)
-   ```json
-   "args": ["/Users/yourname/..."]  ✓
-   "args": ["~/.claude/..."]        ✗
-   ```
-
-2. **Verify servers are built**
-   ```bash
-   ls ~/.claude/copilot/mcp-servers/copilot-memory/dist/index.js
-   ls ~/.claude/copilot/mcp-servers/skills-copilot/dist/index.js
-   ```
-
-3. **Restart Claude Code** after changing `.mcp.json`
-
-### Build Fails
-
-**Native module errors:**
 ```bash
-# macOS
-xcode-select --install
+# Install cc CLI
+bash ~/.claude/copilot/tools/cc/install.sh
 
-# Then rebuild
-cd ~/.claude/copilot/mcp-servers/copilot-memory
-npm rebuild better-sqlite3
-npm run build
+# Install tc CLI
+pip install -e ~/.claude/copilot/tools/tc
+
+# Or add to PATH manually
+export PATH="$PATH:~/.claude/copilot/tools/cc/src"
 ```
 
-### Memory Not Persisting
+### Configuration Not Persisting
 
-- Memory is workspace-scoped (per `WORKSPACE_ID`)
-- Check `~/.claude/memory/` for database files
-- Ensure write permissions on the directory
+```bash
+# Check config file location
+cc config export
+
+# If empty, the config file may be in a different location
+# Force-set a value and check where it's written
+cc config set test.key test_value
+cc config get test.key
+```
 
 ### Knowledge Not Found
 
 - Check symlink: `ls -la ~/.claude/knowledge`
 - Verify manifest exists: `cat ~/.claude/knowledge/knowledge-manifest.json`
 - Check resolution order (project overrides global)
+- Ensure path is registered: `cc config get paths.knowledge_repo`
 
 ---
 
 ## Next Steps
 
-- [User Journey](USER-JOURNEY.md) - Complete setup walkthrough
-- [Agents](AGENTS.md) - All 12 specialist agents
-- [Customization](CUSTOMIZATION.md) - Extensions and private skills
+- [User Journey](../01-getting-started/01-user-journey.md) - Complete setup walkthrough
+- [Agents](../10-architecture/01-agents.md) - All 16 specialist agents
+- [Customization](./02-customization.md) - Extensions and private skills
+- [References Registry](./03-references-registry.md) - Stable reference injection

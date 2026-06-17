@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# claude-launcher — project-local wrapper that pins the Claude Code main-session model.
+#
+# Resolution order (highest priority first):
+#   1. CLAUDE_MODEL env var (override)
+#   2. .claude/.model file (project default)
+#   3. Claude Code default (no --model flag passed)
+#
+# Works correctly regardless of the current working directory.
+
+set -euo pipefail
+
+# Resolve the project root as the directory containing this script's parent (.claude/).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+MODEL_FILE="$SCRIPT_DIR/.model"
+
+resolve_model() {
+  # 1. Env var takes highest precedence.
+  if [[ -n "${CLAUDE_MODEL:-}" ]]; then
+    echo "env:${CLAUDE_MODEL}"
+    return
+  fi
+
+  # 2. .claude/.model file.
+  if [[ -f "$MODEL_FILE" ]]; then
+    local file_model
+    file_model="$(head -n1 "$MODEL_FILE" | tr -d '[:space:]')"
+    if [[ -n "$file_model" ]]; then
+      echo "file:${file_model}"
+      return
+    fi
+  fi
+
+  # 3. Fallback — let Claude Code choose.
+  echo "default:"
+}
+
+resolved="$(resolve_model)"
+source="${resolved%%:*}"
+model="${resolved#*:}"
+
+if [[ "$source" == "default" ]]; then
+  >&2 echo "[claude-launcher] model=default source=default"
+  exec claude "$@"
+else
+  >&2 echo "[claude-launcher] model=${model} source=${source}"
+  exec claude --model "${model}" "$@"
+fi

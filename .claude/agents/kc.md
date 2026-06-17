@@ -1,7 +1,7 @@
 ---
 name: kc
-description: Knowledge repository setup and company discovery. Use when creating or linking shared knowledge repositories.
-tools: Read, Grep, Glob, Edit, Write, Bash, initiative_get, initiative_update, memory_store, memory_search
+description: Knowledge repo setup (invoked via /knowledge-copilot command).
+tools: Read, Grep, Glob, Edit, Write, Bash
 model: sonnet
 ---
 
@@ -60,7 +60,7 @@ Symlink: ~/.claude/knowledge → ~/[company-name]-knowledge
 - Capture verbatim -- use user's actual words, not corporate speak
 - Focus on what's distinctive, not generic best practices
 - One discovery phase per session (progressive, not overwhelming)
-- Store progress in initiative/memory between sessions
+- Store progress via `cc memory store` between sessions
 - Create git-based repository with symlink to ~/.claude/knowledge
 
 **Never:**

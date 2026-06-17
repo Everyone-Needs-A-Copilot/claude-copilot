@@ -2,7 +2,7 @@
 
 **Task:** Comprehensive unit tests covering agent invocation, skill loading, and orchestration workflows.
 
-**Context:** Recent changes ensure specialized agents are invoked (not bypassed) during orchestration, and skills are properly loaded via skill_evaluate.
+**Context:** Recent changes ensure specialized agents are invoked (not bypassed) during orchestration, and skills are auto-fired from their `description` field (primary path) or discovered via `cc skill search` (fallback). The `skill_evaluate` MCP tool is removed; discovery is now handled by native Claude Code reading skill frontmatter.
 
 ---
 
@@ -78,67 +78,39 @@
 
 ### Suite B: Skill Loading Tests
 
-**Objective:** Validate skill_evaluate auto-detection and skill injection into agent context.
+**Objective:** Validate skill auto-firing (primary) and `cc skill search` discovery (fallback).
+
+**Current Mechanism:** Skills auto-fire via native Claude Code reading the `description` field in each SKILL.md frontmatter. `cc skill search` is the fallback for agents in subagent contexts or explicit lookup. `skill_evaluate` (MCP tool) is removed.
 
 **Test Cases:**
 
-1. **Global Skill Discovery**
-   - [ ] Skills in `~/.claude/skills/` discovered
-   - [ ] Skills have valid frontmatter (skill_name, trigger_files, trigger_keywords)
-   - [ ] Skills sorted by confidence score
-   - [ ] Token estimates within budget (< 3000 tokens/skill)
+1. **Skill Frontmatter Validity** (pytest — `tests/test_skill_frontmatter.py`)
+   - [ ] All SKILL.md files have a `name` field (not `skill_name`)
+   - [ ] All have a `description` field (the auto-fire trigger surface)
+   - [ ] All have a `version` field
+   - [ ] Code-bearing skills (v2.x) have `allowed-tools` including `Bash`
+   - [ ] No frontmatter references removed fields (`skill_name`, `trigger_files`, `trigger_keywords` are legacy-harmless but not required)
 
-2. **Local Skill Override**
-   - [ ] Project skills in `.claude/skills/` take precedence
-   - [ ] Same skill_name in local overrides global
-   - [ ] Both local and global skills available
-   - [ ] Override warning logged
+2. **cc skill CLI Discovery**
+   - [ ] `cc skill list` returns all skills in `.claude/skills/`
+   - [ ] `cc skill search "<keyword>"` returns matching skills by substring match on name + description
+   - [ ] `cc skill get <name>` returns SKILL.md content
 
-3. **skill_evaluate Auto-Detection**
-   - [ ] File patterns match: `*.test.ts` triggers testing skills
-   - [ ] Keywords match: "authentication" triggers auth skills
-   - [ ] Combined signals boost confidence
-   - [ ] Recent activity weighted in scoring
-   - [ ] Threshold filtering works (default 0.5)
+3. **Code-Bearing Script Validity** (pytest — `tests/test_parser_unit.py` and per-skill tests)
+   - [ ] L3 scripts accept stdin (`-`) and file-path inputs
+   - [ ] Valid input exits 0 with JSON + markdown output
+   - [ ] Invalid input exits 1 with stderr message
+   - [ ] Empty input exits 0 with empty-findings structure
 
-4. **Skill Injection into Agent Context**
-   - [ ] Agent includes skill_evaluate in tools list
-   - [ ] Skill Loading Protocol section present
-   - [ ] Skills loaded before task execution
-   - [ ] Multiple skills loaded when relevant
-   - [ ] Token budget respected (max 3 skills)
-
-5. **Skill Template Validation**
-   - [ ] SKILL-TEMPLATE.md has all required sections
-   - [ ] Core Patterns section present
-   - [ ] Anti-Patterns section present
-   - [ ] Validation Checklist present
-   - [ ] Code examples present (at least 2 blocks)
-
-**Test Data:**
-```typescript
-// skill_evaluate input
-{
-  files: ['src/auth/login.test.ts'],
-  text: 'Help with React testing patterns',
-  threshold: 0.5
-}
-
-// Expected output
-{
-  matches: [
-    { skillName: 'testing-patterns', confidence: 0.85, level: 'high' },
-    { skillName: 'react-patterns', confidence: 0.72, level: 'high' },
-    { skillName: 'javascript-patterns', confidence: 0.45, level: 'medium' }
-  ]
-}
-```
+4. **Skill Template Validation**
+   - [ ] SKILL.md has all required L1/L2/L3 sections
+   - [ ] Code-bearing skills have an Invocation section
+   - [ ] Scripts are in `scripts/` subdirectory
 
 **Expected Behavior:**
-- Top 2-3 skills loaded (above threshold)
-- Skills injected via @include directive
-- Agent frontmatter lists skill_evaluate tool
-- Skill Loading Protocol section validates context
+- Skills auto-fire when prompt context matches `description` field
+- `cc skill search` used as explicit fallback
+- L3 scripts invoked via `Bash` tool, output consumed directly
 
 ---
 
@@ -174,11 +146,9 @@
    - [ ] Dependency resolution correct
    - [ ] Progress tracked per stream
 
-5. **Stream Archival on Initiative Switch**
-   - [ ] Old streams archived when switching initiatives
-   - [ ] `stream_list()` filters by current initiative
-   - [ ] `stream_unarchive()` recovers archived streams
-   - [ ] Archived streams not shown in watch-status
+5. **Stream Lifecycle**
+   - [ ] Streams visible in `tc stream list` for current project
+   - [ ] Completed streams not shown in active task view
 
 **Test Data:**
 ```json
@@ -246,11 +216,10 @@
    - [ ] Handoff chain recorded in Task Copilot
    - [ ] Final consolidation by @agent-uid
 
-3. **Skill Loading + Agent Invocation**
+3. **Skill Auto-Fire + Agent Invocation**
    - [ ] Task assigned to @agent-me
    - [ ] Worker invokes @agent-me
-   - [ ] @agent-me calls skill_evaluate
-   - [ ] Skills loaded: python-idioms, testing-patterns
+   - [ ] Skills auto-fire from description match (python-idioms, testing-patterns) or agent uses `cc skill search` fallback
    - [ ] Code written following skill patterns
    - [ ] Tests pass (validated via iteration loop)
    - [ ] Work product stored with agent_id
@@ -365,7 +334,7 @@ export const MOCK_TASKS = {
 
 ### Run All Tests
 ```bash
-cd /Users/pabs/Sites/COPILOT/claude-copilot/tests
+cd tests
 node --test **/*.test.ts
 ```
 
@@ -410,7 +379,7 @@ node --test --experimental-test-coverage tests/**/*.test.ts
 
 ### Quality Gates
 - [ ] No agent bypass in orchestration
-- [ ] All skills discoverable via skill_evaluate
+- [ ] All skills have valid frontmatter (`name` + `description`) and are discoverable via `cc skill search`
 - [ ] Stream dependencies validated
 - [ ] Agent routing chains preserved
 
@@ -424,7 +393,7 @@ node --test --experimental-test-coverage tests/**/*.test.ts
 
 ## Known Limitations
 
-1. **No MCP Server Mocking:** Tests run against actual MCP servers (Task Copilot, Skills Copilot)
+1. **No Live CLI Mocking:** Tests use mock implementations (MockTaskCopilot). ST-01/ST-02 smoke tests cover the live `cc`/`tc` CLI layer.
 2. **File System Dependencies:** Some tests create/modify files (require cleanup)
 3. **Agent Invocation:** Cannot fully test Claude agent responses (mock responses used)
 4. **Parallel Execution:** Orchestration tests run sequentially (no actual parallel workers)
@@ -435,8 +404,8 @@ node --test --experimental-test-coverage tests/**/*.test.ts
 
 - [ ] Add snapshot testing for agent outputs
 - [ ] Performance benchmarks for skill loading
-- [ ] Fuzz testing for skill_evaluate patterns
-- [ ] Contract testing for MCP server APIs
+- [ ] Fuzz testing for skill description matching patterns
+- [ ] Contract testing for `tc`/`cc` CLI API surface
 - [ ] Property-based testing for stream dependencies
 - [ ] Chaos testing for orchestration failures
 
@@ -444,8 +413,8 @@ node --test --experimental-test-coverage tests/**/*.test.ts
 
 ## References
 
-- **Existing Tests:** `/Users/pabs/Sites/COPILOT/claude-copilot/tests/`
-- **Insights Copilot Tests:** `/Users/pabs/Sites/COPILOT/insights-copilot/tests/`
+- **Existing Tests:** `tests/`
+- **Insights Copilot Tests:** `../insights-copilot/tests/`
 - **Orchestration Docs:** `.claude/commands/orchestrate.md`
 - **Agent Specs:** `.claude/agents/*.md`
 - **Skill Specs:** `.claude/skills/*/SKILL.md`

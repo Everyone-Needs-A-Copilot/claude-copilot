@@ -21,54 +21,20 @@ declare -A validation_results
 declare -a validation_errors
 declare -a validation_warnings
 
-# Validate MCP server build
-validate_mcp_server() {
-  local server_name="$1"
-  local server_dir="$PROJECT_ROOT/mcp-servers/$server_name"
-
-  # Check server directory exists
-  if [ ! -d "$server_dir" ]; then
-    validation_results[$server_name]="missing"
-    validation_errors+=("$server_name: Server directory not found")
+# Validate cc CLI (replaces MCP servers)
+validate_cc_cli() {
+  if command -v cc >/dev/null 2>&1; then
+    validation_results[cc]="ok"
+    return 0
+  elif [ -d "$PROJECT_ROOT/tools/cc" ]; then
+    validation_results[cc]="not_installed"
+    validation_warnings+=("cc CLI: found at tools/cc/ but not on PATH — run: bash $PROJECT_ROOT/tools/cc/install.sh")
+    return 0
+  else
+    validation_results[cc]="missing"
+    validation_errors+=("cc CLI: tools/cc/ directory not found")
     return 1
   fi
-
-  # Check package.json exists
-  if [ ! -f "$server_dir/package.json" ]; then
-    validation_results[$server_name]="invalid"
-    validation_errors+=("$server_name: package.json not found")
-    return 1
-  fi
-
-  # Check dist directory exists
-  if [ ! -d "$server_dir/dist" ]; then
-    validation_results[$server_name]="not_built"
-    validation_errors+=("$server_name: Not built (dist directory missing)")
-    return 1
-  fi
-
-  # Check index.js exists
-  if [ ! -f "$server_dir/dist/index.js" ]; then
-    validation_results[$server_name]="incomplete"
-    validation_errors+=("$server_name: Build incomplete (index.js missing)")
-    return 1
-  fi
-
-  # Check if index.js is not empty
-  if [ ! -s "$server_dir/dist/index.js" ]; then
-    validation_results[$server_name]="empty"
-    validation_errors+=("$server_name: Build invalid (index.js is empty)")
-    return 1
-  fi
-
-  # Check node_modules exists
-  if [ ! -d "$server_dir/node_modules" ]; then
-    validation_results[$server_name]="no_deps"
-    validation_warnings+=("$server_name: Dependencies not installed")
-  fi
-
-  validation_results[$server_name]="ok"
-  return 0
 }
 
 # Validate framework structure
@@ -81,7 +47,7 @@ validate_framework_structure() {
   local required_dirs=(
     ".claude/agents"
     ".claude/commands"
-    "mcp-servers"
+    "tools/cc"
     "scripts/install"
   )
 
@@ -188,18 +154,10 @@ validate_commands() {
   fi
 }
 
-# Validate MCP servers
-validate_mcp_servers() {
-  echo "Validating MCP servers..."
-
-  local servers=(
-    "copilot-memory"
-    "skills-copilot"
-  )
-
-  for server in "${servers[@]}"; do
-    validate_mcp_server "$server" || true
-  done
+# Validate CLI tools
+validate_cli_tools() {
+  echo "Validating CLI tools..."
+  validate_cc_cli || true
 }
 
 # Check for optional components
@@ -238,10 +196,9 @@ print_summary() {
   echo -e "  Commands: $(get_status_icon 'commands') $(get_status_text 'commands')"
   echo ""
 
-  # MCP servers
-  echo "MCP Servers:"
-  echo -e "  copilot-memory: $(get_status_icon 'copilot-memory') $(get_status_text 'copilot-memory')"
-  echo -e "  skills-copilot: $(get_status_icon 'skills-copilot') $(get_status_text 'skills-copilot')"
+  # CLI tools
+  echo "CLI Tools:"
+  echo -e "  cc CLI: $(get_status_icon 'cc') $(get_status_text 'cc')"
   echo ""
 
   # Optional components
@@ -278,8 +235,8 @@ print_summary() {
     echo -e "${RED}✗ Installation validation failed${NC}"
     echo ""
     echo "Run the following to fix issues:"
-    echo "  cd $PROJECT_ROOT"
-    echo "  ./scripts/install/build-servers.sh build"
+    echo "  bash $PROJECT_ROOT/tools/cc/install.sh"
+    echo "  cd $PROJECT_ROOT/tools/tc && pip install -e ."
     echo "========================================"
     return 1
   fi
@@ -340,7 +297,7 @@ main() {
   validate_framework_structure
   validate_agents
   validate_commands
-  validate_mcp_servers
+  validate_cli_tools
   check_optional_components
 
   # Print results

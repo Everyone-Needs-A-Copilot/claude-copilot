@@ -7,6 +7,370 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.10.0] - 2026-06-17
+
+Framework hardening initiative (PRD-7): four workstreams closing drift/verification gaps — failable QA gate, memory drift detection, usage observability, and declarative agent manifest.
+
+### Added
+
+- **WS1 — Failable-check QA gate** (`qa.md`, `sec.md`, `subagent-stop.sh`, `pretool-check.sh`): QA verdicts must now name an external artifact (`ARTIFACT: <type>|<detail>` — one of `test-run`, `file-check`, `diff-check`). A bare `VERDICT: APPROVED` with no artifact line does NOT unblock the gate. `@agent-sec` accumulates warnings silently up to a threshold (3) before halting, preventing over-flagging on minor advisory items.
+- **WS2 — `cc memory check`** (`tools/cc/`): token-free deterministic drift detection for memory/WP entries. Checkers: `path-exists`, `command-resolves`, `version-conflict`, `staleness`. 0–100 score (100 − fail×10 + warn×3 + info×1); exits 1 on any `fail`-severity finding. Negation-aware: paths under "not yet built", "removed", "deprecated" sections are not flagged.
+- **WS3 — `cc usage` + session quota statusline** (`tools/cc/`): idle-gated quota probe using Keychain OAuth + 1-token probe, reads `anthropic-ratelimit-unified-*` response headers. Producer/consumer split (ADR-003): `cc usage` writes `~/.claude/session-usage.json`; session-start hook reads the cache without probing. Transcript-reconstruction fallback for offline/non-macOS.
+- **WS4 — Declarative agent manifest** (`.claude/agents/manifest.json`): single source of truth for agent roster, routing edges, and tool grants. Consumed by the session-start banner, `pretool-check.sh` force-delegate agent list, and `/protocol`. Fixes stale banner (removes retired `design` agent and setup-only `kc` from the framework-agent list).
+
+### Changed
+
+- **Agents component → 5.5.0**: `qa.md` (artifact-gated verdicts), `sec.md` (warning-accumulation threshold), manifest-driven session-start banner (`session-start.sh`)
+- **cc component → 1.4.0**: new `cc memory check` (WS2) and `cc usage` (WS3) subcommands
+- **commands component → 5.3.2**: `/memory` command updated to reference `cc usage`
+- **CLAUDE.md**: agent count corrected to 15 framework agents + kc (setup-only); manifest named as authoritative roster; `cc memory check` and ARTIFACT gate requirement documented
+
+## [5.9.0] - 2026-06-13
+
+Adds a re-plan-on-invalidated-assumption trigger to `@agent-me` and `@agent-ta`, closing a forward-only-flow gap identified during a review of mrtooher/fable-mode.
+
+Previously the agent chain was strictly forward: `ta → me → qa`. When `@agent-me` encountered a broken upstream assumption (infeasible approach, wrong constraint, incorrect architecture), the only options were to improvise a workaround or emit `BLOCKED` for human intervention. This left the task graph diverged from reality — patch-tasks stacked on a broken foundation, drift accumulating silently.
+
+### Added
+
+- **Re-plan loop: @agent-me → @agent-ta** (`me.md` **Never** bullet): when the planned approach, architecture, or constraint from @agent-ta proves wrong or infeasible, @agent-me now STOPs, surfaces the invalidated assumption explicitly, emits `<promise>BLOCKED</promise>`, and routes back to @agent-ta to re-plan — rather than improvising a workaround that diverges from the task graph
+- **Re-plan self-critique: @agent-ta** (`ta.md` **Self-Critique**): when a downstream finding from @agent-me or @agent-qa invalidates an upstream assumption, @agent-ta now explicitly re-plans affected tasks and dependencies rather than appending patch-tasks on top of a broken foundation
+- **BLOCKED signal table updated** (`docs/50-features/04-goal-driven-agents.md`): added "Invalidated upstream assumption" row documenting the new @agent-me → @agent-ta backward route
+
+### Changed
+
+- **Agents component bumped to 5.4.0**: behavioral change in `me.md` and `ta.md`; no cc/tc source changes (cc 1.3.0 / tc 1.1.0 unchanged)
+
+## [5.8.0] - 2026-06-09
+
+Framework-wide remediation: completed the migration off the MCP tool API removed in
+v5.0.0, retired the broken Python orchestrator, and fixed runtime/CI/doc gaps surfaced
+by a full audit. No `cc`/`tc` source changes (components stay cc 1.3.0 / tc 1.1.0).
+
+### Removed
+- **Python orchestration layer retired in full** — deleted `.claude/orchestrator/` and `templates/orchestration/` (`orchestrate.py`, `task_copilot_client.py`, `monitor-workers.py`, `start-ready-streams.py`, `check_streams_data.py`, shell wrappers, `validate-setup.py`, guides; ~12.6K lines). `task_copilot_client.py` queried a removed SQLite `initiative` schema and crashed against the current `tc` backend; the CHANGELOG-claimed `subprocess(["tc", ...])` rewrite never landed. `/orchestrate` is now native-`Task`-only.
+- **Dead integration test suites** (`tests/integration/*.test.ts` for initiative/correction/stream-unarchive) and their README/summary.
+- **Duplicate `docs/EXTENSION-SPEC.md`** (consolidated into `docs/40-extensions/00-extension-spec.md`).
+
+### Changed
+- **Slash-command flows migrated to the `cc`/`tc` CLIs** — `/protocol`, `/continue`, `/pause`, `/config`, `/knowledge-copilot`, `/orchestrate` (+ templates). Removed-concept mappings: `initiative_*`/`checkpoint_*` → file-based memory + `tc task --status paused`; `progress_summary` → `tc progress`; `task_*`/`prd_*`/`stream_*`/`work_product_get` → `tc`; `memory_*` → `cc memory`; `skill_get`/`skill_evaluate` → `cc skill`.
+- **`/reflect` repurposed** from the removed `correction_*` queue to a `cc memory` review command (matching its feature doc).
+- **`/orchestrate` rewritten to native execution** — `generate`/`status`/`merge` via `tc` + plain `git worktree`/`git merge` (dead `worktree_*` MCP calls removed); `start` scaffolds worktrees and prints launch instructions for native `Task` agents.
+- **`CLAUDE.template.md`** corrected to the real 16-agent roster (was "11 specialists"; removed non-existent `cmo`/`ccro`, restored `cco`/`ind`).
+- **Skills discoverability** — `documentation/tutorial-patterns` converted to `SKILL.md` directory form; duplicate flat `copywriting/voice-and-tone.md` folded into canonical `voice-tone/SKILL.md`.
+- **Security-hooks docs** corrected to reflect what `pretool-check.sh` actually enforces (force-delegate + qa-gate); `security-rules.json` flagged as present-but-unwired.
+- **`_archive/` agents** scrubbed of removed-tool references.
+
+### Fixed
+- **SessionStart hook wired** in `settings.json` (+ `plugin.json`) — the protocol-injection guardrail was silently never firing for clone/plugin installs.
+- **Version-sync CI guard restored** — `plugin.json`/`marketplace.json` corrected from a stale 5.2.0; `check-manifest.py` now derives the expected agent roster from `VERSION.json` instead of hard-coding the retired `design` agent.
+- **`/update-project` existence check** now gates on `.claude/` presence, not `.mcp.json` — projects without MCP servers (the norm post-CLI-migration) are no longer misreported as un-set-up.
+- **Invalid CLI flags** in docs/commands corrected: `cc memory list --limit`/`--verbose`, `tc task update --notes` (none exist).
+- **~40 broken internal doc links** repaired (post-restructure stale paths); `docs/README.md` index gaps filled.
+- **Agent metadata** — `cs` reconciled to "Sales Advisor"; glossary agent-count corrected.
+- **`CONTRIBUTING.md`** dev-setup updated from the removed `mcp-servers/` build to the `cc`/`tc` install path.
+
+## [5.7.0] - 2026-06-08
+
+### Added
+- **Live Docs — `cc docs` command family** (`tools/cc/`): agents now fetch version-exact documentation for installed packages instead of relying on stale training-data memory; `@agent-me` and `@agent-ta` are wired to reach for `cc docs get <pkg>` before implementing against any third-party API; closes the silent correctness gap where agents code confidently against APIs that moved between their training cutoff and the project's installed version
+  - **Verbs:** `cc docs get <pkg>` (main — returns relevant docs slice), `cc docs resolve <pkg>` (print detected version + source), `cc docs search <pkg> <query>` (keyword search within cached docs), `cc docs sources` (list all registered source backends), `cc docs cache --status|--clear [<pkg>]` (inspect or flush the local cache)
+  - **Local-first source order:** (1) installed package files on disk (primary — version-exact, fully offline); (2) fetch fallback (`httpx` extra only) — tries `llms.txt`, then GitHub raw at the version tag, then the package's docs site; core install stays network-free
+  - **Honest version flag:** every `cc docs get` response includes `exact: bool` — `true` when docs were sourced from the installed version on disk, `false` when the fetch path was used (docs may lag by a patch)
+  - **Gitignored cache** with configurable TTL (`docs.cache_ttl_hours`, default 168 h / 7 days)
+  - **npm + pip** package ecosystems supported
+  - **Optional `httpx` extra:** `pip install cc[fetch]` enables the network fallback; the base `pip install cc` install remains fully offline/headless
+  - **Context7 deferred** (ADR-002): Context7 was evaluated and deliberately excluded — its external service dependency reintroduces the headless/offline fragility the local-first design avoids; a pluggable `SourceBackend` seam and reserved `docs.context7_endpoint` config key let it drop in later without interface changes
+  - **CLAUDE.md shared behavior** added: agents check `cc docs` before implementing against installed third-party packages; me.md and ta.md updated with explicit pointers
+
+### Changed
+- **`cc` component version bumped to 1.3.0**: Live Docs is the only net-new surface in this component release; all other cc command families (memory, skill, config, env) are unchanged
+
+[See feature page](docs/50-features/15-live-docs.md)
+
+## [5.6.0] - 2026-06-04
+
+### Added
+- **`cc install.sh` auto-PATH** (`tools/cc/install.sh`): installer now automatically appends `~/.local/bin` to shell rc if not already on `PATH`; eliminates manual PATH configuration step after install
+
+### Changed
+- **Python floor raised to 3.9→3.10** (`pyproject.toml`, root `requires-python`): drops EOL Python 3.9; cc and tc already required 3.10 — root package now declares the same floor consistently
+- **Black formatting applied** to all copilot-owned Python source files (no logic changes)
+
+### Fixed
+- **`setup-project` cc precheck** (`.claude/commands/setup-project.md`): distinguishes framework `cc` from system `/usr/bin/cc` (C compiler) so precheck no longer false-passes on machines without the framework CLI installed
+- **`check-versions.sh` TypeError** (`.claude/fitness-check.sh` / version scripts): fixed TypeError that caused version validation to fail on clean installs
+- **Smoke-test agent count** (CI): corrected assertion from 8 to 16 agents; stale integration-test assertions updated to match current CLI contracts
+- **pytest config** (`pyproject.toml`): excludes vendored `claude_monitor` directory to prevent collection errors on test runs
+- **uv.lock security patch**: resolved 35 vulnerability alerts in locked dependency tree
+
+### Removed
+- **`mcp-servers/` tree**: entire legacy MCP server implementation removed — framework fully migrated to cc/tc CLI
+- **Legacy TypeScript test suite + `keyword-parser.ts`**: dead TS code removed; no replacement needed (functionality lives in Python)
+- **Dead `.mjs` scripts**: stale ESM utility scripts with no callers removed
+- **`packages/installer/`**: legacy NPM installer removed; `install.sh` is the sole install path
+
+## [5.4.0] - 2026-06-04
+
+### Added
+- **`owner: project` agent preservation** (`update-project.md`, `setup-project.md`): agents with `owner: project` in their frontmatter are never overwritten by framework sync — project teams can customize or extend any agent file and that file is permanently preserved across updates and re-setups; `fitness-check.sh` FF3 recognizes the flag and passes retired agents that carry it as intentional project overrides
+
+### Fixed
+- **`fitness-check.sh` hyphenated agent names** (`.claude/fitness-check.sh`): FF1 and FF5 `@agent-X` regexes now correctly match multi-segment names (e.g. `@agent-line-editor`, `@agent-structural-editor`); prior regex stopped at the first hyphen, causing false orphan-route failures for any project-owned hyphenated agent
+- **`fitness-check.sh` on-disk orphan resolution** (`.claude/fitness-check.sh`): FF5 now seeds `KNOWN_AGENTS` from the actual `.md` files present on disk in addition to the VERSION.json roster; project-owned agents (e.g. `critic.md`, `structural-editor.md`) are treated as known without requiring a roster entry or allowlist addition
+
+### Changed
+- **cs / cpa optional-advisory labeling**: `cs.md` (Customer Success) and `cpa.md` (Copywriting Assistant) documented as optional business-advisory agents — present in the roster but not required in every project's flow; references in docs and roster notes updated accordingly
+
+## [5.3.0] - 2026-06-03
+
+### Added
+- **`fitness-check.sh` FF6** (`.claude/fitness-check.sh`): new fitness function scans repo-root `CLAUDE.md` for `@agent-design` literals and routing-stage uses of bare `design` (e.g. `→ design →`); false-positive-safe — ignores legitimate prose ("Atomic Design", "Design chain", "design tokens", "service design"); closes the guard gap that allowed stale design refs to slip through in the 5.3.0 restoration
+
+### Changed
+- **16-agent specialist roster restored**: `design` agent retired; full specialist chain restored — sd → uxd → uids → uid → ta → me with ind (Industrial Designer) and cco/cw (Creative Direction/Copywriting) as optional branches; sec, cs, cpa re-introduced as independent agents
+- **Roster-aware update-project / setup-project**: no longer clobbers project-local agent customizations; syncs only agents in the current VERSION.json roster, skipping agents absent from the manifest
+- **CLAUDE.md Use Case Mapping**: "Build a feature" row updated from stale `sd → design → ta → me → qa` to correct `sd → uxd → uids → uid → ta → me → qa` experience flow
+- **CLAUDE.md Agent Shared Behaviors**: `Specification Workflow` bullet updated from `(sd, design)` to full specialist list `(sd, ind, uxd, uids, cco, cw)`
+
+### Fixed
+- Stale `@agent-design` and `design`-as-routing-stage references purged from CLAUDE.md; FF6 now catches this class of defect automatically on every fitness check run
+
+## [5.2.0] - 2026-05-20
+
+### Added
+- **Opt-in semantic embeddings** (`cc memory search --semantic`): sentence-transformers backend wired behind `search.backend: semantic` config key; default remains `fts5` (keyword/BM25); zero behavior change for existing installs — no model downloaded unless explicitly enabled
+- **Native plugin packaging** (`.claude-plugin/`): `plugin.json` manifest + `marketplace.json` for `/plugin install claude-copilot` distribution; `check-manifest.py` fitness guard added to CI; version field in both files now auto-validated against `VERSION.json.framework`
+- **`check-manifest.py` CI guard**: validates agent/skill/command/hook paths, version sync between `plugin.json` and `VERSION.json`, marketplace→plugin manifest cross-reference, and `settings.json` clone-wiring integrity
+
+### Changed
+- **FTS5 stack unified**: `cc` and `tc` now share a single vendored `fts5_core` module; BM25 ranking available in `cc memory search` and `tc wp search`; removes duplicate trigram-index code that existed in both tools independently
+- **Design-skill normalization**: 9 flat `.md` design skills migrated to `SKILL.md` directory format (matching all other skill categories); `cc skill search` and `@include` discovery now resolves them correctly; fixes the discoverability regression introduced in 5.0.0 skill restructure
+- **Documentation modernization**: setup, update-project, and agent docs fully aligned to `cc`/`tc` CLI; all remaining MCP-era code snippets replaced; `CC_SHARED_DOCS` paths corrected throughout
+
+### Fixed
+- **`test_sentinel_resolution` hermetic fix** (`tools/tc/tests/`): test no longer relies on ambient `COPILOT_ROOT` env var; fixture now creates a hermetic temp dir with sentinel file so CI passes on clean machines without framework installed
+
+### Removed
+- Duplicate FTS trigram-index implementation in `tools/cc/src/cc/core/` (replaced by shared `fts5_core`)
+
+---
+
+## [5.1.0] - 2026-05-20
+
+### Changed (Breaking)
+- **Memory search renamed**: `cc memory search` now documented as FTS5/BM25 keyword search — "semantic search" language removed throughout; no embeddings or vector similarity; the `SearchBackend` seam exists for future opt-in embeddings (config-gated, default off)
+- **`cc skill evaluate` removed**: confidence-scorer subcommand removed; native progressive skill discovery replaces it — use `cc skill search "<topic>"` to find skills by keyword, then `@include` the returned path
+- **`@include` de-emphasized as primary**: `@include` remains the load mechanism, but `cc skill search` is now the discovery step; agents no longer call a separate evaluate step
+- **MCP bridge retired from docs**: `cc mcp serve` still exists as an escape hatch but is no longer listed in `VERSION.json` provides[] or featured in setup docs
+
+### Added
+- **Code-bearing skills (L1/L2)**: Skills can now be directories containing an executable script (`run.sh` or `run.py`); script output enters context; implementation code does NOT; 16 skills converted to code-bearing form
+- **Known References registry**: `cc config set refs.<name> <value>` registers stable paths/values; the `UserPromptSubmit` hook injects them at session turn 1 so every session starts with correct paths without manual re-supply; `type:reference` memory entries also surface at turn 1
+- **Code-execution path (tc.api + cc.api)**: `tc.api` and `cc.api` Python facades over the services layer; agents performing 3+ related ops use a single `python3` block importing the facade instead of multiple CLI calls; eliminates round-trip token cost (~9-20K tokens saved for PRD+tasks batches)
+- **QA-gate clearing fix**: `@agent-qa` pass verdict now correctly clears the gate state in `.claude/hooks/state/qa-gate.json`; 3-retry fallback to advisory after repeated hook failures
+- **Coolify config-gate** (`tc deploy wait`): deploy command now gates on `CC_DEPLOY_CLI` config presence; fails fast with actionable message if not configured, instead of silently running wrong binary
+- **100MB repository cleanup**: `.claude/skills/design/` and `.claude/skills/documentation/` large binary assets removed; replaced by code-bearing skill scripts that generate equivalent output on demand
+
+### Removed
+- `cc skill evaluate` subcommand and `--threshold` flag (confidence scorer removed; native discovery replaces it)
+- 100MB of binary assets from `.claude/skills/design/` and `.claude/skills/documentation/`
+- `KEYWORD_UPDATES_V2.8.md` root file (v2.8-era point-in-time doc; superseded by CHANGELOG 2.8.0)
+- `STREAM-E-IMPLEMENTATION-SUMMARY.md` root file (one-off Stream-E summary; content preserved in CHANGELOG 2.8.0 and tc WP history)
+
+---
+
+## [5.0.2] - 2026-05-06
+
+### Fixed
+- **`cc skill` discovery** (`tools/cc/src/cc/core/skill_store.py`): follows symlinked skill directories so projects can bridge shared framework skills into `.claude/skills` without copying them
+
+## [5.0.1] - 2026-05-06
+
+### Fixed
+- **`/setup` command** (`.claude/commands/setup.md`): removed MCP server build steps (Steps 4-5 that built `copilot-memory` and `skills-copilot` no longer exist); setup now installs `tc` and `cc` CLIs only; prerequisites reduced to Python 3 (Node.js no longer required)
+- **`/update-project` command** (`.claude/commands/update-project.md`): Step 2 verification now checks for `cc` and `tc` CLIs instead of defunct MCP `dist/index.js` files; error message updated accordingly
+- **Hook tests** (`tests/hooks/test-pretool-check.sh`): added Tests 12–14 for git push/pull allowlist, `COPILOT_FORCE_DELEGATE=off` escape hatch, and crash-fix regression
+
+---
+
+## [5.0.0] - 2026-05-06
+
+### Changed (Breaking)
+- **MCP servers removed**: `mcp-servers/copilot-memory/` and `mcp-servers/skills-copilot/` deleted from the repository — no MCP servers remain
+- **Memory storage format**: from MCP server + PostgreSQL/SQLite to committed Markdown files at `.claude/memory/entries/<uuid>.md`; index is a local SQLite cache (`memory.db`, gitignored) rebuilt on demand
+- **Skills access**: from MCP `skill_get`/`skill_search` tools to `cc skill get`/`cc skill search` CLI commands
+- **Agent env hydration**: from `initiative_get`/MCP context to `eval "$(cc env)"` at agent start, which exports `CC_SHARED_DOCS`, `CC_KNOWLEDGE_REPO`, and other machine-level paths
+- **VERSION.json**: `mcp-servers` section replaced with `cc` and `tc` component entries
+
+### Added
+- **`cc` CLI** (`tools/cc/`): unified Python CLI replacing both MCP servers
+  - `cc memory store/get/list/delete/search/index` — persistent cross-session memory as committed files
+  - `cc skill get/search/list/evaluate` — local and global skill discovery
+  - `cc config get/set/list/init/doctor` — layered config (machine → project)
+  - `cc env` — emits shell-eval-able `CC_*` exports for agent env hydration
+  - `cc mcp serve` — optional MCP adapter so agents can still use MCP tooling if preferred
+  - Installed at `~/.local/bin/cc` via `tools/cc/install.sh`
+
+### Migration Guide (4.x → 5.0.0)
+
+**Action Required:**
+
+1. **Install `cc` CLI**:
+   ```bash
+   bash ~/.claude/copilot/tools/cc/install.sh
+   cc config init --machine
+   ```
+
+2. **Initialize project memory directory**:
+   ```bash
+   mkdir -p .claude/memory/entries
+   touch .claude/memory/entries/.gitkeep
+   printf 'memory.db\nmemory.db-*\n' > .claude/memory/.gitignore
+   cc config init --project
+   ```
+
+3. **Update all projects** with `/update-project` — this handles steps 2 automatically
+
+4. **Remove MCP server entries** from `.mcp.json` (if you added them manually):
+   - `copilot-memory` — delete this entry
+   - `skills-copilot` — delete this entry
+   - `.mcp.json` can be empty `{"mcpServers":{}}` or removed if no other servers remain
+
+5. **Update agent calls**: replace `memory_store()`/`initiative_get()` MCP calls with `cc memory store` / `eval "$(cc env)"` CLI calls (agents in `.claude/agents/` are already updated)
+
+**Breaking Changes:**
+- `memory_store`, `memory_search`, `initiative_get`, `initiative_start`, `initiative_update`, `initiative_complete` MCP tools no longer exist
+- `skill_get`, `skill_search`, `skill_list`, `skill_evaluate` MCP tools no longer exist
+- The copilot-memory and skills-copilot MCP servers will not be found in `.mcp.json` — remove those entries to avoid connection errors at session start
+
+---
+
+## [4.0.1] - 2026-04-22
+
+### Fixed
+- **PreToolUse hook deadlock** (`.claude/hooks/pretool-check.sh`): matcher narrowed from `Bash|Read|Edit|Agent` to `Bash` only — a crashing hook previously blocked `Read` and `Edit`, making it impossible to repair without deleting the hook file
+- **Hook paths**: replaced `$CLAUDE_PROJECT_DIR/...` with absolute paths — env var was not reliably expanded in hook subprocess environments
+- **Hook fail-open**: replaced `set -euo pipefail` with `set -u` + ERR trap that exits 0 with a stderr warning — hook errors now degrade gracefully instead of blocking all tool use
+- `git push`/`git pull` covered by `FORCE_DELEGATE_SAFE_PREFIXES` allowlist — never counted toward streak or force-delegate threshold
+
+---
+
+## [4.0.0] - 2026-04-22
+
+### Changed (Breaking)
+- Agent roster trimmed from 14 → 8 always-loaded agents: `me, qa, ta, do, sd, doc, design, kc`
+- `uxd`, `uids`, `uid` merged into single `design` agent preserving Nielsen/Rams/Atomic framing
+- `sec`, `cw`, `cco` demoted to skills (`stride-dread`, `voice-tone`, `litmus-test`); load via `@include`
+- `cs`, `cpa` archived — no replacement agent
+- Model tier inverted: strategy agents (`sd`, `design`, `ta`) run on Opus; execution agents (`me`, `qa`, `do`, `doc`) run on Sonnet
+- Main-session model recommendation changed to Sonnet 4.6 1M via `.claude/claude-launcher`
+
+### Added
+- **PreToolUse hook — force-delegate rule** (`.claude/hooks/pretool-check.sh`): denies the 5th consecutive `Bash`/`Read`/`Edit` call and requires delegation to a framework agent
+- **PreToolUse hook — QA gate rule**: after `@agent-me` completes, main session is blocked from all tool calls except `@agent-qa` until QA passes (file-based state machine in `.claude/hooks/state/qa-gate.json`)
+- **SubagentStop hook** (`.claude/hooks/subagent-stop.sh`): sets QA-gate pending state when `@agent-me` stops; clears it when `@agent-qa` passes; 3-retry fallback to advisory after repeated failures
+- **UserPromptSubmit hook** (`.claude/hooks/user-prompt-submit.sh`): advisory at 500 turns, stronger advisory at 750; prevents the 22-hour /continue context-bloat pattern
+- **Flow E — Infrastructure** added to `/protocol`: `do → me → qa` chain triggered by `staging`, `deploy`, `coolify`, `docker`, `ci`, and related keywords; `--infra` flag overrides
+- **`tc deploy wait`** subcommand (`tools/tc/src/tc/commands/deploy.py`): replaces hand-rolled `until curl` polling loops; shells out to `cli-copilot`'s Coolify commands; stores `deploy_report` work product; supports `--test <spec>` for post-deploy Playwright runs
+- **`tc task update --title` and `--metadata`** flags: structured metadata updates with merge semantics (existing keys preserved, new keys added, conflicting keys overridden)
+- **`.claude/claude-launcher`**: project-local bash wrapper that auto-loads Sonnet 4.6 1M; reads `.claude/.model` config file; `CLAUDE_MODEL` env var overrides
+- **`.claude/settings.json`**: registers all three hooks with correct matchers
+- Escape hatch env vars: `COPILOT_FORCE_DELEGATE=off`, `COPILOT_QA_GATE=off`, `COPILOT_SESSION_CAP=off`
+- 349 new test assertions across 6 hook test suites
+- `docs/10-architecture/04-framework-restructure-2026-04.md`: full diagnostic context (why, benefits, before/after data)
+- `docs/30-operations/05-deploy-and-verify.md`: how-to guide for Flow E and `tc deploy wait`
+
+### Motivation
+Cross-session diagnostic (15 sessions, 18.3 MB, Apr 17–22 2026) found:
+- 94% of tool calls were main-session-direct (6% delegated) — framework rules were advisory, not enforced
+- 5-day staging saga: 4 sessions, 12 MB, 26 `until curl` polling loops, 57 back-to-back bash runs
+- Protocol declarations appeared in 3.5% of assistant turns
+- Model tier was wrong-way: orchestrator on Opus 4.7, specialists on Sonnet 4.6
+
+## [3.5.0] - 2026-03-29
+
+### Added
+- Elite Craft methodology layer for uxd and uids agents (Jony Ive inevitable design, AKQA purposeful motion, spatial depth, luminosity, materiality)
+- 3 premium design skills: premium-interaction-craft (GSAP, spring physics, micro-timing), spatial-luminous-design (depth layers, glassmorphism, atmospheric color), motion-choreography (easing personality, choreography, restraint)
+
+### Changed
+- Design agents now operate at three levels: Foundation (Nielsen/Rams), Methodology (IDEO), Elite Craft (Ive/AKQA)
+- uxd.md self-critique elevated to "Would AKQA present this? Does it feel inevitable?"
+- uids.md self-critique elevated to "Would Jony Ive call this inevitable?"
+
+## [3.4.0] - 2026-03-29
+
+### Added
+- Named industry methodology for every agent: ADR/Fitness Functions (ta), Kent Beck's 4 Rules (me), STRIDE/DREAD (sec), Diátaxis (doc), 12-Factor/SRE (do), Atomic Design (uid), Meszaros/Property-Based Testing (qa), Voice & Tone (cw)
+- 5 new skills: system-design-patterns, refactoring-patterns, threat-modeling, docker-patterns, voice-and-tone
+- Anti-generic rules and self-critique questions for every agent
+- Iteration config for cco agent
+
+### Removed
+- architect.md agent (was project docs for claude-monitor, not methodology)
+- engineer.md agent (was project docs for claude-monitor, not methodology)
+- tester.md agent (was project docs for claude-monitor, not methodology)
+
+### Changed
+- Agent count: 17 → 14
+- Narrowed trigger_files for web-security and aesthetic-directions skills (were overly broad)
+
+## [3.3.0] - 2026-03-29
+
+### Removed
+- CLAUDE_REFERENCE.md (761 lines, 50% duplicated with CLAUDE.md)
+- CODE_REVIEW_OVERVIEW.md (stale Phase 1 review)
+- docs/50-features/01-orchestration-guide.md (2-line stub)
+- docs/50-features/03-auto-checkpoint-hooks.md (documented removed MCP tools)
+- docs/50-features/lifecycle-hooks.md (documented removed hook_* tools)
+- docs/60-references/ directory (empty placeholder, never populated)
+
+### Changed
+- CLAUDE.md consolidated from 464 to 260 lines (~5.7K fewer tokens per session)
+- Unique content from CLAUDE_REFERENCE.md (Feature Comparison table, Session Boundary Protocol) merged into CLAUDE.md
+- Fixed dangling references in 3 feature docs
+
+## [3.2.0] - 2026-03-29
+
+### Fixed
+- Removed 137 hardcoded absolute user paths across 25 files
+- All scripts now use portable path resolution ($REPO_ROOT, os.homedir(), Path.home())
+- Documentation updated with relative paths
+
+### Added
+- Pre-commit hook (scripts/pre-commit-no-hardcoded-paths) to block future hardcoded user paths
+- CI workflow (.github/workflows/no-hardcoded-paths.yml) as safety net
+
+### Removed
+- 8 redundant/personal scripts (update-all-projects.sh, verify-builds.py, test-build-*.sh, etc.)
+
+## [3.1.0] - 2026-03-08
+
+### Added
+
+- **Design Knowledge Skills (`.claude/skills/design/`)**: 6 design skills providing concrete creative methodology
+  - `color-palettes.md` — 25 named palettes by mood/industry, anti-generic bans, dark mode derivation, WCAG contrast reference
+  - `typography-pairings.md` — 30 curated font pairings, 3 type scale systems, fluid typography formulas
+  - `aesthetic-directions.md` — 20 named aesthetic directions, industry selection matrix, 15-item AI anti-slop detector
+  - `design-heuristics.md` — Rams' 10 Principles rubric, Nielsen's 10 Heuristics checklist, Three Lenses evaluation, senior vs junior thinking
+  - `design-patterns.md` — Component state matrices, spacing scales, WCAG requirements (from templates)
+  - `ux-patterns.md` — Task flow structures, service blueprints, accessibility checklists (from templates)
+
+### Changed
+
+- **Design Agents Upgraded to AKQA/IDEO Quality**:
+  - `sd.md` (64 → 154 lines) — Added Double Diamond, JTBD, Moments Framework, Three Lenses, mandatory 7-step creative process, 6 anti-generic NEVER rules, quality evaluation criteria
+  - `uxd.md` (63 → 184 lines) — Added Fitts/Hick/Jakob/Miller laws, Crazy Eights divergence, microinteraction anatomy, error prevention hierarchy, loading strategy decision tree, 9 anti-generic NEVER rules
+  - `uids.md` (72 → 233 lines) — Added Bold Commitment First philosophy, Rams' Principles, mandatory 11-step creative process with aesthetic direction commitment, concrete design knowledge (spacing/radius/elevation/motion/sizing), AI Slop Detector, Innovative/Controlled dual-mode
+  - All three agents now include: iteration config, validation rules, diverge-before-converge creative process, self-critique loops, and design skill references
+- **Agent count**: 20 → 17 (removed 3 legacy agents)
+- **VERSION.json**: Updated to v3.1.0 with new agent counts, design skill category added
+
+### Removed
+
+- **Legacy design agents**: Deleted `service-designer.md`, `ux-designer.md`, `ui-designer.md` (hardcoded to specific project, never referenced by framework routing)
+
 ## [3.0.0] - 2026-02-21
 
 ### Added
@@ -695,6 +1059,15 @@ After updating from pre-1.7.1, optionally run `stream_archive_all({ confirm: tru
 
 | Version | Release Date | Key Features |
 |---------|-------------|--------------|
+| **5.4.0** | 2026-06-04 | `owner: project` agent preservation in sync commands; fitness-check hyphenated-name + on-disk orphan resolution fix; cs/cpa optional-advisory labeling |
+| **5.3.0** | 2026-06-03 | 16-agent specialist roster restored (`design` retired), fitness-check FF6 scans CLAUDE.md for stale design refs, stale `design` routing purged from CLAUDE.md |
+| **5.2.0** | 2026-05-20 | FTS5 stack unification (shared fts5_core, BM25 in cc+tc), opt-in semantic embeddings, native plugin packaging + CI guard, design-skill normalization (9 skills → SKILL.md dirs), doc modernization, hermetic test_sentinel_resolution fix |
+| **5.1.0** | 2026-05-20 | PRD-2 correctness: FTS5 honesty, skills-as-code (L1/L2), Known References registry, code-exec path, QA-gate fix, Coolify config-gate, 100MB cleanup |
+| **5.0.1** | 2026-05-06 | Setup command fixes for cc CLI migration; hook tests 12-14 |
+| **5.0.0** | 2026-05-06 | `cc` CLI replaces Memory + Skills MCP servers; memory as committed files |
+| **4.0.1** | 2026-04-22 | Hook deadlock fix; fail-open ERR trap; git push/pull allowlisted |
+| **4.0.0** | 2026-04-22 | 8-agent roster, mechanical delegation enforcement, model-tier inversion |
+| **3.5.0** | 2026-03-29 | Elite Craft design methodology layer |
 | **3.0.0** | 2026-02-21 | `tc` CLI replaces Task Copilot MCP server, 225 tests, full MCP-to-CLI migration |
 | **2.10.0** | 2026-02-20 | Stream token budgets, path ownership, security hardening |
 | **2.9.0** | 2026-02-12 | Multi-agent Foreman architecture, agent assignment rules, task-data status dashboard |
@@ -797,7 +1170,16 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
 ---
 
-[unreleased]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v3.0.0...HEAD
+[unreleased]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.4.0...HEAD
+[5.4.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.3.0...v5.4.0
+[5.3.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.2.0...v5.3.0
+[5.2.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.1.0...v5.2.0
+[5.1.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.0.2...v5.1.0
+[5.0.1]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.0.0...v5.0.1
+[5.0.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v4.0.1...v5.0.0
+[4.0.1]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v4.0.0...v4.0.1
+[4.0.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v3.5.0...v4.0.0
+[3.5.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v3.0.0...v3.5.0
 [3.0.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v2.10.0...v3.0.0
 [2.10.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v2.9.0...v2.10.0
 [2.9.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v2.8.0...v2.9.0

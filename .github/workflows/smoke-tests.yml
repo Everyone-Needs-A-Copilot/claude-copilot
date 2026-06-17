@@ -15,23 +15,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: |
-            mcp-servers/copilot-memory/package-lock.json
-            mcp-servers/skills-copilot/package-lock.json
-
-      - name: Install Memory Copilot dependencies
-        working-directory: mcp-servers/copilot-memory
-        run: npm ci
-
-      - name: Install Skills Copilot dependencies
-        working-directory: mcp-servers/skills-copilot
-        run: npm ci
-
       - name: Run smoke tests
         run: |
           chmod +x ./scripts/smoke-test.sh

@@ -2,7 +2,7 @@
 
 A comprehensive guide to help you choose the right tools, commands, agents, and approaches in Claude Copilot.
 
-*Note: This is the complete reference. For a quick overview integrated into Claude Code's instructions, see [CLAUDE.md](../CLAUDE.md#quick-decision-guide).*
+*Note: This is the complete reference. For a quick overview integrated into Claude Code's instructions, see [CLAUDE.md](../../CLAUDE.md#quick-decision-guide).*
 
 ---
 
@@ -49,7 +49,9 @@ A comprehensive guide to help you choose the right tools, commands, agents, and 
 | Run parallel work streams | `/orchestrate start` | Set up worktrees, launch via Task tool | Project root |
 | Monitor orchestration | `/orchestrate status` | During parallel execution | Project root |
 | Merge completed streams | `/orchestrate merge` | After streams complete | Project root |
-| Verify MCP servers | `/mcp` | After setup, troubleshooting | Project root |
+| Verify CLIs installed | `cc version && tc version` | After setup, troubleshooting | Any directory |
+| Check quota before long task | `cc usage` | Before starting a multi-step `/protocol` | Any directory |
+| Detect stale/broken memory | `cc memory check` | After restructure, rename, or framework update | Any directory |
 
 **Command Arguments:**
 - `/protocol <task>` - Auto-detect task type and route to agent (e.g., `/protocol fix the login bug`)
@@ -79,16 +81,16 @@ Are you using Claude Copilot for the first time?
 | Task Type | Primary Agent | Secondary Agent(s) | Why This Flow |
 |-----------|---------------|-------------------|---------------|
 | **Bug Fix** | `qa` | → `me` | QA reproduces, Engineer fixes |
-| **New Feature** | `sd` | → `uxd` → `uid` | Service → UX → Implementation |
+| **New Feature** | `sd` | → `uxd` → `uids` → `uid` → `ta` → `me` | Service → Design chain → Architecture → Code |
 | **API Design** | `ta` | → `me` → `doc` | Architecture → Code → Docs |
-| **Security Review** | `sec` | | Security expertise |
+| **Security Review** | (skill) | load `security/stride-dread` | Security skill, no dedicated agent |
 | **Performance Issue** | `ta` | → `me` | Design analysis → Implementation |
-| **UI Component** | `uids` | → `uid` | Visual design → Code |
+| **UI Component** | `uxd` | → `uids` → `uid` → `me` | UX → Design system → Component → Implementation |
 | **Documentation** | `doc` | | Technical writing |
 | **Deployment** | `do` | | DevOps expertise |
 | **Architecture Decision** | `ta` | | System design |
 | **User Research** | `sd` | | Experience strategy |
-| **Copy/Messaging** | `cw` | | Content writing |
+| **Copy/Messaging** | `cw` | | Copywriter — copy execution, messaging, microcopy |
 
 ### Scenario-Based Agent Selection
 
@@ -98,10 +100,10 @@ Are you using Claude Copilot for the first time?
 | "Add dark mode" | `/protocol` (EXPERIENCE) → `@agent-sd` | Experience change requires journey analysis |
 | "Optimize database queries" | `/protocol` (FEATURE) → `@agent-ta` | Architecture-level optimization |
 | "Deploy to production" | `/protocol` (DEVOPS) → `@agent-do` | Infrastructure task |
-| "Security audit" | `/protocol` (SECURITY) → `@agent-sec` | Security expertise required |
+| "Security audit" | load `security/stride-dread` skill | Security skill, not a dedicated agent |
 | "Write API docs" | `/protocol` (DOCUMENTATION) → `@agent-doc` | Documentation specialist |
 | "Refactor auth module" | `/protocol` (ARCHITECTURE) → `@agent-ta` | Design decision needed |
-| "Fix button alignment" | `/protocol` (DEFECT) → `@agent-uid` | UI implementation fix |
+| "Fix button alignment" | `/protocol` (DEFECT) → `@agent-uxd` | UI interaction fix |
 
 ---
 
@@ -195,6 +197,34 @@ Do you need to customize agent behavior?
 
 ---
 
+## Artifact-Gated QA Gate
+
+The QA gate (enforced by hooks after every `@agent-me` run) now requires **external evidence** — a bare "APPROVED" verdict no longer unblocks the main session.
+
+**What this means for you:** `@agent-qa` and `@agent-sec` must cite a concrete artifact in their verdict, e.g.:
+
+```
+VERDICT: APPROVED
+ARTIFACT: test-run|pytest tests/ exit=0 "47 passed, 0 failed"
+```
+
+Valid artifact types: `test-run`, `file-check`, `diff-check`.
+
+**Escape hatches (use sparingly):**
+- `COPILOT_QA_GATE=off` — disables the gate for that shell session
+- 3 consecutive QA failures → auto-unblock with an advisory (see [hooks/README.md](../../.claude/hooks/README.md))
+
+**When to reach for the escape hatch:**
+| Situation | Use |
+|-----------|-----|
+| Trusted quick fix, no tests needed | `COPILOT_QA_GATE=off` |
+| QA agent stuck in repeated failure loop | Wait for auto-unblock after 3 fails |
+| CI handles all verification externally | `COPILOT_QA_GATE=off` per-session |
+
+Full reference: [hooks/README.md](../../.claude/hooks/README.md)
+
+---
+
 ## Stream Management Decisions
 
 ### When to Use Streams
@@ -257,11 +287,14 @@ metadata: {
 | Problem | Check First | Then Try | Last Resort |
 |---------|-------------|----------|-------------|
 | Command not found | Machine setup complete? | `/setup` in `~/.claude/copilot` | Reinstall |
-| MCP not connecting | `.mcp.json` paths absolute? | Rebuild servers | Check Node version |
+| `cc` or `tc` not found | Check PATH | Run `bash tools/cc/install.sh` | Check install script |
 | Agent not routing | Is task description clear? | Rephrase request | Use agent directly |
-| Memory not persisting | `WORKSPACE_ID` set? | Check `.mcp.json` | Rebuild memory server |
+| Memory not persisting | `cc config get paths.shared_docs` | `cc memory index --rebuild` | Check SQLite path |
 | Knowledge not found | Symlink exists? | `/knowledge-copilot` | Manual link |
-| Skills not loading | Skills server running? | `/mcp` to verify | Check logs |
+| Skills not loading | `cc skill list` returns results? | `cc config set paths.shared_docs <path>` | Check cc config |
+| Memory giving wrong context | Run `cc memory check` | Review and delete flagged entries | Rebuild index |
+| Unsure about quota | Run `cc usage` | Use `eco:` prefix to reduce token cost | `/pause` and resume later |
+| QA gate not unblocking | Check that `@agent-qa` emitted `ARTIFACT:` line | Re-run QA with explicit test evidence | `COPILOT_QA_GATE=off` (escape hatch) |
 
 ---
 
@@ -280,9 +313,9 @@ metadata: {
 
 | Beginning of Day | During Day | End of Day |
 |------------------|------------|------------|
-| `/continue` to resume | Work naturally with agents | `initiative_update` to save progress |
-| Or `/protocol` for new task | Route complex work to specialists | Document decisions in memory |
-| Check `/mcp` if needed | Use skills as needed | Note lessons learned |
+| `/continue` to resume | Work naturally with agents | `cc memory store` to save progress |
+| `cc usage` to check quota | Route complex work to specialists | Document decisions in memory |
+| `cc memory check` after restructure | Use skills as needed | Note lessons learned |
 
 ---
 
@@ -349,8 +382,8 @@ START: Do you have Claude Copilot installed?
 
 | Topic | Document |
 |-------|----------|
-| Complete setup walkthrough | [USER-JOURNEY.md](USER-JOURNEY.md) |
-| Extension specifications | [EXTENSION-SPEC.md](EXTENSION-SPEC.md) |
-| Agent details | [AGENTS.md](AGENTS.md) |
-| Configuration options | [CONFIGURATION.md](CONFIGURATION.md) |
-| Customization guide | [CUSTOMIZATION.md](CUSTOMIZATION.md) |
+| Complete setup walkthrough | [User Journey](../01-getting-started/01-user-journey.md) |
+| Extension specifications | [Extension Spec](../40-extensions/00-extension-spec.md) |
+| Agent details | [Agents](01-agents.md) |
+| Configuration options | [Configuration](../20-configuration/01-configuration.md) |
+| Customization guide | [Customization](../20-configuration/02-customization.md) |

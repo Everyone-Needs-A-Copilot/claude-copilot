@@ -85,9 +85,9 @@
 .claude/
 ├── project-context.md    # This file
 ├── agents/
-│   ├── service-designer.md  # Human Advocate: journey mapping
-│   ├── ux-designer.md       # Human Advocate: interaction design
-│   ├── ui-designer.md       # Human Advocate: visual design
+│   ├── sd.md                # Service Designer: journey mapping, blueprints
+│   ├── uxd.md               # UX Designer: interaction design, task flows
+│   ├── uids.md              # UI Designer: visual design, tokens, aesthetics
 │   ├── architect.md         # Technical: system design
 │   ├── engineer.md          # Technical: implementation
 │   └── tester.md            # Technical: testing

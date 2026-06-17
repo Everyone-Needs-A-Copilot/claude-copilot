@@ -177,7 +177,9 @@ class TestFetchDashboardData:
         conn = watch_db
         conn.execute("INSERT INTO prds (title) VALUES ('PRD')")
         conn.execute("INSERT INTO streams (name, prd_id) VALUES ('s1', 1)")
-        conn.execute("INSERT INTO tasks (title, stream_id, status) VALUES ('T1', 1, 'pending')")
+        conn.execute(
+            "INSERT INTO tasks (title, stream_id, status) VALUES ('T1', 1, 'pending')"
+        )
         for i in range(15):
             conn.execute(
                 "INSERT INTO agent_log (agent, stream_id, task_id, action, details) "
@@ -237,17 +239,50 @@ class TestRendering:
 
     def _make_sample_data(self):
         return DashboardData(
-            totals=StatusCounts(pending=3, in_progress=2, completed=5, blocked=1, cancelled=0),
+            totals=StatusCounts(
+                pending=3, in_progress=2, completed=5, blocked=1, cancelled=0
+            ),
             streams=[
-                StreamProgress(stream_id=1, name="alpha", total=6, completed=3, in_progress=2, blocked=1),
-                StreamProgress(stream_id=2, name="beta", total=5, completed=2, in_progress=1, blocked=0),
+                StreamProgress(
+                    stream_id=1,
+                    name="alpha",
+                    total=6,
+                    completed=3,
+                    in_progress=2,
+                    blocked=1,
+                ),
+                StreamProgress(
+                    stream_id=2,
+                    name="beta",
+                    total=5,
+                    completed=2,
+                    in_progress=1,
+                    blocked=0,
+                ),
             ],
             agents=[
-                ActiveAgent(agent="me", task_id=1, task_title="Build feature", stream_name="alpha"),
+                ActiveAgent(
+                    agent="me",
+                    task_id=1,
+                    task_title="Build feature",
+                    stream_name="alpha",
+                ),
             ],
             log_entries=[
-                LogEntry(timestamp="12:00:00", agent="me", action="claimed", task_id=1, details="Claimed task"),
-                LogEntry(timestamp="12:01:00", agent="me", action="completed", task_id=2, details=None),
+                LogEntry(
+                    timestamp="12:00:00",
+                    agent="me",
+                    action="claimed",
+                    task_id=1,
+                    details="Claimed task",
+                ),
+                LogEntry(
+                    timestamp="12:01:00",
+                    agent="me",
+                    action="completed",
+                    task_id=2,
+                    details=None,
+                ),
             ],
             last_refresh="12:05:00",
         )
@@ -310,7 +345,14 @@ class TestRendering:
     def test_render_stream_panel_with_blocked(self):
         data = DashboardData(
             streams=[
-                StreamProgress(stream_id=1, name="blocked-stream", total=10, completed=2, in_progress=1, blocked=5),
+                StreamProgress(
+                    stream_id=1,
+                    name="blocked-stream",
+                    total=10,
+                    completed=2,
+                    in_progress=1,
+                    blocked=5,
+                ),
             ]
         )
         panel = _render_stream_panel(data)
@@ -319,7 +361,13 @@ class TestRendering:
     def test_log_entry_with_no_task_id(self):
         data = DashboardData(
             log_entries=[
-                LogEntry(timestamp="12:00:00", agent="me", action="unknown", task_id=None, details="No task"),
+                LogEntry(
+                    timestamp="12:00:00",
+                    agent="me",
+                    action="unknown",
+                    task_id=None,
+                    details="No task",
+                ),
             ]
         )
         panel = _render_log_panel(data)
@@ -328,12 +376,44 @@ class TestRendering:
     def test_log_entry_styled_actions(self):
         """Verify all known action styles render without error."""
         entries = [
-            LogEntry(timestamp="12:00:00", agent="me", action="completed", task_id=1, details="d"),
-            LogEntry(timestamp="12:00:01", agent="me", action="started", task_id=2, details="d"),
-            LogEntry(timestamp="12:00:02", agent="me", action="claimed", task_id=3, details="d"),
-            LogEntry(timestamp="12:00:03", agent="me", action="handoff", task_id=4, details="d"),
-            LogEntry(timestamp="12:00:04", agent="me", action="blocked", task_id=5, details="d"),
-            LogEntry(timestamp="12:00:05", agent="me", action="other", task_id=6, details="d"),
+            LogEntry(
+                timestamp="12:00:00",
+                agent="me",
+                action="completed",
+                task_id=1,
+                details="d",
+            ),
+            LogEntry(
+                timestamp="12:00:01",
+                agent="me",
+                action="started",
+                task_id=2,
+                details="d",
+            ),
+            LogEntry(
+                timestamp="12:00:02",
+                agent="me",
+                action="claimed",
+                task_id=3,
+                details="d",
+            ),
+            LogEntry(
+                timestamp="12:00:03",
+                agent="me",
+                action="handoff",
+                task_id=4,
+                details="d",
+            ),
+            LogEntry(
+                timestamp="12:00:04",
+                agent="me",
+                action="blocked",
+                task_id=5,
+                details="d",
+            ),
+            LogEntry(
+                timestamp="12:00:05", agent="me", action="other", task_id=6, details="d"
+            ),
         ]
         data = DashboardData(log_entries=entries)
         panel = _render_log_panel(data)

@@ -4,8 +4,16 @@ Update an existing Claude Copilot project with the latest files. This command on
 
 ## Step 1: Verify This Is an Existing Project
 
+A set-up project has a `.claude/` directory with framework commands and/or agents.
+(`.mcp.json` is NOT a reliable marker: memory and skills moved to the `cc`/`tc`
+CLIs in v5.0.0, so many set-up projects legitimately have no `.mcp.json`.)
+
 ```bash
-ls .mcp.json 2>/dev/null && echo "PROJECT_EXISTS" || echo "NEW_PROJECT"
+if [ -d .claude ] && { ls .claude/commands/*.md >/dev/null 2>&1 || ls .claude/agents/*.md >/dev/null 2>&1; }; then
+  echo "PROJECT_EXISTS"
+else
+  echo "NEW_PROJECT"
+fi
 ```
 
 **If NEW_PROJECT:**
@@ -16,7 +24,7 @@ Stop and tell the user:
 
 **This project hasn't been set up yet.**
 
-No `.mcp.json` found - this project needs initial setup first.
+No `.claude/` framework files found - this project needs initial setup first.
 
 To set up this project with Claude Copilot, use:
 
@@ -35,8 +43,7 @@ Then STOP. Do not continue.
 ## Step 2: Verify Machine Setup
 
 ```bash
-ls ~/.claude/copilot/mcp-servers/copilot-memory/dist/index.js 2>/dev/null && echo "MEMORY_OK" || echo "MEMORY_MISSING"
-ls ~/.claude/copilot/mcp-servers/skills-copilot/dist/index.js 2>/dev/null && echo "SKILLS_OK" || echo "SKILLS_MISSING"
+which cc >/dev/null 2>&1 && echo "CC_CLI_OK" || echo "CC_CLI_MISSING"
 which tc >/dev/null 2>&1 && echo "TC_CLI_OK" || echo "TC_CLI_MISSING"
 ```
 
@@ -46,17 +53,21 @@ Tell user:
 
 ---
 
-**Claude Copilot installation not found.**
+**Claude Copilot CLIs not found.**
 
-The MCP servers at `~/.claude/copilot/` are missing or not built.
+One or more required CLIs (`cc`, `tc`) are missing.
 
-Please verify your Claude Copilot installation:
+Please run machine setup first:
 ```bash
 cd ~/.claude/copilot
-git pull
+/setup
 ```
 
-Then rebuild the MCP servers following the instructions in `SETUP.md`.
+Or install manually:
+```bash
+bash ~/.claude/copilot/tools/cc/install.sh
+pip install -e ~/.claude/copilot/tools/tc
+```
 
 ---
 
@@ -64,74 +75,7 @@ Then STOP.
 
 ---
 
-## Step 3: Check and Update MCP Server Configuration
-
-**Read both configurations:**
-
-```bash
-cat .mcp.json
-cat ~/.claude/copilot/templates/mcp.json
-```
-
-**Identify missing servers:**
-
-Compare the `mcpServers` keys in project's `.mcp.json` with the template.
-
-For each server in the template that is NOT in the project's `.mcp.json`:
-1. Note the server name
-2. Prepare to add it with variable expansion:
-   - `$HOME` → actual home directory path
-   - `$PROJECT_PATH` → result of `pwd`
-   - `$PROJECT_NAME` → result of `basename $(pwd)`
-   - `$COPILOT_PATH` → `$HOME/.claude/copilot`
-
-**If missing servers found:**
-
-Tell the user:
-
----
-
-**New MCP servers available**
-
-The following servers will be added to your `.mcp.json`:
-
-{{LIST_MISSING_SERVERS}}
-
-This will preserve all existing server configurations and only add new ones.
-
----
-
-Use AskUserQuestion:
-
-**Question:** "Add these new servers to .mcp.json?"
-- Header: "MCP Configuration Update"
-- Options:
-  - "Yes, add new servers"
-  - "No, skip this step"
-
-**If user says "Yes, add new servers":**
-
-1. Read the existing `.mcp.json` as JSON
-2. For each missing server from template:
-   - Expand all variables (`$HOME`, `$PROJECT_PATH`, `$PROJECT_NAME`, `$COPILOT_PATH`)
-   - Add the server entry to `mcpServers` object
-3. Write the merged JSON back to `.mcp.json` with proper formatting (2-space indent)
-4. Validate the JSON is well-formed
-5. Report success: "Added {{SERVER_NAMES}} to .mcp.json"
-
-**If user says "No, skip this step":**
-
-Continue to Step 4 without modifying `.mcp.json`.
-
-**If no missing servers:**
-
-Report: "All MCP servers already configured, no updates needed."
-
-Continue to Step 4.
-
----
-
-## Step 4: Check for Broken Symlinks
+## Step 3: Check for Broken Symlinks
 
 **CRITICAL:** Regular `ls` passes for broken symlinks. Must check if target exists.
 
@@ -162,7 +106,7 @@ Note any broken symlinks found - they will be fixed in the update.
 
 ---
 
-## Step 5: Show Current State
+## Step 4: Show Current State
 
 ```bash
 echo "=== Current Commands ==="
@@ -178,7 +122,7 @@ cd ~/.claude/copilot && git log --oneline -1
 
 ---
 
-## Step 6: Confirm Update
+## Step 5: Confirm Update
 
 Tell the user:
 
@@ -188,16 +132,14 @@ Tell the user:
 
 This will refresh:
 - `.claude/commands/` (7 project commands)
-- `.claude/agents/*.md` (all 20 agents: 13 framework + 7 native)
-- `.claude/orchestrator/` (if present - Python scripts and shell utilities)
-
-This will ONLY update if needed:
-- `.mcp.json` (only to add new MCP servers, preserving all existing configuration)
+- `.claude/agents/` (16 agent files: 15 framework agents + kc setup-only — roster-aware: preserves project-specific agents, removes retired agents)
+- `.claude/orchestrator/` (if present — retired Python scripts will be removed)
 
 This will NOT touch:
 - `CLAUDE.md` (your project instructions)
 - `.claude/skills/` (your project skills)
-- Existing MCP server configurations in `.mcp.json`
+- Project-specific agent files (only framework-owned agents from VERSION.json roster are updated)
+- `.mcp.json` (any third-party MCP servers you added manually are left untouched)
 
 ---
 
@@ -213,7 +155,7 @@ Use AskUserQuestion:
 
 ---
 
-## Step 7: Update Commands
+## Step 6: Update Commands
 
 Remove old command files and copy fresh ones:
 
@@ -241,52 +183,181 @@ echo "Commands updated (7 project commands)"
 
 ---
 
-## Step 8: Update Agents
+## Step 7: Update Agents (Roster-Aware Sync)
 
-Remove old agent files and copy fresh ones:
+Refresh only framework-owned agents; preserve any project-specific agents.
+
+**Project-owned agent override:** If an existing agent file contains `owner: project` in its frontmatter, sync will never overwrite or remove it — even if its name appears in the framework roster. To override a framework agent at the project level, add `owner: project` to its frontmatter.
 
 ```bash
-# Remove all old agents
-rm -f .claude/agents/*.md 2>/dev/null
+COPILOT_PATH=~/.claude/copilot
 
-# Copy fresh from source
-cp ~/.claude/copilot/.claude/agents/*.md .claude/agents/
+# Read framework agent roster from VERSION.json
+ROSTER=$(python3 -c "
+import json, sys
+with open('$COPILOT_PATH/VERSION.json') as f:
+    v = json.load(f)
+agents = v['components']['agents']['frameworkAgents']
+print(' '.join(agents))
+" 2>/dev/null || echo "cco cpa cs cw do doc ind kc me qa sd sec ta uid uids uxd")
 
-echo "Agents updated"
+# Also read retired agents list to remove any stale copies
+RETIRED=$(python3 -c "
+import json, sys
+with open('$COPILOT_PATH/VERSION.json') as f:
+    v = json.load(f)
+retired = v['components']['agents'].get('retired', [])
+print(' '.join(retired))
+" 2>/dev/null || echo "design")
+
+# Remove retired agents from project (they should not remain)
+# Exception: never remove an agent marked owner: project
+for agent in $RETIRED; do
+  if [ -f ".claude/agents/${agent}.md" ]; then
+    if grep -q '^owner: project' ".claude/agents/${agent}.md" 2>/dev/null; then
+      echo "preserved project-owned agent: ${agent} (skipping retired-agent removal)"
+    else
+      rm -f ".claude/agents/${agent}.md"
+      echo "Removed retired agent: ${agent}.md"
+    fi
+  fi
+done
+
+# Refresh framework-owned agents only (preserve project-specific agents)
+# Convention: if an existing agent file has frontmatter "owner: project", skip it
+UPDATED=0
+PROJECT_OWNED_SKIPPED=""
+for agent in $ROSTER; do
+  if [ -f "$COPILOT_PATH/.claude/agents/${agent}.md" ]; then
+    existing=".claude/agents/${agent}.md"
+    if [ -f "$existing" ] && grep -q '^owner: project' "$existing" 2>/dev/null; then
+      echo "preserved project-owned agent: ${agent}"
+      PROJECT_OWNED_SKIPPED="$PROJECT_OWNED_SKIPPED $agent"
+    else
+      cp "$COPILOT_PATH/.claude/agents/${agent}.md" ".claude/agents/"
+      UPDATED=$((UPDATED + 1))
+    fi
+  fi
+done
+
+# Report any project-specific agents that were preserved
+echo "Framework agents refreshed: $UPDATED"
+[ -n "$PROJECT_OWNED_SKIPPED" ] && echo "Project-owned agents preserved (owner: project):$PROJECT_OWNED_SKIPPED"
+PRESERVED=$(ls .claude/agents/*.md 2>/dev/null | while read f; do
+  name=$(basename "$f" .md)
+  is_framework=0
+  for a in $ROSTER; do [ "$a" = "$name" ] && is_framework=1 && break; done
+  [ $is_framework -eq 0 ] && echo "$name"
+done | tr '\n' ' ')
+[ -n "$PRESERVED" ] && echo "Project-specific agents preserved: $PRESERVED"
+
+echo "Agents updated (roster-aware)"
 ```
 
 ---
 
-## Step 9: Update Orchestrator Files (if present)
+## Step 8: Remove Retired Orchestrator Files (if present)
 
-**Only update if orchestrator directory exists** (project has used `/orchestrate` before):
+The Python orchestration layer (`orchestrate.py`, `task_copilot_client.py`,
+`monitor-workers.py`, etc.) is **retired**. `/orchestrate` now uses native `Task`
+agents + `tc` + `git worktree` directly — no project-level scripts. If a project
+still carries the old `.claude/orchestrator/` directory, remove it:
 
 ```bash
 if [ -d ".claude/orchestrator" ]; then
-  echo "=== Updating Orchestrator Files ==="
-
-  # Copy Python scripts (preserve symlinks or update files)
-  cp ~/.claude/copilot/templates/orchestration/task_copilot_client.py .claude/orchestrator/
-  cp ~/.claude/copilot/templates/orchestration/check_streams_data.py .claude/orchestrator/
-  cp ~/.claude/copilot/templates/orchestration/orchestrate.py .claude/orchestrator/
-  cp ~/.claude/copilot/templates/orchestration/monitor-workers.py .claude/orchestrator/
-
-  # Copy shell scripts
-  cp ~/.claude/copilot/templates/orchestration/check-streams .claude/orchestrator/
-  cp ~/.claude/copilot/templates/orchestration/watch-status .claude/orchestrator/
-
-  # Ensure scripts are executable
-  chmod +x .claude/orchestrator/check-streams
-  chmod +x .claude/orchestrator/watch-status
-  chmod +x .claude/orchestrator/orchestrate.py
-
-  echo "Orchestrator files updated"
-  ORCHESTRATOR_UPDATED=true
+  echo "=== Removing retired orchestrator scripts ==="
+  rm -rf .claude/orchestrator
+  echo "Removed .claude/orchestrator (Python orchestrator retired; see /orchestrate)"
+  ORCHESTRATOR_REMOVED=true
 else
-  echo "No orchestrator directory found (skipping)"
-  ORCHESTRATOR_UPDATED=false
+  echo "No orchestrator directory found (nothing to remove)"
+  ORCHESTRATOR_REMOVED=false
 fi
 ```
+
+---
+
+## Step 9: Update cc CLI and Project Config
+
+### 9A: Check cc Is Installed
+
+```bash
+which cc >/dev/null 2>&1 && echo "CC_OK" || echo "CC_MISSING"
+```
+
+**If CC_MISSING:**
+
+Tell user: "Installing cc CLI..."
+
+```bash
+bash ~/.claude/copilot/tools/cc/install.sh
+```
+
+After install, verify:
+
+```bash
+which cc >/dev/null 2>&1 && echo "CC_INSTALLED" || echo "CC_INSTALL_FAILED"
+```
+
+If CC_INSTALL_FAILED, tell user:
+
+---
+
+**cc install failed.**
+
+Try installing manually:
+```bash
+bash ~/.claude/copilot/tools/cc/install.sh
+```
+
+---
+
+Then continue (do not stop — remaining steps may still work).
+
+### 9B: Check cc Project Config
+
+```bash
+ls .claude/cc/config.json 2>/dev/null && echo "CC_CONFIG_OK" || echo "CC_CONFIG_MISSING"
+```
+
+**If CC_CONFIG_MISSING:**
+
+Tell user: "Initializing cc project config..."
+
+```bash
+cc config init --project
+```
+
+### 9C: Ensure Memory Directory and .gitignore
+
+```bash
+# Ensure entries directory exists with a tracking file
+if [ ! -d ".claude/memory/entries" ]; then
+  mkdir -p .claude/memory/entries
+  touch .claude/memory/entries/.gitkeep
+  echo "Created .claude/memory/entries/"
+fi
+
+# Ensure .claude/memory/.gitignore exists with correct entries
+if [ ! -f ".claude/memory/.gitignore" ]; then
+  printf 'memory.db\nmemory.db-*\n' > .claude/memory/.gitignore
+  echo "Created .claude/memory/.gitignore"
+fi
+```
+
+### 9D: Run cc config doctor
+
+```bash
+cc config doctor 2>&1
+```
+
+If `cc config doctor` reports any issues (non-zero exit or lines containing "WARN" or "ERROR"), print the output and tell user:
+
+---
+
+**cc config doctor reported issues. Please review and resolve the items above before continuing.**
+
+---
 
 ---
 
@@ -317,12 +388,53 @@ if [ -f ~/.claude/copilot/VERSION.json ]; then
     const v = require('$HOME/.claude/copilot/VERSION.json');
     console.log('Framework: v' + v.framework);
     console.log('Agents: v' + v.components.agents.version);
-    Object.entries(v.components['mcp-servers']).forEach(([k,s]) =>
-      console.log(k + ': v' + s.version)
-    );
+    console.log('Commands: v' + v.components.commands.version);
+    console.log('Skills: v' + v.components.skills.version);
+    console.log('cc: v' + v.components.cc.version);
+    console.log('tc: v' + v.components.tc.version);
   "
 fi
 ```
+
+---
+
+## Step 10B: Run Fitness Check
+
+After updating agents, run the fitness check to verify the roster is healthy:
+
+```bash
+if [ -f .claude/fitness-check.sh ]; then
+  bash .claude/fitness-check.sh \
+    --agents-dir .claude/agents \
+    --commands-dir .claude/commands \
+    --copilot-path ~/.claude/copilot
+  FITNESS_RESULT=$?
+else
+  # fitness-check.sh not yet copied — copy it first
+  cp ~/.claude/copilot/.claude/fitness-check.sh .claude/fitness-check.sh
+  chmod +x .claude/fitness-check.sh
+  bash .claude/fitness-check.sh \
+    --agents-dir .claude/agents \
+    --commands-dir .claude/commands \
+    --copilot-path ~/.claude/copilot
+  FITNESS_RESULT=$?
+fi
+```
+
+If `FITNESS_RESULT` is non-zero (check failed), print the failures and tell the user:
+
+---
+
+**Fitness check reported issues.** Review the failures above. Common fixes:
+- Missing agent: `cp ~/.claude/copilot/.claude/agents/<name>.md .claude/agents/`
+- Orphan route: Edit the agent file's Route To table to point to a valid agent
+- Retired agent still present: `rm .claude/agents/design.md` (or other retired agent)
+
+The project is updated but the fitness check should be resolved before using protocol chains.
+
+---
+
+Store `FITNESS_RESULT` to include in Step 11 report.
 
 ---
 
@@ -366,24 +478,22 @@ Tell user:
 
 **Refreshed:**
 - `.claude/commands/` (7 project commands: protocol, continue, pause, map, memory, extensions, orchestrate)
-- `.claude/agents/` (20 agents: 13 framework + 7 native)
-{{IF_ORCHESTRATOR_UPDATED}}
-- `.claude/orchestrator/` (Python scripts and shell utilities)
+- `.claude/agents/` (16 agent files: 15 framework agents + kc setup-only, roster-aware sync)
+{{IF_ORCHESTRATOR_REMOVED}}
+- `.claude/orchestrator/` (retired Python orchestrator removed)
 {{END_IF}}
 
-**MCP Configuration:**
-{{IF_SERVERS_ADDED}}
-- `.mcp.json` updated: Added {{SERVER_NAMES}}
-{{ELSE}}
-- `.mcp.json` unchanged (all servers already configured)
-{{END_IF}}
+**cc CLI:**
+- cc installed and project config verified
+- Memory directory and `.gitignore` ensured
+- `cc config doctor` passed (or issues printed above)
 
 **Unchanged:**
 - `CLAUDE.md`
 - `.claude/skills/`
-- Existing MCP server configurations
+- `.mcp.json` (any third-party MCP servers you added manually are left untouched)
 {{IF_NO_ORCHESTRATOR}}
-- `.claude/orchestrator/` not present (run `/orchestrate setup` to initialize)
+- `.claude/orchestrator/` not present (no action needed — `/orchestrate` requires no project-level scripts)
 {{END_IF}}
 
 **Claude Copilot Version:** $COPILOT_VERSION
@@ -394,6 +504,8 @@ $SUMMARY
 **Full details:** `~/.claude/copilot/CHANGELOG.md`
 
 Your project now has the latest Claude Copilot commands and agents.
+
+**Next step:** Run `cc memory index --rebuild` to refresh your local search index with any new memory entries.
 
 ---
 

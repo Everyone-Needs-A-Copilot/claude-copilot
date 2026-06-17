@@ -33,10 +33,10 @@ ls -la ~/.claude/knowledge 2>/dev/null
 # Check for global knowledge manifest
 cat ~/.claude/knowledge/knowledge-manifest.json 2>/dev/null
 
-# Check for initiative in progress
+# Check for prior discovery context in memory
 ```
 
-Also call `initiative_get` to check for in-progress discovery.
+Also run `cc memory search "knowledge discovery"` to check for prior discovery context.
 
 ### Team Context Detection
 
@@ -257,14 +257,11 @@ ln -sf ~/[company]-knowledge ~/.claude/knowledge
 ls ~/.claude/knowledge/knowledge-manifest.json
 ```
 
-### Step 8: Start Initiative
+### Step 8: Record Working Context
 
-```
-initiative_start({
-  name: "[Company] Knowledge Discovery",
-  goal: "Build comprehensive knowledge repository through guided discovery",
-  status: "IN PROGRESS"
-})
+```bash
+cc memory store --type context \
+  "[Company] Knowledge Discovery — building a comprehensive knowledge repository through guided discovery."
 ```
 
 ### Step 9: Begin Discovery
@@ -508,7 +505,7 @@ Report:
 
 ## Mode: Continue Discovery
 
-1. Call `initiative_get` to load current state
+1. Run `cc memory search "knowledge discovery"` to load prior context
 2. Review what's been completed
 3. Identify next phase
 4. Resume questioning from Knowledge Copilot agent profile

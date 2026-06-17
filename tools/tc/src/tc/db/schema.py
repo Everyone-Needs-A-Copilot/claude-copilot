@@ -1,5 +1,20 @@
-"""Full SQL schema for Task Copilot database."""
+"""Full SQL schema for Task Copilot database.
 
+FTS5 virtual table and triggers are created via fts5_core builders (called from
+connection.init_db) rather than inline DDL strings.  Constants below expose
+the FTS5 table / column configuration so callers can reference them without
+hard-coding names.
+"""
+
+# FTS5 configuration constants — referenced by connection.init_db and wp.py
+WP_FTS_TABLE = "work_products_fts"
+WP_FTS_COLUMNS = ["title", "content", "type", "agent"]
+WP_BASE_TABLE = "work_products"
+WP_BASE_ROWID = "id"
+
+# Base schema: all tables, indexes, and version row — FTS5 DDL excluded here
+# so that fts5_core builders in init_db are the single source of truth for the
+# FTS5 virtual table and trigger definitions.
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
@@ -60,28 +75,6 @@ CREATE TABLE IF NOT EXISTS work_products (
     agent TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-
-CREATE VIRTUAL TABLE IF NOT EXISTS work_products_fts USING fts5(
-    title, content, type, agent,
-    content='work_products', content_rowid='id'
-);
-
-CREATE TRIGGER IF NOT EXISTS wp_fts_insert AFTER INSERT ON work_products BEGIN
-    INSERT INTO work_products_fts(rowid, title, content, type, agent)
-    VALUES (new.id, new.title, new.content, new.type, new.agent);
-END;
-
-CREATE TRIGGER IF NOT EXISTS wp_fts_delete AFTER DELETE ON work_products BEGIN
-    INSERT INTO work_products_fts(work_products_fts, rowid, title, content, type, agent)
-    VALUES ('delete', old.id, old.title, old.content, old.type, old.agent);
-END;
-
-CREATE TRIGGER IF NOT EXISTS wp_fts_update AFTER UPDATE ON work_products BEGIN
-    INSERT INTO work_products_fts(work_products_fts, rowid, title, content, type, agent)
-    VALUES ('delete', old.id, old.title, old.content, old.type, old.agent);
-    INSERT INTO work_products_fts(rowid, title, content, type, agent)
-    VALUES (new.id, new.title, new.content, new.type, new.agent);
-END;
 
 CREATE TABLE IF NOT EXISTS agent_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

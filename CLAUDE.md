@@ -4,133 +4,81 @@ This file provides guidance to Claude Code when working with the Claude Copilot 
 
 ---
 
-## CRITICAL: Main Session Guardrails
+## Main Session Guardrails
 
-**These rules exist to prevent context bloat. Violating them wastes tokens and defeats the framework's purpose.**
+**These rules prevent context bloat — the framework's core purpose.**
 
-### What You MUST NEVER Do
+| Rule | What To Do Instead | Enforcement |
+|------|-------------------|-------------|
+| Never write implementation code | Delegate to `@agent-me` | Hook: force-delegate |
+| Never create detailed plans | Delegate to `@agent-ta` | Hook: force-delegate |
+| Never use `Explore`, `Plan`, or `general-purpose` agents | Use framework agents (they integrate with Task Copilot) | Advisory |
+| Avoid reading >8 files directly | Delegate to framework agent | Hook: force-delegate (triggers at 5 consecutive same-tool calls) |
+| Keep responses short | Store details via `tc wp store` | Advisory |
 
-| Action | Why It's Wrong | What To Do Instead |
-|--------|---------------|-------------------|
-| Write implementation code | Code belongs in work products | Delegate to `@agent-me` |
-| Create detailed plans | Plans belong in Task Copilot | Delegate to `@agent-ta` |
-| Use `Explore` agent | Returns full content to context | Use `@agent-ta` or `@agent-me` |
-| Use `Plan` agent | Returns full plans to context | Use `@agent-ta` with PRD |
-| Use `general-purpose` agent | No Task Copilot integration | Use specific framework agent |
+**Mechanical enforcement:** The force-delegate rule, QA-gate rule, and session-cap advisory are enforced by hooks in `.claude/hooks/` — not just policy. Attempting >5 consecutive Bash/Read/Edit calls will be blocked automatically. After `@agent-me` completes, all main-session tools are gated until `@agent-qa` provides a pass verdict. See `.claude/hooks/README.md` for escape hatches and debug tools.
 
-### What You Should AVOID
-
-| Action | Why It's Suboptimal | What To Do Instead |
-|--------|-------------------|-------------------|
-| Read more than 8 files | Prefer delegation for large exploration | Delegate to framework agent |
-| Return detailed analysis | Fills context with text | Store as work product |
-
-### Self-Check Before Every Response
-
-Ask yourself:
-
-1. **Am I about to read many files (>8)?** → CONSIDER delegating to agent.
-2. **Am I about to write code?** → STOP. Delegate to `@agent-me`.
-3. **Am I about to create a plan?** → STOP. Delegate to `@agent-ta`.
-4. **Am I using a generic agent?** → STOP. Switch to framework agent.
-5. **Is my response going to be long?** → CONSIDER storing details in Task Copilot.
-
-### Framework Agents vs Generic Agents
-
-**ONLY use framework agents** - they integrate with Task Copilot:
-
-| Framework Agent | Domain | Stores Work Products |
-|-----------------|--------|---------------------|
-| `@agent-ta` | Architecture, planning | ✅ Yes |
-| `@agent-me` | Code implementation | ✅ Yes |
-| `@agent-qa` | Testing | ✅ Yes |
-| `@agent-sec` | Security | ✅ Yes |
-| `@agent-doc` | Documentation | ✅ Yes |
-| `@agent-do` | DevOps | ✅ Yes |
-| `@agent-sd` | Service design | ✅ Yes |
-| `@agent-uxd` | UX design | ✅ Yes |
-| `@agent-uids` | UI design | ✅ Yes |
-| `@agent-uid` | UI implementation | ✅ Yes |
-| `@agent-cw` | Content | ✅ Yes |
-
-**NEVER use generic agents** - they bypass Task Copilot:
-
-| Generic Agent | Problem |
-|---------------|---------|
-| `Explore` | Returns full file contents to main context |
-| `Plan` | Returns full plans to main context |
-| `general-purpose` | No Task Copilot, returns everything to context |
-
-### Expected Token Usage Per Task
-
-| Task Type | With Framework | Without Framework |
-|-----------|---------------|-------------------|
-| Research + Plan | ~2,000 tokens (summary only) | ~80,000+ tokens (full content) |
-| Implementation | ~2,000 tokens (summary only) | ~40,000+ tokens (full code) |
-| Full initiative | ~8,000 tokens | ~200,000+ tokens |
-
-**If you're hitting compact frequently, consider delegating more to framework agents.**
+**Framework agents:** ta, me, qa, do, doc, sd · design chain sd→uxd→uids→uid→ta→me · branches ind/cco/cw · sec · business cs/cpa (15 framework agents; kc is setup-only; `design` retired). Roster is the authoritative list in `.claude/agents/manifest.json`.
 
 ---
 
 ## Overview
 
-**Claude Copilot** is a complete AI-enabled development framework solving five challenges:
+**Claude Copilot** solves five challenges:
 
 | Challenge | Solution | Component |
 |-----------|----------|-----------|
-| Lost memory, wasted tokens | Persistent memory + semantic search | **Memory Copilot** |
+| Lost memory, wasted tokens | Persistent memory + FTS5 keyword search | **Memory Copilot** |
 | Generic AI lacks expertise | Specialized agents for complex tasks | **Agents** |
-| Manual skill management | Native @include + optional MCP | **Skills** |
+| Manual skill management | Auto-fire from trigger-rich `description`; `cc skill search` as fallback | **Skills** |
 | Context bloat from agents | Ephemeral task/work product storage | **Task Copilot** |
 | Inconsistent processes | Battle-tested workflows | **Protocol** |
+
+### Feature Comparison
+
+| Feature | Invocation | Persistence | Best For |
+|---------|------------|-------------|----------|
+| **Memory** | Auto | Cross-session | Context preservation, decisions, lessons |
+| **Agents** | Protocol | Session | Expert tasks, complex work |
+| **Skills** | Auto-fire (description match) | On-demand | Reusable patterns, code-bearing scripts |
+| **Tasks** | CLI (`tc`) | Per-initiative | PRDs, task tracking, work products |
+| **Commands** | Manual | Session | Quick shortcuts, workflows |
+| **Extensions** | Auto | Permanent | Team standards, custom methodologies |
 
 ---
 
 ## Quick Decision Guide
 
-*Note: For comprehensive details see CLAUDE_REFERENCE.md or [docs/10-architecture/03-decision-guide.md](docs/10-architecture/03-decision-guide.md).*
-
 ### Command Selection Matrix
 
-| Command | When to Use | Scope | Run From |
-|---------|-------------|-------|----------|
-| `/setup` | First time on machine | Machine | `~/.claude/copilot` |
-| `/setup-project` | New project initialization | Project | Any project root |
-| `/update-project` | Sync project with latest framework | Project | Project root |
-| `/update-copilot` | Update framework itself | Machine | `~/.claude/copilot` |
-| `/knowledge-copilot` | Create shared knowledge repo | Machine/Team | Any directory |
-| `/setup-knowledge-sync` | Install automatic knowledge updates | Project | Project root |
-| `/protocol [task]` | Start fresh work session | Session | Project root |
-| `/continue [stream]` | Resume previous work | Session | Project root |
-| `/pause [reason]` | Context switch, save state | Session | Project root |
-| `/map` | Analyze codebase structure | Project | Project root |
-| `/memory` | View memory state and recent activity | Session | Project root |
-| `/orchestrate` | Set up parallel stream orchestration | Project | Project root |
+| Command | When to Use | Scope |
+|---------|-------------|-------|
+| `/setup` | First time on machine | Machine |
+| `/setup-project` | New project initialization | Project |
+| `/update-project` | Sync project with latest framework | Project |
+| `/update-copilot` | Update framework itself | Machine |
+| `/knowledge-copilot` | Create shared knowledge repo | Machine/Team |
+| `/protocol [task]` | Start fresh work session | Session |
+| `/continue [stream]` | Resume previous work | Session |
+| `/pause [reason]` | Context switch, save state | Session |
+| `/map` | Analyze codebase structure | Project |
+| `/memory` | View memory state and recent activity | Session |
+| `/orchestrate` | Set up parallel stream orchestration | Project |
 
 ### Use Case Mapping
 
 | I want to... | Start with | What Happens |
 |--------------|------------|--------------|
 | Fix a bug | `/protocol fix the login bug` | Defect flow: qa → me → qa |
-| Build a feature | `/protocol add dark mode UI` | Experience flow: sd → uxd → uids → ta → me |
-| Refactor code | `/protocol refactor auth module` | Technical flow: ta → me |
+| Build a feature | `/protocol add dark mode UI` | Experience flow: sd → uxd → uids → uid → ta → me → qa |
+| Refactor code | `/protocol refactor auth module` | Technical flow: ta → me → qa |
+| Deploy / infra work | `/protocol deploy to staging` | Infra flow: do → me → qa |
 | Improve something | `/protocol improve dashboard` | Clarification flow (asks intent) |
 | Skip design stages | `/protocol --skip-sd add feature` | Jumps to specified stage |
 | Resume yesterday's work | `/continue` | Memory loads automatically |
-| Resume specific stream | `/continue Stream-B` | Loads stream context directly |
-| Context switch mid-task | `/pause switching to X` | Creates checkpoint, switch safely |
-| Understand new codebase | `/map` | Generates PROJECT_MAP.md |
-| View memory state | `/memory` | See current initiative & recent activity |
 | Run parallel work streams | `/orchestrate generate` then `/orchestrate start` | Create PRD + tasks → set up worktrees |
-| Monitor orchestration | `/orchestrate status` | Stream progress dashboard |
-| Set up team standards | `/knowledge-copilot` | Create extension repository |
-| Auto-update product knowledge | `/setup-knowledge-sync` | Updates on git release tags |
-| Initialize new project | `/setup-project` | Framework installs |
-| Update all projects | `/update-project` (each project) | Syncs latest changes |
-| Search past decisions | Use `memory_search` tool | Semantic search across sessions |
+| Search past decisions | `cc memory search "<query>"` | Full-text keyword search across sessions |
 | Load local skill | `@include .claude/skills/NAME/SKILL.md` | Direct file include |
-| Search marketplace skills | Use `skill_search` tool (requires MCP) | SkillsMP access |
 
 ---
 
@@ -138,41 +86,48 @@ Ask yourself:
 
 ### 1. Memory Copilot
 
-Persistent memory across sessions with semantic search.
+Persistent memory across sessions with full-text (FTS5 keyword) search.
 
-**Essential Tools:** `initiative_get`, `initiative_start`, `initiative_update`, `initiative_complete`, `memory_store`, `memory_search`
+**Storage:** `.claude/memory/entries/<uuid>.md` (committed, travels with repo)
+**Commands:** `cc memory store`, `cc memory search`, `cc memory get`, `cc memory list`, `cc memory check`
+**Index:** `cc memory index --rebuild` (local SQLite cache, gitignored)
+**Drift detection:** `cc memory check` — token-free deterministic checkers for path-existence, command-resolve, version-conflict, staleness; 0–100 score; exits 1 on any `fail`-severity finding
 
-**Location:** `mcp-servers/copilot-memory/`
+**Location:** `tools/cc/`
 
 ### 2. Agents
 
-14 specialized agents using lean agent model (~60-120 lines each).
+15 framework agents + kc (setup-only, not in the build chain). Every framework agent embeds named industry methodology — IDEO (sd), Dieter Rams/Jony Ive (ind), Nielsen/JTBD (uxd), Rams Principles/Atomic Design (uids), Atomic Design/CDD (uid), Litmus Test (cco), MailChimp Voice & Tone (cw), STRIDE+DREAD (sec), Socratic Sales (cs), S-Corp Tax Advisory (cpa), ADR/Fitness Functions (ta), Kent Beck (me), Diátaxis (doc), 12-Factor/SRE (do), Meszaros (qa). Authoritative roster: `.claude/agents/manifest.json`.
 
-**Agents:** me, ta, qa, sec, doc, do, sd, uxd, uids, uid, cw, cco, kc
+**Design chain:** sd → uxd → uids → uid → ta → me (ind and cco/cw are optional branches)
+**Security:** @agent-sec routes to me/ta/do; @includes stride-dread skill
+**Business advisory (optional, outside the build chain):** cs (sales) and cpa (finance/tax) are standalone agents for founder/agency business needs — they do not route into the software build chain; invoke them directly
 
 **Location:** `.claude/agents/`
 
 ### 3. Skills
 
-Load via native @include (recommended) or Skills Copilot MCP server (optional).
+Skills auto-fire based on their trigger-rich `description` field — native Claude Code surfaces every skill's `name` + `description` at session start and fires the skill when a prompt matches. For prose-only skills, auto-firing handles discovery. For code-bearing skills, auto-firing handles discovery but the agent must still invoke the L3 script via Bash. No MCP server required.
 
-**Native:** `@include .claude/skills/NAME/SKILL.md`
+**Primary discovery:** Auto-fire from `description` match (no agent action needed)
 
-**MCP Tools:** `skill_get`, `skill_search`, `skill_list`, `skill_evaluate`, `knowledge_search`, `knowledge_get`
+**Fallback discovery:** `cc skill search "<topic>"` — case-insensitive substring match over name, description, and tags. Use this fallback when a needed skill did not auto-surface (e.g., in a subagent context).
 
-**Location:** `mcp-servers/skills-copilot/`
+**Load:** `@include .claude/skills/NAME/SKILL.md` (explicit fallback path)
+
+**Inspect:** `cc skill get <name>`, `cc skill list`
+
+**Location:** `tools/cc/`
 
 ### 4. Task Copilot
 
-Ephemeral PRD, task, and work product storage. Reduces context bloat by ~94%.
+Ephemeral PRD, task, and work product storage. Reduces context for externalized work products by ~94% vs inlining outputs above the 8KB threshold (not end-to-end session savings — see [derivation](docs/70-reference/04-framework-modernization-analysis.md)). Uses the `tc` CLI tool (installed at `tools/tc/`). Agents call `tc` commands via Bash.
 
-**Note:** Task Copilot operations use the `tc` CLI tool (installed at `tools/tc/`). Agents call `tc` commands via Bash instead of MCP tool calls. Memory Copilot and Skills Copilot still use their MCP servers.
-
-**Core Commands:** `tc prd create`, `tc prd get`, `tc task create`, `tc task update`, `tc task get`, `tc wp store`, `tc wp get`, `tc progress`, `initiative_link` (Memory Copilot MCP)
+**Core Commands:** `tc prd create`, `tc task create`, `tc task update`, `tc task get`, `tc wp store`, `tc wp get`, `tc progress`
 
 **Stream Commands:** `tc stream list`, `tc stream get`
 
-**Other Commands:** `tc handoff`, `tc log --task <id>`
+**Collaboration:** `tc handoff`, `tc log --task <id>`
 
 **Location:** `tools/tc/`
 
@@ -180,90 +135,77 @@ Ephemeral PRD, task, and work product storage. Reduces context bloat by ~94%.
 
 Battle-tested workflow commands.
 
-**Commands:** `/setup`, `/setup-project`, `/update-project`, `/update-copilot`, `/knowledge-copilot`, `/protocol [task]`, `/continue [stream]`, `/pause [reason]`, `/map`, `/memory`, `/orchestrate`
+**Commands:** `/setup`, `/setup-project`, `/update-project`, `/update-copilot`, `/knowledge-copilot`, `/protocol`, `/continue`, `/pause`, `/map`, `/memory`, `/orchestrate`
 
 **Location:** `.claude/commands/`
-
 
 ---
 
 ## Agent Routing
 
-Agents route to each other based on expertise:
-
 | From | Routes To | When |
 |------|-----------|------|
 | Any | `ta` | Architecture decisions |
-| Any | `sec` | Security concerns |
-| `sd` | `uxd` | Interaction design needed |
-| `uxd` | `uids` | Visual design needed |
-| `uids` | `uid` | Implementation needed |
 | Any | `me` | Code implementation |
 | Any | `qa` | Testing needed |
 | Any | `doc` | Documentation needed |
+| Any | `sec` | Security review, threat modeling, vulnerability analysis |
+| `sd` | `ind` | Object-level essentialism review needed (optional, upstream) |
+| `sd` | `uxd` | Interaction/task flow design needed |
+| `ind` | `uxd` | Element verdict ready, interaction must be designed within it |
+| `uxd` | `uids` | Task flows ready for visual design |
+| `uids` | `uid` | Design tokens and specs ready for component implementation |
+| `uid` | `ta` | Components complete, ready for task planning |
+| `sd` | `cco` | Creative direction or brand strategy needed |
+| `cco` | `cw` | Copy execution, messaging, microcopy |
+| `cs` | `cpa` | Tax implications, financial modeling needed |
 
 ---
 
 ## Specification Workflow
 
-Domain agents (sd, uxd, uids, cw, cco) **MUST NOT create tasks directly**. Instead, they create specifications that @agent-ta reviews and decomposes into tasks.
+Domain agents (sd, ind, uxd, uids, cco, cw) **MUST NOT create tasks directly**. They create specification work products (`type: 'specification'`) and route to @agent-ta. TA discovers all specifications via `tc wp list`, reviews them, and creates tasks with `metadata.sourceSpecifications` linking back to each spec.
 
-### Why Specifications?
+---
 
-| Problem | Solution |
-|---------|----------|
-| Domain expertise ≠ technical decomposition | Domain agents focus on their specialty |
-| @agent-ta needs full context | Specifications provide complete requirements |
-| Prevents misalignment | TA sees all domain requirements before task creation |
+## Session Boundary Protocol
 
-### Workflow
+Agents verify their task exists and check environment health before starting work:
 
-```
-1. Domain agent completes work (journey map, wireframes, design tokens, copy, creative direction)
-2. Store as specification work product (type: 'specification')
-3. Route to @agent-ta
-4. TA discovers specifications for PRD
-5. TA reviews all domain specifications
-6. TA creates tasks with specification traceability
-```
+1. `tc task get <taskId> --json` — verify task exists and is assignable
+2. `git status --short` — check working directory state
+3. If dirty with unrelated changes → warn user, suggest commit/stash
+4. If environment issues (missing deps, config) → fix before proceeding
+5. If blocked dependencies → wait for prerequisites
 
-### Specification Structure
+---
 
-All specifications include:
+## Agent Shared Behaviors
 
-| Section | Purpose |
-|---------|---------|
-| PRD Reference | Link back to source PRD |
-| Overview | High-level description |
-| Domain Content | Journey maps, wireframes, tokens, copy, creative direction |
-| Implementation Implications | Technical requirements from domain perspective |
-| Acceptance Criteria | How to verify domain requirements met |
-| Open Questions | Technical feasibility questions for TA |
+All agents inherit these. Individual agent files should NOT repeat them.
 
-### Task Creation with Traceability
-
-When TA creates tasks from specifications, metadata includes:
-
-```typescript
-metadata: {
-  sourceSpecifications: ['WP-xxx', 'WP-yyy', 'WP-zzz'],
-  // Links back to all domain specifications
-}
-```
-
-Task descriptions consolidate requirements from all specifications, ensuring implementation aligns with all domain input.
-
-### Example Flow
-
-```
-1. User creates PRD-001: "Build user dashboard"
-2. @agent-sd creates WP-001: Service Design Specification (journey stages)
-3. @agent-uxd creates WP-002: UX Design Specification (interactions, states)
-4. @agent-uids creates WP-003: UI Design Specification (design tokens, components)
-5. @agent-cw creates WP-004: Copy Specification (headlines, errors, empty states)
-6. @agent-ta discovers WP-001 through WP-004
-7. @agent-ta creates tasks with consolidated requirements and sourceSpecifications metadata
-```
+- **Env Hydration:** Run `eval "$(cc env)"` at start to hydrate `CC_SHARED_DOCS`, `CC_KNOWLEDGE_REPO`, and other machine-level paths
+- **Skill Discovery:** Skills auto-fire from their trigger-rich `description` field — no explicit search step needed in normal operation. If a needed skill did not auto-surface, use `cc skill search "<topic>"` (case-insensitive substring match over name, description, tags) as a fallback, then `@include` the returned path. No `evaluate` step needed — skills are model-readable markdown, not code.
+- **Live Docs — Verify upstream APIs before coding:** Before implementing or planning against a third-party library/framework API where correctness depends on the *installed* version, run `cc docs get <pkg>` (also `cc docs resolve <pkg>` for the active version and `cc docs search <pkg> "<query>"`) instead of trusting training-data memory of that API. It returns docs for the version actually installed in the project, is local-first so it works offline/headless, and only falls back to a self-owned network fetch when the optional `httpx` extra is present.
+- **Memory — Recall at start:** Run `cc memory search "<task topic>"` to recall prior decisions, lessons, and context relevant to the current task.
+- **Memory — Store at end:** After completing meaningful work, run `cc memory store --type <decision|context|lesson|reference> "<content>"` to persist decisions and lessons for future sessions. Do NOT call it "semantic" — it is FTS5 keyword search.
+- **Memory commands:** `cc memory store`, `cc memory search`, `cc memory get`, `cc memory list` (not MCP `memory_store`/`memory_search`)
+- **Task Copilot Pattern:** `tc task get` → do work → `tc wp store` → `tc task update --status completed`
+- **Code-Execution Path (PREFER for >=3 related ops):** When performing 3+ related tc or cc operations (create PRD + tasks, wire deps, store multiple WPs, batch memory stores), use a SINGLE `python3` Bash block importing `tc.api` or `cc.api` instead of multiple CLI calls. Each CLI round-trip echoes a full JSON payload back into context; a python3 block returns only what you `print()`.
+  - tc-only block: `from tc.api import create_prd, create_task, add_dependency, transaction`
+  - cc-only block: `from cc.api import memory_store, memory_search, memory_list`
+  - CRITICAL: tc and cc are in separate environments — keep each block to ONE tool.
+  - Keep CLI for single one-shot ops (`tc task get 40 --json`; one `tc wp store`; one `cc memory search`).
+  - Token win example: PRD + 18 tasks + 17 deps = 36 CLI calls (~9-20K tokens echoed) vs one python3 block (~25 tokens returned).
+  - See `tools/tc/README.md` and `tools/cc/README.md` for the full usage pattern.
+- **Iteration Loop:** Self-manage iterations (max from frontmatter). Pass → complete. Blocked → emit `<promise>BLOCKED</promise>`. Else → iterate.
+- **Return Format:** Return ONLY ~100 tokens to main session. Store all details via `tc wp store`.
+- **Context Compaction:** If response exceeds ~14K tokens, store as work product and return summary only.
+- **Knowledge:** Run `cc memory search "<voice/brand query>"` for user-facing features. Never block work for missing knowledge.
+- **Specification Workflow:** Domain agents (sd, ind, uxd, uids, cco, cw) store as `type: 'specification'`, route to @agent-ta.
+- **Multi-Agent Handoff:** Intermediate agents: `tc handoff` then route to next agent. Final agent: `tc log --task <id>`, return consolidated summary.
+- **Testing Gate (MANDATORY):** @agent-me is NEVER final. After implementation, @agent-qa MUST run tests and include an `ARTIFACT: <type>|<detail>` marker in its verdict (`test-run`, `file-check`, or `diff-check`). A bare `VERDICT: APPROVED` with no ARTIFACT line will NOT unblock the gate. No implementation ships without QA. See `.claude/hooks/README.md` for the full verdict format.
+- **Protocol Integration:** Output stage-complete summary with Task/WP IDs, key decisions, handoff context (200-char max).
 
 ---
 
@@ -275,7 +217,32 @@ Task descriptions consolidate requirements from all specifications, ensuring imp
 3. Update projects: Run `/update-project` in each project
 4. Knowledge (optional): Run `/knowledge-copilot`
 
-See [SETUP.md](SETUP.md) for details.
+**cc CLI** — unified tool for memory and skill management:
+- Install: `bash tools/cc/install.sh`
+- Machine config: `cc config set paths.shared_docs /path/to/docs`
+- Env hydration: `eval "$(cc env)"` in agent preamble
+- Full docs: `cc --help`
+
+**Known References** — stable paths and values injected automatically into every session:
+- Register: `cc config set refs.<name> <value>` (e.g. `cc config set refs.cli_copilot /path/to/cli`)
+- Or: `cc memory store --type reference "<content>"` for free-text entries
+- The `UserPromptSubmit` hook surfaces these on the first prompt of each session so the main session and protocol always have them without re-supplying paths.
+
+**Model pinning (recommended for Copilot-style projects):** Use `.claude/claude-launcher` instead of `claude` directly. It reads `.claude/.model` (default: `claude-sonnet-4-6[1m]`) and passes `--model` automatically. Override with `CLAUDE_MODEL` env var. See [SETUP.md](SETUP.md) for details.
+
+---
+
+## Project-Owned Agents
+
+To override a framework agent at the project level, add `owner: project` to its frontmatter. Sync (`/update-project`, `/setup-project`) will never overwrite or remove it. Files without that marker are framework-owned and refresh normally.
+
+```yaml
+---
+name: cco
+owner: project   # ← sync will never touch this file
+...
+---
+```
 
 ---
 
@@ -287,29 +254,7 @@ Extensions allow company-specific methodologies to override or enhance base agen
 
 **Extension types:** `override` (replace agent), `extension` (add to sections), `skills` (inject skills)
 
-See [extension-spec.md](docs/40-extensions/00-extension-spec.md) and CLAUDE_REFERENCE.md for full details.
-
----
-
-## File Locations
-
-| Content | Location |
-|---------|----------|
-| Agents | `.claude/agents/` |
-| Commands | `.claude/commands/` |
-| MCP Servers | `mcp-servers/` |
-| Knowledge sync scripts | `scripts/knowledge-sync/` |
-| Git hooks | `templates/hooks/` |
-| Decision matrices | `docs/10-architecture/03-decision-guide.md` |
-| Operations docs | `docs/30-operations/` |
-| Feature docs | `docs/50-features/` |
-| Templates | `templates/` |
-| Integration tests | `tests/integration/` |
-| Extension spec | `docs/40-extensions/00-extension-spec.md` |
-| Orchestration workflow | `docs/50-features/02-orchestration-workflow.md` |
-| Knowledge sync protocol | `docs/50-features/03-knowledge-sync.md` |
-| Worktree isolation | `docs/50-features/05-worktree-isolation.md` |
-| Opus 4.6 capabilities | `docs/50-features/06-opus-46-capabilities.md` |
+See [extension-spec.md](docs/40-extensions/00-extension-spec.md) for full details.
 
 ---
 
@@ -325,7 +270,7 @@ Use `/continue` to load context from Memory Copilot.
 
 ### End of Session
 
-Call `initiative_update` with:
+Call `cc memory store --type initiative "<content>"` with session context. Include:
 
 | Field | Content |
 |-------|---------|
@@ -342,12 +287,7 @@ Call `initiative_update` with:
 
 ### No Time Estimates Policy
 
-**ALL outputs from agents and direct responses MUST NEVER include:**
-
-- Time-based estimates (hours, days, weeks, months, quarters, sprints)
-- Completion dates or deadlines
-- Duration predictions or timelines
-- Phase durations (e.g., "Phase 1 (Weeks 1-2)")
+**ALL outputs MUST NEVER include** time-based estimates, completion dates, duration predictions, or phase durations.
 
 **Acceptable alternatives:**
 
@@ -356,19 +296,18 @@ Call `initiative_update` with:
 | "Phase 1 (weeks 1-2)" | "Phase 1: Foundation" |
 | "Estimated: 3 days" | "Complexity: Medium" |
 | "Sprint 1-3" | "Priority: P0, P1, P2" |
-| "Will take 2 hours" | "Task: [description]" |
-| "Response time: < 1 hour" | "Severity: Critical (immediate response)" |
 | "Q1 delivery" | "After Phase 2 completes" |
 
-**Sequencing without time:**
-- Use dependency chains: "After X completes" not "Week 2"
-- Use phases: "Phase 1 → Phase 2" not "Weeks 1-3"
-- Use priority: "P0 (critical), P1 (high), P2 (medium)" not "This week"
-- Use complexity: "Low / Medium / High / Very High" not "X days"
+Use dependency chains, phases, priority levels, and complexity ratings instead.
 
-**Why:** Time estimates are consistently inaccurate, create false expectations, and shift focus from quality to arbitrary deadlines. With parallel agents, traditional time-based planning is meaningless.
+### Version Source of Truth
 
----
+**`VERSION.json` is the single canonical source for the framework version.**
+
+- `VERSION.json` → `framework` field is the authoritative framework version
+- `package.json` → `version` MUST match `VERSION.json.framework` (it is a mirror only)
+- Component versions (`cc`, `tc`, `agents`, `commands`, `skills`) are independent semver tracked inside `VERSION.json.components`
+- Do NOT update `package.json` independently — update `VERSION.json` first, then sync `package.json` to match
 
 ### When Modifying Agents
 
@@ -379,79 +318,9 @@ Call `initiative_update` with:
 
 ### Required Agent Sections
 
-Every agent must include:
-
-1. **Frontmatter** - name, description, tools, model (YAML block between `---` markers)
-2. **Opening description** - Role and mission (paragraph after frontmatter)
-3. **Core Behaviors** - Always do / Never do lists
-4. **Output format** - Example output or deliverable templates
-5. **Route To Other Agent** - When to hand off to specialists
-6. **Task Copilot Integration** - How to store work products
-
-### Agent Shared Behaviors
-
-All agents inherit these behaviors. Individual agent files should NOT repeat them.
-
-**Skill Loading:** Call `skill_evaluate({ files, text, threshold: 0.5 })` at start. Load top matching skills via `@include skills[0].path`.
-
-**Task Copilot Pattern (all agents):**
-```
-1. tc task get <taskId> --json (via Bash)
-2. Verify task exists and is assigned
-3. skill_evaluate({ files, text }) (if available - Skills MCP unchanged)
-4. Do domain work
-5. tc wp store --task <taskId> --type <type> --title "..." --content "..." --json (via Bash)
-6. tc task update <taskId> --status completed --json (via Bash)
-```
-
-**Iteration Loop (agents with iteration enabled):**
-```
-1. Agent self-manages iteration count (max from frontmatter config)
-2. FOR EACH iteration: make changes → validate against frontmatter rules
-   - All rules pass → store work product via tc wp store, mark complete via tc task update
-   - Blocked → store findings via tc wp store, emit <promise>BLOCKED</promise>
-   - Else → iterate with refined approach
-```
-
-**Return Format:** Return ONLY ~100 tokens to main session. Store all details via `tc wp store`. Never return full designs, plans, code, or analysis.
-
-**Context Compaction:** If response exceeds ~14K tokens (~55K chars), store full content as work product and return compact summary only.
-
-**Knowledge (Pull-Based):** When working on user-facing features, check `knowledge_search()` for voice/brand/product context. If not configured and relevant, note recommendation in work product (not main response). Never block work for missing knowledge.
-
-**Specification Workflow (domain agents: sd, uxd, uids, cw, cco):** Store completed work as `type: 'specification'`, then route to @agent-ta. Domain agents MUST NOT create tasks directly.
-
-**Multi-Agent Handoff:** If not final agent in chain: store work product, call `tc handoff --from <agent> --to <agent> --task <id> --context "..." --json` (200-char context), route to next agent, do NOT return to main session. If final agent: call `tc log --task <id> --json`, return consolidated summary.
-
-**Protocol Integration:** When invoked via /protocol with checkpoints, output stage-complete summary with: Task/WP IDs, key deliverables, key decisions (2-3), handoff context (200-char max).
-
----
-
-## Operations Documentation
-
-Standards and guides in `docs/30-operations/`:
-
-| Document | Purpose |
-|----------|---------|
-| `01-working-protocol.md` | Agent-First Protocol details |
-| `02-documentation-guide.md` | Doc standards, token budgets |
-
----
-
-## Extended Reference
-
-For detailed information on the following topics, see CLAUDE_REFERENCE.md:
-
-- **Full Quick Decision Guide**: Protocol flow system, agent selection matrix, extension types, memory vs skills vs extensions comparison
-- **The Five Pillars (Detailed)**: Complete tool descriptions, configuration tables, work product types, key features
-- **OMC Features**: Ecomode, magic keywords, progress HUD, skill extraction, zero-config install
-- **Extension System (Full)**: Two-tier resolution, setup instructions, extension tools
-- **Session Boundary Protocol**: Preflight checks, decision matrix, agent-specific guidance, example usage
-- **Lifecycle Hooks**: Hook types, security rules, API examples
-- **Skill Evaluation**: Evaluation methods, confidence levels, usage examples
-- **Correction Detection**: Detection patterns, tools, /reflect command
-
-**To include the extended reference:**
-```markdown
-@include CLAUDE_REFERENCE.md
-```
+1. **Frontmatter** — name, description, tools, model
+2. **Opening description** — Role and mission
+3. **Core Behaviors** — Always do / Never do
+4. **Output format** — Deliverable templates
+5. **Route To Other Agent** — Handoff rules
+6. **Task Copilot Integration** — Work product storage

@@ -1,10 +1,118 @@
-# Claude Copilot v2.0.0 Upgrade Guide
+# Claude Copilot Upgrade Guide
 
-## Overview
+## Upgrading to v5.6.0
 
-This guide walks you through upgrading to Claude Copilot v2.0.0, which introduces parallel stream orchestration, WebSocket event streaming, and a paradigm shift to multi-session agent coordination.
+**Component versions:** cc 1.2.0 · commands 5.3.1
 
-**Estimated Time:** 15-20 minutes
+**What changed:**
+- **Python 3.9 dropped (EOL).** The framework now requires Python 3.10+. Run `python3 --version` to verify.
+- **`install.sh` auto-appends `~/.local/bin` to PATH.** `bash tools/cc/install.sh` now idempotently adds `~/.local/bin` to `~/.zshrc`, `~/.zprofile`, `~/.bashrc`, and `~/.bash_profile`. No manual PATH step is required; reload your shell after install.
+- **`packages/installer/` removed.** The `@copilot/installer` NPM package is gone. Installation is `bash tools/cc/install.sh` + `pip install -e tools/tc` — no Node.js required.
+- **`mcp-servers/` fully removed.** The remaining MCP server directories are gone. `cc` and `tc` CLIs are the complete architecture.
+
+**Migration steps:**
+
+```bash
+# Verify Python version (3.10+ required)
+python3 --version
+
+# Reinstall cc CLI (picks up 1.2.0 changes + auto-PATH logic)
+bash tools/cc/install.sh
+# Reload shell (installer updated your profile automatically)
+source ~/.zshrc   # or ~/.bash_profile / ~/.zprofile
+
+# Reinstall tc CLI
+pip install -e ~/.claude/copilot/tools/tc
+
+# Sync your projects
+cd /your/project && claude
+# Run: /update-project
+```
+
+**No action required** for PATH if you reinstall — `install.sh` handles it. If upgrading from v5.5.0, the only breaking change is the Python 3.10 floor.
+
+---
+
+## Upgrading to v5.5.0
+
+This release makes skills auto-firing the **primary** discovery path and demotes `cc skill search` to a fallback.
+
+**Component versions:** skills 3.3.0 · cc 1.1.1 · agents 5.3.1
+
+**What changed:**
+- Skills now auto-fire as the primary discovery mechanism. Native Claude Code reads each skill's `description` field and fires matching skills automatically when a prompt matches — no explicit `cc skill search` call needed.
+- `cc skill search` is now a **fallback** — used by subagents that do not receive hook-injected context, or when explicit lookup is needed.
+- `@include` remains valid for code-bearing skills but is not the primary mechanism.
+- No breaking changes for existing skills: `name`, `description`, `version` frontmatter fields continue to work. Legacy fields (`skill_name`, `trigger_files`, `trigger_keywords`) are harmless if present.
+
+**Migration steps:**
+
+```bash
+# Pull latest framework
+cd ~/.claude/copilot
+git pull origin main
+
+# Reinstall cc CLI (picks up 1.1.1 changes)
+bash tools/cc/install.sh
+
+# Sync your projects
+cd /your/project && claude
+# Run: /update-project
+
+# Verify skill auto-fire is working
+cc skill list  # confirm skills present
+```
+
+**No action required** if your skills already have a trigger-rich `description` field. If your skills have sparse descriptions, add context so the model can match them automatically. See the [Skills Authoring Guide](../30-operations/06-skills-authoring-guide.md) for the canonical `description` format.
+
+---
+
+## Upgrading to v5.1.0 (PRD-2 — May 2026)
+
+This release modernizes the framework from MCP-server dependencies to the `cc`/`tc` CLI architecture.
+
+**Breaking Changes:**
+- `cc skill evaluate` is removed. Use `cc skill search "<query>"` + `cc skill get <name>` instead.
+- MCP server setup (copilot-memory, skills-copilot Node.js servers) is no longer required. The `cc` and `tc` CLIs replace them entirely.
+- Memory uses FTS5 keyword search. Semantic/vector search was never shipped; if docs or agents referenced it, that was incorrect.
+- At v5.1, agent roster was reduced from 14 to 8: `uxd`, `uids`, `uid`, `cw`, `cco`, and `sec` were consolidated into `design` and the `security/stride-dread` skill. The current framework (v5.2+) has restored the full 16-agent roster; `design` is retired and replaced by the `uxd`→`uids`→`uid` design chain.
+- Skills now auto-fire from their trigger-rich `description` field (primary path). `cc skill search` / `cc skill get` are the fallback for explicit discovery. `@include` is a valid manual-load convention for code-bearing skills but is not the primary mechanism.
+
+**Migration steps:**
+
+```bash
+# 1. Install CLIs
+bash ~/.claude/copilot/tools/cc/install.sh
+
+# 2. Configure paths
+cc config set paths.shared_docs /path/to/your/shared/docs
+cc config set paths.knowledge_repo ~/.claude/knowledge
+
+# 3. Register any stable references
+cc config set refs.staging_url https://staging.example.com
+
+# 4. Update project files
+cd ~/your-project && claude
+/update-project
+
+# 5. Rebuild memory index if needed
+cc memory index --rebuild
+```
+
+**Verify:**
+```bash
+cc --version
+tc version
+cc skill list | head -3
+cc memory search "test"
+```
+
+---
+
+## Upgrading to v2.0.0 (Earlier — Orchestration)
+
+This section documents the v2.0.0 upgrade introducing parallel stream orchestration and WebSocket event streaming.
+
 **Difficulty:** Easy (backwards compatible)
 **Breaking Changes:** None
 
@@ -35,7 +143,7 @@ git log --oneline -1
 
 **Expected output:**
 - If on v1.7.0 or v1.7.1: Ready to upgrade
-- If on v1.6.x or earlier: Review [CHANGELOG.md](CHANGELOG.md) for intermediate changes
+- If on v1.6.x or earlier: Review [CHANGELOG.md](../../CHANGELOG.md) for intermediate changes
 
 ### 2. Commit Uncommitted Work
 
@@ -72,16 +180,15 @@ df -h ~/.claude
 
 **Required:** At least 500 MB free space
 
-### 6. List Active Initiatives
+### 6. Review Active Work Context
 
 ```bash
-# In Claude Code
-claude
-# Then query memory
-initiative_get({ mode: "lean" })
+# Review stored working context and recent progress
+cc memory list --json
+tc progress --json
 ```
 
-Note any active initiatives - you'll resume these after upgrade.
+Note any in-flight work - you'll resume it after upgrade.
 
 ---
 
@@ -162,7 +269,7 @@ In Claude Code:
 Updating Project with Claude Copilot v1.8.0
 
 Files updated:
-✓ .claude/agents/ (20 agents)
+✓ .claude/agents/ (16 agent files: 15 framework + kc setup-only)
 ✓ .claude/commands/ (added orchestrate.md)
 ✓ .gitignore (added .claude/orchestrator/)
 
@@ -208,23 +315,15 @@ Receiving objects: 100% (847/847), 1.23 MiB | 2.45 MiB/s, done.
 Resolving deltas: 100% (324/324), done.
 ```
 
-### Step 2: Rebuild MCP Servers
+### Step 2: Reinstall CLIs
 
 ```bash
-# Memory Copilot
-cd ~/.claude/copilot/mcp-servers/copilot-memory
-npm install
-npm run build
+# cc CLI — memory and skills
+bash ~/.claude/copilot/tools/cc/install.sh
+source ~/.zshrc   # installer auto-appends ~/.local/bin to your profile
 
-# Skills Copilot
-cd ../skills-copilot
-npm install
-npm run build
-
-# WebSocket Bridge (NEW)
-cd ../websocket-bridge
-npm install
-npm run build
+# tc CLI — Task Copilot
+pip install -e ~/.claude/copilot/tools/tc
 ```
 
 ### Step 3: Update Project Files
@@ -237,26 +336,21 @@ cd ~/your-project
 # Copy new command
 cp ~/.claude/copilot/.claude/commands/orchestrate.md .claude/commands/
 
-# Update agents (all 12 files)
+# Update agents (all 16 files)
 cp -r ~/.claude/copilot/.claude/agents/ .claude/
-
-# Update .gitignore
-echo "" >> .gitignore
-echo "# Claude Copilot orchestration" >> .gitignore
-echo ".claude/orchestrator/" >> .gitignore
 ```
+
+Note: `.claude/orchestrator/` is retired. No scripts need to be copied; `/orchestrate` is native-Task-only.
 
 ### Step 4: Verify Installation
 
 ```bash
-# Check MCP servers built successfully
-ls -la ~/.claude/copilot/mcp-servers/*/dist/
-
-# Should see dist/ directories for:
-# - copilot-memory
-# - skills-copilot
-# - websocket-bridge
+# Verify CLIs are installed and functional
+cc --version
+tc version
 ```
+
+**Expected:** Both commands print their version strings without error.
 
 ---
 
@@ -352,9 +446,11 @@ Configure new features introduced in v1.8.0.
 ### 1. Enable Orchestration
 
 **Prerequisites:**
-- tmux installed: `brew install tmux` (macOS) or `apt install tmux` (Linux)
-- Python 3.8+: `python3 --version`
 - `tc` CLI installed and in PATH
+- `claude` CLI in PATH (for native Task agents)
+- Git 2.5+ (for worktree support)
+
+> **Note:** The Python orchestrator (`orchestrate.py`, `start-streams.py`, tmux) was retired. `/orchestrate` is now native-Task-only — no background scripts or tmux required.
 
 **Usage:**
 ```bash
@@ -363,47 +459,16 @@ claude
 # Create a PRD with multiple streams via @agent-ta
 
 /orchestrate generate
-# Generates scripts in .claude/orchestrator/
+# Creates PRD + stream tasks via tc CLI
 
-# Outside Claude Code:
-python3 .claude/orchestrator/start-streams.py
+/orchestrate start
+# Validates streams, creates git worktrees, prints launch instructions
+# Main session then spawns Task agents per stream
 ```
 
 ### 2. Enable WebSocket Bridge (Optional)
 
-**For real-time event streaming to UIs or dashboards:**
-
-```bash
-cd ~/.claude/copilot/mcp-servers/websocket-bridge
-
-# Create .env file
-cat > .env << EOF
-JWT_SECRET=your-random-secret-key-here
-WORKSPACE_ID=your-workspace-id
-WS_PORT=8765
-POLL_INTERVAL=100
-EOF
-
-# Start bridge
-npm start
-```
-
-**Test connection:**
-```javascript
-const jwt = require('jsonwebtoken');
-const WebSocket = require('ws');
-
-const token = jwt.sign(
-  { initiativeId: 'INIT-xxx' },
-  'your-random-secret-key-here',
-  { expiresIn: '24h' }
-);
-
-const ws = new WebSocket(`ws://localhost:8765?token=${token}`);
-ws.on('message', (data) => {
-  console.log('Event:', JSON.parse(data));
-});
-```
+> **Removed in v5.6.0.** The `mcp-servers/websocket-bridge` component no longer exists. Real-time event streaming via WebSocket is not available in the current architecture. `cc` and `tc` CLIs are the complete tooling surface.
 
 ### 3. Configure Quality Gates
 
@@ -470,25 +535,15 @@ tc stream list --json
 - Prevents stream pollution when using `/continue`
 - One-time operation only needed after upgrade
 
-### 5. Configure Context Recovery (Optional)
+### 5. Context Recovery
 
-For orchestration with auto-recovery, edit generated config:
+Context recovery in the native model is handled by re-running `/orchestrate status` to check stream progress and resuming incomplete `Task` agents manually. There is no separate config file — stream state is tracked in the `tc` database.
 
-**.claude/orchestrator/orchestrate-config.json:**
-```json
-{
-  "version": "1.0",
-  "generatedAt": "...",
-  "initiative": { ... },
-  "apiEndpoint": "http://127.0.0.1:9090",
-  "streams": [ ... ],
-  "executionPlan": { ... },
-  "contextRecovery": {
-    "stallTimeoutMinutes": 10,
-    "autoRecoveryEnabled": true,
-    "maxRecoveryAttempts": 3
-  }
-}
+```bash
+# Check what is complete and what is still pending
+tc progress --json
+tc stream list --json
+tc task list --json
 ```
 
 ---
@@ -502,22 +557,24 @@ For orchestration with auto-recovery, edit generated config:
 
 ---
 
-### Issue: MCP servers fail to build
+### Issue: cc or tc CLI not found after upgrade
 
 **Symptom:**
 ```
-npm ERR! Build failed
+cc: command not found
 ```
 
 **Solution:**
 ```bash
-# Clear node_modules and rebuild
-cd ~/.claude/copilot/mcp-servers/copilot-memory
-rm -rf node_modules package-lock.json
-npm install
-npm run build
+# Reinstall cc CLI (auto-appends ~/.local/bin to your shell profile)
+bash ~/.claude/copilot/tools/cc/install.sh
+source ~/.zshrc
 
-# Repeat for skills-copilot
+# Reinstall tc CLI
+pip install -e ~/.claude/copilot/tools/tc
+
+# Verify
+cc --version && tc version
 ```
 
 ---
@@ -549,63 +606,6 @@ cat .claude/quality-gates.json | jq
 
 ---
 
-### Issue: WebSocket bridge fails to start
-
-**Symptom:**
-```
-Error: WORKSPACE_ID required
-```
-
-**Solution:**
-```bash
-# Get workspace ID
-ls ~/.claude/tasks/
-# Use directory name as WORKSPACE_ID
-
-# Set in .env
-echo "WORKSPACE_ID=<directory-name>" >> .env
-```
-
----
-
-### Issue: Orchestration script fails
-
-**Symptom:**
-```
-ModuleNotFoundError: No module named 'requests'
-```
-
-**Solution:**
-```bash
-pip3 install requests
-
-# Verify
-python3 -c "import requests; print('OK')"
-```
-
----
-
-### Issue: tmux not found
-
-**Symptom:**
-```
-tmux: command not found
-```
-
-**Solution:**
-```bash
-# macOS
-brew install tmux
-
-# Ubuntu/Debian
-sudo apt install tmux
-
-# Fedora/CentOS
-sudo dnf install tmux
-```
-
----
-
 ### Issue: Tests fail after upgrade
 
 **Symptom:** Existing tests fail that previously passed
@@ -622,7 +622,7 @@ npm run build
 npm test
 ```
 
-If tests still fail, review changes in [CHANGELOG.md](CHANGELOG.md) for breaking changes (there should be none, but verify).
+If tests still fail, review changes in [CHANGELOG.md](../../CHANGELOG.md) for breaking changes (there should be none, but verify).
 
 ---
 
@@ -661,11 +661,11 @@ git reset --hard <commit-hash>
 git checkout v1.7.1
 ```
 
-### Step 3: Rebuild MCP Servers
+### Step 3: Reinstall CLIs
 
 ```bash
-cd mcp-servers/copilot-memory && npm install && npm run build
-cd ../skills-copilot && npm install && npm run build
+bash ~/.claude/copilot/tools/cc/install.sh && source ~/.zshrc
+pip install -e ~/.claude/copilot/tools/tc
 ```
 
 ### Step 4: Restore Project Files
@@ -767,9 +767,9 @@ After successful upgrade:
    - Test activation modes (`quick`, `thorough`, `analyze`)
 
 2. **Read Documentation:**
-   - [Orchestration Guide](../50-features/02-orchestration-workflow.md)
+   - [Orchestration Guide](../50-features/01-orchestration-workflow.md)
    - [Enhancement Features](../50-features/00-enhancement-features.md)
-   - [WebSocket Bridge](../../mcp-servers/websocket-bridge/README.md)
+   - [Skills Authoring Guide](../30-operations/06-skills-authoring-guide.md)
 
 3. **Update Team:**
    - Share upgrade guide with team members

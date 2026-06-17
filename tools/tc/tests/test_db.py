@@ -162,7 +162,8 @@ class TestInitDb:
         init_db(db_file)
         conn = get_db(db_file)
         tables = [
-            r[0] for r in conn.execute(
+            r[0]
+            for r in conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
             ).fetchall()
         ]
@@ -180,7 +181,8 @@ class TestInitDb:
         init_db(db_file)
         conn = get_db(db_file)
         indexes = [
-            r[0] for r in conn.execute(
+            r[0]
+            for r in conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%'"
             ).fetchall()
         ]
@@ -209,6 +211,7 @@ class TestRequireDb:
         """require_db with explicit nonexistent path should raise typer.Exit."""
         import typer
         from tc.utils.errors import require_db
+
         with pytest.raises((typer.Exit, SystemExit)):
             require_db(Path("/tmp/nonexistent/fake/tasks.db"))
 
@@ -216,6 +219,7 @@ class TestRequireDb:
         """require_db with no args and no DB should raise typer.Exit."""
         import typer
         from tc.utils.errors import require_db
+
         empty = tmp_dir / "isolated"
         empty.mkdir()
         monkeypatch.chdir(empty)
@@ -225,6 +229,7 @@ class TestRequireDb:
     def test_require_db_valid_explicit_path(self, db_path):
         """require_db with a valid explicit path should return it."""
         from tc.utils.errors import require_db
+
         result = require_db(db_path)
         assert result == db_path
 
@@ -235,6 +240,7 @@ class TestErrorExit:
     def test_error_exit_raises(self):
         import typer
         from tc.utils.errors import error_exit
+
         with pytest.raises((typer.Exit, SystemExit)):
             error_exit("boom", 42)
 

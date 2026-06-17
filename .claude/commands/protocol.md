@@ -2,104 +2,199 @@
 
 You are starting a new conversation. **The Agent-First Protocol is now active.**
 
-All guardrails, agent selection rules, token efficiency rules, and routing tables from CLAUDE.md apply. This file defines protocol-specific behavior only.
-
 ## Command Argument Handling
+
+This command supports an optional task description argument for quick task initiation:
 
 **Usage:**
 - `/protocol` - Interactive mode (select task type manually)
 - `/protocol [description]` - Auto-detect intent and route to appropriate agent chain
-- `/protocol [modifier:] [action:] [description]` - Magic keywords for effort control and shortcuts
 
 **Examples:**
 ```
-/protocol add user voice profiles          → Experience Flow (sd → uxd → uids → ta → me)
+/protocol add user voice profiles          → Experience Flow (sd → uxd → uids → uid → ta → me)
 /protocol fix login authentication bug     → Defect Flow (qa → me → qa)
 /protocol refactor auth module             → Technical Flow (ta → me)
 /protocol improve the dashboard            → Clarification Flow (ask user)
-/protocol eco: fix: the login bug          → Low effort + Defect Flow
-/protocol max: add: dark mode feature      → Max effort + Experience Flow
 ```
-
----
-
-## Magic Keywords
-
-Keywords must appear at the start of the message. Max 1 modifier + 1 action. Order: modifier, action, description. Case-insensitive.
-
-**Modifier keywords:**
-
-| Keyword | Effect |
-|---------|--------|
-| `eco:` | Low effort reasoning (cost-optimized, minimal thinking) |
-| `fast:` | Medium effort reasoning (balanced speed and quality) |
-| `max:` | Maximum reasoning depth (deep extended thinking) |
-| `auto:` / `ralph:` | Auto-select effort from complexity scoring |
-
-**Action keywords:**
-
-| Keyword | Flow | Agent Chain |
-|---------|------|-------------|
-| `fix:` | Defect | qa → me → qa |
-| `add:` | Experience | sd → uxd → uids → ta → me |
-| `refactor:` | Technical | ta → me |
-| `optimize:` | Technical | ta → me |
-| `test:` | Direct | @agent-qa |
-| `doc:` | Direct | @agent-doc |
-| `deploy:` | Direct | @agent-do |
-
-When keywords are detected, show `[KEYWORDS DETECTED]` with model and action info before the protocol declaration.
-
----
 
 ## Intent Detection & Flow Routing
 
-When an argument is provided: parse magic keywords first, then use action keywords or text analysis to detect intent, then route to the appropriate agent chain.
+When an argument is provided, the system detects intent via keyword matching and routes to the appropriate agent chain:
 
-### Flow Definitions
+### Flow A: Experience-First (DEFAULT)
 
-| Flow | Detection Keywords | Agent Chain | Checkpoints |
-|------|-------------------|-------------|-------------|
-| **A: Experience** (default) | add, create, build, feature, new, UI, UX, screen, page, component, dashboard, flow, journey, visual, layout, redesign | sd → uxd → uids → ta → me | After sd, uxd, uids |
-| **B: Defect** | bug, broken, fix, error, crash, issue, not working, failing, regression, exception, 500, 404, timeout | qa → me → qa | After qa diagnosis, after me fix |
-| **C: Technical** | refactor, optimize, architecture, performance, scale, database, API, backend, migrate, upgrade, decouple | ta → me | After ta planning |
-| **D: Clarification** | improve, enhance, update, change, modify, better, faster, cleaner (ambiguous) | Ask user first | N/A |
+**Detection:** User wants to build a feature, add functionality, create UI, or anything not explicitly technical/defect.
 
-### Clarification Prompt
-
-When intent is ambiguous, present:
+**Keywords (not required, but boost confidence):**
 ```
-[PROTOCOL: CLARIFYING | Action: ASKING]
+add, create, build, feature, new, UI, UX, user, interface, experience
+screen, page, modal, form, component, dashboard, profile, settings
+flow, journey, interaction, visual, layout, redesign
+```
 
-I detected an ambiguous request: "[description]"
+**Agent Chain:** sd → uxd → uids → uid → ta → me
 
-What type of improvement?
-1. User experience → Experience Flow
-2. Technical → Technical Flow
-3. Bug fix → Defect Flow
-4. Not sure, help me decide
+**Checkpoints:** After sd, uxd, uids, uid (user approves/changes/skips each stage)
+
+Optional upstream step: Insert `@agent-ind` before uxd when product essentialism review is needed.
+Optional creative step: Insert `@agent-cco` and/or `@agent-cw` after sd when brand direction or copy is needed.
+
+**Example:**
+```
+User: /protocol add dark mode to dashboard
+
+[PROTOCOL: EXPERIENCE | Agent: @agent-sd | Action: INVOKING]
+
+Routing to experience-first flow:
+sd (journey mapping) → uxd (interactions) → uids (visual design) → uid (components) → ta (tasks) → me (implementation)
+
+Invoking @agent-sd for service design...
 ```
 
 ---
 
-## Protocol Declaration
+### Flow B: Defect
 
-Every response MUST start with:
+**Detection:** User reports something broken or not working correctly.
+
+**Keywords:**
 ```
-[PROTOCOL: <TYPE> | Agent: @agent-<name> | Action: <INVOKING|ASKING|RESPONDING|CHECKPOINT>]
+bug, broken, fix, error, crash, issue, not working, failing
+regression, invalid, incorrect, wrong, unexpected, exception
+500, 404, timeout, undefined, null, memory leak, race condition
 ```
 
-With extension info when applicable: `@agent-<name> (extended)` or `@agent-<name> (base - extension unavailable)`.
+**Agent Chain:** qa → me → qa
+
+**Checkpoints:** After qa diagnosis, after me fix (before verification)
+
+**Example:**
+```
+User: /protocol fix login authentication bug
+
+[PROTOCOL: DEFECT | Agent: @agent-qa | Action: INVOKING]
+
+Routing to defect flow:
+qa (diagnosis) → me (fix) → qa (verification)
+
+Invoking @agent-qa for issue investigation...
+```
+
+---
+
+### Flow C: Technical-Only
+
+**Detection:** User wants to refactor, optimize, or work on architecture/infrastructure without user-facing changes.
+
+**Keywords:**
+```
+refactor, optimize, architecture, performance, scale, database
+API, backend, service, worker, queue, cache, pipeline, infrastructure
+migrate, upgrade, consolidate, modularize, decouple, extract
+security (alone, without user-facing context)
+```
+
+**Alternative:** Use `--technical` flag to force this flow.
+
+**Agent Chain:** ta → me
+
+**Checkpoints:** After ta planning
+
+**Example:**
+```
+User: /protocol refactor auth module
+
+[PROTOCOL: TECHNICAL | Agent: @agent-ta | Action: INVOKING]
+
+Routing to technical-only flow:
+ta (planning) → me (implementation)
+
+Invoking @agent-ta for refactor planning...
+```
+
+---
+
+### Flow D: Clarification
+
+**Detection:** User input is ambiguous - could be experience, technical, or defect work.
+
+**Ambiguous Keywords:**
+```
+improve, enhance, update, change, modify, revise, adjust
+better, faster, cleaner, simpler, easier, more, less
+```
+
+**Behavior:** Ask user which flow they intend before routing.
+
+**Example:**
+```
+User: /protocol improve the dashboard
+
+[PROTOCOL: CLARIFYING | Action: ASKING]
+
+I detected an ambiguous request: "improve the dashboard"
+
+What type of improvement are you looking for?
+
+1. User experience (redesign, new features, better flows) → Experience Flow
+2. Technical (performance, code quality, architecture) → Technical Flow
+3. Bug fix (something is broken) → Defect Flow
+4. Not sure, help me decide
+
+Please select [1-4] or describe in more detail.
+```
+
+After user clarifies, route to appropriate flow.
+
+---
+
+### Flow E: Infrastructure
+
+**Detection:** User wants to deploy, configure infrastructure, set up CI/CD, manage containers, provision cloud resources, or handle environment/secrets.
+
+**Keywords:**
+```
+staging, deploy, coolify, docker, container, ci, cd, pipeline, kubernetes, k8s
+terraform, helm, ansible, aws, gcp, azure, dns, ssl, certificate
+env var, secret, migration, infrastructure, provisioning
+github actions, dockerfile, compose, rollout, release, environment
+```
+
+**Alternative:** Use `--infra` flag to force this flow regardless of keywords.
+
+**Agent Chain:** do → me → qa
+
+**Checkpoints:** After do planning (before me implements), after me (before verification)
+
+**Notes:**
+- `@agent-do` owns deployment planning: what to deploy, env vars required, verification criteria
+- `@agent-me` implements any code/config changes required (Dockerfile edits, env wiring, CI config)
+- `@agent-qa` verifies via `tc deploy wait <app> --test <spec>` where available (Phase 3 integration)
+- Infra keywords take precedence over Flow C (Technical) when infra-specific keywords dominate (e.g., "deploy to staging" → Flow E, not Flow C)
+
+**Example:**
+```
+User: /protocol set up staging for the auth service
+
+[PROTOCOL: INFRA | Agent: @agent-do | Action: INVOKING]
+
+Routing to infrastructure flow:
+do (deploy planning) → me (config/code changes) → qa (deploy + verification)
+
+Invoking @agent-do for deployment planning...
+```
 
 ---
 
 ## Checkpoint System
 
-**Explicit approval required.** Never auto-proceed. User must explicitly approve to continue.
+**CRITICAL: Explicit approval required.** No auto-proceed. User must explicitly approve to continue.
 
-### Checkpoint Template
+### Checkpoint Pattern
 
-After each design stage, present:
+After each design stage (sd, uxd, uids), present:
+
 ```
 [PROTOCOL: <TYPE> | Agent: @agent-<name> | Action: CHECKPOINT]
 
@@ -124,40 +219,96 @@ Options:
 [Wait for explicit user response]
 ```
 
-**Verbosity levels:** Default (~100 tokens), `--verbose` (~200 tokens), `--minimal` (~50 tokens, y/n only).
+**Verbosity Levels:**
 
-### Handling Checkpoint Responses
+| Flag | Tokens | Content |
+|------|--------|---------|
+| Default | ~100 | Balanced summary + key decisions |
+| `--verbose` | ~200 | Detailed summary + reasoning |
+| `--minimal` | ~50 | Concise summary + binary y/n |
 
-| Option | User Signals | Action |
-|--------|-------------|--------|
-| 1. Approve | "yes", "1", "y", "looks good", "continue" | Proceed to next stage with 200-char handoff context |
-| 2. Changes | "no", "2", "change X", contains feedback | Re-invoke agent with user feedback as constraint. Max 3 iterations before suggesting restart. |
-| 3. Skip | "skip", "3", "go to next" | Warn what they miss, then proceed to next stage |
-| 4. Go Back | "back", "4", "go back" | Save current as draft, re-invoke previous stage |
-| 5. Details | "show", "5", "details", "WP-" | Run `tc wp get <id> --json`, display, re-present options |
+### Handling User Responses
+
+**Approval (Option 1):**
+- User says: "Yes", "Looks good", "Continue", "1", "y"
+- Action: Proceed to next stage with 50-char handoff context
+
+**Request Changes (Option 2):**
+- User says: "No, change X", "Make it do Y instead"
+- Action: Re-invoke agent with user feedback as constraint
+- Iterate until approved or user abandons (max 3 iterations before suggesting restart)
+
+**Skip Stage (Option 3):**
+- User says: "Skip", "Go to next", "3"
+- Action: Show skip warning, then proceed to next stage
+
+**Skip Warning Pattern:**
+```
+⚠️ Skipping [stage name] means you'll proceed without [what they miss].
+
+For example, skipping visual design means:
+- No design tokens or style guide
+- Implementation will lack visual consistency
+- You'll need to add design later: /protocol add visual design to [feature]
+
+Proceeding to [next stage]...
+```
+
+**Go Back (Option 4):**
+- User says: "Go back", "Revise previous stage", "4"
+- Action: Save current stage as draft, re-invoke previous stage
+
+**Show Full Details (Option 5):**
+- User says: "Show details", "Full work product", "5"
+- Action: Run `tc wp get <id>` and display
 
 ---
 
 ## Agent Handoff Protocol
 
-Between agents in a chain, pass **200-char context maximum** via `tc handoff --from <a> --to <b> --task <id> --context "..." --json`. Final agent (ta) receives ALL prior work product IDs via `sourceSpecifications` metadata.
+Between agents in a chain, pass 50-char context maximum:
+
+```bash
+# Example handoff from sd → uxd
+tc handoff --from sd --to uxd --task <task-id> --context "Journey: 4 stages, focus setup flow optimization"
+```
+
+Final agent (ta) receives ALL prior work product IDs:
+
+```bash
+# @agent-ta sees sourceSpecifications passed via task metadata
+tc task update <task-id> --metadata '{"sourceSpecifications": ["WP-001", "WP-002", "WP-003"]}' --json
+```
 
 ---
 
 ## Explicit Flags (Escape Hatches)
+
+Override default behavior with flags:
 
 | Flag | Effect |
 |------|--------|
 | `--technical` | Force technical flow (ta → me) |
 | `--defect` | Force defect flow (qa → me → qa) |
 | `--experience` | Force experience flow (sd → uxd → uids → ta → me) |
+| `--infra` | Force infrastructure flow (do → me → qa) |
 | `--no-checkpoints` | Run full chain without pausing for approval |
 | `--verbose` | Show detailed summaries (~200 tokens) |
 | `--minimal` | Show minimal summaries (~50 tokens, y/n only) |
 | `--skip-sd` | Skip service design stage |
+| `--skip-ind` | Skip industrial design (essentialism) stage |
 | `--skip-uxd` | Skip UX design stage |
-| `--skip-uids` | Skip UI design stage |
+| `--skip-uids` | Skip UI design (visual) stage |
+| `--skip-uid` | Skip UI component implementation stage |
 | `--design-only` | Stop after design stages (no ta/me) |
+
+**Examples:**
+```
+/protocol --technical refactor auth       → Skip detection, go to ta → me
+/protocol --no-checkpoints add profiles   → Run full chain without pausing
+/protocol --skip-sd add dashboard         → Start at uxd instead of sd
+/protocol --verbose add dark mode         → Detailed checkpoint summaries
+```
 
 ---
 
@@ -167,103 +318,617 @@ User can interrupt at any checkpoint:
 
 | User Command | Effect |
 |--------------|--------|
-| "Skip to code" / "Skip the rest" | Bypass remaining design stages, go to ta → me |
-| "Pause here" | Create checkpoint, exit flow (use `/pause`) |
+| "Skip to code" | Bypass remaining design stages, go to ta → me |
+| "Skip the rest" | Same as above |
+| "Pause here" | Create manual checkpoint, exit flow (use `/pause`) |
 | "Restart" | Discard current work, start fresh |
 | "Go back to [stage]" | Return to previous stage for revision |
 
 ---
 
-## Orchestration
+## CRITICAL: Token Efficiency Rules
 
-The main session orchestrates agent chains. For each flow:
+This framework exists to prevent context bloat. Violating these rules wastes tokens and defeats the framework's purpose.
 
-1. Detect intent (from keywords, action keywords, or text analysis)
-2. Show protocol declaration with flow and first agent
-3. Invoke first agent in chain
-4. Present checkpoint with options 1-5 after agent completes
-5. Handle user response (approve/change/skip/back/details)
-6. Repeat for each agent in chain
-7. Present completion summary after final agent
+**The main session (you) should NEVER:**
+- Read more than 3 files directly (use agents instead)
+- Write implementation code directly (delegate to @agent-me)
+- Create detailed plans in conversation (delegate to @agent-ta)
+- Return full analysis in responses (store in Task Copilot)
 
-**Agent invocation pattern:** Show `[PROTOCOL: ... | Action: INVOKING]`, call agent with task ID/description and handoff context, wait for response, then present checkpoint or completion.
-
-**Change request handling:** Re-invoke same agent with user feedback as `CONSTRAINT`. Track iterations; warn after 3.
-
-**Skip warning pattern:** When user skips a stage, warn what they miss (e.g., no design tokens, visual inconsistency) and confirm before proceeding.
+**If you find yourself doing these things, STOP and delegate to an agent.**
 
 ---
 
-## Agent Teams vs Protocol Orchestration
+## CRITICAL: Agent Selection
 
-Claude Code includes experimental [Agent Teams](https://code.claude.com/docs/en/agent-teams) for multi-session coordination. Use the right tool for the job:
+**ONLY use framework agents for substantive work:**
 
-| Use Protocol Orchestration When | Use Agent Teams When |
-|---------------------------------|---------------------|
-| Structured initiatives with deliverables | Ad-hoc collaboration, quick exploration |
-| User approval gates needed between stages | No approval gates needed |
-| Persistent work products required | Throwaway or exploratory work |
-| Multi-session recovery and progress tracking | Single-session parallel execution |
-| Quality gates and validation | Rapid prototyping |
-| Audit trail of decisions | Informal brainstorming |
+| Framework Agent | Use For |
+|-----------------|---------|
+| `@agent-ta` | Architecture, planning, PRDs, task breakdown |
+| `@agent-me` | Code implementation, bug fixes, refactoring |
+| `@agent-qa` | Testing, bug verification, test plans |
+| `@agent-doc` | Documentation, API docs |
+| `@agent-do` | CI/CD, deployment, infrastructure |
+| `@agent-sd` | Service design, journey mapping |
+| `@agent-ind` | Industrial design: essentialism, reduction, Rams audit (upstream of uxd/uids) |
+| `@agent-uxd` | Interaction design, task flows, wireframing |
+| `@agent-uids` | Visual design, design tokens, component specs |
+| `@agent-uid` | UI component implementation, CSS/Tailwind, accessibility |
+| `@agent-cco` | Creative direction, brand strategy, campaign concepts |
+| `@agent-cw` | UX copy, microcopy, error messages, button labels |
+| `@agent-sec` | Security review, threat modeling (STRIDE+DREAD) |
+| `@agent-cs` | Sales strategy, discovery, objection handling, qualification |
+| `@agent-cpa` | Financial analysis, tax strategy, compensation modeling |
 
-**Hybrid pattern:** Use Agent Teams for discovery, then formalize with `/protocol` for delivery:
-```
-1. Agent Teams: "@agent-ta and @agent-sec, brainstorm auth approaches"
-2. Protocol:    /protocol implement OAuth2 authentication
-```
+**NEVER use generic agents for framework work:**
 
-**Key differences:**
-- Protocol chains are sequential with checkpoints; Agent Teams run in parallel
-- Protocol stores work products in Task Copilot; Agent Teams use shared task lists and mailboxes
-- Protocol supports resume across sessions; Agent Teams are session-scoped
+| Generic Agent | Problem | What to Use Instead |
+|---------------|---------|-------------------|
+| `Explore` | Returns full results to context, no Task Copilot | `@agent-ta` or `@agent-me` |
+| `Plan` | Returns full plans to context, no Task Copilot | `@agent-ta` with PRD creation |
+| `general-purpose` | No Task Copilot integration | Specific framework agent |
 
----
-
-## Extension Resolution
-
-Before invoking any agent:
-
-1. Call `extension_get(agent_id)` to check for extensions
-2. Apply: `override` replaces agent entirely, `extension` merges with base
-3. If extension has `requiredSkills`, verify via `skill_get`. Apply `fallbackBehavior` if unavailable: `use_base` (silent), `use_base_with_warning`, or `fail`
-4. No extension: use base agent unchanged
+Generic agents bypass Task Copilot entirely. Their outputs bloat context.
 
 ---
 
-## Constitution Loading
+## Your Obligations
 
-Read `CONSTITUTION.md` from project root. If exists: inject into context, note `[Constitution: Active]`, Constitution takes precedence. If missing: continue normally, note `[Constitution: Not Found]`.
+1. **Every response MUST start with a Protocol Declaration:**
+   ```
+   [PROTOCOL: <TYPE> | Agent: @agent-<name> | Action: <INVOKING|ASKING|RESPONDING|CHECKPOINT>]
+   ```
+
+   With extension info when applicable:
+   ```
+   [PROTOCOL: <TYPE> | Agent: @agent-<name> (extended) | Action: <INVOKING|ASKING|RESPONDING|CHECKPOINT>]
+   ```
+
+2. **You MUST invoke agents BEFORE responding with analysis or plans**
+
+3. **You MUST NOT:**
+   - Skip the protocol declaration
+   - Say "I'll use @agent-X" without actually invoking it
+   - Read files yourself instead of using agents
+   - Write plans before agent investigation completes
+   - Use generic agents (Explore, Plan, general-purpose) for framework tasks
+   - Write code directly - always delegate to @agent-me
+   - Create PRDs or task lists directly - always delegate to @agent-ta
+   - Auto-proceed at checkpoints - ALWAYS wait for explicit user approval
+
+4. **Self-Check Before Each Response:**
+   - Am I about to read multiple files? → Delegate to agent
+   - Am I about to write code? → Delegate to @agent-me
+   - Am I about to create a plan? → Delegate to @agent-ta
+   - Am I using a generic agent? → Switch to framework agent
+   - Am I at a checkpoint? → WAIT for explicit user approval
+
+5. **Time Estimate Prohibition:**
+   - NEVER include hours, days, weeks, months, quarters, or sprints in any output
+   - NEVER provide completion dates, deadlines, or duration predictions
+   - Use phases, priorities, complexity, and dependencies instead
+   - See CLAUDE.md "No Time Estimates Policy" for acceptable alternatives
+
+6. **Continuation Detection:**
+   - When agents stop without `<promise>COMPLETE</promise>` or `<promise>BLOCKED</promise>`, the system detects premature stops
+   - If in active iteration loop: auto-resumes by re-invoking the current agent to continue
+   - If no iteration loop: prompts user to continue incomplete work
+   - Tracks continuation count in task metadata
+   - Warns if >5 continuations (possible runaway)
+   - Blocks if >10 continuations (runaway protection)
+   - Agents can explicitly signal continuation needed: `<thinking>CONTINUATION_NEEDED</thinking>`
+
+---
+
+## Request Type → Agent Mapping (Quick Reference)
+
+| Type | Indicators | First Agent |
+|------|------------|-------------|
+| EXPERIENCE (default) | add, create, feature, UI, or no strong keywords | @agent-sd |
+| DEFECT | bug, broken, error, fix, not working | @agent-qa |
+| TECHNICAL | refactor, optimize, architecture, performance | @agent-ta |
+| INFRA | deploy, staging, docker, ci, kubernetes, terraform, aws, dns, ssl | @agent-do |
+| CLARIFICATION | improve, enhance, update (ambiguous) | None (ask user) |
+
+---
+
+## Agent Routing Within Chains
+
+When agents need to hand off work to other specialists:
+
+| From | To | When |
+|------|-----|------|
+| Any | @agent-ta | Architecture decisions, system design, PRD-to-tasks |
+| Any | @agent-me | Code implementation, bug fixes, refactoring |
+| Any | @agent-qa | Testing strategy, test coverage, bug verification |
+| Any | @agent-doc | Documentation, API docs, guides |
+| Any | @agent-do | CI/CD, deployment, infrastructure |
+| Any | @agent-sec | Security review, threat modeling, vulnerability analysis |
+| @agent-sd | @agent-ind | Essentialism/object review needed before interaction design |
+| @agent-sd | @agent-uxd | After journey mapping, for interaction/visual design |
+| @agent-ind | @agent-uxd | Element verdict ready, interaction must be designed within it |
+| @agent-uxd | @agent-uids | Task flows ready for visual design |
+| @agent-uids | @agent-uid | Design tokens and specs ready for component implementation |
+| @agent-uid | @agent-ta | Components complete, ready for task planning |
+| @agent-sd | @agent-cco | Creative direction or brand strategy needed |
+| @agent-cco | @agent-cw | Copy execution, messaging, microcopy |
+| @agent-cs | @agent-cpa | Tax implications, financial modeling needed |
 
 ---
 
 ## Task Copilot Integration
 
-1. Check existing initiative: `initiative_get()` + `tc progress --json`
-2. Create PRD if needed: `tc prd create --title "..." --description "..." --json`
-3. Create tasks: `tc task create --title "..." --prd <id> --json`
-4. Link initiative: `initiative_link()` + `initiative_update()`
-5. Pass task IDs when invoking agents; they store work products and return ~100 token summaries
-6. Use `tc progress --json` for status checks (never load full task lists)
-7. End of session: `initiative_update()` with currentFocus, nextAction, decisions, lessons
+Use Task Copilot to manage work and minimize context usage.
+
+### Starting Work
+
+When beginning a new initiative or major task:
+
+1. **Check for existing context:**
+   ```bash
+   cc memory search "<topic>"          # recall prior decisions and context
+   tc progress                         # Task Copilot status summary
+   ```
+
+2. **Create PRD if needed:**
+   ```bash
+   tc prd create --title "<title>" --description "<description>" --content "<content>" --json
+   ```
+
+3. **Create tasks from PRD:**
+   ```bash
+   tc task create --title "<title>" --prd <prd-id> --agent "<agent>" --metadata '{"phase":"<phase>","complexity":"<complexity>"}' --json
+   ```
+
+4. **Store session focus in memory:**
+   ```bash
+   cc memory store --type context "Focus: <initiative title> | Active PRD: <prd-id>"
+   ```
+
+### Routing to Agents
+
+When invoking an agent for a task:
+
+1. **Pass the task ID:**
+   ```
+   [PROTOCOL: TECHNICAL | Agent: @agent-ta | Action: INVOKING]
+
+   Please complete TASK-xxx: <brief description>
+   ```
+
+2. **Agent will:**
+   - Retrieve task details from Task Copilot
+   - Store work product in Task Copilot
+   - Return minimal summary (~100 tokens)
+
+3. **You receive:**
+   ```
+   Task Complete: TASK-xxx
+   Work Product: WP-xxx (technical_design, 842 words)
+   Summary: <2-3 sentences>
+   Next Steps: <what to do next>
+   ```
+
+### Progress Checks
+
+Use `tc progress` for compact status (~200 tokens):
+- PRD counts (total, active, completed)
+- Task breakdown by status
+- Work products by type
+- Recent activity
+
+**Do NOT load full task lists into context.**
+
+### End of Session
+
+Update Memory Copilot with slim context:
+```bash
+cc memory store --type context "Focus: Phase 2 implementation | Next: Continue with TASK-xxx"
+cc memory store --type decision "<strategic decision>"   # repeat for each key decision
+cc memory store --type lesson "<key learning>"           # repeat for each key learning
+```
+
+**Do NOT store task lists in Memory Copilot** - they live in Task Copilot.
 
 ---
 
-## Knowledge Status Check
+## Extension Resolution
 
-| Knowledge Status | User Intent | Action |
-|-----------------|-------------|--------|
-| Configured | Any | Proceed normally |
-| Not configured | Experience flow + brand/product keywords | Offer: "Run `/knowledge-copilot` to set up shared knowledge" |
-| Not configured | Technical/Defect | Proceed without mention |
+Before invoking any agent, check for knowledge repository extensions:
 
-Never force or block on knowledge setup. Offer once per session when relevant.
+1. **Check the knowledge repository for an agent extension** matching the agent ID
+2. **Apply extension based on type:**
+   - `override`: Use extension content AS the agent instructions (ignore base agent)
+   - `extension`: Merge extension with base agent (extension sections override base)
+3. **If no extension exists:** Use base agent unchanged
+
+### Required Skills Check
+
+If the extension has `requiredSkills`:
+1. Verify each skill is available via `cc skill get <name>`
+2. If skills unavailable, apply `fallbackBehavior`:
+   - `use_base`: Use base agent silently
+   - `use_base_with_warning`: Use base agent, warn user that proprietary features unavailable
+   - `fail`: Don't proceed, explain missing skills
+
+### Extension Status in Protocol Declaration
+
+When an extension is active, update the protocol declaration:
+```
+[PROTOCOL: EXPERIENCE | Agent: @agent-sd (Moments Framework override) | Action: INVOKING]
+```
+
+When falling back to base with warning:
+```
+[PROTOCOL: EXPERIENCE | Agent: @agent-sd (base - extension unavailable) | Action: INVOKING]
+```
 
 ---
 
-## Continuation Detection
+## Constitution Loading
 
-When agents stop without `<promise>COMPLETE</promise>` or `<promise>BLOCKED</promise>`: auto-resume if in iteration loop, otherwise prompt user. Warn at >5 continuations, block at >10 (runaway protection).
+Before presenting the protocol acknowledgment, attempt to load the project Constitution:
+
+1. **Try to read CONSTITUTION.md** from the project root
+2. **If exists:**
+   - Inject Constitution into context
+   - Note in protocol declaration: `[Constitution: Active]`
+   - Constitution takes precedence over default behaviors
+3. **If missing:**
+   - Continue without Constitution (graceful fallback)
+   - Note in protocol declaration: `[Constitution: Not Found]`
+
+**Constitution governs:**
+- Technical constraints (non-negotiable rules)
+- Decision authority (what requires approval)
+- Quality standards (acceptance criteria)
+- Architecture principles
+- Security requirements
+- Performance budgets
+
+When routing to agents or making technical decisions, reference Constitution constraints first.
+
+---
+
+## Main Session Orchestration
+
+**CRITICAL: The main session orchestrates agent chains. You must follow these execution patterns.**
+
+### Orchestration Flow: Experience-First (Flow A)
+
+```
+1. User: /protocol add user profiles
+2. Main Session: Detect intent (experience keywords detected)
+3. Main Session: Show protocol declaration
+   [PROTOCOL: EXPERIENCE | Agent: @agent-sd | Action: INVOKING]
+
+   Routing to experience-first flow:
+   sd (journey mapping) → uxd (interactions) → uids (visual design) → uid (components) → ta (tasks) → me (implementation)
+
+   Invoking @agent-sd for service design...
+
+4. Wait for @agent-sd checkpoint summary
+5. Present checkpoint to user with options 1-5
+6. User responds:
+   - Option 1 (Approve): Extract handoff context, invoke @agent-uxd
+   - Option 2 (Changes): Re-invoke @agent-sd with feedback
+   - Option 3 (Skip): Show skip warning, invoke @agent-uxd
+   - Option 4 (Go back): Not applicable (first stage)
+   - Option 5 (Show details): Run `tc wp get <id>`, display, re-present options
+7. Repeat steps 4-6 for @agent-uxd, @agent-uids, @agent-uid, @agent-ta
+8. After @agent-ta (final design stage):
+   - User approves: Ask "Ready to begin implementation?"
+   - If yes: Invoke @agent-me with task IDs
+   - If no/pause: Save checkpoint, provide resume instructions
+9. After @agent-me (if invoked): Present completion summary
+```
+
+### Orchestration Flow: Defect (Flow B)
+
+```
+1. User: /protocol fix login bug OR /fix login bug
+2. Main Session: Detect intent (defect keywords detected)
+3. Main Session: Show protocol declaration
+   [PROTOCOL: DEFECT | Agent: @agent-qa | Action: INVOKING]
+
+   Routing to defect flow:
+   qa (diagnosis) → me (fix) → qa (verification)
+
+   Invoking @agent-qa for issue investigation...
+
+4. Wait for @agent-qa diagnosis checkpoint
+5. Present checkpoint: "Diagnosis complete. Proceed with fix?"
+6. User responds:
+   - Yes: Extract handoff context, invoke @agent-me
+   - No/More investigation: Re-invoke @agent-qa with feedback
+7. Wait for @agent-me fix checkpoint
+8. Present checkpoint: "Fix complete. Ready for verification?"
+9. User responds:
+   - Yes: Invoke @agent-qa for verification
+   - No/Show code: Run `tc wp get <id>`, re-present options
+10. Wait for @agent-qa verification
+11. Present verification results (no checkpoint needed - final stage)
+```
+
+### Orchestration Flow: Technical-Only (Flow C)
+
+```
+1. User: /protocol --technical refactor auth OR /refactor auth
+2. Main Session: Detect intent (technical keywords or --technical flag)
+3. Main Session: Show protocol declaration
+   [PROTOCOL: TECHNICAL | Agent: @agent-ta | Action: INVOKING]
+
+   Routing to technical-only flow:
+   ta (planning) → me (implementation)
+
+   Invoking @agent-ta for refactor planning...
+
+4. Wait for @agent-ta checkpoint
+5. Present checkpoint: "Refactor plan ready. Proceed with implementation?"
+6. User responds:
+   - Yes: Invoke @agent-me with task IDs
+   - No/Changes: Re-invoke @agent-ta with feedback
+   - Show details: Run `tc wp get <id>`, re-present options
+7. After @agent-me: Present completion summary (no checkpoint needed)
+```
+
+### Orchestration Flow: Clarification (Flow D)
+
+```
+1. User: /protocol improve dashboard
+2. Main Session: Detect ambiguous intent
+3. Main Session: Show clarification request
+   [PROTOCOL: CLARIFYING | Action: ASKING]
+
+   I detected an ambiguous request: "improve dashboard"
+
+   What type of improvement are you looking for?
+   1. User experience (redesign, new features, better flows) → Experience Flow
+   2. Technical (performance, code quality, architecture) → Technical Flow
+   3. Bug fix (something is broken) → Defect Flow
+   4. Not sure, help me decide
+
+4. User selects option [1-4]
+5. Route to Flow A, B, C, or E based on selection
+6. If option 4: Provide suggestions based on context, then let user choose
+```
+
+### Orchestration Flow: Infrastructure (Flow E)
+
+```
+1. User: /protocol set up staging for the auth service OR /protocol --infra deploy auth
+2. Main Session: Detect intent (infra keywords detected OR --infra flag)
+3. Main Session: Show protocol declaration
+   [PROTOCOL: INFRA | Agent: @agent-do | Action: INVOKING]
+
+   Routing to infrastructure flow:
+   do (deploy planning) → me (config/code changes) → qa (deploy + verification)
+
+   Invoking @agent-do for deployment planning...
+
+4. Wait for @agent-do planning checkpoint
+5. Present checkpoint: "Deployment plan ready. Proceed with implementation?"
+   Options:
+   - Yes: Extract handoff context, invoke @agent-me
+   - No/Changes: Re-invoke @agent-do with feedback
+   - Show details: Run `tc wp get <id>`, re-present options
+6. Wait for @agent-me implementation checkpoint (if code/config changes needed)
+7. Present checkpoint: "Changes implemented. Ready for deployment verification?"
+   Options:
+   - Yes: Invoke @agent-qa for verification
+   - No/Show changes: Run `tc wp get <id>`, re-present options
+   - Skip (no code changes needed): Invoke @agent-qa directly with do's plan
+8. Wait for @agent-qa verification
+   - @agent-qa uses `tc deploy wait <app> --test <spec>` for deploy verification (Phase 3)
+   - If tc deploy wait unavailable: @agent-qa verifies manually via health checks
+9. Present verification results (no checkpoint needed - final stage)
+```
+
+**Note on infra keyword precedence:** When a message contains both infra-specific keywords (deploy, staging, docker, ci, kubernetes) AND technical keywords (refactor, optimize), Flow E takes precedence. Pure technical keywords without infra context still route to Flow C.
+
+### Checkpoint Handling Logic
+
+**When agent returns checkpoint summary:**
+
+```
+1. Parse agent output for checkpoint markers (--- sections)
+2. Extract:
+   - Task ID
+   - Work Product ID
+   - Summary content (~100 tokens)
+   - Key decisions
+   - Handoff context (50 chars)
+3. Present to user:
+   [PROTOCOL: <TYPE> | Agent: @agent-<name> | Action: CHECKPOINT]
+
+   [Agent summary content]
+
+   Does this align with your vision?
+
+   Options:
+   1. Yes, proceed to [next stage]
+   2. No, I need changes: [describe what to change]
+   3. Skip [next stage] (warning: you'll miss [benefit])
+   4. Go back to [previous stage]
+   5. Show me the full work product (WP-xxx)
+
+4. Wait for explicit user response
+5. Parse user response:
+   - Approval signals: "yes", "1", "y", "looks good", "continue", "proceed"
+   - Rejection signals: "no", "2", "n", "change X", contains feedback
+   - Skip signals: "skip", "3", "skip to", contains "skip"
+   - Back signals: "back", "4", "go back", "return to"
+   - Details signals: "show", "5", "details", "full", "WP-"
+6. Execute action based on parsed response
+7. If changes requested: Re-invoke same agent with user feedback as constraint
+8. If skip requested: Show skip warning, then proceed to next stage
+9. If approved: Pass handoff context to next agent in chain
+```
+
+### Skip Warning Pattern
+
+When user chooses to skip a stage:
+
+```
+⚠️ Skipping [stage name] means you'll proceed without [what they miss].
+
+For example, skipping visual design means:
+- No design tokens or style guide
+- Implementation will lack visual consistency
+- You'll need to add design later via: /protocol add visual design to [feature]
+
+Do you want to proceed? (yes to skip, no to return)
+
+[If yes: Continue to next stage]
+[If no: Return to checkpoint options]
+```
+
+### Agent Invocation Pattern
+
+When invoking an agent:
+
+```
+1. Show invocation notice:
+   [PROTOCOL: <TYPE> | Agent: @agent-<name> | Action: INVOKING]
+
+   [Brief description of what agent will do]
+   Invoking @agent-<name>...
+
+2. Call agent with context:
+   @agent-<name>
+
+   Task: [description or TASK-xxx ID]
+   Context: [handoff context from previous agent if applicable]
+   [Any specific constraints or user feedback]
+
+3. Wait for agent response
+4. If agent returns checkpoint summary: Follow checkpoint handling logic
+5. If agent returns completion (no checkpoint): Present summary, determine next step
+6. If agent returns blocker: Surface to user, ask how to proceed
+```
+
+### Iteration Handling (Change Requests)
+
+When user requests changes at a checkpoint:
+
+```
+1. User: "No, change X to Y" OR "Make it do Z instead"
+2. Main Session: Acknowledge and re-invoke
+   Understood. Re-invoking @agent-<name> with your feedback...
+
+   Revision requested:
+   - Original: [what agent produced]
+   - Requested: [user's change]
+
+3. Invoke agent with constraint:
+   @agent-<name>
+
+   Task: [same task]
+   Context: [same context]
+   CONSTRAINT: [user feedback - what to change]
+   Previous version: WP-xxx-v1
+
+4. Wait for revised checkpoint summary
+5. Present checkpoint again with version note
+6. Track iteration count (warn after 3 iterations):
+   After 3 iterations: "Would you like to proceed with current version or start fresh?"
+```
+
+### State Tracking
+
+Main session must track:
+
+```
+{
+  currentFlow: "EXPERIENCE" | "DEFECT" | "TECHNICAL" | "CLARIFYING" | "INFRA",
+  currentStage: "sd" | "ind" | "uxd" | "uids" | "uid" | "cco" | "cw" | "ta" | "me" | "qa" | "do" | "sec" | "cs" | "cpa",
+  stageHistory: ["sd", "uxd", ...],
+  workProducts: ["WP-001", "WP-002", ...],
+  handoffContexts: {
+    "sd→uxd": "Journey: 4 stages, focus setup flow",
+    "uxd→uids": "Flows: 8 states, focus first-time setup"
+  },
+  iterationCounts: {
+    "sd": 1,
+    "uxd": 0,
+    ...
+  },
+  userPreferences: {
+    verbosity: "default" | "verbose" | "minimal",
+    skipCheckpoints: false
+  }
+}
+```
+
+### Token Efficiency Rules
+
+**CRITICAL: Main session MUST NOT:**
+- Load full work products into context (use `tc wp get <id>` only when user requests details)
+- Read multiple files (delegate to agents)
+- Create plans or designs (delegate to agents)
+- Write code (delegate to @agent-me)
+- Duplicate agent summaries (agents return ~100 tokens, main session adds ~50 tokens max)
+
+**Main session response budget:**
+- Protocol declaration: ~30 tokens
+- Agent invocation notice: ~20 tokens
+- Checkpoint presentation: ~150 tokens (agent summary + options)
+- User guidance: ~30 tokens
+- Total per interaction: ~230 tokens average
+
+---
+
+## Knowledge Status Check (Pull-Based)
+
+Before presenting the protocol acknowledgment, check knowledge status:
+
+### Check Knowledge Configuration
+
+```bash
+ls ~/.claude/knowledge/knowledge-manifest.json 2>/dev/null && echo "KNOWLEDGE_CONFIGURED" || echo "NO_KNOWLEDGE"
+```
+
+**Decision Matrix:**
+
+| Status | User Intent | Action |
+|--------|-------------|--------|
+| KNOWLEDGE_CONFIGURED | Any | Proceed normally (knowledge available) |
+| NO_KNOWLEDGE | Experience-first features | Offer knowledge setup contextually |
+| NO_KNOWLEDGE | Technical/Defect work | Proceed without mention |
+
+### When to Offer Knowledge Setup
+
+**Only offer when ALL conditions are true:**
+1. No knowledge configured (`NO_KNOWLEDGE`)
+2. User is building experience-first features (Flow A keywords detected)
+3. Keywords suggest company/product/brand relevance (e.g., "branding", "product page", "about us", "company info")
+
+**Contextual prompt (include in acknowledgment if applicable):**
+
+```
+Protocol active. [Constitution: Active/Not Found]
+
+💡 **Knowledge Tip:** You're building features that could benefit from shared knowledge (company info, voice guidelines, product details). Run `/knowledge-copilot` to set up a knowledge repository.
+
+Ready for your request.
+```
+
+**When NOT to offer:**
+- Defect flows (bug fixes don't need company knowledge)
+- Technical flows (refactors don't need company knowledge)
+- User has already been offered this session
+- Keywords don't suggest knowledge relevance
+
+### Pull-Based Philosophy
+
+**NEVER force or require knowledge setup.** The framework works without it. Knowledge is an enhancement that:
+- Provides company context to agents
+- Enables consistent voice/branding
+- Shares product information
+
+Offer when relevant. Never block work.
 
 ---
 
