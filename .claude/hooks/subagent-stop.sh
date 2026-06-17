@@ -191,11 +191,30 @@ extract_all_task_ids() {
 # QA verdict parsing
 # Returns: "pass", "fail", or "unknown"
 # Precedence (case-insensitive):
-#   1. VERDICT: APPROVED or APPROVED-WITH-MINOR-FIXES → pass
-#   2. VERDICT: REJECTED → fail
-#   3. <promise>COMPLETE</promise> with no REJECTED → implicit pass
-#   4. Otherwise → unknown (treated as fail for safety)
+#   1. VERDICT: APPROVED or APPROVED-WITH-MINOR-FIXES WITH an ARTIFACT marker → pass
+#   2. VERDICT: APPROVED or APPROVED-WITH-MINOR-FIXES WITHOUT an ARTIFACT marker → fail
+#      (a bare pass with no artifact is invalid per ADR-001 / WS1 failable-check gate)
+#   3. VERDICT: REJECTED → fail
+#   4. <promise>COMPLETE</promise> with no REJECTED AND an ARTIFACT marker → implicit pass
+#   5. Otherwise → unknown (treated as fail for safety)
+#
+# ARTIFACT marker format (R3 WS1 / TASK-115):
+#   ARTIFACT: <type>|<detail>
+#   where type ∈ {test-run, file-check, diff-check}
+#   Example: ARTIFACT: test-run|pytest tests/foo.py exit=0 "3 passed"
+#
+# ESCAPE HATCH:
+#   COPILOT_QA_GATE=off bypasses all gate logic in the caller (subagent-stop.sh).
 # ---------------------------------------------------------------------------
+
+# has_artifact_marker: returns 0 (true) if the message contains a valid ARTIFACT line.
+has_artifact_marker() {
+  local msg="$1"
+  # Case-insensitive match for ARTIFACT: <type>|<detail>
+  # type must be one of: test-run, file-check, diff-check
+  printf '%s' "$msg" | grep -qiE '^[[:space:]]*ARTIFACT:[[:space:]]+(test-run|file-check|diff-check)\|.+$'
+}
+
 parse_qa_verdict() {
   local msg="$1"
   local msg_upper
@@ -203,7 +222,15 @@ parse_qa_verdict() {
 
   # Explicit VERDICT tokens (highest precedence)
   if printf '%s' "$msg_upper" | grep -qE 'VERDICT:[[:space:]]*(APPROVED-WITH-MINOR-FIXES|APPROVED)'; then
-    echo "pass"
+    # APPROVED verdict is only valid when accompanied by an ARTIFACT marker.
+    # A bare "VERDICT: APPROVED" with no artifact is an invalid/insufficient verdict
+    # and must NOT unblock the gate (ADR-001 / WS1 principle: verdicts bind to artifacts).
+    if has_artifact_marker "$msg"; then
+      echo "pass"
+    else
+      echo "fail"
+      log_warn "VERDICT: APPROVED received but NO ARTIFACT marker found — gate NOT unblocked (session: ${SESSION_ID}). QA must include ARTIFACT: test-run|..., ARTIFACT: file-check|..., or ARTIFACT: diff-check|..."
+    fi
     return
   fi
   if printf '%s' "$msg_upper" | grep -qE 'VERDICT:[[:space:]]*REJECTED'; then
@@ -211,10 +238,15 @@ parse_qa_verdict() {
     return
   fi
 
-  # Implicit pass: COMPLETE promise with no REJECTED language
+  # Implicit pass: COMPLETE promise with no REJECTED language, AND an ARTIFACT marker
   if printf '%s' "$msg" | grep -qF '<promise>COMPLETE</promise>'; then
     if ! printf '%s' "$msg_upper" | grep -qE 'REJECTED|VERDICT:[[:space:]]*FAIL'; then
-      echo "pass"
+      if has_artifact_marker "$msg"; then
+        echo "pass"
+      else
+        echo "fail"
+        log_warn "Implicit pass (<promise>COMPLETE</promise>) but NO ARTIFACT marker — gate NOT unblocked (session: ${SESSION_ID})."
+      fi
       return
     fi
   fi

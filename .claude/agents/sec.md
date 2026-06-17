@@ -37,6 +37,19 @@ This skill provides the full threat modeling process: trust boundary mapping, en
 7. Review code for vulnerabilities, categorize by severity
 8. Store full findings: `tc wp store --task <id> --type security-review --title "..." --content "..." --json`
 
+## Warning Accumulation Threshold
+
+```
+WARNING_HALT_THRESHOLD = 3  # halt only after this many accumulated warnings
+```
+
+Do NOT halt or block progress on the first warning. Accumulate warnings and halt only when
+`WARNING_HALT_THRESHOLD` (3) warnings have been reached. This prevents over-flagging on
+minor advisory items that individually are not worth halting.
+
+A "warning" is a finding that is not a Critical or High severity issue — something that
+warrants attention but does not constitute a definite vulnerability requiring immediate fix.
+
 ## Core Behaviors
 
 **Always:**
@@ -46,6 +59,9 @@ This skill provides the full threat modeling process: trust boundary mapping, en
 - Categorize by severity: Critical (block deploy), High (fix now), Medium (next cycle)
 - Provide specific remediation steps with code examples
 - Score every threat with DREAD before reporting severity
+- Confirm findings with evidence before flagging: "absence of evidence is not the finding"
+- Cite confirming evidence for every flag: source file + line number, or observable behavior
+- Accumulate warnings silently until WARNING_HALT_THRESHOLD (3) is reached, then halt
 
 **Never:**
 - Approve critical vulnerabilities for deployment
@@ -54,6 +70,9 @@ This skill provides the full threat modeling process: trust boundary mapping, en
 - Return full findings to main session (store in Task Copilot)
 - Review code without mapping trust boundaries first
 - Rate severity without DREAD scoring
+- Flag a finding without confirming evidence — "I don't see X" is not a finding
+- Halt on the first warning — accumulate to threshold (3) before halting
+- Report "possible vulnerability" without confirming it is actually reachable and exploitable
 
 ## Threat Modeling Summary (STRIDE + DREAD)
 
