@@ -151,10 +151,80 @@ if command -v cc &>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
+# Build quota segment from ~/.claude/session-usage.json (consumer: read only)
+# ADR-003: statusline NEVER probes; it only reads the cache written by `cc usage`
+# ---------------------------------------------------------------------------
+QUOTA_BLOCK=""
+USAGE_CACHE="${HOME}/.claude/session-usage.json"
+
+if [[ -f "$USAGE_CACHE" ]] && command -v python3 &>/dev/null; then
+  QUOTA_BLOCK="$(python3 - "$USAGE_CACHE" <<'QUOTAEOF'
+import json, sys, time
+from datetime import datetime, timezone
+
+try:
+    with open(sys.argv[1]) as f:
+        d = json.load(f)
+
+    age_s = time.time() - d.get("probed_at", 0)
+    if age_s > 3600:
+        age_label = f"{age_s/3600:.1f}h ago"
+    else:
+        age_label = f"{int(age_s)}s ago"
+
+    source = d.get("source", "unknown")
+    if d.get("idle_gated"):
+        source += " (cached)"
+
+    lines = [f"## Session Quota  [{source}, updated {age_label}]"]
+
+    if d.get("probe_error"):
+        lines.append(f"  Probe error: {d['probe_error']}")
+
+    if source.startswith("probe"):
+        def pct(v): return f"{float(v)*100:.1f}%" if v is not None else "?"
+        def rst(ep):
+            if ep is None: return "?"
+            try:
+                dt = datetime.fromtimestamp(int(ep), tz=timezone.utc)
+                return dt.strftime("%H:%M UTC")
+            except Exception:
+                return str(ep)
+
+        s5 = d.get("five_h_status") or "?"
+        u5 = pct(d.get("five_h_utilization"))
+        r5 = rst(d.get("five_h_reset_epoch"))
+        s7 = d.get("seven_d_status") or "?"
+        u7 = pct(d.get("seven_d_utilization"))
+        r7 = rst(d.get("seven_d_reset_epoch"))
+
+        lines.append(f"  5h: {s5} {u5} used  resets {r5}")
+        lines.append(f"  7d: {s7} {u7} used  resets {r7}")
+        if d.get("overage_status") and d["overage_status"] != "allowed":
+            lines.append(f"  Overage: {d['overage_status']}")
+    else:
+        # Fallback (transcript reconstruction)
+        m5 = d.get("five_h_tokens_reconstructed") or 0
+        m7 = d.get("seven_d_tokens_reconstructed") or 0
+        lines.append(f"  5h messages: {m5}  7d messages: {m7}  (offline estimate)")
+
+    print("\n".join(lines))
+except Exception as e:
+    # Never crash the hook
+    pass
+QUOTAEOF
+  )" 2>/dev/null || true
+fi
+
+# ---------------------------------------------------------------------------
 # Compose final message
 # ---------------------------------------------------------------------------
-if [[ -n "$REFS_BLOCK" ]]; then
+if [[ -n "$REFS_BLOCK" ]] && [[ -n "$QUOTA_BLOCK" ]]; then
+  FULL_TEXT="${GUARDRAILS}"$'\n\n'"---"$'\n'"${REFS_BLOCK}"$'\n'"*To register a reference: \`cc config set refs.<name> <value>\` or \`cc memory store --type reference \"<content>\"\`*"$'\n\n'"${QUOTA_BLOCK}"$'\n'"*Run \`cc usage\` to refresh quota data.*"
+elif [[ -n "$REFS_BLOCK" ]]; then
   FULL_TEXT="${GUARDRAILS}"$'\n\n'"---"$'\n'"${REFS_BLOCK}"$'\n'"*To register a reference: \`cc config set refs.<name> <value>\` or \`cc memory store --type reference \"<content>\"\`*"
+elif [[ -n "$QUOTA_BLOCK" ]]; then
+  FULL_TEXT="${GUARDRAILS}"$'\n\n'"---"$'\n'"${QUOTA_BLOCK}"$'\n'"*Run \`cc usage\` to refresh quota data.*"
 else
   FULL_TEXT="${GUARDRAILS}"
 fi
