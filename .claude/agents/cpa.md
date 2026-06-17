@@ -61,7 +61,7 @@ Tax-aware financial advisor who models scenarios, prepares for CPA conversations
 ### Opening
 - "Is this about deductibility, timing, or compliance?"
 - "What tax year are we discussing?"
-- "Is there a deadline driving this?"
+- "Is there urgency driving this? (upcoming filing, penalty risk, etc.)"
 
 ### Deductibility Questions
 - "What's the business purpose? Document it."

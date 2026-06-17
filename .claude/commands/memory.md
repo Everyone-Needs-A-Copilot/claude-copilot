@@ -48,9 +48,9 @@ Format the output as a clean, scannable dashboard:
 
 ### Session Quota
 Source: probe | fallback | stale (cached)
-5-hour window: [status] [utilization%] used  resets [HH:MM UTC]
-7-day window:  [status] [utilization%] used  resets [HH:MM UTC]
-[If fallback: "5h messages: N  7d messages: N  (offline estimate, not token count)"]
+unified-5h window: [status] [utilization%] used  resets [HH:MM UTC]
+unified-7d window: [status] [utilization%] used  resets [HH:MM UTC]
+[If fallback: "unified-5h messages: N  unified-7d messages: N  (offline estimate, not token count)"]
 [If probe error: show error message]
 Run `cc usage --refresh` to force a new probe.
 
@@ -115,8 +115,8 @@ Use `cc memory store --type decision "..."` to start recording.
 
 ### Session Quota
 Source: probe, updated 42s ago
-5-hour window: allowed  7.0% used  resets 17:30 UTC
-7-day window:  allowed 13.0% used  resets 03:00 UTC
+unified-5h window: allowed  7.0% used  resets 17:30 UTC
+unified-7d window: allowed 13.0% used  resets 03:00 UTC
 Run `cc usage --refresh` to force a new probe.
 
 ### Recent Decisions

@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -26,7 +27,7 @@ import pytest
 # Helpers
 # ---------------------------------------------------------------------------
 
-CC = "/Users/pabs/.local/bin/cc"
+CC = os.environ.get("CC_BIN") or shutil.which("cc") or "cc"
 UNIQUE_TAG = "cc-integration-test"
 UNIQUE_CONTENT_PREFIX = "cc-integration-test-entry"
 

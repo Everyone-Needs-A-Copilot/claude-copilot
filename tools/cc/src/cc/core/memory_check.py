@@ -257,7 +257,8 @@ def _is_url_route(token: str) -> bool:
     4. If it has depth <= 2 and no known FS prefixes → URL route.
     5. Otherwise → NOT a URL route (treat as FS path to avoid false positives).
 
-    Known FS prefixes: /private/, /var/, /usr/, /home/, /opt/, /tmp/, /etc/, /bin/
+    Known FS prefixes: /private/, /var/, /usr/, /opt/, /tmp/, /etc/, /bin/
+    and user home directories (Linux: /home/ subtree, macOS: /Users/ subtree)
     """
     if not _URL_ROUTE_RE.match(token):
         return False
