@@ -72,6 +72,12 @@ cc memory delete fee71a3e --yes    # skip prompt
 cc memory index --rebuild          # rebuild from files
 cc memory index --status           # check sync state
 
+# Export memory entries to a portable Markdown or JSON bundle
+cc memory export                            # all entries as Markdown (stdout)
+cc memory export --json                     # all entries as JSON array (stdout)
+cc memory export auth --type decision       # keyword-filtered, type-filtered, Markdown
+cc memory export --all --out dump.md        # write to file
+
 # Migrate from legacy copilot-memory SQLite databases
 cc memory migrate --from-global             # interactive — choose which DB
 cc memory migrate --from-global --all       # migrate all without prompting
@@ -512,7 +518,7 @@ tools/cc/
     __init__.py           # version string
     main.py               # Typer app + subgroup registration
     commands/             # one module per subcommand group
-      memory.py           # store, get, list, delete, search, index, migrate
+      memory.py           # store, get, list, delete, search, index, migrate, export
       skill.py            # list, search, get, path
       config.py           # get, set, unset, list, where, validate, edit, init, export, doctor
       env.py              # cc env (shell hydration)

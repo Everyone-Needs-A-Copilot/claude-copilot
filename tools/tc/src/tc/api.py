@@ -87,6 +87,7 @@ from tc.services.wp import (
     search_wps,
     store_wp,
 )
+from tc.services.render_html import render_wp_html
 from tc.services.handoff import handoff_task
 from tc.services.log import list_log
 from tc.services.progress import get_progress
@@ -132,6 +133,7 @@ __all__ = [
     "get_wp",
     "list_wps",
     "search_wps",
+    "render_wp_html",
     # handoff
     "handoff_task",
     # log

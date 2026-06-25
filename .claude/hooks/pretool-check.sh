@@ -55,6 +55,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)" \
   || { echo "[pretool-check] could not resolve SCRIPT_DIR" >&2; exit 0; }
 STATE_DIR="${SCRIPT_DIR}/state"
 MANIFEST_FILE="${SCRIPT_DIR}/../agents/manifest.json"
+SECURITY_RULES_FILE="${SCRIPT_DIR}/security-rules.json"
+FREEZE_STATE_FILE="${STATE_DIR}/.freeze"
 JQ="/usr/bin/jq"
 
 # ---------------------------------------------------------------------------
@@ -403,9 +405,146 @@ rule_qa_gate() {
 }
 
 # ---------------------------------------------------------------------------
+# Rule: destructive-command (/careful)
+# Reads enabled rules from security-rules.json and tests the Bash command
+# string against each rule's patterns (case-insensitive).
+# - action "block" → deny (exit 2)
+# - action "warn"  → emit warning to stderr, allow (exit 0)
+# Only applies to the Bash tool. A single jq call processes all rules.
+# Bypass: COPILOT_SAFETY=off or COPILOT_CAREFUL=off
+# ---------------------------------------------------------------------------
+rule_destructive_command() {
+  if [[ "${COPILOT_SAFETY:-}" == "off" || "${COPILOT_CAREFUL:-}" == "off" ]]; then
+    return 0
+  fi
+
+  # Only applies to Bash tool
+  if [[ "$TOOL_NAME" != "Bash" ]]; then
+    return 0
+  fi
+
+  local cmd
+  cmd="$("$JQ" -r '.tool_input.command // ""' <<< "$PAYLOAD" 2>/dev/null)" \
+    || { echo "[pretool-check] jq parse failed reading command in rule_destructive_command" >&2; return 0; }
+  [[ -z "$cmd" ]] && return 0
+
+  [[ ! -f "$SECURITY_RULES_FILE" ]] && return 0
+
+  # Two jq calls: first checks "block" rules, then "warn" rules.
+  # Using inline filters (no def) for maximal jq version compatibility.
+  # IMPORTANT: patterns are captured via "as $pat" so test($pat;"i") uses the
+  # pattern as regex; $cmd is the string being matched against each pattern.
+  local block_name
+  block_name="$("$JQ" -r --arg cmd "$cmd" '
+    [.rules[] |
+     select(.enabled == true and .action == "block") |
+     . as $rule |
+     $rule.patterns[] as $pat |
+     select(($cmd | test($pat; "i")) == true) |
+     $rule.name
+    ][0] // ""
+  ' "$SECURITY_RULES_FILE" 2>/dev/null)" \
+    || { echo "[pretool-check] jq failed (block check) in rule_destructive_command" >&2; return 0; }
+
+  if [[ -n "$block_name" ]]; then
+    deny "Safety (/careful): '${block_name}' — command blocked to prevent irreversible damage. Set COPILOT_CAREFUL=off to bypass if intentional."
+    return  # not reached; deny calls exit 2
+  fi
+
+  local warn_name
+  warn_name="$("$JQ" -r --arg cmd "$cmd" '
+    [.rules[] |
+     select(.enabled == true and .action == "warn") |
+     . as $rule |
+     $rule.patterns[] as $pat |
+     select(($cmd | test($pat; "i")) == true) |
+     $rule.name
+    ][0] // ""
+  ' "$SECURITY_RULES_FILE" 2>/dev/null)" \
+    || { echo "[pretool-check] jq failed (warn check) in rule_destructive_command" >&2; return 0; }
+
+  if [[ -n "$warn_name" ]]; then
+    echo "[safety-warn] /careful: '${warn_name}' — command matches a destructive pattern. Review before executing. Set COPILOT_CAREFUL=off to suppress this warning." >&2
+  fi
+
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# Rule: path-scope (/freeze)
+# When a freeze directory is configured in FREEZE_STATE_FILE, denies any
+# Edit, Write, or Bash-redirect operation targeting a path outside that dir.
+#
+# State file: .claude/hooks/state/.freeze (plain text, one absolute path)
+# Enable:  echo /your/project/dir > .claude/hooks/state/.freeze
+#          (or use: .claude/hooks/bin/freeze.sh on /your/project/dir)
+# Disable: rm .claude/hooks/state/.freeze
+#          (or use: .claude/hooks/bin/freeze.sh off)
+#
+# For Edit/Write: checks file_path in tool_input (exact, reliable).
+# For Bash: checks redirect targets (> path or >> path) outside freeze dir.
+# Bypass: COPILOT_SAFETY=off or COPILOT_FREEZE=off
+# ---------------------------------------------------------------------------
+rule_path_scope() {
+  if [[ "${COPILOT_SAFETY:-}" == "off" || "${COPILOT_FREEZE:-}" == "off" ]]; then
+    return 0
+  fi
+
+  # Only applies to Edit, Write, Bash
+  case "$TOOL_NAME" in
+    Edit|Write|Bash) ;;
+    *) return 0 ;;
+  esac
+
+  # Read freeze dir — if state file missing or empty, no freeze active
+  [[ ! -f "$FREEZE_STATE_FILE" ]] && return 0
+  local freeze_dir
+  read -r freeze_dir < "$FREEZE_STATE_FILE" 2>/dev/null || freeze_dir=""
+  freeze_dir="${freeze_dir%/}"  # strip trailing slash
+  [[ -z "$freeze_dir" ]] && return 0
+
+  case "$TOOL_NAME" in
+    Edit|Write)
+      local file_path
+      file_path="$("$JQ" -r '.tool_input.file_path // ""' <<< "$PAYLOAD" 2>/dev/null)" \
+        || { echo "[pretool-check] jq parse failed reading file_path in rule_path_scope" >&2; return 0; }
+      [[ -z "$file_path" ]] && return 0
+      file_path="${file_path%/}"  # normalize
+      if [[ "$file_path" != "${freeze_dir}"* ]]; then
+        deny "Freeze (/freeze): edits are locked to '${freeze_dir}'. '${file_path}' is outside the freeze boundary. Use COPILOT_FREEZE=off to bypass, or run: .claude/hooks/bin/freeze.sh off"
+      fi
+      ;;
+    Bash)
+      local cmd
+      cmd="$("$JQ" -r '.tool_input.command // ""' <<< "$PAYLOAD" 2>/dev/null)" \
+        || { echo "[pretool-check] jq parse failed reading command in rule_path_scope" >&2; return 0; }
+      [[ -z "$cmd" ]] && return 0
+
+      # Extract redirect targets (> path and >> path) from the command.
+      # This is a best-effort check: it catches explicit file redirects.
+      # Use grep to find paths after > or >> operators.
+      local redirect_target
+      redirect_target="$(printf '%s' "$cmd" | grep -oE '>{1,2}[[:space:]]*/[^[:space:]|;&]+' \
+        2>/dev/null | grep -oE '/[^[:space:]|;&]+' | head -1 || true)"
+
+      if [[ -n "$redirect_target" ]]; then
+        redirect_target="${redirect_target%/}"
+        if [[ "$redirect_target" != "${freeze_dir}"* ]]; then
+          deny "Freeze (/freeze): writes are locked to '${freeze_dir}'. Redirect target '${redirect_target}' is outside the freeze boundary. Use COPILOT_FREEZE=off to bypass."
+        fi
+      fi
+      ;;
+  esac
+
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # Dispatch — rule sets run in order; first deny wins
 # ---------------------------------------------------------------------------
 rule_force_delegate
 rule_qa_gate
+rule_destructive_command
+rule_path_scope
 
 exit 0

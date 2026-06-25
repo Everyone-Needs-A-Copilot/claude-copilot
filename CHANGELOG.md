@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.11.0] - 2026-06-25
+
+Safety primitives, cross-model adversarial QA, CONFUSED loop-state, HTML work-product renderer, and `cc memory export`. Inspired in part by **gstack** (Garry Tan, `github.com/garrytan/gstack`, MIT) and **"The Unreasonable Effectiveness of HTML"** (Thariq Shihipar, Anthropic Engineering Blog) — see ADR-004.
+
+### Added
+
+- **HTML work-product renderer** (`tools/tc/src/tc/services/render_html.py`, `tc wp render <id> --html`): renders any work product to a fully self-contained HTML file at `.copilot/renders/WP-<id>.html` (inline CSS, vanilla JS, no CDN). Token-free side artifact — the CLI prints only the absolute file path; the HTML body never enters the context window. Auto-detects three templates: severity (P0/P1/P2/CRITICAL/HIGH/MEDIUM/LOW color-coding + legend), variant-grid (≥ 2 option/variant/approach headings → tabbed comparison), and rendered-diff (` ```diff ` block or ≥ 3 diff lines → syntax-highlighted viewer). All renders include "Copy as Markdown" and "Copy as JSON" buttons. Zero new PyPI dependencies. Inspired by gstack's `/design-html` side-artifact pattern and the HTML-output-with-copy-buttons approach from Thariq Shihipar's Anthropic blog post.
+- **Safety primitives — `/careful` and `/freeze`** (`.claude/hooks/pretool-check.sh`, `.claude/hooks/security-rules.json`, `.claude/hooks/bin/freeze.sh`): two new PreToolUse rule functions. `/careful` (`rule_destructive_command`) reads `security-rules.json` at runtime and blocks (`action: block`, exit 2) or warns (`action: warn`, stderr + exit 0) on matching Bash commands (patterns include `git push --force`, `rm -rf`, `git reset --hard`, `git clean -f`, `chmod -R`). `/freeze` (`rule_path_scope`) locks Edit/Write/Bash to a declared directory tree (state: `.claude/hooks/state/.freeze`; managed via `.claude/hooks/bin/freeze.sh on|off|status`). Escape hatches: `COPILOT_CAREFUL=off`, `COPILOT_FREEZE=off`, `COPILOT_SAFETY=off` (disables both). Inspired by gstack's `/careful` and `/freeze` primitives; reimplemented natively in bash/jq.
+- **Cross-model adversarial QA pass** (`.claude/hooks/bin/adversarial-pass.sh`): optional "try to break this diff" pass that @agent-qa can run after its own verification. Availability-gated: checks `COPILOT_ADVERSARIAL_CMD` env var, then PATH-probes for `codex`, `llm`, `mods`; clean no-op if none found. New `adversarial-run` ARTIFACT type recognized by `subagent-stop.sh` alongside `test-run`, `file-check`, `diff-check` — satisfies the artifact requirement on its own but is never a new mandatory gate. Config: `COPILOT_ADVERSARIAL_CMD`, `COPILOT_ADVERSARIAL_TIMEOUT` (default 30 s), `COPILOT_ADVERSARIAL=off`. Inspired by gstack's cross-model adversarial review (`/codex` second-opinion pass); reimplemented natively.
+- **`<promise>CONFUSED</promise>` loop-state** (`CLAUDE.md`, `me.md`, `ta.md`, `do.md`, `sec.md`, `qa.md`, `subagent-stop.sh`): in-flight decision-point signal for agents that hit a genuine decision fork requiring user judgment. Distinct from `<promise>BLOCKED</promise>` (technical blocker / unmet dependency). When emitted, `subagent-stop.sh` surfaces it to the user instead of activating the QA gate. Added to `completionPromises` in all agents that carry BLOCKED. Inspired by gstack's Confusion Protocol; adapted to the Copilot loop-state model.
+- **`cc memory export`** (`tools/cc/src/cc/commands/memory.py`): export memory entries to a portable Markdown or JSON bundle. `cc memory export` (all entries, Markdown); `--json` (JSON array); positional query (keyword-filtered via FTS); `--type` (type-filtered); `--all` (explicit all); `--out <path>` (write to file). Type and keyword filters compose.
+
+### Changed
+
+- **CLAUDE.md**: added `tc wp render <id> --html` to Task Copilot commands; added `cc memory export` to memory commands; updated Testing Gate to list `adversarial-run` as a fourth ARTIFACT type; added safety primitives (`/careful`, `/freeze`, escape hatches) to the Main Session Guardrails enforcement paragraph; CONFUSED and Confused Loop-State already present from prior me-agent pass (no change)
+- **`tools/tc/README.md`**: added `tc wp render` to the `tc wp` command section; added HTML rendering template reference table; added `render_html.py` to layout
+- **`tools/cc/README.md`**: added `cc memory export` examples to the Memory section; updated layout to reflect `export` in `memory.py`
+- **`.claude/hooks/README.md`**: safety primitives, adversarial pass, and CONFUSED/BLOCKED guards documented in prior me-agent pass (no change needed)
+- **tc component**: `render_html.py` added; `wp.py` extended with `render` subcommand; `api.py` exports `render_wp_html`
+- **cc component**: `memory.py` extended with `export` subcommand
+- **Agents component**: `me.md`, `ta.md`, `do.md`, `sec.md`, `qa.md` updated with `<promise>CONFUSED</promise>` in `completionPromises`
+
+### Attribution
+
+- **gstack** by Garry Tan (`github.com/garrytan/gstack`, MIT) — inspiration for `/careful`+`/freeze` safety primitives, cross-model adversarial review, the `/design-html` side-artifact pattern, and the Confusion Protocol. Concepts adopted natively; no code copied.
+- **"The Unreasonable Effectiveness of HTML"** by Thariq Shihipar (Anthropic Engineering Blog) — inspiration for HTML-as-output-format with "Copy as Markdown/JSON" buttons and variant-grid comparison layouts. Concepts adopted natively; no code copied.
+
+### Architecture
+
+- **ADR-004** (`docs/10-architecture/05-adr-004-html-output-format.md`): records the decision to use HTML as a work-product output format, alternatives rejected, and full attribution.
+
 ## [5.10.0] - 2026-06-17
 
 Framework hardening initiative (PRD-7): four workstreams closing drift/verification gaps — failable QA gate, memory drift detection, usage observability, and declarative agent manifest.

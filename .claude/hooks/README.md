@@ -8,6 +8,8 @@ The hooks system provides lifecycle-based injection and enforcement for the main
 |-----------|----------------------|------|-------------|
 | `pretool-check.sh` | PreToolUse | Force-delegate (5 consecutive same-tool calls) | Mandatory — exit 2 |
 | `pretool-check.sh` | PreToolUse | QA gate (after @agent-me, before @agent-qa) | Mandatory — exit 2 |
+| `pretool-check.sh` | PreToolUse | Destructive-command safety `/careful` | block → exit 2; warn → exit 0 + stderr |
+| `pretool-check.sh` | PreToolUse | Path-scope lock `/freeze` | Mandatory — exit 2 |
 | `subagent-stop.sh` | SubagentStop | QA gate state manager | Mandatory state write |
 | `user-prompt-submit.sh` | UserPromptSubmit | Session length cap (500 / 750 turns) | Advisory — systemMessage |
 | `session-start.json` | SessionStart | Protocol injection | Advisory |
@@ -19,6 +21,9 @@ The hooks system provides lifecycle-based injection and enforcement for the main
 | `COPILOT_FORCE_DELEGATE=off` | Force-delegate rule |
 | `COPILOT_QA_GATE=off` | QA gate rule + state management |
 | `COPILOT_SESSION_CAP=off` | Session length advisories |
+| `COPILOT_CAREFUL=off` | Destructive-command safety rule (`/careful`) |
+| `COPILOT_FREEZE=off` | Path-scope lock rule (`/freeze`) |
+| `COPILOT_SAFETY=off` | Both `/careful` and `/freeze` (convenience alias) |
 
 ### State Directory
 
@@ -255,7 +260,9 @@ Manages QA-gate state in response to `@agent-me` and `@agent-qa` subagent comple
 
 | Event | Action |
 |-------|--------|
-| `agent_type == "me"` | Extract `TASK-N` from final message, add to `pending_tasks` |
+| `agent_type == "me"` with `<promise>BLOCKED</promise>` | Skip gate — blocker surfaces to user, no `pending_tasks` entry |
+| `agent_type == "me"` with `<promise>CONFUSED</promise>` | Skip gate — decision fork surfaces to user, no `pending_tasks` entry |
+| `agent_type == "me"` (normal completion) | Extract `TASK-N` from final message, add to `pending_tasks` |
 | `agent_type == "qa"` with pass verdict | Remove task from `pending_tasks`, clear retry counter |
 | `agent_type == "qa"` with fail verdict | Increment retry counter; after 3 failures, auto-unblock + advisory |
 | Any other agent type | No action |
@@ -285,12 +292,14 @@ Where `<type>` is one of:
 - `test-run` — a failable test command with exit code and output excerpt
 - `file-check` — a file that exists in the expected shape
 - `diff-check` — a diff or comparison result against a spec
+- `adversarial-run` — cross-model adversarial pass (optional/bonus; see below)
 
 **Examples:**
 ```
 ARTIFACT: test-run|pytest tests/test_auth.py exit=0 "5 passed, 0 failed"
 ARTIFACT: file-check|.claude/agents/manifest.json exists agents=16
 ARTIFACT: diff-check|expected 16 agents actual 16 agents match
+ARTIFACT: adversarial-run|llm FINDINGS: none found exit=0
 ```
 
 The escape hatches (`COPILOT_QA_GATE=off`) still bypass the gate entirely — including the
@@ -317,10 +326,48 @@ After 3 consecutive QA failures, the hook emits:
 { "systemMessage": "QA gate degraded to advisory: TASK-N failed QA 3 consecutive times. Main session is unblocked, but human review is strongly recommended..." }
 ```
 
+### Adversarial Pass (Optional, Availability-Gated)
+
+An optional second-model "try to break this diff" pass that @agent-qa can run via:
+
+```bash
+artifact="$(.claude/hooks/bin/adversarial-pass.sh)"
+# Include $artifact in the verdict if non-empty (it's a bonus, never required)
+```
+
+**Detection order:**
+1. `COPILOT_ADVERSARIAL_CMD` env var — explicit command (may include flags/path)
+2. PATH probe: `codex`, `llm`, `mods` (first found)
+3. Nothing found → clean no-op (exit 0, no output, gate unaffected)
+
+**Configuration:**
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `COPILOT_ADVERSARIAL_CMD` | Explicit CLI command to use | (none — uses PATH probe) |
+| `COPILOT_ADVERSARIAL_TIMEOUT` | Timeout in seconds | `30` |
+| `COPILOT_ADVERSARIAL=off` | Disable entirely | (enabled when absent) |
+
+**Example configuration:**
+```bash
+export COPILOT_ADVERSARIAL_CMD="llm"           # use Simon Willison's llm tool
+export COPILOT_ADVERSARIAL_CMD="mods --no-cache" # use charm's mods tool
+export COPILOT_ADVERSARIAL_CMD="/path/to/wrapper.sh"  # custom wrapper
+```
+
+**Invocation convention:** Prompt + diff are piped to the command via stdin. For CLIs requiring a separate argument, set `COPILOT_ADVERSARIAL_CMD` to a wrapper script.
+
+**Degradation:** Any error (CLI not found, non-zero exit, timeout, empty diff) degrades cleanly to no-op. The gate is NEVER blocked by a missing or failing adversarial CLI.
+
+**Artifact type:** `adversarial-run` — recognized by `subagent-stop.sh` alongside `test-run`, `file-check`, `diff-check`. It satisfies the artifact requirement on its own but is never a new mandatory requirement. The gate still passes on `test-run` alone.
+
+**Test:** `.claude/hooks/bin/test-adversarial-pass.sh`
+
 ### Escape Hatch
 
 ```bash
-export COPILOT_QA_GATE=off  # Disables all QA gate state management
+export COPILOT_QA_GATE=off       # Disables all QA gate state management
+export COPILOT_ADVERSARIAL=off   # Disables adversarial pass only
 ```
 
 ---
@@ -357,15 +404,70 @@ Security validation is handled inside `pretool-check.sh` as part of the PreToolU
 
 ### Currently Active Rules
 
-`pretool-check.sh` currently enforces two rules only:
-
 | Rule | Trigger | Action |
 |------|---------|--------|
 | `rule_force_delegate` | 5+ consecutive Bash/Read/Edit calls | Deny, suggest agent delegation |
 | `rule_qa_gate` | Task in pending-qa state for this session | Deny all except Agent(qa) and safe tc reads |
+| `rule_destructive_command` | Bash command matching a pattern in `security-rules.json` | `action: block` → deny (exit 2); `action: warn` → stderr warning (exit 0) |
+| `rule_path_scope` | Edit/Write/Bash targeting a path outside the freeze dir | Deny (exit 2) |
 
-`security-rules.json` is present in this directory but is **not yet wired into `pretool-check.sh`**. Secret detection, destructive-command blocking, and sensitive-file protection described in that file are aspirational — they are not currently enforced at runtime.
+### `/careful` — Destructive Command Safety (rule_destructive_command)
 
-### Adding Security Rules (Future)
+Reads `security-rules.json` on every Bash tool call and tests the command string against all enabled rules' patterns (case-insensitive, via jq `test()`).
+
+- Rules with `"action": "block"` cause a deny (exit 2 + JSON reason). Example: `git push --force`.
+- Rules with `"action": "warn"` emit a `[safety-warn]` message to stderr and allow (exit 0). Example: `git reset --hard`, `rm -rf /`.
+
+**Adding a new pattern:** Edit `security-rules.json`. Add a pattern to an existing rule's `patterns` array, or add a new rule object following the same schema. The hook reads the file at runtime — no hook restart needed.
+
+**Bypass:**
+```bash
+export COPILOT_CAREFUL=off   # disables /careful for this shell session
+export COPILOT_SAFETY=off    # disables both /careful and /freeze
+```
+
+**Test:**
+```bash
+.claude/hooks/bin/test-safety-rules.sh
+```
+
+### `/freeze` — Path-Scope Lock (rule_path_scope)
+
+Restricts Edit, Write, and Bash file-redirect operations to a declared directory. Prevents accidental out-of-scope edits when working on a focused sub-tree.
+
+**Enable:**
+```bash
+.claude/hooks/bin/freeze.sh on /path/to/your/project
+# or manually:
+echo /path/to/your/project > .claude/hooks/state/.freeze
+```
+
+**Disable:**
+```bash
+.claude/hooks/bin/freeze.sh off
+# or manually:
+rm .claude/hooks/state/.freeze
+```
+
+**Check status:**
+```bash
+.claude/hooks/bin/freeze.sh status
+```
+
+**Bypass:**
+```bash
+export COPILOT_FREEZE=off    # disables /freeze for this shell session
+export COPILOT_SAFETY=off    # disables both /careful and /freeze
+```
+
+**State file:** `.claude/hooks/state/.freeze` (gitignored, ephemeral — one absolute path per line)
+
+**Scope per tool:**
+- `Edit` / `Write`: hard block if `file_path` is not under the freeze dir (exact, reliable)
+- `Bash`: best-effort — checks redirect targets (`> path` / `>> path`) for paths outside freeze dir; does not parse arbitrary command arguments
+
+### Adding Security Rules
 
 To wire in a new security check, add a `rule_<name>()` function to `pretool-check.sh` and call it in the dispatch section near the bottom of the file. Rules return 0 (allow) or call `deny "<reason>"` (which writes JSON and exits 2).
+
+To add a new destructive-command pattern that fires through `rule_destructive_command`, add it to `security-rules.json` following the existing schema — no code change needed.

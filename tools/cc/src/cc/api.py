@@ -232,6 +232,106 @@ def memory_search(
 
 
 # ---------------------------------------------------------------------------
+# Memory: export
+# ---------------------------------------------------------------------------
+
+
+def memory_export(
+    *,
+    query: str | None = None,
+    entry_type: str | None = None,
+    scope: str | None = None,
+    output_format: str = "markdown",
+) -> str:
+    """Export memory entries to a portable Markdown or JSON string.
+
+    Args:
+        query:         Optional keyword filter (FTS search).
+        entry_type:    Optional type filter (e.g. "decision", "lesson").
+        scope:         "project" (default in a git repo) or "global".
+        output_format: "markdown" (default) or "json".
+
+    Returns:
+        A string containing the exported entries in the requested format.
+
+    Raises:
+        EntryValidationError: if scope is invalid.
+        ValueError: if output_format is not "markdown" or "json".
+    """
+    import json as _json
+
+    if output_format not in ("markdown", "json"):
+        raise ValueError(f"output_format must be 'markdown' or 'json', got {output_format!r}")
+
+    from cc.core.entry_store import (
+        resolve_memory_root,
+        default_scope,
+        search_entries_files,
+        list_entries,
+    )
+    from cc.core.memory_index import search_index
+
+    try:
+        resolved_scope = scope or default_scope()
+    except ValueError as exc:
+        raise EntryValidationError(str(exc)) from exc
+
+    if query:
+        try:
+            memory_root = resolve_memory_root(resolved_scope)
+        except ValueError as exc:
+            raise EntryValidationError(str(exc)) from exc
+
+        results = search_index(query, memory_root)
+        used_index = bool(results) or (memory_root / "memory.db").exists()
+        if not used_index or not results:
+            results = search_entries_files(query, scope=resolved_scope)
+        if entry_type:
+            results = [e for e in results if e.get("type") == entry_type]
+    else:
+        try:
+            results = list_entries(scope=resolved_scope, entry_type=entry_type)
+        except ValueError as exc:
+            raise EntryValidationError(str(exc)) from exc
+
+    if output_format == "json":
+        return _json.dumps(results, indent=2, ensure_ascii=False)
+
+    # Markdown output
+    if not results:
+        return "# Memory Export\n\n_(no entries match the given filters)_\n"
+
+    lines: list[str] = [
+        "# Memory Export",
+        "",
+        f"Entries: {len(results)}",
+        "",
+        "---",
+        "",
+    ]
+    for entry in results:
+        eid = entry.get("id", "")
+        etype = entry.get("type", "")
+        tags = ", ".join(entry.get("tags") or []) or "(none)"
+        created = entry.get("created", "")
+        content = (entry.get("content") or "").strip()
+        lines += [
+            f"## [{eid[:8]}] {etype}",
+            "",
+            f"**ID:** {eid}  ",
+            f"**Type:** {etype}  ",
+            f"**Tags:** {tags}  ",
+            f"**Created:** {created}",
+            "",
+            content,
+            "",
+            "---",
+            "",
+        ]
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Skills: get / search
 # ---------------------------------------------------------------------------
 
@@ -433,6 +533,7 @@ __all__ = [
     "memory_list",
     "memory_delete",
     "memory_search",
+    "memory_export",
     # skill ops
     "skill_get",
     "skill_search",

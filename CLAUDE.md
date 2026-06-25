@@ -16,7 +16,7 @@ This file provides guidance to Claude Code when working with the Claude Copilot 
 | Avoid reading >8 files directly | Delegate to framework agent | Hook: force-delegate (triggers at 5 consecutive same-tool calls) |
 | Keep responses short | Store details via `tc wp store` | Advisory |
 
-**Mechanical enforcement:** The force-delegate rule, QA-gate rule, and session-cap advisory are enforced by hooks in `.claude/hooks/` — not just policy. Attempting >5 consecutive Bash/Read/Edit calls will be blocked automatically. After `@agent-me` completes, all main-session tools are gated until `@agent-qa` provides a pass verdict. See `.claude/hooks/README.md` for escape hatches and debug tools.
+**Mechanical enforcement:** The force-delegate rule, QA-gate rule, session-cap advisory, and safety primitives are enforced by hooks in `.claude/hooks/` — not just policy. Attempting >5 consecutive Bash/Read/Edit calls will be blocked automatically. After `@agent-me` completes, all main-session tools are gated until `@agent-qa` provides a pass verdict. **Safety primitives:** `/careful` (destructive-command block/warn via `security-rules.json`) and `/freeze` (edit-boundary lock via `.claude/hooks/state/.freeze`) — escape hatches: `COPILOT_CAREFUL=off`, `COPILOT_FREEZE=off`, `COPILOT_SAFETY=off`. See `.claude/hooks/README.md` for escape hatches and debug tools.
 
 **Framework agents:** ta, me, qa, do, doc, sd · design chain sd→uxd→uids→uid→ta→me · branches ind/cco/cw · sec · business cs/cpa (15 framework agents; kc is setup-only; `design` retired). Roster is the authoritative list in `.claude/agents/manifest.json`.
 
@@ -123,7 +123,7 @@ Skills auto-fire based on their trigger-rich `description` field — native Clau
 
 Ephemeral PRD, task, and work product storage. Reduces context for externalized work products by ~94% vs inlining outputs above the 8KB threshold (not end-to-end session savings — see [derivation](docs/70-reference/04-framework-modernization-analysis.md)). Uses the `tc` CLI tool (installed at `tools/tc/`). Agents call `tc` commands via Bash.
 
-**Core Commands:** `tc prd create`, `tc task create`, `tc task update`, `tc task get`, `tc wp store`, `tc wp get`, `tc progress`
+**Core Commands:** `tc prd create`, `tc task create`, `tc task update`, `tc task get`, `tc wp store`, `tc wp get`, `tc wp render <id> --html`, `tc progress`
 
 **Stream Commands:** `tc stream list`, `tc stream get`
 
@@ -189,7 +189,7 @@ All agents inherit these. Individual agent files should NOT repeat them.
 - **Live Docs — Verify upstream APIs before coding:** Before implementing or planning against a third-party library/framework API where correctness depends on the *installed* version, run `cc docs get <pkg>` (also `cc docs resolve <pkg>` for the active version and `cc docs search <pkg> "<query>"`) instead of trusting training-data memory of that API. It returns docs for the version actually installed in the project, is local-first so it works offline/headless, and only falls back to a self-owned network fetch when the optional `httpx` extra is present.
 - **Memory — Recall at start:** Run `cc memory search "<task topic>"` to recall prior decisions, lessons, and context relevant to the current task.
 - **Memory — Store at end:** After completing meaningful work, run `cc memory store --type <decision|context|lesson|reference> "<content>"` to persist decisions and lessons for future sessions. Do NOT call it "semantic" — it is FTS5 keyword search.
-- **Memory commands:** `cc memory store`, `cc memory search`, `cc memory get`, `cc memory list` (not MCP `memory_store`/`memory_search`)
+- **Memory commands:** `cc memory store`, `cc memory search`, `cc memory get`, `cc memory list`, `cc memory export` (not MCP `memory_store`/`memory_search`)
 - **Task Copilot Pattern:** `tc task get` → do work → `tc wp store` → `tc task update --status completed`
 - **Code-Execution Path (PREFER for >=3 related ops):** When performing 3+ related tc or cc operations (create PRD + tasks, wire deps, store multiple WPs, batch memory stores), use a SINGLE `python3` Bash block importing `tc.api` or `cc.api` instead of multiple CLI calls. Each CLI round-trip echoes a full JSON payload back into context; a python3 block returns only what you `print()`.
   - tc-only block: `from tc.api import create_prd, create_task, add_dependency, transaction`
@@ -198,13 +198,22 @@ All agents inherit these. Individual agent files should NOT repeat them.
   - Keep CLI for single one-shot ops (`tc task get 40 --json`; one `tc wp store`; one `cc memory search`).
   - Token win example: PRD + 18 tasks + 17 deps = 36 CLI calls (~9-20K tokens echoed) vs one python3 block (~25 tokens returned).
   - See `tools/tc/README.md` and `tools/cc/README.md` for the full usage pattern.
-- **Iteration Loop:** Self-manage iterations (max from frontmatter). Pass → complete. Blocked → emit `<promise>BLOCKED</promise>`. Else → iterate.
+- **Iteration Loop:** Self-manage iterations (max from frontmatter). Pass → complete. Blocked → emit `<promise>BLOCKED</promise>`. Confused → emit `<promise>CONFUSED</promise>` (see Confused Loop-State). Else → iterate.
+- **Confused Loop-State:** When mid-task you hit a genuine decision fork that only the user can resolve, emit `<promise>CONFUSED</promise>` and record loop-state in a fenced block immediately after the promise tag:
+  ```
+  QUESTION: <one clear question — what decision must be made>
+  OPTIONS:
+  - A: <option description>
+  - B: <option description>
+  CONTEXT: <why the choice matters — consequences of each option>
+  ```
+  Do NOT guess. Suspend iteration and wait for the user's answer, then resume from where you stopped. **Distinct from `<promise>BLOCKED</promise>`** (technical blocker or unmet external dependency): CONFUSED is for decision forks where user judgment defines the correct path, not for missing prerequisites.
 - **Return Format:** Return ONLY ~100 tokens to main session. Store all details via `tc wp store`.
 - **Context Compaction:** If response exceeds ~14K tokens, store as work product and return summary only.
 - **Knowledge:** Run `cc memory search "<voice/brand query>"` for user-facing features. Never block work for missing knowledge.
 - **Specification Workflow:** Domain agents (sd, ind, uxd, uids, cco, cw) store as `type: 'specification'`, route to @agent-ta.
 - **Multi-Agent Handoff:** Intermediate agents: `tc handoff` then route to next agent. Final agent: `tc log --task <id>`, return consolidated summary.
-- **Testing Gate (MANDATORY):** @agent-me is NEVER final. After implementation, @agent-qa MUST run tests and include an `ARTIFACT: <type>|<detail>` marker in its verdict (`test-run`, `file-check`, or `diff-check`). A bare `VERDICT: APPROVED` with no ARTIFACT line will NOT unblock the gate. No implementation ships without QA. See `.claude/hooks/README.md` for the full verdict format.
+- **Testing Gate (MANDATORY):** @agent-me is NEVER final. After implementation, @agent-qa MUST run tests and include an `ARTIFACT: <type>|<detail>` marker in its verdict (`test-run`, `file-check`, `diff-check`, or `adversarial-run`). A bare `VERDICT: APPROVED` with no ARTIFACT line will NOT unblock the gate. `adversarial-run` satisfies the artifact requirement on its own but is never a new mandatory requirement (it is availability-gated — see `.claude/hooks/bin/adversarial-pass.sh`). No implementation ships without QA. See `.claude/hooks/README.md` for the full verdict format.
 - **Protocol Integration:** Output stage-complete summary with Task/WP IDs, key decisions, handoff context (200-char max).
 
 ---

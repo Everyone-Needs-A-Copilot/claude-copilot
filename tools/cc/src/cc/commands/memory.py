@@ -477,6 +477,136 @@ def _migrate_entries(
 # ---------------------------------------------------------------------------
 
 
+@memory_app.command("export")
+def memory_export(
+    query: Optional[str] = typer.Argument(
+        None,
+        help="Optional keyword filter — exports only entries matching this search query.",
+    ),
+    entry_type: Optional[str] = typer.Option(
+        None,
+        "--type",
+        "-t",
+        help="Filter by type: decision|context|lesson|reference|person.",
+    ),
+    output_all: bool = typer.Option(
+        False,
+        "--all",
+        help="Export all entries (default when no query or --type is given).",
+    ),
+    output_json: bool = typer.Option(
+        False,
+        "--json",
+        help="Export as a JSON array instead of Markdown.",
+    ),
+    out: Optional[Path] = typer.Option(
+        None,
+        "--out",
+        help="Write output to this file path instead of stdout.",
+        writable=True,
+    ),
+    scope: Optional[str] = typer.Option(None, "--scope", "-s"),
+) -> None:
+    """Export memory entries to a portable Markdown or JSON bundle.
+
+    With no arguments, exports all entries.  Provide a QUERY to filter by
+    keyword (FTS search), --type to filter by entry type, or both together.
+    Output is Markdown by default; use --json for a JSON array.
+
+    Examples:
+
+    \b
+        cc memory export                     # all entries as Markdown (stdout)
+        cc memory export --json              # all entries as JSON (stdout)
+        cc memory export auth --type decision  # filtered, Markdown
+        cc memory export --all --out dump.md   # write to file
+    """
+    resolved_scope = _resolve_scope(scope)
+
+    # Resolve entry list: keyword search first (if query), then type-filter.
+    if query:
+        try:
+            memory_root = resolve_memory_root(resolved_scope)
+        except ValueError as exc:
+            err_console.print(f"[red]Error:[/red] {exc}")
+            raise typer.Exit(1)
+
+        results = search_index(query, memory_root)
+        used_index = bool(results) or (memory_root / "memory.db").exists()
+        if not used_index or not results:
+            results = search_entries_files(query, scope=resolved_scope)
+
+        # Apply type filter on top of search results when both are given.
+        if entry_type:
+            results = [e for e in results if e.get("type") == entry_type]
+    else:
+        try:
+            results = list_entries(scope=resolved_scope, entry_type=entry_type)
+        except ValueError as exc:
+            err_console.print(f"[red]Error:[/red] {exc}")
+            raise typer.Exit(1)
+
+    if not results:
+        if output_json:
+            payload = "[]"
+        else:
+            payload = "# Memory Export\n\n_(no entries match the given filters)_\n"
+        _write_or_print(payload, out)
+        return
+
+    if output_json:
+        payload = json.dumps(results, indent=2, ensure_ascii=False)
+    else:
+        payload = _build_markdown_export(results)
+
+    _write_or_print(payload, out)
+
+
+def _build_markdown_export(entries: List[dict]) -> str:
+    """Render a list of memory entries as a portable Markdown document."""
+    lines: list[str] = [
+        "# Memory Export",
+        "",
+        f"Entries: {len(entries)}",
+        "",
+        "---",
+        "",
+    ]
+    for entry in entries:
+        eid = entry.get("id", "")
+        etype = entry.get("type", "")
+        tags = ", ".join(entry.get("tags") or []) or "(none)"
+        created = entry.get("created", "")
+        content = (entry.get("content") or "").strip()
+        lines += [
+            f"## [{eid[:8]}] {etype}",
+            "",
+            f"**ID:** {eid}  ",
+            f"**Type:** {etype}  ",
+            f"**Tags:** {tags}  ",
+            f"**Created:** {created}",
+            "",
+            content,
+            "",
+            "---",
+            "",
+        ]
+    return "\n".join(lines)
+
+
+def _write_or_print(payload: str, out: Optional[Path]) -> None:
+    """Write *payload* to *out* path or stdout."""
+    if out is not None:
+        try:
+            Path(out).write_text(payload, encoding="utf-8")
+            console.print(f"[green]Exported[/green] → {out}")
+        except OSError as exc:
+            err_console.print(f"[red]Error writing file:[/red] {exc}")
+            raise typer.Exit(1)
+    else:
+        typer.echo(payload)
+
+
 @memory_app.command("check")
 def memory_check(
     scope: Optional[str] = typer.Option(None, "--scope", "-s"),
