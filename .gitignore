@@ -65,6 +65,7 @@ PROJECT_MAP.md
 .claude/hooks/state/*.json
 .claude/hooks/state/*.lock
 .claude/hooks/state/*.tmp.*
+.claude/hooks/state/.freeze
 
 # Local/generated artifacts
 .claude/settings.local.json

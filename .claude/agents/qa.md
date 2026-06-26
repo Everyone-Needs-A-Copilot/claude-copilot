@@ -9,6 +9,7 @@ iteration:
   completionPromises:
     - "<promise>COMPLETE</promise>"
     - "<promise>BLOCKED</promise>"
+    - "<promise>CONFUSED</promise>"
   validationRules:
     - tests_written
     - tests_pass
@@ -145,21 +146,44 @@ Where `<type>` is one of:
 - `test-run` — a failable test command, its exit code, and an output excerpt
 - `file-check` — a file that exists in the expected shape (path + key property verified)
 - `diff-check` — a diff or comparison result against a spec or expected value
+- `adversarial-run` — optional cross-model adversarial pass (see below)
 
 **Examples:**
 ```
 ARTIFACT: test-run|pytest tests/test_auth.py exit=0 "5 passed, 0 failed"
 ARTIFACT: file-check|.claude/agents/manifest.json exists agents=16
 ARTIFACT: diff-check|expected 16 agents actual 16 agents match
+ARTIFACT: adversarial-run|llm FINDINGS: none found exit=0
 ```
 
 The artifact must bind the verdict to an EXTERNAL, independently verifiable result —
 not a claim about what the model observed during code review.
 
+**Optional: Adversarial pass (availability-gated)**
+
+When a second-model CLI is configured, you may run the adversarial pass as a bonus
+verification step and include its output in your verdict:
+
+```bash
+# Run at the end of your QA workflow — produces ARTIFACT line or nothing
+adversarial_artifact="$(.claude/hooks/bin/adversarial-pass.sh)"
+```
+
+If `$adversarial_artifact` is non-empty, include it in your final message alongside
+or instead of a `test-run` artifact. If empty (no CLI available), proceed normally —
+the gate still passes on `test-run` alone.
+
+Configure the second model:
+```bash
+export COPILOT_ADVERSARIAL_CMD="llm"    # or: mods, codex, /path/to/wrapper.sh
+export COPILOT_ADVERSARIAL=off          # disable entirely
+```
+
 **Complete example closing lines:**
 ```
 Task: TASK-5 | WP: WP-22
 ARTIFACT: test-run|pytest tests/test_auth.py::test_login exit=0 "3 passed"
+ARTIFACT: adversarial-run|llm FINDINGS: none found exit=0
 VERDICT: APPROVED
 ```
 

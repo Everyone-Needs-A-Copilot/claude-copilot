@@ -27,7 +27,7 @@
     {
       "id": "destructive-command",
       "name": "Destructive Command Detection",
-      "description": "Warns on destructive commands like rm -rf, DROP TABLE, etc.",
+      "description": "Warns on destructive commands like rm -rf, DROP TABLE, git reset --hard, etc.",
       "enabled": true,
       "priority": 85,
       "patterns": [
@@ -40,10 +40,27 @@
         "DELETE\\s+FROM\\s+\\w+\\s*;",
         "shutdown|reboot|halt",
         "mkfs|dd\\s+if=",
-        "chmod\\s+777"
+        "chmod\\s+777",
+        "git\\s+reset\\s+--hard",
+        "git\\s+clean\\s+.*-[a-zA-Z]*f[a-zA-Z]*",
+        "chmod\\s+-R"
       ],
       "action": "warn",
       "severity": "high"
+    },
+    {
+      "id": "git-force-push",
+      "name": "Git Force Push Detection",
+      "description": "Blocks irreversible git force-push operations that overwrite remote history",
+      "enabled": true,
+      "priority": 92,
+      "patterns": [
+        "git\\s+push\\s+.*--force",
+        "git\\s+push\\s+-[a-zA-Z]*f(\\s|$)",
+        "git\\s+push\\s+\\S+\\s.*-[a-zA-Z]*f(\\s|$)"
+      ],
+      "action": "block",
+      "severity": "critical"
     },
     {
       "id": "sensitive-file-protection",

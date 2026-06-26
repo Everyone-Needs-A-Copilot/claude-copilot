@@ -9,6 +9,7 @@ iteration:
   completionPromises:
     - "<promise>COMPLETE</promise>"
     - "<promise>BLOCKED</promise>"
+    - "<promise>CONFUSED</promise>"
   validationRules:
     - prd_created
     - tasks_created

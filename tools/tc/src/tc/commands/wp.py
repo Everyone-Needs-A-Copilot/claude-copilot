@@ -12,6 +12,42 @@ from tc.db.exceptions import TaskNotFound, ValidationError
 wp_app = typer.Typer(name="wp", help="Work product commands.")
 
 
+@wp_app.command("render")
+def wp_render(
+    wp_id: int = typer.Argument(..., help="Work product ID to render."),
+    html: bool = typer.Option(
+        True,
+        "--html/--no-html",
+        help="Render as self-contained HTML (default: true).",
+    ),
+    out: Optional[Path] = typer.Option(
+        None,
+        "--out",
+        help="Override the output file path (default: .copilot/renders/WP-<id>.html).",
+    ),
+) -> None:
+    """Render a work product to a standalone self-contained HTML file.
+
+    Prints only the absolute path to the rendered file — the HTML body is
+    never written to stdout (token-free side artifact).
+
+    Output path convention: .copilot/renders/WP-<id>.html
+    """
+    from tc.services.render_html import render_wp_html
+    from tc.db.exceptions import WorkProductNotFound
+
+    if not html:
+        error_exit("Only --html rendering is supported by this command.", EXIT_VALIDATION)
+
+    db_path = require_db()
+    try:
+        html_path = render_wp_html(wp_id=wp_id, out_path=out, db_path=db_path)
+    except WorkProductNotFound:
+        error_exit(f"Work product #{wp_id} not found.", EXIT_NOT_FOUND)
+
+    print(str(html_path))
+
+
 @wp_app.command("store")
 def wp_store(
     task: int = typer.Option(..., "--task", help="Associated task ID."),

@@ -34,6 +34,13 @@
 # LOG FILE:
 #   .claude/hooks/state/qa-gate.log — warnings for missing task IDs etc.
 #
+# ADVERSARIAL PASS (TASK-131):
+#   Optional second-model "try to break this diff" pass.  When a configured CLI
+#   is present, @agent-qa can run `.claude/hooks/bin/adversarial-pass.sh` and
+#   include the emitted ARTIFACT: adversarial-run|... line in its verdict.
+#   Configure via COPILOT_ADVERSARIAL_CMD env var or auto-probe (codex/llm/mods).
+#   When no CLI is present the script is a clean no-op — gate never blocked.
+#
 # ESCAPE HATCH:
 #   Set COPILOT_QA_GATE=off to disable all QA gate state management.
 #
@@ -198,10 +205,16 @@ extract_all_task_ids() {
 #   4. <promise>COMPLETE</promise> with no REJECTED AND an ARTIFACT marker → implicit pass
 #   5. Otherwise → unknown (treated as fail for safety)
 #
-# ARTIFACT marker format (R3 WS1 / TASK-115):
+# ARTIFACT marker format (R3 WS1 / TASK-115, extended TASK-131):
 #   ARTIFACT: <type>|<detail>
-#   where type ∈ {test-run, file-check, diff-check}
+#   where type ∈ {test-run, file-check, diff-check, adversarial-run}
 #   Example: ARTIFACT: test-run|pytest tests/foo.py exit=0 "3 passed"
+#   Example: ARTIFACT: adversarial-run|llm FINDINGS: none found exit=0
+#
+# adversarial-run is OPTIONAL / bonus — emitted by adversarial-pass.sh when a
+# second-model CLI is available.  It satisfies the artifact requirement on its
+# own but is never a NEW mandatory requirement.  The gate still passes on any
+# single recognized artifact type (e.g. test-run alone is sufficient).
 #
 # ESCAPE HATCH:
 #   COPILOT_QA_GATE=off bypasses all gate logic in the caller (subagent-stop.sh).
@@ -211,8 +224,11 @@ extract_all_task_ids() {
 has_artifact_marker() {
   local msg="$1"
   # Case-insensitive match for ARTIFACT: <type>|<detail>
-  # type must be one of: test-run, file-check, diff-check
-  printf '%s' "$msg" | grep -qiE '^[[:space:]]*ARTIFACT:[[:space:]]+(test-run|file-check|diff-check)\|.+$'
+  # type must be one of: test-run, file-check, diff-check, adversarial-run
+  # adversarial-run added in TASK-131 (availability-gated; optional/bonus type).
+  # Adding it here is ADDITIVE — existing types are unchanged; the new type
+  # satisfies the artifact requirement but is never a mandatory gate of its own.
+  printf '%s' "$msg" | grep -qiE '^[[:space:]]*ARTIFACT:[[:space:]]+(test-run|file-check|diff-check|adversarial-run)\|.+$'
 }
 
 parse_qa_verdict() {
@@ -259,6 +275,24 @@ parse_qa_verdict() {
 # Handle @agent-me completion
 # ---------------------------------------------------------------------------
 handle_me_completion() {
+  # Guard: BLOCKED and CONFUSED are non-completion terminal states.
+  # Neither represents a finished implementation that needs QA review:
+  #   <promise>BLOCKED</promise> — external/technical blocker; agent cannot proceed
+  #   <promise>CONFUSED</promise> — decision fork that requires user input
+  # In both cases, skip the QA gate so the signal surfaces to the user.
+  if printf '%s' "$LAST_MSG" | grep -qF '<promise>BLOCKED</promise>'; then
+    local blocked_task
+    blocked_task="$(extract_task_id "$LAST_MSG")"
+    log_info "me_completed with BLOCKED promise — skipping QA gate for ${blocked_task:-unknown} (session: ${SESSION_ID})"
+    exit 0
+  fi
+  if printf '%s' "$LAST_MSG" | grep -qF '<promise>CONFUSED</promise>'; then
+    local confused_task
+    confused_task="$(extract_task_id "$LAST_MSG")"
+    log_info "me_completed with CONFUSED promise — skipping QA gate for ${confused_task:-unknown} (session: ${SESSION_ID})"
+    exit 0
+  fi
+
   local task_id
   task_id="$(extract_task_id "$LAST_MSG")"
 

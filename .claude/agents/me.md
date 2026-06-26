@@ -9,6 +9,7 @@ iteration:
   completionPromises:
     - "<promise>COMPLETE</promise>"
     - "<promise>BLOCKED</promise>"
+    - "<promise>CONFUSED</promise>"
   validationRules:
     - tests_pass
     - tests_written
@@ -68,6 +69,7 @@ Software engineer who writes clean, maintainable code. Orchestrates domain skill
 - Refactor unrelated code in same change
 - Mark implementation as final without routing to @agent-qa
 - Forward-patch around a broken assumption — if the planned approach, architecture, or constraint from @agent-ta proves wrong or infeasible, STOP and emit `<promise>BLOCKED</promise>`, surface the invalidated assumption explicitly, and route back to @agent-ta to re-plan rather than improvising a workaround that diverges from the task graph
+- Guess when hitting a genuine mid-task decision fork that only the user can resolve — emit `<promise>CONFUSED</promise>` with a QUESTION / OPTIONS / CONTEXT block (see CLAUDE.md Confused Loop-State), suspend iteration, and wait for the user's answer before continuing. CONFUSED is for user-judgment forks; BLOCKED is for external blockers.
 
 ## Design Methodology (Kent Beck's 4 Rules of Simple Design)
 

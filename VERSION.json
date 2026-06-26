@@ -1,20 +1,20 @@
 {
-  "framework": "5.10.0",
-  "lastUpdated": "2026-06-17T00:00:00.000Z",
+  "framework": "5.11.0",
+  "lastUpdated": "2026-06-25T00:00:00.000Z",
   "components": {
     "cc": {
-      "version": "1.4.0",
+      "version": "1.5.0",
       "path": "tools/cc",
       "installScript": "tools/cc/install.sh",
       "provides": ["cc memory", "cc memory check", "cc skill", "cc config", "cc env", "cc docs", "cc usage"]
     },
     "tc": {
-      "version": "1.1.0",
+      "version": "1.2.0",
       "path": "tools/tc",
       "installCommand": "pip install -e ~/.claude/copilot/tools/tc"
     },
     "agents": {
-      "version": "5.5.0",
+      "version": "5.6.0",
       "path": ".claude/agents",
       "count": 16,
       "_countNote": "16 total manifest entries: 15 framework agents + 1 setup-only (kc). See frameworkAgents for the authoritative list.",

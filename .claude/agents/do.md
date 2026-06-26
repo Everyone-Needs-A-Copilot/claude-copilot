@@ -9,6 +9,7 @@ iteration:
   completionPromises:
     - "<promise>COMPLETE</promise>"
     - "<promise>BLOCKED</promise>"
+    - "<promise>CONFUSED</promise>"
   validationRules:
     - config_valid
     - secrets_safe

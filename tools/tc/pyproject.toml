@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "task-copilot-cli"
-version = "1.1.0"
+version = "1.2.0"
 description = "Agent-agnostic CLI for AI task management"
 requires-python = ">=3.10"
 dependencies = [

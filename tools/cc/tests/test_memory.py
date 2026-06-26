@@ -554,3 +554,183 @@ class TestMemoryCLI:
         monkeypatch.setattr(es, "_git_root", lambda: tmp_path)
         result = cli_runner.invoke(cli_app, ["memory", "index"])
         assert result.exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# cc memory export — CLI and API-level tests
+# ---------------------------------------------------------------------------
+
+
+class TestMemoryExportCLI:
+    """Tests for `cc memory export` subcommand."""
+
+    def _seed(self, runner, app, monkeypatch, tmp_path):
+        """Patch git root and store a few test entries; return (runner, app)."""
+        import cc.core.entry_store as es
+
+        monkeypatch.setattr(es, "_git_root", lambda: tmp_path)
+        runner.invoke(
+            app,
+            ["memory", "store", "--type", "decision", "Use WAL mode for SQLite"],
+        )
+        runner.invoke(
+            app,
+            ["memory", "store", "--type", "lesson", "--tags", "testing",
+             "Always write tests before shipping"],
+        )
+        runner.invoke(
+            app,
+            ["memory", "store", "--type", "context", "Monorepo layout chosen"],
+        )
+
+    def test_export_all_markdown_exits_zero(
+        self, cli_runner, cli_app, monkeypatch, tmp_path
+    ):
+        self._seed(cli_runner, cli_app, monkeypatch, tmp_path)
+        result = cli_runner.invoke(cli_app, ["memory", "export"])
+        assert result.exit_code == 0
+        assert "Memory Export" in result.output
+        assert "Entries: 3" in result.output
+
+    def test_export_all_contains_entry_content(
+        self, cli_runner, cli_app, monkeypatch, tmp_path
+    ):
+        self._seed(cli_runner, cli_app, monkeypatch, tmp_path)
+        result = cli_runner.invoke(cli_app, ["memory", "export"])
+        assert result.exit_code == 0
+        assert "WAL mode" in result.output
+        assert "Always write tests" in result.output
+        assert "Monorepo" in result.output
+
+    def test_export_type_filter(
+        self, cli_runner, cli_app, monkeypatch, tmp_path
+    ):
+        self._seed(cli_runner, cli_app, monkeypatch, tmp_path)
+        result = cli_runner.invoke(
+            cli_app, ["memory", "export", "--type", "decision"]
+        )
+        assert result.exit_code == 0
+        assert "WAL mode" in result.output
+        # Lesson and context entries must not appear
+        assert "Always write tests" not in result.output
+        assert "Monorepo" not in result.output
+
+    def test_export_json_output(
+        self, cli_runner, cli_app, monkeypatch, tmp_path
+    ):
+        self._seed(cli_runner, cli_app, monkeypatch, tmp_path)
+        result = cli_runner.invoke(cli_app, ["memory", "export", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert isinstance(data, list)
+        assert len(data) == 3
+
+    def test_export_json_round_trip(
+        self, cli_runner, cli_app, monkeypatch, tmp_path
+    ):
+        """Exported JSON entries must contain id, type, content, and tags."""
+        self._seed(cli_runner, cli_app, monkeypatch, tmp_path)
+        result = cli_runner.invoke(cli_app, ["memory", "export", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        types_found = {e["type"] for e in data}
+        assert types_found == {"decision", "lesson", "context"}
+        contents = {e["content"].strip() for e in data}
+        assert any("WAL mode" in c for c in contents)
+
+    def test_export_json_type_filter(
+        self, cli_runner, cli_app, monkeypatch, tmp_path
+    ):
+        self._seed(cli_runner, cli_app, monkeypatch, tmp_path)
+        result = cli_runner.invoke(
+            cli_app, ["memory", "export", "--json", "--type", "lesson"]
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert all(e["type"] == "lesson" for e in data)
+        assert len(data) == 1
+
+    def test_export_to_file(
+        self, cli_runner, cli_app, monkeypatch, tmp_path
+    ):
+        self._seed(cli_runner, cli_app, monkeypatch, tmp_path)
+        out_file = tmp_path / "export.md"
+        result = cli_runner.invoke(
+            cli_app, ["memory", "export", "--out", str(out_file)]
+        )
+        assert result.exit_code == 0
+        assert out_file.exists()
+        content = out_file.read_text(encoding="utf-8")
+        assert "Memory Export" in content
+        assert "WAL mode" in content
+
+    def test_export_json_to_file(
+        self, cli_runner, cli_app, monkeypatch, tmp_path
+    ):
+        self._seed(cli_runner, cli_app, monkeypatch, tmp_path)
+        out_file = tmp_path / "export.json"
+        result = cli_runner.invoke(
+            cli_app, ["memory", "export", "--json", "--out", str(out_file)]
+        )
+        assert result.exit_code == 0
+        assert out_file.exists()
+        data = json.loads(out_file.read_text(encoding="utf-8"))
+        assert isinstance(data, list)
+        assert len(data) == 3
+
+    def test_export_empty_store_markdown(
+        self, cli_runner, cli_app, monkeypatch, tmp_path
+    ):
+        import cc.core.entry_store as es
+
+        monkeypatch.setattr(es, "_git_root", lambda: tmp_path)
+        result = cli_runner.invoke(cli_app, ["memory", "export"])
+        assert result.exit_code == 0
+        assert "no entries" in result.output.lower()
+
+    def test_export_empty_store_json(
+        self, cli_runner, cli_app, monkeypatch, tmp_path
+    ):
+        import cc.core.entry_store as es
+
+        monkeypatch.setattr(es, "_git_root", lambda: tmp_path)
+        result = cli_runner.invoke(cli_app, ["memory", "export", "--json"])
+        assert result.exit_code == 0
+        assert json.loads(result.output) == []
+
+
+class TestMemoryExportApi:
+    """API-level tests for cc.api.memory_export."""
+
+    def test_api_export_returns_string(self, memory_root):
+        store_entry(entry_type="decision", content="API decision.", scope="project")
+        from cc.api import memory_export
+
+        output = memory_export(scope="project")
+        assert isinstance(output, str)
+        assert "API decision" in output
+
+    def test_api_export_json_format(self, memory_root):
+        store_entry(entry_type="lesson", content="API lesson.", scope="project")
+        from cc.api import memory_export
+
+        output = memory_export(scope="project", output_format="json")
+        data = json.loads(output)
+        assert isinstance(data, list)
+        assert len(data) == 1
+        assert "API lesson" in data[0]["content"]
+
+    def test_api_export_type_filter(self, memory_root):
+        store_entry(entry_type="decision", content="keep this", scope="project")
+        store_entry(entry_type="lesson", content="exclude this", scope="project")
+        from cc.api import memory_export
+
+        output = memory_export(scope="project", entry_type="decision")
+        assert "keep this" in output
+        assert "exclude this" not in output
+
+    def test_api_export_invalid_format_raises(self, memory_root):
+        from cc.api import memory_export
+
+        with pytest.raises(ValueError, match="output_format"):
+            memory_export(scope="project", output_format="xml")

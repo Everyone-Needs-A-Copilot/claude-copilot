@@ -148,7 +148,19 @@ tc wp store  --task <id> --type <type> --title "..." [--content "..."] [--file p
 tc wp get    <id>
 tc wp list   [--task <id>] [--type <type>]
 tc wp search "<query>"
+tc wp render <id> --html            # render to .copilot/renders/WP-<id>.html (token-free)
+tc wp render <id> --html --out /custom/path.html  # override output path
 ```
+
+**HTML rendering** produces a fully self-contained file (inline CSS, vanilla JS, no CDN) at `.copilot/renders/WP-<id>.html`. The CLI prints only the absolute path to stdout — the HTML body never enters the context window. Auto-detects one of three templates based on content:
+
+| Template | Trigger | Feature |
+|----------|---------|---------|
+| Severity | P0/P1/P2 or CRITICAL/HIGH/MEDIUM/LOW in content | Color-coded legend, severity-class CSS on rows |
+| Variant grid | ≥ 2 headings containing "option/variant/alternative/approach/solution" | Tabbed comparison layout |
+| Rendered diff | `\`\`\`diff` block or ≥ 3 `+x`/`-x` diff lines | Diff viewer with syntax highlighting |
+
+All rendered files include "Copy as Markdown" and "Copy as JSON" buttons. Long-form content (≥ 100 newlines) gets a Rendered / Source tab switcher.
 
 ### `tc stream`
 
@@ -223,6 +235,7 @@ tools/tc/
       tasks.py           # create_task, add_dependency
       prds.py            # create_prd
       wp.py              # store_wp
+      render_html.py     # render_wp_html — token-free HTML output (auto-detects template)
     db/
       connection.py      # get_db, init_db, find_db_path, transaction()
       schema.py          # CREATE TABLE statements
