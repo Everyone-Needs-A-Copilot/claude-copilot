@@ -13,10 +13,6 @@
 > and every change is logged in **Section 10: Evolution**.
 
 > **STATUS: RATIFIED v1.0 — 2026-06-28.** Owner-ratified at read-back: priority order set, a fifth anti-pattern (The Do-Everything Generalist) added, and the ecosystem MCP/CLI boundary settled. Evidenced inferences confirmed against the owner's docs.
-<!-- This was retrofitted from the repo's README, CLAUDE.md, philosophy doc, overview
-     card, VERSION.json, and the hooks/agents surface. Inferences are marked
-     `<!-- INFERRED FROM DOCS; CONFIRM -->`. Owner-only calls are marked
-     `<!-- TODO: owner -->` and must be ratified, not guessed. -->
 
 ---
 
@@ -29,7 +25,6 @@
 **so they can** do disciplined, resumable, inspectable work instead of starting from zero every morning.
 
 **The struggling moment:**
-<!-- INFERRED FROM DOCS (philosophy.md, README "The Problem"); CONFIRM -->
 You open Claude Code and it has forgotten everything — your project, your decisions, your context. You explain it again. Tokens burn before any work happens. The advice you get is generic, the process is ad-hoc, and there are no quality gates. Worse: even when you *do* set up a disciplined process, it doesn't get followed — a diagnostic of 15 real sessions found 94% of work stayed in the main session despite a 14-agent roster. Policy in a doc nobody reads changes nothing. The friction isn't a missing feature; it's that memory, discipline, and frugality are not *enforced*, so they don't happen.
 
 **Who this serves:**
@@ -45,14 +40,12 @@ You open Claude Code and it has forgotten everything — your project, your deci
 ## 2. The Essence
 
 **Soul statement:**
-<!-- INFERRED FROM DOCS (README, overview oneliner); CONFIRM -->
 Claude Copilot is an **instruction layer for Claude Code** — markdown agents, commands, and two local CLIs (`cc`, `tc`) — that makes Claude Code's process **repeatable, inspectable, and stateful**: specialized agents with strict points of view, a design-led protocol enforced by mechanical hooks, persistent memory, and real task/worker orchestration.
 
 **The deeper aim:**
 Every developer gets the disciplined process of a strong team — encoded, enforced, and owned by them — without trading away their token budget, their privacy, or their honesty about what AI can actually guarantee.
 
 **As a person, this product would be:**
-<!-- INFERRED FROM voice across docs; CONFIRM -->
 A precise, unflappable staff engineer who footnotes their own claims. Tells you exactly what is proven and what isn't. Enforces the rule rather than reminding you of it. Never oversells; says "Not magic" out loud.
 
 **Would NOT be:**
@@ -69,7 +62,6 @@ A hype-driven platform evangelist who promises "better software," hides the limi
 | A generic, extendable base | A home for company-specific content (that lives in extensions) |
 
 **Key boundary — read this twice:**
-<!-- INFERRED FROM non-goals (overview "What it doesn't do", philosophy "What it is Not"); CONFIRM -->
 It looks like a "product" or "platform," but it is an **instruction layer**: files Claude Code reads, plus two local CLIs. A borderline capability is allowed **only if** it can ship as instructions Claude Code reads and/or a local `cc`/`tc` command — *without* becoming standalone software, opening a network service, syncing state to a cloud, or running model inference. Within the ecosystem, connection is always via the local CLI (`cc`/`tc`) — **never MCP.** MCP is reserved exclusively for *application-level* servers that let users connect to a **live application's own domain from outside the ecosystem** (e.g., Convoco's MCP — for talking *about* your conversations and deals, not for building Convoco). MCP for development, technical planning, or ecosystem-internal tooling is refused. The optional `cc mcp serve` shim is therefore **transitional, trending to removal**, not a permanent feature. The moment a feature needs a daemon, a port, a server, or its own model, it belongs in a different product.
 
 ---
@@ -117,7 +109,7 @@ The first three are **identity boundaries** — cross any one and it stops being
 *Named failure modes — the specific ways this product could rot.*
 
 ### The Platform Creep
-**Drift:** <!-- INFERRED FROM non-goals; CONFIRM --> A convenience feature "just needs a small always-on helper" — a watcher, a local server, a background sync. Each step is reasonable; the sum is that Claude Copilot quietly becomes standalone software with a daemon and ports.
+**Drift:** A convenience feature "just needs a small always-on helper" — a watcher, a local server, a background sync. Each step is reasonable; the sum is that Claude Copilot quietly becomes standalone software with a daemon and ports.
 **Why it kills us:** It stops being an instruction layer Claude Code reads and becomes a product to install, run, and operate — the exact thing the IS-NOT table refuses.
 **Early warning:** "let's add a background service," "it should run as a daemon," "expose an endpoint," "needs to be always-on."
 **Line in the sand:** No inbound network service, no daemon, no port — non-negotiable. Per the ratified MCP boundary, even local stdio MCP shims are transitional; ecosystem-internal connection is CLI.
@@ -179,7 +171,6 @@ If yes → reject, or redesign until it doesn't.
 
 ### Case Law (In / Out)
 
-<!-- INFERRED FROM shipped features + non-goals; CONFIRM each verdict with owner. -->
 
 | Feature | Verdict | Gate | Reasoning |
 |---------|---------|------|-----------|
@@ -198,7 +189,6 @@ If yes → reject, or redesign until it doesn't.
 ## 6. Quality Bar
 
 **The standard:**
-<!-- INFERRED FROM CLAUDE.md guardrails, hooks README, VERSION rules; CONFIRM -->
 "Done" means the discipline is *enforced and inspectable*, not merely documented — and every claim in the work is something you could verify.
 
 **Non-negotiables:**
@@ -228,7 +218,6 @@ If a claim in a doc or agent output can't name what measures it, it fails — re
 ## 7. Voice & Tone
 
 **Character:**
-<!-- INFERRED FROM README/CLAUDE.md/philosophy phrasing; CONFIRM -->
 Precise, technical, and self-correcting. Footnotes its own claims. Anti-hype to the point of bluntness. Uses the exact word ("FTS5 keyword," "local stdio shim") and refuses the impressive-but-wrong one ("semantic," "battle-tested"). Says what is unproven in the same breath as what works.
 
 **Language rules:**
@@ -256,7 +245,6 @@ Precise, technical, and self-correcting. Footnotes its own claims. Anti-hype to 
 ## 8. Success Signals
 
 **Positive signals (we're on track):**
-<!-- INFERRED; CONFIRM and replace with real overheard quotes -->
 
 - "`/continue` picked up exactly where I left off — weeks later, no re-explaining."
 - "The QA gate wouldn't let it ship until tests actually ran. Good."
