@@ -122,11 +122,11 @@ finally:
 ### `tc task`
 
 ```bash
-tc task create  --title "..." --prd <id> --agent <slug> --priority 0-3
+tc task create  --title "..." --prd <id> --agent <slug> --priority 0-3 [--max-budget-usd <float>]
 tc task get     <id> [--json]
 tc task list    [--status pending] [--agent me] [--prd <id>]
 tc task update  <id> --status completed
-tc task claim   <id> --agent <slug>
+tc task claim   <id> --agent <slug> [--max-budget-usd <float>]
 tc task next    [--agent me]
 tc task deps add    <id> --depends-on <id>
 tc task deps remove <id> --depends-on <id>
@@ -177,6 +177,37 @@ tc progress                        # task count by status per stream
 tc handoff --from me --to qa --task <id> --context "..."
 tc log --task <id> [--limit 20]
 ```
+
+### `tc worker`
+
+`tc worker` is the agent-dispatch surface for budget-bounded task execution.
+
+**`--max-budget-usd <float>`** — per-task cost cap. Set it on `tc task create` or `tc task claim` to annotate the maximum USD the dispatched agent is permitted to spend on that task.
+
+```bash
+# Create a task with a $0.50 cost cap
+tc task create --title "Generate unit tests" --prd 1 --agent qa --max-budget-usd 0.50
+
+# Claim a task and declare a cap at claim time
+tc task claim 42 --agent me --max-budget-usd 1.00
+```
+
+The flag is stored in task metadata (`metadata.max_budget_usd`). You can retrieve it:
+
+```bash
+tc task get 42 --json | python3 -c "import sys,json; t=json.load(sys.stdin); print(t.get('metadata',{}).get('max_budget_usd','unset'))"
+```
+
+**Current status — flag plumbing only (tc 1.3.0):** The value is stored and retrievable. Runtime enforcement — rejecting or halting a dispatch that would exceed the cap — is a **roadmap P1** item. Setting the flag now future-proofs your task graph for when enforcement ships.
+
+**`tc worker` subcommand (dispatch surface):**
+
+```bash
+tc worker run   <task_id>   # dispatch task to its assigned agent (respects max_budget_usd when enforcement lands)
+tc worker status <task_id>  # show dispatch state and budget annotation
+```
+
+---
 
 ### `tc deploy`
 

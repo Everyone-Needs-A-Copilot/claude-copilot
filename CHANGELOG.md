@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.12.0] - 2026-06-29
+
+Regression-eval harness, per-task cost cap flag, hook hardening, CLI-owned Discord re-arm architecture, and AI-ecosystem gap audit. Component bumps: cc 1.6.0, tc 1.3.0.
+
+### Added
+
+- **`cc eval` — regression-eval harness** (`tools/cc/`): cross-version regression suite for framework agents. Authors write golden cases in `.claude/evals/<agent>/*.yaml` (input prompt + expected output criteria); `cc eval run [--agent <name>]` executes them via a pluggable pure-Python runner, scores each case, and persists results to `cc memory` for longitudinal tracking. Gate pattern: failing evals on a `cc` or `tc` VERSION.json bump blocks the bump from merging. See `tools/cc/README.md` → Eval section.
+- **`--max-budget-usd <float>` dispatch flag** (`tools/tc/`): per-task cost-cap annotation on `tc task create` and `tc task claim`. The flag plumbing is live (stored in task metadata); enforcement (rejecting a dispatch that would exceed the cap) is a roadmap P1 item. See `tools/tc/README.md` → tc worker section.
+- **AI-ecosystem gap audit report** (`docs/70-reference/ai-ecosystem-research-methodology.md`): cross-product documentation gap inventory produced during the 5.12.0 initiative cycle. WP-173 is the machine-readable form; the committed file is the human-readable reference.
+
+### Changed
+
+- **`pretool-check.sh` hook hardening** (`.claude/hooks/pretool-check.sh`): deny-reason output is now always visible in the hook response (`python3 -c` replaced with `jq` for JSON reads, eliminating the silent-deny regression introduced in 5.11.0). Agents now see the exact rule that fired rather than a blank rejection.
+- **Discord re-arm architecture** — re-arm loop ownership moved from `CLAUDE.md` behavioral instruction to a registered Claude Code Stop hook (`cli-copilot discord install-hook`). The behavioral instruction in `CLAUDE.md` remains as a fallback description; the Stop hook is the runtime mechanism. Pairs with new `cli-copilot` commands `handoff --await`, `stop-hook`, `discord close`, and `COPILOT_DISCORD_LOOP=off` escape (documented in `cli-copilot` README; see the companion instruction-set WP for details).
+
+### Architecture
+
+- **cc 1.6.0**: `cc eval` command family (`eval run`, `eval list`, `eval add`, `eval show`); eval runner and `.claude/evals/` golden-case convention; score persistence to `cc memory`
+- **tc 1.3.0**: `--max-budget-usd` flag on `task create`/`task claim`; `tc worker` dispatch surface (enforcement is roadmap P1)
+
 ## [5.11.0] - 2026-06-25
 
 Safety primitives, cross-model adversarial QA, CONFUSED loop-state, HTML work-product renderer, and `cc memory export`. Inspired in part by **gstack** (Garry Tan, `github.com/garrytan/gstack`, MIT) and **"The Unreasonable Effectiveness of HTML"** (Thariq Shihipar, Anthropic Engineering Blog) — see ADR-004.
