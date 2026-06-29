@@ -1,11 +1,16 @@
 {
-  "version": "1.0",
+  "version": "1.1",
   "description": "Quality gate configuration. Gates are checked before task completion.",
   "defaultGates": [
     "tests_pass",
     "lint_clean",
     "build_success"
   ],
+  "eval": {
+    "pass_rate_threshold": 0.8,
+    "p0_regression_blocks": true,
+    "description": "cc eval pass-rate gate. Exit non-zero if pass_rate < threshold or any P0 case regresses. Used by: cc eval --agent <name>. Trigger: VERSION.json agents version bump."
+  },
   "gates": {
     "tests_pass": {
       "name": "tests_pass",

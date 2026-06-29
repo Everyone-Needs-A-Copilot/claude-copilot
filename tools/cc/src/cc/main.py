@@ -11,6 +11,7 @@ from cc.commands.config import config_app
 from cc.commands.mcp import mcp_app
 from cc.commands.docs import docs_app
 from cc.commands.usage import usage_app
+from cc.commands.eval import eval_app
 from cc.core.config import resolve_key
 
 app = typer.Typer(
@@ -26,6 +27,7 @@ app.add_typer(config_app, name="config")
 app.add_typer(mcp_app, name="mcp")
 app.add_typer(docs_app, name="docs")
 app.add_typer(usage_app, name="usage")
+app.add_typer(eval_app, name="eval")
 
 
 @app.command("env")
