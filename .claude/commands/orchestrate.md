@@ -59,10 +59,17 @@ launch instructions. Claude Code's native `Task` tool runs the agents —
    ```bash
    tc task list --stream <stream-id> --json   # the agent's work list
    ```
+
+   **Budget-capped non-interactive dispatch (optional):** when a per-run spending cap is needed, use `tc worker` instead of the `Task` tool.  The worker command plumbs `--max-budget-usd` through to `claude --print`:
+   ```bash
+   # Dispatch a stream worker with a $3 cap (--max-budget-usd plumbed through)
+   tc worker <task-id> --max-budget-usd 3.00
+   ```
 6. As streams finish, run `/orchestrate merge` to integrate them.
 
 > **Note:** Agent execution is handled by the native `Task` tool, not a background
-> worker pool. Dependency ordering is your call — only start a stream once the
+> worker pool. For budget-capped non-interactive runs, use `tc worker --max-budget-usd`.
+> Dependency ordering is your call — only start a stream once the
 > streams it depends on have merged.
 
 ---
