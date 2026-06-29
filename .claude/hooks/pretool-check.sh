@@ -42,11 +42,21 @@
 #      while any task is in pending-qa state for this session.
 #      Task: 16 (P4.1). Bypass: COPILOT_QA_GATE=off
 
-set -uo pipefail
+set -uEo pipefail
+# -u  : nounset — error on unbound variables
+# -E  : errtrace — ERR trap propagates into functions (ensures no silent crashes)
+# -o pipefail : pipeline exit code is rightmost non-zero command
 
 # Emit a diagnostic and exit 0 (fail-open) on any unexpected ERR so that
 # hook failures never silently block legitimate tool calls.
-trap 'echo "[pretool-check] unexpected exit $? at line $LINENO" >&2; exit 0' ERR
+# With -E, this trap now also fires inside functions, not just the top level.
+trap 'echo "[pretool-check] unexpected error at line $LINENO (exit $?)" >&2; exit 0' ERR
+
+# Catch SIGPIPE: if stdout is unexpectedly closed (e.g., harness pipe break
+# or race with the hosting process), the default SIGPIPE action kills the
+# process silently. By catching it we ensure a stderr diagnostic is emitted
+# and the hook fails open rather than dying with no output.
+trap 'echo "[pretool-check] SIGPIPE at line $LINENO — stdout pipe broken, failing open" >&2; exit 0' PIPE
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -63,27 +73,20 @@ JQ="/usr/bin/jq"
 # Load valid agent names from manifest.json (TASK-114 / ADR-002)
 # Used to build helpful deny messages and validate subagent_type values.
 # Falls back to a hardcoded minimal set when manifest is absent (safe degradation).
+#
+# PERFORMANCE NOTE: Originally used python3 (20ms warm, 100-300ms cold).
+# Now uses jq (already required, 3-4ms). This is the primary fix for the
+# intermittent "No stderr output" hook error caused by the hook exceeding
+# the harness timeout when python3 is cold-cached.
 # ---------------------------------------------------------------------------
 _load_manifest_agents() {
-  if [[ -f "$MANIFEST_FILE" ]] && command -v python3 &>/dev/null; then
-    python3 - <<'PYEOF' 2>/dev/null
-import json, os, sys
-try:
-    with open(os.environ.get("MANIFEST_FILE", "")) as f:
-        data = json.load(f)
-    names = sorted(
-        name for name, desc in data["agents"].items()
-        if desc.get("role") == "framework"
-    )
-    print(" ".join(names))
-except Exception:
-    sys.exit(1)
-PYEOF
+  if [[ -f "$MANIFEST_FILE" ]]; then
+    "$JQ" -r '[.agents | to_entries[] | select(.value.role == "framework") | .key] | sort | join(" ")' \
+      "$MANIFEST_FILE" 2>/dev/null
   fi
 }
 
 # MANIFEST_AGENTS is a space-separated list of framework agent names from the manifest.
-# We export MANIFEST_FILE so the python3 heredoc can read it.
 export MANIFEST_FILE
 MANIFEST_AGENTS="$(_load_manifest_agents 2>/dev/null || echo "")"
 # Fallback when manifest unavailable
@@ -190,8 +193,17 @@ write_streak() {
 
 deny() {
   local reason="$1"
-  printf '{"permissionDecision":"deny","reason":"%s"}\n' \
-    "$(printf '%s' "$reason" | sed 's/"/\\"/g')"
+  # Escape for JSON using bash builtins only — no subprocess, no pipeline,
+  # no pipefail interaction. Escapes backslashes first (order matters), then
+  # double quotes. Our deny messages are hardcoded ASCII but this is robust.
+  local escaped="${reason//\\/\\\\}"
+  escaped="${escaped//\"/\\\"}"
+  # Write reason to stderr SO the harness can surface it in the error message
+  # (harness format: "hook error: [path]: [stderr content]"). Without this,
+  # the harness shows "No stderr output" — which looks like an internal crash
+  # rather than an intentional policy block.
+  echo "[hook-deny] ${reason}" >&2
+  printf '{"permissionDecision":"deny","reason":"%s"}\n' "$escaped"
   exit 2
 }
 
