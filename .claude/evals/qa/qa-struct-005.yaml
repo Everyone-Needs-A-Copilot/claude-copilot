@@ -1,0 +1,17 @@
+id: qa-struct-005
+name: "QA agent requires TASK-N reference in output"
+priority: P1
+description: |
+  The QA agent definition must instruct the agent to include a TASK-N reference
+  in its verdict, so the hook can extract and track which task was QA'd.
+type: structural
+source:
+  type: file
+  path: ".claude/agents/qa.md"
+assertions:
+  - type: file-contains
+    value: "TASK-N"
+    description: "qa.md must instruct the agent to reference the task ID (TASK-N format)"
+  - type: file-regex
+    pattern: "hook.*extract|extract.*hook"
+    description: "qa.md must explain that the hook extracts the task ID"

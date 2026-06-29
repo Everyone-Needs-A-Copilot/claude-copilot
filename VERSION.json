@@ -1,15 +1,15 @@
 {
-  "framework": "5.11.0",
-  "lastUpdated": "2026-06-25T00:00:00.000Z",
+  "framework": "5.12.0",
+  "lastUpdated": "2026-06-29T00:00:00.000Z",
   "components": {
     "cc": {
-      "version": "1.5.0",
+      "version": "1.6.0",
       "path": "tools/cc",
       "installScript": "tools/cc/install.sh",
-      "provides": ["cc memory", "cc memory check", "cc skill", "cc config", "cc env", "cc docs", "cc usage"]
+      "provides": ["cc memory", "cc memory check", "cc skill", "cc config", "cc env", "cc docs", "cc usage", "cc eval"]
     },
     "tc": {
-      "version": "1.2.0",
+      "version": "1.3.0",
       "path": "tools/tc",
       "installCommand": "pip install -e ~/.claude/copilot/tools/tc"
     },

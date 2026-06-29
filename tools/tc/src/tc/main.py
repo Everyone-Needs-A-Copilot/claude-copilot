@@ -1,5 +1,7 @@
 """Task Copilot CLI - Main entry point."""
 
+import json as _json
+import subprocess as _subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -257,6 +259,73 @@ def watch_cmd(
     from tc.commands.watch import watch
 
     watch(refresh=refresh, compact=compact, stream_filter=stream)
+
+
+@app.command("worker")
+def worker_cmd(
+    task_id: int = typer.Argument(..., help="Task ID to dispatch an agent for."),
+    max_budget_usd: Optional[float] = typer.Option(
+        None,
+        "--max-budget-usd",
+        help=(
+            "Per-run spending cap in USD passed to 'claude --print --max-budget-usd'. "
+            "FLAG PLUMBING ONLY (P0) — enforcement hook is P1."
+        ),
+    ),
+    model: Optional[str] = typer.Option(
+        None,
+        "--model",
+        help="Model override passed to 'claude --print --model'.",
+    ),
+    agent: Optional[str] = typer.Option(
+        None,
+        "--agent",
+        help="Agent role to invoke (default: me).",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Print the dispatch command without executing it.",
+    ),
+    output_json: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit JSON result to stdout.",
+    ),
+) -> None:
+    """Dispatch a Claude agent to work on a task in non-interactive mode.
+
+    Wraps ``claude --print`` with the ``--max-budget-usd`` flag plumbed through
+    when set.  In dry-run mode, prints the command that would be executed.
+
+    This is the canonical tc-side dispatch path for non-interactive (headless)
+    agent runs.  The orchestrate and Discord dispatch paths mirror this flag set.
+
+    Examples::
+
+        tc worker 42
+        tc worker 42 --max-budget-usd 2.50
+        tc worker 42 --max-budget-usd 2.50 --dry-run
+        tc worker 42 --max-budget-usd 2.50 --dry-run --json
+    """
+    from tc.commands.worker import _build_dispatch_cmd
+
+    cmd = _build_dispatch_cmd(
+        task_id,
+        max_budget_usd=max_budget_usd,
+        model=model,
+        agent=agent,
+    )
+
+    if dry_run:
+        if output_json:
+            typer.echo(_json.dumps({"cmd": cmd, "dry_run": True}))
+        else:
+            typer.echo("Would run: " + " ".join(cmd))
+        raise typer.Exit(0)
+
+    result = _subprocess.run(cmd)
+    raise typer.Exit(result.returncode)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,30 @@
+id: qa-behav-002
+name: "Valid REJECTED verdict passes structural assertions"
+priority: P1
+description: |
+  A well-formed QA verdict with VERDICT: REJECTED and a test-run ARTIFACT must
+  pass structural assertions. Rejection is a valid QA outcome.
+type: behavioral
+source:
+  type: inline
+  content: |
+    Task: TASK-55 | WP: WP-77
+    Test Coverage:
+    - Unit: 3 test cases (2 failing)
+    Summary: Auth token validation fails on empty string input. Re-work required.
+    Coverage Gaps: Token expiry edge case untested.
+    VERDICT: REJECTED
+    ARTIFACT: test-run|pytest tests/test_auth.py exit=1 "1 passed, 2 failed"
+assertions:
+  - type: contains
+    value: "VERDICT: REJECTED"
+    description: "REJECTED verdict token must be present"
+  - type: contains
+    value: "ARTIFACT:"
+    description: "ARTIFACT marker must be present even for REJECTED verdicts"
+  - type: contains
+    value: "TASK-"
+    description: "Task reference must be present"
+  - type: not-contains
+    value: "def "
+    description: "QA verdict must not contain implementation code"

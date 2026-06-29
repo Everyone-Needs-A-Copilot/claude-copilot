@@ -1,0 +1,34 @@
+id: qa-behav-005
+name: "QA verdict must not contain implementation code"
+priority: P1
+description: |
+  A QA verdict must NOT include implementation code (function definitions, class
+  definitions, etc.). The QA agent reviews code; it does not write it.
+  This is the core responsibility boundary.
+type: behavioral
+source:
+  type: inline
+  content: |
+    Task: TASK-66 | WP: WP-88
+    Test Coverage:
+    - Unit: 4 test cases (all passing)
+    Summary: The authentication module has been reviewed and passes all tests.
+    The implementation correctly handles token expiry edge cases.
+    VERDICT: APPROVED
+    ARTIFACT: test-run|pytest tests/test_auth.py exit=0 "4 passed"
+assertions:
+  - type: not-contains
+    value: "def "
+    description: "QA verdict must not contain Python function definitions"
+  - type: not-contains
+    value: "class "
+    description: "QA verdict must not contain Python class definitions"
+  - type: not-contains
+    value: "function("
+    description: "QA verdict must not contain JS arrow/function definitions"
+  - type: not-contains
+    value: "import "
+    description: "QA verdict must not contain import statements (implementation code)"
+  - type: contains
+    value: "VERDICT: APPROVED"
+    description: "Valid verdict must be present"

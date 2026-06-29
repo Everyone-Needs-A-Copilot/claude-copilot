@@ -1,0 +1,36 @@
+id: qa-behav-001
+name: "Valid APPROVED verdict passes all assertions"
+priority: P0
+description: |
+  A well-formed QA verdict with VERDICT: APPROVED and a test-run ARTIFACT must
+  pass all behavioral assertions. This is the happy path.
+type: behavioral
+source:
+  type: inline
+  content: |
+    Task: TASK-42 | WP: WP-99
+    Test Coverage:
+    - Unit: 5 test cases (auth logic, edge cases)
+    - Integration: 2 test cases (API endpoints)
+    Summary: All tests pass. Auth module has 87% coverage.
+    VERDICT: APPROVED
+    ARTIFACT: test-run|pytest tests/test_auth.py exit=0 "5 passed, 0 failed"
+assertions:
+  - type: contains
+    value: "VERDICT: APPROVED"
+    description: "Valid verdict token must be present"
+  - type: contains
+    value: "ARTIFACT:"
+    description: "ARTIFACT marker must be present"
+  - type: contains
+    value: "TASK-"
+    description: "Task reference must be present"
+  - type: regex
+    pattern: "ARTIFACT: (test-run|file-check|diff-check|adversarial-run)\\|"
+    description: "ARTIFACT must use a valid artifact type"
+  - type: not-contains
+    value: "def "
+    description: "QA verdict must not contain Python function definitions (implementation code)"
+  - type: not-contains
+    value: "function "
+    description: "QA verdict must not contain JS function definitions (implementation code)"

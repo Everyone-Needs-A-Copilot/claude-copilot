@@ -1,0 +1,20 @@
+id: qa-struct-004
+name: "QA agent defines test-run artifact type"
+priority: P1
+description: |
+  The QA agent definition must describe the test-run artifact type as a valid
+  ARTIFACT marker type. This ensures the agent knows how to produce a verifiable artifact.
+type: structural
+source:
+  type: file
+  path: ".claude/agents/qa.md"
+assertions:
+  - type: file-contains
+    value: "test-run"
+    description: "qa.md must define the test-run artifact type"
+  - type: file-contains
+    value: "file-check"
+    description: "qa.md must define the file-check artifact type"
+  - type: file-contains
+    value: "diff-check"
+    description: "qa.md must define the diff-check artifact type"
