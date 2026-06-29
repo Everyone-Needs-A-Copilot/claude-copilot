@@ -55,4 +55,15 @@ def run_env(
         for k, v in {**machine_secrets, **project_secrets}.items():
             exports[k] = v
 
+    # Emit short-form aliases for the knowledge repo path variables.
+    # Agents reference CC_KNOWLEDGE_REPO and CC_SHARED_DOCS (not the nested
+    # CC_PATHS_* form), so produce both names when the source key is set.
+    _PATH_ALIASES: dict[str, str] = {
+        "CC_KNOWLEDGE_REPO": "CC_PATHS_KNOWLEDGE_REPO",
+        "CC_SHARED_DOCS": "CC_PATHS_SHARED_DOCS",
+    }
+    for alias, source in _PATH_ALIASES.items():
+        if source in exports and alias not in exports:
+            exports[alias] = exports[source]
+
     return exports

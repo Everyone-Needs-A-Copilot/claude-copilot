@@ -58,6 +58,42 @@ def test_env_skips_null_values(monkeypatch):
     assert "CC_MEMORY_EMBEDDING_MODEL" in result.output
 
 
+def test_env_emits_knowledge_repo_alias(monkeypatch):
+    """CC_KNOWLEDGE_REPO and CC_SHARED_DOCS are emitted as short-form aliases."""
+    monkeypatch.setattr(
+        "cc.commands.env.get_resolved_config",
+        lambda **_: {
+            "paths.knowledge_repo": "/vol/copilot/shared-docs",
+            "paths.shared_docs": "/vol/copilot/shared-docs",
+        },
+    )
+
+    result = invoke("env")
+    assert result.exit_code == 0
+    # Short-form aliases present
+    assert 'export CC_KNOWLEDGE_REPO="/vol/copilot/shared-docs"' in result.output
+    assert 'export CC_SHARED_DOCS="/vol/copilot/shared-docs"' in result.output
+    # Long-form keys also present
+    assert 'export CC_PATHS_KNOWLEDGE_REPO="/vol/copilot/shared-docs"' in result.output
+    assert 'export CC_PATHS_SHARED_DOCS="/vol/copilot/shared-docs"' in result.output
+
+
+def test_env_alias_not_emitted_when_source_is_none(monkeypatch):
+    """CC_KNOWLEDGE_REPO alias is NOT emitted when paths.knowledge_repo is None."""
+    monkeypatch.setattr(
+        "cc.commands.env.get_resolved_config",
+        lambda **_: {
+            "paths.knowledge_repo": None,
+            "paths.shared_docs": None,
+        },
+    )
+
+    result = invoke("env")
+    assert result.exit_code == 0
+    assert "CC_KNOWLEDGE_REPO" not in result.output
+    assert "CC_SHARED_DOCS" not in result.output
+
+
 def test_env_json_flag(monkeypatch):
     """cc env --json outputs valid JSON."""
     monkeypatch.setattr(
