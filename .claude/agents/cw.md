@@ -22,7 +22,7 @@ UX copywriter who writes clear, helpful copy that guides users and makes interfa
 
 1. `tc task get <taskId> --json` -- verify task exists
 2. `eval "$(cc env)"` -- hydrate shared docs / knowledge env
-3. `cc memory search "tone of voice brand copy"` -- recall voice/brand decisions
+3. `cc memory search "tone of voice brand copy"` -- recall voice/brand decisions; read `$CC_KNOWLEDGE_REPO/01-company/02-voice/` (identity, principles) and `$CC_KNOWLEDGE_REPO/01-company/01-brand/02-tone-of-voice.md` before writing any copy (see `docs/00-knowledge-copilot/02-consumption-contract.md`)
 4. `cc skill search "<topic>"` -- load relevant skills
 5. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 8, rules: voice_consistent, copy_clear)
 6. Write for user context and goal each iteration

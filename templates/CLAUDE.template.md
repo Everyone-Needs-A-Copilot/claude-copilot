@@ -75,6 +75,26 @@ This project uses [Claude Copilot](https://github.com/Everyone-Needs-A-Copilot/c
 
 ---
 
+## Knowledge Copilot
+
+Knowledge Copilot is the single source of truth for brand, voice, offerings, and processes. Consult it first — never invent or duplicate this knowledge.
+
+```bash
+eval "$(cc env)"   # hydrates CC_KNOWLEDGE_REPO
+```
+
+| Domain | Path under `$CC_KNOWLEDGE_REPO` |
+|--------|----------------------------------|
+| Voice & tone | `01-company/02-voice/` |
+| Brand & visual | `01-company/01-brand/` |
+| Services & offerings | `01-company/03-services/` |
+| Methodologies | `01-company/06-methodologies/` |
+| Products | `02-products/` |
+
+Full contract: `$CC_KNOWLEDGE_REPO/docs/00-knowledge-copilot/02-consumption-contract.md`
+
+---
+
 ## Project-Specific Rules
 
 ### No Time Estimates
