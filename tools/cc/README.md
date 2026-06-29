@@ -386,6 +386,106 @@ headers are captured verbatim in `raw_headers` for forward-compatibility (R1).
 
 ---
 
+### Eval
+
+`cc eval` is a cross-version regression harness for framework agents. It runs golden-case suites, scores results, and persists scores to `cc memory` so regressions are caught before a component version bump ships.
+
+**Diátaxis mode:** How-to + Reference
+
+#### Golden-case format
+
+Golden cases live in `.claude/evals/<agent>/` as `.yaml` files. Each file describes one case:
+
+```yaml
+# .claude/evals/me/basic-task.yaml
+id: me-basic-task-001
+agent: me
+description: "Implements a simple utility function when given a task"
+input:
+  prompt: "Implement a Python function that returns the factorial of n"
+  task_context: "TASK-001: Factorial utility"
+expected:
+  contains:
+    - "def factorial"
+    - "return"
+  not_contains:
+    - "import math"   # should compute, not delegate
+  score_threshold: 0.8
+```
+
+Fields:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `id` | Yes | Unique case identifier (slug format) |
+| `agent` | Yes | Target agent name (matches `.claude/agents/<name>.md`) |
+| `description` | Yes | Human-readable intent of the case |
+| `input.prompt` | Yes | The prompt fed to the agent |
+| `input.task_context` | No | Optional task metadata to seed the run |
+| `expected.contains` | No | Strings that must appear in agent output |
+| `expected.not_contains` | No | Strings that must NOT appear in agent output |
+| `expected.score_threshold` | No | Minimum pass score (0.0–1.0, default 0.7) |
+
+#### Commands
+
+```bash
+# Run all eval cases
+cc eval run
+
+# Run cases for a specific agent
+cc eval run --agent me
+cc eval run --agent qa
+
+# Run a specific case file
+cc eval run --case .claude/evals/me/basic-task.yaml
+
+# List all registered cases
+cc eval list
+cc eval list --agent ta
+
+# Show a specific case with its last-run score
+cc eval show me-basic-task-001
+
+# Register a new golden case interactively
+cc eval add --agent me
+```
+
+#### Score persistence
+
+After each run, `cc eval` stores a `decision`-type memory entry recording the agent name, case ID, score, and pass/fail verdict:
+
+```
+cc memory store --type decision "eval run: agent=me case=me-basic-task-001 score=0.92 verdict=pass"
+```
+
+This lets `cc memory search "eval run agent=me"` retrieve the longitudinal score history without a separate database.
+
+#### CI gate pattern
+
+Add an eval run to your CI pipeline on any `cc` or `tc` version bump in `VERSION.json`:
+
+```bash
+# .github/workflows/eval-gate.yml (excerpt)
+- name: Run agent evals
+  run: cc eval run
+  # Exits 1 if any case scores below its threshold
+```
+
+`cc eval run` exits 1 if any case fails its `score_threshold`; exits 0 on all-pass.
+
+#### Pluggable runner
+
+The eval runner is pure Python with no external dependencies. To swap in a different execution backend (e.g. a local model instead of Claude API), implement `cc.core.eval_runner.EvalRunner` and register it:
+
+```python
+from cc.core.eval_runner import register_runner
+register_runner("local-llm", MyLocalRunner)
+```
+
+The default runner (`"claude"`) is selected by `cc config set eval.runner claude`.
+
+---
+
 ### `cc env` — Agent Shell Hydration
 
 Exports effective config as `CC_*` environment variables, suitable for `eval` in agent preambles:
@@ -523,6 +623,7 @@ tools/cc/
       config.py           # get, set, unset, list, where, validate, edit, init, export, doctor
       env.py              # cc env (shell hydration)
       docs.py             # resolve, get, search, sources, cache (Live Docs)
+      eval.py             # run, list, add, show (Eval harness)
       mcp.py              # serve, config
       doctor.py           # cc doctor (standalone health check)
     api.py                # flat importable facade for code-execution use (memory_store/get/list/search, skill_get/search)

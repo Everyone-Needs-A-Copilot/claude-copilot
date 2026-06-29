@@ -89,9 +89,10 @@ This file provides guidance to Claude Code when working with the Claude Copilot 
 Persistent memory across sessions with full-text (FTS5 keyword) search.
 
 **Storage:** `.claude/memory/entries/<uuid>.md` (committed, travels with repo)
-**Commands:** `cc memory store`, `cc memory search`, `cc memory get`, `cc memory list`, `cc memory check`
+**Commands:** `cc memory store`, `cc memory search`, `cc memory get`, `cc memory list`, `cc memory check`, `cc eval`
 **Index:** `cc memory index --rebuild` (local SQLite cache, gitignored)
 **Drift detection:** `cc memory check` — token-free deterministic checkers for path-existence, command-resolve, version-conflict, staleness; 0–100 score; exits 1 on any `fail`-severity finding
+**Regression eval:** `cc eval run [--agent <name>]` — golden cases in `.claude/evals/<agent>/*.yaml`; scores persist to `cc memory`; CI gate on VERSION.json bumps
 
 **Location:** `tools/cc/`
 
@@ -123,11 +124,13 @@ Skills auto-fire based on their trigger-rich `description` field — native Clau
 
 Ephemeral PRD, task, and work product storage. Reduces context for externalized work products by ~94% vs inlining outputs above the 8KB threshold (not end-to-end session savings — see [derivation](docs/70-reference/04-framework-modernization-analysis.md)). Uses the `tc` CLI tool (installed at `tools/tc/`). Agents call `tc` commands via Bash.
 
-**Core Commands:** `tc prd create`, `tc task create`, `tc task update`, `tc task get`, `tc wp store`, `tc wp get`, `tc wp render <id> --html`, `tc progress`
+**Core Commands:** `tc prd create`, `tc task create [--max-budget-usd <float>]`, `tc task update`, `tc task get`, `tc wp store`, `tc wp get`, `tc wp render <id> --html`, `tc progress`
 
 **Stream Commands:** `tc stream list`, `tc stream get`
 
 **Collaboration:** `tc handoff`, `tc log --task <id>`
+
+**Dispatch:** `tc worker run <task_id>` (budget cap flag stored in metadata; enforcement is roadmap P1)
 
 **Location:** `tools/tc/`
 
