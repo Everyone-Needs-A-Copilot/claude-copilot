@@ -3,11 +3,11 @@ name: token-budget-check
 description: >-
   Analyze markdown files for token budget compliance. Checks word count,
   section lengths, and overall file size against documentation guidelines.
-  Use proactively when creating or reviewing documentation files, shared-docs
+  Use proactively when creating or reviewing documentation files, knowledge-copilot
   pages, or when a doc might be over-budget for agent context loading.
 version: 1.0.0
 allowed-tools: [Read, Bash, Glob]
-tags: [tokens, documentation, budget, validation, shared-docs]
+tags: [tokens, documentation, budget, validation, knowledge-copilot]
 ---
 
 # Token Budget Check
@@ -16,7 +16,7 @@ Analyze markdown files to ensure they comply with token budget guidelines.
 
 ## Purpose
 
-Shared-docs files have token budgets to optimize AI ingestion. This skill checks files against those budgets and suggests optimizations when over budget.
+Knowledge Copilot files have token budgets to optimize AI ingestion. This skill checks files against those budgets and suggests optimizations when over budget.
 
 ## Token Budgets by Document Type
 

@@ -50,7 +50,7 @@ project-root/
 └── examples/
 ```
 
-### Shared Docs Structure
+### Knowledge Copilot Structure
 
 ```
 docs/shared/

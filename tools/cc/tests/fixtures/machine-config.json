@@ -3,7 +3,7 @@
   "version": 1,
   "paths": {
     "memory": "/machine/memory",
-    "shared_docs": "/machine/shared-docs",
+    "shared_docs": "/machine/knowledge-copilot",
     "knowledge_repo": "/machine/knowledge",
     "global_skills_dir": "/machine/skills",
     "embedding_cache": "/machine/cache/models"

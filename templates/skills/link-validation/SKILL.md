@@ -4,10 +4,10 @@ description: >-
   Validate markdown links and cross-references to ensure documentation integrity.
   Detects broken links, missing anchors, and invalid cross-reference paths in
   markdown files. Use proactively when auditing documentation, reviewing PRs that
-  touch markdown files, or checking shared-docs for broken links.
+  touch markdown files, or checking knowledge-copilot for broken links.
 version: 1.0.0
 allowed-tools: [Read, Bash, Glob, Grep]
-tags: [links, documentation, validation, shared-docs, cross-references]
+tags: [links, documentation, validation, knowledge-copilot, cross-references]
 ---
 
 # Link Validation
@@ -16,7 +16,7 @@ Validate markdown links and cross-references to ensure documentation integrity.
 
 ## Purpose
 
-Broken links in shared-docs waste Claude's time and tokens. This skill finds and fixes broken internal links, missing anchors, and incorrect cross-references.
+Broken links in knowledge-copilot waste Claude's time and tokens. This skill finds and fixes broken internal links, missing anchors, and incorrect cross-references.
 
 ## Link Types to Validate
 

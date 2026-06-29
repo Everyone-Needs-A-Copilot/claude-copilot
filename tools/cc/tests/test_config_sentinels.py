@@ -145,7 +145,7 @@ def test_unknown_sentinel_passthrough():
 
 def test_project_at_machine_resolves_via_get_resolved_config():
     """Property test: project @machine always returns machine value for the same key."""
-    machine_value = "/machine/shared-docs"
+    machine_value = "/machine/knowledge-copilot"
     cfg = get_resolved_config(
         _machine={"paths": {"shared_docs": machine_value}},
         _project={"paths": {"shared_docs": "@machine"}},

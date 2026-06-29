@@ -63,19 +63,19 @@ def test_env_emits_knowledge_repo_alias(monkeypatch):
     monkeypatch.setattr(
         "cc.commands.env.get_resolved_config",
         lambda **_: {
-            "paths.knowledge_repo": "/vol/copilot/shared-docs",
-            "paths.shared_docs": "/vol/copilot/shared-docs",
+            "paths.knowledge_repo": "/vol/copilot/knowledge-copilot",
+            "paths.shared_docs": "/vol/copilot/knowledge-copilot",
         },
     )
 
     result = invoke("env")
     assert result.exit_code == 0
     # Short-form aliases present
-    assert 'export CC_KNOWLEDGE_REPO="/vol/copilot/shared-docs"' in result.output
-    assert 'export CC_SHARED_DOCS="/vol/copilot/shared-docs"' in result.output
+    assert 'export CC_KNOWLEDGE_REPO="/vol/copilot/knowledge-copilot"' in result.output
+    assert 'export CC_SHARED_DOCS="/vol/copilot/knowledge-copilot"' in result.output
     # Long-form keys also present
-    assert 'export CC_PATHS_KNOWLEDGE_REPO="/vol/copilot/shared-docs"' in result.output
-    assert 'export CC_PATHS_SHARED_DOCS="/vol/copilot/shared-docs"' in result.output
+    assert 'export CC_PATHS_KNOWLEDGE_REPO="/vol/copilot/knowledge-copilot"' in result.output
+    assert 'export CC_PATHS_SHARED_DOCS="/vol/copilot/knowledge-copilot"' in result.output
 
 
 def test_env_alias_not_emitted_when_source_is_none(monkeypatch):

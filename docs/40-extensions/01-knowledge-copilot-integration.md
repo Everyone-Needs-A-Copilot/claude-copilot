@@ -1,8 +1,8 @@
 # Shared-Docs Integration Guide for Claude Copilot
 
-**Purpose:** Define how shared-docs should be structured to optimize ingestion by Claude Code and Claude Copilot agents.
+**Purpose:** Define how knowledge-copilot should be structured to optimize ingestion by Claude Code and Claude Copilot agents.
 
-**Audience:** Documentation curators, developers maintaining shared-docs, Claude Code when consuming documentation.
+**Audience:** Documentation curators, developers maintaining knowledge-copilot, Claude Code when consuming documentation.
 
 ---
 
@@ -28,7 +28,7 @@ Claude Copilot consumes documentation through multiple touchpoints:
 ### Root Structure (Locked)
 
 ```
-shared-docs/
+knowledge-copilot/
 ├── 00-best-practices/     # Templates for developer rules, handoffs
 ├── 01-company/            # Identity, brand, voice, services, methodologies
 ├── 02-products/           # Product ecosystem and per-product packs
@@ -64,7 +64,7 @@ Tier 1: Global Index (00-INDEX.md)
         └── Tier 3: Individual Documents
 ```
 
-### 00-INDEX.md (Create at shared-docs root)
+### 00-INDEX.md (Create at knowledge-copilot root)
 
 Topic-based navigation for Claude Code to quickly locate relevant content:
 
@@ -395,9 +395,9 @@ Create `00-links.md` per product pack:
 
 | File | Location | Purpose |
 |------|----------|---------|
-| `00-INDEX.md` | `shared-docs/` root | Topic-based navigation |
+| `00-INDEX.md` | `knowledge-copilot/` root | Topic-based navigation |
 | `AGENT-DEPENDENCIES.md` | `03-ai-enabling/02-profiles/` | Agent context requirements |
-| `QUICK-START.md` | `shared-docs/` root | Task-based quick start |
+| `QUICK-START.md` | `knowledge-copilot/` root | Task-based quick start |
 
 ### Priority 2: Catalogs (This Week)
 
@@ -417,7 +417,7 @@ Create `00-links.md` per product pack:
 
 ## Validation Skills
 
-Claude Copilot provides three validation skills for maintaining shared-docs quality. These are invoked by Claude during sessions rather than run as external scripts.
+Claude Copilot provides three validation skills for maintaining knowledge-copilot quality. These are invoked by Claude during sessions rather than run as external scripts.
 
 ### Available Skills
 
@@ -436,7 +436,7 @@ Check the token budgets for all files in docs/
 ```
 
 ```
-Validate links in the shared-docs directory
+Validate links in the knowledge-copilot directory
 ```
 
 ```
@@ -484,7 +484,7 @@ Claude will load the skill via `cc skill get <skill-name>` and execute the valid
 ## Implementation Roadmap
 
 ### Phase 1: Navigation (Week 1)
-- [ ] Create `00-INDEX.md` at shared-docs root
+- [ ] Create `00-INDEX.md` at knowledge-copilot root
 - [ ] Create `AGENT-DEPENDENCIES.md`
 - [ ] Add token estimates to all frontmatter
 

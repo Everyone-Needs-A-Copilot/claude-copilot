@@ -144,8 +144,8 @@ printf 'config.json\n' > ~/.claude/cc/.gitignore
 
 Use AskUserQuestion to gather optional paths:
 
-**Question 1:** "Path to your shared-docs repository (optional, press Enter to skip)"
-- Header: "Shared Docs Path"
+**Question 1:** "Path to your knowledge-copilot repository (optional, press Enter to skip)"
+- Header: "Knowledge Copilot Path"
 - Let user type freely or press Enter
 
 **Question 2:** "Path to your knowledge repository (optional, press Enter to skip)"

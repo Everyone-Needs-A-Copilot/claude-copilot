@@ -46,7 +46,7 @@ Reference-mode pages for settings and customisation.
 |------|-------------|
 | `20-configuration/01-configuration.md` | Environment variables, `.claude/` directory layout, `cc config` |
 | `20-configuration/02-customization.md` | Per-project overrides, `.claude/quality-gates.json`, agent model pinning |
-| `20-configuration/03-references-registry.md` | Shared-docs and knowledge-repo path registry reference |
+| `20-configuration/03-references-registry.md` | Knowledge Copilot and knowledge-repo path registry reference |
 
 ---
 
@@ -72,7 +72,7 @@ Reference + explanation pages for the extension and knowledge-repository system.
 | File | Description |
 |------|-------------|
 | `40-extensions/00-extension-spec.md` | Extension specification: override, extension, and skills extension types |
-| `40-extensions/01-shared-docs-integration.md` | How shared-docs and knowledge repositories integrate with agents |
+| `40-extensions/01-knowledge-copilot-integration.md` | How knowledge-copilot and knowledge repositories integrate with agents |
 
 ---
 

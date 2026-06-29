@@ -3,11 +3,11 @@ name: frontmatter-validation
 description: >-
   Validate and fix YAML frontmatter metadata in markdown documentation files.
   Covers required fields, field formats, and schema compliance for SKILL.md and
-  shared-docs files. Use proactively when auditing documentation frontmatter,
+  knowledge-copilot files. Use proactively when auditing documentation frontmatter,
   reviewing SKILL.md files, or fixing YAML metadata errors.
 version: 1.0.0
 allowed-tools: [Read, Edit, Glob, Grep]
-tags: [frontmatter, yaml, documentation, validation, metadata, shared-docs]
+tags: [frontmatter, yaml, documentation, validation, metadata, knowledge-copilot]
 ---
 
 # Frontmatter Validation

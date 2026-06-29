@@ -101,7 +101,7 @@ docs/
 │   ├── README.md
 │   ├── architecture-quick.md
 │   └── development-quick.md
-└── shared-docs/
+└── knowledge-copilot/
     └── 00-best-practices/
         ├── 01-human-centered-development.md  # Foundational philosophy
         ├── 02-claude-code-configuration.md   # AI environment setup

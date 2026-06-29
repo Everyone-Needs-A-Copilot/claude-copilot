@@ -29,7 +29,7 @@ Both hooks call `cc config export` and `cc memory list --type reference` to buil
 
 ```
 Known references (this session):
-- shared_docs: /Users/you/Shared Docs
+- shared_docs: /Users/you/Knowledge Copilot
 - knowledge_repo: /Users/you/company-knowledge
 - staging_url: https://staging.example.com
 - [memory] CLI Copilot location: /Users/you/.claude/copilot

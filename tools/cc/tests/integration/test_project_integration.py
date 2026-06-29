@@ -256,7 +256,7 @@ class TestConfig:
         the developer's machine config file.  The same test therefore passes on every machine
         regardless of local configuration — whether shared_docs is configured, null, or absent.
         """
-        test_path = "/tmp/cc-test-shared-docs-sentinel"
+        test_path = "/tmp/cc-test-knowledge-copilot-sentinel"
 
         # --- Case 1: value IS configured (via env var) → cc env MUST emit it ---
         env_with = {**os.environ, "CC_PATHS_SHARED_DOCS": test_path}

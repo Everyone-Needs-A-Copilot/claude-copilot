@@ -26,7 +26,7 @@ echo "${CC_KNOWLEDGE_REPO:-}"
 ls -d /Volumes/Dev/Sites/COPILOT/knowledge-copilot 2>/dev/null && echo "FOUND_CANONICAL"
 
 # 3. Ecosystem root — current/transition dir name
-ls -d /Volumes/Dev/Sites/COPILOT/shared-docs 2>/dev/null && echo "FOUND_SHARED_DOCS"
+ls -d /Volumes/Dev/Sites/COPILOT/knowledge-copilot 2>/dev/null && echo "FOUND_SHARED_DOCS"
 
 # 4. Generic install location (symlink at ~/.claude/knowledge)
 readlink -f ~/.claude/knowledge 2>/dev/null
@@ -39,7 +39,7 @@ Set `REPO_PATH` to the first resolved path. If none resolve, proceed to Step 3.
 ## Step 3 — If repo not found: guide the user
 
 The canonical GitHub repo during transition:
-- **Current name:** `https://github.com/Everyone-Needs-A-Copilot/shared-docs`
+- **Current name:** `https://github.com/Everyone-Needs-A-Copilot/knowledge-copilot`
 - **Future canonical:** `https://github.com/Everyone-Needs-A-Copilot/knowledge-copilot`
 
 Ask the user (use AskUserQuestion):
@@ -47,7 +47,7 @@ Ask the user (use AskUserQuestion):
 **Question:** "No Knowledge Copilot repo found on this machine. What would you like to do?"
 **Header:** "Setup"
 **Options:**
-1. **"Clone the canonical repo"** — `git clone git@github.com:Everyone-Needs-A-Copilot/shared-docs.git /Volumes/Dev/Sites/COPILOT/shared-docs`
+1. **"Clone the canonical repo"** — `git clone git@github.com:Everyone-Needs-A-Copilot/knowledge-copilot.git /Volumes/Dev/Sites/COPILOT/knowledge-copilot`
 2. **"Create a new knowledge repo"** — start fresh with guided discovery
 3. **"Link an existing local repo"** — provide a path
 

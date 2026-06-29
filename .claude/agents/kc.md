@@ -21,7 +21,7 @@ echo "${CC_KNOWLEDGE_REPO:-}"
 ls -d /Volumes/Dev/Sites/COPILOT/knowledge-copilot 2>/dev/null
 
 # 3. Ecosystem root — current/transition name
-ls -d /Volumes/Dev/Sites/COPILOT/shared-docs 2>/dev/null
+ls -d /Volumes/Dev/Sites/COPILOT/knowledge-copilot 2>/dev/null
 
 # 4. Generic symlink
 readlink -f ~/.claude/knowledge 2>/dev/null
@@ -29,9 +29,9 @@ readlink -f ~/.claude/knowledge 2>/dev/null
 
 If none resolve, offer to pull the canonical repo:
 ```bash
-git clone git@github.com:Everyone-Needs-A-Copilot/shared-docs.git /Volumes/Dev/Sites/COPILOT/shared-docs
-cc config set paths.knowledge_repo /Volumes/Dev/Sites/COPILOT/shared-docs
-cc config set paths.shared_docs /Volumes/Dev/Sites/COPILOT/shared-docs
+git clone git@github.com:Everyone-Needs-A-Copilot/knowledge-copilot.git /Volumes/Dev/Sites/COPILOT/knowledge-copilot
+cc config set paths.knowledge_repo /Volumes/Dev/Sites/COPILOT/knowledge-copilot
+cc config set paths.shared_docs /Volumes/Dev/Sites/COPILOT/knowledge-copilot
 ```
 
 ## When Invoked
@@ -54,7 +54,7 @@ cc config set paths.shared_docs /Volumes/Dev/Sites/COPILOT/shared-docs
 ## Repository Structure
 
 ```
-$REPO_PATH/                      (e.g. /Volumes/Dev/Sites/COPILOT/shared-docs)
+$REPO_PATH/                      (e.g. /Volumes/Dev/Sites/COPILOT/knowledge-copilot)
 ├── knowledge-manifest.json
 ├── docs/
 │   └── 00-knowledge-copilot/
