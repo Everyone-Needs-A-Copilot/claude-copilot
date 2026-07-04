@@ -68,7 +68,14 @@ PROJECT_MAP.md
 .claude/hooks/state/.freeze
 
 # Local/generated artifacts
-.claude/settings.local.json
 coverage.xml
 .coverage
 *.egg-info/
+
+# Framework dev-repo only: this repo is PUBLIC. The maintainer's private
+# machine state and proprietary docs live in the sibling claude-copilot-private
+# repo and are symlinked in via its bootstrap.sh. These must never be committed.
+.claude/memory/entries
+.claude/settings.local.json
+.mcp.json
+/docs/70-reference/ai-ecosystem-*.md
