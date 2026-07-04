@@ -84,9 +84,15 @@ def run_doctor(
         v = cfg.get(k)
         if v is None:
             continue
-        p = Path(str(v))
-        if not p.exists():
-            warnings.append(f"Path not found: {k} = {v}")
+        # paths.knowledge_repo (and any future list-valued path key) may
+        # resolve to an ordered list of paths rather than a single scalar.
+        candidates = v if isinstance(v, list) else [v]
+        for item in candidates:
+            if not item:
+                continue
+            p = Path(str(item))
+            if not p.exists():
+                warnings.append(f"Path not found: {k} = {item}")
 
     # --- Machine config dir gitignore ---
     gitignore_path = machine_cfg.parent / ".gitignore"

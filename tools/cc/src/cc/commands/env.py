@@ -47,7 +47,14 @@ def run_env(
         if value is None:
             continue
         env_name = _key_to_env_name(key)
-        exports[env_name] = str(value)
+        if isinstance(value, list):
+            # e.g. paths.knowledge_repo may resolve to an ordered list of
+            # repo paths; emit as a comma-joined string (order preserved).
+            if not value:
+                continue
+            exports[env_name] = ",".join(str(v) for v in value)
+        else:
+            exports[env_name] = str(value)
 
     if include_secrets:
         machine_secrets = load_machine_secrets()
@@ -65,5 +72,12 @@ def run_env(
     for alias, source in _PATH_ALIASES.items():
         if source in exports and alias not in exports:
             exports[alias] = exports[source]
+
+    # CC_KNOWLEDGE_REPO is a single-value back-compat alias: when
+    # paths.knowledge_repo resolves to an ordered list (comma-joined above
+    # into CC_PATHS_KNOWLEDGE_REPO), the alias carries only the FIRST
+    # element so agents reading one value keep working unchanged.
+    if "CC_KNOWLEDGE_REPO" in exports:
+        exports["CC_KNOWLEDGE_REPO"] = exports["CC_KNOWLEDGE_REPO"].split(",")[0].strip()
 
     return exports

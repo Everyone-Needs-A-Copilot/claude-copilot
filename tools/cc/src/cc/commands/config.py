@@ -13,9 +13,11 @@ from rich.console import Console
 from rich.table import Table
 
 from cc.core.config import (
+    add_to_list_config,
     get_resolved_config,
     load_machine_config,
     load_project_config,
+    remove_from_list_config,
     resolve_key,
     unset_config,
     where_key,
@@ -104,7 +106,13 @@ def config_get(
 @config_app.command("set")
 def config_set(
     key: str = typer.Argument(..., help="Dotted config key."),
-    value: str = typer.Argument(..., help="Value to set."),
+    value: str = typer.Argument(
+        ...,
+        help=(
+            "Value to set. For list-valued keys (e.g. paths.knowledge_repo), "
+            "a comma-separated value (e.g. 'a,b,c') is parsed into a list."
+        ),
+    ),
     project: bool = typer.Option(
         False,
         "--project",
@@ -120,6 +128,62 @@ def config_set(
 
     layer = "project" if project else "machine"
     console.print(f"[green]Set[/green] {key} = {value!r}  ({layer}: {written_path})")
+
+
+@config_app.command("add")
+def config_add(
+    key: str = typer.Argument(
+        ..., help="Dotted config key (list-valued, e.g. paths.knowledge_repo)."
+    ),
+    value: str = typer.Argument(..., help="Value to append to the list."),
+    project: bool = typer.Option(
+        False,
+        "--project",
+        help="Write to project config instead of machine config.",
+    ),
+) -> None:
+    """Append a value to a list-valued config key, idempotently.
+
+    Creates the list if the key was previously a string or unset. A value
+    already present in the list is not duplicated. Order is preserved —
+    the first entry in the list is consulted first at resolution time.
+    """
+    try:
+        written_path = add_to_list_config(key, value, project=project)
+    except ValueError as exc:
+        err_console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1)
+
+    layer = "project" if project else "machine"
+    console.print(f"[green]Added[/green] {value!r} to {key}  ({layer}: {written_path})")
+
+
+@config_app.command("remove")
+def config_remove(
+    key: str = typer.Argument(
+        ..., help="Dotted config key (list-valued, e.g. paths.knowledge_repo)."
+    ),
+    value: str = typer.Argument(..., help="Value to remove from the list."),
+    project: bool = typer.Option(
+        False,
+        "--project",
+        help="Remove from project config instead of machine config.",
+    ),
+) -> None:
+    """Remove a value from a list-valued config key (symmetric to `add`).
+
+    No-op if the value is not present.
+    """
+    try:
+        written_path = remove_from_list_config(key, value, project=project)
+    except ValueError as exc:
+        err_console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1)
+
+    layer = "project" if project else "machine"
+    console.print(
+        f"[green]Removed[/green] {value!r} from {key}  ({layer}: {written_path})"
+    )
 
 
 @config_app.command("unset")

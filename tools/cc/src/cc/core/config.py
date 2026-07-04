@@ -48,6 +48,24 @@ DEFAULTS: dict[str, Any] = {
     "docs.context7_endpoint": None,
 }
 
+# ---------------------------------------------------------------------------
+# List-valued keys (ordered lists, comma-string affordances)
+# ---------------------------------------------------------------------------
+
+# Config keys whose value may be an ORDERED LIST rather than a single scalar.
+# Currently only paths.knowledge_repo — see resolve_knowledge_repos() below.
+# Each source layer (env / project / machine) still supplies the WHOLE list
+# for this key; layers are never concatenated across sources.
+LIST_VALUED_KEYS: frozenset[str] = frozenset({"paths.knowledge_repo"})
+
+# Sentinel distinguishing "no value passed" from an explicit None argument.
+_UNSET = object()
+
+
+def _split_csv_list(value: str) -> list[str]:
+    """Split a comma-separated string into trimmed, non-empty parts."""
+    return [part.strip() for part in value.split(",") if part.strip()]
+
 
 # ---------------------------------------------------------------------------
 # Flat dict helpers (dotted-key access)
@@ -147,10 +165,40 @@ def load_project_secrets() -> dict[str, str]:
 
 
 def _expand_path(value: Any) -> Any:
-    """Expand ~ in path-like string values."""
+    """Expand ~ in path-like string values (recursively for lists)."""
     if isinstance(value, str) and "~" in value:
         return str(Path(value).expanduser())
+    if isinstance(value, list):
+        return [_expand_path(v) for v in value]
     return value
+
+
+def resolve_knowledge_repos(value: Any = _UNSET) -> list[str]:
+    """
+    Normalize a paths.knowledge_repo config value into an ordered list of paths.
+
+    Accepts all three supported shapes:
+      - None / absent    -> []
+      - a JSON list       -> returned in order (non-empty entries only)
+      - a legacy string   -> single-element list (NOT comma-split; a plain
+                              string is always treated as one path for
+                              back-compat with existing configs)
+
+    If `value` is omitted, resolves "paths.knowledge_repo" from the effective
+    config (env > project > machine > default) via resolve_key().
+
+    Order in the returned list == resolution order (index 0 consulted first).
+    """
+    if value is _UNSET:
+        value = resolve_key("paths.knowledge_repo")
+
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(v) for v in value if v]
+    if isinstance(value, str):
+        return [value] if value.strip() else []
+    return []
 
 
 def get_resolved_config(
@@ -199,7 +247,11 @@ def get_resolved_config(
     for key in list(resolved.keys()):
         env_name = "CC_" + key.replace(".", "_").upper()
         if env_name in os.environ:
-            resolved[key] = os.environ[env_name]
+            raw_env = os.environ[env_name]
+            if key in LIST_VALUED_KEYS:
+                resolved[key] = _split_csv_list(raw_env)
+            else:
+                resolved[key] = raw_env
 
     # Expand ~ in all string values
     resolved = {k: _expand_path(v) for k, v in resolved.items()}
@@ -242,7 +294,10 @@ def resolve_key(
     # Env var first
     env_name = "CC_" + key.replace(".", "_").upper()
     if env_name in os.environ:
-        return _expand_path(os.environ[env_name])
+        raw_env = os.environ[env_name]
+        if key in LIST_VALUED_KEYS:
+            return _expand_path(_split_csv_list(raw_env))
+        return _expand_path(raw_env)
 
     # Project
     if key in project_flat:
@@ -264,8 +319,20 @@ def write_config(key: str, value: Any, *, project: bool = False) -> Path:
     """
     Write a key to the machine or project config file.
 
+    For LIST_VALUED_KEYS (e.g. "paths.knowledge_repo"), a comma-separated
+    string value (e.g. "a,b,c") is parsed into a JSON list before writing.
+    A single value with no comma is stored as a plain string, unchanged
+    (back-compat — existing single-string configs keep working).
+
     Returns the path written to.
     """
+    if (
+        key in LIST_VALUED_KEYS
+        and isinstance(value, str)
+        and "," in value
+    ):
+        value = _split_csv_list(value)
+
     if project:
         cfg_path = project_config_path()
         if cfg_path is None:
@@ -279,6 +346,73 @@ def write_config(key: str, value: Any, *, project: bool = False) -> Path:
     existing = _read_json(cfg_path)
     _dotted_set(existing, key, value)
 
+    cfg_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
+    return cfg_path
+
+
+def _as_list(current: Any) -> list[Any]:
+    """Coerce an existing config value (None/string/list) into a list copy."""
+    if current is None:
+        return []
+    if isinstance(current, list):
+        return list(current)
+    return [current]
+
+
+def add_to_list_config(key: str, value: str, *, project: bool = False) -> Path:
+    """
+    Append `value` to a list-valued config key, idempotently.
+
+    If the key currently holds a string, it is upgraded to a list (the
+    existing string becomes the first element). If unset, starts a new
+    list. No-op (no duplicate appended) if `value` is already present.
+
+    Returns the path written to.
+    """
+    if project:
+        cfg_path = project_config_path()
+        if cfg_path is None:
+            raise ValueError(
+                "Not inside a git repository; cannot write project config."
+            )
+    else:
+        cfg_path = machine_config_path()
+
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    existing = _read_json(cfg_path)
+    current_list = _as_list(_dotted_get(existing, key))
+
+    if value not in current_list:
+        current_list.append(value)
+
+    _dotted_set(existing, key, current_list)
+    cfg_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
+    return cfg_path
+
+
+def remove_from_list_config(key: str, value: str, *, project: bool = False) -> Path:
+    """
+    Remove `value` from a list-valued config key (symmetric to add_to_list_config).
+
+    No-op if `value` is not present. If the key was a plain string equal to
+    `value`, it is removed and the key becomes an empty list.
+
+    Returns the path written to.
+    """
+    if project:
+        cfg_path = project_config_path()
+        if cfg_path is None:
+            raise ValueError(
+                "Not inside a git repository; cannot write project config."
+            )
+    else:
+        cfg_path = machine_config_path()
+
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    existing = _read_json(cfg_path)
+    current_list = [v for v in _as_list(_dotted_get(existing, key)) if v != value]
+
+    _dotted_set(existing, key, current_list)
     cfg_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
     return cfg_path
 
@@ -332,8 +466,10 @@ def where_key(key: str) -> dict[str, Any]:
 
     env_name = "CC_" + key.replace(".", "_").upper()
     if env_name in os.environ:
+        raw_env = os.environ[env_name]
+        env_value: Any = _split_csv_list(raw_env) if key in LIST_VALUED_KEYS else raw_env
         return {
-            "value": _expand_path(os.environ[env_name]),
+            "value": _expand_path(env_value),
             "source": "env",
             "reason": f"env var {env_name}",
         }
