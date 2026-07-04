@@ -2,11 +2,29 @@
 
 This document defines how knowledge repositories extend Claude-Copilot framework agents.
 
+> **Implementation status (read this first):** `cc` deterministically resolves
+> `paths.knowledge_repo` / `paths.shared_docs` as **config values** — including,
+> since the layered-knowledge-repos feature, an **ordered list** of repo paths
+> (see [Layered Knowledge Repos](#layered-knowledge-repos-ordered-list) below)
+> — and exports them as `CC_*` environment variables via `cc env`. That is the
+> full extent of what `cc` parses and merges automatically today.
+>
+> The richer per-agent model described later in this document — `.override.md` /
+> `.extension.md` / `.skills.json` files, `knowledge-manifest.json` parsing,
+> section-level merging, and `requiredSkills` validation — is **not**
+> implemented by `cc`. It is documented here as an **agent-read convention**:
+> an agent invocation may choose to look inside the resolved knowledge-repo
+> path(s) for these files and interpret them itself, but no `cc` command
+> parses a manifest, merges an `.extension.md` into a base agent, or validates
+> `requiredSkills`. Treat every example below that references manifests,
+> overrides, or skills injection as a **convention for agents to follow**, not
+> a `cc`-resolved behavior, unless explicitly marked otherwise.
+
 ## Overview
 
 Claude-Copilot provides **base agents** with generic, industry-standard methodologies. Knowledge repositories can **extend** these agents with company-specific methodologies, skills, and practices.
 
-The system supports **two-tier resolution**: a global knowledge repository shared across all projects, and optional project-specific overrides.
+The system supports **two-tier resolution**: a global knowledge repository shared across all projects, and optional project-specific overrides. Since the layered-knowledge-repos feature, the value that wins at each tier may itself be an **ordered list of repo paths** rather than a single path — see [Layered Knowledge Repos](#layered-knowledge-repos-ordered-list).
 
 ```
 ┌─────────────────────────────────────┐
@@ -161,6 +179,53 @@ When an agent is invoked, the system uses **two-tier resolution**:
 | (none) | SD override | Uses **global** SD override |
 | uid extension | SD override | uid from project, SD from global |
 | (none) | (none) | Base agents only |
+
+## Layered Knowledge Repos (ordered list)
+
+`paths.knowledge_repo` accepts an **ordered list** of repo paths, not just a
+single path. This lets a project combine a shared team repo with a personal
+one — both are active simultaneously, rather than one replacing the other.
+
+**Value shapes `cc` resolves (implemented, deterministic):**
+
+| Shape | Example | Resolves to |
+|-------|---------|-------------|
+| Legacy string | `"/vol/shared-kc"` | `["/vol/shared-kc"]` |
+| JSON list | `["/vol/shared-kc", "/vol/personal-kc"]` | Same list, in order |
+| Absent / `null` | — | `[]` |
+
+**What does NOT change:** layer precedence for *which source* wins is
+unchanged — `CC_PATHS_KNOWLEDGE_REPO` env var > project config > machine
+config > default. The highest-precedence source that **sets** the key
+supplies the **whole** ordered list; `cc` does not concatenate lists across
+config layers (e.g. it will not merge a machine-layer list with a
+project-layer list). To combine a shared and a personal repo, put both paths
+in one list at whichever layer you control:
+
+```bash
+# Ordered append, idempotent (no duplicate on repeat)
+cc config add paths.knowledge_repo /vol/shared-kc
+cc config add paths.knowledge_repo /vol/personal-kc
+cc config remove paths.knowledge_repo /vol/personal-kc   # symmetric removal
+
+# Or set the whole list at once — comma-separated values parse into a list
+# for this key only (other config keys keep literal commas)
+cc config set paths.knowledge_repo /vol/shared-kc,/vol/personal-kc
+
+# Env override also accepts a comma-separated list
+export CC_PATHS_KNOWLEDGE_REPO="/vol/shared-kc,/vol/personal-kc"
+```
+
+**`cc env` output:** `CC_PATHS_KNOWLEDGE_REPO` is emitted as a comma-joined
+string in resolution order. The back-compat alias `CC_KNOWLEDGE_REPO` carries
+only the **first** element, so agents/hooks reading a single value keep
+working unchanged.
+
+Order in the list is resolution order — index 0 is consulted first if an
+agent (per the agent-read convention above) walks the list looking for
+extension files.
+
+
 
 ## File Structure
 
@@ -389,6 +454,13 @@ The framework automatically checks for a global knowledge repository at `~/.clau
 cc config set paths.knowledge_repo ~/.claude/knowledge
 ```
 
+**Register multiple repos (shared + personal, both active):**
+
+```bash
+cc config add paths.knowledge_repo ~/.claude/knowledge
+cc config add paths.knowledge_repo ~/.claude/knowledge-personal
+```
+
 **With project-specific override:**
 
 Set `KNOWLEDGE_REPO_PATH` only when you need project-specific extensions that differ from global:
@@ -400,6 +472,8 @@ export KNOWLEDGE_REPO_PATH=/path/to/project-specific/knowledge
 # Or register with cc config
 cc config set paths.knowledge_repo /path/to/project-specific/knowledge
 ```
+
+See [Layered Knowledge Repos](#layered-knowledge-repos-ordered-list) for the full value-shape and precedence contract.
 
 > **Note:** The `cc env` command exports these as environment variables. Use `eval "$(cc env)"` in agent preambles.
 

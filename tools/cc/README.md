@@ -173,7 +173,12 @@ cc config list --scope project
 # Show which layer provides a key
 cc config where paths.shared_docs
 
-# Remove a key
+# Add / remove a value from a list-valued key, idempotently
+cc config add paths.knowledge_repo /path/to/shared-kc
+cc config add paths.knowledge_repo /path/to/personal-kc
+cc config remove paths.knowledge_repo /path/to/personal-kc
+
+# Remove a key entirely
 cc config unset paths.shared_docs
 cc config unset --project paths.shared_docs
 
@@ -197,6 +202,29 @@ cc config export --mask-secrets
 # Health check
 cc config doctor
 ```
+
+**`paths.knowledge_repo` — layered (ordered list) support:**
+
+`paths.knowledge_repo` accepts three shapes, in order to stay back-compatible with existing single-repo setups while supporting multiple active repos (e.g. a shared team repo plus a personal one):
+
+| Shape | Example | Resolves to |
+|-------|---------|-------------|
+| Legacy string | `"/vol/shared-kc"` | `["/vol/shared-kc"]` (1-element list) |
+| JSON list | `["/vol/shared-kc", "/vol/personal-kc"]` | Same list, in order |
+| Absent / `null` | — | `[]` |
+
+Order matters — index 0 is consulted first. Layer precedence for *which* value wins is unchanged (env > project > machine > default); the winning layer supplies the **whole** list — layers are never concatenated across sources. To combine a shared and a personal repo, put both paths in one list at the layer you control:
+
+```bash
+# Machine config ends up with an ordered 2-repo list
+cc config add paths.knowledge_repo /vol/shared-kc
+cc config add paths.knowledge_repo /vol/personal-kc
+
+# Or set both at once (comma-separated values parse into a list for this key)
+cc config set paths.knowledge_repo /vol/shared-kc,/vol/personal-kc
+```
+
+The `CC_PATHS_KNOWLEDGE_REPO` env var override also accepts a comma-separated list (`export CC_PATHS_KNOWLEDGE_REPO="/vol/shared-kc,/vol/personal-kc"`). `cc env` emits it as a comma-joined string, plus the back-compat `CC_KNOWLEDGE_REPO` alias carrying only the **first** element (for agents/hooks reading a single value).
 
 **`@machine` sentinel example** — in `.claude/cc/config.json`:
 

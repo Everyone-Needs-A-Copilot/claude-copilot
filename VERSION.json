@@ -1,9 +1,9 @@
 {
-  "framework": "5.12.0",
-  "lastUpdated": "2026-06-29T00:00:00.000Z",
+  "framework": "5.13.0",
+  "lastUpdated": "2026-07-04T00:00:00.000Z",
   "components": {
     "cc": {
-      "version": "1.6.0",
+      "version": "1.7.0",
       "path": "tools/cc",
       "installScript": "tools/cc/install.sh",
       "provides": ["cc memory", "cc memory check", "cc skill", "cc config", "cc env", "cc docs", "cc usage", "cc eval"]

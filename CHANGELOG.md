@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.13.0]
+
+Layered knowledge repos — `paths.knowledge_repo` accepts an ordered list. Component bump: cc 1.7.0.
+
+### Added
+
+- **Layered knowledge repos** (`tools/cc/`): `paths.knowledge_repo` now accepts an ORDERED LIST of repo paths (shared + personal both active simultaneously), in addition to the existing single-string form. A new `resolve_knowledge_repos()` normalizer in `cc.core.config` returns the ordered list for all three supported shapes — legacy string (1-element list), JSON list (order preserved), or null/absent (empty list). Layer precedence for *which source* wins is unchanged (env > project > machine > default); the winning layer supplies the whole ordered list — config layers are never concatenated. Closes the gap between the extension spec's promised layering and the previous single-repo-only implementation.
+- **`cc config add <key> <value>`**: appends a value to a list-valued config key, idempotently (no-op if already present); upgrades an existing string value to a list on first append. Honors `--project`/machine-default scoping like `cc config set`.
+- **`cc config remove <key> <value>`**: symmetric removal from a list-valued config key (no-op if the value is not present).
+- **`CC_PATHS_KNOWLEDGE_REPO` env var now accepts a comma-separated list**: `export CC_PATHS_KNOWLEDGE_REPO="/vol/shared-kc,/vol/personal-kc"` splits into an ordered list (whitespace-trimmed, empty segments dropped). A single path continues to work unchanged.
+- **`cc config set paths.knowledge_repo a,b,c`** parses a comma-separated value into a JSON list for this key only; a single value with no comma is still stored as a plain string (back-compat unaffected for other keys and for existing single-repo configs).
+
+### Changed
+
+- **`cc env`**: `CC_PATHS_KNOWLEDGE_REPO` is now emitted as a comma-joined string when the resolved value is a list. The back-compat alias `CC_KNOWLEDGE_REPO` carries only the **first** element of the list, so agents/hooks reading a single value keep working unchanged.
+- **`cc config doctor`**: path-existence checks now handle list-valued config keys, checking each path in the list individually rather than stringifying the whole list.
+- **`docs/40-extensions/00-extension-spec.md`**: added an "Implementation status" note distinguishing what `cc` resolves deterministically (config values, including the new ordered-list `paths.knowledge_repo`) from the richer per-agent `.override.md`/`.extension.md`/`.skills.json` manifest-merging model the spec describes, which is an agent-read convention, not something `cc` parses or merges automatically. Added a dedicated "Layered Knowledge Repos" section documenting the value shapes, precedence rule, and new `cc config add`/`remove` commands.
+- **`tools/cc/README.md`**: documented the ordered-list value shapes, `cc config add`/`remove`, and the `cc env` comma-join + first-element alias behavior for `paths.knowledge_repo`.
+
+### Architecture
+
+- **cc 1.7.0**: `resolve_knowledge_repos()` normalizer, `LIST_VALUED_KEYS` registry, `add_to_list_config()`/`remove_from_list_config()` in `cc.core.config`; `cc config add`/`remove` CLI commands; comma-split env-var handling for list-valued keys.
+
 ## [5.12.0] - 2026-06-29
 
 Regression-eval harness, per-task cost cap flag, hook hardening, CLI-owned Discord re-arm architecture, and AI-ecosystem gap audit. Component bumps: cc 1.6.0, tc 1.3.0.
