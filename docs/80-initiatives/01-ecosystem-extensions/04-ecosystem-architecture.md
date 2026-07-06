@@ -220,7 +220,7 @@ The goal is to reach Knowledge Copilot and CLI Copilot **reliably without asking
 
 **`/know` and `/cli` survive — as an optional manual override, not the mechanism.** They remain for when you *want* to be explicit or terse ("force a knowledge lookup now"), and — for `/cli` — as the **intent/audit boundary** when deliberately acting on a system of record. They are thin sugar over `cc`/`copilot` (same resolver + CLI an agent uses), themselves layered command-dimension artifacts (overridable per tier), and host-agnostic underneath so Codex exposes an equivalent. But they sit *on top of* an automatic path that already works — never the thing routine use depends on. Guardrail: if you find yourself reaching for `/know` for routine lookups, that's a signal the descriptions/policy/hook are under-triggering and should be fixed — not a reason to lean on the verb.
 
-**`/cli` write-gate (open decision, §11):** an action that *writes to or triggers* a system of record surfaces a confirmation preview ("CLI Copilot will run `post-journal-entry` against QuickBooks — proceed?"); reads run unprompted. Recommended default: **confirm on writes, not reads.**
+**`/cli` write-gate — DECIDED (2026-07-06):** an action that *writes to or triggers* a system of record surfaces a confirmation preview ("CLI Copilot will run `post-journal-entry` against QuickBooks — proceed?"); **reads run unprompted, writes confirm.**
 
 ---
 
@@ -363,7 +363,7 @@ A companion visual (published as an Artifact) shows: the **3 × 4 matrix** (prod
 3. **DLP boundary and department topology (§8.1, §3.1, §4.2) — DECIDED (2026-07-06).** Department content is confidential business data (financial figures, forecasts, proprietary methods), so **separate-repo-per-department is the default topology across all products**; `subfolder` is a narrow, explicit opt-in only for genuinely non-confidential departmental content. Confirmed alongside it: **true secrets never materialize into a layer** (runtime lookup only) and **CLI Copilot is a runtime gateway into systems of record, never a copy of their data** (§8.1's three-tier model). This shapes what Knowledge/CLI Copilot layers may contain — no longer open.
 4. **Windows strategy** (§5.1/A-C4) — native `bootstrap.ps1`, or WSL-only with a guided WSL install? Determines reach into non-technical corporate desktops.
 5. **GHES support depth** (§4.2/A-C5) — first-class (self-hosted foundation mirror + parametric hosts) or "cloud GitHub only" for v1?
-6. **`/cli` write-gate** (§5.6) — reliable product invocation is in the plan (P1) as **automatic routing** (descriptions + standing policy + intent hook), with `/know`/`/cli` as the optional manual override. Should the `/cli` override require a confirmation preview before an action that *writes to or triggers* a system of record? Recommended default: **confirm on writes, run reads unprompted.** Confirm, or choose always-confirm / never-confirm.
+6. **`/cli` write-gate (§5.6) — DECIDED (2026-07-06): confirm on writes, run reads unprompted.** The `/cli` manual override surfaces a confirmation preview before any action that writes to or triggers a system of record; reads run unprompted. (Reliable product invocation itself is P1 automatic routing — descriptions + standing policy + intent hook — with `/know`/`/cli` as the optional manual override.)
 
 ---
 

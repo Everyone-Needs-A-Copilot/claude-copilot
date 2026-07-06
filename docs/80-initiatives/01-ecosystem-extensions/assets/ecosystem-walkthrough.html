@@ -1,0 +1,433 @@
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f5f6f9; --surface: #ffffff; --surface-2: #eceff5;
+    --ink: #161a22; --ink-soft: #4c5361; --ink-faint: #838b9c;
+    --line: #dde1ea; --line-strong: #c6ccda; --accent: #3b53d4;
+    --t-personal: #0e9fb0; --t-department: #3b74e8; --t-org: #7c5cff; --t-foundation: #a04bc4;
+    --warn: #e07a00; --risk: #d13438; --ok: #2f9e44;
+    --shadow: 0 1px 2px rgba(20,25,40,.05), 0 8px 24px rgba(20,25,40,.06);
+    --radius: 14px;
+    --mono: ui-monospace, "SF Mono", "SFMono-Regular", "Menlo", "Cascadia Mono", "Roboto Mono", monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b0d13; --surface: #141824; --surface-2: #1b2030;
+      --ink: #e8eaf2; --ink-soft: #a7adbe; --ink-faint: #6f7789;
+      --line: #262c3b; --line-strong: #384054; --accent: #8298ff;
+      --t-personal: #2fcadc; --t-department: #6a9bff; --t-org: #a48bff; --t-foundation: #c976e8;
+      --warn: #ffa94d; --risk: #ff8787; --ok: #69db7c;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg: #f5f6f9; --surface: #ffffff; --surface-2: #eceff5;
+    --ink: #161a22; --ink-soft: #4c5361; --ink-faint: #838b9c;
+    --line: #dde1ea; --line-strong: #c6ccda; --accent: #3b53d4;
+    --t-personal: #0e9fb0; --t-department: #3b74e8; --t-org: #7c5cff; --t-foundation: #a04bc4;
+    --warn: #e07a00; --risk: #d13438; --ok: #2f9e44;
+    --shadow: 0 1px 2px rgba(20,25,40,.05), 0 8px 24px rgba(20,25,40,.06);
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0b0d13; --surface: #141824; --surface-2: #1b2030;
+    --ink: #e8eaf2; --ink-soft: #a7adbe; --ink-faint: #6f7789;
+    --line: #262c3b; --line-strong: #384054; --accent: #8298ff;
+    --t-personal: #2fcadc; --t-department: #6a9bff; --t-org: #a48bff; --t-foundation: #c976e8;
+    --warn: #ffa94d; --risk: #ff8787; --ok: #69db7c;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1100px 560px at 85% -12%, color-mix(in srgb, var(--t-org) 9%, transparent), transparent 60%),
+      var(--bg);
+    color: var(--ink); font-family: var(--sans); line-height: 1.55; -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 1120px; margin: 0 auto; padding: clamp(20px,4vw,56px) clamp(16px,4vw,40px) 80px; }
+
+  .eyebrow {
+    font-family: var(--mono); font-size: 12px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink-faint); margin: 0 0 14px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--t-org); }
+  h1 {
+    font-weight: 680; font-size: clamp(30px,5vw,50px); line-height: 1.03; letter-spacing: -.02em;
+    text-wrap: balance; margin: 0 0 16px;
+  }
+  h1 em { font-style: normal; color: var(--accent); }
+  .thesis { font-size: clamp(16px,2vw,19px); color: var(--ink-soft); max-width: 64ch; margin: 0 0 24px; text-wrap: pretty; }
+  .thesis strong { color: var(--ink); font-weight: 620; }
+
+  .toc { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+  .toc a {
+    font-family: var(--mono); font-size: 12px; text-decoration: none; color: var(--ink-soft);
+    border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; background: var(--surface);
+    transition: border-color .15s, color .15s;
+  }
+  .toc a:hover, .toc a:focus-visible { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); outline: none; }
+  .toc a b { color: var(--accent); }
+
+  section { margin-top: clamp(44px,6vw,68px); scroll-margin-top: 20px; }
+  .sec-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 20px; flex-wrap: wrap; }
+  .sec-num {
+    font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); border-radius: 7px; padding: 2px 8px;
+  }
+  h2 { font-size: clamp(20px,3vw,27px); font-weight: 640; letter-spacing: -.015em; margin: 0; text-wrap: balance; }
+  .sec-sub { color: var(--ink-soft); font-size: 15px; margin: 6px 0 0; max-width: 68ch; flex-basis: 100%; }
+
+  .group-label {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--ink-faint); margin: 22px 0 12px;
+  }
+
+  /* ---- use-case grid ---- */
+  .uc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+  .uc {
+    background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--tier, var(--accent));
+    border-radius: 12px; padding: 13px 15px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 5px;
+  }
+  .uc .id { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); letter-spacing: .04em; }
+  .uc .t { font-weight: 620; font-size: 14.5px; letter-spacing: -.01em; }
+  .uc .m { font-size: 12.5px; color: var(--ink-soft); line-height: 1.4; }
+  .uc .m b { color: color-mix(in srgb, var(--tier, var(--accent)) 60%, var(--ink)); font-weight: 600; }
+
+  /* ---- before/after ---- */
+  .ba { display: flex; flex-direction: column; gap: 10px; }
+  .ba-row {
+    display: grid; grid-template-columns: 130px 1fr 1fr; gap: 12px; align-items: stretch;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow);
+  }
+  .ba-row .who { display: flex; flex-direction: column; justify-content: center; }
+  .ba-row .who .id { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
+  .ba-row .who .nm { font-weight: 620; font-size: 13.5px; letter-spacing: -.01em; }
+  .ba-cell { border-radius: 9px; padding: 9px 11px; font-size: 12.5px; line-height: 1.4; }
+  .ba-cell .lbl { font-family: var(--mono); font-size: 9.5px; letter-spacing: .07em; text-transform: uppercase; display: block; margin-bottom: 3px; }
+  .ba-cell.before { background: color-mix(in srgb, var(--risk) 9%, var(--surface)); border: 1px solid color-mix(in srgb, var(--risk) 26%, var(--line)); }
+  .ba-cell.before .lbl { color: var(--risk); }
+  .ba-cell.after { background: color-mix(in srgb, var(--ok) 10%, var(--surface)); border: 1px solid color-mix(in srgb, var(--ok) 30%, var(--line)); }
+  .ba-cell.after .lbl { color: var(--ok); }
+
+  /* ---- timeline (from zero) ---- */
+  .tl { position: relative; padding-left: 30px; }
+  .tl::before { content: ""; position: absolute; left: 9px; top: 6px; bottom: 6px; width: 2px; background: var(--line-strong); }
+  .tl-step { position: relative; padding: 0 0 20px; }
+  .tl-step::before {
+    content: ""; position: absolute; left: -30px; top: 3px; width: 12px; height: 12px; border-radius: 50%;
+    background: var(--surface); border: 2px solid var(--accent);
+  }
+  .tl-step.milestone::before { background: var(--ok); border-color: var(--ok); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 22%, transparent); }
+  .tl-step .st { font-weight: 620; font-size: 15px; letter-spacing: -.01em; display: flex; gap: 9px; align-items: baseline; flex-wrap: wrap; }
+  .tl-step .ring { font-family: var(--mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-faint); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
+  .tl-step .sd { font-size: 13px; color: var(--ink-soft); margin-top: 4px; line-height: 1.45; max-width: 74ch; }
+  .tl-step .sd code, .tl-step .st code { font-family: var(--mono); font-size: .92em; background: var(--surface-2); padding: 1px 5px; border-radius: 5px; }
+  .tl-step.milestone .st { color: var(--ok); }
+
+  /* ---- two-column IT ---- */
+  .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); }
+  .panel > h3 { margin: 0 0 4px; font-size: 15px; font-weight: 640; letter-spacing: -.01em; display: flex; align-items: center; gap: 8px; }
+  .panel > .cap { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); margin: 0 0 14px; letter-spacing: .03em; }
+  .panel.once { border-top: 3px solid var(--t-org); }
+  .panel.each { border-top: 3px solid var(--t-personal); }
+  .check { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 11px; }
+  .check li { display: grid; grid-template-columns: 18px 1fr; gap: 9px; font-size: 13.5px; line-height: 1.4; }
+  .check li::before { content: "▸"; color: var(--accent); font-size: 11px; margin-top: 3px; }
+  .check li b { font-weight: 620; }
+  .check li code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); padding: 1px 5px; border-radius: 5px; word-break: break-word; }
+  .check li .sub { display: block; color: var(--ink-faint); font-size: 12px; margin-top: 2px; }
+
+  /* ---- sync + automation ---- */
+  .flow-line { display: flex; align-items: center; gap: 0; flex-wrap: wrap; margin-bottom: 22px; }
+  .fl-step {
+    flex: 1 1 120px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    padding: 11px 13px; box-shadow: var(--shadow); position: relative;
+  }
+  .flow-line .fl-step + .fl-step { margin-left: 24px; }
+  .flow-line .fl-step + .fl-step::before { content: "→"; position: absolute; left: -19px; top: 50%; transform: translateY(-50%); color: var(--ink-faint); font-family: var(--mono); }
+  .fl-step .fk { font-family: var(--mono); font-size: 11px; color: var(--accent); font-weight: 600; }
+  .fl-step .fd { font-size: 12px; color: var(--ink-soft); margin-top: 3px; line-height: 1.35; }
+
+  .auto-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(255px,1fr)); gap: 12px; }
+  .auto {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 15px; box-shadow: var(--shadow);
+  }
+  .auto .layer { font-family: var(--mono); font-size: 10px; letter-spacing: .07em; text-transform: uppercase; color: var(--t-org); }
+  .auto .at { font-weight: 620; font-size: 14px; margin-top: 6px; letter-spacing: -.01em; }
+  .auto .ad { font-size: 12.5px; color: var(--ink-soft); margin-top: 5px; line-height: 1.42; }
+  .auto .ad code { font-family: var(--mono); font-size: 11.5px; background: var(--surface-2); padding: 1px 4px; border-radius: 4px; }
+
+  /* ---- gaps ---- */
+  .gaps { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px,1fr)); gap: 12px; }
+  .gap { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 13px 15px; box-shadow: var(--shadow); }
+  .gap .gh { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .gap .gt { font-weight: 620; font-size: 13.5px; letter-spacing: -.01em; }
+  .gap .gd { font-size: 12.5px; color: var(--ink-soft); margin-top: 5px; line-height: 1.42; }
+  .chip { font-family: var(--mono); font-size: 9.5px; letter-spacing: .05em; text-transform: uppercase; padding: 2px 7px; border-radius: 5px; white-space: nowrap; }
+  .chip.p2 { color: var(--warn); background: color-mix(in srgb, var(--warn) 15%, transparent); }
+  .chip.unbuilt { color: var(--risk); background: color-mix(in srgb, var(--risk) 13%, transparent); }
+  .chip.scope { color: var(--ink-faint); background: var(--surface-2); }
+  .chip.open { color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, transparent); }
+
+  .callout {
+    background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+    border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
+    border-radius: 12px; padding: 13px 16px; font-size: 13.5px; color: var(--ink-soft); margin-top: 16px; line-height: 1.5;
+  }
+  .callout b { color: var(--ink); }
+
+  footer {
+    margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--line);
+    font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint);
+    display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  }
+
+  @media (max-width: 720px) {
+    .ba-row { grid-template-columns: 1fr; }
+    .cols2 { grid-template-columns: 1fr; }
+    .flow-line .fl-step + .fl-step { margin-left: 0; margin-top: 22px; }
+    .flow-line .fl-step + .fl-step::before { content: "↓"; left: 50%; top: -18px; transform: translateX(-50%); }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } html { scroll-behavior: auto; } }
+  html { scroll-behavior: smooth; }
+</style>
+
+<div class="page">
+
+  <header>
+    <p class="eyebrow"><span class="dot"></span> Operator's walkthrough · initiative: ecosystem-extensions · 2026-07-06</p>
+    <h1>The Copilot Ecosystem, <em>end to end</em></h1>
+    <p class="thesis">
+      The companion to the layer diagram — this one is the <strong>operating picture</strong>. How the everyday use cases exploit the ecosystem,
+      how the hardening pass improved them, what it takes to go from a <strong>bare laptop to a working partner</strong>, what an
+      <strong>IT manager</strong> sets up once, how <strong>syncing</strong> could run itself, and — honestly — <strong>what's still missing</strong>.
+    </p>
+    <nav class="toc" aria-label="Sections">
+      <a href="#s1"><b>1</b> Use cases</a>
+      <a href="#s2"><b>2</b> What the fixes improved</a>
+      <a href="#s3"><b>3</b> From nothing → working</a>
+      <a href="#s4"><b>4</b> IT setup</a>
+      <a href="#s5"><b>5</b> Sync &amp; automation</a>
+      <a href="#s6"><b>6</b> What's missing</a>
+    </nav>
+  </header>
+
+  <!-- ===== 1. USE CASES ===== -->
+  <section id="s1" aria-labelledby="h1">
+    <div class="sec-head">
+      <span class="sec-num">01</span>
+      <h2 id="h1">How each use case exploits the ecosystem</h2>
+      <p class="sec-sub">Every workflow is the same spine — resolve across layers, act at the narrowest one — pointed at a different job. The tinted spine on each card is the tier it turns on.</p>
+    </div>
+
+    <p class="group-label">A · Consuming — the everyday majority</p>
+    <div class="uc-grid">
+      <div class="uc" style="--tier:var(--t-foundation)"><span class="id">UC1</span><span class="t">Onboarding</span><span class="m">One command <b>derives every repo</b> from the org's <code>ecosystem.yml</code> and wires all four tiers.</span></div>
+      <div class="uc" style="--tier:var(--t-org)"><span class="id">UC2</span><span class="t">Daily update</span><span class="m"><b>One fan-out</b> pulls 4 layers, resolves, materialize-syncs, prints a provenance diff.</span></div>
+      <div class="uc" style="--tier:var(--t-personal)"><span class="id">UC3</span><span class="t">resolve --explain</span><span class="m">Provenance trace: <b>which layer won</b>, what it shadows, source SHA + signer.</span></div>
+    </div>
+
+    <p class="group-label">B · Authoring — one verb, at the right layer</p>
+    <div class="uc-grid">
+      <div class="uc" style="--tier:var(--t-personal)"><span class="id">UC4</span><span class="t">Personal accountant</span><span class="m"><b>Personal layer</b>, local-first — yours only, overrides nothing below.</span></div>
+      <div class="uc" style="--tier:var(--t-department)"><span class="id">UC5</span><span class="t">Dept-only skill</span><span class="m"><b>Separate dept repo</b> — only Finance resolves it; scoped by <code>layers.department</code>.</span></div>
+      <div class="uc" style="--tier:var(--t-org)"><span class="id">UC6</span><span class="t">Company-wide skill</span><span class="m"><b>Org layer</b> — every department inherits on next pull.</span></div>
+      <div class="uc" style="--tier:var(--t-foundation)"><span class="id">UC7</span><span class="t">Foundation step</span><span class="m">Authored private, shipped to the world via the <b>promotion valve</b>.</span></div>
+    </div>
+
+    <p class="group-label">C · Overrides, promotion &amp; governance</p>
+    <div class="uc-grid">
+      <div class="uc" style="--tier:var(--t-personal)"><span class="id">UC8</span><span class="t">Personal override</span><span class="m"><b>Whole-unit override</b> with a reported shadow — yours wins, others unaffected.</span></div>
+      <div class="uc" style="--tier:var(--t-org)"><span class="id">UC9</span><span class="t">Promotion</span><span class="m">Content graduates <b>dept→org→foundation</b> through governed one-way valves.</span></div>
+      <div class="uc" style="--tier:var(--t-department)"><span class="id">UC10</span><span class="t">Two departments</span><span class="m">Two <b>ranked</b> dept layers — total-ordered, no ambiguity.</span></div>
+      <div class="uc" style="--tier:var(--t-org)"><span class="id">UC11</span><span class="t">Capability policy</span><span class="m"><b>Per-layer allow/deny</b> — a dept may add skills, never override the security agent.</span></div>
+      <div class="uc" style="--tier:var(--t-foundation)"><span class="id">UC12</span><span class="t">Pin &amp; rollback</span><span class="m"><b>Lockfile + diff</b> — reproducible set, preview before applying, one-line pin-back.</span></div>
+    </div>
+  </section>
+
+  <!-- ===== 2. WHAT THE FIXES IMPROVED ===== -->
+  <section id="s2" aria-labelledby="h2">
+    <div class="sec-head">
+      <span class="sec-num">02</span>
+      <h2 id="h2">How the hardening pass improved those use cases</h2>
+      <p class="sec-sub">Two adversarial red-teams found 13 Critical + 17 High failures. Each remediation is a use case that went from <span style="color:var(--risk)">breaks in the real world</span> to <span style="color:var(--ok)">holds</span>.</p>
+    </div>
+    <div class="ba">
+      <div class="ba-row">
+        <div class="who"><span class="id">UC1</span><span class="nm">Onboarding</span></div>
+        <div class="ba-cell before"><span class="lbl">Before</span>Installer aborts on a locked-down machine (no admin); SAML/404 silently drops the company layers — Bob thinks he has them.</div>
+        <div class="ba-cell after"><span class="lbl">After</span>Admin-free binary bundle, proxy/offline, GHES-aware; 404s classified (SSO vs not-created vs deleted) — <b>never a silent drop</b>.</div>
+      </div>
+      <div class="ba-row">
+        <div class="who"><span class="id">UC2</span><span class="nm">Daily update</span></div>
+        <div class="ba-cell before"><span class="lbl">Before</span>Caret ranges + an unsynced lockfile → two machines silently run different sets. Disabled products leave orphaned content loading.</div>
+        <div class="ba-cell after"><span class="lbl">After</span>Resolve <b>from the lockfile</b> (reproducible); materialize is a <b>reconciling sync</b> that prunes what a removed layer left behind.</div>
+      </div>
+      <div class="ba-row">
+        <div class="who"><span class="id">UC4</span><span class="nm">Personal work</span></div>
+        <div class="ba-cell before"><span class="lbl">Before</span>Local-only default = new laptop wipes the accountant agent and every personal note. The least backup-savvy user, defaulted into data loss.</div>
+        <div class="ba-cell after"><span class="lbl">After</span>Backup-by-default once auth exists, plus a persistent <b>"not backed up"</b> banner until protected.</div>
+      </div>
+      <div class="ba-row">
+        <div class="who"><span class="id">UC8</span><span class="nm">Override</span></div>
+        <div class="ba-cell before"><span class="lbl">Before</span>You override org <code>qa</code>; the org ships a security fix to it; update says "0 conflicts" and you run the vulnerable version forever.</div>
+        <div class="ba-cell after"><span class="lbl">After</span>Update <b>diffs shadowed layers too</b>; a <code>security:</code> trailer breaks through <code>override: true</code>; an <code>override-stale</code> checker.</div>
+      </div>
+      <div class="ba-row">
+        <div class="who"><span class="id">UC9</span><span class="nm">Promotion</span></div>
+        <div class="ba-cell before"><span class="lbl">Before</span>Deny-list scan misses a novel secret; a promoted item references a private one that didn't promote → public breakage.</div>
+        <div class="ba-cell after"><span class="lbl">After</span><b>Allow-list</b> scan + secret scanners + human gate; <b>dependency-closure</b> check promotes the whole closure or rejects.</div>
+      </div>
+      <div class="ba-row">
+        <div class="who"><span class="id">UC11</span><span class="nm">Governance</span></div>
+        <div class="ba-cell before"><span class="lbl">Before</span>Compromised org edits away its own <code>may_never</code> guard; a dept renames <code>sec.md</code> to dodge it.</div>
+        <div class="ba-cell after"><span class="lbl">After</span>Policy signed by a <b>security key distinct from push</b>; classified by <b>what content does</b>, not its filename.</div>
+      </div>
+      <div class="ba-row">
+        <div class="who"><span class="id">Lifecycle</span><span class="nm">Leaver</span></div>
+        <div class="ba-cell before"><span class="lbl">Before</span>A departing employee keeps a permanent local copy of confidential org/dept content; revocation is server-side only.</div>
+        <div class="ba-cell after"><span class="lbl">After</span><code>copilot deprovision</code> wipes on offboard; <b>DLP posture</b> — true secrets never materialize; confidential dept data in isolated repos.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 3. FROM NOTHING ===== -->
+  <section id="s3" aria-labelledby="h3">
+    <div class="sec-head">
+      <span class="sec-num">03</span>
+      <h2 id="h3">From nothing → a working partner on Bob's computer</h2>
+      <p class="sec-sub">Bob is a non-technical accountant. No git, no SSH, no idea what "AI" is. He runs one thing and answers two questions a human can answer.</p>
+    </div>
+    <div class="tl">
+      <div class="tl-step">
+        <div class="st">A bare laptop</div>
+        <div class="sd">No git, no Node, no AI tooling. Maybe no admin rights. Maybe behind a corporate proxy. The starting line for the majority of real users.</div>
+      </div>
+      <div class="tl-step">
+        <div class="st">Paste one line <span class="ring">or double-click</span></div>
+        <div class="sd"><code>/bin/bash -c "$(curl -fsSL https://get.copilot.enac.dev/bootstrap.sh)"</code> — or IT hands Bob a double-clickable offline bundle. Same code path, zero typing.</div>
+      </div>
+      <div class="tl-step milestone">
+        <div class="st">✦ Partner ready <span class="ring">Ring 0</span></div>
+        <div class="sd">Installs prerequisites <b>admin-free</b> (no sudo) and the public foundation. Bob has a working AI partner <b>right here</b> — before any company, auth, or network step can fail.</div>
+      </div>
+      <div class="tl-step">
+        <div class="st">Two plain questions <span class="ring">Ring 1</span></div>
+        <div class="sd">"What company?" and "What team?" — suggested from his email/GitHub, persisted as config, never re-asked. A browser code signs him in (no keys). Org + Finance-department layers clone with the right credential.</div>
+      </div>
+      <div class="tl-step">
+        <div class="st">Personal layer, backed up <span class="ring">Ring 1</span></div>
+        <div class="sd">A private personal layer is scaffolded (and offered a backup repo so a new laptop never loses his work). Everything resolves and <b>materialize-syncs</b> into <code>~/.claude/</code> — <b>focus-scoped</b> to Finance + org + foundation only.</div>
+      </div>
+      <div class="tl-step">
+        <div class="st">Verify &amp; teach <span class="ring">Ring 1</span></div>
+        <div class="sd">A self-check confirms agents load and nothing drifted, then a cheat-sheet + <code>copilot add skill --personal</code> — a guided way for Bob to add his own skill later without touching git or an editor.</div>
+      </div>
+      <div class="tl-step milestone">
+        <div class="st">✦ A partner that stays healthy <span class="ring">Ring 2</span></div>
+        <div class="sd">Bob types <code>claude</code> and works. The same one command is also the repair and update tool — re-run it anytime something feels off; it self-heals and never touches his unsaved work.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 4. IT SETUP ===== -->
+  <section id="s4" aria-labelledby="h4">
+    <div class="sec-head">
+      <span class="sec-num">04</span>
+      <h2 id="h4">What an IT manager sets up — once, for the whole company</h2>
+      <p class="sec-sub">The entire enterprise side is one published seed plus repos and access. After that, every employee's setup is the one command above.</p>
+    </div>
+    <div class="cols2">
+      <div class="panel once">
+        <h3>IT does this once</h3>
+        <p class="cap">company-wide setup</p>
+        <ul class="check">
+          <li><span><b>Publish the seed.</b> <code>copilot ecosystem init</code> scaffolds <code>&lt;org&gt;/copilot-ecosystem</code> with <code>ecosystem.yml</code> — the one fact every employee's installer reads.</span></li>
+          <li><span><b>Declare products &amp; pins.</b> Which of Claude/Codex · Knowledge · CLI are enabled, and the foundation version floor.<span class="sub">one-line edits later enable a product for everyone</span></span></li>
+          <li><span><b>Create the repos.</b> Org repo + a <b>separate repo per department</b> (the confidentiality boundary), per product.</span></li>
+          <li><span><b>Grant team access.</b> Finance team → Finance repos only. This is what keeps sensitive dept data isolated.</span></li>
+          <li><span><b>Sign the capability policy</b> with a security-team key (distinct from push) — bounds what any layer may contribute.</span></li>
+          <li><span><b>Set auth &amp; host.</b> SSO / GitHub App for CI; GHES host params if self-hosted; the pinned foundation trust key.</span></li>
+          <li><span><b>Hand out one thing.</b> The install one-liner, or an offline bundle for locked-down / air-gapped machines.</span></li>
+        </ul>
+      </div>
+      <div class="panel each">
+        <h3>Then every employee</h3>
+        <p class="cap">per-person, self-service</p>
+        <ul class="check">
+          <li><span><b>Runs one command</b> (or double-clicks the bundle).</span></li>
+          <li><span><b>Answers two questions</b> — company, team — both suggested with a smart default.</span></li>
+          <li><span><b>Gets a focus-scoped partner</b> — only their department + org + foundation, never the whole corpus.</span></li>
+          <li><span><b>Extends when ready</b> — <code>copilot extend knowledge</code>, <code>copilot extend cli</code>; same guided, additive flow.</span></li>
+        </ul>
+        <div class="callout" style="margin-top:18px">
+          <b>The whole point:</b> IT publishes one seed and sets access; the employee runs one command. Nobody types a repo URL, wires a manifest, or edits a config. Adding a department or enabling a product later is a one-line edit to the seed that every machine picks up on its next sync.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 5. SYNC & AUTOMATION ===== -->
+  <section id="s5" aria-labelledby="h5">
+    <div class="sec-head">
+      <span class="sec-num">05</span>
+      <h2 id="h5">How syncing works — and how to make it run itself</h2>
+      <p class="sec-sub">Today syncing is one manual command. Everything needed to automate it already exists in the design; these are the layers we'd add so nobody has to think about it.</p>
+    </div>
+
+    <p class="group-label">How one sync works (<code>copilot update</code>)</p>
+    <div class="flow-line">
+      <div class="fl-step"><div class="fk">pull</div><div class="fd">Fan-out all 4 layers, right credential per URL. Offline → cached SHAs.</div></div>
+      <div class="fl-step"><div class="fk">resolve</div><div class="fd">From the lockfile — reproducible; re-resolve ranges only on <code>--upgrade</code>.</div></div>
+      <div class="fl-step"><div class="fk">sync</div><div class="fd">Materialize winners into <code>~/.claude/</code>; <b>prune</b> what's no longer resolved.</div></div>
+      <div class="fl-step"><div class="fk">diff</div><div class="fd">Provenance report — what changed, which layer won, what a shadow now hides.</div></div>
+    </div>
+
+    <p class="group-label">Automation we could put in place</p>
+    <div class="auto-grid">
+      <div class="auto"><div class="layer">local · scheduled</div><div class="at">Background refresh</div><div class="ad">A <code>launchd</code>/cron/Task-Scheduler job runs <code>copilot update</code> quietly (e.g. overnight). Bob's set is current every morning without a thought.</div></div>
+      <div class="auto"><div class="layer">local · on-launch</div><div class="at">Session-start freshness</div><div class="ad">When <code>claude</code>/<code>copilot</code> starts, check staleness against a threshold and sync only if overdue — fresh without pulling on every launch.</div></div>
+      <div class="auto"><div class="layer">notify · push</div><div class="at">Publish → propagate</div><div class="ad">An org publish fires a webhook (or clients cheaply poll a single "latest-lockfile-SHA" endpoint), so a company update lands in hours, not whenever someone remembers.</div></div>
+      <div class="auto"><div class="layer">org · policy</div><div class="at">Cadence in the seed</div><div class="ad"><code>ecosystem.yml</code> sets update policy: auto-pull foundation <b>patches</b>, hold <b>majors</b> for approval — the org tunes velocity vs. stability centrally.</div></div>
+      <div class="auto"><div class="layer">server · CI</div><div class="at">Shift-left validation</div><div class="ad">CI on each layer repo validates <code>requires</code> vs the floor, the capability policy, that declared dept repos exist, and runs the promotion leak-scan — <b>bad content never reaches a client</b>.</div></div>
+      <div class="auto"><div class="layer">local · self-heal</div><div class="at">Doctor on a timer</div><div class="ad"><code>copilot doctor</code> runs periodically to detect drift (a hand-edited file, a moved repo, expired auth) and repair it — the same idempotent engine as install.</div></div>
+    </div>
+    <div class="callout">
+      <b>The arc:</b> manual <code>copilot update</code> today → a background, push-aware, self-healing sync you never think about — with the org setting how fast changes roll and CI guaranteeing only valid content is ever published. Every piece rides machinery the architecture already defines (lockfile, reconciling sync, doctor, <code>ecosystem.yml</code>); none of it is net-new invention.
+    </div>
+  </section>
+
+  <!-- ===== 6. WHAT'S MISSING ===== -->
+  <section id="s6" aria-labelledby="h6">
+    <div class="sec-head">
+      <span class="sec-num">06</span>
+      <h2 id="h6">What this is still missing</h2>
+      <p class="sec-sub">The honest list — beyond the red-team fixes. Chips mark status: <span class="chip p2">P2</span> planned-hard · <span class="chip unbuilt">unbuilt</span> no design yet · <span class="chip open">open</span> needs a decision · <span class="chip scope">scoped-out</span> deliberately deferred.</p>
+    </div>
+    <div class="gaps">
+      <div class="gap"><div class="gh"><span class="gt">Observability</span><span class="chip open">open</span></div><div class="gd">No telemetry on what actually gets used, corpus health, or adoption. You can't improve descriptions/routing you can't measure.</div></div>
+      <div class="gap"><div class="gh"><span class="gt">Protocol composition</span><span class="chip p2">P2</span></div><div class="gd">Protocol still resolves whole-unit override; the "a department inserts a stage into the chain" composer is designed-hard, not built.</div></div>
+      <div class="gap"><div class="gh"><span class="gt">CLI-integration scoping</span><span class="chip unbuilt">unbuilt</span></div><div class="gd">The seam that lets connectors layer company-vs-personal is net-new — no existing mechanism in CLI Copilot yet.</div></div>
+      <div class="gap"><div class="gh"><span class="gt">Knowledge search quality</span><span class="chip open">open</span></div><div class="gd">FTS5 keyword only across 4 corpora — no semantic ranking, cross-layer dedup, or freshness weighting. "Focus" bounds it; relevance isn't solved.</div></div>
+      <div class="gap"><div class="gh"><span class="gt">Author onboarding</span><span class="chip open">open</span></div><div class="gd">Bob's consumer flow is designed end-to-end; how a dept lead (Mira) learns to author, review, and promote is not.</div></div>
+      <div class="gap"><div class="gh"><span class="gt">Conflict-resolution UX</span><span class="chip open">open</span></div><div class="gd">When a personal override genuinely conflicts with a changed upstream, the merge/repair experience for a non-developer is undefined.</div></div>
+      <div class="gap"><div class="gh"><span class="gt">Non-GitHub SCM</span><span class="chip scope">scoped-out</span></div><div class="gd">The whole model assumes GitHub. GitLab / Bitbucket / Azure DevOps enterprises are unaddressed in v1.</div></div>
+      <div class="gap"><div class="gh"><span class="gt">Multi-org / consultant</span><span class="chip scope">scoped-out</span></div><div class="gd">A user in two orgs breaks single-tenant assumptions. The namespace seam is pre-built; the feature is deferred.</div></div>
+      <div class="gap"><div class="gh"><span class="gt">Cloud Copilot</span><span class="chip scope">scoped-out</span></div><div class="gd">The fourth named project has no repo or definition. Vision-only until scoped.</div></div>
+      <div class="gap"><div class="gh"><span class="gt">Compliance / residency</span><span class="chip open">open</span></div><div class="gd">Materialized confidential copies land on laptops. Where they may legally live (GDPR/data-residency) needs an explicit policy.</div></div>
+      <div class="gap"><div class="gh"><span class="gt">Cost &amp; scale</span><span class="chip open">open</span></div><div class="gd">Big orgs, many layers, large corpora — sync fan-out, rate limits, and materialize cost at thousands of employees are unmodeled.</div></div>
+      <div class="gap"><div class="gh"><span class="gt">Non-terminal surfaces</span><span class="chip scope">scoped-out</span></div><div class="gd">Everything assumes a shell. A truly non-technical user on a managed Chromebook / web-only device has no path.</div></div>
+    </div>
+  </section>
+
+  <footer>
+    <span>docs/80-initiatives/01-ecosystem-extensions/04-ecosystem-architecture.md · §9 validation · §12 roadmap</span>
+    <span>companion to the layer diagram</span>
+  </footer>
+
+</div>
