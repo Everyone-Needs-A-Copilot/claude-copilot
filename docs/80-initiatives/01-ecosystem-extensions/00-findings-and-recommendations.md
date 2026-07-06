@@ -9,6 +9,8 @@
 | **Question answered** | "What would it take to build a 3-layer (public → company → personal) extension ecosystem where a user experiences ONE unified system?" |
 | **Appendices** | [`research/research-internal.md`](research/research-internal.md) · [`research/research-ecosystem.md`](research/research-ecosystem.md) · [`research/research-priorart.md`](research/research-priorart.md) |
 
+> **⤴ Extended to 4 tiers (2026-07-06).** This document designs the 3-layer model (public → company → personal). It has since been generalized to a **4-tier / N-tier** stack — **PERSONAL › DEPARTMENT › ORG › FOUNDATION** — with a GitHub multi-account topology and a foundation-owner promotion pipeline. See **[`02-four-tier-and-github-topology.md`](02-four-tier-and-github-topology.md)**. The resolver, lockfile, and `--explain` design below are arity-independent and carry over unchanged; the extension adds a typed/ranked manifest, department selection, SSH-host-alias auth, and ENAC's `copilot promote` valve.
+
 ---
 
 ## 1. Bottom line up front
