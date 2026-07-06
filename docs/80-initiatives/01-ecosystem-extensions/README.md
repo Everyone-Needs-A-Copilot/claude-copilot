@@ -4,6 +4,7 @@ Feasibility + recommendations for a **multi-tier** extension/resolution model wh
 
 - **[00-findings-and-recommendations.md](00-findings-and-recommendations.md)** — the original deliverable (3-layer): BLUF, current state, per-dimension feasibility, proposed architecture (materialize-into-discovery-paths + manifest/lockfile resolver), phased roadmap, risks, next steps.
 - **[02-four-tier-and-github-topology.md](02-four-tier-and-github-topology.md)** — the 4-tier / N-tier extension: how the resolver generalizes (~85% free), the typed/ranked manifest, department selection, the GitHub account topology (SSH host aliases for multi-account auth; separate-vs-subfolder dept repos), and ENAC-owns-the-foundation authoring via a one-way `copilot promote` valve.
+- **[03-use-cases.md](03-use-cases.md)** — the most common workflows in the 4-tier model as concrete scenarios: onboarding, daily `copilot update`, `resolve --explain`, authoring at each layer (personal accountant / dept tax-calc / org excel-to-json / foundation protocol step), overrides, promotion, multi-department users, capability-policy governance, and version pin/rollback.
 - **[research/](research/)** — source appendices:
   - `research-internal.md` — current-state trace of the two resolution engines.
   - `research-ecosystem.md` — project/repo inventory.
