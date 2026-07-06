@@ -137,7 +137,7 @@ copilot update                     # materializes accountant into .claude/agents
 **Goal:** a `tax-calc` skill every Finance analyst gets, but Engineering does not.
 
 ```bash
-cd ~/.copilot/layers/dept-finance        # acme-corp/copilot-dept-finance (or departments/finance/ subfolder)
+cd ~/.copilot/layers/dept-finance        # acme-corp/copilot-dept-finance — a separate, team-scoped repo (default; confidential dept content)
 $EDITOR skills/tax-calc/SKILL.md
 git commit -am "add tax-calc skill" && git push
 ```
@@ -201,7 +201,7 @@ agents/qa.md   personal-jane   (shadows org-acme › foundation)   [override: tr
 
 Two flavors of the same idea — a capability proves useful to a wider audience and moves up a layer.
 
-**9a — Department → Org (internal promotion).** Mira's Finance `tax-calc` skill turns out useful company-wide. Raj reviews it and moves it from `copilot-dept-finance` into `copilot-org` (a PR, or — under the subfolder topology — literally `git mv departments/finance/skills/tax-calc org/skills/`). Now every department inherits it; Finance deletes its now-redundant copy (or lets the identical org version shadow-match harmlessly).
+**9a — Department → Org (internal promotion).** Mira's Finance `tax-calc` skill turns out useful company-wide. Because department repos are separate by default, promotion is a **cross-repo `copilot promote --to org`**: Raj reviews it, and the tool cherry-picks the flagged commit from `copilot-dept-finance` into `copilot-org`, preserving author and signature. Now every department inherits it; Finance deletes its now-redundant copy (or lets the identical org version shadow-match harmlessly). *(Narrow exception: under an explicit `subfolder`-topology opt-in for non-confidential departmental content, promotion collapses to a plain `git mv departments/finance/skills/tax-calc org/skills/` within the one repo — but this is the exception, not the headline path.)*
 
 **9b — ENAC Org → Foundation (public promotion, `copilot promote`).** Pablo's industrial-designer step (authored in ENAC's private staging) is generic and world-safe:
 

@@ -95,6 +95,8 @@ No field is arity-bound. A 7-layer stack (personal › squad › department › 
 
 ## 3. The DEPARTMENT-vs-ORG distinction (the hard modeling question)
 
+> **⚠ Superseded (owner decision, 2026-07-06).** This section's headline recommendation — *model (b), one org repo with per-department subfolders* — optimized for version-skew and simplicity and assumed departments are mutually readable. That assumption does not hold: department content is confidential business data (financials, forecasts, proprietary process), and GitHub's only read boundary is the repository. **The ratified default is now separate-repo-per-department (model (a)) across all products; subfolder (model (b)) is a narrow, explicit opt-in only for affirmatively non-confidential content.** See [`02-four-tier-and-github-topology.md`](../02-four-tier-and-github-topology.md) §6.2 and [`04-ecosystem-architecture.md`](../04-ecosystem-architecture.md) §3.1/§8.1. The analysis below is retained as the original research record.
+
 Department and Org live under the **same enterprise** — same auth domain, same GitHub org, overlapping maintainers. This is the one genuinely new modeling problem 4-tier introduces (3-tier had exactly one private-org layer). Three options:
 
 | Option | Shape | Pro | Con |

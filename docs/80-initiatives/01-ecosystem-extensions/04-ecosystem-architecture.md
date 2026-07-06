@@ -75,6 +75,7 @@ Rows = dimensions; columns = tiers. Cell = the semantics applied.
 - **override** = nearest-tier whole-unit wins; shadow reported. **accumulate** = all tiers contribute, ordered. **personal-write** = reads accumulate down the stack, writes land in personal only (up-tier sharing is the `copilot promote memory` valve, never a silent store). **project-local** = bound to the working tree, not tiered.
 - ¹ protocol is whole-chain override today; chain-*composition* (a dept inserting a stage) is the P2 hard dimension. ² CLI connectors default override, with opt-in accumulate for connector *lists*.
 - **memory read/write split is the one asymmetry:** a Finance user recalls company + Finance + personal decisions in one search, but `cc memory store` only ever writes personal/project.
+- **Separate-repo-per-department is the confidentiality default, not a style choice:** the repository is GitHub's only read boundary — there are no path-level read ACLs, and CODEOWNERS governs review, not read access. A subfolder scopes *resolution* (which content a user's manifest engages, i.e. focus) but never *readability* — any member with read on the parent repo can clone and read every department's subfolder. So a real per-department read boundary requires a per-department repo; `topology: subfolder` is reserved for departmental content that is explicitly non-confidential (§4.2, §8.1).
 
 ### 3.2 Materialize is a **reconciling sync**, not an additive overlay *(fixes B-H5, B-M2 orphaning)*
 
@@ -104,7 +105,7 @@ repo(product,tier)  = { foundation: "<product>-copilot",  org: "copilot-<product
 URL = transport(tier, host) + owner + "/" + repo + ".git"
 ```
 
-Worked example (`Everyone-Needs-A-Copilot` foundation, `acme-corp` enterprise, `finance` dept, `bob`): `acme-corp/copilot-claude-dept-finance`, `acme-corp/copilot-knowledge-org`, `Everyone-Needs-A-Copilot/cli-copilot`, etc. The three foundation repos are the real OSS repos (`claude-copilot`, `knowledge-copilot`, `cli-copilot`) — the convention bends once, for the public floor. Full 12-cell matrix in [`research/design-naming-topology.md`](research/design-naming-topology.md).
+Worked example (`Everyone-Needs-A-Copilot` foundation, `acme-corp` enterprise, `finance` dept, `bob`): `acme-corp/copilot-claude-dept-finance`, `acme-corp/copilot-knowledge-dept-finance`, `Everyone-Needs-A-Copilot/cli-copilot`, etc. The three foundation repos are the real OSS repos (`claude-copilot`, `knowledge-copilot`, `cli-copilot`) — the convention bends once, for the public floor. Full 12-cell matrix in [`research/design-naming-topology.md`](research/design-naming-topology.md).
 
 ### 4.2 The `ecosystem.yml` seed — the one thing IT publishes
 
@@ -124,7 +125,11 @@ foundation:
 auth: gh-device | ssh-work | gh-app:<slug>
 products:
   claude:    { enabled: true,  foundation: "^5.14.0", topology: separate }
-  knowledge: { enabled: true,  foundation: "^2.3.0",  topology: subfolder }
+  # topology: separate is the DEFAULT for every product — department content is
+  # confidential business data (financials, forecasts, proprietary process), and
+  # the repo is GitHub's only read boundary. `topology: subfolder` is a narrow,
+  # explicit opt-in reserved for genuinely non-confidential departmental content.
+  knowledge: { enabled: true,  foundation: "^2.3.0",  topology: separate }
   cli:       { enabled: false }
 departments:
   - { slug: finance,     renamed_from: [],        lead: "@acme-corp/finance-leads" }
@@ -260,7 +265,15 @@ The scariest finding: Bob overrides org `qa`, org later ships a security fix to 
 Materialize-by-copy + full local clones mean a departing employee keeps a **permanent offline copy** of confidential org/dept content; server-side token revocation does nothing about it. Fixed on two fronts:
 
 1. **`copilot deprovision <org>`** wipes materialized `.claude/` items + layer clones for that org; `copilot update` **fails closed and offers the wipe** when a private layer's auth is permanently revoked.
-2. **The honest truth: local git copies can't be clawed back.** So the architecture treats **anything placed in a layer as already-exfiltrable** and adopts a **DLP posture**: true secrets (credentials, tokens, client PII) **never live in a materialized layer** — they stay behind **runtime lookups** (a secrets manager, an authenticated API), and layers carry only capability content and confidential-but-not-catastrophic knowledge. This is a first-class design constraint, not a footnote.
+2. **The honest truth: local git copies can't be clawed back.** So the architecture treats **anything placed in a layer as already-exfiltrable** and adopts a **three-tier DLP posture** — where each class of data is *allowed to live* is a first-class design constraint, not a footnote:
+
+   | Tier | Examples | Where it lives |
+   |---|---|---|
+   | **Secrets** | passwords, tokens, credentials, client PII | **Never** in any layer. Runtime lookup only — a secrets manager or authenticated API. Materialize-by-copy never touches this tier. |
+   | **Systems of record / bulk data** | the company's accounting databases, CRM records, ERP tables | **Stay in those systems.** CLI Copilot is the **runtime gateway** into them — its connectors reach the data at call time with scoped auth; it does **not** copy or materialize the data into a layer. A department's `cli` layer carries connector *definitions* and scoped config — the *door* into the system of record, not the data behind it. |
+   | **Proprietary knowledge & process** | department financial processes, forecasts, proprietary methods, confidential-but-not-catastrophic context | **Separate, team-scoped department repos** (§3.1, §4.2) — `topology: separate` by default. Protected by per-repo read access + org SSO; materialized only to authorized members' machines; wiped by `copilot deprovision` on offboarding. |
+
+   Department content (tier 3) is exactly why the topology default flipped to separate-repo: it is confidential business data, and a subfolder can't create a read boundary for it (§3.1, §4.2).
 
 ### 8.2 Reorg / transfer *(fixes A-H10, B-M2)*
 
@@ -273,6 +286,8 @@ Org flips `cli.enabled: false` → `derive` drops the CLI layers → the **recon
 ### 8.4 Version constraints across layers *(fixes A-H9, B-H6)*
 
 The single-`ref` foundation can't satisfy conflicting transitive pins by last-writer-wins. Fixed: **every layer declares `requires: { foundation: <range> }`; resolve intersects all ranges and picks the max satisfying SHA; empty intersection = hard-error naming the conflicting layers.** `requires` is validated against the org's pinned floor **at author/CI time** in the dept/org repo, so one dept push can't break every consumer's update.
+
+Separate-repo-per-department (the confidentiality default, §3.1/§4.2) reintroduces org↔dept **version skew** — the one thing the subfolder topology eliminated for free (same repo, same SHA). This is handled by the same machinery, not new machinery: the per-layer SHA lockfile pins each department repo independently, and the `requires` intersection above still computes the max satisfying foundation SHA across org and dept layers, hard-erroring on a genuine conflict instead of silently drifting.
 
 ### 8.5 Multi-org users *(addresses B-C5 — scoped, with the seam pre-built)*
 
@@ -331,7 +346,7 @@ A companion visual (published as an Artifact) shows: the **3 × 4 matrix** (prod
 
 1. **Binary name** — keep `copilot` (brand-consistent, but collides with GitHub's `copilot`/`gh copilot` CLI, §5.1/A-M21) or pick a distinct primary verb (`ccx`, `enac`, invoke via `cc copilot …`)? Affects every command in every doc.
 2. **Multi-org scope** (§8.5) — ratify **single-org v1** with the namespacing seam pre-built, or is a two-org consultant a day-one requirement (materially larger design)?
-3. **DLP boundary** (§8.1) — confirm the constraint that **true secrets never materialize into a layer** (runtime lookup only). This shapes what Knowledge/CLI Copilot layers may contain.
+3. **DLP boundary and department topology (§8.1, §3.1, §4.2) — DECIDED (2026-07-06).** Department content is confidential business data (financial figures, forecasts, proprietary methods), so **separate-repo-per-department is the default topology across all products**; `subfolder` is a narrow, explicit opt-in only for genuinely non-confidential departmental content. Confirmed alongside it: **true secrets never materialize into a layer** (runtime lookup only) and **CLI Copilot is a runtime gateway into systems of record, never a copy of their data** (§8.1's three-tier model). This shapes what Knowledge/CLI Copilot layers may contain — no longer open.
 4. **Windows strategy** (§5.1/A-C4) — native `bootstrap.ps1`, or WSL-only with a guided WSL install? Determines reach into non-technical corporate desktops.
 5. **GHES support depth** (§4.2/A-C5) — first-class (self-hosted foundation mirror + parametric hosts) or "cloud GitHub only" for v1?
 

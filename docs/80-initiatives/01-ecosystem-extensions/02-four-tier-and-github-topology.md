@@ -190,12 +190,12 @@ This is the single point where the two research streams diverged, and it is a **
 | Write governance | per-repo CODEOWNERS + rulesets, clean isolation | dir-level CODEOWNERS (review only), coarser |
 | Ops overhead | 1 + D repos, D grows with departments | one clone, one release train |
 
-**Decision rule — pick by confidentiality, not by taste:**
+**Decision — Option A (separate repos) is the default, everywhere, per owner decision (2026-07-06).** Department content is confidential business data — financial figures, forecasts, proprietary methods and processes — not merely organizationally scoped. GitHub gives **no path-level read ACL**; the repository is the only read-confidentiality boundary it offers, and `CODEOWNERS` governs review routing, not read access. A subfolder only scopes *resolution* (which content a user's manifest engages — focus), it never scopes *readability*: any member with read access to the parent repo can clone it and read every department's subfolder. So a real per-department read boundary **requires** a per-department repo.
 
-- **If any department's content must be confidential from other departments → Option A (separate repos).** GitHub gives no other way to create a per-department read boundary. This is the safe enterprise default and the recommendation when in doubt.
-- **If all departments are mutually readable (organizational scoping, not secrecy) → Option B (subfolders)** buys real wins: no org↔dept version skew (one SHA), one clone, and "promote dept→org" becomes moving a file up a directory.
+- **Option A (separate repos) is the default for every department, every product.** This is not a "pick by taste" choice — it is the only topology that actually isolates confidential departmental content.
+- **Option B (subfolders) is a narrow, explicit opt-in**, reserved for departmental content an enterprise has affirmatively decided is non-confidential (pure organizational scoping, not secrecy). Choosing it must be a deliberate, documented exception, not a default assumption — and it still buys the real wins it always did: no org↔dept version skew (one SHA), one clone, and "promote dept→org" as moving a file up a directory (accepted trade-offs *only* for genuinely non-confidential content).
 
-**The architecture does not force the choice.** Because the manifest layer source is `(repo, path)`, a `department` layer can be *either* a separate repo (Option A: `repo` differs, no `path`) *or* a subfolder (Option B: same `repo`, distinct `path`). Enterprises pick per their confidentiality needs; the resolver is identical either way. **Recommended default: Option A**, because "department" usually exists precisely to scope content, and per-repo isolation is the only true read boundary GitHub offers.
+**The architecture does not force the mechanism, only the default.** Because the manifest layer source is `(repo, path)`, a `department` layer can be *either* a separate repo (Option A: `repo` differs, no `path`) *or* a subfolder (Option B: same `repo`, distinct `path`); the resolver is identical either way. `ecosystem.yml`'s per-product `topology` field defaults to `separate` and must be explicitly set to `subfolder` to opt out (see [`04-ecosystem-architecture.md`](04-ecosystem-architecture.md) §4.2, §8.1).
 
 ### 6.3 GitHub teams mapping
 
@@ -298,7 +298,7 @@ Egress is strictly **one-way** (private→public). Ingress is the ordinary `copi
 |---|----------|-----------|----------|
 | 1 | Precedence = manifest list ORDER + explicit `rank`; N-tier resolver = 3-tier walk with a larger loop bound | Low | P0 |
 | 2 | Typed/ranked manifest (`id`/`role`(open)/`rank`/`source{repo,ref,path}`/`auth`/`activation`); 5+ tiers = data edit | Low | P0 |
-| 3 | **Department-vs-org topology: default separate repos (Option A) for read-confidentiality; subfolders (Option B) allowed when all-readable. Manifest `(repo,path)` supports both — enterprise picks.** | Med | P0 |
+| 3 | **Department-vs-org topology: separate repos (Option A) are the DEFAULT everywhere — department content is confidential business data and the repo is GitHub's only read boundary. Subfolders (Option B) are a narrow, explicit opt-in only for departments an enterprise affirmatively declares non-confidential. Manifest `(repo,path)` supports both — enterprise opts out, not in.** | Med | P0 |
 | 4 | Department selection = explicit `cc config set layers.department`; API only *suggests* at onboarding | Low | P0 |
 | 5 | Multi-account auth = **SSH host aliases** (`github-personal`/`github-work`, `IdentitiesOnly yes`); anon HTTPS for foundation; GitHub App tokens for CI. Manifest `auth`: `ssh-personal`/`ssh-work`/`anon`/`gh-app:<slug>` | Med | P0 |
 | 6 | `cc` config: add `layers.manifest` + `layers.department` scalars; keep `paths.knowledge_repo` list; no parallel arrays; layers are NOT config scopes | Low | P0 |
