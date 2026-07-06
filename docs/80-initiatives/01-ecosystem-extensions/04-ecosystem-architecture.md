@@ -208,6 +208,21 @@ The persona least likely to have backup hygiene was defaulted into the lose-ever
 
 Install ends by teaching self-service: a printed/`~/.copilot/CHEATSHEET.md` cheat-sheet, plus a **guided authoring command** — `copilot add skill --personal` *asks* in plain English, *scaffolds* a valid trigger-rich SKILL.md, files it in the right layer, and materializes. `--department`/`--org` variants exist for Mira/Raj, gated on write permission. `copilot extend <product>` reuses the same idempotent runner, skipping every already-green phase.
 
+### 5.6 First-class verbs — `/know` and `/cli` (deterministic product invocation)
+
+Auto-fire (a skill firing from its trigger-rich `description`) is the **common path** for reaching a product — "what's our close process?" should just work. But auto-fire is probabilistic: as context grows it can miss, and a miss burns a whole turn. Two **explicit verbs** are the deterministic escape hatch and the low-floor affordance for a non-technical user:
+
+- **`/know <query>`** — runs the resolved, **department-scoped** knowledge search across the accumulated `personal › dept › org › foundation` corpus (§3.1 knowledge dimension) and returns cited results. Always routes to Knowledge Copilot; never depends on the model electing to.
+- **`/cli <request>`** — routes to CLI Copilot to select and run the right resolved connector. Because CLI Copilot is the **runtime gateway into systems of record** (§8.1), `/cli` doubles as an explicit intent boundary between "chatting" and "acting on a real system."
+
+**Why these earn their place (efficiency is reliability + reach, not raw tokens):** they remove the wasted re-ask when routing silently doesn't happen, and they give a non-technical user (Bob) a *typeable, learnable* affordance that beats composing a well-formed "please use Knowledge Copilot to…" request. Design constraints that keep them honest:
+
+- **Thin sugar over `cc`/`copilot`, not a parallel system** — the verb calls the same resolver + CLI everything else uses, so a `/know` query and an agent's knowledge read hit identical code. Preserves the "interop via CLIs, no bespoke glue" principle.
+- **They are themselves layered command-dimension artifacts** (§3.1, override semantics) — the foundation ships the base verb; an org/department/personal layer may override it (Finance's `/know` can default to the Finance corpus first). Customization is free from the resolver already in place.
+- **Complement, don't replace, auto-fire** — if `/know` becomes necessary for routine lookups, that's a signal the underlying skill `description`s are under-triggering and should be fixed, not a reason to lean on the verb.
+- **Host-agnostic underneath** — slash commands are a Claude Code affordance; the capability is a host-agnostic `cc`/`copilot` call, so Codex Copilot exposes an equivalent rather than the verb being the contract.
+- **`/cli` write-gate (open decision, §11):** an action that *writes to or triggers* a system of record surfaces a confirmation preview ("CLI Copilot will run `post-journal-entry` against QuickBooks — proceed?"); reads run unprompted. Recommended default: **confirm on writes, not reads.**
+
 ---
 
 ## 6. Part D — Foundation ownership & the promotion valve (ENAC, hardened)
@@ -349,6 +364,7 @@ A companion visual (published as an Artifact) shows: the **3 × 4 matrix** (prod
 3. **DLP boundary and department topology (§8.1, §3.1, §4.2) — DECIDED (2026-07-06).** Department content is confidential business data (financial figures, forecasts, proprietary methods), so **separate-repo-per-department is the default topology across all products**; `subfolder` is a narrow, explicit opt-in only for genuinely non-confidential departmental content. Confirmed alongside it: **true secrets never materialize into a layer** (runtime lookup only) and **CLI Copilot is a runtime gateway into systems of record, never a copy of their data** (§8.1's three-tier model). This shapes what Knowledge/CLI Copilot layers may contain — no longer open.
 4. **Windows strategy** (§5.1/A-C4) — native `bootstrap.ps1`, or WSL-only with a guided WSL install? Determines reach into non-technical corporate desktops.
 5. **GHES support depth** (§4.2/A-C5) — first-class (self-hosted foundation mirror + parametric hosts) or "cloud GitHub only" for v1?
+6. **`/cli` write-gate** (§5.6) — the `/know` and `/cli` verbs are in the plan (P1). Should `/cli` require a confirmation preview before an action that *writes to or triggers* a system of record? Recommended default: **confirm on writes, run reads unprompted.** Confirm, or choose always-confirm / never-confirm.
 
 ---
 
@@ -360,7 +376,7 @@ A companion visual (published as an Artifact) shows: the **3 × 4 matrix** (prod
 Resolver + reconciling-sync materialize (agents/skills/commands + knowledge); `ecosystem.yml` + `copilot derive`; split lock/overlay; the three-ring installer **with the §5.1 corporate-machine fixes** (admin-free bundle, PATH the binary, proxy/offline, `~/.claude/` root, 404 classification, backup-default). *Exit: Bob on a locked-down machine runs one command and gets a working, backed-up, focus-scoped partner.*
 
 **P1 — Governance & lifecycle (the red-team must-fixes).**
-Pinned trust root + dual-sign rotation; allow-list promotion + dependency-closure; capability policy (distinct signer, content-classified, signed exceptions); shadowed-layer diff + `security:` trailer + `override-stale`; `copilot deprovision` + DLP posture; reconcile-on-reorg. *Exit: an enterprise can adopt it without a leaver, an override, or a compromised layer becoming an incident.*
+Pinned trust root + dual-sign rotation; allow-list promotion + dependency-closure; capability policy (distinct signer, content-classified, signed exceptions); shadowed-layer diff + `security:` trailer + `override-stale`; `copilot deprovision` + DLP posture; reconcile-on-reorg; **the `/know` and `/cli` verbs** (§5.6 — thin, layered command-dimension sugar over `cc`/`copilot`, with the `/cli` write-gate). *Exit: an enterprise can adopt it without a leaver, an override, or a compromised layer becoming an incident.*
 
 **P2 — The hard dimensions + reach.**
 Protocol chain-as-data composer; CLI-integration scoping (the net-new seam); Codex parity; Windows/GHES first-class; multi-org namespacing; Cloud Copilot (scope TBD). *Exit: full-fidelity 3×4 across both hosts and all environments.*
