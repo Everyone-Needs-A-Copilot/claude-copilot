@@ -1,0 +1,553 @@
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f5f6f9;
+    --surface: #ffffff;
+    --surface-2: #eceff5;
+    --ink: #161a22;
+    --ink-soft: #4c5361;
+    --ink-faint: #838b9c;
+    --line: #dde1ea;
+    --line-strong: #c6ccda;
+    --accent: #3b53d4;
+
+    --t-personal: #0e9fb0;
+    --t-department: #3b74e8;
+    --t-org: #7c5cff;
+    --t-foundation: #a04bc4;
+
+    --warn: #e07a00;
+    --risk: #e03131;
+    --ok: #2f9e44;
+
+    --shadow: 0 1px 2px rgba(20,25,40,.05), 0 8px 24px rgba(20,25,40,.06);
+    --radius: 14px;
+    --mono: ui-monospace, "SF Mono", "SFMono-Regular", "Menlo", "Cascadia Mono", "Roboto Mono", monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b0d13;
+      --surface: #141824;
+      --surface-2: #1b2030;
+      --ink: #e8eaf2;
+      --ink-soft: #a7adbe;
+      --ink-faint: #6f7789;
+      --line: #262c3b;
+      --line-strong: #384054;
+      --accent: #8298ff;
+      --t-personal: #2fcadc;
+      --t-department: #6a9bff;
+      --t-org: #a48bff;
+      --t-foundation: #c976e8;
+      --warn: #ffa94d;
+      --risk: #ff8787;
+      --ok: #69db7c;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg: #f5f6f9; --surface: #ffffff; --surface-2: #eceff5;
+    --ink: #161a22; --ink-soft: #4c5361; --ink-faint: #838b9c;
+    --line: #dde1ea; --line-strong: #c6ccda; --accent: #3b53d4;
+    --t-personal: #0e9fb0; --t-department: #3b74e8; --t-org: #7c5cff; --t-foundation: #a04bc4;
+    --warn: #e07a00; --risk: #e03131; --ok: #2f9e44;
+    --shadow: 0 1px 2px rgba(20,25,40,.05), 0 8px 24px rgba(20,25,40,.06);
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0b0d13; --surface: #141824; --surface-2: #1b2030;
+    --ink: #e8eaf2; --ink-soft: #a7adbe; --ink-faint: #6f7789;
+    --line: #262c3b; --line-strong: #384054; --accent: #8298ff;
+    --t-personal: #2fcadc; --t-department: #6a9bff; --t-org: #a48bff; --t-foundation: #c976e8;
+    --warn: #ffa94d; --risk: #ff8787; --ok: #69db7c;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 80% -10%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 60%),
+      var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 1120px; margin: 0 auto; padding: clamp(20px, 4vw, 56px) clamp(16px, 4vw, 40px) 72px; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink-faint); margin: 0 0 14px;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  h1 {
+    font-family: var(--sans); font-weight: 680;
+    font-size: clamp(30px, 5vw, 50px); line-height: 1.03; letter-spacing: -.02em;
+    text-wrap: balance; margin: 0 0 16px;
+  }
+  h1 em { font-style: normal; color: var(--accent); }
+  .thesis {
+    font-size: clamp(16px, 2vw, 19px); color: var(--ink-soft);
+    max-width: 62ch; margin: 0 0 26px; text-wrap: pretty;
+  }
+  .thesis strong { color: var(--ink); font-weight: 620; }
+
+  section { margin-top: clamp(40px, 6vw, 64px); }
+  .sec-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 20px; flex-wrap: wrap; }
+  .sec-num {
+    font-family: var(--mono); font-size: 13px; font-weight: 600;
+    color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+    border-radius: 7px; padding: 2px 8px; letter-spacing: .02em;
+  }
+  h2 { font-size: clamp(20px, 3vw, 27px); font-weight: 640; letter-spacing: -.015em; margin: 0; text-wrap: balance; }
+  .sec-sub { color: var(--ink-soft); font-size: 15px; margin: 6px 0 0; max-width: 66ch; flex-basis: 100%; }
+
+  /* ---------- MATRIX ---------- */
+  .matrix-scroll { overflow-x: auto; border-radius: var(--radius); }
+  .matrix {
+    min-width: 760px;
+    display: grid;
+    grid-template-columns: 172px repeat(3, 1fr);
+    gap: 10px;
+  }
+  .m-corner {
+    display: flex; flex-direction: column; justify-content: flex-end; gap: 4px;
+    padding: 12px 4px;
+  }
+  .m-corner .precedence {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .04em;
+    color: var(--ink-faint); text-transform: uppercase; line-height: 1.4;
+  }
+  .prod-head {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px; box-shadow: var(--shadow);
+  }
+  .prod-head .pname { font-family: var(--mono); font-weight: 600; font-size: 15px; letter-spacing: -.01em; }
+  .prod-head .pdims { color: var(--ink-faint); font-size: 12px; margin-top: 4px; line-height: 1.4; }
+  .prod-head .pbadge {
+    display: inline-block; font-family: var(--mono); font-size: 10px; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border-radius: 5px; padding: 1px 6px; margin-top: 8px;
+  }
+
+  .tier-rail {
+    border-radius: 12px; padding: 14px 14px 14px 16px;
+    background: color-mix(in srgb, var(--tier) 12%, var(--surface));
+    border: 1px solid color-mix(in srgb, var(--tier) 34%, var(--line));
+    position: relative; display: flex; flex-direction: column; justify-content: center;
+  }
+  .tier-rail::before {
+    content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 4px;
+    border-radius: 4px; background: var(--tier);
+  }
+  .tier-rail .tname {
+    font-family: var(--mono); font-weight: 600; font-size: 14px; letter-spacing: .01em;
+    color: color-mix(in srgb, var(--tier) 72%, var(--ink));
+  }
+  .tier-rail .trank {
+    font-family: var(--mono); font-size: 11px; color: var(--ink-faint);
+    font-variant-numeric: tabular-nums; margin-top: 2px;
+  }
+  .tier-rail .twho { font-size: 12px; color: var(--ink-soft); margin-top: 6px; line-height: 1.35; }
+
+  .cell {
+    background: var(--surface); border: 1px solid var(--line);
+    border-left: 3px solid color-mix(in srgb, var(--tier) 65%, var(--line));
+    border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow);
+    display: flex; flex-direction: column; gap: 3px; min-height: 74px;
+  }
+  .cell .repo { font-family: var(--mono); font-size: 12.5px; color: var(--ink); word-break: break-word; line-height: 1.35; }
+  .cell .repo b { color: color-mix(in srgb, var(--tier) 60%, var(--ink)); font-weight: 600; }
+  .cell .what { font-size: 11.5px; color: var(--ink-faint); }
+  .cell.public { border-left-style: dashed; }
+  .cell .tag {
+    align-self: flex-start; font-family: var(--mono); font-size: 9.5px; letter-spacing: .05em;
+    text-transform: uppercase; padding: 1px 5px; border-radius: 4px; margin-top: 2px;
+  }
+  .tag.pub { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+  .tag.priv { color: var(--ink-faint); background: var(--surface-2); }
+
+  .legend {
+    display: flex; gap: 18px; flex-wrap: wrap; margin-top: 18px;
+    font-size: 12.5px; color: var(--ink-soft);
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .legend i { width: 22px; height: 0; border-top: 3px solid var(--line-strong); border-radius: 2px; }
+  .legend i.solid { border-top-style: solid; }
+  .legend i.dashed { border-top-style: dashed; }
+
+  /* ---------- FLOW PIPELINES ---------- */
+  .flow { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; }
+  .step {
+    flex: 1 1 150px; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 12px; padding: 14px 15px; box-shadow: var(--shadow); position: relative;
+  }
+  .flow .step + .step { margin-left: 26px; }
+  .flow .step + .step::before {
+    content: "→"; position: absolute; left: -21px; top: 50%; transform: translateY(-50%);
+    color: var(--ink-faint); font-size: 16px; font-family: var(--mono);
+  }
+  .step .k { font-family: var(--mono); font-size: 12px; color: var(--accent); font-weight: 600; }
+  .step .t { font-weight: 600; font-size: 14.5px; margin-top: 4px; letter-spacing: -.01em; }
+  .step .d { font-size: 12.5px; color: var(--ink-soft); margin-top: 4px; line-height: 1.4; }
+
+  /* ---------- INSTALL RINGS ---------- */
+  .cmd {
+    font-family: var(--mono); font-size: 13.5px; background: var(--surface-2);
+    border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; color: var(--ink);
+    overflow-x: auto; white-space: nowrap; margin-bottom: 20px;
+  }
+  .cmd .prompt { color: var(--accent); user-select: none; }
+  .rings { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .ring {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px; box-shadow: var(--shadow); position: relative; overflow: hidden;
+  }
+  .ring .rn {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .ring .rt { font-weight: 640; font-size: 15px; margin-top: 6px; letter-spacing: -.01em; }
+  .ring .rd { font-size: 13px; color: var(--ink-soft); margin-top: 6px; line-height: 1.45; }
+  .ring .rc { font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); margin-top: 8px; }
+  .ring.partner { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
+  .ring.partner::after {
+    content: "partner ready ✦"; position: absolute; top: 12px; right: -30px;
+    transform: rotate(35deg); background: var(--ok); color: #fff;
+    font-family: var(--mono); font-size: 10px; letter-spacing: .04em; padding: 3px 34px;
+  }
+
+  /* ---------- FOCUS STRIP ---------- */
+  .focus-wrap { display: grid; grid-template-columns: 1.1fr .9fr; gap: 22px; align-items: center; }
+  .focus-vis { display: flex; flex-direction: column; gap: 8px; }
+  .fbar {
+    display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-radius: 10px;
+    border: 1px solid var(--line); font-family: var(--mono); font-size: 13px;
+  }
+  .fbar .rk { color: var(--ink-faint); font-size: 11px; font-variant-numeric: tabular-nums; width: 62px; }
+  .fbar.on { background: color-mix(in srgb, var(--tier) 13%, var(--surface)); border-color: color-mix(in srgb, var(--tier) 38%, var(--line)); }
+  .fbar.on .nm { color: color-mix(in srgb, var(--tier) 62%, var(--ink)); font-weight: 600; }
+  .fbar.off { background: var(--surface); color: var(--ink-faint); text-decoration: line-through; opacity: .6; }
+  .fbar .note { margin-left: auto; font-family: var(--sans); font-size: 11.5px; color: var(--ink-faint); text-decoration: none; }
+  .focus-say p { margin: 0 0 12px; }
+  .focus-say .big { font-size: 19px; font-weight: 620; letter-spacing: -.01em; color: var(--ink); text-wrap: balance; }
+  .focus-say .sub { font-size: 14px; color: var(--ink-soft); }
+
+  /* ---------- GOVERNANCE STRIP ---------- */
+  .val-banner {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    background: color-mix(in srgb, var(--ok) 10%, var(--surface));
+    border: 1px solid color-mix(in srgb, var(--ok) 34%, var(--line));
+    border-radius: 12px; padding: 14px 18px; margin-bottom: 20px;
+  }
+  .val-banner .score {
+    font-family: var(--mono); font-weight: 700; font-size: 20px; color: var(--ok);
+    font-variant-numeric: tabular-nums;
+  }
+  .val-banner .vt { font-size: 14px; color: var(--ink-soft); }
+  .val-banner .vt b { color: var(--ink); }
+  .guards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .guard {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 11px;
+    padding: 13px 14px; box-shadow: var(--shadow);
+  }
+  .guard .risk {
+    font-size: 11px; color: var(--risk); font-family: var(--mono); letter-spacing: .02em;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .guard .risk::before { content: "▲"; font-size: 8px; }
+  .guard .fix { font-size: 13px; font-weight: 600; margin-top: 6px; letter-spacing: -.005em; }
+  .guard .fix::before { content: "→ "; color: var(--ok); font-family: var(--mono); }
+  .guard .fd { font-size: 12px; color: var(--ink-soft); margin-top: 4px; line-height: 1.4; }
+
+  footer {
+    margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--line);
+    font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint);
+    display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  }
+
+  @media (max-width: 720px) {
+    .focus-wrap { grid-template-columns: 1fr; }
+    .rings { grid-template-columns: 1fr; }
+    .guards { grid-template-columns: 1fr 1fr; }
+    .flow .step + .step { margin-left: 0; margin-top: 26px; }
+    .flow .step + .step::before { content: "↓"; left: 50%; top: -22px; transform: translateX(-50%); }
+  }
+  @media (max-width: 480px) { .guards { grid-template-columns: 1fr; } }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="page">
+
+  <header>
+    <p class="eyebrow"><span class="dot"></span> Architecture · initiative: ecosystem-extensions · 2026-07-06</p>
+    <h1>The Copilot Ecosystem: <em>three products, four layers, one command</em></h1>
+    <p class="thesis">
+      One resolver, one manifest, one command — parameterized three ways: <strong>product × tier × dimension</strong>.
+      A person authors at the narrowest layer that fits their audience; content resolves <strong>personal → department → org → foundation</strong>,
+      nearest wins. A non-technical user runs a single command and gets a working, focus-scoped AI partner — no git, no URLs, no manual wiring.
+    </p>
+  </header>
+
+  <!-- ============ THE MATRIX ============ -->
+  <section aria-labelledby="s1">
+    <div class="sec-head">
+      <span class="sec-num">01</span>
+      <h2 id="s1">The layer matrix — what you can actually see</h2>
+      <p class="sec-sub">Three product families (columns) each layer independently across the same four tiers (rows). Every private repo name is a pure function of <span style="font-family:var(--mono)">(product, tier, org, dept, user)</span>, so an installer derives them all from a company name.</p>
+    </div>
+
+    <div class="matrix-scroll">
+      <div class="matrix">
+        <!-- header row -->
+        <div class="m-corner">
+          <div class="precedence">precedence ↓<br>nearest wins</div>
+        </div>
+        <div class="prod-head">
+          <div class="pname">Claude / Codex Copilot</div>
+          <div class="pdims">agents · skills · commands · protocol · memory · tasks</div>
+          <div class="pbadge">the foundation of productivity</div>
+        </div>
+        <div class="prod-head">
+          <div class="pname">Knowledge Copilot</div>
+          <div class="pdims">one source of truth · knowledge bases</div>
+          <div class="pbadge">extend when ready</div>
+        </div>
+        <div class="prod-head">
+          <div class="pname">CLI Copilot</div>
+          <div class="pdims">integrations · connectors · MCP · tools</div>
+          <div class="pbadge">extend when ready</div>
+        </div>
+
+        <!-- PERSONAL -->
+        <div class="tier-rail" style="--tier:var(--t-personal)">
+          <div class="tname">personal</div>
+          <div class="trank">rank 10 · highest</div>
+          <div class="twho">yours only — overrides everything below</div>
+        </div>
+        <div class="cell" style="--tier:var(--t-personal)">
+          <div class="repo"><b>bob/</b>copilot-claude-private</div>
+          <div class="what">personal “accountant” agent, private skills</div>
+          <span class="tag priv">local-first</span>
+        </div>
+        <div class="cell" style="--tier:var(--t-personal)">
+          <div class="repo"><b>bob/</b>copilot-knowledge-private</div>
+          <div class="what">your own notes &amp; references</div>
+          <span class="tag priv">local-first</span>
+        </div>
+        <div class="cell" style="--tier:var(--t-personal)">
+          <div class="repo"><b>bob/</b>copilot-cli-private</div>
+          <div class="what">personal connectors</div>
+          <span class="tag priv">local-first</span>
+        </div>
+
+        <!-- DEPARTMENT -->
+        <div class="tier-rail" style="--tier:var(--t-department)">
+          <div class="tname">department</div>
+          <div class="trank">rank 20</div>
+          <div class="twho">your team — Finance, Engineering…</div>
+        </div>
+        <div class="cell" style="--tier:var(--t-department)">
+          <div class="repo"><b>acme-corp/</b>copilot-claude-dept-finance</div>
+          <div class="what">Finance-only agents &amp; skills</div>
+          <span class="tag priv">private</span>
+        </div>
+        <div class="cell" style="--tier:var(--t-department)">
+          <div class="repo"><b>acme-corp/</b>…-knowledge-org<span style="color:var(--ink-faint)">/departments/finance</span></div>
+          <div class="what">dept knowledge (subfolder topology)</div>
+          <span class="tag priv">private</span>
+        </div>
+        <div class="cell" style="--tier:var(--t-department)">
+          <div class="repo"><b>acme-corp/</b>copilot-cli-dept-finance</div>
+          <div class="what">dept-scoped tools</div>
+          <span class="tag priv">private</span>
+        </div>
+
+        <!-- ORG -->
+        <div class="tier-rail" style="--tier:var(--t-org)">
+          <div class="tname">org</div>
+          <div class="trank">rank 30</div>
+          <div class="twho">company-wide — everyone inherits</div>
+        </div>
+        <div class="cell" style="--tier:var(--t-org)">
+          <div class="repo"><b>acme-corp/</b>copilot-claude-org</div>
+          <div class="what">company standards &amp; agents</div>
+          <span class="tag priv">private</span>
+        </div>
+        <div class="cell" style="--tier:var(--t-org)">
+          <div class="repo"><b>acme-corp/</b>copilot-knowledge-org</div>
+          <div class="what">the single company knowledge base</div>
+          <span class="tag priv">private</span>
+        </div>
+        <div class="cell" style="--tier:var(--t-org)">
+          <div class="repo"><b>acme-corp/</b>copilot-cli-org</div>
+          <div class="what">company tooling · “Excel-to-JSON”</div>
+          <span class="tag priv">private</span>
+        </div>
+
+        <!-- FOUNDATION -->
+        <div class="tier-rail" style="--tier:var(--t-foundation)">
+          <div class="tname">foundation</div>
+          <div class="trank">rank 40 · base</div>
+          <div class="twho">public OSS — owned by ENAC, global to all</div>
+        </div>
+        <div class="cell public" style="--tier:var(--t-foundation)">
+          <div class="repo"><b>Everyone-Needs-A-Copilot/</b>claude-copilot</div>
+          <div class="what">Memory · Task · protocol · agents</div>
+          <span class="tag pub">public</span>
+        </div>
+        <div class="cell public" style="--tier:var(--t-foundation)">
+          <div class="repo"><b>Everyone-Needs-A-Copilot/</b>knowledge-copilot</div>
+          <div class="what">the knowledge engine (empty base)</div>
+          <span class="tag pub">public</span>
+        </div>
+        <div class="cell public" style="--tier:var(--t-foundation)">
+          <div class="repo"><b>Everyone-Needs-A-Copilot/</b>cli-copilot</div>
+          <div class="what">the copilot binary + base connectors</div>
+          <span class="tag pub">public</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span><i class="solid"></i> private tier — auth required</span>
+      <span><i class="dashed"></i> public foundation — anonymous</span>
+      <span><b style="font-family:var(--mono);color:var(--warn)">↑ promote</b> generic content graduates upward through a governed valve</span>
+    </div>
+  </section>
+
+  <!-- ============ RESOLUTION FLOW ============ -->
+  <section aria-labelledby="s2">
+    <div class="sec-head">
+      <span class="sec-num">02</span>
+      <h2 id="s2">How a machine resolves the stack</h2>
+      <p class="sec-sub">One published <span style="font-family:var(--mono)">ecosystem.yml</span> seeds everything. Materialize is a <em>reconciling sync</em> — it prunes what a removed layer or disabled product leaves behind, never orphans it.</p>
+    </div>
+    <div class="flow">
+      <div class="step">
+        <div class="k">derive</div>
+        <div class="t">Read the seed</div>
+        <div class="d">Fetch <span style="font-family:var(--mono)">&lt;org&gt;/copilot-ecosystem</span> → compute every repo URL.</div>
+      </div>
+      <div class="step">
+        <div class="k">pull</div>
+        <div class="t">Fan-out, 4 layers</div>
+        <div class="d">Each layer pulled with the right credential from the URL itself.</div>
+      </div>
+      <div class="step">
+        <div class="k">resolve</div>
+        <div class="t">Nearest wins</div>
+        <div class="d">Per name: personal › dept › org › foundation. Shadows reported.</div>
+      </div>
+      <div class="step">
+        <div class="k">sync</div>
+        <div class="t">Materialize + prune</div>
+        <div class="d">Copy winners into <span style="font-family:var(--mono)">~/.claude/</span>; delete anything no longer resolved.</div>
+      </div>
+      <div class="step">
+        <div class="k">explain</div>
+        <div class="t">Provenance</div>
+        <div class="d">Per item: which layer won, what it shadows, source SHA + signer.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ INSTALL ============ -->
+  <section aria-labelledby="s3">
+    <div class="sec-head">
+      <span class="sec-num">03</span>
+      <h2 id="s3">Bob’s install — one command, three rings</h2>
+      <p class="sec-sub">The chicken-and-egg (the foundation sets itself up) is resolved by a dependency-free bootstrap that installs a capable foundation, which then drives every guided, idempotent, self-healing phase. He has a partner before anything else can fail.</p>
+    </div>
+    <div class="cmd"><span class="prompt">$ </span>/bin/bash -c "$(curl -fsSL https://get.copilot.enac.dev/bootstrap.sh)"<span style="color:var(--ink-faint)">   # or a double-click offline bundle from IT</span></div>
+    <div class="rings">
+      <div class="ring">
+        <div class="rn">Ring 0</div>
+        <div class="rt">bootstrap</div>
+        <div class="rd">Admin-free binaries (no sudo), proxy-aware, offline-capable. Installs prereqs + the foundation + the <span style="font-family:var(--mono)">copilot</span> binary on PATH.</div>
+        <div class="rc">assumes only: a shell</div>
+      </div>
+      <div class="ring partner">
+        <div class="rn">Ring 1</div>
+        <div class="rt">copilot doctor</div>
+        <div class="rd">Idempotent state machine: identity → org → ask dept → dept → personal → materialize → verify → teach. Re-runnable = self-repairing.</div>
+        <div class="rc">install = repair = update</div>
+      </div>
+      <div class="ring">
+        <div class="rn">Ring 2</div>
+        <div class="rt">your partner</div>
+        <div class="rd">Memory, Task, protocol, agents — focus-scoped to Bob’s department. Plus <span style="font-family:var(--mono)">copilot add skill --personal</span> so he extends it himself.</div>
+        <div class="rc">two questions, answered in plain English</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ FOCUS NOT CORPUS ============ -->
+  <section aria-labelledby="s4">
+    <div class="sec-head">
+      <span class="sec-num">04</span>
+      <h2 id="s4">Focus, not corpus</h2>
+      <p class="sec-sub">The reason to layer at all: a worker goes deep in their area without carrying the whole organization.</p>
+    </div>
+    <div class="focus-wrap">
+      <div class="focus-vis" aria-label="Finance user's resolved knowledge stack">
+        <div class="fbar on" style="--tier:var(--t-personal)"><span class="rk">rank 10</span><span class="nm">personal</span><span class="note">your notes</span></div>
+        <div class="fbar on" style="--tier:var(--t-department)"><span class="rk">rank 20</span><span class="nm">finance</span><span class="note">your team’s knowledge</span></div>
+        <div class="fbar off"><span class="rk">rank 20</span><span class="nm">engineering</span><span class="note">never named · never cloned</span></div>
+        <div class="fbar on" style="--tier:var(--t-org)"><span class="rk">rank 30</span><span class="nm">org</span><span class="note">company base</span></div>
+        <div class="fbar on" style="--tier:var(--t-foundation)"><span class="rk">rank 40</span><span class="nm">foundation</span><span class="note">public engine</span></div>
+      </div>
+      <div class="focus-say">
+        <p class="big">A Finance user resolves Finance + org + foundation — and nothing else.</p>
+        <p class="sub">The corpus is bounded at the manifest, <em>before any content loads</em>. Engineering’s department layer is never named, never cloned, never in the index. No behemoth files for content you’ll never use.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ VALIDATION / GOVERNANCE ============ -->
+  <section aria-labelledby="s5">
+    <div class="sec-head">
+      <span class="sec-num">05</span>
+      <h2 id="s5">Tested against how it will really be used</h2>
+      <p class="sec-sub">The use cases were run as an adversarial filter. Every finding is remediated in the architecture — here are four that reshaped it.</p>
+    </div>
+    <div class="val-banner">
+      <span class="score">13 + 17</span>
+      <span class="vt"><b>Critical + High failures</b> found by two red-team passes across onboarding, authoring, governance &amp; lifecycle — <b>all addressed</b> in the final architecture (§9).</span>
+    </div>
+    <div class="guards">
+      <div class="guard">
+        <div class="risk">the leaver</div>
+        <div class="fix">copilot deprovision + DLP</div>
+        <div class="fd">A departing employee can’t keep confidential content: wipe on offboard, and true secrets never materialize into a layer.</div>
+      </div>
+      <div class="guard">
+        <div class="risk">override hides a security fix</div>
+        <div class="fix">shadowed-layer diff</div>
+        <div class="fd">Update flags when your override is masking a changed upstream; a <span style="font-family:var(--mono)">security:</span> trailer breaks through the mute.</div>
+      </div>
+      <div class="guard">
+        <div class="risk">no trust root (curl TOFU)</div>
+        <div class="fix">pinned key + dual-sign</div>
+        <div class="fd">ENAC’s key is a multi-channel pinned constant; rotation dual-signs a rollover window so no install hard-fails.</div>
+      </div>
+      <div class="guard">
+        <div class="risk">compromised org disables its guard</div>
+        <div class="fix">policy ≠ push authority</div>
+        <div class="fd">Capability policy is signed by a security key distinct from push, and classified by what content <em>does</em>, not its filename.</div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>docs/80-initiatives/01-ecosystem-extensions/04-ecosystem-architecture.md</span>
+    <span>personal › department › org › foundation</span>
+  </footer>
+
+</div>
