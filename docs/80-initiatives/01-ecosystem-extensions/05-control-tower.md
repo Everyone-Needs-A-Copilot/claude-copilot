@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | Design / Proposed — **validated against the 12 use cases + two adversarial red-teams** |
 | **Product** | **Copilot Control Tower** (short: **Control Tower**) — the always-on, self-healing menu-bar client of the Copilot ecosystem |
-| **Repo** | `Everyone-Needs-A-Copilot/control-tower` (its own project) |
+| **Repo** | `Everyone-Needs-A-Copilot/copilot-control-tower` (its own project) |
 | **Stack** | Tauri v2 · Rust core + minimal web UI · **single process** · macOS-first (Windows = re-skin) |
 | **Bundle / MDM domain** | `dev.enac.controltower` |
 | **Brand** | Aviator-sunglasses silhouette (`#2D294E`), template-icon friendly |
@@ -24,7 +24,7 @@ The ecosystem already ships the intelligence: a three-ring installer, a `copilot
 
 The name is the model: a control tower doesn't fly the plane — it watches every flight, keeps them coordinated and on schedule, clears them to proceed, and raises the alarm when something's off. That is exactly the supervisor role, and it maps onto the IT-facing side (a tower is who ops calls). **Control Tower is the productization of the ecosystem's Rings 0–2 + the sync-automation stack into a native, IT-deployable, always-on presence.**
 
-**Two faces, one open-source binary.** Control Tower is not only Bob's client — it is also the **IT team's setup and deployment tool** for standing up the whole ecosystem for their org, and it is **open source** (`Everyone-Needs-A-Copilot/control-tower`, public). Open source is a *requirement*, not goodwill: an always-on agent that holds a live token and auto-materializes executable-adjacent content must be **auditable** for an enterprise to trust it on every employee's machine — open source + reproducible builds + two-of-N signing (§7) are that trust basis. §2–§7 describe **Operator mode** (the end-user client); **§8 describes Admin mode** (the IT enablement tool + its documentation).
+**Two faces, one open-source binary.** Control Tower is not only Bob's client — it is also the **IT team's setup and deployment tool** for standing up the whole ecosystem for their org, and it is **open source** (`Everyone-Needs-A-Copilot/copilot-control-tower`, public). Open source is a *requirement*, not goodwill: an always-on agent that holds a live token and auto-materializes executable-adjacent content must be **auditable** for an enterprise to trust it on every employee's machine — open source + reproducible builds + two-of-N signing (§7) are that trust basis. §2–§7 describe **Operator mode** (the end-user client); **§8 describes Admin mode** (the IT enablement tool + its documentation).
 
 ---
 

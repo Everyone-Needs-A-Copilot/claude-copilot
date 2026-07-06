@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | Proposed — ready for `/orchestrate` |
 | **Product** | Copilot Control Tower — always-on menu-bar client + open-source IT setup/deploy tool |
-| **Repo** | `Everyone-Needs-A-Copilot/control-tower` (new, public) |
+| **Repo** | `Everyone-Needs-A-Copilot/copilot-control-tower` (new, public) |
 | **Architecture** | [`05-control-tower.md`](05-control-tower.md) (validated against 25 Critical/High red-team findings) |
 | **Branch** | `ecosystem-extensions` |
 
