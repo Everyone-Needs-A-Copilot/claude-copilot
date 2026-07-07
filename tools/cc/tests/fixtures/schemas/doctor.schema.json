@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://everyoneneedsacopilot.com/schemas/copilot-control-tower/doctor.schema.json",
+  "$comment": "VENDORED COPY for the WS-A contract test in claude-copilot/tools/cc. Source of truth is copilot-control-tower/docs/01-architecture/schemas/doctor.schema.json — update this copy from there, not the reverse.",
+  "title": "copilot doctor --json",
+  "description": "Health verdict Control Tower renders in the tray. Mirrors `cc memory check`. Exit 0 clean / 1 any fail / 2 env error. `status` is computed CLI-side; the app only renders it. See the `status` property below for the authoritative ~10-state enum (corrected 2026-07-07 from an earlier draft `healthy|degraded|failed`).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "host", "score", "status", "offline", "checkers"],
+  "properties": {
+    "schema_version": { "$ref": "_envelope.schema.json#/$defs/schema_version" },
+    "host": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Host identifier the verdict was computed for."
+    },
+    "score": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Composite health score 0-100."
+    },
+    "generated_at": {
+      "$ref": "_envelope.schema.json#/$defs/timestamp",
+      "description": "When this verdict was produced. Present in the upstream design's `doctor --json` example (design-control-tower-integration.md §1.1); not marked required since cli-contract.md's prose table omits it, but the CLI is expected to emit it."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "setup-needed",
+        "it-config-incomplete",
+        "healthy",
+        "syncing",
+        "update-available",
+        "needs-attention",
+        "signed-out",
+        "offline",
+        "waiting-for-network",
+        "updating-app"
+      ],
+      "description": "CLI-computed overall status (per-host, worst-wins across hosts). This is the authoritative ~10-state machine from the upstream design (05-control-tower.md §2 table, lines ~35-48), reconciled against this repo's docs/product-design/04-experience-design/50-ux-design.md status-state matrix. Precedence (worst -> best): it-config-incomplete > signed-out > needs-attention > offline > syncing > update-available > healthy; setup-needed/waiting-for-network/updating-app are lifecycle states outside that ladder (first-run / self-update). This field is DISTINCT from the per-checker `severity` (pass|warn|fail) below -- do not conflate the two.",
+      "$comment": "CORRECTED 2026-07-07: replaces an earlier draft enum `healthy|degraded|failed`, which was wrong on two counts -- (1) it conflated the top-level `status` with per-checker `severity` (pass|warn|fail), and (2) it did not match the upstream design at all. Upstream source of truth: claude-copilot/docs/80-initiatives/01-ecosystem-extensions/05-control-tower.md §2 (the state table) and .../research/design-control-tower-integration.md §2.1 (the 6-state UI machine directly sourced from `doctor.status`/`freshness`/`update`: healthy, syncing, update-available, needs-attention, signed-out, offline). The remaining 4 values (setup-needed, it-config-incomplete, waiting-for-network, updating-app) are Control-Tower/app-lifecycle states that 05-control-tower.md §2 folds into the same single worst-wins status; architecture explicitly says 'status is computed by the CLI, not Control Tower' for the whole set, so they are encoded together here. This repo's ux-design.md 50-ux-design.md status matrix additionally lists an 11th row, 'CLI-unreadable / Error' (exit 2, schema out of range, or a missing security field) -- that is intentionally NOT a value in this enum: by definition the CLI failed to produce a parseable doctor verdict in that case, so it is Control Tower's OWN client-side fallback state, never a value the CLI emits inside a valid `doctor.json` instance. Confirm this split with the CLI owner at WS-A freeze; see cli-contract.md 'Freeze status & source of truth'."
+    },
+    "offline": {
+      "type": "boolean",
+      "description": "True when the verdict was produced without network reachability."
+    },
+    "checkers": {
+      "type": "array",
+      "description": "Per-checker results.",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "$comment": "The contract lists an explicit trailing ellipsis on the checker object, so it is intentionally open/extensible; additionalProperties is left true. Known security-relevant fields are required. Optional fields below (layer, detail, local_sha, remote_sha, path, escalate) are documented from the upstream design's `doctor --json` example (design-control-tower-integration.md §1.1) but not required, since not every checker emits all of them.",
+        "required": ["id", "severity", "destructive"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "severity": { "$ref": "_envelope.schema.json#/$defs/severity" },
+          "detail": {
+            "type": "string",
+            "description": "Human-readable one-line finding text, e.g. 'org tip a1b2 < remote c3d4'."
+          },
+          "repair": {
+            "type": ["string", "null"],
+            "description": "Repair token the CLI understands, echoed back so Control Tower can offer a one-click Fix via `copilot repair --only <checker.id>`, or null when no repair applies.",
+            "$comment": "Confirmed against design-control-tower-integration.md §1.1 example (`\"repair\": \"git pull --ff-only\"`): a nullable repair-token string, not a boolean 'repair available' flag. This was already correctly encoded in the prior draft; the uncertainty note is now resolved."
+          },
+          "destructive": {
+            "type": "boolean",
+            "description": "Whether the associated repair is destructive. Security-relevant: a missing value is treated as destructive (fail-closed), so the CLI must always emit it."
+          },
+          "layer": {
+            "type": "string",
+            "description": "Layer this checker's finding pertains to, when applicable (e.g. 'org', 'dept-finance')."
+          },
+          "local_sha": { "$ref": "_envelope.schema.json#/$defs/git_sha" },
+          "remote_sha": { "$ref": "_envelope.schema.json#/$defs/git_sha" },
+          "path": {
+            "type": "string",
+            "description": "Materialized-file path this finding pertains to, when applicable."
+          },
+          "escalate": {
+            "type": "string",
+            "description": "Who this finding should escalate to when Bob can't act on it alone, e.g. 'user'."
+          }
+        }
+      }
+    },
+    "auth": {
+      "type": "array",
+      "description": "Per-identity/per-scope credential check results.",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["identity", "scope", "state"],
+        "properties": {
+          "identity": {
+            "type": "string",
+            "description": "The signed-in identity this credential belongs to, e.g. 'bob@acme'."
+          },
+          "scope": {
+            "type": "string",
+            "description": "Layer scope this credential covers, e.g. 'org+dept-finance'."
+          },
+          "state": {
+            "type": "string",
+            "enum": ["expired", "revoked"],
+            "description": "Fail-closed credential state. `expired` -> transient, re-auth offered (signed-out, recoverable); `revoked` -> permanent, drives fail-closed deprovision-offer per design-control-tower-integration.md §4. Only failing/needs-attention entries are expected in this array (a live/valid credential need not be listed)."
+          },
+          "expires_at": {
+            "$ref": "_envelope.schema.json#/$defs/timestamp",
+            "description": "When this credential expired/will expire."
+          }
+        }
+      },
+      "$comment": "CORRECTED 2026-07-07: tightened to the shape shown in the upstream design's actual `doctor --json` example (design-control-tower-integration.md §1.1, lines ~44-48): `{identity, scope, state, expires_at}`, with `state` in `expired|revoked` per the escalation-ladder text in the same doc (§2.1 line ~106, §4). NOTE: an earlier pass proposed `{layer, state, days_to_expiry}` for this field -- that shape does NOT belong to `doctor --json`; it is the shape of a *different* schema, the opt-in fleet-telemetry payload's `auth[]` array (design-control-tower-integration.md §6.2, a per-org-telemetry-endpoint event, not a doctor verdict). Flagging this as a newly-found divergence from the prior investigation's note."
+    }
+  },
+  "allOf": [
+    {
+      "$comment": "Encodes the 'a false Healthy is impossible' invariant to the degree it is structurally encodable: a healthy verdict may not be offline, may not contain any checker whose severity is fail, and may not contain any auth entry in a fail-closed state (expired/revoked), since Signed-out outranks Healthy in the precedence ladder. The score-threshold component of the invariant (score >= threshold) cannot be encoded here because the design never fixes the numeric threshold.",
+      "if": {
+        "properties": { "status": { "const": "healthy" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "offline": { "const": false },
+          "checkers": {
+            "not": {
+              "contains": {
+                "type": "object",
+                "properties": { "severity": { "const": "fail" } },
+                "required": ["severity"]
+              }
+            }
+          },
+          "auth": {
+            "not": {
+              "contains": {
+                "type": "object",
+                "properties": { "state": { "enum": ["expired", "revoked"] } },
+                "required": ["state"]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

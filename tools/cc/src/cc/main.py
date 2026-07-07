@@ -86,6 +86,74 @@ def resolve_cmd(
     typer.echo(str(value))
 
 
+@app.command("doctor")
+def doctor_cmd(
+    output_json: bool = typer.Option(
+        False, "--json", help="Output the WS-A doctor contract as JSON."
+    ),
+) -> None:
+    """Run health checks and report status (WS-A `doctor --json` contract).
+
+    Naming note: the upstream design's user-facing verb is `copilot doctor`
+    (the `copilot` binary wraps `cc`); until that wrapper exists, `cc doctor`
+    IS the doctor verb. Read-only — does not take the copilot lock.
+    """
+    import json as _json
+
+    from cc.commands.doctor import (
+        build_doctor_report,
+        compute_exit_code,
+        render_doctor_report_rich,
+    )
+
+    try:
+        report = build_doctor_report()
+    except Exception as exc:  # environment/unexpected error -> exit 2
+        if output_json:
+            typer.echo(
+                _json.dumps(
+                    {
+                        "schema_version": "1.0",
+                        "error": {"code": "environment-error", "message": str(exc)},
+                    }
+                )
+            )
+        else:
+            typer.echo(f"doctor: environment error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+
+    if output_json:
+        typer.echo(_json.dumps(report))
+    else:
+        render_doctor_report_rich(report)
+
+    raise typer.Exit(compute_exit_code(report))
+
+
+@app.command("update")
+def update_cmd() -> None:
+    """Update the ecosystem (ENGINE-BLOCKED — WS-A doctor-slice stub only)."""
+    from cc.commands.lifecycle import run_update
+
+    run_update()
+
+
+@app.command("repair")
+def repair_cmd() -> None:
+    """Repair the ecosystem (ENGINE-BLOCKED — WS-A doctor-slice stub only)."""
+    from cc.commands.lifecycle import run_repair
+
+    run_repair()
+
+
+@app.command("deprovision")
+def deprovision_cmd() -> None:
+    """Deprovision the ecosystem (ENGINE-BLOCKED — WS-A doctor-slice stub only)."""
+    from cc.commands.lifecycle import run_deprovision
+
+    run_deprovision()
+
+
 @app.command("version")
 def version() -> None:
     """Show the cc version."""
