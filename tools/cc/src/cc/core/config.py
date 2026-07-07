@@ -46,6 +46,14 @@ DEFAULTS: dict[str, Any] = {
     "docs.source_order": "local,fetch",
     # Reserved for future Context7 integration; intentionally unset at launch.
     "docs.context7_endpoint": None,
+    # Ecosystem layer resolution (WS-A `resolve` slice). Plain scalars that
+    # ride the existing env›project›machine cascade with zero new
+    # resolution logic -- NOT list-valued, and NOT config scopes (the
+    # personal/department/org/foundation stack is data the resolver reads,
+    # not a `cc` config scope). See
+    # copilot-control-tower/docs/reference/four-tier-topology.md §7.
+    "layers.manifest": None,  # path to copilot.layers.yml
+    "layers.department": None,  # which department-role layer(s) apply
 }
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://everyoneneedsacopilot.com/schemas/copilot-control-tower/resolve.schema.json",
+  "title": "copilot resolve --explain --json",
+  "description": "Per-item explanation of layered resolution. `live_hash_matches:false` => render MODIFIED, never a stale 'signed OK'. CONFIRMED 2026-07-07 against the upstream design-control-tower-integration.md §1.3, which describes the exact same per-item shape: `{ item, dimension, winning_layer, winning_sha, shadowed[], signer_of_introducing_commit, live_hash_matches (bool) }`. No divergence found; this file already matched.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "items"],
+  "properties": {
+    "schema_version": { "$ref": "_envelope.schema.json#/$defs/schema_version" },
+    "items": {
+      "type": "array",
+      "description": "One entry per resolved item.",
+      "$comment": "cli-contract.md describes a per-item object shape but not the top-level container. Since every verb must carry a top-level schema_version, the per-item objects are wrapped in an `items` array under the envelope. Owner to confirm the container name.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["item", "dimension", "winning_layer", "winning_sha", "live_hash_matches"],
+        "properties": {
+          "item": { "type": "string" },
+          "dimension": { "type": "string" },
+          "winning_layer": { "type": "string" },
+          "winning_sha": { "$ref": "_envelope.schema.json#/$defs/git_sha" },
+          "shadowed": {
+            "type": "array",
+            "description": "Layers/items shadowed by the winner.",
+            "items": true,
+            "$comment": "Prose shows `shadowed[]` with an unspecified element shape; element schema left open (any) until the CLI freezes it."
+          },
+          "signer_of_introducing_commit": {
+            "type": ["string", "null"],
+            "description": "Signer identity of the commit that introduced the winning content; null when unsigned/unknown. Security-relevant: an absent/null signer must not be rendered as trusted.",
+            "$comment": "Fail-closed: consumer treats a missing/null signer as unsigned."
+          },
+          "live_hash_matches": {
+            "type": "boolean",
+            "description": "Whether the on-disk content still matches winning_sha. Security-critical: false => MODIFIED. A missing value is treated as not-matching (fail-closed); the CLI must always emit it."
+          }
+        }
+      }
+    }
+  }
+}

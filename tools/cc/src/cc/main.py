@@ -63,16 +63,91 @@ def env_cmd(
 
 @app.command("resolve")
 def resolve_cmd(
-    key: str = typer.Argument(
-        ..., help="Dotted config key to resolve (e.g. paths.shared_docs)."
+    key: Optional[str] = typer.Argument(
+        None,
+        help=(
+            "Dotted config key to resolve (e.g. paths.shared_docs). "
+            "Omit together with --explain for the ecosystem-resolve report."
+        ),
     ),
     scope: Optional[str] = typer.Option(
         None, "--scope", help="machine | project | effective"
     ),
-    output_json: bool = typer.Option(False, "--json"),
+    explain: bool = typer.Option(
+        False,
+        "--explain",
+        help=(
+            "Explain the layered ecosystem resolution (winning layer per item, "
+            "shadow chain, override-stale flags) instead of resolving a config key. "
+            "Requires no KEY argument."
+        ),
+    ),
+    output_json: bool = typer.Option(
+        False, "--json", help="Output JSON (the WS-A resolve contract, in --explain mode)."
+    ),
 ) -> None:
-    """Print the resolved value of a single config key (for template substitution)."""
+    """Print the resolved value of a single config key, OR (with `--explain`
+    and no KEY) report the WS-A `resolve --explain --json` ecosystem
+    contract. Read-only in both modes -- does not take the copilot lock.
+    """
     import json as _json
+
+    if key is None:
+        if not explain:
+            message = (
+                "cc resolve requires either a KEY argument (single config key) "
+                "or --explain (ecosystem resolution report)."
+            )
+            if output_json:
+                typer.echo(
+                    _json.dumps(
+                        {
+                            "schema_version": "1.0",
+                            "error": {"code": "missing-argument", "message": message},
+                        }
+                    )
+                )
+            else:
+                typer.echo(f"resolve: {message}", err=True)
+            raise typer.Exit(1)
+
+        from cc.commands.resolve import build_resolve_report, render_resolve_report_rich
+        from cc.core.ecosystem.manifest import ManifestError
+
+        try:
+            report = build_resolve_report()
+        except ManifestError as exc:
+            if output_json:
+                typer.echo(
+                    _json.dumps(
+                        {
+                            "schema_version": "1.0",
+                            "error": {"code": "invalid-manifest", "message": str(exc)},
+                        }
+                    )
+                )
+            else:
+                typer.echo(f"resolve: invalid layer manifest: {exc}", err=True)
+            raise typer.Exit(2) from exc
+        except Exception as exc:  # environment/unexpected error -> exit 2
+            if output_json:
+                typer.echo(
+                    _json.dumps(
+                        {
+                            "schema_version": "1.0",
+                            "error": {"code": "environment-error", "message": str(exc)},
+                        }
+                    )
+                )
+            else:
+                typer.echo(f"resolve: environment error: {exc}", err=True)
+            raise typer.Exit(2) from exc
+
+        if output_json:
+            typer.echo(_json.dumps(report))
+        else:
+            render_resolve_report_rich(report)
+        raise typer.Exit(0)
 
     value = resolve_key(key, scope=scope)
 
