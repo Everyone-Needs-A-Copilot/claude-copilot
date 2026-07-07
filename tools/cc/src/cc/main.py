@@ -205,6 +205,49 @@ def doctor_cmd(
     raise typer.Exit(compute_exit_code(report))
 
 
+@app.command("freshness")
+def freshness_cmd(
+    output_json: bool = typer.Option(
+        False, "--json", help="Output the WS-A freshness contract as JSON."
+    ),
+) -> None:
+    """Cheap single-SHA staleness poll (WS-A `freshness --json` contract).
+
+    Read-only -- does not take the copilot lock. Compares the local
+    resolved lock state against a tier's published lock-pointer ref (see
+    core/ecosystem/mirror.py); never a full `update`.
+    """
+    import json as _json
+
+    from cc.commands.freshness import (
+        build_freshness_report,
+        render_freshness_report_rich,
+    )
+
+    try:
+        report = build_freshness_report()
+    except Exception as exc:  # environment/unexpected error -> exit 2
+        if output_json:
+            typer.echo(
+                _json.dumps(
+                    {
+                        "schema_version": "1.0",
+                        "error": {"code": "environment-error", "message": str(exc)},
+                    }
+                )
+            )
+        else:
+            typer.echo(f"freshness: environment error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+
+    if output_json:
+        typer.echo(_json.dumps(report))
+    else:
+        render_freshness_report_rich(report)
+
+    raise typer.Exit(0)
+
+
 @app.command("update")
 def update_cmd() -> None:
     """Update the ecosystem (ENGINE-BLOCKED — WS-A doctor-slice stub only)."""

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://everyoneneedsacopilot.com/schemas/copilot-control-tower/freshness.schema.json",
+  "title": "copilot freshness --json",
+  "description": "The cheap poll target: a single-SHA staleness check, not a full update. CORRECTED 2026-07-07 (WS-A slice 3, cc owner): current_lock_sha/latest_lock_sha/stale widened to nullable and a required `offline` field added -- see the $comment on `stale` for why the original non-nullable shape could not honestly represent 'could not check'.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "latest_lock_sha", "current_lock_sha", "stale", "offline", "checked_at"],
+  "properties": {
+    "schema_version": { "$ref": "_envelope.schema.json#/$defs/schema_version" },
+    "latest_lock_sha": {
+      "oneOf": [
+        { "$ref": "_envelope.schema.json#/$defs/git_sha" },
+        { "type": "null" }
+      ],
+      "description": "The tier's published lock-pointer ref target. Null when it could not be fetched (offline/unreachable) -- see `offline`."
+    },
+    "current_lock_sha": {
+      "oneOf": [
+        { "$ref": "_envelope.schema.json#/$defs/git_sha" },
+        { "type": "null" }
+      ],
+      "description": "Fingerprint of the local resolved lock state. Null when no local lock exists yet (first run)."
+    },
+    "stale": {
+      "type": ["boolean", "null"],
+      "description": "True when current_lock_sha lags latest_lock_sha; false when they match; null when freshness could not be determined (offline, or no local lock yet).",
+      "$comment": "CORRECTED 2026-07-07 (WS-A slice 3): the original non-nullable boolean forced the CLI to fabricate a value whenever either SHA was unknown -- e.g. reporting `false` (\"up to date\") while offline, which is a false-Healthy-shaped bug (mirrors doctor.schema.json's 'a false Healthy is impossible' invariant). `stale: null` is the honest third state; a consumer MUST treat null as unknown, never as `false`. The stale<=>SHA-inequality invariant still cannot be cross-field-encoded in JSON Schema; the CLI computes it and the app parses it (invariant #1)."
+    },
+    "offline": {
+      "type": "boolean",
+      "description": "True when a remote lock-pointer check was attempted and failed/was unreachable. False both when the check succeeded AND when no tier source was configured to check in the first place (distinguish the latter via current_lock_sha/latest_lock_sha both null with offline:false)."
+    },
+    "checked_at": { "$ref": "_envelope.schema.json#/$defs/timestamp" }
+  }
+}

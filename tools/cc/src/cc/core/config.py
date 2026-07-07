@@ -54,6 +54,15 @@ DEFAULTS: dict[str, Any] = {
     # copilot-control-tower/docs/reference/four-tier-topology.md §7.
     "layers.manifest": None,  # path to copilot.layers.yml
     "layers.department": None,  # which department-role layer(s) apply
+    # `cc freshness` (WS-A freshness slice): the tier source repo + published
+    # lock-pointer ref to poll. See core/ecosystem/mirror.py's module
+    # docstring for the ref-target convention.
+    "layers.lock_source": None,  # tier source repo URL (git ls-remote target)
+    "layers.lock_ref": "refs/copilot/lock",  # published lock-pointer ref name
+    # Read-only mirror root (inheritance-and-publish.md §2.2). NEVER
+    # ~/.claude (materialized tree) or an authoring vault -- see
+    # core/ecosystem/mirror.py's module docstring.
+    "paths.mirrors_root": "~/.copilot/mirrors",
 }
 
 # ---------------------------------------------------------------------------
