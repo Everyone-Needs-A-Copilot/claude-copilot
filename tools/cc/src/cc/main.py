@@ -308,11 +308,91 @@ def repair_cmd() -> None:
 
 
 @app.command("deprovision")
-def deprovision_cmd() -> None:
-    """Deprovision the ecosystem (ENGINE-BLOCKED — WS-A doctor-slice stub only)."""
-    from cc.commands.lifecycle import run_deprovision
+def deprovision_cmd(
+    output_json: bool = typer.Option(
+        False, "--json", help="Output the WS-A deprovision contract as JSON."
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Compute the wipe plan WITHOUT removing/quarantining anything.",
+    ),
+    mode: str = typer.Option(
+        "soft",
+        "--mode",
+        help=(
+            "'soft' (default): wipe materialized content, quarantine mirror "
+            "clones so a flip-back restores without a re-clone. 'hard': also "
+            "permanently delete mirror clones (including any quarantined "
+            "ones)."
+        ),
+    ),
+    soft: bool = typer.Option(
+        False, "--soft", help="Shorthand for --mode soft (the default)."
+    ),
+    hard: bool = typer.Option(
+        False, "--hard", help="Shorthand for --mode hard."
+    ),
+) -> None:
+    """Wipe the disposable ecosystem trees (WS-A `deprovision --json`
+    contract) -- MUTATING: acquires the copilot lock, then removes every
+    item `copilot.lock.json` recorded as materialized plus every mirror
+    clone, retaining (never touching) any personal/dirty path. See
+    cc/commands/deprovision.py's module docstring for the never-destroy
+    guarantees and the soft/hard split.
+    """
+    import json as _json
 
-    run_deprovision()
+    from cc.commands.deprovision import (
+        execute_deprovision,
+        render_deprovision_report_rich,
+    )
+
+    if soft and hard:
+        message = "cc deprovision: --soft and --hard are mutually exclusive."
+        if output_json:
+            typer.echo(
+                _json.dumps(
+                    {
+                        "schema_version": "1.0",
+                        "error": {"code": "invalid-argument", "message": message},
+                    }
+                )
+            )
+        else:
+            typer.echo(message, err=True)
+        raise typer.Exit(2)
+
+    if hard:
+        mode = "hard"
+    elif soft:
+        mode = "soft"
+
+    try:
+        report, exit_code = execute_deprovision(dry_run=dry_run, _mode=mode)
+    except Exception as exc:  # environment/unexpected error -> exit 2
+        if output_json:
+            typer.echo(
+                _json.dumps(
+                    {
+                        "schema_version": "1.0",
+                        "error": {"code": "environment-error", "message": str(exc)},
+                    }
+                )
+            )
+        else:
+            typer.echo(f"deprovision: environment error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+
+    if "error" in report:
+        exit_code = 2
+
+    if output_json:
+        typer.echo(_json.dumps(report))
+    else:
+        render_deprovision_report_rich(report)
+
+    raise typer.Exit(exit_code)
 
 
 @app.command("version")

@@ -1,16 +1,19 @@
-"""Lock-acquiring stubs for WS-A's still-engine-blocked mutating verbs
-(`repair`, `deprovision`).
+"""Lock-acquiring stub for WS-A's still-engine-blocked mutating verb
+(`repair`).
 
 `update` GRADUATED out of this module in WS-A slice 4 -- it now has a real
 engine (core/ecosystem/{mirror,materialize,policy}.py) and its own
-`--json` contract; see cc/commands/update.py. `repair` and `deprovision`
-remain ENGINE-BLOCKED here: the logic that would actually perform them
-does not exist yet, and per copilot-control-tower CLAUDE.md invariant #1
-("parse, never compute"), no resolution/sync/wipe logic should be
-improvised here ahead of that engine landing.
+`--json` contract; see cc/commands/update.py. `deprovision` GRADUATED out
+of this module in WS-A slice 5 -- it now has a real engine
+(core/ecosystem/deprovision.py) and its own `--json` contract; see
+cc/commands/deprovision.py. `repair` remains ENGINE-BLOCKED here: the
+logic that would actually perform it does not exist yet, and per
+copilot-control-tower CLAUDE.md invariant #1 ("parse, never compute"), no
+resolution/sync/wipe logic should be improvised here ahead of that engine
+landing.
 
-This module exists so the `flock` discipline around these verbs is real and
-testable NOW: each stub acquires the advisory copilot lock (proving
+This module exists so the `flock` discipline around this verb is real and
+testable NOW: the stub acquires the advisory copilot lock (proving
 contention/serialization actually works) and then returns a structured
 "not implemented" JSON response instead of silently no-op'ing or crashing.
 """
@@ -73,8 +76,3 @@ def _run_stub(verb: str) -> None:
 def run_repair() -> None:
     """`cc repair` stub: acquires the copilot lock, then reports not-implemented."""
     _run_stub("repair")
-
-
-def run_deprovision() -> None:
-    """`cc deprovision` stub: acquires the copilot lock, then reports not-implemented."""
-    _run_stub("deprovision")
