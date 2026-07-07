@@ -91,6 +91,7 @@ def _one_layer(source_repo: Path) -> list[dict]:
             "id": "foundation",
             "role": "foundation",
             "rank": 40,
+            "product": "claude",
             "source": {"repo": str(source_repo), "ref": "main"},
             "auth": "anon",
             "activation": "always",

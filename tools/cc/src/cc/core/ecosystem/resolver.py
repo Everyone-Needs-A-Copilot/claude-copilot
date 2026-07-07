@@ -48,6 +48,7 @@ def _make_item(
     *,
     item: str,
     dimension: str,
+    product: str,
     winning_layer: str,
     winning_sha: Optional[str],
     shadowed: list[dict[str, Any]],
@@ -55,6 +56,7 @@ def _make_item(
     return {
         "item": item,
         "dimension": dimension,
+        "product": product,
         "winning_layer": winning_layer,
         "winning_sha": winning_sha,
         "shadowed": shadowed,
@@ -92,6 +94,7 @@ def _resolve_accumulate(
                 _make_item(
                     item=item,
                     dimension=dimension,
+                    product=layer["product"],
                     winning_layer=layer["id"],
                     winning_sha=_recorded_sha(lockfile, layer["id"], dimension, item),
                     shadowed=[],
@@ -146,6 +149,7 @@ def _resolve_override(
                 {
                     "layer": shadow["id"],
                     "rank": shadow["rank"],
+                    "product": shadow.get("product"),
                     "recorded_sha": recorded_sha,
                     "current_sha": live_sha,
                     "stale": stale,
@@ -156,6 +160,7 @@ def _resolve_override(
             _make_item(
                 item=item,
                 dimension=dimension,
+                product=winner["product"],
                 winning_layer=winner["id"],
                 winning_sha=_recorded_sha(lockfile, winner["id"], dimension, item),
                 shadowed=shadowed,
@@ -174,9 +179,11 @@ def resolve_layers(
     """
     Fold `contributions` over `layers` into the resolved item set.
 
-    Per item: `{item, dimension, winning_layer, winning_sha, shadowed[],
-    signer_of_introducing_commit, live_hash_matches}` — matches
-    resolve.schema.json's per-item shape.
+    Per item: `{item, dimension, product, winning_layer, winning_sha,
+    shadowed[], signer_of_introducing_commit, live_hash_matches}` — matches
+    resolve.schema.json's per-item shape. `product` is CARRIED metadata
+    copied from the winning layer's own `product` field (manifest.py) —
+    the fold itself is unchanged; product is copied, never resolved.
 
     Raises `ManifestError` (via `validate_layers`) on an invalid manifest —
     including the equal-rank hard-error — before folding anything.

@@ -73,6 +73,10 @@
             "type": "string",
             "description": "Layer this checker's finding pertains to, when applicable (e.g. 'org', 'dept-finance')."
           },
+          "product": {
+            "type": "string",
+            "description": "Product this checker's finding is attributed to, when applicable (e.g. 'claude', 'codex', 'knowledge', 'cli'). Optional, alongside `layer` — lets Control Tower group checkers by product in the product-grouped dropdown. Config-driven, not a closed enum."
+          },
           "local_sha": { "$ref": "_envelope.schema.json#/$defs/git_sha" },
           "remote_sha": { "$ref": "_envelope.schema.json#/$defs/git_sha" },
           "path": {

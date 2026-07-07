@@ -32,6 +32,16 @@ from cc.core.config_paths import (
 
 SCHEMA_VERSION = "1.0"
 
+# Best-effort `paths.*` config-key -> product attribution (doctor.schema.json's
+# optional per-checker `product` field). Only keys unambiguously owned by a
+# single one of the four products (knowledge/cli/claude/codex) are listed --
+# everything else (paths.memory, paths.shared_docs, paths.mirrors_root, ...)
+# is deliberately left unmapped rather than guessed; those checkers simply
+# emit no `product` field.
+PRODUCT_BY_PATH_KEY: dict[str, str] = {
+    "paths.knowledge_repo": "knowledge",
+}
+
 
 class DoctorResult(NamedTuple):
     warnings: list[str]
@@ -56,6 +66,7 @@ class Checker:
     severity: str  # "pass" | "warn" | "fail"
     detail: str = ""
     path: Optional[str] = None
+    product: Optional[str] = None  # best-effort; absent when not attributable
 
     def to_contract_dict(self) -> dict:
         d: dict = {"id": self.id, "severity": self.severity, "destructive": False}
@@ -63,6 +74,8 @@ class Checker:
             d["detail"] = self.detail
         if self.path:
             d["path"] = self.path
+        if self.product:
+            d["product"] = self.product
         return d
 
 
@@ -143,6 +156,10 @@ def _run_checks(
         v = cfg.get(k)
         if v is None:
             continue
+        # Best-effort product attribution: only path keys unambiguously
+        # owned by one of the four products get one -- everything else is
+        # left absent rather than guessed (see PRODUCT_BY_PATH_KEY below).
+        product = PRODUCT_BY_PATH_KEY.get(k)
         # paths.knowledge_repo (and any future list-valued path key) may
         # resolve to an ordered list of paths rather than a single scalar.
         candidates = v if isinstance(v, list) else [v]
@@ -159,6 +176,7 @@ def _run_checks(
                         severity="pass",
                         detail=f"Path exists: {k} = {item}",
                         path=str(item),
+                        product=product,
                     )
                 )
             else:
@@ -168,6 +186,7 @@ def _run_checks(
                         severity="warn",
                         detail=f"Path not found: {k} = {item}",
                         path=str(item),
+                        product=product,
                     )
                 )
 
@@ -386,7 +405,8 @@ def render_doctor_report_rich(report: dict, *, console: Any = None) -> None:
         sev = c.get("severity", "fail")
         color = severity_color.get(sev, "red")
         detail = c.get("detail") or c.get("id", "")
-        con.print(f"  [{color}]{sev:<4}[/{color}] {c.get('id')}: {detail}")
+        product_tag = f" [dim]({c['product']})[/dim]" if c.get("product") else ""
+        con.print(f"  [{color}]{sev:<4}[/{color}] {c.get('id')}{product_tag}: {detail}")
 
     for a in report.get("auth", []):
         con.print(

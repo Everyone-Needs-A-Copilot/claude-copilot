@@ -30,6 +30,7 @@ def _layer(**overrides) -> dict:
         "id": "foundation",
         "role": "foundation",
         "rank": 40,
+        "product": "claude",
         "source": {"repo": "https://example.invalid/foundation.git"},
         "auth": "anon",
         "activation": "always",
@@ -154,6 +155,29 @@ def test_validate_layers_empty_role_errors():
     layers = [_layer(id="broken", rank=10, role="   ")]
     with pytest.raises(ManifestError, match="role"):
         validate_layers(layers)
+
+
+def test_validate_layers_missing_product_is_plain_language_error():
+    layers = [_layer(id="broken", rank=10, product=None)]
+    with pytest.raises(ManifestError) as exc_info:
+        validate_layers(layers)
+    message = str(exc_info.value)
+    assert "broken" in message
+    assert "product" in message
+    assert "Traceback" not in message
+
+
+def test_validate_layers_empty_product_errors():
+    layers = [_layer(id="broken", rank=10, product="   ")]
+    with pytest.raises(ManifestError, match="product"):
+        validate_layers(layers)
+
+
+def test_validate_layers_open_product_vocabulary_passes():
+    """`product` is config-driven -- not a closed enum -- so an unrecognized
+    value must still parse fine."""
+    layers = [_layer(id="widget-layer", rank=40, product="widgets")]
+    assert validate_layers(layers) == layers
 
 
 def test_validate_layers_non_integer_rank_errors():

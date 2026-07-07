@@ -25,11 +25,12 @@ def _no_real_home(monkeypatch):
     monkeypatch.setattr(Path, "home", staticmethod(_boom))
 
 
-def _layer(layer_id: str, rank: int, role: str = "org", **extra) -> dict:
+def _layer(layer_id: str, rank: int, role: str = "org", product: str = "claude", **extra) -> dict:
     layer = {
         "id": layer_id,
         "role": role,
         "rank": rank,
+        "product": product,
         "source": {"repo": f"https://example.invalid/{layer_id}.git"},
         "auth": "anon",
         "activation": "always",
@@ -39,10 +40,10 @@ def _layer(layer_id: str, rank: int, role: str = "org", **extra) -> dict:
 
 
 FOUR_TIER_LAYERS = [
-    _layer("personal-pablo", 10, role="personal"),
-    _layer("dept-engineering", 20, role="department", unit="engineering"),
-    _layer("org-acme", 30, role="org"),
-    _layer("foundation", 40, role="foundation"),
+    _layer("personal-pablo", 10, role="personal", product="claude"),
+    _layer("dept-engineering", 20, role="department", product="claude", unit="engineering"),
+    _layer("org-acme", 30, role="org", product="claude"),
+    _layer("foundation", 40, role="foundation", product="claude"),
 ]
 
 
@@ -107,6 +108,66 @@ def test_override_item_only_in_one_layer_has_no_shadow():
     env = _by_item(items, "env", "commands")
     assert env["winning_layer"] == "foundation"
     assert env["shadowed"] == []
+
+
+# ---------------------------------------------------------------------------
+# product: CARRIED metadata from the winning layer, resolution unchanged
+# ---------------------------------------------------------------------------
+
+
+def test_override_item_carries_winning_layers_product():
+    """`product` on a resolved item is copied from the WINNING layer's own
+    `product` field -- never re-derived, never resolved."""
+    layers = [
+        _layer("personal-pablo", 10, role="personal", product="claude"),
+        _layer("dept-engineering", 20, role="department", product="knowledge", unit="engineering"),
+        _layer("org-acme", 30, role="org", product="cli"),
+        _layer("foundation", 40, role="foundation", product="codex"),
+    ]
+    contributions = {
+        "dept-engineering": {"skills": {"qa": "sha-dept"}},
+        "org-acme": {"skills": {"qa": "sha-org"}},
+        "foundation": {"skills": {"qa": "sha-foundation"}},
+    }
+    items = resolve_layers(layers, contributions)
+    qa = _by_item(items, "qa", "skills")
+    assert qa["winning_layer"] == "dept-engineering"
+    assert qa["product"] == "knowledge"
+
+
+def test_accumulate_items_each_carry_their_own_contributing_layers_product():
+    layers = [
+        _layer("dept-engineering", 20, role="department", product="knowledge", unit="engineering"),
+        _layer("org-acme", 30, role="org", product="cli"),
+        _layer("foundation", 40, role="foundation", product="claude"),
+    ]
+    contributions = {
+        "dept-engineering": {"knowledge": {"deploy-runbook": "sha-d"}},
+        "org-acme": {"knowledge": {"onboarding": "sha-o"}},
+        "foundation": {"knowledge": {"framework-docs": "sha-f"}},
+    }
+    items = resolve_layers(layers, contributions)
+    by_item = {entry["item"]: entry["product"] for entry in items}
+    assert by_item == {
+        "deploy-runbook": "knowledge",
+        "onboarding": "cli",
+        "framework-docs": "claude",
+    }
+
+
+def test_override_shadowed_entries_carry_their_own_product_too():
+    layers = [
+        _layer("personal-pablo", 10, role="personal", product="claude"),
+        _layer("org-acme", 30, role="org", product="knowledge"),
+    ]
+    contributions = {
+        "personal-pablo": {"skills": {"qa": "sha-personal"}},
+        "org-acme": {"skills": {"qa": "sha-org"}},
+    }
+    items = resolve_layers(layers, contributions)
+    qa = _by_item(items, "qa", "skills")
+    org_shadow = next(s for s in qa["shadowed"] if s["layer"] == "org-acme")
+    assert org_shadow["product"] == "knowledge"
 
 
 # ---------------------------------------------------------------------------
@@ -271,12 +332,12 @@ def test_equal_rank_hard_errors_before_folding_anything():
 
 def test_resolver_is_arity_independent_beyond_four_tiers():
     layers = [
-        _layer("squad", 5, role="squad"),
-        _layer("personal-pablo", 10, role="personal"),
-        _layer("dept-engineering", 20, role="department"),
-        _layer("dept-platform", 21, role="department"),
-        _layer("org-acme", 30, role="org"),
-        _layer("foundation", 40, role="foundation"),
+        _layer("squad", 5, role="squad", product="cli"),
+        _layer("personal-pablo", 10, role="personal", product="claude"),
+        _layer("dept-engineering", 20, role="department", product="claude"),
+        _layer("dept-platform", 21, role="department", product="claude"),
+        _layer("org-acme", 30, role="org", product="claude"),
+        _layer("foundation", 40, role="foundation", product="claude"),
     ]
     contributions = {
         "squad": {"skills": {"qa": "sha-squad"}},
@@ -289,6 +350,7 @@ def test_resolver_is_arity_independent_beyond_four_tiers():
     items = resolve_layers(layers, contributions)
     qa = _by_item(items, "qa", "skills")
     assert qa["winning_layer"] == "squad"
+    assert qa["product"] == "cli"
     assert [s["layer"] for s in qa["shadowed"]] == [
         "personal-pablo",
         "dept-engineering",

@@ -74,6 +74,7 @@ layers:
   - id: foundation
     role: foundation
     rank: 40
+    product: claude
     source:
       repo: https://example.invalid/foundation.git
       path: {layer_root}
@@ -93,6 +94,7 @@ def _invoke_resolve_json(monkeypatch, tmp_path: Path) -> tuple[dict, int]:
             "id": "foundation",
             "role": "foundation",
             "rank": 40,
+            "product": "claude",
             "source": {
                 "repo": "https://example.invalid/foundation.git",
                 "path": str(layer_root),
@@ -179,6 +181,7 @@ layers:
   - id: dept-a
     role: department
     rank: 20
+    product: claude
     source:
       repo: https://example.invalid/a.git
     auth: anon
@@ -186,6 +189,7 @@ layers:
   - id: dept-b
     role: department
     rank: 20
+    product: claude
     source:
       repo: https://example.invalid/b.git
     auth: anon

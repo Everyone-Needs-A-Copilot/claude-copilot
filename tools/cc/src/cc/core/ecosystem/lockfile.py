@@ -21,6 +21,20 @@ lockfile also be called `copilot.lock`, and if so how do the mutex and the
 data file coexist) is explicitly out of scope for this read-only slice —
 left for whichever later slice actually introduces lockfile *writing*
 (materialize).
+
+Lock entry shape (ecosystem-architecture.md §3.3: "`copilot.lock`
+(shareable, machine-agnostic): resolved SHAs + product/tier/role +
+pins."): `{layer_id: {dimension: {item_name: sha}, "_meta": {product,
+tier, role}}}`. `_meta` is a RESERVED per-layer key (never a real
+dimension name — see dimensions.py, none of which is ever `"_meta"`), so
+an existing flat `{layer_id: {dimension: {item: sha}}}` lockfile with no
+`_meta` block remains byte-for-byte readable by every existing consumer
+(`_recorded_sha()` in resolver.py never looks at `_meta`) -- adding
+product/tier/role is purely additive, never a breaking reshape of the
+per-item sha pins. `layer_meta()`/`set_layer_meta()` below are the
+read/write helpers for this block; wiring them into the actual
+materialize/update write path is a later slice (materialize.py/update.py
+do not call these yet).
 """
 
 from __future__ import annotations
@@ -28,6 +42,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, Optional
+
+# Reserved per-layer key holding descriptive (product/tier/role) metadata,
+# alongside that layer's real dimension -> item -> sha pins. Never a real
+# dimension name (see dimensions.py's DIMENSION_SEMANTICS keys), so its
+# presence/absence never collides with `_recorded_sha()`'s dimension lookup.
+LAYER_META_KEY = "_meta"
 
 
 def default_lockfile_path() -> Optional[Path]:
@@ -51,7 +71,9 @@ def read_lockfile(path: Optional[Path | str]) -> dict[str, dict[str, dict[str, s
     """
     Read the per-layer/per-dimension/per-item SHA pins.
 
-    Shape: `{layer_id: {dimension: {item_name: sha}}}`.
+    Shape: `{layer_id: {dimension: {item_name: sha}}}`, plus an optional
+    reserved `_meta` block per layer (`layer_meta()`/`set_layer_meta()`
+    below) carrying that layer's product/tier/role -- see module docstring.
 
     Read-only: never creates, writes, or locks anything. Returns `{}` if
     `path` is `None`, does not exist, or fails to parse as a JSON object —
@@ -75,6 +97,49 @@ def read_lockfile(path: Optional[Path | str]) -> dict[str, dict[str, dict[str, s
         return {}
 
     return data
+
+
+def layer_meta(lock: dict[str, Any], layer_id: str) -> dict[str, str]:
+    """
+    Best-effort per-layer descriptive metadata (`{"product": ..., "tier":
+    ..., "role": ...}`) recorded alongside a layer's sha pins under the
+    reserved `_meta` key (see `LAYER_META_KEY`).
+
+    Degrades to `{}` -- same fail-open pattern as `read_lockfile()` -- when
+    the layer or its `_meta` block is absent (e.g. an old-format lockfile
+    written before this field existed, or a layer that was never
+    materialized through the write path that populates it).
+    """
+    return dict(lock.get(layer_id, {}).get(LAYER_META_KEY, {}))
+
+
+def set_layer_meta(
+    lock: dict[str, Any],
+    layer_id: str,
+    *,
+    product: str,
+    tier: Optional[str] = None,
+    role: Optional[str] = None,
+) -> dict[str, Any]:
+    """
+    Record `{product, tier, role}` under `lock[layer_id]["_meta"]`, mutating
+    and returning `lock` (mirrors the `setdefault`-chaining ergonomics
+    materialize.py's own lock-building already uses).
+
+    `tier`/`role` are optional today (four-tier-topology.md §4's manifest
+    only names a single `role` field, which already carries the tier value
+    e.g. "org"/"department"; both are accepted here so a caller can record
+    either name -- or the same value under both -- without this module
+    guessing which one the caller means).
+    """
+    entry = lock.setdefault(layer_id, {})
+    meta: dict[str, str] = {"product": product}
+    if tier is not None:
+        meta["tier"] = tier
+    if role is not None:
+        meta["role"] = role
+    entry[LAYER_META_KEY] = meta
+    return lock
 
 
 def write_lockfile(path: Path | str, lock: dict[str, dict[str, dict[str, str]]]) -> None:

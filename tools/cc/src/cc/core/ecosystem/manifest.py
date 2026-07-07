@@ -15,13 +15,19 @@ from typing import Any
 import yaml
 
 # Layer shape (four-tier-topology.md §4):
-#   {id, role, rank, unit?, source:{repo, ref, path?}, auth, activation}
+#   {id, role, rank, product, unit?, source:{repo, ref, path?}, auth, activation}
 # `unit` is optional (only meaningful for role="department"); everything
-# else is required.
+# else is required. `product` is a required, non-empty, config-driven
+# string (e.g. "knowledge" | "cli" | "claude" | "codex" -- not a closed
+# enum, adding a fifth product is a data edit, not a schema change). It is
+# CARRIED metadata + a grouping axis -- it does NOT change resolution
+# semantics (the resolver still folds per-dimension); a layer belongs to
+# exactly one product x tier.
 REQUIRED_LAYER_FIELDS: tuple[str, ...] = (
     "id",
     "role",
     "rank",
+    "product",
     "source",
     "auth",
     "activation",
@@ -88,6 +94,7 @@ def validate_layers(layers: list[dict[str, Any]]) -> list[dict[str, Any]]:
       - at least one layer is declared
       - every layer has all of REQUIRED_LAYER_FIELDS, non-empty
       - `role` is a non-empty string (open vocabulary — not a closed enum)
+      - `product` is a non-empty string (config-driven — not a closed enum)
       - `rank` is an integer
       - ranks are UNIQUE — hard-error (plain language, never a stack trace)
         on any equal-rank pair, mirroring Nix's error-on-equal-priority
@@ -126,6 +133,14 @@ def validate_layers(layers: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not isinstance(role, str) or not role.strip():
             raise ManifestError(
                 f"Layer {layer_id!r} has an empty or non-string `role`."
+            )
+
+        product = layer["product"]
+        if not isinstance(product, str) or not product.strip():
+            raise ManifestError(
+                f"Layer {layer_id!r} has an empty or non-string `product`. "
+                "Every layer must declare which product it belongs to "
+                "(e.g. 'knowledge', 'cli', 'claude', 'codex')."
             )
 
         rank = layer["rank"]

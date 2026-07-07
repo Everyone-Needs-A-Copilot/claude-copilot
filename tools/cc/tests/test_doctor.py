@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from cc.commands.doctor import run_doctor, NOT_IN_REPO
+from cc.commands.doctor import build_doctor_report, run_doctor, NOT_IN_REPO
 from cc.main import app
 
 runner = CliRunner()
@@ -117,6 +117,56 @@ def test_doctor_no_warnings_for_null_paths(tmp_path):
 
     path_warnings = [w for w in result.warnings if "Path not found" in w]
     assert path_warnings == []
+
+
+# ---------------------------------------------------------------------------
+# checker product attribution (optional, best-effort)
+# ---------------------------------------------------------------------------
+
+
+def test_doctor_json_attributes_knowledge_repo_checker_to_knowledge_product(tmp_path):
+    """`paths.knowledge_repo` is unambiguously owned by Knowledge Copilot --
+    its config-path checker must carry `product: "knowledge"`."""
+    machine_cfg = tmp_path / "machine_config.json"
+    machine_cfg.write_text("{}")
+    (tmp_path / ".gitignore").write_text("x\n")
+
+    project_cfg = tmp_path / "project_config.json"
+    project_cfg.write_text("{}")
+
+    resolved_cfg = {"paths.knowledge_repo": str(tmp_path)}
+
+    report = build_doctor_report(
+        _machine_cfg_path=machine_cfg,
+        _project_cfg_path=project_cfg,
+        _resolved_cfg=resolved_cfg,
+    )
+
+    knowledge_checker = next(
+        c for c in report["checkers"] if c["id"] == "config-path:paths.knowledge_repo"
+    )
+    assert knowledge_checker["product"] == "knowledge"
+
+
+def test_doctor_json_unattributable_checkers_omit_product(tmp_path):
+    """Checkers with no clear single-product ownership (e.g. machine-config)
+    must never carry a fabricated `product` -- absent, not guessed."""
+    machine_cfg = tmp_path / "machine_config.json"
+    machine_cfg.write_text("{}")
+
+    project_cfg = tmp_path / "project_config.json"
+    project_cfg.write_text("{}")
+
+    report = build_doctor_report(
+        _machine_cfg_path=machine_cfg,
+        _project_cfg_path=project_cfg,
+        _resolved_cfg={},
+    )
+
+    machine_config_checker = next(
+        c for c in report["checkers"] if c["id"] == "machine-config"
+    )
+    assert "product" not in machine_config_checker
 
 
 def test_doctor_warns_no_gitignore(tmp_path):

@@ -41,6 +41,7 @@ def _layer(layer_id: str, rank: int, local_path: Path) -> dict:
         "id": layer_id,
         "role": "foundation",
         "rank": rank,
+        "product": "claude",
         "source": {"repo": f"https://example.invalid/{layer_id}.git", "path": str(local_path)},
         "auth": "anon",
         "activation": "always",

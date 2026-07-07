@@ -118,8 +118,10 @@ def render_resolve_report_rich(report: dict[str, Any], *, console: Any = None) -
 
     for entry in items:
         sha = entry.get("winning_sha") or "no-sha"
+        product = entry.get("product") or "unknown"
         con.print(
-            f"[bold]{entry['dimension']}/{entry['item']}[/bold] -> {entry['winning_layer']} ({sha})"
+            f"[bold]{entry['dimension']}/{entry['item']}[/bold] -> {entry['winning_layer']} "
+            f"[dim]({product})[/dim] ({sha})"
         )
         for shadow in entry.get("shadowed", []):
             stale_note = (
