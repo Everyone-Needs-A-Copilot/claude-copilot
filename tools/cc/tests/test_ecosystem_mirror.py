@@ -10,6 +10,7 @@ Path.home() is never resolved as a fallback.
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -149,6 +150,141 @@ def test_resolve_transport_gh_app_not_implemented():
         mirror.resolve_transport("https://example.invalid/repo.git", "gh-app:my-slug")
 
 
-def test_clone_or_update_mirror_is_stubbed():
-    with pytest.raises(NotImplementedError):
-        mirror.clone_or_update_mirror()
+def _make_content_repo(
+    tmp_path: Path, files: dict[str, str], *, name: str = "source", branch: str = "main"
+) -> Path:
+    """Init a local git repo with real content on `branch`, one commit."""
+    repo = tmp_path / name
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+    subprocess.run(["git", "checkout", "-q", "-b", branch], cwd=repo, check=True)
+    for relpath, content in files.items():
+        target = repo / relpath
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=repo, check=True)
+    return repo
+
+
+# ---------------------------------------------------------------------------
+# clone_or_update_mirror() -- real clone/fetch+reset lifecycle (update-slice)
+# ---------------------------------------------------------------------------
+
+
+def test_clone_or_update_mirror_clones_when_absent(tmp_path):
+    source = _make_content_repo(tmp_path, {"agents/sec.md": "v1"})
+    mirror_root = tmp_path / "mirrors"
+
+    result = mirror.clone_or_update_mirror(
+        "foundation", str(source), "main", mirror_root=mirror_root
+    )
+
+    assert result["ok"] is True
+    assert result["offline"] is False
+    assert result["action"] == "cloned"
+    assert result["path"] == str(mirror_root / "foundation")
+    assert (mirror_root / "foundation" / "agents" / "sec.md").read_text() == "v1"
+
+
+def test_clone_or_update_mirror_updates_via_fetch_reset(tmp_path):
+    source = _make_content_repo(tmp_path, {"agents/sec.md": "v1"})
+    mirror_root = tmp_path / "mirrors"
+
+    first = mirror.clone_or_update_mirror(
+        "foundation", str(source), "main", mirror_root=mirror_root
+    )
+
+    # Upstream advances.
+    (source / "agents" / "sec.md").write_text("v2", encoding="utf-8")
+    subprocess.run(["git", "commit", "-aqm", "v2"], cwd=source, check=True)
+
+    second = mirror.clone_or_update_mirror(
+        "foundation", str(source), "main", mirror_root=mirror_root
+    )
+
+    assert second["ok"] is True
+    assert second["action"] == "updated"
+    assert second["head_sha"] != first["head_sha"]
+    assert (mirror_root / "foundation" / "agents" / "sec.md").read_text() == "v2"
+
+
+def test_clone_or_update_mirror_never_destroy_proof_confined_to_tier_subdir(tmp_path):
+    """NEVER-DESTROY #3: mirror reset --hard writes stay confined to
+    <mirror_root>/<tier> -- nothing outside it is ever touched."""
+    source = _make_content_repo(tmp_path, {"agents/sec.md": "v1"})
+    mirror_root = tmp_path / "mirrors"
+    mirror_root.mkdir()
+
+    # A sentinel completely outside mirror_root.
+    outside_sentinel = tmp_path / "outside-sentinel.txt"
+    outside_sentinel.write_text("do not touch", encoding="utf-8")
+
+    # A sentinel for an unrelated tier inside mirror_root.
+    other_tier_dir = mirror_root / "other-tier"
+    other_tier_dir.mkdir()
+    other_tier_sentinel = other_tier_dir / "marker.txt"
+    other_tier_sentinel.write_text("other tier content", encoding="utf-8")
+
+    before_outside = outside_sentinel.read_bytes()
+    before_other_tier = other_tier_sentinel.read_bytes()
+
+    mirror.clone_or_update_mirror(
+        "foundation", str(source), "main", mirror_root=mirror_root
+    )
+    # And a second call (the fetch+reset path) to exercise reset --hard too.
+    (source / "agents" / "sec.md").write_text("v2", encoding="utf-8")
+    subprocess.run(["git", "commit", "-aqm", "v2"], cwd=source, check=True)
+    mirror.clone_or_update_mirror(
+        "foundation", str(source), "main", mirror_root=mirror_root
+    )
+
+    assert outside_sentinel.read_bytes() == before_outside
+    assert other_tier_sentinel.read_bytes() == before_other_tier
+    # Only the "foundation" tier subdir was created/modified.
+    assert set(p.name for p in mirror_root.iterdir()) == {"other-tier", "foundation"}
+
+
+def test_clone_or_update_mirror_offline_is_honest_no_crash(tmp_path):
+    unreachable_source = str(tmp_path / "does-not-exist-at-all")
+    mirror_root = tmp_path / "mirrors"
+
+    result = mirror.clone_or_update_mirror(
+        "foundation", unreachable_source, "main", mirror_root=mirror_root
+    )
+
+    assert result["ok"] is False
+    assert result["offline"] is True
+    assert result["error"]
+    # No partial/corrupt clone left behind.
+    assert not (mirror_root / "foundation" / ".git").exists()
+
+
+def test_clone_or_update_mirror_offline_leaves_existing_cache_untouched(tmp_path):
+    """A prior good clone must never be destroyed just because a later
+    fetch/reset attempt goes offline."""
+    source = _make_content_repo(tmp_path, {"agents/sec.md": "v1"})
+    mirror_root = tmp_path / "mirrors"
+
+    mirror.clone_or_update_mirror("foundation", str(source), "main", mirror_root=mirror_root)
+    cached_content_before = (mirror_root / "foundation" / "agents" / "sec.md").read_bytes()
+
+    # Source becomes unreachable (simulate by pointing fetch at a dead path
+    # via a broken 'origin' remote is complex; simplest honest simulation:
+    # remove the source repo entirely so `git fetch` fails).
+    shutil.rmtree(source)
+
+    result = mirror.clone_or_update_mirror("foundation", str(source), "main", mirror_root=mirror_root)
+
+    assert result["offline"] is True
+    assert (mirror_root / "foundation" / "agents" / "sec.md").read_bytes() == cached_content_before
+
+
+def test_clone_or_update_mirror_never_resolves_home_when_injected(tmp_path):
+    source = _make_content_repo(tmp_path, {"agents/sec.md": "v1"})
+    # The autouse _no_real_home fixture would fail this test if
+    # clone_or_update_mirror touched Path.home() at all when mirror_root
+    # is supplied.
+    mirror.clone_or_update_mirror("foundation", str(source), "main", mirror_root=tmp_path / "mirrors")

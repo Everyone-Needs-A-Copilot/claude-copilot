@@ -249,11 +249,54 @@ def freshness_cmd(
 
 
 @app.command("update")
-def update_cmd() -> None:
-    """Update the ecosystem (ENGINE-BLOCKED — WS-A doctor-slice stub only)."""
-    from cc.commands.lifecycle import run_update
+def update_cmd(
+    output_json: bool = typer.Option(
+        False, "--json", help="Output the WS-A update contract as JSON."
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help=(
+            "Compute the reconciling-sync plan WITHOUT writing/pruning "
+            "materialize-root content or the lockfile."
+        ),
+    ),
+) -> None:
+    """Reconciling ecosystem sync (WS-A `update --json` contract) --
+    MUTATING: acquires the copilot lock, syncs read-only mirrors, runs the
+    policy gate, reconciles the materialize root (add/update/prune), and
+    writes `copilot.lock.json`. See cc/commands/update.py's module
+    docstring for the never-destroy guarantees.
+    """
+    import json as _json
 
-    run_update()
+    from cc.commands.update import execute_update, render_update_report_rich
+
+    try:
+        report, exit_code = execute_update(dry_run=dry_run)
+    except Exception as exc:  # environment/unexpected error -> exit 2
+        if output_json:
+            typer.echo(
+                _json.dumps(
+                    {
+                        "schema_version": "1.0",
+                        "error": {"code": "environment-error", "message": str(exc)},
+                    }
+                )
+            )
+        else:
+            typer.echo(f"update: environment error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+
+    if "error" in report:
+        exit_code = 2
+
+    if output_json:
+        typer.echo(_json.dumps(report))
+    else:
+        render_update_report_rich(report)
+
+    raise typer.Exit(exit_code)
 
 
 @app.command("repair")

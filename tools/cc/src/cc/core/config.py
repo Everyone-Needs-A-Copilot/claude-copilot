@@ -63,6 +63,10 @@ DEFAULTS: dict[str, Any] = {
     # ~/.claude (materialized tree) or an authoring vault -- see
     # core/ecosystem/mirror.py's module docstring.
     "paths.mirrors_root": "~/.copilot/mirrors",
+    # The materialized tree `cc update` reconciles into -- what the host
+    # actually scans (inheritance-and-publish.md §2.2's tree table). NEVER
+    # a mirror and NEVER an authoring vault. See core/ecosystem/materialize.py.
+    "paths.materialize_root": "~/.claude",
 }
 
 # ---------------------------------------------------------------------------

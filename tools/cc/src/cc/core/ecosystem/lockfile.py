@@ -75,3 +75,26 @@ def read_lockfile(path: Optional[Path | str]) -> dict[str, dict[str, dict[str, s
         return {}
 
     return data
+
+
+def write_lockfile(path: Path | str, lock: dict[str, dict[str, dict[str, str]]]) -> None:
+    """
+    Write the per-layer/per-dimension/per-item SHA pins.
+
+    WS-A update-slice: `cc update` is the FIRST (and, today, only) writer of
+    this file -- `cc resolve`/`cc doctor`/`cc freshness` remain strictly
+    read-only (see this module's own docstring). Writes canonical
+    (sort_keys, indent=2) JSON so the file diffs cleanly in source control
+    for tiers that choose to commit it (ecosystem-architecture.md §3.3:
+    "`copilot.lock` (shareable, machine-agnostic) ... safe to commit").
+
+    Creates parent directories as needed. Callers are responsible for
+    holding `copilot_lock()` around any write -- this function does not
+    lock anything itself (mirrors every other single-purpose helper in
+    core/ecosystem/; `commands/update.py` is what acquires the mutex).
+    """
+    target = Path(path).expanduser()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        json.dumps(lock, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )

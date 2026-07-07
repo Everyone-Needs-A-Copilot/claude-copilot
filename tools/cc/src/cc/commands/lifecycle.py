@@ -1,10 +1,13 @@
-"""Lock-acquiring stubs for WS-A's mutating verbs (`update`, `repair`,
-`deprovision`).
+"""Lock-acquiring stubs for WS-A's still-engine-blocked mutating verbs
+(`repair`, `deprovision`).
 
-These verbs are ENGINE-BLOCKED: the sync/resolution engine that would
-actually perform them does not exist yet, and per copilot-control-tower
-CLAUDE.md invariant #1 ("parse, never compute"), no resolution/sync logic
-should be improvised here ahead of that engine landing.
+`update` GRADUATED out of this module in WS-A slice 4 -- it now has a real
+engine (core/ecosystem/{mirror,materialize,policy}.py) and its own
+`--json` contract; see cc/commands/update.py. `repair` and `deprovision`
+remain ENGINE-BLOCKED here: the logic that would actually perform them
+does not exist yet, and per copilot-control-tower CLAUDE.md invariant #1
+("parse, never compute"), no resolution/sync/wipe logic should be
+improvised here ahead of that engine landing.
 
 This module exists so the `flock` discipline around these verbs is real and
 testable NOW: each stub acquires the advisory copilot lock (proving
@@ -65,11 +68,6 @@ def _run_stub(verb: str) -> None:
         typer.echo(json.dumps(_lock_contention_response(verb, str(exc))))
         raise typer.Exit(2) from exc
     raise typer.Exit(2)
-
-
-def run_update() -> None:
-    """`cc update` stub: acquires the copilot lock, then reports not-implemented."""
-    _run_stub("update")
 
 
 def run_repair() -> None:

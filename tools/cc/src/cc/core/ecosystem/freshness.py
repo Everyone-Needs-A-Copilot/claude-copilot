@@ -57,6 +57,20 @@ def _git_blob_sha1(data: bytes) -> str:
     return hashlib.sha1(header + data).hexdigest()  # noqa: S324 (identity fingerprint, not a security hash)
 
 
+def lock_fingerprint(lock: dict[str, Any]) -> str:
+    """
+    Always-defined git-blob-sha1 fingerprint of a lock dict (including the
+    empty lock `{}`) -- unlike `current_lock_sha()`, this NEVER returns
+    `None`. Backs `cc update --json`'s `lock_before`/`lock_after` fields
+    (update.schema.json: both are non-nullable `git_sha` strings -- there is
+    no "unknown" state for update the way there is for freshness's cheap
+    poll, since a lock -- even an empty first-run one -- always exists as a
+    concrete value the CLI can hash).
+    """
+    canonical = json.dumps(lock, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return _git_blob_sha1(canonical)
+
+
 def current_lock_sha(
     *,
     _lockfile: Optional[dict[str, Any]] = None,
