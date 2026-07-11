@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Design / Proposed (extends [`02-four-tier-and-github-topology.md`](../docs/80-initiatives/01-ecosystem-extensions/02-four-tier-and-github-topology.md)) |
+| **Status** | Design / Proposed (extends [`02-four-tier-and-github-topology.md`](../02-four-tier-and-github-topology.md)) |
 | **Branch** | `ecosystem-extensions` |
 | **Question answered** | "How do THREE product families — Claude/Codex Copilot (foundation), Knowledge Copilot, CLI Copilot — compose over one resolver across 4 tiers, adopted progressively, so a worker gets deep focus not the whole-org corpus?" |
 

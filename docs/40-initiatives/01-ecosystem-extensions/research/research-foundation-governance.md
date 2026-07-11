@@ -5,7 +5,7 @@
 | **Status** | Research / Proposed |
 | **Branch** | `ecosystem-extensions` |
 | **Question** | How does ENAC (the foundation owner) author and publish foundation-level changes while ALSO being an enterprise with its own org/department/personal layers? |
-| **Parent** | `docs/80-initiatives/01-ecosystem-extensions/00-findings-and-recommendations.md` (§9 #7 #9, §7) |
+| **Parent** | `docs/40-initiatives/01-ecosystem-extensions/00-findings-and-recommendations.md` (§9 #7 #9, §7) |
 | **Framing under test** | "The FOUNDATION is simply ENAC's ORG layer, published publicly." |
 
 ---
