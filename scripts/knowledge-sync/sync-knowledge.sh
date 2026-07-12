@@ -168,6 +168,27 @@ fi
 rm "$TEMP_CHANGES"
 
 echo ""
+
+# Step 3: Install knowledge repository agent extensions into this project
+#
+# If the knowledge repository ships a knowledge-manifest.json with an
+# "extensions" array (e.g. knowledge-copilot), install each extension's
+# content into the matching .claude/agents/<agent>.md file in THIS project
+# (fenced kc-extension markers, idempotent). This is the mechanism that
+# makes agent extensions load automatically — see
+# scripts/knowledge-sync/install-extensions.py for details. Non-fatal by
+# design: projects without .claude/agents/ or without a manifest that
+# declares extensions are unaffected.
+if command -v python3 &>/dev/null; then
+    echo -e "${BLUE}Step 3: Installing knowledge repository extensions...${NC}"
+    INSTALL_ARGS="--project-root $(git rev-parse --show-toplevel) --knowledge-repo $KNOWLEDGE_REPO"
+    if [ "$DRY_RUN" = true ]; then
+        INSTALL_ARGS="$INSTALL_ARGS --dry-run"
+    fi
+    python3 "$SCRIPT_DIR/install-extensions.py" $INSTALL_ARGS || \
+        echo -e "${YELLOW}Warning: extension install step failed (non-fatal, knowledge sync continues)${NC}"
+    echo ""
+fi
 echo -e "${GREEN}=========================================${NC}"
 echo -e "${GREEN}Knowledge Sync Complete!${NC}"
 echo -e "${GREEN}=========================================${NC}"

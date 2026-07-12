@@ -24,12 +24,16 @@ echo ""
 # Test helper functions
 pass() {
     echo -e "${GREEN}✓ $1${NC}"
-    ((TESTS_PASSED++))
+    # NOTE: `((TESTS_PASSED++))` is a bash gotcha under `set -e` — the
+    # post-increment expression evaluates to the OLD (falsy, when 0) value,
+    # so `set -e` aborts the whole script on the very first pass(). Use
+    # arithmetic assignment instead, which always "succeeds".
+    TESTS_PASSED=$((TESTS_PASSED + 1))
 }
 
 fail() {
     echo -e "${RED}✗ $1${NC}"
-    ((TESTS_FAILED++))
+    TESTS_FAILED=$((TESTS_FAILED + 1))
 }
 
 # Test 1: Scripts exist
@@ -171,6 +175,139 @@ if git describe --tags --abbrev=0 >/dev/null 2>&1; then
     fi
 else
     echo -e "${YELLOW}  Skipped (no tags in repository)${NC}"
+fi
+
+echo ""
+
+# Test 8: install-extensions.py exists, is syntactically valid, and --help works
+echo "Test 8: Verify install-extensions.py"
+if [ -f "$SCRIPT_DIR/install-extensions.py" ]; then
+    pass "install-extensions.py exists"
+else
+    fail "install-extensions.py missing"
+fi
+
+if command -v python3 &>/dev/null && python3 -m py_compile "$SCRIPT_DIR/install-extensions.py" 2>/dev/null; then
+    pass "install-extensions.py compiles"
+else
+    fail "install-extensions.py failed to compile"
+fi
+
+if command -v python3 &>/dev/null && python3 "$SCRIPT_DIR/install-extensions.py" --help >/dev/null 2>&1; then
+    pass "install-extensions.py --help works"
+else
+    fail "install-extensions.py --help failed"
+fi
+
+echo ""
+
+# Test 9: sync-knowledge.sh calls install-extensions.py (Step 3 is wired in)
+echo "Test 9: Verify sync-knowledge.sh invokes the extension installer"
+if grep -q "install-extensions.py" "$SCRIPT_DIR/sync-knowledge.sh"; then
+    pass "sync-knowledge.sh references install-extensions.py"
+else
+    fail "sync-knowledge.sh does not invoke install-extensions.py"
+fi
+
+echo ""
+
+# Test 10: End-to-end fixture test — install, idempotence, update, removal
+echo "Test 10: End-to-end extension install (fixture)"
+
+if command -v python3 &>/dev/null; then
+    FIXTURE_DIR="$(mktemp -d)"
+    trap 'rm -rf "$FIXTURE_DIR"' EXIT
+
+    mkdir -p "$FIXTURE_DIR/kr/.claude/extensions"
+    mkdir -p "$FIXTURE_DIR/project/.claude/agents"
+
+    cat > "$FIXTURE_DIR/kr/knowledge-manifest.json" <<'JSON'
+{
+  "extensions": [
+    { "agent": "cw", "type": "extension", "file": ".claude/extensions/cw.extension.md", "description": "fixture" }
+  ]
+}
+JSON
+
+    cat > "$FIXTURE_DIR/kr/.claude/extensions/cw.extension.md" <<'MD'
+---
+extends: cw
+type: extension
+description: fixture
+---
+
+Fixture extension body v1.
+MD
+
+    cat > "$FIXTURE_DIR/project/.claude/agents/cw.md" <<'MD'
+---
+name: cw
+description: fixture agent
+---
+
+Base agent body.
+MD
+
+    python3 "$SCRIPT_DIR/install-extensions.py" \
+        --project-root "$FIXTURE_DIR/project" \
+        --knowledge-repo "$FIXTURE_DIR/kr" >/dev/null
+
+    if grep -q "kc-extension:begin name=cw" "$FIXTURE_DIR/project/.claude/agents/cw.md" && \
+       grep -q "Fixture extension body v1." "$FIXTURE_DIR/project/.claude/agents/cw.md" && \
+       grep -q "Base agent body." "$FIXTURE_DIR/project/.claude/agents/cw.md"; then
+        pass "extension content installed inside fenced markers, base body preserved"
+    else
+        fail "extension content not installed correctly"
+    fi
+
+    BEFORE_HASH="$(shasum -a 256 "$FIXTURE_DIR/project/.claude/agents/cw.md" | awk '{print $1}')"
+    python3 "$SCRIPT_DIR/install-extensions.py" \
+        --project-root "$FIXTURE_DIR/project" \
+        --knowledge-repo "$FIXTURE_DIR/kr" >/dev/null
+    AFTER_HASH="$(shasum -a 256 "$FIXTURE_DIR/project/.claude/agents/cw.md" | awk '{print $1}')"
+
+    if [ "$BEFORE_HASH" = "$AFTER_HASH" ]; then
+        pass "re-run is idempotent (no diff)"
+    else
+        fail "re-run produced a diff (not idempotent)"
+    fi
+
+    cat > "$FIXTURE_DIR/kr/.claude/extensions/cw.extension.md" <<'MD'
+---
+extends: cw
+type: extension
+description: fixture
+---
+
+Fixture extension body v2 CHANGED.
+MD
+
+    python3 "$SCRIPT_DIR/install-extensions.py" \
+        --project-root "$FIXTURE_DIR/project" \
+        --knowledge-repo "$FIXTURE_DIR/kr" >/dev/null
+
+    BLOCK_COUNT="$(grep -c "kc-extension:begin" "$FIXTURE_DIR/project/.claude/agents/cw.md")"
+    if grep -q "Fixture extension body v2 CHANGED." "$FIXTURE_DIR/project/.claude/agents/cw.md" && [ "$BLOCK_COUNT" -eq 1 ]; then
+        pass "changed extension updates the block in place (no duplication)"
+    else
+        fail "changed extension did not update cleanly"
+    fi
+
+    python3 "$SCRIPT_DIR/install-extensions.py" \
+        --project-root "$FIXTURE_DIR/project" \
+        --knowledge-repo "$FIXTURE_DIR/kr" --remove >/dev/null
+
+    if ! grep -q "kc-extension" "$FIXTURE_DIR/project/.claude/agents/cw.md" && \
+       grep -q "Base agent body." "$FIXTURE_DIR/project/.claude/agents/cw.md"; then
+        pass "--remove cleanly strips the block and preserves the base agent body"
+    else
+        fail "--remove did not clean up correctly"
+    fi
+
+    rm -rf "$FIXTURE_DIR"
+    trap - EXIT
+else
+    echo -e "${YELLOW}  Skipped (python3 not available)${NC}"
 fi
 
 echo ""
