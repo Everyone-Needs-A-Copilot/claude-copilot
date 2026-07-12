@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Hook delegation enforcement actually fires on Read/Edit/Agent again (TASK-106/C-6)** (`.claude/hooks/pretool-check.sh`, `.claude/settings.json`): the `PreToolUse` matcher was `Bash`-only since 2026-04-22 (a same-day "resolve hook deadlock" fix that narrowed the matcher instead of fixing the underlying bug) — force-delegate and QA-gate never enforced anything on `Read`, `Edit`, or `Agent` for over two months. Root cause: Claude Code shares one `session_id` between a session and any subagent it spawns, so a subagent's own tool calls could trip and then get denied by the parent's enforcement state, with no escape since framework agents (`me`/`qa`/...) don't carry the Agent/Task tool. Matcher is now `Bash|Read|Edit|Agent`; both `rule_force_delegate` and `rule_qa_gate` exempt subagent (sidechain) tool calls via the `agent_type` field Claude Code adds to their payloads, while leaving `Agent`-tool dispatch itself fully gated. Adds a global `CC_HOOK_ENFORCE=off` kill switch and hardens `rule_force_delegate` against a corrupted non-numeric `streak` state value (found while building the fix's replay tests) that could bypass the existing fail-open `ERR` trap. See `docs/10-architecture/06-hook-deadlock-root-cause-2026-07.md` for the full root-cause writeup, replay-test results, and live-smoke proof. Proven in `claude-copilot` only; rollout to consumer repos is a separate, staged effort (C-3).
+
 ## [5.13.0]
 
 Layered knowledge repos — `paths.knowledge_repo` accepts an ordered list. Component bump: cc 1.7.0.

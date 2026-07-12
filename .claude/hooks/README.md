@@ -4,6 +4,8 @@
 
 The hooks system provides lifecycle-based injection and enforcement for the main-session guardrails. Rules marked **Mandatory** are mechanically enforced (tool call blocked or session-capped). Rules marked **Advisory** emit a warning but do not block.
 
+**`PreToolUse` matcher (`.claude/settings.json`): `Bash|Read|Edit|Agent`.** This repo's own `settings.json` is live for real sessions. From 2026-04-22 to 2026-07-12 this matcher was `Bash`-only (a same-day "fix" for a real deadlock that also disabled the enforcement almost entirely) — see [`docs/10-architecture/06-hook-deadlock-root-cause-2026-07.md`](../../docs/10-architecture/06-hook-deadlock-root-cause-2026-07.md) for the root cause and what changed (TASK-106/C-6). Subagent (sidechain) tool calls share `session_id` with the session that spawned them and are exempted from `rule_force_delegate`/`rule_qa_gate` by checking `agent_type` — they are the delegation these rules exist to force, not something to gate further.
+
 | Hook File | Claude Lifecycle Event | Rule | Enforcement |
 |-----------|----------------------|------|-------------|
 | `pretool-check.sh` | PreToolUse | Force-delegate (5 consecutive same-tool calls) | Mandatory — exit 2 |
@@ -18,12 +20,15 @@ The hooks system provides lifecycle-based injection and enforcement for the main
 
 | Variable | Disables |
 |----------|----------|
+| `CC_HOOK_ENFORCE=off` | **Everything** in `pretool-check.sh` — global kill switch, checked first, before any rule or state access |
 | `COPILOT_FORCE_DELEGATE=off` | Force-delegate rule |
 | `COPILOT_QA_GATE=off` | QA gate rule + state management |
 | `COPILOT_SESSION_CAP=off` | Session length advisories |
 | `COPILOT_CAREFUL=off` | Destructive-command safety rule (`/careful`) |
 | `COPILOT_FREEZE=off` | Path-scope lock rule (`/freeze`) |
 | `COPILOT_SAFETY=off` | Both `/careful` and `/freeze` (convenience alias) |
+
+Reach for `CC_HOOK_ENFORCE=off` when the widened matcher itself is suspected of misbehaving and you don't want to guess which per-rule variable applies. It bypasses `/careful` and `/freeze` too, so treat it as a real escape hatch, not a default.
 
 ### State Directory
 
@@ -174,8 +179,8 @@ State files are written atomically (write to `.tmp` file then `mv`) to prevent c
 
 | Rule | Owner Task | Trigger | Action |
 |------|-----------|---------|--------|
-| `rule_force_delegate` | P4.2 (task 17) | 5+ consecutive Bash/Read/Edit calls | Deny with agent delegation suggestion |
-| `rule_qa_gate` | P4.1 (task 16) | Any task in pending-qa state for this session | Deny all except Agent(qa) and safe tc reads |
+| `rule_force_delegate` | P4.2 (task 17), TASK-106/C-6 | 5+ consecutive Bash/Read/Edit calls from the main session (subagent calls exempt) | Deny with agent delegation suggestion |
+| `rule_qa_gate` | P4.1 (task 16), TASK-106/C-6 | Any task in pending-qa state for this session | Deny all main-session calls except Agent(qa) and safe tc reads; the dispatched subagent's own non-Agent calls are exempt |
 
 ### Extending with a New Rule Set
 
@@ -187,9 +192,10 @@ To add a rule:
 
 ### Force-Delegate Rule
 
-Tracks consecutive calls to the same tool (`Bash`, `Read`, `Edit`). On the 5th consecutive same-tool call, the hook denies and suggests delegating to a framework agent.
+Tracks consecutive calls to the same tool (`Bash`, `Read`, `Edit`) **made directly by the main session**. On the 5th consecutive same-tool call, the hook denies and suggests delegating to a framework agent.
 
 - `Agent` tool calls are **never blocked** at any streak length
+- **Subagent (sidechain) calls are exempt, not tracked at all** (TASK-106/C-6): a `PreToolUse` payload with a non-empty `agent_type` — meaning this call originated inside a Task-spawned subagent, which shares `session_id` with its parent — returns allow immediately, before reading or writing streak state. This is what makes the widened `Read|Edit|Agent` matcher safe: without it, a subagent's own tool calls would inherit and could trip the parent's streak, and the resulting deny is unsatisfiable from inside a subagent (framework agents don't carry the Agent/Task tool). See [`docs/10-architecture/06-hook-deadlock-root-cause-2026-07.md`](../../docs/10-architecture/06-hook-deadlock-root-cause-2026-07.md).
 - Streak resets when a different tool is called
 - Streak resets to 0 after a deny (clean slate for retry)
 - **Escape hatch:** Set `COPILOT_FORCE_DELEGATE=off` to disable for a shell session
@@ -201,6 +207,7 @@ Enforces the mandatory QA checkpoint after `@agent-me` completes. When `subagent
 - `Agent` with `subagent_type == "qa"` — always allowed (lets QA proceed)
 - `Bash` with a safe `tc` command prefix: `tc task get`, `tc task list`, `tc task create`, `tc task update`, `tc wp get`, `tc wp list`, `tc wp store`, `tc progress`, `tc log`, `tc handoff`, `tc prd`, `tc stream`
 - `Bash` starting with `python3 -m pytest` or `pytest` — allowed because test runs are read-only with respect to product state (they never mutate the codebase, they only verify it). This lets QA subagents run tests while the gate is active. Note: the prefix match only allows commands that literally start with these strings, so `python3 -m pytest` does NOT widen to arbitrary `python3` commands.
+- **Any non-`Agent` tool call made by an already-dispatched subagent** (`agent_type` non-empty, TASK-106/C-6): once `@agent-qa` has been allowed to start, its own `Read`/`Edit`/`Bash` calls — needed to actually verify the fix — are exempt from the gate too. Without this, the qa subagent could be dispatched and then immediately blocked from doing the work it was dispatched for. The `Agent`-tool dispatch decision itself stays fully gated regardless of caller, so this does not let a subagent nest a further delegation around the gate.
 
 When `@agent-qa` completes and the verdict is parsed as a pass, the task is removed from `pending_tasks` and subsequent tool calls flow normally.
 

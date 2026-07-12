@@ -12,10 +12,26 @@
 # ESCAPE HATCH:
 #   Set COPILOT_FORCE_DELEGATE=off to bypass all force-delegate checks.
 #   Set COPILOT_QA_GATE=off to bypass all QA gate checks.
+#   Set CC_HOOK_ENFORCE=off to bypass EVERY rule set below (global kill switch).
 #
 # INPUT (stdin):
 #   JSON object with fields:
-#     session_id  — unique session identifier
+#     session_id  — unique session identifier. IMPORTANT (TASK-106/C-6): Claude
+#                   Code reuses the SAME session_id for a main session and any
+#                   subagent it spawns via the Agent/Task tool — sidechain
+#                   tool calls are NOT a distinct session. The only signal that
+#                   distinguishes "this call originated inside a subagent" is
+#                   agent_type/agent_id being non-empty. Confirmed empirically
+#                   2026-07-12 by replaying real PreToolUse payloads from a
+#                   throwaway `claude -p` session (main-session Read calls
+#                   carry no agent_type; the same session_id's subsequent
+#                   Task-spawned subagent Read calls carry
+#                   agent_type:"general-purpose", agent_id:"<task-id>"). See
+#                   docs/10-architecture/06-hook-deadlock-root-cause-2026-07.md.
+#     agent_type  — non-empty when this call originated inside a subagent
+#                   (e.g. "me", "qa", "general-purpose"); absent/empty for
+#                   calls made directly by the main session.
+#     agent_id    — non-empty alongside agent_type; the subagent instance id.
 #     tool_name   — e.g. "Bash", "Read", "Edit", "Agent"
 #     tool_input  — tool-specific parameters (object)
 #
@@ -37,10 +53,22 @@
 #
 # RULE SETS:
 #   1. force-delegate — deny after 5 consecutive same-tool calls (Bash|Read|Edit)
-#      Task: 17 (P4.2).
-#   2. qa-gate — deny all tool calls except Agent(qa) and safe tc Bash calls
-#      while any task is in pending-qa state for this session.
-#      Task: 16 (P4.1). Bypass: COPILOT_QA_GATE=off
+#      made directly by the main session. Subagent (sidechain) calls are exempt
+#      — see the session_id/agent_type note above. Task: 17 (P4.2), TASK-106 (C-6).
+#   2. qa-gate — deny all main-session tool calls except Agent(qa) and safe tc
+#      Bash calls while any task is in pending-qa state for this session.
+#      Once dispatched, the @agent-qa subagent's own tool calls are exempt
+#      (see agent_type note above). Task: 16 (P4.1), TASK-106 (C-6).
+#      Bypass: COPILOT_QA_GATE=off
+#
+# MATCHER (settings.json):
+#   PreToolUse matcher is "Bash|Read|Edit|Agent" (widened TASK-106/C-6, was
+#   Bash-only since 23c02c0 on 2026-04-22). Read/Edit/Agent are safe to match
+#   again now that (a) the script fails open on any script error (ERR/PIPE
+#   traps below, absolute SCRIPT_DIR resolution — the original crash-on-block
+#   cause) and (b) subagent calls are exempt from force-delegate/qa-gate (the
+#   shared-session_id livelock — see docs/10-architecture/
+#   06-hook-deadlock-root-cause-2026-07.md for the full root-cause writeup).
 
 set -uEo pipefail
 # -u  : nounset — error on unbound variables
@@ -57,6 +85,20 @@ trap 'echo "[pretool-check] unexpected error at line $LINENO (exit $?)" >&2; exi
 # process silently. By catching it we ensure a stderr diagnostic is emitted
 # and the hook fails open rather than dying with no output.
 trap 'echo "[pretool-check] SIGPIPE at line $LINENO — stdout pipe broken, failing open" >&2; exit 0' PIPE
+
+# ---------------------------------------------------------------------------
+# Global kill switch (TASK-106 / C-6): bypasses EVERY rule set below, present
+# and future. This repo's settings.json is live for the owner's real
+# sessions — this is the single override to reach for if the widened
+# Bash|Read|Edit matcher ever misbehaves, without needing to know which
+# per-rule escape hatch applies.
+#   export CC_HOOK_ENFORCE=off
+# Exits before touching stdin/state on purpose: fastest possible path, and it
+# must work even if state files or jq are unavailable.
+# ---------------------------------------------------------------------------
+if [[ "${CC_HOOK_ENFORCE:-}" == "off" ]]; then
+  exit 0
+fi
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -117,6 +159,12 @@ SESSION_ID="$("$JQ" -r '.session_id // ""' <<< "$PAYLOAD" 2>/dev/null)" \
   || { echo "[pretool-check] jq parse failed reading session_id" >&2; exit 0; }
 TOOL_NAME="$("$JQ" -r '.tool_name // ""' <<< "$PAYLOAD" 2>/dev/null)" \
   || { echo "[pretool-check] jq parse failed reading tool_name" >&2; exit 0; }
+# AGENT_TYPE non-empty means this PreToolUse call originated inside a
+# subagent (sidechain), even though it shares SESSION_ID with the main
+# session that spawned it. See INPUT doc comment at the top of this file —
+# this is the TASK-106/C-6 fix for the April 2026 force-delegate livelock.
+AGENT_TYPE="$("$JQ" -r '.agent_type // ""' <<< "$PAYLOAD" 2>/dev/null)" \
+  || AGENT_TYPE=""
 
 if [[ -z "$SESSION_ID" || -z "$TOOL_NAME" ]]; then
   # Malformed payload — allow and let Claude handle it
@@ -248,6 +296,20 @@ rule_force_delegate() {
     return 0
   fi
 
+  # TASK-106/C-6: subagent/sidechain tool calls are exempt — they ARE the
+  # delegation this rule exists to force. Claude Code shares SESSION_ID
+  # between a main session and its subagents, so without this check a
+  # subagent's own Read/Edit/Bash calls would silently continue (and trip)
+  # the main session's streak counter. Denying them is a livelock: framework
+  # agents (see .claude/agents/*.md `tools:` lines) do not carry the
+  # Agent/Task tool, so "delegate to a framework agent instead" has no
+  # satisfiable next step from inside a subagent. This is the exact
+  # mechanism that shipped in 20097d9 and was masked (not fixed) by
+  # 23c02c0's Bash-only matcher four hours later.
+  if [[ -n "$AGENT_TYPE" ]]; then
+    return 0
+  fi
+
   # Only track Bash, Read, Edit — not Agent or other tools
   case "$TOOL_NAME" in
     Bash|Read|Edit) ;;
@@ -283,6 +345,17 @@ rule_force_delegate() {
   streak="$("$JQ" -r '.streak // 0' <<< "$state" 2>/dev/null)" \
     || { echo "[pretool-check] jq parse failed reading streak from streak state" >&2
          release_lock; trap - EXIT; return 0; }
+  # Defense in depth: a corrupted/hand-edited state file could put a
+  # non-numeric value in "streak". Bash arithmetic ($((streak + 1))) treats
+  # non-numeric operands as nested variable references, which under `set -u`
+  # aborts the whole script with an unbound-variable error that bypasses the
+  # ERR trap (confirmed empirically: this is a real fail-CLOSED hole found
+  # while building TASK-106/C-6's replay tests). Coerce to a safe default
+  # instead of trusting the file.
+  if ! [[ "$streak" =~ ^[0-9]+$ ]]; then
+    echo "[pretool-check] non-numeric streak '${streak}' in ${STATE_FILE} — resetting to 0" >&2
+    streak=0
+  fi
 
   if [[ "$TOOL_NAME" == "$last_tool" ]]; then
     streak=$((streak + 1))
@@ -377,6 +450,19 @@ rule_qa_gate() {
   blocking_ids="$("$JQ" -r 'join(", ")' <<< "$pending_json" 2>/dev/null)" \
     || blocking_ids="unknown"
   blocking_ids="${blocking_ids:-unknown}"
+
+  # TASK-106/C-6: once a subagent is running (agent_type non-empty), its own
+  # Bash/Read/Edit calls are exempt from the gate. The gate's job is to stop
+  # the MAIN session from moving past pending QA work; it is not meant to
+  # block the @agent-qa subagent's own investigation once dispatch has
+  # already been allowed below. Without this, @agent-qa could Read/Edit its
+  # way into the same "deny with no satisfiable next step" livelock that
+  # rule_force_delegate has. The Agent-tool dispatch decision itself
+  # (TOOL_NAME=="Agent") is a main-session action and is still gated by the
+  # allow/deny logic below regardless of this exemption.
+  if [[ -n "$AGENT_TYPE" && "$TOOL_NAME" != "Agent" ]]; then
+    return 0
+  fi
 
   # Allow: Agent tool with subagent_type == "qa"
   if [[ "$TOOL_NAME" == "Agent" ]]; then

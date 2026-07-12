@@ -1,6 +1,8 @@
 # Framework Restructure — April 2026
 
 > **Status: Superseded.** This document records the April 2026 restructure (PRD-1 era). The authoritative current analysis of further improvements is `docs/70-reference/04-framework-modernization-analysis.md` (PRD-2 era). Kept as historical context.
+>
+> **Correction (2026-07, TASK-106/C-6):** the "Hook Enforcement Model" and "What the Hooks Do Automatically" sections below describe the hooks as designed and shipped on 2026-04-22, but the `PreToolUse` matcher was narrowed to `Bash`-only that same day ("resolve hook deadlock", commit `23c02c0`) and stayed that way until 2026-07-12 — the force-delegate and QA-gate rules **never fired on `Read`, `Edit`, or `Agent`** in that window, despite this document's claims. See [`docs/10-architecture/06-hook-deadlock-root-cause-2026-07.md`](06-hook-deadlock-root-cause-2026-07.md) for the root cause and the fix. Do not treat the tables below as a description of historical runtime behavior for `Read`/`Edit`/`Agent` prior to 2026-07-12.
 
 **Diátaxis mode:** Explanation (historical)
 
@@ -323,15 +325,15 @@ Load them at the start of any agent session that needs them, or include them inl
 
 ## Hook Enforcement Model — Mandatory vs Advisory
 
-| Guardrail | Pre-April 2026 | Post-April 2026 |
-|-----------|---------------|----------------|
-| Don't write code in main session | Advisory (CLAUDE.md text) | Mandatory (force-delegate hook, exit 2) |
-| QA after every @agent-me | Advisory (CLAUDE.md text) | Mandatory (QA gate, blocks all tools) |
-| Don't run >N consecutive same-tool calls | Not enforced | Mandatory (force-delegate, N=5) |
-| Keep sessions under 500 turns | Not enforced | Advisory (session cap, systemMessage) |
-| Don't use Explore/Plan agents | Advisory | Advisory |
+| Guardrail | Pre-April 2026 | Post-April 2026 (as designed) | Actual, 2026-04-22 to 2026-07-12 |
+|-----------|---------------|----------------|----------------|
+| Don't write code in main session | Advisory (CLAUDE.md text) | Mandatory (force-delegate hook, exit 2) | **Not enforced** — matcher was `Bash`-only, Read/Edit never matched |
+| QA after every @agent-me | Advisory (CLAUDE.md text) | Mandatory (QA gate, blocks all tools) | **Bash-command-shaped work only** — `Agent`-tool dispatch to non-qa agents was never matched, so QA-gate's core "you can't start new work" mechanism never fired either |
+| Don't run >N consecutive same-tool calls | Not enforced | Mandatory (force-delegate, N=5) | **Bash calls only** |
+| Keep sessions under 500 turns | Not enforced | Advisory (session cap, systemMessage) | As designed (separate hook, unaffected) |
+| Don't use Explore/Plan agents | Advisory | Advisory | As designed |
 
-The shift from advisory to mandatory for the two highest-impact guardrails (implementation delegation and QA gate) is what closes the 94%/6% delegation-rate gap. The hooks cannot be silently bypassed — they require an explicit env var override.
+The shift from advisory to mandatory for the two highest-impact guardrails (implementation delegation and QA gate) was the intent, but the matcher change shipped and was reverted to `Bash`-only in the same commit window on 2026-04-22 (see `20097d9` → `23c02c0`) without anyone widening it back. The claim "the hooks cannot be silently bypassed" was true of the *design*, not of the *deployed* `settings.json`, for over two months. This was fixed 2026-07-12 (TASK-106/C-6) — see [`06-hook-deadlock-root-cause-2026-07.md`](06-hook-deadlock-root-cause-2026-07.md) for the root cause, the fix, and what "cannot be silently bypassed" now actually means (still true only up to the documented escape hatches: `COPILOT_FORCE_DELEGATE=off`, `COPILOT_QA_GATE=off`, `CC_HOOK_ENFORCE=off`).
 
 ---
 
