@@ -1,0 +1,16 @@
+id: sd-struct-002
+name: SD agent requires JTBD framing for the real job
+priority: P0
+description: |
+  Every design must be framed through Jobs to Be Done -- the real job, not the stated want.
+type: structural
+source:
+  type: file
+  path: .claude/agents/sd.md
+assertions:
+- type: file-contains
+  value: Jobs to Be Done (JTBD)
+  description: sd.md must name the JTBD framework
+- type: file-contains
+  value: When [situation], I want to [motivation], so I can [outcome].
+  description: sd.md must define the JTBD sentence template

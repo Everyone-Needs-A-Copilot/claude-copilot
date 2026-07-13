@@ -1,0 +1,25 @@
+id: sd-behav-005
+name: Blueprint presents alternatives with rationale, not a single dictation
+priority: P1
+description: |
+  A single concept is a dictation, not a design -- the spec must show numbered alternatives and why one was chosen over the others.
+type: behavioral
+source:
+  type: inline
+  content: |
+    Concepts Considered:
+    1. Reduce onboarding steps
+    2. Make the first result instant
+    3. Remove onboarding entirely
+    Selected: Concept 2, because it scores highest on Desirable and Viable. Concept 3
+    was rejected because its inference engine is low feasibility this quarter.
+assertions:
+- type: contains
+  value: 'Selected:'
+  description: Spec must state the selected concept
+- type: contains
+  value: rejected because
+  description: Spec must document why alternatives were rejected
+- type: regex
+  pattern: Concept [0-9]
+  description: Spec must number at least one alternative concept

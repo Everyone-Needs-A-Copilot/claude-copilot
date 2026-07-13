@@ -1,0 +1,22 @@
+id: sd-struct-003
+name: SD agent requires 3+ HMW framings scored on Three Lenses
+priority: P0
+description: |
+  sd must generate 3+ How Might We framings and score each on Desirable / Feasible / Viable before converging.
+type: structural
+source:
+  type: file
+  path: .claude/agents/sd.md
+assertions:
+- type: file-contains
+  value: How Might We
+  description: sd.md must require How Might We framings
+- type: file-contains
+  value: Desirable
+  description: sd.md must define the Desirable lens
+- type: file-contains
+  value: Feasible
+  description: sd.md must define the Feasible lens
+- type: file-contains
+  value: Viable
+  description: sd.md must define the Viable lens

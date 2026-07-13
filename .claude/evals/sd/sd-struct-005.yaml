@@ -1,0 +1,16 @@
+id: sd-struct-005
+name: SD agent requires backstage parity and a validated blueprint
+priority: P1
+description: |
+  Backstage must never be treated as an afterthought, and the blueprint must pass the blueprint_validated gate.
+type: structural
+source:
+  type: file
+  path: .claude/agents/sd.md
+assertions:
+- type: file-contains
+  value: treat backstage as an afterthought
+  description: sd.md must forbid neglecting backstage detail
+- type: file-contains
+  value: blueprint_validated
+  description: sd.md must gate on blueprint_validated

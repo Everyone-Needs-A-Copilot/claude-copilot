@@ -1,0 +1,19 @@
+id: sd-behav-004
+name: Blueprint designs the transition moment between stages
+priority: P1
+description: |
+  sd must design what happens at the seam between stages, not just the stages themselves.
+type: behavioral
+source:
+  type: inline
+  content: |
+    Transition Design: onboarding to first task -- the transition breaks when the
+    confirmation email hasn't arrived yet and the user has nothing to click;
+    mitigated by an in-app 'Skip email, start now' action.
+assertions:
+- type: contains
+  value: Transition Design
+  description: Spec must include a Transition Design section
+- type: contains
+  value: breaks when
+  description: Spec must state where the transition can break

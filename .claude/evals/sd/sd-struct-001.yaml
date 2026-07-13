@@ -1,0 +1,16 @@
+id: sd-struct-001
+name: SD agent requires Double Diamond diverge-then-converge
+priority: P0
+description: |
+  The sd agent must diverge then converge in both problem and solution space -- never jump straight to a solution.
+type: structural
+source:
+  type: file
+  path: .claude/agents/sd.md
+assertions:
+- type: file-contains
+  value: Double Diamond
+  description: sd.md must name the Double Diamond methodology
+- type: file-contains
+  value: Diverge then converge in BOTH problem and solution space
+  description: sd.md must require diverge-then-converge in both spaces

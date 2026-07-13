@@ -1,0 +1,16 @@
+id: sd-struct-004
+name: SD agent requires evidenced pain points, forbids vague emotions
+priority: P1
+description: |
+  Pain points must be backed by evidence or labeled a hypothesis; emotions must be specific, never generic.
+type: structural
+source:
+  type: file
+  path: .claude/agents/sd.md
+assertions:
+- type: file-contains
+  value: Are pain points backed by evidence
+  description: sd.md must require evidenced pain points
+- type: file-contains
+  value: use vague emotions
+  description: sd.md must forbid vague emotions

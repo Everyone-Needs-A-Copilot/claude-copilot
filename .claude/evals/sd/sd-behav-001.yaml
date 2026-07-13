@@ -1,0 +1,42 @@
+id: sd-behav-001
+name: Blueprint reframes the brief and scores 3+ concepts on Three Lenses
+priority: P0
+description: |
+  A compliant sd specification reframes the original brief as a JTBD statement and scores at least three HMW concepts before selecting one, with rationale.
+type: behavioral
+source:
+  type: inline
+  content: |
+    Task: TASK-501 | WP: WP-611
+    Problem Reframe: Original brief: "Reduce onboarding drop-off." Reframed JTBD:
+    "When a new user signs up without a teammate to guide them, I want to see the
+    product produce a real result immediately, so I can trust it's worth configuring
+    further."
+    Concepts Considered:
+    1. HMW reduce the number of onboarding steps -- Desirable: Medium, Feasible: High,
+       Viable: Medium
+    2. HMW make the first result instant, before setup is complete -- Desirable: High,
+       Feasible: Medium, Viable: High
+    3. HMW remove onboarding entirely and infer configuration from usage -- Desirable:
+       Medium, Feasible: Low, Viable: Medium
+    Selected: Concept 2, because it scores highest on Desirable and Viable without
+    requiring the low-feasibility inference engine of Concept 3.
+assertions:
+- type: contains
+  value: Reframed JTBD
+  description: Spec must reframe the original brief as JTBD
+- type: regex
+  pattern: HMW
+  description: Spec must include HMW framings
+- type: contains
+  value: Desirable
+  description: Spec must score the Desirable lens
+- type: contains
+  value: Feasible
+  description: Spec must score the Feasible lens
+- type: contains
+  value: Viable
+  description: Spec must score the Viable lens
+- type: contains
+  value: 'Selected:'
+  description: Spec must state the selected concept with rationale

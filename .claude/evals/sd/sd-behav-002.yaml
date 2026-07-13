@@ -1,0 +1,23 @@
+id: sd-behav-002
+name: Blueprint gives backstage equal detail to frontstage
+priority: P1
+description: |
+  The touchpoints table must carry backstage systems/process detail alongside the frontstage, not just the visible surface.
+type: behavioral
+source:
+  type: inline
+  content: |
+    ## Touchpoints Table
+    | Stage | Frontstage | Backstage | Pain Points | Opportunities |
+    | Signup | Form + welcome email | Email queue, fraud check job | Email delayed
+    4min (support tickets) | Send confirmation client-side, defer email |
+assertions:
+- type: contains
+  value: Frontstage
+  description: Table must include a Frontstage column
+- type: contains
+  value: Backstage
+  description: Table must include a Backstage column
+- type: contains
+  value: Pain Points
+  description: Table must include a Pain Points column

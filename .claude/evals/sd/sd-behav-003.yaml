@@ -1,0 +1,22 @@
+id: sd-behav-003
+name: Emotional journey is specific and evidenced, not generic
+priority: P1
+description: |
+  Emotions must be concrete and tied to evidence -- not the generic 'frustrated' / 'happy' vocabulary the agent forbids.
+type: behavioral
+source:
+  type: inline
+  content: |
+    Emotional Journey: anxious about losing unsaved config during signup (evidenced:
+    12 support tickets citing this in the last quarter); relieved once the
+    draft-autosave confirmation appears.
+assertions:
+- type: contains
+  value: evidenced
+  description: Emotional journey must cite evidence
+- type: contains
+  value: anxious about
+  description: Emotional journey must use a specific, contextual emotion
+- type: not-contains
+  value: ' frustrated,'
+  description: Emotional journey must not use the generic 'frustrated' vocabulary
