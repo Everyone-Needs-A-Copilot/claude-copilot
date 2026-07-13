@@ -1,0 +1,16 @@
+id: ta-struct-002
+name: TA agent forbids time estimates, requires complexity ratings
+priority: P0
+description: |
+  The ta agent must rate tasks Low/Medium/High complexity, never estimate durations.
+type: structural
+source:
+  type: file
+  path: .claude/agents/ta.md
+assertions:
+- type: file-contains
+  value: 'Include time estimates (use complexity: Low/Medium/High)'
+  description: ta.md must forbid time estimates under Never
+- type: file-contains
+  value: complexity rating (Low/Medium/High)
+  description: ta.md must require a complexity rating per task

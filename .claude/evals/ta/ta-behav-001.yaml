@@ -1,0 +1,28 @@
+id: ta-behav-001
+name: Architecture summary defines streams and routes downstream
+priority: P0
+description: |
+  A well-formed ta summary states the Task/WP header, the stream breakdown, and the next hand-off to @agent-me and @agent-qa.
+type: behavioral
+source:
+  type: inline
+  content: |
+    Task: TASK-402 | WP: WP-501
+    Summary: Designed a three-stream plan for the notifications service: foundation
+    (schema + queue), parallel (producer, consumer), integration (end-to-end delivery
+    test). Each implementation task includes explicit test requirements.
+    Streams: Stream-A (foundation), Stream-B (parallel), Stream-Z (integration)
+    Next: @agent-me for implementation -> @agent-qa for testing
+assertions:
+- type: regex
+  pattern: 'Task: TASK-\d+ \| WP: WP-\d+'
+  description: Header must match the Task/WP pattern
+- type: contains
+  value: 'Streams:'
+  description: Summary must state the stream breakdown
+- type: contains
+  value: '@agent-me'
+  description: Summary must route to @agent-me
+- type: contains
+  value: '@agent-qa'
+  description: Summary must route to @agent-qa

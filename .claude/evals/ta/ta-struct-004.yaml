@@ -1,0 +1,19 @@
+id: ta-struct-004
+name: TA agent requires explicit test requirements per task type
+priority: P1
+description: |
+  Every implementation task ta creates must state its test requirement (unit/integration for backend, Playwright E2E for frontend).
+type: structural
+source:
+  type: file
+  path: .claude/agents/ta.md
+assertions:
+- type: file-contains
+  value: Testing Requirements in Tasks
+  description: ta.md must define the testing-requirements table
+- type: file-contains
+  value: Unit and integration tests required
+  description: ta.md must require unit/integration tests for backend tasks
+- type: file-contains
+  value: Playwright E2E tests required
+  description: ta.md must require Playwright E2E tests for frontend tasks

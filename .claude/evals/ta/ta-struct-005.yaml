@@ -1,0 +1,19 @@
+id: ta-struct-005
+name: TA agent re-plans instead of patching over invalidated assumptions
+priority: P1
+description: |
+  If a downstream finding invalidates an upstream assumption, ta must explicitly re-plan the affected tasks -- not append patch-tasks on a broken foundation.
+type: structural
+source:
+  type: file
+  path: .claude/agents/ta.md
+assertions:
+- type: file-contains
+  value: <promise>BLOCKED</promise>
+  description: ta.md must define the BLOCKED completion promise
+- type: file-contains
+  value: <promise>CONFUSED</promise>
+  description: ta.md must define the CONFUSED completion promise
+- type: file-contains
+  value: re-planned the affected tasks
+  description: ta.md must require re-planning on invalidated assumptions

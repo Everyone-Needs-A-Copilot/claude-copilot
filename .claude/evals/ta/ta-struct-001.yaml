@@ -1,0 +1,19 @@
+id: ta-struct-001
+name: TA agent mandates Task Copilot over markdown plans
+priority: P0
+description: |
+  The ta agent must never write PRDs or tasks to markdown files -- tc prd create / tc task create are the only sanctioned path, per the CRITICAL section.
+type: structural
+source:
+  type: file
+  path: .claude/agents/ta.md
+assertions:
+- type: file-contains
+  value: NEVER write PRDs or tasks to markdown files.
+  description: ta.md must forbid markdown-only PRDs/tasks
+- type: file-contains
+  value: tc prd create
+  description: ta.md must instruct tc prd create
+- type: file-contains
+  value: tc task create
+  description: ta.md must instruct tc task create

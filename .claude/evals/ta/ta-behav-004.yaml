@@ -1,0 +1,22 @@
+id: ta-behav-004
+name: Architecture summary rates complexity instead of estimating duration
+priority: P1
+description: |
+  ta must never quote days/weeks -- complexity ratings replace time estimates.
+type: behavioral
+source:
+  type: inline
+  content: |
+    Task: TASK-403 | WP: WP-502
+    Summary: Broke the migration into 3 tasks. Complexity: Medium (schema change),
+    Complexity: Low (backfill script), Complexity: High (dual-write cutover).
+assertions:
+- type: contains
+  value: 'Complexity:'
+  description: Summary must use complexity ratings
+- type: not-contains
+  value: ' days'
+  description: Summary must not quote a day-based estimate
+- type: not-contains
+  value: ' weeks'
+  description: Summary must not quote a week-based estimate

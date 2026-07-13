@@ -1,0 +1,27 @@
+id: ta-behav-003
+name: ADR documents context, decision, consequences, and rejected alternatives
+priority: P1
+description: |
+  A compliant ADR fills every field of the template -- a decision without documented trade-offs is not ready.
+type: behavioral
+source:
+  type: inline
+  content: |
+    ## ADR-014: Queue-backed notification delivery
+    **Status:** Accepted
+    **Context:** Notifications must survive a consumer restart without dropping events.
+    **Decision:** Use a durable queue (existing Redis Streams) instead of in-process
+    fan-out.
+    **Consequences:** Adds one operational dependency; delivery survives restarts.
+    **Alternatives Rejected:** In-process pub/sub (drops events on restart); a new
+    message broker (adds a second queue technology to operate).
+assertions:
+- type: contains
+  value: '**Context:**'
+  description: ADR must state the context
+- type: contains
+  value: '**Consequences:**'
+  description: ADR must state the consequences
+- type: contains
+  value: '**Alternatives Rejected:**'
+  description: ADR must document rejected alternatives

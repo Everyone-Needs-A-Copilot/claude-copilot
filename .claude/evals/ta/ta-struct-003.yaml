@@ -1,0 +1,19 @@
+id: ta-struct-003
+name: TA agent requires the ADR methodology with rejected alternatives
+priority: P0
+description: |
+  The ta agent must record architecture decisions as ADRs (Nygard) with Context/Decision/Consequences/Alternatives Rejected -- no decision without a documented trade-off.
+type: structural
+source:
+  type: file
+  path: .claude/agents/ta.md
+assertions:
+- type: file-contains
+  value: Michael Nygard
+  description: ta.md must attribute the ADR methodology
+- type: file-contains
+  value: Alternatives Rejected
+  description: ta.md must require documenting rejected alternatives
+- type: file-contains
+  value: 'ADR-NNN: [Title]'
+  description: ta.md must include the ADR template

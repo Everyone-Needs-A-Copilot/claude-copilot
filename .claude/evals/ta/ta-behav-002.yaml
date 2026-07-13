@@ -1,0 +1,15 @@
+id: ta-behav-002
+name: Implementation task description states an explicit test requirement
+priority: P1
+description: |
+  Per the Testing Requirements table, every task ta writes must carry its test requirement in the description text itself.
+type: behavioral
+source:
+  type: inline
+  content: |
+    Task description: Implement GET /users/:id/preferences endpoint returning the
+    stored preference object. Unit and integration tests required.
+assertions:
+- type: contains
+  value: tests required
+  description: Task description must state its test requirement

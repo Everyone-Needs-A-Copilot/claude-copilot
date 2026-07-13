@@ -1,0 +1,19 @@
+id: ta-behav-005
+name: PRD and tasks are created via tc, never as markdown files
+priority: P0
+description: |
+  Per the CRITICAL section, ta's actual workflow trace must show tc prd create / tc task create, not a written plan.md.
+type: behavioral
+source:
+  type: inline
+  content: |
+    Task: TASK-404 | WP: WP-503
+    Summary: Created PRD via `tc prd create --title "Notifications v2" --json`;
+    created 6 tasks via `tc task create` with streamId metadata for parallel work.
+assertions:
+- type: contains
+  value: tc prd create
+  description: Trace must show tc prd create
+- type: contains
+  value: tc task create
+  description: Trace must show tc task create
