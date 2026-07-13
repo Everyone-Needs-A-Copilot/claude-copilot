@@ -1,0 +1,13 @@
+id: uxd-struct-003
+name: UXD agent requires all 8 interactive states designed
+priority: P0
+description: |
+  Every interactive element must have default, hover, focus, active, disabled, loading, error, and empty states defined.
+type: structural
+source:
+  type: file
+  path: .claude/agents/uxd.md
+assertions:
+- type: file-contains
+  value: default, hover, focus, active, disabled, loading, error, empty
+  description: uxd.md must enumerate all 8 required states

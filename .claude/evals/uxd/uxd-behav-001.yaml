@@ -1,0 +1,36 @@
+id: uxd-behav-001
+name: Flow spec includes JTBD, 3+ scored concepts, and all 8 states
+priority: P0
+description: |
+  A compliant uxd specification states the JTBD, scores at least three concepts against named heuristics, selects one with rationale, and enumerates all 8 states.
+type: behavioral
+source:
+  type: inline
+  content: |
+    Task: TASK-620 | WP: WP-730
+    JTBD: When a user's payment fails at checkout, I want to understand why and fix
+    it immediately, so I can complete the purchase without abandoning the cart.
+    Concepts Considered:
+    1. Inline error banner above the card field -- scores well on Heuristic 9 (error
+       recovery), weak on Heuristic 1 (visibility of status) if scrolled past.
+    2. Modal blocking retry -- strong visibility, weak on Heuristic 7 (flexibility),
+       interrupts flow.
+    3. Field-level inline validation with retry CTA -- strong on both Heuristic 1 and
+       9; selected.
+    Selected: Concept 3, because it keeps the user in context and matches the
+    error-prevention hierarchy (suggest before confirm).
+    States: default, hover, focus, active, disabled, loading, error, empty all defined
+    for the card field and retry button.
+assertions:
+- type: contains
+  value: 'JTBD:'
+  description: Spec must state the JTBD
+- type: regex
+  pattern: Heuristic \d
+  description: Spec must score concepts against named heuristics
+- type: contains
+  value: 'Selected:'
+  description: Spec must state the selected concept with rationale
+- type: contains
+  value: default, hover, focus, active, disabled, loading, error, empty
+  description: Spec must enumerate all 8 required states

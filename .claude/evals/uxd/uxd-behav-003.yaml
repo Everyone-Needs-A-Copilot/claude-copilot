@@ -1,0 +1,19 @@
+id: uxd-behav-003
+name: Keyboard navigation and screen reader flow are documented
+priority: P1
+description: |
+  Tab order and ARIA behavior are a core deliverable, not optional -- if you can't describe the tab order, the keyboard experience is undesigned.
+type: behavioral
+source:
+  type: inline
+  content: |
+    Keyboard Navigation: Tab order is email -> password -> 'Show password' toggle ->
+    submit. Screen reader: the error banner is announced via aria-live="assertive"
+    when validation fails; focus moves to the first invalid field.
+assertions:
+- type: contains
+  value: Tab order is
+  description: Spec must state the tab order
+- type: contains
+  value: aria-live
+  description: Spec must define the screen-reader live-region behavior

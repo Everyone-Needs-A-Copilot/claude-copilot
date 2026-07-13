@@ -1,0 +1,19 @@
+id: uxd-struct-004
+name: UXD agent enforces the WCAG 2.1 AA accessibility bar
+priority: P0
+description: |
+  Accessibility is a core deliverable, not optional: 4.5:1 contrast and full keyboard access are mandatory.
+type: structural
+source:
+  type: file
+  path: .claude/agents/uxd.md
+assertions:
+- type: file-contains
+  value: WCAG 2.1 AA
+  description: uxd.md must set the WCAG 2.1 AA bar
+- type: file-contains
+  value: 4.5:1 contrast
+  description: uxd.md must require 4.5:1 contrast
+- type: file-contains
+  value: keyboard accessible
+  description: uxd.md must require keyboard accessibility

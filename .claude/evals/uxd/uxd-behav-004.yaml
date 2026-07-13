@@ -1,0 +1,22 @@
+id: uxd-behav-004
+name: Loading strategy is chosen per the decision tree, with rationale
+priority: P1
+description: |
+  Skeletons for known/predictable layouts, spinners for unknown duration and shape -- never a blank screen.
+type: behavioral
+source:
+  type: inline
+  content: |
+    Loading Strategy: skeleton screens for the results list (layout is known and
+    predictable); spinner for the search-in-progress state (duration and result shape
+    both unknown).
+assertions:
+- type: contains
+  value: 'Loading Strategy:'
+  description: Spec must state the loading strategy
+- type: contains
+  value: skeleton
+  description: Spec must use skeleton screens where layout is known
+- type: contains
+  value: spinner
+  description: Spec must use a spinner where duration/shape is unknown

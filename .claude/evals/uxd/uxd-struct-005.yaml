@@ -1,0 +1,16 @@
+id: uxd-struct-005
+name: UXD agent forbids happy-path-only design and generic Submit labels
+priority: P1
+description: |
+  Failure states must be designed first, and buttons must name the action rather than use a generic 'Submit' label.
+type: structural
+source:
+  type: file
+  path: .claude/agents/uxd.md
+assertions:
+- type: file-contains
+  value: design only the happy path
+  description: uxd.md must forbid happy-path-only design
+- type: file-contains
+  value: use "Submit" as a button label
+  description: uxd.md must forbid the generic Submit label

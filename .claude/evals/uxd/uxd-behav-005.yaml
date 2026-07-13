@@ -1,0 +1,22 @@
+id: uxd-behav-005
+name: Buttons name the action and state changes signal beyond color
+priority: P1
+description: |
+  Never 'Submit' as a label, and never color alone for state -- add shape, icon, text, or position.
+type: behavioral
+source:
+  type: inline
+  content: |
+    Buttons: primary CTA reads 'Place Order'. The disabled state is signaled by
+    reduced opacity AND a lock icon AND helper text 'Add a payment method to
+    continue' -- not color alone.
+assertions:
+- type: contains
+  value: Place Order
+  description: Primary CTA must name the action
+- type: contains
+  value: not color alone
+  description: Disabled state must signal beyond color
+- type: not-contains
+  value: Submit
+  description: Button label must not be the generic 'Submit'

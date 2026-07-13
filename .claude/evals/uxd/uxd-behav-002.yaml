@@ -1,0 +1,19 @@
+id: uxd-behav-002
+name: Failure state is prevented first, confirmation is the last resort
+priority: P1
+description: |
+  Per the Error Prevention Hierarchy, constraints come before suggestions, undo, and confirmation dialogs.
+type: behavioral
+source:
+  type: inline
+  content: |
+    Error Prevention: constraints disable the 'Place Order' button until the card
+    field validates; if the charge still fails server-side, an inline suggestion
+    offers 'Try a different card' before any confirmation dialog is shown.
+assertions:
+- type: contains
+  value: constraints
+  description: Spec must lead with constraints, not confirmation
+- type: contains
+  value: before any confirmation dialog
+  description: Spec must treat confirmation dialogs as the last resort

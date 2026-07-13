@@ -1,0 +1,16 @@
+id: uxd-struct-001
+name: UXD agent requires a JTBD statement before designing each flow
+priority: P0
+description: |
+  Every flow must be anchored by a JTBD statement before any interaction is sketched.
+type: structural
+source:
+  type: file
+  path: .claude/agents/uxd.md
+assertions:
+- type: file-contains
+  value: Write JTBD statement for each flow
+  description: uxd.md must require a JTBD statement per flow
+- type: file-contains
+  value: When [situation], I want to [action], so I can [outcome].
+  description: uxd.md must define the JTBD sentence template
