@@ -11,8 +11,20 @@ feeding the ratified outcome bars:
   - O-2 (Completeness): brief locked at start (immutable -- later edit
     attempts are recorded to solution_scope_log, never silently rewritten),
     sessions/tokens to done, post-ship fix-vs-feature ratio.
+  - O-3 (Speed, observed only): started_at/t_working/t_loveable/closed_at are
+    the raw timestamps the cse-bench solutions collector derives observed
+    elapsed-time metrics from. No counterfactual (bare-harness) comparison
+    happens here -- that's the ladder harness, W-3.
   - O-5 (Survival): started -> shipped -> in_use, tracked via status plus the
     append-only solution_usage_log.
+
+Every dict this module returns carries the storage-layer flat fields
+(``brief``, ``brief_locked_at``, ``post_ship_fixes``, ``post_ship_features``,
+``post_ship_window_days``) AND the PRD's literal entity shape as additive,
+derived keys: ``brief_lock: {text, locked_at}`` and
+``post_ship: {fixes, features, window_days}`` (see phase-4-outcome-program-prd.md
+§3 W-1). ``components_used`` is decoded from its JSON-text storage form to an
+actual list before being returned.
 
 All functions accept an optional ``conn`` parameter (batching pattern shared
 with tc.services.tasks/streams) and call ensure_solutions_schema() on every
@@ -37,7 +49,30 @@ _CLOSEABLE_STATUSES = {"shipped", "abandoned", "retired"}
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
-    return dict(row)
+    """Shape a `solutions` row into the PRD's literal entity shape.
+
+    Storage stays flat (SQLite columns); the returned dict adds the PRD's
+    nested `brief_lock`/`post_ship` views ADDITIVELY, alongside (never
+    replacing) the flat fields already relied on elsewhere in this module
+    and by existing callers. `components_used` is decoded from its
+    JSON-text storage form to an actual list.
+    """
+    d = dict(row)
+
+    if "components_used" in d and d["components_used"] is not None:
+        d["components_used"] = json.loads(d["components_used"])
+
+    if "brief" in d or "brief_locked_at" in d:
+        d["brief_lock"] = {"text": d.get("brief"), "locked_at": d.get("brief_locked_at")}
+
+    if "post_ship_fixes" in d or "post_ship_features" in d or "post_ship_window_days" in d:
+        d["post_ship"] = {
+            "fixes": d.get("post_ship_fixes"),
+            "features": d.get("post_ship_features"),
+            "window_days": d.get("post_ship_window_days"),
+        }
+
+    return d
 
 
 def _open_conn(db_path: Path) -> sqlite3.Connection:

@@ -54,7 +54,16 @@ class TestSolutionCreate:
         assert data["brief"] == "Draft brief text"
         assert data["beneficiary"] == "Pablo"
         assert data["repo_path"] == "/some/repo"
-        assert json.loads(data["components_used"]) == ["framework", "knowledge"]
+        assert data["components_used"] == ["framework", "knowledge"]
+
+    def test_create_shapes_prd_entity_fields(self, cli):
+        """The PRD lists brief_lock: {text, locked_at} and post_ship:
+        {fixes, features, window_days} as part of the Solution entity --
+        both are additive, derived views alongside the flat storage
+        fields."""
+        data = _create(cli, title="Shape check", brief="Draft")
+        assert data["brief_lock"] == {"text": "Draft", "locked_at": None}
+        assert data["post_ship"] == {"fixes": 0, "features": 0, "window_days": None}
 
     def test_create_empty_title_fails(self, cli):
         result = cli(["solution", "create", "--title", "  ", "--json"])
@@ -313,6 +322,89 @@ class TestSolutionGetList:
     def test_list_invalid_status_fails(self, cli):
         result = cli(["solution", "list", "--status", "bogus", "--json"])
         assert result.exit_code == 4  # EXIT_VALIDATION
+
+
+# ---------------------------------------------------------------------------
+# PRD field parity: mechanical check that the `solutions` table -- and the
+# dict tc.services.solutions returns -- carry every field
+# phase-4-outcome-program-prd.md §3 (W-1) lists for the Solution entity:
+#   {id, title, brief_lock (text + locked_at), beneficiary, started_at,
+#    t_working, t_loveable, status, sessions_count, tokens_total,
+#    post_ship: {fixes, features, window_days}, components_used, repo/path}
+# ---------------------------------------------------------------------------
+
+
+class TestPrdFieldParity:
+    def test_solutions_table_has_every_prd_column(self, db_conn):
+        """PRD fields, mapped to their storage column(s):
+        brief_lock -> brief + brief_locked_at; post_ship -> post_ship_fixes/
+        post_ship_features/post_ship_window_days; repo/path -> repo_path.
+        Every other PRD field name is the column name verbatim."""
+        columns = {row["name"] for row in db_conn.execute("PRAGMA table_info(solutions)").fetchall()}
+        required = {
+            "id",
+            "title",
+            "brief",
+            "brief_locked_at",
+            "beneficiary",
+            "started_at",
+            "t_working",
+            "t_loveable",
+            "status",
+            "sessions_count",
+            "tokens_total",
+            "post_ship_fixes",
+            "post_ship_features",
+            "post_ship_window_days",
+            "components_used",
+            "repo_path",
+        }
+        missing = required - columns
+        assert not missing, f"solutions table is missing PRD-required column(s): {missing}"
+
+    def test_solutions_status_enum_matches_prd(self, db_conn):
+        row = db_conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='solutions'"
+        ).fetchone()
+        create_sql = row["sql"]
+        for value in ("in_progress", "shipped", "abandoned", "in_use", "retired"):
+            assert value in create_sql
+
+    def test_returned_dict_carries_prd_shaped_views(self, cli):
+        """The entity dict tc.services.solutions returns carries both the
+        flat storage fields AND the PRD's literal nested shape
+        (brief_lock, post_ship) plus a decoded components_used list --
+        every PRD-named field is reachable from the returned dict."""
+        data = _create(
+            cli,
+            title="Field parity",
+            brief="Brief text",
+            beneficiary="Someone",
+            repo_path="/a/repo",
+            components="framework,integration",
+        )
+        for field in (
+            "id",
+            "title",
+            "beneficiary",
+            "started_at",
+            "t_working",
+            "t_loveable",
+            "status",
+            "sessions_count",
+            "tokens_total",
+            "components_used",
+            "repo_path",
+            "brief_lock",
+            "post_ship",
+        ):
+            assert field in data, f"missing PRD field '{field}' from tc solution create output"
+
+        assert data["brief_lock"]["text"] == "Brief text"
+        assert data["brief_lock"]["locked_at"] is None
+        assert data["post_ship"] == {"fixes": 0, "features": 0, "window_days": None}
+        assert data["components_used"] == ["framework", "integration"]
+        assert data["status"] == "in_progress"
 
 
 # ---------------------------------------------------------------------------

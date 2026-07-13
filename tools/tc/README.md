@@ -166,7 +166,8 @@ All rendered files include "Copy as Markdown" and "Copy as JSON" buttons. Long-f
 
 Tracks a Solution (the CSE's unit of value: a completed artifact that resolves
 a real person's real problem) end-to-end, feeding the outcome bars O-1
-(TTFLS), O-2 (Completeness), and O-5 (Survival). Lifecycle:
+(TTFLS), O-2 (Completeness), O-3 (Speed, observed via the cse-bench
+`solutions` collector), and O-5 (Survival). Lifecycle:
 
 ```bash
 tc solution create --title "..." [--brief "..."] [--beneficiary "..."] \
@@ -193,6 +194,10 @@ Notes:
   run against any existing `tasks.db` creates the ledger's tables
   transparently (`ensure_solutions_schema`, in `db/connection.py`) -- no `tc
   init` re-run needed.
+- Every returned dict carries the PRD's literal entity shape as additive,
+  derived views alongside the flat storage fields: `brief_lock: {text,
+  locked_at}`, `post_ship: {fixes, features, window_days}`, and
+  `components_used` decoded to an actual list (not a JSON-text string).
 
 ### `tc stream`
 
