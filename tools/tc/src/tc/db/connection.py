@@ -8,6 +8,7 @@ from typing import Generator, Optional
 from .fts5_core import create_content_triggers, create_fts
 from .schema import (
     SCHEMA_SQL,
+    SOLUTIONS_SCHEMA_SQL,
     WP_BASE_ROWID,
     WP_BASE_TABLE,
     WP_FTS_COLUMNS,
@@ -106,6 +107,10 @@ def init_db(path: Optional[Path] = None) -> Path:
     # Base tables, indexes, schema_version row
     conn.executescript(SCHEMA_SQL)
 
+    # Outcome Ledger tables (solutions + its two append-only logs) — additive,
+    # IF NOT EXISTS, no schema_version bump needed (see schema.py docstring).
+    conn.executescript(SOLUTIONS_SCHEMA_SQL)
+
     # FTS5 virtual table + trigger trio via shared fts5_core builders
     # (IF NOT EXISTS — safe on existing databases, no schema_version bump needed)
     create_fts(
@@ -126,3 +131,18 @@ def init_db(path: Optional[Path] = None) -> Path:
     conn.close()
 
     return path
+
+
+def ensure_solutions_schema(conn: sqlite3.Connection) -> None:
+    """Idempotently create the Outcome Ledger tables on an already-open
+    connection, if they don't already exist.
+
+    Fresh stores get these tables from init_db() directly. This function is
+    the lazy-migration path for stores created *before* the Outcome Ledger
+    existed: `tc.services.solutions` calls it at the top of every public
+    function, so the first `tc solution` command run against any existing
+    tasks.db bootstraps the new tables transparently -- no `tc init`
+    re-run, no manual migration step. Every statement is IF NOT EXISTS and
+    never touches an existing table.
+    """
+    conn.executescript(SOLUTIONS_SCHEMA_SQL)

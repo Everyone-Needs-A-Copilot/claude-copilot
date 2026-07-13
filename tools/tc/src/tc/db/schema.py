@@ -99,3 +99,69 @@ CREATE INDEX IF NOT EXISTS idx_log_task ON agent_log(task_id);
 
 INSERT OR IGNORE INTO schema_version (version) VALUES (1);
 """
+
+# Outcome Ledger (W-1, Phase 4 outcome program): the Solution entity + its two
+# append-only logs. Kept as a separate script (rather than folded into
+# SCHEMA_SQL) so it can be re-run standalone via ensure_solutions_schema() --
+# the lazy bootstrap `tc.services.solutions` calls on every connection it
+# opens, so sibling repos' pre-existing tasks.db stores (created before this
+# addition) gain these tables the first time any `tc solution` command
+# touches them, with zero required migration step from the user. `tc init`
+# also executes it directly for brand-new stores (see connection.init_db) --
+# both paths converge on this single string, so there is one source of truth
+# for the DDL. Every statement is IF NOT EXISTS: additive-only, never touches
+# `tasks`/`prds`/`streams`/etc.
+SOLUTIONS_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS solutions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    beneficiary TEXT,
+    repo_path TEXT,
+    components_used TEXT,
+    brief TEXT,
+    brief_locked_at TEXT,
+    status TEXT NOT NULL DEFAULT 'in_progress' CHECK(status IN ('in_progress', 'shipped', 'abandoned', 'in_use', 'retired')),
+    started_at TEXT NOT NULL DEFAULT (datetime('now')),
+    t_working TEXT,
+    t_loveable TEXT,
+    sessions_count INTEGER NOT NULL DEFAULT 0,
+    tokens_total INTEGER NOT NULL DEFAULT 0,
+    post_ship_fixes INTEGER NOT NULL DEFAULT 0,
+    post_ship_features INTEGER NOT NULL DEFAULT 0,
+    post_ship_window_days INTEGER,
+    closed_at TEXT,
+    outcome_notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Append-only: a scope-change/edit attempt made AFTER brief_locked_at. The
+-- locked brief text itself is never rewritten (O-2 measures completeness
+-- against the brief as locked at the start); attempted changes are recorded
+-- here instead, so drift is visible rather than silently absorbed.
+CREATE TABLE IF NOT EXISTS solution_scope_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    solution_id INTEGER NOT NULL REFERENCES solutions(id),
+    logged_at TEXT NOT NULL DEFAULT (datetime('now')),
+    note TEXT NOT NULL
+);
+
+-- Append-only: usage/fix/feature events logged after a solution ships.
+-- kind='usage' is sustained-use evidence (first one flips shipped -> in_use,
+-- O-5); kind='fix'/'feature' accumulate the O-2 post-ship fix-vs-feature
+-- ratio. sessions_delta/tokens_delta roll up into solutions.sessions_count /
+-- solutions.tokens_total.
+CREATE TABLE IF NOT EXISTS solution_usage_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    solution_id INTEGER NOT NULL REFERENCES solutions(id),
+    kind TEXT NOT NULL DEFAULT 'usage' CHECK(kind IN ('usage', 'fix', 'feature')),
+    logged_at TEXT NOT NULL DEFAULT (datetime('now')),
+    sessions_delta INTEGER NOT NULL DEFAULT 0,
+    tokens_delta INTEGER NOT NULL DEFAULT 0,
+    note TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_solutions_status ON solutions(status);
+CREATE INDEX IF NOT EXISTS idx_solution_scope_log_solution ON solution_scope_log(solution_id);
+CREATE INDEX IF NOT EXISTS idx_solution_usage_log_solution ON solution_usage_log(solution_id);
+"""

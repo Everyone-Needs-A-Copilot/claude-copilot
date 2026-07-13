@@ -51,6 +51,7 @@ from tc.db.exceptions import (
     ConflictError,
     DatabaseError,
     PrdNotFound,
+    SolutionNotFound,
     TaskNotFound,
     TcError,
     ValidationError,
@@ -97,6 +98,16 @@ from tc.services.streams import (
     get_stream,
     list_streams,
 )
+from tc.services.solutions import (
+    close_solution,
+    create_solution,
+    get_solution,
+    list_solutions,
+    lock_brief,
+    log_usage,
+    mark_loveable,
+    mark_working,
+)
 
 # ---------------------------------------------------------------------------
 # Public surface
@@ -112,6 +123,7 @@ __all__ = [
     "ConflictError",
     "DatabaseError",
     "StreamNotFound",
+    "SolutionNotFound",
     # transaction helper
     "transaction",
     # task ops
@@ -144,4 +156,13 @@ __all__ = [
     "create_stream",
     "get_stream",
     "list_streams",
+    # solution ops (Outcome Ledger, W-1)
+    "create_solution",
+    "lock_brief",
+    "mark_working",
+    "mark_loveable",
+    "log_usage",
+    "close_solution",
+    "get_solution",
+    "list_solutions",
 ]

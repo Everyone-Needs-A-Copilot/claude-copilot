@@ -162,6 +162,38 @@ tc wp render <id> --html --out /custom/path.html  # override output path
 
 All rendered files include "Copy as Markdown" and "Copy as JSON" buttons. Long-form content (≥ 100 newlines) gets a Rendered / Source tab switcher.
 
+### `tc solution` — the Outcome Ledger
+
+Tracks a Solution (the CSE's unit of value: a completed artifact that resolves
+a real person's real problem) end-to-end, feeding the outcome bars O-1
+(TTFLS), O-2 (Completeness), and O-5 (Survival). Lifecycle:
+
+```bash
+tc solution create --title "..." [--brief "..."] [--beneficiary "..."] \
+    [--repo-path "..."] [--components framework,knowledge,integration]
+tc solution lock-brief   <id> [--brief "..."]   # locks the intent contract; immutable once locked
+tc solution mark-working <id>                    # O-1: t_working
+tc solution mark-loveable <id>                   # O-1: t_loveable
+tc solution log-usage    <id> [--kind usage|fix|feature] [--sessions N] [--tokens N] [--note "..."]
+tc solution close        <id> --status shipped|abandoned|retired [--notes "..."] [--post-ship-window-days N]
+tc solution get          <id> [--json]           # includes scope_log + usage_log
+tc solution list         [--status ...] [--json]
+```
+
+Notes:
+- The brief is immutable once locked -- calling `lock-brief` again records the
+  attempted edit to an append-only scope-change log instead of rewriting it
+  (`scope_change_recorded: true` in the response).
+- `close --status shipped` requires the brief to already be locked (O-2
+  measures completeness against it).
+- The first `log-usage` call after shipping flips status `shipped -> in_use`
+  (O-5's sustained-use signal); `log-usage --kind fix|feature` accumulates the
+  post-ship fix-vs-feature ratio.
+- Schema bootstrap is automatic and additive: the first `tc solution` command
+  run against any existing `tasks.db` creates the ledger's tables
+  transparently (`ensure_solutions_schema`, in `db/connection.py`) -- no `tc
+  init` re-run needed.
+
 ### `tc stream`
 
 ```bash
@@ -258,6 +290,7 @@ tools/tc/
       prd.py             # prd create/get/list/update
       wp.py              # wp store/get/list/search
       stream.py          # stream create/get/list/update
+      solution.py        # solution create/lock-brief/mark-working/mark-loveable/log-usage/close/get/list
       handoff.py         # (see main.py)
       log_cmd.py
       progress.py
@@ -266,6 +299,7 @@ tools/tc/
       tasks.py           # create_task, add_dependency
       prds.py            # create_prd
       wp.py              # store_wp
+      solutions.py       # the Outcome Ledger (W-1): create_solution, lock_brief, mark_working, mark_loveable, log_usage, close_solution
       render_html.py     # render_wp_html — token-free HTML output (auto-detects template)
     db/
       connection.py      # get_db, init_db, find_db_path, transaction()

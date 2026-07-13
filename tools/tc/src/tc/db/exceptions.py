@@ -26,6 +26,10 @@ class WorkProductNotFound(TcError):
     """Raised when a work product ID does not exist in the database."""
 
 
+class SolutionNotFound(TcError):
+    """Raised when a solution ID does not exist in the database."""
+
+
 class ValidationError(TcError):
     """Raised when input data fails validation (bad priority, invalid status, etc.)."""
 

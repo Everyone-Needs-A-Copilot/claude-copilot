@@ -9,6 +9,7 @@ import typer
 
 from tc import __version__
 from tc.commands.prd import prd_app
+from tc.commands.solution import solution_app
 from tc.commands.stream import stream_app
 from tc.commands.task import task_app
 from tc.commands.wp import wp_app
@@ -23,6 +24,7 @@ app = typer.Typer(
 
 # Register command groups
 app.add_typer(prd_app, name="prd")
+app.add_typer(solution_app, name="solution")
 app.add_typer(stream_app, name="stream")
 app.add_typer(task_app, name="task")
 app.add_typer(wp_app, name="wp")
