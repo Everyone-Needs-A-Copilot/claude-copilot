@@ -1,0 +1,16 @@
+id: me-struct-002
+name: Engineer agent mandates routing to QA
+priority: P0
+description: |
+  The me agent must never treat implementation as final without routing to @agent-qa -- this is the QA-gate hand-off the framework-qa-gate-adherence claim depends on.
+type: structural
+source:
+  type: file
+  path: .claude/agents/me.md
+assertions:
+- type: file-contains
+  value: every implementation MUST route to QA (mandatory)
+  description: me.md must mandate routing to @agent-qa in its Route To table
+- type: file-contains
+  value: Mark implementation as final without routing to @agent-qa
+  description: me.md must list skipping QA routing as a Never behavior

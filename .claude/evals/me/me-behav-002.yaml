@@ -1,0 +1,24 @@
+id: me-behav-002
+name: Implementation summary externalizes, does not inline code
+priority: P0
+description: |
+  The me output is a ~100-token summary, not a diff dump. It must not contain fenced code blocks or raw function bodies -- the change itself lives in the file, not the return value.
+type: behavioral
+source:
+  type: inline
+  content: |
+    Task: TASK-211 | WP: WP-341
+    Files Modified:
+    - src/billing/invoice.py: Rounded totals to 2 decimal places before persisting
+    Summary: Fixed a rounding bug in invoice totals; added a regression test. Tests
+    pass and lint is clean. Routed to @agent-qa.
+assertions:
+- type: not-contains
+  value: '```'
+  description: Summary must not contain fenced code blocks
+- type: not-contains
+  value: 'def '
+  description: Summary must not inline Python function bodies
+- type: contains
+  value: 'Files Modified:'
+  description: Files Modified section must still be present

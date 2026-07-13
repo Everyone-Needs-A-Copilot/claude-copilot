@@ -1,0 +1,24 @@
+id: me-behav-004
+name: Summary confirms lint/compile gates before completion
+priority: P1
+description: |
+  me's validationRules are tests_pass, tests_written, compiles, lint_clean. A compliant summary should reflect that these gates were checked, not silently assumed.
+type: behavioral
+source:
+  type: inline
+  content: |
+    Task: TASK-213 | WP: WP-343
+    Files Modified:
+    - src/cli/parse_args.py: Added a new --dry-run flag with a unit test
+    Summary: Added --dry-run flag with a new unit test; code compiles, lint is clean,
+    and all tests pass.
+assertions:
+- type: contains
+  value: compiles
+  description: Summary must confirm the compiles gate
+- type: contains
+  value: lint is clean
+  description: Summary must confirm the lint_clean gate
+- type: contains
+  value: unit test
+  description: Summary must confirm the tests_written gate

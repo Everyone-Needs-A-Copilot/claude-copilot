@@ -1,0 +1,19 @@
+id: me-struct-005
+name: Engineer agent's Anti-Generic Rules forbid premature abstraction
+priority: P1
+description: |
+  The me agent must forbid imposing design patterns before duplication demands them, forbid clever code, and forbid refactors without covering tests.
+type: structural
+source:
+  type: file
+  path: .claude/agents/me.md
+assertions:
+- type: file-contains
+  value: NEVER impose a design pattern before duplication demands it
+  description: me.md forbids premature design patterns
+- type: file-contains
+  value: NEVER write clever code
+  description: me.md forbids clever code
+- type: file-contains
+  value: NEVER refactor without tests covering the changed code
+  description: me.md forbids untested refactors

@@ -1,0 +1,28 @@
+id: me-behav-001
+name: Valid implementation summary matches the output format and routes to QA
+priority: P0
+description: |
+  A well-formed me summary must carry the Task/WP header, a Files Modified list, a Summary, and an explicit QA hand-off. This is the happy path.
+type: behavioral
+source:
+  type: inline
+  content: |
+    Task: TASK-210 | WP: WP-340
+    Files Modified:
+    - src/auth/token.py: Added expiry validation with explicit error handling
+    - tests/test_token.py: Added edge-case tests for empty and malformed tokens
+    Summary: Implemented token expiry validation with error handling for empty/malformed
+    input. All existing and new unit tests pass. Routed to @agent-qa for verification.
+assertions:
+- type: regex
+  pattern: 'Task: TASK-\d+ \| WP: WP-\d+'
+  description: Header must match the Task/WP pattern
+- type: contains
+  value: 'Files Modified:'
+  description: Files Modified section must be present
+- type: contains
+  value: '@agent-qa'
+  description: Summary must route to @agent-qa
+- type: contains
+  value: 'Summary:'
+  description: Summary line must be present

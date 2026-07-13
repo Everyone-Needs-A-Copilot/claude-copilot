@@ -1,0 +1,19 @@
+id: me-struct-004
+name: Engineer agent defines the Simple Design methodology
+priority: P1
+description: |
+  The me agent must anchor refactoring/design decisions to Kent Beck's 4 Rules of Simple Design, in priority order.
+type: structural
+source:
+  type: file
+  path: .claude/agents/me.md
+assertions:
+- type: file-contains
+  value: Kent Beck's 4 Rules of Simple Design
+  description: me.md must name the design methodology
+- type: file-contains
+  value: Passes the tests
+  description: me.md must rank passing tests as the top priority
+- type: file-contains
+  value: Reveals intention
+  description: me.md must include the reveals-intention rule

@@ -1,0 +1,19 @@
+id: me-struct-003
+name: Engineer agent defines BLOCKED/CONFUSED loop states
+priority: P1
+description: |
+  The me agent must distinguish external blockers (BLOCKED) from user-judgment forks (CONFUSED), and never forward-patch around an invalidated @agent-ta assumption.
+type: structural
+source:
+  type: file
+  path: .claude/agents/me.md
+assertions:
+- type: file-contains
+  value: <promise>BLOCKED</promise>
+  description: me.md must define the BLOCKED completion promise
+- type: file-contains
+  value: <promise>CONFUSED</promise>
+  description: me.md must define the CONFUSED completion promise
+- type: file-contains
+  value: CONFUSED is for user-judgment forks; BLOCKED is for external blockers
+  description: me.md must distinguish the two loop-exit states

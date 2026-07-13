@@ -1,0 +1,25 @@
+id: me-behav-005
+name: API-change summary also routes to @agent-doc
+priority: P1
+description: |
+  me's Route To table sends API changes to @agent-doc in addition to the mandatory @agent-qa hand-off. A summary for a new public endpoint should reflect both routes.
+type: behavioral
+source:
+  type: inline
+  content: |
+    Task: TASK-311 | WP: WP-405
+    Files Modified:
+    - src/api/users.py: Added new GET /users/:id/preferences endpoint
+    Summary: Implemented a new public API endpoint for preference retrieval; all tests
+    pass. Routed to @agent-qa for verification and @agent-doc since this adds a new
+    public API surface.
+assertions:
+- type: contains
+  value: '@agent-doc'
+  description: API-surface change must route to @agent-doc
+- type: contains
+  value: '@agent-qa'
+  description: Mandatory QA routing must still be present
+- type: contains
+  value: API
+  description: Summary must name the API-surface change

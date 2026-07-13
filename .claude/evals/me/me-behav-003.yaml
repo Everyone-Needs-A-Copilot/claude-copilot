@@ -1,0 +1,24 @@
+id: me-behav-003
+name: Summary acknowledges edge-case handling
+priority: P1
+description: |
+  me's Core Behaviors require edge cases and errors to be handled; a compliant summary should say so, not just claim 'tests pass'.
+type: behavioral
+source:
+  type: inline
+  content: |
+    Task: TASK-212 | WP: WP-342
+    Files Modified:
+    - src/api/upload.py: Reject empty and oversized files with a 400 and clear message
+    Summary: Added edge-case handling for empty and oversized uploads with explicit
+    error handling; all existing and new unit tests pass.
+assertions:
+- type: contains
+  value: edge-case
+  description: Summary must acknowledge edge cases
+- type: contains
+  value: error handling
+  description: Summary must acknowledge error handling
+- type: contains
+  value: tests pass
+  description: Summary must confirm the tests_pass gate

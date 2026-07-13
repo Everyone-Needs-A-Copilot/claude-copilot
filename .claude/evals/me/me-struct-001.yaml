@@ -1,0 +1,19 @@
+id: me-struct-001
+name: Engineer agent defines the mandatory output-format contract
+priority: P0
+description: |
+  The me agent definition must specify the exact Task/WP/Files Modified/Summary output shape the hook and downstream agents depend on.
+type: structural
+source:
+  type: file
+  path: .claude/agents/me.md
+assertions:
+- type: file-contains
+  value: 'Task: TASK-xxx | WP: WP-xxx'
+  description: me.md must define the Task/WP header line
+- type: file-contains
+  value: 'Files Modified:'
+  description: me.md must define the Files Modified section
+- type: file-contains
+  value: 'Summary: [2-3 sentences]'
+  description: me.md must define the Summary line
