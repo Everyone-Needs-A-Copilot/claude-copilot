@@ -18,6 +18,19 @@ feeding the ratified outcome bars:
   - O-5 (Survival): started -> shipped -> in_use, tracked via status plus the
     append-only solution_usage_log.
 
+W-2 (Phase 4 outcome program, token & session joins): every public function
+below that touches a specific solution_id also calls
+_record_session_touch(), which appends a row to the additive
+solution_sessions table (repo_path + session_id + logged_at) whenever
+CLAUDE_CODE_SESSION_ID is set in the environment -- i.e. this call is
+running inside a live Claude Code session. That is "tc solution records the
+session id when invoked inside one" (phase-4-outcome-program-prd.md par.3
+W-2): the repo+time+session-id join keys the cse-bench economy collector
+uses to independently cross-check solutions.tokens_total (the self-reported
+ledger figure) against each joined session's own transcript token usage. A
+no-op outside a live session (scripts, tests, CI) -- absence is the honest
+no-signal state, not an error.
+
 Every dict this module returns carries the storage-layer flat fields
 (``brief``, ``brief_locked_at``, ``post_ship_fixes``, ``post_ship_features``,
 ``post_ship_window_days``) AND the PRD's literal entity shape as additive,
@@ -37,11 +50,17 @@ This module has ZERO import-time side effects -- no DB opened, no env read.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 from typing import Any, Optional, Union
 
 from tc.db.exceptions import ConflictError, SolutionNotFound, ValidationError
+
+# W-2: the env var Claude Code exports to every tool invocation inside a
+# live session (confirmed present via `env` inside an active Claude Code
+# session; not documented elsewhere in this repo as of this writing).
+_SESSION_ID_ENV = "CLAUDE_CODE_SESSION_ID"
 
 _VALID_COMPONENTS = {"framework", "knowledge", "integration"}
 _VALID_LOG_KINDS = {"usage", "fix", "feature"}
@@ -140,6 +159,21 @@ def _get_solution_row(conn: sqlite3.Connection, solution_id: int) -> sqlite3.Row
     return row
 
 
+def _record_session_touch(conn: sqlite3.Connection, solution_id: int) -> None:
+    """Append a solution_sessions row (W-2) when this call is running
+    inside a live Claude Code session (CLAUDE_CODE_SESSION_ID set) -- see
+    module docstring. A no-op otherwise; absence of a session id is the
+    honest no-signal state, not an error.
+    """
+    session_id = os.environ.get(_SESSION_ID_ENV)
+    if not session_id:
+        return
+    conn.execute(
+        "INSERT INTO solution_sessions (solution_id, session_id, repo_path) VALUES (?, ?, ?)",
+        (solution_id, session_id, os.getcwd()),
+    )
+
+
 def create_solution(
     *,
     title: str,
@@ -182,6 +216,7 @@ def create_solution(
             (title, brief, beneficiary, repo_path, components_str),
         )
         solution_id = cursor.lastrowid
+        _record_session_touch(conn, solution_id)
         row = _get_solution_row(conn, solution_id)
 
         if owns_conn:
@@ -226,6 +261,7 @@ def lock_brief(
                 "INSERT INTO solution_scope_log (solution_id, note) VALUES (?, ?)",
                 (solution_id, note),
             )
+            _record_session_touch(conn, solution_id)
             if owns_conn:
                 conn.commit()
             result = _row_to_dict(_get_solution_row(conn, solution_id))
@@ -244,6 +280,7 @@ def lock_brief(
                WHERE id = ?""",
             (final_brief, solution_id),
         )
+        _record_session_touch(conn, solution_id)
         if owns_conn:
             conn.commit()
 
@@ -279,6 +316,7 @@ def mark_working(
             "UPDATE solutions SET t_working = datetime('now'), updated_at = datetime('now') WHERE id = ?",
             (solution_id,),
         )
+        _record_session_touch(conn, solution_id)
         if owns_conn:
             conn.commit()
 
@@ -320,6 +358,7 @@ def mark_loveable(
             "UPDATE solutions SET t_loveable = datetime('now'), updated_at = datetime('now') WHERE id = ?",
             (solution_id,),
         )
+        _record_session_touch(conn, solution_id)
         if owns_conn:
             conn.commit()
 
@@ -386,6 +425,7 @@ def log_usage(
             f"UPDATE solutions SET {', '.join(updates)} WHERE id = ?",
             (*params, solution_id),
         )
+        _record_session_touch(conn, solution_id)
 
         if owns_conn:
             conn.commit()
@@ -459,6 +499,7 @@ def close_solution(
 
         params.append(solution_id)
         conn.execute(f"UPDATE solutions SET {', '.join(updates)} WHERE id = ?", params)
+        _record_session_touch(conn, solution_id)
 
         if owns_conn:
             conn.commit()
@@ -475,7 +516,8 @@ def get_solution(
     conn: Optional[sqlite3.Connection] = None,
     db_path: Optional[Path] = None,
 ) -> dict[str, Any]:
-    """Return a solution dict with its scope_log and usage_log entries.
+    """Return a solution dict with its scope_log, usage_log, and (W-2)
+    sessions entries.
 
     Raises:
         SolutionNotFound: if solution_id does not exist.
@@ -493,9 +535,14 @@ def get_solution(
             "SELECT * FROM solution_usage_log WHERE solution_id = ? ORDER BY id",
             (solution_id,),
         ).fetchall()
+        session_rows = conn.execute(
+            "SELECT * FROM solution_sessions WHERE solution_id = ? ORDER BY id",
+            (solution_id,),
+        ).fetchall()
 
         d["scope_log"] = [_row_to_dict(r) for r in scope_rows]
         d["usage_log"] = [_row_to_dict(r) for r in usage_rows]
+        d["sessions"] = [_row_to_dict(r) for r in session_rows]
         return d
     finally:
         if owns_conn:

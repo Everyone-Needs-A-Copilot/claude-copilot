@@ -256,10 +256,11 @@ def solution_get(
         output_json(d)
     else:
         for k, v in d.items():
-            if k not in ("scope_log", "usage_log"):
+            if k not in ("scope_log", "usage_log", "sessions"):
                 print(f"{k}: {v}")
         print(f"scope_log: {len(d['scope_log'])} entries")
         print(f"usage_log: {len(d['usage_log'])} entries")
+        print(f"sessions: {len(d['sessions'])} entries")
 
 
 @solution_app.command("list")

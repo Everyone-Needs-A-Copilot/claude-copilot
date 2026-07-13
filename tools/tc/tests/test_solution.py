@@ -325,6 +325,75 @@ class TestSolutionGetList:
 
 
 # ---------------------------------------------------------------------------
+# W-2 (Phase 4 outcome program, token & session joins): tc solution records
+# the session id when invoked inside one (CLAUDE_CODE_SESSION_ID env var),
+# into the additive solution_sessions join table -- the repo+time+session-id
+# join keys the cse-bench economy collector uses to independently
+# cross-check solutions.tokens_total against transcript token usage.
+# ---------------------------------------------------------------------------
+
+
+class TestSolutionSessionsW2:
+    def test_no_session_id_env_no_capture(self, cli, monkeypatch):
+        monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+        _create(cli, brief="Brief")
+        cli(["solution", "lock-brief", "1", "--json"])
+        cli(["solution", "close", "1", "--status", "shipped", "--json"])
+        result = cli(["solution", "get", "1", "--json"])
+        data = json.loads(result.output)
+        assert data["sessions"] == []
+
+    def test_session_id_env_captures_repo_and_session(self, cli, monkeypatch):
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-abc-123")
+        _create(cli, title="Dogfooded solution")
+        result = cli(["solution", "get", "1", "--json"])
+        data = json.loads(result.output)
+        assert len(data["sessions"]) == 1
+        entry = data["sessions"][0]
+        assert entry["session_id"] == "sess-abc-123"
+        assert entry["solution_id"] == 1
+        assert entry["repo_path"]  # cwd, non-empty
+        assert entry["logged_at"]
+
+    def test_every_mutating_command_appends_a_touch_same_session(self, cli, monkeypatch):
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-one-session")
+        _create(cli, brief="Brief")
+        cli(["solution", "lock-brief", "1", "--json"])
+        cli(["solution", "mark-working", "1", "--json"])
+        cli(["solution", "mark-loveable", "1", "--json"])
+        cli(["solution", "close", "1", "--status", "shipped", "--json"])
+        cli(["solution", "log-usage", "1", "--sessions", "1", "--tokens", "100", "--json"])
+        result = cli(["solution", "get", "1", "--json"])
+        data = json.loads(result.output)
+        # One append-only row per mutating call...
+        assert len(data["sessions"]) == 6
+        # ...but all from the SAME session -- the join dedupes by distinct
+        # session_id, which is exactly one here.
+        distinct_ids = {row["session_id"] for row in data["sessions"]}
+        assert distinct_ids == {"sess-one-session"}
+
+    def test_different_sessions_recorded_separately(self, cli, monkeypatch):
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-A")
+        _create(cli, brief="Brief")
+        cli(["solution", "lock-brief", "1", "--json"])
+        cli(["solution", "close", "1", "--status", "shipped", "--json"])
+
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-B")
+        cli(["solution", "log-usage", "1", "--sessions", "1", "--tokens", "50", "--json"])
+
+        result = cli(["solution", "get", "1", "--json"])
+        data = json.loads(result.output)
+        distinct_ids = {row["session_id"] for row in data["sessions"]}
+        assert distinct_ids == {"session-A", "session-B"}
+
+    def test_human_readable_get_shows_sessions_count(self, cli, monkeypatch):
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-hr")
+        _create(cli, title="HR sessions check")
+        result = cli(["solution", "get", "1"])
+        assert "sessions: 1 entries" in result.output
+
+
+# ---------------------------------------------------------------------------
 # PRD field parity: mechanical check that the `solutions` table -- and the
 # dict tc.services.solutions returns -- carry every field
 # phase-4-outcome-program-prd.md §3 (W-1) lists for the Solution entity:
@@ -446,8 +515,10 @@ class TestLazySchemaBootstrap:
         }
         conn.close()
         assert "solutions" not in tables
+        assert "solution_sessions" not in tables
 
         monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "bootstrap-session")
         result = runner.invoke(app, ["solution", "create", "--title", "First Real Solution", "--json"])
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
@@ -458,4 +529,14 @@ class TestLazySchemaBootstrap:
         conn.row_factory = sqlite3.Row
         version_row = conn.execute("SELECT version FROM schema_version").fetchone()
         assert version_row["version"] == 1
+
+        # W-2's solution_sessions join table is bootstrapped alongside the
+        # rest of the Outcome Ledger, and the create call above (running
+        # with CLAUDE_CODE_SESSION_ID set) already recorded a touch into it.
+        tables_after = {
+            r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
+        assert "solution_sessions" in tables_after
+        session_row = conn.execute("SELECT * FROM solution_sessions").fetchone()
+        assert session_row["session_id"] == "bootstrap-session"
         conn.close()

@@ -161,7 +161,27 @@ CREATE TABLE IF NOT EXISTS solution_usage_log (
     note TEXT
 );
 
+-- Append-only (W-2, Phase 4 outcome program, token & session joins): one row
+-- per `tc solution` mutating command invoked while a CLAUDE_CODE_SESSION_ID
+-- is present in the environment (i.e. running inside a live Claude Code
+-- session) -- see tc.services.solutions._record_session_touch. Carries the
+-- repo+time+session-id join keys phase-4-outcome-program-prd.md par.3 W-2
+-- names: cse-bench's economy collector uses DISTINCT session_id per
+-- solution to independently sum that session's own transcript token usage
+-- and cross-check it against solutions.tokens_total (the self-reported
+-- ledger figure). Multiple rows per (solution_id, session_id) are expected
+-- and harmless -- callers dedupe by session_id when computing totals.
+CREATE TABLE IF NOT EXISTS solution_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    solution_id INTEGER NOT NULL REFERENCES solutions(id),
+    session_id TEXT NOT NULL,
+    repo_path TEXT,
+    logged_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_solutions_status ON solutions(status);
 CREATE INDEX IF NOT EXISTS idx_solution_scope_log_solution ON solution_scope_log(solution_id);
 CREATE INDEX IF NOT EXISTS idx_solution_usage_log_solution ON solution_usage_log(solution_id);
+CREATE INDEX IF NOT EXISTS idx_solution_sessions_solution ON solution_sessions(solution_id);
+CREATE INDEX IF NOT EXISTS idx_solution_sessions_session_id ON solution_sessions(session_id);
 """
