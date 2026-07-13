@@ -1,0 +1,20 @@
+id: doc-behav-005
+name: Documentation states prerequisites explicitly instead of assuming context
+priority: P1
+description: |
+  doc must never assume the reader's context -- prerequisites, including versions, must be stated up front.
+type: behavioral
+source:
+  type: inline
+  content: |
+    ## Prerequisites
+    - macOS 14+
+    - `copilot` CLI v2.3.0 or newer
+    - An existing `.claude/` install in the target repo
+assertions:
+- type: contains
+  value: Prerequisites
+  description: Docs must include a Prerequisites section
+- type: regex
+  pattern: v\d+\.\d+
+  description: Prerequisites must state a concrete version

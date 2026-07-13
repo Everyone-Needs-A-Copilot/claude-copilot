@@ -1,0 +1,16 @@
+id: doc-struct-001
+name: Doc agent requires accuracy verification against actual code
+priority: P0
+description: |
+  The doc agent must never document features that don't exist and must verify accuracy against the code before writing.
+type: structural
+source:
+  type: file
+  path: .claude/agents/doc.md
+assertions:
+- type: file-contains
+  value: Verify accuracy against actual code before documenting
+  description: doc.md must require accuracy verification
+- type: file-contains
+  value: docs_accurate
+  description: doc.md must gate on the docs_accurate validation rule

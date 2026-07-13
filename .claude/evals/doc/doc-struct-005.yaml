@@ -1,0 +1,16 @@
+id: doc-struct-005
+name: Doc agent externalizes documentation instead of inlining it
+priority: P1
+description: |
+  Per Gate 2 (Context Test), doc must store documentation via tc wp store and never return the full documentation body to the main session.
+type: structural
+source:
+  type: file
+  path: .claude/agents/doc.md
+assertions:
+- type: file-contains
+  value: Return full documentation to main session
+  description: doc.md must forbid returning full docs to the main session
+- type: file-contains
+  value: tc wp store --task <id> --type documentation
+  description: doc.md must instruct storing documentation as a work product

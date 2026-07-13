@@ -1,0 +1,25 @@
+id: doc-struct-002
+name: Doc agent enforces the four Diataxis modes
+priority: P0
+description: |
+  The doc agent must classify every page as exactly one of Tutorial, How-to, Reference, or Explanation -- never mixed.
+type: structural
+source:
+  type: file
+  path: .claude/agents/doc.md
+assertions:
+- type: file-contains
+  value: Diátaxis Framework
+  description: doc.md must name the Diataxis framework
+- type: file-contains
+  value: Tutorial
+  description: doc.md must define the Tutorial mode
+- type: file-contains
+  value: How-to
+  description: doc.md must define the How-to mode
+- type: file-contains
+  value: Reference
+  description: doc.md must define the Reference mode
+- type: file-contains
+  value: Explanation
+  description: doc.md must define the Explanation mode

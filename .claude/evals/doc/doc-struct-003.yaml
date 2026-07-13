@@ -1,0 +1,13 @@
+id: doc-struct-003
+name: Doc agent forbids documenting nonexistent or inaccurate features
+priority: P0
+description: |
+  Documenting a feature that doesn't exist is a direct honesty violation the agent must forbid.
+type: structural
+source:
+  type: file
+  path: .claude/agents/doc.md
+assertions:
+- type: file-contains
+  value: Document features that don't exist or are inaccurate
+  description: doc.md must forbid documenting nonexistent features

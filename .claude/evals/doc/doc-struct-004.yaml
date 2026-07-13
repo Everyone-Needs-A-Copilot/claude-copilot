@@ -1,0 +1,16 @@
+id: doc-struct-004
+name: Doc agent requires scannable structure over walls of text
+priority: P1
+description: |
+  Docs must use headings, lists, and tables -- never a wall of prose.
+type: structural
+source:
+  type: file
+  path: .claude/agents/doc.md
+assertions:
+- type: file-contains
+  value: 'scannable structure: headings, lists, tables'
+  description: doc.md must require scannable structure
+- type: file-contains
+  value: Write walls of text (use lists and tables instead)
+  description: doc.md must forbid walls of text

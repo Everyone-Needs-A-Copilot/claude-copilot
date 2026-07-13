@@ -1,0 +1,24 @@
+id: doc-behav-003
+name: Tutorial sample is learning-oriented and builds something meaningful
+priority: P1
+description: |
+  A tutorial follows along to build something, rather than dumping an API surface.
+type: behavioral
+source:
+  type: inline
+  content: |
+    # Your First Copilot Repair
+
+    By the end of this tutorial, you will have built a working local repair loop:
+    you'll break your `.claude/` install on purpose, then bring it back with
+    `copilot repair`, watching each step.
+assertions:
+- type: contains
+  value: tutorial
+  description: Tutorial must name itself as a tutorial
+- type: contains
+  value: you will have built
+  description: Tutorial must state what the reader will build
+- type: not-contains
+  value: '## API Reference'
+  description: Tutorial must not also be a reference dump

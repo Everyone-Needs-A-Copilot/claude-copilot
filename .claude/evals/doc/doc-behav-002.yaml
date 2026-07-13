@@ -1,0 +1,26 @@
+id: doc-behav-002
+name: Reference sample is dry and navigable, not tutorial-flavored
+priority: P1
+description: |
+  A reference page is information-oriented -- a lookup table, not a guided narrative.
+type: behavioral
+source:
+  type: inline
+  content: |
+    ## `copilot doctor` Flags
+
+    | Flag | Type | Default | Description |
+    |------|------|---------|-------------|
+    | `--json` | bool | false | Emit machine-readable output |
+    | `--fix` | bool | false | Apply the first safe repair found |
+    | `--verbose` | bool | false | Print each check as it runs |
+assertions:
+- type: contains
+  value: '|'
+  description: Reference should use a table structure
+- type: not-contains
+  value: Let's start by
+  description: Reference must not use tutorial narration
+- type: not-contains
+  value: In this tutorial
+  description: Reference must not frame itself as a tutorial

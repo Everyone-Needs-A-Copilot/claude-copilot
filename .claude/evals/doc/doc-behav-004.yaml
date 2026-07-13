@@ -1,0 +1,24 @@
+id: doc-behav-004
+name: Explanation sample provides reasoning, not step-by-step instructions
+priority: P1
+description: |
+  An explanation page answers why, and must not smuggle in a numbered how-to.
+type: behavioral
+source:
+  type: inline
+  content: |
+    ## Why `flock` Serializes the CLI
+
+    `copilot` uses `flock` on `copilot.lock` because two concurrent invocations
+    mutating `.claude/` would race; a single OS-level lock is simpler and more
+    portable than a lock server, and it fails closed if the process dies mid-write.
+assertions:
+- type: contains
+  value: Why
+  description: Explanation must frame itself around why
+- type: not-contains
+  value: '## Steps'
+  description: Explanation must not include a Steps section
+- type: not-contains
+  value: '1. '
+  description: Explanation must not include numbered instructions

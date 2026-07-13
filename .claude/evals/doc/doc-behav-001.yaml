@@ -1,0 +1,38 @@
+id: doc-behav-001
+name: How-to sample follows a single Diataxis mode with required sections
+priority: P0
+description: |
+  A compliant how-to page states prerequisites, numbered steps, expected output, and troubleshooting -- and does not also try to be a reference dump.
+type: behavioral
+source:
+  type: inline
+  content: |
+    # How to Rotate the Signing Key
+
+    ## Prerequisites
+    - Admin access to the keychain
+    - `copilot` CLI v2.3+
+
+    ## Steps
+    1. Run `copilot admin rotate-key --dry-run` to preview the change.
+    2. Run `copilot admin rotate-key --apply` to rotate.
+    3. Verify with `copilot doctor` that the new key is trusted.
+
+    ## Expected Output
+    `doctor` reports `signing_key: rotated (2026-07-13)`.
+
+    ## Troubleshooting
+    If `doctor` still shows the old key, re-run with `--force-refresh`.
+assertions:
+- type: contains
+  value: Prerequisites
+  description: How-to must state prerequisites
+- type: contains
+  value: Steps
+  description: How-to must include numbered steps
+- type: contains
+  value: Expected Output
+  description: How-to must state expected output
+- type: contains
+  value: Troubleshooting
+  description: How-to must include troubleshooting
