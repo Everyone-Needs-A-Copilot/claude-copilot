@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Volumes/Dev/Sites/COPILOT/claude-copilot/.claude/hooks/session-start.sh"
+            "command": "/Users/pabs/Sites/COPILOT/claude-copilot/.claude/hooks/session-start.sh"
           }
         ]
       }
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Volumes/Dev/Sites/COPILOT/claude-copilot/.claude/hooks/pretool-check.sh"
+            "command": "/Users/pabs/Sites/COPILOT/claude-copilot/.claude/hooks/pretool-check.sh"
           }
         ]
       }
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Volumes/Dev/Sites/COPILOT/claude-copilot/.claude/hooks/subagent-stop.sh"
+            "command": "/Users/pabs/Sites/COPILOT/claude-copilot/.claude/hooks/subagent-stop.sh"
           }
         ]
       }
@@ -37,7 +37,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Volumes/Dev/Sites/COPILOT/claude-copilot/.claude/hooks/user-prompt-submit.sh"
+            "command": "/Users/pabs/Sites/COPILOT/claude-copilot/.claude/hooks/user-prompt-submit.sh"
           }
         ]
       }
