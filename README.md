@@ -113,10 +113,10 @@ A diagnostic of 15 sessions (Apr 17-22 2026) found a 6% delegation rate — 94% 
 │   (cc memory)      │ │   (tc CLI)         │ │                                │
 │ • Decisions made   │ │ • PRDs & tasks     │ │ • Auto-fires from description  │
 │ • Lessons learned  │ │ • Work products    │ │ • Code-bearing: L1/L2/L3      │
-│ • FTS5 keyword     │ │ • ~94% less context│ │ • Known References registry    │
-│                    │ │   for externalized │ │   (configured paths/refs only) │
-│                    │ │   work products vs │ │ • Agent auto-pull: roadmap     │
-│                    │ │   inlining outputs │ │                                │
+│ • FTS5 keyword     │ │ • Externalizes WPs │ │ • Known References registry    │
+│                    │ │   out of the main  │ │   (configured paths/refs only) │
+│                    │ │   session context  │ │ • Agent auto-pull: roadmap     │
+│                    │ │                    │ │                                │
 │ • Enables /continue│ │ • tc.api facade    │ │ • cc.api facade                │
 └────────────────────┘ └────────────────────┘ └────────────────────────────────┘
 ```
