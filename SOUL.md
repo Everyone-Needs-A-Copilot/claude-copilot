@@ -12,7 +12,7 @@
 > **It is living.** It changes only when real evidence says the product changed —
 > and every change is logged in **Section 10: Evolution**.
 
-> **STATUS: RATIFIED v1.0 — 2026-06-28** (amended v1.1, v1.2 — 2026-07-14; see §10 Evolution). Owner-ratified at read-back: priority order set, a fifth anti-pattern (The Do-Everything Generalist) added, and the ecosystem MCP/CLI boundary settled. Evidenced inferences confirmed against the owner's docs.
+> **STATUS: RATIFIED v1.0 — 2026-06-28** (amended v1.1, v1.2, v1.3 — 2026-07-14; see §10 Evolution). Owner-ratified at read-back: priority order set, a fifth anti-pattern (The Do-Everything Generalist) added, and the ecosystem MCP/CLI boundary settled. Evidenced inferences confirmed against the owner's docs.
 
 ---
 
@@ -81,7 +81,7 @@ It looks like a "product" or "platform," but it is an **instruction layer**: fil
 **Test:** "If this rule is important, what mechanically enforces it — and what's the escape hatch?" No enforcement path → it's decoration.
 
 ### Principle 3: Context Is the Budget
-**Meaning:** The main session's token budget is the scarce resource. Work is delegated to agents; the detail is externalized to a work product instead of inlined into the conversation, and the agent hands back a compressed summary plus a pointer to that work product, not its full reasoning. The savings ratio this mechanism actually achieves, and the current per-agent-class return-size bar, are measured continuously and carried in the claims register (`framework-externalization-94pct`, `framework-agent-frugality`) rather than hard-coded here — see §6 for today's bar.
+**Meaning:** The main session's token budget is the scarce resource. Work is delegated to agents; the detail is externalized to a work product instead of inlined into the conversation, and the agent hands back a compressed summary plus a pointer to that work product, not its full reasoning. The savings ratio this mechanism actually achieves, the current per-agent-class return-size ceiling, and the honest aspiration it ratchets toward are measured continuously and carried in the claims register (`framework-externalization-94pct`, `framework-agent-frugality`, `framework-agent-return-aspiration`) rather than hard-coded here — see §6 for today's ceiling.
 **Rejection:** We reject anything that bloats the main session — inlining large outputs, reading the world at startup, agents that dump their transcript back into context.
 **Test:** "Does this reduce, or at least not inflate, main-session tokens?" If it inflates context → redesign or reject.
 
@@ -124,7 +124,7 @@ The first three are **identity boundaries** — cross any one and it stops being
 **Drift:** Agents get "just a bit more" context to be smarter — more files read at startup, full reasoning returned to the main session, outputs inlined instead of stored as work products.
 **Why it kills us:** It destroys the framework's core purpose (CLAUDE.md: "context bloat — the framework's core purpose"). The cure becomes the disease.
 **Early warning:** "let the agent read everything," "return the full analysis," "inline the output," rising main-session turn counts.
-**Line in the sand:** Outputs over the threshold externalize to work products; agents return within their class's current ratchet bar (§6), not their full reasoning — and enforcement that needs context pays the cost once, never per-turn.
+**Line in the sand:** Outputs over the threshold externalize to work products; no agent class's median return exceeds its registered ceiling (§6) — a breach is a regression, not grounds to raise the ceiling — and the true design intent (~100 tokens, tracked separately as an honestly-failing aspiration) is what the ceiling ratchets toward. Enforcement that needs context pays its cost once, never per-turn.
 
 ### The Company Fork
 **Drift:** A specific team's methodology, voice, or vocabulary gets added directly into a base agent because it's faster than writing an extension.
@@ -196,24 +196,29 @@ If yes → reject, or redesign until it doesn't.
 - [ ] No implementation ships without a `@agent-qa` pass that carries an `ARTIFACT:` marker (a bare `VERDICT: APPROVED` does not unblock the gate).
 - [ ] Rules that matter are enforced by a hook or gate, each with a documented escape hatch (`COPILOT_*=off`).
 - [ ] `VERSION.json` is the single source of truth for the framework version; `package.json` mirrors it, never leads.
-- [ ] Agent returns to the main session stay within their class's current ratchet bar (below); details go to work products.
+- [ ] No agent class's median return exceeds its current ceiling (below) — a breach is a regression to fix, never grounds to raise the ceiling; details go to work products.
 - [ ] No time estimates anywhere — phases, priority, and complexity only.
 - [ ] Base agents stay generic; no company-specific content.
 - [ ] `cc`/`tc` contract changes preserve parity with downstream consumers (codex-copilot pins).
 
-**Agent-return ratchet (by class), AMENDED 2026-07-14:** SOUL's original bar (~100 tokens, flat, all classes) was never met by any agent class once actually measured (`framework-agent-frugality`). Rather than carry an unmeetable bar, each class's bar is set at its current measured reality — honest today, not aspirational — and is explicitly a **ratchet**: it tightens as the return-contract work (agent instruction + return-format tightening, tracked separately) lands. The claims register (`claims.yaml`, `framework-agent-frugality`), not this table, is the source of truth for the live number; the table is a snapshot.
+**Agent-return CEILING (by class), CORRECTED 2026-07-14:** SOUL's original bar (~100 tokens, flat, all classes) was never met by any agent class once actually measured (`framework-agent-frugality`). The previous revision of this section fixed the unmeetable-bar problem by setting each class's bar to its own current measured reality — but a bar equal to its own measurement can never fail, which is unfalsifiable by construction and exactly the failure mode `t2` ("no claim outlives its check") exists to catch: a manufactured green is not a claim. The structure below fixes that.
 
-| Agent class | Bar (tokens, 2026-07-13 measured baseline) |
-|---|---|
-| `me` | ~854 |
-| `doc` | ~490 |
-| `sd` | ~3,786 |
-| `uxd` | ~5,089 |
-| `uids` | ~4,118 |
-| `sec` | ~3,556 |
-| Any other class (no class-specific bar measured yet) | ~893 (overall median, use until that class has its own n) |
+1. **This is a CEILING, not a description.** Truth condition: **no agent class's median return may exceed its ceiling.** A class whose median exceeds its ceiling is a genuine regression, and the claim FAILS — it can fail, which is what makes it a real bar, not a snapshot wearing a bar's clothes.
+2. **The ceiling only ever moves DOWN, and only mechanically.** Once a re-measurement over sessions from *after* a return-contract change (the separately-owned agent-instruction/return-format tightening work) lands with a class's median at or below its current ceiling, the ceiling drops to that new, lower median — no further SOUL edit or owner ruling required, because the rule itself, not a number, is what's ratified here. A re-measurement that comes in *above* the current ceiling never raises it; it fails the claim instead. This is pre-registered so nobody picks a favorable measurement window after the fact.
+3. **Next ratchet step (pre-registered target, not yet met):** a quarter reduction from each class's current ceiling, once the return-contract work has shipped and a fresh corpus is measured. This fraction is chosen because it exceeds half of every measured class's IQR (`framework_soul-latest.json`, 2026-07-13) — large enough to be signal, not sampling noise — while remaining a plausible single-iteration compression rather than a demand to jump straight to the aspiration below. <!-- claim-check: framework-agent-frugality -->
+4. **The ~100-token design intent is NOT this ceiling.** It is tracked separately, honestly failing, as `framework-agent-return-aspiration` (§3, §4 both point here too). Folding the aspiration into the ceiling is exactly how the prior bar became unfalsifiable; two claims — one that can pass or fail today, one that stays red until the real work lands — is the fix.
 
-A class's return exceeding its own bar in a later measurement is a regression to be treated seriously, not shrugged off as "the bar was always unrealistic" — that failure mode is exactly what put the old flat ~100 bar here in the first place.
+| Agent class | Ceiling (tokens, 2026-07-13 baseline — descends only) | Next ratchet step (pre-registered target) |
+|---|---|---|
+| `me` | ~854 | ~641 |
+| `doc` | ~490 | ~368 |
+| `sd` | ~3,786 | ~2,840 |
+| `uxd` | ~5,089 | ~3,817 |
+| `uids` | ~4,118 | ~3,089 |
+| `sec` | ~3,556 | ~2,667 |
+| Any other class (no class-specific ceiling registered yet) | ~893 (overall median at registration) | ~670 |
+
+The claims register (`claims.yaml`, `framework-agent-frugality` for the ceiling; `framework-agent-return-aspiration` for the ~100-token target), not this table, is the source of truth for the live ceiling and the live step; this table is a snapshot, corrected only when the ceiling actually descends per the rule above.
 
 **Taste test:**
 If a claim in a doc or agent output can't name what measures it, it fails — regardless of how good it sounds. Honesty is the aesthetic.
@@ -311,6 +316,7 @@ When updated, add the rationale to the changelog below.
 
 | Date | Version | Change & rationale |
 |------|---------|--------------------|
+| 2026-07-14 | v1.3 | **Corrected (DEC-1 follow-up — the pass-by-construction trap).** The prior per-class bar, set exactly at each class's then-measured median, was unfalsifiable: a claim that is true by its own definition can never fail, which `t2` ("no claim outlives its check") exists to catch — a manufactured green, not a claim. Restructured into three parts: (1) the per-class numbers are now an explicit CEILING with a stated truth condition — no class's median may exceed its ceiling, and a breach genuinely fails the claim; (2) the ratchet is a pre-registered, descend-only mechanism (the ceiling drops to a fresh re-measured median once it lands at or below the current ceiling; it never rises to absorb a regression) with its next step pre-registered (a quarter reduction per class, once the return-contract work lands); (3) the original ~100-token design intent is kept alive as a separate, honestly failing claim (`framework-agent-return-aspiration`) instead of being folded into a bar that already passed by construction. |
 | 2026-07-14 | v1.2 | **Amended (DEC-1, per-class ratchet).** §6's flat ~100-token agent-return bar was met by zero agent classes when actually measured (`framework-agent-frugality`: overall median 893, p90 3,474, n≈124). Replaced with a per-class bar set at each class's current measured reality (`me` ~854, `doc` ~490, `sd` ~3,786, `uxd` ~5,089, `uids` ~4,118, `sec` ~3,556) — an honest bar today, framed explicitly as a ratchet that tightens as the return-contract work lands. The claims register, not this document, is the source of truth for the live number. |
 | 2026-07-14 | v1.1 | **Ratified (DEC-3, Option B).** Struck the falsified "~94% less context" figure from §3/§5/§7 (three sites) after population measurement showed it inverted (agent returns median 893 tokens vs work-product content median 353, `savings_ratio_median -1.53` — returns are ~2.5x LARGER than what they externalize, `framework-externalization-94pct`). Rewrote all three to state the *mechanism* (externalize to a work product; return a summary + pointer) and defer the *number* to the claims register, so a future measurement change doesn't require another SOUL edit. Mirrors the README's earlier correction (commit `7274e6b`). |
 | 2026-06-28 | v1.0 | **Ratified** at read-back. Set the principle priority order (identity boundaries above the enforcement-vs-budget tradeoff; enforcement outranks budget but pays its context cost once, never per-turn). Added a fifth anti-pattern, The Do-Everything Generalist (the generalist doing specialist work instead of delegating). Settled the ecosystem MCP/CLI boundary: within the ecosystem connection is CLI, never MCP; MCP is reserved for app-level servers serving external users (e.g., Convoco). Confirmed the five evidenced founding decisions. |
