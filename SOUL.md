@@ -12,7 +12,7 @@
 > **It is living.** It changes only when real evidence says the product changed —
 > and every change is logged in **Section 10: Evolution**.
 
-> **STATUS: RATIFIED v1.0 — 2026-06-28.** Owner-ratified at read-back: priority order set, a fifth anti-pattern (The Do-Everything Generalist) added, and the ecosystem MCP/CLI boundary settled. Evidenced inferences confirmed against the owner's docs.
+> **STATUS: RATIFIED v1.0 — 2026-06-28** (amended v1.1 — 2026-07-14; see §10 Evolution). Owner-ratified at read-back: priority order set, a fifth anti-pattern (The Do-Everything Generalist) added, and the ecosystem MCP/CLI boundary settled. Evidenced inferences confirmed against the owner's docs.
 
 ---
 
@@ -81,7 +81,7 @@ It looks like a "product" or "platform," but it is an **instruction layer**: fil
 **Test:** "If this rule is important, what mechanically enforces it — and what's the escape hatch?" No enforcement path → it's decoration.
 
 ### Principle 3: Context Is the Budget
-**Meaning:** The main session's token budget is the scarce resource. Work is delegated to agents, outputs are externalized to work products (~94% less context for externalized WPs vs inlining), agents return ~100 tokens, not their full reasoning.
+**Meaning:** The main session's token budget is the scarce resource. Work is delegated to agents; the detail is externalized to a work product instead of inlined into the conversation, and the agent hands back a compressed summary plus a pointer to that work product, not its full reasoning. The savings ratio this mechanism actually achieves, and the current per-agent-class return-size bar, are measured continuously and carried in the claims register (`framework-externalization-94pct`, `framework-agent-frugality`) rather than hard-coded here — see §6 for today's bar.
 **Rejection:** We reject anything that bloats the main session — inlining large outputs, reading the world at startup, agents that dump their transcript back into context.
 **Test:** "Does this reduce, or at least not inflate, main-session tokens?" If it inflates context → redesign or reject.
 
@@ -175,7 +175,7 @@ If yes → reject, or redesign until it doesn't.
 | Feature | Verdict | Gate | Reasoning |
 |---------|---------|------|-----------|
 | Mechanical hook enforcement (force-delegate, QA gate) | **IN** | Principle 2 | Discipline that isn't enforced doesn't happen; enforce at runtime, with escape hatches. |
-| Task Copilot work products (externalize outputs) | **IN** | Gate 2 | ~94% less context for externalized WPs vs inlining above the threshold. |
+| Task Copilot work products (externalize outputs) | **IN** | Gate 2 | Externalizes agent output into inspectable, git-tracked work products above the threshold instead of inlining it into the main session; the current savings ratio is tracked in the claims register (`framework-externalization-94pct`), not restated here. |
 | Live Docs (`cc docs get`) | **IN** | Gate 1 / Gate 3 | Local-first, offline-safe; agents code against the *installed* API, not stale memory. Honest correctness. |
 | `cc mcp serve` shim for ecosystem-internal tooling | **OUT** (transitional, trending to removal) | MCP boundary | Within the ecosystem, connection is `cc`/`tc` CLI, never MCP. MCP is only for app-level servers serving external users (e.g., Convoco). |
 | Hosted / cloud state sync | **OUT** | Gate 1 / Principle 5 | All state is local SQLite; cross-machine sharing is a git knowledge repo, not built-in cloud. |
@@ -228,7 +228,7 @@ Precise, technical, and self-correcting. Footnotes its own claims. Anti-hype to 
 | "We measure process and context efficiency, not output quality" | "Produces better software" |
 | "Works; unproven at large scale — no proven >5-stream run" | "Battle-tested at scale" |
 | "An instruction layer for Claude Code" | "A new AI coding platform" |
-| "~94% less context for externalized work products" | "94% faster" |
+| "Work externalizes to work products; agents return a summary + pointer, not full reasoning" | "94% faster" |
 | "Not magic — structured instructions" | "AI that writes perfect code" |
 
 **Tone shifts:**
@@ -297,5 +297,6 @@ When updated, add the rationale to the changelog below.
 
 | Date | Version | Change & rationale |
 |------|---------|--------------------|
+| 2026-07-14 | v1.1 | **Ratified (DEC-3, Option B).** Struck the falsified "~94% less context" figure from §3/§5/§7 (three sites) after population measurement showed it inverted (agent returns median 893 tokens vs work-product content median 353, `savings_ratio_median -1.53` — returns are ~2.5x LARGER than what they externalize, `framework-externalization-94pct`). Rewrote all three to state the *mechanism* (externalize to a work product; return a summary + pointer) and defer the *number* to the claims register, so a future measurement change doesn't require another SOUL edit. Mirrors the README's earlier correction (commit `7274e6b`). |
 | 2026-06-28 | v1.0 | **Ratified** at read-back. Set the principle priority order (identity boundaries above the enforcement-vs-budget tradeoff; enforcement outranks budget but pays its context cost once, never per-turn). Added a fifth anti-pattern, The Do-Everything Generalist (the generalist doing specialist work instead of delegating). Settled the ecosystem MCP/CLI boundary: within the ecosystem connection is CLI, never MCP; MCP is reserved for app-level servers serving external users (e.g., Convoco). Confirmed the five evidenced founding decisions. |
 | 2026-06-28 | v0.1 | Drafted as root-level decision instrument, retrofitted from the repo's README, CLAUDE.md, philosophy doc, overview card, VERSION.json, and the hooks/agents surface. Inferences marked; owner-only sections (priority order, anti-pattern lines in the sand, founding-decision rationale) flagged for ratification. |
