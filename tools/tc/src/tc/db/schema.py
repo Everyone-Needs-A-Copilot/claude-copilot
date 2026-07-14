@@ -185,3 +185,68 @@ CREATE INDEX IF NOT EXISTS idx_solution_usage_log_solution ON solution_usage_log
 CREATE INDEX IF NOT EXISTS idx_solution_sessions_solution ON solution_sessions(solution_id);
 CREATE INDEX IF NOT EXISTS idx_solution_sessions_session_id ON solution_sessions(session_id);
 """
+
+# Upkeep tagging (O-9, Phase 4 outcome program, "the upkeep tax": time and
+# tokens spent maintaining the CSE itself -- registry, links, freshness,
+# parity sweeps, claim upkeep -- rather than producing solutions). Kept as
+# its own additive script, same convention as SOLUTIONS_SCHEMA_SQL, with its
+# own lazy-bootstrap entry point (ensure_upkeep_schema()) so pre-existing
+# tasks.db stores gain these tables the first time any `tc upkeep` command
+# touches them. Every statement is IF NOT EXISTS: additive-only, never
+# touches `tasks`/`prds`/`solutions`/etc. See claims.yaml
+# definitions.upkeep_tax for the full registered methodology.
+UPKEEP_SCHEMA_SQL = """
+-- One row per task explicitly judged to be upkeep work (vs solution-
+-- producing work). UNIQUE(task_id): a task has at most one current
+-- classification. method='explicit' (a person/agent tagged this exact
+-- task via `tc upkeep tag-task`) always wins over method='prd-heuristic'
+-- (bulk-applied by `tc upkeep tag-prd` from every task under a
+-- maintenance-flagged PRD) -- see tc.services.upkeep.tag_task /
+-- tag_prd for the precedence rule.
+CREATE TABLE IF NOT EXISTS upkeep_tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL REFERENCES tasks(id),
+    kind TEXT NOT NULL DEFAULT 'other' CHECK(kind IN ('framework', 'knowledge', 'cli', 'registry', 'other')),
+    method TEXT NOT NULL DEFAULT 'explicit' CHECK(method IN ('explicit', 'prd-heuristic')),
+    note TEXT,
+    tagged_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(task_id)
+);
+
+-- A PRD marked, once, as maintenance-producing rather than solution-
+-- producing. Marking a PRD here is what makes EVERY task already filed
+-- under it -- past and future -- retrospectively countable as upkeep via
+-- `tc upkeep tag-prd`, without anyone having had to tag those tasks as
+-- they happened. This is the retrospective-computability path: it makes
+-- the upkeep tax measurable from task/PRD data that already exists,
+-- rather than only from now on.
+CREATE TABLE IF NOT EXISTS prd_upkeep_flags (
+    prd_id INTEGER PRIMARY KEY REFERENCES prds(id),
+    kind TEXT NOT NULL DEFAULT 'other' CHECK(kind IN ('framework', 'knowledge', 'cli', 'registry', 'other')),
+    note TEXT,
+    flagged_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Append-only (mirrors solution_sessions' W-2 mechanism exactly, see its
+-- comment above): one row per `tc upkeep tag-task` call invoked while a
+-- CLAUDE_CODE_SESSION_ID is present in the environment. This is the exact,
+-- token-accountable method -- cse-bench's upkeep collector joins DISTINCT
+-- session_id here to that session's own transcript token usage, the same
+-- way the economy collector does for solution_sessions. A session_id that
+-- also appears in solution_sessions is an ambiguous overlap (the session
+-- touched both upkeep and solution work) and is excluded from either
+-- side's totals by the collector, not by this table.
+CREATE TABLE IF NOT EXISTS upkeep_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER REFERENCES tasks(id),
+    session_id TEXT NOT NULL,
+    repo_path TEXT,
+    kind TEXT NOT NULL DEFAULT 'other' CHECK(kind IN ('framework', 'knowledge', 'cli', 'registry', 'other')),
+    logged_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_upkeep_tags_task ON upkeep_tags(task_id);
+CREATE INDEX IF NOT EXISTS idx_upkeep_tags_method ON upkeep_tags(method);
+CREATE INDEX IF NOT EXISTS idx_upkeep_sessions_task ON upkeep_sessions(task_id);
+CREATE INDEX IF NOT EXISTS idx_upkeep_sessions_session_id ON upkeep_sessions(session_id);
+"""

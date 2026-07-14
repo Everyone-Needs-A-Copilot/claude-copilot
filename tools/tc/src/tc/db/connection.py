@@ -9,6 +9,7 @@ from .fts5_core import create_content_triggers, create_fts
 from .schema import (
     SCHEMA_SQL,
     SOLUTIONS_SCHEMA_SQL,
+    UPKEEP_SCHEMA_SQL,
     WP_BASE_ROWID,
     WP_BASE_TABLE,
     WP_FTS_COLUMNS,
@@ -111,6 +112,10 @@ def init_db(path: Optional[Path] = None) -> Path:
     # IF NOT EXISTS, no schema_version bump needed (see schema.py docstring).
     conn.executescript(SOLUTIONS_SCHEMA_SQL)
 
+    # Upkeep tagging tables (O-9 upkeep tax) — additive, IF NOT EXISTS, no
+    # schema_version bump needed (see schema.py docstring).
+    conn.executescript(UPKEEP_SCHEMA_SQL)
+
     # FTS5 virtual table + trigger trio via shared fts5_core builders
     # (IF NOT EXISTS — safe on existing databases, no schema_version bump needed)
     create_fts(
@@ -146,3 +151,18 @@ def ensure_solutions_schema(conn: sqlite3.Connection) -> None:
     never touches an existing table.
     """
     conn.executescript(SOLUTIONS_SCHEMA_SQL)
+
+
+def ensure_upkeep_schema(conn: sqlite3.Connection) -> None:
+    """Idempotently create the upkeep-tagging tables (O-9 upkeep tax) on an
+    already-open connection, if they don't already exist.
+
+    Fresh stores get these tables from init_db() directly. This function is
+    the lazy-migration path for stores created *before* upkeep tagging
+    existed: `tc.services.upkeep` calls it at the top of every public
+    function, so the first `tc upkeep` command run against any existing
+    tasks.db bootstraps the new tables transparently -- no `tc init`
+    re-run, no manual migration step. Every statement is IF NOT EXISTS and
+    never touches an existing table.
+    """
+    conn.executescript(UPKEEP_SCHEMA_SQL)
