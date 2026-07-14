@@ -45,7 +45,7 @@ def _get_wp_file_dir(db_path: Path) -> Path:
 
 def store_wp(
     *,
-    task_id: int,
+    task_id: Optional[int] = None,
     type_: str,
     title: str,
     content: Optional[str] = None,
@@ -60,7 +60,19 @@ def store_wp(
     the file path (file_path column set, content NULL).
 
     Args:
-        task_id: Associated task ID (must exist).
+        task_id: Associated task ID, or None to store a standalone work
+            product not attached to any task. The schema's
+            ``work_products.task_id`` column has always been nullable
+            (``INTEGER REFERENCES tasks(id)``, no ``NOT NULL``) -- this
+            just exposes that existing capability at the service/CLI layer.
+            Standalone WPs are the closer-to-the-metal fix for the
+            "no task ID exists" externalization-skip gap: an agent invoked
+            without a task to attach to previously had no way to store a
+            work product at all (`--task` was a required CLI option); now
+            it stores one with ``task_id = NULL`` instead of skipping
+            storage entirely. Still fully listable/gettable/searchable
+            (`tc wp list`, `tc wp get`, `tc wp search`) -- it just doesn't
+            join to a task.
         type_:   Work product type string.
         title:   Work product title (required, non-empty).
         content: Work product content (may be None for placeholder rows).
@@ -73,7 +85,7 @@ def store_wp(
 
     Raises:
         ValidationError: if title is empty or type_ is empty.
-        TaskNotFound:    if task_id does not exist.
+        TaskNotFound:    if task_id is given but does not exist.
     """
     if not title or not title.strip():
         raise ValidationError("title must not be empty")
@@ -98,12 +110,14 @@ def store_wp(
             resolved_db = find_db_path()
 
     try:
-        # Verify task exists
-        task_row = conn.execute(
-            "SELECT id FROM tasks WHERE id = ?", (task_id,)
-        ).fetchone()
-        if task_row is None:
-            raise TaskNotFound(f"task #{task_id} not found")
+        # Verify task exists -- only when one was given; task_id is None for
+        # a standalone work product (no task to verify against).
+        if task_id is not None:
+            task_row = conn.execute(
+                "SELECT id FROM tasks WHERE id = ?", (task_id,)
+            ).fetchone()
+            if task_row is None:
+                raise TaskNotFound(f"task #{task_id} not found")
 
         # Hybrid storage decision
         if content and len(content.encode("utf-8")) > WP_CONTENT_SIZE_THRESHOLD:

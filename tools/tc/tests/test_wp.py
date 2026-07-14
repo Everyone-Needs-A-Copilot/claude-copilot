@@ -104,6 +104,46 @@ class TestWpStore:
         )
         assert result.exit_code == 4  # EXIT_VALIDATION
 
+    def test_store_without_task_is_standalone(self, cli):
+        """Omitting --task stores a standalone work product (task_id NULL) --
+        the fix for the "no task ID exists" externalization-skip gap: a
+        subagent invoked without a task to attach to can still externalize
+        instead of being forced to skip `tc wp store` entirely."""
+        result = cli(
+            [
+                "wp",
+                "store",
+                "--type",
+                "note",
+                "--title",
+                "Standalone WP",
+                "--content",
+                "No task available when this was written.",
+                "--json",
+            ]
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["task_id"] is None
+        assert data["title"] == "Standalone WP"
+        assert data["content"] == "No task available when this was written."
+
+    def test_store_without_task_human_readable(self, cli):
+        result = cli(
+            [
+                "wp",
+                "store",
+                "--type",
+                "note",
+                "--title",
+                "Standalone HR WP",
+                "--content",
+                "Content",
+            ]
+        )
+        assert result.exit_code == 0
+        assert "Stored work product #1: Standalone HR WP" in result.output
+
     def test_store_nonexistent_task(self, cli):
         result = cli(
             [
@@ -370,6 +410,30 @@ class TestWpGet:
         assert "File not found" in content
 
 
+class TestWpGetStandalone:
+    """Tests for `tc wp get` against a standalone (task-less) work product."""
+
+    def test_get_standalone_wp(self, cli):
+        cli(
+            [
+                "wp",
+                "store",
+                "--type",
+                "note",
+                "--title",
+                "Standalone Get",
+                "--content",
+                "body",
+                "--json",
+            ]
+        )
+        result = cli(["wp", "get", "1", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["task_id"] is None
+        assert data["content"] == "body"
+
+
 class TestWpList:
     """Tests for `tc wp list`."""
 
@@ -532,6 +596,49 @@ class TestWpList:
         result = cli(["wp", "list"])
         assert result.exit_code == 0
         assert "no result" in result.output.lower()
+
+    def test_list_includes_standalone_and_task_filter_excludes_it(self, cli):
+        """A standalone WP (no --task at store time) shows up in the
+        unfiltered list, but `--task <id>` filtering correctly excludes it
+        (task_id IS NULL never matches an explicit task_id filter)."""
+        task_id = _setup_task(cli)
+        cli(
+            [
+                "wp",
+                "store",
+                "--task",
+                str(task_id),
+                "--type",
+                "code",
+                "--title",
+                "Attached WP",
+                "--content",
+                "c1",
+            ]
+        )
+        cli(
+            [
+                "wp",
+                "store",
+                "--type",
+                "note",
+                "--title",
+                "Standalone WP",
+                "--content",
+                "c2",
+            ]
+        )
+        unfiltered = cli(["wp", "list", "--json"])
+        assert unfiltered.exit_code == 0
+        unfiltered_data = json.loads(unfiltered.output)
+        assert len(unfiltered_data) == 2
+        assert any(wp["task_id"] is None for wp in unfiltered_data)
+
+        filtered = cli(["wp", "list", "--task", str(task_id), "--json"])
+        assert filtered.exit_code == 0
+        filtered_data = json.loads(filtered.output)
+        assert len(filtered_data) == 1
+        assert filtered_data[0]["title"] == "Attached WP"
 
 
 class TestWpSearch:

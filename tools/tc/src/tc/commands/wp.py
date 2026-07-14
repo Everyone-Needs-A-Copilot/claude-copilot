@@ -50,7 +50,15 @@ def wp_render(
 
 @wp_app.command("store")
 def wp_store(
-    task: int = typer.Option(..., "--task", help="Associated task ID."),
+    task: Optional[int] = typer.Option(
+        None,
+        "--task",
+        help=(
+            "Associated task ID. Optional -- omit to store a standalone work "
+            "product not attached to any task (e.g. no task ID was available "
+            "to the caller). Still fully listable/gettable/searchable."
+        ),
+    ),
     type_: str = typer.Option(..., "--type", metavar="TYPE", help="Work product type."),
     title: str = typer.Option(..., "--title", help="Work product title."),
     content: Optional[str] = typer.Option(

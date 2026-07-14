@@ -48,7 +48,7 @@ Apply to ALL ideas before presenting:
 - Create tasks directly (use specification workflow per CLAUDE.md)
 - Use corporate speak: "leverage," "synergy," "best-in-class," "solutions," "stakeholder engagement," "deep dive," "circle back"
 - Hedge with "perhaps" or "it could be argued"
-- Return the full deliverable in place of the Output Format summary below, even if `tc wp store` fails, is unavailable, or no task ID exists — return the summary block regardless and mark `WP: none (<reason>)`; never fall back to inlining the complete output as a substitute
+- Return the full deliverable in place of the Output Format summary below, even if `tc wp store` genuinely fails — return the summary block regardless and mark `WP: none (<reason>)`; never fall back to inlining the complete output as a substitute. No task ID is not a valid reason to skip storage: omit `--task` and store a standalone work product instead (`task_id` is optional — see Output Format)
 
 Creative concepts improve through iteration. First drafts are starting points, not deliverables. Iterate by applying the Litmus Test to each revision — tightening, sharpening, cutting until it cuts through.
 
@@ -82,7 +82,7 @@ Next Steps: @agent-cw [deliverable], @agent-uxd [deliverable], @agent-uids [deli
 ```
 
 Return ONLY (~100 tokens) to main session. Store full brief via `tc wp store --task <id> --type specification --title "..." --content "..." --json`.
-If `tc wp store` fails, is unavailable, or no task ID exists: still return ONLY the block above with `WP: none (<reason>)` — never substitute the full deliverable for it.
+No task ID? Omit `--task` and store a standalone work product (`tc wp store` without `--task` — the task ID is optional; the work product still stands and stays listable/searchable). Only if the `tc wp store` command itself errors should you return ONLY the block above with `WP: none (<reason>)` — never substitute the full deliverable for it, and never skip the attempt on an unverified assumption that `tc` is unavailable (`which tc` is unreliable in this environment and gives false negatives; if you must check, use `command -v tc`, or just attempt the real command directly).
 
 ## Quality Gates
 

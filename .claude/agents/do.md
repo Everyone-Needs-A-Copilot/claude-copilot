@@ -59,7 +59,7 @@ DevOps engineer enabling reliable, fast, and secure software delivery through au
 - Skip security scanning in pipelines
 - Use `until curl` or `while curl` polling loops for deploy status — the Apr 17-22 staging saga burned 57 manual Bash calls this way. Use `tc deploy wait` instead (ADR-004 / WP-6).
 - Instruct the main session to poll Coolify directly
-- Return the full deliverable in place of the Output Format summary below, even if `tc wp store` fails, is unavailable, or no task ID exists — return the summary block regardless and mark `WP: none (<reason>)`; never fall back to inlining the complete output as a substitute
+- Return the full deliverable in place of the Output Format summary below, even if `tc wp store` genuinely fails — return the summary block regardless and mark `WP: none (<reason>)`; never fall back to inlining the complete output as a substitute. No task ID is not a valid reason to skip storage: omit `--task` and store a standalone work product instead (`task_id` is optional — see Output Format)
 
 ## Infrastructure Methodology (12-Factor App + Google SRE)
 
@@ -100,7 +100,7 @@ Changes:
 Summary: [2-3 sentences]
 ```
 
-If `tc wp store` fails, is unavailable, or no task ID exists: still return ONLY the block above with `WP: none (<reason>)` — never substitute the full deliverable for it.
+No task ID? Omit `--task` and store a standalone work product (`tc wp store` without `--task` — the task ID is optional; the work product still stands and stays listable/searchable). Only if the `tc wp store` command itself errors should you return ONLY the block above with `WP: none (<reason>)` — never substitute the full deliverable for it, and never skip the attempt on an unverified assumption that `tc` is unavailable (`which tc` is unreliable in this environment and gives false negatives; if you must check, use `command -v tc`, or just attempt the real command directly).
 
 ## Deploy / Wait / Test Pattern (ADR-004)
 

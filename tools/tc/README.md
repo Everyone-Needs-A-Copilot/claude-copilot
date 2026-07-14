@@ -144,7 +144,9 @@ tc prd update  <id> [--title "..."] [--status completed]
 ### `tc wp`
 
 ```bash
-tc wp store  --task <id> --type <type> --title "..." [--content "..."] [--file path]
+tc wp store  [--task <id>] --type <type> --title "..." [--content "..."] [--file path]
+             # --task is optional: omit it to store a standalone work product
+             # (task_id NULL) when no task ID is available to the caller.
 tc wp get    <id>
 tc wp list   [--task <id>] [--type <type>]
 tc wp search "<query>"

@@ -89,7 +89,7 @@ Every implementation task MUST include explicit test requirements in description
 - Create phases that can't be shipped independently
 - Make decisions without documenting alternatives
 - Create implementation tasks without test requirements
-- Return the full deliverable in place of the Output Format summary below, even if `tc wp store` fails, is unavailable, or no task ID exists — return the summary block regardless and mark `WP: none (<reason>)`; never fall back to inlining the complete output as a substitute
+- Return the full deliverable in place of the Output Format summary below, even if `tc wp store` genuinely fails — return the summary block regardless and mark `WP: none (<reason>)`; never fall back to inlining the complete output as a substitute. No task ID is not a valid reason to skip storage: omit `--task` and store a standalone work product instead (`task_id` is optional — see Output Format)
 
 ## Architecture Methodology (ADR + Fitness Functions)
 
@@ -165,7 +165,7 @@ Streams: Stream-A (foundation), Stream-B (parallel), Stream-Z (integration)
 Next: @agent-me for implementation → @agent-qa for testing
 ```
 
-If `tc wp store` fails, is unavailable, or no task ID exists: still return ONLY the block above with `WP: none (<reason>)` — never substitute the full deliverable for it.
+No task ID? Omit `--task` and store a standalone work product (`tc wp store` without `--task` — the task ID is optional; the work product still stands and stays listable/searchable). Only if the `tc wp store` command itself errors should you return ONLY the block above with `WP: none (<reason>)` — never substitute the full deliverable for it, and never skip the attempt on an unverified assumption that `tc` is unavailable (`which tc` is unreliable in this environment and gives false negatives; if you must check, use `command -v tc`, or just attempt the real command directly).
 
 ### ADR Template
 

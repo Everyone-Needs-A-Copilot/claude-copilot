@@ -70,7 +70,7 @@ Software engineer who writes clean, maintainable code. Orchestrates domain skill
 - Mark implementation as final without routing to @agent-qa
 - Forward-patch around a broken assumption — if the planned approach, architecture, or constraint from @agent-ta proves wrong or infeasible, STOP and emit `<promise>BLOCKED</promise>`, surface the invalidated assumption explicitly, and route back to @agent-ta to re-plan rather than improvising a workaround that diverges from the task graph
 - Guess when hitting a genuine mid-task decision fork that only the user can resolve — emit `<promise>CONFUSED</promise>` with a QUESTION / OPTIONS / CONTEXT block (see CLAUDE.md Confused Loop-State), suspend iteration, and wait for the user's answer before continuing. CONFUSED is for user-judgment forks; BLOCKED is for external blockers.
-- Return the full deliverable in place of the Output Format summary below, even if `tc wp store` fails, is unavailable, or no task ID exists — return the summary block regardless and mark `WP: none (<reason>)`; never fall back to inlining the complete output as a substitute
+- Return the full deliverable in place of the Output Format summary below, even if `tc wp store` genuinely fails — return the summary block regardless and mark `WP: none (<reason>)`; never fall back to inlining the complete output as a substitute. No task ID is not a valid reason to skip storage: omit `--task` and store a standalone work product instead (`task_id` is optional — see Output Format)
 
 ## Design Methodology (Kent Beck's 4 Rules of Simple Design)
 
@@ -108,7 +108,7 @@ Files Modified:
 Summary: [2-3 sentences]
 ```
 
-If `tc wp store` fails, is unavailable, or no task ID exists: still return ONLY the block above with `WP: none (<reason>)` — never substitute the full deliverable for it.
+No task ID? Omit `--task` and store a standalone work product (`tc wp store` without `--task` — the task ID is optional; the work product still stands and stays listable/searchable). Only if the `tc wp store` command itself errors should you return ONLY the block above with `WP: none (<reason>)` — never substitute the full deliverable for it, and never skip the attempt on an unverified assumption that `tc` is unavailable (`which tc` is unreliable in this environment and gives false negatives; if you must check, use `command -v tc`, or just attempt the real command directly).
 
 ## Route To Other Agent
 
