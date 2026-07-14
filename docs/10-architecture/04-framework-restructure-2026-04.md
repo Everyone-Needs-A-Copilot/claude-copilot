@@ -2,7 +2,7 @@
 
 > **Status: Superseded.** This document records the April 2026 restructure (PRD-1 era). The authoritative current analysis of further improvements is `docs/70-reference/04-framework-modernization-analysis.md` (PRD-2 era). Kept as historical context.
 >
-> **Correction (2026-07, TASK-106/C-6):** the "Hook Enforcement Model" and "What the Hooks Do Automatically" sections below describe the hooks as designed and shipped on 2026-04-22, but the `PreToolUse` matcher was narrowed to `Bash`-only that same day ("resolve hook deadlock", commit `23c02c0`) and stayed that way until 2026-07-12 — the force-delegate and QA-gate rules **never fired on `Read`, `Edit`, or `Agent`** in that window, despite this document's claims. See [`docs/10-architecture/06-hook-deadlock-root-cause-2026-07.md`](06-hook-deadlock-root-cause-2026-07.md) for the root cause and the fix. Do not treat the tables below as a description of historical runtime behavior for `Read`/`Edit`/`Agent` prior to 2026-07-12.
+> **Correction (2026-07, TASK-106/C-6):** the "Hook Enforcement Model" and "What the Hooks Do Automatically" sections below describe the hooks as designed and shipped on 2026-04-22, but the `PreToolUse` matcher was narrowed to `Bash`-only that same day ("resolve hook deadlock", commit `23c02c0`) and stayed that way until 2026-07-12 — the force-delegate and QA-gate rules **never fired on `Read`, `Edit`, or `Agent`** in that window, despite this document's claims. See [`docs/10-architecture/06-hook-deadlock-root-cause-2026-07.md`](06-hook-deadlock-root-cause-2026-07.md) for the root cause and the fix. Do not treat the tables below as a description of historical runtime behavior for `Read`/`Edit`/`Agent` prior to 2026-07-12. <!-- claim-check: hook-deadlock-fix-verified -->
 
 **Diátaxis mode:** Explanation (historical)
 
@@ -14,33 +14,33 @@ This document explains why the framework was restructured in April 2026, what ch
 
 ### The Diagnostic
 
-A cross-session diagnostic covered 15 sessions from Apr 17–22 2026 (18.3 MB of session data). Three systemic failures surfaced with concrete numbers:
+A cross-session diagnostic covered 15 sessions from Apr 17–22 2026 (18.3 MB of session data). Three systemic failures surfaced with concrete numbers: <!-- claim-check: framework-april-2026-diagnostic-unrecoverable -->
 
-**1. Delegation was not happening (94% main-session work)**
+**1. Delegation was not happening (94% main-session work)** <!-- claim-check: framework-april-2026-diagnostic-unrecoverable -->
 
-The framework was designed so specialists do the work. In practice, the main session did 94% of all tool calls itself. Delegation rate: 6%. Protocol declarations appeared in only 3.5% of assistant turns — the framework was defined in CLAUDE.md but not enforced anywhere.
+The framework was designed so specialists do the work. In practice, the main session did 94% of all tool calls itself. Delegation rate: 6%. Protocol declarations appeared in only 3.5% of assistant turns — the framework was defined in CLAUDE.md but not enforced anywhere. <!-- claim-check: framework-april-2026-diagnostic-unrecoverable -->
 
 Root cause: a 14-agent roster created choice paralysis. Users avoided routing to agents when the cost of choosing wrong felt higher than just doing it inline.
 
 **2. Deploy polling was done manually (57 Bash calls in one incident)**
 
-A 5-day staging saga (4 sessions, 12 MB, 26 polling loops) showed what happens without a deploy-wait primitive. The worst session (Apr 19 PM) had 15 polling loops, 19 long bash runs, and zero protocol declarations. The pattern was: write `until curl ...; do sleep 5; done`, run it, fail, repeat. No first-class `tc` command existed for this.
+A 5-day staging saga (4 sessions, 12 MB, 26 polling loops) showed what happens without a deploy-wait primitive. The worst session (Apr 19 PM) had 15 polling loops, 19 long bash runs, and zero protocol declarations. The pattern was: write `until curl ...; do sleep 5; done`, run it, fail, repeat. No first-class `tc` command existed for this. <!-- claim-check: framework-april-2026-diagnostic-unrecoverable -->
 
 **3. Sessions grew without bound (22-hour sessions observed)**
 
-Average session metrics before the restructure: 671 turns/session, 452 bash calls/session. Without a session-length signal, `/continue` accumulated context indefinitely. "Run free until done" prompt patterns made this worse — the model would execute dozens of tool calls before checking in.
+Average session metrics before the restructure: 671 turns/session, 452 bash calls/session. Without a session-length signal, `/continue` accumulated context indefinitely. "Run free until done" prompt patterns made this worse — the model would execute dozens of tool calls before checking in. <!-- claim-check: turn-definition-incompatible-with-april -->
 
 **4. Model tier was inverted**
 
-The orchestrator (main session) ran on Opus 4.7. Specialist agents ran on Sonnet. But 94% of tool calls were in the main session — meaning the expensive model was doing the cheap, repetitive work (Bash polling, file reading, etc.), not the high-value architectural decisions it's suited for.
+The orchestrator (main session) ran on Opus 4.7. Specialist agents ran on Sonnet. But 94% of tool calls were in the main session — meaning the expensive model was doing the cheap, repetitive work (Bash polling, file reading, etc.), not the high-value architectural decisions it's suited for. <!-- claim-check: framework-april-2026-diagnostic-unrecoverable -->
 
 ### The Three Root Causes
 
 | Root Cause | Evidence | Fix |
 |------------|---------|-----|
-| Roster too large → choice paralysis → 6% delegation | 94% main-session tool calls (diagnostic: 15 sessions) | Roster 14 → 8; merged uxd/uids/uid → design |
+| Roster too large → choice paralysis → 6% delegation | 94% main-session tool calls (diagnostic: 15 sessions) | Roster 14 → 8; merged uxd/uids/uid → design <!-- claim-check: framework-april-2026-diagnostic-unrecoverable --> |
 | No deploy-wait primitive → manual polling | 57 bash polling calls, 26 loops/week (diagnostic) | `tc deploy wait` + Flow E |
-| No enforcement → advisory ignored | 3.5% protocol declaration rate (diagnostic) | Hook-based mechanical enforcement |
+| No enforcement → advisory ignored | 3.5% protocol declaration rate (diagnostic) | Hook-based mechanical enforcement <!-- claim-check: framework-april-2026-diagnostic-unrecoverable --> |
 
 ---
 
@@ -124,7 +124,7 @@ The hook system was extended from advisory (SessionStart injection) to mechanica
 |------|------|-------|-----------------|
 | Force-delegate | `pretool-check.sh` | PreToolUse | Blocks >5 consecutive same-tool calls; suggests delegation |
 | QA gate | `pretool-check.sh` + `subagent-stop.sh` | PreToolUse + SubagentStop | Gates main session until @agent-qa approves after @agent-me |
-| Session cap | `user-prompt-submit.sh` | UserPromptSubmit | Advisory at 500 and 750 turns |
+| Session cap | `user-prompt-submit.sh` | UserPromptSubmit | Advisory at 500 and 750 turns <!-- claim-check: framework-session-cap-thresholds --> |
 
 **Dispatcher pattern:** `pretool-check.sh` is a single dispatcher that runs multiple rule functions in priority order. Adding a new enforcement rule means adding a `rule_<name>()` function — no new hook registration needed.
 
@@ -167,19 +167,18 @@ A multi-line-content bugfix was applied in the R0.3 follow-up: the launcher now 
 | Metric | Before (diagnostic) | After |
 |--------|--------------------|----|
 | Deploy polling | 26 manual loops/week, 57 bash calls in one incident | `tc deploy wait` — one blocking call |
-| Session length | 671 turns/session average, 22-hour sessions | Advisory at 500 turns; cap signal at 750 |
-| Delegation rate | 6% (94% main-session) | Hook blocks after 5 consecutive same-tool calls |
+| Session length | 671 turns/session average, 22-hour sessions | Advisory at 500 turns; cap signal at 750 <!-- claim-check: turn-definition-incompatible-with-april --> <!-- claim-check: framework-session-cap-thresholds --> |
+| Delegation rate | 6% (94% main-session) | Hook blocks after 5 consecutive same-tool calls <!-- claim-check: framework-april-2026-diagnostic-unrecoverable --> |
 | QA gate | Advisory (CLAUDE.md text) | Mechanically enforced — tools blocked until @agent-qa passes |
-| Agent roster | 14 agents | 8 agents (~800-1200 tokens/turn removed from prompt) |
+| Agent roster | 14 agents | 8 agents (~800-1200 tokens/turn removed from prompt) <!-- claim-check: framework-april-2026-diagnostic-unrecoverable --> |
 | Model cost | Opus 4.7 for 94% of tool calls | Sonnet for ~94% of work; Opus reserved for design/architecture <!-- claim-check: model-tier-opus-dominant-main-session --> |
 | Bash polling pattern | `until curl ...; do sleep 5; done` (repeated manually) | `tc deploy wait <app-uuid>` |
 
-**Correction (CSE Auditability F-3, `model-tier-opus-dominant-main-session`):** the "After" cell above is the *design intent*, not the measured outcome. Post-hook measurement found the opposite: main-session tool calls are **94.5% Opus**, not 94% Sonnet — the model-pinning launcher exists but is not in effective use for the bulk of orchestrator turns, which are overwhelmingly not design/architecture work. See `docs/40-initiatives/01-cse-auditability/phases/phase-1-findings.md` (F-3) and `claims.yaml`'s `model-tier-opus-dominant-main-session` (status: passing — the falsifying claim is proven, not the row above).
-<!-- claim-check: model-tier-opus-dominant-main-session -->
+**Correction (CSE Auditability F-3, `model-tier-opus-dominant-main-session`):** the "After" cell above is the *design intent*, not the measured outcome. Post-hook measurement found the opposite: main-session tool calls are **94.5% Opus**, not 94% Sonnet — the model-pinning launcher exists but is not in effective use for the bulk of orchestrator turns, which are overwhelmingly not design/architecture work. See `docs/40-initiatives/01-cse-auditability/phases/phase-1-findings.md` (F-3) and `claims.yaml`'s `model-tier-opus-dominant-main-session` (status: passing — the falsifying claim is proven, not the row above). <!-- claim-check: model-tier-opus-dominant-main-session -->
 
 **The QA gate change is the highest-leverage fix.** Before, @agent-me could complete and the session could move on without ever running tests. The gate makes this structurally impossible — not policy-impossible.
 
-**The roster change reduces per-turn token cost mechanically.** Every agent description that appears in a prompt costs tokens. 14 → 8 agents removes 800-1200 tokens from every assisted turn, compounding across a session.
+**The roster change reduces per-turn token cost mechanically.** Every agent description that appears in a prompt costs tokens. 14 → 8 agents removes 800-1200 tokens from every assisted turn, compounding across a session. <!-- claim-check: framework-april-2026-diagnostic-unrecoverable -->
 
 ---
 
@@ -252,7 +251,7 @@ After 3 consecutive QA failures, the gate auto-unblocks and emits a human-review
 
 ---
 
-### What the Hooks Do Automatically
+### What the Hooks Do Automatically <!-- claim-check: hook-deadlock-fix-verified -->
 
 You do not need to invoke these — they run on every tool call via Claude Code's hook system:
 
@@ -333,7 +332,7 @@ Load them at the start of any agent session that needs them, or include them inl
 | Don't write code in main session | Advisory (CLAUDE.md text) | Mandatory (force-delegate hook, exit 2) | **Not enforced** — matcher was `Bash`-only, Read/Edit never matched |
 | QA after every @agent-me | Advisory (CLAUDE.md text) | Mandatory (QA gate, blocks all tools) | **Bash-command-shaped work only** — `Agent`-tool dispatch to non-qa agents was never matched, so QA-gate's core "you can't start new work" mechanism never fired either |
 | Don't run >N consecutive same-tool calls | Not enforced | Mandatory (force-delegate, N=5) | **Bash calls only** |
-| Keep sessions under 500 turns | Not enforced | Advisory (session cap, systemMessage) | As designed (separate hook, unaffected) |
+| Keep sessions under 500 turns | Not enforced | Advisory (session cap, systemMessage) | As designed (separate hook, unaffected) <!-- claim-check: framework-session-cap-thresholds --> |
 | Don't use Explore/Plan agents | Advisory | Advisory | As designed |
 
 The shift from advisory to mandatory for the two highest-impact guardrails (implementation delegation and QA gate) was the intent, but the matcher change shipped and was reverted to `Bash`-only in the same commit window on 2026-04-22 (see `20097d9` → `23c02c0`) without anyone widening it back. The claim "the hooks cannot be silently bypassed" was true of the *design*, not of the *deployed* `settings.json`, for over two months. This was fixed 2026-07-12 (TASK-106/C-6) — see [`06-hook-deadlock-root-cause-2026-07.md`](06-hook-deadlock-root-cause-2026-07.md) for the root cause, the fix, and what "cannot be silently bypassed" now actually means (still true only up to the documented escape hatches: `COPILOT_FORCE_DELEGATE=off`, `COPILOT_QA_GATE=off`, `CC_HOOK_ENFORCE=off`).

@@ -31,7 +31,7 @@ It's not separate software—it's markdown files (agents, commands, project inst
 | **Memory Drift Detection** | `cc memory check` — token-free deterministic checkers (path-exists, command-resolves, version-conflict, staleness); 0–100 score; exits 1 on any fail-severity finding |
 | **Usage Observability**    | `cc usage` — idle-gated quota probe via Keychain OAuth + `anthropic-ratelimit-unified-*` headers; producer/consumer split so consumers never corrupt the quota window |
 | **15 Framework Agents**    | Lean agents with on-demand skill loading; methodology-embedded from IDEO to Kent Beck; `kc` is setup-only (not in the build chain). Authoritative roster: `.claude/agents/manifest.json` |
-| **Auto-Firing Skills**     | Skills surface automatically from trigger-rich descriptions; code-bearing skills run executable scripts |
+| **Auto-Firing Skills**     | Skills surface automatically from trigger-rich descriptions; code-bearing skills run executable scripts <!-- claim-check: claude-copilot-skill-description-coverage --> |
 | **Parallel Orchestration** | Headless workers execute streams concurrently with `/orchestrate` _(works; unproven at large scale — no proven >5-stream run; tests are mock-only)_ |
 | **Pause & Resume**         | Context switch mid-task with `/pause`, return with `/continue`                       |
 | **Task Management**        | [PRD](docs/70-reference/05-glossary.md#prd)s, tasks, and work products ([WP](docs/70-reference/05-glossary.md#wp-work-product)) via `tc` CLI with minimal context usage               |
@@ -64,7 +64,7 @@ Teams face the same challenges at scale—plus knowledge silos, inconsistent sta
 
 ## April 2026 Restructure
 
-A diagnostic of 15 sessions (Apr 17-22 2026) found a 6% delegation rate — 94% of work stayed in the main session despite a 14-agent roster. A 5-day staging deployment saga (57 manual bash polling calls, 26 loops) exposed missing primitives. The April 2026 restructure introduced mechanical hook enforcement, the `tc deploy wait` primitive, and model pinning. The roster was consolidated to 8 agents as an interim step to reduce complexity during the hook rollout; it has since been restored and expanded to the current 15 framework agents + `kc` (setup-only).
+A diagnostic of 15 sessions (Apr 17-22 2026) found a 6% delegation rate — 94% of work stayed in the main session despite a 14-agent roster. A 5-day staging deployment saga (57 manual bash polling calls, 26 loops) exposed missing primitives. The April 2026 restructure introduced mechanical hook enforcement, the `tc deploy wait` primitive, and model pinning. The roster was consolidated to 8 agents as an interim step to reduce complexity during the hook rollout; it has since been restored and expanded to the current 15 framework agents + `kc` (setup-only). <!-- claim-check: framework-april-2026-diagnostic-unrecoverable -->
 
 **Correction (2026-07, TASK-106/C-6):** the hook enforcement shipped April 22 was narrowed to a `Bash`-only `PreToolUse` matcher the same day ("resolve hook deadlock") and stayed that way for over two months — it never fired on `Read`, `Edit`, or `Agent`, the exact tools it was built to police. The root cause (Claude Code shares one `session_id` between a main session and any subagent it spawns, so a subagent's own tool calls could trip and then get denied by the parent's same enforcement state, with no escape since framework agents don't carry the Agent/Task tool) is fixed and proven in this repo (`.claude/hooks/pretool-check.sh`, matcher now `Bash|Read|Edit|Agent`) — see [the root-cause writeup](docs/10-architecture/06-hook-deadlock-root-cause-2026-07.md). Rollout to consumer repos beyond `claude-copilot` itself is a separate, staged effort (C-3), not implied by this fix.
 
@@ -387,7 +387,7 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 
 | Requirement | Version |
 | ----------- | ------- |
-| Python      | 3.10+   |
+| Python      | 3.10+ <!-- claim-check: claude-copilot-python-version --> |
 | Claude Code | Latest  |
 | Disk space  | ~100MB  |
 
