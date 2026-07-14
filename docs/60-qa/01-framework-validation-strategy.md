@@ -458,12 +458,13 @@ QA agent investigates the defect...
 ```
 
 **Pass Criteria:**
-- [ ] Protocol declaration appears
 - [ ] Correct agent invoked for request type
 - [ ] Agent spawned as subagent (not direct response)
-- [ ] Protocol enforced throughout session
+- [ ] Routing discipline held throughout session (delegated, not handled in the main session)
 
-**Failure Mode:** No protocol declaration, wrong agent, direct response without invocation
+**Failure Mode:** wrong agent, direct response without invocation, main session doing specialist work itself
+
+**Note (2026-07-14, DEC-2):** The former "protocol declaration appears" criterion is retired along with the `[PROTOCOL: ...]` prefix requirement itself (measured adoption 0.0%, unenforced). This test verifies routing correctness; it no longer checks for a text prefix.
 
 **Frequency:** Every release
 

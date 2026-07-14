@@ -10,22 +10,11 @@
 
 ---
 
-## REQUIRED: Protocol Declaration
+## Protocol Declaration — RETIRED (2026-07-14, DEC-2)
 
-**Before ANY other output, you MUST emit this declaration:**
+The `[PROTOCOL: ...]` prefix formerly required on every response is retired. Measured adoption was 0.0% (`protocol-declaration-rate-baseline`), and nothing in the hook pipeline (`.claude/hooks/user-prompt-submit.sh`) ever checked for it — the requirement was unenforced, not too heavy for real turns. **Omitting it is not a violation.**
 
-```
-[PROTOCOL: <TYPE> | Agent: @agent-<name> | Action: <INVOKING|ASKING|RESPONDING>]
-```
-
-**Examples:**
-- `[PROTOCOL: DEFECT | Agent: @agent-qa | Action: INVOKING]`
-- `[PROTOCOL: DEFECT | Agent: none | Action: ASKING]` (when you need info first)
-- `[PROTOCOL: EXPERIENCE | Agent: @agent-sd, @agent-uxd | Action: INVOKING]`
-- `[PROTOCOL: TECHNICAL | Agent: @agent-ta | Action: INVOKING]`
-- `[PROTOCOL: QUESTION | Agent: none | Action: RESPONDING]`
-
-**If your response does not start with `[PROTOCOL: ...]`, you are violating the protocol.**
+The discipline the declaration was meant to signal — invoke the right specialist before responding, never substitute the main session for a specialist — is retained in full (see Request Classification and Phase 1 below) and is measured directly by `delegation-rate-baseline` (tool-share median ~40.5–40.9%), not by a prefix convention.
 
 ---
 

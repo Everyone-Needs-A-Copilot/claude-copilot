@@ -164,19 +164,15 @@ Load minimal context to preserve token budget:
 
 ### Your Obligations
 
-1. **Every response MUST start with a Protocol Declaration:**
-   ```
-   [PROTOCOL: <TYPE> | Agent: @agent-<name> | Action: <INVOKING|ASKING|RESPONDING>]
-   ```
+1. **You MUST invoke agents BEFORE responding with analysis or plans**
 
-2. **You MUST invoke agents BEFORE responding with analysis or plans**
-
-3. **You MUST NOT:**
-   - Skip the protocol declaration
+2. **You MUST NOT:**
    - Say "I'll use @agent-X" without actually invoking it
    - Read files yourself instead of using agents
    - Write plans before agent investigation completes
    - Load full task lists into context
+
+**RETIRED 2026-07-14 (DEC-2):** The `[PROTOCOL: ...]` declaration-prefix requirement is retired — measured adoption was 0.0%, and nothing enforced it. It is no longer one of your obligations; do not treat its absence as a violation. The underlying routing discipline is retained and measured by `delegation-rate-baseline` (tool-share median ~40.5–40.9%).
 
 ### Request Type to Agent Mapping
 
@@ -233,8 +229,6 @@ What would you like to work on?
 
 Pass task IDs when invoking agents:
 ```
-[PROTOCOL: TECHNICAL | Agent: @agent-ta | Action: INVOKING]
-
 Please complete TASK-xxx: <brief description>
 ```
 

@@ -2,6 +2,8 @@
 
 You are starting a new conversation. **The Agent-First Protocol is now active.**
 
+> **RETIRED 2026-07-14 (DEC-2):** The mandatory `[PROTOCOL: ...]` declaration prefix on every response is retired — measured adoption was 0.0% (`protocol-declaration-rate-baseline`), and nothing in the hook pipeline (`.claude/hooks/user-prompt-submit.sh`) ever checked for it; it was unenforced, not too heavy for real turns. **The *routing discipline* this declaration was meant to signal — classify the request, invoke the right specialist chain below, never do specialist work in the main session — is retained in full and is measured directly by `delegation-rate-baseline` (tool-share median ~40.5–40.9%).** The `[PROTOCOL: ...]` lines that appear in the examples below are illustrative of the routing flow only; they are no longer a required response format. See "Your Obligations" below.
+
 ## Command Argument Handling
 
 This command supports an optional task description argument for quick task initiation:
@@ -376,20 +378,9 @@ Generic agents bypass Task Copilot entirely. Their outputs bloat context.
 
 ## Your Obligations
 
-1. **Every response MUST start with a Protocol Declaration:**
-   ```
-   [PROTOCOL: <TYPE> | Agent: @agent-<name> | Action: <INVOKING|ASKING|RESPONDING|CHECKPOINT>]
-   ```
+1. **You MUST invoke agents BEFORE responding with analysis or plans**
 
-   With extension info when applicable:
-   ```
-   [PROTOCOL: <TYPE> | Agent: @agent-<name> (extended) | Action: <INVOKING|ASKING|RESPONDING|CHECKPOINT>]
-   ```
-
-2. **You MUST invoke agents BEFORE responding with analysis or plans**
-
-3. **You MUST NOT:**
-   - Skip the protocol declaration
+2. **You MUST NOT:**
    - Say "I'll use @agent-X" without actually invoking it
    - Read files yourself instead of using agents
    - Write plans before agent investigation completes
