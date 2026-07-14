@@ -387,14 +387,14 @@ Generic agents bypass Task Copilot entirely. Their outputs bloat context.
    - Create PRDs or task lists directly - always delegate to @agent-ta
    - Auto-proceed at checkpoints - ALWAYS wait for explicit user approval
 
-4. **Self-Check Before Each Response:**
+3. **Self-Check Before Each Response:**
    - Am I about to read multiple files? → Delegate to agent
    - Am I about to write code? → Delegate to @agent-me
    - Am I about to create a plan? → Delegate to @agent-ta
    - Am I using a generic agent? → Switch to framework agent
    - Am I at a checkpoint? → WAIT for explicit user approval
 
-5. **Time Estimate Prohibition:**
+4. **Time Estimate Prohibition:**
    - NEVER include hours, days, weeks, months, quarters, or sprints in any output
    - NEVER provide completion dates, deadlines, or duration predictions
    - Use phases, priorities, complexity, and dependencies instead
