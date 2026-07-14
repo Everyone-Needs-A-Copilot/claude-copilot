@@ -12,7 +12,7 @@
 > **It is living.** It changes only when real evidence says the product changed —
 > and every change is logged in **Section 10: Evolution**.
 
-> **STATUS: RATIFIED v1.0 — 2026-06-28** (amended v1.1 — 2026-07-14; see §10 Evolution). Owner-ratified at read-back: priority order set, a fifth anti-pattern (The Do-Everything Generalist) added, and the ecosystem MCP/CLI boundary settled. Evidenced inferences confirmed against the owner's docs.
+> **STATUS: RATIFIED v1.0 — 2026-06-28** (amended v1.1, v1.2 — 2026-07-14; see §10 Evolution). Owner-ratified at read-back: priority order set, a fifth anti-pattern (The Do-Everything Generalist) added, and the ecosystem MCP/CLI boundary settled. Evidenced inferences confirmed against the owner's docs.
 
 ---
 
@@ -124,7 +124,7 @@ The first three are **identity boundaries** — cross any one and it stops being
 **Drift:** Agents get "just a bit more" context to be smarter — more files read at startup, full reasoning returned to the main session, outputs inlined instead of stored as work products.
 **Why it kills us:** It destroys the framework's core purpose (CLAUDE.md: "context bloat — the framework's core purpose"). The cure becomes the disease.
 **Early warning:** "let the agent read everything," "return the full analysis," "inline the output," rising main-session turn counts.
-**Line in the sand:** Outputs over the threshold externalize to work products; agents return ~100 tokens — and enforcement that needs context pays the cost once, never per-turn.
+**Line in the sand:** Outputs over the threshold externalize to work products; agents return within their class's current ratchet bar (§6), not their full reasoning — and enforcement that needs context pays the cost once, never per-turn.
 
 ### The Company Fork
 **Drift:** A specific team's methodology, voice, or vocabulary gets added directly into a base agent because it's faster than writing an extension.
@@ -196,10 +196,24 @@ If yes → reject, or redesign until it doesn't.
 - [ ] No implementation ships without a `@agent-qa` pass that carries an `ARTIFACT:` marker (a bare `VERDICT: APPROVED` does not unblock the gate).
 - [ ] Rules that matter are enforced by a hook or gate, each with a documented escape hatch (`COPILOT_*=off`).
 - [ ] `VERSION.json` is the single source of truth for the framework version; `package.json` mirrors it, never leads.
-- [ ] Agents return ~100 tokens to the main session; details go to work products.
+- [ ] Agent returns to the main session stay within their class's current ratchet bar (below); details go to work products.
 - [ ] No time estimates anywhere — phases, priority, and complexity only.
 - [ ] Base agents stay generic; no company-specific content.
 - [ ] `cc`/`tc` contract changes preserve parity with downstream consumers (codex-copilot pins).
+
+**Agent-return ratchet (by class), AMENDED 2026-07-14:** SOUL's original bar (~100 tokens, flat, all classes) was never met by any agent class once actually measured (`framework-agent-frugality`). Rather than carry an unmeetable bar, each class's bar is set at its current measured reality — honest today, not aspirational — and is explicitly a **ratchet**: it tightens as the return-contract work (agent instruction + return-format tightening, tracked separately) lands. The claims register (`claims.yaml`, `framework-agent-frugality`), not this table, is the source of truth for the live number; the table is a snapshot.
+
+| Agent class | Bar (tokens, 2026-07-13 measured baseline) |
+|---|---|
+| `me` | ~854 |
+| `doc` | ~490 |
+| `sd` | ~3,786 |
+| `uxd` | ~5,089 |
+| `uids` | ~4,118 |
+| `sec` | ~3,556 |
+| Any other class (no class-specific bar measured yet) | ~893 (overall median, use until that class has its own n) |
+
+A class's return exceeding its own bar in a later measurement is a regression to be treated seriously, not shrugged off as "the bar was always unrealistic" — that failure mode is exactly what put the old flat ~100 bar here in the first place.
 
 **Taste test:**
 If a claim in a doc or agent output can't name what measures it, it fails — regardless of how good it sounds. Honesty is the aesthetic.
@@ -297,6 +311,7 @@ When updated, add the rationale to the changelog below.
 
 | Date | Version | Change & rationale |
 |------|---------|--------------------|
+| 2026-07-14 | v1.2 | **Amended (DEC-1, per-class ratchet).** §6's flat ~100-token agent-return bar was met by zero agent classes when actually measured (`framework-agent-frugality`: overall median 893, p90 3,474, n≈124). Replaced with a per-class bar set at each class's current measured reality (`me` ~854, `doc` ~490, `sd` ~3,786, `uxd` ~5,089, `uids` ~4,118, `sec` ~3,556) — an honest bar today, framed explicitly as a ratchet that tightens as the return-contract work lands. The claims register, not this document, is the source of truth for the live number. |
 | 2026-07-14 | v1.1 | **Ratified (DEC-3, Option B).** Struck the falsified "~94% less context" figure from §3/§5/§7 (three sites) after population measurement showed it inverted (agent returns median 893 tokens vs work-product content median 353, `savings_ratio_median -1.53` — returns are ~2.5x LARGER than what they externalize, `framework-externalization-94pct`). Rewrote all three to state the *mechanism* (externalize to a work product; return a summary + pointer) and defer the *number* to the claims register, so a future measurement change doesn't require another SOUL edit. Mirrors the README's earlier correction (commit `7274e6b`). |
 | 2026-06-28 | v1.0 | **Ratified** at read-back. Set the principle priority order (identity boundaries above the enforcement-vs-budget tradeoff; enforcement outranks budget but pays its context cost once, never per-turn). Added a fifth anti-pattern, The Do-Everything Generalist (the generalist doing specialist work instead of delegating). Settled the ecosystem MCP/CLI boundary: within the ecosystem connection is CLI, never MCP; MCP is reserved for app-level servers serving external users (e.g., Convoco). Confirmed the five evidenced founding decisions. |
 | 2026-06-28 | v0.1 | Drafted as root-level decision instrument, retrofitted from the repo's README, CLAUDE.md, philosophy doc, overview card, VERSION.json, and the hooks/agents surface. Inferences marked; owner-only sections (priority order, anti-pattern lines in the sand, founding-decision rationale) flagged for ratification. |
