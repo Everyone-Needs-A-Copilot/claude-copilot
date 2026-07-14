@@ -53,7 +53,7 @@ git clone https://github.com/Everyone-Needs-A-Copilot/claude-copilot.git copilot
 │   ├── cc/                 ← Memory + skills CLI (install via install.sh)
 │   └── tc/                 ← Task Copilot CLI (install via install.sh)
 ├── .claude/
-│   ├── agents/             ← 16 agent definitions (markdown)
+│   ├── agents/             ← 14 agent definitions (markdown)
 │   └── commands/           ← Slash commands (markdown)
 ├── templates/              ← Project templates
 ├── SETUP.md                ← Setup instructions
@@ -167,7 +167,7 @@ This works because `/setup-project` was installed globally in Phase 2.
 ├── CLAUDE.md              ← Project instructions for Claude
 └── .claude/
     ├── commands/          ← /protocol, /continue, etc.
-    ├── agents/            ← 16 specialist agents
+    ├── agents/            ← 14 specialist agents
     └── skills/            ← For project-specific skills
 ```
 
@@ -180,7 +180,7 @@ Created:
 - .mcp.json - MCP server configuration
 - CLAUDE.md - Project instructions
 - .claude/commands/ - Protocol commands
-- .claude/agents/ - 16 specialist agents
+- .claude/agents/ - 14 specialist agents
 - .claude/skills/ - For project-specific skills
 
 Next steps:
@@ -424,7 +424,7 @@ Note: `/setup` only works when run from `~/.claude/copilot`. For projects, use `
 
 ## Next Steps
 
-- [Meet Your Team](../10-architecture/01-agents.md) - Learn about all 16 specialist agents
+- [Meet Your Team](../10-architecture/01-agents.md) - Learn about all 14 specialist agents
 - [Configuration Guide](../20-configuration/01-configuration.md) - Detailed setup options
 - [Customization](../20-configuration/02-customization.md) - Extend and personalize
 - [Philosophy](../10-architecture/02-philosophy.md) - Why we built it this way

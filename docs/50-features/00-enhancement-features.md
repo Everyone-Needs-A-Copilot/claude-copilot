@@ -1461,8 +1461,8 @@ Valid artifact types:
 | Type | Example detail |
 |------|----------------|
 | `test-run` | `pytest tests/ exit=0 "47 passed, 0 failed"` |
-| `file-check` | `.claude/agents/manifest.json exists agents=16` |
-| `diff-check` | `expected 16 agents actual 16 agents match` |
+| `file-check` | `.claude/agents/manifest.json exists agents=14` |
+| `diff-check` | `expected 14 agents actual 14 agents match` |
 
 #### What this means in practice
 

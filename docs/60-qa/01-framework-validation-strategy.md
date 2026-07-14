@@ -11,7 +11,7 @@ This document defines the complete validation strategy for the Claude Copilot fr
 **Framework Components:**
 - Memory Copilot (`cc memory` CLI, SQLite + FTS5 keyword search)
 - Skills Copilot (`cc skill` CLI, auto-firing via description + local skills + knowledge repo)
-- 16 Specialized Agents (ta, me, qa, do, doc, sd, uxd, uids, uid, sec, ind, cco, cw, cs, cpa, kc)
+- 14 Specialized Agents (ta, me, qa, do, doc, sd, uxd, uids, uid, sec, ind, cco, cw, kc)
 - Task Copilot (`tc` CLI, PRD/task/work-product storage)
 - Protocol commands (/protocol, /continue, /setup-project, /update-project, /update-copilot, /knowledge-copilot)
 - Extension system (override, extension, skills injection)
@@ -223,7 +223,7 @@ python -m pytest tests/test_skill_frontmatter.py -v -k "extension" 2>/dev/null |
 ```bash
 # Check all agent files exist
 ls -1 .claude/agents/*.md | wc -l
-# Should be 16 agent files (15 framework + kc setup-only)
+# Should be 14 agent files (13 framework + kc setup-only)
 
 # Verify each has required sections
 for agent in .claude/agents/*.md; do
@@ -243,7 +243,7 @@ done
 7. ## Decision Authority
 
 **Pass Criteria:**
-- [ ] 16 agent files present (ta, me, qa, do, doc, sd, uxd, uids, uid, sec, ind, cco, cw, cs, cpa, kc)
+- [ ] 14 agent files present (ta, me, qa, do, doc, sd, uxd, uids, uid, sec, ind, cco, cw, kc)
 - [ ] All required sections present in each
 - [ ] No time estimate language (per policy)
 

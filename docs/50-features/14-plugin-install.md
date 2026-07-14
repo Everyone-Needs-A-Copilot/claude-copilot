@@ -8,7 +8,7 @@ Claude Copilot supports two installation modes. Both are fully supported and sha
 
 ### What the plugin bundles (prompt-layer assets — pure markdown/JSON/shell)
 
-- **Agents** — ta, me, qa, sd, uxd, uids, uid, do, doc, sec, ind, cco, cw, cs, cpa, kc (16 specialist agents + kc utility)
+- **Agents** — ta, me, qa, sd, uxd, uids, uid, do, doc, sec, ind, cco, cw, kc (13 specialist agents + kc utility)
 - **Skills** — all skill categories (code, design, devops, documentation, security, testing, copywriting, architecture)
 - **Commands** — all slash commands (/protocol, /continue, /pause, /map, /memory, /orchestrate, /setup-project, etc.)
 - **Hooks** — pretool-check.sh, subagent-stop.sh, user-prompt-submit.sh (enforcement hooks)

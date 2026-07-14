@@ -90,8 +90,6 @@ User Request → Protocol → Lean Agent → [skills auto-fire from description 
 | `ind` | Industrial Designer — object-level essentialism (upstream of uxd) |
 | `cco` | Creative Director — brand strategy, creative direction |
 | `cw` | Copywriter — copy execution, messaging, microcopy |
-| `cs` | Customer Success — support patterns, retention |
-| `cpa` | CPA / Financial — tax implications, financial modeling |
 
 ---
 

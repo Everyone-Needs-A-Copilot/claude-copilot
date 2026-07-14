@@ -139,8 +139,6 @@ your-project/
     │   ├── ind.md              # Industrial Designer
     │   ├── cco.md              # Creative Director
     │   ├── cw.md               # Copywriter
-    │   ├── cs.md               # Customer Success  [business advisory — invoke standalone]
-    │   ├── cpa.md              # CPA / Financial   [business advisory — invoke standalone]
     │   └── kc.md               # Knowledge Copilot
     └── skills/                  # Project-specific skills (optional)
 ```
@@ -153,7 +151,7 @@ your-project/
 │   │   ├── cc/                 # cc CLI source (memory + skills)
 │   │   └── tc/                 # tc CLI source (Task Copilot)
 │   ├── .claude/
-│   │   ├── agents/             # 16 agent definitions
+│   │   ├── agents/             # 14 agent definitions
 │   │   └── commands/           # Slash command sources
 │   └── docs/                   # Documentation
 ├── knowledge/                   # Global knowledge repository (optional)
@@ -169,7 +167,7 @@ your-project/
 ```
 ~/.claude/copilot/              # Framework installation
 ├── .claude/
-│   ├── agents/                # 16 agent definitions (15 framework + kc; manifest.json is source of truth)
+│   ├── agents/                # 14 agent definitions (13 framework + kc; manifest.json is source of truth)
 │   ├── commands/              # Machine and project command sources
 │   └── skills/                # Skill library
 ├── tools/
@@ -214,7 +212,7 @@ your-project/
 - `cc config set paths.knowledge_repo <path>`: Knowledge repo path (→ `CC_KNOWLEDGE_REPO`)
 
 ### 2. Agents
-**15 framework agents + kc (setup-only) with auto-firing skill loading**
+**13 framework agents + kc (setup-only) with auto-firing skill loading**
 
 Agents are under 120 lines each. Skills auto-fire from their trigger-rich `description` when the model matches a prompt; agents use `cc skill search` / `cc skill get` as fallback. Shared boilerplate is extracted to the "Agent Shared Behaviors" section in CLAUDE.md. Authoritative roster: `.claude/agents/manifest.json`.
 
@@ -233,8 +231,6 @@ Agents are under 120 lines each. Skills auto-fire from their trigger-rich `descr
 | `ind` | Industrial Designer | Object-level essentialism (upstream of uxd) |
 | `cco` | Creative Director | Brand strategy, creative direction |
 | `cw` | Copywriter | Copy execution, messaging, microcopy |
-| `cs` | Customer Success | Support patterns, retention (business advisory) |
-| `cpa` | CPA / Financial | Tax implications, financial modeling (business advisory) |
 | `kc` | Knowledge Copilot | Shared knowledge setup |
 
 ### 3. Skills (cc CLI)

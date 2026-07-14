@@ -310,7 +310,7 @@ def test_high_band_boundary():
 | Languages/Code | refactoring-patterns, python-idioms, javascript-patterns, react-patterns |
 | DevOps | docker-patterns, kubernetes, ci-cd-patterns, git-workflows |
 | Docs/Architecture | api-docs, system-design-patterns |
-| Sales (vertical) | copilot-fireflies (call notes → CRM fields), copilot-crm (deal hygiene, pipeline review) — wired to `@agent-cs` |
+| Sales (vertical) | copilot-fireflies (call notes → CRM fields), copilot-crm (deal hygiene, pipeline review) |
 
 ---
 

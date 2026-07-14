@@ -84,7 +84,7 @@ If any test fails, see the detailed logs for which specific test failed and why.
 
 **Lean Agent Model**
 
-Current state: 16 agent files total (15 framework + kc setup-only), all using the lean agent model (under 120 lines) with on-demand skill loading via `cc skill search` / `cc skill get`. Shared boilerplate is extracted to "Agent Shared Behaviors" in CLAUDE.md.
+Current state: 14 agent files total (13 framework + kc setup-only), all using the lean agent model (under 120 lines) with on-demand skill loading via `cc skill search` / `cc skill get`. Shared boilerplate is extracted to "Agent Shared Behaviors" in CLAUDE.md.
 
 **Current agents:**
 - ta.md (Tech Architect)
@@ -100,8 +100,6 @@ Current state: 16 agent files total (15 framework + kc setup-only), all using th
 - ind.md (Industrial Designer)
 - cco.md (Creative Director)
 - cw.md (Copywriter)
-- cs.md (Customer Success)
-- cpa.md (CPA / Financial)
 - kc.md (Knowledge Copilot)
 
 **Required sections per CLAUDE.md:**

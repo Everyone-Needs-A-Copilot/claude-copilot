@@ -30,7 +30,7 @@ This project uses [Claude Copilot](https://github.com/Everyone-Needs-A-Copilot/c
 | Capability | Tools | Purpose |
 |------------|-------|---------|
 | **Memory** | `cc memory` | Persist decisions, lessons, progress across sessions |
-| **Agents** | 15 framework agents + kc (setup-only) via `/protocol` | Expert guidance routed by task type |
+| **Agents** | 13 framework agents + kc (setup-only) via `/protocol` | Expert guidance routed by task type |
 | **Knowledge** | `knowledge_search`, `knowledge_get` | Search company/product documentation |
 | **Skills** | `cc skill search`, `cc skill get` | Load expertise on demand |
 
@@ -51,9 +51,7 @@ This project uses [Claude Copilot](https://github.com/Everyone-Needs-A-Copilot/c
 | `cw` | Copywriter - microcopy, voice |
 | `cco` | Creative Director - brand strategy, art direction, creative concepts |
 | `ind` | Industrial Designer - essentialism, reduction, product-as-object |
-| `cs` | Sales Advisor - sales strategy, pipeline, deal architecture |
 | `kc` | Knowledge Copilot - shared knowledge setup |
-| `cpa` | CPA Copilot - tax strategy, financial modeling, hiring economics |
 
 ### Configuration
 

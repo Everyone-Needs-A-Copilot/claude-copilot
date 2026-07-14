@@ -361,8 +361,6 @@ This framework exists to prevent context bloat. Violating these rules wastes tok
 | `@agent-cco` | Creative direction, brand strategy, campaign concepts |
 | `@agent-cw` | UX copy, microcopy, error messages, button labels |
 | `@agent-sec` | Security review, threat modeling (STRIDE+DREAD) |
-| `@agent-cs` | Sales strategy, discovery, objection handling, qualification |
-| `@agent-cpa` | Financial analysis, tax strategy, compensation modeling |
 
 **NEVER use generic agents for framework work:**
 
@@ -445,7 +443,6 @@ When agents need to hand off work to other specialists:
 | @agent-uid | @agent-ta | Components complete, ready for task planning |
 | @agent-sd | @agent-cco | Creative direction or brand strategy needed |
 | @agent-cco | @agent-cw | Copy execution, messaging, microcopy |
-| @agent-cs | @agent-cpa | Tax implications, financial modeling needed |
 
 ---
 
@@ -834,7 +831,7 @@ Main session must track:
 ```
 {
   currentFlow: "EXPERIENCE" | "DEFECT" | "TECHNICAL" | "CLARIFYING" | "INFRA",
-  currentStage: "sd" | "ind" | "uxd" | "uids" | "uid" | "cco" | "cw" | "ta" | "me" | "qa" | "do" | "sec" | "cs" | "cpa",
+  currentStage: "sd" | "ind" | "uxd" | "uids" | "uid" | "cco" | "cw" | "ta" | "me" | "qa" | "do" | "sec",
   stageHistory: ["sd", "uxd", ...],
   workProducts: ["WP-001", "WP-002", ...],
   handoffContexts: {

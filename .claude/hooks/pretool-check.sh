@@ -133,7 +133,7 @@ export MANIFEST_FILE
 MANIFEST_AGENTS="$(_load_manifest_agents 2>/dev/null || echo "")"
 # Fallback when manifest unavailable
 if [[ -z "$MANIFEST_AGENTS" ]]; then
-  MANIFEST_AGENTS="cco cpa cs cw do doc ind me qa sd sec ta uid uids uxd"
+  MANIFEST_AGENTS="cco cw do doc ind me qa sd sec ta uid uids uxd"
 fi
 
 # Format agents as @agent-X list for deny messages

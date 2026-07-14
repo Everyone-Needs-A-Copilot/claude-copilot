@@ -104,6 +104,4 @@ A typed artifact stored in Task Copilot via `tc wp store`. Work products hold ag
 | `ind` | Industrial Designer | Object-level essentialism, reduction, honesty of form; upstream of visual and interaction design (Dieter Rams / Jony Ive) |
 | `cco` | Creative Director | Strategic creative direction, brand strategy, campaign concepts (Litmus Test methodology) |
 | `cw` | Copywriter | UX copy, microcopy, error messages, user-facing content (Mailchimp Voice & Tone) |
-| `cs` | Sales Advisor | Sales strategy, discovery calls, objection handling, prospect qualification (Socratic Sales methodology) — business advisory, outside the build chain |
-| `cpa` | Financial Advisor | Financial analysis, tax strategy, owner compensation, cash flow forecasting (S-Corp Tax Advisory) — business advisory, outside the build chain |
 | `kc` | Knowledge Copilot | Setup utility for shared knowledge repository; invoked via `/knowledge-copilot` (not a build-chain agent) |

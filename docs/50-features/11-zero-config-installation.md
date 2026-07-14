@@ -93,7 +93,7 @@ Then in each project:
 
 | Path | Purpose |
 |------|---------|
-| `agents/` | 16 agent definitions (synced from framework) |
+| `agents/` | 14 agent definitions (synced from framework) |
 | `commands/` | Protocol commands |
 | `skills/` | Project-specific skills |
 | `hooks/` | Pre-tool enforcement hooks |

@@ -269,7 +269,7 @@ In Claude Code:
 Updating Project with Claude Copilot v1.8.0
 
 Files updated:
-✓ .claude/agents/ (16 agent files: 15 framework + kc setup-only)
+✓ .claude/agents/ (14 agent files: 13 framework + kc setup-only)
 ✓ .claude/commands/ (added orchestrate.md)
 ✓ .gitignore (added .claude/orchestrator/)
 

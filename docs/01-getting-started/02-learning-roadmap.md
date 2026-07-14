@@ -370,8 +370,6 @@ Complex work requires multiple perspectives: architecture, security, UX, impleme
 | **ind** | Industrial Designer | Object-level essentialism review |
 | **cco** | Creative Director | Brand strategy, creative direction |
 | **cw** | Copywriter | Copy execution, messaging, microcopy |
-| **cs** | Customer Success | Support patterns |
-| **cpa** | CPA / Financial | Financial modeling, tax implications |
 
 ### Hands-on Exercises
 

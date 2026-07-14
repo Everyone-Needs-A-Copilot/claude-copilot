@@ -18,7 +18,7 @@ This file provides guidance to Claude Code when working with the Claude Copilot 
 
 **Mechanical enforcement:** The force-delegate rule, QA-gate rule, session-cap advisory, and safety primitives are enforced by hooks in `.claude/hooks/` — not just policy. Attempting >5 consecutive Bash/Read/Edit calls will be blocked automatically. After `@agent-me` completes, all main-session tools are gated until `@agent-qa` provides a pass verdict. **Safety primitives:** `/careful` (destructive-command block/warn via `security-rules.json`) and `/freeze` (edit-boundary lock via `.claude/hooks/state/.freeze`) — escape hatches: `COPILOT_CAREFUL=off`, `COPILOT_FREEZE=off`, `COPILOT_SAFETY=off`. See `.claude/hooks/README.md` for escape hatches and debug tools.
 
-**Framework agents:** ta, me, qa, do, doc, sd · design chain sd→uxd→uids→uid→ta→me · branches ind/cco/cw · sec · business cs/cpa (15 framework agents; kc is setup-only; `design` retired). Roster is the authoritative list in `.claude/agents/manifest.json`.
+**Framework agents:** ta, me, qa, do, doc, sd · design chain sd→uxd→uids→uid→ta→me · branches ind/cco/cw · sec (13 framework agents; kc is setup-only; `design` retired; cs/cpa cut 2026-07-14, DEC-8/TASK-100 — 0 measured invocations). Roster is the authoritative list in `.claude/agents/manifest.json`.
 
 ---
 
@@ -98,11 +98,10 @@ Persistent memory across sessions with full-text (FTS5 keyword) search.
 
 ### 2. Agents
 
-15 framework agents + kc (setup-only, not in the build chain). Every framework agent embeds named industry methodology — IDEO (sd), Dieter Rams/Jony Ive (ind), Nielsen/JTBD (uxd), Rams Principles/Atomic Design (uids), Atomic Design/CDD (uid), Litmus Test (cco), MailChimp Voice & Tone (cw), STRIDE+DREAD (sec), Socratic Sales (cs), S-Corp Tax Advisory (cpa), ADR/Fitness Functions (ta), Kent Beck (me), Diátaxis (doc), 12-Factor/SRE (do), Meszaros (qa). Authoritative roster: `.claude/agents/manifest.json`.
+13 framework agents + kc (setup-only, not in the build chain). Every framework agent embeds named industry methodology — IDEO (sd), Dieter Rams/Jony Ive (ind), Nielsen/JTBD (uxd), Rams Principles/Atomic Design (uids), Atomic Design/CDD (uid), Litmus Test (cco), MailChimp Voice & Tone (cw), STRIDE+DREAD (sec), ADR/Fitness Functions (ta), Kent Beck (me), Diátaxis (doc), 12-Factor/SRE (do), Meszaros (qa). Authoritative roster: `.claude/agents/manifest.json`.
 
 **Design chain:** sd → uxd → uids → uid → ta → me (ind and cco/cw are optional branches)
 **Security:** @agent-sec routes to me/ta/do; @includes stride-dread skill
-**Business advisory (optional, outside the build chain):** cs (sales) and cpa (finance/tax) are standalone agents for founder/agency business needs — they do not route into the software build chain; invoke them directly
 
 **Location:** `.claude/agents/`
 
@@ -161,7 +160,6 @@ Battle-tested workflow commands.
 | `uid` | `ta` | Components complete, ready for task planning |
 | `sd` | `cco` | Creative direction or brand strategy needed |
 | `cco` | `cw` | Copy execution, messaging, microcopy |
-| `cs` | `cpa` | Tax implications, financial modeling needed |
 
 ---
 

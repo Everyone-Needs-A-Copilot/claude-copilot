@@ -10,20 +10,6 @@
       "description": "Strategic creative direction, brand strategy, campaign concepts, creative vision",
       "methodology": "Litmus Test"
     },
-    "cpa": {
-      "role": "framework",
-      "model": "sonnet",
-      "tools": ["Read", "Grep", "Glob", "Edit", "Write", "WebSearch", "Bash"],
-      "description": "Financial analysis, tax strategy, owner compensation, cash flow forecasting",
-      "methodology": "S-Corp Tax Advisory"
-    },
-    "cs": {
-      "role": "framework",
-      "model": "sonnet",
-      "tools": ["Read", "Grep", "Glob", "Edit", "Write", "WebSearch", "Bash"],
-      "description": "Sales strategy, discovery call prep, objection handling, prospect qualification",
-      "methodology": "Socratic Sales"
-    },
     "cw": {
       "role": "framework",
       "model": "opus",
@@ -130,7 +116,6 @@
     { "from": "uid", "to": "ta", "when": "Components complete, ready for task planning" },
     { "from": "sd", "to": "cco", "when": "Creative direction or brand strategy needed", "optional": true },
     { "from": "cco", "to": "cw", "when": "Copy execution, messaging, microcopy needed" },
-    { "from": "cs", "to": "cpa", "when": "Tax implications or financial modeling needed", "optional": true },
     { "from": "me", "to": "qa", "when": "Implementation complete (MANDATORY — never skip)" },
     { "from": "ta", "to": "me", "when": "Task planning complete, implementation ready" }
   ],

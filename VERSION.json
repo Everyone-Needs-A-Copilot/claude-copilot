@@ -14,12 +14,12 @@
       "installCommand": "pip install -e ~/.claude/copilot/tools/tc"
     },
     "agents": {
-      "version": "5.6.0",
+      "version": "5.7.0",
       "path": ".claude/agents",
-      "count": 16,
-      "_countNote": "16 total manifest entries: 15 framework agents + 1 setup-only (kc). See frameworkAgents for the authoritative list.",
+      "count": 14,
+      "_countNote": "14 total manifest entries: 13 framework agents + 1 setup-only (kc). See frameworkAgents for the authoritative list. cpa/cs cut 2026-07-14 (DEC-8, TASK-100): 0 measured invocations across the full corpus, no measurement caveat.",
       "frameworkAgents": [
-        "cco", "cpa", "cs", "cw", "do", "doc", "ind",
+        "cco", "cw", "do", "doc", "ind",
         "me", "qa", "sd", "sec", "ta", "uid", "uids", "uxd"
       ],
       "designChain": ["sd", "uxd", "uids", "uid", "ta", "me"],

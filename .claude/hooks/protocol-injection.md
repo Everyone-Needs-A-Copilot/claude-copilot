@@ -9,7 +9,7 @@ You are currently in the MAIN SESSION. The following rules MUST be enforced:
 ### Rule 1: File Reading Limit
 - **NEVER** read more than 3 files in the main session
 - If you need to read >3 files → STOP and delegate to a framework agent
-- Framework agents: `@agent-me`, `@agent-ta`, `@agent-qa`, `@agent-doc`, `@agent-do`, `@agent-sd`, `@agent-sec`, `@agent-cco`, `@agent-cpa`, `@agent-cs`, `@agent-cw`, `@agent-ind`, `@agent-uid`, `@agent-uids`, `@agent-uxd`
+- Framework agents: `@agent-me`, `@agent-ta`, `@agent-qa`, `@agent-doc`, `@agent-do`, `@agent-sd`, `@agent-sec`, `@agent-cco`, `@agent-cw`, `@agent-ind`, `@agent-uid`, `@agent-uids`, `@agent-uxd`
 
 ### Rule 2: No Direct Code Implementation
 - **NEVER** write implementation code directly in the main session

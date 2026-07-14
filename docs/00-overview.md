@@ -120,8 +120,6 @@ tc progress
 | `ind` | Industrial Designer — object-level essentialism (upstream of uxd) |
 | `cco` | Creative Director — brand strategy, creative direction |
 | `cw` | Copywriter — copy execution, messaging, microcopy |
-| `cs` | Sales Advisor — sales strategy, pipeline, deal architecture (business advisory) |
-| `cpa` | CPA / Financial — tax implications, financial modeling (business advisory) |
 
 ---
 

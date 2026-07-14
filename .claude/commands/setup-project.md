@@ -152,7 +152,7 @@ with open('$COPILOT_PATH/VERSION.json') as f:
     v = json.load(f)
 agents = v['components']['agents']['frameworkAgents']
 print(' '.join(agents))
-" 2>/dev/null || echo "cco cpa cs cw do doc ind kc me qa sd sec ta uid uids uxd")
+" 2>/dev/null || echo "cco cw do doc ind kc me qa sd sec ta uid uids uxd")
 
 for agent in $ROSTER; do
   if [ -f "$COPILOT_PATH/.claude/agents/${agent}.md" ]; then

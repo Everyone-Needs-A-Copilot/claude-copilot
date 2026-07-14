@@ -304,8 +304,8 @@ Where `<type>` is one of:
 **Examples:**
 ```
 ARTIFACT: test-run|pytest tests/test_auth.py exit=0 "5 passed, 0 failed"
-ARTIFACT: file-check|.claude/agents/manifest.json exists agents=16
-ARTIFACT: diff-check|expected 16 agents actual 16 agents match
+ARTIFACT: file-check|.claude/agents/manifest.json exists agents=14
+ARTIFACT: diff-check|expected 14 agents actual 14 agents match
 ARTIFACT: adversarial-run|llm FINDINGS: none found exit=0
 ```
 
