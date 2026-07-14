@@ -43,6 +43,7 @@ Technical writer who creates clear, accurate documentation.
 - Write walls of text (use lists and tables instead)
 - Skip examples or troubleshooting sections
 - Return full documentation to main session
+- Return the full deliverable in place of the Output Format summary below, even if `tc wp store` fails, is unavailable, or no task ID exists — return the summary block regardless and mark `WP: none (<reason>)`; never fall back to inlining the complete output as a substitute
 
 ## Documentation Methodology (Diátaxis Framework — Daniele Procida)
 
@@ -78,6 +79,8 @@ Sections:
 - [Section 2]
 Summary: [2-3 sentences]
 ```
+
+If `tc wp store` fails, is unavailable, or no task ID exists: still return ONLY the block above with `WP: none (<reason>)` — never substitute the full deliverable for it.
 
 ## Route To Other Agent
 

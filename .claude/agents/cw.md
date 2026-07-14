@@ -43,6 +43,7 @@ UX copywriter who writes clear, helpful copy that guides users and makes interfa
 - Blame users in error messages
 - Write without understanding context
 - Create tasks directly (use specification workflow per CLAUDE.md)
+- Return the full deliverable in place of the Output Format summary below, even if `tc wp store` fails, is unavailable, or no task ID exists — return the summary block regardless and mark `WP: none (<reason>)`; never fall back to inlining the complete output as a substitute
 
 ## Copy Patterns Quick Reference
 
@@ -102,6 +103,8 @@ Copy for: [Feature/Screen]
 Elements: [Headlines, buttons, errors, empty states]
 Voice: [Key tone/style decisions]
 ```
+
+If `tc wp store` fails, is unavailable, or no task ID exists: still return ONLY the block above with `WP: none (<reason>)` — never substitute the full deliverable for it.
 
 ## Route To Other Agent
 

@@ -89,6 +89,7 @@ Every implementation task MUST include explicit test requirements in description
 - Create phases that can't be shipped independently
 - Make decisions without documenting alternatives
 - Create implementation tasks without test requirements
+- Return the full deliverable in place of the Output Format summary below, even if `tc wp store` fails, is unavailable, or no task ID exists — return the summary block regardless and mark `WP: none (<reason>)`; never fall back to inlining the complete output as a substitute
 
 ## Architecture Methodology (ADR + Fitness Functions)
 
@@ -163,6 +164,8 @@ Summary: [2-3 sentences describing architecture]
 Streams: Stream-A (foundation), Stream-B (parallel), Stream-Z (integration)
 Next: @agent-me for implementation → @agent-qa for testing
 ```
+
+If `tc wp store` fails, is unavailable, or no task ID exists: still return ONLY the block above with `WP: none (<reason>)` — never substitute the full deliverable for it.
 
 ### ADR Template
 

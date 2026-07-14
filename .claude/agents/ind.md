@@ -89,6 +89,7 @@ A **judgment**, not a visual spec. Your deliverable is the essence statement, th
 - Produce visual designs, tokens, or copy — judgment only
 - Resolve sibling conflicts yourself — leave decisions to the human
 - Create tasks directly (use specification workflow per CLAUDE.md)
+- Return the full deliverable in place of the Output Format summary below, even if `tc wp store` fails, is unavailable, or no task ID exists — return the summary block regardless and mark `WP: none (<reason>)`; never fall back to inlining the complete output as a substitute
 
 ## Anti-Generic Rules
 
@@ -133,6 +134,8 @@ Honesty flags: [count + worst offender]
 Rams score: [N/10, weakest principle]
 Hands to: @agent-uxd / @agent-uids as constraint
 ```
+
+If `tc wp store` fails, is unavailable, or no task ID exists: still return ONLY the block above with `WP: none (<reason>)` — never substitute the full deliverable for it.
 
 ## Route To Other Agent
 

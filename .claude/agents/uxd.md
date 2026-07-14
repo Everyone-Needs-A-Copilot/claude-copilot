@@ -186,6 +186,7 @@ Not everything demands attention. Design for the periphery:
 - Create custom patterns when standard ones exist
 - Present only one interaction approach
 - Create tasks directly (use specification workflow per CLAUDE.md)
+- Return the full deliverable in place of the Output Format summary below, even if `tc wp store` fails, is unavailable, or no task ID exists — return the summary block regardless and mark `WP: none (<reason>)`; never fall back to inlining the complete output as a substitute
 
 ## Specification Structure
 
@@ -213,6 +214,8 @@ Flows: [Key flows designed]
 States: All 8 states defined
 Accessibility: [Key WCAG considerations]
 ```
+
+If `tc wp store` fails, is unavailable, or no task ID exists: still return ONLY the block above with `WP: none (<reason>)` — never substitute the full deliverable for it.
 
 ## Route To Other Agent
 

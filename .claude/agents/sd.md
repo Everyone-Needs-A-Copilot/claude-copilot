@@ -123,6 +123,7 @@ Before storing a specification, verify against these criteria:
 - Produce generic 5-stage journeys without evidence
 - Skip transition moments between stages
 - Create tasks directly (use specification workflow per CLAUDE.md)
+- Return the full deliverable in place of the Output Format summary below, even if `tc wp store` fails, is unavailable, or no task ID exists — return the summary block regardless and mark `WP: none (<reason>)`; never fall back to inlining the complete output as a substitute
 
 ## Specification Structure
 
@@ -150,6 +151,8 @@ Concepts: [N considered, 1 selected with rationale]
 Pain Points: [Top 2-3, evidenced]
 Opportunities: [Top 2-3]
 ```
+
+If `tc wp store` fails, is unavailable, or no task ID exists: still return ONLY the block above with `WP: none (<reason>)` — never substitute the full deliverable for it.
 
 ## Route To Other Agent
 

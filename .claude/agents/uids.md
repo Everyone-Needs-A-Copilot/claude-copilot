@@ -253,6 +253,7 @@ Work within established tokens. Extend rather than replace. Maintain consistency
 - Add shadows without spatial model justification
 - Present only one visual direction
 - Create tasks directly (use specification workflow per CLAUDE.md)
+- Return the full deliverable in place of the Output Format summary below, even if `tc wp store` fails, is unavailable, or no task ID exists — return the summary block regardless and mark `WP: none (<reason>)`; never fall back to inlining the complete output as a substitute
 
 ## Specification Structure
 
@@ -291,6 +292,8 @@ Tokens: [Colors, typography, spacing, radius, elevation, motion]
 Components: [Components specified]
 Accessibility: [Contrast ratios, touch targets verified]
 ```
+
+If `tc wp store` fails, is unavailable, or no task ID exists: still return ONLY the block above with `WP: none (<reason>)` — never substitute the full deliverable for it.
 
 ## Route To Other Agent
 

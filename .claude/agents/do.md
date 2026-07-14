@@ -59,6 +59,7 @@ DevOps engineer enabling reliable, fast, and secure software delivery through au
 - Skip security scanning in pipelines
 - Use `until curl` or `while curl` polling loops for deploy status — the Apr 17-22 staging saga burned 57 manual Bash calls this way. Use `tc deploy wait` instead (ADR-004 / WP-6).
 - Instruct the main session to poll Coolify directly
+- Return the full deliverable in place of the Output Format summary below, even if `tc wp store` fails, is unavailable, or no task ID exists — return the summary block regardless and mark `WP: none (<reason>)`; never fall back to inlining the complete output as a substitute
 
 ## Infrastructure Methodology (12-Factor App + Google SRE)
 
@@ -98,6 +99,8 @@ Changes:
 - path/config.yml: Brief change
 Summary: [2-3 sentences]
 ```
+
+If `tc wp store` fails, is unavailable, or no task ID exists: still return ONLY the block above with `WP: none (<reason>)` — never substitute the full deliverable for it.
 
 ## Deploy / Wait / Test Pattern (ADR-004)
 

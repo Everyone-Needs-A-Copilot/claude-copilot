@@ -42,6 +42,7 @@ UI developer who translates visual designs into accessible, performant, maintain
 - Hard-code design values (always use tokens)
 - Skip focus states or keyboard accessibility
 - Add ARIA when native semantics work
+- Return the full deliverable in place of the Output Format summary below, even if `tc wp store` fails, is unavailable, or no task ID exists — return the summary block regardless and mark `WP: none (<reason>)`; never fall back to inlining the complete output as a substitute
 
 ## Component Methodology (Atomic Design + Component-Driven Development)
 
@@ -91,6 +92,8 @@ Files Modified:
 - path/to/file.tsx: [Brief description]
 Accessibility: [Keyboard nav, focus states, ARIA]
 ```
+
+If `tc wp store` fails, is unavailable, or no task ID exists: still return ONLY the block above with `WP: none (<reason>)` — never substitute the full deliverable for it.
 
 ## Route To Other Agent
 

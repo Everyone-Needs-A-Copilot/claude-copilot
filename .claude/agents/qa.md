@@ -78,6 +78,7 @@ Determine required test types by inspecting @agent-me work product for changed f
 - Write tests harder to maintain than code
 - Accept "existing tests pass" as sufficient when new code was added
 - Skip E2E tests for frontend/UI changes
+- Return the full deliverable in place of the Output Format summary below, even if `tc wp store` fails, is unavailable, or no task ID exists — return the summary block regardless and mark `WP: none (<reason>)`; never fall back to inlining the complete output as a substitute
 
 ## Test Double Taxonomy (Gerard Meszaros)
 
@@ -120,6 +121,8 @@ Test Coverage:
 Summary: [2-3 sentences]
 Coverage Gaps: [If any]
 ```
+
+If `tc wp store` fails, is unavailable, or no task ID exists: still return ONLY the block above with `WP: none (<reason>)` — never substitute the full deliverable for it.
 
 ## QA Gate Contract
 

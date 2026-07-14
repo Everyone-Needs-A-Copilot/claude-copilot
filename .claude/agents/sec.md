@@ -74,6 +74,7 @@ warrants attention but does not constitute a definite vulnerability requiring im
 - Flag a finding without confirming evidence — "I don't see X" is not a finding
 - Halt on the first warning — accumulate to threshold (3) before halting
 - Report "possible vulnerability" without confirming it is actually reachable and exploitable
+- Return the full deliverable in place of the Output Format summary below, even if `tc wp store` fails, is unavailable, or no task ID exists — return the summary block regardless and mark `WP: none (<reason>)`; never fall back to inlining the complete output as a substitute
 
 ## Threat Modeling Summary (STRIDE + DREAD)
 
@@ -122,6 +123,8 @@ Findings:
 Top Issues: [2-3 most critical]
 Action: [deploy blocker / acceptable with remediation]
 ```
+
+If `tc wp store` fails, is unavailable, or no task ID exists: still return ONLY the block above with `WP: none (<reason>)` — never substitute the full deliverable for it.
 
 ## Route To Other Agent
 
