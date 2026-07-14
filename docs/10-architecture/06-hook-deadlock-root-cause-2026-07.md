@@ -98,7 +98,7 @@ Streak thresholds (deny at 5 consecutive same-tool calls) are unchanged. No new 
 | Same call without the kill switch (control) | **Deny** |
 | Corrupted non-numeric `streak` value in state file | **Allow** (fails open, does not crash) |
 
-All pre-existing 37 assertions plus the 14 new ones pass (48/49 total in the file; the one failure is a pre-existing, unrelated `<50ms` performance-timing flake present before this change — see Notes).
+All pre-existing 37 assertions plus the 14 new ones pass (48/49 total in the file; the one failure is a pre-existing, unrelated `<50ms` performance-timing flake present before this change — see Notes). <!-- claim-check: hook-deadlock-fix-verified -->
 
 ### Live smoke test
 
@@ -110,7 +110,7 @@ Ran against a real, throwaway `claude -p` headless session (outside this repo �
 
 ## Rollout Readiness
 
-This fix is proven **in `claude-copilot` only**. Per the owner's C-3 staging directive, before widening `PreToolUse` matchers in any consumer repo (copilot-control-tower, convoco, insights-copilot, cli-copilot, or any other of the 27 repos with `.claude/agents/` present per the `framework-enforcement-not-wired` finding):
+This fix is proven **in `claude-copilot` only**. Per the owner's C-3 staging directive, before widening `PreToolUse` matchers in any consumer repo (copilot-control-tower, convoco, insights-copilot, cli-copilot, or any other of the 27 repos with `.claude/agents/` present per the `framework-enforcement-not-wired` finding): <!-- claim-check: enforcement-hook-wiring-ratio -->
 
 1. This repo's live `.claude/settings.json` (used for the owner's real sessions) must run with the widened matcher for a full working session with no unexpected denials or false-positive blocks.
 2. The consumer repo's own framework agents must be audited for `tools:` lists that omit `Agent`/`Task` (the exact condition that makes a force-delegate/qa-gate deny unsatisfiable) — if any exist, either add the escape hatch awareness to their prompts or confirm the subagent exemption in this fix covers them before enabling.

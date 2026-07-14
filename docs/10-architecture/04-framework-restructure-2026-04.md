@@ -171,8 +171,11 @@ A multi-line-content bugfix was applied in the R0.3 follow-up: the launcher now 
 | Delegation rate | 6% (94% main-session) | Hook blocks after 5 consecutive same-tool calls |
 | QA gate | Advisory (CLAUDE.md text) | Mechanically enforced — tools blocked until @agent-qa passes |
 | Agent roster | 14 agents | 8 agents (~800-1200 tokens/turn removed from prompt) |
-| Model cost | Opus 4.7 for 94% of tool calls | Sonnet for ~94% of work; Opus reserved for design/architecture |
+| Model cost | Opus 4.7 for 94% of tool calls | Sonnet for ~94% of work; Opus reserved for design/architecture <!-- claim-check: model-tier-opus-dominant-main-session --> |
 | Bash polling pattern | `until curl ...; do sleep 5; done` (repeated manually) | `tc deploy wait <app-uuid>` |
+
+**Correction (CSE Auditability F-3, `model-tier-opus-dominant-main-session`):** the "After" cell above is the *design intent*, not the measured outcome. Post-hook measurement found the opposite: main-session tool calls are **94.5% Opus**, not 94% Sonnet — the model-pinning launcher exists but is not in effective use for the bulk of orchestrator turns, which are overwhelmingly not design/architecture work. See `docs/40-initiatives/01-cse-auditability/phases/phase-1-findings.md` (F-3) and `claims.yaml`'s `model-tier-opus-dominant-main-session` (status: passing — the falsifying claim is proven, not the row above).
+<!-- claim-check: model-tier-opus-dominant-main-session -->
 
 **The QA gate change is the highest-leverage fix.** Before, @agent-me could complete and the session could move on without ever running tests. The gate makes this structurally impossible — not policy-impossible.
 
@@ -281,7 +284,7 @@ The model tier inversion (Opus doing cheap work) is fixed by pinning the main se
 CLAUDE_MODEL=claude-opus-4-5 .claude/claude-launcher
 ```
 
-The default is `claude-sonnet-4-6[1m]`. This runs Sonnet for orchestration (routing, summarizing, delegating) and reserves Opus for agents that need it (design, architecture). Net effect: ~94% of tool calls run on the cheaper, faster model.
+The default is `claude-sonnet-4-6[1m]`. This runs Sonnet for orchestration (routing, summarizing, delegating) and reserves Opus for agents that need it (design, architecture). Net effect (as designed): ~94% of tool calls run on the cheaper, faster model. <!-- claim-check: model-tier-opus-dominant-main-session --> **Measured outcome is the opposite** (94.5% Opus main-session tool-call share) — see the correction above the "Before vs After" table.
 
 ---
 
