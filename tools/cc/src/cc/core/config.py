@@ -67,6 +67,25 @@ DEFAULTS: dict[str, Any] = {
     # actually scans (inheritance-and-publish.md §2.2's tree table). NEVER
     # a mirror and NEVER an authoring vault. See core/ecosystem/materialize.py.
     "paths.materialize_root": "~/.claude",
+    # WS-A foundation slice (Stream-F). GitHub App client id for the
+    # device-flow sign-in seam (core/authstore.py / core/keychain.py) --
+    # read from the org's inherited `ecosystem.yml`
+    # (core/ecosystem/ecosystem_config.py), NOT a secret itself (a client
+    # id is public by design), so it's fine to ride the plain config
+    # cascade rather than the keychain.
+    "github_app.client_id": None,
+    # Explicit override for the inherited ecosystem.yml location; when
+    # unset, ecosystem_config.py derives <paths.materialize_root>/ecosystem.yml.
+    "paths.ecosystem_config": None,
+    # Project roots this machine scans (list-valued -- see LIST_VALUED_KEYS
+    # below). Unset by default: no scanning happens until an admin/user
+    # configures at least one root.
+    "projects.roots": None,
+    # macOS Keychain service name secrets are stored/looked up under (see
+    # core/keychain.py) -- never itself a secret.
+    "auth.keychain_service": "com.everyoneneedsacopilot.copilot.github",
+    # Device-flow OAuth scopes requested at sign-in.
+    "auth.scopes": "read:org repo",
 }
 
 # ---------------------------------------------------------------------------
@@ -77,7 +96,7 @@ DEFAULTS: dict[str, Any] = {
 # Currently only paths.knowledge_repo — see resolve_knowledge_repos() below.
 # Each source layer (env / project / machine) still supplies the WHOLE list
 # for this key; layers are never concatenated across sources.
-LIST_VALUED_KEYS: frozenset[str] = frozenset({"paths.knowledge_repo"})
+LIST_VALUED_KEYS: frozenset[str] = frozenset({"paths.knowledge_repo", "projects.roots"})
 
 # Sentinel distinguishing "no value passed" from an explicit None argument.
 _UNSET = object()
