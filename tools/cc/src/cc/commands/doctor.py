@@ -9,6 +9,20 @@ WS-A slice 1 (doctor-slice): this module also builds the versioned
   - copilot-control-tower/docs/01-architecture/schemas/doctor.schema.json
   - tools/cc/tests/fixtures/schemas/ (vendored copies used by the contract test)
 
+WS-A doctor-completion (Stream-B): the engine slice. Folds in three more
+honest signals, none of which existed in slice 1:
+  - per-(product, layer) sync checkers (core/ecosystem/component_status.py),
+    reading the manifest + lockfile + a tier's published lock-pointer ref.
+  - a real `auth[]` (core/authstore.py's identity pointer + core/keychain.py's
+    Keychain presence check) -- emits an entry ONLY for a detectably-bad
+    credential state, never for "never signed in" (that is simply no entry,
+    not a failure).
+  - `syncing`, when (and only when) the advisory copilot lock
+    (core/locking.py) is actually held by another process right now -- a
+    real, non-destructive, non-blocking probe, never a fabricated guess.
+  See `_compute_status()`'s docstring for the full worst-wins ladder this
+  slice completes.
+
 Naming note: the upstream design names the user-facing verb `copilot doctor`
 (the `copilot` binary that wraps `cc`). The ecosystem logic itself lives here
 in `cc`; `copilot doctor` can become a thin alias for `cc doctor` once that
@@ -17,20 +31,33 @@ wrapper exists. Until then, `cc doctor` IS the doctor verb.
 
 from __future__ import annotations
 
+import fcntl
+import os
 import socket
-from dataclasses import dataclass
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, NamedTuple, Optional
 
-from cc.core.config import get_resolved_config
+from cc.core import keychain
+from cc.core.authstore import read_identity
+from cc.core.config import get_resolved_config, resolve_key
 from cc.core.config_paths import (
     machine_config_path,
     project_config_path,
     repo_root,
 )
+from cc.core.ecosystem import mirror
+from cc.core.ecosystem.component_status import Checker, compute_component_checkers
+from cc.core.ecosystem.lockfile import default_lockfile_path, read_lockfile
+from cc.core.ecosystem.manifest import ManifestError, load_layers, validate_layers
+from cc.core.locking import lock_path
 
 SCHEMA_VERSION = "1.0"
+
+# Sentinel distinguishing "no override passed" from an explicit None argument
+# (mirrors commands/update.py's / commands/resolve.py's own `_UNSET`).
+_UNSET: Any = object()
 
 # Best-effort `paths.*` config-key -> product attribution (doctor.schema.json's
 # optional per-checker `product` field). Only keys unambiguously owned by a
@@ -42,6 +69,12 @@ PRODUCT_BY_PATH_KEY: dict[str, str] = {
     "paths.knowledge_repo": "knowledge",
 }
 
+# Fallback keychain service name -- mirrors core/config.py's own
+# "auth.keychain_service" DEFAULTS entry; only used if that key somehow
+# resolves empty (DEFAULTS always sets it, so this is defense-in-depth,
+# never the expected path).
+_DEFAULT_KEYCHAIN_SERVICE = "com.everyoneneedsacopilot.copilot.github"
+
 
 class DoctorResult(NamedTuple):
     warnings: list[str]
@@ -51,32 +84,6 @@ class DoctorResult(NamedTuple):
 # Sentinel object used by tests to simulate "not inside a git repo".
 # Pass _project_cfg_path=NOT_IN_REPO to run_doctor().
 NOT_IN_REPO: Any = object()
-
-
-@dataclass
-class Checker:
-    """A single, discretely-identified health check result.
-
-    This is the internal building block shared by both the legacy
-    `run_doctor()` (warnings/errors) shape and the new `build_doctor_report()`
-    (WS-A `doctor --json` contract) shape, so the two never drift apart.
-    """
-
-    id: str
-    severity: str  # "pass" | "warn" | "fail"
-    detail: str = ""
-    path: Optional[str] = None
-    product: Optional[str] = None  # best-effort; absent when not attributable
-
-    def to_contract_dict(self) -> dict:
-        d: dict = {"id": self.id, "severity": self.severity, "destructive": False}
-        if self.detail:
-            d["detail"] = self.detail
-        if self.path:
-            d["path"] = self.path
-        if self.product:
-            d["product"] = self.product
-        return d
 
 
 def _run_checks(
@@ -271,46 +278,242 @@ def run_doctor(
     return DoctorResult(warnings=warnings, errors=errors)
 
 
-def _compute_status(checkers: list[Checker]) -> str:
+def _compute_status(
+    config_checkers: list[Checker],
+    *,
+    component_checkers: Optional[list[Checker]] = None,
+    any_remote_offline: bool = False,
+    auth_entries: Optional[list[dict[str, Any]]] = None,
+    lock_held_by_other: bool = False,
+) -> str:
     """
     Compute the top-level `status` field HONESTLY from available signals.
 
-    WS-A slice 1 ($comment): the full ~10-state machine (syncing,
-    update-available, waiting-for-network, updating-app, offline-with-cache,
-    it-config-incomplete, signed-out, ...) requires the sync/resolution
-    engine and an auth store, neither of which exist in `cc` yet. This
-    function ONLY emits states it can truly determine today:
+    WS-A doctor-completion ($comment): this is the full worst-wins ladder
+    doctor.schema.json documents (`status` property description),
+    completing what slice 1 deliberately left unfinished:
 
-      - setup-needed     : machine or project config is missing/unreachable
-      - needs-attention   : any checker failed, or (conservatively) any
-                            checker warned
-      - healthy           : zero fail/warn checkers
+      it-config-incomplete > signed-out > needs-attention > offline >
+      syncing > update-available > healthy
 
-    It deliberately never fabricates `syncing`, `update-available`,
-    `signed-out`, `it-config-incomplete`, `offline`, `waiting-for-network`,
-    or `updating-app` — those require the engine / auth store this slice
-    does not build. The full state machine lands with the engine (see
-    cli-contract.md "Freeze status & source of truth").
+    `setup-needed` remains a lifecycle state checked FIRST, outside that
+    ladder (a machine that has never even been configured has nothing else
+    worth computing yet). `it-config-incomplete`/`waiting-for-network`/
+    `updating-app` are not emitted by this slice either -- no MDM-config
+    signal, first-run wizard, or self-update engine exists in `cc` yet to
+    honestly drive them; fabricating one would violate the "never a
+    fabricated Healthy [or other state]" rule this whole contract runs on.
 
-    OPEN DECISION (needs owner confirmation): treating any `warn` checker as
-    disqualifying for `healthy` is a conservative default beyond what the
-    schema's `allOf` invariant strictly requires (it only forbids `healthy`
-    with a `fail` checker or an expired/revoked auth entry). Confirm whether
-    warn-only findings (e.g. a single stray path-not-found) should still be
-    able to report `healthy`.
+      - setup-needed      : machine or project config is missing/unreachable.
+      - signed-out        : any auth[] entry is present (expired/revoked --
+                            `auth_entries` only ever contains failing
+                            credentials, see `_build_auth_entries()`).
+      - needs-attention   : any config checker failed or warned (the
+                            conservative default slice 1 already chose --
+                            see its own historical note, preserved here),
+                            or (defensively, though this slice's sync
+                            checkers never actually emit "fail") any sync
+                            checker failed outright.
+      - offline           : at least one sync checker could not reach its
+                            remote (`any_remote_offline` -- see
+                            core/ecosystem/component_status.py).
+      - syncing           : the advisory copilot lock is held by another
+                            process RIGHT NOW (`lock_held_by_other` -- a
+                            real, non-blocking probe; see
+                            `_probe_lock_held()`). Never fabricated when no
+                            such live signal exists.
+      - update-available  : at least one sync checker found the local tip
+                            behind its remote (and nothing worse above).
+      - healthy           : none of the above.
     """
+    component_checkers = component_checkers or []
+    auth_entries = auth_entries or []
+
     setup_incomplete = any(
         c.id in ("machine-config", "project-config", "project-repo")
         and c.severity != "pass"
-        for c in checkers
+        for c in config_checkers
     )
     if setup_incomplete:
         return "setup-needed"
-    if any(c.severity == "fail" for c in checkers):
+
+    if auth_entries:
+        return "signed-out"
+
+    if any(c.severity in ("fail", "warn") for c in config_checkers):
         return "needs-attention"
-    if any(c.severity == "warn" for c in checkers):
+    if any(c.severity == "fail" for c in component_checkers):
         return "needs-attention"
+
+    if any_remote_offline:
+        return "offline"
+
+    if lock_held_by_other:
+        return "syncing"
+
+    if any(c.severity == "warn" for c in component_checkers):
+        return "update-available"
+
     return "healthy"
+
+
+def _build_component_checkers(
+    *,
+    _layers: Optional[list[dict[str, Any]]],
+    _manifest_path: Any,
+    _lockfile: Optional[dict[str, Any]],
+    _lockfile_path: Any,
+    _mirror_root: Any,
+    _latest_sha_fn: Any,
+) -> tuple[list[Checker], bool]:
+    """
+    Load the layer manifest + lockfile (mirrors `commands/resolve.py`'s own
+    `build_resolve_report()` loading pattern) and fold them through
+    `component_status.compute_component_checkers()`.
+
+    No manifest configured, or an invalid/unreadable one, is an honest
+    "nothing to check yet" -- never a crash: a health check must never
+    itself become the thing that's unhealthy.
+    """
+    if _layers is not None:
+        layers = _layers
+    else:
+        manifest_path = (
+            _manifest_path if _manifest_path is not _UNSET else resolve_key("layers.manifest")
+        )
+        if not manifest_path:
+            return [], False
+        try:
+            layers = validate_layers(load_layers(manifest_path))
+        except ManifestError:
+            return [], False
+
+    if _lockfile is not None:
+        lock = _lockfile
+    else:
+        lockfile_path = (
+            _lockfile_path if _lockfile_path is not _UNSET else default_lockfile_path()
+        )
+        lock = read_lockfile(lockfile_path)
+
+    latest_sha_fn = _latest_sha_fn if _latest_sha_fn is not _UNSET else mirror.latest_lock_sha
+    mirror_root = (
+        _mirror_root if _mirror_root is not _UNSET else resolve_key("paths.mirrors_root")
+    )
+
+    return compute_component_checkers(
+        layers, lockfile=lock, latest_sha_fn=latest_sha_fn, mirror_root=mirror_root
+    )
+
+
+def _parse_timestamp(value: str) -> Optional[datetime]:
+    try:
+        normalized = value.replace("Z", "+00:00") if value.endswith("Z") else value
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _build_auth_entries(
+    *,
+    _auth_root: Any,
+    _keychain_get_secret: Any,
+) -> list[dict[str, Any]]:
+    """
+    Build `doctor --json`'s `auth[]` from `authstore.read_identity()` +
+    a Keychain presence check.
+
+    Fail-closed credential shape (doctor.schema.json: `state` in
+    `expired|revoked`, "only failing/needs-attention entries are expected
+    in this array"):
+      - never signed in (no identity pointer, or one with no `login`) ->
+        `[]`. Not a failure state -- there is nothing to report.
+      - identity carries an `expires_at` that has already passed ->
+        `expired` (transient, re-auth offered).
+      - identity present but the Keychain has no matching secret for it
+        (missing-token-with-identity) -> `revoked` (permanent, fail-closed
+        -- the pointer claims signed-in but the credential backing it is
+        gone).
+      - Keychain unavailable on this platform/host (non-Darwin, or the
+        lookup itself fails) -> `[]`. This is an honest "cannot determine",
+        never coerced into a fabricated revoked/expired verdict.
+    """
+    auth_root = None if _auth_root is _UNSET else _auth_root
+    identity = read_identity(_root=auth_root)
+    login = identity.get("login")
+    if not login:
+        return []
+
+    scope = identity.get("scopes") or identity.get("scope") or "unknown"
+
+    expires_at = identity.get("expires_at")
+    if expires_at:
+        expiry = _parse_timestamp(expires_at)
+        if expiry is not None and expiry <= datetime.now(timezone.utc):
+            return [
+                {"identity": login, "scope": scope, "state": "expired", "expires_at": expires_at}
+            ]
+
+    if _keychain_get_secret is not _UNSET:
+        get_secret = _keychain_get_secret
+    elif sys.platform == "darwin":
+        get_secret = keychain.get_secret
+    else:
+        # Can't check a real Keychain on a non-Darwin host -- an honest
+        # "cannot determine", never a fabricated revoked verdict from a
+        # platform limitation.
+        return []
+
+    service = resolve_key("auth.keychain_service") or _DEFAULT_KEYCHAIN_SERVICE
+    try:
+        token = get_secret(login, service=service)
+    except keychain.KeychainUnavailable:
+        return []
+
+    if token is None:
+        return [{"identity": login, "scope": scope, "state": "revoked"}]
+
+    return []
+
+
+def _probe_lock_held(_lock_probe_path: Any) -> bool:
+    """
+    Non-destructive, non-blocking, NEVER-CREATING probe: is the advisory
+    copilot lock (core/locking.py) held by ANOTHER process right now?
+
+    `cc doctor` is read-only by design (core/locking.py's own module
+    docstring: "cc doctor ... intentionally does NOT take this lock") --
+    this probe honors that: if the lock file doesn't exist yet (the common
+    case -- a machine that has never run a mutating verb), there is
+    nothing to probe and this returns `False` without touching the
+    filesystem at all. Only when the file already exists does this open it
+    (never `O_CREAT`) and try a non-blocking exclusive flock; contention
+    means someone else holds it (`True`); success means this process
+    momentarily held and instantly released it itself, proving no one else
+    has it (`False`). Never blocks, never leaves the lock held, never
+    creates a file that wasn't already there.
+    """
+    target = _lock_probe_path if _lock_probe_path is not _UNSET else lock_path()
+    if not target.exists():
+        return False
+
+    try:
+        fd = os.open(target, os.O_RDWR)
+    except OSError:
+        return False
+
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return True
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    finally:
+        os.close(fd)
 
 
 def build_doctor_report(
@@ -318,6 +521,15 @@ def build_doctor_report(
     _machine_cfg_path: Path | None = None,
     _project_cfg_path: Any = ...,
     _resolved_cfg: dict | None = None,
+    _layers: Optional[list[dict[str, Any]]] = None,
+    _manifest_path: Any = _UNSET,
+    _lockfile: Optional[dict[str, Any]] = None,
+    _lockfile_path: Any = _UNSET,
+    _mirror_root: Any = _UNSET,
+    _latest_sha_fn: Any = _UNSET,
+    _auth_root: Any = _UNSET,
+    _keychain_get_secret: Any = _UNSET,
+    _lock_probe_path: Any = _UNSET,
 ) -> dict:
     """
     Build the WS-A `doctor --json` contract object.
@@ -325,10 +537,12 @@ def build_doctor_report(
     Schema: copilot-control-tower/docs/01-architecture/schemas/doctor.schema.json
     (vendored copy: tools/cc/tests/fixtures/schemas/doctor.schema.json).
 
-    `auth`: cc has no auth store of its own (unlike cli-copilot's
-    `auth_store.py`, which decodes a JWT `exp` claim for expiry). There is
-    nothing to report here yet, so this always emits `[]`. Revisit once/if
-    `cc` grows credentials of its own worth tracking.
+    Every new I/O root this slice adds is injectable via the `_..._path`/
+    `_..._root`/`_...fn` keyword arguments above (mirrors `update.py`'s /
+    `resolve.py`'s own convention) -- production defaults only ever resolve
+    through `resolve_key()`'s normal config cascade or another module's own
+    already-established default (never a bare `Path.home()` call added by
+    this module itself).
     """
     checkers = _run_checks(
         machine_cfg_path=_machine_cfg_path,
@@ -336,10 +550,33 @@ def build_doctor_report(
         resolved_cfg=_resolved_cfg,
     )
 
-    status = _compute_status(checkers)
+    component_checkers, any_remote_offline = _build_component_checkers(
+        _layers=_layers,
+        _manifest_path=_manifest_path,
+        _lockfile=_lockfile,
+        _lockfile_path=_lockfile_path,
+        _mirror_root=_mirror_root,
+        _latest_sha_fn=_latest_sha_fn,
+    )
 
-    total = len(checkers)
-    passed = sum(1 for c in checkers if c.severity == "pass")
+    auth_entries = _build_auth_entries(
+        _auth_root=_auth_root,
+        _keychain_get_secret=_keychain_get_secret,
+    )
+
+    lock_held_by_other = _probe_lock_held(_lock_probe_path)
+
+    status = _compute_status(
+        checkers,
+        component_checkers=component_checkers,
+        any_remote_offline=any_remote_offline,
+        auth_entries=auth_entries,
+        lock_held_by_other=lock_held_by_other,
+    )
+
+    all_checkers = checkers + component_checkers
+    total = len(all_checkers)
+    passed = sum(1 for c in all_checkers if c.severity == "pass")
     score = 100 if total == 0 else round(100 * passed / total)
 
     return {
@@ -347,10 +584,10 @@ def build_doctor_report(
         "host": socket.gethostname(),
         "score": score,
         "status": status,
-        "offline": False,
+        "offline": any_remote_offline,
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "checkers": [c.to_contract_dict() for c in checkers],
-        "auth": [],
+        "checkers": [c.to_contract_dict() for c in all_checkers],
+        "auth": auth_entries,
     }
 
 
