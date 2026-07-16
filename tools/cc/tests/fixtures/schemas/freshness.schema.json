@@ -31,6 +31,43 @@
       "type": "boolean",
       "description": "True when a remote lock-pointer check was attempted and failed/was unreachable. False both when the check succeeded AND when no tier source was configured to check in the first place (distinguish the latter via current_lock_sha/latest_lock_sha both null with offline:false)."
     },
-    "checked_at": { "$ref": "_envelope.schema.json#/$defs/timestamp" }
+    "checked_at": { "$ref": "_envelope.schema.json#/$defs/timestamp" },
+    "layers": {
+      "type": "array",
+      "description": "OPTIONAL, ADDITIVE (WS-A update-slice, cc owner): per-layer freshness breakdown, one entry per manifest layer, alongside (never replacing) the top-level single-SHA fields above. Omitted entirely when the CLI was not asked to compute it -- the top-level fields remain the cheap-poll default; this array is populated only by the opt-in per-layer build path (`cc/core/ecosystem/freshness.py`'s `build_per_layer_freshness()`), not by every `freshness --json` invocation.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "current", "latest", "stale", "offline"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The manifest layer id (four-tier-topology.md §4 `layers[].id`) this entry reports on."
+          },
+          "current": {
+            "oneOf": [
+              { "$ref": "_envelope.schema.json#/$defs/git_sha" },
+              { "type": "null" }
+            ],
+            "description": "Fingerprint of this layer's own local mirror lock state. Null when no local mirror exists yet for this layer."
+          },
+          "latest": {
+            "oneOf": [
+              { "$ref": "_envelope.schema.json#/$defs/git_sha" },
+              { "type": "null" }
+            ],
+            "description": "This layer's own published lock-pointer ref target. Null when it could not be fetched (offline/unreachable), or when the layer has no remote source to poll."
+          },
+          "stale": {
+            "type": ["boolean", "null"],
+            "description": "Same honesty rule as the top-level `stale`, scoped to this one layer: null unless both `current` and `latest` are known -- never coerced to false."
+          },
+          "offline": {
+            "type": "boolean",
+            "description": "Same rule as the top-level `offline`, scoped to this one layer: true only when this layer has a remote source AND the poll came back unknown."
+          }
+        }
+      }
+    }
   }
 }

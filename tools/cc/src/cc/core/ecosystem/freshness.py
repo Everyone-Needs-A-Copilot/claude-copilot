@@ -27,6 +27,7 @@ import json
 from pathlib import Path
 from typing import Any, Optional, TypedDict
 
+from cc.core.ecosystem import mirror
 from cc.core.ecosystem.lockfile import default_lockfile_path, read_lockfile
 
 # Sentinel distinguishing "no override passed" from an explicit None argument.
@@ -121,3 +122,93 @@ def compute_freshness(current: Optional[str], latest: Optional[str]) -> Freshnes
         "latest_lock_sha": latest,
         "stale": stale,
     }
+
+
+class LayerFreshnessResult(TypedDict):
+    id: str
+    current: Optional[str]
+    latest: Optional[str]
+    stale: Optional[bool]
+    offline: bool
+
+
+def build_per_layer_freshness(
+    layers: list[dict[str, Any]],
+    *,
+    _mirror_root: Path | str,
+    _latest_lookup: Optional[dict[str, Optional[str]]] = None,
+) -> list[LayerFreshnessResult]:
+    """
+    Per-layer freshness variant (opt-in -- see `commands/freshness.py`'s
+    `build_freshness_report(per_layer=True)`, the only caller today).
+
+    For EACH manifest layer (four-tier-topology.md §4 shape --
+    `{id, source:{repo, ref?, path?}, ...}`), fold the SAME honesty rule
+    `compute_freshness()` already applies at the top level, just scoped to
+    that one layer's own tier source instead of the whole-machine
+    materialized lock:
+
+      - `current`: fingerprint of `<mirror_root>/<layer id>/copilot.lock.json`
+        -- the local mirror's OWN checked-out copy of the lock blob its
+        source repo publishes (mirror.py's module docstring: each tier
+        source repo publishes `refs/copilot/lock` pointing at that exact
+        blob, which necessarily lives in the repo's tree at HEAD for the
+        pointer to be meaningful). `None` when no local mirror exists yet
+        for this layer (never cloned, or offline on first sync).
+      - `latest`: `mirror.latest_lock_sha(repo, ref)` -- the same cheap
+        `git ls-remote` read `latest_lock_sha()` already uses, scoped to
+        THIS layer's own `source.repo` + its own lock-pointer ref (an
+        optional per-layer `lock_ref` override, defaulting to
+        `mirror.DEFAULT_LOCK_POINTER_REF` same as the top-level path).
+        `None` when the layer has no `source.repo` (a local-path-only
+        layer -- nothing to poll) or the poll is unreachable.
+      - `stale`: `None` unless BOTH `current` and `latest` are known --
+        NEVER coerced to `False`, identical honesty rule to
+        `compute_freshness()`.
+      - `offline`: `True` only when this layer HAS a `source.repo`
+        (a check was actually attempted) and `latest` came back unknown --
+        mirrors `build_freshness_report()`'s own `offline` derivation,
+        scoped per layer.
+
+    `_latest_lookup` lets callers/tests inject the remote poll result per
+    layer id directly (`{layer_id: sha_or_None}`) instead of invoking a
+    real `git ls-remote` for every layer -- mirrors
+    `build_freshness_report()`'s own `_latest_sha` injection point.
+
+    Never raises: every failure mode (missing mirror, unreachable source,
+    no `source.repo`) degrades to an honest `None`/`offline` entry, never a
+    crash that would abort every OTHER layer's result.
+    """
+    mirror_root_path = Path(_mirror_root).expanduser()
+    results: list[LayerFreshnessResult] = []
+
+    for layer in layers:
+        layer_id = layer["id"]
+        source = dict(layer.get("source") or {})
+        repo = source.get("repo")
+        ref = layer.get("lock_ref") or mirror.DEFAULT_LOCK_POINTER_REF
+
+        mirror_lock_path = mirror_root_path / layer_id / "copilot.lock.json"
+        current = current_lock_sha(_lockfile_path=mirror_lock_path)
+
+        if _latest_lookup is not None:
+            latest = _latest_lookup.get(layer_id)
+        elif repo:
+            latest = mirror.latest_lock_sha(repo, ref)
+        else:
+            latest = None
+
+        offline = bool(repo) and latest is None
+        folded = compute_freshness(current, latest)
+
+        results.append(
+            {
+                "id": layer_id,
+                "current": folded["current_lock_sha"],
+                "latest": folded["latest_lock_sha"],
+                "stale": folded["stale"],
+                "offline": offline,
+            }
+        )
+
+    return results

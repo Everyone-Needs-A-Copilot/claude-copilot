@@ -20,6 +20,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from cc.commands.freshness import build_freshness_report
 from cc.core.ecosystem.freshness import current_lock_sha as _real_current_lock_sha
 from cc.main import app
 from jsonschema import Draft202012Validator
@@ -240,3 +241,146 @@ def test_freshness_schema_rejects_legacy_non_nullable_up_to_date_fabrication():
     }
     errors = list(validator.iter_errors(legacy_shape_missing_offline))
     assert errors, "offline is now required -- the legacy shape must fail validation"
+
+
+# ---------------------------------------------------------------------------
+# Per-layer freshness (update-slice gap #2) -- opt-in, additive `layers` array
+# ---------------------------------------------------------------------------
+
+
+def test_default_cli_payload_byte_shape_unchanged_regression_guard(monkeypatch, tmp_path):
+    """REGRESSION GUARD: the CLI's own `freshness_cmd()` (cc/main.py) calls
+    `build_freshness_report()` with NO arguments -- `per_layer` must
+    default to `False`, and the emitted payload's key set must be
+    byte-shape-identical to the pre-per-layer contract (no `layers` key at
+    all, not even an empty list)."""
+    lock_data = {"foundation": {"agents": {"sec": "abc1234"}}}
+    repo, blob_sha = _make_fixture_repo(tmp_path, lock_data)
+
+    lockfile_path = tmp_path / "copilot.lock.json"
+    lockfile_path.write_bytes(_canonical_lock_bytes(lock_data))
+
+    payload, exit_code = _invoke_freshness_json(
+        monkeypatch, source=str(repo), lockfile_path=lockfile_path
+    )
+
+    assert exit_code == 0
+    _validate(payload)
+    assert set(payload.keys()) == {
+        "schema_version",
+        "current_lock_sha",
+        "latest_lock_sha",
+        "stale",
+        "offline",
+        "checked_at",
+    }
+    assert "layers" not in payload
+
+
+def test_build_freshness_report_per_layer_opt_in_adds_layers_and_validates(tmp_path):
+    lock_data = {"foundation": {"agents": {"sec": "abc1234"}}}
+    lockfile_path = tmp_path / "copilot.lock.json"
+    lockfile_path.write_bytes(_canonical_lock_bytes(lock_data))
+
+    mirror_root = tmp_path / "mirrors"
+    foundation_lock_data = {"a": "1"}
+    (mirror_root / "foundation").mkdir(parents=True)
+    (mirror_root / "foundation" / "copilot.lock.json").write_bytes(
+        _canonical_lock_bytes(foundation_lock_data)
+    )
+
+    layers = [
+        {"id": "foundation", "source": {"repo": "https://example.invalid/foundation.git"}},
+        {"id": "personal", "source": {"path": str(tmp_path / "personal-vault")}},
+    ]
+
+    payload = build_freshness_report(
+        _source=None,
+        _ref="refs/copilot/lock",
+        per_layer=True,
+        _layers=layers,
+        _mirror_root=mirror_root,
+        _lockfile_path=lockfile_path,
+        _latest_sha=None,
+        _layer_latest_lookup={"foundation": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"},
+    )
+
+    _validate(payload)
+    assert "layers" in payload
+    assert len(payload["layers"]) == 2
+
+    by_id = {entry["id"]: entry for entry in payload["layers"]}
+    assert by_id["foundation"]["latest"] == "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+    assert by_id["foundation"]["current"] is not None
+    assert by_id["foundation"]["stale"] is True
+    assert by_id["foundation"]["offline"] is False
+
+    assert by_id["personal"]["current"] is None
+    assert by_id["personal"]["latest"] is None
+    assert by_id["personal"]["stale"] is None
+    assert by_id["personal"]["offline"] is False
+
+
+def test_build_freshness_report_per_layer_unreachable_layer_validates_offline_true(tmp_path):
+    lockfile_path = tmp_path / "copilot.lock.json"  # never written -- no local lock yet.
+    mirror_root = tmp_path / "mirrors"
+
+    layers = [{"id": "org", "source": {"repo": "https://example.invalid/unreachable.git"}}]
+
+    payload = build_freshness_report(
+        _source=None,
+        _ref="refs/copilot/lock",
+        per_layer=True,
+        _layers=layers,
+        _mirror_root=mirror_root,
+        _lockfile_path=lockfile_path,
+        _latest_sha=None,
+        _layer_latest_lookup={"org": None},
+    )
+
+    _validate(payload)
+    entry = payload["layers"][0]
+    assert entry["id"] == "org"
+    assert entry["current"] is None
+    assert entry["latest"] is None
+    assert entry["stale"] is None
+    assert entry["offline"] is True
+
+
+def test_build_freshness_report_per_layer_empty_layers_is_empty_array_and_validates(tmp_path):
+    lockfile_path = tmp_path / "copilot.lock.json"
+    mirror_root = tmp_path / "mirrors"
+
+    payload = build_freshness_report(
+        _source=None,
+        _ref="refs/copilot/lock",
+        per_layer=True,
+        _layers=[],
+        _mirror_root=mirror_root,
+        _lockfile_path=lockfile_path,
+        _latest_sha=None,
+    )
+
+    _validate(payload)
+    assert payload["layers"] == []
+
+
+def test_build_freshness_report_per_layer_false_default_never_calls_per_layer_build(
+    monkeypatch, tmp_path
+):
+    """The existing (non-per-layer) call path must never even import/touch
+    `build_per_layer_freshness()` -- asserted by monkeypatching it to raise
+    if invoked."""
+
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("per_layer=False must never call build_per_layer_freshness()")
+
+    monkeypatch.setattr("cc.commands.freshness.build_per_layer_freshness", _boom)
+
+    lockfile_path = tmp_path / "copilot.lock.json"
+    payload = build_freshness_report(
+        _source=None, _ref="refs/copilot/lock", _lockfile_path=lockfile_path, _latest_sha=None
+    )
+
+    _validate(payload)
+    assert "layers" not in payload
