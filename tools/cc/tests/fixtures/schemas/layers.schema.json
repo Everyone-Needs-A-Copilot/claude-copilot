@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://everyoneneedsacopilot.com/schemas/copilot-control-tower/layers.schema.json",
+  "title": "copilot layers [join] --json (proposed contract addition, D7.1)",
+  "description": "Entitlement discovery (`copilot layers --json`) and the join action (`copilot layers join <id> --json`). PROVENANCE: this is a control-tower-originated proposed addition to WS-A scope, the same not-yet-upstream status as publish.schema.json -- see cli-contract.md's 'copilot layers [join] --json (proposed contract addition, D7.1)' section and cse-alignment-decisions.md decision D7.1. Entitlement is computed CLI-side (GitHub repo access, D3, the entitlement spine); Control Tower only ever renders this payload (invariant #1: parse, never compute).",
+  "$comment": "VENDORED COPY for the WS-A contract test in claude-copilot/tools/cc. Source of truth is copilot-control-tower/docs/01-architecture/schemas/layers.schema.json \u2014 update this copy from there, not the reverse. The two payloads (the `list` report and a `join` result) are discriminated structurally: the list report is the only shape with a top-level `layers` array; the join result is the only shape with a top-level `result` enum. additionalProperties:false on both branches makes membership in exactly one branch unambiguous -- a payload can never satisfy both. cli-contract.md's prose table gives the join result enum as `joined|already-joined|not-entitled|error` (no `offline`); this schema WIDENS it to also include `offline` (mirroring update.schema.json's own `offline` result and freshness.schema.json's nullable-on-unreachable precedent) since a mirror-sync/entitlement-check attempt can honestly fail to reach the network mid-join, and fabricating `error` for that case would misrepresent a retryable condition as a hard failure. This widening is a proposed refinement of D7.1, not yet upstream-confirmed -- flag for owner reconciliation alongside the rest of this speculative contract.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/list_report"
+    },
+    {
+      "$ref": "#/$defs/join_result"
+    }
+  ],
+  "$defs": {
+    "tier": {
+      "type": "string",
+      "enum": [
+        "org",
+        "department"
+      ],
+      "description": "Which tier this layer belongs to. Today's only catalog source (core/ecosystem/ecosystem_config.py's `departments()`, the org's inherited ecosystem.yml) ever emits `department`; `org` is reserved for a future catalog source."
+    },
+    "list_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "layers"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "_envelope.schema.json#/$defs/schema_version"
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Host identifier the report was built for, e.g. 'claude-code'. Not marked required, mirroring update.schema.json's own `host` field -- present in this CLI's implementation but not asserted by cli-contract.md's prose table."
+        },
+        "layers": {
+          "type": "array",
+          "description": "Every department/org layer the current account context could plausibly join.",
+          "items": {
+            "$ref": "#/$defs/layer_entry"
+          }
+        }
+      }
+    },
+    "layer_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tier",
+        "id",
+        "name",
+        "repo",
+        "entitled",
+        "joined"
+      ],
+      "properties": {
+        "tier": {
+          "$ref": "#/$defs/tier"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable layer identifier, e.g. 'finance'. Also the argument to `copilot layers join <id>`."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable display name, e.g. 'Finance'."
+        },
+        "repo": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The layer's source repo (an 'owner/name' GitHub slug, or a git URL), the same identifier the entitlement check (GitHub repo access, D3) and the mirror clone (`copilot update`'s pipeline) both use."
+        },
+        "entitled": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Whether the current identity has GitHub repo access to `repo` (D3, computed CLI-side). `null` when this could not be determined (signed out, or the entitlement check could not reach the network) -- see `reason`. Security-relevant per this contract's global fail-closed rule: a consumer MUST treat `null` as NOT entitled, never as `true`."
+        },
+        "joined": {
+          "type": "boolean",
+          "description": "Whether this layer is already synced onto this machine (present in the local layer manifest)."
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "signed-out",
+            "offline"
+          ],
+          "description": "Present only when `entitled` is `null`: why entitlement could not be determined."
+        }
+      }
+    },
+    "join_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "result",
+        "tier",
+        "id"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "_envelope.schema.json#/$defs/schema_version"
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Host identifier the join was run for. Not marked required -- see list_report.host."
+        },
+        "result": {
+          "type": "string",
+          "enum": [
+            "joined",
+            "already-joined",
+            "not-entitled",
+            "offline",
+            "error"
+          ],
+          "description": "Join outcome. `not-entitled`/`already-joined`/`offline` are normal, renderable outcomes, not errors -- exit 0. `error` (e.g. an unknown layer id) is a refused join -- exit 1. Lock contention / no resolvable GitHub identity / an invalid local manifest are NOT representable in this enum -- they short-circuit to the shared `{schema_version, error:{code,message}}` envelope at exit 2 instead of ever producing a `join_result` payload (see cli-contract.md D7.1's exit-code table and this repo's `_envelope.schema.json` header note on the lack of a uniform wrapper)."
+        },
+        "tier": {
+          "$ref": "#/$defs/tier"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The layer id that was the target of the join attempt (echoes the `<id>` argument)."
+        },
+        "synced_lock_sha": {
+          "$ref": "_envelope.schema.json#/$defs/git_sha",
+          "description": "Present only when `result` is `joined`: the resolved lock fingerprint after materializing this layer (the same fingerprint shape as update.schema.json's `lock_after`)."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Present only for `offline`/`error` results: a short, plain-language explanation (e.g. 'unknown layer id' or a mirror-sync failure detail). Not enumerated -- free text, mirrors deprovision.schema.json's/repair.schema.json's own open-string precedent for non-security-relevant explanatory fields."
+        }
+      }
+    }
+  }
+}
