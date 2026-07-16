@@ -5,13 +5,15 @@ from typing import Optional
 import typer
 
 from cc import __version__
+from cc.commands.auth import auth_app
+from cc.commands.config import config_app
+from cc.commands.docs import docs_app
+from cc.commands.eval import eval_app
+from cc.commands.layers import layers_app
+from cc.commands.mcp import mcp_app
 from cc.commands.memory import memory_app
 from cc.commands.skill import skill_app
-from cc.commands.config import config_app
-from cc.commands.mcp import mcp_app
-from cc.commands.docs import docs_app
 from cc.commands.usage import usage_app
-from cc.commands.eval import eval_app
 from cc.core.config import resolve_key
 
 app = typer.Typer(
@@ -28,6 +30,8 @@ app.add_typer(mcp_app, name="mcp")
 app.add_typer(docs_app, name="docs")
 app.add_typer(usage_app, name="usage")
 app.add_typer(eval_app, name="eval")
+app.add_typer(auth_app, name="auth")
+app.add_typer(layers_app, name="layers")
 
 
 @app.command("env")
@@ -46,8 +50,9 @@ def env_cmd(
     Agents call:  eval "$(cc env)"
     to hydrate CC_* environment variables for the current session.
     """
-    from cc.commands.env import run_env
     import json as _json
+
+    from cc.commands.env import run_env
 
     exports = run_env(include_secrets=include_secrets, output_json=False)
 
@@ -210,14 +215,75 @@ def freshness_cmd(
     output_json: bool = typer.Option(
         False, "--json", help="Output the WS-A freshness contract as JSON."
     ),
+    all_projects: bool = typer.Option(
+        False,
+        "--all-projects",
+        help=(
+            "Machine-wide per-project freshness sweep (Component Sync) instead "
+            "of the single-SHA tier poll -- dispatches to "
+            "commands.projects.build_all_projects_freshness()."
+        ),
+    ),
+    per_layer: bool = typer.Option(
+        False,
+        "--per-layer",
+        help="Also fold in a per-layer freshness breakdown alongside the "
+        "top-level single-SHA fields.",
+    ),
 ) -> None:
     """Cheap single-SHA staleness poll (WS-A `freshness --json` contract).
 
     Read-only -- does not take the copilot lock. Compares the local
     resolved lock state against a tier's published lock-pointer ref (see
-    core/ecosystem/mirror.py); never a full `update`.
+    core/ecosystem/mirror.py); never a full `update`. With no flags this
+    is byte-shape-identical to the pre-existing contract (regression
+    guard) -- `--all-projects` and `--per-layer` are opt-in additions.
     """
     import json as _json
+
+    if all_projects and per_layer:
+        message = "cc freshness: --all-projects and --per-layer are mutually exclusive (different report shapes)."
+        if output_json:
+            typer.echo(
+                _json.dumps(
+                    {
+                        "schema_version": "1.0",
+                        "error": {"code": "invalid-argument", "message": message},
+                    }
+                )
+            )
+        else:
+            typer.echo(message, err=True)
+        raise typer.Exit(2)
+
+    if all_projects:
+        from cc.commands.projects import (
+            build_all_projects_freshness,
+            render_all_projects_freshness_rich,
+        )
+
+        try:
+            report = build_all_projects_freshness()
+        except Exception as exc:  # environment/unexpected error -> exit 2
+            if output_json:
+                typer.echo(
+                    _json.dumps(
+                        {
+                            "schema_version": "1.0",
+                            "error": {"code": "environment-error", "message": str(exc)},
+                        }
+                    )
+                )
+            else:
+                typer.echo(f"freshness: environment error: {exc}", err=True)
+            raise typer.Exit(2) from exc
+
+        if output_json:
+            typer.echo(_json.dumps(report))
+        else:
+            render_all_projects_freshness_rich(report)
+
+        raise typer.Exit(0)
 
     from cc.commands.freshness import (
         build_freshness_report,
@@ -225,7 +291,7 @@ def freshness_cmd(
     )
 
     try:
-        report = build_freshness_report()
+        report = build_freshness_report(per_layer=per_layer)
     except Exception as exc:  # environment/unexpected error -> exit 2
         if output_json:
             typer.echo(
@@ -261,14 +327,158 @@ def update_cmd(
             "materialize-root content or the lockfile."
         ),
     ),
+    project: Optional[str] = typer.Option(
+        None,
+        "--project",
+        help=(
+            "Materialize a single embedding project's component instead of "
+            "the machine-wide ecosystem sync (Component Sync Stream-E). "
+            "Requires --component. Reuses this same --json contract shape "
+            "plus an additive `path` field."
+        ),
+    ),
+    component: Optional[str] = typer.Option(
+        None,
+        "--component",
+        help="The component to materialize for --project (e.g. 'claude', 'codex').",
+    ),
+    target_version: Optional[str] = typer.Option(
+        None,
+        "--target-version",
+        help="Target version for --project's --component (defaults to its "
+        "current recorded version -- an up-to-date no-op check).",
+    ),
+    release_tag: Optional[str] = typer.Option(
+        None,
+        "--release-tag",
+        help="Published release tag licensing the --project apply (required "
+        "to actually apply a version change; an unverified target is blocked).",
+    ),
+    source_root: Optional[str] = typer.Option(
+        None,
+        "--source-root",
+        help="Content root to materialize --project's framework-owned files from.",
+    ),
+    fanout: bool = typer.Option(
+        False,
+        "--fanout",
+        help=(
+            "Machine-wide fan-out materialize sweep across every discovered "
+            "project's stale components (Component Sync Stream-E) instead "
+            "of the machine-wide ecosystem sync."
+        ),
+    ),
 ) -> None:
     """Reconciling ecosystem sync (WS-A `update --json` contract) --
     MUTATING: acquires the copilot lock, syncs read-only mirrors, runs the
     policy gate, reconciles the materialize root (add/update/prune), and
     writes `copilot.lock.json`. See cc/commands/update.py's module
     docstring for the never-destroy guarantees.
+
+    `--project`/`--fanout` are opt-in Component Sync additions (see
+    cc/commands/projects.py) -- with neither flag this command is
+    byte-shape-identical to the pre-existing contract (regression guard).
     """
     import json as _json
+
+    if project and fanout:
+        message = "cc update: --project and --fanout are mutually exclusive."
+        if output_json:
+            typer.echo(
+                _json.dumps(
+                    {
+                        "schema_version": "1.0",
+                        "error": {"code": "invalid-argument", "message": message},
+                    }
+                )
+            )
+        else:
+            typer.echo(message, err=True)
+        raise typer.Exit(2)
+
+    if project:
+        if not component:
+            message = "cc update: --project requires --component."
+            if output_json:
+                typer.echo(
+                    _json.dumps(
+                        {
+                            "schema_version": "1.0",
+                            "error": {"code": "invalid-argument", "message": message},
+                        }
+                    )
+                )
+            else:
+                typer.echo(message, err=True)
+            raise typer.Exit(2)
+
+        from cc.commands.projects import execute_materialize_project
+        from cc.commands.update import render_update_report_rich
+
+        build_kwargs: dict = {}
+        if target_version is not None:
+            build_kwargs["target_version"] = target_version
+        if release_tag is not None:
+            build_kwargs["release_tag"] = release_tag
+        if source_root is not None:
+            build_kwargs["source_root"] = source_root
+
+        try:
+            report, exit_code = execute_materialize_project(
+                project, component=component, dry_run=dry_run, **build_kwargs
+            )
+        except Exception as exc:  # environment/unexpected error -> exit 2
+            if output_json:
+                typer.echo(
+                    _json.dumps(
+                        {
+                            "schema_version": "1.0",
+                            "error": {"code": "environment-error", "message": str(exc)},
+                        }
+                    )
+                )
+            else:
+                typer.echo(f"update: environment error: {exc}", err=True)
+            raise typer.Exit(2) from exc
+
+        if "error" in report:
+            exit_code = 2
+
+        if output_json:
+            typer.echo(_json.dumps(report))
+        else:
+            render_update_report_rich(report)
+
+        raise typer.Exit(exit_code)
+
+    if fanout:
+        from cc.commands.projects import execute_fanout, render_fanout_report_rich
+
+        try:
+            report, exit_code = execute_fanout(dry_run=dry_run)
+        except Exception as exc:  # environment/unexpected error -> exit 2
+            if output_json:
+                typer.echo(
+                    _json.dumps(
+                        {
+                            "schema_version": "1.0",
+                            "error": {"code": "environment-error", "message": str(exc)},
+                        }
+                    )
+                )
+            else:
+                typer.echo(f"update: environment error: {exc}", err=True)
+            raise typer.Exit(2) from exc
+
+        if "error" in report:
+            exit_code = 2
+
+        if output_json:
+            typer.echo(_json.dumps(report))
+        else:
+            render_fanout_report_rich(report)
+
+        raise typer.Exit(exit_code)
 
     from cc.commands.update import execute_update, render_update_report_rich
 
