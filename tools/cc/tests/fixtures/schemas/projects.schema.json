@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://everyoneneedsacopilot.com/schemas/copilot-control-tower/projects.schema.json",
+  "$comment": "VENDORED COPY for the WS-A contract test in claude-copilot/tools/cc. Source of truth is copilot-control-tower/docs/01-architecture/schemas/projects.schema.json — update this copy from there, not the reverse.",
+  "title": "copilot projects --json",
+  "description": "Component Sync (docs/80-initiatives/02-component-sync/) machine-wide fan-out verbs. Two report shapes, distinguished structurally (never by an explicit discriminant field, since neither the freshness sweep nor the fan-out roll-up needs one to be unambiguous): the read-only all-projects freshness sweep (`projects`+`global`) and the write-side fan-out roll-up (`summary`+`results`). A single project's own `cc materialize --project <path> --json` result reuses update.schema.json's shape (plus its additive `path` property) rather than a third shape defined here -- see that schema's `path` property description.",
+  "oneOf": [
+    { "$ref": "#/$defs/all_projects_freshness" },
+    { "$ref": "#/$defs/fanout_report" }
+  ],
+  "$defs": {
+    "all_projects_freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "generated_at", "total", "projects", "global"],
+      "properties": {
+        "schema_version": { "$ref": "_envelope.schema.json#/$defs/schema_version" },
+        "generated_at": { "$ref": "_envelope.schema.json#/$defs/timestamp" },
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of projects actually folded into `projects` below (a project skipped by the sweep's fail-open per-project guard is never counted)."
+        },
+        "projects": {
+          "type": "array",
+          "description": "One entry per lock-manifested project discovered on the machine, PROJECT_SCOPED_PRODUCTS components only (claude, codex) -- global-once components are reported once in `global` below, never per project.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "stale", "components"],
+            "properties": {
+              "path": { "type": "string", "minLength": 1, "description": "Absolute path to the project's own repo root." },
+              "stale": {
+                "type": ["boolean", "null"],
+                "description": "True if ANY tracked component is definitely outdated; null if any component's staleness is unknown (no latest version known for that product) and none is definitely outdated; false if every tracked component is known-current (including the vacuous case of zero tracked components). Never coerced -- same honesty rule as freshness.schema.json's `stale`."
+              },
+              "components": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["product", "current", "latest", "stale", "held"],
+                  "properties": {
+                    "product": { "type": "string", "enum": ["claude", "codex"] },
+                    "current": {
+                      "type": ["string", "null"],
+                      "description": "The version recorded in this project's own tracked lock manifest. Null when the component's manifest entry has no recorded version."
+                    },
+                    "latest": {
+                      "type": ["string", "null"],
+                      "description": "The latest published version for this product, as supplied to the sweep. Null when unknown (never fabricated)."
+                    },
+                    "stale": {
+                      "type": ["boolean", "null"],
+                      "description": "Null unless BOTH `current` and `latest` are known -- never coerced to false."
+                    },
+                    "held": {
+                      "type": "boolean",
+                      "description": "True when this component is stale AND at least one of its framework-owned paths currently sits inside a dirty git working tree in this project -- a preview of the hold a materialize run would report (ADR-002), computed read-only. Always false when `stale` is not true."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "global": {
+          "type": "array",
+          "description": "One deduped entry per GLOBAL_ONCE_PRODUCTS product (knowledge, cli) actually recorded by at least one discovered project's manifest -- reported once at machine scope, never once per project.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["product", "current", "latest", "stale"],
+            "properties": {
+              "product": { "type": "string", "enum": ["knowledge", "cli"] },
+              "current": { "type": ["string", "null"] },
+              "latest": { "type": ["string", "null"] },
+              "stale": { "type": ["boolean", "null"] }
+            }
+          }
+        }
+      }
+    },
+    "fanout_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "generated_at", "triggered_by", "summary", "results"],
+      "properties": {
+        "schema_version": { "$ref": "_envelope.schema.json#/$defs/schema_version" },
+        "generated_at": { "$ref": "_envelope.schema.json#/$defs/timestamp" },
+        "triggered_by": {
+          "type": "string",
+          "enum": ["cadence-sync", "manual", "release-tag"],
+          "description": "Provenance of this fan-out run, per the initiative README's Arc 4 mapping."
+        },
+        "summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["updated", "held", "up_to_date", "failed", "total"],
+          "properties": {
+            "updated": { "type": "integer", "minimum": 0, "description": "Count of (project, component) pairs materialized (`result: applied`) this run -- powers the 'across N of your projects' line." },
+            "held": { "type": "integer", "minimum": 0, "description": "Count held for dirty WIP (`result: held`) -- 'waiting on your unsaved changes'." },
+            "up_to_date": { "type": "integer", "minimum": 0 },
+            "failed": { "type": "integer", "minimum": 0, "description": "Count that neither applied nor held -- folds in both `blocked` (e.g. unverified target) and `offline` (unreachable source content) outcomes; each result item's own `result`/`report.result` field still distinguishes which." },
+            "total": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "results": {
+          "type": "array",
+          "description": "Per-(project, component) outcome. A project-level read failure (manifest unreadable) has `component: null` and no `report`; every successful attempt carries the full per-project materialize `report` (update.schema.json shape + `path`).",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "component"],
+            "properties": {
+              "path": { "type": "string", "minLength": 1 },
+              "component": { "type": ["string", "null"], "enum": ["claude", "codex", null] },
+              "result": {
+                "type": "string",
+                "enum": ["up-to-date", "blocked"],
+                "description": "Present ONLY for the two outcomes reported without a full per-project report: an honest up-to-date skip (nothing stale), or a project-level manifest-read failure."
+              },
+              "reason": { "type": "string", "description": "Present alongside `result: blocked` for a project-level read failure or an unexpected per-component error." },
+              "report": {
+                "$ref": "update.schema.json",
+                "description": "Present for every attempted materialize (applied/held/blocked/offline outcomes) -- the SAME per-project report `cc materialize --project` returns standalone."
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

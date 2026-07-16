@@ -14,6 +14,12 @@
       "minLength": 1,
       "description": "Host identifier the update was run for, e.g. 'claude-code'. Present in the upstream design's example (design-control-tower-integration.md §1.2) but not marked required since cli-contract.md's prose table omits it."
     },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ADDITIVE (Component Sync Stream-E, 02-component-sync initiative): the target project's absolute path, present only on a `cc materialize --project <path>`-style per-project result (module: claude-copilot/tools/cc/src/cc/commands/projects.py `build_materialize_project_report()`). Absent on the machine-wide `cc update --json` result this schema also describes -- optional, never required, so this remains a purely additive, backward-compatible widening of the same envelope shape.",
+      "$comment": "ADDED (Stream-E, 02-component-sync): reuses this schema's shape verbatim for the per-project materialize result rather than defining a parallel schema, per the initiative's 'result shape reuses update.schema.json's shape + a path field' build note."
+    },
     "result": {
       "type": "string",
       "enum": ["applied", "up-to-date", "held", "blocked", "offline"],

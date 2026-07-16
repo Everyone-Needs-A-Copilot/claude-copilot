@@ -81,6 +81,12 @@ DEFAULTS: dict[str, Any] = {
     # below). Unset by default: no scanning happens until an admin/user
     # configures at least one root.
     "projects.roots": None,
+    # Optional explicit-project registry (Component Sync Stream-E,
+    # core/ecosystem/projects.py's discover_projects()) -- a JSON file
+    # listing project paths that root-scanning alone might miss (e.g. a
+    # project outside every configured `projects.roots` tree). Supplements,
+    # never replaces, root-scanning.
+    "projects.registry": "~/.copilot/projects.json",
     # macOS Keychain service name secrets are stored/looked up under (see
     # core/keychain.py) -- never itself a secret.
     "auth.keychain_service": "com.everyoneneedsacopilot.copilot.github",
