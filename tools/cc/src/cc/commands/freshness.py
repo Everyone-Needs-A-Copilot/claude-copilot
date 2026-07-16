@@ -41,7 +41,11 @@ from typing import Any, Optional
 
 from cc.core.config import resolve_key
 from cc.core.ecosystem import mirror
-from cc.core.ecosystem.freshness import compute_freshness, current_lock_sha
+from cc.core.ecosystem.freshness import (
+    build_per_layer_freshness,
+    compute_freshness,
+    current_lock_sha,
+)
 
 SCHEMA_VERSION = "1.0"
 
@@ -56,6 +60,11 @@ def build_freshness_report(
     _lockfile: Optional[dict[str, Any]] = None,
     _lockfile_path: Any = _UNSET,
     _latest_sha: Any = _UNSET,
+    per_layer: bool = False,
+    _layers: Optional[list[dict[str, Any]]] = None,
+    _manifest_path: Any = _UNSET,
+    _mirror_root: Any = _UNSET,
+    _layer_latest_lookup: Optional[dict[str, Optional[str]]] = None,
 ) -> dict[str, Any]:
     """
     Build the WS-A `freshness --json` contract object.
@@ -70,6 +79,20 @@ def build_freshness_report(
 
     `_latest_sha` lets tests/callers inject the remote result directly
     (mirrors `_lockfile`'s injection) instead of invoking `git ls-remote`.
+
+    `per_layer` (default `False`, OPT-IN): when `True`, additionally folds
+    in a `layers: [...]` array (core/ecosystem/freshness.py's
+    `build_per_layer_freshness()`) alongside the existing top-level fields
+    -- purely additive, the top-level fields are computed identically
+    either way. The CLI's own `freshness_cmd()` (cc/main.py) calls this
+    function with NO arguments, so it never hits `per_layer=True` --
+    wiring an actual `--per-layer` flag is a later integration step (this
+    slice only adds the internal capability). `_layers`/`_manifest_path`
+    mirror `commands/update.py`'s own manifest-loading convention (pass
+    layers directly, or a manifest path resolved via `layers.manifest`);
+    `_mirror_root` mirrors every other injectable root in this codebase;
+    `_layer_latest_lookup` forwards straight to
+    `build_per_layer_freshness()`'s own `_latest_lookup` injection point.
     """
     source = resolve_key("layers.lock_source") if _source is _UNSET else _source
     ref = (
@@ -106,7 +129,7 @@ def build_freshness_report(
 
     freshness = compute_freshness(current, latest)
 
-    return {
+    report: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "current_lock_sha": freshness["current_lock_sha"],
         "latest_lock_sha": freshness["latest_lock_sha"],
@@ -114,6 +137,31 @@ def build_freshness_report(
         "offline": offline,
         "checked_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
+
+    if per_layer:
+        if _layers is not None:
+            layers = _layers
+        else:
+            manifest_path = (
+                _manifest_path if _manifest_path is not _UNSET else resolve_key("layers.manifest")
+            )
+            if not manifest_path:
+                layers = []
+            else:
+                from cc.core.ecosystem.manifest import load_layers
+
+                layers = load_layers(manifest_path)
+
+        mirror_root_base = (
+            _mirror_root if _mirror_root is not _UNSET else resolve_key("paths.mirrors_root")
+        )
+        report["layers"] = build_per_layer_freshness(
+            layers,
+            _mirror_root=mirror_root_base,
+            _latest_lookup=_layer_latest_lookup,
+        )
+
+    return report
 
 
 def render_freshness_report_rich(report: dict, *, console: Any = None) -> None:

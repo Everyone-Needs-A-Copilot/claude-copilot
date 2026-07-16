@@ -288,3 +288,250 @@ def test_clone_or_update_mirror_never_resolves_home_when_injected(tmp_path):
     # clone_or_update_mirror touched Path.home() at all when mirror_root
     # is supplied.
     mirror.clone_or_update_mirror("foundation", str(source), "main", mirror_root=tmp_path / "mirrors")
+
+
+# ---------------------------------------------------------------------------
+# Private-repo transport: optional token auth (update-slice gap #1)
+# ---------------------------------------------------------------------------
+
+
+def _b64_basic_header(token: str) -> str:
+    import base64
+
+    encoded = base64.b64encode(f"x-access-token:{token}".encode("utf-8")).decode("ascii")
+    return f"Authorization: Basic {encoded}"
+
+
+def test_basic_auth_header_uses_x_access_token_convention():
+    header = mirror._basic_auth_header("secret-token-123")
+    assert header == _b64_basic_header("secret-token-123")
+    assert header.startswith("Authorization: Basic ")
+
+
+def test_resolve_effective_token_explicit_override_wins(tmp_path):
+    # Explicit override applies even for a plain local path (not https) --
+    # lets tests spy on the argv plumbing without a real https remote.
+    assert mirror._resolve_effective_token(str(tmp_path), "explicit-token") == "explicit-token"
+
+
+def test_resolve_effective_token_explicit_none_forces_anonymous():
+    assert mirror._resolve_effective_token("https://example.invalid/repo.git", None) is None
+
+
+def test_resolve_effective_token_auto_resolve_skipped_for_non_https_source(tmp_path):
+    # Sentinel default ("not overridden") + a plain local path source must
+    # NEVER call resolve_token() (which would hit authstore/keychain) --
+    # asserted indirectly: this must not raise despite Path.home() being
+    # poisoned by the autouse fixture.
+    assert mirror._resolve_effective_token(str(tmp_path), mirror._UNSET) is None
+
+
+def test_resolve_effective_token_auto_resolve_attempted_for_https_source(monkeypatch):
+    monkeypatch.setattr(mirror, "resolve_token", lambda: "auto-resolved-token")
+    assert (
+        mirror._resolve_effective_token("https://example.invalid/repo.git", mirror._UNSET)
+        == "auto-resolved-token"
+    )
+
+
+def test_resolve_token_soft_dependency_no_identity_returns_none():
+    assert (
+        mirror.resolve_token(
+            _read_identity=lambda: {},
+            _get_secret=lambda *a, **k: "should-never-be-reached",
+            _keychain_service="svc",
+        )
+        is None
+    )
+
+
+def test_resolve_token_soft_dependency_identity_read_raises_returns_none():
+    def _boom():
+        raise RuntimeError("no identity file")
+
+    assert (
+        mirror.resolve_token(
+            _read_identity=_boom,
+            _get_secret=lambda *a, **k: "should-never-be-reached",
+            _keychain_service="svc",
+        )
+        is None
+    )
+
+
+def test_resolve_token_soft_dependency_keychain_miss_returns_none():
+    assert (
+        mirror.resolve_token(
+            _read_identity=lambda: {"login": "octocat"},
+            _get_secret=lambda *a, **k: None,
+            _keychain_service="svc",
+        )
+        is None
+    )
+
+
+def test_resolve_token_soft_dependency_keychain_raises_returns_none():
+    def _boom(*_a, **_k):
+        raise RuntimeError("Keychain unavailable")
+
+    assert (
+        mirror.resolve_token(
+            _read_identity=lambda: {"login": "octocat"},
+            _get_secret=_boom,
+            _keychain_service="svc",
+        )
+        is None
+    )
+
+
+def test_resolve_token_uses_login_as_keychain_account_and_configured_service():
+    calls = []
+
+    def _spy_get_secret(account, *, service, **_kwargs):
+        calls.append((account, service))
+        return "the-real-token"
+
+    result = mirror.resolve_token(
+        _read_identity=lambda: {"login": "octocat", "scopes": "repo"},
+        _get_secret=_spy_get_secret,
+        _keychain_service="com.example.test",
+    )
+
+    assert result == "the-real-token"
+    assert calls == [("octocat", "com.example.test")]
+
+
+def test_clone_or_update_mirror_injects_auth_header_on_clone_and_fetch(tmp_path, monkeypatch):
+    source = _make_content_repo(tmp_path, {"agents/sec.md": "v1"})
+    mirror_root = tmp_path / "mirrors"
+
+    real_run = subprocess.run
+    captured_argvs: list[list[str]] = []
+
+    def _spy_run(argv, **kwargs):
+        captured_argvs.append(list(argv))
+        return real_run(argv, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", _spy_run)
+
+    token = "my-secret-token"
+    expected_header_arg = f"http.extraHeader={_b64_basic_header(token)}"
+
+    # First call: clone.
+    mirror.clone_or_update_mirror(
+        "foundation", str(source), "main", mirror_root=mirror_root, _token=token
+    )
+    clone_argv = next(a for a in captured_argvs if "clone" in a)
+    assert clone_argv[0] == "git"
+    assert clone_argv[1] == "-c"
+    assert clone_argv[2] == expected_header_arg
+    assert clone_argv.index("clone") > clone_argv.index(expected_header_arg)
+
+    # Second call: fetch+reset (the "updated" path) must also carry it on
+    # fetch (never on reset/rev-parse, which need no network auth).
+    captured_argvs.clear()
+    (source / "agents" / "sec.md").write_text("v2", encoding="utf-8")
+    real_run(["git", "commit", "-aqm", "v2"], cwd=source, check=True)
+    mirror.clone_or_update_mirror(
+        "foundation", str(source), "main", mirror_root=mirror_root, _token=token
+    )
+    fetch_argv = next(a for a in captured_argvs if "fetch" in a)
+    assert expected_header_arg in fetch_argv
+
+    reset_argv = next(a for a in captured_argvs if "reset" in a)
+    assert "-c" not in reset_argv
+    assert expected_header_arg not in reset_argv
+
+    rev_parse_argv = next(a for a in captured_argvs if "rev-parse" in a)
+    assert "-c" not in rev_parse_argv
+
+
+def test_clone_or_update_mirror_token_never_written_to_git_config(tmp_path):
+    source = _make_content_repo(tmp_path, {"agents/sec.md": "v1"})
+    mirror_root = tmp_path / "mirrors"
+    token = "super-secret-do-not-persist"
+
+    mirror.clone_or_update_mirror(
+        "foundation", str(source), "main", mirror_root=mirror_root, _token=token
+    )
+
+    git_config_text = (mirror_root / "foundation" / ".git" / "config").read_text(
+        encoding="utf-8"
+    )
+    assert token not in git_config_text
+    assert "extraHeader" not in git_config_text
+    assert "Authorization" not in git_config_text
+
+    # Second call exercises the fetch+reset ("updated") path too.
+    (source / "agents" / "sec.md").write_text("v2", encoding="utf-8")
+    subprocess.run(["git", "commit", "-aqm", "v2"], cwd=source, check=True)
+    mirror.clone_or_update_mirror(
+        "foundation", str(source), "main", mirror_root=mirror_root, _token=token
+    )
+
+    git_config_text_after = (mirror_root / "foundation" / ".git" / "config").read_text(
+        encoding="utf-8"
+    )
+    assert token not in git_config_text_after
+    assert "extraHeader" not in git_config_text_after
+
+
+def test_clone_or_update_mirror_token_never_in_result_dict(tmp_path):
+    source = _make_content_repo(tmp_path, {"agents/sec.md": "v1"})
+    mirror_root = tmp_path / "mirrors"
+    token = "another-secret-token-value"
+
+    result = mirror.clone_or_update_mirror(
+        "foundation", str(source), "main", mirror_root=mirror_root, _token=token
+    )
+
+    serialized = json.dumps(result)
+    assert token not in serialized
+    assert "Authorization" not in serialized
+
+
+def test_clone_or_update_mirror_no_token_omits_extra_header_flag(tmp_path, monkeypatch):
+    source = _make_content_repo(tmp_path, {"agents/sec.md": "v1"})
+    mirror_root = tmp_path / "mirrors"
+
+    real_run = subprocess.run
+    captured_argvs: list[list[str]] = []
+
+    def _spy_run(argv, **kwargs):
+        captured_argvs.append(list(argv))
+        return real_run(argv, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", _spy_run)
+
+    # Explicit anonymous (bypasses the https-only auto-resolve check).
+    mirror.clone_or_update_mirror(
+        "foundation", str(source), "main", mirror_root=mirror_root, _token=None
+    )
+
+    clone_argv = next(a for a in captured_argvs if "clone" in a)
+    assert clone_argv == ["git", "clone", "--quiet", "--origin", "origin", str(source), str(mirror_root / "foundation")]
+    assert "-c" not in clone_argv
+
+
+def test_clone_or_update_mirror_default_https_source_soft_dependency_no_crash(tmp_path):
+    """An https:// source with no `_token` override exercises the full
+    auto-resolve path (resolve_token() -> authstore.read_identity(), which
+    -- with no `_root` injected -- resolves the real `Path.home()`; this
+    module's `_no_real_home` autouse fixture makes that raise
+    `AssertionError`). `resolve_token()`'s soft-dependency contract
+    (`except Exception: return None`) must swallow that and fall back to
+    anonymous rather than letting it propagate -- proving the "never
+    raises" contract even when the identity layer itself blows up, not
+    just when it cleanly reports 'not signed in'."""
+    mirror_root = tmp_path / "mirrors"
+
+    result = mirror.clone_or_update_mirror(
+        "foundation",
+        "https://example.invalid/does-not-exist/repo.git",
+        "main",
+        mirror_root=mirror_root,
+        timeout=2.0,
+    )
+
+    assert result["ok"] is False
+    assert result["offline"] is True

@@ -32,17 +32,25 @@ fetch, no working tree, no full `update`.
 
 from __future__ import annotations
 
+import base64
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional, TypedDict
+from typing import Any, Callable, Optional, TypedDict
 
+from cc.core import authstore, keychain
 from cc.core.config import resolve_key
 
 # Default published lock-pointer ref name (owner-ratified convention --
 # see module docstring). Callers may override per-tier via a manifest
 # layer's own published ref name, if a future layer ever needs one.
 DEFAULT_LOCK_POINTER_REF = "refs/copilot/lock"
+
+# Sentinel distinguishing "no override passed" (auto-resolve) from an
+# explicit token/None argument -- same convention as commands/update.py's
+# `_UNSET` (a caller-supplied `None` must force anonymous, never be
+# confused with "not supplied at all").
+_UNSET: Any = object()
 
 
 def mirror_root(tier: str, *, _root: Optional[Path | str] = None) -> Path:
@@ -137,6 +145,83 @@ def resolve_transport(source: str, auth: str) -> str:
     return source
 
 
+def _basic_auth_header(token: str) -> str:
+    """
+    Build a git `http.extraHeader` value authenticating as `token` the same
+    way GitHub's own tooling does for a plain access token over HTTPS: HTTP
+    Basic with the literal username `x-access-token` and the token as the
+    password (GitHub accepts any non-empty username for a PAT/installation
+    token, `x-access-token` is the documented convention). Returned as a
+    single header line ready for `-c http.extraHeader=<this>` -- never a
+    URL-embedded credential (those get persisted into `.git/config`'s
+    remote URL on clone; a `-c` override does not).
+    """
+    encoded = base64.b64encode(f"x-access-token:{token}".encode("utf-8")).decode("ascii")
+    return f"Authorization: Basic {encoded}"
+
+
+def resolve_token(
+    *,
+    _read_identity: Callable[..., dict[str, Any]] = authstore.read_identity,
+    _get_secret: Callable[..., Optional[str]] = keychain.get_secret,
+    _keychain_service: Optional[str] = None,
+) -> Optional[str]:
+    """
+    Resolve an optional access token for an authenticated HTTPS fetch:
+    `authstore.read_identity()` (the non-secret "who is signed in" pointer,
+    `{login, ...}`) -> `keychain.get_secret(login, service=...)` (the OS
+    keychain, per credentials-and-boundary.md: "secrets are honored only
+    from a per-user OS keychain entry"). Both steps are injectable so
+    callers/tests never touch a real identity file or the real Keychain.
+
+    SOFT DEPENDENCY -- never raises, degrades to `None` (anonymous,
+    today's unchanged behavior) on ANY missing piece: not signed in, no
+    `login` recorded, Keychain unavailable on this platform
+    (`KeychainUnavailable` on non-Darwin), or a lookup miss. Mirrors this
+    module's own `latest_lock_sha()` "never a fabricated success" honesty
+    posture, just for "have a token" rather than "know a SHA".
+    """
+    try:
+        identity = _read_identity()
+    except Exception:
+        return None
+
+    login = identity.get("login") if isinstance(identity, dict) else None
+    if not login:
+        return None
+
+    service = _keychain_service or resolve_key("auth.keychain_service")
+    if not service:
+        return None
+
+    try:
+        return _get_secret(login, service=service)
+    except Exception:
+        return None
+
+
+def _resolve_effective_token(source: str, token_override: Any) -> Optional[str]:
+    """
+    `token_override` is `mirror.py`'s own `_UNSET` sentinel by default
+    (auto-resolve), an explicit `str` (force that token), or an explicit
+    `None` (force anonymous, bypassing auto-resolution entirely -- tests
+    use this to keep the existing anonymous-path fixtures untouched by
+    keychain/authstore machinery).
+
+    Auto-resolution (`token_override is _UNSET`) only ever fires for
+    `https://`/`http://` sources -- `ssh-*`/`anon` transports and the local
+    plain-path fixtures every other test in this module uses never trigger
+    an `authstore.read_identity()` call, so `Path.home()` is never resolved
+    as a side effect of a plain mirror sync (the `_no_real_home` autouse
+    fixture in tests/test_ecosystem_mirror.py depends on this).
+    """
+    if token_override is not _UNSET:
+        return token_override
+    if not source.startswith(("https://", "http://")):
+        return None
+    return resolve_token()
+
+
 class MirrorSyncResult(TypedDict):
     tier: str
     path: str
@@ -148,10 +233,26 @@ class MirrorSyncResult(TypedDict):
 
 
 def _run_git(
-    args: list[str], *, cwd: Optional[Path] = None, timeout: float
+    args: list[str],
+    *,
+    cwd: Optional[Path] = None,
+    timeout: float,
+    _auth_header: Optional[str] = None,
 ) -> subprocess.CompletedProcess:
+    """
+    `_auth_header`, when supplied, is injected via `git -c
+    http.extraHeader=<value>` -- a PER-INVOCATION config override, never
+    written to any `.git/config` on disk (that only happens for `git
+    config <key> <value>`, which this never calls). Ordering matters: `-c`
+    must precede the subcommand for git to accept it as a config override
+    rather than a positional argument.
+    """
+    argv = ["git"]
+    if _auth_header:
+        argv += ["-c", f"http.extraHeader={_auth_header}"]
+    argv += args
     return subprocess.run(
-        ["git", *args],
+        argv,
         cwd=cwd,
         capture_output=True,
         text=True,
@@ -193,6 +294,7 @@ def clone_or_update_mirror(
     *,
     mirror_root: Path | str,
     timeout: float = 30.0,
+    _token: Any = _UNSET,
 ) -> MirrorSyncResult:
     """
     Materialize (or refresh) the READ-ONLY mirror for `tier`: clone if the
@@ -217,8 +319,23 @@ def clone_or_update_mirror(
     deleted merely because a *subsequent* fetch/reset failed -- offline is
     reported and the prior cached content is left exactly as it was
     (ecosystem-architecture.md §5.2: "offline = using cached SHAs").
+
+    PRIVATE-REPO TRANSPORT (optional, soft dependency): `_token` defaults
+    to auto-resolving a token via `resolve_token()` -- but ONLY for
+    `https://`/`http://` sources (`_resolve_effective_token()`), so `ssh-*`/
+    `anon`/local-path sources never touch the keychain/authstore at all.
+    With no signed-in identity or no keychain entry, this degrades to the
+    current anonymous behavior unchanged. When a token IS resolved, it is
+    injected as a `git -c http.extraHeader=...` override on the `clone`/
+    `fetch` invocations ONLY (never `reset`/`rev-parse`, which need no
+    network auth) -- a per-invocation override, so the token is NEVER
+    written to `<target>/.git/config`, never logged (it appears only as an
+    in-memory argv element for this subprocess call), and never appears in
+    this function's return value.
     """
     target = Path(mirror_root).expanduser() / tier
+    token = _resolve_effective_token(source, _token)
+    auth_header = _basic_auth_header(token) if token else None
 
     try:
         if not (target / ".git").is_dir():
@@ -231,6 +348,7 @@ def clone_or_update_mirror(
             cloned = _run_git(
                 ["clone", "--quiet", "--origin", "origin", source, str(target)],
                 timeout=timeout,
+                _auth_header=auth_header,
             )
             if cloned.returncode != 0:
                 shutil.rmtree(target, ignore_errors=True)
@@ -240,7 +358,10 @@ def clone_or_update_mirror(
             action = "updated"
 
         fetched = _run_git(
-            ["fetch", "--quiet", "origin", ref], cwd=target, timeout=timeout
+            ["fetch", "--quiet", "origin", ref],
+            cwd=target,
+            timeout=timeout,
+            _auth_header=auth_header,
         )
         if fetched.returncode != 0:
             # Existing mirror content (if any) is left untouched -- honest
