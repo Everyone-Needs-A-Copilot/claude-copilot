@@ -35,7 +35,7 @@ a Layer-1 Foundational product — NOT one of the four named targets, but the hu
 
 ## The four projects — profiles
 
-### 1. CLI Copilot — `/Volumes/Dev/Sites/COPILOT/cli-copilot`
+### 1. CLI Copilot — `/Volumes/Dev/Sites/COPILOT/cli-copilot-internal`
 - **Repo:** `github.com/Everyone-Needs-A-Copilot/cli-copilot` — **private**, branch `main`, HEAD `22544ee`.
 - **What it IS:** the `copilot` binary — a Python 3.11 Typer+Rich CLI fronting ~24 services (a *client* binary,
   not a server; no MCP/HTTP/webhook of its own). Version 1.1.0.
@@ -43,7 +43,7 @@ a Layer-1 Foundational product — NOT one of the four named targets, but the hu
   `copilot_cli/config/settings.py` (Pydantic Settings), `pyproject.toml` console scripts `copilot`/`cli_copilot`
   → `copilot_cli.main:app`.
 - **Config:** single `.env` via Pydantic Settings; resolution `COPILOT_ENV_FILE` → nearest `.env` up-tree → CWD `.env`.
-  Ecosystem `.env` at `/Volumes/Dev/Sites/COPILOT/cli-copilot/.env` (per global CLAUDE.md).
+  Ecosystem `.env` at `/Volumes/Dev/Sites/COPILOT/cli-copilot-internal/.env` (per global CLAUDE.md).
 - **Extension / integration REGISTRY (key for layering vision):**
   Integrations are **registered as code, not data.** Each service is a Python subpackage under
   `copilot_cli/services/<name>/` exposing a Typer `app`, imported and wired in `copilot_cli/main.py` via
