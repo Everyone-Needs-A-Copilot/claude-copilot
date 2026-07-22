@@ -25,6 +25,15 @@ from cc.core.ecosystem.ssh_identity import ensure_machine_ssh_identity
 SCHEMA_VERSION = "1.0"
 COMPONENTS = ("knowledge", "cli", "claude", "codex")
 PRODUCTS = ("claude", "codex")
+# Supply-chain roots are compiled into the signed cc distribution. They are
+# deliberately not read from the environment, the Admin handoff, or a layer
+# being verified (all three would let the artifact choose its own authority).
+# Release engineering populates these tuples only after the corresponding
+# public foundation starts publishing commits/tags signed by the real keys.
+FOUNDATION_ALLOWED_SIGNERS: dict[str, tuple[str, ...]] = {
+    "claude": (),
+    "codex": (),
+}
 Run = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
 
 
@@ -399,7 +408,11 @@ def _layer_manifest(org: str, owner: str, products: Sequence[str], handoff: dict
             layers.append({
                 "id": layer_id, "role": role, "rank": rank, "product": product,
                 "source": source, "auth": auth, "activation": "always",
-                "policy": {"allowed_signers": []},
+                "policy": {
+                    "allowed_signers": list(FOUNDATION_ALLOWED_SIGNERS[product])
+                    if role == "foundation"
+                    else []
+                },
             })
     return {"version": 1, "org": org, "layers": layers}
 

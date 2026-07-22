@@ -202,6 +202,11 @@ def test_ecosystem_plan_builds_two_isolated_three_layer_stacks(tmp_path):
 def test_ecosystem_apply_writes_exact_refs_and_runs_update_doctor(tmp_path, monkeypatch):
     config_writes = []
     monkeypatch.setattr("cc.commands.onboard.write_config", lambda key, value: config_writes.append((key, value)))
+    monkeypatch.setattr(
+        onboard_module,
+        "FOUNDATION_ALLOWED_SIGNERS",
+        {"claude": ("CLAUDE-FINGERPRINT",), "codex": ("CODEX-FINGERPRINT",)},
+    )
     report = build_ecosystem_onboard_report(
         org="Acme", apply=True, run=_aggregate_run, manifest_path=tmp_path / "layers.yml",
         personal_fn=_personal, ssh_fn=_ssh, codex_fn=_codex,
@@ -216,6 +221,9 @@ def test_ecosystem_apply_writes_exact_refs_and_runs_update_doctor(tmp_path, monk
     ]
     assert manifest["layers"][2]["source"]["ref"] == "v5.9.0"
     assert manifest["layers"][5]["source"]["ref"] == "v0.6.2"
+    assert manifest["layers"][2]["policy"]["allowed_signers"] == ["CLAUDE-FINGERPRINT"]
+    assert manifest["layers"][5]["policy"]["allowed_signers"] == ["CODEX-FINGERPRINT"]
+    assert manifest["layers"][0]["policy"]["allowed_signers"] == []
     assert config_writes == [("layers.manifest", str(tmp_path / "layers.yml"))]
 
 
