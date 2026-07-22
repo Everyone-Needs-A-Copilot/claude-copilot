@@ -52,6 +52,7 @@ Lockfile = dict[str, dict[str, dict[str, str]]]
 
 
 class MaterializeOp(TypedDict):
+    product: str
     dimension: str
     layer: str
     item: str
@@ -66,6 +67,26 @@ class MaterializeOp(TypedDict):
 class MaterializeReport(TypedDict):
     ops: list[MaterializeOp]
     lock: Lockfile
+
+
+# Native target allow-list. Product content is rejected before policy
+# evaluation if it names a dimension outside this table. Codex receives
+# complete plugins as atomic directories; Claude receives its native content
+# dimensions. Neither product can write into the other's root.
+PRODUCT_TARGET_ALLOWLIST: dict[str, dict[str, str]] = {
+    "claude": {
+        "agents": "agents",
+        "skills": "skills",
+        "commands": "commands",
+        "protocol": "protocol",
+        "knowledge": "knowledge",
+        "cli-integrations": "cli-integrations",
+    },
+    "codex": {
+        "plugins": "plugins",
+        "knowledge": "knowledge",
+    },
+}
 
 
 # ---------------------------------------------------------------------------
@@ -238,6 +259,7 @@ def _remove(target: Path) -> None:
 
 def _op(
     *,
+    product: str,
     dimension: str,
     layer: str,
     item: str,
@@ -249,6 +271,7 @@ def _op(
     to_sha: Optional[str] = None,
 ) -> MaterializeOp:
     return {
+        "product": product,
         "dimension": dimension,
         "layer": layer,
         "item": item,
@@ -264,9 +287,13 @@ def _op(
 def materialize(
     resolved_set: list[dict[str, Any]],
     *,
-    materialize_root: Path | str,
+    materialize_root: Path | str | None = None,
+    materialize_roots: Optional[dict[str, Path | str]] = None,
+    target_allowlist: Optional[dict[str, dict[str, str]]] = None,
     previous_lock: Optional[Lockfile] = None,
     layer_source_paths: dict[str, Path | str],
+    layer_policies: Optional[dict[str, dict[str, Any]]] = None,
+    layer_products: Optional[dict[str, str]] = None,
     policy: Optional[PolicyFn] = None,
     personal_roots: Iterable[Path | str] = (),
     dry_run: bool = False,
@@ -294,12 +321,38 @@ def materialize(
     change either).
     """
     gate = policy or _default_policy
-    root = Path(materialize_root).expanduser()
+    if materialize_roots is None and materialize_root is None:
+        raise ValueError("materialize_root or materialize_roots is required")
+    legacy_root = Path(materialize_root).expanduser() if materialize_root is not None else None
+    product_roots = {
+        product: Path(path).expanduser() for product, path in (materialize_roots or {}).items()
+    }
+    allowlist = target_allowlist or PRODUCT_TARGET_ALLOWLIST
+    layer_policies = layer_policies or {}
+    layer_products = layer_products or {}
     previous_lock = previous_lock or {}
     personal_roots = list(personal_roots)
 
     ops: list[MaterializeOp] = []
     new_lock: Lockfile = {}
+
+    def _target(product: str, dimension: str, name: str) -> Optional[Path]:
+        if materialize_roots is None:
+            assert legacy_root is not None
+            return legacy_root / dimension / name
+        root = product_roots.get(product)
+        relative = allowlist.get(product, {}).get(dimension)
+        if root is None or not relative:
+            return None
+        rel_path = Path(relative)
+        if rel_path.is_absolute() or ".." in rel_path.parts:
+            return None
+        target = root / rel_path / name
+        try:
+            target.relative_to(root)
+        except ValueError:
+            return None
+        return target
 
     def _carry_forward(layer_id: str, dimension: str, item: str) -> Optional[str]:
         prev_sha = previous_lock.get(layer_id, {}).get(dimension, {}).get(item)
@@ -314,13 +367,32 @@ def materialize(
 
         item = entry["item"]
         layer_id = entry["winning_layer"]
+        product = entry.get("product") or layer_products.get(layer_id, "")
         prev_sha = previous_lock.get(layer_id, {}).get(dimension, {}).get(item)
 
         source_root = layer_source_paths.get(layer_id)
         dim_dir = Path(source_root).expanduser() / dimension if source_root else None
         source_child = _find_source_child(dim_dir, item) if dim_dir else None
         dest_name = source_child.name if source_child else item
-        dest_path = root / dimension / dest_name
+        dest_path = _target(product, dimension, dest_name)
+        if dest_path is None:
+            _carry_forward(layer_id, dimension, item)
+            fallback_root = product_roots.get(product) or legacy_root or Path(".")
+            ops.append(
+                _op(
+                    product=product,
+                    dimension=dimension,
+                    layer=layer_id,
+                    item=item,
+                    op="blocked",
+                    path=fallback_root,
+                    signed=False,
+                    reason="product target is not allowlisted",
+                    from_sha=prev_sha,
+                    to_sha=None,
+                )
+            )
+            continue
 
         # The sha this item WOULD be pinned at if applied -- computed from
         # the actual source bytes (not the resolver's `winning_sha`, which
@@ -331,13 +403,23 @@ def materialize(
         candidate_sha = _content_sha(source_child) if source_child is not None else None
 
         verdict = gate(
-            {"dimension": dimension, "layer": layer_id, "item": item, "sha": candidate_sha}
+            {
+                "product": product,
+                "dimension": dimension,
+                "layer": layer_id,
+                "item": item,
+                "sha": candidate_sha,
+                "source_root": str(source_root) if source_root else None,
+                "relative_path": f"{dimension}/{dest_name}",
+                "layer_policy": layer_policies.get(layer_id),
+            }
         )
 
         if verdict == "block":
             _carry_forward(layer_id, dimension, item)
             ops.append(
                 _op(
+                    product=product,
                     dimension=dimension, layer=layer_id, item=item, op="blocked",
                     path=dest_path, signed=False, reason="unverified",
                     from_sha=prev_sha, to_sha=candidate_sha,
@@ -349,6 +431,7 @@ def materialize(
             _carry_forward(layer_id, dimension, item)
             ops.append(
                 _op(
+                    product=product,
                     dimension=dimension, layer=layer_id, item=item, op="held",
                     path=dest_path, signed=False, reason="held for approval",
                     from_sha=prev_sha, to_sha=candidate_sha,
@@ -360,6 +443,7 @@ def materialize(
             _carry_forward(layer_id, dimension, item)
             ops.append(
                 _op(
+                    product=product,
                     dimension=dimension, layer=layer_id, item=item, op="held",
                     path=dest_path, signed=True,
                     reason="protected: personal/dirty working tree -- never overwritten",
@@ -372,6 +456,7 @@ def materialize(
             _carry_forward(layer_id, dimension, item)
             ops.append(
                 _op(
+                    product=product,
                     dimension=dimension, layer=layer_id, item=item, op="blocked",
                     path=dest_path, signed=False, reason="source content not found",
                     from_sha=prev_sha, to_sha=None,
@@ -389,6 +474,7 @@ def materialize(
 
         ops.append(
             _op(
+                product=product,
                 dimension=dimension, layer=layer_id, item=item, op=op_name,
                 path=dest_path, signed=True,
                 from_sha=prev_sha, to_sha=candidate_sha,
@@ -398,20 +484,29 @@ def materialize(
 
     # --- Pruning: only previously-materialized items no longer resolved at all ---
     resolved_pairs = {
-        (e["dimension"], e["item"])
+        (
+            e.get("product", "") if materialize_roots is not None else "",
+            e["dimension"],
+            e["item"],
+        )
         for e in resolved_set
         if semantics_for(e["dimension"]) in _MATERIALIZABLE_SEMANTICS
     }
 
     for layer_id, dims in previous_lock.items():
+        product = layer_products.get(layer_id, "") if materialize_roots is not None else ""
         for dimension, items in dims.items():
             if semantics_for(dimension) not in _MATERIALIZABLE_SEMANTICS:
                 continue
             for item, prev_sha in items.items():
-                if (dimension, item) in resolved_pairs:
+                if (product, dimension, item) in resolved_pairs:
                     continue  # still resolved (possibly under a different layer) -- not orphaned
 
-                dim_dir = root / dimension
+                target_probe = _target(product, dimension, item)
+                if target_probe is None:
+                    new_lock.setdefault(layer_id, {}).setdefault(dimension, {})[item] = prev_sha
+                    continue
+                dim_dir = target_probe.parent
                 target = _find_source_child(dim_dir, item) if dim_dir.is_dir() else None
                 if target is None:
                     continue  # nothing materialized to prune -- already absent
@@ -419,6 +514,7 @@ def materialize(
                 if guard_personal(target, personal_roots=personal_roots):
                     ops.append(
                         _op(
+                            product=product,
                             dimension=dimension, layer=layer_id, item=item, op="held",
                             path=target, signed=True,
                             reason="protected: personal/dirty working tree -- never pruned",
@@ -433,6 +529,7 @@ def materialize(
 
                 ops.append(
                     _op(
+                        product=product,
                         dimension=dimension, layer=layer_id, item=item, op="pruned",
                         path=target, signed=True, from_sha=prev_sha, to_sha=None,
                     )

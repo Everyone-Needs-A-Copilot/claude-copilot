@@ -67,11 +67,13 @@ def _empty_report(lock_sha: str, *, result: str = "up-to-date") -> dict[str, Any
     }
 
 
-def _shadowed_by_lookup(resolved: list[dict[str, Any]]) -> dict[tuple[str, str], Optional[str]]:
-    lookup: dict[tuple[str, str], Optional[str]] = {}
+def _shadowed_by_lookup(
+    resolved: list[dict[str, Any]],
+) -> dict[tuple[str, str, str], Optional[str]]:
+    lookup: dict[tuple[str, str, str], Optional[str]] = {}
     for entry in resolved:
         shadowed = entry.get("shadowed") or []
-        lookup[(entry["dimension"], entry["item"])] = (
+        lookup[(entry.get("product", ""), entry["dimension"], entry["item"])] = (
             shadowed[0]["layer"] if shadowed else None
         )
     return lookup
@@ -87,6 +89,8 @@ def build_update_report(
     _lock_write_path: Any = _UNSET,
     _mirror_root: Any = _UNSET,
     _materialize_root: Any = _UNSET,
+    _materialize_roots: Any = _UNSET,
+    _target_allowlist: Any = _UNSET,
     _policy: Optional[PolicyFn] = None,
     _personal_roots: Iterable[Any] = (),
     _dry_run: bool = False,
@@ -138,11 +142,24 @@ def build_update_report(
         if _mirror_root is not _UNSET
         else Path(str(resolve_key("paths.mirrors_root"))).expanduser()
     )
-    materialize_root = (
-        Path(_materialize_root).expanduser()
-        if _materialize_root is not _UNSET
-        else Path(str(resolve_key("paths.materialize_root"))).expanduser()
-    )
+    materialize_root: Optional[Path] = None
+    materialize_roots: Optional[dict[str, Path]] = None
+    if _materialize_roots is not _UNSET:
+        materialize_roots = {
+            product: Path(path).expanduser() for product, path in _materialize_roots.items()
+        }
+    elif _materialize_root is not _UNSET:
+        # Backward-compatible injected single-root path used by existing
+        # callers and fixtures.
+        materialize_root = Path(_materialize_root).expanduser()
+    else:
+        generic = Path(str(resolve_key("paths.materialize_root"))).expanduser()
+        claude_root = resolve_key("paths.claude_materialize_root")
+        codex_root = resolve_key("paths.codex_materialize_root")
+        materialize_roots = {
+            "claude": Path(str(claude_root)).expanduser() if claude_root else generic,
+            "codex": Path(str(codex_root)).expanduser() if codex_root else generic / "codex",
+        }
 
     # --- Mirror sync: clone/fetch+reset each remote-sourced layer, confined
     # to <mirror_root_base>/<layer id> (mirror.py's own confinement proof).
@@ -154,6 +171,7 @@ def build_update_report(
         source = dict(layer.get("source") or {})
         repo = source.get("repo")
         local_path = source.get("path")
+        subpath = source.get("subpath")
 
         if repo and not local_path:
             transport = mirror.resolve_transport(repo, layer.get("auth", "anon"))
@@ -168,7 +186,15 @@ def build_update_report(
                 any_offline_without_cache = True
             else:
                 source = dict(source)
-                source["path"] = str(mirror_path)
+                content_root = mirror_path
+                if subpath:
+                    relative = Path(str(subpath))
+                    if relative.is_absolute() or ".." in relative.parts:
+                        raise ManifestError(
+                            f"Layer {layer['id']!r} source.subpath must stay inside its mirror."
+                        )
+                    content_root = mirror_path / relative
+                source["path"] = str(content_root)
 
         layer_copy["source"] = source
         effective_layers.append(layer_copy)
@@ -195,8 +221,12 @@ def build_update_report(
     mat_report = materialize(
         resolved,
         materialize_root=materialize_root,
+        materialize_roots=materialize_roots,
+        target_allowlist=None if _target_allowlist is _UNSET else _target_allowlist,
         previous_lock=previous_lock,
         layer_source_paths=layer_source_paths,
+        layer_policies={layer["id"]: layer.get("policy", {}) for layer in effective_layers},
+        layer_products={layer["id"]: layer["product"] for layer in effective_layers},
         policy=_policy or default_policy,
         personal_roots=_personal_roots,
         dry_run=_dry_run,
@@ -219,6 +249,7 @@ def build_update_report(
         if op["op"] == "blocked":
             blocked.append(
                 {
+                    "product": op["product"],
                     "dimension": op["dimension"],
                     "layer": op["layer"],
                     "item": op["item"],
@@ -228,6 +259,7 @@ def build_update_report(
         elif op["op"] == "held":
             held_for_approval.append(
                 {
+                    "product": op["product"],
                     "dimension": op["dimension"],
                     "from": op.get("from_sha") or "",
                     "to": op.get("to_sha") or "",
@@ -237,6 +269,7 @@ def build_update_report(
         else:
             changed.append(
                 {
+                    "product": op["product"],
                     "dimension": op["dimension"],
                     "layer": op["layer"],
                     "item": op["item"],
@@ -245,7 +278,9 @@ def build_update_report(
                     "to": op.get("to_sha"),
                     "signed": op["signed"],
                     "severity_trailer": None,
-                    "shadowed_by": shadow_lookup.get((op["dimension"], op["item"])),
+                    "shadowed_by": shadow_lookup.get(
+                        (op["product"], op["dimension"], op["item"])
+                    ),
                 }
             )
 

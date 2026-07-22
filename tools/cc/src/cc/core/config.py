@@ -67,6 +67,11 @@ DEFAULTS: dict[str, Any] = {
     # actually scans (inheritance-and-publish.md §2.2's tree table). NEVER
     # a mirror and NEVER an authoring vault. See core/ecosystem/materialize.py.
     "paths.materialize_root": "~/.claude",
+    # Product-native materialization roots. Claude keeps its established
+    # host-scanned tree. Codex content is an app-owned local marketplace;
+    # `cc onboard` registers and installs its plugins through the Codex CLI.
+    "paths.claude_materialize_root": "~/.claude",
+    "paths.codex_materialize_root": "~/.copilot/materialized/codex",
     # WS-A foundation slice (Stream-F). GitHub App client id for the
     # device-flow sign-in seam (core/authstore.py / core/keychain.py) --
     # read from the org's inherited `ecosystem.yml`
@@ -96,7 +101,7 @@ DEFAULTS: dict[str, Any] = {
     # core/keychain.py) -- never itself a secret.
     "auth.keychain_service": "com.everyoneneedsacopilot.copilot.github",
     # Device-flow OAuth scopes requested at sign-in.
-    "auth.scopes": "read:org repo",
+    "auth.scopes": "read:org repo write:public_key",
 }
 
 # ---------------------------------------------------------------------------

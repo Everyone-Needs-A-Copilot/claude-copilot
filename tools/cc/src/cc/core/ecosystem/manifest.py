@@ -9,7 +9,7 @@ exercised).
 
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
@@ -184,5 +184,16 @@ def validate_layers(layers: list[dict[str, Any]]) -> list[dict[str, Any]]:
             raise ManifestError(
                 f"Layer {layer_id!r} `source` must be an object with at least a `repo` key."
             )
+        subpath = source.get("subpath")
+        if subpath is not None:
+            if not isinstance(subpath, str) or not subpath:
+                raise ManifestError(
+                    f"Layer {layer_id!r} source.subpath must be a non-empty relative path."
+                )
+            relative = PurePosixPath(subpath)
+            if relative.is_absolute() or ".." in relative.parts:
+                raise ManifestError(
+                    f"Layer {layer_id!r} source.subpath must stay inside its repository."
+                )
 
     return layers

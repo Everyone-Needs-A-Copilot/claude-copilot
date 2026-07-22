@@ -30,6 +30,9 @@ DIMENSION_SEMANTICS: dict[str, str] = {
     "memory": PERSONAL_WRITE,
     "tasks": PROJECT_LOCAL,
     "cli-integrations": OVERRIDE,
+    # Codex-native distributable unit. A plugin stays atomic so its manifest,
+    # skills, hooks, and assets cannot be resolved from different layers.
+    "plugins": OVERRIDE,
 }
 
 # --- Groupings the resolver folds by ----------------------------------------

@@ -430,3 +430,49 @@ def test_materialize_dry_run_computes_plan_without_writing(tmp_path):
     assert not (materialize_root / "agents" / "qa.md").exists()
     ops = [o for o in report["ops"] if o["item"] == "qa"]
     assert ops[0]["op"] == "added"  # plan says it WOULD be added
+
+
+def test_product_native_roots_keep_same_named_items_isolated(tmp_path):
+    claude_source = tmp_path / "claude-source"
+    codex_source = tmp_path / "codex-source"
+    (claude_source / "skills" / "review").mkdir(parents=True)
+    (claude_source / "skills" / "review" / "SKILL.md").write_text("claude")
+    (codex_source / "plugins" / "review").mkdir(parents=True)
+    (codex_source / "plugins" / "review" / "plugin.json").write_text("codex")
+
+    resolved = [
+        {"product": "claude", "dimension": "skills", "item": "review", "winning_layer": "claude-personal"},
+        {"product": "codex", "dimension": "plugins", "item": "review", "winning_layer": "codex-personal"},
+    ]
+    claude_root = tmp_path / "claude-target"
+    codex_root = tmp_path / "codex-target"
+
+    report = materialize(
+        resolved,
+        materialize_roots={"claude": claude_root, "codex": codex_root},
+        layer_source_paths={"claude-personal": claude_source, "codex-personal": codex_source},
+        layer_products={"claude-personal": "claude", "codex-personal": "codex"},
+        policy=permissive_policy,
+    )
+
+    assert (claude_root / "skills" / "review" / "SKILL.md").read_text() == "claude"
+    assert (codex_root / "plugins" / "review" / "plugin.json").read_text() == "codex"
+    assert {op["product"] for op in report["ops"]} == {"claude", "codex"}
+
+
+def test_product_target_allowlist_blocks_cross_product_dimension(tmp_path):
+    source = tmp_path / "codex-source"
+    (source / "agents").mkdir(parents=True)
+    (source / "agents" / "unsafe.md").write_text("must not cross")
+
+    report = materialize(
+        [{"product": "codex", "dimension": "agents", "item": "unsafe", "winning_layer": "codex-org"}],
+        materialize_roots={"codex": tmp_path / "codex-target"},
+        layer_source_paths={"codex-org": source},
+        layer_products={"codex-org": "codex"},
+        policy=permissive_policy,
+    )
+
+    assert report["ops"][0]["op"] == "blocked"
+    assert report["ops"][0]["reason"] == "product target is not allowlisted"
+    assert not (tmp_path / "codex-target" / "agents").exists()

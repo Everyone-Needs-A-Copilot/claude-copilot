@@ -1,56 +1,100 @@
-"""Pluggable capability + signature policy gate for `materialize()`.
+"""Fail-closed capability and Git-signature policy for materialization.
 
-`evaluate(item) -> "allow" | "hold" | "block"` -- the single seam
-`materialize.py` calls per resolved item before writing it to the
-materialize root. Kept intentionally minimal: this is NOT the real
-capability-policy engine (ecosystem.yml `policy=hold-majors`-style rules,
-§7.2/§9 of ecosystem-architecture.md) or the real signature verifier --
-both are later, P1 slices. This module exists only to give `materialize()`
-a real seam to call today, injectable so tests can exercise the
-add/update/prune path without a signature verifier existing yet.
+Executable-adjacent content is accepted only when the Git commit that last
+changed the item has a valid signature from the layer's declared signer
+allow-list. Non-executable knowledge is still integrity-pinned by the
+materializer, but it does not gain code-execution privileges and therefore
+does not require an executable-content signer.
 
-OWNER DECISION (flagged, not silently chosen -- confirm at the next
-contract freeze): the PRODUCTION DEFAULT (`evaluate()` below) is
-**fail-closed: block every item, unconditionally**, because real
-signature-verify has not landed. `materialize.py` reports this as
-`blocked: "unverified"` -- never a silent/implicit allow. A provisional
-"trust the mirror" default (allow anything that synced from a manifest-
-declared, resolvable source) was considered and rejected here: the mirror
-sync (`mirror.py`) has no attestation of *authorship* today, only that
-`git fetch`/`reset --hard` succeeded against *some* remote -- trusting that
-alone would let a compromised or misconfigured source materialize
-executable content (agents/skills/commands) onto the host with no signal
-at all. Fail-closed-block-all means `cc update --json` today can compute
-and report the full plan (what *would* change) but will not actually place
-new/changed layer content until either (a) a real signer/verifier lands,
-or (b) the owner explicitly ratifies a provisional trusted-mirror stance
-for a transitional period. Tests inject `permissive_policy` (or an
-equivalent custom `PolicyFn`) to exercise the materialize path itself
-ahead of that decision.
+Missing Git context, a missing signer policy, an unknown signer, or an invalid
+signature blocks. Callers may inject a policy in tests; production has no
+"skip verification" switch.
 """
 
 from __future__ import annotations
 
-from typing import Any, Callable, Literal
+import subprocess
+from pathlib import Path
+from typing import Any, Callable, Literal, Sequence
 
 Verdict = Literal["allow", "hold", "block"]
 PolicyFn = Callable[[dict[str, Any]], Verdict]
 
+EXECUTABLE_DIMENSIONS = frozenset(
+    {"agents", "skills", "commands", "protocol", "cli-integrations", "plugins"}
+)
+
+
+def _normalize_fingerprint(value: str) -> str:
+    return "".join(value.split()).upper()
+
+
+def verify_git_item(
+    source_root: Path | str,
+    relative_path: str,
+    allowed_signers: Sequence[str],
+    *,
+    run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> tuple[bool, str | None]:
+    """Verify the last commit touching one item and return its signer.
+
+    Git's ``%G?`` performs cryptographic verification with the configured
+    GPG/SSH verifier. ``%GF`` returns the key fingerprint. A good signature is
+    still refused unless that fingerprint is explicitly allowlisted.
+    """
+    root = Path(source_root).expanduser()
+    allowed = {_normalize_fingerprint(value) for value in allowed_signers if value}
+    if not allowed or not (root / ".git").exists():
+        return False, None
+    try:
+        result = run(
+            [
+                "git",
+                "-C",
+                str(root),
+                "log",
+                "-1",
+                "--format=%G?%n%GF%n%GS",
+                "--",
+                relative_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=8.0,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False, None
+
+    lines = result.stdout.splitlines()
+    if result.returncode != 0 or len(lines) < 2 or lines[0].strip() not in {"G", "U"}:
+        return False, None
+    fingerprint = lines[1].strip()
+    if _normalize_fingerprint(fingerprint) not in allowed:
+        return False, fingerprint or None
+    return True, fingerprint
+
 
 def evaluate(item: dict[str, Any]) -> Verdict:
-    """
-    PRODUCTION DEFAULT -- fail-closed. See module docstring for the
-    owner-decision rationale. Every item is blocked (reported by the
-    caller as `blocked: "unverified"`) until a real signature verifier
-    replaces this function (or a caller injects a different `PolicyFn`).
-    """
-    return "block"
+    """Apply the production signature policy to one candidate item."""
+    if item.get("dimension") not in EXECUTABLE_DIMENSIONS:
+        return "allow"
+
+    policy = item.get("layer_policy")
+    if not isinstance(policy, dict):
+        return "block"
+    signers = policy.get("allowed_signers")
+    if not isinstance(signers, list):
+        return "block"
+    source_root = item.get("source_root")
+    relative_path = item.get("relative_path")
+    if not source_root or not relative_path:
+        return "block"
+
+    verified, _signer = verify_git_item(source_root, relative_path, signers)
+    return "allow" if verified else "block"
 
 
 def permissive_policy(_item: dict[str, Any]) -> Verdict:
-    """
-    Injectable, allow-everything policy for tests/callers that need to
-    exercise the materialize path (add/update/prune) without a real
-    signature verifier. NEVER the production default -- see `evaluate()`.
-    """
+    """Test-only policy used to exercise reconciliation mechanics."""
     return "allow"
