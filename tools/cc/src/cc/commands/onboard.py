@@ -6,6 +6,7 @@ import json
 import base64
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -40,7 +41,13 @@ class PackageProbe:
 
 
 def _run(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, capture_output=True, text=True, check=False)
+    if not args:
+        return subprocess.CompletedProcess(args, 127, "", "No command was provided.")
+    executable = shutil.which(args[0])
+    if executable is None:
+        return subprocess.CompletedProcess(args, 127, "", f"{args[0]} is not installed.")
+    resolved = str(Path(executable).resolve())
+    return subprocess.run((resolved, *args[1:]), capture_output=True, text=True, check=False)
 
 
 def _probe(owner: str, name: str, *, run: Run) -> Probe:
