@@ -210,4 +210,23 @@ def test_connected_store_without_scope_identifiers_blocks_before_writes(tmp_path
     )
     assert report["result"] == "blocked"
     assert report["stages"][-1]["stage"] == "secret-store"
+    assert len(report["layers"]) == 6
+    assert not (tmp_path / "layers.yml").exists()
+
+
+def test_aggregate_block_before_manifest_still_returns_layers_field(tmp_path):
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=tmp_path / "layers.yml",
+        personal_fn=lambda **_: {
+            "result": "blocked",
+            "summary": {"existing": 0, "missing": 0, "created": 0, "seeded": 0, "held": 1, "blocked": 1},
+        },
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+    )
+    assert report["result"] == "blocked"
+    assert report["layers"] == []
     assert not (tmp_path / "layers.yml").exists()

@@ -457,11 +457,10 @@ def _ecosystem_result(
     stages: list[dict[str, Any]], layers: Sequence[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     report = {"schema_version": SCHEMA_VERSION, "scope": "ecosystem", "mode": "apply" if apply else "plan", "result": result, "org": org, "products": list(products), "stages": stages}
-    if layers is not None:
-        report["layers"] = [
-            {"id": layer["id"], "product": layer["product"], "role": layer["role"], "rank": layer["rank"]}
-            for layer in layers
-        ]
+    report["layers"] = [
+        {"id": layer["id"], "product": layer["product"], "role": layer["role"], "rank": layer["rank"]}
+        for layer in (layers or ())
+    ]
     return report
 
 
