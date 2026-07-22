@@ -23,7 +23,7 @@
           "product": {
             "type": "string",
             "minLength": 1,
-            "description": "Product attribution of the winning layer (e.g. 'claude', 'codex', 'knowledge', 'cli'). Config-driven — not a closed enum. Carried through from the layer's `product` field (see four-tier-topology.md §4) so output is groupable by product without re-deriving it from repo names. A layer belongs to exactly one product x tier."
+            "description": "Product identity of the resolved item (e.g. 'claude', 'codex', 'knowledge', 'cli'). Config-driven — not a closed enum. Resolution and shadowing are scoped by (product, dimension, item), so same-named items in different products coexist. A layer belongs to exactly one product x tier."
           },
           "winning_layer": { "type": "string" },
           "winning_sha": {

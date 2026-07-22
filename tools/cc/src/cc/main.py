@@ -12,8 +12,10 @@ from cc.commands.eval import eval_app
 from cc.commands.layers import layers_app
 from cc.commands.mcp import mcp_app
 from cc.commands.memory import memory_app
+from cc.commands.onboard import onboard_cmd
 from cc.commands.skill import skill_app
 from cc.commands.usage import usage_app
+from cc.commands.workspaces import workspaces_app
 from cc.core.config import resolve_key
 
 app = typer.Typer(
@@ -32,6 +34,8 @@ app.add_typer(usage_app, name="usage")
 app.add_typer(eval_app, name="eval")
 app.add_typer(auth_app, name="auth")
 app.add_typer(layers_app, name="layers")
+app.add_typer(workspaces_app, name="workspace")
+app.command("onboard")(onboard_cmd)
 
 
 @app.command("env")

@@ -371,9 +371,11 @@ def _build_component_checkers(
     `build_resolve_report()` loading pattern) and fold them through
     `component_status.compute_component_checkers()`.
 
-    No manifest configured, or an invalid/unreadable one, is an honest
-    "nothing to check yet" -- never a crash: a health check must never
-    itself become the thing that's unhealthy.
+    A missing or invalid manifest is a fail-closed checker, never an empty
+    successful result.  Control Tower treats this report as its single
+    authoritative health seam; allowing an absent manifest to collapse to
+    zero component checkers would let an unconfigured ecosystem report
+    ``healthy`` merely because there was nothing to inspect.
     """
     if _layers is not None:
         layers = _layers
@@ -382,11 +384,26 @@ def _build_component_checkers(
             _manifest_path if _manifest_path is not _UNSET else resolve_key("layers.manifest")
         )
         if not manifest_path:
-            return [], False
+            return [
+                Checker(
+                    id="ecosystem-layer-manifest",
+                    severity="fail",
+                    detail="No ecosystem layer manifest is configured.",
+                    repair="cc config set layers.manifest <path-to-copilot.layers.yml>",
+                )
+            ], False
         try:
             layers = validate_layers(load_layers(manifest_path))
-        except ManifestError:
-            return [], False
+        except ManifestError as exc:
+            return [
+                Checker(
+                    id="ecosystem-layer-manifest",
+                    severity="fail",
+                    detail=f"Ecosystem layer manifest is unreadable or invalid: {exc}",
+                    repair="repair the configured copilot.layers.yml",
+                    path=str(manifest_path),
+                )
+            ], False
 
     if _lockfile is not None:
         lock = _lockfile

@@ -77,6 +77,11 @@ DEFAULTS: dict[str, Any] = {
     # Explicit override for the inherited ecosystem.yml location; when
     # unset, ecosystem_config.py derives <paths.materialize_root>/ecosystem.yml.
     "paths.ecosystem_config": None,
+    # Source checkouts used by the explicit project activation adapters.
+    # These are machine paths only; they are never written into a portable
+    # project declaration or returned to Control Tower.
+    "paths.claude_copilot_root": "~/.claude/copilot",
+    "paths.codex_copilot_root": "~/.local/share/enac/codex-copilot",
     # Project roots this machine scans (list-valued -- see LIST_VALUED_KEYS
     # below). Unset by default: no scanning happens until an admin/user
     # configures at least one root.

@@ -1,11 +1,11 @@
-"""The resolver: a PURE fold over a ranked layer manifest.
+"""The resolver: a PURE product-scoped fold over a ranked layer manifest.
 
 No I/O, no filesystem, no network — every input (layers, contributions,
 lockfile) is a plain in-memory data structure the caller supplies. Real
 callers assemble those from disk/git via manifest.py / discovery.py /
 lockfile.py; this module never touches any of that itself
 (ecosystem-architecture.md §3: "load the manifest, sort layers by rank, and
-per DIMENSION apply that dimension's semantics").
+per PRODUCT and DIMENSION apply that dimension's semantics").
 
 Arity-independent by construction: the fold is `for layer in ranked layers`
 with no hardcoded tier count (four-tier-topology.md §3: "the resolver walk
@@ -32,10 +32,21 @@ Lockfile = dict[str, dict[str, dict[str, str]]]
 
 
 def _rank_sorted(layers: list[Layer]) -> list[Layer]:
-    """validate_layers() already asserts list order == ascending rank; sort
-    defensively anyway so resolve_layers() never depends on that discipline
-    beyond "the manifest is valid"."""
+    """Sort one product stack by rank after manifest validation."""
     return sorted(layers, key=lambda layer: layer["rank"])
+
+
+def _product_stacks(layers: list[Layer]) -> list[tuple[str, list[Layer]]]:
+    """Group layers by product, preserving first product appearance.
+
+    Rank precedence is meaningful only inside a product. Keeping product
+    order manifest-driven makes output stable without hardcoding a product
+    vocabulary.
+    """
+    stacks: dict[str, list[Layer]] = {}
+    for layer in layers:
+        stacks.setdefault(layer["product"], []).append(layer)
+    return [(product, _rank_sorted(stack)) for product, stack in stacks.items()]
 
 
 def _recorded_sha(
@@ -188,29 +199,40 @@ def resolve_layers(
     Raises `ManifestError` (via `validate_layers`) on an invalid manifest —
     including the equal-rank hard-error — before folding anything.
 
+    Resolution identity is `(product, dimension, item)`. Same-named items
+    in different products coexist and never appear in each other's shadow
+    chain. Ranks compete only inside one product stack.
+
     `winning_sha` is sourced from `lockfile` and is `None` when the
     lockfile has no recorded sha for that (layer, dimension, item) —
     e.g. a first-run machine with no `copilot.lock` yet.
     """
     validate_layers(layers)
-    ranked = _rank_sorted(layers)
     lockfile = lockfile or {}
     semantics_table = dimension_semantics or DIMENSION_SEMANTICS
 
-    dimensions = sorted(
-        {dim for layer_contrib in contributions.values() for dim in layer_contrib}
-    )
-
     items: list[dict[str, Any]] = []
-    for dimension in dimensions:
-        semantics = semantics_for(dimension, semantics_table)
-        if semantics in NOT_TIERED:
-            continue  # e.g. "tasks": project-local, not part of the layer stack
-        if semantics in ACCUMULATE_LIKE:
-            items.extend(
-                _resolve_accumulate(dimension, ranked, contributions, lockfile)
-            )
-        else:
-            items.extend(_resolve_override(dimension, ranked, contributions, lockfile))
+    for _product, ranked in _product_stacks(layers):
+        layer_ids = {layer["id"] for layer in ranked}
+        dimensions = sorted(
+            {
+                dimension
+                for layer_id, layer_contributions in contributions.items()
+                if layer_id in layer_ids
+                for dimension in layer_contributions
+            }
+        )
+        for dimension in dimensions:
+            semantics = semantics_for(dimension, semantics_table)
+            if semantics in NOT_TIERED:
+                continue  # e.g. "tasks": project-local, not part of the layer stack
+            if semantics in ACCUMULATE_LIKE:
+                items.extend(
+                    _resolve_accumulate(dimension, ranked, contributions, lockfile)
+                )
+            else:
+                items.extend(
+                    _resolve_override(dimension, ranked, contributions, lockfile)
+                )
 
     return items

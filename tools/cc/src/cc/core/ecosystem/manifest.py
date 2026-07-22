@@ -20,9 +20,8 @@ import yaml
 # else is required. `product` is a required, non-empty, config-driven
 # string (e.g. "knowledge" | "cli" | "claude" | "codex" -- not a closed
 # enum, adding a fifth product is a data edit, not a schema change). It is
-# CARRIED metadata + a grouping axis -- it does NOT change resolution
-# semantics (the resolver still folds per-dimension); a layer belongs to
-# exactly one product x tier.
+# part of resolution identity: ranks and named items compete only inside
+# one product stack. A layer belongs to exactly one product x tier.
 REQUIRED_LAYER_FIELDS: tuple[str, ...] = (
     "id",
     "role",
@@ -96,11 +95,12 @@ def validate_layers(layers: list[dict[str, Any]]) -> list[dict[str, Any]]:
       - `role` is a non-empty string (open vocabulary — not a closed enum)
       - `product` is a non-empty string (config-driven — not a closed enum)
       - `rank` is an integer
-      - ranks are UNIQUE — hard-error (plain language, never a stack trace)
-        on any equal-rank pair, mirroring Nix's error-on-equal-priority
-      - manifest list order agrees with ascending rank ("`rank` is
-        precedence of record; list order MUST agree" — the resolver
-        asserts `ranks == sorted(ranks)` at load)
+      - ranks are UNIQUE WITHIN EACH PRODUCT — Claude rank 10 and Codex
+        rank 10 may coexist, but two Claude layers at rank 10 hard-error
+      - manifest list order agrees with ascending rank within each product
+        stack (different product stacks may be interleaved)
+      - layer ids are globally unique because contribution and lock maps
+        use the id as their key
       - `source` is an object with at least a `repo` key
 
     Returns the same list, unchanged, on success — so callers can chain
@@ -112,8 +112,9 @@ def validate_layers(layers: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "Layer manifest has no layers declared — nothing to resolve."
         )
 
-    seen_ranks: dict[int, str] = {}
-    prev_rank: int | None = None
+    seen_ids: set[str] = set()
+    seen_ranks: dict[str, dict[int, str]] = {}
+    previous_rank: dict[str, int] = {}
 
     for idx, layer in enumerate(layers):
         layer_id = layer.get("id") or f"<unnamed layer at position {idx}>"
@@ -143,6 +144,13 @@ def validate_layers(layers: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "(e.g. 'knowledge', 'cli', 'claude', 'codex')."
             )
 
+        if layer_id in seen_ids:
+            raise ManifestError(
+                f"Layer id {layer_id!r} is declared more than once. "
+                "Layer ids must be globally unique."
+            )
+        seen_ids.add(layer_id)
+
         rank = layer["rank"]
         if not isinstance(rank, int) or isinstance(rank, bool):
             raise ManifestError(
@@ -150,21 +158,26 @@ def validate_layers(layers: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "Ranks must be whole numbers (lower number = higher precedence)."
             )
 
-        if rank in seen_ranks:
+        product_ranks = seen_ranks.setdefault(product, {})
+        if rank in product_ranks:
             raise ManifestError(
-                f"Layers {seen_ranks[rank]!r} and {layer_id!r} both declare rank {rank}. "
-                "Ranks must be unique — give one of them a different rank "
+                f"Layers {product_ranks[rank]!r} and {layer_id!r} both declare "
+                f"rank {rank} for product {product!r}. Ranks must be unique "
+                "inside a product — give one of them a different rank "
                 "(gaps of 10 are recommended so a new layer can be inserted later without renumbering)."
             )
-        seen_ranks[rank] = layer_id
+        product_ranks[rank] = layer_id
 
+        prev_rank = previous_rank.get(product)
         if prev_rank is not None and rank <= prev_rank:
             raise ManifestError(
-                f"Layer {layer_id!r} (rank {rank}) is out of order: the manifest list order must "
-                f"agree with ascending rank, but the previous layer in the list had rank {prev_rank}. "
-                "Reorder the manifest so rank increases top-to-bottom (highest precedence first)."
+                f"Layer {layer_id!r} (rank {rank}) is out of order for product "
+                f"{product!r}: that product's layers must appear in ascending "
+                f"rank order, but its previous layer had rank {prev_rank}. "
+                "Reorder that product's layers so rank increases top-to-bottom "
+                "(highest precedence first)."
             )
-        prev_rank = rank
+        previous_rank[product] = rank
 
         source = layer["source"]
         if not isinstance(source, dict) or not source.get("repo"):

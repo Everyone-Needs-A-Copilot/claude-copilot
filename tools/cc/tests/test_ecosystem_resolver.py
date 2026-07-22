@@ -47,12 +47,13 @@ FOUR_TIER_LAYERS = [
 ]
 
 
-def _by_item(items, item_name, dimension=None):
+def _by_item(items, item_name, dimension=None, product=None):
     matches = [
         entry
         for entry in items
         if entry["item"] == item_name
         and (dimension is None or entry["dimension"] == dimension)
+        and (product is None or entry["product"] == product)
     ]
     assert matches, f"no resolved item named {item_name!r} (dimension={dimension})"
     return matches[0]
@@ -111,63 +112,68 @@ def test_override_item_only_in_one_layer_has_no_shadow():
 
 
 # ---------------------------------------------------------------------------
-# product: CARRIED metadata from the winning layer, resolution unchanged
+# product isolation: resolution identity is (product, dimension, item)
 # ---------------------------------------------------------------------------
 
 
-def test_override_item_carries_winning_layers_product():
-    """`product` on a resolved item is copied from the WINNING layer's own
-    `product` field -- never re-derived, never resolved."""
+def test_same_named_override_items_coexist_across_products():
     layers = [
-        _layer("personal-pablo", 10, role="personal", product="claude"),
-        _layer("dept-engineering", 20, role="department", product="knowledge", unit="engineering"),
-        _layer("org-acme", 30, role="org", product="cli"),
-        _layer("foundation", 40, role="foundation", product="codex"),
+        _layer("claude-personal", 10, role="personal", product="claude"),
+        _layer("codex-personal", 10, role="personal", product="codex"),
+        _layer("claude-foundation", 40, role="foundation", product="claude"),
+        _layer("codex-foundation", 40, role="foundation", product="codex"),
     ]
     contributions = {
-        "dept-engineering": {"skills": {"qa": "sha-dept"}},
-        "org-acme": {"skills": {"qa": "sha-org"}},
-        "foundation": {"skills": {"qa": "sha-foundation"}},
+        "claude-personal": {"skills": {"qa": "sha-claude-personal"}},
+        "codex-personal": {"skills": {"qa": "sha-codex-personal"}},
+        "claude-foundation": {"skills": {"qa": "sha-claude-foundation"}},
+        "codex-foundation": {"skills": {"qa": "sha-codex-foundation"}},
     }
     items = resolve_layers(layers, contributions)
-    qa = _by_item(items, "qa", "skills")
-    assert qa["winning_layer"] == "dept-engineering"
-    assert qa["product"] == "knowledge"
+    qa_items = [
+        item for item in items
+        if item["item"] == "qa" and item["dimension"] == "skills"
+    ]
+    assert [(item["product"], item["winning_layer"]) for item in qa_items] == [
+        ("claude", "claude-personal"),
+        ("codex", "codex-personal"),
+    ]
 
 
 def test_accumulate_items_each_carry_their_own_contributing_layers_product():
     layers = [
-        _layer("dept-engineering", 20, role="department", product="knowledge", unit="engineering"),
-        _layer("org-acme", 30, role="org", product="cli"),
-        _layer("foundation", 40, role="foundation", product="claude"),
+        _layer("claude-org", 30, role="org", product="claude"),
+        _layer("codex-org", 30, role="org", product="codex"),
     ]
     contributions = {
-        "dept-engineering": {"knowledge": {"deploy-runbook": "sha-d"}},
-        "org-acme": {"knowledge": {"onboarding": "sha-o"}},
-        "foundation": {"knowledge": {"framework-docs": "sha-f"}},
+        "claude-org": {"knowledge": {"onboarding": "sha-claude"}},
+        "codex-org": {"knowledge": {"onboarding": "sha-codex"}},
     }
     items = resolve_layers(layers, contributions)
-    by_item = {entry["item"]: entry["product"] for entry in items}
-    assert by_item == {
-        "deploy-runbook": "knowledge",
-        "onboarding": "cli",
-        "framework-docs": "claude",
-    }
+    assert [(entry["product"], entry["item"]) for entry in items] == [
+        ("claude", "onboarding"),
+        ("codex", "onboarding"),
+    ]
 
 
-def test_override_shadowed_entries_carry_their_own_product_too():
+def test_override_shadow_chain_never_crosses_products():
     layers = [
-        _layer("personal-pablo", 10, role="personal", product="claude"),
-        _layer("org-acme", 30, role="org", product="knowledge"),
+        _layer("claude-personal", 10, role="personal", product="claude"),
+        _layer("codex-personal", 10, role="personal", product="codex"),
+        _layer("claude-org", 30, role="org", product="claude"),
+        _layer("codex-org", 30, role="org", product="codex"),
     ]
     contributions = {
-        "personal-pablo": {"skills": {"qa": "sha-personal"}},
-        "org-acme": {"skills": {"qa": "sha-org"}},
+        "claude-personal": {"skills": {"qa": "sha-claude-personal"}},
+        "codex-personal": {"skills": {"qa": "sha-codex-personal"}},
+        "claude-org": {"skills": {"qa": "sha-claude-org"}},
+        "codex-org": {"skills": {"qa": "sha-codex-org"}},
     }
     items = resolve_layers(layers, contributions)
-    qa = _by_item(items, "qa", "skills")
-    org_shadow = next(s for s in qa["shadowed"] if s["layer"] == "org-acme")
-    assert org_shadow["product"] == "knowledge"
+    claude_qa = _by_item(items, "qa", "skills", "claude")
+    codex_qa = _by_item(items, "qa", "skills", "codex")
+    assert [shadow["layer"] for shadow in claude_qa["shadowed"]] == ["claude-org"]
+    assert [shadow["layer"] for shadow in codex_qa["shadowed"]] == ["codex-org"]
 
 
 # ---------------------------------------------------------------------------
@@ -332,7 +338,7 @@ def test_equal_rank_hard_errors_before_folding_anything():
 
 def test_resolver_is_arity_independent_beyond_four_tiers():
     layers = [
-        _layer("squad", 5, role="squad", product="cli"),
+        _layer("squad", 5, role="squad", product="claude"),
         _layer("personal-pablo", 10, role="personal", product="claude"),
         _layer("dept-engineering", 20, role="department", product="claude"),
         _layer("dept-platform", 21, role="department", product="claude"),
@@ -350,7 +356,7 @@ def test_resolver_is_arity_independent_beyond_four_tiers():
     items = resolve_layers(layers, contributions)
     qa = _by_item(items, "qa", "skills")
     assert qa["winning_layer"] == "squad"
-    assert qa["product"] == "cli"
+    assert qa["product"] == "claude"
     assert [s["layer"] for s in qa["shadowed"]] == [
         "personal-pablo",
         "dept-engineering",

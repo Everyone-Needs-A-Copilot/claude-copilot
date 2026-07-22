@@ -89,6 +89,38 @@ def test_doctor_json_false_healthy_is_impossible():
         )
 
 
+def test_missing_ecosystem_manifest_fails_closed(tmp_path):
+    """A configured cc shell with no ecosystem manifest is not healthy.
+
+    This is the Control Tower boundary regression: an empty component set
+    previously produced ``healthy`` even though no ecosystem layer could be
+    supervised.
+    """
+    report = build_doctor_report(
+        **_base_kwargs(tmp_path, _layers=None, _manifest_path=None)
+    )
+
+    checker = next(c for c in report["checkers"] if c["id"] == "ecosystem-layer-manifest")
+    assert checker["severity"] == "fail"
+    assert checker["destructive"] is False
+    assert report["status"] == "needs-attention"
+    assert report["score"] < 100
+
+
+def test_invalid_ecosystem_manifest_fails_closed(tmp_path):
+    manifest = tmp_path / "copilot.layers.yml"
+    manifest.write_text("layers: []\n", encoding="utf-8")
+
+    report = build_doctor_report(
+        **_base_kwargs(tmp_path, _layers=None, _manifest_path=manifest)
+    )
+
+    checker = next(c for c in report["checkers"] if c["id"] == "ecosystem-layer-manifest")
+    assert checker["severity"] == "fail"
+    assert checker["path"] == str(manifest)
+    assert report["status"] == "needs-attention"
+
+
 @pytest.mark.parametrize(
     "checkers,expect_healthy_allowed",
     [

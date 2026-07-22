@@ -206,6 +206,25 @@ def test_validate_layers_equal_rank_hard_errors():
     assert "Traceback" not in message
 
 
+def test_validate_layers_allows_same_rank_in_different_products():
+    layers = [
+        _layer(id="claude-personal", rank=10, product="claude"),
+        _layer(id="codex-personal", rank=10, product="codex"),
+        _layer(id="claude-org", rank=30, product="claude"),
+        _layer(id="codex-org", rank=30, product="codex"),
+    ]
+    assert validate_layers(layers) == layers
+
+
+def test_validate_layers_rejects_duplicate_layer_ids_across_products():
+    layers = [
+        _layer(id="personal", rank=10, product="claude"),
+        _layer(id="personal", rank=10, product="codex"),
+    ]
+    with pytest.raises(ManifestError, match="globally unique"):
+        validate_layers(layers)
+
+
 def test_validate_layers_out_of_order_rank_errors():
     """List order must agree with ascending rank."""
     layers = [
@@ -213,6 +232,16 @@ def test_validate_layers_out_of_order_rank_errors():
         _layer(id="personal", role="personal", rank=10),
     ]
     with pytest.raises(ManifestError, match="out of order"):
+        validate_layers(layers)
+
+
+def test_validate_layers_checks_order_inside_each_interleaved_product():
+    layers = [
+        _layer(id="claude-org", role="org", rank=30, product="claude"),
+        _layer(id="codex-personal", role="personal", rank=10, product="codex"),
+        _layer(id="claude-personal", role="personal", rank=10, product="claude"),
+    ]
+    with pytest.raises(ManifestError, match="product 'claude'"):
         validate_layers(layers)
 
 
