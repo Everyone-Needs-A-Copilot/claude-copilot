@@ -166,6 +166,10 @@ def test_ecosystem_plan_builds_two_isolated_three_layer_stacks(tmp_path):
         personal_fn=_personal, ssh_fn=_ssh, codex_fn=_codex,
     )
     assert report["result"] == "changes-required"
+    assert [(layer["product"], layer["role"], layer["rank"]) for layer in report["layers"]] == [
+        ("claude", "personal", 10), ("claude", "organization", 30), ("claude", "foundation", 40),
+        ("codex", "personal", 10), ("codex", "organization", 30), ("codex", "foundation", 40),
+    ]
     assert [stage["stage"] for stage in report["stages"]] == [
         "organization-handoff", "personal-packages", "device-ssh", "layer-manifest", "secret-store", "codex-plugin"
     ]

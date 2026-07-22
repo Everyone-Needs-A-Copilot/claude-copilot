@@ -445,8 +445,17 @@ def _install_codex_plugin(*, apply: bool, run: Run) -> dict[str, Any]:
     return {"result": "ready"}
 
 
-def _ecosystem_result(org: str, products: Sequence[str], apply: bool, result: str, stages: list[dict[str, Any]]) -> dict[str, Any]:
-    return {"schema_version": SCHEMA_VERSION, "scope": "ecosystem", "mode": "apply" if apply else "plan", "result": result, "org": org, "products": list(products), "stages": stages}
+def _ecosystem_result(
+    org: str, products: Sequence[str], apply: bool, result: str,
+    stages: list[dict[str, Any]], layers: Sequence[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    report = {"schema_version": SCHEMA_VERSION, "scope": "ecosystem", "mode": "apply" if apply else "plan", "result": result, "org": org, "products": list(products), "stages": stages}
+    if layers is not None:
+        report["layers"] = [
+            {"id": layer["id"], "product": layer["product"], "role": layer["role"], "rank": layer["rank"]}
+            for layer in layers
+        ]
+    return report
 
 
 def build_ecosystem_onboard_report(
@@ -484,12 +493,12 @@ def build_ecosystem_onboard_report(
     store_report = store_fn(store, apply=apply, run=run)
     stages.append({"stage": "secret-store", **store_report})
     if store_report["result"] == "blocked":
-        return _ecosystem_result(org, normalized, apply, "blocked", stages)
+        return _ecosystem_result(org, normalized, apply, "blocked", stages, manifest["layers"])
     if "codex" in normalized:
         codex_plan = codex_fn(apply=False, run=run)
         stages.append({"stage": "codex-plugin", **codex_plan})
     if not apply:
-        return _ecosystem_result(org, normalized, False, "changes-required", stages)
+        return _ecosystem_result(org, normalized, False, "changes-required", stages, manifest["layers"])
     _atomic_yaml(target, manifest)
     write_config("layers.manifest", str(target))
     next(stage for stage in stages if stage["stage"] == "layer-manifest")["result"] = "applied"
@@ -499,11 +508,11 @@ def build_ecosystem_onboard_report(
         codex_report = codex_fn(apply=True, run=run)
         next(stage for stage in stages if stage["stage"] == "codex-plugin").update(codex_report)
         if codex_report["result"] == "blocked":
-            return _ecosystem_result(org, normalized, True, "blocked", stages)
+            return _ecosystem_result(org, normalized, True, "blocked", stages, manifest["layers"])
     doctor = doctor_fn()
     stages.append({"stage": "doctor", "result": doctor.get("status", "unknown"), "score": doctor.get("score")})
     result = "ready" if update_exit == 0 and doctor.get("status") == "healthy" else "blocked"
-    return _ecosystem_result(org, normalized, True, result, stages)
+    return _ecosystem_result(org, normalized, True, result, stages, manifest["layers"])
 
 
 def onboard_cmd(
