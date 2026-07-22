@@ -18,6 +18,7 @@ import yaml
 
 from cc.commands.doctor import build_doctor_report
 from cc.commands.update import execute_update
+from cc.core import authstore, keychain
 from cc.core.config import resolve_key, write_config
 from cc.core.ecosystem.ssh_identity import ensure_machine_ssh_identity
 
@@ -47,7 +48,25 @@ def _run(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
     if executable is None:
         return subprocess.CompletedProcess(args, 127, "", f"{args[0]} is not installed.")
     resolved = str(Path(executable).resolve())
-    return subprocess.run((resolved, *args[1:]), capture_output=True, text=True, check=False)
+    environment = None
+    if Path(resolved).name == "gh":
+        try:
+            identity = authstore.read_identity()
+            login = identity.get("login") if isinstance(identity, dict) else None
+            service = resolve_key("auth.keychain_service")
+            token = keychain.get_secret(login, service=service) if login and service else None
+        except (RuntimeError, OSError):
+            token = None
+        if token:
+            environment = os.environ.copy()
+            environment["GH_TOKEN"] = token
+    return subprocess.run(
+        (resolved, *args[1:]),
+        capture_output=True,
+        text=True,
+        check=False,
+        env=environment,
+    )
 
 
 def _probe(owner: str, name: str, *, run: Run) -> Probe:

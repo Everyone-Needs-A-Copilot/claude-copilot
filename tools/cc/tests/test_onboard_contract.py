@@ -5,6 +5,7 @@ from pathlib import Path
 
 import yaml
 
+import cc.commands.onboard as onboard_module
 from cc.commands.onboard import build_ecosystem_onboard_report, build_personal_onboard_report
 
 
@@ -56,6 +57,28 @@ class FakeGitHub:
             return subprocess.CompletedProcess(args, 1, "", "gh: Not Found (HTTP 404)")
         encoded = base64.b64encode(files[path].encode()).decode()
         return subprocess.CompletedProcess(args, 0, json.dumps({"content": encoded}), "")
+
+
+def test_default_github_runner_uses_authorized_keychain_token_without_argv_leak(monkeypatch):
+    captured = {}
+
+    def fake_run(args, **kwargs):
+        captured["args"] = tuple(args)
+        captured["env"] = kwargs["env"]
+        return subprocess.CompletedProcess(args, 0, "{}", "")
+
+    monkeypatch.setattr(onboard_module.shutil, "which", lambda _: "/usr/local/bin/gh")
+    monkeypatch.setattr(onboard_module.authstore, "read_identity", lambda: {"login": "pablo"})
+    monkeypatch.setattr(onboard_module, "resolve_key", lambda _: "github-service")
+    monkeypatch.setattr(onboard_module.keychain, "get_secret", lambda account, service: "synthetic-token")
+    monkeypatch.setattr(onboard_module.subprocess, "run", fake_run)
+
+    result = onboard_module._run(("gh", "api", "user"))
+
+    assert result.returncode == 0
+    assert captured["args"] == ("/usr/local/bin/gh", "api", "user")
+    assert "synthetic-token" not in captured["args"]
+    assert captured["env"]["GH_TOKEN"] == "synthetic-token"
 
 
 def test_plan_reuses_private_and_marks_only_404_missing():
