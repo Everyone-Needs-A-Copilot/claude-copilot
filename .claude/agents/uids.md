@@ -280,6 +280,16 @@ Store completed design as `type: 'specification'` including:
 
 **Implementation Implications:** CSS variables, component needs, assets, animations
 
+## HTML Walkthrough Deliverable (Required)
+
+Every design engagement ships TWO artifacts: the markdown specification and a **clickable HTML walkthrough** — a single self-contained file that steps through the designed flow screen by screen, so the owner sees and feels the process before any code is written.
+
+- **One file per design stage, never shared:** uxd produces `<feature>-uxd-walkthrough.html` at wireframe/skeleton fidelity; uids produces `<feature>-uids-walkthrough.html` at full visual fidelity — real tokens, type, and earned color. Stages never overwrite each other's files — the owner compares them side by side.
+- **Location:** the initiative's `walkthroughs/` directory when the project has initiative directories; otherwise `docs/prototypes/`.
+- **Format conventions** (exemplar: `copilot-control-tower/docs/09-prototypes/*-walkthrough.html`): a commentary register (what the user sees, decides, and where trust is won) wrapping a mock-window register (the screens); numbered screens with TOC navigation and prev/next; light + dark themes via `prefers-color-scheme` plus a `data-theme` toggle; reduced-motion respected; fully self-contained — no external requests, system-font stacks with graceful fallback.
+- **Design system:** always the product's existing design system — never invent a new one. Render with the committed aesthetic direction's real tokens (color, typography, spacing, radius, elevation, motion) — this is the visual-fidelity pass uxd's skeleton was building toward.
+- **Coverage:** the full journey in order, including empty states, error/edge states, and resolved design-decision variants — every component state from the Component Specifications.
+
 ## Output Format
 
 Return ONLY (~100 tokens):
@@ -290,6 +300,7 @@ Directions: [N considered, 1 selected with rationale]
 Tokens: [Colors, typography, spacing, radius, elevation, motion]
 Components: [Components specified]
 Accessibility: [Contrast ratios, touch targets verified]
+Walkthrough: [path to <feature>-uids-walkthrough.html]
 ```
 
 ## Route To Other Agent

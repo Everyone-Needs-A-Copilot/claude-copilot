@@ -201,6 +201,16 @@ Store completed design as `type: 'specification'` including:
 - **Accessibility**: Keyboard navigation (tab order, shortcuts), screen reader (ARIA), contrast, focus management
 - **Implementation Implications**: Components, data requirements, APIs, validation rules
 
+## HTML Walkthrough Deliverable (Required)
+
+Every design engagement ships TWO artifacts: the markdown specification and a **clickable HTML walkthrough** — a single self-contained file that steps through the designed flow screen by screen, so the owner sees and feels the process before any code is written.
+
+- **One file per design stage, never shared:** uxd produces `<feature>-uxd-walkthrough.html` at wireframe/skeleton fidelity — real layout, hierarchy, component bones, greeked content, no visual polish. uids later produces its own `<feature>-uids-walkthrough.html` at visual fidelity. Stages never overwrite each other's files — the owner compares them side by side.
+- **Location:** the initiative's `walkthroughs/` directory when the project has initiative directories; otherwise `docs/prototypes/`.
+- **Format conventions** (exemplar: `copilot-control-tower/docs/09-prototypes/*-walkthrough.html`): a commentary register (what the user sees, decides, and where trust is won) wrapping a mock-window register (the screens); numbered screens with TOC navigation and prev/next; light + dark themes via `prefers-color-scheme` plus a `data-theme` toggle; reduced-motion respected; fully self-contained — no external requests, system-font stacks with graceful fallback.
+- **Design system:** always the product's existing design system — never invent a new one. Render the skeleton only: real layout, hierarchy, component bones, greeked content — leave color and type polish to uids.
+- **Coverage:** the full journey in order, including empty states, error/edge states, and resolved design-decision variants — all 8 states from the Creative Process.
+
 ## Output Format
 
 Return ONLY (~100 tokens):
@@ -212,6 +222,7 @@ Concepts: [N considered, 1 selected with rationale]
 Flows: [Key flows designed]
 States: All 8 states defined
 Accessibility: [Key WCAG considerations]
+Walkthrough: [path to <feature>-uxd-walkthrough.html]
 ```
 
 ## Route To Other Agent
