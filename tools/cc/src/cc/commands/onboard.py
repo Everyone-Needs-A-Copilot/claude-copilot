@@ -28,6 +28,15 @@ from cc.core.ecosystem.ssh_identity import ensure_machine_ssh_identity
 SCHEMA_VERSION = "1.0"
 COMPONENTS = ("knowledge", "cli", "claude", "codex")
 PRODUCTS = ("claude", "codex")
+# Plain-language, non-technical labels for the CLI/Copilot components -- used
+# only inside user-facing `detail`/`title` strings. `str.title()` would
+# render "cli" as "Cli"; every other component title-cases correctly.
+_COMPONENT_LABELS: dict[str, str] = {
+    "cli": "CLI",
+    "claude": "Claude",
+    "codex": "Codex",
+    "knowledge": "Knowledge",
+}
 # Supply-chain roots are compiled into the signed cc distribution. They are
 # deliberately not read from the environment, the Admin handoff, or a layer
 # being verified (all three would let the artifact choose its own authority).
@@ -38,6 +47,10 @@ FOUNDATION_ALLOWED_SIGNERS: dict[str, tuple[str, ...]] = {
     "codex": (),
 }
 Run = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
+
+
+def _component_label(component: str) -> str:
+    return _COMPONENT_LABELS.get(component, component.title())
 
 
 @dataclass(frozen=True)
@@ -66,7 +79,7 @@ class ManifestAdoption:
         return {
             "id": "layer-manifest",
             "scope": "machine",
-            "title": "Copilot layers",
+            "title": "How your copilots fit together",
             "state": self.state,
             "action": self.action,
             "detail": self.detail,
@@ -137,18 +150,24 @@ def _probe(owner: str, name: str, *, run: Run) -> Probe:
             return Probe(
                 "existing-private",
                 "private",
-                "Existing private repository will be reused.",
+                "You already have this space. I'll use it as it is.",
             )
         return Probe(
-            "conflict-public", "public", "A public repository already uses this name."
+            "conflict-public",
+            "public",
+            "Something of yours is already using this name publicly, so I stopped. Nothing existing was changed.",
         )
 
     if "HTTP 404" in result.stderr:
         return Probe(
-            "missing", None, "Repository does not exist and can be created privately."
+            "missing",
+            None,
+            "You don't have this space yet. I'll create it privately for you.",
         )
     return Probe(
-        "unknown", None, "GitHub could not confirm whether this repository exists."
+        "unknown",
+        None,
+        "GitHub couldn't confirm this space right now, so I won't guess.",
     )
 
 
@@ -200,23 +219,28 @@ def _probe_package(owner: str, name: str, component: str, *, run: Run) -> Packag
     if manifest.returncode == 0:
         content = _decode_github_content(manifest.stdout)
         if content is not None and _valid_personal_manifest(content, component):
-            return PackageProbe("ready", "Existing rank-10 package will be reused.")
+            return PackageProbe(
+                "ready", "Already set up. Everything in here will be kept."
+            )
+        # A marker file is present but not one we recognize. This MUST stay a
+        # hard block, never an offer: writing over or beside an unfamiliar
+        # marker would not be a purely additive change, unlike the
+        # no-marker-at-all case below.
         return PackageProbe(
             "held",
-            "Existing package manifest is unfamiliar or invalid; nothing will be replaced.",
+            "I don't recognize how this space is set up, so I'll leave it exactly as it is.",
         )
     if not _is_404(manifest):
         return PackageProbe(
-            "unknown", "GitHub could not verify the existing package manifest."
+            "unknown",
+            "GitHub couldn't confirm what's already set up in this space, so I won't guess.",
         )
 
     contents = run(("gh", "api", f"repos/{owner}/{name}/contents"))
     if _is_404(contents):
         # GitHub returns 404 for the root contents endpoint when a repository
         # has no commits. The repository itself was already confirmed private.
-        return PackageProbe(
-            "empty", "Confirmed-empty private repository can receive the rank-10 seed."
-        )
+        return PackageProbe("empty", "Empty and ready. I'll set it up for you.")
     if contents.returncode != 0:
         return PackageProbe(
             "unknown",
@@ -229,12 +253,13 @@ def _probe_package(owner: str, name: str, component: str, *, run: Run) -> Packag
             "unknown", "GitHub returned an unreadable repository contents response."
         )
     if isinstance(root, list) and not root:
-        return PackageProbe(
-            "empty", "Confirmed-empty private repository can receive the rank-10 seed."
-        )
+        return PackageProbe("empty", "Empty and ready. I'll set it up for you.")
+    # Private, non-empty, no root marker at all: nothing to conflict with, so
+    # this is an offer to include the person's own content, not a refusal.
+    # Writing the marker later is purely additive (B1).
     return PackageProbe(
-        "held",
-        "Existing user content has no recognized package manifest; nothing will be inferred or replaced.",
+        "adoptable",
+        "Your own content is already in here. I'll keep all of it and add a small note that says it belongs with your copilots.",
     )
 
 
@@ -285,7 +310,11 @@ def _row(
     package_action = (
         "seed"
         if package_state in {"missing", "empty"}
-        else ("none" if package_state == "ready" else "blocked")
+        else "none"
+        if package_state == "ready"
+        else "adopt"
+        if package_state == "adoptable"
+        else "blocked"
     )
     return {
         "component": component,
@@ -308,7 +337,7 @@ def _row(
         "package_action": package_action,
         "package_detail": package.detail
         if package
-        else "Rank-10 package will be initialized after creation.",
+        else "Will be set up right after this space is created.",
     }
 
 
@@ -328,21 +357,34 @@ def _report(
             "created": sum(row["state"] == "created" for row in rows),
             "seeded": sum(row["package_state"] == "seeded" for row in rows),
             "held": sum(row["package_state"] == "held" for row in rows),
+            "adoptable": sum(row["package_state"] == "adoptable" for row in rows),
             "blocked": sum(row["action"] == "blocked" for row in rows),
         },
     }
 
 
 def build_personal_onboard_report(
-    *, components: Sequence[str] = COMPONENTS, apply: bool = False, run: Run = _run
+    *,
+    components: Sequence[str] = COMPONENTS,
+    apply: bool = False,
+    adopt_existing: Sequence[str] = (),
+    run: Run = _run,
 ) -> dict[str, Any]:
-    """Plan or apply personal repositories. Apply always repeats the full probe."""
+    """Plan or apply personal repositories. Apply always repeats the full probe.
+
+    `adopt_existing` is component-scoped consent (B1): a component in this
+    set whose repository is `adoptable` (private, non-empty, no root marker)
+    has its marker written on apply. Every other adoptable component is left
+    exactly as it is -- an unlisted adoptable item is a no-op, never an
+    implicit decline that changes what the CLI reports next time.
+    """
     normalized = tuple(
         dict.fromkeys(component.strip().lower() for component in components)
     )
     invalid = [component for component in normalized if component not in COMPONENTS]
     if not normalized or invalid:
         raise ValueError(f"Unsupported components: {', '.join(invalid) or 'none'}")
+    consent = {value.strip().lower() for value in adopt_existing if value.strip()}
 
     owner = _owner(run=run)
     rows = []
@@ -360,7 +402,8 @@ def build_personal_onboard_report(
         return _report(owner, "apply" if apply else "plan", rows, "blocked")
     if not apply:
         needs_change = any(
-            row["state"] == "missing" or row["package_state"] == "empty" for row in rows
+            row["state"] == "missing" or row["package_state"] in {"empty", "adoptable"}
+            for row in rows
         )
         return _report(
             owner, "plan", rows, "changes-required" if needs_change else "ready"
@@ -402,20 +445,35 @@ def build_personal_onboard_report(
             )
             return _report(owner, "apply", rows, "blocked")
     for row in rows:
-        if row["package_state"] != "empty":
+        adopting = row["package_state"] == "adoptable" and row["component"] in consent
+        if row["package_state"] != "empty" and not adopting:
             continue
+        # `_seed_package` PUTs without a `sha`, so this write is additive: a
+        # marker that appears between the probe above and this write makes
+        # GitHub itself refuse the PUT rather than silently overwriting it.
         if _seed_package(owner, row["name"], row["component"], run=run):
-            row.update(
-                package_state="seeded",
-                package_action="none",
-                package_detail="Initialized the minimal rank-10 package in the confirmed-empty repository.",
-            )
+            if adopting:
+                row.update(
+                    package_state="adopted",
+                    package_action="none",
+                    package_detail="Everything already in here will be kept, and it's now part of your copilots.",
+                )
+            else:
+                row.update(
+                    package_state="seeded",
+                    package_action="none",
+                    package_detail="Set up and ready.",
+                )
         else:
             row.update(
                 package_state="unknown",
                 package_action="blocked",
                 action="blocked",
-                package_detail="GitHub did not confirm rank-10 package initialization.",
+                package_detail=(
+                    f"GitHub didn't confirm the change to your "
+                    f"{_component_label(row['component'])} Copilot space, so I "
+                    "stopped. Nothing existing was changed."
+                ),
             )
             return _report(owner, "apply", rows, "blocked")
     return _report(owner, "apply", rows, "applied")
@@ -736,7 +794,7 @@ def _manifest_adoption_plan(
         return ManifestAdoption(
             "missing",
             "create",
-            "No layer manifest is in place yet. Setup will create the complete stack.",
+            "Nothing is connected yet. Setup will connect all of it for you.",
             None,
             destination,
             desired,
@@ -745,7 +803,7 @@ def _manifest_adoption_plan(
         return ManifestAdoption(
             "unfamiliar",
             "review",
-            "The existing layer manifest uses an unmanaged link. Setup will leave it untouched until it is reviewed.",
+            "This is set up through a link I don't manage, so I'll leave it untouched until it's looked at.",
             source,
             destination,
             None,
@@ -759,7 +817,7 @@ def _manifest_adoption_plan(
             return ManifestAdoption(
                 "unfamiliar",
                 "review",
-                "The existing layer manifest is outside the user-owned setup area. Setup will leave it untouched.",
+                "Something is set up somewhere I don't manage, so I'll leave it untouched.",
                 source,
                 destination,
                 None,
@@ -770,7 +828,7 @@ def _manifest_adoption_plan(
         return ManifestAdoption(
             "unfamiliar",
             "review",
-            "An existing layer manifest is unfamiliar. Setup will leave it untouched until it is reviewed.",
+            "I don't recognize an existing setting here, so I'll leave it untouched until it's looked at.",
             source,
             destination,
             None,
@@ -792,7 +850,7 @@ def _manifest_adoption_plan(
         return ManifestAdoption(
             "conflict",
             "review",
-            "Existing Claude or Codex layers do not match a Control Tower-managed stack. Nothing will be replaced.",
+            "Your existing Claude or Codex setup isn't one I recognize, so I won't replace any of it.",
             source,
             destination,
             None,
@@ -819,7 +877,7 @@ def _manifest_adoption_plan(
         return ManifestAdoption(
             "ready",
             "reuse",
-            "The existing manifest already describes the complete setup and will be kept.",
+            "Everything is already described correctly, so I'll keep it as it is.",
             source,
             destination,
             merged,
@@ -828,7 +886,7 @@ def _manifest_adoption_plan(
         return ManifestAdoption(
             "legacy",
             "migrate",
-            "A recognized earlier manifest will be moved into the supported location and combined with the missing layers.",
+            "I recognize an earlier setup. I'll bring it forward and add what's missing, keeping a copy first.",
             source,
             destination,
             merged,
@@ -836,7 +894,7 @@ def _manifest_adoption_plan(
     return ManifestAdoption(
         "partial",
         "repair",
-        "The existing supported layers will be kept and the missing Claude or Codex layers will be added.",
+        "What's already set up will be kept, and I'll add the parts that are missing.",
         source,
         destination,
         merged,
@@ -1026,25 +1084,33 @@ def _ecosystem_result(
 def _personal_inventory(personal: dict[str, Any]) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for row in personal.get("repositories", []):
+        component = row.get("component", "unknown")
         package_state = row.get("package_state")
+        # `adoptable` is a pure offer (B1): it needs a `create`-shaped action
+        # so a plan whose only open item is an offer to include existing
+        # content is honestly "changes-required", never silently "ready" and
+        # never conflated with a genuine `held`/unfamiliar `review`.
         action = (
             "create"
-            if row.get("state") == "missing" or package_state == "empty"
+            if row.get("state") == "missing" or package_state in {"empty", "adoptable"}
             else "reuse"
-            if package_state in {"ready", "seeded"}
+            if package_state in {"ready", "seeded", "adopted"}
             else "review"
         )
         items.append(
             {
-                "id": f"personal-{row.get('component', 'unknown')}",
+                "id": f"personal-{component}",
                 "scope": "personal",
-                "title": f"{str(row.get('component', 'Copilot')).title()} personal space",
+                "title": f"Your {_component_label(component)} Copilot space",
                 "state": package_state or row.get("state", "unknown"),
                 "action": action,
                 "detail": row.get("package_detail") or row.get("detail") or "",
                 "source_path": None,
                 "destination_path": None,
-                "reversible": False,
+                # An adoptable offer is reversible (nothing has been written
+                # yet, and declining costs nothing); every other state here
+                # keeps the prior unconditional False.
+                "reversible": package_state == "adoptable",
             }
         )
     return items
@@ -1055,6 +1121,7 @@ def build_ecosystem_onboard_report(
     org: str,
     products: Sequence[str] = PRODUCTS,
     apply: bool = False,
+    adopt_existing: Sequence[str] = (),
     run: Run = _run,
     manifest_path: Path | str | None = None,
     personal_fn: Callable[..., dict[str, Any]] = build_personal_onboard_report,
@@ -1080,7 +1147,9 @@ def build_ecosystem_onboard_report(
     # Every apply begins with a complete read-only plan. No personal
     # repository, SSH config, store identity, or local manifest is mutated
     # until all adoption decisions are known to be safe.
-    personal = personal_fn(components=normalized, apply=False, run=run)
+    personal = personal_fn(
+        components=normalized, apply=False, adopt_existing=adopt_existing, run=run
+    )
     personal_detail = next(
         (
             row.get("package_detail") or row.get("detail")
@@ -1170,7 +1239,9 @@ def build_ecosystem_onboard_report(
             inventory,
         )
 
-    personal = personal_fn(components=normalized, apply=True, run=run)
+    personal = personal_fn(
+        components=normalized, apply=True, adopt_existing=adopt_existing, run=run
+    )
     personal_stage = next(
         stage for stage in stages if stage["stage"] == "personal-packages"
     )
@@ -1259,12 +1330,28 @@ def onboard_cmd(
     products: str = typer.Option(
         ",".join(PRODUCTS), "--products", help="Comma-separated Copilot products."
     ),
+    adopt_existing: str = typer.Option(
+        "",
+        "--adopt-existing",
+        help=(
+            "Comma-separated components whose existing private content the "
+            "person consented to include (B1). Component-scoped: each "
+            "component is decided on its own, never all-or-nothing. Any "
+            "adoptable component left out of this list is a no-op."
+        ),
+    ),
 ) -> None:
     """Discover personal repositories, then optionally create confirmed-missing ones."""
+    adopt_components = tuple(
+        value.strip() for value in adopt_existing.split(",") if value.strip()
+    )
     if org:
         try:
             report = build_ecosystem_onboard_report(
-                org=org, products=products.split(","), apply=apply
+                org=org,
+                products=products.split(","),
+                apply=apply,
+                adopt_existing=adopt_components,
             )
         except (RuntimeError, ValueError) as exc:
             if output_json:
@@ -1304,7 +1391,9 @@ def onboard_cmd(
         raise typer.Exit(2)
     try:
         report = build_personal_onboard_report(
-            components=components.split(","), apply=apply
+            components=components.split(","),
+            apply=apply,
+            adopt_existing=adopt_components,
         )
     except (RuntimeError, ValueError) as exc:
         if output_json:

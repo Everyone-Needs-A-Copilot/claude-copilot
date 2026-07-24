@@ -91,6 +91,11 @@ DEFAULTS: dict[str, Any] = {
     # below). Unset by default: no scanning happens until an admin/user
     # configures at least one root.
     "projects.roots": None,
+    # Whether the person said "I don't keep projects on this Mac" (`cc
+    # workspace decline`). Reversible: approving a root clears it again. Only
+    # ever read/written by core/ecosystem/workspaces.py's discovery-state
+    # reporting -- never itself a scan trigger.
+    "projects.declined": False,
     # Optional explicit-project registry (Component Sync Stream-E,
     # core/ecosystem/projects.py's discover_projects()) -- a JSON file
     # listing project paths that root-scanning alone might miss (e.g. a

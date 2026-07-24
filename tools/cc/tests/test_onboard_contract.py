@@ -1,6 +1,7 @@
 import base64
 import json
 import subprocess
+from pathlib import Path
 
 import cc.commands.onboard as onboard_module
 import yaml
@@ -8,6 +9,28 @@ from cc.commands.onboard import (
     build_ecosystem_onboard_report,
     build_personal_onboard_report,
 )
+from jsonschema import Draft202012Validator
+
+# WS-A contract: every report this module emits must validate against the
+# vendored copilot-control-tower onboard.schema.json (same vendoring
+# precedent as test_doctor_contract.py -- see the `$comment` header on the
+# vendored file). The schema's top-level `oneOf` already discriminates
+# between the personal `repositoryReport` shape and the `ecosystemReport`
+# shape, so one validator call handles both report families.
+_SCHEMA_DIR = Path(__file__).parent / "fixtures" / "schemas"
+
+
+def _onboard_validator() -> Draft202012Validator:
+    schema = json.loads(
+        (_SCHEMA_DIR / "onboard.schema.json").read_text(encoding="utf-8")
+    )
+    return Draft202012Validator(schema)
+
+
+def _assert_valid_onboard_report(report: dict) -> None:
+    validator = _onboard_validator()
+    errors = sorted(validator.iter_errors(report), key=lambda e: e.path)
+    assert not errors, "\n".join(f"{list(e.path)}: {e.message}" for e in errors)
 
 
 class FakeGitHub:
@@ -113,6 +136,7 @@ def test_plan_reuses_private_and_marks_only_404_missing():
         "missing",
     ]
     assert not any("POST" in call for call in gh.calls)
+    _assert_valid_onboard_report(report)
 
 
 def test_apply_creates_missing_private_repository():
@@ -125,6 +149,7 @@ def test_apply_creates_missing_private_repository():
     assert "private=true" in post
     assert "auto_init=false" in post
     assert any("PUT" in call for call in gh.calls)
+    _assert_valid_onboard_report(report)
 
 
 def test_unknown_read_blocks_all_creation():
@@ -135,6 +160,7 @@ def test_unknown_read_blocks_all_creation():
     assert report["result"] == "blocked"
     assert report["repositories"][1]["state"] == "unknown"
     assert not any("POST" in call for call in gh.calls)
+    _assert_valid_onboard_report(report)
 
 
 def test_public_collision_blocks_all_creation():
@@ -145,6 +171,7 @@ def test_public_collision_blocks_all_creation():
     assert report["result"] == "blocked"
     assert report["repositories"][1]["state"] == "conflict-public"
     assert not any("POST" in call for call in gh.calls)
+    _assert_valid_onboard_report(report)
 
 
 def test_existing_empty_private_repository_is_seeded_without_recreation():
@@ -154,18 +181,7 @@ def test_existing_empty_private_repository_is_seeded_without_recreation():
     assert report["repositories"][0]["state"] == "existing-private"
     assert report["repositories"][0]["package_state"] == "seeded"
     assert not any("POST" in call for call in gh.calls)
-
-
-def test_existing_unfamiliar_content_blocks_before_other_creation():
-    gh = FakeGitHub(
-        {"claude-copilot-private": {"private": True, "files": {"notes.md": "mine"}}}
-    )
-    report = build_personal_onboard_report(
-        components=("claude", "codex"), apply=True, run=gh
-    )
-    assert report["result"] == "blocked"
-    assert report["repositories"][0]["package_state"] == "held"
-    assert not any("POST" in call for call in gh.calls)
+    _assert_valid_onboard_report(report)
 
 
 def test_existing_valid_rank_ten_manifest_is_reused():
@@ -182,6 +198,116 @@ def test_existing_valid_rank_ten_manifest_is_reused():
     assert report["result"] == "applied"
     assert report["repositories"][0]["package_state"] == "ready"
     assert not any("PUT" in call or "POST" in call for call in gh.calls)
+    _assert_valid_onboard_report(report)
+
+
+# ---------------------------------------------------------------------------
+# B1: the personal-content refusal becomes an offer (`adoptable`)
+# ---------------------------------------------------------------------------
+
+
+def test_adoptable_state_is_not_blocked():
+    """A private, non-empty repo with no root marker is an offer, not a
+    refusal: plan result is `changes-required`, never `blocked`."""
+    gh = FakeGitHub(
+        {"claude-copilot-private": {"private": True, "files": {"notes.md": "mine"}}}
+    )
+    report = build_personal_onboard_report(components=("claude", "codex"), run=gh)
+    assert report["result"] == "changes-required"
+    claude_row = report["repositories"][0]
+    assert claude_row["package_state"] == "adoptable"
+    assert claude_row["package_action"] == "adopt"
+    assert claude_row["action"] == "none"
+    assert not any("PUT" in call or "POST" in call for call in gh.calls)
+    _assert_valid_onboard_report(report)
+
+
+def test_invalid_marker_still_blocks():
+    """A present-but-unrecognized marker MUST stay hard-blocking `held`: the
+    write would not be purely additive, unlike the no-marker-at-all case."""
+    gh = FakeGitHub(
+        {
+            "claude-copilot-private": {
+                "private": True,
+                "files": {"copilot.layer.yml": "not: a-recognized-manifest\n"},
+            }
+        }
+    )
+    report = build_personal_onboard_report(
+        components=("claude", "codex"), apply=True, run=gh
+    )
+    assert report["result"] == "blocked"
+    assert report["repositories"][0]["package_state"] == "held"
+    assert not any("PUT" in call or "POST" in call for call in gh.calls)
+    _assert_valid_onboard_report(report)
+
+
+def test_adopt_writes_marker_only_with_consent():
+    """Consenting to adopt writes exactly the marker file -- additive only,
+    the person's own pre-existing content is left untouched."""
+    gh = FakeGitHub(
+        {"claude-copilot-private": {"private": True, "files": {"notes.md": "mine"}}}
+    )
+    report = build_personal_onboard_report(
+        components=("claude",), apply=True, adopt_existing=("claude",), run=gh
+    )
+    assert report["result"] == "applied"
+    row = report["repositories"][0]
+    assert row["package_state"] == "adopted"
+    assert row["package_action"] == "none"
+    assert not any("POST" in call for call in gh.calls)
+    assert sum("PUT" in call for call in gh.calls) == 1
+    files = gh.repos["claude-copilot-private"]["files"]
+    assert files["notes.md"] == "mine"
+    assert "copilot.layer.yml" in files
+    _assert_valid_onboard_report(report)
+
+
+def test_no_consent_is_a_noop():
+    """An adoptable component left out of `--adopt-existing` is a no-op:
+    nothing is written, and the offer stays open for next time."""
+    gh = FakeGitHub(
+        {"claude-copilot-private": {"private": True, "files": {"notes.md": "mine"}}}
+    )
+    report = build_personal_onboard_report(components=("claude",), apply=True, run=gh)
+    assert report["result"] == "applied"
+    row = report["repositories"][0]
+    assert row["package_state"] == "adoptable"
+    assert row["package_action"] == "adopt"
+    assert not any("PUT" in call or "POST" in call for call in gh.calls)
+    assert gh.repos["claude-copilot-private"]["files"] == {"notes.md": "mine"}
+    _assert_valid_onboard_report(report)
+
+
+def test_mixed_two_of_four_component_consent():
+    """Claude, Codex, Knowledge, and CLI never share a fate: each adoptable
+    component is decided on its own, never all-or-nothing."""
+    gh = FakeGitHub(
+        {
+            f"{component}-copilot-private": {
+                "private": True,
+                "files": {"notes.md": "mine"},
+            }
+            for component in ("claude", "codex", "knowledge", "cli")
+        }
+    )
+    report = build_personal_onboard_report(
+        components=("claude", "codex", "knowledge", "cli"),
+        apply=True,
+        adopt_existing=("claude", "knowledge"),
+        run=gh,
+    )
+    assert report["result"] == "applied"
+    by_component = {row["component"]: row for row in report["repositories"]}
+    assert by_component["claude"]["package_state"] == "adopted"
+    assert by_component["knowledge"]["package_state"] == "adopted"
+    assert by_component["codex"]["package_state"] == "adoptable"
+    assert by_component["cli"]["package_state"] == "adoptable"
+    written = {
+        name for name, repo in gh.repos.items() if "copilot.layer.yml" in repo["files"]
+    }
+    assert written == {"claude-copilot-private", "knowledge-copilot-private"}
+    _assert_valid_onboard_report(report)
 
 
 def _aggregate_run(args):
@@ -269,6 +395,7 @@ def test_ecosystem_plan_builds_two_isolated_three_layer_stacks(tmp_path):
         "codex-plugin",
     ]
     assert not (tmp_path / "layers.yml").exists()
+    _assert_valid_onboard_report(report)
 
 
 def test_manifest_plan_keeps_recognized_legacy_cli_layers(tmp_path):
@@ -356,7 +483,7 @@ layers:
     )
 
     assert plan.action == "review"
-    assert "Nothing will be replaced" in plan.detail
+    assert "isn't one I recognize" in plan.detail
 
 
 def test_manifest_migration_is_reversible_and_removes_only_recognized_source(tmp_path):
@@ -439,6 +566,7 @@ def test_unfamiliar_manifest_blocks_before_personal_apply(tmp_path):
     assert report["inventory"][-1]["action"] == "review"
     assert apply_calls == [False]
     assert target.read_bytes() == before
+    _assert_valid_onboard_report(report)
 
 
 def test_symlinked_manifest_is_held_without_following_or_replacing_it(tmp_path):
@@ -529,6 +657,7 @@ def test_ecosystem_apply_writes_exact_refs_and_runs_update_doctor(
     assert manifest["layers"][5]["policy"]["allowed_signers"] == ["CODEX-FINGERPRINT"]
     assert manifest["layers"][0]["policy"]["allowed_signers"] == []
     assert config_writes == [("layers.manifest", str(tmp_path / "layers.yml"))]
+    _assert_valid_onboard_report(report)
 
 
 def test_connected_store_without_scope_identifiers_blocks_before_writes(tmp_path):
@@ -562,6 +691,7 @@ def test_connected_store_without_scope_identifiers_blocks_before_writes(tmp_path
     assert report["stages"][-1]["stage"] == "secret-store"
     assert len(report["layers"]) == 6
     assert not (tmp_path / "layers.yml").exists()
+    _assert_valid_onboard_report(report)
 
 
 def test_aggregate_block_before_manifest_still_returns_layers_field(tmp_path):
@@ -587,3 +717,4 @@ def test_aggregate_block_before_manifest_still_returns_layers_field(tmp_path):
     assert report["result"] == "blocked"
     assert report["layers"] == []
     assert not (tmp_path / "layers.yml").exists()
+    _assert_valid_onboard_report(report)
