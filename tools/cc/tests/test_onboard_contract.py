@@ -1,18 +1,21 @@
-import json
 import base64
+import json
 import subprocess
-from pathlib import Path
-
-import yaml
 
 import cc.commands.onboard as onboard_module
-from cc.commands.onboard import build_ecosystem_onboard_report, build_personal_onboard_report
+import yaml
+from cc.commands.onboard import (
+    build_ecosystem_onboard_report,
+    build_personal_onboard_report,
+)
 
 
 class FakeGitHub:
     def __init__(self, repos=None, errors=None):
         self.repos = {
-            name: (value if isinstance(value, dict) else {"private": value, "files": {}})
+            name: (
+                value if isinstance(value, dict) else {"private": value, "files": {}}
+            )
             for name, value in (repos or {}).items()
         }
         self.errors = set(errors or ())
@@ -31,8 +34,14 @@ class FakeGitHub:
             endpoint = args[args.index("PUT") + 1]
             parts = endpoint.split("/")
             name = parts[2]
-            encoded = next(value.removeprefix("content=") for value in args if value.startswith("content="))
-            self.repos[name]["files"]["copilot.layer.yml"] = base64.b64decode(encoded).decode()
+            encoded = next(
+                value.removeprefix("content=")
+                for value in args
+                if value.startswith("content=")
+            )
+            self.repos[name]["files"]["copilot.layer.yml"] = base64.b64decode(
+                encoded
+            ).decode()
             return subprocess.CompletedProcess(args, 0, "{}", "")
 
         endpoint = args[2]
@@ -44,11 +53,15 @@ class FakeGitHub:
             return subprocess.CompletedProcess(args, 1, "", "gh: Not Found (HTTP 404)")
         repo = self.repos[name]
         if len(parts) == 3:
-            return subprocess.CompletedProcess(args, 0, json.dumps({"private": repo["private"]}), "")
+            return subprocess.CompletedProcess(
+                args, 0, json.dumps({"private": repo["private"]}), ""
+            )
         files = repo["files"]
         if len(parts) == 4:  # root contents
             if not files:
-                return subprocess.CompletedProcess(args, 1, "", "gh: Not Found (HTTP 404)")
+                return subprocess.CompletedProcess(
+                    args, 1, "", "gh: Not Found (HTTP 404)"
+                )
             return subprocess.CompletedProcess(
                 args, 0, json.dumps([{"name": path} for path in files]), ""
             )
@@ -56,10 +69,14 @@ class FakeGitHub:
         if path not in files:
             return subprocess.CompletedProcess(args, 1, "", "gh: Not Found (HTTP 404)")
         encoded = base64.b64encode(files[path].encode()).decode()
-        return subprocess.CompletedProcess(args, 0, json.dumps({"content": encoded}), "")
+        return subprocess.CompletedProcess(
+            args, 0, json.dumps({"content": encoded}), ""
+        )
 
 
-def test_default_github_runner_uses_authorized_keychain_token_without_argv_leak(monkeypatch):
+def test_default_github_runner_uses_authorized_keychain_token_without_argv_leak(
+    monkeypatch,
+):
     captured = {}
 
     def fake_run(args, **kwargs):
@@ -68,9 +85,15 @@ def test_default_github_runner_uses_authorized_keychain_token_without_argv_leak(
         return subprocess.CompletedProcess(args, 0, "{}", "")
 
     monkeypatch.setattr(onboard_module.shutil, "which", lambda _: "/usr/local/bin/gh")
-    monkeypatch.setattr(onboard_module.authstore, "read_identity", lambda: {"login": "pablo"})
+    monkeypatch.setattr(
+        onboard_module.authstore, "read_identity", lambda: {"login": "pablo"}
+    )
     monkeypatch.setattr(onboard_module, "resolve_key", lambda _: "github-service")
-    monkeypatch.setattr(onboard_module.keychain, "get_secret", lambda account, service: "synthetic-token")
+    monkeypatch.setattr(
+        onboard_module.keychain,
+        "get_secret",
+        lambda account, service: "synthetic-token",
+    )
     monkeypatch.setattr(onboard_module.subprocess, "run", fake_run)
 
     result = onboard_module._run(("gh", "api", "user"))
@@ -85,7 +108,10 @@ def test_plan_reuses_private_and_marks_only_404_missing():
     gh = FakeGitHub({"claude-copilot-private": True})
     report = build_personal_onboard_report(components=("claude", "codex"), run=gh)
     assert report["result"] == "changes-required"
-    assert [row["state"] for row in report["repositories"]] == ["existing-private", "missing"]
+    assert [row["state"] for row in report["repositories"]] == [
+        "existing-private",
+        "missing",
+    ]
     assert not any("POST" in call for call in gh.calls)
 
 
@@ -103,7 +129,9 @@ def test_apply_creates_missing_private_repository():
 
 def test_unknown_read_blocks_all_creation():
     gh = FakeGitHub(errors={"codex-copilot-private"})
-    report = build_personal_onboard_report(components=("claude", "codex"), apply=True, run=gh)
+    report = build_personal_onboard_report(
+        components=("claude", "codex"), apply=True, run=gh
+    )
     assert report["result"] == "blocked"
     assert report["repositories"][1]["state"] == "unknown"
     assert not any("POST" in call for call in gh.calls)
@@ -111,7 +139,9 @@ def test_unknown_read_blocks_all_creation():
 
 def test_public_collision_blocks_all_creation():
     gh = FakeGitHub({"codex-copilot-private": False})
-    report = build_personal_onboard_report(components=("claude", "codex"), apply=True, run=gh)
+    report = build_personal_onboard_report(
+        components=("claude", "codex"), apply=True, run=gh
+    )
     assert report["result"] == "blocked"
     assert report["repositories"][1]["state"] == "conflict-public"
     assert not any("POST" in call for call in gh.calls)
@@ -141,7 +171,12 @@ def test_existing_unfamiliar_content_blocks_before_other_creation():
 def test_existing_valid_rank_ten_manifest_is_reused():
     manifest = """schema_version: '1.0'\npackage:\n  role: personal\n  rank: 10\n  product: codex\n  owner: authenticated-user\ndimensions: []\n"""
     gh = FakeGitHub(
-        {"codex-copilot-private": {"private": True, "files": {"copilot.layer.yml": manifest}}}
+        {
+            "codex-copilot-private": {
+                "private": True,
+                "files": {"copilot.layer.yml": manifest},
+            }
+        }
     )
     report = build_personal_onboard_report(components=("codex",), apply=True, run=gh)
     assert report["result"] == "applied"
@@ -163,20 +198,41 @@ foundation:
     codex: '^0.6.0'
 """
         encoded = base64.b64encode(handoff.encode()).decode()
-        return subprocess.CompletedProcess(args, 0, json.dumps({"content": encoded}), "")
+        return subprocess.CompletedProcess(
+            args, 0, json.dumps({"content": encoded}), ""
+        )
     if endpoint.endswith("claude-copilot/tags"):
-        return subprocess.CompletedProcess(args, 0, '[{"name":"v5.9.0"},{"name":"v6.0.0"}]', "")
+        return subprocess.CompletedProcess(
+            args, 0, '[{"name":"v5.9.0"},{"name":"v6.0.0"}]', ""
+        )
     if endpoint.endswith("codex-copilot/tags"):
         return subprocess.CompletedProcess(args, 0, '[{"name":"v0.6.2"}]', "")
     raise AssertionError(args)
 
 
 def _personal(**_kwargs):
-    return {"result": "ready", "owner": "pablo", "summary": {"existing": 2, "missing": 0, "created": 0, "seeded": 0, "held": 0, "blocked": 0}}
+    return {
+        "result": "ready",
+        "owner": "pablo",
+        "summary": {
+            "existing": 2,
+            "missing": 0,
+            "created": 0,
+            "seeded": 0,
+            "held": 0,
+            "blocked": 0,
+        },
+    }
 
 
 def _ssh(**_kwargs):
-    return {"result": "ready", "key": "existing", "registration": "registered", "config": "ready", "detail": "ready"}
+    return {
+        "result": "ready",
+        "key": "existing",
+        "registration": "registered",
+        "config": "ready",
+        "detail": "ready",
+    }
 
 
 def _codex(*, apply, **_kwargs):
@@ -185,39 +241,287 @@ def _codex(*, apply, **_kwargs):
 
 def test_ecosystem_plan_builds_two_isolated_three_layer_stacks(tmp_path):
     report = build_ecosystem_onboard_report(
-        org="Acme", apply=False, run=_aggregate_run, manifest_path=tmp_path / "layers.yml",
-        personal_fn=_personal, ssh_fn=_ssh, codex_fn=_codex,
+        org="Acme",
+        apply=False,
+        run=_aggregate_run,
+        manifest_path=tmp_path / "layers.yml",
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
     )
     assert report["result"] == "changes-required"
-    assert [(layer["product"], layer["role"], layer["rank"]) for layer in report["layers"]] == [
-        ("claude", "personal", 10), ("claude", "organization", 30), ("claude", "foundation", 40),
-        ("codex", "personal", 10), ("codex", "organization", 30), ("codex", "foundation", 40),
+    assert [
+        (layer["product"], layer["role"], layer["rank"]) for layer in report["layers"]
+    ] == [
+        ("claude", "personal", 10),
+        ("claude", "organization", 30),
+        ("claude", "foundation", 40),
+        ("codex", "personal", 10),
+        ("codex", "organization", 30),
+        ("codex", "foundation", 40),
     ]
     assert [stage["stage"] for stage in report["stages"]] == [
-        "organization-handoff", "personal-packages", "device-ssh", "layer-manifest", "secret-store", "codex-plugin"
+        "organization-handoff",
+        "personal-packages",
+        "device-ssh",
+        "layer-manifest",
+        "secret-store",
+        "codex-plugin",
     ]
     assert not (tmp_path / "layers.yml").exists()
 
 
-def test_ecosystem_apply_writes_exact_refs_and_runs_update_doctor(tmp_path, monkeypatch):
+def test_manifest_plan_keeps_recognized_legacy_cli_layers(tmp_path):
+    target = tmp_path / "copilot.layers.yml"
+    target.write_text(
+        """version: 1
+layers:
+  - id: cli-organization
+    role: organization
+    component: cli
+    rank: 30
+    source: {repo: git@github-work:Acme/cli-copilot-internal.git, ref: main}
+    auth: ssh-work
+""",
+        encoding="utf-8",
+    )
+    desired = {
+        "version": 1,
+        "org": "Acme",
+        "layers": [
+            {
+                "id": "claude-personal",
+                "role": "personal",
+                "rank": 10,
+                "product": "claude",
+                "source": {
+                    "repo": "git@github-personal:pablo/claude-copilot-private.git",
+                    "ref": "main",
+                },
+                "auth": "personal",
+                "activation": "always",
+            }
+        ],
+    }
+
+    plan = onboard_module._manifest_adoption_plan(
+        desired, target, configured_path=target
+    )
+
+    assert plan.action == "repair"
+    assert [(layer["product"], layer["id"]) for layer in plan.payload["layers"]] == [
+        ("cli", "cli-organization"),
+        ("claude", "claude-personal"),
+    ]
+    assert plan.payload["layers"][0]["activation"] == "always"
+
+
+def test_manifest_plan_holds_managed_id_with_different_repository(tmp_path):
+    target = tmp_path / "copilot.layers.yml"
+    target.write_text(
+        """version: 1
+org: Acme
+layers:
+  - id: codex-personal
+    role: personal
+    rank: 10
+    product: codex
+    source: {repo: git@github-personal:pablo/my-custom-layer.git, ref: main}
+    auth: personal
+    activation: always
+""",
+        encoding="utf-8",
+    )
+    desired = {
+        "version": 1,
+        "org": "Acme",
+        "layers": [
+            {
+                "id": "codex-personal",
+                "role": "personal",
+                "rank": 10,
+                "product": "codex",
+                "source": {
+                    "repo": "git@github-personal:pablo/codex-copilot-private.git",
+                    "ref": "main",
+                },
+                "auth": "personal",
+                "activation": "always",
+            }
+        ],
+    }
+
+    plan = onboard_module._manifest_adoption_plan(
+        desired, target, configured_path=target
+    )
+
+    assert plan.action == "review"
+    assert "Nothing will be replaced" in plan.detail
+
+
+def test_manifest_migration_is_reversible_and_removes_only_recognized_source(tmp_path):
+    legacy = tmp_path / "old" / "copilot.layers.yml"
+    legacy.parent.mkdir()
+    legacy.write_text(
+        """version: 1
+layers:
+  - id: cli-foundation
+    role: foundation
+    component: cli
+    rank: 40
+    source: {repo: https://example.test/cli.git, ref: v1.0.0}
+    auth: anon
+""",
+        encoding="utf-8",
+    )
+    target = tmp_path / "new" / "copilot.layers.yml"
+    desired = {
+        "version": 1,
+        "org": "Acme",
+        "layers": [
+            {
+                "id": "codex-foundation",
+                "role": "foundation",
+                "rank": 40,
+                "product": "codex",
+                "source": {"repo": "https://example.test/codex.git", "ref": "v1.0.0"},
+                "auth": "anon",
+                "activation": "always",
+            }
+        ],
+    }
+    before = legacy.read_bytes()
+    plan = onboard_module._manifest_adoption_plan(
+        desired, target, configured_path=legacy
+    )
+
+    backup = onboard_module._apply_manifest_adoption(plan)
+
+    assert plan.action == "migrate"
+    assert backup is not None and backup.read_bytes() == before
+    assert not legacy.exists()
+    assert yaml.safe_load(target.read_text())["layers"][0]["product"] == "cli"
+
+
+def test_unfamiliar_manifest_blocks_before_personal_apply(tmp_path):
+    target = tmp_path / "layers.yml"
+    target.write_text("this: is-not-a-layer-manifest\n", encoding="utf-8")
+    apply_calls = []
+
+    def personal(*, apply, **_kwargs):
+        apply_calls.append(apply)
+        return {
+            "result": "ready",
+            "owner": "pablo",
+            "repositories": [],
+            "summary": {
+                "existing": 2,
+                "missing": 0,
+                "created": 0,
+                "seeded": 0,
+                "held": 0,
+                "blocked": 0,
+            },
+        }
+
+    before = target.read_bytes()
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+    )
+
+    assert report["result"] == "blocked"
+    assert report["inventory"][-1]["action"] == "review"
+    assert apply_calls == [False]
+    assert target.read_bytes() == before
+
+
+def test_symlinked_manifest_is_held_without_following_or_replacing_it(tmp_path):
+    outside = tmp_path / "outside.yml"
+    outside.write_text("version: 1\nlayers: []\n", encoding="utf-8")
+    target = tmp_path / "home" / "copilot.layers.yml"
+    target.parent.mkdir()
+    target.symlink_to(outside)
+    desired = {"version": 1, "org": "Acme", "layers": [{"id": "codex-foundation"}]}
+
+    plan = onboard_module._manifest_adoption_plan(
+        desired,
+        target,
+        configured_path=target,
+        allowed_root=target.parent,
+    )
+
+    assert plan.action == "review"
+    assert target.is_symlink()
+    assert outside.read_text() == "version: 1\nlayers: []\n"
+
+
+def test_manifest_with_url_embedded_credential_is_held_and_not_copied(tmp_path):
+    target = tmp_path / "copilot.layers.yml"
+    target.write_text(
+        """version: 1
+layers:
+  - id: cli-foundation
+    role: foundation
+    component: cli
+    rank: 40
+    source: {repo: "https://ghp_example@example.test/cli.git", ref: v1}
+    auth: anon
+""",
+        encoding="utf-8",
+    )
+
+    plan = onboard_module._manifest_adoption_plan(
+        {"version": 1, "org": "Acme", "layers": []},
+        target,
+        configured_path=target,
+    )
+
+    assert plan.action == "review"
+    assert not (tmp_path / ".copilot-control-tower-backups").exists()
+
+
+def test_ecosystem_apply_writes_exact_refs_and_runs_update_doctor(
+    tmp_path, monkeypatch
+):
     config_writes = []
-    monkeypatch.setattr("cc.commands.onboard.write_config", lambda key, value: config_writes.append((key, value)))
+    monkeypatch.setattr(
+        "cc.commands.onboard.write_config",
+        lambda key, value: config_writes.append((key, value)),
+    )
     monkeypatch.setattr(
         onboard_module,
         "FOUNDATION_ALLOWED_SIGNERS",
         {"claude": ("CLAUDE-FINGERPRINT",), "codex": ("CODEX-FINGERPRINT",)},
     )
     report = build_ecosystem_onboard_report(
-        org="Acme", apply=True, run=_aggregate_run, manifest_path=tmp_path / "layers.yml",
-        personal_fn=_personal, ssh_fn=_ssh, codex_fn=_codex,
-        update_fn=lambda **_: ({"result": "up-to-date", "blocked": [], "held_for_approval": []}, 0),
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=tmp_path / "layers.yml",
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        update_fn=lambda **_: (
+            {"result": "up-to-date", "blocked": [], "held_for_approval": []},
+            0,
+        ),
         doctor_fn=lambda: {"status": "healthy", "score": 100},
     )
     assert report["result"] == "ready"
     manifest = yaml.safe_load((tmp_path / "layers.yml").read_text())
     assert [(item["product"], item["rank"]) for item in manifest["layers"]] == [
-        ("claude", 10), ("claude", 30), ("claude", 40),
-        ("codex", 10), ("codex", 30), ("codex", 40),
+        ("claude", 10),
+        ("claude", 30),
+        ("claude", 40),
+        ("codex", 10),
+        ("codex", 30),
+        ("codex", 40),
     ]
     assert manifest["layers"][2]["source"]["ref"] == "v5.9.0"
     assert manifest["layers"][5]["source"]["ref"] == "v0.6.2"
@@ -232,12 +536,27 @@ def test_connected_store_without_scope_identifiers_blocks_before_writes(tmp_path
         result = _aggregate_run(args)
         if args[2].endswith("/contents/ecosystem.yml"):
             payload = json.loads(result.stdout)
-            handoff = base64.b64decode(payload["content"]).decode().replace("status: deferred", "status: connected\n  type: infisical")
-            return subprocess.CompletedProcess(args, 0, json.dumps({"content": base64.b64encode(handoff.encode()).decode()}), "")
+            handoff = (
+                base64.b64decode(payload["content"])
+                .decode()
+                .replace("status: deferred", "status: connected\n  type: infisical")
+            )
+            return subprocess.CompletedProcess(
+                args,
+                0,
+                json.dumps({"content": base64.b64encode(handoff.encode()).decode()}),
+                "",
+            )
         return result
+
     report = build_ecosystem_onboard_report(
-        org="Acme", apply=True, run=connected, manifest_path=tmp_path / "layers.yml",
-        personal_fn=_personal, ssh_fn=_ssh, codex_fn=_codex,
+        org="Acme",
+        apply=True,
+        run=connected,
+        manifest_path=tmp_path / "layers.yml",
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
     )
     assert report["result"] == "blocked"
     assert report["stages"][-1]["stage"] == "secret-store"
@@ -253,7 +572,14 @@ def test_aggregate_block_before_manifest_still_returns_layers_field(tmp_path):
         manifest_path=tmp_path / "layers.yml",
         personal_fn=lambda **_: {
             "result": "blocked",
-            "summary": {"existing": 0, "missing": 0, "created": 0, "seeded": 0, "held": 1, "blocked": 1},
+            "summary": {
+                "existing": 0,
+                "missing": 0,
+                "created": 0,
+                "seeded": 0,
+                "held": 1,
+                "blocked": 1,
+            },
         },
         ssh_fn=_ssh,
         codex_fn=_codex,
