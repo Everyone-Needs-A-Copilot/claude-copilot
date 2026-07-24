@@ -218,6 +218,15 @@ def test_adoptable_state_is_not_blocked():
     assert claude_row["package_state"] == "adoptable"
     assert claude_row["package_action"] == "adopt"
     assert claude_row["action"] == "none"
+    # The cost of declining is component-specific, plain-language, and
+    # CLI-authored -- the app never invents this sentence (invariant #1).
+    assert claude_row["decline_detail"] == (
+        "Without this, Claude Copilot can't be set up on this Mac. "
+        "You can include it later."
+    )
+    codex_row = report["repositories"][1]
+    assert codex_row["package_state"] == "missing"
+    assert codex_row["decline_detail"] == ""
     assert not any("PUT" in call or "POST" in call for call in gh.calls)
     _assert_valid_onboard_report(report)
 
@@ -303,11 +312,57 @@ def test_mixed_two_of_four_component_consent():
     assert by_component["knowledge"]["package_state"] == "adopted"
     assert by_component["codex"]["package_state"] == "adoptable"
     assert by_component["cli"]["package_state"] == "adoptable"
+    # Consenting clears the cost of declining; a still-adoptable component
+    # keeps its own component-specific sentence, never a shared one.
+    assert by_component["claude"]["decline_detail"] == ""
+    assert by_component["knowledge"]["decline_detail"] == ""
+    assert by_component["codex"]["decline_detail"] == (
+        "Without this, Codex Copilot can't be set up on this Mac. "
+        "You can include it later."
+    )
+    assert by_component["cli"]["decline_detail"] == (
+        "Without this, CLI Copilot can't be set up on this Mac. "
+        "You can include it later."
+    )
     written = {
         name for name, repo in gh.repos.items() if "copilot.layer.yml" in repo["files"]
     }
     assert written == {"claude-copilot-private", "knowledge-copilot-private"}
     _assert_valid_onboard_report(report)
+
+
+def test_personal_inventory_carries_decline_detail_only_for_adoptable_rows():
+    """The wizard's question-screen items get the same `decline_detail` the
+    repository rows carry -- present (non-empty) only where the CLI marked
+    the component `adoptable`, empty everywhere else."""
+    personal = {
+        "repositories": [
+            {
+                "component": "claude",
+                "state": "existing-private",
+                "package_state": "adoptable",
+                "package_detail": "Your own content is already in here.",
+                "decline_detail": (
+                    "Without this, Claude Copilot can't be set up on this "
+                    "Mac. You can include it later."
+                ),
+            },
+            {
+                "component": "codex",
+                "state": "existing-private",
+                "package_state": "ready",
+                "package_detail": "Already set up. Everything in here will be kept.",
+                "decline_detail": "",
+            },
+        ]
+    }
+    items = onboard_module._personal_inventory(personal)
+    by_id = {item["id"]: item for item in items}
+    assert by_id["personal-claude"]["decline_detail"] == (
+        "Without this, Claude Copilot can't be set up on this Mac. "
+        "You can include it later."
+    )
+    assert by_id["personal-codex"]["decline_detail"] == ""
 
 
 def _aggregate_run(args):

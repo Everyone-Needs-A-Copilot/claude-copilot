@@ -53,6 +53,19 @@ def _component_label(component: str) -> str:
     return _COMPONENT_LABELS.get(component, component.title())
 
 
+def _decline_detail(component: str) -> str:
+    """The cost of leaving an `adoptable` space out of this run (B1 ask/decline).
+
+    Rendered verbatim under a cleared question row; never invented by the app
+    (invariant #1). Only meaningful for `adoptable` -- every other package
+    state either has nothing to decline or isn't offered as a question.
+    """
+    return (
+        f"Without this, {_component_label(component)} Copilot can't be set up "
+        "on this Mac. You can include it later."
+    )
+
+
 @dataclass(frozen=True)
 class Probe:
     state: str
@@ -338,6 +351,9 @@ def _row(
         "package_detail": package.detail
         if package
         else "Will be set up right after this space is created.",
+        "decline_detail": _decline_detail(component)
+        if package_state == "adoptable"
+        else "",
     }
 
 
@@ -457,6 +473,8 @@ def build_personal_onboard_report(
                     package_state="adopted",
                     package_action="none",
                     package_detail="Everything already in here will be kept, and it's now part of your copilots.",
+                    # Consented and written: there is nothing left to decline.
+                    decline_detail="",
                 )
             else:
                 row.update(
@@ -1111,6 +1129,7 @@ def _personal_inventory(personal: dict[str, Any]) -> list[dict[str, Any]]:
                 # yet, and declining costs nothing); every other state here
                 # keeps the prior unconditional False.
                 "reversible": package_state == "adoptable",
+                "decline_detail": row.get("decline_detail") or "",
             }
         )
     return items

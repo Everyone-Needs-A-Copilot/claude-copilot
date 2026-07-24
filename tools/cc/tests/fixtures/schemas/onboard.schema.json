@@ -28,7 +28,7 @@
     "repository": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["component", "role", "unit", "owner", "name", "visibility", "state", "action", "detail", "rank", "package_state", "package_action", "package_detail"],
+      "required": ["component", "role", "unit", "owner", "name", "visibility", "state", "action", "detail", "rank", "package_state", "package_action", "package_detail", "decline_detail"],
       "properties": {
         "component": { "enum": ["knowledge", "cli", "claude", "codex"] },
         "role": { "enum": ["org", "organization", "department", "personal"] },
@@ -42,7 +42,8 @@
         "rank": { "type": "integer", "minimum": 0 },
         "package_state": { "type": "string", "minLength": 1 },
         "package_action": { "type": "string", "minLength": 1 },
-        "package_detail": { "type": "string", "minLength": 1 }
+        "package_detail": { "type": "string", "minLength": 1 },
+        "decline_detail": { "type": "string" }
       }
     },
     "repositorySummary": {
@@ -139,7 +140,8 @@
         "detail": { "type": "string", "minLength": 1 },
         "source_path": { "type": ["string", "null"] },
         "destination_path": { "type": ["string", "null"] },
-        "reversible": { "type": "boolean" }
+        "reversible": { "type": "boolean" },
+        "decline_detail": { "type": "string" }
       }
     },
     "inventorySummary": {
