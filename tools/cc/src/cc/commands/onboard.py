@@ -1135,6 +1135,40 @@ def _personal_inventory(personal: dict[str, Any]) -> list[dict[str, Any]]:
     return items
 
 
+# The `ecosystemStage` schema entry declares `additionalProperties: false`,
+# so only these fields from an `ensure_machine_ssh_identity` report may be
+# spread into the `device-ssh` stage; richer fields (`decline_detail`,
+# `adopted_alias`, `missing_alias`) are consumed by `_ssh_inventory` instead.
+_SSH_STAGE_FIELDS = ("result", "key", "registration", "config", "detail")
+
+
+def _ssh_stage_fields(ssh: dict[str, Any]) -> dict[str, Any]:
+    return {key: ssh[key] for key in _SSH_STAGE_FIELDS if key in ssh}
+
+
+def _ssh_inventory(ssh: dict[str, Any]) -> list[dict[str, Any]]:
+    """An adoptable SSH alias is a pure offer (B1), the same shape as an
+    adoptable personal package: a `create`-shaped action, reversible because
+    nothing has been written yet, with a cost-of-declining detail.
+    """
+    if ssh.get("config") != "adoptable":
+        return []
+    return [
+        {
+            "id": "device-ssh",
+            "scope": "machine",
+            "title": "Your Mac's connection to GitHub",
+            "state": "adoptable",
+            "action": "create",
+            "detail": ssh.get("detail") or "",
+            "source_path": None,
+            "destination_path": None,
+            "reversible": True,
+            "decline_detail": ssh.get("decline_detail") or "",
+        }
+    ]
+
+
 def build_ecosystem_onboard_report(
     *,
     org: str,
@@ -1210,8 +1244,19 @@ def build_ecosystem_onboard_report(
         allowed_root=None if manifest_path else Path.home(),
     )
     inventory.append(adoption.as_item())
-    ssh = ssh_fn(apply=False, run=run)
-    stages.append({"stage": "device-ssh", **ssh})
+    # `github-work` is what the layer manifest above just wired every org
+    # repo through; `github-personal` is what it wired every personal repo
+    # through. Both are real targets an adopted alias can be proven against
+    # (B1 check 4), not just a live login.
+    ssh_verify_repos = {
+        "github-work": f"{org}/{normalized[0]}-copilot-internal",
+        "github-personal": f"{personal['owner']}/{normalized[0]}-copilot-private",
+    }
+    ssh = ssh_fn(
+        apply=False, run=run, adopt_existing=adopt_existing, verify_repos=ssh_verify_repos
+    )
+    stages.append({"stage": "device-ssh", **_ssh_stage_fields(ssh)})
+    inventory.extend(_ssh_inventory(ssh))
     if ssh["result"] == "blocked":
         return _ecosystem_result(
             org, normalized, apply, "blocked", stages, manifest["layers"], inventory
@@ -1270,9 +1315,11 @@ def build_ecosystem_onboard_report(
             org, normalized, True, "blocked", stages, manifest["layers"], inventory
         )
 
-    ssh = ssh_fn(apply=True, run=run)
+    ssh = ssh_fn(
+        apply=True, run=run, adopt_existing=adopt_existing, verify_repos=ssh_verify_repos
+    )
     ssh_stage = next(stage for stage in stages if stage["stage"] == "device-ssh")
-    ssh_stage.update(ssh)
+    ssh_stage.update(_ssh_stage_fields(ssh))
     if ssh["result"] == "blocked":
         return _ecosystem_result(
             org, normalized, True, "blocked", stages, manifest["layers"], inventory
@@ -1353,10 +1400,10 @@ def onboard_cmd(
         "",
         "--adopt-existing",
         help=(
-            "Comma-separated components whose existing private content the "
-            "person consented to include (B1). Component-scoped: each "
-            "component is decided on its own, never all-or-nothing. Any "
-            "adoptable component left out of this list is a no-op."
+            "Comma-separated components (or `ssh`, for the device's existing "
+            "GitHub SSH alias) whose existing content the person consented to "
+            "include (B1). Scoped per item: each is decided on its own, never "
+            "all-or-nothing. Any adoptable item left out of this list is a no-op."
         ),
     ),
 ) -> None:

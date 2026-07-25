@@ -416,6 +416,28 @@ def _ssh(**_kwargs):
     }
 
 
+def _ssh_adoptable(**_kwargs):
+    """B1 for the SSH gate, shaped exactly like a real `changes-required`
+    adoption report: an already-working alias offered instead of refused."""
+    return {
+        "result": "changes-required",
+        "key": "existing",
+        "registration": "registered",
+        "config": "adoptable",
+        "detail": (
+            "Your existing github-work alias already works and signs in as "
+            "pablo. I'll leave it exactly as it is."
+        ),
+        "decline_detail": (
+            "Without this, the github-personal alias won't be set up, and "
+            "this device won't have everything it needs. Your existing "
+            "github-work alias is never touched either way."
+        ),
+        "adopted_alias": "github-work",
+        "missing_alias": "github-personal",
+    }
+
+
 def _codex(*, apply, **_kwargs):
     return {"result": "ready" if apply else "changes-required"}
 
@@ -450,6 +472,36 @@ def test_ecosystem_plan_builds_two_isolated_three_layer_stacks(tmp_path):
         "codex-plugin",
     ]
     assert not (tmp_path / "layers.yml").exists()
+    _assert_valid_onboard_report(report)
+
+
+def test_ecosystem_plan_offers_adoptable_ssh_alias_instead_of_blocking(tmp_path):
+    """B1 for the SSH gate: a working-but-unmanaged alias downgrades the plan
+    to `changes-required`, never `blocked`, and surfaces a machine-scope
+    inventory row an app can render as a question -- the same shape an
+    adoptable personal package already gets, and the same `--adopt-existing`
+    plumbing carries the consent back in."""
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=False,
+        run=_aggregate_run,
+        manifest_path=tmp_path / "layers.yml",
+        personal_fn=_personal,
+        ssh_fn=_ssh_adoptable,
+        codex_fn=_codex,
+    )
+    assert report["result"] == "changes-required"
+    ssh_stage = next(stage for stage in report["stages"] if stage["stage"] == "device-ssh")
+    assert ssh_stage["config"] == "adoptable"
+    # The stage dict only ever carries the schema's whitelisted fields --
+    # the richer adoption fields belong to the inventory row, not the stage.
+    assert "adopted_alias" not in ssh_stage
+    assert "decline_detail" not in ssh_stage
+    ssh_item = next(item for item in report["inventory"] if item["id"] == "device-ssh")
+    assert ssh_item["scope"] == "machine"
+    assert ssh_item["action"] == "create"
+    assert ssh_item["reversible"] is True
+    assert ssh_item["decline_detail"]
     _assert_valid_onboard_report(report)
 
 
