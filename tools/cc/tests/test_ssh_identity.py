@@ -199,8 +199,12 @@ class AdoptCommands:
             if hostname is None:
                 return subprocess.CompletedProcess(args, 1, "", "")
             return subprocess.CompletedProcess(args, 0, f"host {alias}\nhostname {hostname}\n", "")
-        if args[0] == "git" and args[1] == "ls-remote":
-            target = args[2]
+        if args[0] == "git" and "ls-remote" in args:
+            assert "-c" in args and any(
+                value.startswith("core.sshCommand=") and "BatchMode=yes" in value
+                for value in args
+            ), "git ls-remote must fail closed on its own, not rely on ssh -T running first"
+            target = args[-1]
             if target in self.reachable_repos:
                 return subprocess.CompletedProcess(args, 0, "abc123\tHEAD\n", "")
             return subprocess.CompletedProcess(args, 128, "", "fatal: could not read from remote repository")

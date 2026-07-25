@@ -98,7 +98,25 @@ class ManifestAdoption:
             "detail": self.detail,
             "source_path": str(self.source) if self.source else None,
             "destination_path": str(self.destination),
-            "reversible": self.action in {"migrate", "repair"},
+            # `reversible: true` means one specific thing everywhere else in
+            # this module (see `_personal_inventory`/`_ssh_inventory`):
+            # nothing has been written yet, so declining costs nothing, and
+            # `adopt_existing` is the token that gates whether the write
+            # happens at all. `migrate`/`repair` do not qualify -- a
+            # recognized *existing* manifest is being merged and overwritten
+            # (with a content-addressed backup, which is a safety net, not a
+            # consent gate), and `_apply_manifest_adoption` below has never
+            # been gated on `adopt_existing`. Marking this `True` rendered a
+            # checkbox the app let the person clear while the write happened
+            # anyway -- a false choice (spec: adopt-and-honesty-copy-spec.md
+            # §1.5). This is also not user-decidable content: "how your
+            # copilots fit together" is infrastructure only the CLI can
+            # reason about, so per invariant #5 it is auto-acted on rather
+            # than asked about, the same way `create` (a brand-new manifest)
+            # already was. `False` here is what keeps the row out of the
+            # question screen's ask list entirely, instead of presenting a
+            # decision that was never real.
+            "reversible": False,
         }
 
 
@@ -255,15 +273,22 @@ def _probe_package(owner: str, name: str, component: str, *, run: Run) -> Packag
         # has no commits. The repository itself was already confirmed private.
         return PackageProbe("empty", "Empty and ready. I'll set it up for you.")
     if contents.returncode != 0:
+        # `package_state == "unknown"` wins the `package_detail or detail`
+        # ordering in `_personal_inventory`/`personal_detail`, so an
+        # otherwise-blocked plan surfaces exactly this sentence inline on
+        # the Holding screen (`framedIfPresentable`), not just the
+        # collapsed support block. It must carry the same closed vocabulary
+        # as every other reachable string here (no `repo`/`repository`).
         return PackageProbe(
             "unknown",
-            "GitHub could not confirm whether the private repository is empty.",
+            "GitHub couldn't confirm whether this space is empty, so I won't guess.",
         )
     try:
         root = json.loads(contents.stdout)
     except json.JSONDecodeError:
         return PackageProbe(
-            "unknown", "GitHub returned an unreadable repository contents response."
+            "unknown",
+            "GitHub's answer about what's in this space wasn't something I could read.",
         )
     if isinstance(root, list) and not root:
         return PackageProbe("empty", "Empty and ready. I'll set it up for you.")

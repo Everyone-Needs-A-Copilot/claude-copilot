@@ -275,7 +275,26 @@ def _alias_hostname(alias: str, *, run: Run) -> str | None:
 
 
 def _alias_reaches_repo(alias: str, owner_repo: str, *, run: Run) -> bool:
-    result = run(("git", "ls-remote", f"git@{alias}:{owner_repo}.git"))
+    """`git ls-remote` over the alias -- the last of B1's four verification
+    checks. Carries its own explicit `BatchMode=yes`/`ConnectTimeout`, the
+    same non-interactive, fails-closed contract `_alias_login` above
+    documents, via `-c core.sshCommand=...` rather than an environment
+    variable (`Run` callables take no env override, and this stays a plain
+    argv command). Previously safe only because `_alias_login` always runs
+    first against the same alias and must itself succeed non-interactively
+    -- ordering-dependent safety, not self-contained. If a future caller
+    ever reaches this check on its own, it now fails closed by itself
+    instead of risking a hang or an interactive prompt.
+    """
+    result = run(
+        (
+            "git",
+            "-c",
+            "core.sshCommand=ssh -o BatchMode=yes -o ConnectTimeout=10",
+            "ls-remote",
+            f"git@{alias}:{owner_repo}.git",
+        )
+    )
     return result.returncode == 0
 
 
@@ -526,14 +545,23 @@ def ensure_machine_ssh_identity(
         if to_create and len(to_create) < len(ALIASES):
             _write_adoptive_config(config, key, to_create[0])
             final_config = "adopted"
+            # Product voice (adopt-and-honesty-copy-spec.md §0/D.1): first
+            # person, no `alias`/`device`, and never the raw `to_create[0]`/
+            # `adopted_alias` host tokens (`github-work`/`github-personal`)
+            # -- those are internal names, not something a non-technical
+            # reader should see. Left-alone stated first, addition second,
+            # matching the ratified adoption-offer string this confirms.
             final_detail = (
-                f"Added the {to_create[0]} alias using this device's own key. "
-                f"Your existing {adopted_alias} alias was left exactly as it is."
+                "I left this Mac's existing connection to GitHub exactly "
+                "as it is, and added the one it was still missing, using "
+                "a key made just for this Mac."
             )
         else:
             _write_managed_config(config, key)
             final_config = "ready"
-            final_detail = "This device has its own registered SSH identity."
+            # Reuses the exact phrase D.1 already ratified for the
+            # equivalent "ready" detail elsewhere in this module.
+            final_detail = "This Mac has its own key for GitHub."
     except (OSError, ValueError):
         return {
             "result": "blocked",

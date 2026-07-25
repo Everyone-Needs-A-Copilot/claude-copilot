@@ -637,6 +637,53 @@ layers:
     assert yaml.safe_load(target.read_text())["layers"][0]["product"] == "cli"
 
 
+def test_manifest_repair_is_not_a_checkbox_and_applies_without_any_consent(tmp_path):
+    """`layer-manifest` is infrastructure, not a B1 offer: a `repair` row
+    must never be `reversible` (that would render an ask-row checkbox the
+    person could clear), and the repair must complete on `apply=True` even
+    when `adopt_existing` is empty -- nobody is ever asked. If this ever
+    regresses to gating the write on a consent token, the file would stay
+    unrepaired here and the assertions below would catch it."""
+    target = tmp_path / "layers.yml"
+    target.write_text(
+        """version: 1
+layers:
+  - id: cli-organization
+    role: organization
+    component: cli
+    rank: 30
+    source: {repo: git@github-work:Acme/cli-copilot-internal.git, ref: main}
+    auth: ssh-work
+""",
+        encoding="utf-8",
+    )
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        adopt_existing=(),  # explicit: nobody consented to anything
+        update_fn=lambda **_: (
+            {"result": "up-to-date", "blocked": [], "held_for_approval": []},
+            0,
+        ),
+        doctor_fn=lambda: {"status": "healthy", "score": 100},
+    )
+    manifest_stage = next(s for s in report["stages"] if s["stage"] == "layer-manifest")
+    assert manifest_stage["action"] == "repair"
+    assert manifest_stage["result"] == "applied"
+    manifest_item = next(i for i in report["inventory"] if i["id"] == "layer-manifest")
+    assert manifest_item["reversible"] is False
+    written = yaml.safe_load(target.read_text())
+    products = {layer["product"] for layer in written["layers"]}
+    assert products == {"cli", "claude", "codex"}
+    assert report["result"] == "ready"
+    _assert_valid_onboard_report(report)
+
+
 def test_unfamiliar_manifest_blocks_before_personal_apply(tmp_path):
     target = tmp_path / "layers.yml"
     target.write_text("this: is-not-a-layer-manifest\n", encoding="utf-8")
