@@ -52,19 +52,24 @@ LAYER_META_KEY = "_meta"
 
 def default_lockfile_path() -> Optional[Path]:
     """
-    Best-effort default location for the ecosystem lockfile.
+    Deterministic default location for the ecosystem lockfile.
 
-    PROVISIONAL (owner to confirm once the materialize slice lands): lives
-    at `<repo root>/copilot.lock.json`. Returns None (treated identically
-    to "file absent") when there is no repo root to anchor to, rather than
-    guessing a location.
+    Project-scoped CLI use keeps the established
+    `<repo root>/copilot.lock.json` target. Machine-scoped callers such as
+    Control Tower are normally launched outside a Git repository, so they
+    fall back to cc's machine-state directory beside `config.json`.
+
+    The fallback deliberately goes through `machine_config_path()` rather
+    than `Path.home()` directly. That keeps GUI/Finder launches independent
+    of their working directory and preserves the `CC_MACHINE_ROOT` isolation
+    seam used by tests and managed environments.
     """
-    from cc.core.config_paths import repo_root
+    from cc.core.config_paths import machine_config_path, repo_root
 
     root = repo_root()
-    if root is None:
-        return None
-    return root / "copilot.lock.json"
+    if root is not None:
+        return root / "copilot.lock.json"
+    return machine_config_path().parent / "copilot.lock.json"
 
 
 def read_lockfile(path: Optional[Path | str]) -> dict[str, dict[str, dict[str, str]]]:
