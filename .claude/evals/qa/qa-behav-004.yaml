@@ -1,0 +1,26 @@
+id: qa-behav-004
+name: "file-check artifact type is valid"
+priority: P1
+description: |
+  A well-formed QA verdict using a file-check ARTIFACT must pass assertions.
+  This verifies that file-check is recognized as a valid artifact type.
+type: behavioral
+source:
+  type: inline
+  content: |
+    Task: TASK-31 | WP: WP-45
+    Test Coverage:
+    - Unit: N/A (structural verification)
+    Summary: Agent manifest exists with correct agent count.
+    VERDICT: APPROVED
+    ARTIFACT: file-check|.claude/agents/manifest.json exists agents=16
+assertions:
+  - type: contains
+    value: "VERDICT: APPROVED"
+    description: "Valid verdict token must be present"
+  - type: contains
+    value: "ARTIFACT: file-check|"
+    description: "file-check artifact type must be recognized"
+  - type: regex
+    pattern: "ARTIFACT: (test-run|file-check|diff-check|adversarial-run)\\|"
+    description: "ARTIFACT must use a valid artifact type"
