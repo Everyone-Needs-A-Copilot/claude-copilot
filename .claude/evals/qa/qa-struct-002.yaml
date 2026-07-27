@@ -1,0 +1,17 @@
+id: qa-struct-002
+name: "QA agent defines valid VERDICT tokens"
+priority: P0
+description: |
+  The QA agent definition must enumerate all valid VERDICT tokens.
+  A qa.md that does not define REJECTED is missing its failure path.
+type: structural
+source:
+  type: file
+  path: ".claude/agents/qa.md"
+assertions:
+  - type: file-contains
+    value: "VERDICT: REJECTED"
+    description: "qa.md must define the VERDICT: REJECTED failure token"
+  - type: file-contains
+    value: "APPROVED-WITH-MINOR-FIXES"
+    description: "qa.md must define the APPROVED-WITH-MINOR-FIXES conditional verdict"
