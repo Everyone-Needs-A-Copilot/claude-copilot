@@ -44,8 +44,8 @@ _COMPONENT_LABELS: dict[str, str] = {
 # Release engineering populates these tuples only after the corresponding
 # public foundation starts publishing commits/tags signed by the real keys.
 FOUNDATION_ALLOWED_SIGNERS: dict[str, tuple[str, ...]] = {
-    "claude": (),
-    "codex": (),
+    "claude": ("SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo",),
+    "codex": ("SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo",),
 }
 Run = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
 

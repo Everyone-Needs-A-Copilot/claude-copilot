@@ -837,6 +837,15 @@ def test_ecosystem_apply_writes_exact_refs_and_runs_update_doctor(
     _assert_valid_onboard_report(report)
 
 
+def test_foundation_release_signer_is_compiled_for_both_products():
+    approved = "SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo"
+
+    assert onboard_module.FOUNDATION_ALLOWED_SIGNERS == {
+        "claude": (approved,),
+        "codex": (approved,),
+    }
+
+
 def test_connected_store_without_scope_identifiers_blocks_before_writes(tmp_path):
     def connected(args):
         result = _aggregate_run(args)
