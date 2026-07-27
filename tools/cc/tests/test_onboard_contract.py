@@ -128,6 +128,49 @@ def test_default_github_runner_uses_authorized_keychain_token_without_argv_leak(
     assert captured["env"]["GH_TOKEN"] == "synthetic-token"
 
 
+def test_default_github_runner_falls_back_to_supported_absolute_path(
+    monkeypatch, tmp_path
+):
+    gh_path = tmp_path / "gh"
+    gh_path.write_text("#!/bin/sh\n", encoding="utf-8")
+    gh_path.chmod(0o755)
+    captured = {}
+
+    def fake_run(args, **kwargs):
+        captured["args"] = tuple(args)
+        return subprocess.CompletedProcess(args, 0, "[]", "")
+
+    monkeypatch.setattr(onboard_module.shutil, "which", lambda _: None)
+    monkeypatch.setattr(onboard_module, "_SUPPORTED_GH_PATHS", (gh_path,))
+    monkeypatch.setattr(onboard_module.authstore, "read_identity", lambda: {})
+    monkeypatch.setattr(onboard_module.subprocess, "run", fake_run)
+
+    result = onboard_module._run(("gh", "api", "user/orgs", "--paginate"))
+
+    assert result.returncode == 0
+    assert captured["args"] == (
+        str(gh_path.resolve()),
+        "api",
+        "user/orgs",
+        "--paginate",
+    )
+
+
+def test_default_github_runner_stays_fail_closed_without_supported_binary(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(onboard_module.shutil, "which", lambda _: None)
+    monkeypatch.setattr(
+        onboard_module, "_SUPPORTED_GH_PATHS", (tmp_path / "missing-gh",)
+    )
+
+    result = onboard_module._run(("gh", "api", "user/orgs", "--paginate"))
+
+    assert result.returncode == 127
+    assert result.stdout == ""
+    assert result.stderr == "gh is not installed."
+
+
 def test_plan_reuses_private_and_marks_only_404_missing():
     gh = FakeGitHub({"claude-copilot-private": True})
     report = build_personal_onboard_report(components=("claude", "codex"), run=gh)

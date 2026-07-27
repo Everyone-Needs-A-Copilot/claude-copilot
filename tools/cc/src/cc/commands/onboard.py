@@ -48,6 +48,10 @@ FOUNDATION_ALLOWED_SIGNERS: dict[str, tuple[str, ...]] = {
     "codex": ("SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo",),
 }
 Run = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
+_SUPPORTED_GH_PATHS = (
+    Path("/opt/homebrew/bin/gh"),
+    Path("/usr/local/bin/gh"),
+)
 
 
 def _component_label(component: str) -> str:
@@ -136,6 +140,15 @@ def _run(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
     if not args:
         return subprocess.CompletedProcess(args, 127, "", "No command was provided.")
     executable = shutil.which(args[0])
+    if executable is None and args[0] == "gh":
+        executable = next(
+            (
+                str(candidate)
+                for candidate in _SUPPORTED_GH_PATHS
+                if candidate.is_file() and os.access(candidate, os.X_OK)
+            ),
+            None,
+        )
     if executable is None:
         return subprocess.CompletedProcess(
             args, 127, "", f"{args[0]} is not installed."

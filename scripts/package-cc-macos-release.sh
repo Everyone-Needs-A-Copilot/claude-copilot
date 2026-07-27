@@ -10,6 +10,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+RELEASE_HOME="${HOME:?HOME must be set for the Finder-environment release probe}"
 
 PYTHON_VERSION="3.13.13"
 PYTHON_PACKAGE="python-${PYTHON_VERSION}-macos11.pkg"
@@ -394,6 +395,39 @@ for key, expected_type in required.items():
         )
 PY
 
+# Exercise the next app boundary under the PATH a Finder-launched macOS app
+# actually receives. `cc onboard` is a plan unless `--apply` is present, so
+# this reads the release operator's existing cc identity without changing
+# their setup. Exit 1 is a valid, fully computed blocked plan; exit 2 means
+# the helper could not run the contract and must block the release.
+finder_onboard_probe="${scratch}/finder-onboard-probe.json"
+set +e
+env -i \
+    HOME="${RELEASE_HOME}" \
+    PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+    "${artifact}" onboard \
+    --org auto \
+    --products claude \
+    --json > "${finder_onboard_probe}"
+finder_onboard_exit=$?
+set -e
+[[ "${finder_onboard_exit}" -eq 0 || "${finder_onboard_exit}" -eq 1 ]] ||
+    die "Finder-environment onboarding probe exited ${finder_onboard_exit}"
+/usr/bin/python3 - "${finder_onboard_probe}" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+if payload.get("scope") != "ecosystem":
+    raise SystemExit("Finder-environment probe did not return an ecosystem report")
+if payload.get("mode") != "plan":
+    raise SystemExit("Finder-environment probe did not remain read-only")
+if payload.get("org") != "Everyone-Needs-A-Copilot":
+    raise SystemExit("Finder-environment probe did not resolve the ENAC handoff")
+if payload.get("error") is not None:
+    raise SystemExit(f"Finder-environment probe returned an error: {payload['error']}")
+PY
+
 archive="${scratch}/cc-macos-universal.zip"
 ditto -c -k --keepParent "${artifact}" "${archive}"
 notary_args=()
@@ -471,6 +505,7 @@ cat > "${OUTPUT_DIR}/release-metadata.json" <<EOF
   "notarization_container_sha256": "${archive_sha}",
   "standalone_ticket_staple": "unsupported-by-apple",
   "device_flow_https_probe": "passed",
+  "finder_gh_resolution_probe": "passed",
   "sha256": "${artifact_sha}"
 }
 EOF
