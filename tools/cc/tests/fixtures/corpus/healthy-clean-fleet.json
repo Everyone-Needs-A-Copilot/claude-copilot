@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "host": "bobs-mbp.local",
+  "score": 100,
+  "generated_at": "2026-07-07T14:32:00Z",
+  "status": "healthy",
+  "offline": false,
+  "checkers": [
+    { "id": "knowledge-foundation-sync", "severity": "pass", "destructive": false, "layer": "foundation", "product": "knowledge", "detail": "foundation tip matches remote", "local_sha": "a1b2c3d", "remote_sha": "a1b2c3d" },
+    { "id": "knowledge-org-sync", "severity": "pass", "destructive": false, "layer": "org", "product": "knowledge", "detail": "org tip matches remote", "local_sha": "b2c3d4e", "remote_sha": "b2c3d4e" },
+    { "id": "knowledge-dept-sync", "severity": "pass", "destructive": false, "layer": "dept", "product": "knowledge", "detail": "dept-finance tip matches remote" },
+    { "id": "knowledge-personal-sync", "severity": "pass", "destructive": false, "layer": "personal", "product": "knowledge", "detail": "personal working tree clean" },
+    { "id": "cli-foundation-version", "severity": "pass", "destructive": false, "layer": "foundation", "product": "cli", "detail": "cc 1.3.0 up to date" },
+    { "id": "cli-org-policy", "severity": "pass", "destructive": false, "layer": "org", "product": "cli", "detail": "org CLI policy applied" },
+    { "id": "cli-dept-policy", "severity": "pass", "destructive": false, "layer": "dept", "product": "cli", "detail": "dept-finance CLI policy applied" },
+    { "id": "cli-personal-config", "severity": "pass", "destructive": false, "layer": "personal", "product": "cli", "detail": "personal cc config valid" },
+    { "id": "claude-foundation-agents", "severity": "pass", "destructive": false, "layer": "foundation", "product": "claude", "detail": "15 agents materialized" },
+    { "id": "claude-org-agents", "severity": "pass", "destructive": false, "layer": "org", "product": "claude", "detail": "org agent overrides applied" },
+    { "id": "claude-dept-agents", "severity": "pass", "destructive": false, "layer": "dept", "product": "claude", "detail": "dept-finance agent overrides applied" },
+    { "id": "claude-personal-agents", "severity": "pass", "destructive": false, "layer": "personal", "product": "claude", "detail": "personal agent overrides applied" },
+    { "id": "codex-foundation-config", "severity": "pass", "destructive": false, "layer": "foundation", "product": "codex", "detail": "AGENTS.md materialized" },
+    { "id": "codex-org-config", "severity": "pass", "destructive": false, "layer": "org", "product": "codex", "detail": "org AGENTS.md overrides applied" },
+    { "id": "codex-dept-config", "severity": "pass", "destructive": false, "layer": "dept", "product": "codex", "detail": "dept-finance AGENTS.md overrides applied" },
+    { "id": "codex-personal-config", "severity": "pass", "destructive": false, "layer": "personal", "product": "codex", "detail": "personal AGENTS.md overrides applied" }
+  ],
+  "auth": []
+}
