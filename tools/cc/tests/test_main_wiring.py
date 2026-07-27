@@ -40,11 +40,29 @@ def _sandboxed_home(tmp_path, monkeypatch):
     return home
 
 
-def test_auth_login_no_client_id_returns_error_envelope(cli):
-    """`cc auth login --json` with no GitHub App client id configured
-    anywhere (no local override, no inherited ecosystem.yml) -- the
-    `no-company-app` error envelope, exit 2."""
+def test_auth_login_no_org_known_returns_org_required(cli):
+    """`cc auth login --json` with no client id AND no org configured
+    anywhere (a completely fresh sandbox, no `--org`) -- there is nothing
+    to bootstrap a client id from yet, so `org-required` fires."""
     result = cli(["auth", "login", "--json"])
+
+    assert result.exit_code == 2
+    payload = json.loads(result.output)
+    assert payload["schema_version"] == "1.0"
+    assert payload["error"]["code"] == "org-required"
+
+
+def test_auth_login_org_known_but_no_company_app_returns_error_envelope(cli, monkeypatch):
+    """`cc auth login --org <org> --json` when the org's public bootstrap
+    artifact carries no client id -- the org genuinely has no company app
+    set up yet (the case the OLD `ecosystem.yml`-fallback contract used to
+    cover, before that branch was replaced by the public-bootstrap fetch --
+    see commands/auth.py's `_resolve_client_id()`)."""
+    monkeypatch.setattr(
+        "cc.commands.auth.bootstrap_config.fetch_org_client_id", lambda *_a, **_k: None
+    )
+
+    result = cli(["auth", "login", "--org", "acme-co", "--json"])
 
     assert result.exit_code == 2
     payload = json.loads(result.output)

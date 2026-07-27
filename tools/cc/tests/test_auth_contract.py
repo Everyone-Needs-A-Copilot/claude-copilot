@@ -174,17 +174,68 @@ def test_initiate_report_validates_against_contract_schema():
     assert data == {"client_id": "client-abc", "scope": "read:org repo"}
 
 
-def test_initiate_report_no_company_app_error_envelope_validates_and_exits_2(monkeypatch):
-    monkeypatch.setattr(
-        "cc.commands.auth.ecosystem_config.github_client_id", lambda *_a, **_k: None
+def test_initiate_report_no_company_app_error_envelope_validates_and_exits_2():
+    """An org IS known (`_org`), but its public bootstrap artifact carries
+    no client id -- the org genuinely has no company app set up yet."""
+    report = build_auth_initiate_report(
+        _client_id=None,
+        _org="acme-co",
+        _fetch_bootstrap=lambda _org: None,
+        _post_json=_never_call,
     )
-
-    report = build_auth_initiate_report(_client_id=None, _post_json=_never_call)
 
     _validate(report)
     assert report["error"]["code"] == "no-company-app"
     assert "admin standup" in report["error"]["message"]
     assert compute_exit_code(report) == 2
+
+
+def test_initiate_report_org_required_error_envelope_when_no_org_known():
+    """No org resolvable at all (no `--org`, no `github_app.org` config) --
+    distinct from, and more actionable than, `no-company-app`: there isn't
+    even an org to bootstrap a client id from yet."""
+    report = build_auth_initiate_report(_client_id=None, _org=None, _post_json=_never_call)
+
+    _validate(report)
+    assert report["error"]["code"] == "org-required"
+    assert compute_exit_code(report) == 2
+
+
+def test_initiate_report_resolves_client_id_from_public_bootstrap_when_unconfigured():
+    """THE Defect-2 fix, exercised directly: no `github_app.client_id`
+    configured anywhere (a completely fresh Mac), but the org IS known --
+    the client id comes from the org's PUBLIC bootstrap artifact (fetched
+    with no GitHub authentication at all), never the org's PRIVATE
+    `ecosystem.yml` (which an unauthenticated fresh machine could never
+    read -- that circularity is exactly what this fallback breaks)."""
+    fetch_calls: list[str] = []
+
+    def fake_fetch_bootstrap(org: str) -> str:
+        fetch_calls.append(org)
+        return "Iv1.bootstrapped-client-id"
+
+    post_json = _FakePostJson(
+        {
+            "device_code": "devcode123",
+            "user_code": "ABCD-1234",
+            "verification_uri": "https://github.com/login/device",
+            "expires_in": 900,
+            "interval": 5,
+        }
+    )
+
+    report = build_auth_initiate_report(
+        _client_id=None,
+        _org="acme-co",
+        _fetch_bootstrap=fake_fetch_bootstrap,
+        _post_json=post_json,
+    )
+
+    _validate(report)
+    assert report["kind"] == "device-code"
+    assert fetch_calls == ["acme-co"]
+    _url, data, _headers = post_json.calls[0]
+    assert data["client_id"] == "Iv1.bootstrapped-client-id"
 
 
 # ---------------------------------------------------------------------------
@@ -215,15 +266,27 @@ def test_poll_report_non_authorized_statuses_validate_and_exit_correctly(
     assert compute_exit_code(report) == expected_exit
 
 
-def test_poll_report_no_company_app_error_envelope(monkeypatch):
-    monkeypatch.setattr(
-        "cc.commands.auth.ecosystem_config.github_client_id", lambda *_a, **_k: None
+def test_poll_report_no_company_app_error_envelope():
+    report = build_auth_poll_report(
+        "devcode123",
+        _client_id=None,
+        _org="acme-co",
+        _fetch_bootstrap=lambda _org: None,
+        _post_json=_never_call,
     )
-
-    report = build_auth_poll_report("devcode123", _client_id=None, _post_json=_never_call)
 
     _validate(report)
     assert report["error"]["code"] == "no-company-app"
+    assert compute_exit_code(report) == 2
+
+
+def test_poll_report_org_required_error_envelope():
+    report = build_auth_poll_report(
+        "devcode123", _client_id=None, _org=None, _post_json=_never_call
+    )
+
+    _validate(report)
+    assert report["error"]["code"] == "org-required"
     assert compute_exit_code(report) == 2
 
 
@@ -449,16 +512,25 @@ def test_execute_auth_login_stops_on_expired():
     assert exit_code == 1
 
 
-def test_execute_auth_login_propagates_no_company_app(monkeypatch):
-    monkeypatch.setattr(
-        "cc.commands.auth.ecosystem_config.github_client_id", lambda *_a, **_k: None
-    )
-
+def test_execute_auth_login_propagates_no_company_app():
     report, exit_code = execute_auth_login(
-        _client_id=None, _post_json=_never_call, _sleep=lambda _seconds: None
+        _client_id=None,
+        _org="acme-co",
+        _fetch_bootstrap=lambda _org: None,
+        _post_json=_never_call,
+        _sleep=lambda _seconds: None,
     )
 
     assert report["error"]["code"] == "no-company-app"
+    assert exit_code == 2
+
+
+def test_execute_auth_login_propagates_org_required():
+    report, exit_code = execute_auth_login(
+        _client_id=None, _org=None, _post_json=_never_call, _sleep=lambda _seconds: None
+    )
+
+    assert report["error"]["code"] == "org-required"
     assert exit_code == 2
 
 
@@ -500,6 +572,7 @@ def _patch_cli_transport(
     monkeypatch,
     *,
     client_id="client-abc",
+    org=None,
     scopes="read:org repo",
     keychain_service="svc",
     request_device_code=None,
@@ -514,6 +587,7 @@ def _patch_cli_transport(
         "cc.commands.auth.resolve_key",
         lambda key, **_kw: {
             "github_app.client_id": client_id,
+            "github_app.org": org,
             "auth.scopes": scopes,
             "auth.keychain_service": keychain_service,
         }.get(key),
@@ -579,17 +653,100 @@ def test_cli_bare_auth_behaves_like_login_initiate(monkeypatch):
 
 
 def test_cli_login_no_company_app_json_exits_2(monkeypatch):
+    """An org IS known (`--org`), but its public bootstrap artifact has no
+    client id -- the org genuinely has no company app yet."""
     _patch_cli_transport(monkeypatch, client_id=None)
     monkeypatch.setattr(
-        "cc.commands.auth.ecosystem_config.github_client_id", lambda *_a, **_k: None
+        "cc.commands.auth.bootstrap_config.fetch_org_client_id", lambda *_a, **_k: None
+    )
+
+    result = runner.invoke(auth_app, ["login", "--org", "acme-co", "--json"])
+    payload = json.loads(result.output)
+
+    _validate(payload)
+    assert payload["error"]["code"] == "no-company-app"
+    assert result.exit_code == 2
+
+
+def test_cli_login_org_required_json_exits_2_when_no_org_known(monkeypatch):
+    """No `--org` flag and no `github_app.org` config: a distinct,
+    more-actionable error than `no-company-app`."""
+    _patch_cli_transport(monkeypatch, client_id=None)
+
+    result = runner.invoke(auth_app, ["login", "--json"])
+    payload = json.loads(result.output)
+
+    _validate(payload)
+    assert payload["error"]["code"] == "org-required"
+    assert result.exit_code == 2
+
+
+def test_cli_login_org_flag_resolves_client_id_via_public_bootstrap(monkeypatch):
+    """THE Defect-2 fix through the actual CLI surface: `--org` on a
+    machine with no client id configured resolves it from the org's PUBLIC
+    bootstrap artifact -- the fresh-Mac path."""
+    _patch_cli_transport(monkeypatch, client_id=None)
+
+    def fake_fetch(org, *_a, **_k):
+        assert org == "acme-co"
+        return "client-from-bootstrap"
+
+    monkeypatch.setattr("cc.commands.auth.bootstrap_config.fetch_org_client_id", fake_fetch)
+
+    def fake_request_device_code(client_id, scopes, **_kwargs):
+        assert client_id == "client-from-bootstrap"
+        return {
+            "device_code": "devcode123",
+            "user_code": "ABCD-1234",
+            "verification_uri": "https://github.com/login/device",
+            "expires_in": 900,
+            "interval": 5,
+        }
+
+    monkeypatch.setattr(
+        "cc.commands.auth.github_device.request_device_code", fake_request_device_code
+    )
+
+    result = runner.invoke(auth_app, ["login", "--org", "acme-co", "--json"])
+    payload = json.loads(result.output)
+
+    _validate(payload)
+    assert payload["kind"] == "device-code"
+    assert result.exit_code == 0
+
+
+def test_cli_login_falls_back_to_configured_org_when_flag_omitted(monkeypatch):
+    """The inherited-pointer path: the app (or an admin) sets
+    `github_app.org` once via `cc config set`; every later `cc auth login`
+    (no `--org` flag) still resolves the bootstrap fetch through it."""
+    _patch_cli_transport(monkeypatch, client_id=None, org="acme-co")
+
+    def fake_fetch(org, *_a, **_k):
+        assert org == "acme-co"
+        return "client-from-bootstrap"
+
+    monkeypatch.setattr("cc.commands.auth.bootstrap_config.fetch_org_client_id", fake_fetch)
+
+    def fake_request_device_code(client_id, scopes, **_kwargs):
+        assert client_id == "client-from-bootstrap"
+        return {
+            "device_code": "devcode123",
+            "user_code": "ABCD-1234",
+            "verification_uri": "https://github.com/login/device",
+            "expires_in": 900,
+            "interval": 5,
+        }
+
+    monkeypatch.setattr(
+        "cc.commands.auth.github_device.request_device_code", fake_request_device_code
     )
 
     result = runner.invoke(auth_app, ["login", "--json"])
     payload = json.loads(result.output)
 
     _validate(payload)
-    assert payload["error"]["code"] == "no-company-app"
-    assert result.exit_code == 2
+    assert payload["kind"] == "device-code"
+    assert result.exit_code == 0
 
 
 def test_cli_login_poll_without_device_code_is_a_missing_argument_error():

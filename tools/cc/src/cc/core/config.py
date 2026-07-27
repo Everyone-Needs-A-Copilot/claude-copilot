@@ -73,14 +73,41 @@ DEFAULTS: dict[str, Any] = {
     "paths.claude_materialize_root": "~/.claude",
     "paths.codex_materialize_root": "~/.copilot/materialized/codex",
     # WS-A foundation slice (Stream-F). GitHub App client id for the
-    # device-flow sign-in seam (core/authstore.py / core/keychain.py) --
-    # read from the org's inherited `ecosystem.yml`
-    # (core/ecosystem/ecosystem_config.py), NOT a secret itself (a client
-    # id is public by design), so it's fine to ride the plain config
-    # cascade rather than the keychain.
+    # device-flow sign-in seam (core/authstore.py / core/keychain.py).
+    # NOT a secret itself (a client id is public by design), so it's fine
+    # to ride the plain config cascade rather than the keychain -- an
+    # already-onboarded machine (or one hand-configured by an admin to
+    # unblock local testing) resolves it straight from here with no
+    # network call. A machine with nothing configured yet resolves it over
+    # the network instead: `commands/auth.py`'s `_resolve_client_id()`
+    # falls back to the org's PUBLIC bootstrap artifact
+    # (core/ecosystem/bootstrap_config.py's `fetch_org_client_id()`),
+    # fetched with no GitHub authentication and no `gh` CLI dependency --
+    # this is what breaks the sign-in chicken-and-egg on a fresh Mac
+    # (the org's PRIVATE `<org>-copilot-internal/ecosystem.yml`, which also
+    # carries this same value per admin-standup-contract.md §4, cannot be
+    # that source: reading a private repo itself requires being signed in).
     "github_app.client_id": None,
+    # The GitHub org slug `_resolve_client_id()`'s bootstrap fetch needs to
+    # know WHICH org's public artifact to read. Riding the ordinary config
+    # cascade lets the app set this once (`cc config set github_app.org
+    # <org>`, the inherited-pointer path) after it collects the org name
+    # from the person during onboarding; `cc auth login --org <org>` is the
+    # per-invocation override (also the test escape hatch). Never a
+    # secret -- an org slug is already public on GitHub.
+    "github_app.org": None,
+    # `{org}`-format template for the org's public bootstrap artifact URL
+    # (core/ecosystem/bootstrap_config.py). Override only if an org hosts
+    # this artifact somewhere other than the default `copilot-bootstrap`
+    # public repo convention.
+    "github_app.bootstrap_url_template": None,
     # Explicit override for the inherited ecosystem.yml location; when
     # unset, ecosystem_config.py derives <paths.materialize_root>/ecosystem.yml.
+    # NOTE: nothing in this codebase currently materializes this file (see
+    # ecosystem_config.py's module docstring) -- `commands/layers.py`'s
+    # `departments()` lookup is the one live (if presently unfed) consumer;
+    # `commands/auth.py` stopped depending on it (see `github_app.client_id`
+    # above) because a fresh machine can never have this file yet.
     "paths.ecosystem_config": None,
     # Source checkouts used by the explicit project activation adapters.
     # These are machine paths only; they are never written into a portable

@@ -3,9 +3,11 @@
 WS-A slice (auth-slice). Wires `core/ecosystem/github_device.py`'s pure
 device-flow protocol to this codebase's config/keychain/authstore:
   - `core/config.py` -- `github_app.client_id` / `auth.keychain_service` /
-    `auth.scopes` (config cascade), plus (as a fallback) the org's
-    inherited `ecosystem.yml` (`core/ecosystem/ecosystem_config.py`'s
-    `github_client_id()`).
+    `auth.scopes` (config cascade), plus (as a fallback, on a machine with
+    no client id configured yet) the org's PUBLIC bootstrap artifact
+    (`core/ecosystem/bootstrap_config.py`'s `fetch_org_client_id()` --
+    fetched over plain, unauthenticated HTTPS, breaking the sign-in
+    chicken-and-egg: see `_resolve_client_id()`'s docstring below).
   - `core/keychain.py` -- the ONLY place the OAuth access token is ever
     written to disk (the per-user OS keychain), account=`login`.
   - `core/authstore.py` -- the non-secret `{login, scopes, obtained_at}`
@@ -59,7 +61,7 @@ import typer
 
 from cc.core import authstore, keychain
 from cc.core.config import resolve_key
-from cc.core.ecosystem import ecosystem_config, github_device
+from cc.core.ecosystem import bootstrap_config, github_device
 from cc.core.keychain import KeychainUnavailable
 
 SCHEMA_VERSION = "1.0"
@@ -74,25 +76,83 @@ _NO_COMPANY_APP_MESSAGE = (
     "hasn't been created. It's created once during admin standup; check "
     "back once your organization has been provisioned."
 )
+_ORG_REQUIRED_MESSAGE = (
+    "Sign-in needs to know which organization you're with before it can "
+    "start. Pass --org <your-company>, or set it once with `cc config set "
+    "github_app.org <your-company>`."
+)
+_ERROR_MESSAGES: dict[str, str] = {
+    "no-company-app": _NO_COMPANY_APP_MESSAGE,
+    "org-required": _ORG_REQUIRED_MESSAGE,
+}
 
 
 def _error_envelope(code: str, message: str) -> dict[str, Any]:
     return {"schema_version": SCHEMA_VERSION, "error": {"code": code, "message": message}}
 
 
-def _resolve_client_id(_client_id: Any) -> Optional[str]:
+def _resolve_org(_org: Any) -> Optional[str]:
+    """Resolve the org slug: an explicit override (CLI `--org`/test) first,
+    else the `github_app.org` config cascade (the inherited-pointer path --
+    the app sets this once via `cc config set github_app.org <org>` after
+    collecting it during onboarding). Returns `None` when neither
+    resolves; never raises."""
+    org = resolve_key("github_app.org") if _org is _UNSET else _org
+    return org.strip() if isinstance(org, str) and org.strip() else None
+
+
+def _resolve_client_id(
+    _client_id: Any,
+    *,
+    _org: Any = _UNSET,
+    _fetch_bootstrap: Any = _UNSET,
+) -> tuple[Optional[str], Optional[str]]:
     """
-    Resolve the GitHub App client id: an explicit override (test/local
-    config) first, falling back to the org's inherited `ecosystem.yml`
-    (`ecosystem_config.github_client_id()`). Returns `None` when neither
-    resolves -- callers turn that into the `no-company-app` error
-    envelope; a client id is not a secret (public by design), so this
-    never touches the keychain.
+    Resolve the GitHub App client id. Returns `(client_id, error_code)`;
+    `error_code` is `None` on success, and one of:
+      - `"org-required"` -- no org is known yet (no `--org`, no
+        `github_app.org` config), so there is nothing to bootstrap from.
+        Only reachable when `github_app.client_id` is ALSO unset --  an
+        already-configured client id never needs an org at all.
+      - `"no-company-app"` -- an org IS known, but its public bootstrap
+        artifact is unreachable, malformed, or carries no client id: the
+        org's GitHub App connection genuinely hasn't been set up yet.
+
+    Resolution order:
+      1. Explicit override (`_client_id`, test/local escape hatch).
+      2. `resolve_key("github_app.client_id")` -- the ordinary config
+         cascade (env > project > machine > default). This is how an
+         already-onboarded machine (or one an admin hand-configured, e.g.
+         to unblock local testing) short-circuits everything below with no
+         network call at all.
+      3. The org's PUBLIC bootstrap artifact
+         (`bootstrap_config.fetch_org_client_id()`) -- fetched over plain,
+         unauthenticated HTTPS (no `gh` CLI, no prior sign-in) once an org
+         slug is known (`_resolve_org()`). This is the ONLY path that
+         works on a completely fresh Mac with nothing configured yet --
+         see this module's docstring for why the org's PRIVATE
+         `ecosystem.yml` can never be that source.
+
+    A client id is not a secret (public by design), so none of this ever
+    touches the keychain.
     """
     client_id = resolve_key("github_app.client_id") if _client_id is _UNSET else _client_id
+    if client_id:
+        return client_id, None
+
+    org = _resolve_org(_org)
+    if not org:
+        return None, "org-required"
+
+    fetch_fn = (
+        bootstrap_config.fetch_org_client_id
+        if _fetch_bootstrap is _UNSET
+        else _fetch_bootstrap
+    )
+    client_id = fetch_fn(org)
     if not client_id:
-        client_id = ecosystem_config.github_client_id()
-    return client_id
+        return None, "no-company-app"
+    return client_id, None
 
 
 # ---------------------------------------------------------------------------
@@ -105,6 +165,8 @@ def build_auth_initiate_report(
     _client_id: Any = _UNSET,
     _scopes: Any = _UNSET,
     _post_json: Any = _UNSET,
+    _org: Any = _UNSET,
+    _fetch_bootstrap: Any = _UNSET,
 ) -> dict[str, Any]:
     """
     Build the `auth login --json` (`kind: "device-code"`) contract object:
@@ -112,14 +174,17 @@ def build_auth_initiate_report(
     the user needs (`user_code`/`verification_uri`) plus the `device_code`
     flow handle the caller polls with next.
 
-    Absent client id (no local override AND no inherited `ecosystem.yml`
-    entry) -> the `no-company-app` error envelope: the org's GitHub App
-    connection hasn't been set up yet (created during admin standup, not
-    something an individual user can self-serve).
+    Absent client id -> an error envelope. `"org-required"` when no org is
+    known yet to bootstrap from (no `--org`, no `github_app.org` config);
+    `"no-company-app"` when an org IS known but its public bootstrap
+    artifact carries no client id -- the org's GitHub App connection hasn't
+    been set up yet (created during admin standup, not something an
+    individual user can self-serve). See `_resolve_client_id()`.
     """
-    client_id = _resolve_client_id(_client_id)
-    if not client_id:
-        return _error_envelope("no-company-app", _NO_COMPANY_APP_MESSAGE)
+    client_id, error_code = _resolve_client_id(_client_id, _org=_org, _fetch_bootstrap=_fetch_bootstrap)
+    if client_id is None:
+        assert error_code is not None  # invariant: _resolve_client_id always pairs the two
+        return _error_envelope(error_code, _ERROR_MESSAGES[error_code])
 
     scopes = resolve_key("auth.scopes") if _scopes is _UNSET else _scopes
     scopes = scopes or ""
@@ -207,6 +272,8 @@ def build_auth_poll_report(
     _set_secret: Any = _UNSET,
     _write_identity: Any = _UNSET,
     _auth_root: Any = _UNSET,
+    _org: Any = _UNSET,
+    _fetch_bootstrap: Any = _UNSET,
 ) -> dict[str, Any]:
     """
     Build the `auth login --poll --json` (`kind: "poll"`) contract object:
@@ -219,10 +286,18 @@ def build_auth_poll_report(
     The returned dict NEVER contains the token -- see this module's
     docstring and the NO-SECRET fitness test in
     `tests/test_auth_contract.py`.
+
+    The client id must resolve identically to the `device-code` step that
+    produced `device_code` (GitHub requires the same `client_id` on every
+    poll) -- this CLI holds no session state between processes, so the
+    caller re-supplies `--org` (or relies on the same `github_app.org`
+    config) on every `--poll` invocation, exactly as it already re-supplies
+    `--device-code`. See `_resolve_client_id()`.
     """
-    client_id = _resolve_client_id(_client_id)
-    if not client_id:
-        return _error_envelope("no-company-app", _NO_COMPANY_APP_MESSAGE)
+    client_id, error_code = _resolve_client_id(_client_id, _org=_org, _fetch_bootstrap=_fetch_bootstrap)
+    if client_id is None:
+        assert error_code is not None  # invariant: _resolve_client_id always pairs the two
+        return _error_envelope(error_code, _ERROR_MESSAGES[error_code])
 
     poll_kwargs: dict[str, Any] = {}
     if _post_json is not _UNSET:
@@ -346,6 +421,8 @@ def execute_auth_login(
     _set_secret: Any = _UNSET,
     _write_identity: Any = _UNSET,
     _auth_root: Any = _UNSET,
+    _org: Any = _UNSET,
+    _fetch_bootstrap: Any = _UNSET,
     _sleep: Callable[[float], None] = time.sleep,
     _max_polls: int = 120,
 ) -> tuple[dict[str, Any], int]:
@@ -361,12 +438,23 @@ def execute_auth_login(
     codes always terminate via their own `expires_in`, so this should
     never be hit in production.
 
+    Resolves the client id exactly ONCE (`_resolve_client_id()`), then
+    passes it straight into `build_auth_initiate_report()` as an explicit
+    override -- both so GitHub sees the identical `client_id` on the
+    initiate call and every poll (as it requires), and so a bootstrap
+    fetch that hits the network (`_resolve_client_id()`'s org-bootstrap
+    fallback) only ever happens once per call, not once per step.
+
     Returns `(report, exit_code)`, same shape as `execute_update()`/
     `execute_deprovision()`.
     """
-    initiate_kwargs: dict[str, Any] = {}
-    if _client_id is not _UNSET:
-        initiate_kwargs["_client_id"] = _client_id
+    client_id, error_code = _resolve_client_id(_client_id, _org=_org, _fetch_bootstrap=_fetch_bootstrap)
+    if client_id is None:
+        assert error_code is not None  # invariant: _resolve_client_id always pairs the two
+        error_report = _error_envelope(error_code, _ERROR_MESSAGES[error_code])
+        return error_report, compute_exit_code(error_report)
+
+    initiate_kwargs: dict[str, Any] = {"_client_id": client_id}
     if _scopes is not _UNSET:
         initiate_kwargs["_scopes"] = _scopes
     if _post_json is not _UNSET:
@@ -376,7 +464,6 @@ def execute_auth_login(
     if "error" in initiate_report:
         return initiate_report, compute_exit_code(initiate_report)
 
-    client_id = _resolve_client_id(_client_id)
     device_code = initiate_report["device_code"]
     interval = initiate_report["interval"]
 
@@ -468,8 +555,12 @@ auth_app = typer.Typer(
 )
 
 
-def _run_login(*, poll: bool, device_code: Optional[str], output_json: bool) -> None:
+def _run_login(
+    *, poll: bool, device_code: Optional[str], org: Optional[str], output_json: bool
+) -> None:
     import json as _json
+
+    org_kwargs: dict[str, Any] = {"_org": org} if org else {}
 
     if poll:
         if not device_code:
@@ -480,9 +571,9 @@ def _run_login(*, poll: bool, device_code: Optional[str], output_json: bool) -> 
                 typer.echo(f"auth: {message}", err=True)
             raise typer.Exit(2)
 
-        report = build_auth_poll_report(device_code)
+        report = build_auth_poll_report(device_code, **org_kwargs)
     else:
-        report = build_auth_initiate_report()
+        report = build_auth_initiate_report(**org_kwargs)
 
     if output_json:
         typer.echo(_json.dumps(report))
@@ -500,6 +591,18 @@ def login_cmd(
     device_code: Optional[str] = typer.Option(
         None, "--device-code", help="The device_code from a prior `cc auth login --json`."
     ),
+    org: Optional[str] = typer.Option(
+        None,
+        "--org",
+        help=(
+            "GitHub org slug to sign in through, on a machine with no "
+            "github_app.client_id/org configured yet. Required again on "
+            "every --poll call for the same reason --device-code is: this "
+            "CLI holds no session state between processes. Falls back to "
+            "the github_app.org config key (set once via `cc config set` "
+            "by the app or an admin) when omitted."
+        ),
+    ),
     output_json: bool = typer.Option(
         False, "--json", help="Output the WS-A auth contract as JSON."
     ),
@@ -507,7 +610,7 @@ def login_cmd(
     """Initiate GitHub device-flow sign-in (no flags), or perform one poll
     step (`--poll --device-code <code>`). Read-only w.r.t. the copilot
     lock -- auth never acquires it."""
-    _run_login(poll=poll, device_code=device_code, output_json=output_json)
+    _run_login(poll=poll, device_code=device_code, org=org, output_json=output_json)
 
 
 @auth_app.command("status")
@@ -539,6 +642,11 @@ def auth_callback(
     device_code: Optional[str] = typer.Option(
         None, "--device-code", help="The device_code from a prior `cc auth --json`."
     ),
+    org: Optional[str] = typer.Option(
+        None,
+        "--org",
+        help="GitHub org slug to sign in through -- see `cc auth login --help`.",
+    ),
     output_json: bool = typer.Option(
         False, "--json", help="Output the WS-A auth contract as JSON."
     ),
@@ -549,4 +657,4 @@ def auth_callback(
     subcommand (`login`/`status`) was invoked."""
     if ctx.invoked_subcommand is not None:
         return
-    _run_login(poll=poll, device_code=device_code, output_json=output_json)
+    _run_login(poll=poll, device_code=device_code, org=org, output_json=output_json)
