@@ -18,7 +18,6 @@ that never touches the alias already in place.
 
 from __future__ import annotations
 
-import json
 import os
 import platform
 import re
@@ -29,9 +28,16 @@ import tempfile
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
+from cc.core import authstore, keychain
+from cc.core.config import resolve_key
+from cc.core.ecosystem.github_keys import create_user_key, list_user_keys
+
 Run = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
 GenerateKey = Callable[[Path, str, str], subprocess.CompletedProcess[str]]
 AddKey = Callable[[Path, str | None], subprocess.CompletedProcess[str]]
+TokenLoader = Callable[[], str | None]
+ListKeys = Callable[[str], dict[str, Any]]
+CreateKey = Callable[..., dict[str, str]]
 
 # Both aliases share one device identity when created from scratch, but each
 # is classified and, if needed, written independently so an alias that
@@ -47,7 +53,6 @@ _SENTINEL_TAG = "Copilot Control Tower"
 _BEGIN_RE = re.compile(rf"^# BEGIN {re.escape(_SENTINEL_TAG)} (.+)$")
 _END_RE = re.compile(rf"^# END {re.escape(_SENTINEL_TAG)} (.+)$")
 _SSH_LOGIN_RE = re.compile(r"Hi ([^!]+)!")
-_HTTP_STATUS_RE = re.compile(r"\(HTTP (\d{3})\)")
 
 _MALFORMED_DETAIL = (
     "I don't recognize how this Mac's GitHub connection is written down, "
@@ -116,8 +121,7 @@ def _add_private_key_to_agent(
     with tempfile.TemporaryDirectory(prefix="ct-ssh-askpass-") as helper_dir:
         helper = Path(helper_dir) / "askpass"
         helper.write_text(
-            "#!/bin/sh\n"
-            'exec /usr/bin/printf "%s\\n" "$CT_SSH_KEY_PASSPHRASE"\n',
+            '#!/bin/sh\nexec /usr/bin/printf "%s\\n" "$CT_SSH_KEY_PASSPHRASE"\n',
             encoding="utf-8",
         )
         helper.chmod(0o700)
@@ -240,7 +244,11 @@ def _classify_aliases(content: str) -> tuple[dict[str, str], str | None]:
     unmanaged = _host_aliases(outside)
     return {
         alias: (
-            "managed" if alias in managed else "unmanaged" if alias in unmanaged else "missing"
+            "managed"
+            if alias in managed
+            else "unmanaged"
+            if alias in unmanaged
+            else "missing"
         )
         for alias in ALIASES
     }, None
@@ -252,15 +260,23 @@ def _write_managed_config(path: Path, key_path: Path) -> None:
     existing = path.read_text(encoding="utf-8") if path.exists() else ""
     outside, _regions, error = _split_managed(existing)
     classification, classify_error = _classify_aliases(existing)
-    unmanaged = error is None and classify_error is None and any(
-        state == "unmanaged" for state in classification.values()
+    unmanaged = (
+        error is None
+        and classify_error is None
+        and any(state == "unmanaged" for state in classification.values())
     )
     if error or classify_error or unmanaged:
         raise ValueError(
             error or classify_error or "An unmanaged GitHub SSH alias already exists."
         )
-    rendered = (outside.rstrip() + "\n\n" if outside.strip() else "") + _managed_block(key_path) + "\n"
-    with tempfile.NamedTemporaryFile("w", dir=path.parent, delete=False, encoding="utf-8") as handle:
+    rendered = (
+        (outside.rstrip() + "\n\n" if outside.strip() else "")
+        + _managed_block(key_path)
+        + "\n"
+    )
+    with tempfile.NamedTemporaryFile(
+        "w", dir=path.parent, delete=False, encoding="utf-8"
+    ) as handle:
         handle.write(rendered)
         temp_path = Path(handle.name)
     temp_path.chmod(0o600)
@@ -284,50 +300,71 @@ def _write_adoptive_config(path: Path, key_path: Path, alias: str) -> None:
     classification, error = _classify_aliases(existing)
     if error or classification.get(alias) != "missing":
         raise ValueError(
-            error or f"The {alias} SSH alias is no longer missing; setup did not add a duplicate."
+            error
+            or f"The {alias} SSH alias is no longer missing; setup did not add a duplicate."
         )
     block = _adoptive_block(alias, key_path)
     rendered = block + "\n" + ("\n" + existing if existing.strip() else "\n")
-    with tempfile.NamedTemporaryFile("w", dir=path.parent, delete=False, encoding="utf-8") as handle:
+    with tempfile.NamedTemporaryFile(
+        "w", dir=path.parent, delete=False, encoding="utf-8"
+    ) as handle:
         handle.write(rendered)
         temp_path = Path(handle.name)
     temp_path.chmod(0o600)
     os.replace(temp_path, path)
 
 
-def _permission_denied(result: subprocess.CompletedProcess[str]) -> bool:
-    """GitHub's documented answer when the signed-in token lacks
-    ``admin:public_key``: the keys endpoint answers 403 or 404 rather than
-    naming the missing permission, so the HTTP status on a failed call is
-    the only signal that distinguishes "you can't do this" from "something
-    went wrong."
-    """
-    match = _HTTP_STATUS_RE.search(result.stderr)
-    return match is not None and match.group(1) in {"403", "404"}
+def _github_token() -> str | None:
+    """Load the current cc identity's token from Keychain."""
+    try:
+        identity = authstore.read_identity()
+        login = identity.get("login") if isinstance(identity, dict) else None
+        service = resolve_key("auth.keychain_service")
+        return (
+            keychain.get_secret(login, service=service)
+            if isinstance(login, str) and login and service
+            else None
+        )
+    except (RuntimeError, OSError):
+        return None
 
 
-def _github_keys(*, run: Run) -> tuple[list[str] | None, str | None, bool]:
+def _github_keys(
+    *,
+    token: str | None,
+    list_keys: ListKeys,
+) -> tuple[list[str] | None, str | None, bool]:
     """Returns ``(keys, detail, permission_denied)``. ``permission_denied``
     is only ever ``True`` alongside a ``detail``, and tells the caller this
     is a fix only the person themselves can make -- not a generic fault to
     address to nobody.
     """
-    result = run(("gh", "api", "user/keys", "--paginate"))
-    if result.returncode != 0:
-        if _permission_denied(result):
+    if not token:
+        return (
+            None,
+            "Your GitHub sign-in doesn't include permission to add this Mac's key.",
+            True,
+        )
+    result = list_keys(token)
+    status = result.get("status")
+    if status != "ok":
+        if status == "not-permitted":
             return (
                 None,
                 "Your GitHub sign-in doesn't include permission to add this Mac's key.",
                 True,
             )
         return None, "GitHub didn't answer when I asked about this Mac's keys.", False
-    try:
-        payload = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return None, "GitHub's answer about this Mac's keys wasn't something I could read.", False
-    if not isinstance(payload, list):
-        return None, "GitHub's answer about this Mac's keys wasn't something I could read.", False
-    return [str(item.get("key", "")) for item in payload if isinstance(item, dict)], None, False
+    payload = result.get("keys")
+    if not isinstance(payload, list) or not all(
+        isinstance(value, str) for value in payload
+    ):
+        return (
+            None,
+            "GitHub's answer about this Mac's keys wasn't something I could read.",
+            False,
+        )
+    return payload, None, False
 
 
 def _signed_in_login(*, run: Run) -> str | None:
@@ -344,7 +381,9 @@ def _alias_login(alias: str, *, run: Run) -> str | None:
     instead of hanging; a short ``ConnectTimeout`` bounds the network round
     trip so a stalled connection fails closed too.
     """
-    result = run(("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-T", f"git@{alias}"))
+    result = run(
+        ("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-T", f"git@{alias}")
+    )
     match = _SSH_LOGIN_RE.search(f"{result.stdout}\n{result.stderr}")
     return match.group(1) if match else None
 
@@ -441,6 +480,9 @@ def ensure_machine_ssh_identity(
     generate_key: GenerateKey = _generate_encrypted_keypair,
     add_key: AddKey = _add_private_key_to_agent,
     passphrase_factory: Callable[[], str] = _new_key_passphrase,
+    token_loader: TokenLoader | None = None,
+    list_keys: ListKeys | None = None,
+    create_key: CreateKey | None = None,
 ) -> dict[str, Any]:
     """Plan or apply one resumable, device-local SSH identity transaction.
 
@@ -452,11 +494,28 @@ def ensure_machine_ssh_identity(
     gated the same way as the personal-packages gate's ``--adopt-existing``
     consent, using the ``ssh`` token).
     """
-    key = Path(key_path).expanduser() if key_path else Path.home() / ".ssh" / "id_ed25519_copilot"
+    if token_loader is None:
+        token_loader = _github_token
+    if list_keys is None:
+        list_keys = list_user_keys
+    if create_key is None:
+        create_key = create_user_key
+
+    key = (
+        Path(key_path).expanduser()
+        if key_path
+        else Path.home() / ".ssh" / "id_ed25519_copilot"
+    )
     public = Path(f"{key}.pub")
-    config = Path(config_path).expanduser() if config_path else Path.home() / ".ssh" / "config"
+    config = (
+        Path(config_path).expanduser()
+        if config_path
+        else Path.home() / ".ssh" / "config"
+    )
     existing_config = config.read_text(encoding="utf-8") if config.exists() else ""
-    consented = "ssh" in {value.strip().lower() for value in adopt_existing if value.strip()}
+    consented = "ssh" in {
+        value.strip().lower() for value in adopt_existing if value.strip()
+    }
     verify_repos = verify_repos or {}
 
     if key.exists() != public.exists():
@@ -468,7 +527,11 @@ def ensure_machine_ssh_identity(
             "detail": "Part of this Mac's own GitHub key is missing, and I won't replace what's there.",
         }
 
-    github_keys, error, permission_denied = _github_keys(run=run)
+    github_token = token_loader()
+    github_keys, error, permission_denied = _github_keys(
+        token=github_token,
+        list_keys=list_keys,
+    )
     if error:
         return {
             "result": "blocked",
@@ -481,7 +544,8 @@ def ensure_machine_ssh_identity(
     local_public = public.read_text(encoding="utf-8") if public.exists() else ""
     registered = bool(
         local_public
-        and _key_material(local_public) in {_key_material(value) for value in github_keys or []}
+        and _key_material(local_public)
+        in {_key_material(value) for value in github_keys or []}
     )
     key_state = "existing" if key.exists() else "missing"
     registration_state = "registered" if registered else "missing"
@@ -616,26 +680,28 @@ def ensure_machine_ssh_identity(
         }
 
     if not registered:
-        registered_result = run(
-            (
-                "gh",
-                "api",
-                "-X",
-                "POST",
-                "user/keys",
-                "-f",
-                f"title={title or f'Copilot Control Tower {socket.gethostname()}'}",
-                "-f",
-                f"key={local_public.strip()}",
-            )
+        assert github_token is not None
+        registration = create_key(
+            github_token,
+            title=title or f"Copilot Control Tower {socket.gethostname()}",
+            public_key=local_public.strip(),
         )
-        if registered_result.returncode != 0:
+        if registration.get("status") != "registered":
+            permission_detail = (
+                "Your GitHub sign-in doesn't include permission to add this Mac's key."
+                if registration.get("status") == "not-permitted"
+                else "GitHub did not confirm public-key registration. The private key never left this device."
+            )
             return {
                 "result": "blocked",
                 "key": "existing",
-                "registration": "missing",
+                "registration": (
+                    "not-permitted"
+                    if registration.get("status") == "not-permitted"
+                    else "missing"
+                ),
                 "config": "planned",
-                "detail": "GitHub did not confirm public-key registration. The private key never left this device.",
+                "detail": permission_detail,
             }
 
     try:

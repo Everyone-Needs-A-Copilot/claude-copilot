@@ -55,20 +55,18 @@ def set_secret(
     *,
     service: str,
     _run: RunFn = subprocess.run,
-) -> None:
+) -> bool:
     """
     Store `secret` in the macOS Keychain under (`service`, `account`).
 
     `-U` (update) overwrites any existing item for the same service/account
-    pair instead of erroring on a duplicate. NEVER logs or echoes `secret`
-    -- it is passed only as a subprocess argv element and never appears in
-    any message this module emits, including on failure (a nonzero exit is
-    silently swallowed, the same fail-open posture `get_secret()` /
-    `delete_secret()` use, so surfacing `security`'s own stderr can never
-    leak partial secret material).
+    pair instead of erroring on a duplicate. Returns whether Keychain
+    confirmed the write. NEVER logs or echoes `secret` -- it is passed only
+    as a subprocess argv element and never appears in any message this
+    module emits, including on failure.
     """
     _ensure_darwin()
-    _run(
+    result = _run(
         [
             "security",
             "add-generic-password",
@@ -84,6 +82,7 @@ def set_secret(
         text=True,
         check=False,
     )
+    return result.returncode == 0
 
 
 def get_secret(

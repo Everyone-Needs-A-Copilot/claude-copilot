@@ -22,6 +22,8 @@ real `Path.home()`); with no injection it defaults to `~/.copilot/auth`
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from pathlib import Path
 from typing import Any, Optional
 
@@ -88,13 +90,19 @@ def write_identity(
     path = identity_path(_root=_root)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    safe_identity = {
-        k: v for k, v in identity.items() if k not in _FORBIDDEN_KEYS
-    }
+    safe_identity = {k: v for k, v in identity.items() if k not in _FORBIDDEN_KEYS}
 
-    path.write_text(
-        json.dumps(safe_identity, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    rendered = json.dumps(safe_identity, indent=2, sort_keys=True) + "\n"
+    with tempfile.NamedTemporaryFile(
+        "w",
+        dir=path.parent,
+        delete=False,
+        encoding="utf-8",
+    ) as handle:
+        handle.write(rendered)
+        temp_path = Path(handle.name)
+    temp_path.chmod(0o600)
+    os.replace(temp_path, path)
     return path
 
 

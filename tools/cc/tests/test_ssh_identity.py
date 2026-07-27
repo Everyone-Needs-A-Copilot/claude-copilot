@@ -1,10 +1,29 @@
-import json
 import subprocess
 from pathlib import Path
 
 import cc.core.ecosystem.ssh_identity as ssh_identity_module
 import pytest
-from cc.core.ecosystem.ssh_identity import ensure_machine_ssh_identity
+from cc.core.ecosystem.ssh_identity import (
+    ensure_machine_ssh_identity as _real_ensure_machine_ssh_identity,
+)
+
+
+def ensure_machine_ssh_identity(*, run, **kwargs):
+    """Exercise SSH commands and GitHub key transport through separate fakes."""
+    kwargs.setdefault("token_loader", lambda: "keychain-token")
+    kwargs.setdefault(
+        "list_keys",
+        getattr(run, "list_keys", lambda _token: {"status": "ok", "keys": []}),
+    )
+    kwargs.setdefault(
+        "create_key",
+        getattr(
+            run,
+            "create_key",
+            lambda _token, **_kwargs: {"status": "registered"},
+        ),
+    )
+    return _real_ensure_machine_ssh_identity(run=run, **kwargs)
 
 
 class FakeCommands:
@@ -15,17 +34,22 @@ class FakeCommands:
         self.generated_passphrase_lengths = []
         self.generated_rounds = []
         self.agent_passphrase_lengths = []
+        self.key_api_calls = []
 
     def __call__(self, args):
         args = tuple(args)
         self.calls.append(args)
-        if args[:3] == ("gh", "api", "user/keys"):
-            keys = [{"key": "ssh-ed25519 TEST device"}] if self.registered else []
-            return subprocess.CompletedProcess(args, 0, json.dumps(keys), "")
-        if "POST" in args and "user/keys" in args:
-            self.registered = True
-            return subprocess.CompletedProcess(args, 0, "{}", "")
         return subprocess.CompletedProcess(args, 1, "", "unexpected")
+
+    def list_keys(self, token):
+        self.key_api_calls.append(("GET", token))
+        keys = ["ssh-ed25519 TEST device"] if self.registered else []
+        return {"status": "ok", "keys": keys}
+
+    def create_key(self, token, *, title, public_key):
+        self.key_api_calls.append(("POST", token, title, public_key))
+        self.registered = True
+        return {"status": "registered"}
 
     def generate_key(self, key_path, title, passphrase):
         self.generated_passphrase_lengths.append(len(passphrase))
@@ -43,7 +67,11 @@ class FakeCommands:
 
 @pytest.fixture(autouse=True)
 def no_real_home(monkeypatch):
-    monkeypatch.setattr(Path, "home", staticmethod(lambda: (_ for _ in ()).throw(AssertionError("real home"))))
+    monkeypatch.setattr(
+        Path,
+        "home",
+        staticmethod(lambda: (_ for _ in ()).throw(AssertionError("real home"))),
+    )
 
 
 def test_plan_reports_changes_without_writing(tmp_path):
@@ -109,9 +137,7 @@ def test_keychain_loader_uses_secret_free_askpass_file(monkeypatch, tmp_path):
         helper = Path(kwargs["env"]["SSH_ASKPASS"])
         captured["args"] = tuple(args)
         captured["helper"] = helper.read_text(encoding="utf-8")
-        captured["passphrase_length"] = len(
-            kwargs["env"]["CT_SSH_KEY_PASSPHRASE"]
-        )
+        captured["passphrase_length"] = len(kwargs["env"]["CT_SSH_KEY_PASSPHRASE"])
         captured["stdin"] = kwargs["stdin"]
         captured["start_new_session"] = kwargs["start_new_session"]
         return subprocess.CompletedProcess(args, 0, "", "")
@@ -165,7 +191,8 @@ def test_apply_generates_registers_and_writes_bounded_config(tmp_path):
     assert report["result"] == "applied"
     assert "Host example" in config.read_text()
     assert "Host github-work github-personal" in config.read_text()
-    assert any("POST" in call for call in fake.calls)
+    assert any(call[0] == "POST" for call in fake.key_api_calls)
+    assert not any(call[:3] == ("gh", "api", "user/keys") for call in fake.calls)
     assert fake.generated_passphrase_lengths[0] >= 32
     assert fake.generated_rounds == [64]
     assert fake.agent_passphrase_lengths == fake.generated_passphrase_lengths
@@ -185,10 +212,12 @@ def test_second_apply_reuses_registered_key_and_managed_block(tmp_path):
         config_path=config,
         add_key=fake.add_key,
     )
-    second = ensure_machine_ssh_identity(apply=False, run=fake, key_path=key, config_path=config)
+    second = ensure_machine_ssh_identity(
+        apply=False, run=fake, key_path=key, config_path=config
+    )
     assert first["result"] == "applied"
     assert second["result"] == "ready"
-    assert not any("POST" in call for call in fake.calls)
+    assert not any(call[0] == "POST" for call in fake.key_api_calls)
 
 
 def test_unmanaged_alias_blocks_without_rewrite(tmp_path):
@@ -196,7 +225,9 @@ def test_unmanaged_alias_blocks_without_rewrite(tmp_path):
     config = tmp_path / "config"
     original = "Host github-work\n  IdentityFile /custom/key\n"
     config.write_text(original)
-    report = ensure_machine_ssh_identity(apply=True, run=FakeCommands(key), key_path=key, config_path=config)
+    report = ensure_machine_ssh_identity(
+        apply=True, run=FakeCommands(key), key_path=key, config_path=config
+    )
     assert report["result"] == "blocked"
     assert config.read_text() == original
 
@@ -204,35 +235,34 @@ def test_unmanaged_alias_blocks_without_rewrite(tmp_path):
 def test_partial_keypair_blocks_without_replacement(tmp_path):
     key = tmp_path / "device"
     key.write_text("PRIVATE")
-    report = ensure_machine_ssh_identity(apply=True, run=FakeCommands(key), key_path=key, config_path=tmp_path / "config")
+    report = ensure_machine_ssh_identity(
+        apply=True, run=FakeCommands(key), key_path=key, config_path=tmp_path / "config"
+    )
     assert report["result"] == "blocked"
     assert key.read_text() == "PRIVATE"
 
 
 # ---------------------------------------------------------------------------
-# Fix 2: `gh api user/keys` 403/404 (GitHub's documented answer for a token
-# missing `admin:public_key`) is a fix only the person can make, and must be
-# distinguishable from an unrelated, generic failure of the same call.
+# GitHub key API 401/403/404 responses are a fix only the person can make,
+# and must be distinguishable from an unrelated transport failure.
 # ---------------------------------------------------------------------------
 
 
-def _keys_call_failing(stderr: str, returncode: int = 1):
-    def run(args):
-        args = tuple(args)
-        if args[:3] == ("gh", "api", "user/keys"):
-            return subprocess.CompletedProcess(args, returncode, "", stderr)
+class KeysFailure:
+    def __init__(self, status: str):
+        self.status = status
+
+    def __call__(self, args):
         raise AssertionError(args)
 
-    return run
+    def list_keys(self, _token):
+        return {"status": self.status, "keys": []}
 
 
-def test_missing_admin_public_key_scope_reports_not_permitted(tmp_path):
+def test_missing_write_public_key_scope_reports_not_permitted(tmp_path):
     key = tmp_path / "ssh" / "device"
     config = tmp_path / "ssh" / "config"
-    run = _keys_call_failing(
-        'gh: Not Found (HTTP 404)\ngh: This API operation needs the "admin:public_key" '
-        "scope. To request it, run:  gh auth refresh -h github.com -s admin:public_key\n"
-    )
+    run = KeysFailure("not-permitted")
     report = ensure_machine_ssh_identity(run=run, key_path=key, config_path=config)
     assert report["result"] == "blocked"
     assert report["registration"] == "not-permitted"
@@ -245,7 +275,7 @@ def test_missing_admin_public_key_scope_reports_not_permitted(tmp_path):
 def test_forbidden_key_listing_also_reports_not_permitted(tmp_path):
     key = tmp_path / "ssh" / "device"
     config = tmp_path / "ssh" / "config"
-    run = _keys_call_failing("gh: Forbidden (HTTP 403)\n")
+    run = KeysFailure("not-permitted")
     report = ensure_machine_ssh_identity(run=run, key_path=key, config_path=config)
     assert report["registration"] == "not-permitted"
 
@@ -253,11 +283,13 @@ def test_forbidden_key_listing_also_reports_not_permitted(tmp_path):
 def test_unrelated_key_listing_failure_stays_generic(tmp_path):
     key = tmp_path / "ssh" / "device"
     config = tmp_path / "ssh" / "config"
-    run = _keys_call_failing("gh: connection reset by peer\n")
+    run = KeysFailure("error")
     report = ensure_machine_ssh_identity(run=run, key_path=key, config_path=config)
     assert report["result"] == "blocked"
     assert report["registration"] == "not-checked"
-    assert report["detail"] == "GitHub didn't answer when I asked about this Mac's keys."
+    assert (
+        report["detail"] == "GitHub didn't answer when I asked about this Mac's keys."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -291,13 +323,11 @@ class AdoptCommands:
         self.calls = []
         self.generated_passphrase_lengths = []
         self.agent_passphrase_lengths = []
+        self.key_api_calls = []
 
     def __call__(self, args):
         args = tuple(args)
         self.calls.append(args)
-        if args[:3] == ("gh", "api", "user/keys"):
-            keys = [{"key": "ssh-ed25519 TEST device"}] if self.registered else []
-            return subprocess.CompletedProcess(args, 0, json.dumps(keys), "")
         if args[:4] == ("gh", "api", "user", "--jq"):
             if self.signed_in_login is None:
                 return subprocess.CompletedProcess(args, 1, "", "not signed in")
@@ -306,7 +336,9 @@ class AdoptCommands:
             alias = args[-1].removeprefix("git@")
             login = self.alias_logins.get(alias)
             if login is None:
-                return subprocess.CompletedProcess(args, 255, "", "ssh: Could not resolve hostname\n")
+                return subprocess.CompletedProcess(
+                    args, 255, "", "ssh: Could not resolve hostname\n"
+                )
             return subprocess.CompletedProcess(
                 args,
                 1,
@@ -318,20 +350,33 @@ class AdoptCommands:
             hostname = self.alias_hostnames.get(alias)
             if hostname is None:
                 return subprocess.CompletedProcess(args, 1, "", "")
-            return subprocess.CompletedProcess(args, 0, f"host {alias}\nhostname {hostname}\n", "")
+            return subprocess.CompletedProcess(
+                args, 0, f"host {alias}\nhostname {hostname}\n", ""
+            )
         if args[0] == "git" and "ls-remote" in args:
             assert "-c" in args and any(
                 value.startswith("core.sshCommand=") and "BatchMode=yes" in value
                 for value in args
-            ), "git ls-remote must fail closed on its own, not rely on ssh -T running first"
+            ), (
+                "git ls-remote must fail closed on its own, not rely on ssh -T running first"
+            )
             target = args[-1]
             if target in self.reachable_repos:
                 return subprocess.CompletedProcess(args, 0, "abc123\tHEAD\n", "")
-            return subprocess.CompletedProcess(args, 128, "", "fatal: could not read from remote repository")
-        if "POST" in args and "user/keys" in args:
-            self.registered = True
-            return subprocess.CompletedProcess(args, 0, "{}", "")
+            return subprocess.CompletedProcess(
+                args, 128, "", "fatal: could not read from remote repository"
+            )
         return subprocess.CompletedProcess(args, 1, "", "unexpected")
+
+    def list_keys(self, token):
+        self.key_api_calls.append(("GET", token))
+        keys = ["ssh-ed25519 TEST device"] if self.registered else []
+        return {"status": "ok", "keys": keys}
+
+    def create_key(self, token, *, title, public_key):
+        self.key_api_calls.append(("POST", token, title, public_key))
+        self.registered = True
+        return {"status": "registered"}
 
     def generate_key(self, key_path, title, passphrase):
         self.generated_passphrase_lengths.append(len(passphrase))
@@ -346,7 +391,9 @@ class AdoptCommands:
         return subprocess.CompletedProcess(("ssh-add", str(key_path)), 0, "", "")
 
 
-_UNMANAGED_WORK_ALIAS = "Host github-work\n  HostName github.com\n  User git\n  IdentityFile /custom/key\n"
+_UNMANAGED_WORK_ALIAS = (
+    "Host github-work\n  HostName github.com\n  User git\n  IdentityFile /custom/key\n"
+)
 
 
 def test_adoptable_when_unmanaged_alias_verifies_and_offers_missing_alias(tmp_path):
@@ -427,7 +474,7 @@ def test_apply_with_consent_adds_missing_alias_additively(tmp_path):
     # never shadow HostName/User/IdentityFile for the new alias.
     assert written.index("Host github-personal") < written.index("Host github-work")
     assert key.exists()
-    assert any("POST" in call for call in fake.calls)
+    assert any(call[0] == "POST" for call in fake.key_api_calls)
     assert fake.generated_passphrase_lengths[0] >= 32
     assert fake.agent_passphrase_lengths == fake.generated_passphrase_lengths
 

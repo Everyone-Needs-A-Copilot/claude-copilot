@@ -71,7 +71,11 @@ def test_read_identity_non_object_json_returns_empty_dict(tmp_path):
 
 
 def test_write_then_read_round_trip(tmp_path):
-    identity = {"login": "octocat", "scopes": "read:org repo", "obtained_at": "2026-07-16T00:00:00Z"}
+    identity = {
+        "login": "octocat",
+        "scopes": "read:org repo",
+        "obtained_at": "2026-07-16T00:00:00Z",
+    }
     written_path = write_identity(identity, _root=tmp_path)
 
     assert written_path == identity_path(_root=tmp_path)
@@ -83,6 +87,11 @@ def test_write_identity_creates_auth_root(tmp_path):
     assert not root.exists()
     write_identity({"login": "octocat"}, _root=root)
     assert root.exists()
+
+
+def test_write_identity_is_private_to_the_current_user(tmp_path):
+    written = write_identity({"login": "octocat"}, _root=tmp_path)
+    assert written.stat().st_mode & 0o777 == 0o600
 
 
 def test_write_identity_never_persists_token(tmp_path):

@@ -32,6 +32,8 @@ from typing import Any
 import pytest
 from cc.commands.auth import (
     auth_app,
+    build_auth_grant_initiate_report,
+    build_auth_grant_poll_report,
     build_auth_initiate_report,
     build_auth_poll_report,
     build_auth_status_report,
@@ -100,7 +102,9 @@ def _no_real_home(monkeypatch):
 
 
 class _FakePostJson:
-    def __init__(self, response: Any = None, *, responses: list[Any] | None = None) -> None:
+    def __init__(
+        self, response: Any = None, *, responses: list[Any] | None = None
+    ) -> None:
         self._responses = list(responses) if responses is not None else None
         self._single = response
         self.calls: list[tuple[str, dict, dict]] = []
@@ -126,8 +130,9 @@ class _SetSecretSpy:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, str]] = []
 
-    def __call__(self, account: str, secret: str, *, service: str) -> None:
+    def __call__(self, account: str, secret: str, *, service: str) -> bool:
         self.calls.append((account, secret, service))
+        return True
 
 
 class _WriteIdentitySpy:
@@ -137,6 +142,14 @@ class _WriteIdentitySpy:
     def __call__(self, identity: dict, **_kwargs: Any) -> Path:
         self.calls.append(identity)
         return Path("unused")
+
+
+def _current_identity() -> dict[str, str]:
+    return {
+        "login": "octocat",
+        "scopes": "read:org repo",
+        "obtained_at": "2026-07-01T00:00:00Z",
+    }
 
 
 def _never_call(*_args, **_kwargs):
@@ -252,7 +265,9 @@ def test_initiate_report_org_required_error_envelope_when_no_org_known():
     """No org resolvable at all (no `--org`, no `github_app.org` config) --
     distinct from, and more actionable than, `no-company-app`: there isn't
     even an org to bootstrap a client id from yet."""
-    report = build_auth_initiate_report(_client_id=None, _org=None, _post_json=_never_call)
+    report = build_auth_initiate_report(
+        _client_id=None, _org=None, _post_json=_never_call
+    )
 
     _validate(report)
     assert report["error"]["code"] == "org-required"
@@ -320,7 +335,11 @@ def test_poll_report_non_authorized_statuses_validate_and_exit_correctly(
     )
 
     _validate(report)
-    assert report == {"schema_version": "1.0", "kind": "poll", "status": expected_status}
+    assert report == {
+        "schema_version": "1.0",
+        "kind": "poll",
+        "status": expected_status,
+    }
     assert compute_exit_code(report) == expected_exit
 
 
@@ -423,6 +442,146 @@ def test_poll_authorized_fetches_identity_using_bearer_token(tmp_path):
     url, headers = get_json.calls[0]
     assert url == "https://api.github.com/user"
     assert headers["Authorization"] == f"Bearer {_TOKEN}"
+
+
+# ---------------------------------------------------------------------------
+# cc auth grant -- least-privilege, identity-bound token upgrade
+# ---------------------------------------------------------------------------
+
+
+def test_grant_initiate_requires_current_cc_sign_in_without_network_call():
+    report = build_auth_grant_initiate_report(
+        _identity={},
+        _client_id="client-abc",
+        _post_json=_never_call,
+    )
+
+    _validate(report)
+    assert report["error"]["code"] == "signed-in-required"
+    assert compute_exit_code(report) == 2
+
+
+def test_grant_initiate_requests_only_write_public_key():
+    post_json = _FakePostJson(
+        {
+            "device_code": "grant-device",
+            "user_code": "GRANT-1234",
+            "verification_uri": "https://github.com/login/device",
+            "expires_in": 900,
+            "interval": 5,
+        }
+    )
+
+    report = build_auth_grant_initiate_report(
+        _identity=_current_identity(),
+        _get_secret=lambda _login, *, service: "old-keychain-token",
+        _keychain_service="svc",
+        _client_id="client-abc",
+        _post_json=post_json,
+    )
+
+    _validate(report)
+    assert report["kind"] == "grant-device-code"
+    assert report["permission"] == "write:public_key"
+    assert post_json.calls[0][1]["scope"] == "write:public_key"
+    _assert_no_secret_shaped_keys(report)
+
+
+def test_grant_poll_commits_matching_identity_and_confirmed_scope():
+    post_json = _FakePostJson(
+        {
+            "access_token": _TOKEN,
+            "scope": "read:org,write:public_key",
+        }
+    )
+    set_secret_spy = _SetSecretSpy()
+    write_identity_spy = _WriteIdentitySpy()
+
+    report = build_auth_grant_poll_report(
+        "grant-device",
+        _identity=_current_identity(),
+        _get_secret=lambda _login, *, service: "old-keychain-token",
+        _keychain_service="svc",
+        _client_id="client-abc",
+        _post_json=post_json,
+        _fetch_identity=lambda token: {"login": "OctoCat"},
+        _set_secret=set_secret_spy,
+        _write_identity=write_identity_spy,
+    )
+
+    _validate(report)
+    assert report == {
+        "schema_version": "1.0",
+        "kind": "grant-poll",
+        "status": "granted",
+    }
+    assert set_secret_spy.calls == [("octocat", _TOKEN, "svc")]
+    assert write_identity_spy.calls[0]["scopes"] == ("read:org,write:public_key")
+    assert _TOKEN not in json.dumps(report)
+
+
+@pytest.mark.parametrize(
+    ("candidate_login", "scope", "expected"),
+    [
+        ("someone-else", "write:public_key", "identity-mismatch"),
+        ("octocat", "read:org repo", "insufficient-scope"),
+    ],
+)
+def test_grant_poll_rejects_unsafe_candidate_without_writes(
+    candidate_login,
+    scope,
+    expected,
+):
+    set_secret_spy = _SetSecretSpy()
+    write_identity_spy = _WriteIdentitySpy()
+    report = build_auth_grant_poll_report(
+        "grant-device",
+        _identity=_current_identity(),
+        _get_secret=lambda _login, *, service: "old-keychain-token",
+        _keychain_service="svc",
+        _client_id="client-abc",
+        _post_json=_FakePostJson({"access_token": _TOKEN, "scope": scope}),
+        _fetch_identity=lambda token: {"login": candidate_login},
+        _set_secret=set_secret_spy,
+        _write_identity=write_identity_spy,
+    )
+
+    _validate(report)
+    assert report["status"] == expected
+    assert compute_exit_code(report) == 1
+    assert set_secret_spy.calls == []
+    assert write_identity_spy.calls == []
+
+
+def test_grant_poll_rolls_keychain_back_when_pointer_write_fails():
+    writes: list[tuple[str, str, str]] = []
+
+    def set_secret(account: str, secret: str, *, service: str) -> bool:
+        writes.append((account, secret, service))
+        return True
+
+    def fail_pointer(_identity: dict, **_kwargs: Any) -> None:
+        raise OSError("disk full")
+
+    report = build_auth_grant_poll_report(
+        "grant-device",
+        _identity=_current_identity(),
+        _get_secret=lambda _login, *, service: "old-keychain-token",
+        _keychain_service="svc",
+        _client_id="client-abc",
+        _post_json=_FakePostJson({"access_token": _TOKEN, "scope": "write:public_key"}),
+        _fetch_identity=lambda token: {"login": "octocat"},
+        _set_secret=set_secret,
+        _write_identity=fail_pointer,
+    )
+
+    _validate(report)
+    assert report["error"]["code"] == "identity-write-failed"
+    assert writes == [
+        ("octocat", _TOKEN, "svc"),
+        ("octocat", "old-keychain-token", "svc"),
+    ]
+    assert _TOKEN not in json.dumps(report)
 
 
 # ---------------------------------------------------------------------------
@@ -653,11 +812,15 @@ def _patch_cli_transport(
         }.get(key),
     )
     if request_device_code is not None:
-        monkeypatch.setattr("cc.commands.auth.github_device.request_device_code", request_device_code)
+        monkeypatch.setattr(
+            "cc.commands.auth.github_device.request_device_code", request_device_code
+        )
     if poll_token is not None:
         monkeypatch.setattr("cc.commands.auth.github_device.poll_token", poll_token)
     if fetch_identity is not None:
-        monkeypatch.setattr("cc.commands.auth.github_device.fetch_identity", fetch_identity)
+        monkeypatch.setattr(
+            "cc.commands.auth.github_device.fetch_identity", fetch_identity
+        )
     if set_secret is not None:
         monkeypatch.setattr("cc.commands.auth.keychain.set_secret", set_secret)
     if get_secret is not None:
@@ -712,6 +875,49 @@ def test_cli_bare_auth_behaves_like_login_initiate(monkeypatch):
     assert result.exit_code == 0
 
 
+def test_cli_grant_initiate_uses_strict_least_privilege_contract(monkeypatch):
+    def fake_request_device_code(client_id, scopes, **_kwargs):
+        assert client_id == "client-abc"
+        assert scopes == "write:public_key"
+        return {
+            "device_code": "grant-device",
+            "user_code": "GRANT-1234",
+            "verification_uri": "https://github.com/login/device",
+            "expires_in": 900,
+            "interval": 5,
+        }
+
+    _patch_cli_transport(
+        monkeypatch,
+        request_device_code=fake_request_device_code,
+        read_identity=lambda **_kwargs: _current_identity(),
+        get_secret=lambda _login, *, service: "old-keychain-token",
+    )
+
+    result = runner.invoke(auth_app, ["grant", "--json"])
+    payload = json.loads(result.output)
+
+    _validate(payload)
+    assert payload["kind"] == "grant-device-code"
+    assert payload["permission"] == "write:public_key"
+    assert result.exit_code == 0
+
+
+def test_cli_grant_poll_requires_device_code(monkeypatch):
+    _patch_cli_transport(
+        monkeypatch,
+        read_identity=lambda **_kwargs: _current_identity(),
+        get_secret=lambda _login, *, service: "old-keychain-token",
+    )
+
+    result = runner.invoke(auth_app, ["grant", "--poll", "--json"])
+    payload = json.loads(result.output)
+
+    _validate(payload)
+    assert payload["error"]["code"] == "missing-argument"
+    assert result.exit_code == 2
+
+
 def test_cli_login_no_company_app_json_exits_2(monkeypatch):
     """An org IS known (`--org`) and real, but its public bootstrap artifact
     has no client id -- the org genuinely has no company app yet."""
@@ -741,7 +947,8 @@ def test_cli_login_org_not_found_json_exits_2(monkeypatch):
         lambda *_a, **_k: (None, "invalid-artifact"),
     )
     monkeypatch.setattr(
-        "cc.commands.auth.bootstrap_config.org_exists_on_github", lambda *_a, **_k: False
+        "cc.commands.auth.bootstrap_config.org_exists_on_github",
+        lambda *_a, **_k: False,
     )
 
     result = runner.invoke(auth_app, ["login", "--org", "typo-co", "--json"])
@@ -795,7 +1002,9 @@ def test_cli_login_org_flag_resolves_client_id_via_public_bootstrap(monkeypatch)
         assert org == "acme-co"
         return "client-from-bootstrap", None
 
-    monkeypatch.setattr("cc.commands.auth.bootstrap_config.fetch_org_client_id", fake_fetch)
+    monkeypatch.setattr(
+        "cc.commands.auth.bootstrap_config.fetch_org_client_id", fake_fetch
+    )
 
     def fake_request_device_code(client_id, scopes, **_kwargs):
         assert client_id == "client-from-bootstrap"
@@ -829,7 +1038,9 @@ def test_cli_login_falls_back_to_configured_org_when_flag_omitted(monkeypatch):
         assert org == "acme-co"
         return "client-from-bootstrap", None
 
-    monkeypatch.setattr("cc.commands.auth.bootstrap_config.fetch_org_client_id", fake_fetch)
+    monkeypatch.setattr(
+        "cc.commands.auth.bootstrap_config.fetch_org_client_id", fake_fetch
+    )
 
     def fake_request_device_code(client_id, scopes, **_kwargs):
         assert client_id == "client-from-bootstrap"
@@ -865,7 +1076,11 @@ def test_cli_login_poll_authorized_never_leaks_token_and_exits_0(monkeypatch):
     def fake_poll_token(client_id, device_code, **_kwargs):
         assert client_id == "client-abc"
         assert device_code == "devcode123"
-        return {"status": "authorized", "access_token": _TOKEN, "scope": "read:org repo"}
+        return {
+            "status": "authorized",
+            "access_token": _TOKEN,
+            "scope": "read:org repo",
+        }
 
     def fake_fetch_identity(token, **_kwargs):
         assert token == _TOKEN
@@ -896,7 +1111,11 @@ def test_cli_login_poll_authorized_never_leaks_token_and_exits_0(monkeypatch):
 
     assert set_secret_spy.calls == [("octocat", _TOKEN, "svc")]
     assert write_identity_spy.calls == [
-        {"login": "octocat", "scopes": "read:org repo", "obtained_at": write_identity_spy.calls[0]["obtained_at"]}
+        {
+            "login": "octocat",
+            "scopes": "read:org repo",
+            "obtained_at": write_identity_spy.calls[0]["obtained_at"],
+        }
     ]
 
 
@@ -926,7 +1145,11 @@ def test_cli_status_signed_out_by_default_never_touches_network(monkeypatch):
     payload = json.loads(result.output)
 
     _validate(payload)
-    assert payload == {"schema_version": "1.0", "kind": "status", "status": "signed-out"}
+    assert payload == {
+        "schema_version": "1.0",
+        "kind": "status",
+        "status": "signed-out",
+    }
     assert result.exit_code == 0
 
 
@@ -951,7 +1174,9 @@ def test_cli_status_authorized_when_signed_in(monkeypatch):
 
 def test_cli_status_human_readable_rendering_smoke(monkeypatch):
     """Non-JSON path renders via Rich without raising."""
-    _patch_cli_transport(monkeypatch, read_identity=lambda **_k: {}, get_secret=_never_call)
+    _patch_cli_transport(
+        monkeypatch, read_identity=lambda **_k: {}, get_secret=_never_call
+    )
 
     result = runner.invoke(auth_app, ["status"])
     assert result.exit_code == 0

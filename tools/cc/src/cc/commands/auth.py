@@ -14,13 +14,15 @@ device-flow protocol to this codebase's config/keychain/authstore:
     identity pointer (`~/.copilot/auth/active.json` by default).
 
 Schema: copilot-control-tower/docs/01-architecture/schemas/auth.schema.json
-(vendored copy: tools/cc/tests/fixtures/schemas/auth.schema.json). Three
+(vendored copy: tools/cc/tests/fixtures/schemas/auth.schema.json). Five
 payload kinds, discriminated by `kind`:
   - `device-code` -- `build_auth_initiate_report()` (`cc auth login --json`)
   - `poll`        -- `build_auth_poll_report()` (`cc auth login --poll
                       --device-code <code> --json`)
   - `status`      -- `build_auth_status_report()` (`cc auth status --json`,
                       offline-safe, no network)
+  - `grant-device-code` -- `build_auth_grant_initiate_report()`
+  - `grant-poll` -- `build_auth_grant_poll_report()`
 
 NO-SECRET DISCIPLINE (this module's central invariant, enforced by the
 schema's fitness `allOf` and by tests/test_auth_contract.py's recursive
@@ -53,6 +55,7 @@ this module is fully self-sufficient without it (every test here invokes
 
 from __future__ import annotations
 
+import re
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
@@ -65,6 +68,8 @@ from cc.core.ecosystem import bootstrap_config, github_device
 from cc.core.keychain import KeychainUnavailable
 
 SCHEMA_VERSION = "1.0"
+GRANT_PERMISSION = "write:public_key"
+GRANT_ACCEPTED_SCOPES = frozenset({GRANT_PERMISSION, "admin:public_key"})
 
 # Sentinel distinguishing "no override passed" from an explicit None
 # argument -- mirrors commands/freshness.py's/commands/deprovision.py's
@@ -82,8 +87,7 @@ _ORG_REQUIRED_MESSAGE = (
     "github_app.org <your-company>`."
 )
 _ORG_NOT_FOUND_MESSAGE = (
-    "That organization couldn't be found on GitHub -- check the spelling "
-    "and try again."
+    "That organization couldn't be found on GitHub -- check the spelling and try again."
 )
 _NETWORK_UNAVAILABLE_MESSAGE = (
     "Sign-in needs a network connection to look up your organization's "
@@ -95,10 +99,60 @@ _ERROR_MESSAGES: dict[str, str] = {
     "org-not-found": _ORG_NOT_FOUND_MESSAGE,
     "network-unavailable": _NETWORK_UNAVAILABLE_MESSAGE,
 }
+_SIGNED_IN_REQUIRED_MESSAGE = (
+    "Sign in with `cc auth login` before asking GitHub for permission to "
+    "add this Mac's public key."
+)
+_KEYCHAIN_UNAVAILABLE_MESSAGE = (
+    "The current GitHub sign-in could not be read from or saved to Keychain."
+)
 
 
 def _error_envelope(code: str, message: str) -> dict[str, Any]:
-    return {"schema_version": SCHEMA_VERSION, "error": {"code": code, "message": message}}
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "error": {"code": code, "message": message},
+    }
+
+
+def _scope_set(value: Optional[str]) -> set[str]:
+    return {scope for scope in re.split(r"[\s,]+", value or "") if scope}
+
+
+def _read_identity(*, _identity: Any, _auth_root: Any) -> dict[str, Any]:
+    if _identity is not _UNSET:
+        return _identity if isinstance(_identity, dict) else {}
+    kwargs: dict[str, Any] = {}
+    if _auth_root is not _UNSET:
+        kwargs["_root"] = _auth_root
+    return authstore.read_identity(**kwargs)
+
+
+def _current_credential(
+    *,
+    _identity: Any,
+    _auth_root: Any,
+    _keychain_service: Any,
+    _get_secret: Any,
+) -> tuple[dict[str, Any], Optional[str], Optional[str]]:
+    identity = _read_identity(_identity=_identity, _auth_root=_auth_root)
+    login = identity.get("login")
+    if not isinstance(login, str) or not login.strip():
+        return identity, None, "signed-in-required"
+
+    service = (
+        resolve_key("auth.keychain_service")
+        if _keychain_service is _UNSET
+        else _keychain_service
+    )
+    get_secret_fn = keychain.get_secret if _get_secret is _UNSET else _get_secret
+    try:
+        token = get_secret_fn(login, service=service)
+    except (KeychainUnavailable, OSError, RuntimeError):
+        return identity, None, "keychain-unavailable"
+    if not token:
+        return identity, None, "signed-in-required"
+    return identity, token, None
 
 
 def _resolve_org(_org: Any) -> Optional[str]:
@@ -162,7 +216,9 @@ def _resolve_client_id(
     A client id is not a secret (public by design), so none of this ever
     touches the keychain.
     """
-    client_id = resolve_key("github_app.client_id") if _client_id is _UNSET else _client_id
+    client_id = (
+        resolve_key("github_app.client_id") if _client_id is _UNSET else _client_id
+    )
     if client_id:
         return client_id, None
 
@@ -183,9 +239,7 @@ def _resolve_client_id(
         return None, "network-unavailable"
 
     exists_fn = (
-        bootstrap_config.org_exists_on_github
-        if _org_exists is _UNSET
-        else _org_exists
+        bootstrap_config.org_exists_on_github if _org_exists is _UNSET else _org_exists
     )
     if exists_fn(org) is False:
         return None, "org-not-found"
@@ -224,10 +278,15 @@ def build_auth_initiate_report(
     something an individual user can self-serve). See `_resolve_client_id()`.
     """
     client_id, error_code = _resolve_client_id(
-        _client_id, _org=_org, _fetch_bootstrap=_fetch_bootstrap, _org_exists=_org_exists
+        _client_id,
+        _org=_org,
+        _fetch_bootstrap=_fetch_bootstrap,
+        _org_exists=_org_exists,
     )
     if client_id is None:
-        assert error_code is not None  # invariant: _resolve_client_id always pairs the two
+        assert (
+            error_code is not None
+        )  # invariant: _resolve_client_id always pairs the two
         return _error_envelope(error_code, _ERROR_MESSAGES[error_code])
 
     scopes = resolve_key("auth.scopes") if _scopes is _UNSET else _scopes
@@ -284,23 +343,41 @@ def _persist_authorized(
     fetch_kwargs: dict[str, Any] = {}
     if _get_json is not _UNSET:
         fetch_kwargs["get_json"] = _get_json
-    fetch_fn = _fetch_identity if _fetch_identity is not _UNSET else github_device.fetch_identity
+    fetch_fn = (
+        _fetch_identity
+        if _fetch_identity is not _UNSET
+        else github_device.fetch_identity
+    )
     identity = fetch_fn(access_token, **fetch_kwargs)
     login = identity.get("login")
 
     service = (
-        resolve_key("auth.keychain_service") if _keychain_service is _UNSET else _keychain_service
+        resolve_key("auth.keychain_service")
+        if _keychain_service is _UNSET
+        else _keychain_service
     )
     set_secret_fn = _set_secret if _set_secret is not _UNSET else keychain.set_secret
-    set_secret_fn(login, access_token, service=service)
+    try:
+        stored = set_secret_fn(login, access_token, service=service)
+    except (KeychainUnavailable, OSError, RuntimeError):
+        stored = False
+    if stored is not True:
+        return _error_envelope(
+            "keychain-unavailable",
+            _KEYCHAIN_UNAVAILABLE_MESSAGE,
+        )
 
     scopes = _granted_scope or ""
     obtained_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     write_kwargs: dict[str, Any] = {}
     if _auth_root is not _UNSET:
         write_kwargs["_root"] = _auth_root
-    write_identity_fn = _write_identity if _write_identity is not _UNSET else authstore.write_identity
-    write_identity_fn({"login": login, "scopes": scopes, "obtained_at": obtained_at}, **write_kwargs)
+    write_identity_fn = (
+        _write_identity if _write_identity is not _UNSET else authstore.write_identity
+    )
+    write_identity_fn(
+        {"login": login, "scopes": scopes, "obtained_at": obtained_at}, **write_kwargs
+    )
 
     return {"schema_version": SCHEMA_VERSION, "kind": "poll", "status": "authorized"}
 
@@ -340,10 +417,15 @@ def build_auth_poll_report(
     `--device-code`. See `_resolve_client_id()`.
     """
     client_id, error_code = _resolve_client_id(
-        _client_id, _org=_org, _fetch_bootstrap=_fetch_bootstrap, _org_exists=_org_exists
+        _client_id,
+        _org=_org,
+        _fetch_bootstrap=_fetch_bootstrap,
+        _org_exists=_org_exists,
     )
     if client_id is None:
-        assert error_code is not None  # invariant: _resolve_client_id always pairs the two
+        assert (
+            error_code is not None
+        )  # invariant: _resolve_client_id always pairs the two
         return _error_envelope(error_code, _ERROR_MESSAGES[error_code])
 
     poll_kwargs: dict[str, Any] = {}
@@ -365,6 +447,208 @@ def build_auth_poll_report(
         _write_identity=_write_identity,
         _auth_root=_auth_root,
     )
+
+
+# ---------------------------------------------------------------------------
+# Least-privilege SSH-key permission grant
+# ---------------------------------------------------------------------------
+
+
+def build_auth_grant_initiate_report(
+    *,
+    _client_id: Any = _UNSET,
+    _post_json: Any = _UNSET,
+    _identity: Any = _UNSET,
+    _get_secret: Any = _UNSET,
+    _keychain_service: Any = _UNSET,
+    _auth_root: Any = _UNSET,
+    _org: Any = _UNSET,
+    _fetch_bootstrap: Any = _UNSET,
+    _org_exists: Any = _UNSET,
+) -> dict[str, Any]:
+    """Start a token upgrade requesting only SSH public-key write access."""
+    _current, _token, credential_error = _current_credential(
+        _identity=_identity,
+        _auth_root=_auth_root,
+        _keychain_service=_keychain_service,
+        _get_secret=_get_secret,
+    )
+    if credential_error == "signed-in-required":
+        return _error_envelope(
+            "signed-in-required",
+            _SIGNED_IN_REQUIRED_MESSAGE,
+        )
+    if credential_error is not None:
+        return _error_envelope(
+            "keychain-unavailable",
+            _KEYCHAIN_UNAVAILABLE_MESSAGE,
+        )
+
+    client_id, error_code = _resolve_client_id(
+        _client_id,
+        _org=_org,
+        _fetch_bootstrap=_fetch_bootstrap,
+        _org_exists=_org_exists,
+    )
+    if client_id is None:
+        assert error_code is not None
+        return _error_envelope(error_code, _ERROR_MESSAGES[error_code])
+
+    kwargs: dict[str, Any] = {}
+    if _post_json is not _UNSET:
+        kwargs["post_json"] = _post_json
+    device = github_device.request_device_code(
+        client_id,
+        GRANT_PERMISSION,
+        **kwargs,
+    )
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "kind": "grant-device-code",
+        "permission": GRANT_PERMISSION,
+        "user_code": device["user_code"],
+        "verification_uri": device["verification_uri"],
+        "expires_in": device["expires_in"],
+        "interval": device["interval"],
+        "device_code": device["device_code"],
+    }
+
+
+def build_auth_grant_poll_report(
+    device_code: str,
+    *,
+    _client_id: Any = _UNSET,
+    _post_json: Any = _UNSET,
+    _get_json: Any = _UNSET,
+    _fetch_identity: Any = _UNSET,
+    _identity: Any = _UNSET,
+    _get_secret: Any = _UNSET,
+    _keychain_service: Any = _UNSET,
+    _set_secret: Any = _UNSET,
+    _write_identity: Any = _UNSET,
+    _auth_root: Any = _UNSET,
+    _org: Any = _UNSET,
+    _fetch_bootstrap: Any = _UNSET,
+    _org_exists: Any = _UNSET,
+) -> dict[str, Any]:
+    """Poll and commit a least-privilege token upgrade transaction."""
+    current, old_token, credential_error = _current_credential(
+        _identity=_identity,
+        _auth_root=_auth_root,
+        _keychain_service=_keychain_service,
+        _get_secret=_get_secret,
+    )
+    if credential_error == "signed-in-required":
+        return _error_envelope(
+            "signed-in-required",
+            _SIGNED_IN_REQUIRED_MESSAGE,
+        )
+    if credential_error is not None:
+        return _error_envelope(
+            "keychain-unavailable",
+            _KEYCHAIN_UNAVAILABLE_MESSAGE,
+        )
+
+    client_id, error_code = _resolve_client_id(
+        _client_id,
+        _org=_org,
+        _fetch_bootstrap=_fetch_bootstrap,
+        _org_exists=_org_exists,
+    )
+    if client_id is None:
+        assert error_code is not None
+        return _error_envelope(error_code, _ERROR_MESSAGES[error_code])
+
+    poll_kwargs: dict[str, Any] = {}
+    if _post_json is not _UNSET:
+        poll_kwargs["post_json"] = _post_json
+    result = github_device.poll_token(client_id, device_code, **poll_kwargs)
+    status = result["status"]
+    if status != "authorized":
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "kind": "grant-poll",
+            "status": status,
+        }
+
+    fetch_kwargs: dict[str, Any] = {}
+    if _get_json is not _UNSET:
+        fetch_kwargs["get_json"] = _get_json
+    fetch_fn = (
+        github_device.fetch_identity if _fetch_identity is _UNSET else _fetch_identity
+    )
+    candidate_token = result["access_token"]
+    candidate = fetch_fn(candidate_token, **fetch_kwargs)
+    current_login = current.get("login")
+    candidate_login = candidate.get("login")
+    if (
+        not isinstance(candidate_login, str)
+        or not isinstance(current_login, str)
+        or candidate_login.casefold() != current_login.casefold()
+    ):
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "kind": "grant-poll",
+            "status": "identity-mismatch",
+        }
+
+    granted_scope = result.get("scope")
+    if not GRANT_ACCEPTED_SCOPES.intersection(_scope_set(granted_scope)):
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "kind": "grant-poll",
+            "status": "insufficient-scope",
+        }
+
+    service = (
+        resolve_key("auth.keychain_service")
+        if _keychain_service is _UNSET
+        else _keychain_service
+    )
+    set_secret_fn = keychain.set_secret if _set_secret is _UNSET else _set_secret
+    try:
+        stored = set_secret_fn(
+            current_login,
+            candidate_token,
+            service=service,
+        )
+    except (KeychainUnavailable, OSError, RuntimeError):
+        stored = False
+    if stored is not True:
+        return _error_envelope(
+            "keychain-unavailable",
+            _KEYCHAIN_UNAVAILABLE_MESSAGE,
+        )
+
+    pointer = {
+        "login": current_login,
+        "scopes": granted_scope or "",
+        "obtained_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    write_kwargs: dict[str, Any] = {}
+    if _auth_root is not _UNSET:
+        write_kwargs["_root"] = _auth_root
+    write_identity_fn = (
+        authstore.write_identity if _write_identity is _UNSET else _write_identity
+    )
+    try:
+        write_identity_fn(pointer, **write_kwargs)
+    except (OSError, RuntimeError, ValueError):
+        assert old_token is not None
+        try:
+            set_secret_fn(current_login, old_token, service=service)
+        except (KeychainUnavailable, OSError, RuntimeError):
+            pass
+        return _error_envelope(
+            "identity-write-failed",
+            "The upgraded GitHub sign-in could not be committed safely.",
+        )
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "kind": "grant-poll",
+        "status": "granted",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -398,7 +682,11 @@ def build_auth_status_report(
 
     login = identity.get("login")
     if not login:
-        return {"schema_version": SCHEMA_VERSION, "kind": "status", "status": "signed-out"}
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "kind": "status",
+            "status": "signed-out",
+        }
 
     if _keychain_present is not _UNSET:
         present = _keychain_present
@@ -414,7 +702,11 @@ def build_auth_status_report(
             present = False
 
     if not present:
-        return {"schema_version": SCHEMA_VERSION, "kind": "status", "status": "signed-out"}
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "kind": "status",
+            "status": "signed-out",
+        }
 
     report: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
@@ -435,7 +727,7 @@ def build_auth_status_report(
 
 def compute_exit_code(report: dict[str, Any]) -> int:
     """
-    Map any of this module's three report kinds to a process exit code
+    Map any of this module's report kinds to a process exit code
     (mirrors `commands/doctor.py`/`commands/deprovision.py`'s
     `compute_exit_code()` precedent):
       0 = success / nothing wrong (device-code issued, poll pending or
@@ -447,7 +739,17 @@ def compute_exit_code(report: dict[str, Any]) -> int:
     """
     if "error" in report:
         return 2
-    if report.get("kind") == "poll" and report.get("status") in ("expired", "denied"):
+    if report.get("kind") == "poll" and report.get("status") in (
+        "expired",
+        "denied",
+    ):
+        return 1
+    if report.get("kind") == "grant-poll" and report.get("status") in (
+        "expired",
+        "denied",
+        "identity-mismatch",
+        "insufficient-scope",
+    ):
         return 1
     return 0
 
@@ -497,10 +799,15 @@ def execute_auth_login(
     `execute_deprovision()`.
     """
     client_id, error_code = _resolve_client_id(
-        _client_id, _org=_org, _fetch_bootstrap=_fetch_bootstrap, _org_exists=_org_exists
+        _client_id,
+        _org=_org,
+        _fetch_bootstrap=_fetch_bootstrap,
+        _org_exists=_org_exists,
     )
     if client_id is None:
-        assert error_code is not None  # invariant: _resolve_client_id always pairs the two
+        assert (
+            error_code is not None
+        )  # invariant: _resolve_client_id always pairs the two
         error_report = _error_envelope(error_code, _ERROR_MESSAGES[error_code])
         return error_report, compute_exit_code(error_report)
 
@@ -523,7 +830,9 @@ def execute_auth_login(
 
     for _ in range(_max_polls):
         _sleep(interval)
-        result = github_device.poll_token(client_id, device_code, **poll_transport_kwargs)
+        result = github_device.poll_token(
+            client_id, device_code, **poll_transport_kwargs
+        )
         status = result["status"]
 
         if status == "pending":
@@ -571,17 +880,20 @@ def render_auth_report_rich(report: dict[str, Any], *, console: Any = None) -> N
         return
 
     kind = report.get("kind")
-    if kind == "device-code":
+    if kind in {"device-code", "grant-device-code"}:
         con.print(f"[bold]Go to:[/bold] {report.get('verification_uri')}")
         con.print(f"[bold]Enter code:[/bold] {report.get('user_code')}")
         con.print(f"[dim]Expires in {report.get('expires_in')}s.[/dim]")
-    elif kind == "poll":
+    elif kind in {"poll", "grant-poll"}:
         status = report.get("status")
         color = {
             "authorized": "green",
+            "granted": "green",
             "pending": "yellow",
             "expired": "red",
             "denied": "red",
+            "identity-mismatch": "red",
+            "insufficient-scope": "red",
         }.get(status, "red")
         con.print(f"[{color}]auth: {status}[/{color}]")
     elif kind == "status":
@@ -600,7 +912,7 @@ def render_auth_report_rich(report: dict[str, Any], *, console: Any = None) -> N
 # ---------------------------------------------------------------------------
 
 auth_app = typer.Typer(
-    help="GitHub device-flow sign-in (WS-A `auth` contract).",
+    help="GitHub sign-in and least-privilege permission grants.",
     invoke_without_command=True,
 )
 
@@ -639,7 +951,9 @@ def login_cmd(
         False, "--poll", help="Perform one device-flow poll step instead of initiating."
     ),
     device_code: Optional[str] = typer.Option(
-        None, "--device-code", help="The device_code from a prior `cc auth login --json`."
+        None,
+        "--device-code",
+        help="The device_code from a prior `cc auth login --json`.",
     ),
     org: Optional[str] = typer.Option(
         None,
@@ -661,6 +975,52 @@ def login_cmd(
     step (`--poll --device-code <code>`). Read-only w.r.t. the copilot
     lock -- auth never acquires it."""
     _run_login(poll=poll, device_code=device_code, org=org, output_json=output_json)
+
+
+@auth_app.command("grant")
+def grant_cmd(
+    poll: bool = typer.Option(
+        False,
+        "--poll",
+        help="Perform one permission-grant poll step instead of initiating.",
+    ),
+    device_code: Optional[str] = typer.Option(
+        None,
+        "--device-code",
+        help="The device_code from a prior `cc auth grant --json`.",
+    ),
+    org: Optional[str] = typer.Option(
+        None,
+        "--org",
+        help="GitHub org slug; falls back to github_app.org.",
+    ),
+    output_json: bool = typer.Option(
+        False,
+        "--json",
+        help="Output the strict auth permission-grant contract as JSON.",
+    ),
+) -> None:
+    """Request only the permission needed to add this Mac's public SSH key."""
+    import json as _json
+
+    org_kwargs: dict[str, Any] = {"_org": org} if org else {}
+    if poll:
+        if not device_code:
+            message = "cc auth grant --poll requires --device-code <code>."
+            report = _error_envelope("missing-argument", message)
+        else:
+            report = build_auth_grant_poll_report(
+                device_code,
+                **org_kwargs,
+            )
+    else:
+        report = build_auth_grant_initiate_report(**org_kwargs)
+
+    if output_json:
+        typer.echo(_json.dumps(report))
+    else:
+        render_auth_report_rich(report)
+    raise typer.Exit(compute_exit_code(report))
 
 
 @auth_app.command("status")

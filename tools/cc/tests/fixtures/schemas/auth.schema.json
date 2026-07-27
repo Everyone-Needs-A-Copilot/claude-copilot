@@ -3,12 +3,14 @@
   "$id": "https://everyoneneedsacopilot.com/schemas/copilot-control-tower/auth.schema.json",
   "$comment": "VENDORED COPY for the WS-A contract test in claude-copilot/tools/cc. Source of truth is copilot-control-tower/docs/01-architecture/schemas/auth.schema.json — update this copy from there, not the reverse.",
   "title": "copilot auth --json",
-  "description": "GitHub device-flow sign-in seam (WS-A Stream-A). Three payload kinds discriminated by `kind`, plus the shared error envelope: `device-code` (`cc auth login --json` -- initiate), `poll` (`cc auth login --poll --device-code <code> --json` -- one poll step), and `status` (`cc auth status --json` -- offline-safe, no network). The OAuth access token this flow obtains is written directly to the per-user OS keychain by the CLI (claude-copilot/tools/cc/src/cc/core/keychain.py) and NEVER appears in any instance of this schema -- see the `allOf` NO-SECRET fitness invariant below.",
+  "description": "GitHub device-flow sign-in and least-privilege permission-grant seam (WS-A Stream-A). Five payload kinds are discriminated by `kind`, plus the shared error envelope: `device-code`, `poll`, `status`, `grant-device-code`, and `grant-poll`. OAuth access tokens are written directly to the per-user OS keychain by the CLI and NEVER appear in any instance of this schema.",
   "type": "object",
   "oneOf": [
     { "$ref": "#/$defs/deviceCode" },
     { "$ref": "#/$defs/poll" },
     { "$ref": "#/$defs/status" },
+    { "$ref": "#/$defs/grantDeviceCode" },
+    { "$ref": "#/$defs/grantPoll" },
     { "$ref": "#/$defs/errorEnvelope" }
   ],
   "allOf": [
@@ -71,6 +73,55 @@
         }
       }
     },
+    "grantDeviceCode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "kind",
+        "permission",
+        "user_code",
+        "verification_uri",
+        "expires_in",
+        "interval",
+        "device_code"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "_envelope.schema.json#/$defs/schema_version" },
+        "kind": { "const": "grant-device-code" },
+        "permission": { "const": "write:public_key" },
+        "user_code": { "type": "string", "minLength": 1 },
+        "verification_uri": { "type": "string", "format": "uri" },
+        "expires_in": { "type": "integer", "minimum": 1 },
+        "interval": { "type": "integer", "minimum": 1 },
+        "device_code": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Short-lived flow handle for `cc auth grant --poll`; never an OAuth access token."
+        }
+      }
+    },
+    "grantPoll": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "status"],
+      "properties": {
+        "schema_version": { "$ref": "_envelope.schema.json#/$defs/schema_version" },
+        "kind": { "const": "grant-poll" },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "granted",
+            "denied",
+            "expired",
+            "identity-mismatch",
+            "insufficient-scope"
+          ],
+          "description": "The upgrade commits only after the candidate identity matches the current cc identity and GitHub confirms write:public_key (or its broader admin:public_key superset)."
+        }
+      }
+    },
     "status": {
       "type": "object",
       "additionalProperties": false,
@@ -115,7 +166,7 @@
           }
         }
       },
-      "description": "Shared error envelope (cli-contract.md's uniform `{schema_version, error:{code,message}}` shape, exit 2). `no-company-app` is the auth-specific code: the org's GitHub App connection hasn't been set up yet (created during admin standup, not something an individual user can self-serve)."
+      "description": "Shared exit-2 error envelope. Auth codes include organization/bootstrap failures (`no-company-app`, `org-required`, `org-not-found`, `network-unavailable`), local transaction failures (`signed-in-required`, `keychain-unavailable`, `identity-write-failed`), and CLI misuse (`missing-argument`). The code remains free-form so additive errors do not require a schema-major change."
     },
     "noSecretKeys": {
       "$comment": "NO-SECRET fitness invariant, applied via the top-level `allOf`: recursively forbids access_token/token/refresh_token/secret as a property name at ANY nesting depth, in any object or array, anywhere in an `auth --json` instance. The OAuth token is written directly to the OS keychain by the CLI (claude-copilot/tools/cc/src/cc/core/keychain.py) and MUST NEVER appear in this contract -- see claude-copilot/tools/cc/tests/test_auth_contract.py's recursive NO-SECRET fitness test, which additionally asserts this against real build_auth_poll_report()/execute_auth_login() output (not just schema-shape fixtures) and against the keychain spy that actually received the token.",

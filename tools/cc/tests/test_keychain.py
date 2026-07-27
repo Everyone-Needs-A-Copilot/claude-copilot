@@ -50,8 +50,9 @@ def _force_darwin(monkeypatch):
 
 def test_set_secret_invokes_add_generic_password_with_update_flag():
     run = _RecordingRun(_FakeResult(returncode=0))
-    set_secret("octocat", "s3cr3t", service=SERVICE, _run=run)
+    result = set_secret("octocat", "s3cr3t", service=SERVICE, _run=run)
 
+    assert result is True
     assert len(run.calls) == 1
     assert run.calls[0] == [
         "security",
@@ -66,16 +67,16 @@ def test_set_secret_invokes_add_generic_password_with_update_flag():
     ]
 
 
-def test_set_secret_never_raises_on_nonzero_exit():
+def test_set_secret_reports_nonzero_exit_without_raising():
     run = _RecordingRun(_FakeResult(returncode=1, stderr="boom"))
-    # Must not raise -- fail-open, mirrors get/delete.
-    set_secret("octocat", "s3cr3t", service=SERVICE, _run=run)
+    assert set_secret("octocat", "s3cr3t", service=SERVICE, _run=run) is False
 
 
-def test_set_secret_never_returns_the_secret():
+def test_set_secret_returns_only_confirmation():
     run = _RecordingRun(_FakeResult(returncode=0))
     result = set_secret("octocat", "s3cr3t", service=SERVICE, _run=run)
-    assert result is None
+    assert result is True
+    assert result != "s3cr3t"
 
 
 # ---------------------------------------------------------------------------
