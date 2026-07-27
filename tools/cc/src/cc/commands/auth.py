@@ -81,9 +81,19 @@ _ORG_REQUIRED_MESSAGE = (
     "start. Pass --org <your-company>, or set it once with `cc config set "
     "github_app.org <your-company>`."
 )
+_ORG_NOT_FOUND_MESSAGE = (
+    "That organization couldn't be found on GitHub -- check the spelling "
+    "and try again."
+)
+_NETWORK_UNAVAILABLE_MESSAGE = (
+    "Sign-in needs a network connection to look up your organization's "
+    "GitHub app -- check your connection and try again."
+)
 _ERROR_MESSAGES: dict[str, str] = {
     "no-company-app": _NO_COMPANY_APP_MESSAGE,
     "org-required": _ORG_REQUIRED_MESSAGE,
+    "org-not-found": _ORG_NOT_FOUND_MESSAGE,
+    "network-unavailable": _NETWORK_UNAVAILABLE_MESSAGE,
 }
 
 
@@ -106,6 +116,7 @@ def _resolve_client_id(
     *,
     _org: Any = _UNSET,
     _fetch_bootstrap: Any = _UNSET,
+    _org_exists: Any = _UNSET,
 ) -> tuple[Optional[str], Optional[str]]:
     """
     Resolve the GitHub App client id. Returns `(client_id, error_code)`;
@@ -114,9 +125,24 @@ def _resolve_client_id(
         `github_app.org` config), so there is nothing to bootstrap from.
         Only reachable when `github_app.client_id` is ALSO unset --  an
         already-configured client id never needs an org at all.
-      - `"no-company-app"` -- an org IS known, but its public bootstrap
-        artifact is unreachable, malformed, or carries no client id: the
-        org's GitHub App connection genuinely hasn't been set up yet.
+      - `"network-unavailable"` -- an org IS known, but the bootstrap fetch
+        could not reach the network at all (DNS failure, connection
+        refused, timeout). Distinct from `no-company-app`: an offline
+        person deserves an offline message, not "your organization hasn't
+        finished setting up sign-in yet" -- that would be false.
+      - `"org-not-found"` -- an org IS known, the bootstrap fetch failed
+        for a reason OTHER than network unavailability, and an
+        unauthenticated GitHub existence probe (`org_exists_on_github()`)
+        AFFIRMATIVELY says no such org exists. Never surfaced on an
+        inconclusive probe (rate-limited/network error) -- see that
+        function's docstring for why: telling someone their real
+        organization doesn't exist is worse than the alternative
+        (`no-company-app`), so every ambiguous signal falls through there
+        instead.
+      - `"no-company-app"` -- an org IS known and (as far as this can
+        tell) real, but its public bootstrap artifact is unreachable,
+        malformed, or carries no client id: the org's GitHub App
+        connection genuinely hasn't been set up yet.
 
     Resolution order:
       1. Explicit override (`_client_id`, test/local escape hatch).
@@ -149,10 +175,22 @@ def _resolve_client_id(
         if _fetch_bootstrap is _UNSET
         else _fetch_bootstrap
     )
-    client_id = fetch_fn(org)
-    if not client_id:
-        return None, "no-company-app"
-    return client_id, None
+    client_id, failure_reason = fetch_fn(org)
+    if client_id:
+        return client_id, None
+
+    if failure_reason == "network-unavailable":
+        return None, "network-unavailable"
+
+    exists_fn = (
+        bootstrap_config.org_exists_on_github
+        if _org_exists is _UNSET
+        else _org_exists
+    )
+    if exists_fn(org) is False:
+        return None, "org-not-found"
+
+    return None, "no-company-app"
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +205,7 @@ def build_auth_initiate_report(
     _post_json: Any = _UNSET,
     _org: Any = _UNSET,
     _fetch_bootstrap: Any = _UNSET,
+    _org_exists: Any = _UNSET,
 ) -> dict[str, Any]:
     """
     Build the `auth login --json` (`kind: "device-code"`) contract object:
@@ -174,14 +213,19 @@ def build_auth_initiate_report(
     the user needs (`user_code`/`verification_uri`) plus the `device_code`
     flow handle the caller polls with next.
 
-    Absent client id -> an error envelope. `"org-required"` when no org is
+    Absent client id -> an error envelope: `"org-required"` when no org is
     known yet to bootstrap from (no `--org`, no `github_app.org` config);
-    `"no-company-app"` when an org IS known but its public bootstrap
-    artifact carries no client id -- the org's GitHub App connection hasn't
-    been set up yet (created during admin standup, not something an
-    individual user can self-serve). See `_resolve_client_id()`.
+    `"network-unavailable"` when the bootstrap fetch couldn't reach the
+    network at all; `"org-not-found"` when an unauthenticated GitHub probe
+    affirmatively says the org doesn't exist; `"no-company-app"` when an
+    org IS known (and, as far as this can tell, real) but its public
+    bootstrap artifact carries no client id -- the org's GitHub App
+    connection hasn't been set up yet (created during admin standup, not
+    something an individual user can self-serve). See `_resolve_client_id()`.
     """
-    client_id, error_code = _resolve_client_id(_client_id, _org=_org, _fetch_bootstrap=_fetch_bootstrap)
+    client_id, error_code = _resolve_client_id(
+        _client_id, _org=_org, _fetch_bootstrap=_fetch_bootstrap, _org_exists=_org_exists
+    )
     if client_id is None:
         assert error_code is not None  # invariant: _resolve_client_id always pairs the two
         return _error_envelope(error_code, _ERROR_MESSAGES[error_code])
@@ -274,6 +318,7 @@ def build_auth_poll_report(
     _auth_root: Any = _UNSET,
     _org: Any = _UNSET,
     _fetch_bootstrap: Any = _UNSET,
+    _org_exists: Any = _UNSET,
 ) -> dict[str, Any]:
     """
     Build the `auth login --poll --json` (`kind: "poll"`) contract object:
@@ -294,7 +339,9 @@ def build_auth_poll_report(
     config) on every `--poll` invocation, exactly as it already re-supplies
     `--device-code`. See `_resolve_client_id()`.
     """
-    client_id, error_code = _resolve_client_id(_client_id, _org=_org, _fetch_bootstrap=_fetch_bootstrap)
+    client_id, error_code = _resolve_client_id(
+        _client_id, _org=_org, _fetch_bootstrap=_fetch_bootstrap, _org_exists=_org_exists
+    )
     if client_id is None:
         assert error_code is not None  # invariant: _resolve_client_id always pairs the two
         return _error_envelope(error_code, _ERROR_MESSAGES[error_code])
@@ -423,6 +470,7 @@ def execute_auth_login(
     _auth_root: Any = _UNSET,
     _org: Any = _UNSET,
     _fetch_bootstrap: Any = _UNSET,
+    _org_exists: Any = _UNSET,
     _sleep: Callable[[float], None] = time.sleep,
     _max_polls: int = 120,
 ) -> tuple[dict[str, Any], int]:
@@ -448,7 +496,9 @@ def execute_auth_login(
     Returns `(report, exit_code)`, same shape as `execute_update()`/
     `execute_deprovision()`.
     """
-    client_id, error_code = _resolve_client_id(_client_id, _org=_org, _fetch_bootstrap=_fetch_bootstrap)
+    client_id, error_code = _resolve_client_id(
+        _client_id, _org=_org, _fetch_bootstrap=_fetch_bootstrap, _org_exists=_org_exists
+    )
     if client_id is None:
         assert error_code is not None  # invariant: _resolve_client_id always pairs the two
         error_report = _error_envelope(error_code, _ERROR_MESSAGES[error_code])

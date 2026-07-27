@@ -24,8 +24,12 @@ since the CLI surface itself exposes no `_root`-style injection points.
 
 from __future__ import annotations
 
+import base64
 import json
+import subprocess
+from pathlib import Path
 
+import cc.commands.onboard as onboard_module
 import pytest
 
 
@@ -59,7 +63,11 @@ def test_auth_login_org_known_but_no_company_app_returns_error_envelope(cli, mon
     cover, before that branch was replaced by the public-bootstrap fetch --
     see commands/auth.py's `_resolve_client_id()`)."""
     monkeypatch.setattr(
-        "cc.commands.auth.bootstrap_config.fetch_org_client_id", lambda *_a, **_k: None
+        "cc.commands.auth.bootstrap_config.fetch_org_client_id",
+        lambda *_a, **_k: (None, "invalid-artifact"),
+    )
+    monkeypatch.setattr(
+        "cc.commands.auth.bootstrap_config.org_exists_on_github", lambda *_a, **_k: True
     )
 
     result = cli(["auth", "login", "--org", "acme-co", "--json"])
@@ -181,3 +189,111 @@ def test_update_fanout_no_projects_is_clean(cli):
     assert payload["summary"]["total"] == 0
     assert payload["summary"]["held"] == 0
     assert payload["summary"]["failed"] == 0
+
+
+def _fake_onboard_run(args):
+    """Minimal fake `run` transport covering exactly the GitHub reads
+    `_load_handoff`/`_layer_manifest` make for org="Acme", products
+    claude+codex -- same shape as test_onboard_contract.py's
+    `_aggregate_run`, duplicated locally so this file's wiring-only tests
+    don't take on a cross-test-file import."""
+    endpoint = args[2]
+    if endpoint.endswith("/contents/ecosystem.yml"):
+        handoff = (
+            "schema_version: '2.0'\n"
+            "org: Acme\n"
+            "harness: [claude, codex]\n"
+            "store:\n"
+            "  status: deferred\n"
+            "foundation:\n"
+            "  refs:\n"
+            "    claude: '^5.8.0'\n"
+            "    codex: '^0.6.0'\n"
+        )
+        encoded = base64.b64encode(handoff.encode()).decode()
+        return subprocess.CompletedProcess(args, 0, json.dumps({"content": encoded}), "")
+    if endpoint.endswith("claude-copilot/tags"):
+        return subprocess.CompletedProcess(args, 0, '[{"name":"v5.9.0"}]', "")
+    if endpoint.endswith("codex-copilot/tags"):
+        return subprocess.CompletedProcess(args, 0, '[{"name":"v0.6.2"}]', "")
+    raise AssertionError(args)
+
+
+def _fake_onboard_personal(**_kwargs):
+    return {
+        "result": "ready",
+        "owner": "pablo",
+        "summary": {
+            "existing": 2,
+            "missing": 0,
+            "created": 0,
+            "seeded": 0,
+            "held": 0,
+            "blocked": 0,
+        },
+    }
+
+
+def _fake_onboard_codex(*, apply, **_kwargs):
+    return {"result": "ready" if apply else "changes-required"}
+
+
+def test_onboard_ecosystem_resolves_collaborators_at_call_time(cli, monkeypatch):
+    """Regression for D3: `onboard_cmd` (commands/onboard.py) calls
+    `build_ecosystem_onboard_report()` passing none of its injectable
+    `run`/`personal_fn`/`ssh_fn`/`codex_fn` keywords, so this CLI path is the
+    one place those collaborators are exercised entirely through their
+    call-time-resolved defaults. Before the fix, `ssh_fn: ... =
+    ensure_machine_ssh_identity` was a definition-time-bound default --
+    Python captures it once, at module import, so monkeypatching the module
+    attribute below (this codebase's usual test-substitution idiom, used
+    throughout every other contract test file) would have been silently
+    ineffective, and the real `ensure_machine_ssh_identity` -- which writes
+    `~/.ssh/config` and `~/.ssh/id_ed25519_copilot` for real -- would have run
+    instead of `fake_ssh`. This test proves the seam now holds, and that the
+    real `~/.ssh/config` on the machine running the suite is untouched
+    either way (belt-and-suspenders, on top of `_sandboxed_home`'s HOME
+    redirection)."""
+    ssh_calls: list[dict] = []
+
+    def fake_ssh(**kwargs):
+        ssh_calls.append(kwargs)
+        return {
+            "result": "ready",
+            "key": "existing",
+            "registration": "registered",
+            "config": "ready",
+            "detail": "ready",
+        }
+
+    monkeypatch.setattr(onboard_module, "_run", _fake_onboard_run)
+    monkeypatch.setattr(
+        onboard_module, "build_personal_onboard_report", _fake_onboard_personal
+    )
+    monkeypatch.setattr(onboard_module, "ensure_machine_ssh_identity", fake_ssh)
+    monkeypatch.setattr(onboard_module, "_install_codex_plugin", _fake_onboard_codex)
+
+    real_ssh_config = Path.home() / ".ssh" / "config"
+    real_ssh_config_before = (
+        real_ssh_config.read_bytes() if real_ssh_config.exists() else None
+    )
+
+    result = cli(["onboard", "--org", "Acme", "--json"])
+
+    real_ssh_config_after = (
+        real_ssh_config.read_bytes() if real_ssh_config.exists() else None
+    )
+    assert real_ssh_config_after == real_ssh_config_before, (
+        "onboard touched the real ~/.ssh/config -- the call-time collaborator "
+        "resolution seam did not hold"
+    )
+    assert ssh_calls, (
+        "onboard_cmd never reached the patched ssh_fn -- either the "
+        "call-time resolution seam is broken again, or the plan was blocked "
+        "before the device-ssh stage"
+    )
+
+    payload = json.loads(result.output)
+    assert payload["schema_version"] == "1.0"
+    assert payload["result"] in {"ready", "changes-required"}
+    assert result.exit_code in (0, 1)

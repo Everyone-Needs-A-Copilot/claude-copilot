@@ -175,18 +175,76 @@ def test_initiate_report_validates_against_contract_schema():
 
 
 def test_initiate_report_no_company_app_error_envelope_validates_and_exits_2():
-    """An org IS known (`_org`), but its public bootstrap artifact carries
-    no client id -- the org genuinely has no company app set up yet."""
+    """An org IS known (`_org`) and real (`_org_exists` says so), but its
+    public bootstrap artifact carries no client id -- the org genuinely has
+    no company app set up yet."""
     report = build_auth_initiate_report(
         _client_id=None,
         _org="acme-co",
-        _fetch_bootstrap=lambda _org: None,
+        _fetch_bootstrap=lambda _org: (None, "invalid-artifact"),
+        _org_exists=lambda _org: True,
         _post_json=_never_call,
     )
 
     _validate(report)
     assert report["error"]["code"] == "no-company-app"
     assert "admin standup" in report["error"]["message"]
+    assert compute_exit_code(report) == 2
+
+
+def test_initiate_report_no_company_app_when_org_existence_is_inconclusive():
+    """Bug 2's fail direction, pinned: an INCONCLUSIVE existence probe
+    (rate-limited/network error -- `None`, never `False`) must never be
+    treated as "does not exist" -- it falls through to `no-company-app`,
+    same as an affirmatively-real org."""
+    report = build_auth_initiate_report(
+        _client_id=None,
+        _org="acme-co",
+        _fetch_bootstrap=lambda _org: (None, "invalid-artifact"),
+        _org_exists=lambda _org: None,
+        _post_json=_never_call,
+    )
+
+    _validate(report)
+    assert report["error"]["code"] == "no-company-app"
+    assert compute_exit_code(report) == 2
+
+
+def test_initiate_report_org_not_found_when_probe_says_no_such_org():
+    """Bug 2: the bootstrap fetch failed AND an unauthenticated GitHub probe
+    affirmatively says no such org exists -- a distinct, more specific code
+    than `no-company-app` (which implies the org is real but hasn't
+    finished setup)."""
+    report = build_auth_initiate_report(
+        _client_id=None,
+        _org="typo-co",
+        _fetch_bootstrap=lambda _org: (None, "invalid-artifact"),
+        _org_exists=lambda _org: False,
+        _post_json=_never_call,
+    )
+
+    _validate(report)
+    assert report["error"]["code"] == "org-not-found"
+    assert compute_exit_code(report) == 2
+
+
+def test_initiate_report_network_unavailable_never_probes_org_existence():
+    """Bug 3: a genuine transport failure inside the bootstrap fetch is its
+    own code, distinct from `no-company-app` -- an offline Mac should never
+    be told "your organization hasn't finished setting up sign-in", which
+    would be false. The org-existence probe must never even be reached in
+    this case (there's no point probing GitHub when the network is already
+    known to be down)."""
+    report = build_auth_initiate_report(
+        _client_id=None,
+        _org="acme-co",
+        _fetch_bootstrap=lambda _org: (None, "network-unavailable"),
+        _org_exists=_never_call,
+        _post_json=_never_call,
+    )
+
+    _validate(report)
+    assert report["error"]["code"] == "network-unavailable"
     assert compute_exit_code(report) == 2
 
 
@@ -210,9 +268,9 @@ def test_initiate_report_resolves_client_id_from_public_bootstrap_when_unconfigu
     read -- that circularity is exactly what this fallback breaks)."""
     fetch_calls: list[str] = []
 
-    def fake_fetch_bootstrap(org: str) -> str:
+    def fake_fetch_bootstrap(org: str) -> tuple[str, None]:
         fetch_calls.append(org)
-        return "Iv1.bootstrapped-client-id"
+        return "Iv1.bootstrapped-client-id", None
 
     post_json = _FakePostJson(
         {
@@ -271,7 +329,8 @@ def test_poll_report_no_company_app_error_envelope():
         "devcode123",
         _client_id=None,
         _org="acme-co",
-        _fetch_bootstrap=lambda _org: None,
+        _fetch_bootstrap=lambda _org: (None, "invalid-artifact"),
+        _org_exists=lambda _org: True,
         _post_json=_never_call,
     )
 
@@ -516,7 +575,8 @@ def test_execute_auth_login_propagates_no_company_app():
     report, exit_code = execute_auth_login(
         _client_id=None,
         _org="acme-co",
-        _fetch_bootstrap=lambda _org: None,
+        _fetch_bootstrap=lambda _org: (None, "invalid-artifact"),
+        _org_exists=lambda _org: True,
         _post_json=_never_call,
         _sleep=lambda _seconds: None,
     )
@@ -653,11 +713,15 @@ def test_cli_bare_auth_behaves_like_login_initiate(monkeypatch):
 
 
 def test_cli_login_no_company_app_json_exits_2(monkeypatch):
-    """An org IS known (`--org`), but its public bootstrap artifact has no
-    client id -- the org genuinely has no company app yet."""
+    """An org IS known (`--org`) and real, but its public bootstrap artifact
+    has no client id -- the org genuinely has no company app yet."""
     _patch_cli_transport(monkeypatch, client_id=None)
     monkeypatch.setattr(
-        "cc.commands.auth.bootstrap_config.fetch_org_client_id", lambda *_a, **_k: None
+        "cc.commands.auth.bootstrap_config.fetch_org_client_id",
+        lambda *_a, **_k: (None, "invalid-artifact"),
+    )
+    monkeypatch.setattr(
+        "cc.commands.auth.bootstrap_config.org_exists_on_github", lambda *_a, **_k: True
     )
 
     result = runner.invoke(auth_app, ["login", "--org", "acme-co", "--json"])
@@ -665,6 +729,46 @@ def test_cli_login_no_company_app_json_exits_2(monkeypatch):
 
     _validate(payload)
     assert payload["error"]["code"] == "no-company-app"
+    assert result.exit_code == 2
+
+
+def test_cli_login_org_not_found_json_exits_2(monkeypatch):
+    """Bug 2 through the actual CLI surface: the bootstrap fetch failed and
+    an unauthenticated GitHub probe affirmatively says no such org exists."""
+    _patch_cli_transport(monkeypatch, client_id=None)
+    monkeypatch.setattr(
+        "cc.commands.auth.bootstrap_config.fetch_org_client_id",
+        lambda *_a, **_k: (None, "invalid-artifact"),
+    )
+    monkeypatch.setattr(
+        "cc.commands.auth.bootstrap_config.org_exists_on_github", lambda *_a, **_k: False
+    )
+
+    result = runner.invoke(auth_app, ["login", "--org", "typo-co", "--json"])
+    payload = json.loads(result.output)
+
+    _validate(payload)
+    assert payload["error"]["code"] == "org-not-found"
+    assert result.exit_code == 2
+
+
+def test_cli_login_network_unavailable_json_exits_2(monkeypatch):
+    """Bug 3 through the actual CLI surface: a genuine transport failure
+    inside the bootstrap fetch is its own code, never `no-company-app`."""
+    _patch_cli_transport(monkeypatch, client_id=None)
+    monkeypatch.setattr(
+        "cc.commands.auth.bootstrap_config.fetch_org_client_id",
+        lambda *_a, **_k: (None, "network-unavailable"),
+    )
+    monkeypatch.setattr(
+        "cc.commands.auth.bootstrap_config.org_exists_on_github", _never_call
+    )
+
+    result = runner.invoke(auth_app, ["login", "--org", "acme-co", "--json"])
+    payload = json.loads(result.output)
+
+    _validate(payload)
+    assert payload["error"]["code"] == "network-unavailable"
     assert result.exit_code == 2
 
 
@@ -689,7 +793,7 @@ def test_cli_login_org_flag_resolves_client_id_via_public_bootstrap(monkeypatch)
 
     def fake_fetch(org, *_a, **_k):
         assert org == "acme-co"
-        return "client-from-bootstrap"
+        return "client-from-bootstrap", None
 
     monkeypatch.setattr("cc.commands.auth.bootstrap_config.fetch_org_client_id", fake_fetch)
 
@@ -723,7 +827,7 @@ def test_cli_login_falls_back_to_configured_org_when_flag_omitted(monkeypatch):
 
     def fake_fetch(org, *_a, **_k):
         assert org == "acme-co"
-        return "client-from-bootstrap"
+        return "client-from-bootstrap", None
 
     monkeypatch.setattr("cc.commands.auth.bootstrap_config.fetch_org_client_id", fake_fetch)
 

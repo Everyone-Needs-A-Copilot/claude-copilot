@@ -1200,16 +1200,49 @@ def build_ecosystem_onboard_report(
     products: Sequence[str] = PRODUCTS,
     apply: bool = False,
     adopt_existing: Sequence[str] = (),
-    run: Run = _run,
+    run: Run | None = None,
     manifest_path: Path | str | None = None,
-    personal_fn: Callable[..., dict[str, Any]] = build_personal_onboard_report,
-    ssh_fn: Callable[..., dict[str, Any]] = ensure_machine_ssh_identity,
-    store_fn: Callable[..., dict[str, Any]] = _provision_store,
-    codex_fn: Callable[..., dict[str, Any]] = _install_codex_plugin,
-    update_fn: Callable[..., tuple[dict[str, Any], int]] = execute_update,
-    doctor_fn: Callable[..., dict[str, Any]] = build_doctor_report,
+    personal_fn: Callable[..., dict[str, Any]] | None = None,
+    ssh_fn: Callable[..., dict[str, Any]] | None = None,
+    store_fn: Callable[..., dict[str, Any]] | None = None,
+    codex_fn: Callable[..., dict[str, Any]] | None = None,
+    update_fn: Callable[..., tuple[dict[str, Any], int]] | None = None,
+    doctor_fn: Callable[..., dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Run the resumable Admin-handoff-to-healthy-machine transaction."""
+    """Run the resumable Admin-handoff-to-healthy-machine transaction.
+
+    Every injectable collaborator defaults to `None` and is resolved to its
+    real module-level implementation HERE, inside the function body, rather
+    than as a `param: T = real_impl` default-argument value. Python binds
+    default-argument values exactly once, at function-DEFINITION time (module
+    import) -- so a bare `ssh_fn: ... = ensure_machine_ssh_identity` default
+    captures whatever `ensure_machine_ssh_identity` pointed at when this
+    module first loaded, and a later `monkeypatch.setattr(onboard_module,
+    "ensure_machine_ssh_identity", fake)` -- this codebase's usual seam for
+    substituting real collaborators in tests -- has no effect on any call
+    that omits the keyword, since the default was already captured. Resolving
+    with `if x is None: x = <module-level name>` instead performs that name
+    lookup fresh on every call, so it picks up whatever the module attribute
+    currently is -- letting `onboard_cmd` (which passes none of these
+    keywords) still be safely monkeypatchable at the CLI level. See
+    tests/test_onboard_contract.py's `TestOnboardCmdWiring` for the
+    regression test that proves this holds.
+    """
+    if run is None:
+        run = _run
+    if personal_fn is None:
+        personal_fn = build_personal_onboard_report
+    if ssh_fn is None:
+        ssh_fn = ensure_machine_ssh_identity
+    if store_fn is None:
+        store_fn = _provision_store
+    if codex_fn is None:
+        codex_fn = _install_codex_plugin
+    if update_fn is None:
+        update_fn = execute_update
+    if doctor_fn is None:
+        doctor_fn = build_doctor_report
+
     normalized = tuple(dict.fromkeys(value.strip().lower() for value in products))
     org = org.strip()
     if not org or not normalized or any(value not in PRODUCTS for value in normalized):

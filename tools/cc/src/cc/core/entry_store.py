@@ -20,8 +20,31 @@ from cc.core.entry_format import (
     render_entry,
     validate_entry_type,
 )
+from cc.core.write_guard import assert_write_is_isolated
 
 _GITIGNORE_CONTENT = "memory.db\nmemory.db-shm\nmemory.db-wal\n"
+
+# Overrides the "global" memory root (normally `~/.claude/memory`). Honored
+# by `resolve_memory_root("global")` below -- the SAME env-var-seam idiom
+# `core/config_paths.py`'s `CC_MACHINE_ROOT` already uses for
+# `machine_config_path()`/`machine_secrets_path()`, applied here for the
+# identical reason: this function is reached through a long fan-out call
+# chain (commands/memory.py, commands/mcp_serve.py, core/memory_index.py,
+# core/locking.py's `lock_path()`, core/ecosystem/lockfile.py, and more --
+# see git blame / D2 for the full list), so a `_root` keyword-injection
+# convention would need threading through every one of those call sites
+# (present and future) to actually reach this module. A single
+# process-wide env var closes the seam at its one true source instead.
+#
+# Unlike `CC_MACHINE_ROOT`, this seam did NOT exist before this fix: no test
+# exercised `scope="global"` for real (tests only ever patched `_git_root`,
+# which affects `scope="project"`), so nothing caught `resolve_memory_root`
+# resolving straight to the developer's real `~/.claude/memory` -- a
+# directory that, unlike the machine config, was already known to hold real
+# cross-project entries. tests/conftest.py's `_isolate_machine_config`
+# fixture now also sets this env var for every test, mirroring its
+# `CC_MACHINE_ROOT` handling.
+_GLOBAL_MEMORY_ROOT_ENV = "CC_GLOBAL_MEMORY_ROOT"
 
 
 def _git_root() -> Path | None:
@@ -43,7 +66,8 @@ def resolve_memory_root(scope: str) -> Path:
     Resolve the memory root directory for a given scope.
 
     - "project": <git root>/.claude/memory/
-    - "global":  ~/.claude/memory/
+    - "global":  ~/.claude/memory/ (or `CC_GLOBAL_MEMORY_ROOT` when set --
+      see the module-level comment above `_GLOBAL_MEMORY_ROOT_ENV`)
     """
     if scope == "project":
         root = _git_root()
@@ -53,6 +77,9 @@ def resolve_memory_root(scope: str) -> Path:
             )
         return root / ".claude" / "memory"
     if scope == "global":
+        override = os.environ.get(_GLOBAL_MEMORY_ROOT_ENV)
+        if override:
+            return Path(override).expanduser()
         return Path.home() / ".claude" / "memory"
     raise ValueError(f"Unknown scope {scope!r}. Must be 'project' or 'global'.")
 
@@ -69,10 +96,12 @@ def entries_dir(memory_root: Path) -> Path:
 def _ensure_entries_dir(memory_root: Path) -> Path:
     """Create entries/ and .gitignore on first use."""
     e_dir = entries_dir(memory_root)
+    assert_write_is_isolated(e_dir)
     e_dir.mkdir(parents=True, exist_ok=True)
 
     gitignore = memory_root / ".gitignore"
     if not gitignore.exists():
+        assert_write_is_isolated(gitignore)
         gitignore.write_text(_GITIGNORE_CONTENT, encoding="utf-8")
 
     return e_dir
@@ -80,6 +109,7 @@ def _ensure_entries_dir(memory_root: Path) -> Path:
 
 def _atomic_write(path: Path, content: str) -> None:
     """Write content to path atomically via tmpfile + rename."""
+    assert_write_is_isolated(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     try:
@@ -215,6 +245,7 @@ def delete_entry(entry_id: str, scope: str | None = None) -> bool:
     if path is None:
         return False
 
+    assert_write_is_isolated(path)
     path.unlink()
     return True
 

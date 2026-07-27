@@ -39,7 +39,7 @@ packages = ["src/cc"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = ["-q", "--tb=short", "--color=yes", "--override-ini=addopts="]
+addopts = ["-q", "--tb=short", "--color=yes"]
 
 [tool.coverage.run]
 source = ["src/cc"]

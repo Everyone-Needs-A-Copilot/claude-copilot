@@ -25,6 +25,7 @@ from cc.core.config_paths import (
     repo_root,
 )
 from cc.core.sentinels import is_sentinel, resolve_sentinel
+from cc.core.write_guard import assert_write_is_isolated
 
 # ---------------------------------------------------------------------------
 # Built-in defaults (lowest precedence)
@@ -430,6 +431,7 @@ def write_config(key: str, value: Any, *, project: bool = False) -> Path:
     else:
         cfg_path = machine_config_path()
 
+    assert_write_is_isolated(cfg_path)
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
     existing = _read_json(cfg_path)
     _dotted_set(existing, key, value)
@@ -466,6 +468,7 @@ def add_to_list_config(key: str, value: str, *, project: bool = False) -> Path:
     else:
         cfg_path = machine_config_path()
 
+    assert_write_is_isolated(cfg_path)
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
     existing = _read_json(cfg_path)
     current_list = _as_list(_dotted_get(existing, key))
@@ -496,6 +499,7 @@ def remove_from_list_config(key: str, value: str, *, project: bool = False) -> P
     else:
         cfg_path = machine_config_path()
 
+    assert_write_is_isolated(cfg_path)
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
     existing = _read_json(cfg_path)
     current_list = [v for v in _as_list(_dotted_get(existing, key)) if v != value]
@@ -523,6 +527,7 @@ def unset_config(key: str, *, project: bool = False) -> bool:
     if not cfg_path.exists():
         return False
 
+    assert_write_is_isolated(cfg_path)
     existing = _read_json(cfg_path)
     parts = key.split(".")
     current: Any = existing

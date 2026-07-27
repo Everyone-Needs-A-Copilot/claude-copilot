@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Iterator, Optional
 
 from cc.core.entry_store import resolve_memory_root
+from cc.core.write_guard import assert_write_is_isolated
 
 
 class LockContentionError(RuntimeError):
@@ -53,6 +54,7 @@ def copilot_lock(*, path: Optional[Path] = None) -> Iterator[None]:
     whether to retry or surface the contention to the user).
     """
     target = path or lock_path()
+    assert_write_is_isolated(target)
     target.parent.mkdir(parents=True, exist_ok=True)
 
     # COPILOT_MANAGED_BY: no-op awareness hook. When set (e.g. by an MDM- or
