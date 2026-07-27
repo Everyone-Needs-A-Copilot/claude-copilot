@@ -1031,20 +1031,32 @@ def _provision_store(store: dict[str, Any], *, apply: bool, run: Run) -> dict[st
         payload = json.loads(result.stdout)
     except json.JSONDecodeError:
         return {
-            "result": "blocked",
-            "detail": "The secret-store provisioner returned an unreadable response.",
+            "result": "deferred",
+            "type": "infisical",
+            "detail": (
+                "The shared credential store could not be connected on this Mac. "
+                "Setup kept this Mac's existing credentials and will continue "
+                "without shared integrations."
+            ),
         }
-    if result.returncode != 0 or payload.get("result") == "blocked":
+    if result.returncode != 0 or payload.get("result") in {"blocked", "deferred"}:
         return {
-            "result": "blocked",
+            "result": "deferred",
+            "type": "infisical",
             "detail": payload.get(
-                "detail", "The secret-store identity could not be provisioned."
+                "detail",
+                "The shared credential store could not be connected on this Mac. "
+                "Setup kept this Mac's existing credentials and will continue "
+                "without shared integrations.",
             ),
         }
     return {
         "result": payload.get("result", "ready"),
         "type": "infisical",
-        "scope": payload.get("scope"),
+        # The provisioner's internal scope is a structured policy object.
+        # The onboarding contract deliberately exposes only a non-secret
+        # summary string; its schema does not accept arbitrary nested policy.
+        "scope": f"{store['environment']}:{store['secret_path']}:read",
     }
 
 

@@ -923,6 +923,134 @@ def test_connected_store_without_scope_identifiers_blocks_before_writes(tmp_path
     _assert_valid_onboard_report(report)
 
 
+def test_valid_connected_store_identity_refusal_defers_without_overwriting_credentials():
+    store = {
+        "status": "connected",
+        "type": "infisical",
+        "workspace_id": "workspace-1",
+        "environment": "prod",
+        "secret_path": "/shared",
+    }
+
+    report = onboard_module._provision_store(
+        store,
+        apply=True,
+        run=lambda args: subprocess.CompletedProcess(
+            args,
+            1,
+            json.dumps(
+                {
+                    "schema_version": "1.0",
+                    "result": "blocked",
+                    "detail": (
+                        "This device already has store credentials for another "
+                        "identity; setup did not replace them."
+                    ),
+                }
+            ),
+            "",
+        ),
+    )
+
+    assert report == {
+        "result": "deferred",
+        "type": "infisical",
+        "detail": (
+            "This device already has store credentials for another identity; "
+            "setup did not replace them."
+        ),
+    }
+
+
+def test_store_without_bootstrap_authority_defers_on_unreadable_cli_failure():
+    store = {
+        "status": "connected",
+        "type": "infisical",
+        "workspace_id": "workspace-1",
+        "environment": "prod",
+        "secret_path": "/shared",
+    }
+
+    report = onboard_module._provision_store(
+        store,
+        apply=True,
+        run=lambda args: subprocess.CompletedProcess(
+            args, 1, "", "Infisical credentials not configured."
+        ),
+    )
+
+    assert report["result"] == "deferred"
+    assert report["type"] == "infisical"
+    assert "existing credentials" in report["detail"]
+
+
+def test_unavailable_optional_store_does_not_block_core_apply(tmp_path):
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=tmp_path / "layers.yml",
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        store_fn=lambda *_args, **_kwargs: {
+            "result": "deferred",
+            "type": "infisical",
+            "detail": "Shared integrations were left for later.",
+        },
+        codex_fn=_codex,
+        update_fn=lambda **_: (
+            {"result": "up-to-date", "blocked": [], "held_for_approval": []},
+            0,
+        ),
+        doctor_fn=lambda: {"status": "healthy", "score": 100},
+    )
+
+    assert report["result"] == "ready"
+    store_stage = next(
+        stage for stage in report["stages"] if stage["stage"] == "secret-store"
+    )
+    assert store_stage["result"] == "deferred"
+    assert (tmp_path / "layers.yml").is_file()
+    _assert_valid_onboard_report(report)
+
+
+def test_successful_store_scope_is_a_non_secret_schema_summary():
+    store = {
+        "status": "connected",
+        "type": "infisical",
+        "workspace_id": "workspace-1",
+        "environment": "prod",
+        "secret_path": "/shared",
+    }
+
+    report = onboard_module._provision_store(
+        store,
+        apply=False,
+        run=lambda args: subprocess.CompletedProcess(
+            args,
+            0,
+            json.dumps(
+                {
+                    "schema_version": "1.0",
+                    "result": "ready",
+                    "scope": {
+                        "environment": "prod",
+                        "secret_path": "/shared",
+                        "access": "read",
+                    },
+                }
+            ),
+            "",
+        ),
+    )
+
+    assert report == {
+        "result": "ready",
+        "type": "infisical",
+        "scope": "prod:/shared:read",
+    }
+
+
 def test_aggregate_block_before_manifest_still_returns_layers_field(tmp_path):
     report = build_ecosystem_onboard_report(
         org="Acme",
