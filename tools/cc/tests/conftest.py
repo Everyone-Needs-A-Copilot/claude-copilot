@@ -13,6 +13,11 @@ from typer.testing import CliRunner
 # wrote here; never read for any other purpose.
 _REAL_MACHINE_CONFIG = Path.home() / ".claude" / "cc" / "config.json"
 _REAL_MACHINE_SECRETS = Path.home() / ".claude" / "cc" / "secrets.env"
+_REAL_LAYER_MANIFESTS = (
+    Path.home() / ".config" / "copilot" / "copilot.layers.yml",
+    Path.home() / ".copilot" / "copilot.layers.yml",
+    Path.home() / ".copilot-cli" / "copilot.layers.yml",
+)
 
 # The REAL "global" memory root -- deliberately resolved WITHOUT going
 # through `cc.core.entry_store` (same reasoning as above). This directory
@@ -92,12 +97,20 @@ def _isolate_machine_config(tmp_path, monkeypatch):
     config_before = _checksum(_REAL_MACHINE_CONFIG)
     secrets_before = _checksum(_REAL_MACHINE_SECRETS)
     global_memory_before = _global_memory_checksums()
+    manifests_before = {
+        path: _checksum(path)
+        for path in _REAL_LAYER_MANIFESTS
+    }
     monkeypatch.setenv("CC_MACHINE_ROOT", str(tmp_path / "machine-config-root"))
     monkeypatch.setenv("CC_GLOBAL_MEMORY_ROOT", str(tmp_path / "global-memory-root"))
     yield
     config_after = _checksum(_REAL_MACHINE_CONFIG)
     secrets_after = _checksum(_REAL_MACHINE_SECRETS)
     global_memory_after = _global_memory_checksums()
+    manifests_after = {
+        path: _checksum(path)
+        for path in _REAL_LAYER_MANIFESTS
+    }
     assert config_after == config_before, (
         "A test wrote to the real ~/.claude/cc/config.json. Route the write "
         "through the CC_MACHINE_ROOT seam (core/config_paths.py) instead of "
@@ -113,6 +126,11 @@ def _isolate_machine_config(tmp_path, monkeypatch):
         "the write through the CC_GLOBAL_MEMORY_ROOT seam "
         "(core/entry_store.py's resolve_memory_root) instead of "
         "Path.home() -- never disable this check."
+    )
+    assert manifests_after == manifests_before, (
+        "A test wrote to a real copilot.layers.yml path. Pass an isolated "
+        "manifest_path to aggregate onboarding instead of relying on its "
+        "real-home default -- never disable this check."
     )
 
 

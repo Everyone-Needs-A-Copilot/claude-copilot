@@ -24,6 +24,7 @@ from cc.core import authstore, keychain
 from cc.core.config import resolve_key, write_config
 from cc.core.ecosystem.manifest import ManifestError, validate_layers
 from cc.core.ecosystem.ssh_identity import ensure_machine_ssh_identity
+from cc.core.write_guard import assert_write_is_isolated
 
 SCHEMA_VERSION = "1.0"
 COMPONENTS = ("knowledge", "cli", "claude", "codex")
@@ -705,6 +706,10 @@ def _layer_manifest(
 
 
 def _atomic_yaml(path: Path, payload: dict[str, Any]) -> None:
+    # Guard before mkdir/tempfile creation, not only before os.replace: a
+    # pytest isolation escape must leave no directory or temporary artifact
+    # behind at any of the real active/legacy manifest locations.
+    assert_write_is_isolated(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
         "w", dir=path.parent, delete=False, encoding="utf-8"

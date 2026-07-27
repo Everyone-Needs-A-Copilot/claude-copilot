@@ -6,7 +6,9 @@
 real paths before/after as a DETECTION backstop. Detection alone was proven
 insufficient: a probe that cleared `CC_MACHINE_ROOT` and called
 `write_config()` directly wrote to the developer's real
-`~/.claude/cc/config.json` before the teardown checksum caught it.
+`~/.claude/cc/config.json` before the teardown checksum caught it. Aggregate
+onboarding's active and legacy layer-manifest paths are covered by the same
+prevention + detection contract.
 
 This module is the PREVENTION layer. Every write path that can reach a
 machine-config or global-memory location (`core/config.py`'s
@@ -46,9 +48,9 @@ class TestIsolationEscapeError(RuntimeError):
 
 
 # The exact real, non-isolated locations cc's write paths are known to
-# target. Deliberately hardcoded (not resolved via config_paths.py/
-# entry_store.py) so this guard cannot be fooled by the very monkeypatching
-# it exists to catch.
+# target. Deliberately hardcoded (not resolved via config_paths.py,
+# entry_store.py, or onboard.py) so this guard cannot be fooled by the very
+# monkeypatching it exists to catch.
 #
 # Resolved ONCE, at import time, rather than inside `assert_write_is_
 # isolated()` on every call: several contract test files (test_layers_
@@ -66,6 +68,9 @@ _FORBIDDEN_REAL_PATHS: tuple[Path, ...] = (
     _REAL_HOME / ".claude" / "cc" / "config.json",
     _REAL_HOME / ".claude" / "cc" / "secrets.env",
     _REAL_HOME / ".claude" / "memory",
+    _REAL_HOME / ".config" / "copilot" / "copilot.layers.yml",
+    _REAL_HOME / ".copilot" / "copilot.layers.yml",
+    _REAL_HOME / ".copilot-cli" / "copilot.layers.yml",
 )
 
 

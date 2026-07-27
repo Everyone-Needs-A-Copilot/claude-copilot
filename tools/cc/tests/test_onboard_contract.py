@@ -4,6 +4,7 @@ import subprocess
 from pathlib import Path
 
 import cc.commands.onboard as onboard_module
+import pytest
 import yaml
 from cc.commands.onboard import (
     build_ecosystem_onboard_report,
@@ -741,6 +742,28 @@ def test_symlinked_manifest_is_held_without_following_or_replacing_it(tmp_path):
     assert plan.action == "review"
     assert target.is_symlink()
     assert outside.read_text() == "version: 1\nlayers: []\n"
+
+
+@pytest.mark.parametrize(
+    "target",
+    (
+        Path.home() / ".config" / "copilot" / "copilot.layers.yml",
+        Path.home() / ".copilot" / "copilot.layers.yml",
+        Path.home() / ".copilot-cli" / "copilot.layers.yml",
+    ),
+)
+def test_atomic_yaml_refuses_real_manifest_paths_during_pytest(target):
+    """Prevention fires before mkdir/tempfile/replace at every real path."""
+    from cc.core.write_guard import TestIsolationEscapeError
+
+    before = target.read_bytes() if target.is_file() else None
+    parent_existed = target.parent.exists()
+
+    with pytest.raises(TestIsolationEscapeError, match="Refusing to write"):
+        onboard_module._atomic_yaml(target, {"version": 1, "layers": []})
+
+    assert (target.read_bytes() if target.is_file() else None) == before
+    assert target.parent.exists() is parent_existed
 
 
 def test_manifest_with_url_embedded_credential_is_held_and_not_copied(tmp_path):

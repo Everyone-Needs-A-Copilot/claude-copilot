@@ -2,8 +2,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import cc.core.ecosystem.ssh_identity as ssh_identity_module
 import pytest
-
 from cc.core.ecosystem.ssh_identity import ensure_machine_ssh_identity
 
 
@@ -12,6 +12,9 @@ class FakeCommands:
         self.key_path = key_path
         self.registered = registered
         self.calls = []
+        self.generated_passphrase_lengths = []
+        self.generated_rounds = []
+        self.agent_passphrase_lengths = []
 
     def __call__(self, args):
         args = tuple(args)
@@ -19,16 +22,23 @@ class FakeCommands:
         if args[:3] == ("gh", "api", "user/keys"):
             keys = [{"key": "ssh-ed25519 TEST device"}] if self.registered else []
             return subprocess.CompletedProcess(args, 0, json.dumps(keys), "")
-        if args[0] == "ssh-keygen":
-            self.key_path.write_text("PRIVATE")
-            Path(f"{self.key_path}.pub").write_text("ssh-ed25519 TEST device\n")
-            return subprocess.CompletedProcess(args, 0, "", "")
-        if args[0] == "ssh-add":
-            return subprocess.CompletedProcess(args, 0, "", "")
         if "POST" in args and "user/keys" in args:
             self.registered = True
             return subprocess.CompletedProcess(args, 0, "{}", "")
         return subprocess.CompletedProcess(args, 1, "", "unexpected")
+
+    def generate_key(self, key_path, title, passphrase):
+        self.generated_passphrase_lengths.append(len(passphrase))
+        self.generated_rounds.append(64)
+        key_path.write_text("ENCRYPTED PRIVATE")
+        Path(f"{key_path}.pub").write_text("ssh-ed25519 TEST device\n")
+        return subprocess.CompletedProcess(("ssh-keygen",), 0, "", "")
+
+    def add_key(self, key_path, passphrase):
+        self.agent_passphrase_lengths.append(
+            len(passphrase) if passphrase is not None else None
+        )
+        return subprocess.CompletedProcess(("ssh-add", str(key_path)), 0, "", "")
 
 
 @pytest.fixture(autouse=True)
@@ -46,17 +56,119 @@ def test_plan_reports_changes_without_writing(tmp_path):
     assert not config.exists()
 
 
+def test_real_generator_contract_encrypts_with_stronger_kdf(monkeypatch, tmp_path):
+    captured = {}
+
+    def fake_run(args):
+        captured["args"] = tuple(args)
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(ssh_identity_module, "_run", fake_run)
+    result = ssh_identity_module._generate_encrypted_keypair(
+        tmp_path / "device", "test-device", "x" * 48
+    )
+
+    assert result.returncode == 0
+    args = captured["args"]
+    assert args[args.index("-N") + 1] == "x" * 48
+    assert args[args.index("-N") + 1] != ""
+    assert args[args.index("-a") + 1] == "64"
+
+
+def test_real_generator_produces_an_encrypted_openssh_key(tmp_path):
+    key = tmp_path / "device"
+    passphrase = "test-only-passphrase-with-more-than-32-characters"
+
+    generated = ssh_identity_module._generate_encrypted_keypair(
+        key, "test-device", passphrase
+    )
+    unlocked = subprocess.run(
+        ("ssh-keygen", "-y", "-P", passphrase, "-f", str(key)),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    empty_passphrase = subprocess.run(
+        ("ssh-keygen", "-y", "-P", "", "-f", str(key)),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert generated.returncode == 0
+    assert key.exists()
+    assert Path(f"{key}.pub").exists()
+    assert unlocked.returncode == 0
+    assert empty_passphrase.returncode != 0
+
+
+def test_keychain_loader_uses_secret_free_askpass_file(monkeypatch, tmp_path):
+    captured = {}
+
+    def fake_subprocess_run(args, **kwargs):
+        helper = Path(kwargs["env"]["SSH_ASKPASS"])
+        captured["args"] = tuple(args)
+        captured["helper"] = helper.read_text(encoding="utf-8")
+        captured["passphrase_length"] = len(
+            kwargs["env"]["CT_SSH_KEY_PASSPHRASE"]
+        )
+        captured["stdin"] = kwargs["stdin"]
+        captured["start_new_session"] = kwargs["start_new_session"]
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(ssh_identity_module.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(ssh_identity_module.subprocess, "run", fake_subprocess_run)
+
+    result = ssh_identity_module._add_private_key_to_agent(
+        tmp_path / "device", "p" * 48
+    )
+
+    assert result.returncode == 0
+    assert captured["args"][:2] == ("ssh-add", "--apple-use-keychain")
+    assert "p" * 48 not in captured["helper"]
+    assert "CT_SSH_KEY_PASSPHRASE" in captured["helper"]
+    assert captured["passphrase_length"] == 48
+    assert captured["stdin"] is subprocess.DEVNULL
+    assert captured["start_new_session"] is True
+
+
+def test_production_agent_adapter_fails_closed_off_macos(monkeypatch, tmp_path):
+    def unexpected_run(*args, **kwargs):
+        raise AssertionError("ssh-add must not run without a secure platform adapter")
+
+    monkeypatch.setattr(ssh_identity_module.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(ssh_identity_module.subprocess, "run", unexpected_run)
+
+    result = ssh_identity_module._add_private_key_to_agent(
+        tmp_path / "device", "p" * 48
+    )
+
+    assert result.returncode == 1
+    assert "not implemented on this platform" in result.stderr
+
+
 def test_apply_generates_registers_and_writes_bounded_config(tmp_path):
     key = tmp_path / "ssh" / "device"
     config = tmp_path / "ssh" / "config"
     key.parent.mkdir()
     config.write_text("Host example\n  HostName example.com\n")
     fake = FakeCommands(key)
-    report = ensure_machine_ssh_identity(apply=True, run=fake, key_path=key, config_path=config, title="test-device")
+    report = ensure_machine_ssh_identity(
+        apply=True,
+        run=fake,
+        key_path=key,
+        config_path=config,
+        title="test-device",
+        generate_key=fake.generate_key,
+        add_key=fake.add_key,
+    )
     assert report["result"] == "applied"
     assert "Host example" in config.read_text()
     assert "Host github-work github-personal" in config.read_text()
     assert any("POST" in call for call in fake.calls)
+    assert fake.generated_passphrase_lengths[0] >= 32
+    assert fake.generated_rounds == [64]
+    assert fake.agent_passphrase_lengths == fake.generated_passphrase_lengths
 
 
 def test_second_apply_reuses_registered_key_and_managed_block(tmp_path):
@@ -66,7 +178,13 @@ def test_second_apply_reuses_registered_key_and_managed_block(tmp_path):
     key.write_text("PRIVATE")
     Path(f"{key}.pub").write_text("ssh-ed25519 TEST device\n")
     fake = FakeCommands(key, registered=True)
-    first = ensure_machine_ssh_identity(apply=True, run=fake, key_path=key, config_path=config)
+    first = ensure_machine_ssh_identity(
+        apply=True,
+        run=fake,
+        key_path=key,
+        config_path=config,
+        add_key=fake.add_key,
+    )
     second = ensure_machine_ssh_identity(apply=False, run=fake, key_path=key, config_path=config)
     assert first["result"] == "applied"
     assert second["result"] == "ready"
@@ -171,6 +289,8 @@ class AdoptCommands:
         self.alias_hostnames = alias_hostnames or {}
         self.reachable_repos = reachable_repos or set()
         self.calls = []
+        self.generated_passphrase_lengths = []
+        self.agent_passphrase_lengths = []
 
     def __call__(self, args):
         args = tuple(args)
@@ -208,16 +328,22 @@ class AdoptCommands:
             if target in self.reachable_repos:
                 return subprocess.CompletedProcess(args, 0, "abc123\tHEAD\n", "")
             return subprocess.CompletedProcess(args, 128, "", "fatal: could not read from remote repository")
-        if args[0] == "ssh-keygen":
-            self.key_path.write_text("PRIVATE")
-            Path(f"{self.key_path}.pub").write_text("ssh-ed25519 TEST device\n")
-            return subprocess.CompletedProcess(args, 0, "", "")
-        if args[0] == "ssh-add":
-            return subprocess.CompletedProcess(args, 0, "", "")
         if "POST" in args and "user/keys" in args:
             self.registered = True
             return subprocess.CompletedProcess(args, 0, "{}", "")
         return subprocess.CompletedProcess(args, 1, "", "unexpected")
+
+    def generate_key(self, key_path, title, passphrase):
+        self.generated_passphrase_lengths.append(len(passphrase))
+        key_path.write_text("ENCRYPTED PRIVATE")
+        Path(f"{key_path}.pub").write_text("ssh-ed25519 TEST device\n")
+        return subprocess.CompletedProcess(("ssh-keygen",), 0, "", "")
+
+    def add_key(self, key_path, passphrase):
+        self.agent_passphrase_lengths.append(
+            len(passphrase) if passphrase is not None else None
+        )
+        return subprocess.CompletedProcess(("ssh-add", str(key_path)), 0, "", "")
 
 
 _UNMANAGED_WORK_ALIAS = "Host github-work\n  HostName github.com\n  User git\n  IdentityFile /custom/key\n"
@@ -288,6 +414,8 @@ def test_apply_with_consent_adds_missing_alias_additively(tmp_path):
         config_path=config,
         adopt_existing=("ssh",),
         verify_repos={"github-work": "Acme/claude-copilot-internal"},
+        generate_key=fake.generate_key,
+        add_key=fake.add_key,
     )
     assert report["result"] == "applied"
     assert report["config"] == "adopted"
@@ -300,6 +428,34 @@ def test_apply_with_consent_adds_missing_alias_additively(tmp_path):
     assert written.index("Host github-personal") < written.index("Host github-work")
     assert key.exists()
     assert any("POST" in call for call in fake.calls)
+    assert fake.generated_passphrase_lengths[0] >= 32
+    assert fake.agent_passphrase_lengths == fake.generated_passphrase_lengths
+
+
+def test_agent_failure_removes_only_the_new_encrypted_keypair(tmp_path):
+    key = tmp_path / "device"
+    config = tmp_path / "config"
+    fake = FakeCommands(key)
+
+    def fail_add(key_path, passphrase):
+        assert len(passphrase) >= 32
+        return subprocess.CompletedProcess(("ssh-add", str(key_path)), 1, "", "failed")
+
+    report = ensure_machine_ssh_identity(
+        apply=True,
+        run=fake,
+        key_path=key,
+        config_path=config,
+        generate_key=fake.generate_key,
+        add_key=fail_add,
+    )
+
+    assert report["result"] == "blocked"
+    assert report["key"] == "missing"
+    assert "removed" in report["detail"]
+    assert not key.exists()
+    assert not Path(f"{key}.pub").exists()
+    assert not config.exists()
 
 
 def test_held_when_alias_signs_in_as_a_different_account(tmp_path):

@@ -22,6 +22,7 @@ import json
 import os
 import platform
 import re
+import secrets
 import socket
 import subprocess
 import tempfile
@@ -29,6 +30,8 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 
 Run = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
+GenerateKey = Callable[[Path, str, str], subprocess.CompletedProcess[str]]
+AddKey = Callable[[Path, str | None], subprocess.CompletedProcess[str]]
 
 # Both aliases share one device identity when created from scratch, but each
 # is classified and, if needed, written independently so an alias that
@@ -54,6 +57,89 @@ _MALFORMED_DETAIL = (
 
 def _run(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(args, capture_output=True, text=True, check=False)
+
+
+def _new_key_passphrase() -> str:
+    """Return a high-entropy passphrase used only for this machine's key."""
+    return secrets.token_urlsafe(48)
+
+
+def _generate_encrypted_keypair(
+    key_path: Path, title: str, passphrase: str
+) -> subprocess.CompletedProcess[str]:
+    """Generate an encrypted OpenSSH key file.
+
+    macOS Keychain does not store the private key itself:
+    `ssh-add --apple-use-keychain` stores the passphrase. The durable private
+    key therefore remains an encrypted, mode-0600 OpenSSH file, protected by
+    bcrypt-PBKDF rounds rather than the previous empty-passphrase file.
+    """
+    args = (
+        "ssh-keygen",
+        "-q",
+        "-t",
+        "ed25519",
+        "-a",
+        "64",
+        "-f",
+        str(key_path),
+        "-N",
+        passphrase,
+        "-C",
+        title,
+    )
+    return _run(args)
+
+
+def _add_private_key_to_agent(
+    key_path: Path, passphrase: str | None
+) -> subprocess.CompletedProcess[str]:
+    """Load a key through Apple's Keychain-aware ssh-agent integration.
+
+    A newly generated key supplies its passphrase through a short-lived
+    askpass helper whose file contains no secret; the helper reads the secret
+    only from this child process's environment. Existing encrypted keys use
+    the passphrase already stored in Keychain. No passphrase is printed.
+    """
+    if platform.system() != "Darwin":
+        args = ("ssh-add", str(key_path))
+        return subprocess.CompletedProcess(
+            args,
+            1,
+            "",
+            "Secure persistent SSH key loading is not implemented on this platform.",
+        )
+
+    if passphrase is None:
+        return _run(("ssh-add", "--apple-load-keychain", str(key_path)))
+
+    with tempfile.TemporaryDirectory(prefix="ct-ssh-askpass-") as helper_dir:
+        helper = Path(helper_dir) / "askpass"
+        helper.write_text(
+            "#!/bin/sh\n"
+            'exec /usr/bin/printf "%s\\n" "$CT_SSH_KEY_PASSPHRASE"\n',
+            encoding="utf-8",
+        )
+        helper.chmod(0o700)
+        env = os.environ.copy()
+        env.update(
+            {
+                "CT_SSH_KEY_PASSPHRASE": passphrase,
+                "SSH_ASKPASS": str(helper),
+                "SSH_ASKPASS_REQUIRE": "force",
+                "DISPLAY": env.get("DISPLAY") or "ct-keychain",
+            }
+        )
+        args = ("ssh-add", "--apple-use-keychain", str(key_path))
+        return subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            check=False,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+            env=env,
+        )
 
 
 def _key_material(value: str) -> str:
@@ -352,6 +438,9 @@ def ensure_machine_ssh_identity(
     title: str | None = None,
     adopt_existing: Sequence[str] = (),
     verify_repos: dict[str, str] | None = None,
+    generate_key: GenerateKey = _generate_encrypted_keypair,
+    add_key: AddKey = _add_private_key_to_agent,
+    passphrase_factory: Callable[[], str] = _new_key_passphrase,
 ) -> dict[str, Any]:
     """Plan or apply one resumable, device-local SSH identity transaction.
 
@@ -478,22 +567,27 @@ def ensure_machine_ssh_identity(
             ),
         }
 
+    created_key = False
+    generated_passphrase: str | None = None
     if not key.exists():
         key.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        generated = run(
-            (
-                "ssh-keygen",
-                "-t",
-                "ed25519",
-                "-f",
-                str(key),
-                "-N",
-                "",
-                "-C",
-                title or f"Copilot Control Tower {socket.gethostname()}",
-            )
+        generated_passphrase = passphrase_factory()
+        if len(generated_passphrase) < 32:
+            return {
+                "result": "blocked",
+                "key": "missing",
+                "registration": "missing",
+                "config": "planned",
+                "detail": "A strong passphrase for this Mac's GitHub key could not be generated.",
+            }
+        generated = generate_key(
+            key,
+            title or f"Copilot Control Tower {socket.gethostname()}",
+            generated_passphrase,
         )
         if generated.returncode != 0 or not key.exists() or not public.exists():
+            key.unlink(missing_ok=True)
+            public.unlink(missing_ok=True)
             return {
                 "result": "blocked",
                 "key": "unknown",
@@ -501,21 +595,24 @@ def ensure_machine_ssh_identity(
                 "config": "planned",
                 "detail": "The device SSH keypair could not be generated.",
             }
+        created_key = True
         local_public = public.read_text(encoding="utf-8")
 
-    add_args = (
-        ("ssh-add", "--apple-use-keychain", str(key))
-        if platform.system() == "Darwin"
-        else ("ssh-add", str(key))
-    )
-    added = run(add_args)
+    added = add_key(key, generated_passphrase)
     if added.returncode != 0:
+        if created_key:
+            key.unlink(missing_ok=True)
+            public.unlink(missing_ok=True)
         return {
             "result": "blocked",
-            "key": "existing",
+            "key": "missing" if created_key else "existing",
             "registration": "registered" if registered else "missing",
             "config": "planned",
-            "detail": "The private key remains on this device, but the SSH agent could not load it.",
+            "detail": (
+                "The private key could not be stored safely, so the new keypair was removed."
+                if created_key
+                else "The private key remains on this Mac, but its secure SSH agent could not load it."
+            ),
         }
 
     if not registered:
