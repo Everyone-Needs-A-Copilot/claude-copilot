@@ -359,6 +359,41 @@ if /usr/sbin/sysctl -n sysctl.proc_translated >/dev/null 2>&1 ||
         die "x86_64 helper returned unexpected version: ${x86_version}"
 fi
 
+# Exercise the exact first network boundary the Control Tower User app needs.
+# Version and signature checks alone cannot detect a frozen interpreter that
+# omitted its CA bundle. Use an isolated HOME, request (but never poll or
+# persist) one short-lived device code, and validate the machine contract
+# without printing the code into release logs.
+probe_home="${scratch}/device-flow-probe-home"
+mkdir -p "${probe_home}"
+device_flow_probe="${scratch}/device-flow-probe.json"
+env HOME="${probe_home}" \
+    "${artifact}" auth login \
+    --org Everyone-Needs-A-Copilot \
+    --json > "${device_flow_probe}"
+/usr/bin/python3 - "${device_flow_probe}" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+required = {
+    "schema_version": str,
+    "user_code": str,
+    "verification_uri": str,
+    "device_code": str,
+    "interval": int,
+    "expires_in": int,
+}
+for key, expected_type in required.items():
+    value = payload.get(key)
+    if not isinstance(value, expected_type) or (
+        expected_type is str and not value.strip()
+    ):
+        raise SystemExit(
+            f"device-flow HTTPS probe returned invalid {key}: {value!r}"
+        )
+PY
+
 archive="${scratch}/cc-macos-universal.zip"
 ditto -c -k --keepParent "${artifact}" "${archive}"
 notary_args=()
@@ -435,6 +470,7 @@ cat > "${OUTPUT_DIR}/release-metadata.json" <<EOF
   "notarization_container": "cc-macos-universal.zip",
   "notarization_container_sha256": "${archive_sha}",
   "standalone_ticket_staple": "unsupported-by-apple",
+  "device_flow_https_probe": "passed",
   "sha256": "${artifact_sha}"
 }
 EOF
