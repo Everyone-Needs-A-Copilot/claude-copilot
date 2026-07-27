@@ -33,6 +33,7 @@ fetch, no working tree, no full `update`.
 from __future__ import annotations
 
 import base64
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -51,6 +52,10 @@ DEFAULT_LOCK_POINTER_REF = "refs/copilot/lock"
 # `_UNSET` (a caller-supplied `None` must force anonymous, never be
 # confused with "not supplied at all").
 _UNSET: Any = object()
+
+_EXACT_SEMVER = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
+_CARET_SEMVER = re.compile(r"^\^v?(\d+)\.(\d+)\.(\d+)$")
+_MAJOR_X_SEMVER = re.compile(r"^v?(\d+)\.x$")
 
 
 def mirror_root(tier: str, *, _root: Optional[Path | str] = None) -> Path:
@@ -261,6 +266,35 @@ def _run_git(
     )
 
 
+def _select_semver_tag(ref: str, tags: list[str]) -> Optional[str]:
+    """Resolve a supported semver range to the highest matching git tag."""
+    caret = _CARET_SEMVER.fullmatch(ref)
+    major_x = _MAJOR_X_SEMVER.fullmatch(ref)
+    if caret is None and major_x is None:
+        return ref
+
+    candidates: list[tuple[tuple[int, int, int], str]] = []
+    for tag in tags:
+        match = _EXACT_SEMVER.fullmatch(tag)
+        if match is None:
+            continue
+        version = tuple(int(part) for part in match.groups())
+        if major_x is not None:
+            allowed = version[0] == int(major_x.group(1))
+        else:
+            floor = tuple(int(part) for part in caret.groups())
+            if floor[0] > 0:
+                ceiling = (floor[0] + 1, 0, 0)
+            elif floor[1] > 0:
+                ceiling = (0, floor[1] + 1, 0)
+            else:
+                ceiling = (0, 0, floor[2] + 1)
+            allowed = floor <= version < ceiling
+        if allowed:
+            candidates.append((version, tag))
+    return max(candidates)[1] if candidates else None
+
+
 def _offline_result(
     tier: str, target: Path, detail: str, *, action: str = "offline"
 ) -> MirrorSyncResult:
@@ -357,8 +391,29 @@ def clone_or_update_mirror(
         else:
             action = "updated"
 
+        effective_ref = ref
+        if _CARET_SEMVER.fullmatch(ref) or _MAJOR_X_SEMVER.fullmatch(ref):
+            tags_fetch = _run_git(
+                ["fetch", "--quiet", "--tags", "--force", "origin"],
+                cwd=target,
+                timeout=timeout,
+                _auth_header=auth_header,
+            )
+            if tags_fetch.returncode != 0:
+                return _offline_result(tier, target, tags_fetch.stderr.strip())
+            tags_result = _run_git(["tag", "--list"], cwd=target, timeout=timeout)
+            if tags_result.returncode != 0:
+                return _error_result(tier, target, tags_result.stderr.strip())
+            effective_ref = _select_semver_tag(ref, tags_result.stdout.splitlines())
+            if effective_ref is None:
+                return _error_result(
+                    tier,
+                    target,
+                    f"No published release satisfies {ref}.",
+                )
+
         fetched = _run_git(
-            ["fetch", "--quiet", "origin", ref],
+            ["fetch", "--quiet", "origin", effective_ref],
             cwd=target,
             timeout=timeout,
             _auth_header=auth_header,

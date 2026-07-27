@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
-from typer.testing import CliRunner
-
-from cc.commands.doctor import build_doctor_report, run_doctor, NOT_IN_REPO
+from cc.commands.doctor import NOT_IN_REPO, build_doctor_report, run_doctor
 from cc.main import app
+from typer.testing import CliRunner
 
 runner = CliRunner()
 
@@ -188,7 +184,7 @@ def test_doctor_warns_no_gitignore(tmp_path):
 
 
 def test_doctor_not_in_repo(tmp_path):
-    """When NOT_IN_REPO sentinel is passed, emits not-in-repo warning."""
+    """Machine-wide Doctor is healthy without a selected project."""
     machine_cfg = tmp_path / "machine_config.json"
     machine_cfg.write_text("{}")
     (tmp_path / ".gitignore").write_text("x\n")
@@ -199,7 +195,43 @@ def test_doctor_not_in_repo(tmp_path):
         _resolved_cfg={},
     )
 
-    assert any("git repository" in w for w in result.warnings)
+    assert result.warnings == []
+    report = build_doctor_report(
+        _machine_cfg_path=machine_cfg,
+        _project_cfg_path=NOT_IN_REPO,
+        _resolved_cfg={},
+        _layers=[],
+        _lockfile={},
+        _auth_root=tmp_path / "auth",
+        _lock_probe_path=tmp_path / "copilot.lock",
+    )
+    project_checker = next(c for c in report["checkers"] if c["id"] == "project-repo")
+    assert project_checker["severity"] == "pass"
+
+
+def test_doctor_skips_missing_optional_project_activation_roots(tmp_path):
+    machine_cfg = tmp_path / "machine_config.json"
+    machine_cfg.write_text("{}")
+    (tmp_path / ".gitignore").write_text("x\n")
+    project_cfg = tmp_path / "project_config.json"
+    project_cfg.write_text("{}")
+
+    report = build_doctor_report(
+        _machine_cfg_path=machine_cfg,
+        _project_cfg_path=project_cfg,
+        _resolved_cfg={
+            "paths.claude_copilot_root": str(tmp_path / "missing-claude"),
+            "paths.codex_copilot_root": str(tmp_path / "missing-codex"),
+        },
+        _layers=[],
+        _lockfile={},
+        _auth_root=tmp_path / "auth",
+        _lock_probe_path=tmp_path / "copilot.lock",
+    )
+
+    ids = {checker["id"] for checker in report["checkers"]}
+    assert "config-path:paths.claude_copilot_root" not in ids
+    assert "config-path:paths.codex_copilot_root" not in ids
 
 
 # ---------------------------------------------------------------------------

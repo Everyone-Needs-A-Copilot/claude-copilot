@@ -13,12 +13,16 @@ exactly one product x tier"), so "layer x product it carries" reduces to
 one checker per layer, keyed off that layer's own `product` field.
 
 Per layer, this compares:
-  - `local_sha`: a git-blob-sha1 fingerprint (the SAME canonical-JSON
+  - `local_sha`: when the source publishes a lock-pointer ref, a
+    git-blob-sha1 fingerprint (the SAME canonical-JSON
     scheme `core/ecosystem/freshness.py`'s `lock_fingerprint()` already
     uses for the whole-lockfile fingerprint) of just that layer's slice of
-    the local lockfile (`core/ecosystem/lockfile.py`). `None` when the
-    layer has no recorded lock entry yet (nothing materialized locally) --
-    an honest "unknown", never a fabricated sha.
+    the local lockfile (`core/ecosystem/lockfile.py`). When no lock-pointer
+    exists and the already-cloned mirror is the only available comparison,
+    `local_sha` is instead the exact source commit recorded by the last
+    successful update under the layer's `_meta.source_sha`. `None` when
+    the comparable local identity is unknown -- an honest "unknown", never
+    a fabricated sha.
   - `remote_sha`: the layer's published lock-pointer ref
     (`core/ecosystem/mirror.py`'s `latest_lock_sha()`, a single cheap
     `git ls-remote` -- never a full clone/fetch), falling back to an
@@ -27,9 +31,9 @@ Per layer, this compares:
     supplied AND a mirror already exists there -- this module never clones
     anything itself and never resolves `Path.home()` (mirrors this
     codebase's "every I/O root injectable" rule -- see `update.py`'s
-    module docstring). This fallback is a weaker signal (a content-tree
-    commit sha, not a lock-pointer blob sha) but still an honest,
-    non-fabricated value.
+    module docstring). This fallback is a weaker signal, but it is compared
+    only with the recorded source commit from the same identity namespace
+    -- never with an unrelated lock-content fingerprint.
 
 Severity fold (never fabricated):
   - `remote_sha is None` (neither lookup answered) -> `warn`, and the
@@ -52,7 +56,7 @@ from typing import Any, Callable, Optional
 
 from cc.core.ecosystem import mirror
 from cc.core.ecosystem.freshness import lock_fingerprint
-from cc.core.ecosystem.lockfile import LAYER_META_KEY
+from cc.core.ecosystem.lockfile import LAYER_META_KEY, layer_meta
 
 LatestShaFn = Callable[[str, str], Optional[str]]
 
@@ -149,18 +153,19 @@ def _remote_sha_for_layer(
     *,
     latest_sha_fn: LatestShaFn,
     mirror_root: Optional[Path | str],
-) -> Optional[str]:
+) -> tuple[Optional[str], str]:
     source = layer.get("source") or {}
     repo = source.get("repo")
     if not repo:
-        return None
+        return None, "unknown"
 
     ref = source.get("lock_ref") or mirror.DEFAULT_LOCK_POINTER_REF
     remote = latest_sha_fn(repo, ref)
     if remote is not None:
-        return remote
+        return remote, "lock"
 
-    return _mirror_clone_head_sha(layer.get("id", ""), mirror_root=mirror_root)
+    mirror_sha = _mirror_clone_head_sha(layer.get("id", ""), mirror_root=mirror_root)
+    return mirror_sha, "source" if mirror_sha is not None else "unknown"
 
 
 def compute_component_checkers(
@@ -191,9 +196,13 @@ def compute_component_checkers(
             # health check on a layer this module can't attribute.
             continue
 
-        local_sha = _local_sha_for_layer(lock, layer_id)
-        remote_sha = _remote_sha_for_layer(
+        remote_sha, comparison_kind = _remote_sha_for_layer(
             layer, latest_sha_fn=latest_sha_fn, mirror_root=mirror_root
+        )
+        local_sha = (
+            layer_meta(lock, layer_id).get("source_sha")
+            if comparison_kind == "source"
+            else _local_sha_for_layer(lock, layer_id)
         )
         checker_id = f"{product}-{layer_id}-sync"
 

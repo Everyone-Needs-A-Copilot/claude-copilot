@@ -15,6 +15,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+
 from cc.core.ecosystem import mirror
 
 
@@ -209,6 +210,31 @@ def test_clone_or_update_mirror_updates_via_fetch_reset(tmp_path):
     assert second["action"] == "updated"
     assert second["head_sha"] != first["head_sha"]
     assert (mirror_root / "foundation" / "agents" / "sec.md").read_text() == "v2"
+
+
+def test_clone_or_update_mirror_resolves_caret_semver_to_highest_compatible_tag(
+    tmp_path,
+):
+    source = _make_content_repo(tmp_path, {"version.txt": "0.3.0"})
+    subprocess.run(["git", "tag", "v0.3.0"], cwd=source, check=True)
+    (source / "version.txt").write_text("0.3.1", encoding="utf-8")
+    subprocess.run(["git", "commit", "-aqm", "v0.3.1"], cwd=source, check=True)
+    subprocess.run(["git", "tag", "v0.3.1"], cwd=source, check=True)
+    (source / "version.txt").write_text("0.4.0", encoding="utf-8")
+    subprocess.run(["git", "commit", "-aqm", "v0.4.0"], cwd=source, check=True)
+    subprocess.run(["git", "tag", "v0.4.0"], cwd=source, check=True)
+
+    result = mirror.clone_or_update_mirror(
+        "foundation",
+        str(source),
+        "^0.3.0",
+        mirror_root=tmp_path / "mirrors",
+    )
+
+    assert result["ok"] is True
+    assert (
+        tmp_path / "mirrors" / "foundation" / "version.txt"
+    ).read_text(encoding="utf-8") == "0.3.1"
 
 
 def test_clone_or_update_mirror_never_destroy_proof_confined_to_tier_subdir(tmp_path):

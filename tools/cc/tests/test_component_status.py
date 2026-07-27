@@ -13,9 +13,10 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from cc.core.ecosystem import mirror
 from cc.core.ecosystem.component_status import Checker, compute_component_checkers
 from cc.core.ecosystem.freshness import lock_fingerprint
+
+from cc.core.ecosystem import mirror
 
 
 @pytest.fixture(autouse=True)
@@ -212,10 +213,18 @@ def test_falls_back_to_mirror_clone_head_when_lock_pointer_unknown(tmp_path):
     assert sync["ok"] is True
 
     layer = _layer(id="foundation", source={"repo": str(source), "ref": "main"})
+    lock = {
+        "foundation": {
+            "_meta": {
+                "product": "knowledge",
+                "source_sha": sync["head_sha"],
+            }
+        }
+    }
 
     checkers, offline = compute_component_checkers(
         [layer],
-        lockfile={},
+        lockfile=lock,
         latest_sha_fn=_never_reaches_remote,
         mirror_root=mirror_root,
     )
@@ -223,8 +232,38 @@ def test_falls_back_to_mirror_clone_head_when_lock_pointer_unknown(tmp_path):
     checker = checkers[0]
     assert checker.remote_sha == sync["head_sha"]
     assert checker.remote_sha is not None
+    assert checker.local_sha == sync["head_sha"]
+    assert checker.severity == "pass"
     # A real fallback value was found -- this is not the "could not reach
     # remote at all" case, so no offline signal.
+    assert offline is False
+
+
+def test_mirror_fallback_never_compares_source_commit_to_content_fingerprint(tmp_path):
+    source = _make_content_repo(tmp_path, {"agents/sec.md": "v1"})
+    mirror_root = tmp_path / "mirrors"
+    sync = mirror.clone_or_update_mirror(
+        "foundation", str(source), "main", mirror_root=mirror_root
+    )
+    layer = _layer(id="foundation", source={"repo": str(source), "ref": "main"})
+    lock = {
+        "foundation": {
+            "agents": {"sec": "content-sha"},
+            "_meta": {"product": "knowledge", "source_sha": "b" * 40},
+        }
+    }
+
+    checkers, offline = compute_component_checkers(
+        [layer],
+        lockfile=lock,
+        latest_sha_fn=_never_reaches_remote,
+        mirror_root=mirror_root,
+    )
+
+    checker = checkers[0]
+    assert checker.local_sha == "b" * 40
+    assert checker.remote_sha == sync["head_sha"]
+    assert checker.severity == "warn"
     assert offline is False
 
 

@@ -41,6 +41,20 @@ FOUNDATION_SSH_SIGNING_KEYS: dict[str, str] = {
 }
 
 
+def _containing_git_root(path: Path) -> Path | None:
+    """Return the nearest repository root for a layer path.
+
+    Layer manifests may expose a verified subpath (for example the Claude
+    foundation's ``.claude`` directory) rather than the mirror root itself.
+    A worktree's ``.git`` can be either a directory or a pointer file, so
+    existence—not ``is_dir``—is the correct boundary check.
+    """
+    for candidate in (path, *path.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return None
+
+
 def verify_git_item(
     source_root: Path | str,
     relative_path: str,
@@ -61,9 +75,9 @@ def verify_git_item(
     independent gates mean a manifest cannot introduce a new trust root, and
     a compiled key cannot authorize a layer unless the manifest names it.
     """
-    root = Path(source_root).expanduser()
+    source = Path(source_root).expanduser().resolve()
     allowed = {_normalize_fingerprint(value) for value in allowed_signers if value}
-    if not allowed or not (root / ".git").exists():
+    if not allowed:
         return False, None
 
     trusted = {
@@ -72,6 +86,15 @@ def verify_git_item(
         if _normalize_fingerprint(fingerprint) in allowed
     }
     if not trusted:
+        return False, None
+
+    root = _containing_git_root(source)
+    if root is None:
+        return False, None
+    item_path = (source / relative_path).resolve()
+    try:
+        repo_relative_path = item_path.relative_to(root).as_posix()
+    except ValueError:
         return False, None
 
     try:
@@ -98,7 +121,7 @@ def verify_git_item(
                     "-1",
                     "--format=%G?%n%GF%n%GS",
                     "--",
-                    relative_path,
+                    repo_relative_path,
                 ],
                 capture_output=True,
                 text=True,

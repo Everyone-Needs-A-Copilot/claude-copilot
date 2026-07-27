@@ -38,7 +38,9 @@ from cc.core.ecosystem import mirror
 from cc.core.ecosystem.freshness import lock_fingerprint
 from cc.core.ecosystem.lockfile import (
     default_lockfile_path,
+    layer_meta,
     read_lockfile,
+    set_layer_meta,
     write_lockfile,
 )
 from cc.core.ecosystem.manifest import ManifestError, load_layers, validate_layers
@@ -164,6 +166,7 @@ def build_update_report(
     # --- Mirror sync: clone/fetch+reset each remote-sourced layer, confined
     # to <mirror_root_base>/<layer id> (mirror.py's own confinement proof).
     effective_layers: list[dict[str, Any]] = []
+    source_shas: dict[str, str] = {}
     any_offline_without_cache = False
 
     for layer in sorted(layers, key=lambda item: item["rank"]):
@@ -185,6 +188,11 @@ def build_update_report(
             if sync["offline"] and not has_cached_content:
                 any_offline_without_cache = True
             else:
+                source_sha = sync["head_sha"] or layer_meta(
+                    previous_lock, layer["id"]
+                ).get("source_sha")
+                if source_sha:
+                    source_shas[layer["id"]] = source_sha
                 source = dict(source)
                 content_root = mirror_path
                 if subpath:
@@ -231,6 +239,23 @@ def build_update_report(
         personal_roots=_personal_roots,
         dry_run=_dry_run,
     )
+
+    incomplete_layers = {
+        op["layer"] for op in mat_report["ops"] if op["op"] in {"blocked", "held"}
+    }
+    if not _dry_run:
+        for layer in effective_layers:
+            layer_id = layer["id"]
+            if layer_id in incomplete_layers:
+                continue
+            set_layer_meta(
+                mat_report["lock"],
+                layer_id,
+                product=layer["product"],
+                tier=layer.get("role"),
+                role=layer.get("role"),
+                source_sha=source_shas.get(layer_id),
+            )
 
     if not _dry_run:
         lock_write_path = (

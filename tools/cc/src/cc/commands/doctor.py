@@ -69,6 +69,16 @@ PRODUCT_BY_PATH_KEY: dict[str, str] = {
     "paths.knowledge_repo": "knowledge",
 }
 
+# These roots back optional, explicit per-project activation adapters.
+# Control Tower's machine-wide install does not require either checkout:
+# Claude and Codex use their product-native materialization roots for the
+# global experience. The activation command validates these paths when a
+# person chooses to modify a project.
+OPTIONAL_PROJECT_ACTIVATION_PATHS = {
+    "paths.claude_copilot_root",
+    "paths.codex_copilot_root",
+}
+
 # Fallback keychain service name -- mirrors core/config.py's own
 # "auth.keychain_service" DEFAULTS entry; only used if that key somehow
 # resolves empty (DEFAULTS always sets it, so this is defense-in-depth,
@@ -135,8 +145,8 @@ def _run_checks(
         checkers.append(
             Checker(
                 id="project-repo",
-                severity="warn",
-                detail="Not inside a git repository — project config checks skipped.",
+                severity="pass",
+                detail="No project selected — machine health checks only.",
             )
         )
     elif not project_cfg.exists():
@@ -176,6 +186,8 @@ def _run_checks(
                 continue
             checker_id = f"config-path:{k}[{idx}]" if multi else f"config-path:{k}"
             p = Path(str(item))
+            if k in OPTIONAL_PROJECT_ACTIVATION_PATHS and not p.exists():
+                continue
             if p.exists():
                 checkers.append(
                     Checker(

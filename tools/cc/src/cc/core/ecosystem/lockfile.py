@@ -25,7 +25,7 @@ left for whichever later slice actually introduces lockfile *writing*
 Lock entry shape (ecosystem-architecture.md §3.3: "`copilot.lock`
 (shareable, machine-agnostic): resolved SHAs + product/tier/role +
 pins."): `{layer_id: {dimension: {item_name: sha}, "_meta": {product,
-tier, role}}}`. `_meta` is a RESERVED per-layer key (never a real
+tier, role, source_sha}}}`. `_meta` is a RESERVED per-layer key (never a real
 dimension name — see dimensions.py, none of which is ever `"_meta"`), so
 an existing flat `{layer_id: {dimension: {item: sha}}}` lockfile with no
 `_meta` block remains byte-for-byte readable by every existing consumer
@@ -125,11 +125,13 @@ def set_layer_meta(
     product: str,
     tier: Optional[str] = None,
     role: Optional[str] = None,
+    source_sha: Optional[str] = None,
 ) -> dict[str, Any]:
     """
-    Record `{product, tier, role}` under `lock[layer_id]["_meta"]`, mutating
-    and returning `lock` (mirrors the `setdefault`-chaining ergonomics
-    materialize.py's own lock-building already uses).
+    Record `{product, tier, role, source_sha}` under
+    `lock[layer_id]["_meta"]`, mutating and returning `lock` (mirrors the
+    `setdefault`-chaining ergonomics materialize.py's own lock-building
+    already uses).
 
     `tier`/`role` are optional today (four-tier-topology.md §4's manifest
     only names a single `role` field, which already carries the tier value
@@ -143,6 +145,8 @@ def set_layer_meta(
         meta["tier"] = tier
     if role is not None:
         meta["role"] = role
+    if source_sha is not None:
+        meta["source_sha"] = source_sha
     entry[LAYER_META_KEY] = meta
     return lock
 

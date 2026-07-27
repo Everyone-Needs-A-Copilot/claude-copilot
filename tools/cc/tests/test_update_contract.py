@@ -186,6 +186,15 @@ def test_update_json_applied_validates_against_contract_schema(tmp_path):
     assert lock_write_path.exists()
     written = json.loads(lock_write_path.read_text())
     assert written["foundation"]["agents"]["sec"]
+    assert written["foundation"]["_meta"]["product"] == "claude"
+    assert written["foundation"]["_meta"]["role"] == "foundation"
+    assert written["foundation"]["_meta"]["source_sha"] == subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=source_repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
 
     changed_ops = {c["item"]: c["op"] for c in report["changed"]}
     assert changed_ops["sec"] == "added"

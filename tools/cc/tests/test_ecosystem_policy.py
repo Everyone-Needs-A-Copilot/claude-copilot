@@ -76,3 +76,29 @@ def test_git_item_rejects_manifest_fingerprint_not_compiled_into_cc(tmp_path):
         False,
         None,
     )
+
+
+def test_git_item_verifies_repo_relative_path_from_layer_subpath(tmp_path):
+    (tmp_path / ".git").mkdir()
+    layer_root = tmp_path / ".claude"
+    layer_root.mkdir()
+    observed = {}
+
+    def good(args, **kwargs):
+        observed["repo"] = args[args.index("-C") + 1]
+        observed["path"] = args[-1]
+        return subprocess.CompletedProcess(
+            args, 0, "G\nSHA256:approved\nENAC foundation\n", ""
+        )
+
+    assert verify_git_item(
+        layer_root,
+        "commands/protocol.md",
+        ["SHA256:approved"],
+        run=good,
+        _trusted_keys={"SHA256:approved": "ssh-ed25519 AAAAAPPROVED"},
+    ) == (True, "SHA256:approved")
+    assert observed == {
+        "repo": str(tmp_path),
+        "path": ".claude/commands/protocol.md",
+    }

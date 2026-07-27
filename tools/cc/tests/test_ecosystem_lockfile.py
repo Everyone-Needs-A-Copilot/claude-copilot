@@ -101,11 +101,19 @@ def test_layer_meta_layer_with_no_meta_block_returns_empty_dict():
 
 def test_set_layer_meta_records_product_tier_role():
     lock: dict = {}
-    set_layer_meta(lock, "foundation", product="claude", tier="foundation", role="foundation")
+    set_layer_meta(
+        lock,
+        "foundation",
+        product="claude",
+        tier="foundation",
+        role="foundation",
+        source_sha="a" * 40,
+    )
     assert layer_meta(lock, "foundation") == {
         "product": "claude",
         "tier": "foundation",
         "role": "foundation",
+        "source_sha": "a" * 40,
     }
 
 
