@@ -13,7 +13,9 @@ signature blocks. Callers may inject a policy in tests; production has no
 
 from __future__ import annotations
 
+import os
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any, Callable, Literal, Sequence
 
@@ -29,40 +31,80 @@ def _normalize_fingerprint(value: str) -> str:
     return "".join(value.split()).upper()
 
 
+FOUNDATION_SSH_SIGNING_KEYS: dict[str, str] = {
+    _normalize_fingerprint(
+        "SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo"
+    ): (
+        "ssh-ed25519 "
+        "AAAAC3NzaC1lZDI1NTE5AAAAINah8Gf036FQkhMcUU35m2p7Nqa41oBtVS/QV9tYZX8H"
+    ),
+}
+
+
 def verify_git_item(
     source_root: Path | str,
     relative_path: str,
     allowed_signers: Sequence[str],
     *,
     run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+    _trusted_keys: dict[str, str] = FOUNDATION_SSH_SIGNING_KEYS,
 ) -> tuple[bool, str | None]:
     """Verify the last commit touching one item and return its signer.
 
     Git's ``%G?`` performs cryptographic verification with the configured
     GPG/SSH verifier. ``%GF`` returns the key fingerprint. A good signature is
     still refused unless that fingerprint is explicitly allowlisted.
+
+    A fresh machine has no global ``gpg.ssh.allowedSignersFile``. Build an
+    invocation-scoped trust file only from public keys compiled into cc whose
+    fingerprints are also requested by the signed layer manifest. The two
+    independent gates mean a manifest cannot introduce a new trust root, and
+    a compiled key cannot authorize a layer unless the manifest names it.
     """
     root = Path(source_root).expanduser()
     allowed = {_normalize_fingerprint(value) for value in allowed_signers if value}
     if not allowed or not (root / ".git").exists():
         return False, None
+
+    trusted = {
+        fingerprint: public_key
+        for fingerprint, public_key in _trusted_keys.items()
+        if _normalize_fingerprint(fingerprint) in allowed
+    }
+    if not trusted:
+        return False, None
+
     try:
-        result = run(
-            [
-                "git",
-                "-C",
-                str(root),
-                "log",
-                "-1",
-                "--format=%G?%n%GF%n%GS",
-                "--",
-                relative_path,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=8.0,
-            check=False,
-        )
+        with tempfile.TemporaryDirectory(prefix="cc-allowed-signers-") as temp_root:
+            trust_file = Path(temp_root) / "allowed_signers"
+            trust_file.write_text(
+                "".join(
+                    f'enac-foundation namespaces="git" {public_key}\n'
+                    for public_key in trusted.values()
+                ),
+                encoding="utf-8",
+            )
+            os.chmod(trust_file, 0o600)
+            result = run(
+                [
+                    "git",
+                    "-c",
+                    "gpg.format=ssh",
+                    "-c",
+                    f"gpg.ssh.allowedSignersFile={trust_file}",
+                    "-C",
+                    str(root),
+                    "log",
+                    "-1",
+                    "--format=%G?%n%GF%n%GS",
+                    "--",
+                    relative_path,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=8.0,
+                check=False,
+            )
     except (OSError, subprocess.SubprocessError):
         return False, None
 
