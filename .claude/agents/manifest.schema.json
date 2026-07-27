@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://claude-copilot/agents/manifest.schema.json",
+  "title": "Claude Copilot Agent Manifest",
+  "description": "Declarative source of truth for agent roster, routing edges, and tool grants",
+  "type": "object",
+  "required": ["schemaVersion", "agents", "routingEdges", "designChain"],
+  "additionalProperties": false,
+  "properties": {
+    "_comment": {
+      "type": "string",
+      "description": "Human-readable comment; ignored by validators"
+    },
+    "schemaVersion": {
+      "type": "string",
+      "description": "Semver of this manifest schema"
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp of last manifest generation"
+    },
+    "agents": {
+      "type": "object",
+      "description": "Map of agent name to agent descriptor",
+      "additionalProperties": {
+        "$ref": "#/definitions/AgentDescriptor"
+      }
+    },
+    "routingEdges": {
+      "type": "array",
+      "description": "Directed routing edges between agents",
+      "items": { "$ref": "#/definitions/RoutingEdge" }
+    },
+    "designChain": {
+      "type": "array",
+      "description": "Ordered design chain (sd→uxd→uids→uid→ta→me)",
+      "items": { "type": "string" }
+    }
+  },
+  "definitions": {
+    "AgentDescriptor": {
+      "type": "object",
+      "required": ["role", "model", "tools"],
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": ["framework", "setup-only"],
+          "description": "framework = counted in the 16; setup-only = utility, not counted"
+        },
+        "model": {
+          "type": "string",
+          "enum": ["sonnet", "opus"],
+          "description": "Model tier for this agent"
+        },
+        "tools": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Granted tools from agent frontmatter"
+        },
+        "description": {
+          "type": "string",
+          "description": "Short description from agent frontmatter"
+        },
+        "methodology": {
+          "type": ["string", "null"],
+          "description": "Named industry methodology embedded in this agent"
+        }
+      }
+    },
+    "RoutingEdge": {
+      "type": "object",
+      "required": ["from", "to", "when"],
+      "additionalProperties": false,
+      "properties": {
+        "from": { "type": "string", "description": "Source agent name" },
+        "to": { "type": "string", "description": "Target agent name" },
+        "when": { "type": "string", "description": "Condition triggering this route" },
+        "optional": { "type": "boolean", "description": "True if this route is optional/conditional" }
+      }
+    }
+  }
+}
