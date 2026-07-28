@@ -112,9 +112,12 @@ DEFAULTS: dict[str, Any] = {
     "paths.ecosystem_config": None,
     # Source checkouts used by the explicit project activation adapters.
     # These are machine paths only; they are never written into a portable
-    # project declaration or returned to Control Tower.
+    # project declaration or returned to Control Tower. Codex project setup
+    # runs from the verified foundation mirror because the host materialized
+    # tree intentionally contains only the plugin payload, not installer
+    # scripts or project templates.
     "paths.claude_copilot_root": "~/.claude/copilot",
-    "paths.codex_copilot_root": "~/.local/share/enac/codex-copilot",
+    "paths.codex_copilot_root": "~/.copilot/mirrors/codex-foundation",
     # Project roots this machine scans (list-valued -- see LIST_VALUED_KEYS
     # below). Unset by default: no scanning happens until an admin/user
     # configures at least one root.

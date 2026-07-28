@@ -78,6 +78,14 @@ def test_default_memory_path_expanded():
     assert Path(path).parts[0] == "/"
 
 
+def test_default_codex_project_installer_uses_verified_foundation_mirror():
+    """Fresh onboarding resolves project setup from its verified source mirror."""
+    cfg = get_resolved_config(_machine={}, _project={})
+    assert Path(cfg["paths.codex_copilot_root"]) == (
+        Path(cfg["paths.mirrors_root"]) / "codex-foundation"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Path expansion: ~ → absolute
 # ---------------------------------------------------------------------------
