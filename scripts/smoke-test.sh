@@ -1,0 +1,306 @@
+#!/bin/bash
+# Claude Copilot Framework Smoke Test
+# Validates core components work in isolation
+# Run this before committing framework changes
+
+# Note: We don't use set -e because we want to collect all test results
+# Individual test failures are tracked, script exits at end based on TESTS_FAILED count
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+TEMP_DIR="/tmp/claude-copilot-smoke-test-$$"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Counters
+TESTS_RUN=0
+TESTS_PASSED=0
+TESTS_FAILED=0
+
+# Test result tracking
+FAILED_TESTS=()
+
+echo "========================================"
+echo "Claude Copilot Framework Smoke Test"
+echo "========================================"
+echo ""
+
+# Helper functions
+pass() {
+  echo -e "${GREEN}✓${NC} $1"
+  ((TESTS_PASSED++))
+  ((TESTS_RUN++))
+}
+
+fail() {
+  echo -e "${RED}✗${NC} $1"
+  FAILED_TESTS+=("$1")
+  ((TESTS_FAILED++))
+  ((TESTS_RUN++))
+}
+
+info() {
+  echo -e "${YELLOW}ℹ${NC} $1"
+}
+
+section() {
+  echo ""
+  echo "--- $1 ---"
+}
+
+cleanup() {
+  if [[ -d "$TEMP_DIR" ]]; then
+    rm -rf "$TEMP_DIR"
+  fi
+}
+
+# Cleanup on exit
+trap cleanup EXIT
+
+# Create temp directory
+mkdir -p "$TEMP_DIR"
+
+#############################
+# ST-01: File Structure
+#############################
+section "ST-01: File Structure"
+
+# MCP servers removed — memory and skills are now handled by the cc CLI (tools/cc/)
+# Check cc CLI instead
+if [[ -d "$REPO_ROOT/tools/cc" ]]; then
+  pass "cc CLI directory exists (replaces copilot-memory + skills-copilot MCP servers)"
+else
+  fail "cc CLI directory missing"
+fi
+
+# Check agents
+AGENT_COUNT=$(find "$REPO_ROOT/.claude/agents" -maxdepth 1 -name "*.md" -type f | wc -l | tr -d ' ')
+if [[ "$AGENT_COUNT" -eq 16 ]]; then
+  pass "All 16 active agents present"
+else
+  fail "Agent count mismatch: expected 16 active agents, found $AGENT_COUNT"
+fi
+
+# Check commands
+REQUIRED_COMMANDS=("setup-project.md" "update-project.md" "update-copilot.md" "knowledge-copilot.md")
+for cmd in "${REQUIRED_COMMANDS[@]}"; do
+  if [[ -f "$REPO_ROOT/.claude/commands/$cmd" ]]; then
+    pass "Command exists: $cmd"
+  else
+    fail "Command missing: $cmd"
+  fi
+done
+
+#############################
+# ST-02: Agent File Validity
+#############################
+section "ST-02: Agent File Validity"
+
+for agent_file in "$REPO_ROOT/.claude/agents"/*.md; do
+  agent_name=$(basename "$agent_file")
+
+  # Check frontmatter exists (YAML block between --- markers)
+  if grep -q "^---$" "$agent_file"; then
+    pass "$agent_name has frontmatter"
+  else
+    fail "$agent_name missing frontmatter"
+  fi
+
+  # Check required sections
+  if grep -q "## Core Behaviors" "$agent_file"; then
+    pass "$agent_name has Core Behaviors section"
+  else
+    fail "$agent_name missing Core Behaviors section"
+  fi
+
+  if grep -q "## Route To Other Agent" "$agent_file"; then
+    pass "$agent_name has routing section"
+  else
+    fail "$agent_name missing routing section"
+  fi
+
+  # Task Copilot Integration is consolidated in CLAUDE.md (v3.3.0+)
+  # Individual agents no longer require this section
+done
+
+#############################
+# ST-03: MCP Config Validity
+#############################
+section "ST-03: MCP Configuration"
+
+# Skip .mcp.json checks in CI environments (file is gitignored)
+if [[ -n "$CI" ]]; then
+  info ".mcp.json check skipped (CI environment, file is gitignored)"
+elif [[ -f "$REPO_ROOT/.mcp.json" ]]; then
+  pass ".mcp.json exists"
+
+  # Validate JSON syntax
+  if jq . "$REPO_ROOT/.mcp.json" > /dev/null 2>&1; then
+    pass ".mcp.json is valid JSON"
+
+    # MCP servers removed — .mcp.json may be empty (memory/skills handled by cc CLI)
+    pass ".mcp.json is valid JSON (MCP servers handled externally if needed)"
+  else
+    fail ".mcp.json has invalid JSON syntax"
+  fi
+else
+  info ".mcp.json not found (run /setup-project to create)"
+fi
+
+#############################
+# ST-04: cc CLI Check
+#############################
+section "ST-04: cc CLI (replaces MCP servers)"
+
+cd "$REPO_ROOT"
+
+if [[ -f "tools/cc/install.sh" ]]; then
+  pass "cc CLI install script exists"
+else
+  fail "cc CLI install script missing"
+fi
+
+if [[ -d "tools/cc/src/cc" ]]; then
+  pass "cc CLI source directory exists"
+else
+  fail "cc CLI source directory missing"
+fi
+
+#############################
+# ST-05: tc CLI Check
+#############################
+section "ST-05: tc CLI"
+
+if [[ -d "tools/tc" ]]; then
+  pass "tc CLI directory exists"
+else
+  fail "tc CLI directory missing"
+fi
+
+#############################
+# ST-06: Documentation
+#############################
+section "ST-06: Documentation"
+
+cd "$REPO_ROOT"
+
+# Check core docs
+if [[ -f "README.md" ]]; then
+  pass "README.md exists"
+else
+  fail "README.md missing"
+fi
+
+if [[ -f "CLAUDE.md" ]]; then
+  pass "CLAUDE.md exists"
+else
+  fail "CLAUDE.md missing"
+fi
+
+if [[ -f "SETUP.md" ]]; then
+  pass "SETUP.md exists"
+else
+  fail "SETUP.md missing"
+fi
+
+if [[ -f "docs/EXTENSION-SPEC.md" ]] || [[ -f "docs/40-extensions/00-extension-spec.md" ]]; then
+  pass "EXTENSION-SPEC.md exists"
+else
+  fail "EXTENSION-SPEC.md missing"
+fi
+
+# Check no broken links in CLAUDE.md
+if grep -q "See \[.*\](.*)" "CLAUDE.md"; then
+  # Extract all markdown links and check if files exist
+  # This is a simplified check - could be expanded
+  pass "CLAUDE.md has markdown links (manual verification recommended)"
+fi
+
+# Verify CLAUDE.md contains consolidated Task Copilot integration (v3.3.0+)
+if grep -q "Task Copilot Pattern" "CLAUDE.md"; then
+  pass "CLAUDE.md contains consolidated Task Copilot integration"
+else
+  fail "CLAUDE.md missing consolidated Task Copilot integration"
+fi
+
+#############################
+# ST-07: No Time Estimates
+#############################
+section "ST-07: Time Estimate Policy Compliance"
+
+# Check if audit script exists
+if [[ -f "$REPO_ROOT/scripts/audit-time-language.sh" ]]; then
+  pass "Time estimate audit script exists"
+
+  # Run audit (only on agent files for smoke test)
+  info "Running time estimate audit on agent files..."
+  AUDIT_OUTPUT=$("$REPO_ROOT/scripts/audit-time-language.sh" 2>&1 || true)
+
+  # Check for violations ONLY in .claude/agents/ files
+  # Filter to only count violations from agent files (not docs, commands, or templates)
+  AGENT_VIOLATIONS=$(echo "$AUDIT_OUTPUT" | grep -B 1 "VIOLATION" | grep "File: .claude/agents/" || true)
+  VIOLATION_COUNT=$(echo "$AGENT_VIOLATIONS" | grep -c "File: .claude/agents/" || true)
+
+  if [[ "$VIOLATION_COUNT" -eq 0 ]]; then
+    pass "No time estimate violations in agent files"
+  else
+    fail "Found $VIOLATION_COUNT time estimate violations in agent files"
+  fi
+else
+  info "Time estimate audit script not found (skipping)"
+fi
+
+#############################
+# ST-08: Template Files
+#############################
+section "ST-08: Template Files"
+
+if [[ -d "$REPO_ROOT/templates" ]]; then
+  pass "Templates directory exists"
+
+  # Check for key templates
+  TEMPLATE_COUNT=$(find "$REPO_ROOT/templates" -type f | wc -l | tr -d ' ')
+  if [[ "$TEMPLATE_COUNT" -gt 0 ]]; then
+    pass "Template files present ($TEMPLATE_COUNT files)"
+  else
+    fail "Templates directory empty"
+  fi
+else
+  fail "Templates directory missing"
+fi
+
+#############################
+# Summary
+#############################
+echo ""
+echo "========================================"
+echo "Smoke Test Summary"
+echo "========================================"
+echo "Tests Run:    $TESTS_RUN"
+echo -e "${GREEN}Tests Passed: $TESTS_PASSED${NC}"
+if [[ $TESTS_FAILED -gt 0 ]]; then
+  echo -e "${RED}Tests Failed: $TESTS_FAILED${NC}"
+else
+  echo -e "${GREEN}Tests Failed: $TESTS_FAILED${NC}"
+fi
+echo ""
+
+if [[ $TESTS_FAILED -gt 0 ]]; then
+  echo -e "${RED}Failed Tests:${NC}"
+  for test in "${FAILED_TESTS[@]}"; do
+    echo "  - $test"
+  done
+  echo ""
+  echo -e "${RED}✗ Smoke tests FAILED${NC}"
+  exit 1
+else
+  echo -e "${GREEN}✓ All smoke tests PASSED${NC}"
+  echo ""
+  echo "Framework is ready for use. Run integration tests next:"
+  echo "  (Integration test script to be created)"
+  exit 0
+fi
