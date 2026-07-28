@@ -486,6 +486,10 @@ def _codex(*, apply, **_kwargs):
     return {"result": "ready" if apply else "changes-required"}
 
 
+def _consumer_ready(*_args):
+    return {"result": "ready"}
+
+
 def test_ecosystem_plan_builds_two_isolated_three_layer_stacks(tmp_path):
     report = build_ecosystem_onboard_report(
         org="Acme",
@@ -495,6 +499,7 @@ def test_ecosystem_plan_builds_two_isolated_three_layer_stacks(tmp_path):
         personal_fn=_personal,
         ssh_fn=_ssh,
         codex_fn=_codex,
+        consumer_probe_fn=_consumer_ready,
     )
     assert report["result"] == "changes-required"
     assert [
@@ -533,9 +538,12 @@ def test_ecosystem_plan_offers_adoptable_ssh_alias_instead_of_blocking(tmp_path)
         personal_fn=_personal,
         ssh_fn=_ssh_adoptable,
         codex_fn=_codex,
+        consumer_probe_fn=_consumer_ready,
     )
     assert report["result"] == "changes-required"
-    ssh_stage = next(stage for stage in report["stages"] if stage["stage"] == "device-ssh")
+    ssh_stage = next(
+        stage for stage in report["stages"] if stage["stage"] == "device-ssh"
+    )
     assert ssh_stage["config"] == "adoptable"
     # The stage dict only ever carries the schema's whitelisted fields --
     # the richer adoption fields belong to the inventory row, not the stage.
@@ -587,11 +595,12 @@ layers:
     )
 
     assert plan.action == "repair"
-    assert [(layer["product"], layer["id"]) for layer in plan.payload["layers"]] == [
-        ("cli", "cli-organization"),
-        ("claude", "claude-personal"),
-    ]
-    assert plan.payload["layers"][0]["activation"] == "always"
+    retained, managed = plan.payload["layers"]
+    assert retained["id"] == "cli-organization"
+    assert retained["component"] == "cli"
+    assert "product" not in retained
+    assert "activation" not in retained
+    assert managed["product"] == "claude"
 
 
 def test_manifest_plan_holds_managed_id_with_different_repository(tmp_path):
@@ -678,7 +687,9 @@ layers:
     assert plan.action == "migrate"
     assert backup is not None and backup.read_bytes() == before
     assert not legacy.exists()
-    assert yaml.safe_load(target.read_text())["layers"][0]["product"] == "cli"
+    retained = yaml.safe_load(target.read_text())["layers"][0]
+    assert retained["component"] == "cli"
+    assert "product" not in retained
 
 
 def test_manifest_repair_is_not_a_checkbox_and_applies_without_any_consent(tmp_path):
@@ -709,12 +720,13 @@ layers:
         personal_fn=_personal,
         ssh_fn=_ssh,
         codex_fn=_codex,
+        consumer_probe_fn=_consumer_ready,
         adopt_existing=(),  # explicit: nobody consented to anything
         update_fn=lambda **_: (
             {"result": "up-to-date", "blocked": [], "held_for_approval": []},
             0,
         ),
-        doctor_fn=lambda: {"status": "healthy", "score": 100},
+        doctor_fn=lambda **_: {"status": "healthy", "score": 100},
     )
     manifest_stage = next(s for s in report["stages"] if s["stage"] == "layer-manifest")
     assert manifest_stage["action"] == "repair"
@@ -722,9 +734,206 @@ layers:
     manifest_item = next(i for i in report["inventory"] if i["id"] == "layer-manifest")
     assert manifest_item["reversible"] is False
     written = yaml.safe_load(target.read_text())
-    products = {layer["product"] for layer in written["layers"]}
-    assert products == {"cli", "claude", "codex"}
+    cli = next(
+        layer for layer in written["layers"] if layer["id"] == "cli-organization"
+    )
+    assert cli["component"] == "cli"
+    assert "product" not in cli
+    products = {layer["product"] for layer in written["layers"] if "product" in layer}
+    assert products == {"claude", "codex"}
     assert report["result"] == "ready"
+    _assert_valid_onboard_report(report)
+
+
+def test_candidate_consumer_rejection_blocks_before_any_apply(tmp_path):
+    target = tmp_path / "layers.yml"
+    target.write_text(
+        """version: 1
+layers:
+  - id: cli-organization
+    role: organization
+    component: cli
+    rank: 30
+    source: {repo: git@github-work:Acme/cli-copilot-internal.git, ref: main}
+    auth: ssh-work
+""",
+        encoding="utf-8",
+    )
+    before = target.read_bytes()
+    apply_calls = []
+
+    def personal(*, apply, **_kwargs):
+        apply_calls.append(apply)
+        return _personal()
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        consumer_probe_fn=lambda *_: {
+            "result": "blocked",
+            "detail": "The installed reader would lose Discord.",
+        },
+    )
+
+    assert report["result"] == "blocked"
+    assert apply_calls == [False]
+    assert target.read_bytes() == before
+    assert not (tmp_path / ".copilot-control-tower-backups").exists()
+    manifest_stage = next(s for s in report["stages"] if s["stage"] == "layer-manifest")
+    assert manifest_stage["result"] == "blocked"
+    assert "lose Discord" in manifest_stage["detail"]
+    _assert_valid_onboard_report(report)
+
+
+def test_cli_candidate_probe_rejects_capability_loss(tmp_path, monkeypatch):
+    baseline = tmp_path / "before.yml"
+    baseline.write_text("version: 1\nlayers: []\n", encoding="utf-8")
+    candidate = tmp_path / "candidate.yml"
+    candidate.write_text(
+        """version: 1
+layers:
+  - id: cli-organization
+    role: organization
+    product: cli
+    rank: 30
+    source: {repo: git@github-work:Acme/cli-copilot-internal.git, ref: main}
+    auth: work
+    activation: always
+""",
+        encoding="utf-8",
+    )
+
+    def payload(path):
+        services = [
+            {"name": "git", "tier": "foundation", "mode": "base"},
+            {"name": "discord", "tier": "foundation", "mode": "base"},
+        ]
+        if path == baseline:
+            services[-1] = {
+                "name": "discord",
+                "tier": "organization",
+                "mode": "provides",
+            }
+        return (
+            {
+                "chain": [
+                    {
+                        "id": "cli-organization",
+                        "role": "organization",
+                        "rank": 30,
+                        "repo": "git@github-work:Acme/cli-copilot-internal.git",
+                        "ref": "main",
+                        "auth": "work",
+                        "unit": None,
+                    }
+                ],
+                "services": services,
+            },
+            "",
+        )
+
+    monkeypatch.setattr(onboard_module, "_copilot_layers_payload", payload)
+
+    result = onboard_module._probe_cli_candidate(candidate, baseline)
+
+    assert result["result"] == "blocked"
+    assert "discord" in result["detail"]
+
+
+def test_materialize_failure_restores_exact_manifest_and_rematerializes_prior(
+    tmp_path,
+):
+    target = tmp_path / "layers.yml"
+    target.write_text(
+        """version: 1
+layers:
+  - id: cli-organization
+    role: organization
+    component: cli
+    rank: 30
+    source: {repo: git@github-work:Acme/cli-copilot-internal.git, ref: main}
+    auth: ssh-work
+""",
+        encoding="utf-8",
+    )
+    before = target.read_bytes()
+    updates = []
+
+    def update(**kwargs):
+        updates.append(Path(kwargs["_manifest_path"]).read_bytes())
+        if len(updates) == 1:
+            return {"result": "blocked", "blocked": [{}], "held_for_approval": []}, 2
+        return {"result": "up-to-date", "blocked": [], "held_for_approval": []}, 0
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=update,
+        doctor_fn=lambda **_: pytest.fail("doctor must not run after update failure"),
+    )
+
+    assert report["result"] == "blocked"
+    assert len(updates) == 2
+    assert updates[0] != before
+    assert updates[1] == before
+    assert target.read_bytes() == before
+    manifest_stage = next(s for s in report["stages"] if s["stage"] == "layer-manifest")
+    assert manifest_stage["result"] == "rolled-back"
+    assert Path(manifest_stage["rollback_path"]).read_bytes() == before
+    _assert_valid_onboard_report(report)
+
+
+def test_unhealthy_post_apply_doctor_restores_exact_manifest(tmp_path):
+    target = tmp_path / "layers.yml"
+    target.write_text(
+        """version: 1
+layers:
+  - id: cli-organization
+    role: organization
+    component: cli
+    rank: 30
+    source: {repo: git@github-work:Acme/cli-copilot-internal.git, ref: main}
+    auth: ssh-work
+""",
+        encoding="utf-8",
+    )
+    before = target.read_bytes()
+    updates = []
+
+    def update(**kwargs):
+        updates.append(Path(kwargs["_manifest_path"]).read_bytes())
+        return {"result": "up-to-date", "blocked": [], "held_for_approval": []}, 0
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=update,
+        doctor_fn=lambda **_: {"status": "unhealthy", "score": 20},
+    )
+
+    assert report["result"] == "blocked"
+    assert len(updates) == 2
+    assert updates[1] == before
+    assert target.read_bytes() == before
+    manifest_stage = next(s for s in report["stages"] if s["stage"] == "layer-manifest")
+    assert manifest_stage["result"] == "rolled-back"
     _assert_valid_onboard_report(report)
 
 
@@ -758,6 +967,7 @@ def test_unfamiliar_manifest_blocks_before_personal_apply(tmp_path):
         personal_fn=personal,
         ssh_fn=_ssh,
         codex_fn=_codex,
+        consumer_probe_fn=_consumer_ready,
     )
 
     assert report["result"] == "blocked"
@@ -855,11 +1065,12 @@ def test_ecosystem_apply_writes_exact_refs_and_runs_update_doctor(
         personal_fn=_personal,
         ssh_fn=_ssh,
         codex_fn=_codex,
+        consumer_probe_fn=_consumer_ready,
         update_fn=lambda **_: (
             {"result": "up-to-date", "blocked": [], "held_for_approval": []},
             0,
         ),
-        doctor_fn=lambda: {"status": "healthy", "score": 100},
+        doctor_fn=lambda **_: {"status": "healthy", "score": 100},
     )
     assert report["result"] == "ready"
     manifest = yaml.safe_load((tmp_path / "layers.yml").read_text())
@@ -915,6 +1126,7 @@ def test_connected_store_without_scope_identifiers_blocks_before_writes(tmp_path
         personal_fn=_personal,
         ssh_fn=_ssh,
         codex_fn=_codex,
+        consumer_probe_fn=_consumer_ready,
     )
     assert report["result"] == "blocked"
     assert report["stages"][-1]["stage"] == "secret-store"
@@ -998,11 +1210,12 @@ def test_unavailable_optional_store_does_not_block_core_apply(tmp_path):
             "detail": "Shared integrations were left for later.",
         },
         codex_fn=_codex,
+        consumer_probe_fn=_consumer_ready,
         update_fn=lambda **_: (
             {"result": "up-to-date", "blocked": [], "held_for_approval": []},
             0,
         ),
-        doctor_fn=lambda: {"status": "healthy", "score": 100},
+        doctor_fn=lambda **_: {"status": "healthy", "score": 100},
     )
 
     assert report["result"] == "ready"
@@ -1070,6 +1283,7 @@ def test_aggregate_block_before_manifest_still_returns_layers_field(tmp_path):
         },
         ssh_fn=_ssh,
         codex_fn=_codex,
+        consumer_probe_fn=_consumer_ready,
     )
     assert report["result"] == "blocked"
     assert report["layers"] == []

@@ -22,7 +22,12 @@ from cc.commands.doctor import build_doctor_report
 from cc.commands.update import execute_update
 from cc.core import authstore, keychain
 from cc.core.config import resolve_key, write_config
-from cc.core.ecosystem.manifest import ManifestError, validate_layers
+from cc.core.ecosystem.manifest import (
+    ManifestError,
+    load_layers,
+    normalize_layer_product,
+    validate_layers,
+)
 from cc.core.ecosystem.ssh_identity import ensure_machine_ssh_identity
 from cc.core.write_guard import assert_write_is_isolated
 
@@ -732,13 +737,14 @@ def _atomic_yaml(path: Path, payload: dict[str, Any]) -> None:
     os.replace(temp, path)
 
 
-def _normalized_existing_manifest(path: Path) -> dict[str, Any]:
-    """Load a supported manifest and translate the retired component key.
+def _existing_manifest(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Load a supported manifest without rewriting unrequested products.
 
     The first CLI inheritance release called the product discriminator
     ``component``. It is a deterministic predecessor of ``product`` and can
-    therefore be adopted without interpreting user-authored content. Any
-    other structural difference remains a hold for review.
+    therefore be compared through a normalized view. The raw view is retained
+    for serialization so onboarding Claude or Codex cannot rewrite a CLI,
+    Knowledge, or future product layer as an unrelated side effect.
     """
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -761,15 +767,7 @@ def _normalized_existing_manifest(path: Path) -> dict[str, Any]:
             raise ManifestError(
                 "The existing layer manifest contains an unfamiliar layer."
             )
-        layer = dict(raw_layer)
-        component = layer.pop("component", None)
-        product = layer.get("product")
-        if product is None and isinstance(component, str) and component:
-            layer["product"] = component
-        elif component is not None and component != product:
-            raise ManifestError(
-                "The existing layer manifest disagrees about a layer's product."
-            )
+        layer = normalize_layer_product(raw_layer)
         layer.setdefault("activation", "always")
         if not _safe_repository_reference((layer.get("source") or {}).get("repo")):
             raise ManifestError(
@@ -777,10 +775,9 @@ def _normalized_existing_manifest(path: Path) -> dict[str, Any]:
             )
         normalized.append(layer)
     validate_layers(normalized)
-    result: dict[str, Any] = {"version": 1, "layers": normalized}
-    if isinstance(raw.get("org"), str) and raw["org"]:
-        result["org"] = raw["org"]
-    return result
+    normalized_result = dict(raw)
+    normalized_result["layers"] = normalized
+    return raw, normalized_result
 
 
 def _managed_product_is_compatible(
@@ -884,7 +881,7 @@ def _manifest_adoption_plan(
                 None,
             )
     try:
-        existing = _normalized_existing_manifest(source)
+        existing_raw, existing = _existing_manifest(source)
     except ManifestError:
         return ManifestAdoption(
             "unfamiliar",
@@ -898,9 +895,11 @@ def _manifest_adoption_plan(
     desired_layers = list(desired["layers"])
     desired_products = {layer["product"] for layer in desired_layers}
     retained = [
-        layer
-        for layer in existing["layers"]
-        if layer["product"] not in desired_products
+        raw_layer
+        for raw_layer, normalized_layer in zip(
+            existing_raw["layers"], existing["layers"], strict=True
+        )
+        if normalized_layer["product"] not in desired_products
     ]
     existing_managed = [
         layer for layer in existing["layers"] if layer["product"] in desired_products
@@ -917,13 +916,32 @@ def _manifest_adoption_plan(
             None,
         )
 
-    merged = {
-        "version": 1,
-        "org": desired.get("org"),
-        "layers": [*retained, *desired_layers],
-    }
+    existing_org = existing_raw.get("org")
+    desired_org = desired.get("org")
+    if existing_org not in (None, desired_org):
+        return ManifestAdoption(
+            "conflict",
+            "review",
+            "This manifest belongs to a different organization, so I won't replace it.",
+            source,
+            destination,
+            None,
+        )
+    merged = dict(existing_raw)
+    merged["version"] = 1
+    if desired_org:
+        merged["org"] = desired_org
+    merged["layers"] = [*retained, *desired_layers]
     try:
-        validate_layers(merged["layers"])
+        validate_layers(
+            [
+                {
+                    **normalize_layer_product(layer),
+                    "activation": layer.get("activation", "always"),
+                }
+                for layer in merged["layers"]
+            ]
+        )
     except ManifestError:
         return ManifestAdoption(
             "conflict",
@@ -934,7 +952,7 @@ def _manifest_adoption_plan(
             None,
         )
 
-    if source == destination and existing == merged:
+    if source == destination and existing_raw == merged:
         return ManifestAdoption(
             "ready",
             "reuse",
@@ -995,6 +1013,178 @@ def _apply_manifest_adoption(plan: ManifestAdoption) -> Path | None:
         if backup is not None and plan.source.read_bytes() == backup.read_bytes():
             plan.source.unlink()
     return backup
+
+
+def _atomic_bytes(path: Path, content: bytes) -> None:
+    """Replace one controlled file while preserving its exact prior bytes."""
+    assert_write_is_isolated(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("wb", dir=path.parent, delete=False) as handle:
+        handle.write(content)
+        temp = Path(handle.name)
+    os.replace(temp, path)
+
+
+def _rollback_manifest_adoption(plan: ManifestAdoption, backup: Path | None) -> bool:
+    """Restore the exact pre-transaction manifest when a later gate fails.
+
+    The rollback refuses to overwrite concurrent edits: the destination must
+    still equal the payload this transaction wrote, and a migrated source must
+    still be absent (or already equal its backup).
+    """
+    if plan.action == "reuse":
+        return True
+    expected = yaml.safe_dump(plan.payload, sort_keys=False).encode()
+    try:
+        if not plan.destination.is_file() or plan.destination.read_bytes() != expected:
+            return False
+        if plan.source is None:
+            plan.destination.unlink()
+            return True
+        if backup is None or not backup.is_file():
+            return False
+        prior = backup.read_bytes()
+        if plan.source == plan.destination:
+            _atomic_bytes(plan.destination, prior)
+            return True
+        if plan.source.exists() and plan.source.read_bytes() != prior:
+            return False
+        if not plan.source.exists():
+            _atomic_bytes(plan.source, prior)
+        plan.destination.unlink()
+        return True
+    except OSError:
+        return False
+
+
+def _copilot_layers_payload(manifest_path: Path) -> tuple[dict[str, Any] | None, str]:
+    """Ask the installed CLI to resolve one candidate manifest."""
+    executable = shutil.which("copilot")
+    if executable is None:
+        return None, "The installed `copilot` command is unavailable."
+    environment = os.environ.copy()
+    environment["COPILOT_LAYERS_FILE"] = str(manifest_path)
+    try:
+        result = subprocess.run(
+            (str(Path(executable).resolve()), "--json", "layers"),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=environment,
+            timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return None, f"The installed `copilot` reader could not be checked: {exc}"
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or "unknown error"
+        return None, f"The installed `copilot` reader rejected the manifest: {detail}"
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None, "The installed `copilot` reader returned unreadable output."
+    if not isinstance(payload, dict):
+        return None, "The installed `copilot` reader returned an unfamiliar report."
+    return payload, ""
+
+
+def _probe_cli_candidate(candidate: Path, baseline: Path | None) -> dict[str, str]:
+    """Reject a candidate that removes CLI layers or visible capabilities."""
+    candidate_layers = load_layers(candidate)
+    expected_chain = [
+        {
+            "id": layer["id"],
+            "role": layer["role"],
+            "rank": layer["rank"],
+            "repo": layer["source"]["repo"],
+            "ref": layer["source"].get("ref"),
+            "auth": layer["auth"],
+            "unit": layer.get("unit"),
+        }
+        for layer in candidate_layers
+        if layer["product"] == "cli"
+    ]
+    if not expected_chain:
+        return {"result": "ready"}
+
+    candidate_payload, detail = _copilot_layers_payload(candidate)
+    if candidate_payload is None:
+        return {"result": "blocked", "detail": detail}
+    resolved_chain = [
+        {
+            key: layer.get(key)
+            for key in ("id", "role", "rank", "repo", "ref", "auth", "unit")
+        }
+        for layer in candidate_payload.get("chain", [])
+        if isinstance(layer, dict)
+    ]
+    if resolved_chain != expected_chain:
+        return {
+            "result": "blocked",
+            "detail": (
+                "The installed `copilot` reader would change or lose CLI layers "
+                f"(expected {[item['id'] for item in expected_chain]}, "
+                f"resolved {[item['id'] for item in resolved_chain]})."
+            ),
+        }
+
+    if baseline is not None and baseline.is_file():
+        baseline_payload, _ = _copilot_layers_payload(baseline)
+        if baseline_payload is not None:
+            before = {
+                service.get("name"): (service.get("tier"), service.get("mode"))
+                for service in baseline_payload.get("services", [])
+                if isinstance(service, dict) and service.get("name")
+            }
+            after = {
+                service.get("name"): (service.get("tier"), service.get("mode"))
+                for service in candidate_payload.get("services", [])
+                if isinstance(service, dict) and service.get("name")
+            }
+            changed = sorted(
+                name
+                for name, provenance in before.items()
+                if after.get(name) != provenance
+            )
+            if changed:
+                return {
+                    "result": "blocked",
+                    "detail": (
+                        "The candidate would remove or downgrade installed CLI "
+                        "capabilities: " + ", ".join(changed)
+                    ),
+                }
+    return {"result": "ready"}
+
+
+def _validate_manifest_candidate(
+    plan: ManifestAdoption,
+    probe: Callable[[Path, Path | None], dict[str, str]],
+) -> dict[str, str]:
+    """Validate staged bytes with cc and every relevant installed consumer."""
+    if plan.payload is None:
+        return {
+            "result": "blocked",
+            "detail": "No safe layer-manifest candidate was available.",
+        }
+    if plan.action == "reuse":
+        candidate = plan.destination
+        if not candidate.is_file() and plan.source is not None:
+            candidate = plan.source
+        return probe(candidate, plan.source)
+
+    with tempfile.TemporaryDirectory(prefix="cc-manifest-candidate-") as temp_root:
+        candidate = Path(temp_root) / "copilot.layers.yml"
+        candidate.write_text(
+            yaml.safe_dump(plan.payload, sort_keys=False), encoding="utf-8"
+        )
+        try:
+            validate_layers(load_layers(candidate))
+        except ManifestError as exc:
+            return {
+                "result": "blocked",
+                "detail": f"The staged layer manifest is invalid: {exc}",
+            }
+        return probe(candidate, plan.source)
 
 
 def _provision_store(store: dict[str, Any], *, apply: bool, run: Run) -> dict[str, Any]:
@@ -1238,6 +1428,7 @@ def build_ecosystem_onboard_report(
     codex_fn: Callable[..., dict[str, Any]] | None = None,
     update_fn: Callable[..., tuple[dict[str, Any], int]] | None = None,
     doctor_fn: Callable[..., dict[str, Any]] | None = None,
+    consumer_probe_fn: Callable[[Path, Path | None], dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Run the resumable Admin-handoff-to-healthy-machine transaction.
 
@@ -1272,6 +1463,8 @@ def build_ecosystem_onboard_report(
         update_fn = execute_update
     if doctor_fn is None:
         doctor_fn = build_doctor_report
+    if consumer_probe_fn is None:
+        consumer_probe_fn = _probe_cli_candidate
 
     normalized = tuple(dict.fromkeys(value.strip().lower() for value in products))
     org = org.strip()
@@ -1341,7 +1534,10 @@ def build_ecosystem_onboard_report(
         "github-personal": f"{personal['owner']}/{normalized[0]}-copilot-private",
     }
     ssh = ssh_fn(
-        apply=False, run=run, adopt_existing=adopt_existing, verify_repos=ssh_verify_repos
+        apply=False,
+        run=run,
+        adopt_existing=adopt_existing,
+        verify_repos=ssh_verify_repos,
     )
     stages.append({"stage": "device-ssh", **_ssh_stage_fields(ssh)})
     inventory.extend(_ssh_inventory(ssh))
@@ -1364,6 +1560,16 @@ def build_ecosystem_onboard_report(
         }
     )
     if adoption.action == "review":
+        return _ecosystem_result(
+            org, normalized, apply, "blocked", stages, manifest["layers"], inventory
+        )
+    candidate = _validate_manifest_candidate(adoption, consumer_probe_fn)
+    if candidate["result"] == "blocked":
+        manifest_stage = next(
+            stage for stage in stages if stage["stage"] == "layer-manifest"
+        )
+        manifest_stage["result"] = "blocked"
+        manifest_stage["detail"] = candidate["detail"]
         return _ecosystem_result(
             org, normalized, apply, "blocked", stages, manifest["layers"], inventory
         )
@@ -1404,7 +1610,10 @@ def build_ecosystem_onboard_report(
         )
 
     ssh = ssh_fn(
-        apply=True, run=run, adopt_existing=adopt_existing, verify_repos=ssh_verify_repos
+        apply=True,
+        run=run,
+        adopt_existing=adopt_existing,
+        verify_repos=ssh_verify_repos,
     )
     ssh_stage = next(stage for stage in stages if stage["stage"] == "device-ssh")
     ssh_stage.update(_ssh_stage_fields(ssh))
@@ -1422,14 +1631,48 @@ def build_ecosystem_onboard_report(
         )
 
     backup = _apply_manifest_adoption(adoption)
-    write_config("layers.manifest", str(target))
     manifest_stage = next(
         stage for stage in stages if stage["stage"] == "layer-manifest"
     )
     manifest_stage["result"] = "reused" if adoption.action == "reuse" else "applied"
     if backup is not None:
         manifest_stage["rollback_path"] = str(backup)
-    update, update_exit = update_fn(dry_run=False)
+
+    def blocked_after_write(detail: str) -> dict[str, Any]:
+        rolled_back = _rollback_manifest_adoption(adoption, backup)
+        prior_manifest = adoption.source
+        if (
+            rolled_back
+            and prior_manifest is not None
+            and prior_manifest.is_file()
+            and adoption.action != "reuse"
+        ):
+            try:
+                _, restore_exit = update_fn(
+                    dry_run=False, _manifest_path=prior_manifest
+                )
+                rolled_back = restore_exit == 0
+            except Exception:
+                rolled_back = False
+        manifest_stage["result"] = "rolled-back" if rolled_back else "rollback-failed"
+        manifest_stage["detail"] = (
+            f"{detail} The previous manifest was restored."
+            if rolled_back
+            else (
+                f"{detail} Automatic rollback could not be proven complete; "
+                f"use {backup} to recover before continuing."
+                if backup is not None
+                else f"{detail} Automatic rollback could not be proven complete."
+            )
+        )
+        return _ecosystem_result(
+            org, normalized, True, "blocked", stages, manifest["layers"], inventory
+        )
+
+    try:
+        update, update_exit = update_fn(dry_run=False, _manifest_path=target)
+    except Exception as exc:
+        return blocked_after_write(f"Materialization failed: {exc}")
     stages.append(
         {
             "stage": "materialize",
@@ -1438,16 +1681,26 @@ def build_ecosystem_onboard_report(
             "held": len(update.get("held_for_approval", [])),
         }
     )
+    if update_exit != 0:
+        return blocked_after_write(
+            "Materialization rejected the candidate layer manifest."
+        )
     if update_exit == 0 and "codex" in normalized:
-        codex_report = codex_fn(apply=True, run=run)
+        try:
+            codex_report = codex_fn(apply=True, run=run)
+        except Exception as exc:
+            return blocked_after_write(f"Codex activation failed: {exc}")
         next(stage for stage in stages if stage["stage"] == "codex-plugin").update(
             codex_report
         )
         if codex_report["result"] == "blocked":
-            return _ecosystem_result(
-                org, normalized, True, "blocked", stages, manifest["layers"], inventory
+            return blocked_after_write(
+                "Codex activation rejected the candidate layer manifest."
             )
-    doctor = doctor_fn()
+    try:
+        doctor = doctor_fn(_manifest_path=target)
+    except Exception as exc:
+        return blocked_after_write(f"The post-apply health check failed: {exc}")
     stages.append(
         {
             "stage": "doctor",
@@ -1455,11 +1708,18 @@ def build_ecosystem_onboard_report(
             "score": doctor.get("score"),
         }
     )
-    result = (
-        "ready" if update_exit == 0 and doctor.get("status") == "healthy" else "blocked"
-    )
+    if doctor.get("status") != "healthy":
+        return blocked_after_write(
+            "The candidate made the post-apply health check unhealthy."
+        )
+    try:
+        write_config("layers.manifest", str(target))
+    except Exception as exc:
+        return blocked_after_write(
+            f"The manifest pointer could not be committed: {exc}"
+        )
     return _ecosystem_result(
-        org, normalized, True, result, stages, manifest["layers"], inventory
+        org, normalized, True, "ready", stages, manifest["layers"], inventory
     )
 
 

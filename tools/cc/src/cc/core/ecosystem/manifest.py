@@ -42,6 +42,30 @@ class ManifestError(ValueError):
     """
 
 
+def normalize_layer_product(layer: dict[str, Any]) -> dict[str, Any]:
+    """Return one layer with the retired ``component`` key canonicalized.
+
+    ``component`` was the discriminator in the first shared-manifest release.
+    Readers must accept that predecessor throughout the rolling migration so
+    one product cannot disappear merely because another writer adopts the
+    canonical ``product`` spelling. Conflicting dual declarations are never
+    guessed through.
+    """
+    normalized = dict(layer)
+    component = normalized.pop("component", None)
+    product = normalized.get("product")
+    if product is None and isinstance(component, str) and component:
+        normalized["product"] = component
+    elif component is not None and component != product:
+        layer_id = normalized.get("id") or "<unnamed layer>"
+        raise ManifestError(
+            f"Layer {layer_id!r} disagrees between `product` and legacy "
+            "`component`; make the declarations match before continuing."
+        )
+    normalized.setdefault("activation", "always")
+    return normalized
+
+
 def load_layers(source: Path | str | list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Load the raw layer list from either:
@@ -54,7 +78,7 @@ def load_layers(source: Path | str | list[dict[str, Any]]) -> list[dict[str, Any
     on the returned layers.
     """
     if isinstance(source, list):
-        return [dict(layer) for layer in source]
+        return [normalize_layer_product(layer) for layer in source]
 
     path = Path(source).expanduser()
     if not path.exists():
@@ -83,7 +107,14 @@ def load_layers(source: Path | str | list[dict[str, Any]]) -> list[dict[str, Any
             f"Layer manifest at {path}: `layers` must be a list, got {type(layers).__name__}."
         )
 
-    return [dict(layer) for layer in layers]
+    normalized: list[dict[str, Any]] = []
+    for layer in layers:
+        if not isinstance(layer, dict):
+            raise ManifestError(
+                f"Layer manifest at {path}: every `layers` entry must be an object."
+            )
+        normalized.append(normalize_layer_product(layer))
+    return normalized
 
 
 def validate_layers(layers: list[dict[str, Any]]) -> list[dict[str, Any]]:
