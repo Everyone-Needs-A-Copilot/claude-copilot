@@ -110,6 +110,7 @@ remote_url="$(git -C "${REPO_ROOT}" remote get-url origin)"
 release_tool_commit="$(git -C "${REPO_ROOT}" rev-parse HEAD)"
 git -C "${REPO_ROOT}" diff --quiet HEAD -- \
     scripts/package-cc-macos-release.sh \
+    scripts/verify-foundation-release.sh \
     tools/cc/scripts/cc_frozen_entry.py ||
     die "release packaging files must be committed before building"
 remote_commit="$(
@@ -138,6 +139,8 @@ git clone --quiet --branch "${SOURCE_REF}" --single-branch \
 cloned_commit="$(git -C "${source_checkout}" rev-parse HEAD)"
 [[ "${cloned_commit}" == "${SOURCE_COMMIT}" ]] ||
     die "cloned source changed during release preparation"
+"${source_checkout}/scripts/verify-foundation-release.sh" \
+    "${source_checkout}" "${SOURCE_REF}" "${SOURCE_COMMIT}"
 
 python_package="${scratch}/${PYTHON_PACKAGE}"
 echo "cc release: fetching pinned Python ${PYTHON_VERSION} universal2 toolchain"

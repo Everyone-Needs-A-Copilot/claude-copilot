@@ -212,6 +212,49 @@ def test_clone_or_update_mirror_updates_via_fetch_reset(tmp_path):
     assert (mirror_root / "foundation" / "agents" / "sec.md").read_text() == "v2"
 
 
+def test_clone_or_update_mirror_preserves_new_annotated_exact_tag_on_update(tmp_path):
+    source = _make_content_repo(tmp_path, {"version.txt": "1.2.2"})
+    mirror_root = tmp_path / "mirrors"
+    target = mirror_root / "foundation"
+
+    first = mirror.clone_or_update_mirror(
+        "foundation", str(source), "main", mirror_root=mirror_root
+    )
+    assert first["ok"] is True
+
+    (source / "version.txt").write_text("1.2.3", encoding="utf-8")
+    subprocess.run(["git", "commit", "-aqm", "v1.2.3"], cwd=source, check=True)
+    subprocess.run(
+        ["git", "tag", "-a", "v1.2.3", "-m", "release v1.2.3"],
+        cwd=source,
+        check=True,
+    )
+
+    second = mirror.clone_or_update_mirror(
+        "foundation", str(source), "v1.2.3", mirror_root=mirror_root
+    )
+
+    assert second["ok"] is True
+    assert second["action"] == "updated"
+    assert (target / "version.txt").read_text(encoding="utf-8") == "1.2.3"
+    tag_type = subprocess.run(
+        ["git", "cat-file", "-t", "refs/tags/v1.2.3"],
+        cwd=target,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert tag_type.stdout.strip() == "tag"
+    tag_commit = subprocess.run(
+        ["git", "rev-parse", "refs/tags/v1.2.3^{}"],
+        cwd=target,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert second["head_sha"] == tag_commit.stdout.strip()
+
+
 def test_clone_or_update_mirror_resolves_caret_semver_to_highest_compatible_tag(
     tmp_path,
 ):

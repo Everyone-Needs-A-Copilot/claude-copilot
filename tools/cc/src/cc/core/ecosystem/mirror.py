@@ -412,8 +412,23 @@ def clone_or_update_mirror(
                     f"No published release satisfies {ref}.",
                 )
 
+        is_release_tag = _EXACT_SEMVER.fullmatch(effective_ref) is not None
+        fetch_args = ["fetch", "--quiet"]
+        if is_release_tag:
+            # Keep the tag object and local tag ref, not just its peeled
+            # commit in FETCH_HEAD. Trust verification must be able to
+            # verify the signed annotated release tag after an existing
+            # mirror advances to a newly published exact version.
+            fetch_args += [
+                "--force",
+                "origin",
+                f"refs/tags/{effective_ref}:refs/tags/{effective_ref}",
+            ]
+        else:
+            fetch_args += ["origin", effective_ref]
+
         fetched = _run_git(
-            ["fetch", "--quiet", "origin", effective_ref],
+            fetch_args,
             cwd=target,
             timeout=timeout,
             _auth_header=auth_header,
@@ -423,8 +438,13 @@ def clone_or_update_mirror(
             # offline, never a destructive fallback.
             return _offline_result(tier, target, fetched.stderr.strip())
 
+        reset_target = (
+            f"refs/tags/{effective_ref}^{{}}" if is_release_tag else "FETCH_HEAD"
+        )
         reset = _run_git(
-            ["reset", "--quiet", "--hard", "FETCH_HEAD"], cwd=target, timeout=timeout
+            ["reset", "--quiet", "--hard", reset_target],
+            cwd=target,
+            timeout=timeout,
         )
         if reset.returncode != 0:
             return _error_result(tier, target, reset.stderr.strip())
