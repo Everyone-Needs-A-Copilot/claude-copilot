@@ -80,6 +80,51 @@ layers:
     assert layers[0]["rank"] == 10
 
 
+def test_load_layers_accepts_legacy_component_without_mutating_source(tmp_path):
+    manifest_path = tmp_path / "copilot.layers.yml"
+    manifest_path.write_text(
+        """version: 1
+layers:
+  - id: cli-foundation
+    role: foundation
+    rank: 40
+    component: cli
+    source: {repo: https://example.invalid/cli.git}
+    auth: anon
+    activation: always
+""",
+        encoding="utf-8",
+    )
+    before = manifest_path.read_bytes()
+
+    layers = load_layers(manifest_path)
+
+    assert layers[0]["product"] == "cli"
+    assert "component" not in layers[0]
+    assert manifest_path.read_bytes() == before
+
+
+def test_load_layers_rejects_conflicting_product_and_component(tmp_path):
+    manifest_path = tmp_path / "copilot.layers.yml"
+    manifest_path.write_text(
+        """version: 1
+layers:
+  - id: cli-foundation
+    role: foundation
+    rank: 40
+    product: codex
+    component: cli
+    source: {repo: https://example.invalid/cli.git}
+    auth: anon
+    activation: always
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ManifestError, match="disagrees"):
+        load_layers(manifest_path)
+
+
 def test_load_layers_missing_file_is_plain_language_error(tmp_path):
     missing = tmp_path / "does-not-exist.yml"
     with pytest.raises(ManifestError) as exc_info:
