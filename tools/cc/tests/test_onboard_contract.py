@@ -108,7 +108,9 @@ def test_default_github_runner_uses_authorized_keychain_token_without_argv_leak(
         captured["env"] = kwargs["env"]
         return subprocess.CompletedProcess(args, 0, "{}", "")
 
-    monkeypatch.setattr(onboard_module.shutil, "which", lambda _: "/usr/local/bin/gh")
+    monkeypatch.setattr(
+        onboard_module, "resolve_executable", lambda _: Path("/usr/local/bin/gh")
+    )
     monkeypatch.setattr(
         onboard_module.authstore, "read_identity", lambda: {"login": "pablo"}
     )
@@ -140,8 +142,9 @@ def test_default_github_runner_falls_back_to_supported_absolute_path(
         captured["args"] = tuple(args)
         return subprocess.CompletedProcess(args, 0, "[]", "")
 
-    monkeypatch.setattr(onboard_module.shutil, "which", lambda _: None)
-    monkeypatch.setattr(onboard_module, "_SUPPORTED_GH_PATHS", (gh_path,))
+    monkeypatch.setattr(
+        onboard_module, "resolve_executable", lambda _: gh_path.resolve()
+    )
     monkeypatch.setattr(onboard_module.authstore, "read_identity", lambda: {})
     monkeypatch.setattr(onboard_module.subprocess, "run", fake_run)
 
@@ -159,16 +162,41 @@ def test_default_github_runner_falls_back_to_supported_absolute_path(
 def test_default_github_runner_stays_fail_closed_without_supported_binary(
     monkeypatch, tmp_path
 ):
-    monkeypatch.setattr(onboard_module.shutil, "which", lambda _: None)
-    monkeypatch.setattr(
-        onboard_module, "_SUPPORTED_GH_PATHS", (tmp_path / "missing-gh",)
-    )
+    monkeypatch.setattr(onboard_module, "resolve_executable", lambda _: None)
 
     result = onboard_module._run(("gh", "api", "user/orgs", "--paginate"))
 
     assert result.returncode == 127
     assert result.stdout == ""
     assert result.stderr == "gh is not installed."
+
+
+def test_copilot_probe_uses_resolved_absolute_executable(monkeypatch, tmp_path):
+    copilot = tmp_path / "copilot"
+    copilot.write_text("#!/bin/sh\n", encoding="utf-8")
+    copilot.chmod(0o755)
+    manifest = tmp_path / "copilot.layers.yml"
+    manifest.write_text("version: 1\nlayers: []\n", encoding="utf-8")
+    captured = {}
+
+    def fake_run(args, **kwargs):
+        captured["args"] = tuple(args)
+        captured["env"] = kwargs["env"]
+        return subprocess.CompletedProcess(
+            args, 0, '{"chain": [], "services": []}', ""
+        )
+
+    monkeypatch.setattr(
+        onboard_module, "resolve_executable", lambda _: copilot.resolve()
+    )
+    monkeypatch.setattr(onboard_module.subprocess, "run", fake_run)
+
+    payload, detail = onboard_module._copilot_layers_payload(manifest)
+
+    assert detail == ""
+    assert payload == {"chain": [], "services": []}
+    assert captured["args"] == (str(copilot.resolve()), "--json", "layers")
+    assert captured["env"]["COPILOT_LAYERS_FILE"] == str(manifest)
 
 
 def test_plan_reuses_private_and_marks_only_404_missing():

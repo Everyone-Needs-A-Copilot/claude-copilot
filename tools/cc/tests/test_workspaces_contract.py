@@ -5,7 +5,6 @@ import subprocess
 from pathlib import Path
 
 from cc.commands import workspaces as workspaces_command
-from cc.core.ecosystem import workspaces as core_workspaces
 from cc.core.ecosystem.workspaces import (
     RECENTLY_SET_UP_WINDOW_HOURS,
     ActivationError,
@@ -19,15 +18,17 @@ from cc.core.ecosystem.workspaces import (
     project_id,
     read_known_projects_registry,
     read_personal_registry,
+    recently_set_up,
     record_automatic_setup,
     record_root_grant,
-    recently_set_up,
     revert_project,
     undo_status,
     workspace_status,
     write_declaration,
     write_install_lock,
 )
+
+from cc.core.ecosystem import workspaces as core_workspaces
 
 
 def _git_init(path: Path, remote: str | None = None) -> None:
@@ -68,6 +69,19 @@ def test_status_distinguishes_shared_declaration_from_real_installation(tmp_path
     assert report["declared_components"] == ["claude", "codex"]
     assert report["installed_components"] == []
     assert report["recommended_components"] == ["claude", "codex"]
+
+
+def test_recommendations_use_gui_safe_executable_resolver(monkeypatch, tmp_path):
+    claude = tmp_path / "claude"
+    claude.write_text("#!/bin/sh\n", encoding="utf-8")
+    claude.chmod(0o755)
+    monkeypatch.setattr(
+        core_workspaces,
+        "resolve_executable",
+        lambda command: claude if command == "claude" else None,
+    )
+
+    assert core_workspaces.recommended_components(tmp_path) == ["claude"]
 
 
 def test_explicit_markers_are_ready_and_arbitrary_claude_folder_is_not(tmp_path):
