@@ -7,6 +7,7 @@ on:
       - feat/adopt-and-project-setup
     paths:
       - ".github/workflows/cc-onboard-contract.yml"
+      - "scripts/package-cc-macos-release.sh"
       - "tools/cc/**"
       - "tools/tc/**"
   push:
@@ -15,6 +16,7 @@ on:
       - feat/adopt-and-project-setup
     paths:
       - ".github/workflows/cc-onboard-contract.yml"
+      - "scripts/package-cc-macos-release.sh"
       - "tools/cc/**"
       - "tools/tc/**"
 
@@ -41,6 +43,9 @@ jobs:
           python -m pip install --disable-pip-version-check \
             -e "./tools/tc" \
             -e "./tools/cc[dev]"
+
+      - name: Validate release gate syntax
+        run: bash -n scripts/package-cc-macos-release.sh
 
       - name: Test GUI-safe onboarding contracts
         working-directory: tools/cc

@@ -399,18 +399,18 @@ for key, expected_type in required.items():
 PY
 
 # Exercise the next app boundary under the PATH a Finder-launched macOS app
-# actually receives. `cc onboard` is a plan unless `--apply` is present, so
-# this reads the release operator's existing cc identity without changing
-# their setup. Exit 1 is a valid, fully computed blocked plan; exit 2 means
-# the helper could not run the contract and must block the release.
+# actually receives. Preserve the signed-in user session and override PATH
+# only: Finder does not erase HOME, Keychain access, or every launchd-provided
+# variable. `cc onboard` is a plan unless `--apply` is present, so this reads
+# the release operator's existing setup without changing it.
 finder_onboard_probe="${scratch}/finder-onboard-probe.json"
 set +e
-env -i \
+env \
     HOME="${RELEASE_HOME}" \
     PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
     "${artifact}" onboard \
     --org auto \
-    --products claude \
+    --products claude,codex \
     --json > "${finder_onboard_probe}"
 finder_onboard_exit=$?
 set -e
@@ -427,8 +427,22 @@ if payload.get("mode") != "plan":
     raise SystemExit("Finder-environment probe did not remain read-only")
 if payload.get("org") != "Everyone-Needs-A-Copilot":
     raise SystemExit("Finder-environment probe did not resolve the ENAC handoff")
+if payload.get("products") != ["claude", "codex"]:
+    raise SystemExit("Finder-environment probe did not cover both products")
 if payload.get("error") is not None:
     raise SystemExit(f"Finder-environment probe returned an error: {payload['error']}")
+layer_manifest = next(
+    (
+        item
+        for item in payload.get("inventory", [])
+        if item.get("id") == "layer-manifest"
+    ),
+    None,
+)
+if layer_manifest is None:
+    raise SystemExit("Finder-environment probe did not inspect the layer manifest")
+if "copilot` command is unavailable" in layer_manifest.get("detail", ""):
+    raise SystemExit("Finder-environment probe could not resolve copilot")
 PY
 
 archive="${scratch}/cc-macos-universal.zip"
@@ -508,7 +522,7 @@ cat > "${OUTPUT_DIR}/release-metadata.json" <<EOF
   "notarization_container_sha256": "${archive_sha}",
   "standalone_ticket_staple": "unsupported-by-apple",
   "device_flow_https_probe": "passed",
-  "finder_gh_resolution_probe": "passed",
+  "finder_onboard_probe": "passed",
   "sha256": "${artifact_sha}"
 }
 EOF
