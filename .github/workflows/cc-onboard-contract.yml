@@ -48,4 +48,4 @@ jobs:
           python -m pytest \
             tests/test_executables.py \
             tests/test_onboard_contract.py \
-            tests/test_workspaces_contract.py
+            tests/test_workspaces_contract.py::test_recommendations_use_gui_safe_executable_resolver
