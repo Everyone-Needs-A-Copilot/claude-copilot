@@ -171,6 +171,198 @@ def test_default_github_runner_stays_fail_closed_without_supported_binary(
     assert result.stderr == "gh is not installed."
 
 
+def test_default_codex_runner_resolves_env_node_runtime_outside_shell_path(
+    monkeypatch, tmp_path
+):
+    codex = tmp_path / "lib" / "codex.js"
+    codex.parent.mkdir(parents=True)
+    codex.write_text("#!/usr/bin/env node\n", encoding="utf-8")
+    codex.chmod(0o755)
+    node = tmp_path / "bin" / "node"
+    node.parent.mkdir()
+    node.write_text(
+        "#!/bin/sh\nprintf '%s\\n' '{\"marketplaceName\":\"enac-materialized\"}'\n",
+        encoding="utf-8",
+    )
+    node.chmod(0o755)
+
+    def resolve(command):
+        return {"codex": codex, "node": node}.get(command)
+
+    monkeypatch.setattr(onboard_module, "resolve_executable", resolve)
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+
+    result = onboard_module._run(
+        ("codex", "plugin", "marketplace", "add", "/tmp/catalog", "--json")
+    )
+
+    assert result.returncode == 0
+    assert json.loads(result.stdout)["marketplaceName"] == "enac-materialized"
+
+
+def test_default_codex_runner_fails_closed_when_env_runtime_is_missing(
+    monkeypatch, tmp_path
+):
+    codex = tmp_path / "codex.js"
+    codex.write_text("#!/usr/bin/env node\n", encoding="utf-8")
+    codex.chmod(0o755)
+    monkeypatch.setattr(
+        onboard_module,
+        "resolve_executable",
+        lambda command: codex if command == "codex" else None,
+    )
+
+    result = onboard_module._run(("codex", "plugin", "list", "--json"))
+
+    assert result.returncode == 127
+    assert result.stdout == ""
+    assert result.stderr == "node runtime required by codex is not installed."
+
+
+def test_codex_plugin_install_is_idempotent_and_uses_supported_commands(
+    monkeypatch, tmp_path
+):
+    root = tmp_path / "materialized" / "codex"
+    manifest = root / "plugins" / "codex-copilot" / ".codex-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"name":"codex-copilot"}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        onboard_module,
+        "resolve_key",
+        lambda key: root if key == "paths.codex_materialize_root" else None,
+    )
+    calls = []
+
+    def run(args):
+        calls.append(tuple(args))
+        if args[2] == "marketplace":
+            return subprocess.CompletedProcess(
+                args,
+                0,
+                '{"marketplaceName":"enac-materialized","alreadyAdded":true}',
+                "",
+            )
+        return subprocess.CompletedProcess(
+            args,
+            0,
+            '{"pluginId":"codex-copilot@enac-materialized"}',
+            "",
+        )
+
+    first = onboard_module._install_codex_plugin(apply=True, run=run)
+    second = onboard_module._install_codex_plugin(apply=True, run=run)
+
+    assert first == {"result": "ready"}
+    assert second == {"result": "ready"}
+    assert (
+        calls
+        == [
+            (
+                "codex",
+                "plugin",
+                "marketplace",
+                "add",
+                str(root),
+                "--json",
+            ),
+            (
+                "codex",
+                "plugin",
+                "add",
+                "codex-copilot@enac-materialized",
+                "--json",
+            ),
+        ]
+        * 2
+    )
+    marketplace = json.loads(
+        (root / ".agents" / "plugins" / "marketplace.json").read_text(encoding="utf-8")
+    )
+    assert marketplace["name"] == "enac-materialized"
+    assert marketplace["plugins"][0]["source"]["path"] == "./plugins/codex-copilot"
+
+
+@pytest.mark.parametrize(
+    ("result", "detail"),
+    (
+        (
+            subprocess.CompletedProcess(
+                (),
+                127,
+                "",
+                "codex is not installed.",
+            ),
+            "Codex is not installed in a supported location on this Mac.",
+        ),
+        (
+            subprocess.CompletedProcess(
+                (),
+                127,
+                "",
+                "node runtime required by codex is not installed.",
+            ),
+            (
+                "Codex is installed, but its required command-line runtime "
+                "could not be started outside the terminal."
+            ),
+        ),
+        (
+            subprocess.CompletedProcess((), 1, "", "policy rejected"),
+            "Codex rejected the verified local marketplace.",
+        ),
+    ),
+)
+def test_codex_marketplace_failures_are_distinct_and_do_not_leak_stderr(
+    monkeypatch, tmp_path, result, detail
+):
+    root = tmp_path / "materialized" / "codex"
+    manifest = root / "plugins" / "codex-copilot" / ".codex-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"name":"codex-copilot"}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        onboard_module,
+        "resolve_key",
+        lambda key: root if key == "paths.codex_materialize_root" else None,
+    )
+
+    report = onboard_module._install_codex_plugin(apply=True, run=lambda _args: result)
+
+    assert report == {"result": "blocked", "detail": detail}
+    assert result.stderr not in report["detail"]
+
+
+def test_codex_plugin_install_failure_is_distinct_from_marketplace_failure(
+    monkeypatch, tmp_path
+):
+    root = tmp_path / "materialized" / "codex"
+    manifest = root / "plugins" / "codex-copilot" / ".codex-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"name":"codex-copilot"}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        onboard_module,
+        "resolve_key",
+        lambda key: root if key == "paths.codex_materialize_root" else None,
+    )
+    calls = 0
+
+    def run(args):
+        nonlocal calls
+        calls += 1
+        return subprocess.CompletedProcess(
+            args,
+            0 if calls == 1 else 1,
+            "{}",
+            "" if calls == 1 else "install policy rejected",
+        )
+
+    report = onboard_module._install_codex_plugin(apply=True, run=run)
+
+    assert report == {
+        "result": "blocked",
+        "detail": "Codex rejected the Codex Copilot plugin installation.",
+    }
+
+
 def test_copilot_probe_uses_resolved_absolute_executable(monkeypatch, tmp_path):
     copilot = tmp_path / "copilot"
     copilot.write_text("#!/bin/sh\n", encoding="utf-8")
@@ -182,9 +374,7 @@ def test_copilot_probe_uses_resolved_absolute_executable(monkeypatch, tmp_path):
     def fake_run(args, **kwargs):
         captured["args"] = tuple(args)
         captured["env"] = kwargs["env"]
-        return subprocess.CompletedProcess(
-            args, 0, '{"chain": [], "services": []}', ""
-        )
+        return subprocess.CompletedProcess(args, 0, '{"chain": [], "services": []}', "")
 
     monkeypatch.setattr(
         onboard_module, "resolve_executable", lambda _: copilot.resolve()

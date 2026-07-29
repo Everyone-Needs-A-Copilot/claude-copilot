@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -148,6 +149,38 @@ def _run(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
         )
     resolved = str(executable)
     environment = None
+    try:
+        with executable.open("rb") as handle:
+            first_line = handle.readline(256).decode("utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        first_line = ""
+    if first_line.startswith("#!/usr/bin/env "):
+        try:
+            shebang = shlex.split(first_line[2:])
+        except ValueError:
+            shebang = []
+        runtime = next(
+            (
+                token
+                for token in shebang[1:]
+                if token != "-S" and not token.startswith("-")
+            ),
+            None,
+        )
+        if runtime:
+            runtime_path = resolve_executable(runtime)
+            if runtime_path is None:
+                return subprocess.CompletedProcess(
+                    args,
+                    127,
+                    "",
+                    f"{runtime} runtime required by {args[0]} is not installed.",
+                )
+            environment = os.environ.copy()
+            current_path = environment.get("PATH", "")
+            environment["PATH"] = os.pathsep.join(
+                part for part in (str(runtime_path.parent), current_path) if part
+            )
     if Path(resolved).name == "gh":
         try:
             identity = authstore.read_identity()
@@ -161,7 +194,7 @@ def _run(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
         except (RuntimeError, OSError):
             token = None
         if token:
-            environment = os.environ.copy()
+            environment = environment or os.environ.copy()
             environment["GH_TOKEN"] = token
     return subprocess.run(
         (resolved, *args[1:]),
@@ -1278,9 +1311,20 @@ def _install_codex_plugin(*, apply: bool, run: Run) -> dict[str, Any]:
     os.replace(temp, marketplace)
     added = run(("codex", "plugin", "marketplace", "add", str(root), "--json"))
     if added.returncode != 0:
+        if added.returncode == 127 and added.stderr.startswith(
+            "codex is not installed"
+        ):
+            detail = "Codex is not installed in a supported location on this Mac."
+        elif added.returncode == 127 and "runtime required by codex" in added.stderr:
+            detail = (
+                "Codex is installed, but its required command-line runtime "
+                "could not be started outside the terminal."
+            )
+        else:
+            detail = "Codex rejected the verified local marketplace."
         return {
             "result": "blocked",
-            "detail": "Codex could not register the verified local marketplace.",
+            "detail": detail,
         }
     installed = run(
         ("codex", "plugin", "add", "codex-copilot@enac-materialized", "--json")
@@ -1288,7 +1332,7 @@ def _install_codex_plugin(*, apply: bool, run: Run) -> dict[str, Any]:
     if installed.returncode != 0:
         return {
             "result": "blocked",
-            "detail": "Codex could not install Codex Copilot from the verified marketplace.",
+            "detail": "Codex rejected the Codex Copilot plugin installation.",
         }
     return {"result": "ready"}
 

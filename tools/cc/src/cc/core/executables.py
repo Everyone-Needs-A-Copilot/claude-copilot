@@ -5,14 +5,15 @@ shell's PATH. Machine inventory must not change merely because the same signed
 ``cc`` binary was launched by Control Tower instead of a terminal.
 
 Resolution therefore keeps the caller's PATH as the first choice, then checks
-a small registry of conventional absolute install locations. Every successful
-answer is an executable, canonical absolute path; callers never spawn a bare
-command name.
+a small registry of conventional absolute install locations and bounded Node
+version-manager roots. Every successful answer is an executable, canonical
+absolute path; callers never spawn a bare command name.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import shutil
 from pathlib import Path
 from typing import Callable, Iterable
@@ -32,15 +33,34 @@ STANDARD_EXECUTABLE_PATHS: dict[str, tuple[str, ...]] = {
     ),
     "claude": (
         "~/.local/bin/claude",
+        "~/.volta/bin/claude",
+        "~/.asdf/shims/claude",
+        "~/.local/share/mise/shims/claude",
         "/opt/homebrew/bin/claude",
         "/usr/local/bin/claude",
     ),
     "codex": (
         "~/.local/bin/codex",
+        "~/.volta/bin/codex",
+        "~/.asdf/shims/codex",
+        "~/.local/share/mise/shims/codex",
         "/opt/homebrew/bin/codex",
         "/usr/local/bin/codex",
     ),
+    "node": (
+        "~/.local/bin/node",
+        "~/.volta/bin/node",
+        "~/.asdf/shims/node",
+        "~/.local/share/mise/shims/node",
+        "/opt/homebrew/bin/node",
+        "/usr/local/bin/node",
+    ),
 }
+
+NODE_VERSION_MANAGER_GLOBS = (
+    ".nvm/versions/node/*/bin/{command}",
+    ".fnm/node-versions/*/installation/bin/{command}",
+)
 
 
 def _canonical_executable(candidate: str | Path) -> Path | None:
@@ -51,6 +71,23 @@ def _canonical_executable(candidate: str | Path) -> Path | None:
         return path.resolve(strict=True)
     except OSError:
         return None
+
+
+def _natural_path_key(path: Path) -> tuple[tuple[int, int | str], ...]:
+    """Sort versioned paths deterministically, with numeric parts numerically."""
+
+    return tuple(
+        (0, int(part)) if part.isdigit() else (1, part.casefold())
+        for part in re.split(r"(\d+)", str(path))
+        if part
+    )
+
+
+def _node_version_manager_candidates(command: str) -> tuple[Path, ...]:
+    candidates: list[Path] = []
+    for pattern in NODE_VERSION_MANAGER_GLOBS:
+        candidates.extend(Path.home().glob(pattern.format(command=command)))
+    return tuple(sorted(set(candidates), key=_natural_path_key, reverse=True))
 
 
 def resolve_executable(
@@ -81,4 +118,9 @@ def resolve_executable(
         resolved = _canonical_executable(candidate)
         if resolved is not None:
             return resolved
+    if command in {"claude", "codex", "node"}:
+        for candidate in _node_version_manager_candidates(command):
+            resolved = _canonical_executable(candidate)
+            if resolved is not None:
+                return resolved
     return None

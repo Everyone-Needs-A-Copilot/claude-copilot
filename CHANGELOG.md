@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Finder-launched Codex plugin setup (`cc` 1.7.11):** reconstruct the
+  command-line runtime path for `#!/usr/bin/env node` launchers before invoking
+  Codex, discover Codex/Node installations managed by NVM, FNM, Volta, asdf,
+  and mise when an interactive shell PATH is unavailable, and distinguish
+  missing-tool/runtime, marketplace-policy, and plugin-install failures without
+  exposing raw command output.
+
 ## [5.13.0]
 
 Layered knowledge repos — `paths.knowledge_repo` accepts an ordered list. Component bump: cc 1.7.0.

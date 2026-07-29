@@ -172,7 +172,7 @@ wheels = [
 
 [[package]]
 name = "claude-cli"
-version = "1.7.10"
+version = "1.7.11"
 source = { editable = "." }
 dependencies = [
     { name = "certifi" },

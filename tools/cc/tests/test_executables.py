@@ -62,6 +62,42 @@ def test_user_local_fallback_expands_the_current_home(monkeypatch, tmp_path):
     assert resolved == target.resolve()
 
 
+def test_node_version_manager_fallback_works_without_shell_path(monkeypatch, tmp_path):
+    target = _executable(
+        tmp_path / ".nvm" / "versions" / "node" / "v24.13.0" / "bin" / "codex"
+    )
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setitem(STANDARD_EXECUTABLE_PATHS, "codex", ())
+
+    resolved = resolve_executable("codex", which=lambda _command: None)
+
+    assert resolved == target.resolve()
+
+
+def test_node_version_manager_fallback_prefers_newest_executable_version(
+    monkeypatch, tmp_path
+):
+    older = _executable(
+        tmp_path / ".nvm" / "versions" / "node" / "v9.0.0" / "bin" / "codex"
+    )
+    newest = _executable(
+        tmp_path / ".nvm" / "versions" / "node" / "v24.13.0" / "bin" / "codex"
+    )
+    non_executable = (
+        tmp_path / ".nvm" / "versions" / "node" / "v25.0.0" / "bin" / "codex"
+    )
+    non_executable.parent.mkdir(parents=True)
+    non_executable.write_text("#!/usr/bin/env node\n", encoding="utf-8")
+    non_executable.chmod(0o644)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setitem(STANDARD_EXECUTABLE_PATHS, "codex", ())
+
+    resolved = resolve_executable("codex", which=lambda _command: None)
+
+    assert resolved == newest.resolve()
+    assert resolved != older.resolve()
+
+
 @pytest.mark.parametrize("command", ("gh", "copilot", "claude", "codex"))
 def test_gui_sensitive_direct_dependencies_have_bounded_fallbacks(command):
     candidates = STANDARD_EXECUTABLE_PATHS[command]
@@ -71,6 +107,10 @@ def test_gui_sensitive_direct_dependencies_have_bounded_fallbacks(command):
         candidate.startswith("~/") or candidate.startswith("/")
         for candidate in candidates
     )
+
+
+def test_node_runtime_has_bounded_gui_fallbacks():
+    assert STANDARD_EXECUTABLE_PATHS["node"]
 
 
 def test_unknown_command_remains_path_only():
