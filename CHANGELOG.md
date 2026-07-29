@@ -12,9 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Finder-launched Codex plugin setup (`cc` 1.7.11):** reconstruct the
   command-line runtime path for `#!/usr/bin/env node` launchers before invoking
   Codex, discover Codex/Node installations managed by NVM, FNM, Volta, asdf,
-  and mise when an interactive shell PATH is unavailable, and distinguish
-  missing-tool/runtime, marketplace-policy, and plugin-install failures without
-  exposing raw command output.
+  and mise when an interactive shell PATH is unavailable, make read-only setup
+  planning verify the marketplace and installed plugin through Codex itself,
+  and distinguish missing-tool/runtime, marketplace-policy, and plugin-install
+  failures without exposing raw command output.
 
 ## [5.13.0]
 

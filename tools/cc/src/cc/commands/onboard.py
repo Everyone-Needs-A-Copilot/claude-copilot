@@ -1271,15 +1271,67 @@ def _provision_store(store: dict[str, Any], *, apply: bool, run: Run) -> dict[st
     }
 
 
+def _codex_marketplace_failure(result: subprocess.CompletedProcess[str]) -> str:
+    if result.returncode == 127 and result.stderr.startswith("codex is not installed"):
+        return "Codex is not installed in a supported location on this Mac."
+    if result.returncode == 127 and "runtime required by codex" in result.stderr:
+        return (
+            "Codex is installed, but its required command-line runtime "
+            "could not be started outside the terminal."
+        )
+    return "Codex rejected the verified local marketplace."
+
+
 def _install_codex_plugin(*, apply: bool, run: Run) -> dict[str, Any]:
     root = Path(str(resolve_key("paths.codex_materialize_root"))).expanduser()
     plugin = root / "plugins" / "codex-copilot"
     marketplace = root / ".agents" / "plugins" / "marketplace.json"
     if not apply:
-        ready = (
-            plugin.joinpath(".codex-plugin", "plugin.json").is_file()
-            and marketplace.is_file()
-        )
+        if (
+            not plugin.joinpath(".codex-plugin", "plugin.json").is_file()
+            or not marketplace.is_file()
+        ):
+            return {"result": "changes-required"}
+        listed_marketplaces = run(("codex", "plugin", "marketplace", "list", "--json"))
+        if listed_marketplaces.returncode != 0:
+            return {
+                "result": "blocked",
+                "detail": _codex_marketplace_failure(listed_marketplaces),
+            }
+        try:
+            marketplace_payload = json.loads(listed_marketplaces.stdout)
+            registered = any(
+                row.get("name") == "enac-materialized"
+                and isinstance(row.get("root"), str)
+                and Path(row.get("root", "")).expanduser().resolve() == root.resolve()
+                for row in marketplace_payload["marketplaces"]
+            )
+        except (json.JSONDecodeError, KeyError, OSError, TypeError):
+            return {
+                "result": "blocked",
+                "detail": "Codex returned an unreadable marketplace inventory.",
+            }
+        if not registered:
+            return {"result": "changes-required"}
+        listed_plugins = run(("codex", "plugin", "list", "--json"))
+        if listed_plugins.returncode != 0:
+            return {
+                "result": "blocked",
+                "detail": "Codex could not inspect installed plugins.",
+            }
+        try:
+            plugin_payload = json.loads(listed_plugins.stdout)
+            ready = any(
+                row.get("pluginId") == "codex-copilot@enac-materialized"
+                and row.get("installed") is True
+                and row.get("enabled") is True
+                for row in plugin_payload["installed"]
+            )
+        except (json.JSONDecodeError, KeyError, TypeError):
+            return {
+                "result": "blocked",
+                "detail": "Codex returned an unreadable plugin inventory.",
+            }
         return {"result": "ready" if ready else "changes-required"}
     if not plugin.joinpath(".codex-plugin", "plugin.json").is_file():
         return {
@@ -1311,20 +1363,9 @@ def _install_codex_plugin(*, apply: bool, run: Run) -> dict[str, Any]:
     os.replace(temp, marketplace)
     added = run(("codex", "plugin", "marketplace", "add", str(root), "--json"))
     if added.returncode != 0:
-        if added.returncode == 127 and added.stderr.startswith(
-            "codex is not installed"
-        ):
-            detail = "Codex is not installed in a supported location on this Mac."
-        elif added.returncode == 127 and "runtime required by codex" in added.stderr:
-            detail = (
-                "Codex is installed, but its required command-line runtime "
-                "could not be started outside the terminal."
-            )
-        else:
-            detail = "Codex rejected the verified local marketplace."
         return {
             "result": "blocked",
-            "detail": detail,
+            "detail": _codex_marketplace_failure(added),
         }
     installed = run(
         ("codex", "plugin", "add", "codex-copilot@enac-materialized", "--json")
@@ -1615,6 +1656,10 @@ def build_ecosystem_onboard_report(
     if "codex" in normalized:
         codex_plan = codex_fn(apply=False, run=run)
         stages.append({"stage": "codex-plugin", **codex_plan})
+        if codex_plan["result"] == "blocked":
+            return _ecosystem_result(
+                org, normalized, False, "blocked", stages, manifest["layers"], inventory
+            )
     if not apply:
         needs_change = any(
             item["action"] in {"create", "migrate", "repair"} for item in inventory

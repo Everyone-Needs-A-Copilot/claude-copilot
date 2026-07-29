@@ -443,6 +443,21 @@ if layer_manifest is None:
     raise SystemExit("Finder-environment probe did not inspect the layer manifest")
 if "copilot` command is unavailable" in layer_manifest.get("detail", ""):
     raise SystemExit("Finder-environment probe could not resolve copilot")
+codex_plugin = next(
+    (
+        stage
+        for stage in payload.get("stages", [])
+        if stage.get("stage") == "codex-plugin"
+    ),
+    None,
+)
+if codex_plugin is None:
+    raise SystemExit("Finder-environment probe did not inspect Codex plugins")
+if codex_plugin.get("result") == "blocked":
+    raise SystemExit(
+        "Finder-environment probe could not run Codex: "
+        f"{codex_plugin.get('detail', 'unknown failure')}"
+    )
 PY
 
 archive="${scratch}/cc-macos-universal.zip"

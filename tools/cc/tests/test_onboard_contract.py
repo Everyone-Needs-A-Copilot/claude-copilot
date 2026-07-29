@@ -282,6 +282,149 @@ def test_codex_plugin_install_is_idempotent_and_uses_supported_commands(
     assert marketplace["plugins"][0]["source"]["path"] == "./plugins/codex-copilot"
 
 
+def test_codex_plugin_plan_uses_read_only_codex_inventory(monkeypatch, tmp_path):
+    root = tmp_path / "materialized" / "codex"
+    manifest = root / "plugins" / "codex-copilot" / ".codex-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"name":"codex-copilot"}\n', encoding="utf-8")
+    marketplace = root / ".agents" / "plugins" / "marketplace.json"
+    marketplace.parent.mkdir(parents=True)
+    marketplace.write_text('{"name":"enac-materialized"}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        onboard_module,
+        "resolve_key",
+        lambda key: root if key == "paths.codex_materialize_root" else None,
+    )
+    calls = []
+
+    def run(args):
+        calls.append(tuple(args))
+        if args[2] == "marketplace":
+            payload = {
+                "marketplaces": [{"name": "enac-materialized", "root": str(root)}]
+            }
+        else:
+            payload = {
+                "installed": [
+                    {
+                        "pluginId": "codex-copilot@enac-materialized",
+                        "installed": True,
+                        "enabled": True,
+                    }
+                ]
+            }
+        return subprocess.CompletedProcess(args, 0, json.dumps(payload), "")
+
+    report = onboard_module._install_codex_plugin(apply=False, run=run)
+
+    assert report == {"result": "ready"}
+    assert calls == [
+        ("codex", "plugin", "marketplace", "list", "--json"),
+        ("codex", "plugin", "list", "--json"),
+    ]
+
+
+def test_codex_plugin_plan_reports_unregistered_marketplace_as_change(
+    monkeypatch, tmp_path
+):
+    root = tmp_path / "materialized" / "codex"
+    manifest = root / "plugins" / "codex-copilot" / ".codex-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"name":"codex-copilot"}\n', encoding="utf-8")
+    marketplace = root / ".agents" / "plugins" / "marketplace.json"
+    marketplace.parent.mkdir(parents=True)
+    marketplace.write_text('{"name":"enac-materialized"}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        onboard_module,
+        "resolve_key",
+        lambda key: root if key == "paths.codex_materialize_root" else None,
+    )
+
+    report = onboard_module._install_codex_plugin(
+        apply=False,
+        run=lambda args: subprocess.CompletedProcess(
+            args, 0, '{"marketplaces":[]}', ""
+        ),
+    )
+
+    assert report == {"result": "changes-required"}
+
+
+def test_codex_plugin_plan_fails_closed_when_codex_cannot_start(monkeypatch, tmp_path):
+    root = tmp_path / "materialized" / "codex"
+    manifest = root / "plugins" / "codex-copilot" / ".codex-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"name":"codex-copilot"}\n', encoding="utf-8")
+    marketplace = root / ".agents" / "plugins" / "marketplace.json"
+    marketplace.parent.mkdir(parents=True)
+    marketplace.write_text('{"name":"enac-materialized"}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        onboard_module,
+        "resolve_key",
+        lambda key: root if key == "paths.codex_materialize_root" else None,
+    )
+
+    report = onboard_module._install_codex_plugin(
+        apply=False,
+        run=lambda args: subprocess.CompletedProcess(
+            args, 127, "", "node runtime required by codex is not installed."
+        ),
+    )
+
+    assert report == {
+        "result": "blocked",
+        "detail": (
+            "Codex is installed, but its required command-line runtime "
+            "could not be started outside the terminal."
+        ),
+    }
+
+
+@pytest.mark.parametrize(
+    ("marketplace_stdout", "plugin_stdout", "detail"),
+    (
+        (
+            "not-json",
+            None,
+            "Codex returned an unreadable marketplace inventory.",
+        ),
+        (
+            '{"marketplaces":[{"name":"enac-materialized","root":"ROOT"}]}',
+            "not-json",
+            "Codex returned an unreadable plugin inventory.",
+        ),
+    ),
+)
+def test_codex_plugin_plan_fails_closed_on_unreadable_inventory(
+    monkeypatch, tmp_path, marketplace_stdout, plugin_stdout, detail
+):
+    root = tmp_path / "materialized" / "codex"
+    manifest = root / "plugins" / "codex-copilot" / ".codex-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"name":"codex-copilot"}\n', encoding="utf-8")
+    marketplace = root / ".agents" / "plugins" / "marketplace.json"
+    marketplace.parent.mkdir(parents=True)
+    marketplace.write_text('{"name":"enac-materialized"}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        onboard_module,
+        "resolve_key",
+        lambda key: root if key == "paths.codex_materialize_root" else None,
+    )
+    marketplace_stdout = marketplace_stdout.replace("ROOT", str(root))
+    responses = iter(
+        response
+        for response in (marketplace_stdout, plugin_stdout)
+        if response is not None
+    )
+
+    report = onboard_module._install_codex_plugin(
+        apply=False,
+        run=lambda args: subprocess.CompletedProcess(args, 0, next(responses), ""),
+    )
+
+    assert report == {"result": "blocked", "detail": detail}
+
+
 @pytest.mark.parametrize(
     ("result", "detail"),
     (
@@ -706,6 +849,33 @@ def _codex(*, apply, **_kwargs):
 
 def _consumer_ready(*_args):
     return {"result": "ready"}
+
+
+def test_ecosystem_plan_fails_closed_when_codex_inventory_is_blocked(tmp_path):
+    def blocked_codex(**_kwargs):
+        return {
+            "result": "blocked",
+            "detail": "Codex could not inspect installed plugins.",
+        }
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=False,
+        run=_aggregate_run,
+        manifest_path=tmp_path / "layers.yml",
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=blocked_codex,
+        consumer_probe_fn=_consumer_ready,
+    )
+
+    assert report["result"] == "blocked"
+    assert report["stages"][-1] == {
+        "stage": "codex-plugin",
+        "result": "blocked",
+        "detail": "Codex could not inspect installed plugins.",
+    }
+    _assert_valid_onboard_report(report)
 
 
 def test_ecosystem_plan_builds_two_isolated_three_layer_stacks(tmp_path):
