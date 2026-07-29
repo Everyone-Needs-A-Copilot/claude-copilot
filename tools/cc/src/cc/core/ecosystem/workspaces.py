@@ -88,6 +88,7 @@ from cc.core.ecosystem.projects import (
     read_project_lock,
     write_project_lock,
 )
+from cc.core.executables import resolve_executable
 
 PROJECT_DECLARATION_FILENAME = "copilot.project.json"
 PERSONAL_PROJECTS_FILENAME = "personal-projects.json"
@@ -572,12 +573,22 @@ def installed_components(project: Path | str) -> list[str]:
     return [component for component in SUPPORTED_COMPONENTS if component in installed]
 
 
-def recommended_components(project: Path | str, *, which: Callable[[str], Optional[str]] = shutil.which) -> list[str]:
+def recommended_components(
+    project: Path | str,
+    *,
+    which: Callable[[str], Optional[str]] | None = None,
+) -> list[str]:
     installed = installed_components(project)
     detected = set(installed)
-    if which("claude"):
+
+    def installed_path(command: str) -> str | None:
+        path = resolve_executable(command)
+        return str(path) if path is not None else None
+
+    locator = which or installed_path
+    if locator("claude"):
         detected.add("claude")
-    if which("codex"):
+    if locator("codex"):
         detected.add("codex")
     if not detected:
         detected.update(SUPPORTED_COMPONENTS)
@@ -664,7 +675,7 @@ def workspace_status(
     claude_root: Optional[Path | str] = None,
     codex_root: Optional[Path | str] = None,
     run: Run = _run,
-    which: Callable[[str], Optional[str]] = shutil.which,
+    which: Callable[[str], Optional[str]] | None = None,
 ) -> dict[str, Any]:
     root = Path(project).expanduser()
     declaration, declaration_error = read_declaration(root)

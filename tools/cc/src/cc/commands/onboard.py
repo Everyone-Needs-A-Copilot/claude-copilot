@@ -29,6 +29,7 @@ from cc.core.ecosystem.manifest import (
     validate_layers,
 )
 from cc.core.ecosystem.ssh_identity import ensure_machine_ssh_identity
+from cc.core.executables import resolve_executable
 from cc.core.write_guard import assert_write_is_isolated
 
 SCHEMA_VERSION = "1.0"
@@ -53,10 +54,6 @@ FOUNDATION_ALLOWED_SIGNERS: dict[str, tuple[str, ...]] = {
     "codex": ("SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo",),
 }
 Run = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
-_SUPPORTED_GH_PATHS = (
-    Path("/opt/homebrew/bin/gh"),
-    Path("/usr/local/bin/gh"),
-)
 
 
 def _component_label(component: str) -> str:
@@ -144,21 +141,12 @@ def _safe_repository_reference(value: Any) -> bool:
 def _run(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
     if not args:
         return subprocess.CompletedProcess(args, 127, "", "No command was provided.")
-    executable = shutil.which(args[0])
-    if executable is None and args[0] == "gh":
-        executable = next(
-            (
-                str(candidate)
-                for candidate in _SUPPORTED_GH_PATHS
-                if candidate.is_file() and os.access(candidate, os.X_OK)
-            ),
-            None,
-        )
+    executable = resolve_executable(args[0])
     if executable is None:
         return subprocess.CompletedProcess(
             args, 127, "", f"{args[0]} is not installed."
         )
-    resolved = str(Path(executable).resolve())
+    resolved = str(executable)
     environment = None
     if Path(resolved).name == "gh":
         try:
@@ -1059,14 +1047,14 @@ def _rollback_manifest_adoption(plan: ManifestAdoption, backup: Path | None) -> 
 
 def _copilot_layers_payload(manifest_path: Path) -> tuple[dict[str, Any] | None, str]:
     """Ask the installed CLI to resolve one candidate manifest."""
-    executable = shutil.which("copilot")
+    executable = resolve_executable("copilot")
     if executable is None:
         return None, "The installed `copilot` command is unavailable."
     environment = os.environ.copy()
     environment["COPILOT_LAYERS_FILE"] = str(manifest_path)
     try:
         result = subprocess.run(
-            (str(Path(executable).resolve()), "--json", "layers"),
+            (str(executable), "--json", "layers"),
             capture_output=True,
             text=True,
             check=False,
