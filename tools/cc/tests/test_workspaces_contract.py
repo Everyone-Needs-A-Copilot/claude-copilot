@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections import Counter
 from pathlib import Path
 
+import pytest
 from cc.commands import workspaces as workspaces_command
 from cc.core.ecosystem.workspaces import (
     RECENTLY_SET_UP_WINDOW_HOURS,
@@ -13,9 +15,12 @@ from cc.core.ecosystem.workspaces import (
     associate_personal_project,
     detect_candidate_roots,
     discover_workspaces,
+    finish_project_integration,
     forget_root_grant,
+    integration_hold,
     is_project_excluded,
     project_id,
+    read_integration_holds_registry,
     read_known_projects_registry,
     read_personal_registry,
     recently_set_up,
@@ -27,8 +32,221 @@ from cc.core.ecosystem.workspaces import (
     write_declaration,
     write_install_lock,
 )
+from jsonschema import Draft202012Validator
 
+from cc.core.ecosystem import project_integration as integration_core
 from cc.core.ecosystem import workspaces as core_workspaces
+
+_WORKSPACE_FIXTURES = Path(__file__).parent / "fixtures" / "workspaces"
+_WORKSPACE_REPORT_FIXTURES = _WORKSPACE_FIXTURES / "reports"
+_WORKSPACE_SCHEMA = (
+    Path(__file__).parent / "fixtures" / "schemas" / "workspaces.schema.json"
+)
+_LEGACY_WORKSPACE_KEYS = {
+    "path",
+    "name",
+    "project_id",
+    "state",
+    "detail",
+    "declared_components",
+    "installed_components",
+    "recommended_components",
+    "personal_profile",
+    "setup_policy",
+    "policy_detail",
+    "can_apply_now",
+    "apply_blocked_detail",
+    "undo",
+}
+
+
+def _load_json(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _workspace_schema_validator() -> Draft202012Validator:
+    schema = _load_json(_WORKSPACE_SCHEMA)
+    Draft202012Validator.check_schema(schema)
+    return Draft202012Validator(schema)
+
+
+def _workspace_schema_errors(payload: dict) -> list:
+    return sorted(
+        _workspace_schema_validator().iter_errors(payload),
+        key=lambda error: tuple(str(part) for part in error.absolute_path),
+    )
+
+
+def _assert_valid_workspace_report(payload: dict) -> None:
+    errors = _workspace_schema_errors(payload)
+    assert not errors, "\n".join(
+        f"{list(error.absolute_path)}: {error.message}" for error in errors
+    )
+
+
+def _apply_fixture_mutation(payload: dict, operation: dict) -> None:
+    parts = [part.replace("~1", "/").replace("~0", "~") for part in operation["path"].split("/")[1:]]
+    parent = payload
+    for part in parts[:-1]:
+        parent = parent[int(part)] if isinstance(parent, list) else parent[part]
+    leaf = parts[-1]
+    if operation["op"] == "remove":
+        if isinstance(parent, list):
+            del parent[int(leaf)]
+        else:
+            del parent[leaf]
+    elif operation["op"] == "replace":
+        if isinstance(parent, list):
+            parent[int(leaf)] = operation["value"]
+        else:
+            parent[leaf] = operation["value"]
+    else:
+        raise AssertionError(f"Unsupported fixture mutation: {operation['op']}")
+
+
+# ---------------------------------------------------------------------------
+# Additive 1.1 project-integration contract and synthetic corpus
+# ---------------------------------------------------------------------------
+
+
+def test_workspaces_schema_is_valid_draft_2020_12_and_closed() -> None:
+    schema = _load_json(_WORKSPACE_SCHEMA)
+
+    Draft202012Validator.check_schema(schema)
+    assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["schema_version"] == {"const": "1.1"}
+    assert schema["$defs"]["workspace"]["additionalProperties"] is False
+    assert schema["$defs"]["componentAssessment"]["additionalProperties"] is False
+
+
+@pytest.mark.parametrize(
+    "report_path",
+    sorted(_WORKSPACE_REPORT_FIXTURES.glob("*.json")),
+    ids=lambda path: path.name,
+)
+def test_workspace_1_1_report_fixtures_validate_and_counts_match(
+    report_path: Path,
+) -> None:
+    report = _load_json(report_path)
+    _assert_valid_workspace_report(report)
+
+    legacy_counts = Counter(item["state"] for item in report["workspaces"])
+    classification_counts = Counter(
+        item["classification"] for item in report["workspaces"]
+    )
+    assert report["summary"] == {
+        state: legacy_counts[state]
+        for state in ("ready", "setup-available", "activation-required", "blocked")
+    } | {"total": len(report["workspaces"])}
+    assert report["classification_summary"] == {
+        classification: classification_counts[classification]
+        for classification in (
+            "ready",
+            "safe-finish",
+            "guided-integration",
+            "owner-decision",
+            "could-not-verify",
+        )
+    } | {"total": len(report["workspaces"])}
+    assert all(
+        _LEGACY_WORKSPACE_KEYS <= set(workspace)
+        for workspace in report["workspaces"]
+    )
+
+
+def test_all_projects_fixture_is_bounded_but_keeps_plan_availability() -> None:
+    report = _load_json(_WORKSPACE_REPORT_FIXTURES / "status-all-1.1.json")
+
+    assert {item["classification"] for item in report["workspaces"]} == {
+        "ready",
+        "safe-finish",
+        "guided-integration",
+        "owner-decision",
+        "could-not-verify",
+    }
+    assert all(item["inspection"]["scope"] == "summary" for item in report["workspaces"])
+    assert all(item["integration_plan"] is None for item in report["workspaces"])
+    plan_states = {
+        item["classification"]: item["plan_available"] for item in report["workspaces"]
+    }
+    assert plan_states["guided-integration"] is True
+    assert plan_states["owner-decision"] is True
+    assert plan_states["ready"] is False
+    assert plan_states["safe-finish"] is False
+    assert plan_states["could-not-verify"] is False
+
+
+def test_single_project_detail_fixtures_freeze_prompt_and_owner_handoff_shapes() -> None:
+    guided = _load_json(
+        _WORKSPACE_REPORT_FIXTURES / "status-project-guided-1.1.json"
+    )["workspaces"][0]
+    owner = _load_json(
+        _WORKSPACE_REPORT_FIXTURES / "status-project-owner-1.1.json"
+    )["workspaces"][0]
+
+    assert guided["inspection"]["scope"] == "detail"
+    assert guided["integration_plan"]["inspection_id"] == guided["inspection"]["id"]
+    assert guided["integration_plan"]["prompt"]["version"] == "1"
+    assert guided["integration_plan"]["owner_handoff"] is None
+
+    assert owner["inspection"]["scope"] == "detail"
+    assert owner["integration_plan"]["inspection_id"] == owner["inspection"]["id"]
+    assert owner["integration_plan"]["prompt"] is None
+    assert owner["integration_plan"]["owner_handoff"]["version"] == "1"
+
+
+def test_negative_report_fixtures_fail_closed() -> None:
+    negative_corpus = _load_json(
+        _WORKSPACE_FIXTURES / "invalid-report-mutations.json"
+    )
+
+    for case in negative_corpus["cases"]:
+        report = _load_json(_WORKSPACE_REPORT_FIXTURES / case["base"])
+        _apply_fixture_mutation(report, case["operation"])
+        assert _workspace_schema_errors(report), (
+            f"negative fixture {case['id']} unexpectedly passed validation"
+        )
+
+
+def test_synthetic_layout_corpus_is_closed_representative_and_path_safe() -> None:
+    corpus = _load_json(
+        _WORKSPACE_FIXTURES / "project-integration-cases.json"
+    )
+    cases = corpus["cases"]
+
+    assert corpus["contract"] == {
+        "id": "project-integration",
+        "version": "1",
+        "components": ["claude", "codex"],
+    }
+    assert {case["expected"]["classification"] for case in cases} == {
+        "ready",
+        "safe-finish",
+        "guided-integration",
+        "owner-decision",
+        "could-not-verify",
+    }
+    assert len({case["id"] for case in cases}) == len(cases)
+    assert len(
+        {
+            tuple(case["capabilities"].values())
+            for case in cases
+        }
+    ) >= 5
+    assert next(
+        case for case in cases if case["id"] == "deep-specialization"
+    )["expected"]["classification"] == "guided-integration"
+    assert next(
+        case for case in cases if case["id"] == "guidance-only"
+    )["expected"]["classification"] == "guided-integration"
+
+    for case in cases:
+        assert set(case["expected"]["components"]) == {"claude", "codex"}
+        for entry in case["layout"]:
+            path = Path(entry["path"])
+            assert not path.is_absolute(), case["id"]
+            assert ".." not in path.parts, case["id"]
 
 
 def _git_init(path: Path, remote: str | None = None) -> None:
@@ -84,7 +302,7 @@ def test_recommendations_use_gui_safe_executable_resolver(monkeypatch, tmp_path)
     assert core_workspaces.recommended_components(tmp_path) == ["claude"]
 
 
-def test_explicit_markers_are_ready_and_arbitrary_claude_folder_is_not(tmp_path):
+def test_superficial_markers_never_count_as_ready(tmp_path):
     arbitrary = tmp_path / "arbitrary"
     ready = tmp_path / "ready"
     _git_init(arbitrary)
@@ -95,8 +313,17 @@ def test_explicit_markers_are_ready_and_arbitrary_claude_folder_is_not(tmp_path)
     (ready / ".claude/commands/protocol.md").write_text("framework")
     (ready / ".mcp.json").write_text("{}")
 
-    assert workspace_status(arbitrary, personal_registry=tmp_path / "a.json")["state"] == "setup-available"
-    assert workspace_status(ready, personal_registry=tmp_path / "b.json")["state"] == "ready"
+    arbitrary_report = workspace_status(
+        arbitrary, personal_registry=tmp_path / "a.json"
+    )
+    marker_report = workspace_status(
+        ready, personal_registry=tmp_path / "b.json"
+    )
+
+    assert arbitrary_report["state"] == "setup-available"
+    assert marker_report["state"] == "blocked"
+    assert marker_report["classification"] != "ready"
+    assert marker_report["installed_components"] == []
 
 
 def test_project_identity_is_stable_across_github_transport_and_never_exposes_remote(tmp_path):
@@ -169,6 +396,756 @@ def test_activation_installs_both_products_and_only_then_becomes_ready(tmp_path)
         for entry in lock["components"]
         for file in entry["files"]
     )
+
+
+def test_empty_project_is_safe_finish_with_closed_component_assessments(tmp_path):
+    project = tmp_path / "empty"
+    _git_init(project)
+    claude_root, codex_root = _repo_roots()
+
+    workspace = workspace_status(
+        project,
+        personal_registry=tmp_path / "personal.json",
+        claude_root=claude_root,
+        codex_root=codex_root,
+        detail=True,
+    )
+    report = workspaces_command._report("status", [workspace])
+
+    _assert_valid_workspace_report(report)
+    assert workspace["classification"] == "safe-finish"
+    assert workspace["state"] == "setup-available"
+    assert workspace["responsible_actor"] == "cli"
+    assert workspace["can_apply_now"] is True
+    assert workspace["safe_action"]["kind"] == "add-missing"
+    assert [item["component"] for item in workspace["components"]] == [
+        "claude",
+        "codex",
+    ]
+    assert {
+        item["classification"] for item in workspace["components"]
+    } == {"safe-finish"}
+
+
+def test_tracked_components_require_checksums_and_entry_evidence_to_be_ready(
+    tmp_path,
+):
+    project = tmp_path / "tracked"
+    _git_init(project)
+    claude_root, codex_root = _repo_roots()
+    activate_components(
+        project,
+        ("claude", "codex"),
+        claude_root=claude_root,
+        codex_root=codex_root,
+    )
+    write_install_lock(
+        project,
+        ("claude", "codex"),
+        claude_root=claude_root,
+        codex_root=codex_root,
+    )
+
+    ready = workspace_status(
+        project,
+        personal_registry=tmp_path / "personal.json",
+        claude_root=claude_root,
+        codex_root=codex_root,
+    )
+    _assert_valid_workspace_report(workspaces_command._report("status", [ready]))
+    assert ready["classification"] == "ready"
+    assert ready["installed_components"] == ["claude", "codex"]
+    assert all(
+        item["recognized_setup"]["variant_id"].endswith("tracked-lock-v1")
+        for item in ready["components"]
+    )
+
+    (project / ".claude/commands/protocol.md").write_text(
+        "project edit after installation",
+        encoding="utf-8",
+    )
+    mismatched = workspace_status(
+        project,
+        personal_registry=tmp_path / "personal.json",
+        claude_root=claude_root,
+        codex_root=codex_root,
+    )
+
+    assert mismatched["classification"] == "could-not-verify"
+    assert mismatched["state"] == "blocked"
+    assert mismatched["safe_action"] is None
+    claude = next(
+        item for item in mismatched["components"] if item["component"] == "claude"
+    )
+    assert claude["classification"] == "could-not-verify"
+    assert any(
+        requirement["id"] == "verified-framework-file"
+        for requirement in claude["missing_requirements"]
+    )
+
+
+def test_custom_capability_models_are_guided_regardless_of_their_size(tmp_path):
+    claude_root, codex_root = _repo_roots()
+    reports = []
+    for name, skill_count in (("small", 1), ("deep", 12)):
+        project = tmp_path / name
+        _git_init(project)
+        (project / "CLAUDE.md").write_text("Project-owned Claude routing")
+        (project / "AGENTS.md").write_text("Project-owned Codex routing")
+        for index in range(skill_count):
+            skill = project / f".agents/skills/skill-{index}/SKILL.md"
+            skill.parent.mkdir(parents=True)
+            skill.write_text(f"# Skill {index}\n")
+        reports.append(
+            workspace_status(
+                project,
+                personal_registry=tmp_path / f"{name}.json",
+                claude_root=claude_root,
+                codex_root=codex_root,
+                detail=True,
+            )
+        )
+
+    assert [item["classification"] for item in reports] == [
+        "guided-integration",
+        "guided-integration",
+    ]
+    assert [item["capabilities"]["skills"] for item in reports] == [1, 12]
+    assert all(
+        item["integration_plan"]["prompt"]["version"] == "1" for item in reports
+    )
+    assert all(item["safe_action"] is None for item in reports)
+
+
+def test_guided_project_can_report_an_individually_safe_component(tmp_path):
+    project = tmp_path / "mixed-route"
+    _git_init(project)
+    (project / "AGENTS.md").write_text("Project-owned Codex routing")
+    claude_root, codex_root = _repo_roots()
+
+    workspace = workspace_status(
+        project,
+        personal_registry=tmp_path / "personal.json",
+        claude_root=claude_root,
+        codex_root=codex_root,
+        detail=True,
+    )
+    report = workspaces_command._report("status", [workspace])
+
+    _assert_valid_workspace_report(report)
+    assert workspace["classification"] == "guided-integration"
+    assert workspace["safe_action"] is None
+    assert workspace["plan_available"] is True
+    claude = next(
+        item for item in workspace["components"] if item["component"] == "claude"
+    )
+    assert claude["classification"] == "safe-finish"
+    assert claude["responsible_actor"] == "cli"
+    assert claude["safe_action"] is None
+
+
+def test_owner_declaration_produces_detail_handoff_and_bounded_summary(tmp_path):
+    project = tmp_path / "owned"
+    _git_init(project)
+    owner = project / ".copilot/project-owner.json"
+    owner.parent.mkdir()
+    owner.write_text(
+        json.dumps({"decision_required": True, "owner": "project-owner"}),
+        encoding="utf-8",
+    )
+    claude_root, codex_root = _repo_roots()
+
+    detailed = workspace_status(
+        project,
+        personal_registry=tmp_path / "personal.json",
+        claude_root=claude_root,
+        codex_root=codex_root,
+        detail=True,
+    )
+    summary = workspace_status(
+        project,
+        personal_registry=tmp_path / "personal.json",
+        claude_root=claude_root,
+        codex_root=codex_root,
+        detail=False,
+    )
+
+    assert detailed["classification"] == "owner-decision"
+    assert detailed["responsible_actor"] == "project-owner"
+    assert detailed["integration_plan"]["prompt"] is None
+    assert detailed["integration_plan"]["owner_handoff"]["version"] == "1"
+    assert summary["inspection"]["scope"] == "summary"
+    assert summary["plan_available"] is True
+    assert summary["integration_plan"] is None
+    _assert_valid_workspace_report(
+        workspaces_command._report("status", [summary])
+    )
+
+
+def test_external_component_symlink_fails_closed(tmp_path):
+    project = tmp_path / "external-link"
+    external = tmp_path / "outside"
+    _git_init(project)
+    external.mkdir()
+    link = project / ".claude/skills/codex-copilot"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(external, target_is_directory=True)
+    claude_root, codex_root = _repo_roots()
+
+    report = workspace_status(
+        project,
+        personal_registry=tmp_path / "personal.json",
+        claude_root=claude_root,
+        codex_root=codex_root,
+    )
+
+    assert report["classification"] == "could-not-verify"
+    assert report["state"] == "blocked"
+    assert "follow-external-symlink" in report["preservation"]["prohibited_actions"]
+
+
+def test_malformed_project_lock_fails_closed_for_both_components(tmp_path):
+    project = tmp_path / "malformed-lock"
+    _git_init(project)
+    (project / "copilot.lock.json").write_text(
+        json.dumps({"schema_version": "9.0", "components": "not-a-list"}),
+        encoding="utf-8",
+    )
+    claude_root, codex_root = _repo_roots()
+
+    workspace = workspace_status(
+        project,
+        personal_registry=tmp_path / "personal.json",
+        claude_root=claude_root,
+        codex_root=codex_root,
+        detail=False,
+    )
+    report = workspaces_command._report("status", [workspace])
+
+    _assert_valid_workspace_report(report)
+    assert workspace["classification"] == "could-not-verify"
+    assert {
+        item["classification"] for item in workspace["components"]
+    } == {"could-not-verify"}
+    assert all(
+        item["missing_requirements"][0]["id"] == "readable-project-lock"
+        for item in workspace["components"]
+    )
+
+
+def test_safe_finish_empty_project_applies_exact_targets_and_verifies(tmp_path):
+    project = tmp_path / "finish-empty"
+    _git_init(project)
+    claude_root, codex_root = _repo_roots()
+    before = workspace_status(
+        project,
+        personal_registry=tmp_path / "personal.json",
+        claude_root=claude_root,
+        codex_root=codex_root,
+    )
+    action = before["safe_action"]
+
+    inspected_before, inspected_after = finish_project_integration(
+        project,
+        action["id"],
+        claude_root=claude_root,
+        codex_root=codex_root,
+    )
+    after = workspace_status(
+        project,
+        personal_registry=tmp_path / "personal.json",
+        claude_root=claude_root,
+        codex_root=codex_root,
+    )
+
+    assert inspected_before["inspection"]["id"] == action["inspection_id"]
+    assert inspected_after["classification"] == "ready"
+    assert after["classification"] == "ready"
+    assert after["installed_components"] == ["claude", "codex"]
+    assert (project / "copilot.lock.json").is_file()
+    assert (project / "CLAUDE.md").is_file()
+    assert (project / "AGENTS.md").is_file()
+    assert after["safe_action"] is None
+    _assert_valid_workspace_report(workspaces_command._report("finish", [after]))
+
+
+def test_safe_finish_refuses_stale_action_without_writes(tmp_path):
+    project = tmp_path / "stale"
+    _git_init(project)
+    claude_root, codex_root = _repo_roots()
+    before = workspace_status(
+        project,
+        personal_registry=tmp_path / "personal.json",
+        claude_root=claude_root,
+        codex_root=codex_root,
+    )
+    action_id = before["safe_action"]["id"]
+    (project / "AGENTS.md").write_text("Project-owned routing", encoding="utf-8")
+
+    try:
+        finish_project_integration(
+            project,
+            action_id,
+            claude_root=claude_root,
+            codex_root=codex_root,
+        )
+    except ActivationError as exc:
+        assert "stale or no longer applies" in str(exc)
+    else:
+        raise AssertionError("a stale safe-finish action must be refused")
+
+    assert (project / "AGENTS.md").read_text(encoding="utf-8") == "Project-owned routing"
+    assert not (project / "CLAUDE.md").exists()
+    assert not (project / "copilot.lock.json").exists()
+
+
+def test_safe_finish_rolls_back_all_new_targets_when_lock_write_fails(
+    monkeypatch, tmp_path
+):
+    project = tmp_path / "rollback"
+    _git_init(project)
+    claude_root, codex_root = _repo_roots()
+    before = workspace_status(
+        project,
+        personal_registry=tmp_path / "personal.json",
+        claude_root=claude_root,
+        codex_root=codex_root,
+    )
+
+    monkeypatch.setattr(
+        core_workspaces,
+        "write_install_lock",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            ActivationError("synthetic lock failure")
+        ),
+    )
+    try:
+        finish_project_integration(
+            project,
+            before["safe_action"]["id"],
+            claude_root=claude_root,
+            codex_root=codex_root,
+        )
+    except ActivationError as exc:
+        assert str(exc) == "synthetic lock failure"
+    else:
+        raise AssertionError("the synthetic lock failure must escape")
+
+    assert sorted(path.name for path in project.iterdir()) == [".git"]
+
+
+def test_safe_finish_adopts_exact_existing_setup_without_rewriting_it(tmp_path):
+    project = tmp_path / "adopt"
+    _git_init(project)
+    claude_root, codex_root = _repo_roots()
+    activate_components(
+        project,
+        ("claude", "codex"),
+        claude_root=claude_root,
+        codex_root=codex_root,
+    )
+    before_hashes = {
+        path.relative_to(project).as_posix(): core_workspaces._checksum(path)
+        for path in project.rglob("*")
+        if path.is_file() and ".git" not in path.parts
+    }
+    before = workspace_status(
+        project,
+        personal_registry=tmp_path / "personal.json",
+        claude_root=claude_root,
+        codex_root=codex_root,
+    )
+
+    assert before["classification"] == "safe-finish"
+    assert before["safe_action"]["kind"] == "adopt-existing"
+    finish_project_integration(
+        project,
+        before["safe_action"]["id"],
+        claude_root=claude_root,
+        codex_root=codex_root,
+    )
+    after_hashes = {
+        path.relative_to(project).as_posix(): core_workspaces._checksum(path)
+        for path in project.rglob("*")
+        if path.is_file()
+        and ".git" not in path.parts
+        and path.name != "copilot.lock.json"
+    }
+
+    assert after_hashes == before_hashes
+    assert (project / "copilot.lock.json").is_file()
+
+
+def test_verify_command_reports_only_authoritative_ready(
+    monkeypatch, capsys, tmp_path
+):
+    project = tmp_path / "verify"
+    _git_init(project)
+    claude_root, codex_root = _repo_roots()
+
+    def roots(key):
+        if key == "paths.claude_copilot_root":
+            return str(claude_root)
+        if key == "paths.codex_copilot_root":
+            return str(codex_root)
+        return None
+
+    monkeypatch.setattr(core_workspaces, "resolve_key", roots)
+    monkeypatch.setattr(integration_core, "resolve_key", roots)
+    before = workspace_status(
+        project,
+        personal_registry=tmp_path / "personal.json",
+        claude_root=claude_root,
+        codex_root=codex_root,
+    )
+    try:
+        workspaces_command.verify(project=str(project), output_json=True)
+    except Exception as exc:
+        assert exc.__class__.__name__ == "Exit"
+    blocked = json.loads(capsys.readouterr().out)
+    assert blocked["mode"] == "verify"
+    assert blocked["result"] == "blocked"
+
+    finish_project_integration(
+        project,
+        before["safe_action"]["id"],
+        claude_root=claude_root,
+        codex_root=codex_root,
+    )
+    workspaces_command.verify(project=str(project), output_json=True)
+    ready = json.loads(capsys.readouterr().out)
+
+    _assert_valid_workspace_report(ready)
+    assert ready["mode"] == "verify"
+    assert ready["result"] == "ready"
+
+
+def test_finish_command_plans_without_writes_then_applies_and_verifies(
+    monkeypatch, capsys, tmp_path
+):
+    project = tmp_path / "finish-command"
+    _git_init(project)
+    claude_root, codex_root = _repo_roots()
+
+    def roots(key):
+        if key == "paths.claude_copilot_root":
+            return str(claude_root)
+        if key == "paths.codex_copilot_root":
+            return str(codex_root)
+        return None
+
+    monkeypatch.setattr(core_workspaces, "resolve_key", roots)
+    monkeypatch.setattr(integration_core, "resolve_key", roots)
+    workspace = workspace_status(
+        project,
+        personal_registry=tmp_path / "personal.json",
+        claude_root=claude_root,
+        codex_root=codex_root,
+    )
+    action_id = workspace["safe_action"]["id"]
+
+    workspaces_command.finish(
+        project=str(project),
+        action_id=action_id,
+        apply=False,
+        output_json=True,
+    )
+    plan = json.loads(capsys.readouterr().out)
+    _assert_valid_workspace_report(plan)
+    assert plan["mode"] == "finish"
+    assert plan["result"] == "action-required"
+    assert not (project / "CLAUDE.md").exists()
+
+    workspaces_command.finish(
+        project=str(project),
+        action_id=action_id,
+        apply=True,
+        output_json=True,
+    )
+    applied = json.loads(capsys.readouterr().out)
+
+    _assert_valid_workspace_report(applied)
+    assert applied["mode"] == "finish"
+    assert applied["result"] == "applied"
+    assert applied["workspaces"][0]["classification"] == "ready"
+
+
+def test_plan_command_returns_versioned_launch_prompt_without_writes(
+    monkeypatch, capsys, tmp_path
+):
+    project = tmp_path / "guided-plan"
+    _git_init(project)
+    (project / "CLAUDE.md").write_text("Project-owned Claude routing")
+    (project / "AGENTS.md").write_text("Project-owned Codex routing")
+    claude_root, codex_root = _repo_roots()
+    holds_registry = tmp_path / "holds.json"
+
+    def roots(key):
+        if key == "paths.claude_copilot_root":
+            return str(claude_root)
+        if key == "paths.codex_copilot_root":
+            return str(codex_root)
+        return None
+
+    monkeypatch.setattr(core_workspaces, "resolve_key", roots)
+    monkeypatch.setattr(integration_core, "resolve_key", roots)
+    monkeypatch.setattr(
+        core_workspaces,
+        "default_integration_holds_registry",
+        lambda: holds_registry,
+    )
+    before = {
+        path.relative_to(project).as_posix(): path.read_bytes()
+        for path in project.rglob("*")
+        if path.is_file() and ".git" not in path.parts
+    }
+
+    workspaces_command.plan_integration(
+        project=str(project),
+        output_json=True,
+    )
+    report = json.loads(capsys.readouterr().out)
+    after = {
+        path.relative_to(project).as_posix(): path.read_bytes()
+        for path in project.rglob("*")
+        if path.is_file() and ".git" not in path.parts
+    }
+
+    _assert_valid_workspace_report(report)
+    workspace = report["workspaces"][0]
+    assert report["mode"] == "plan"
+    assert report["result"] == "action-required"
+    assert workspace["classification"] == "guided-integration"
+    assert workspace["integration_plan"]["prompt"]["version"] == "1"
+    assert workspace["integration_plan"]["verification"]["command"][:3] == [
+        "cc",
+        "workspace",
+        "verify",
+    ]
+    assert workspace["integration_plan"]["owner_handoff"] is None
+    assert before == after
+    assert not holds_registry.exists()
+
+
+def test_hold_command_persists_only_opaque_owner_decision_state(
+    monkeypatch, capsys, tmp_path
+):
+    project = tmp_path / "guided-hold"
+    _git_init(project)
+    (project / "CLAUDE.md").write_text("Project-owned Claude routing")
+    (project / "AGENTS.md").write_text("Project-owned Codex routing")
+    claude_root, codex_root = _repo_roots()
+    holds_registry = tmp_path / "holds.json"
+
+    def roots(key):
+        if key == "paths.claude_copilot_root":
+            return str(claude_root)
+        if key == "paths.codex_copilot_root":
+            return str(codex_root)
+        return None
+
+    monkeypatch.setattr(core_workspaces, "resolve_key", roots)
+    monkeypatch.setattr(integration_core, "resolve_key", roots)
+    monkeypatch.setattr(
+        core_workspaces,
+        "default_integration_holds_registry",
+        lambda: holds_registry,
+    )
+    before = workspace_status(
+        project,
+        personal_registry=tmp_path / "personal.json",
+        holds_registry=holds_registry,
+        claude_root=claude_root,
+        codex_root=codex_root,
+    )
+    plan_id = before["integration_plan"]["id"]
+
+    workspaces_command.hold_integration(
+        project=str(project),
+        plan_id=plan_id,
+        apply=False,
+        output_json=True,
+    )
+    planned = json.loads(capsys.readouterr().out)
+    assert planned["result"] == "action-required"
+    assert not holds_registry.exists()
+
+    workspaces_command.hold_integration(
+        project=str(project),
+        plan_id=plan_id,
+        apply=True,
+        output_json=True,
+    )
+    applied = json.loads(capsys.readouterr().out)
+    registry_text = holds_registry.read_text(encoding="utf-8")
+
+    _assert_valid_workspace_report(applied)
+    assert applied["result"] == "applied"
+    assert applied["workspaces"][0]["classification"] == "owner-decision"
+    assert applied["workspaces"][0]["integration_plan"]["prompt"] is None
+    assert (
+        applied["workspaces"][0]["integration_plan"]["owner_handoff"]["version"]
+        == "1"
+    )
+    assert integration_hold(project, registry=holds_registry) is not None
+    assert str(project) not in registry_text
+    assert project.name not in registry_text
+    assert "prompt" not in registry_text
+    assert "owner-decision" in registry_text
+
+
+def test_hold_rejects_safe_project_and_stale_plan_without_persistence(
+    monkeypatch, capsys, tmp_path
+):
+    project = tmp_path / "hold-refusal"
+    _git_init(project)
+    claude_root, codex_root = _repo_roots()
+    holds_registry = tmp_path / "holds.json"
+
+    def roots(key):
+        if key == "paths.claude_copilot_root":
+            return str(claude_root)
+        if key == "paths.codex_copilot_root":
+            return str(codex_root)
+        return None
+
+    monkeypatch.setattr(core_workspaces, "resolve_key", roots)
+    monkeypatch.setattr(integration_core, "resolve_key", roots)
+    monkeypatch.setattr(
+        core_workspaces,
+        "default_integration_holds_registry",
+        lambda: holds_registry,
+    )
+
+    try:
+        workspaces_command.hold_integration(
+            project=str(project),
+            plan_id="sha256:" + "0" * 64,
+            apply=True,
+            output_json=True,
+        )
+    except Exception as exc:
+        assert exc.__class__.__name__ == "Exit"
+    report = json.loads(capsys.readouterr().out)
+
+    assert report["result"] == "blocked"
+    assert report["workspaces"][0]["classification"] == "safe-finish"
+    assert not holds_registry.exists()
+
+    stale_project = tmp_path / "stale-guided-plan"
+    _git_init(stale_project)
+    (stale_project / "CLAUDE.md").write_text("Project-owned Claude routing")
+    (stale_project / "AGENTS.md").write_text("Project-owned Codex routing")
+    guided = workspace_status(
+        stale_project,
+        personal_registry=tmp_path / "personal.json",
+        holds_registry=holds_registry,
+        claude_root=claude_root,
+        codex_root=codex_root,
+    )
+    old_plan_id = guided["integration_plan"]["id"]
+    (stale_project / "AGENTS.md").write_text("Changed project-owned routing")
+    try:
+        workspaces_command.hold_integration(
+            project=str(stale_project),
+            plan_id=old_plan_id,
+            apply=True,
+            output_json=True,
+        )
+    except Exception as exc:
+        assert exc.__class__.__name__ == "Exit"
+    stale = json.loads(capsys.readouterr().out)
+
+    assert stale["result"] == "blocked"
+    assert not holds_registry.exists()
+
+
+def test_assistant_self_report_never_changes_guided_classification(tmp_path):
+    project = tmp_path / "assistant-claim"
+    _git_init(project)
+    (project / "CLAUDE.md").write_text("Project-owned Claude routing")
+    (project / "AGENTS.md").write_text("Project-owned Codex routing")
+    claim = project / ".copilot/assistant-result.json"
+    claim.parent.mkdir()
+    claim.write_text(
+        json.dumps({"result": "ready", "verified": True}),
+        encoding="utf-8",
+    )
+    claude_root, codex_root = _repo_roots()
+
+    report = workspace_status(
+        project,
+        personal_registry=tmp_path / "personal.json",
+        holds_registry=tmp_path / "holds.json",
+        claude_root=claude_root,
+        codex_root=codex_root,
+    )
+
+    assert report["classification"] == "guided-integration"
+    assert report["state"] == "blocked"
+    assert "trust-assistant-self-report" in report["preservation"]["prohibited_actions"]
+
+
+def test_successful_cli_verification_clears_completed_owner_hold(
+    monkeypatch, capsys, tmp_path
+):
+    project = tmp_path / "clear-hold"
+    _git_init(project)
+    (project / "CLAUDE.md").write_text("Project-owned Claude routing")
+    (project / "AGENTS.md").write_text("Project-owned Codex routing")
+    claude_root, codex_root = _repo_roots()
+    holds_registry = tmp_path / "holds.json"
+
+    def roots(key):
+        if key == "paths.claude_copilot_root":
+            return str(claude_root)
+        if key == "paths.codex_copilot_root":
+            return str(codex_root)
+        return None
+
+    monkeypatch.setattr(core_workspaces, "resolve_key", roots)
+    monkeypatch.setattr(integration_core, "resolve_key", roots)
+    monkeypatch.setattr(
+        core_workspaces,
+        "default_integration_holds_registry",
+        lambda: holds_registry,
+    )
+    guided = workspace_status(
+        project,
+        personal_registry=tmp_path / "personal.json",
+        holds_registry=holds_registry,
+        claude_root=claude_root,
+        codex_root=codex_root,
+    )
+    workspaces_command.hold_integration(
+        project=str(project),
+        plan_id=guided["integration_plan"]["id"],
+        apply=True,
+        output_json=True,
+    )
+    capsys.readouterr()
+    assert integration_hold(project, registry=holds_registry) is not None
+
+    (project / "CLAUDE.md").unlink()
+    (project / "AGENTS.md").unlink()
+    activate_components(
+        project,
+        ("claude", "codex"),
+        claude_root=claude_root,
+        codex_root=codex_root,
+    )
+    write_install_lock(
+        project,
+        ("claude", "codex"),
+        claude_root=claude_root,
+        codex_root=codex_root,
+    )
+    workspaces_command.verify(project=str(project), output_json=True)
+    report = json.loads(capsys.readouterr().out)
+
+    assert report["result"] == "ready"
+    assert integration_hold(project, registry=holds_registry) is None
+    assert read_integration_holds_registry(holds_registry)["holds"] == {}
 
 
 def test_activation_collision_blocks_before_any_selected_product_writes(tmp_path):
@@ -297,7 +1274,7 @@ def test_roots_command_reports_no_folders_and_no_candidates(monkeypatch, capsys,
     payload = json.loads(capsys.readouterr().out)
 
     assert payload == {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "mode": "status",
         "result": "action-required",
         "roots": [],

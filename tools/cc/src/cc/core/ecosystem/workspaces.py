@@ -76,14 +76,15 @@ import json
 import re
 import shutil
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional, Sequence
 
 from cc.core.config import resolve_key
+from cc.core.ecosystem.project_integration import inspect_project_integration
 from cc.core.ecosystem.projects import (
     PROJECT_LOCK_FILENAME,
-    PROJECT_SCOPED_PRODUCTS,
     _read_registry,
     read_project_lock,
     write_project_lock,
@@ -95,6 +96,7 @@ PERSONAL_PROJECTS_FILENAME = "personal-projects.json"
 EXCLUDED_PROJECTS_FILENAME = "excluded-projects.json"
 KNOWN_PROJECTS_FILENAME = "known-projects.json"
 AUTOMATIC_SETUPS_FILENAME = "automatic-setups.json"
+INTEGRATION_HOLDS_FILENAME = "project-integration-holds.json"
 # How long a completed automatic setup stays in `recently_set_up` before it
 # ages out. A rolling "recently" window, not a permanent record.
 RECENTLY_SET_UP_WINDOW_HOURS = 168.0
@@ -542,43 +544,19 @@ def write_declaration(project: Path | str, components: Sequence[str]) -> None:
     target.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def _lock_components(project: Path) -> set[str]:
-    try:
-        raw = json.loads((project / PROJECT_LOCK_FILENAME).read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return set()
-    entries = raw.get("components", []) if isinstance(raw, dict) else []
-    if not isinstance(entries, list):
-        return set()
-    return {
-        entry.get("component")
-        for entry in entries
-        if isinstance(entry, dict) and entry.get("component") in PROJECT_SCOPED_PRODUCTS
-    }
-
-
 def installed_components(project: Path | str) -> list[str]:
-    """Return only components proven by explicit framework-owned markers."""
-    root = Path(project)
-    installed = _lock_components(root)
-    try:
-        if (root / ".mcp.json").is_file() and (root / ".claude/commands/protocol.md").is_file():
-            installed.add("claude")
-        metadata = root / ".codex-copilot.json"
-        plugin_manifest = root / "plugins/codex-copilot/.codex-plugin/plugin.json"
-        if metadata.is_file() and plugin_manifest.is_file():
-            installed.add("codex")
-    except OSError:
-        pass
-    return [component for component in SUPPORTED_COMPONENTS if component in installed]
+    """Return only components that pass the authoritative integration contract."""
+    report = inspect_project_integration(project, detail=False)
+    return list(report["verified_components"])
 
 
 def recommended_components(
     project: Path | str,
     *,
     which: Callable[[str], Optional[str]] | None = None,
+    _installed: Optional[Sequence[str]] = None,
 ) -> list[str]:
-    installed = installed_components(project)
+    installed = list(_installed) if _installed is not None else installed_components(project)
     detected = set(installed)
 
     def installed_path(command: str) -> str | None:
@@ -634,6 +612,119 @@ def default_personal_registry() -> Path:
     return mirrors_root.parent / PERSONAL_PROJECTS_FILENAME
 
 
+def default_integration_holds_registry() -> Path:
+    mirrors_root = Path(str(resolve_key("paths.mirrors_root"))).expanduser()
+    return mirrors_root.parent / INTEGRATION_HOLDS_FILENAME
+
+
+def _integration_hold_key(project: Path | str) -> str:
+    resolved = str(Path(project).expanduser().resolve())
+    return "sha256:" + hashlib.sha256(resolved.encode("utf-8")).hexdigest()
+
+
+def read_integration_holds_registry(path: Path | str) -> dict[str, Any]:
+    target = Path(path)
+    try:
+        raw: Any = json.loads(target.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {"schema_version": "1.0", "holds": {}}
+    if (
+        not isinstance(raw, dict)
+        or raw.get("schema_version") != "1.0"
+        or not isinstance(raw.get("holds"), dict)
+    ):
+        return {"schema_version": "1.0", "holds": {}}
+    holds: dict[str, dict[str, Any]] = {}
+    for key, entry in raw["holds"].items():
+        if (
+            isinstance(key, str)
+            and key.startswith("sha256:")
+            and isinstance(entry, dict)
+            and entry.get("classification") == "owner-decision"
+            and isinstance(entry.get("inspection_id"), str)
+            and isinstance(entry.get("plan_id"), str)
+        ):
+            at = entry.get("at")
+            holds[key] = {
+                "classification": "owner-decision",
+                "inspection_id": entry["inspection_id"],
+                "plan_id": entry["plan_id"],
+                "at": float(at) if isinstance(at, (int, float)) else 0.0,
+            }
+    return {"schema_version": "1.0", "holds": holds}
+
+
+def integration_hold(
+    project: Path | str, *, registry: Optional[Path | str] = None
+) -> Optional[dict[str, Any]]:
+    target = (
+        Path(registry)
+        if registry is not None
+        else default_integration_holds_registry()
+    )
+    return read_integration_holds_registry(target)["holds"].get(
+        _integration_hold_key(project)
+    )
+
+
+def record_integration_hold(
+    project: Path | str,
+    *,
+    inspection_id: str,
+    plan_id: str,
+    registry: Optional[Path | str] = None,
+    now: Optional[float] = None,
+) -> None:
+    """Persist only an opaque, machine-local incomplete owner-decision hold."""
+    target = (
+        Path(registry)
+        if registry is not None
+        else default_integration_holds_registry()
+    )
+    data = read_integration_holds_registry(target)
+    holds = dict(data["holds"])
+    holds[_integration_hold_key(project)] = {
+        "classification": "owner-decision",
+        "inspection_id": inspection_id,
+        "plan_id": plan_id,
+        "at": time.time() if now is None else now,
+    }
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        json.dumps(
+            {"schema_version": "1.0", "holds": holds},
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def clear_integration_hold(
+    project: Path | str, *, registry: Optional[Path | str] = None
+) -> None:
+    target = (
+        Path(registry)
+        if registry is not None
+        else default_integration_holds_registry()
+    )
+    data = read_integration_holds_registry(target)
+    holds = dict(data["holds"])
+    if holds.pop(_integration_hold_key(project), None) is None:
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        json.dumps(
+            {"schema_version": "1.0", "holds": holds},
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def read_personal_registry(path: Path | str) -> dict[str, Any]:
     target = Path(path)
     try:
@@ -676,62 +767,89 @@ def workspace_status(
     codex_root: Optional[Path | str] = None,
     run: Run = _run,
     which: Callable[[str], Optional[str]] | None = None,
+    detail: bool = True,
+    holds_registry: Optional[Path | str] = None,
 ) -> dict[str, Any]:
     root = Path(project).expanduser()
     declaration, declaration_error = read_declaration(root)
-    installed = installed_components(root)
+    integration = inspect_project_integration(
+        root,
+        claude_root=claude_root,
+        codex_root=codex_root,
+        detail=detail,
+        owner_hold=integration_hold(root, registry=holds_registry) is not None,
+    )
+    installed = list(integration.pop("verified_components"))
+    integration.pop("safe_component_kinds")
+    integration.pop("safe_missing_paths")
     declared = list(declaration.get("components", []))
-    recommended = recommended_components(root, which=which)
+    recommended = recommended_components(root, which=which, _installed=installed)
     key = project_id(root, run=run)
     registry_path = Path(personal_registry) if personal_registry is not None else default_personal_registry()
     personal = read_personal_registry(registry_path)
     associated = bool(key and key in personal["projects"])
 
     if not _is_git_root(root):
-        state, detail = "blocked", "This folder is not a project workspace."
+        _force_unverifiable(
+            integration, "This folder is not a project workspace."
+        )
     elif declaration_error:
-        state, detail = "blocked", declaration_error
-    elif declared:
-        missing = [component for component in declared if component not in installed]
-        if missing:
-            state, detail = "activation-required", "Shared Copilot setup is present but is not active on this Mac."
-        else:
-            state, detail = "ready", "Copilot is ready for this project."
-    elif installed:
-        state, detail = "ready", "Copilot is ready for this project."
-    else:
-        state, detail = "setup-available", "Copilot can be set up for this project."
+        _force_unverifiable(integration, declaration_error)
 
-    can_apply_now = True
+    classification = integration["classification"]
+    if classification == "ready":
+        state = "ready"
+        status_detail = "Both Claude and Codex passed authoritative project verification."
+    elif classification == "safe-finish":
+        state = "activation-required" if declared else "setup-available"
+        status_detail = (
+            "This recognized project layout has one exact, reversible finish available."
+        )
+    elif classification == "guided-integration":
+        state = "blocked"
+        status_detail = (
+            "Project-owned instructions or capabilities need guided integration."
+        )
+    elif classification == "owner-decision":
+        state = "blocked"
+        status_detail = "A prepared integration decision belongs to the project owner."
+    else:
+        state = "blocked"
+        status_detail = "Required project integration evidence could not be verified."
+
+    can_apply_now = bool(
+        classification == "safe-finish" and integration["safe_action"]
+    )
     apply_blocked_detail: Optional[str] = None
-    if state in ("setup-available", "activation-required"):
-        try:
-            preflight_activation(
-                root,
-                declared or recommended,
-                claude_root=claude_root,
-                codex_root=codex_root,
-            )
-        except ActivationError as exc:
-            can_apply_now, apply_blocked_detail = False, str(exc)
+    if not can_apply_now and classification != "ready":
+        apply_blocked_detail = status_detail
 
     excluded = is_project_excluded(root, registry=exclude_registry)
-    if state == "ready":
+    if classification == "ready":
         setup_policy = "not-offered"
-        policy_detail = "Copilot is already set up here, so there's nothing to ask."
-    elif state == "blocked":
-        setup_policy = "not-offered"
-        policy_detail = "This can't be set up automatically right now."
+        policy_detail = "Copilot is verified here, so there's nothing to ask."
     elif excluded:
         setup_policy = "excluded"
         policy_detail = "You asked me not to set this project up again."
+    elif classification != "safe-finish":
+        setup_policy = "not-offered"
+        policy_detail = "This project stays unchanged until the named actor completes the route."
     else:
         roots_for_policy = list(configured_roots) if configured_roots is not None else _configured_root_paths()
         known_registry_path = (
             Path(known_projects_registry) if known_projects_registry is not None else default_known_projects_registry()
         )
         existed_at_grant = _known_at_grant(root, roots=roots_for_policy, registry=known_registry_path)
-        if existed_at_grant is False and can_apply_now and not _has_uncommitted_changes(root, run=run):
+        automatic_kind = (
+            integration["safe_action"]
+            and integration["safe_action"]["kind"] == "add-missing"
+        )
+        if (
+            existed_at_grant is False
+            and can_apply_now
+            and automatic_kind
+            and not _has_uncommitted_changes(root, run=run)
+        ):
             setup_policy = "automatic"
             policy_detail = "This project is new, so I'll set it up for you without asking."
         else:
@@ -743,7 +861,7 @@ def workspace_status(
         "name": root.name,
         "project_id": key,
         "state": state,
-        "detail": detail,
+        "detail": status_detail,
         "declared_components": declared,
         "installed_components": installed,
         "recommended_components": recommended,
@@ -756,7 +874,25 @@ def workspace_status(
         "can_apply_now": can_apply_now,
         "apply_blocked_detail": apply_blocked_detail,
         "undo": undo_status(root),
+        **integration,
     }
+
+
+def _force_unverifiable(integration: dict[str, Any], reason: str) -> None:
+    """Replace an otherwise inspectable shape with a closed failure boundary."""
+    integration["classification"] = "could-not-verify"
+    integration["responsible_actor"] = "person"
+    integration["safe_action"] = None
+    integration["plan_available"] = False
+    integration["integration_plan"] = None
+    for component in integration["components"]:
+        component["classification"] = "could-not-verify"
+        component["recognized_setup"] = None
+        component["missing_requirements"] = [
+            {"id": "verifiable-project", "detail": reason}
+        ]
+        component["responsible_actor"] = "person"
+        component["safe_action"] = None
 
 
 class ActivationError(RuntimeError):
@@ -940,6 +1076,193 @@ def activate_components(
     return activated
 
 
+def _path_lexists(path: Path) -> bool:
+    try:
+        path.lstat()
+        return True
+    except FileNotFoundError:
+        return False
+    except OSError:
+        raise ActivationError(
+            "A safe-finish target could not be inspected. Nothing was changed."
+        )
+
+
+def _copy_missing_path(
+    source: Path,
+    target: Path,
+    *,
+    project: Path,
+    created: list[Path],
+) -> None:
+    """Copy one staged target without replacing anything already present."""
+    if not _path_lexists(source):
+        raise ActivationError(
+            "The staged Copilot setup is incomplete. Nothing was changed."
+        )
+    if _path_lexists(target):
+        if source.is_dir() and not source.is_symlink() and target.is_dir():
+            for child in sorted(source.iterdir()):
+                _copy_missing_path(
+                    child,
+                    target / child.name,
+                    project=project,
+                    created=created,
+                )
+        return
+
+    missing_parents: list[Path] = []
+    parent = target.parent
+    while parent != project and not _path_lexists(parent):
+        missing_parents.append(parent)
+        parent = parent.parent
+    for directory in reversed(missing_parents):
+        directory.mkdir()
+        created.append(directory)
+
+    if source.is_symlink():
+        target.symlink_to(
+            source.readlink(),
+            target_is_directory=source.resolve().is_dir(),
+        )
+    elif source.is_dir():
+        shutil.copytree(source, target, symlinks=True)
+    else:
+        shutil.copy2(source, target)
+    created.append(target)
+
+
+def _rollback_safe_finish(
+    *,
+    project: Path,
+    created: Sequence[Path],
+    lock_existed: bool,
+    lock_before: Optional[bytes],
+) -> None:
+    lock_path = project / PROJECT_LOCK_FILENAME
+    for path in sorted(set(created), key=lambda item: len(item.parts), reverse=True):
+        try:
+            if path.is_symlink() or path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                shutil.rmtree(path)
+        except OSError:
+            continue
+    try:
+        if lock_existed and lock_before is not None:
+            lock_path.write_bytes(lock_before)
+        elif not lock_existed and (lock_path.exists() or lock_path.is_symlink()):
+            lock_path.unlink()
+    except OSError:
+        pass
+
+
+def finish_project_integration(
+    project: Path | str,
+    action_id: str,
+    *,
+    claude_root: Optional[Path | str] = None,
+    codex_root: Optional[Path | str] = None,
+    run: Run = _run,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Apply one immutable safe-finish action and verify the result.
+
+    The action is re-inspected immediately before mutation.  Every target is
+    rendered in an isolated staging directory and copied only when absent.
+    Any failure restores the prior lock and removes paths created by this
+    attempt.
+    """
+    root = Path(project).expanduser().resolve()
+    before = inspect_project_integration(
+        root,
+        claude_root=claude_root,
+        codex_root=codex_root,
+        detail=True,
+    )
+    action = before.get("safe_action")
+    if (
+        before.get("classification") != "safe-finish"
+        or not isinstance(action, dict)
+        or action.get("id") != action_id
+    ):
+        raise ActivationError(
+            "This safe-finish action is stale or no longer applies. The project was re-inspected and left unchanged."
+        )
+
+    lock_path = root / PROJECT_LOCK_FILENAME
+    lock_existed = _path_lexists(lock_path)
+    try:
+        lock_before = lock_path.read_bytes() if lock_existed else None
+    except OSError:
+        raise ActivationError(
+            "The project lock could not be backed up. Nothing was changed."
+        )
+
+    created: list[Path] = []
+    components = list(action["components"])
+    kinds = before["safe_component_kinds"]
+    missing_paths = before["safe_missing_paths"]
+    try:
+        with tempfile.TemporaryDirectory(prefix="cc-safe-finish-") as temporary:
+            stage = Path(temporary) / root.name
+            stage.mkdir()
+            if any(
+                kinds.get(component) in ("add-missing", "repair-known")
+                for component in components
+            ):
+                if "codex" in components and kinds.get("codex") != "adopt-existing":
+                    codex_source = _resolved_framework_root(
+                        "paths.codex_copilot_root", codex_root
+                    )
+                    _activate_codex(stage, codex_source, run=run)
+                if "claude" in components and kinds.get("claude") != "adopt-existing":
+                    claude_source = _resolved_framework_root(
+                        "paths.claude_copilot_root", claude_root
+                    )
+                    _activate_claude(stage, claude_source)
+
+                for component in components:
+                    if kinds.get(component) == "adopt-existing":
+                        continue
+                    for rel_path in missing_paths.get(component, []):
+                        _copy_missing_path(
+                            stage / rel_path,
+                            root / rel_path,
+                            project=root,
+                            created=created,
+                        )
+
+        write_install_lock(
+            root,
+            components,
+            claude_root=claude_root,
+            codex_root=codex_root,
+        )
+        after = inspect_project_integration(
+            root,
+            claude_root=claude_root,
+            codex_root=codex_root,
+            detail=True,
+        )
+        if after["classification"] != "ready":
+            raise ActivationError(
+                "The exact finish did not pass independent verification."
+            )
+        return before, after
+    except (ActivationError, OSError, shutil.Error) as exc:
+        _rollback_safe_finish(
+            project=root,
+            created=created,
+            lock_existed=lock_existed,
+            lock_before=lock_before,
+        )
+        if isinstance(exc, ActivationError):
+            raise
+        raise ActivationError(
+            "Copilot could not finish this project safely. New writes were rolled back."
+        ) from exc
+
+
 def _checksum(path: Path) -> str:
     if path.is_symlink():
         payload = ("symlink:" + str(path.readlink())).encode("utf-8")
@@ -1021,9 +1344,22 @@ def write_install_lock(
         for entry in existing.get("components", [])
         if isinstance(entry, dict) and entry.get("component") not in components
     ]
-    installed = set(installed_components(root))
+    integration = inspect_project_integration(
+        root,
+        claude_root=claude_root,
+        codex_root=codex_root,
+        detail=False,
+    )
+    component_reports = {
+        item["component"]: item for item in integration["components"]
+    }
     for component in components:
-        if component not in installed:
+        component_report = component_reports.get(component, {})
+        recognized = component_report.get("recognized_setup")
+        if component_report.get("classification") not in ("ready", "safe-finish") or (
+            component_report.get("classification") == "safe-finish"
+            and recognized is None
+        ):
             raise ActivationError(
                 f"{component.title()} Copilot installation proof is missing; the project lock was not written."
             )

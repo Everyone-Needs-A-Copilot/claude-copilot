@@ -21,13 +21,16 @@ from cc.core.ecosystem.workspaces import (
     RevertError,
     activate_components,
     associate_personal_project,
+    clear_integration_hold,
     default_personal_registry,
     detect_candidate_roots,
     discover_workspaces,
+    finish_project_integration,
     forget_root_grant,
     list_configured_roots,
     recently_set_up,
     record_automatic_setup,
+    record_integration_hold,
     record_root_grant,
     revert_project,
     undo_status,
@@ -36,18 +39,37 @@ from cc.core.ecosystem.workspaces import (
     write_install_lock,
 )
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 workspaces_app = typer.Typer(help="Discover and activate project Copilot setup.", invoke_without_command=True)
 
 
 def _report(mode: str, workspaces: list[dict]) -> dict:
-    counts = {state: sum(item["state"] == state for item in workspaces) for state in ("ready", "setup-available", "activation-required", "blocked")}
+    counts = {
+        state: sum(item["state"] == state for item in workspaces)
+        for state in ("ready", "setup-available", "activation-required", "blocked")
+    }
+    classification_counts = {
+        classification: sum(
+            item["classification"] == classification for item in workspaces
+        )
+        for classification in (
+            "ready",
+            "safe-finish",
+            "guided-integration",
+            "owner-decision",
+            "could-not-verify",
+        )
+    }
     return {
         "schema_version": SCHEMA_VERSION,
         "mode": mode,
         "result": "blocked" if counts["blocked"] else ("action-required" if counts["setup-available"] or counts["activation-required"] else "ready"),
         "workspaces": workspaces,
         "summary": {**counts, "total": len(workspaces)},
+        "classification_summary": {
+            **classification_counts,
+            "total": len(workspaces),
+        },
     }
 
 
@@ -68,8 +90,11 @@ def _discovery_state() -> dict[str, Any]:
     }
 
 
-def build_workspaces_report(*, projects: list[Path]) -> dict:
-    report = _report("status", [workspace_status(project) for project in projects])
+def build_workspaces_report(*, projects: list[Path], detail: bool = False) -> dict:
+    report = _report(
+        "status",
+        [workspace_status(project, detail=detail) for project in projects],
+    )
     report["discovery"] = _discovery_state()
     report["recently_set_up"] = recently_set_up()
     return report
@@ -91,7 +116,7 @@ def status(
             typer.echo(json.dumps({"schema_version": SCHEMA_VERSION, "error": {"code": "invalid-argument", "message": message}}))
         raise typer.Exit(2)
     projects = [Path(project)] if project else discover_workspaces()
-    report = build_workspaces_report(projects=projects)
+    report = build_workspaces_report(projects=projects, detail=bool(project))
     typer.echo(json.dumps(report) if output_json else f"{report['result']}: {report['summary']['total']} workspace(s)")
     if report["result"] == "blocked":
         raise typer.Exit(1)
@@ -149,9 +174,10 @@ def _configure_one(
     share_with_project: bool,
     associate_personal: bool,
     apply: bool,
+    detail: bool = True,
 ) -> tuple[dict, list[dict], Optional[str]]:
     """Plan or apply one project. Returns (report_item, actions, invalid_message)."""
-    before = workspace_status(root)
+    before = workspace_status(root, detail=detail)
     selected, invalid_message = _selected_components(before, components)
     if invalid_message:
         return before, [], invalid_message
@@ -163,7 +189,7 @@ def _configure_one(
         if activation_error is None:
             actions = [{**action, "status": "applied"} for action in actions]
 
-    after = workspace_status(root)
+    after = workspace_status(root, detail=detail)
     if activation_error:
         after["state"] = "blocked"
         after["detail"] = activation_error
@@ -191,7 +217,8 @@ def configure(
         targets = [
             candidate
             for candidate in discover_workspaces()
-            if workspace_status(candidate)["state"] in ("setup-available", "activation-required")
+            if workspace_status(candidate, detail=False)["state"]
+            in ("setup-available", "activation-required")
         ]
         items: list[dict] = []
         actions: list[dict] = []
@@ -202,6 +229,7 @@ def configure(
                 share_with_project=share_with_project,
                 associate_personal=associate_personal,
                 apply=apply,
+                detail=False,
             )
             if invalid_message:
                 if output_json:
@@ -238,6 +266,171 @@ def configure(
     if apply and actions and report["result"] == "ready":
         report["result"] = "applied"
     typer.echo(json.dumps(report) if output_json else f"{report['result']}: {root.name}")
+    if report["result"] == "blocked":
+        raise typer.Exit(1)
+
+
+@workspaces_app.command("finish")
+def finish(
+    project: str = typer.Option(
+        ..., "--project", help="Project carrying the exact safe-finish action."
+    ),
+    action_id: str = typer.Option(
+        ..., "--action-id", help="Opaque action id returned by workspace inspection."
+    ),
+    apply: bool = typer.Option(
+        False, "--apply", help="Apply the exact action and verify the result."
+    ),
+    output_json: bool = typer.Option(
+        False, "--json", help="Emit the versioned workspace report."
+    ),
+) -> None:
+    """Plan or apply one immutable, independently verified safe finish."""
+    root = Path(project).expanduser()
+    before = workspace_status(root, detail=True)
+    action = before.get("safe_action")
+    valid = bool(
+        before.get("classification") == "safe-finish"
+        and isinstance(action, dict)
+        and action.get("id") == action_id
+    )
+    if not valid:
+        before["detail"] = (
+            "This safe-finish action is stale or no longer applies. "
+            "The project was re-inspected and left unchanged."
+        )
+        before["apply_blocked_detail"] = before["detail"]
+        report = _report("finish", [before])
+        report["result"] = "blocked"
+    elif not apply:
+        report = _report("finish", [before])
+        report["result"] = "action-required"
+    else:
+        try:
+            finish_project_integration(root, action_id)
+            after = workspace_status(root, detail=True)
+            report = _report("finish", [after])
+            report["result"] = "applied"
+        except ActivationError as exc:
+            after = workspace_status(root, detail=True)
+            after["detail"] = str(exc)
+            after["apply_blocked_detail"] = str(exc)
+            report = _report("finish", [after])
+            report["result"] = "blocked"
+
+    typer.echo(
+        json.dumps(report)
+        if output_json
+        else f"{report['result']}: {root.name}"
+    )
+    if report["result"] == "blocked":
+        raise typer.Exit(1)
+
+
+@workspaces_app.command("verify")
+def verify(
+    project: str = typer.Option(
+        ..., "--project", help="Project to verify independently."
+    ),
+    output_json: bool = typer.Option(
+        False, "--json", help="Emit the versioned workspace report."
+    ),
+) -> None:
+    """Run authoritative read-only verification for one project."""
+    root = Path(project).expanduser()
+    workspace = workspace_status(root, detail=True)
+    report = _report("verify", [workspace])
+    report["result"] = (
+        "ready" if workspace["classification"] == "ready" else "blocked"
+    )
+    if report["result"] == "ready":
+        clear_integration_hold(root)
+    typer.echo(
+        json.dumps(report)
+        if output_json
+        else f"{report['result']}: {root.name}"
+    )
+    if report["result"] != "ready":
+        raise typer.Exit(1)
+
+
+@workspaces_app.command("plan")
+def plan_integration(
+    project: str = typer.Option(
+        ..., "--project", help="Custom project to prepare an integration route for."
+    ),
+    output_json: bool = typer.Option(
+        False, "--json", help="Emit the versioned workspace report."
+    ),
+) -> None:
+    """Return a bounded external-assistant prompt or project-owner handoff."""
+    root = Path(project).expanduser()
+    workspace = workspace_status(root, detail=True)
+    report = _report("plan", [workspace])
+    if workspace["classification"] in ("guided-integration", "owner-decision"):
+        report["result"] = "action-required"
+    elif workspace["classification"] == "ready":
+        report["result"] = "ready"
+    else:
+        report["result"] = "blocked"
+    typer.echo(
+        json.dumps(report)
+        if output_json
+        else f"{report['result']}: {root.name}"
+    )
+    if report["result"] == "blocked":
+        raise typer.Exit(1)
+
+
+@workspaces_app.command("hold")
+def hold_integration(
+    project: str = typer.Option(
+        ..., "--project", help="Project whose incomplete plan needs its owner."
+    ),
+    plan_id: str = typer.Option(
+        ..., "--plan-id", help="Opaque plan id returned by workspace inspection."
+    ),
+    apply: bool = typer.Option(
+        False, "--apply", help="Persist the incomplete owner-decision hold."
+    ),
+    output_json: bool = typer.Option(
+        False, "--json", help="Emit the versioned workspace report."
+    ),
+) -> None:
+    """Plan or persist an opaque owner-decision hold; never writes the project."""
+    root = Path(project).expanduser()
+    before = workspace_status(root, detail=True)
+    integration_plan = before.get("integration_plan")
+    valid = bool(
+        before["classification"] in ("guided-integration", "owner-decision")
+        and isinstance(integration_plan, dict)
+        and integration_plan.get("id") == plan_id
+    )
+    if not valid:
+        before["detail"] = (
+            "This integration plan is stale or is not an owner-decision route. "
+            "The project and local hold state were left unchanged."
+        )
+        report = _report("apply" if apply else "plan", [before])
+        report["result"] = "blocked"
+    elif not apply:
+        report = _report("plan", [before])
+        report["result"] = "action-required"
+    else:
+        record_integration_hold(
+            root,
+            inspection_id=before["inspection"]["id"],
+            plan_id=integration_plan["id"],
+        )
+        after = workspace_status(root, detail=True)
+        report = _report("apply", [after])
+        report["result"] = "applied"
+
+    typer.echo(
+        json.dumps(report)
+        if output_json
+        else f"{report['result']}: {root.name}"
+    )
     if report["result"] == "blocked":
         raise typer.Exit(1)
 
