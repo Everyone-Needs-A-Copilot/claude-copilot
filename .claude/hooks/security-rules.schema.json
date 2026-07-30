@@ -1,0 +1,115 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://claude-copilot.dev/schemas/security-rules.json",
+  "title": "Security Rules Configuration",
+  "description": "Configuration schema for PreToolUse security hooks",
+  "type": "object",
+  "required": ["version", "rules"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Configuration version",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "description": {
+      "type": "string",
+      "description": "Configuration description"
+    },
+    "rules": {
+      "type": "array",
+      "description": "Array of security rules",
+      "items": {
+        "$ref": "#/definitions/securityRule"
+      }
+    },
+    "customRules": {
+      "type": "object",
+      "description": "Custom user-defined rules",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "examples": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/securityRule"
+          }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Metadata about this configuration",
+      "properties": {
+        "createdAt": {
+          "type": "string",
+          "format": "date"
+        },
+        "lastModified": {
+          "type": "string",
+          "format": "date"
+        },
+        "author": {
+          "type": "string"
+        },
+        "documentation": {
+          "type": "string",
+          "format": "uri"
+        }
+      }
+    }
+  },
+  "definitions": {
+    "securityRule": {
+      "type": "object",
+      "required": ["id", "name", "description", "enabled", "priority", "patterns", "action", "severity"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique rule identifier",
+          "pattern": "^[a-z0-9-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable rule name"
+        },
+        "description": {
+          "type": "string",
+          "description": "Detailed description of what this rule detects"
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether this rule is active"
+        },
+        "priority": {
+          "type": "integer",
+          "description": "Rule priority (1-100, higher runs first)",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "patterns": {
+          "type": "array",
+          "description": "Regular expression patterns to match",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "action": {
+          "type": "string",
+          "description": "Action to take when pattern matches",
+          "enum": ["allow", "warn", "block"]
+        },
+        "severity": {
+          "type": "string",
+          "description": "Severity level of the security issue",
+          "enum": ["low", "medium", "high", "critical"]
+        },
+        "recommendation": {
+          "type": "string",
+          "description": "Optional recommendation message"
+        }
+      }
+    }
+  }
+}
