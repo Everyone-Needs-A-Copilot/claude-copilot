@@ -203,6 +203,7 @@ def _fake_onboard_run(args):
             "schema_version: '2.0'\n"
             "org: Acme\n"
             "harness: [claude, codex]\n"
+            "components: [knowledge, cli, claude, codex]\n"
             "store:\n"
             "  status: deferred\n"
             "foundation:\n"

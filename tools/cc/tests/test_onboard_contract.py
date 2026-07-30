@@ -776,6 +776,7 @@ def _aggregate_run(args):
         handoff = """schema_version: '2.0'
 org: Acme
 harness: [claude, codex]
+components: [knowledge, cli, claude, codex]
 store:
   status: deferred
 foundation:
@@ -890,6 +891,7 @@ def test_ecosystem_plan_builds_two_isolated_three_layer_stacks(tmp_path):
         consumer_probe_fn=_consumer_ready,
     )
     assert report["result"] == "changes-required"
+    assert report["components"] == ["knowledge", "cli", "claude", "codex"]
     assert [
         (layer["product"], layer["role"], layer["rank"]) for layer in report["layers"]
     ] == [
@@ -909,6 +911,31 @@ def test_ecosystem_plan_builds_two_isolated_three_layer_stacks(tmp_path):
         "codex-plugin",
     ]
     assert not (tmp_path / "layers.yml").exists()
+    _assert_valid_onboard_report(report)
+
+
+def test_ecosystem_plan_provisions_every_handoff_component(tmp_path):
+    seen: list[tuple[str, ...]] = []
+
+    def personal(**kwargs):
+        seen.append(tuple(kwargs["components"]))
+        return _personal(**kwargs)
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        products=("claude",),
+        apply=False,
+        run=_aggregate_run,
+        manifest_path=tmp_path / "layers.yml",
+        personal_fn=personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        consumer_probe_fn=_consumer_ready,
+    )
+
+    assert seen == [("knowledge", "cli", "claude", "codex")]
+    assert report["products"] == ["claude"]
+    assert report["components"] == ["knowledge", "cli", "claude", "codex"]
     _assert_valid_onboard_report(report)
 
 

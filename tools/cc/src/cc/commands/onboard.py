@@ -1386,6 +1386,7 @@ def _ecosystem_result(
     stages: list[dict[str, Any]],
     layers: Sequence[dict[str, Any]] | None = None,
     inventory: Sequence[dict[str, Any]] | None = None,
+    components: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     report = {
         "schema_version": SCHEMA_VERSION,
@@ -1394,6 +1395,7 @@ def _ecosystem_result(
         "result": result,
         "org": org,
         "products": list(products),
+        "components": list(components or products),
         "stages": stages,
     }
     report["layers"] = [
@@ -1550,12 +1552,33 @@ def build_ecosystem_onboard_report(
     stages: list[dict[str, Any]] = []
     inventory: list[dict[str, Any]] = []
     handoff = _load_handoff(org, normalized, run=run)
+    configured_components = handoff.get("components")
+    if (
+        not isinstance(configured_components, list)
+        or not configured_components
+        or any(value not in COMPONENTS for value in configured_components)
+        or len(configured_components) != len(set(configured_components))
+    ):
+        raise RuntimeError(
+            "The organization handoff does not name a supported, unique component set."
+        )
+    ecosystem_components = tuple(configured_components)
+    missing_components = [
+        component for component in COMPONENTS if component not in ecosystem_components
+    ]
+    if missing_components:
+        raise RuntimeError(
+            "The organization handoff is incomplete. It must enable Knowledge, CLI, Claude, and Codex."
+        )
     stages.append({"stage": "organization-handoff", "result": "ready"})
     # Every apply begins with a complete read-only plan. No personal
     # repository, SSH config, store identity, or local manifest is mutated
     # until all adoption decisions are known to be safe.
     personal = personal_fn(
-        components=normalized, apply=False, adopt_existing=adopt_existing, run=run
+        components=ecosystem_components,
+        apply=False,
+        adopt_existing=adopt_existing,
+        run=run,
     )
     personal_detail = next(
         (
@@ -1576,7 +1599,13 @@ def build_ecosystem_onboard_report(
     inventory.extend(_personal_inventory(personal))
     if personal["result"] == "blocked":
         return _ecosystem_result(
-            org, normalized, apply, "blocked", stages, inventory=inventory
+            org,
+            normalized,
+            apply,
+            "blocked",
+            stages,
+            inventory=inventory,
+            components=ecosystem_components,
         )
     manifest = _layer_manifest(org, personal["owner"], normalized, handoff, run=run)
     if manifest_path:
@@ -1616,7 +1645,14 @@ def build_ecosystem_onboard_report(
     inventory.extend(_ssh_inventory(ssh))
     if ssh["result"] == "blocked":
         return _ecosystem_result(
-            org, normalized, apply, "blocked", stages, manifest["layers"], inventory
+            org,
+            normalized,
+            apply,
+            "blocked",
+            stages,
+            manifest["layers"],
+            inventory,
+            ecosystem_components,
         )
     stages.append(
         {
@@ -1634,7 +1670,14 @@ def build_ecosystem_onboard_report(
     )
     if adoption.action == "review":
         return _ecosystem_result(
-            org, normalized, apply, "blocked", stages, manifest["layers"], inventory
+            org,
+            normalized,
+            apply,
+            "blocked",
+            stages,
+            manifest["layers"],
+            inventory,
+            ecosystem_components,
         )
     candidate = _validate_manifest_candidate(adoption, consumer_probe_fn)
     if candidate["result"] == "blocked":
@@ -1644,21 +1687,42 @@ def build_ecosystem_onboard_report(
         manifest_stage["result"] = "blocked"
         manifest_stage["detail"] = candidate["detail"]
         return _ecosystem_result(
-            org, normalized, apply, "blocked", stages, manifest["layers"], inventory
+            org,
+            normalized,
+            apply,
+            "blocked",
+            stages,
+            manifest["layers"],
+            inventory,
+            ecosystem_components,
         )
     store = handoff.get("store") or {}
     store_report = store_fn(store, apply=False, run=run)
     stages.append({"stage": "secret-store", **store_report})
     if store_report["result"] == "blocked":
         return _ecosystem_result(
-            org, normalized, apply, "blocked", stages, manifest["layers"], inventory
+            org,
+            normalized,
+            apply,
+            "blocked",
+            stages,
+            manifest["layers"],
+            inventory,
+            ecosystem_components,
         )
     if "codex" in normalized:
         codex_plan = codex_fn(apply=False, run=run)
         stages.append({"stage": "codex-plugin", **codex_plan})
         if codex_plan["result"] == "blocked":
             return _ecosystem_result(
-                org, normalized, False, "blocked", stages, manifest["layers"], inventory
+                org,
+                normalized,
+                False,
+                "blocked",
+                stages,
+                manifest["layers"],
+                inventory,
+                ecosystem_components,
             )
     if not apply:
         needs_change = any(
@@ -1672,10 +1736,14 @@ def build_ecosystem_onboard_report(
             stages,
             manifest["layers"],
             inventory,
+            ecosystem_components,
         )
 
     personal = personal_fn(
-        components=normalized, apply=True, adopt_existing=adopt_existing, run=run
+        components=ecosystem_components,
+        apply=True,
+        adopt_existing=adopt_existing,
+        run=run,
     )
     personal_stage = next(
         stage for stage in stages if stage["stage"] == "personal-packages"
@@ -1683,7 +1751,14 @@ def build_ecosystem_onboard_report(
     personal_stage.update(result=personal["result"], summary=personal["summary"])
     if personal["result"] == "blocked":
         return _ecosystem_result(
-            org, normalized, True, "blocked", stages, manifest["layers"], inventory
+            org,
+            normalized,
+            True,
+            "blocked",
+            stages,
+            manifest["layers"],
+            inventory,
+            ecosystem_components,
         )
 
     ssh = ssh_fn(
@@ -1696,7 +1771,14 @@ def build_ecosystem_onboard_report(
     ssh_stage.update(_ssh_stage_fields(ssh))
     if ssh["result"] == "blocked":
         return _ecosystem_result(
-            org, normalized, True, "blocked", stages, manifest["layers"], inventory
+            org,
+            normalized,
+            True,
+            "blocked",
+            stages,
+            manifest["layers"],
+            inventory,
+            ecosystem_components,
         )
 
     store_report = store_fn(store, apply=True, run=run)
@@ -1704,7 +1786,14 @@ def build_ecosystem_onboard_report(
     store_stage.update(store_report)
     if store_report["result"] == "blocked":
         return _ecosystem_result(
-            org, normalized, True, "blocked", stages, manifest["layers"], inventory
+            org,
+            normalized,
+            True,
+            "blocked",
+            stages,
+            manifest["layers"],
+            inventory,
+            ecosystem_components,
         )
 
     backup = _apply_manifest_adoption(adoption)
@@ -1743,7 +1832,14 @@ def build_ecosystem_onboard_report(
             )
         )
         return _ecosystem_result(
-            org, normalized, True, "blocked", stages, manifest["layers"], inventory
+            org,
+            normalized,
+            True,
+            "blocked",
+            stages,
+            manifest["layers"],
+            inventory,
+            ecosystem_components,
         )
 
     try:
@@ -1796,7 +1892,14 @@ def build_ecosystem_onboard_report(
             f"The manifest pointer could not be committed: {exc}"
         )
     return _ecosystem_result(
-        org, normalized, True, "ready", stages, manifest["layers"], inventory
+        org,
+        normalized,
+        True,
+        "ready",
+        stages,
+        manifest["layers"],
+        inventory,
+        ecosystem_components,
     )
 
 

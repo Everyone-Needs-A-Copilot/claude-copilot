@@ -63,7 +63,7 @@
     "ecosystemReport": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema_version", "scope", "mode", "result", "org", "products", "stages", "layers", "inventory", "inventory_summary"],
+      "required": ["schema_version", "scope", "mode", "result", "org", "products", "components", "stages", "layers", "inventory", "inventory_summary"],
       "properties": {
         "schema_version": { "const": "1.0" },
         "scope": { "const": "ecosystem" },
@@ -75,6 +75,19 @@
           "minItems": 1,
           "uniqueItems": true,
           "items": { "enum": ["claude", "codex"] }
+        },
+        "components": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": { "enum": ["knowledge", "cli", "claude", "codex"] },
+          "allOf": [
+            { "contains": { "const": "knowledge" } },
+            { "contains": { "const": "cli" } },
+            { "contains": { "const": "claude" } },
+            { "contains": { "const": "codex" } }
+          ]
         },
         "stages": {
           "type": "array",
