@@ -731,6 +731,43 @@
         }
       }
     },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "inspection_id",
+        "mode",
+        "prompt",
+        "verification",
+        "stop_conditions"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "inspection_id": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "mode": {
+          "const": "read-only"
+        },
+        "prompt": {
+          "$ref": "#/$defs/planText"
+        },
+        "verification": {
+          "$ref": "#/$defs/verification"
+        },
+        "stop_conditions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
     "workspace": {
       "type": "object",
       "additionalProperties": false,
@@ -898,6 +935,16 @@
           "oneOf": [
             {
               "$ref": "#/$defs/integrationPlan"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "diagnostic": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/diagnostic"
             },
             {
               "type": "null"

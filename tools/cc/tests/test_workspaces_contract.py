@@ -474,6 +474,13 @@ def test_tracked_components_require_checksums_and_entry_evidence_to_be_ready(
     assert mismatched["classification"] == "could-not-verify"
     assert mismatched["state"] == "blocked"
     assert mismatched["safe_action"] is None
+    assert mismatched["diagnostic"]["mode"] == "read-only"
+    assert mismatched["diagnostic"]["inspection_id"] == mismatched["inspection"]["id"]
+    diagnostic_prompt = mismatched["diagnostic"]["prompt"]["text"]
+    assert "READ-ONLY mode" in diagnostic_prompt
+    assert "Do not create, edit, rename, move, or delete project files." in diagnostic_prompt
+    assert "workspace verify --project" in diagnostic_prompt
+    assert str(project) in diagnostic_prompt
     claude = next(
         item for item in mismatched["components"] if item["component"] == "claude"
     )
@@ -624,6 +631,7 @@ def test_malformed_project_lock_fails_closed_for_both_components(tmp_path):
 
     _assert_valid_workspace_report(report)
     assert workspace["classification"] == "could-not-verify"
+    assert workspace["diagnostic"] is None
     assert {
         item["classification"] for item in workspace["components"]
     } == {"could-not-verify"}

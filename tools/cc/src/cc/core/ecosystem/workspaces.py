@@ -885,6 +885,7 @@ def _force_unverifiable(integration: dict[str, Any], reason: str) -> None:
     integration["safe_action"] = None
     integration["plan_available"] = False
     integration["integration_plan"] = None
+    integration["diagnostic"] = None
     for component in integration["components"]:
         component["classification"] = "could-not-verify"
         component["recognized_setup"] = None

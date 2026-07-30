@@ -1231,6 +1231,91 @@ def _integration_plan(
     }
 
 
+def _diagnostic(
+    root: Path,
+    inspection_id: str,
+    components: list[dict[str, Any]],
+    capabilities: dict[str, Any],
+    preservation: dict[str, Any],
+) -> dict[str, Any]:
+    """Build a content-free, read-only diagnostic route for an uncertain project."""
+    verification = _verification(root)
+    evidence_lines: list[str] = []
+    for component in components:
+        label = component["component"].title()
+        recognized = component.get("recognized_setup")
+        if recognized:
+            for evidence in recognized.get("evidence", []):
+                evidence_lines.append(
+                    f"- {label} recognized {evidence['path']}: {evidence['detail']}"
+                )
+        for requirement in component.get("missing_requirements", []):
+            evidence_lines.append(
+                f"- {label} could not confirm {requirement['id']}: "
+                f"{requirement['detail']}"
+            )
+    if not evidence_lines:
+        evidence_lines.append(
+            "- The helper could not produce component evidence that proves readiness."
+        )
+
+    prohibited = [
+        action.replace("-", " ")
+        for action in preservation["prohibited_actions"]
+    ]
+    prompt = "\n".join(
+        [
+            "Diagnose project-integration contract version 1 in READ-ONLY mode.",
+            f"Project: {root}",
+            (
+                "Capabilities: "
+                f"{capabilities['instructions']} instruction entries, "
+                f"{capabilities['agents']} agents, "
+                f"{capabilities['skills']} skills, "
+                f"{capabilities['commands']} commands, and "
+                f"{capabilities['plugins']} project plugins."
+            ),
+            "",
+            "Authoritative helper evidence:",
+            *evidence_lines,
+            "",
+            "Constraints:",
+            "- Do not create, edit, rename, move, or delete project files.",
+            "- Do not install, link, or reconfigure project capabilities.",
+            "- Do not reinterpret assistant self-report as proof of readiness.",
+            *[f"- Do not {action}." for action in prohibited],
+            "",
+            "Explain the mismatch in plain language and identify the smallest next "
+            "inspection needed. Run only the exact read-only verification command:",
+            " ".join(verification["command"]),
+            "",
+            "Return to Copilot Control Tower after diagnosis. Only the helper may "
+            "reclassify this project or produce a reviewed integration plan.",
+        ]
+    )
+    stable = {
+        "inspection_id": inspection_id,
+        "project": str(root),
+        "mode": "read-only",
+        "evidence": evidence_lines,
+    }
+    return {
+        "id": _opaque_id(stable),
+        "inspection_id": inspection_id,
+        "mode": "read-only",
+        "prompt": {
+            "version": INTEGRATION_CONTRACT_VERSION,
+            "text": prompt,
+        },
+        "verification": verification,
+        "stop_conditions": [
+            "Stop before any project write.",
+            "Stop before changing a project-owned capability path.",
+            "Stop if the evidence is insufficient to explain the mismatch.",
+        ],
+    }
+
+
 def inspect_project_integration(
     project: Path | str,
     *,
@@ -1323,6 +1408,17 @@ def inspect_project_integration(
         if detail and plan_available
         else None
     )
+    diagnostic = (
+        _diagnostic(
+            root,
+            inspection_id,
+            components,
+            capabilities,
+            preservation,
+        )
+        if detail and classification == "could-not-verify"
+        else None
+    )
     return {
         "classification": classification,
         "responsible_actor": actor,
@@ -1339,6 +1435,7 @@ def inspect_project_integration(
         "safe_action": action,
         "plan_available": plan_available,
         "integration_plan": integration_plan,
+        "diagnostic": diagnostic,
         "verified_components": [
             component["component"]
             for component in components
