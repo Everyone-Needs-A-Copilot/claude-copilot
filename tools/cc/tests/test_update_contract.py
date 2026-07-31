@@ -200,6 +200,61 @@ def test_update_json_applied_validates_against_contract_schema(tmp_path):
     assert changed_ops["sec"] == "added"
 
 
+def test_update_syncs_external_product_mirrors_without_materializing_authored_shapes(
+    tmp_path,
+):
+    knowledge = _make_source_repo(
+        tmp_path,
+        {"00-best-practices/README.md": "knowledge"},
+        name="knowledge-source",
+    )
+    cli = _make_source_repo(
+        tmp_path,
+        {"cli.overlay.yml": "version: 1\nadopt: []\n"},
+        name="cli-source",
+    )
+    layers = [
+        {
+            "id": "knowledge-foundation",
+            "role": "foundation",
+            "rank": 40,
+            "product": "knowledge",
+            "source": {"repo": str(knowledge), "ref": "main"},
+            "auth": "anon",
+            "activation": "always",
+        },
+        {
+            "id": "foundation",
+            "role": "foundation",
+            "rank": 40,
+            "product": "cli",
+            "source": {"repo": str(cli), "ref": "main"},
+            "auth": "anon",
+            "activation": "always",
+        },
+    ]
+    lock_path = tmp_path / "copilot.lock.json"
+    materialized = tmp_path / "materialized"
+
+    report = build_update_report(
+        _layers=layers,
+        _previous_lock={},
+        _mirror_root=tmp_path / "mirrors",
+        _materialize_root=materialized,
+        _lock_write_path=lock_path,
+        _policy=permissive_policy,
+    )
+
+    assert report["result"] == "up-to-date"
+    assert report["changed"] == []
+    assert (tmp_path / "mirrors/knowledge/knowledge-foundation/00-best-practices/README.md").is_file()
+    assert (tmp_path / "mirrors/cli/foundation/cli.overlay.yml").is_file()
+    assert not materialized.exists()
+    lock = json.loads(lock_path.read_text())
+    assert lock["knowledge-foundation"]["_meta"]["product"] == "knowledge"
+    assert lock["foundation"]["_meta"]["product"] == "cli"
+
+
 def test_update_json_second_run_up_to_date(tmp_path):
     source_repo = _make_source_repo(tmp_path, {"agents/sec.md": "v1"})
     layers = _one_layer(source_repo)

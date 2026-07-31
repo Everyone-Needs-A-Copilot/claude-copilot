@@ -73,6 +73,11 @@
             "type": "string",
             "description": "Layer this checker's finding pertains to, when applicable (e.g. 'org', 'dept-finance')."
           },
+          "layer_role": {
+            "type": "string",
+            "enum": ["personal", "department", "organization", "foundation"],
+            "description": "Canonical tier role for this checker. Consumers use this field for topology and treat layer as an opaque identifier."
+          },
           "product": {
             "type": "string",
             "description": "Product this checker's finding is attributed to, when applicable (e.g. 'claude', 'codex', 'knowledge', 'cli'). Optional, alongside `layer` — lets Control Tower group checkers by product in the product-grouped dropdown. Config-driven, not a closed enum."

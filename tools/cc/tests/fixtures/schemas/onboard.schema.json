@@ -111,7 +111,7 @@
       "additionalProperties": false,
       "required": ["stage", "result"],
       "properties": {
-        "stage": { "enum": ["organization-handoff", "personal-packages", "device-ssh", "layer-manifest", "secret-store", "codex-plugin", "materialize", "doctor"] },
+        "stage": { "enum": ["organization-handoff", "personal-packages", "device-ssh", "layer-manifest", "secret-store", "codex-plugin", "cli-sync", "materialize", "doctor"] },
         "result": { "type": "string", "minLength": 1 },
         "detail": { "type": "string", "minLength": 1 },
         "action": { "enum": ["reuse", "create", "migrate", "repair", "review"] },
@@ -135,7 +135,7 @@
       "required": ["id", "product", "role", "rank"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
-        "product": { "enum": ["claude", "codex"] },
+        "product": { "enum": ["knowledge", "cli", "claude", "codex"] },
         "role": { "enum": ["personal", "department", "organization", "foundation"] },
         "rank": { "type": "integer", "minimum": 0 }
       }

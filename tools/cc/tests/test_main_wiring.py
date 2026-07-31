@@ -208,6 +208,8 @@ def _fake_onboard_run(args):
             "  status: deferred\n"
             "foundation:\n"
             "  refs:\n"
+            "    knowledge: '^0.1.0'\n"
+            "    cli: '^0.3.0'\n"
             "    claude: '^5.8.0'\n"
             "    codex: '^0.6.0'\n"
         )
@@ -217,6 +219,10 @@ def _fake_onboard_run(args):
         return subprocess.CompletedProcess(args, 0, '[{"name":"v5.9.0"}]', "")
     if endpoint.endswith("codex-copilot/tags"):
         return subprocess.CompletedProcess(args, 0, '[{"name":"v0.6.2"}]', "")
+    if endpoint.endswith("knowledge-copilot/tags"):
+        return subprocess.CompletedProcess(args, 0, '[{"name":"v0.1.0"}]', "")
+    if endpoint.endswith("cli-copilot/tags"):
+        return subprocess.CompletedProcess(args, 0, '[{"name":"v0.3.1"}]', "")
     raise AssertionError(args)
 
 

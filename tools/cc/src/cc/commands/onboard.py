@@ -22,7 +22,8 @@ import yaml
 from cc.commands.doctor import build_doctor_report
 from cc.commands.update import execute_update
 from cc.core import authstore, keychain
-from cc.core.config import resolve_key, write_config
+from cc.core.config import load_machine_config, resolve_key
+from cc.core.config_paths import machine_config_path
 from cc.core.ecosystem.manifest import (
     ManifestError,
     load_layers,
@@ -36,6 +37,10 @@ from cc.core.write_guard import assert_write_is_isolated
 SCHEMA_VERSION = "1.0"
 COMPONENTS = ("knowledge", "cli", "claude", "codex")
 PRODUCTS = ("claude", "codex")
+LEGACY_FOUNDATION_REFS: dict[str, str] = {
+    "knowledge": "^0.1.0",
+    "cli": "^0.3.0",
+}
 # Plain-language, non-technical labels for the CLI/Copilot components -- used
 # only inside user-facing `detail`/`title` strings. `str.title()` would
 # render "cli" as "Cli"; every other component title-cases correctly.
@@ -51,6 +56,8 @@ _COMPONENT_LABELS: dict[str, str] = {
 # Release engineering populates these tuples only after the corresponding
 # public foundation starts publishing commits/tags signed by the real keys.
 FOUNDATION_ALLOWED_SIGNERS: dict[str, tuple[str, ...]] = {
+    "knowledge": (),
+    "cli": (),
     "claude": ("SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo",),
     "codex": ("SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo",),
 }
@@ -690,15 +697,24 @@ def _layer_manifest(
     refs = (handoff.get("foundation") or {}).get("refs") or {}
     layers: list[dict[str, Any]] = []
     for product in products:
-        requested = refs.get(product)
+        requested = refs.get(product) or LEGACY_FOUNDATION_REFS.get(product)
         if not isinstance(requested, str) or not requested:
             raise RuntimeError(
                 f"The organization handoff is missing foundation.refs.{product}."
             )
         exact_ref = _resolve_foundation_ref(product, requested, run=run)
+        personal_id = "cli-personal" if product == "cli" else f"{product}-personal"
+        organization_id = "org-internal" if product == "cli" else f"{product}-organization"
+        foundation_id = "foundation" if product == "cli" else f"{product}-foundation"
+        private_foundation = product in {"knowledge", "cli"}
+        foundation_repo = (
+            f"git@github-work:Everyone-Needs-A-Copilot/{product}-copilot.git"
+            if private_foundation
+            else f"https://github.com/Everyone-Needs-A-Copilot/{product}-copilot.git"
+        )
         for layer_id, role, rank, repo, ref, auth in (
             (
-                f"{product}-personal",
+                personal_id,
                 "personal",
                 10,
                 f"git@github-personal:{owner}/{product}-copilot-private.git",
@@ -706,7 +722,7 @@ def _layer_manifest(
                 "personal",
             ),
             (
-                f"{product}-organization",
+                organization_id,
                 "organization",
                 30,
                 f"git@github-work:{org}/{product}-copilot-internal.git",
@@ -714,12 +730,12 @@ def _layer_manifest(
                 "work",
             ),
             (
-                f"{product}-foundation",
+                foundation_id,
                 "foundation",
                 40,
-                f"https://github.com/Everyone-Needs-A-Copilot/{product}-copilot.git",
+                foundation_repo,
                 exact_ref,
-                "anon",
+                "work" if private_foundation else "anon",
             ),
         ):
             source: dict[str, str] = {"repo": repo, "ref": ref}
@@ -735,7 +751,7 @@ def _layer_manifest(
                     "auth": auth,
                     "activation": "always",
                     "policy": {
-                        "allowed_signers": list(FOUNDATION_ALLOWED_SIGNERS[product])
+                        "allowed_signers": list(FOUNDATION_ALLOWED_SIGNERS.get(product, ()))
                         if role == "foundation"
                         else []
                     },
@@ -807,9 +823,17 @@ def _managed_product_is_compatible(
     """Return true only for a previously generated stack we can repair."""
     if not existing:
         return False
-    desired_by_id = {layer["id"]: layer for layer in desired}
-    if not {layer.get("id") for layer in existing} <= set(desired_by_id):
-        return False
+    def canonical_role(value: Any) -> Any:
+        return {
+            "org": "organization",
+            "organization": "organization",
+            "dept": "department",
+            "department": "department",
+        }.get(value, value)
+    desired_by_key = {
+        (layer.get("product"), canonical_role(layer.get("role"))): layer
+        for layer in desired
+    }
     allowed_keys = {
         "id",
         "role",
@@ -827,17 +851,35 @@ def _managed_product_is_compatible(
         {"anon"},
     )
     for layer in existing:
-        expected = desired_by_id[layer["id"]]
+        key = (layer.get("product"), canonical_role(layer.get("role")))
+        expected = desired_by_key.get(key)
+        if expected is None:
+            return False
+        recognized_ids = {expected["id"]}
+        if layer.get("product") == "cli":
+            recognized_ids.update(
+                {
+                    "personal": {"cli-personal"},
+                    "organization": {"cli-organization", "org-internal"},
+                    "foundation": {"cli-foundation", "foundation"},
+                }.get(canonical_role(layer.get("role")), set())
+            )
+        if layer.get("id") not in recognized_ids:
+            return False
         if set(layer) - allowed_keys:
             return False
-        if any(
+        actual_role = canonical_role(layer.get("role"))
+        expected_role = canonical_role(expected.get("role"))
+        if actual_role != expected_role or any(
             layer.get(key) != expected.get(key)
-            for key in ("role", "rank", "product", "unit")
+            for key in ("rank", "product", "unit")
         ):
             return False
         actual_source = layer.get("source") or {}
         expected_source = expected.get("source") or {}
-        if actual_source.get("repo") != expected_source.get("repo"):
+        if _repository_identity(actual_source.get("repo")) != _repository_identity(
+            expected_source.get("repo")
+        ):
             return False
         if actual_source.get("subpath") != expected_source.get("subpath"):
             return False
@@ -846,11 +888,37 @@ def _managed_product_is_compatible(
         ) != expected_source.get("ref"):
             return False
         actual_auth, expected_auth = layer.get("auth"), expected.get("auth")
-        if not any({actual_auth, expected_auth} <= group for group in auth_equivalents):
+        foundation_transport_upgrade = (
+            expected_role == "foundation"
+            and {actual_auth, expected_auth} <= {"anon", "work", "ssh-work"}
+        )
+        if not foundation_transport_upgrade and not any(
+            {actual_auth, expected_auth} <= group for group in auth_equivalents
+        ):
             return False
         if layer.get("activation", "always") != "always":
             return False
     return True
+
+
+def _repository_identity(value: Any) -> str | None:
+    """Canonical GitHub owner/repository identity across HTTPS and SSH aliases."""
+    if not isinstance(value, str) or not value:
+        return None
+    candidate = value.strip()
+    if candidate.startswith("git@") and ":" in candidate:
+        candidate = candidate.split(":", 1)[1]
+    else:
+        parsed = urlsplit(candidate)
+        if parsed.hostname and parsed.hostname.casefold() == "github.com":
+            candidate = parsed.path
+    candidate = candidate.strip("/")
+    if candidate.endswith(".git"):
+        candidate = candidate[:-4]
+    parts = candidate.split("/")
+    if len(parts) != 2 or not all(parts):
+        return None
+    return "/".join(parts).casefold()
 
 
 def _manifest_adoption_plan(
@@ -1208,6 +1276,84 @@ def _validate_manifest_candidate(
         return probe(candidate, plan.source)
 
 
+def _sync_cli_manifest(manifest_path: Path) -> dict[str, str]:
+    """Sync CLI Copilot's product-owned mirrors against one staged manifest."""
+    executable = resolve_executable("copilot")
+    if executable is None:
+        return {
+            "result": "blocked",
+            "detail": "The installed `copilot` command is unavailable.",
+        }
+    environment = os.environ.copy()
+    environment["COPILOT_LAYERS_FILE"] = str(manifest_path)
+    configured_root = resolve_key("paths.mirrors_root")
+    if configured_root:
+        # CLI Copilot's compatibility variable names the directory *above*
+        # its `mirrors/cli/<id>` tree; cc stores the shared mirrors directory.
+        environment["COPILOT_MIRRORS_ROOT"] = str(
+            Path(str(configured_root)).expanduser().parent
+        )
+    try:
+        result = subprocess.run(
+            (str(executable), "--json", "update"),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=environment,
+            timeout=120,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"result": "blocked", "detail": f"CLI sync could not run: {exc}"}
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        payload = {}
+    if result.returncode != 0 or payload.get("overall") != "ok":
+        detail = (
+            payload.get("detail")
+            or result.stderr.strip()
+            or result.stdout.strip()
+            or "CLI Copilot did not confirm its layer mirrors."
+        )
+        return {"result": "blocked", "detail": str(detail)}
+    return {"result": "ready"}
+
+
+def _knowledge_mirror_paths(manifest: dict[str, Any]) -> list[str]:
+    base = Path(str(resolve_key("paths.mirrors_root"))).expanduser()
+    return [
+        str(base / "knowledge" / layer["id"])
+        for layer in sorted(manifest["layers"], key=lambda item: item["rank"])
+        if layer.get("product") == "knowledge"
+    ]
+
+
+def _set_dotted(payload: dict[str, Any], key: str, value: Any) -> None:
+    current = payload
+    parts = key.split(".")
+    for part in parts[:-1]:
+        child = current.get(part)
+        if not isinstance(child, dict):
+            child = {}
+            current[part] = child
+        current = child
+    current[parts[-1]] = value
+
+
+def _commit_machine_pointers(
+    manifest_path: Path, knowledge_paths: Sequence[str]
+) -> Path:
+    """Commit topology and Knowledge consumption pointers in one atomic write."""
+    path = machine_config_path()
+    payload = load_machine_config()
+    if not payload:
+        payload = {"$schema": "cc-config-v1", "version": 1}
+    _set_dotted(payload, "layers.manifest", str(manifest_path))
+    _set_dotted(payload, "paths.knowledge_repo", list(knowledge_paths))
+    content = (json.dumps(payload, indent=2) + "\n").encode("utf-8")
+    _atomic_bytes(path, content)
+    return path
+
 def _provision_store(store: dict[str, Any], *, apply: bool, run: Run) -> dict[str, Any]:
     if store.get("status") != "connected":
         return {"result": "deferred"}
@@ -1501,8 +1647,10 @@ def build_ecosystem_onboard_report(
     ssh_fn: Callable[..., dict[str, Any]] | None = None,
     store_fn: Callable[..., dict[str, Any]] | None = None,
     codex_fn: Callable[..., dict[str, Any]] | None = None,
+    cli_fn: Callable[[Path], dict[str, str]] | None = None,
     update_fn: Callable[..., tuple[dict[str, Any], int]] | None = None,
     doctor_fn: Callable[..., dict[str, Any]] | None = None,
+    commit_config_fn: Callable[[Path, Sequence[str]], Path] | None = None,
     consumer_probe_fn: Callable[[Path, Path | None], dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Run the resumable Admin-handoff-to-healthy-machine transaction.
@@ -1534,10 +1682,14 @@ def build_ecosystem_onboard_report(
         store_fn = _provision_store
     if codex_fn is None:
         codex_fn = _install_codex_plugin
+    if cli_fn is None:
+        cli_fn = _sync_cli_manifest
     if update_fn is None:
         update_fn = execute_update
     if doctor_fn is None:
         doctor_fn = build_doctor_report
+    if commit_config_fn is None:
+        commit_config_fn = _commit_machine_pointers
     if consumer_probe_fn is None:
         consumer_probe_fn = _probe_cli_candidate
 
@@ -1607,7 +1759,9 @@ def build_ecosystem_onboard_report(
             inventory=inventory,
             components=ecosystem_components,
         )
-    manifest = _layer_manifest(org, personal["owner"], normalized, handoff, run=run)
+    manifest = _layer_manifest(
+        org, personal["owner"], ecosystem_components, handoff, run=run
+    )
     if manifest_path:
         target = Path(manifest_path).expanduser()
         configured_manifest: Path | str | None = target
@@ -1820,6 +1974,11 @@ def build_ecosystem_onboard_report(
                 rolled_back = restore_exit == 0
             except Exception:
                 rolled_back = False
+        if rolled_back and prior_manifest is not None and prior_manifest.is_file():
+            try:
+                rolled_back = cli_fn(prior_manifest).get("result") == "ready"
+            except Exception:
+                rolled_back = False
         manifest_stage["result"] = "rolled-back" if rolled_back else "rollback-failed"
         manifest_stage["detail"] = (
             f"{detail} The previous manifest was restored."
@@ -1858,6 +2017,15 @@ def build_ecosystem_onboard_report(
         return blocked_after_write(
             "Materialization rejected the candidate layer manifest."
         )
+    try:
+        cli_report = cli_fn(target)
+    except Exception as exc:
+        return blocked_after_write(f"CLI layer sync failed: {exc}")
+    stages.append({"stage": "cli-sync", **cli_report})
+    if cli_report.get("result") != "ready":
+        return blocked_after_write(
+            cli_report.get("detail", "CLI layer sync rejected the candidate manifest.")
+        )
     if update_exit == 0 and "codex" in normalized:
         try:
             codex_report = codex_fn(apply=True, run=run)
@@ -1886,10 +2054,10 @@ def build_ecosystem_onboard_report(
             "The candidate made the post-apply health check unhealthy."
         )
     try:
-        write_config("layers.manifest", str(target))
+        commit_config_fn(target, _knowledge_mirror_paths(manifest))
     except Exception as exc:
         return blocked_after_write(
-            f"The manifest pointer could not be committed: {exc}"
+            f"The ecosystem pointers could not be committed: {exc}"
         )
     return _ecosystem_result(
         org,

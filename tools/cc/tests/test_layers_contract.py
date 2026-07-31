@@ -34,12 +34,13 @@ from cc.commands.layers import (
     execute_layers_join,
     layers_app,
 )
-from cc.core.ecosystem import entitlement
 from cc.core.ecosystem.policy import permissive_policy
 from cc.core.locking import copilot_lock
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 from typer.testing import CliRunner
+
+from cc.core.ecosystem import entitlement
 
 runner = CliRunner()
 
@@ -292,7 +293,15 @@ def test_list_report_end_to_end_tmp_ecosystem_yaml(tmp_path):
 def test_join_happy_path_materializes_and_validates_against_schema(tmp_path):
     source_repo = _make_source_repo(tmp_path, {"agents/sec.md": "v1"}, name="dept-finance")
     ecosystem_path = _write_ecosystem_yaml(
-        tmp_path, [{"id": "finance", "name": "Finance", "repo": str(source_repo)}]
+        tmp_path,
+        [
+            {
+                "id": "finance",
+                "name": "Finance",
+                "repo": str(source_repo),
+                "product": "claude",
+            }
+        ],
     )
     manifest_path = tmp_path / "copilot.layers.yml"
     lockfile_path = tmp_path / "copilot.lock.json"

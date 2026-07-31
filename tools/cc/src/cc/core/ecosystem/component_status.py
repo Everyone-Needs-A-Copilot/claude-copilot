@@ -75,6 +75,7 @@ class Checker:
     severity: str  # "pass" | "warn" | "fail"
     destructive: bool = False
     layer: Optional[str] = None
+    layer_role: Optional[str] = None
     product: Optional[str] = None
     detail: str = ""
     repair: Optional[str] = None
@@ -86,6 +87,8 @@ class Checker:
         d: dict = {"id": self.id, "severity": self.severity, "destructive": self.destructive}
         if self.layer:
             d["layer"] = self.layer
+        if self.layer_role:
+            d["layer_role"] = self.layer_role
         if self.product:
             d["product"] = self.product
         if self.detail:
@@ -129,7 +132,12 @@ def _run_git(
         return None
 
 
-def _mirror_clone_head_sha(tier: str, *, mirror_root: Optional[Path | str]) -> Optional[str]:
+def _mirror_clone_head_sha(
+    tier: str,
+    *,
+    product: Optional[str],
+    mirror_root: Optional[Path | str],
+) -> Optional[str]:
     """
     Best-effort local HEAD of an already-cloned mirror for `tier`, when one
     exists on disk. Never clones/fetches anything itself, and never
@@ -138,7 +146,12 @@ def _mirror_clone_head_sha(tier: str, *, mirror_root: Optional[Path | str]) -> O
     """
     if not tier or not mirror_root:
         return None
-    root = mirror.mirror_root(tier, _root=mirror_root)
+    base = Path(mirror_root).expanduser()
+    root = (
+        base / product / tier
+        if product in {"knowledge", "cli"}
+        else mirror.mirror_root(tier, _root=base)
+    )
     if not (root / ".git").is_dir():
         return None
     result = _run_git(["rev-parse", "HEAD"], cwd=root)
@@ -164,7 +177,11 @@ def _remote_sha_for_layer(
     if remote is not None:
         return remote, "lock"
 
-    mirror_sha = _mirror_clone_head_sha(layer.get("id", ""), mirror_root=mirror_root)
+    mirror_sha = _mirror_clone_head_sha(
+        layer.get("id", ""),
+        product=layer.get("product"),
+        mirror_root=mirror_root,
+    )
     return mirror_sha, "source" if mirror_sha is not None else "unknown"
 
 
@@ -205,6 +222,15 @@ def compute_component_checkers(
             else _local_sha_for_layer(lock, layer_id)
         )
         checker_id = f"{product}-{layer_id}-sync"
+        raw_role = str(layer.get("role") or "")
+        layer_role = {
+            "org": "organization",
+            "organization": "organization",
+            "dept": "department",
+            "department": "department",
+            "personal": "personal",
+            "foundation": "foundation",
+        }.get(raw_role, raw_role or None)
 
         if remote_sha is None:
             any_offline = True
@@ -213,6 +239,7 @@ def compute_component_checkers(
                     id=checker_id,
                     severity="warn",
                     layer=layer_id,
+                    layer_role=layer_role,
                     product=product,
                     detail=f"{product}/{layer_id}: could not reach remote to verify sync",
                     local_sha=local_sha,
@@ -225,6 +252,7 @@ def compute_component_checkers(
                     id=checker_id,
                     severity="pass",
                     layer=layer_id,
+                    layer_role=layer_role,
                     product=product,
                     detail=f"{product}/{layer_id}: tip matches remote",
                     local_sha=local_sha,
@@ -237,6 +265,7 @@ def compute_component_checkers(
                     id=checker_id,
                     severity="warn",
                     layer=layer_id,
+                    layer_role=layer_role,
                     product=product,
                     detail=(
                         f"{product}/{layer_id}: local {local_sha or 'none'} "

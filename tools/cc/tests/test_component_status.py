@@ -53,12 +53,13 @@ def _never_reaches_remote(_repo: str, _ref: str):
 
 
 def test_checker_id_is_product_layer_sync():
-    layer = _layer(id="org", product="cli")
+    layer = _layer(id="org", role="org", product="cli")
     checkers, _ = compute_component_checkers(
         [layer], lockfile={}, latest_sha_fn=lambda repo, ref: "abc1234"
     )
     assert checkers[0].id == "cli-org-sync"
     assert checkers[0].layer == "org"
+    assert checkers[0].layer_role == "organization"
     assert checkers[0].product == "cli"
 
 
@@ -209,7 +210,9 @@ def test_falls_back_to_mirror_clone_head_when_lock_pointer_unknown(tmp_path):
     source = _make_content_repo(tmp_path, {"agents/sec.md": "v1"})
     mirror_root = tmp_path / "mirrors"
 
-    sync = mirror.clone_or_update_mirror("foundation", str(source), "main", mirror_root=mirror_root)
+    sync = mirror.clone_or_update_mirror(
+        "foundation", str(source), "main", mirror_root=mirror_root / "knowledge"
+    )
     assert sync["ok"] is True
 
     layer = _layer(id="foundation", source={"repo": str(source), "ref": "main"})
@@ -243,7 +246,7 @@ def test_mirror_fallback_never_compares_source_commit_to_content_fingerprint(tmp
     source = _make_content_repo(tmp_path, {"agents/sec.md": "v1"})
     mirror_root = tmp_path / "mirrors"
     sync = mirror.clone_or_update_mirror(
-        "foundation", str(source), "main", mirror_root=mirror_root
+        "foundation", str(source), "main", mirror_root=mirror_root / "knowledge"
     )
     layer = _layer(id="foundation", source={"repo": str(source), "ref": "main"})
     lock = {
@@ -297,6 +300,7 @@ def test_to_contract_dict_field_set_matches_corpus_shape():
         id="knowledge-foundation-sync",
         severity="pass",
         layer="foundation",
+        layer_role="foundation",
         product="knowledge",
         detail="foundation tip matches remote",
         local_sha="a1b2c3d",
@@ -308,6 +312,7 @@ def test_to_contract_dict_field_set_matches_corpus_shape():
         "severity": "pass",
         "destructive": False,
         "layer": "foundation",
+        "layer_role": "foundation",
         "product": "knowledge",
         "detail": "foundation tip matches remote",
         "local_sha": "a1b2c3d",

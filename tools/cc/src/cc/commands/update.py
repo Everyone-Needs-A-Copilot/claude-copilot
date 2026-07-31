@@ -169,18 +169,26 @@ def build_update_report(
     source_shas: dict[str, str] = {}
     any_offline_without_cache = False
 
+    externally_consumed_products = {"knowledge", "cli"}
+
     for layer in sorted(layers, key=lambda item: item["rank"]):
         layer_copy = dict(layer)
         source = dict(layer.get("source") or {})
         repo = source.get("repo")
         local_path = source.get("path")
         subpath = source.get("subpath")
+        product = layer.get("product")
 
         if repo and not local_path:
             transport = mirror.resolve_transport(repo, layer.get("auth", "anon"))
+            product_root = (
+                mirror_root_base / str(product)
+                if product in externally_consumed_products
+                else mirror_root_base
+            )
             sync = mirror.clone_or_update_mirror(
                 layer["id"], transport, source.get("ref", "main"),
-                mirror_root=mirror_root_base,
+                mirror_root=product_root,
             )
             mirror_path = Path(sync["path"])
             has_cached_content = mirror_path.is_dir() and any(mirror_path.iterdir())
@@ -214,11 +222,27 @@ def build_update_report(
 
     from cc.core.ecosystem.discovery import discover_contributions
 
+    materialized_layers = [
+        layer
+        for layer in effective_layers
+        if layer.get("product") not in externally_consumed_products
+    ]
+    materialized_ids = {layer["id"] for layer in materialized_layers}
     contributions = (
-        _contributions if _contributions is not None else discover_contributions(effective_layers)
+        {
+            layer_id: value
+            for layer_id, value in _contributions.items()
+            if layer_id in materialized_ids
+        }
+        if _contributions is not None
+        else discover_contributions(materialized_layers)
     )
 
-    resolved = resolve_layers(effective_layers, contributions, lockfile=previous_lock)
+    resolved = (
+        resolve_layers(materialized_layers, contributions, lockfile=previous_lock)
+        if materialized_layers
+        else []
+    )
 
     layer_source_paths = {
         layer["id"]: (layer.get("source") or {}).get("path")

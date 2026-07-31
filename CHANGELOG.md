@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Complete ecosystem topology (`cc` 1.7.15):** aggregate onboarding now
+  provisions and verifies Foundation, Organization, and Personal layers for
+  Knowledge and CLI as well as the selected Claude/Codex assistant runtimes.
+  Knowledge and CLI use product-owned read-only mirrors consumed by their
+  native tools; they are never flattened into assistant materialization roots.
+- `doctor --json` now emits the canonical `layer_role` separately from the
+  opaque manifest layer identifier so clients can render Foundation,
+  Organization, Department, and Personal without guessing from names.
+
+### Changed
+
+- A recognized existing eight-layer Control Tower manifest is repaired
+  additively to the complete twelve-layer roster. The original manifest bytes
+  are retained for rollback, locally authored Knowledge/CLI repositories are
+  left untouched, CLI synchronization is verified, and the manifest plus
+  ordered Knowledge paths commit atomically only after a healthy Doctor result.
+
 ### Fixed
 
 - **Finder-launched Codex plugin setup (`cc` 1.7.11):** reconstruct the

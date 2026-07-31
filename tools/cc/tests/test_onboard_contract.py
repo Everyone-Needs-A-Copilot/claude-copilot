@@ -781,6 +781,8 @@ store:
   status: deferred
 foundation:
   refs:
+    knowledge: '^0.1.0'
+    cli: '^0.3.0'
     claude: '^5.8.0'
     codex: '^0.6.0'
 """
@@ -794,6 +796,10 @@ foundation:
         )
     if endpoint.endswith("codex-copilot/tags"):
         return subprocess.CompletedProcess(args, 0, '[{"name":"v0.6.2"}]', "")
+    if endpoint.endswith("knowledge-copilot/tags"):
+        return subprocess.CompletedProcess(args, 0, '[{"name":"v0.1.0"}]', "")
+    if endpoint.endswith("cli-copilot/tags"):
+        return subprocess.CompletedProcess(args, 0, '[{"name":"v0.3.1"}]', "")
     raise AssertionError(args)
 
 
@@ -848,6 +854,10 @@ def _codex(*, apply, **_kwargs):
     return {"result": "ready" if apply else "changes-required"}
 
 
+def _cli(_manifest_path):
+    return {"result": "ready"}
+
+
 def _consumer_ready(*_args):
     return {"result": "ready"}
 
@@ -879,7 +889,7 @@ def test_ecosystem_plan_fails_closed_when_codex_inventory_is_blocked(tmp_path):
     _assert_valid_onboard_report(report)
 
 
-def test_ecosystem_plan_builds_two_isolated_three_layer_stacks(tmp_path):
+def test_ecosystem_plan_builds_four_isolated_three_layer_stacks(tmp_path):
     report = build_ecosystem_onboard_report(
         org="Acme",
         apply=False,
@@ -895,6 +905,12 @@ def test_ecosystem_plan_builds_two_isolated_three_layer_stacks(tmp_path):
     assert [
         (layer["product"], layer["role"], layer["rank"]) for layer in report["layers"]
     ] == [
+        ("knowledge", "personal", 10),
+        ("knowledge", "organization", 30),
+        ("knowledge", "foundation", 40),
+        ("cli", "personal", 10),
+        ("cli", "organization", 30),
+        ("cli", "foundation", 40),
         ("claude", "personal", 10),
         ("claude", "organization", 30),
         ("claude", "foundation", 40),
@@ -930,6 +946,7 @@ def test_ecosystem_plan_provisions_every_handoff_component(tmp_path):
         personal_fn=personal,
         ssh_fn=_ssh,
         codex_fn=_codex,
+        cli_fn=_cli,
         consumer_probe_fn=_consumer_ready,
     )
 
@@ -1061,6 +1078,177 @@ layers:
     assert "isn't one I recognize" in plan.detail
 
 
+def test_existing_eight_layer_machine_repairs_to_all_twelve_layers(tmp_path):
+    handoff = {
+        "foundation": {
+            "refs": {
+                "knowledge": "v0.1.0",
+                "cli": "v0.3.1",
+                "claude": "v5.9.0",
+                "codex": "v0.6.2",
+            }
+        }
+    }
+    desired = onboard_module._layer_manifest(
+        "Acme", "pablo", ("knowledge", "cli", "claude", "codex"), handoff, run=_aggregate_run
+    )
+    existing_layers = [
+        dict(layer)
+        for layer in desired["layers"]
+        if layer["product"] in {"cli", "claude", "codex"}
+        and not (layer["product"] == "cli" and layer["role"] == "personal")
+    ]
+    for layer in existing_layers:
+        if layer["product"] == "cli" and layer["role"] == "organization":
+            layer["role"] = "org"
+            layer["auth"] = "ssh-work"
+        if layer["product"] == "cli" and layer["role"] == "foundation":
+            layer["source"] = {
+                "repo": "https://github.com/Everyone-Needs-A-Copilot/cli-copilot.git",
+                "ref": "^0.3.0",
+            }
+            layer["auth"] = "anon"
+    target = tmp_path / "copilot.layers.yml"
+    target.write_text(
+        yaml.safe_dump({"version": 1, "org": "Acme", "layers": existing_layers}),
+        encoding="utf-8",
+    )
+    authoring = tmp_path / "knowledge-copilot-internal"
+    authoring.mkdir()
+    authored_file = authoring / "private.md"
+    authored_file.write_text("keep me", encoding="utf-8")
+
+    plan = onboard_module._manifest_adoption_plan(desired, target, configured_path=target)
+
+    assert plan.action == "repair"
+    assert plan.payload is not None
+    assert len(plan.payload["layers"]) == 12
+    assert {layer["product"] for layer in plan.payload["layers"]} == {
+        "knowledge", "cli", "claude", "codex"
+    }
+    assert authored_file.read_text(encoding="utf-8") == "keep me"
+
+
+def test_existing_eight_layer_machine_apply_commits_all_four_products_without_touching_authored_repos(
+    tmp_path,
+):
+    handoff = {
+        "foundation": {
+            "refs": {
+                "knowledge": "v0.1.0",
+                "cli": "v0.3.1",
+                "claude": "v5.9.0",
+                "codex": "v0.6.2",
+            }
+        }
+    }
+    desired = onboard_module._layer_manifest(
+        "Acme",
+        "pablo",
+        ("knowledge", "cli", "claude", "codex"),
+        handoff,
+        run=_aggregate_run,
+    )
+    existing_layers = [
+        dict(layer)
+        for layer in desired["layers"]
+        if layer["product"] in {"cli", "claude", "codex"}
+        and not (layer["product"] == "cli" and layer["role"] == "personal")
+    ]
+    for layer in existing_layers:
+        if layer["product"] == "cli" and layer["role"] == "organization":
+            layer["role"] = "org"
+            layer["auth"] = "ssh-work"
+        if layer["product"] == "cli" and layer["role"] == "foundation":
+            layer["source"] = {
+                "repo": "https://github.com/Everyone-Needs-A-Copilot/cli-copilot.git",
+                "ref": "^0.3.0",
+            }
+            layer["auth"] = "anon"
+    target = tmp_path / "copilot.layers.yml"
+    target.write_text(
+        yaml.safe_dump({"version": 1, "org": "Acme", "layers": existing_layers}),
+        encoding="utf-8",
+    )
+    before = target.read_bytes()
+    authoring = tmp_path / "knowledge-copilot-internal"
+    authoring.mkdir()
+    authored_file = authoring / "private.md"
+    authored_file.write_text("keep me exactly", encoding="utf-8")
+    committed = []
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=lambda **_: (
+            {"result": "up-to-date", "blocked": [], "held_for_approval": []},
+            0,
+        ),
+        doctor_fn=lambda **_: {"status": "healthy", "score": 100},
+        commit_config_fn=lambda path, knowledge: committed.append(
+            (path, list(knowledge))
+        ),
+    )
+
+    assert report["result"] == "ready"
+    applied = yaml.safe_load(target.read_text(encoding="utf-8"))
+    assert len(applied["layers"]) == 12
+    assert {
+        (layer["product"], layer["role"])
+        for layer in applied["layers"]
+    } == {
+        (product, role)
+        for product in ("knowledge", "cli", "claude", "codex")
+        for role in ("personal", "organization", "foundation")
+    }
+    rollback = Path(
+        next(
+            stage for stage in report["stages"] if stage["stage"] == "layer-manifest"
+        )["rollback_path"]
+    )
+    assert rollback.read_bytes() == before
+    assert authored_file.read_text(encoding="utf-8") == "keep me exactly"
+    assert committed and committed[0][0] == target
+    assert len(committed[0][1]) == 3
+    _assert_valid_onboard_report(report)
+
+
+def test_machine_pointer_commit_is_atomic_and_preserves_unrelated_config(tmp_path):
+    config_path = onboard_module.machine_config_path()
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        json.dumps(
+            {
+                "$schema": "cc-config-v1",
+                "version": 1,
+                "github_app": {"org": "Acme"},
+                "paths": {"projects": "/existing"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    manifest_path = tmp_path / "copilot.layers.yml"
+    knowledge_paths = ["/mirrors/knowledge/personal", "/mirrors/knowledge/org"]
+
+    written = onboard_module._commit_machine_pointers(
+        manifest_path, knowledge_paths
+    )
+
+    assert written == config_path
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    assert payload["layers"]["manifest"] == str(manifest_path)
+    assert payload["paths"]["knowledge_repo"] == knowledge_paths
+    assert payload["paths"]["projects"] == "/existing"
+    assert payload["github_app"]["org"] == "Acme"
+
+
 def test_manifest_migration_is_reversible_and_removes_only_recognized_source(tmp_path):
     legacy = tmp_path / "old" / "copilot.layers.yml"
     legacy.parent.mkdir()
@@ -1135,6 +1323,7 @@ layers:
         personal_fn=_personal,
         ssh_fn=_ssh,
         codex_fn=_codex,
+        cli_fn=_cli,
         consumer_probe_fn=_consumer_ready,
         adopt_existing=(),  # explicit: nobody consented to anything
         update_fn=lambda **_: (
@@ -1149,13 +1338,10 @@ layers:
     manifest_item = next(i for i in report["inventory"] if i["id"] == "layer-manifest")
     assert manifest_item["reversible"] is False
     written = yaml.safe_load(target.read_text())
-    cli = next(
-        layer for layer in written["layers"] if layer["id"] == "cli-organization"
-    )
-    assert cli["component"] == "cli"
-    assert "product" not in cli
+    cli = next(layer for layer in written["layers"] if layer["id"] == "org-internal")
+    assert cli["product"] == "cli"
     products = {layer["product"] for layer in written["layers"] if "product" in layer}
-    assert products == {"claude", "codex"}
+    assert products == {"knowledge", "cli", "claude", "codex"}
     assert report["result"] == "ready"
     _assert_valid_onboard_report(report)
 
@@ -1189,6 +1375,7 @@ layers:
         personal_fn=personal,
         ssh_fn=_ssh,
         codex_fn=_codex,
+        cli_fn=_cli,
         consumer_probe_fn=lambda *_: {
             "result": "blocked",
             "detail": "The installed reader would lose Discord.",
@@ -1293,6 +1480,7 @@ layers:
         personal_fn=_personal,
         ssh_fn=_ssh,
         codex_fn=_codex,
+        cli_fn=_cli,
         consumer_probe_fn=_consumer_ready,
         update_fn=update,
         doctor_fn=lambda **_: pytest.fail("doctor must not run after update failure"),
@@ -1338,6 +1526,7 @@ layers:
         personal_fn=_personal,
         ssh_fn=_ssh,
         codex_fn=_codex,
+        cli_fn=_cli,
         consumer_probe_fn=_consumer_ready,
         update_fn=update,
         doctor_fn=lambda **_: {"status": "unhealthy", "score": 20},
@@ -1463,14 +1652,32 @@ def test_ecosystem_apply_writes_exact_refs_and_runs_update_doctor(
     tmp_path, monkeypatch
 ):
     config_writes = []
-    monkeypatch.setattr(
-        "cc.commands.onboard.write_config",
-        lambda key, value: config_writes.append((key, value)),
-    )
+    events = []
+
+    def commit_config(path, knowledge):
+        events.append("commit-config")
+        config_writes.append((str(path), list(knowledge)))
+
+    def update(**_kwargs):
+        events.append("cc-update")
+        return {"result": "up-to-date", "blocked": [], "held_for_approval": []}, 0
+
+    def cli(_path):
+        events.append("cli-update")
+        return {"result": "ready"}
+
+    def doctor(**_kwargs):
+        events.append("doctor")
+        return {"status": "healthy", "score": 100}
     monkeypatch.setattr(
         onboard_module,
         "FOUNDATION_ALLOWED_SIGNERS",
-        {"claude": ("CLAUDE-FINGERPRINT",), "codex": ("CODEX-FINGERPRINT",)},
+        {
+            "knowledge": (),
+            "cli": (),
+            "claude": ("CLAUDE-FINGERPRINT",),
+            "codex": ("CODEX-FINGERPRINT",),
+        },
     )
     report = build_ecosystem_onboard_report(
         org="Acme",
@@ -1480,16 +1687,21 @@ def test_ecosystem_apply_writes_exact_refs_and_runs_update_doctor(
         personal_fn=_personal,
         ssh_fn=_ssh,
         codex_fn=_codex,
+        cli_fn=cli,
         consumer_probe_fn=_consumer_ready,
-        update_fn=lambda **_: (
-            {"result": "up-to-date", "blocked": [], "held_for_approval": []},
-            0,
-        ),
-        doctor_fn=lambda **_: {"status": "healthy", "score": 100},
+        update_fn=update,
+        doctor_fn=doctor,
+        commit_config_fn=commit_config,
     )
     assert report["result"] == "ready"
     manifest = yaml.safe_load((tmp_path / "layers.yml").read_text())
     assert [(item["product"], item["rank"]) for item in manifest["layers"]] == [
+        ("knowledge", 10),
+        ("knowledge", 30),
+        ("knowledge", 40),
+        ("cli", 10),
+        ("cli", 30),
+        ("cli", 40),
         ("claude", 10),
         ("claude", 30),
         ("claude", 40),
@@ -1497,12 +1709,24 @@ def test_ecosystem_apply_writes_exact_refs_and_runs_update_doctor(
         ("codex", 30),
         ("codex", 40),
     ]
-    assert manifest["layers"][2]["source"]["ref"] == "v5.9.0"
-    assert manifest["layers"][5]["source"]["ref"] == "v0.6.2"
-    assert manifest["layers"][2]["policy"]["allowed_signers"] == ["CLAUDE-FINGERPRINT"]
-    assert manifest["layers"][5]["policy"]["allowed_signers"] == ["CODEX-FINGERPRINT"]
+    assert manifest["layers"][2]["source"]["ref"] == "v0.1.0"
+    assert manifest["layers"][5]["source"]["ref"] == "v0.3.1"
+    assert manifest["layers"][8]["source"]["ref"] == "v5.9.0"
+    assert manifest["layers"][11]["source"]["ref"] == "v0.6.2"
+    assert manifest["layers"][8]["policy"]["allowed_signers"] == ["CLAUDE-FINGERPRINT"]
+    assert manifest["layers"][11]["policy"]["allowed_signers"] == ["CODEX-FINGERPRINT"]
     assert manifest["layers"][0]["policy"]["allowed_signers"] == []
-    assert config_writes == [("layers.manifest", str(tmp_path / "layers.yml"))]
+    assert config_writes == [
+        (
+            str(tmp_path / "layers.yml"),
+            [
+                str(Path.home() / ".copilot/mirrors/knowledge/knowledge-personal"),
+                str(Path.home() / ".copilot/mirrors/knowledge/knowledge-organization"),
+                str(Path.home() / ".copilot/mirrors/knowledge/knowledge-foundation"),
+            ],
+        )
+    ]
+    assert events == ["cc-update", "cli-update", "doctor", "commit-config"]
     _assert_valid_onboard_report(report)
 
 
@@ -1510,6 +1734,8 @@ def test_foundation_release_signer_is_compiled_for_both_products():
     approved = "SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo"
 
     assert onboard_module.FOUNDATION_ALLOWED_SIGNERS == {
+        "knowledge": (),
+        "cli": (),
         "claude": (approved,),
         "codex": (approved,),
     }
@@ -1545,7 +1771,7 @@ def test_connected_store_without_scope_identifiers_blocks_before_writes(tmp_path
     )
     assert report["result"] == "blocked"
     assert report["stages"][-1]["stage"] == "secret-store"
-    assert len(report["layers"]) == 6
+    assert len(report["layers"]) == 12
     assert not (tmp_path / "layers.yml").exists()
     _assert_valid_onboard_report(report)
 
@@ -1625,6 +1851,7 @@ def test_unavailable_optional_store_does_not_block_core_apply(tmp_path):
             "detail": "Shared integrations were left for later.",
         },
         codex_fn=_codex,
+        cli_fn=_cli,
         consumer_probe_fn=_consumer_ready,
         update_fn=lambda **_: (
             {"result": "up-to-date", "blocked": [], "held_for_approval": []},
