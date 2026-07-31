@@ -1020,7 +1020,26 @@ def _seed_department(owner: str, name: str, component: str, unit: str, *, run: R
 def _apply_visible_topology(
     manifest: dict[str, Any], rows: Sequence[dict[str, Any]], *, run: Run
 ) -> tuple[bool, str | None]:
-    """Create/download/fast-forward only CLI-proven visible checkouts."""
+    """Create/download/fast-forward only CLI-proven visible checkouts.
+
+    ``row["action"]`` is read, never recomputed: it is the closed
+    classification `_classify_repository_history` (task 204) already
+    produced in `_topology_report_layers`, so only a row proven
+    ``fast-forwardable`` ever reaches the ``repair`` branch below and every
+    ``review`` row returns before any Git command touches its checkout
+    (never-destroy).
+
+    G-2 (task 205): a fast-forward merge exiting 0 is not proof it moved
+    anything -- ``git merge --ff-only`` also exits 0 as a no-op when
+    ``FETCH_HEAD`` is already an ancestor of ``HEAD``. So the repair branch
+    asserts the postcondition ``git rev-parse HEAD`` equals the fetched
+    target SHA before ever reporting success; a mismatch (or an
+    unconfirmable revision) is reported failed, never synced. When the
+    postcondition does hold, the row's ``detail`` is updated to say plainly
+    whether a fast-forward actually happened or the checkout was already at
+    the target -- "already at target" is its own honest outcome, never
+    relabeled as "repaired".
+    """
     by_id = {row["id"]: row for row in rows}
     for layer in sorted(manifest["layers"], key=lambda item: item["rank"], reverse=True):
         row = by_id[layer["id"]]
@@ -1048,12 +1067,32 @@ def _apply_visible_topology(
                     target.rmdir()
                 return False, f"Git could not download {row['repository_owner']}/{row['repository_name']} to {target}."
         elif action == "repair":
+            pre_merge_head = _git_output(target, "rev-parse", "HEAD", run=run)
+            if pre_merge_head.returncode != 0:
+                return False, f"{target}'s current revision could not be confirmed; nothing was changed."
             fetch = _git_output(target, "fetch", "origin", source.get("ref", "main"), run=run)
             if fetch.returncode != 0:
                 return False, f"Git could not fetch {row['repository_owner']}/{row['repository_name']}."
+            fetched_head = _git_output(target, "rev-parse", "FETCH_HEAD", run=run)
+            if fetched_head.returncode != 0:
+                return False, f"Git could not resolve the fetched revision for {row['repository_owner']}/{row['repository_name']}."
+            target_sha = fetched_head.stdout.strip()
             merge = _git_output(target, "merge", "--ff-only", "FETCH_HEAD", run=run)
             if merge.returncode != 0:
                 return False, f"{target} could not be fast-forwarded safely; local work was preserved."
+            post_merge_head = _git_output(target, "rev-parse", "HEAD", run=run)
+            if post_merge_head.returncode != 0 or post_merge_head.stdout.strip() != target_sha:
+                return False, (
+                    f"{target} did not reach the expected revision after the fast-forward, "
+                    "so Control Tower is reporting this failed rather than synced."
+                )
+            row["sync_state"] = "current"
+            row["action"] = "reuse"
+            row["detail"] = (
+                f"{target} was already at the expected revision; no fast-forward was needed."
+                if pre_merge_head.stdout.strip() == target_sha
+                else f"{target} was fast-forwarded to the expected revision."
+            )
     return True, None
 
 

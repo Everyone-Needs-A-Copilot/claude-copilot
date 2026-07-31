@@ -2452,3 +2452,222 @@ def test_visible_apply_cannot_report_ready_when_resolution_is_empty(
     ] == "blocked"
     assert not target.exists()
     _assert_valid_onboard_report(report)
+
+
+# ---------------------------------------------------------------------------
+# _apply_visible_topology() -- task 205 (G-2). Apply reads `row["action"]`
+# verbatim from `_classify_repository_history` (task 204); it never
+# re-derives Git state on its own. Only a row proven `fast-forwardable` may
+# ever reach the `repair` branch, and a fast-forward merge exiting 0 is not
+# trusted as proof of anything: HEAD must actually reach the fetched target
+# SHA before this ever reports success. Every fixture below is a real,
+# disposable `git init`/`git clone` repo under `tmp_path`, matching the G-1
+# fixture rule from the classifier tests above.
+# ---------------------------------------------------------------------------
+
+
+def _repair_row_fixture(layer_id: str, local: Path, ref: str = "main") -> tuple[dict, list[dict]]:
+    """A manifest/row pair claiming `action == "repair"` for `local`.
+
+    `source["repo"]` is deliberately a placeholder: the `repair` branch of
+    `_apply_visible_topology` fetches from the checkout's own `origin`
+    remote, never from `source["repo"]` (that field only feeds the
+    classifier's own direct fetch, exercised separately above).
+    """
+    manifest = {
+        "version": 1,
+        "layers": [
+            {
+                "id": layer_id,
+                "product": "codex",
+                "role": "personal",
+                "rank": 10,
+                "source": {"repo": "unused-by-repair", "ref": ref, "path": str(local)},
+            }
+        ],
+    }
+    rows = [
+        {
+            "id": layer_id,
+            "repository_owner": "pablo",
+            "repository_name": "codex-copilot-private",
+            "action": "repair",
+            "sync_state": "behind",
+            "detail": "Visible; a clean fast-forward is available.",
+        }
+    ]
+    return manifest, rows
+
+
+def _rev_parse(path: Path, ref: str = "HEAD") -> str:
+    return subprocess.run(
+        ["git", "-C", str(path), "rev-parse", ref],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+
+def test_apply_visible_topology_fast_forwardable_succeeds_and_reaches_target(tmp_path):
+    remote = tmp_path / "remote"
+    local = tmp_path / "codex-copilot-private"
+    _init_content_repo(remote, "note.txt", "v1")
+    subprocess.run(["git", "clone", "-q", str(remote), str(local)], check=True)
+    _commit(remote, "note.txt", "v2", "advance")
+    manifest, rows = _repair_row_fixture("codex-personal", local)
+
+    ok, detail = onboard_module._apply_visible_topology(manifest, rows, run=_real_run)
+
+    assert ok is True
+    assert detail is None
+    assert _rev_parse(local) == _rev_parse(remote)
+    assert "fast-forwarded to the expected revision" in rows[0]["detail"]
+
+
+def test_apply_visible_topology_repair_reports_already_at_target_when_nothing_moves(
+    tmp_path,
+):
+    """A row can arrive at apply still marked `repair` from a stale plan-time
+    snapshot even though the checkout is already at the target (e.g. it was
+    fast-forwarded by something else between plan and apply). Apply must
+    call this its own honest outcome -- "already at target" -- never
+    "repaired", since nothing actually moved."""
+    remote = tmp_path / "remote"
+    local = tmp_path / "codex-copilot-private"
+    _init_content_repo(remote, "note.txt", "v1")
+    subprocess.run(["git", "clone", "-q", str(remote), str(local)], check=True)
+    _commit(remote, "note.txt", "v2", "advance")
+    subprocess.run(["git", "-C", str(local), "fetch", "-q", "origin", "main"], check=True)
+    subprocess.run(
+        ["git", "-C", str(local), "merge", "-q", "--ff-only", "FETCH_HEAD"], check=True
+    )
+    manifest, rows = _repair_row_fixture("codex-personal", local)
+
+    ok, detail = onboard_module._apply_visible_topology(manifest, rows, run=_real_run)
+
+    assert ok is True
+    assert detail is None
+    assert "already at the expected revision" in rows[0]["detail"]
+    assert "no fast-forward was needed" in rows[0]["detail"]
+    assert "fast-forwarded" not in rows[0]["detail"]
+
+
+def test_apply_visible_topology_repair_reports_failed_when_postcondition_fails(
+    tmp_path, monkeypatch
+):
+    """Defense in depth: even when the underlying fetch/merge genuinely
+    succeed, a corrupted or unconfirmable post-merge `rev-parse HEAD` must
+    yield failed, never synced (G-2)."""
+    remote = tmp_path / "remote"
+    local = tmp_path / "codex-copilot-private"
+    _init_content_repo(remote, "note.txt", "v1")
+    subprocess.run(["git", "clone", "-q", str(remote), str(local)], check=True)
+    _commit(remote, "note.txt", "v2", "advance")
+    manifest, rows = _repair_row_fixture("codex-personal", local)
+    original_git_output = onboard_module._git_output
+
+    def corrupted_git_output(path, *args, run):
+        if Path(path) == local and args == ("rev-parse", "HEAD"):
+            return subprocess.CompletedProcess(args, 0, f"{'0' * 40}\n", "")
+        return original_git_output(path, *args, run=run)
+
+    monkeypatch.setattr(onboard_module, "_git_output", corrupted_git_output)
+
+    ok, detail = onboard_module._apply_visible_topology(manifest, rows, run=_real_run)
+
+    assert ok is False
+    assert "did not reach the expected revision" in detail
+    assert "reporting this failed rather than synced" in detail
+    # The real merge underneath genuinely succeeded -- only the corrupted
+    # postcondition read should be why this is reported failed.
+    assert _rev_parse(local) == _rev_parse(remote)
+
+
+def test_apply_visible_topology_ahead_only_cannot_produce_a_synced_result(
+    tmp_path, monkeypatch
+):
+    remote = tmp_path / "remote"
+    local = tmp_path / "codex-copilot-private"
+    _init_content_repo(remote, "note.txt", "v1")
+    _clone_with_fake_origin(remote, local, "pablo", "codex-copilot-private")
+    _commit(local, "note.txt", "v2 (unpublished)", "local-only work")
+    monkeypatch.setattr(
+        onboard_module,
+        "_repo_identity_from_layer",
+        lambda layer: ("pablo", "codex-copilot-private"),
+    )
+    monkeypatch.setattr(
+        onboard_module,
+        "_remote_repository_state",
+        lambda owner, name, *, run: ("ready", "private"),
+    )
+    manifest = _topology_manifest("codex-personal", local, remote)
+    rows = onboard_module._topology_report_layers(manifest, run=_real_run)
+    assert rows[0]["action"] == "review"
+    head_before = _rev_parse(local)
+
+    ok, detail = onboard_module._apply_visible_topology(manifest, rows, run=_real_run)
+
+    assert ok is False
+    assert detail == rows[0]["detail"]
+    assert _rev_parse(local) == head_before
+
+
+def test_apply_visible_topology_divergent_identical_tree_routes_to_review(
+    tmp_path, monkeypatch
+):
+    remote = tmp_path / "remote"
+    local = tmp_path / "codex-copilot-private"
+    _init_content_repo(remote, "note.txt", "same content")
+    _init_content_repo(local, "note.txt", "same content", message="independent history")
+    _set_fake_origin(local, "pablo", "codex-copilot-private")
+    monkeypatch.setattr(
+        onboard_module,
+        "_repo_identity_from_layer",
+        lambda layer: ("pablo", "codex-copilot-private"),
+    )
+    monkeypatch.setattr(
+        onboard_module,
+        "_remote_repository_state",
+        lambda owner, name, *, run: ("ready", "private"),
+    )
+    manifest = _topology_manifest("codex-personal", local, remote)
+    rows = onboard_module._topology_report_layers(manifest, run=_real_run)
+    assert rows[0]["action"] == "review"
+    head_before = _rev_parse(local)
+
+    ok, detail = onboard_module._apply_visible_topology(manifest, rows, run=_real_run)
+
+    assert ok is False
+    assert detail == rows[0]["detail"]
+    assert _rev_parse(local) == head_before
+
+
+def test_apply_visible_topology_divergent_different_content_routes_to_review(
+    tmp_path, monkeypatch
+):
+    remote = tmp_path / "remote"
+    local = tmp_path / "codex-copilot-private"
+    _init_content_repo(remote, "note.txt", "remote content")
+    _init_content_repo(local, "note.txt", "local content", message="independent history")
+    _set_fake_origin(local, "pablo", "codex-copilot-private")
+    monkeypatch.setattr(
+        onboard_module,
+        "_repo_identity_from_layer",
+        lambda layer: ("pablo", "codex-copilot-private"),
+    )
+    monkeypatch.setattr(
+        onboard_module,
+        "_remote_repository_state",
+        lambda owner, name, *, run: ("ready", "private"),
+    )
+    manifest = _topology_manifest("codex-personal", local, remote)
+    rows = onboard_module._topology_report_layers(manifest, run=_real_run)
+    assert rows[0]["action"] == "review"
+    head_before = _rev_parse(local)
+
+    ok, detail = onboard_module._apply_visible_topology(manifest, rows, run=_real_run)
+
+    assert ok is False
+    assert detail == rows[0]["detail"]
+    assert _rev_parse(local) == head_before
