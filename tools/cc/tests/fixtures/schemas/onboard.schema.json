@@ -1,7 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ineedacopilot.com/schemas/onboard.schema.json",
-  "$comment": "VENDORED COPY for the WS-A contract test in claude-copilot/tools/cc. Source of truth is copilot-control-tower/docs/01-architecture/schemas/onboard.schema.json — update this copy from there, not the reverse. LOCAL FIX 2026-07-24: the source declares `additionalProperties: false` on `repository` without listing `rank`/`package_state`/`package_action`/`package_detail`, which the CLI has always emitted (onboard.py `_row()`) -- this copy declares them (and required, since every row carries them) and adds the `adoptable` package_state alongside its `repositorySummary.adoptable` counter (B1: a private, non-empty personal repo with no root marker is offered for adoption instead of held/blocked) so the real `cc onboard --json` output validates. Flag for owner reconciliation upstream.",
   "title": "Copilot onboarding plan/apply report",
   "oneOf": [
     { "$ref": "#/$defs/repositoryReport" },
@@ -81,6 +80,7 @@
           "minItems": 4,
           "maxItems": 4,
           "uniqueItems": true,
+          "description": "The complete CSE component set provisioned by this ecosystem transaction, independent of the selected assistant runtimes.",
           "items": { "enum": ["knowledge", "cli", "claude", "codex"] },
           "allOf": [
             { "contains": { "const": "knowledge" } },
@@ -111,10 +111,10 @@
       "additionalProperties": false,
       "required": ["stage", "result"],
       "properties": {
-        "stage": { "enum": ["organization-handoff", "personal-packages", "device-ssh", "layer-manifest", "secret-store", "codex-plugin", "cli-sync", "materialize", "doctor"] },
+        "stage": { "enum": ["organization-handoff", "personal-packages", "repository-location", "visible-repositories", "device-ssh", "layer-manifest", "secret-store", "codex-plugin", "cli-sync", "materialize", "doctor", "resolve", "personal-repository-location"] },
         "result": { "type": "string", "minLength": 1 },
         "detail": { "type": "string", "minLength": 1 },
-        "action": { "enum": ["reuse", "create", "migrate", "repair", "review"] },
+        "action": { "enum": ["reuse", "create", "migrate", "repair", "review", "choose"] },
         "path": { "type": "string", "minLength": 1 },
         "rollback_path": { "type": "string", "minLength": 1 },
         "layers": { "type": "integer", "minimum": 0 },
@@ -137,7 +137,18 @@
         "id": { "type": "string", "minLength": 1 },
         "product": { "enum": ["knowledge", "cli", "claude", "codex"] },
         "role": { "enum": ["personal", "department", "organization", "foundation"] },
-        "rank": { "type": "integer", "minimum": 0 }
+        "rank": { "type": "integer", "minimum": 0 },
+        "unit": { "type": ["string", "null"] },
+        "repository_owner": { "type": "string" },
+        "repository_name": { "type": "string" },
+        "repository_visibility": { "type": ["string", "null"] },
+        "remote_state": { "type": "string" },
+        "local_path": { "type": ["string", "null"] },
+        "local_state": { "type": "string" },
+        "connection_state": { "type": "string" },
+        "sync_state": { "type": "string" },
+        "action": { "type": "string" },
+        "detail": { "type": "string" }
       }
     },
     "inventoryItem": {

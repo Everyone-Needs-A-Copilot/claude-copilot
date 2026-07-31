@@ -22,7 +22,6 @@ from cc.core.config_paths import (
     machine_secrets_path,
     project_config_path,
     project_secrets_path,
-    repo_root,
 )
 from cc.core.sentinels import is_sentinel, resolve_sentinel
 from cc.core.write_guard import assert_write_is_isolated
@@ -64,6 +63,11 @@ DEFAULTS: dict[str, Any] = {
     # ~/.claude (materialized tree) or an authoring vault -- see
     # core/ecosystem/mirror.py's module docstring.
     "paths.mirrors_root": "~/.copilot/mirrors",
+    # Visible, user-owned ecosystem checkouts. Unlike `paths.mirrors_root`,
+    # this is an authoring location the person can see and choose. Onboarding
+    # never treats a hidden mirror as proof that a repository is present on
+    # the Mac.
+    "paths.repositories_root": None,
     # The materialized tree `cc update` reconciles into -- what the host
     # actually scans (inheritance-and-publish.md §2.2's tree table). NEVER
     # a mirror and NEVER an authoring vault. See core/ecosystem/materialize.py.

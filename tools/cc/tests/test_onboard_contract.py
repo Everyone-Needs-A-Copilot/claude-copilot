@@ -1931,3 +1931,222 @@ def test_aggregate_block_before_manifest_still_returns_layers_field(tmp_path):
     assert report["layers"] == []
     assert not (tmp_path / "layers.yml").exists()
     _assert_valid_onboard_report(report)
+
+
+def test_department_membership_expands_visible_manifest_to_sixteen_layers(tmp_path):
+    handoff = {
+        "foundation": {
+            "refs": {
+                "knowledge": "v0.1.0",
+                "cli": "v0.3.1",
+                "claude": "v5.9.0",
+                "codex": "v0.6.2",
+            }
+        }
+    }
+
+    manifest = onboard_module._layer_manifest(
+        "Acme",
+        "pablo",
+        ("knowledge", "cli", "claude", "codex"),
+        handoff,
+        run=_aggregate_run,
+        department_units=("accounting",),
+        repository_root=tmp_path,
+    )
+
+    assert len(manifest["layers"]) == 16
+    assert {
+        (layer["product"], layer["role"], layer.get("unit"))
+        for layer in manifest["layers"]
+    } == {
+        (product, role, "accounting" if role == "department" else None)
+        for product in ("knowledge", "cli", "claude", "codex")
+        for role in ("personal", "department", "organization", "foundation")
+    }
+    personal = next(
+        layer
+        for layer in manifest["layers"]
+        if layer["product"] == "knowledge" and layer["role"] == "personal"
+    )
+    assert personal["source"]["path"] == str(tmp_path / "knowledge-copilot-private")
+    assert ".copilot/mirrors" not in personal["source"]["path"]
+
+
+def test_department_entitlement_requires_declared_active_membership():
+    calls = []
+
+    def run(args):
+        calls.append(tuple(args))
+        state = "active" if "/accounting/" in args[2] else "pending"
+        return subprocess.CompletedProcess(args, 0, json.dumps({"state": state}), "")
+
+    units = onboard_module._eligible_department_units(
+        {
+            "departments": [
+                {"unit": "accounting", "topology": "separate"},
+                {"unit": "legal", "topology": "separate"},
+                {"unit": "../unsafe", "topology": "separate"},
+            ]
+        },
+        "Acme",
+        "pablo",
+        run=run,
+    )
+
+    assert units == ("accounting",)
+    assert len(calls) == 2
+
+
+def test_repository_root_inference_finds_one_existing_component_cluster(
+    tmp_path, monkeypatch
+):
+    sites = tmp_path / "Sites"
+    cluster = sites / "COPILOT"
+    cluster.mkdir(parents=True)
+    (cluster / "knowledge-copilot").mkdir()
+    (cluster / "cli-copilot-internal").mkdir()
+    monkeypatch.setattr(
+        onboard_module,
+        "resolve_key",
+        lambda key: [str(sites)] if key == "projects.roots" else None,
+    )
+
+    assert onboard_module._infer_repository_root(("accounting",)) == cluster
+
+
+def test_topology_reports_connected_then_independently_verified(tmp_path):
+    checkout = tmp_path / "codex-copilot-private"
+    (checkout / ".git").mkdir(parents=True)
+    manifest = {
+        "version": 1,
+        "layers": [
+            {
+                "id": "codex-personal",
+                "product": "codex",
+                "role": "personal",
+                "rank": 10,
+                "source": {
+                    "repo": "git@github-personal:pablo/codex-copilot-private.git",
+                    "ref": "main",
+                    "path": str(checkout),
+                },
+            }
+        ],
+    }
+
+    def run(args):
+        args = tuple(args)
+        if args[:3] == ("gh", "api", "repos/pablo/codex-copilot-private"):
+            return subprocess.CompletedProcess(args, 0, json.dumps({"private": True}), "")
+        if args[:3] == ("gh", "api", "repos/pablo/codex-copilot-private/contents"):
+            return subprocess.CompletedProcess(args, 0, "[]", "")
+        if args[:4] == ("git", "-C", str(checkout), "remote"):
+            return subprocess.CompletedProcess(
+                args, 0, "git@github-personal:pablo/codex-copilot-private.git\n", ""
+            )
+        if args[:4] == ("git", "-C", str(checkout), "rev-parse"):
+            return subprocess.CompletedProcess(args, 0, "abc123\n", "")
+        if args[:4] == ("git", "-C", str(checkout), "status"):
+            return subprocess.CompletedProcess(args, 0, "", "")
+        if args[:2] == ("git", "ls-remote"):
+            return subprocess.CompletedProcess(args, 0, "abc123\trefs/heads/main\n", "")
+        raise AssertionError(args)
+
+    planned = onboard_module._topology_report_layers(manifest, run=run)
+    verified = onboard_module._topology_report_layers(manifest, run=run, verified=True)
+
+    assert planned[0]["connection_state"] == "connected"
+    assert verified[0]["connection_state"] == "verified"
+    assert verified[0]["sync_state"] == "current"
+
+
+def test_legacy_personal_mirrors_move_out_of_active_tree(tmp_path):
+    mirrors = tmp_path / ".copilot" / "mirrors"
+    visible = tmp_path / "Sites" / "COPILOT"
+    layers = []
+    for product, layer_id in (
+        ("knowledge", "knowledge-personal"),
+        ("cli", "cli-personal"),
+        ("claude", "claude-personal"),
+        ("codex", "codex-personal"),
+    ):
+        (visible / f"{product}-copilot-private").mkdir(parents=True)
+        legacy = mirrors / layer_id
+        legacy.mkdir(parents=True)
+        (legacy / "preserved.txt").write_text(product, encoding="utf-8")
+        layers.append(
+            {
+                "id": layer_id,
+                "product": product,
+                "role": "personal",
+                "source": {"path": str(visible / f"{product}-copilot-private")},
+            }
+        )
+
+    moved = onboard_module._quarantine_legacy_personal_mirrors(
+        {"layers": layers}, mirrors_root=mirrors
+    )
+
+    assert len(moved) == 4
+    assert not any((mirrors / layer["id"]).exists() for layer in layers)
+    quarantined = mirrors.parent / "legacy-mirrors"
+    assert sorted(path.read_text(encoding="utf-8") for path in quarantined.glob("*/preserved.txt")) == [
+        "claude", "cli", "codex", "knowledge"
+    ]
+
+
+def test_visible_apply_cannot_report_ready_when_resolution_is_empty(
+    tmp_path, monkeypatch
+):
+    def topology(manifest, **_kwargs):
+        return [
+            {
+                "id": layer["id"],
+                "product": layer["product"],
+                "role": layer["role"],
+                "rank": layer["rank"],
+                "unit": layer.get("unit"),
+                "local_state": "visible",
+                "connection_state": "connected",
+                "sync_state": "current",
+                "action": "reuse",
+                "detail": "Visible and current.",
+            }
+            for layer in manifest["layers"]
+        ]
+
+    monkeypatch.setattr(onboard_module, "_topology_report_layers", topology)
+    monkeypatch.setattr(
+        onboard_module, "_apply_visible_topology", lambda *_args, **_kwargs: (True, None)
+    )
+    target = tmp_path / "config" / "layers.yml"
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        repository_root=tmp_path / "Sites" / "COPILOT",
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=lambda **_: (
+            {"result": "up-to-date", "blocked": [], "held_for_approval": []},
+            0,
+        ),
+        doctor_fn=lambda **_: {"status": "healthy", "score": 100},
+        resolve_fn=lambda **_: {"schema_version": "1.0", "items": []},
+        commit_config_fn=lambda *_args: pytest.fail("empty resolution must not commit"),
+        personal_mirror_cleanup_fn=lambda *_args: pytest.fail(
+            "empty resolution must not move legacy repositories"
+        ),
+    )
+
+    assert report["result"] == "blocked"
+    assert next(stage for stage in report["stages"] if stage["stage"] == "resolve")[
+        "result"
+    ] == "blocked"
+    assert not target.exists()
+    _assert_valid_onboard_report(report)

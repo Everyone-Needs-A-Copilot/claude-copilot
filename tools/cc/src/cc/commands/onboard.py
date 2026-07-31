@@ -20,6 +20,7 @@ import typer
 import yaml
 
 from cc.commands.doctor import build_doctor_report
+from cc.commands.resolve import build_resolve_report
 from cc.commands.update import execute_update
 from cc.core import authstore, keychain
 from cc.core.config import load_machine_config, resolve_key
@@ -644,6 +645,324 @@ def _discover_org(products: Sequence[str], *, run: Run) -> str:
     )
 
 
+def _eligible_department_units(
+    handoff: dict[str, Any], org: str, owner: str, *, run: Run
+) -> tuple[str, ...]:
+    """Return only handoff-declared departments this GitHub user belongs to.
+
+    A department repository is never inferred from a local folder name. The
+    organization handoff declares the bounded candidate set and GitHub team
+    membership supplies the current entitlement proof.
+    """
+    units: list[str] = []
+    for row in handoff.get("departments") or []:
+        unit = row.get("unit") if isinstance(row, dict) else None
+        if not isinstance(unit, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]*", unit):
+            continue
+        membership = run(("gh", "api", f"orgs/{org}/teams/{unit}/memberships/{owner}"))
+        if membership.returncode != 0:
+            continue
+        try:
+            payload = json.loads(membership.stdout)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict) and payload.get("state") == "active":
+            units.append(unit)
+    return tuple(dict.fromkeys(units))
+
+
+def _canonical_repository_names(department_units: Sequence[str] = ()) -> set[str]:
+    names: set[str] = set()
+    for component in COMPONENTS:
+        names.update(
+            {
+                f"{component}-copilot",
+                f"{component}-copilot-internal",
+                f"{component}-copilot-private",
+            }
+        )
+        names.update(f"{component}-copilot-{unit}" for unit in department_units)
+    return names
+
+
+def _infer_repository_root(department_units: Sequence[str] = ()) -> Path | None:
+    """Infer one visible checkout folder from already approved local roots.
+
+    Only the configured repository root and the immediate children of
+    `projects.roots` are inspected. This keeps discovery bounded while still
+    finding the common `/Sites/COPILOT/<component>` layout.
+    """
+    configured = resolve_key("paths.repositories_root")
+    if configured:
+        return Path(str(configured)).expanduser()
+    roots = resolve_key("projects.roots")
+    if isinstance(roots, str):
+        roots = [roots]
+    if not isinstance(roots, list):
+        return None
+    expected = _canonical_repository_names(department_units)
+    scored: list[tuple[int, Path]] = []
+    for raw in roots:
+        if not isinstance(raw, str) or not raw:
+            continue
+        root = Path(raw).expanduser()
+        candidates = [root]
+        try:
+            candidates.extend(path for path in root.iterdir() if path.is_dir())
+        except OSError:
+            pass
+        for candidate in candidates:
+            try:
+                score = sum((candidate / name).is_dir() for name in expected)
+            except OSError:
+                score = 0
+            if score:
+                scored.append((score, candidate))
+    if not scored:
+        return None
+    scored.sort(key=lambda item: (-item[0], len(item[1].parts), str(item[1])))
+    best_score = scored[0][0]
+    best = {path for score, path in scored if score == best_score}
+    return next(iter(best)) if len(best) == 1 else None
+
+
+def _repo_identity_from_layer(layer: dict[str, Any]) -> tuple[str, str] | None:
+    identity = _repository_identity((layer.get("source") or {}).get("repo"))
+    if not identity:
+        return None
+    owner, name = identity.split("/", 1)
+    return owner, name
+
+
+def _git_output(path: Path, *args: str, run: Run) -> subprocess.CompletedProcess[str]:
+    return run(("git", "-C", str(path), *args))
+
+
+def _remote_repository_state(owner: str, name: str, *, run: Run) -> tuple[str, str | None]:
+    result = run(("gh", "api", f"repos/{owner}/{name}"))
+    if result.returncode != 0:
+        return ("missing", None) if _is_404(result) else ("unknown", None)
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return "unknown", None
+    visibility = "private" if payload.get("private") is True else "public"
+    contents = run(("gh", "api", f"repos/{owner}/{name}/contents"))
+    if _is_404(contents):
+        return "empty", visibility
+    return ("ready", visibility) if contents.returncode == 0 else ("unknown", visibility)
+
+
+def _topology_report_layers(
+    manifest: dict[str, Any], *, run: Run, verified: bool = False
+) -> list[dict[str, Any]]:
+    """Return user-facing repository evidence for every expected layer."""
+    rows: list[dict[str, Any]] = []
+    for layer in manifest["layers"]:
+        source = layer.get("source") or {}
+        identity = _repo_identity_from_layer(layer)
+        local_raw = source.get("path")
+        local = Path(local_raw).expanduser() if isinstance(local_raw, str) else None
+        if local is None:
+            remote_state, visibility = "not-checked", None
+            owner, name = identity or ("", "")
+        elif identity is None:
+            remote_state, visibility = "unknown", None
+            owner, name = "", ""
+        else:
+            owner, name = identity
+            remote_state, visibility = _remote_repository_state(owner, name, run=run)
+
+        local_state = "location-required" if local is None else "missing"
+        sync_state = "not-checked"
+        action = "choose-location" if local is None else "download"
+        detail = "Choose the visible folder where your Copilot repositories belong."
+        if local is not None and local.exists():
+            if not (local / ".git").is_dir():
+                local_state, action = "conflict", "review"
+                detail = f"{local} exists but is not a Git repository. Nothing will be changed."
+            else:
+                origin = _git_output(local, "remote", "get-url", "origin", run=run)
+                origin_identity = _repository_identity(origin.stdout.strip()) if origin.returncode == 0 else None
+                expected_identity = f"{owner}/{name}".casefold() if owner and name else None
+                if origin_identity != expected_identity:
+                    local_state, action = "conflict", "review"
+                    detail = f"{local} points to a different GitHub repository. Nothing will be changed."
+                else:
+                    local_state, action = "visible", "reuse"
+                    head = _git_output(local, "rev-parse", "HEAD", run=run)
+                    status = _git_output(local, "status", "--porcelain", run=run)
+                    remote = run(("git", "ls-remote", source.get("repo", ""), source.get("ref", "main")))
+                    remote_sha = remote.stdout.split()[0] if remote.returncode == 0 and remote.stdout.split() else None
+                    if head.returncode == 0 and remote_sha and head.stdout.strip() == remote_sha:
+                        sync_state = "current"
+                        detail = f"Visible at {local}; its checked-out revision matches GitHub."
+                    elif status.returncode == 0 and status.stdout.strip():
+                        sync_state = "local-changes"
+                        detail = f"Visible at {local}; local work will be preserved."
+                    elif remote_sha:
+                        sync_state, action = "behind", "repair"
+                        detail = f"Visible at {local}; a clean fast-forward is available."
+                    else:
+                        sync_state = "unknown"
+                        detail = f"Visible at {local}; GitHub currency could not be confirmed."
+        elif local is not None:
+            if remote_state == "missing" and layer["role"] != "personal":
+                action = "review"
+                detail = f"{owner}/{name} does not exist, so Control Tower will not invent this shared layer."
+            elif remote_state == "empty" and layer["role"] == "department":
+                action = "initialize"
+                detail = f"Initialize the empty {owner}/{name} layer, then download it to {local}."
+            elif remote_state == "missing" and layer["role"] == "personal":
+                action = "create"
+                detail = f"Create the private {owner}/{name} repository, then download it to {local}."
+            elif remote_state in {"ready", "empty"}:
+                action = "download"
+                detail = f"Download {owner}/{name} to {local}."
+            else:
+                action = "review"
+                detail = f"GitHub could not confirm {owner}/{name}; nothing will be changed."
+
+        rows.append(
+            {
+                "id": layer["id"],
+                "product": layer["product"],
+                "role": layer["role"],
+                "rank": layer["rank"],
+                "unit": layer.get("unit"),
+                "repository_owner": owner,
+                "repository_name": name,
+                "repository_visibility": visibility,
+                "remote_state": remote_state,
+                "local_path": str(local) if local else None,
+                "local_state": local_state,
+                "connection_state": (
+                    "verified"
+                    if verified and action == "reuse"
+                    else "connected"
+                    if action == "reuse"
+                    else "planned"
+                    if action != "review"
+                    else "blocked"
+                ),
+                "sync_state": sync_state,
+                "action": action,
+                "detail": detail,
+            }
+        )
+    return rows
+
+
+def _department_seed(component: str, unit: str) -> str:
+    return yaml.safe_dump(
+        {
+            "schema_version": "1.0",
+            "package": {
+                "role": "department",
+                "rank": 20,
+                "product": component,
+                "unit": unit,
+            },
+            "dimensions": [],
+        },
+        sort_keys=False,
+    )
+
+
+def _seed_department(owner: str, name: str, component: str, unit: str, *, run: Run) -> bool:
+    encoded = base64.b64encode(_department_seed(component, unit).encode("utf-8")).decode("ascii")
+    result = run(
+        (
+            "gh", "api", "-X", "PUT",
+            f"repos/{owner}/{name}/contents/copilot.layer.yml",
+            "-f", f"message=Initialize {unit} {component} Copilot layer",
+            "-f", f"content={encoded}",
+        )
+    )
+    return result.returncode == 0
+
+
+def _apply_visible_topology(
+    manifest: dict[str, Any], rows: Sequence[dict[str, Any]], *, run: Run
+) -> tuple[bool, str | None]:
+    """Create/download/fast-forward only CLI-proven visible checkouts."""
+    by_id = {row["id"]: row for row in rows}
+    for layer in sorted(manifest["layers"], key=lambda item: item["rank"], reverse=True):
+        row = by_id[layer["id"]]
+        action = row["action"]
+        if action in {"reuse"}:
+            continue
+        if action in {"review", "choose-location"}:
+            return False, row["detail"]
+        source = layer["source"]
+        target = Path(source["path"]).expanduser()
+        if action == "initialize":
+            if not _seed_department(
+                row["repository_owner"], row["repository_name"],
+                layer["product"], layer.get("unit", ""), run=run,
+            ):
+                return False, f"GitHub did not confirm initialization of {row['repository_owner']}/{row['repository_name']}."
+            action = "download"
+        if action in {"create", "download"}:
+            if target.exists():
+                return False, f"{target} appeared during setup, so Control Tower stopped without changing it."
+            target.parent.mkdir(parents=True, exist_ok=True)
+            clone = run(("git", "clone", "--origin", "origin", "--branch", source.get("ref", "main"), source["repo"], str(target)))
+            if clone.returncode != 0:
+                if target.exists() and not any(target.iterdir()):
+                    target.rmdir()
+                return False, f"Git could not download {row['repository_owner']}/{row['repository_name']} to {target}."
+        elif action == "repair":
+            fetch = _git_output(target, "fetch", "origin", source.get("ref", "main"), run=run)
+            if fetch.returncode != 0:
+                return False, f"Git could not fetch {row['repository_owner']}/{row['repository_name']}."
+            merge = _git_output(target, "merge", "--ff-only", "FETCH_HEAD", run=run)
+            if merge.returncode != 0:
+                return False, f"{target} could not be fast-forwarded safely; local work was preserved."
+    return True, None
+
+
+def _quarantine_legacy_personal_mirrors(
+    manifest: dict[str, Any], *, mirrors_root: Path | str | None = None
+) -> list[str]:
+    """Move superseded hidden Personal checkouts out of the active mirror tree.
+
+    A Personal repository's canonical checkout is the visible ``source.path``
+    selected during onboarding. Older releases placed Claude/Codex Personal
+    working copies directly below ``~/.copilot/mirrors`` and CLI/Knowledge
+    copies below product subdirectories. Preserve those bytes in a recoverable
+    sibling quarantine, but never leave them looking like active repositories.
+    """
+    configured = mirrors_root or resolve_key("paths.mirrors_root")
+    active_root = (
+        Path(str(configured)).expanduser()
+        if configured
+        else Path.home() / ".copilot" / "mirrors"
+    )
+    quarantine_root = active_root.parent / "legacy-mirrors"
+    moved: list[str] = []
+    for layer in manifest["layers"]:
+        if layer.get("role") != "personal":
+            continue
+        layer_id = str(layer["id"])
+        product = str(layer["product"])
+        visible = Path(str(layer["source"]["path"])).expanduser().resolve()
+        candidates = (active_root / layer_id, active_root / product / layer_id)
+        for candidate in candidates:
+            if not candidate.exists() or candidate.resolve() == visible:
+                continue
+            assert_write_is_isolated(candidate)
+            quarantine_root.mkdir(parents=True, exist_ok=True)
+            destination = quarantine_root / f"{product}-{layer_id}"
+            suffix = 1
+            while destination.exists():
+                destination = quarantine_root / f"{product}-{layer_id}-{suffix}"
+                suffix += 1
+            candidate.rename(destination)
+            moved.append(f"{candidate} -> {destination}")
+    return moved
+
+
 _SEMVER = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
 
 
@@ -692,7 +1011,14 @@ def _resolve_foundation_ref(product: str, requested: str, *, run: Run) -> str:
 
 
 def _layer_manifest(
-    org: str, owner: str, products: Sequence[str], handoff: dict[str, Any], *, run: Run
+    org: str,
+    owner: str,
+    products: Sequence[str],
+    handoff: dict[str, Any],
+    *,
+    run: Run,
+    department_units: Sequence[str] = (),
+    repository_root: Path | None = None,
 ) -> dict[str, Any]:
     refs = (handoff.get("foundation") or {}).get("refs") or {}
     layers: list[dict[str, Any]] = []
@@ -712,7 +1038,7 @@ def _layer_manifest(
             if private_foundation
             else f"https://github.com/Everyone-Needs-A-Copilot/{product}-copilot.git"
         )
-        for layer_id, role, rank, repo, ref, auth in (
+        layer_specs = [
             (
                 personal_id,
                 "personal",
@@ -721,6 +1047,17 @@ def _layer_manifest(
                 "main",
                 "personal",
             ),
+            *[
+                (
+                    f"{product}-department-{unit}",
+                    "department",
+                    20,
+                    f"git@github-work:{org}/{product}-copilot-{unit}.git",
+                    "main",
+                    "work",
+                )
+                for unit in department_units
+            ],
             (
                 organization_id,
                 "organization",
@@ -737,12 +1074,27 @@ def _layer_manifest(
                 exact_ref,
                 "work" if private_foundation else "anon",
             ),
-        ):
+        ]
+        for layer_id, role, rank, repo, ref, auth in layer_specs:
             source: dict[str, str] = {"repo": repo, "ref": ref}
+            if repository_root is not None:
+                if role == "personal":
+                    repo_name = f"{product}-copilot-private"
+                elif role == "department":
+                    unit = next(
+                        unit
+                        for unit in department_units
+                        if layer_id.endswith("-" + unit)
+                    )
+                    repo_name = f"{product}-copilot-{unit}"
+                elif role == "organization":
+                    repo_name = f"{product}-copilot-internal"
+                else:
+                    repo_name = f"{product}-copilot"
+                source["path"] = str(repository_root / repo_name)
             if product == "claude" and role == "foundation":
                 source["subpath"] = ".claude"
-            layers.append(
-                {
+            layer = {
                     "id": layer_id,
                     "role": role,
                     "rank": rank,
@@ -756,7 +1108,11 @@ def _layer_manifest(
                         else []
                     },
                 }
-            )
+            if role == "department":
+                layer["unit"] = next(
+                    unit for unit in department_units if layer_id.endswith("-" + unit)
+                )
+            layers.append(layer)
     return {"version": 1, "org": org, "layers": layers}
 
 
@@ -1341,7 +1697,9 @@ def _set_dotted(payload: dict[str, Any], key: str, value: Any) -> None:
 
 
 def _commit_machine_pointers(
-    manifest_path: Path, knowledge_paths: Sequence[str]
+    manifest_path: Path,
+    knowledge_paths: Sequence[str],
+    repository_root: Path | None = None,
 ) -> Path:
     """Commit topology and Knowledge consumption pointers in one atomic write."""
     path = machine_config_path()
@@ -1350,6 +1708,8 @@ def _commit_machine_pointers(
         payload = {"$schema": "cc-config-v1", "version": 1}
     _set_dotted(payload, "layers.manifest", str(manifest_path))
     _set_dotted(payload, "paths.knowledge_repo", list(knowledge_paths))
+    if repository_root is not None:
+        _set_dotted(payload, "paths.repositories_root", str(repository_root))
     content = (json.dumps(payload, indent=2) + "\n").encode("utf-8")
     _atomic_bytes(path, content)
     return path
@@ -1544,15 +1904,29 @@ def _ecosystem_result(
         "components": list(components or products),
         "stages": stages,
     }
-    report["layers"] = [
-        {
+    report["layers"] = []
+    optional_layer_fields = (
+        "unit",
+        "repository_owner",
+        "repository_name",
+        "repository_visibility",
+        "remote_state",
+        "local_path",
+        "local_state",
+        "connection_state",
+        "sync_state",
+        "action",
+        "detail",
+    )
+    for layer in (layers or ()):
+        row = {
             "id": layer["id"],
             "product": layer["product"],
             "role": layer["role"],
             "rank": layer["rank"],
         }
-        for layer in (layers or ())
-    ]
+        row.update({key: layer.get(key) for key in optional_layer_fields if key in layer})
+        report["layers"].append(row)
     report["inventory"] = list(inventory or ())
     report["inventory_summary"] = {
         "reused": sum(item.get("action") == "reuse" for item in report["inventory"]),
@@ -1643,6 +2017,7 @@ def build_ecosystem_onboard_report(
     adopt_existing: Sequence[str] = (),
     run: Run | None = None,
     manifest_path: Path | str | None = None,
+    repository_root: Path | str | None = None,
     personal_fn: Callable[..., dict[str, Any]] | None = None,
     ssh_fn: Callable[..., dict[str, Any]] | None = None,
     store_fn: Callable[..., dict[str, Any]] | None = None,
@@ -1650,7 +2025,9 @@ def build_ecosystem_onboard_report(
     cli_fn: Callable[[Path], dict[str, str]] | None = None,
     update_fn: Callable[..., tuple[dict[str, Any], int]] | None = None,
     doctor_fn: Callable[..., dict[str, Any]] | None = None,
-    commit_config_fn: Callable[[Path, Sequence[str]], Path] | None = None,
+    resolve_fn: Callable[..., dict[str, Any]] | None = None,
+    commit_config_fn: Callable[..., Path] | None = None,
+    personal_mirror_cleanup_fn: Callable[..., list[str]] | None = None,
     consumer_probe_fn: Callable[[Path, Path | None], dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Run the resumable Admin-handoff-to-healthy-machine transaction.
@@ -1688,8 +2065,12 @@ def build_ecosystem_onboard_report(
         update_fn = execute_update
     if doctor_fn is None:
         doctor_fn = build_doctor_report
+    if resolve_fn is None:
+        resolve_fn = build_resolve_report
     if commit_config_fn is None:
         commit_config_fn = _commit_machine_pointers
+    if personal_mirror_cleanup_fn is None:
+        personal_mirror_cleanup_fn = _quarantine_legacy_personal_mirrors
     if consumer_probe_fn is None:
         consumer_probe_fn = _probe_cli_candidate
 
@@ -1759,9 +2140,50 @@ def build_ecosystem_onboard_report(
             inventory=inventory,
             components=ecosystem_components,
         )
-    manifest = _layer_manifest(
-        org, personal["owner"], ecosystem_components, handoff, run=run
+    department_units = _eligible_department_units(
+        handoff, org, personal["owner"], run=run
     )
+    legacy_injected_mode = manifest_path is not None and repository_root is None
+    visible_root = (
+        Path(repository_root).expanduser()
+        if repository_root is not None
+        else _infer_repository_root(department_units)
+    )
+    manifest = _layer_manifest(
+        org,
+        personal["owner"],
+        ecosystem_components,
+        handoff,
+        run=run,
+        department_units=department_units,
+        repository_root=visible_root,
+    )
+    topology_layers = _topology_report_layers(manifest, run=run)
+    if legacy_injected_mode:
+        for row in topology_layers:
+            row.update(
+                local_state="legacy-test-mode",
+                connection_state="planned",
+                sync_state="not-checked",
+                action="reuse",
+                detail="Visible repository placement was not requested by this injected transaction.",
+            )
+    repository_stage = {
+            "stage": "repository-location",
+            "result": "ready" if visible_root is not None or legacy_injected_mode else "changes-required",
+            "action": "reuse" if visible_root is not None or legacy_injected_mode else "choose",
+            "detail": (
+                f"Copilot repositories are visible in {visible_root}."
+                if visible_root is not None
+                else "Visible repository placement is controlled by this injected transaction."
+                if legacy_injected_mode
+                else "Choose the visible folder where Copilot repositories should be created or downloaded."
+            ),
+        }
+    if visible_root is not None:
+        repository_stage["path"] = str(visible_root)
+    if not legacy_injected_mode:
+        stages.append(repository_stage)
     if manifest_path:
         target = Path(manifest_path).expanduser()
         configured_manifest: Path | str | None = target
@@ -1804,7 +2226,7 @@ def build_ecosystem_onboard_report(
             apply,
             "blocked",
             stages,
-            manifest["layers"],
+            topology_layers,
             inventory,
             ecosystem_components,
         )
@@ -1829,7 +2251,7 @@ def build_ecosystem_onboard_report(
             apply,
             "blocked",
             stages,
-            manifest["layers"],
+            topology_layers,
             inventory,
             ecosystem_components,
         )
@@ -1846,7 +2268,7 @@ def build_ecosystem_onboard_report(
             apply,
             "blocked",
             stages,
-            manifest["layers"],
+            topology_layers,
             inventory,
             ecosystem_components,
         )
@@ -1881,14 +2303,26 @@ def build_ecosystem_onboard_report(
     if not apply:
         needs_change = any(
             item["action"] in {"create", "migrate", "repair"} for item in inventory
-        )
+        ) or any(layer.get("action") != "reuse" for layer in topology_layers)
         return _ecosystem_result(
             org,
             normalized,
             False,
             "changes-required" if needs_change else "ready",
             stages,
-            manifest["layers"],
+            topology_layers,
+            inventory,
+            ecosystem_components,
+        )
+
+    if visible_root is None and not legacy_injected_mode:
+        return _ecosystem_result(
+            org,
+            normalized,
+            True,
+            "blocked",
+            stages,
+            topology_layers,
             inventory,
             ecosystem_components,
         )
@@ -1931,6 +2365,32 @@ def build_ecosystem_onboard_report(
             "blocked",
             stages,
             manifest["layers"],
+            inventory,
+            ecosystem_components,
+        )
+
+    if legacy_injected_mode:
+        topology_ok, topology_detail = True, None
+    else:
+        topology_ok, topology_detail = _apply_visible_topology(
+            manifest, topology_layers, run=run
+        )
+        stages.append({
+            "stage": "visible-repositories",
+            "result": "ready" if topology_ok else "blocked",
+            "detail": topology_detail
+            or f"All {len(topology_layers)} expected repositories are visible in {visible_root}.",
+            "path": str(visible_root),
+            "layers": len(topology_layers),
+        })
+    if not topology_ok:
+        return _ecosystem_result(
+            org,
+            normalized,
+            True,
+            "blocked",
+            stages,
+            topology_layers,
             inventory,
             ecosystem_components,
         )
@@ -2053,11 +2513,60 @@ def build_ecosystem_onboard_report(
         return blocked_after_write(
             "The candidate made the post-apply health check unhealthy."
         )
+    if not legacy_injected_mode:
+        try:
+            resolution = resolve_fn(_manifest_path=target)
+        except Exception as exc:
+            return blocked_after_write(f"The post-apply resolution check failed: {exc}")
+        resolved_items = resolution.get("items", [])
+        stages.append(
+            {
+                "stage": "resolve",
+                "result": "ready" if resolved_items else "blocked",
+                "layers": len(resolved_items),
+                "detail": (
+                    f"Resolved {len(resolved_items)} effective Copilot capabilities."
+                    if resolved_items
+                    else "No effective Copilot capabilities resolved from the candidate topology."
+                ),
+            }
+        )
+        if not resolved_items:
+            return blocked_after_write(
+                "The candidate topology did not resolve any effective Copilot capabilities."
+            )
     try:
-        commit_config_fn(target, _knowledge_mirror_paths(manifest))
+        knowledge_paths = [
+            str(Path(layer["source"]["path"]).expanduser())
+            for layer in sorted(manifest["layers"], key=lambda item: item["rank"])
+            if layer.get("product") == "knowledge" and layer.get("source", {}).get("path")
+        ]
+        if visible_root is None:
+            commit_config_fn(target, _knowledge_mirror_paths(manifest))
+        else:
+            commit_config_fn(target, knowledge_paths, visible_root)
     except Exception as exc:
         return blocked_after_write(
             f"The ecosystem pointers could not be committed: {exc}"
+        )
+    if not legacy_injected_mode:
+        try:
+            moved_personal = personal_mirror_cleanup_fn(manifest)
+        except Exception as exc:
+            return blocked_after_write(
+                f"Legacy hidden Personal repositories could not be quarantined: {exc}"
+            )
+        stages.append(
+            {
+                "stage": "personal-repository-location",
+                "result": "ready",
+                "layers": len(moved_personal),
+                "detail": (
+                    "Superseded hidden Personal repositories were moved to a recoverable legacy location."
+                    if moved_personal
+                    else "No hidden Personal repositories remain in the active mirror location."
+                ),
+            }
         )
     return _ecosystem_result(
         org,
@@ -2065,7 +2574,7 @@ def build_ecosystem_onboard_report(
         True,
         "ready",
         stages,
-        manifest["layers"],
+        _topology_report_layers(manifest, run=run, verified=True),
         inventory,
         ecosystem_components,
     )
@@ -2102,6 +2611,14 @@ def onboard_cmd(
             "all-or-nothing. Any adoptable item left out of this list is a no-op."
         ),
     ),
+    repository_root: str | None = typer.Option(
+        None,
+        "--repository-root",
+        help=(
+            "Visible folder where ecosystem repositories are kept. When omitted, "
+            "cc uses the saved folder or a single unambiguous match inside approved project roots."
+        ),
+    ),
 ) -> None:
     """Discover personal repositories, then optionally create confirmed-missing ones."""
     adopt_components = tuple(
@@ -2114,6 +2631,7 @@ def onboard_cmd(
                 products=products.split(","),
                 apply=apply,
                 adopt_existing=adopt_components,
+                repository_root=repository_root,
             )
         except (RuntimeError, ValueError) as exc:
             if output_json:

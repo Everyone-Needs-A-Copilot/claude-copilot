@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Visible, Department-aware ecosystem topology (`cc` 1.7.16):** aggregate
+  onboarding now includes active handoff-declared Department membership and
+  reports the complete repository, visible-checkout, connection, sync, and
+  action evidence for each layer. `--repository-root` selects the visible
+  folder; a single unambiguous existing component cluster can be inferred.
+- Missing Personal repositories are created privately and cloned visibly beside
+  existing components. Existing Organization, Department, and Personal remotes
+  are downloaded there; empty entitled Department repositories receive only
+  their additive layer marker before cloning.
+
 - **Complete ecosystem topology (`cc` 1.7.15):** aggregate onboarding now
   provisions and verifies Foundation, Organization, and Personal layers for
   Knowledge and CLI as well as the selected Claude/Codex assistant runtimes.
@@ -19,6 +29,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Organization, Department, and Personal without guessing from names.
 
 ### Changed
+
+- Layer manifests use visible checkouts as their local sources. Hidden mirrors
+  no longer prove that a Personal repository is present. Existing working trees
+  are preserved; only a clean fast-forward is permitted, and wrong-origin or
+  unfamiliar paths stop the transaction.
+- A Ready result now requires non-empty effective resolution. Superseded
+  Personal checkouts from the active hidden mirror tree are moved intact to a
+  recoverable legacy location after the visible topology verifies.
 
 - A recognized existing eight-layer Control Tower manifest is repaired
   additively to the complete twelve-layer roster. The original manifest bytes

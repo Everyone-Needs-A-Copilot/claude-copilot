@@ -211,6 +211,14 @@ def build_update_report(
                         )
                     content_root = mirror_path / relative
                 source["path"] = str(content_root)
+        elif local_path and subpath:
+            relative = Path(str(subpath))
+            if relative.is_absolute() or ".." in relative.parts:
+                raise ManifestError(
+                    f"Layer {layer['id']!r} source.subpath must stay inside its checkout."
+                )
+            source = dict(source)
+            source["path"] = str(Path(str(local_path)).expanduser() / relative)
 
         layer_copy["source"] = source
         effective_layers.append(layer_copy)
