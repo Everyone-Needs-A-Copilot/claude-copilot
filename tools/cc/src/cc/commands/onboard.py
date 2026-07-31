@@ -96,6 +96,37 @@ class PackageProbe:
 
 
 @dataclass(frozen=True)
+class HistoryClassification:
+    """The closed result of comparing a visible checkout's Git history to its
+    expected GitHub origin (G-1). Exactly one of eight states is returned,
+    never anything invented in between, and every field is proven by an
+    actual `git`/`gh` fact -- never inferred from "the tree is clean and the
+    SHAs differ".
+
+    ``state`` is the canonical, closed classification (one of: ``exact``,
+    ``fast-forwardable``, ``dirty``, ``ahead-only``,
+    ``divergent-identical-tree``, ``divergent-different-content``,
+    ``wrong-origin``, ``unreadable``). ``sync_state``/``action``/``detail``
+    are the user-facing fields this collapses onto in the topology report.
+
+    This is the single source of truth for "is it safe to touch this
+    checkout, and how" -- both the plan/report path
+    (``_topology_report_layers``) and the apply path
+    (``_apply_visible_topology``, and its task-205 postcondition assertions)
+    must agree with exactly this function. Only ``fast-forwardable`` may ever
+    promise "a clean fast-forward is available", and only because
+    `git merge-base --is-ancestor` proved it -- every other non-``exact``
+    state routes to the owner (``action == "review"``) and is never
+    auto-repaired (never-destroy).
+    """
+
+    state: str
+    sync_state: str
+    action: str
+    detail: str
+
+
+@dataclass(frozen=True)
 class ManifestAdoption:
     state: str
     action: str
@@ -738,6 +769,127 @@ def _git_output(path: Path, *args: str, run: Run) -> subprocess.CompletedProcess
     return run(("git", "-C", str(path), *args))
 
 
+def _classify_repository_history(
+    local: Path, *, owner: str, name: str, source: dict[str, Any], run: Run
+) -> HistoryClassification:
+    """Classify `local`'s Git history against `owner/name`'s `source["ref"]`.
+
+    Every branch is a fact proven by an actual `git` command; there is no
+    "clean tree + different SHA implies fast-forward" shortcut anywhere in
+    here (that was G-1). Ancestry is decided only by
+    `git merge-base --is-ancestor`, which requires the target commit's object
+    to exist locally -- so this fetches `source["repo"]`/`source["ref"]`
+    into `local`'s object store (never into the working tree or an index)
+    before ever comparing SHAs, mirroring how `_apply_visible_topology`'s
+    `repair` branch already fetches before its `--ff-only` merge.
+    """
+    if not (local / ".git").is_dir():
+        return HistoryClassification(
+            "unreadable",
+            "unreadable",
+            "review",
+            f"{local} exists but is not a Git repository. Nothing will be changed.",
+        )
+
+    origin = _git_output(local, "remote", "get-url", "origin", run=run)
+    origin_identity = (
+        _repository_identity(origin.stdout.strip()) if origin.returncode == 0 else None
+    )
+    expected_identity = f"{owner}/{name}".casefold() if owner and name else None
+    if origin_identity != expected_identity:
+        return HistoryClassification(
+            "wrong-origin",
+            "wrong-origin",
+            "review",
+            f"{local} points to a different GitHub repository. Nothing will be changed.",
+        )
+
+    head = _git_output(local, "rev-parse", "HEAD", run=run)
+    status = _git_output(local, "status", "--porcelain", run=run)
+    if head.returncode != 0 or status.returncode != 0:
+        return HistoryClassification(
+            "unreadable",
+            "unreadable",
+            "review",
+            f"{local}'s Git history could not be read. Nothing will be changed.",
+        )
+    head_sha = head.stdout.strip()
+    if status.stdout.strip():
+        return HistoryClassification(
+            "dirty",
+            "local-changes",
+            "review",
+            f"Visible at {local}; local work will be preserved.",
+        )
+
+    ref = source.get("ref", "main")
+    fetch = _git_output(local, "fetch", source.get("repo", ""), ref, run=run)
+    if fetch.returncode != 0:
+        return HistoryClassification(
+            "unreadable",
+            "unreadable",
+            "review",
+            f"Visible at {local}; GitHub currency could not be confirmed.",
+        )
+    target = _git_output(local, "rev-parse", "FETCH_HEAD", run=run)
+    if target.returncode != 0:
+        return HistoryClassification(
+            "unreadable",
+            "unreadable",
+            "review",
+            f"Visible at {local}; GitHub currency could not be confirmed.",
+        )
+    target_sha = target.stdout.strip()
+
+    if head_sha == target_sha:
+        return HistoryClassification(
+            "exact",
+            "current",
+            "reuse",
+            f"Visible at {local}; its checked-out revision matches GitHub.",
+        )
+
+    forward = _git_output(local, "merge-base", "--is-ancestor", head_sha, target_sha, run=run)
+    if forward.returncode == 0:
+        return HistoryClassification(
+            "fast-forwardable",
+            "behind",
+            "repair",
+            f"Visible at {local}; a clean fast-forward is available.",
+        )
+
+    backward = _git_output(local, "merge-base", "--is-ancestor", target_sha, head_sha, run=run)
+    if backward.returncode == 0:
+        return HistoryClassification(
+            "ahead-only",
+            "ahead",
+            "review",
+            f"Visible at {local}; local commits are not yet on GitHub and will be preserved, not overwritten.",
+        )
+
+    local_tree = _git_output(local, "rev-parse", "HEAD^{tree}", run=run)
+    target_tree = _git_output(local, "rev-parse", f"{target_sha}^{{tree}}", run=run)
+    if (
+        local_tree.returncode == 0
+        and target_tree.returncode == 0
+        and local_tree.stdout.strip()
+        and local_tree.stdout.strip() == target_tree.stdout.strip()
+    ):
+        return HistoryClassification(
+            "divergent-identical-tree",
+            "diverged-identical",
+            "review",
+            f"Visible at {local}; history has diverged from GitHub, but the content is identical -- only history differs.",
+        )
+
+    return HistoryClassification(
+        "divergent-different-content",
+        "diverged",
+        "review",
+        f"Visible at {local}; history has diverged from GitHub and the content differs. Nothing will be changed.",
+    )
+
+
 def _remote_repository_state(owner: str, name: str, *, run: Run) -> tuple[str, str | None]:
     result = run(("gh", "api", f"repos/{owner}/{name}"))
     if result.returncode != 0:
@@ -778,34 +930,17 @@ def _topology_report_layers(
         action = "choose-location" if local is None else "download"
         detail = "Choose the visible folder where your Copilot repositories belong."
         if local is not None and local.exists():
-            if not (local / ".git").is_dir():
-                local_state, action = "conflict", "review"
-                detail = f"{local} exists but is not a Git repository. Nothing will be changed."
-            else:
-                origin = _git_output(local, "remote", "get-url", "origin", run=run)
-                origin_identity = _repository_identity(origin.stdout.strip()) if origin.returncode == 0 else None
-                expected_identity = f"{owner}/{name}".casefold() if owner and name else None
-                if origin_identity != expected_identity:
-                    local_state, action = "conflict", "review"
-                    detail = f"{local} points to a different GitHub repository. Nothing will be changed."
-                else:
-                    local_state, action = "visible", "reuse"
-                    head = _git_output(local, "rev-parse", "HEAD", run=run)
-                    status = _git_output(local, "status", "--porcelain", run=run)
-                    remote = run(("git", "ls-remote", source.get("repo", ""), source.get("ref", "main")))
-                    remote_sha = remote.stdout.split()[0] if remote.returncode == 0 and remote.stdout.split() else None
-                    if head.returncode == 0 and remote_sha and head.stdout.strip() == remote_sha:
-                        sync_state = "current"
-                        detail = f"Visible at {local}; its checked-out revision matches GitHub."
-                    elif status.returncode == 0 and status.stdout.strip():
-                        sync_state = "local-changes"
-                        detail = f"Visible at {local}; local work will be preserved."
-                    elif remote_sha:
-                        sync_state, action = "behind", "repair"
-                        detail = f"Visible at {local}; a clean fast-forward is available."
-                    else:
-                        sync_state = "unknown"
-                        detail = f"Visible at {local}; GitHub currency could not be confirmed."
+            classification = _classify_repository_history(
+                local, owner=owner, name=name, source=source, run=run
+            )
+            local_state = (
+                "conflict"
+                if classification.state in {"wrong-origin", "unreadable"}
+                else "visible"
+            )
+            sync_state = classification.sync_state
+            action = classification.action
+            detail = classification.detail
         elif local is not None:
             if remote_state == "missing" and layer["role"] != "personal":
                 action = "review"

@@ -1,5 +1,6 @@
 import base64
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -2049,8 +2050,8 @@ def test_topology_reports_connected_then_independently_verified(tmp_path):
             return subprocess.CompletedProcess(args, 0, "abc123\n", "")
         if args[:4] == ("git", "-C", str(checkout), "status"):
             return subprocess.CompletedProcess(args, 0, "", "")
-        if args[:2] == ("git", "ls-remote"):
-            return subprocess.CompletedProcess(args, 0, "abc123\trefs/heads/main\n", "")
+        if args[:4] == ("git", "-C", str(checkout), "fetch"):
+            return subprocess.CompletedProcess(args, 0, "", "")
         raise AssertionError(args)
 
     planned = onboard_module._topology_report_layers(manifest, run=run)
@@ -2059,6 +2060,307 @@ def test_topology_reports_connected_then_independently_verified(tmp_path):
     assert planned[0]["connection_state"] == "connected"
     assert verified[0]["connection_state"] == "verified"
     assert verified[0]["sync_state"] == "current"
+
+
+# ---------------------------------------------------------------------------
+# _classify_repository_history() -- G-1 closed history classifier (task 204)
+#
+# Every fixture below is a real, disposable `git init` repo under `tmp_path`
+# -- never a live working tree on this machine -- driven through the exact
+# `run` signature `_classify_repository_history` expects, with real
+# `git fetch` / `git merge-base --is-ancestor` doing the actual proving. The
+# classifier never shells out to `gh`, so no GitHub stub is required here.
+# ---------------------------------------------------------------------------
+
+
+def _real_run(args):
+    return subprocess.run(list(args), capture_output=True, text=True)
+
+
+def _init_content_repo(path: Path, filename: str, content: str, *, message: str = "init") -> None:
+    """A real, disposable one-commit repo -- the G-1 fixture rule (never a
+    live tree)."""
+    path.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=path, check=True)
+    _commit(path, filename, content, message)
+
+
+def _commit(path: Path, filename: str, content: str, message: str) -> None:
+    (path / filename).write_text(content, encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", message], cwd=path, check=True)
+
+
+def _set_fake_origin(path: Path, owner: str, name: str) -> None:
+    """`_classify_repository_history` fetches `source["repo"]` directly --
+    exactly like `_apply_visible_topology`'s `repair` branch -- never
+    `origin`. `origin` only feeds the wrong-origin identity check, so a
+    syntactically valid, never-dereferenced GitHub SSH URL is sufficient and
+    keeps every fixture fully offline."""
+    subprocess.run(
+        ["git", "-C", str(path), "remote", "add", "origin", f"git@github.com:{owner}/{name}.git"],
+        check=True,
+    )
+
+
+def _clone_with_fake_origin(remote: Path, local: Path, owner: str, name: str) -> None:
+    subprocess.run(["git", "clone", "-q", str(remote), str(local)], check=True)
+    subprocess.run(["git", "-C", str(local), "remote", "remove", "origin"], check=True)
+    _set_fake_origin(local, owner, name)
+
+
+def test_classify_repository_history_exact(tmp_path):
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, "note.txt", "v1")
+    _clone_with_fake_origin(remote, local, "pablo", "widget")
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "main"},
+        run=_real_run,
+    )
+
+    assert classification.state == "exact"
+    assert classification.sync_state == "current"
+    assert classification.action == "reuse"
+
+
+def test_classify_repository_history_fast_forwardable_is_proven_by_merge_base(tmp_path):
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, "note.txt", "v1")
+    _clone_with_fake_origin(remote, local, "pablo", "widget")
+    _commit(remote, "note.txt", "v2", "advance")
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "main"},
+        run=_real_run,
+    )
+
+    assert classification.state == "fast-forwardable"
+    assert classification.sync_state == "behind"
+    assert classification.action == "repair"
+    assert "clean fast-forward is available" in classification.detail
+
+
+def test_classify_repository_history_dirty_working_tree_is_never_touched(tmp_path):
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, "note.txt", "v1")
+    _clone_with_fake_origin(remote, local, "pablo", "widget")
+    (local / "note.txt").write_text("uncommitted edit", encoding="utf-8")
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "main"},
+        run=_real_run,
+    )
+
+    assert classification.state == "dirty"
+    assert classification.sync_state == "local-changes"
+    assert classification.action == "review"
+
+
+def test_classify_repository_history_ahead_only_is_never_auto_repaired(tmp_path):
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, "note.txt", "v1")
+    _clone_with_fake_origin(remote, local, "pablo", "widget")
+    _commit(local, "note.txt", "v2 (unpublished)", "local-only work")
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "main"},
+        run=_real_run,
+    )
+
+    assert classification.state == "ahead-only"
+    assert classification.action == "review"
+    assert classification.action != "repair"
+
+
+def test_classify_repository_history_divergent_identical_tree(tmp_path):
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, "note.txt", "same content")
+    _init_content_repo(local, "note.txt", "same content", message="independent history")
+    _set_fake_origin(local, "pablo", "widget")
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "main"},
+        run=_real_run,
+    )
+
+    assert classification.state == "divergent-identical-tree"
+    assert classification.action == "review"
+    assert classification.action != "repair"
+    assert "content is identical" in classification.detail
+
+
+def test_classify_repository_history_divergent_different_content(tmp_path):
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, "note.txt", "remote content")
+    _init_content_repo(local, "note.txt", "local content", message="independent history")
+    _set_fake_origin(local, "pablo", "widget")
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "main"},
+        run=_real_run,
+    )
+
+    assert classification.state == "divergent-different-content"
+    assert classification.action == "review"
+
+
+def test_classify_repository_history_wrong_origin(tmp_path):
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, "note.txt", "v1")
+    _clone_with_fake_origin(remote, local, "someone-else", "unrelated")
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "main"},
+        run=_real_run,
+    )
+
+    assert classification.state == "wrong-origin"
+    assert classification.action == "review"
+
+
+def test_classify_repository_history_unreadable_not_a_git_repository(tmp_path):
+    local = tmp_path / "local"
+    local.mkdir()
+    (local / ".git").write_text("not a real gitdir", encoding="utf-8")
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(tmp_path / "remote"), "ref": "main"},
+        run=_real_run,
+    )
+
+    assert classification.state == "unreadable"
+    assert classification.action == "review"
+
+
+def test_classify_repository_history_unreadable_when_fetch_fails(tmp_path):
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, "note.txt", "v1")
+    _clone_with_fake_origin(remote, local, "pablo", "widget")
+    shutil.rmtree(remote)
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "main"},
+        run=_real_run,
+    )
+
+    assert classification.state == "unreadable"
+    assert classification.action == "review"
+
+
+# ---------------------------------------------------------------------------
+# _topology_report_layers() -- the read-only plan path must never promise a
+# fast-forward it can't prove. `_repo_identity_from_layer`/
+# `_remote_repository_state` are stubbed here only because they talk to
+# `gh`/GitHub identity parsing, which is orthogonal to G-1; the Git history
+# classification itself runs for real against disposable fixture repos.
+# ---------------------------------------------------------------------------
+
+
+def _topology_manifest(layer_id: str, local: Path, repo: Path, ref: str = "main") -> dict:
+    return {
+        "version": 1,
+        "layers": [
+            {
+                "id": layer_id,
+                "product": "codex",
+                "role": "personal",
+                "rank": 10,
+                "source": {"repo": str(repo), "ref": ref, "path": str(local)},
+            }
+        ],
+    }
+
+
+def test_topology_report_never_promises_a_fast_forward_for_ahead_only(tmp_path, monkeypatch):
+    remote = tmp_path / "remote"
+    local = tmp_path / "codex-copilot-private"
+    _init_content_repo(remote, "note.txt", "v1")
+    _clone_with_fake_origin(remote, local, "pablo", "codex-copilot-private")
+    _commit(local, "note.txt", "v2 (unpublished)", "local-only work")
+    monkeypatch.setattr(
+        onboard_module,
+        "_repo_identity_from_layer",
+        lambda layer: ("pablo", "codex-copilot-private"),
+    )
+    monkeypatch.setattr(
+        onboard_module,
+        "_remote_repository_state",
+        lambda owner, name, *, run: ("ready", "private"),
+    )
+
+    rows = onboard_module._topology_report_layers(
+        _topology_manifest("codex-personal", local, remote), run=_real_run
+    )
+
+    assert rows[0]["sync_state"] == "ahead"
+    assert rows[0]["action"] == "review"
+    assert rows[0]["action"] != "repair"
+
+
+def test_topology_report_never_promises_a_fast_forward_for_divergent_identical_tree(
+    tmp_path, monkeypatch
+):
+    remote = tmp_path / "remote"
+    local = tmp_path / "codex-copilot-private"
+    _init_content_repo(remote, "note.txt", "same content")
+    _init_content_repo(local, "note.txt", "same content", message="independent history")
+    _set_fake_origin(local, "pablo", "codex-copilot-private")
+    monkeypatch.setattr(
+        onboard_module,
+        "_repo_identity_from_layer",
+        lambda layer: ("pablo", "codex-copilot-private"),
+    )
+    monkeypatch.setattr(
+        onboard_module,
+        "_remote_repository_state",
+        lambda owner, name, *, run: ("ready", "private"),
+    )
+
+    rows = onboard_module._topology_report_layers(
+        _topology_manifest("codex-personal", local, remote), run=_real_run
+    )
+
+    assert rows[0]["sync_state"] == "diverged-identical"
+    assert rows[0]["action"] == "review"
+    assert rows[0]["action"] != "repair"
 
 
 def test_legacy_personal_mirrors_move_out_of_active_tree(tmp_path):
