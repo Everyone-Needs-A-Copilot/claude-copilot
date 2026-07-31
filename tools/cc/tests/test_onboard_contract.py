@@ -1921,7 +1921,15 @@ def test_successful_store_scope_is_a_non_secret_schema_summary():
     }
 
 
-def test_aggregate_block_before_manifest_still_returns_layers_field(tmp_path):
+def test_aggregate_block_before_manifest_reports_layers_as_not_computed(tmp_path):
+    """G-5 (task 208): this is the one exit path that genuinely returns
+    before `_layer_manifest`/`_topology_report_layers` ever run (the
+    personal-packages gate is checked before the manifest is even built). An
+    empty `layers` here is only ever valid alongside the explicit typed
+    absence `layers_state: "not-computed"` -- never a bare `[]` that looks
+    indistinguishable from a `reported` empty topology (which the schema
+    forbids outright, see `test_reported_layers_state_forbids_empty_layers`
+    below)."""
     report = build_ecosystem_onboard_report(
         org="Acme",
         apply=True,
@@ -1943,9 +1951,197 @@ def test_aggregate_block_before_manifest_still_returns_layers_field(tmp_path):
         consumer_probe_fn=_consumer_ready,
     )
     assert report["result"] == "blocked"
+    assert report["layers_state"] == "not-computed"
     assert report["layers"] == []
     assert not (tmp_path / "layers.yml").exists()
     _assert_valid_onboard_report(report)
+
+
+# ---------------------------------------------------------------------------
+# G-5 (task 208): the schema's tightened `ecosystemLayer` contract. Every
+# `_ecosystem_result` call site that has a topology report available must
+# thread through fully-populated rows -- never the raw four-field
+# `manifest["layers"]` look-alike the schema used to accept identically.
+# `_full_topology_rows` below is the same "monkeypatch
+# `_topology_report_layers`" technique
+# `test_divergent_topology_layer_blocks_before_any_gh_mutation` and
+# `test_ecosystem_apply_orders_topology_preflight_before_first_remote_mutation`
+# already use above -- it lets these tests reach the *later* apply=True
+# blocked exits (personal/ssh/store's second, post-preflight call) without
+# any real `git`/`gh` plumbing.
+# ---------------------------------------------------------------------------
+
+
+def _full_topology_rows(manifest, *, run, verified=False):
+    rows = []
+    for layer in manifest["layers"]:
+        identity = onboard_module._repo_identity_from_layer(layer)
+        owner, name = identity or ("", "")
+        rows.append(
+            {
+                "id": layer["id"],
+                "product": layer["product"],
+                "role": layer["role"],
+                "rank": layer["rank"],
+                "unit": layer.get("unit"),
+                "repository_owner": owner,
+                "repository_name": name,
+                "repository_visibility": None,
+                "remote_state": "ready",
+                "local_path": (layer.get("source") or {}).get("path"),
+                "local_state": "visible",
+                "connection_state": "verified" if verified else "connected",
+                "sync_state": "current",
+                "action": "reuse",
+                "detail": "Visible and current.",
+            }
+        )
+    return rows
+
+
+def _assert_layers_fully_reported(report: dict) -> None:
+    assert report["layers_state"] == "reported"
+    assert len(report["layers"]) > 0
+    required = {
+        "id", "product", "role", "rank",
+        "action", "local_state", "sync_state", "remote_state",
+        "repository_name", "local_path",
+    }
+    for row in report["layers"]:
+        assert required.issubset(row.keys())
+
+
+def test_personal_apply_blocked_after_topology_preflight_still_reports_layers(
+    tmp_path, monkeypatch
+):
+    """Site #3: `personal_fn(apply=True)` blocks after the read-only
+    preflight already passed. The emitted `layers` must be the closed
+    topology rows, not the raw manifest look-alike."""
+    monkeypatch.setattr(onboard_module, "_topology_report_layers", _full_topology_rows)
+
+    def personal(*, apply, **_kwargs):
+        return {"result": "blocked", "summary": {}} if apply else _personal()
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=tmp_path / "layers.yml",
+        personal_fn=personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        consumer_probe_fn=_consumer_ready,
+    )
+    assert report["result"] == "blocked"
+    _assert_layers_fully_reported(report)
+    _assert_valid_onboard_report(report)
+
+
+def test_ssh_apply_blocked_after_topology_preflight_still_reports_layers(
+    tmp_path, monkeypatch
+):
+    """Site #4: `ssh_fn(apply=True)` blocks after both read-only plans
+    already passed."""
+    monkeypatch.setattr(onboard_module, "_topology_report_layers", _full_topology_rows)
+
+    def ssh(*, apply, **_kwargs):
+        return {"result": "blocked", "detail": "Device key rejected."} if apply else _ssh()
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=tmp_path / "layers.yml",
+        personal_fn=_personal,
+        ssh_fn=ssh,
+        codex_fn=_codex,
+        consumer_probe_fn=_consumer_ready,
+    )
+    assert report["result"] == "blocked"
+    _assert_layers_fully_reported(report)
+    _assert_valid_onboard_report(report)
+
+
+def test_store_apply_blocked_after_topology_apply_still_reports_layers(
+    tmp_path, monkeypatch
+):
+    """Site #5: the second `store_fn(apply=True)` call blocks after personal,
+    ssh, and the visible-topology apply have all already succeeded."""
+    monkeypatch.setattr(onboard_module, "_topology_report_layers", _full_topology_rows)
+
+    def store(_store, *, apply, run):
+        return {"result": "blocked", "detail": "Store rejected the write."} if apply else {
+            "result": "deferred"
+        }
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=tmp_path / "layers.yml",
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        store_fn=store,
+        codex_fn=_codex,
+        consumer_probe_fn=_consumer_ready,
+    )
+    assert report["result"] == "blocked"
+    _assert_layers_fully_reported(report)
+    _assert_valid_onboard_report(report)
+
+
+def test_reported_layers_state_forbids_empty_layers():
+    """The schema's other legal shape: `layers_state: "reported"` requires
+    `minItems: 1` -- an empty `layers` may only ever pair with
+    `layers_state: "not-computed"`, never with `"reported"`."""
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=False,
+        run=_aggregate_run,
+        manifest_path=Path("/tmp/unused-layers.yml"),
+        personal_fn=lambda **_: {
+            "result": "blocked",
+            "summary": {
+                "existing": 0, "missing": 0, "created": 0,
+                "seeded": 0, "held": 1, "blocked": 1,
+            },
+        },
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        consumer_probe_fn=_consumer_ready,
+    )
+    assert report["layers_state"] == "not-computed"
+    tampered = dict(report)
+    tampered["layers_state"] = "reported"
+    validator = _onboard_validator()
+    errors = list(validator.iter_errors(tampered))
+    assert errors, "an empty `layers` claiming `layers_state: reported` must fail validation"
+
+
+def test_skeletal_four_field_layer_row_fails_validation():
+    """The defect this task closes: a raw manifest-shaped row (only
+    id/product/role/rank, no topology evidence) must no longer validate
+    identically to a fully-computed topology row."""
+    base_report = {
+        "schema_version": "2.0",
+        "scope": "ecosystem",
+        "mode": "plan",
+        "result": "changes-required",
+        "org": "Acme",
+        "products": ["claude", "codex"],
+        "components": ["knowledge", "cli", "claude", "codex"],
+        "stages": [],
+        "layers_state": "reported",
+        "layers": [
+            {"id": "claude-personal", "product": "claude", "role": "personal", "rank": 10}
+        ],
+        "inventory": [],
+        "inventory_summary": {"reused": 0, "changes": 0, "review": 0},
+        "completed_actions": [],
+    }
+    validator = _onboard_validator()
+    errors = list(validator.iter_errors(base_report))
+    assert errors, "a skeletal four-field layer row must fail validation"
 
 
 def test_department_membership_expands_visible_manifest_to_sixteen_layers(tmp_path):
@@ -2416,21 +2612,30 @@ def test_visible_apply_cannot_report_ready_when_resolution_is_empty(
     tmp_path, monkeypatch
 ):
     def topology(manifest, **_kwargs):
-        return [
-            {
-                "id": layer["id"],
-                "product": layer["product"],
-                "role": layer["role"],
-                "rank": layer["rank"],
-                "unit": layer.get("unit"),
-                "local_state": "visible",
-                "connection_state": "connected",
-                "sync_state": "current",
-                "action": "reuse",
-                "detail": "Visible and current.",
-            }
-            for layer in manifest["layers"]
-        ]
+        rows = []
+        for layer in manifest["layers"]:
+            identity = onboard_module._repo_identity_from_layer(layer)
+            owner, name = identity or ("", "")
+            rows.append(
+                {
+                    "id": layer["id"],
+                    "product": layer["product"],
+                    "role": layer["role"],
+                    "rank": layer["rank"],
+                    "unit": layer.get("unit"),
+                    "repository_owner": owner,
+                    "repository_name": name,
+                    "repository_visibility": None,
+                    "remote_state": "ready",
+                    "local_path": (layer.get("source") or {}).get("path"),
+                    "local_state": "visible",
+                    "connection_state": "connected",
+                    "sync_state": "current",
+                    "action": "reuse",
+                    "detail": "Visible and current.",
+                }
+            )
+        return rows
 
     monkeypatch.setattr(onboard_module, "_topology_report_layers", topology)
     monkeypatch.setattr(
@@ -2500,6 +2705,8 @@ def _blocking_topology_layers(manifest, **_kwargs):
     rows = []
     for layer in manifest["layers"]:
         blocking = layer["role"] == "organization" and layer["product"] == "codex"
+        identity = onboard_module._repo_identity_from_layer(layer)
+        owner, name = identity or ("", "")
         rows.append(
             {
                 "id": layer["id"],
@@ -2507,6 +2714,11 @@ def _blocking_topology_layers(manifest, **_kwargs):
                 "role": layer["role"],
                 "rank": layer["rank"],
                 "unit": layer.get("unit"),
+                "repository_owner": owner,
+                "repository_name": name,
+                "repository_visibility": None,
+                "remote_state": "ready",
+                "local_path": (layer.get("source") or {}).get("path"),
                 "local_state": "visible",
                 "connection_state": "blocked" if blocking else "connected",
                 "sync_state": "ahead" if blocking else "current",
@@ -2592,21 +2804,30 @@ def test_ecosystem_apply_orders_topology_preflight_before_first_remote_mutation(
 
     def topology(manifest, *, run, verified=False):
         events.append("topology-final" if verified else "topology-preflight")
-        return [
-            {
-                "id": layer["id"],
-                "product": layer["product"],
-                "role": layer["role"],
-                "rank": layer["rank"],
-                "unit": layer.get("unit"),
-                "local_state": "visible",
-                "connection_state": "connected",
-                "sync_state": "current",
-                "action": "reuse",
-                "detail": "Visible and current.",
-            }
-            for layer in manifest["layers"]
-        ]
+        rows = []
+        for layer in manifest["layers"]:
+            identity = onboard_module._repo_identity_from_layer(layer)
+            owner, name = identity or ("", "")
+            rows.append(
+                {
+                    "id": layer["id"],
+                    "product": layer["product"],
+                    "role": layer["role"],
+                    "rank": layer["rank"],
+                    "unit": layer.get("unit"),
+                    "repository_owner": owner,
+                    "repository_name": name,
+                    "repository_visibility": None,
+                    "remote_state": "ready",
+                    "local_path": (layer.get("source") or {}).get("path"),
+                    "local_state": "visible",
+                    "connection_state": "verified" if verified else "connected",
+                    "sync_state": "current",
+                    "action": "reuse",
+                    "detail": "Visible and current.",
+                }
+            )
+        return rows
 
     def personal(*, apply, **_kwargs):
         events.append(f"personal-{'apply' if apply else 'plan'}")

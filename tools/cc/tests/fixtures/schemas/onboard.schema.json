@@ -12,7 +12,7 @@
       "additionalProperties": false,
       "required": ["schema_version", "scope", "owner", "mode", "result", "repositories", "summary"],
       "properties": {
-        "schema_version": { "const": "1.0" },
+        "schema_version": { "const": "2.0" },
         "scope": { "enum": ["organization", "personal"] },
         "owner": { "type": "string", "minLength": 1 },
         "mode": { "enum": ["plan", "apply"] },
@@ -62,9 +62,10 @@
     "ecosystemReport": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema_version", "scope", "mode", "result", "org", "products", "components", "stages", "layers", "inventory", "inventory_summary", "completed_actions"],
+      "description": "G-5 (task 208, breaking bump from schema_version 1.0): `layers` now has exactly two legal shapes, discriminated by `layers_state` -- there is no third, in-between shape. `layers_state: \"reported\"` means the topology report has been computed and `layers` is a non-empty array of fully-required `ecosystemLayer` rows (never a skeletal id/product/role/rank-only row). `layers_state: \"not-computed\"` means this exit path returned before topology could be computed at all, and `layers` MUST be `[]` -- this is the one honest way to represent absence; an empty array is otherwise never valid. `layers_state` and `layers` are both always present.",
+      "required": ["schema_version", "scope", "mode", "result", "org", "products", "components", "stages", "layers_state", "layers", "inventory", "inventory_summary", "completed_actions"],
       "properties": {
-        "schema_version": { "const": "1.0" },
+        "schema_version": { "const": "2.0" },
         "scope": { "const": "ecosystem" },
         "mode": { "enum": ["plan", "apply"] },
         "result": { "enum": ["ready", "changes-required", "applied", "blocked"] },
@@ -93,6 +94,10 @@
           "type": "array",
           "items": { "$ref": "#/$defs/ecosystemStage" }
         },
+        "layers_state": {
+          "description": "Discriminates the two legal `layers` shapes below. `reported`: topology was computed for this exit -- `layers` has at least one fully-populated row. `not-computed`: this exit returned before topology could be computed -- `layers` is `[]`. An app MUST branch on this field before reading `layers`, never infer absence from an empty array alone.",
+          "enum": ["reported", "not-computed"]
+        },
         "layers": {
           "type": "array",
           "items": { "$ref": "#/$defs/ecosystemLayer" }
@@ -105,7 +110,7 @@
           "$ref": "#/$defs/inventorySummary"
         },
         "completed_actions": {
-          "description": "G-4 (task 207): every mutation this run actually completed, attempted, or rolled back, in the order it happened. Always present, possibly empty -- a `result` may only claim nothing changed when this is empty. Task 208 formalizes the closed set of `kind`/`outcome` values; this stays deliberately permissive until then.",
+          "description": "G-4 (task 207), formalized by G-5 (task 208): every mutation this run actually completed, attempted, or rolled back, in the order it happened. Always present, possibly empty -- a `result` may only claim nothing changed when this is empty.",
           "type": "array",
           "items": { "$ref": "#/$defs/completedAction" }
         },
@@ -113,7 +118,34 @@
           "description": "Only present when `result` is `blocked`: what remains, and that re-running adopts (never recreates) whatever `completed_actions` already shows as `completed`.",
           "$ref": "#/$defs/resumeHint"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "layers_state": { "const": "reported" } },
+            "required": ["layers_state"]
+          },
+          "then": {
+            "properties": { "layers": { "minItems": 1 } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "layers_state": { "const": "not-computed" } },
+            "required": ["layers_state"]
+          },
+          "then": {
+            "properties": { "layers": { "maxItems": 0 } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "result": { "const": "blocked" } },
+            "required": ["result"]
+          },
+          "then": { "required": ["resume"] }
+        }
+      ]
     },
     "completedAction": {
       "type": "object",
@@ -161,7 +193,8 @@
     "ecosystemLayer": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "product", "role", "rank"],
+      "description": "G-5 (task 208): every field a consumer needs to render one row of topology evidence is now required, closing the gap where a raw manifest layer (id/product/role/rank only, no topology evidence) validated identically to a fully-computed row. `unit`, `repository_owner`, `repository_visibility`, `connection_state`, and `detail` stay optional -- they are either role-conditional (`unit` is only ever set for `department`) or purely explanatory, never load-bearing for an app's state rendering.",
+      "required": ["id", "product", "role", "rank", "action", "local_state", "sync_state", "remote_state", "repository_name", "local_path"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "product": { "enum": ["knowledge", "cli", "claude", "codex"] },

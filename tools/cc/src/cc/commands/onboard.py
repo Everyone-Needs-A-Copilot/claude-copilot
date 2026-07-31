@@ -35,7 +35,13 @@ from cc.core.ecosystem.ssh_identity import ensure_machine_ssh_identity
 from cc.core.executables import resolve_executable
 from cc.core.write_guard import assert_write_is_isolated
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "2.0"
+# G-5 (task 208): bumped from "1.0" -- breaking. `ecosystemReport.layers`
+# rows are now fully-required topology rows (or an explicit typed absence,
+# `layers_state: "not-computed"`), never the skeletal four-field look-alike
+# a raw `manifest["layers"]` row used to produce. See
+# docs/01-architecture/cli-contract.md and schemas/onboard.schema.json in
+# copilot-control-tower for the versioned contract.
 COMPONENTS = ("knowledge", "cli", "claude", "codex")
 PRODUCTS = ("claude", "codex")
 LEGACY_FOUNDATION_REFS: dict[str, str] = {
@@ -2310,6 +2316,16 @@ def _ecosystem_result(
     # `apply=False` plan path).
     if result == "blocked":
         report["resume"] = _resume_hint(report["completed_actions"])
+    # G-5 (task 208): `layers` is only ever omitted by a caller when the
+    # topology report genuinely has not been computed yet on this exit path
+    # -- the one early block that returns before `_layer_manifest`/
+    # `_topology_report_layers` have ever run. That is this schema's one
+    # legal typed absence (`layers_state: "not-computed"`, `layers: []`),
+    # never a skeletal look-alike. Every other caller passes the
+    # already-closed `topology_layers` rows from `_topology_report_layers`,
+    # so `layers_state: "reported"` always means one fully-populated
+    # topology row per layer.
+    report["layers_state"] = "reported" if layers is not None else "not-computed"
     report["layers"] = []
     optional_layer_fields = (
         "unit",
@@ -2699,7 +2715,7 @@ def build_ecosystem_onboard_report(
             apply,
             "blocked",
             stages,
-            manifest["layers"],
+            topology_layers,
             inventory,
             ecosystem_components,
             completed_actions=ledger,
@@ -2714,7 +2730,7 @@ def build_ecosystem_onboard_report(
                 False,
                 "blocked",
                 stages,
-                manifest["layers"],
+                topology_layers,
                 inventory,
                 ecosystem_components,
                 completed_actions=ledger,
@@ -2817,7 +2833,7 @@ def build_ecosystem_onboard_report(
             True,
             "blocked",
             stages,
-            manifest["layers"],
+            topology_layers,
             inventory,
             ecosystem_components,
             completed_actions=ledger,
@@ -2839,7 +2855,7 @@ def build_ecosystem_onboard_report(
             True,
             "blocked",
             stages,
-            manifest["layers"],
+            topology_layers,
             inventory,
             ecosystem_components,
             completed_actions=ledger,
@@ -2890,7 +2906,7 @@ def build_ecosystem_onboard_report(
             True,
             "blocked",
             stages,
-            manifest["layers"],
+            topology_layers,
             inventory,
             ecosystem_components,
             completed_actions=ledger,
@@ -2967,7 +2983,7 @@ def build_ecosystem_onboard_report(
             True,
             "blocked",
             stages,
-            manifest["layers"],
+            topology_layers,
             inventory,
             ecosystem_components,
             completed_actions=ledger,

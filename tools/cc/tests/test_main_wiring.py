@@ -301,6 +301,8 @@ def test_onboard_ecosystem_resolves_collaborators_at_call_time(cli, monkeypatch)
     )
 
     payload = json.loads(result.output)
-    assert payload["schema_version"] == "1.0"
+    # G-5 (task 208): breaking bump -- onboard's `schema_version` moved
+    # 1.0 -> 2.0 alongside the tightened `ecosystemLayer` contract.
+    assert payload["schema_version"] == "2.0"
     assert payload["result"] in {"ready", "changes-required"}
     assert result.exit_code in (0, 1)
