@@ -631,6 +631,12 @@ def ensure_machine_ssh_identity(
             ),
         }
 
+    # Computed once and reused everywhere a title is needed (registration and,
+    # below, the completed-actions ledger's device-key entries) so the exact
+    # string GitHub was actually asked to register is never re-derived or
+    # allowed to drift between the two call sites.
+    effective_title = title or f"Copilot Control Tower {socket.gethostname()}"
+
     created_key = False
     generated_passphrase: str | None = None
     if not key.exists():
@@ -646,7 +652,7 @@ def ensure_machine_ssh_identity(
             }
         generated = generate_key(
             key,
-            title or f"Copilot Control Tower {socket.gethostname()}",
+            effective_title,
             generated_passphrase,
         )
         if generated.returncode != 0 or not key.exists() or not public.exists():
@@ -679,11 +685,16 @@ def ensure_machine_ssh_identity(
             ),
         }
 
+    # G-4 (task 207): only True when this call itself just registered a new
+    # public key with GitHub -- never when `registered` was already True
+    # coming in. The caller's completed_actions ledger uses exactly this
+    # flag to decide whether a `ssh-key-registration` mutation happened.
+    did_register_now = False
     if not registered:
         assert github_token is not None
         registration = create_key(
             github_token,
-            title=title or f"Copilot Control Tower {socket.gethostname()}",
+            title=effective_title,
             public_key=local_public.strip(),
         )
         if registration.get("status") != "registered":
@@ -703,6 +714,7 @@ def ensure_machine_ssh_identity(
                 "config": "planned",
                 "detail": permission_detail,
             }
+        did_register_now = True
 
     try:
         if to_create and len(to_create) < len(ALIASES):
@@ -740,4 +752,12 @@ def ensure_machine_ssh_identity(
         "registration": "registered",
         "config": final_config,
         "detail": final_detail,
+        # Additive-only (G-4, task 207): consumed by
+        # `cc.commands.onboard._ssh_ledger_entries` to record exactly what
+        # this call newly created or registered. `key_created`/
+        # `key_registered` are both `False` when this call only rewrote SSH
+        # config for an already-existing, already-registered key.
+        "key_created": created_key,
+        "key_registered": did_register_now,
+        "key_title": effective_title,
     }

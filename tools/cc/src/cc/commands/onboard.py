@@ -1039,6 +1039,15 @@ def _apply_visible_topology(
     whether a fast-forward actually happened or the checkout was already at
     the target -- "already at target" is its own honest outcome, never
     relabeled as "repaired".
+
+    G-4 (task 207): every mutation this function actually completes for a
+    row is also recorded onto that row as ``row["_ledger_entries"]`` -- a
+    purely additive, internal-only key the caller drains into the run's
+    ``completed_actions`` ledger once this returns, whether it returns
+    ``True`` or stops partway with ``False``. `_ecosystem_result` never
+    spreads unrecognized row keys into the emitted report (it copies only
+    its own fixed ``optional_layer_fields`` tuple), so this key never
+    reaches the JSON contract directly.
     """
     by_id = {row["id"]: row for row in rows}
     for layer in sorted(manifest["layers"], key=lambda item: item["rank"], reverse=True):
@@ -1050,12 +1059,22 @@ def _apply_visible_topology(
             return False, row["detail"]
         source = layer["source"]
         target = Path(source["path"]).expanduser()
+        repo_full_name = f"{row['repository_owner']}/{row['repository_name']}"
+        entries: list[dict[str, Any]] = []
         if action == "initialize":
             if not _seed_department(
                 row["repository_owner"], row["repository_name"],
                 layer["product"], layer.get("unit", ""), run=run,
             ):
                 return False, f"GitHub did not confirm initialization of {row['repository_owner']}/{row['repository_name']}."
+            entries.append(
+                _ledger_entry(
+                    kind="github-repository-content",
+                    target=repo_full_name,
+                    outcome="completed",
+                    summary=f"Initialized the empty {repo_full_name} layer.",
+                )
+            )
             action = "download"
         if action in {"create", "download"}:
             if target.exists():
@@ -1066,6 +1085,19 @@ def _apply_visible_topology(
                 if target.exists() and not any(target.iterdir()):
                     target.rmdir()
                 return False, f"Git could not download {row['repository_owner']}/{row['repository_name']} to {target}."
+            cloned_head = _git_output(target, "rev-parse", "HEAD", run=run)
+            entries.append(
+                _ledger_entry(
+                    kind="visible-repository",
+                    target=repo_full_name,
+                    outcome="completed",
+                    summary=f"Placed a working copy of {repo_full_name} at {target}.",
+                    local_path=str(target),
+                    from_sha=None,
+                    to_sha=cloned_head.stdout.strip() if cloned_head.returncode == 0 else None,
+                    action=action,
+                )
+            )
         elif action == "repair":
             pre_merge_head = _git_output(target, "rev-parse", "HEAD", run=run)
             if pre_merge_head.returncode != 0:
@@ -1088,11 +1120,26 @@ def _apply_visible_topology(
                 )
             row["sync_state"] = "current"
             row["action"] = "reuse"
+            already_current = pre_merge_head.stdout.strip() == target_sha
             row["detail"] = (
                 f"{target} was already at the expected revision; no fast-forward was needed."
-                if pre_merge_head.stdout.strip() == target_sha
+                if already_current
                 else f"{target} was fast-forwarded to the expected revision."
             )
+            entries.append(
+                _ledger_entry(
+                    kind="visible-repository",
+                    target=repo_full_name,
+                    outcome="completed",
+                    summary=row["detail"],
+                    local_path=str(target),
+                    from_sha=pre_merge_head.stdout.strip(),
+                    to_sha=target_sha,
+                    action="already-current" if already_current else "repair",
+                )
+            )
+        if entries:
+            row["_ledger_entries"] = entries
     return True, None
 
 
@@ -2058,6 +2105,181 @@ def _install_codex_plugin(*, apply: bool, run: Run) -> dict[str, Any]:
     return {"result": "ready"}
 
 
+def _ledger_entry(
+    kind: str,
+    target: str,
+    outcome: str,
+    summary: str,
+    **fields: Any,
+) -> dict[str, Any]:
+    """One `completed_actions` ledger row (G-4, task 207): a mutation this
+    run actually performed, or attempted, against the account/device/local
+    disk -- recorded as it happens, never reconstructed after the fact from
+    a final "did the whole run succeed" boolean.
+
+    ``kind`` is a machine-readable mutation family (``github-repository``,
+    ``github-repository-content``, ``ssh-keypair``, ``ssh-key-registration``,
+    ``layer-manifest``, ``visible-repository``, ``materialization``, ...);
+    ``target`` names exactly what was touched (an ``owner/name`` GitHub
+    repository, a device SSH key title, a manifest path, a local checkout
+    path); ``outcome`` is one of exactly ``completed``/``failed``/
+    ``rolled-back`` -- the only three states a recorded mutation can settle
+    into (mirroring ``HistoryClassification``'s discipline of never inventing
+    a fourth state). Every other keyword becomes a kind-specific field (for
+    example ``url``, ``from_sha``, ``to_sha``, ``backup_path``,
+    ``local_path``, ``action``). Task 208 formalizes the closed shape of this
+    contract; this stays deliberately permissive so it never has to be
+    revisited to add a field.
+    """
+    entry: dict[str, Any] = {
+        "kind": kind,
+        "target": target,
+        "outcome": outcome,
+        "summary": summary,
+    }
+    entry.update(fields)
+    return entry
+
+
+def _personal_ledger_entries(personal: dict[str, Any]) -> list[dict[str, Any]]:
+    """Translate one `apply=True` personal-packages report into ledger rows.
+
+    `build_personal_onboard_report` already closes over exactly what
+    happened to each repository (`state == "created"`) and each package
+    marker (`package_state in {"seeded", "adopted"}` on success,
+    `package_action == "blocked"` on failure) -- this only relabels that
+    closed vocabulary onto the ledger's shape, it never re-derives it.
+    """
+    entries: list[dict[str, Any]] = []
+    for row in personal.get("repositories", []):
+        owner = row.get("owner")
+        name = row.get("name")
+        if not owner or not name:
+            continue
+        full_name = f"{owner}/{name}"
+        url = f"https://github.com/{full_name}"
+        if row.get("state") == "created":
+            entries.append(
+                _ledger_entry(
+                    kind="github-repository",
+                    target=full_name,
+                    outcome="completed",
+                    summary=f"Created the private GitHub repository {full_name}.",
+                    url=url,
+                )
+            )
+        package_state = row.get("package_state")
+        if package_state in {"seeded", "adopted"}:
+            entries.append(
+                _ledger_entry(
+                    kind="github-repository-content",
+                    target=full_name,
+                    outcome="completed",
+                    summary=(
+                        f"Set up the Copilot package marker in {full_name}."
+                        if package_state == "seeded"
+                        else f"Marked your existing content in {full_name} as part of your copilots."
+                    ),
+                    url=url,
+                )
+            )
+        elif row.get("package_action") == "blocked" and row.get("state") in {
+            "created",
+            "existing-private",
+        }:
+            entries.append(
+                _ledger_entry(
+                    kind="github-repository-content",
+                    target=full_name,
+                    outcome="failed",
+                    summary=row.get("package_detail")
+                    or f"Could not confirm the change to {full_name}.",
+                    url=url,
+                )
+            )
+    return entries
+
+
+def _ssh_ledger_entries(ssh: dict[str, Any]) -> list[dict[str, Any]]:
+    """Translate one `apply=True` device-SSH report into ledger rows.
+
+    Only fires on the additive fields `ensure_machine_ssh_identity` sets
+    when it actually generated a keypair or actually registered one with
+    GitHub this call (`key_created`/`key_registered`); a stub `ssh_fn` test
+    double that omits them contributes nothing here, exactly as it should
+    since it performed no real mutation.
+    """
+    entries: list[dict[str, Any]] = []
+    title = ssh.get("key_title")
+    target = title or "this Mac's GitHub SSH key"
+    if ssh.get("key_created"):
+        entries.append(
+            _ledger_entry(
+                kind="ssh-keypair",
+                target=target,
+                outcome="completed",
+                summary="Generated a new, encrypted SSH keypair for this Mac.",
+            )
+        )
+    if ssh.get("key_registered"):
+        entries.append(
+            _ledger_entry(
+                kind="ssh-key-registration",
+                target=target,
+                outcome="completed",
+                summary=(
+                    f'Registered this Mac\'s public SSH key with GitHub as "{title}".'
+                    if title
+                    else "Registered this Mac's public SSH key with GitHub."
+                ),
+            )
+        )
+    return entries
+
+
+def _resume_hint(completed_actions: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """G-4's honesty guarantee for a stopped or failed run (task 207): what,
+    if anything, already exists, and that re-running reuses it rather than
+    recreating it. Never-destroy means a created GitHub repository or a
+    registered device key is never rolled back (see `build_ecosystem_onboard_report`'s
+    `blocked_after_write`), so the only honest promise on retry is adoption,
+    never recreation.
+    """
+    completed = [
+        entry for entry in completed_actions if entry.get("outcome") == "completed"
+    ]
+    if completed:
+        kinds = sorted({entry["kind"] for entry in completed})
+        return {
+            "safe_to_rerun": True,
+            "detail": (
+                "Running setup again is safe: it will find and reuse what's "
+                "already been created or registered rather than recreating "
+                "it, and continue from where this stopped."
+            ),
+            "already_completed_kinds": kinds,
+        }
+    if completed_actions:
+        # Everything this ledger recorded was fully undone (the only
+        # `outcome` that can follow `completed` besides staying `completed`
+        # is `rolled-back`) -- honest to say nothing survives, but distinct
+        # from a run that never wrote anything in the first place.
+        return {
+            "safe_to_rerun": True,
+            "detail": (
+                "Everything this attempt wrote was fully undone before it "
+                "stopped, so running setup again starts from the beginning."
+            ),
+        }
+    return {
+        "safe_to_rerun": True,
+        "detail": (
+            "Nothing on this Mac or on GitHub was changed before this "
+            "stopped, so running setup again starts from the beginning."
+        ),
+    }
+
+
 def _ecosystem_result(
     org: str,
     products: Sequence[str],
@@ -2067,6 +2289,7 @@ def _ecosystem_result(
     layers: Sequence[dict[str, Any]] | None = None,
     inventory: Sequence[dict[str, Any]] | None = None,
     components: Sequence[str] | None = None,
+    completed_actions: Sequence[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     report = {
         "schema_version": SCHEMA_VERSION,
@@ -2078,6 +2301,15 @@ def _ecosystem_result(
         "components": list(components or products),
         "stages": stages,
     }
+    report["completed_actions"] = list(completed_actions or ())
+    # G-4 (task 207): a result may only claim nothing changed when the
+    # ledger above is actually empty -- this is enforced by never omitting
+    # it, not by trusting `result` alone. `blocked` is the only result that
+    # can follow a mutation, so it is the only one that carries a resume
+    # hint; `changes-required` never mutated anything (it is always the
+    # `apply=False` plan path).
+    if result == "blocked":
+        report["resume"] = _resume_hint(report["completed_actions"])
     report["layers"] = []
     optional_layer_fields = (
         "unit",
@@ -2258,6 +2490,13 @@ def build_ecosystem_onboard_report(
         org = _discover_org(normalized, run=run)
     stages: list[dict[str, Any]] = []
     inventory: list[dict[str, Any]] = []
+    # G-4 (task 207): the run-scoped completed_actions ledger. Every
+    # `_ecosystem_result` call below threads this same list through, so a
+    # result can only ever claim nothing changed when it is still empty --
+    # never because a later exit path forgot to carry it. Nothing is
+    # appended until the topology preflight gate (task 206) has already
+    # passed and the first `apply=True` collaborator call actually runs.
+    ledger: list[dict[str, Any]] = []
     handoff = _load_handoff(org, normalized, run=run)
     configured_components = handoff.get("components")
     if (
@@ -2313,6 +2552,7 @@ def build_ecosystem_onboard_report(
             stages,
             inventory=inventory,
             components=ecosystem_components,
+            completed_actions=ledger,
         )
     department_units = _eligible_department_units(
         handoff, org, personal["owner"], run=run
@@ -2403,6 +2643,7 @@ def build_ecosystem_onboard_report(
             topology_layers,
             inventory,
             ecosystem_components,
+            completed_actions=ledger,
         )
     stages.append(
         {
@@ -2428,6 +2669,7 @@ def build_ecosystem_onboard_report(
             topology_layers,
             inventory,
             ecosystem_components,
+            completed_actions=ledger,
         )
     candidate = _validate_manifest_candidate(adoption, consumer_probe_fn)
     if candidate["result"] == "blocked":
@@ -2445,6 +2687,7 @@ def build_ecosystem_onboard_report(
             topology_layers,
             inventory,
             ecosystem_components,
+            completed_actions=ledger,
         )
     store = handoff.get("store") or {}
     store_report = store_fn(store, apply=False, run=run)
@@ -2459,6 +2702,7 @@ def build_ecosystem_onboard_report(
             manifest["layers"],
             inventory,
             ecosystem_components,
+            completed_actions=ledger,
         )
     if "codex" in normalized:
         codex_plan = codex_fn(apply=False, run=run)
@@ -2473,6 +2717,7 @@ def build_ecosystem_onboard_report(
                 manifest["layers"],
                 inventory,
                 ecosystem_components,
+                completed_actions=ledger,
             )
     if not apply:
         needs_change = any(
@@ -2487,6 +2732,7 @@ def build_ecosystem_onboard_report(
             topology_layers,
             inventory,
             ecosystem_components,
+            completed_actions=ledger,
         )
 
     if visible_root is None and not legacy_injected_mode:
@@ -2499,6 +2745,7 @@ def build_ecosystem_onboard_report(
             topology_layers,
             inventory,
             ecosystem_components,
+            completed_actions=ledger,
         )
 
     # G-3 (task 206): `topology_layers` was already closed above by
@@ -2544,6 +2791,7 @@ def build_ecosystem_onboard_report(
                 topology_layers,
                 inventory,
                 ecosystem_components,
+                completed_actions=ledger,
             )
 
     personal = personal_fn(
@@ -2556,6 +2804,12 @@ def build_ecosystem_onboard_report(
         stage for stage in stages if stage["stage"] == "personal-packages"
     )
     personal_stage.update(result=personal["result"], summary=personal["summary"])
+    # G-4 (task 207): record every Personal GitHub mutation this call just
+    # made -- created repository, seeded/adopted package marker -- BEFORE
+    # checking whether it blocked, so a block here still emits an honest,
+    # populated ledger rather than looking indistinguishable from the
+    # pre-write blocks above.
+    ledger.extend(_personal_ledger_entries(personal))
     if personal["result"] == "blocked":
         return _ecosystem_result(
             org,
@@ -2566,6 +2820,7 @@ def build_ecosystem_onboard_report(
             manifest["layers"],
             inventory,
             ecosystem_components,
+            completed_actions=ledger,
         )
 
     ssh = ssh_fn(
@@ -2576,6 +2831,7 @@ def build_ecosystem_onboard_report(
     )
     ssh_stage = next(stage for stage in stages if stage["stage"] == "device-ssh")
     ssh_stage.update(_ssh_stage_fields(ssh))
+    ledger.extend(_ssh_ledger_entries(ssh))
     if ssh["result"] == "blocked":
         return _ecosystem_result(
             org,
@@ -2586,6 +2842,7 @@ def build_ecosystem_onboard_report(
             manifest["layers"],
             inventory,
             ecosystem_components,
+            completed_actions=ledger,
         )
 
     if legacy_injected_mode:
@@ -2594,6 +2851,14 @@ def build_ecosystem_onboard_report(
         topology_ok, topology_detail = _apply_visible_topology(
             manifest, topology_layers, run=run
         )
+        # Drain every row's recorded mutation into the ledger regardless of
+        # `topology_ok` -- a blocking row further down the (reverse-ranked)
+        # list does not undo the repositories `_apply_visible_topology`
+        # already placed or fast-forwarded for the rows before it.
+        for topology_row in topology_layers:
+            row_entries = topology_row.pop("_ledger_entries", None)
+            if row_entries:
+                ledger.extend(row_entries)
         stages.append({
             "stage": "visible-repositories",
             "result": "ready" if topology_ok else "blocked",
@@ -2612,6 +2877,7 @@ def build_ecosystem_onboard_report(
             topology_layers,
             inventory,
             ecosystem_components,
+            completed_actions=ledger,
         )
 
     store_report = store_fn(store, apply=True, run=run)
@@ -2627,6 +2893,7 @@ def build_ecosystem_onboard_report(
             manifest["layers"],
             inventory,
             ecosystem_components,
+            completed_actions=ledger,
         )
 
     backup = _apply_manifest_adoption(adoption)
@@ -2636,6 +2903,23 @@ def build_ecosystem_onboard_report(
     manifest_stage["result"] = "reused" if adoption.action == "reuse" else "applied"
     if backup is not None:
         manifest_stage["rollback_path"] = str(backup)
+    # G-4 (task 207): `_apply_manifest_adoption` returns `None` without
+    # writing anything when `adoption.action == "reuse"` -- there is nothing
+    # to ledger in that case. Otherwise this is the one write
+    # `blocked_after_write` below is ever allowed to compensate for
+    # (never-destroy: a created GitHub repository or registered device key
+    # is never rolled back), so it is the only ledger entry whose recorded
+    # `outcome` can still change after it is first appended.
+    manifest_ledger_entry: dict[str, Any] | None = None
+    if adoption.action != "reuse":
+        manifest_ledger_entry = _ledger_entry(
+            kind="layer-manifest",
+            target=str(target),
+            outcome="completed",
+            summary=f"Wrote the layer manifest to {target}.",
+            backup_path=str(backup) if backup is not None else None,
+        )
+        ledger.append(manifest_ledger_entry)
 
     def blocked_after_write(detail: str) -> dict[str, Any]:
         rolled_back = _rollback_manifest_adoption(adoption, backup)
@@ -2669,6 +2953,14 @@ def build_ecosystem_onboard_report(
                 else f"{detail} Automatic rollback could not be proven complete."
             )
         )
+        if manifest_ledger_entry is not None:
+            # Never omitted -- only ever relabeled. A successful rollback is
+            # the one case in this whole ledger where a `completed` mutation
+            # is allowed to become something other than permanent.
+            manifest_ledger_entry["outcome"] = (
+                "rolled-back" if rolled_back else "completed"
+            )
+            manifest_ledger_entry["summary"] = manifest_stage["detail"]
         return _ecosystem_result(
             org,
             normalized,
@@ -2678,6 +2970,7 @@ def build_ecosystem_onboard_report(
             manifest["layers"],
             inventory,
             ecosystem_components,
+            completed_actions=ledger,
         )
 
     try:
@@ -2696,6 +2989,14 @@ def build_ecosystem_onboard_report(
         return blocked_after_write(
             "Materialization rejected the candidate layer manifest."
         )
+    ledger.append(
+        _ledger_entry(
+            kind="materialization",
+            target=str(target),
+            outcome="completed",
+            summary=f"Materialized the local Copilot layer mirrors described by {target}.",
+        )
+    )
     try:
         cli_report = cli_fn(target)
     except Exception as exc:
@@ -2796,6 +3097,7 @@ def build_ecosystem_onboard_report(
         _topology_report_layers(manifest, run=run, verified=True),
         inventory,
         ecosystem_components,
+        completed_actions=ledger,
     )
 
 

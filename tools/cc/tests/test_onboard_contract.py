@@ -1495,6 +1495,20 @@ layers:
     manifest_stage = next(s for s in report["stages"] if s["stage"] == "layer-manifest")
     assert manifest_stage["result"] == "rolled-back"
     assert Path(manifest_stage["rollback_path"]).read_bytes() == before
+    # G-4 (task 207): the manifest write is recorded, not omitted -- it
+    # appears in `completed_actions` with `outcome == "rolled-back"`, never
+    # silently dropped just because it was later undone.
+    manifest_entries = [
+        entry
+        for entry in report["completed_actions"]
+        if entry["kind"] == "layer-manifest"
+    ]
+    assert len(manifest_entries) == 1
+    assert manifest_entries[0]["outcome"] == "rolled-back"
+    assert manifest_entries[0]["target"] == str(target)
+    assert "restored" in manifest_entries[0]["summary"].lower()
+    assert report["resume"]["safe_to_rerun"] is True
+    assert "undone" in report["resume"]["detail"].lower()
     _assert_valid_onboard_report(report)
 
 
@@ -2556,6 +2570,13 @@ def test_divergent_topology_layer_blocks_before_any_gh_mutation(tmp_path, monkey
     assert visible_stage["result"] == "blocked"
     assert "not yet on GitHub" in visible_stage["detail"]
     assert not target.exists()
+    # G-4 (task 207): nothing was ever mutated -- both collaborators above
+    # would have raised had they run with `apply=True` -- so the ledger MUST
+    # be empty, and only an empty ledger is allowed to license this result
+    # honestly saying nothing changed.
+    assert report["completed_actions"] == []
+    assert report["resume"]["safe_to_rerun"] is True
+    assert "nothing" in report["resume"]["detail"].lower()
     _assert_valid_onboard_report(report)
 
 
@@ -2640,6 +2661,163 @@ def test_ecosystem_apply_orders_topology_preflight_before_first_remote_mutation(
         "visible-topology-apply",
         "topology-final",
     ]
+    _assert_valid_onboard_report(report)
+
+
+# ---------------------------------------------------------------------------
+# completed_actions ledger + partial-result contract -- task 207 (G-4).
+# `_ecosystem_result` must never claim nothing changed once a mutation has
+# actually been attempted; `personal_fn`/`build_personal_onboard_report` runs
+# for real here (not the fixed-shape `_personal()` stub used elsewhere), with
+# a fake `gh` recorded-call layer -- the same fixture style task 206 already
+# established -- so the ledger can be checked against exactly what GitHub was
+# actually asked to do.
+# ---------------------------------------------------------------------------
+
+
+def _org_handoff_and_tags_or_github(gh: "FakeGitHub") -> "onboard_module.Run":
+    """One `run` fake that answers the organization-handoff/foundation-tag
+    reads through `_aggregate_run` and everything else (owner lookup,
+    repository probes, creation, package-marker writes) through `gh` -- so a
+    real `build_personal_onboard_report` apply can run end-to-end without a
+    live GitHub account.
+    """
+
+    def run(args):
+        args = tuple(args)
+        endpoint = args[2] if len(args) > 2 else ""
+        if isinstance(endpoint, str) and (
+            endpoint.endswith("/contents/ecosystem.yml") or endpoint.endswith("/tags")
+        ):
+            return _aggregate_run(args)
+        return gh(args)
+
+    return run
+
+
+def test_failure_after_personal_repo_creation_ledger_names_created_repos(tmp_path):
+    """Failpoint (task 207, live-evidence regression): every component's
+    private repository is created successfully, then the package-marker
+    write for the last one (`codex`) fails. The emitted result must name
+    every created repository in `completed_actions`, must not claim nothing
+    changed, and must carry a resume hint that only ever promises adoption,
+    never recreation.
+    """
+    gh = FakeGitHub()
+
+    def run(args):
+        args = tuple(args)
+        if "PUT" in args:
+            endpoint = args[args.index("PUT") + 1]
+            if "codex-copilot-private" in endpoint:
+                return subprocess.CompletedProcess(
+                    args, 1, "", "gh: validation failed"
+                )
+        return _org_handoff_and_tags_or_github(gh)(args)
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=run,
+        manifest_path=tmp_path / "layers.yml",
+        personal_fn=build_personal_onboard_report,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+    )
+
+    assert report["result"] == "blocked"
+    created = [
+        entry
+        for entry in report["completed_actions"]
+        if entry["kind"] == "github-repository"
+    ]
+    assert {entry["target"] for entry in created} == {
+        "pablo/knowledge-copilot-private",
+        "pablo/cli-copilot-private",
+        "pablo/claude-copilot-private",
+        "pablo/codex-copilot-private",
+    }
+    assert all(entry["outcome"] == "completed" for entry in created)
+    assert all(entry["url"] == f"https://github.com/{entry['target']}" for entry in created)
+    failed_content = [
+        entry
+        for entry in report["completed_actions"]
+        if entry["kind"] == "github-repository-content" and entry["outcome"] == "failed"
+    ]
+    assert len(failed_content) == 1
+    assert failed_content[0]["target"] == "pablo/codex-copilot-private"
+    # Never claim nothing changed: the ledger is populated, so no summary in
+    # it may read as an honest "nothing changed" statement.
+    assert report["completed_actions"]
+    assert "resume" in report
+    assert report["resume"]["safe_to_rerun"] is True
+    assert "recreat" in report["resume"]["detail"].lower()
+    assert "github-repository" in report["resume"]["already_completed_kinds"]
+    _assert_valid_onboard_report(report)
+
+
+def test_ecosystem_apply_ledger_matches_recorded_github_mutations_one_to_one(
+    tmp_path,
+):
+    """Success-path integration: every `POST`/`PUT` the fake `gh`
+    recorded-call layer actually saw has exactly one corresponding
+    `completed_actions` row, in the order the mutations happened, and the
+    layer-manifest write is recorded too -- with no `resume` hint needed
+    once the whole run reaches `ready`.
+    """
+    gh = FakeGitHub()
+    run = _org_handoff_and_tags_or_github(gh)
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=run,
+        manifest_path=tmp_path / "layers.yml",
+        personal_fn=build_personal_onboard_report,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=lambda **_: (
+            {"result": "up-to-date", "blocked": [], "held_for_approval": []},
+            0,
+        ),
+        doctor_fn=lambda **_: {"status": "healthy", "score": 100},
+        commit_config_fn=lambda *_args: None,
+    )
+
+    assert report["result"] == "ready"
+    post_calls = [call for call in gh.calls if "POST" in call and "user/repos" in call]
+    put_calls = [call for call in gh.calls if "PUT" in call]
+    assert len(post_calls) == 4
+    assert len(put_calls) == 4
+    repo_entries = [
+        entry
+        for entry in report["completed_actions"]
+        if entry["kind"] == "github-repository"
+    ]
+    content_entries = [
+        entry
+        for entry in report["completed_actions"]
+        if entry["kind"] == "github-repository-content"
+    ]
+    assert len(repo_entries) == len(post_calls)
+    assert len(content_entries) == len(put_calls)
+    assert all(entry["outcome"] == "completed" for entry in repo_entries + content_entries)
+    manifest_entries = [
+        entry
+        for entry in report["completed_actions"]
+        if entry["kind"] == "layer-manifest"
+    ]
+    assert len(manifest_entries) == 1
+    assert manifest_entries[0]["outcome"] == "completed"
+    kinds_in_order = [entry["kind"] for entry in report["completed_actions"]]
+    assert kinds_in_order.index("github-repository") < kinds_in_order.index(
+        "layer-manifest"
+    )
+    assert "resume" not in report
     _assert_valid_onboard_report(report)
 
 

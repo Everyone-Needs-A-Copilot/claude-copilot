@@ -196,6 +196,13 @@ def test_apply_generates_registers_and_writes_bounded_config(tmp_path):
     assert fake.generated_passphrase_lengths[0] >= 32
     assert fake.generated_rounds == [64]
     assert fake.agent_passphrase_lengths == fake.generated_passphrase_lengths
+    # G-4 (task 207): this call generated a brand-new keypair AND newly
+    # registered it with GitHub, so the completed_actions ledger's two
+    # signal fields must both be True, carrying the exact title GitHub was
+    # asked to register.
+    assert report["key_created"] is True
+    assert report["key_registered"] is True
+    assert report["key_title"] == "test-device"
 
 
 def test_second_apply_reuses_registered_key_and_managed_block(tmp_path):
@@ -218,6 +225,12 @@ def test_second_apply_reuses_registered_key_and_managed_block(tmp_path):
     assert first["result"] == "applied"
     assert second["result"] == "ready"
     assert not any(call[0] == "POST" for call in fake.key_api_calls)
+    # G-4 (task 207): the key and its GitHub registration both already
+    # existed coming in, so this apply -- despite rewriting the SSH config
+    # file and reporting "applied" -- must not be mistaken for a new
+    # keypair or a new registration in the completed_actions ledger.
+    assert first["key_created"] is False
+    assert first["key_registered"] is False
 
 
 def test_unmanaged_alias_blocks_without_rewrite(tmp_path):
