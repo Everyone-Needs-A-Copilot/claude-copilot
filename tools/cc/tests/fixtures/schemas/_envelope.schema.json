@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://everyoneneedsacopilot.com/schemas/copilot-control-tower/_envelope.schema.json",
+  "$comment": "VENDORED COPY for the WS-A contract test in claude-copilot/tools/cc. Source of truth is copilot-control-tower/docs/01-architecture/schemas/_envelope.schema.json — update this copy from there, not the reverse.",
+  "title": "Copilot CLI --json shared envelope & definitions",
+  "description": "Shared building blocks for every copilot/cc --json verb consumed by Control Tower. cli-contract.md mandates a top-level schema_version on every verb; other than that field there is no uniform status/error wrapper across verbs, so this file factors out $defs that the per-verb schemas $ref rather than imposing a wrapper the prose does not define.",
+  "type": "object",
+  "$defs": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+(\\.[0-9]+)?$",
+      "description": "Versioned contract identifier carried by every verb. Control Tower range-gates this in both directions.",
+      "$comment": "cli-contract.md requires a top-level schema_version everywhere but does not fix its lexical form. Encoded as a comparable MAJOR.MINOR[.PATCH] string; owner may prefer a bare integer if range-gating is integer-based."
+    },
+    "git_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{7,64}$",
+      "description": "A git object SHA (abbreviated or full, lowercase hex)."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 / RFC-3339 instant."
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["pass", "warn", "fail"],
+      "description": "Checker verdict. A missing severity is treated as fail by the consumer (fail-closed); the CLI must always emit it."
+    }
+  }
+}

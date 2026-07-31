@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ineedacopilot.com/schemas/onboard.schema.json",
+  "$comment": "VENDORED COPY for the WS-A contract test in claude-copilot/tools/cc. Source of truth is copilot-control-tower/docs/01-architecture/schemas/onboard.schema.json — update this copy from there, not the reverse. LOCAL FIX 2026-07-24: the source declares `additionalProperties: false` on `repository` without listing `rank`/`package_state`/`package_action`/`package_detail`, which the CLI has always emitted (onboard.py `_row()`) -- this copy declares them (and required, since every row carries them) and adds the `adoptable` package_state alongside its `repositorySummary.adoptable` counter (B1: a private, non-empty personal repo with no root marker is offered for adoption instead of held/blocked) so the real `cc onboard --json` output validates. Flag for owner reconciliation upstream.",
+  "title": "Copilot onboarding plan/apply report",
+  "oneOf": [
+    { "$ref": "#/$defs/repositoryReport" },
+    { "$ref": "#/$defs/ecosystemReport" }
+  ],
+  "$defs": {
+    "repositoryReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "scope", "owner", "mode", "result", "repositories", "summary"],
+      "properties": {
+        "schema_version": { "const": "1.0" },
+        "scope": { "enum": ["organization", "personal"] },
+        "owner": { "type": "string", "minLength": 1 },
+        "mode": { "enum": ["plan", "apply"] },
+        "result": { "enum": ["ready", "changes-required", "applied", "blocked"] },
+        "repositories": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/repository" }
+        },
+        "summary": { "$ref": "#/$defs/repositorySummary" }
+      }
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["component", "role", "unit", "owner", "name", "visibility", "state", "action", "detail", "rank", "package_state", "package_action", "package_detail", "decline_detail"],
+      "properties": {
+        "component": { "enum": ["knowledge", "cli", "claude", "codex"] },
+        "role": { "enum": ["org", "organization", "department", "personal"] },
+        "unit": { "type": ["string", "null"] },
+        "owner": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "visibility": { "enum": ["private", "public", null] },
+        "state": { "enum": ["existing-private", "missing", "created", "conflict-public", "unknown"] },
+        "action": { "enum": ["none", "create", "blocked"] },
+        "detail": { "type": "string", "minLength": 1 },
+        "rank": { "type": "integer", "minimum": 0 },
+        "package_state": { "type": "string", "minLength": 1 },
+        "package_action": { "type": "string", "minLength": 1 },
+        "package_detail": { "type": "string", "minLength": 1 },
+        "decline_detail": { "type": "string" }
+      }
+    },
+    "repositorySummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["existing", "missing", "created", "blocked"],
+      "properties": {
+        "existing": { "type": "integer", "minimum": 0 },
+        "missing": { "type": "integer", "minimum": 0 },
+        "created": { "type": "integer", "minimum": 0 },
+        "blocked": { "type": "integer", "minimum": 0 },
+        "seeded": { "type": "integer", "minimum": 0 },
+        "held": { "type": "integer", "minimum": 0 },
+        "adoptable": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "ecosystemReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "scope", "mode", "result", "org", "products", "components", "stages", "layers", "inventory", "inventory_summary"],
+      "properties": {
+        "schema_version": { "const": "1.0" },
+        "scope": { "const": "ecosystem" },
+        "mode": { "enum": ["plan", "apply"] },
+        "result": { "enum": ["ready", "changes-required", "applied", "blocked"] },
+        "org": { "type": "string", "minLength": 1 },
+        "products": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["claude", "codex"] }
+        },
+        "components": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": { "enum": ["knowledge", "cli", "claude", "codex"] },
+          "allOf": [
+            { "contains": { "const": "knowledge" } },
+            { "contains": { "const": "cli" } },
+            { "contains": { "const": "claude" } },
+            { "contains": { "const": "codex" } }
+          ]
+        },
+        "stages": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ecosystemStage" }
+        },
+        "layers": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ecosystemLayer" }
+        },
+        "inventory": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/inventoryItem" }
+        },
+        "inventory_summary": {
+          "$ref": "#/$defs/inventorySummary"
+        }
+      }
+    },
+    "ecosystemStage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage", "result"],
+      "properties": {
+        "stage": { "enum": ["organization-handoff", "personal-packages", "device-ssh", "layer-manifest", "secret-store", "codex-plugin", "cli-sync", "materialize", "doctor"] },
+        "result": { "type": "string", "minLength": 1 },
+        "detail": { "type": "string", "minLength": 1 },
+        "action": { "enum": ["reuse", "create", "migrate", "repair", "review"] },
+        "path": { "type": "string", "minLength": 1 },
+        "rollback_path": { "type": "string", "minLength": 1 },
+        "layers": { "type": "integer", "minimum": 0 },
+        "blocked": { "type": "integer", "minimum": 0 },
+        "held": { "type": "integer", "minimum": 0 },
+        "score": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
+        "key": { "type": "string", "minLength": 1 },
+        "registration": { "type": "string", "minLength": 1 },
+        "config": { "type": "string", "minLength": 1 },
+        "type": { "type": "string", "minLength": 1 },
+        "scope": { "type": ["string", "null"] },
+        "summary": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "ecosystemLayer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "product", "role", "rank"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "product": { "enum": ["knowledge", "cli", "claude", "codex"] },
+        "role": { "enum": ["personal", "department", "organization", "foundation"] },
+        "rank": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "inventoryItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "scope", "title", "state", "action", "detail", "source_path", "destination_path", "reversible"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "scope": { "enum": ["personal", "machine", "project"] },
+        "title": { "type": "string", "minLength": 1 },
+        "state": { "type": "string", "minLength": 1 },
+        "action": { "enum": ["reuse", "create", "migrate", "repair", "review"] },
+        "detail": { "type": "string", "minLength": 1 },
+        "source_path": { "type": ["string", "null"] },
+        "destination_path": { "type": ["string", "null"] },
+        "reversible": { "type": "boolean" },
+        "decline_detail": { "type": "string" }
+      }
+    },
+    "inventorySummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reused", "changes", "review"],
+      "properties": {
+        "reused": { "type": "integer", "minimum": 0 },
+        "changes": { "type": "integer", "minimum": 0 },
+        "review": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}
