@@ -1,0 +1,85 @@
+{
+  "fixture_schema_version": "1.0",
+  "cases": [
+    {
+      "id": "unknown-classification",
+      "base": "status-all-1.1.json",
+      "operation": {
+        "op": "replace",
+        "path": "/workspaces/0/classification",
+        "value": "installed"
+      }
+    },
+    {
+      "id": "missing-component-contract",
+      "base": "status-all-1.1.json",
+      "operation": {
+        "op": "remove",
+        "path": "/workspaces/0/components/0/expected_contract"
+      }
+    },
+    {
+      "id": "ready-offers-automatic-apply",
+      "base": "status-all-1.1.json",
+      "operation": {
+        "op": "replace",
+        "path": "/workspaces/0/can_apply_now",
+        "value": true
+      }
+    },
+    {
+      "id": "safe-finish-without-exact-action",
+      "base": "status-all-1.1.json",
+      "operation": {
+        "op": "replace",
+        "path": "/workspaces/1/safe_action",
+        "value": null
+      }
+    },
+    {
+      "id": "summary-leaks-incomplete-plan",
+      "base": "status-all-1.1.json",
+      "operation": {
+        "op": "replace",
+        "path": "/workspaces/2/integration_plan",
+        "value": {}
+      }
+    },
+    {
+      "id": "detail-omits-required-plan",
+      "base": "status-project-guided-1.1.json",
+      "operation": {
+        "op": "replace",
+        "path": "/workspaces/0/integration_plan",
+        "value": null
+      }
+    },
+    {
+      "id": "incomplete-inspection",
+      "base": "status-all-1.1.json",
+      "operation": {
+        "op": "replace",
+        "path": "/workspaces/4/inspection/complete",
+        "value": false
+      }
+    },
+    {
+      "id": "missing-codex-assessment",
+      "base": "status-all-1.1.json",
+      "operation": {
+        "op": "replace",
+        "path": "/workspaces/0/components/1/component",
+        "value": "claude"
+      }
+    },
+    {
+      "id": "guided-project-projects-as-ready",
+      "base": "status-all-1.1.json",
+      "operation": {
+        "op": "replace",
+        "path": "/workspaces/2/state",
+        "value": "ready"
+      }
+    }
+  ]
+}

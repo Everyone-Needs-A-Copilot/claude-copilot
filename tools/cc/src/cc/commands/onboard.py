@@ -1,0 +1,2695 @@
+"""Fail-closed repository discovery and provisioning for desktop onboarding."""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import json
+import os
+import re
+import shlex
+import shutil
+import subprocess
+import tempfile
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Callable, Sequence
+from urllib.parse import urlsplit
+
+import typer
+import yaml
+
+from cc.commands.doctor import build_doctor_report
+from cc.commands.resolve import build_resolve_report
+from cc.commands.update import execute_update
+from cc.core import authstore, keychain
+from cc.core.config import load_machine_config, resolve_key
+from cc.core.config_paths import machine_config_path
+from cc.core.ecosystem.manifest import (
+    ManifestError,
+    load_layers,
+    normalize_layer_product,
+    validate_layers,
+)
+from cc.core.ecosystem.ssh_identity import ensure_machine_ssh_identity
+from cc.core.executables import resolve_executable
+from cc.core.write_guard import assert_write_is_isolated
+
+SCHEMA_VERSION = "1.0"
+COMPONENTS = ("knowledge", "cli", "claude", "codex")
+PRODUCTS = ("claude", "codex")
+LEGACY_FOUNDATION_REFS: dict[str, str] = {
+    "knowledge": "^0.1.0",
+    "cli": "^0.3.0",
+}
+# Plain-language, non-technical labels for the CLI/Copilot components -- used
+# only inside user-facing `detail`/`title` strings. `str.title()` would
+# render "cli" as "Cli"; every other component title-cases correctly.
+_COMPONENT_LABELS: dict[str, str] = {
+    "cli": "CLI",
+    "claude": "Claude",
+    "codex": "Codex",
+    "knowledge": "Knowledge",
+}
+# Supply-chain roots are compiled into the signed cc distribution. They are
+# deliberately not read from the environment, the Admin handoff, or a layer
+# being verified (all three would let the artifact choose its own authority).
+# Release engineering populates these tuples only after the corresponding
+# public foundation starts publishing commits/tags signed by the real keys.
+FOUNDATION_ALLOWED_SIGNERS: dict[str, tuple[str, ...]] = {
+    "knowledge": (),
+    "cli": (),
+    "claude": ("SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo",),
+    "codex": ("SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo",),
+}
+Run = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
+
+
+def _component_label(component: str) -> str:
+    return _COMPONENT_LABELS.get(component, component.title())
+
+
+def _decline_detail(component: str) -> str:
+    """The cost of leaving an `adoptable` space out of this run (B1 ask/decline).
+
+    Rendered verbatim under a cleared question row; never invented by the app
+    (invariant #1). Only meaningful for `adoptable` -- every other package
+    state either has nothing to decline or isn't offered as a question.
+    """
+    return (
+        f"Without this, {_component_label(component)} Copilot can't be set up "
+        "on this Mac. You can include it later."
+    )
+
+
+@dataclass(frozen=True)
+class Probe:
+    state: str
+    visibility: str | None
+    detail: str
+
+
+@dataclass(frozen=True)
+class PackageProbe:
+    state: str
+    detail: str
+
+
+@dataclass(frozen=True)
+class ManifestAdoption:
+    state: str
+    action: str
+    detail: str
+    source: Path | None
+    destination: Path
+    payload: dict[str, Any] | None
+
+    def as_item(self) -> dict[str, Any]:
+        return {
+            "id": "layer-manifest",
+            "scope": "machine",
+            "title": "How your copilots fit together",
+            "state": self.state,
+            "action": self.action,
+            "detail": self.detail,
+            "source_path": str(self.source) if self.source else None,
+            "destination_path": str(self.destination),
+            # `reversible: true` means one specific thing everywhere else in
+            # this module (see `_personal_inventory`/`_ssh_inventory`):
+            # nothing has been written yet, so declining costs nothing, and
+            # `adopt_existing` is the token that gates whether the write
+            # happens at all. `migrate`/`repair` do not qualify -- a
+            # recognized *existing* manifest is being merged and overwritten
+            # (with a content-addressed backup, which is a safety net, not a
+            # consent gate), and `_apply_manifest_adoption` below has never
+            # been gated on `adopt_existing`. Marking this `True` rendered a
+            # checkbox the app let the person clear while the write happened
+            # anyway -- a false choice (spec: adopt-and-honesty-copy-spec.md
+            # §1.5). This is also not user-decidable content: "how your
+            # copilots fit together" is infrastructure only the CLI can
+            # reason about, so per invariant #5 it is auto-acted on rather
+            # than asked about, the same way `create` (a brand-new manifest)
+            # already was. `False` here is what keeps the row out of the
+            # question screen's ask list entirely, instead of presenting a
+            # decision that was never real.
+            "reversible": False,
+        }
+
+
+def _safe_repository_reference(value: Any) -> bool:
+    if not isinstance(value, str) or not value or "\n" in value or "\r" in value:
+        return False
+    if any(marker in value for marker in ("ghp_", "gho_", "ghu_", "github_pat_")):
+        return False
+    if value.startswith(("http://", "https://")):
+        parsed = urlsplit(value)
+        return parsed.username is None and parsed.password is None
+    return True
+
+
+def _run(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
+    if not args:
+        return subprocess.CompletedProcess(args, 127, "", "No command was provided.")
+    executable = resolve_executable(args[0])
+    if executable is None:
+        return subprocess.CompletedProcess(
+            args, 127, "", f"{args[0]} is not installed."
+        )
+    resolved = str(executable)
+    environment = None
+    try:
+        with executable.open("rb") as handle:
+            first_line = handle.readline(256).decode("utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        first_line = ""
+    if first_line.startswith("#!/usr/bin/env "):
+        try:
+            shebang = shlex.split(first_line[2:])
+        except ValueError:
+            shebang = []
+        runtime = next(
+            (
+                token
+                for token in shebang[1:]
+                if token != "-S" and not token.startswith("-")
+            ),
+            None,
+        )
+        if runtime:
+            runtime_path = resolve_executable(runtime)
+            if runtime_path is None:
+                return subprocess.CompletedProcess(
+                    args,
+                    127,
+                    "",
+                    f"{runtime} runtime required by {args[0]} is not installed.",
+                )
+            environment = os.environ.copy()
+            current_path = environment.get("PATH", "")
+            environment["PATH"] = os.pathsep.join(
+                part for part in (str(runtime_path.parent), current_path) if part
+            )
+    if Path(resolved).name == "gh":
+        try:
+            identity = authstore.read_identity()
+            login = identity.get("login") if isinstance(identity, dict) else None
+            service = resolve_key("auth.keychain_service")
+            token = (
+                keychain.get_secret(login, service=service)
+                if login and service
+                else None
+            )
+        except (RuntimeError, OSError):
+            token = None
+        if token:
+            environment = environment or os.environ.copy()
+            environment["GH_TOKEN"] = token
+    return subprocess.run(
+        (resolved, *args[1:]),
+        capture_output=True,
+        text=True,
+        check=False,
+        env=environment,
+    )
+
+
+def _probe(owner: str, name: str, *, run: Run) -> Probe:
+    result = run(("gh", "api", f"repos/{owner}/{name}"))
+    if result.returncode == 0:
+        try:
+            payload = json.loads(result.stdout)
+            private = payload["private"]
+            if not isinstance(private, bool):
+                raise ValueError("private is not boolean")
+        except (json.JSONDecodeError, KeyError, ValueError):
+            return Probe(
+                "unknown", None, "GitHub returned an unreadable repository response."
+            )
+        if private:
+            return Probe(
+                "existing-private",
+                "private",
+                "You already have this space. I'll use it as it is.",
+            )
+        return Probe(
+            "conflict-public",
+            "public",
+            "Something of yours is already using this name publicly, so I stopped. Nothing existing was changed.",
+        )
+
+    if "HTTP 404" in result.stderr:
+        return Probe(
+            "missing",
+            None,
+            "You don't have this space yet. I'll create it privately for you.",
+        )
+    return Probe(
+        "unknown",
+        None,
+        "GitHub couldn't confirm this space right now, so I won't guess.",
+    )
+
+
+def _owner(*, run: Run) -> str:
+    result = run(("gh", "api", "user", "--jq", ".login"))
+    owner = result.stdout.strip()
+    if result.returncode != 0 or not owner:
+        raise RuntimeError(
+            "GitHub could not confirm the authenticated personal account."
+        )
+    return owner
+
+
+def _is_404(result: subprocess.CompletedProcess[str]) -> bool:
+    return result.returncode != 0 and "HTTP 404" in result.stderr
+
+
+def _decode_github_content(stdout: str) -> str | None:
+    try:
+        payload = json.loads(stdout)
+        encoded = payload["content"]
+        if not isinstance(encoded, str):
+            return None
+        return base64.b64decode(encoded.replace("\n", "")).decode("utf-8")
+    except (json.JSONDecodeError, KeyError, ValueError, UnicodeDecodeError):
+        return None
+
+
+def _valid_personal_manifest(content: str, component: str) -> bool:
+    try:
+        payload = yaml.safe_load(content)
+    except yaml.YAMLError:
+        return False
+    if not isinstance(payload, dict):
+        return False
+    package = payload.get("package")
+    return bool(
+        payload.get("schema_version") == "1.0"
+        and isinstance(package, dict)
+        and package.get("role") == "personal"
+        and package.get("rank") == 10
+        and package.get("product") == component
+    )
+
+
+def _probe_package(owner: str, name: str, component: str, *, run: Run) -> PackageProbe:
+    """Classify an existing private repo without interpreting user content."""
+    manifest = run(("gh", "api", f"repos/{owner}/{name}/contents/copilot.layer.yml"))
+    if manifest.returncode == 0:
+        content = _decode_github_content(manifest.stdout)
+        if content is not None and _valid_personal_manifest(content, component):
+            return PackageProbe(
+                "ready", "Already set up. Everything in here will be kept."
+            )
+        # A marker file is present but not one we recognize. This MUST stay a
+        # hard block, never an offer: writing over or beside an unfamiliar
+        # marker would not be a purely additive change, unlike the
+        # no-marker-at-all case below.
+        return PackageProbe(
+            "held",
+            "I don't recognize how this space is set up, so I'll leave it exactly as it is.",
+        )
+    if not _is_404(manifest):
+        return PackageProbe(
+            "unknown",
+            "GitHub couldn't confirm what's already set up in this space, so I won't guess.",
+        )
+
+    contents = run(("gh", "api", f"repos/{owner}/{name}/contents"))
+    if _is_404(contents):
+        # GitHub returns 404 for the root contents endpoint when a repository
+        # has no commits. The repository itself was already confirmed private.
+        return PackageProbe("empty", "Empty and ready. I'll set it up for you.")
+    if contents.returncode != 0:
+        # `package_state == "unknown"` wins the `package_detail or detail`
+        # ordering in `_personal_inventory`/`personal_detail`, so an
+        # otherwise-blocked plan surfaces exactly this sentence inline on
+        # the Holding screen (`framedIfPresentable`), not just the
+        # collapsed support block. It must carry the same closed vocabulary
+        # as every other reachable string here (no `repo`/`repository`).
+        return PackageProbe(
+            "unknown",
+            "GitHub couldn't confirm whether this space is empty, so I won't guess.",
+        )
+    try:
+        root = json.loads(contents.stdout)
+    except json.JSONDecodeError:
+        return PackageProbe(
+            "unknown",
+            "GitHub's answer about what's in this space wasn't something I could read.",
+        )
+    if isinstance(root, list) and not root:
+        return PackageProbe("empty", "Empty and ready. I'll set it up for you.")
+    # Private, non-empty, no root marker at all: nothing to conflict with, so
+    # this is an offer to include the person's own content, not a refusal.
+    # Writing the marker later is purely additive (B1).
+    return PackageProbe(
+        "adoptable",
+        "Your own content is already in here. I'll keep all of it and add a small note that says it belongs with your copilots.",
+    )
+
+
+def _personal_seed(component: str) -> str:
+    return yaml.safe_dump(
+        {
+            "schema_version": "1.0",
+            "package": {
+                "role": "personal",
+                "rank": 10,
+                "product": component,
+                "owner": "authenticated-user",
+            },
+            "dimensions": [],
+        },
+        sort_keys=False,
+    )
+
+
+def _seed_package(owner: str, name: str, component: str, *, run: Run) -> bool:
+    encoded = base64.b64encode(_personal_seed(component).encode("utf-8")).decode(
+        "ascii"
+    )
+    result = run(
+        (
+            "gh",
+            "api",
+            "-X",
+            "PUT",
+            f"repos/{owner}/{name}/contents/copilot.layer.yml",
+            "-f",
+            "message=Initialize private personal Copilot layer",
+            "-f",
+            f"content={encoded}",
+        )
+    )
+    return result.returncode == 0
+
+
+def _row(
+    component: str, owner: str, probe: Probe, package: PackageProbe | None
+) -> dict[str, Any]:
+    package_state = (
+        package.state
+        if package
+        else ("missing" if probe.state == "missing" else "unknown")
+    )
+    package_action = (
+        "seed"
+        if package_state in {"missing", "empty"}
+        else "none"
+        if package_state == "ready"
+        else "adopt"
+        if package_state == "adoptable"
+        else "blocked"
+    )
+    return {
+        "component": component,
+        "role": "personal",
+        "unit": None,
+        "owner": owner,
+        "name": f"{component}-copilot-private",
+        "visibility": probe.visibility,
+        "state": probe.state,
+        "action": "create"
+        if probe.state == "missing"
+        else (
+            "none"
+            if probe.state == "existing-private" and package_action != "blocked"
+            else "blocked"
+        ),
+        "detail": probe.detail,
+        "rank": 10,
+        "package_state": package_state,
+        "package_action": package_action,
+        "package_detail": package.detail
+        if package
+        else "Will be set up right after this space is created.",
+        "decline_detail": _decline_detail(component)
+        if package_state == "adoptable"
+        else "",
+    }
+
+
+def _report(
+    owner: str, mode: str, rows: list[dict[str, Any]], result: str
+) -> dict[str, Any]:
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "scope": "personal",
+        "owner": owner,
+        "mode": mode,
+        "result": result,
+        "repositories": rows,
+        "summary": {
+            "existing": sum(row["state"] == "existing-private" for row in rows),
+            "missing": sum(row["state"] == "missing" for row in rows),
+            "created": sum(row["state"] == "created" for row in rows),
+            "seeded": sum(row["package_state"] == "seeded" for row in rows),
+            "held": sum(row["package_state"] == "held" for row in rows),
+            "adoptable": sum(row["package_state"] == "adoptable" for row in rows),
+            "blocked": sum(row["action"] == "blocked" for row in rows),
+        },
+    }
+
+
+def build_personal_onboard_report(
+    *,
+    components: Sequence[str] = COMPONENTS,
+    apply: bool = False,
+    adopt_existing: Sequence[str] = (),
+    run: Run = _run,
+) -> dict[str, Any]:
+    """Plan or apply personal repositories. Apply always repeats the full probe.
+
+    `adopt_existing` is component-scoped consent (B1): a component in this
+    set whose repository is `adoptable` (private, non-empty, no root marker)
+    has its marker written on apply. Every other adoptable component is left
+    exactly as it is -- an unlisted adoptable item is a no-op, never an
+    implicit decline that changes what the CLI reports next time.
+    """
+    normalized = tuple(
+        dict.fromkeys(component.strip().lower() for component in components)
+    )
+    invalid = [component for component in normalized if component not in COMPONENTS]
+    if not normalized or invalid:
+        raise ValueError(f"Unsupported components: {', '.join(invalid) or 'none'}")
+    consent = {value.strip().lower() for value in adopt_existing if value.strip()}
+
+    owner = _owner(run=run)
+    rows = []
+    for component in normalized:
+        name = f"{component}-copilot-private"
+        probe = _probe(owner, name, run=run)
+        package = (
+            _probe_package(owner, name, component, run=run)
+            if probe.state == "existing-private"
+            else None
+        )
+        rows.append(_row(component, owner, probe, package))
+    blocked = any(row["action"] == "blocked" for row in rows)
+    if blocked:
+        return _report(owner, "apply" if apply else "plan", rows, "blocked")
+    if not apply:
+        needs_change = any(
+            row["state"] == "missing" or row["package_state"] in {"empty", "adoptable"}
+            for row in rows
+        )
+        return _report(
+            owner, "plan", rows, "changes-required" if needs_change else "ready"
+        )
+
+    for row in rows:
+        if row["state"] != "missing":
+            continue
+        created = run(
+            (
+                "gh",
+                "api",
+                "-X",
+                "POST",
+                "user/repos",
+                "-f",
+                f"name={row['name']}",
+                "-F",
+                "private=true",
+                "-F",
+                "auto_init=false",
+                "-f",
+                f"description=Private personal layer for {row['component'].title()} Copilot",
+            )
+        )
+        if created.returncode == 0:
+            row.update(
+                state="created",
+                visibility="private",
+                action="none",
+                detail="Created private repository.",
+            )
+            row["package_state"] = "empty"
+        else:
+            row.update(
+                state="unknown",
+                action="blocked",
+                detail="GitHub did not confirm repository creation.",
+            )
+            return _report(owner, "apply", rows, "blocked")
+    for row in rows:
+        adopting = row["package_state"] == "adoptable" and row["component"] in consent
+        if row["package_state"] != "empty" and not adopting:
+            continue
+        # `_seed_package` PUTs without a `sha`, so this write is additive: a
+        # marker that appears between the probe above and this write makes
+        # GitHub itself refuse the PUT rather than silently overwriting it.
+        if _seed_package(owner, row["name"], row["component"], run=run):
+            if adopting:
+                row.update(
+                    package_state="adopted",
+                    package_action="none",
+                    package_detail="Everything already in here will be kept, and it's now part of your copilots.",
+                    # Consented and written: there is nothing left to decline.
+                    decline_detail="",
+                )
+            else:
+                row.update(
+                    package_state="seeded",
+                    package_action="none",
+                    package_detail="Set up and ready.",
+                )
+        else:
+            row.update(
+                package_state="unknown",
+                package_action="blocked",
+                action="blocked",
+                package_detail=(
+                    f"GitHub didn't confirm the change to your "
+                    f"{_component_label(row['component'])} Copilot space, so I "
+                    "stopped. Nothing existing was changed."
+                ),
+            )
+            return _report(owner, "apply", rows, "blocked")
+    return _report(owner, "apply", rows, "applied")
+
+
+def _github_file(owner: str, repo: str, path: str, *, run: Run) -> str:
+    result = run(("gh", "api", f"repos/{owner}/{repo}/contents/{path}"))
+    if result.returncode != 0:
+        raise RuntimeError(f"GitHub could not read {owner}/{repo}/{path}.")
+    content = _decode_github_content(result.stdout)
+    if content is None:
+        raise RuntimeError(f"GitHub returned an unreadable {path} handoff.")
+    return content
+
+
+def _load_handoff(org: str, products: Sequence[str], *, run: Run) -> dict[str, Any]:
+    errors: list[str] = []
+    for product in products:
+        repo = f"{product}-copilot-internal"
+        try:
+            raw = _github_file(org, repo, "ecosystem.yml", run=run)
+        except RuntimeError as exc:
+            errors.append(str(exc))
+            continue
+        try:
+            handoff = yaml.safe_load(raw)
+        except yaml.YAMLError as exc:
+            raise RuntimeError(f"{org}/{repo}/ecosystem.yml is invalid YAML.") from exc
+        configured = handoff.get("harness") if isinstance(handoff, dict) else None
+        if not isinstance(handoff, dict) or handoff.get("schema_version") != "2.0":
+            raise RuntimeError(
+                f"{org}/{repo}/ecosystem.yml is not a supported v2 handoff."
+            )
+        if handoff.get("org") != org:
+            raise RuntimeError(
+                f"{org}/{repo}/ecosystem.yml names a different organization."
+            )
+        if not isinstance(configured, list) or any(
+            value not in configured for value in products
+        ):
+            raise RuntimeError(
+                "The organization handoff does not enable every requested Copilot product."
+            )
+        return handoff
+    raise RuntimeError(
+        errors[0] if errors else "No organization handoff repository was selected."
+    )
+
+
+def _discover_org(products: Sequence[str], *, run: Run) -> str:
+    result = run(("gh", "api", "user/orgs", "--paginate"))
+    if result.returncode != 0:
+        raise RuntimeError(
+            "GitHub could not list the organizations available to this account."
+        )
+    try:
+        organizations = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("GitHub returned an unreadable organization list.") from exc
+    matches: list[str] = []
+    for item in organizations if isinstance(organizations, list) else []:
+        login = item.get("login") if isinstance(item, dict) else None
+        if not isinstance(login, str) or not login:
+            continue
+        try:
+            _load_handoff(login, products, run=run)
+        except RuntimeError:
+            continue
+        matches.append(login)
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        raise RuntimeError(
+            "No organization with a complete Copilot handoff was found for this account."
+        )
+    raise RuntimeError(
+        "More than one organization has a Copilot handoff. Choose one with --org <name>."
+    )
+
+
+def _eligible_department_units(
+    handoff: dict[str, Any], org: str, owner: str, *, run: Run
+) -> tuple[str, ...]:
+    """Return only handoff-declared departments this GitHub user belongs to.
+
+    A department repository is never inferred from a local folder name. The
+    organization handoff declares the bounded candidate set and GitHub team
+    membership supplies the current entitlement proof.
+    """
+    units: list[str] = []
+    for row in handoff.get("departments") or []:
+        unit = row.get("unit") if isinstance(row, dict) else None
+        if not isinstance(unit, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]*", unit):
+            continue
+        membership = run(("gh", "api", f"orgs/{org}/teams/{unit}/memberships/{owner}"))
+        if membership.returncode != 0:
+            continue
+        try:
+            payload = json.loads(membership.stdout)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict) and payload.get("state") == "active":
+            units.append(unit)
+    return tuple(dict.fromkeys(units))
+
+
+def _canonical_repository_names(department_units: Sequence[str] = ()) -> set[str]:
+    names: set[str] = set()
+    for component in COMPONENTS:
+        names.update(
+            {
+                f"{component}-copilot",
+                f"{component}-copilot-internal",
+                f"{component}-copilot-private",
+            }
+        )
+        names.update(f"{component}-copilot-{unit}" for unit in department_units)
+    return names
+
+
+def _infer_repository_root(department_units: Sequence[str] = ()) -> Path | None:
+    """Infer one visible checkout folder from already approved local roots.
+
+    Only the configured repository root and the immediate children of
+    `projects.roots` are inspected. This keeps discovery bounded while still
+    finding the common `/Sites/COPILOT/<component>` layout.
+    """
+    configured = resolve_key("paths.repositories_root")
+    if configured:
+        return Path(str(configured)).expanduser()
+    roots = resolve_key("projects.roots")
+    if isinstance(roots, str):
+        roots = [roots]
+    if not isinstance(roots, list):
+        return None
+    expected = _canonical_repository_names(department_units)
+    scored: list[tuple[int, Path]] = []
+    for raw in roots:
+        if not isinstance(raw, str) or not raw:
+            continue
+        root = Path(raw).expanduser()
+        candidates = [root]
+        try:
+            candidates.extend(path for path in root.iterdir() if path.is_dir())
+        except OSError:
+            pass
+        for candidate in candidates:
+            try:
+                score = sum((candidate / name).is_dir() for name in expected)
+            except OSError:
+                score = 0
+            if score:
+                scored.append((score, candidate))
+    if not scored:
+        return None
+    scored.sort(key=lambda item: (-item[0], len(item[1].parts), str(item[1])))
+    best_score = scored[0][0]
+    best = {path for score, path in scored if score == best_score}
+    return next(iter(best)) if len(best) == 1 else None
+
+
+def _repo_identity_from_layer(layer: dict[str, Any]) -> tuple[str, str] | None:
+    identity = _repository_identity((layer.get("source") or {}).get("repo"))
+    if not identity:
+        return None
+    owner, name = identity.split("/", 1)
+    return owner, name
+
+
+def _git_output(path: Path, *args: str, run: Run) -> subprocess.CompletedProcess[str]:
+    return run(("git", "-C", str(path), *args))
+
+
+def _remote_repository_state(owner: str, name: str, *, run: Run) -> tuple[str, str | None]:
+    result = run(("gh", "api", f"repos/{owner}/{name}"))
+    if result.returncode != 0:
+        return ("missing", None) if _is_404(result) else ("unknown", None)
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return "unknown", None
+    visibility = "private" if payload.get("private") is True else "public"
+    contents = run(("gh", "api", f"repos/{owner}/{name}/contents"))
+    if _is_404(contents):
+        return "empty", visibility
+    return ("ready", visibility) if contents.returncode == 0 else ("unknown", visibility)
+
+
+def _topology_report_layers(
+    manifest: dict[str, Any], *, run: Run, verified: bool = False
+) -> list[dict[str, Any]]:
+    """Return user-facing repository evidence for every expected layer."""
+    rows: list[dict[str, Any]] = []
+    for layer in manifest["layers"]:
+        source = layer.get("source") or {}
+        identity = _repo_identity_from_layer(layer)
+        local_raw = source.get("path")
+        local = Path(local_raw).expanduser() if isinstance(local_raw, str) else None
+        if local is None:
+            remote_state, visibility = "not-checked", None
+            owner, name = identity or ("", "")
+        elif identity is None:
+            remote_state, visibility = "unknown", None
+            owner, name = "", ""
+        else:
+            owner, name = identity
+            remote_state, visibility = _remote_repository_state(owner, name, run=run)
+
+        local_state = "location-required" if local is None else "missing"
+        sync_state = "not-checked"
+        action = "choose-location" if local is None else "download"
+        detail = "Choose the visible folder where your Copilot repositories belong."
+        if local is not None and local.exists():
+            if not (local / ".git").is_dir():
+                local_state, action = "conflict", "review"
+                detail = f"{local} exists but is not a Git repository. Nothing will be changed."
+            else:
+                origin = _git_output(local, "remote", "get-url", "origin", run=run)
+                origin_identity = _repository_identity(origin.stdout.strip()) if origin.returncode == 0 else None
+                expected_identity = f"{owner}/{name}".casefold() if owner and name else None
+                if origin_identity != expected_identity:
+                    local_state, action = "conflict", "review"
+                    detail = f"{local} points to a different GitHub repository. Nothing will be changed."
+                else:
+                    local_state, action = "visible", "reuse"
+                    head = _git_output(local, "rev-parse", "HEAD", run=run)
+                    status = _git_output(local, "status", "--porcelain", run=run)
+                    remote = run(("git", "ls-remote", source.get("repo", ""), source.get("ref", "main")))
+                    remote_sha = remote.stdout.split()[0] if remote.returncode == 0 and remote.stdout.split() else None
+                    if head.returncode == 0 and remote_sha and head.stdout.strip() == remote_sha:
+                        sync_state = "current"
+                        detail = f"Visible at {local}; its checked-out revision matches GitHub."
+                    elif status.returncode == 0 and status.stdout.strip():
+                        sync_state = "local-changes"
+                        detail = f"Visible at {local}; local work will be preserved."
+                    elif remote_sha:
+                        sync_state, action = "behind", "repair"
+                        detail = f"Visible at {local}; a clean fast-forward is available."
+                    else:
+                        sync_state = "unknown"
+                        detail = f"Visible at {local}; GitHub currency could not be confirmed."
+        elif local is not None:
+            if remote_state == "missing" and layer["role"] != "personal":
+                action = "review"
+                detail = f"{owner}/{name} does not exist, so Control Tower will not invent this shared layer."
+            elif remote_state == "empty" and layer["role"] == "department":
+                action = "initialize"
+                detail = f"Initialize the empty {owner}/{name} layer, then download it to {local}."
+            elif remote_state == "missing" and layer["role"] == "personal":
+                action = "create"
+                detail = f"Create the private {owner}/{name} repository, then download it to {local}."
+            elif remote_state in {"ready", "empty"}:
+                action = "download"
+                detail = f"Download {owner}/{name} to {local}."
+            else:
+                action = "review"
+                detail = f"GitHub could not confirm {owner}/{name}; nothing will be changed."
+
+        rows.append(
+            {
+                "id": layer["id"],
+                "product": layer["product"],
+                "role": layer["role"],
+                "rank": layer["rank"],
+                "unit": layer.get("unit"),
+                "repository_owner": owner,
+                "repository_name": name,
+                "repository_visibility": visibility,
+                "remote_state": remote_state,
+                "local_path": str(local) if local else None,
+                "local_state": local_state,
+                "connection_state": (
+                    "verified"
+                    if verified and action == "reuse"
+                    else "connected"
+                    if action == "reuse"
+                    else "planned"
+                    if action != "review"
+                    else "blocked"
+                ),
+                "sync_state": sync_state,
+                "action": action,
+                "detail": detail,
+            }
+        )
+    return rows
+
+
+def _department_seed(component: str, unit: str) -> str:
+    return yaml.safe_dump(
+        {
+            "schema_version": "1.0",
+            "package": {
+                "role": "department",
+                "rank": 20,
+                "product": component,
+                "unit": unit,
+            },
+            "dimensions": [],
+        },
+        sort_keys=False,
+    )
+
+
+def _seed_department(owner: str, name: str, component: str, unit: str, *, run: Run) -> bool:
+    encoded = base64.b64encode(_department_seed(component, unit).encode("utf-8")).decode("ascii")
+    result = run(
+        (
+            "gh", "api", "-X", "PUT",
+            f"repos/{owner}/{name}/contents/copilot.layer.yml",
+            "-f", f"message=Initialize {unit} {component} Copilot layer",
+            "-f", f"content={encoded}",
+        )
+    )
+    return result.returncode == 0
+
+
+def _apply_visible_topology(
+    manifest: dict[str, Any], rows: Sequence[dict[str, Any]], *, run: Run
+) -> tuple[bool, str | None]:
+    """Create/download/fast-forward only CLI-proven visible checkouts."""
+    by_id = {row["id"]: row for row in rows}
+    for layer in sorted(manifest["layers"], key=lambda item: item["rank"], reverse=True):
+        row = by_id[layer["id"]]
+        action = row["action"]
+        if action in {"reuse"}:
+            continue
+        if action in {"review", "choose-location"}:
+            return False, row["detail"]
+        source = layer["source"]
+        target = Path(source["path"]).expanduser()
+        if action == "initialize":
+            if not _seed_department(
+                row["repository_owner"], row["repository_name"],
+                layer["product"], layer.get("unit", ""), run=run,
+            ):
+                return False, f"GitHub did not confirm initialization of {row['repository_owner']}/{row['repository_name']}."
+            action = "download"
+        if action in {"create", "download"}:
+            if target.exists():
+                return False, f"{target} appeared during setup, so Control Tower stopped without changing it."
+            target.parent.mkdir(parents=True, exist_ok=True)
+            clone = run(("git", "clone", "--origin", "origin", "--branch", source.get("ref", "main"), source["repo"], str(target)))
+            if clone.returncode != 0:
+                if target.exists() and not any(target.iterdir()):
+                    target.rmdir()
+                return False, f"Git could not download {row['repository_owner']}/{row['repository_name']} to {target}."
+        elif action == "repair":
+            fetch = _git_output(target, "fetch", "origin", source.get("ref", "main"), run=run)
+            if fetch.returncode != 0:
+                return False, f"Git could not fetch {row['repository_owner']}/{row['repository_name']}."
+            merge = _git_output(target, "merge", "--ff-only", "FETCH_HEAD", run=run)
+            if merge.returncode != 0:
+                return False, f"{target} could not be fast-forwarded safely; local work was preserved."
+    return True, None
+
+
+def _quarantine_legacy_personal_mirrors(
+    manifest: dict[str, Any], *, mirrors_root: Path | str | None = None
+) -> list[str]:
+    """Move superseded hidden Personal checkouts out of the active mirror tree.
+
+    A Personal repository's canonical checkout is the visible ``source.path``
+    selected during onboarding. Older releases placed Claude/Codex Personal
+    working copies directly below ``~/.copilot/mirrors`` and CLI/Knowledge
+    copies below product subdirectories. Preserve those bytes in a recoverable
+    sibling quarantine, but never leave them looking like active repositories.
+    """
+    configured = mirrors_root or resolve_key("paths.mirrors_root")
+    active_root = (
+        Path(str(configured)).expanduser()
+        if configured
+        else Path.home() / ".copilot" / "mirrors"
+    )
+    quarantine_root = active_root.parent / "legacy-mirrors"
+    moved: list[str] = []
+    for layer in manifest["layers"]:
+        if layer.get("role") != "personal":
+            continue
+        layer_id = str(layer["id"])
+        product = str(layer["product"])
+        visible = Path(str(layer["source"]["path"])).expanduser().resolve()
+        candidates = (active_root / layer_id, active_root / product / layer_id)
+        for candidate in candidates:
+            if not candidate.exists() or candidate.resolve() == visible:
+                continue
+            assert_write_is_isolated(candidate)
+            quarantine_root.mkdir(parents=True, exist_ok=True)
+            destination = quarantine_root / f"{product}-{layer_id}"
+            suffix = 1
+            while destination.exists():
+                destination = quarantine_root / f"{product}-{layer_id}-{suffix}"
+                suffix += 1
+            candidate.rename(destination)
+            moved.append(f"{candidate} -> {destination}")
+    return moved
+
+
+_SEMVER = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
+
+
+def _resolve_foundation_ref(product: str, requested: str, *, run: Run) -> str:
+    if _SEMVER.match(requested):
+        return requested
+    floor = (
+        _SEMVER.match(requested.removeprefix("^"))
+        if requested.startswith("^")
+        else None
+    )
+    if floor is None:
+        raise RuntimeError(f"Unsupported {product} foundation ref {requested!r}.")
+    result = run(
+        (
+            "gh",
+            "api",
+            f"repos/Everyone-Needs-A-Copilot/{product}-copilot/tags",
+            "--paginate",
+        )
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"GitHub could not resolve the {product} foundation release."
+        )
+    try:
+        tags = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"GitHub returned unreadable {product} release tags."
+        ) from exc
+    floor_version = tuple(int(value) for value in floor.groups())
+    candidates: list[tuple[tuple[int, int, int], str]] = []
+    for item in tags if isinstance(tags, list) else []:
+        name = item.get("name") if isinstance(item, dict) else None
+        match = _SEMVER.match(name or "")
+        if match:
+            version = tuple(int(value) for value in match.groups())
+            if version >= floor_version and version[0] == floor_version[0]:
+                candidates.append((version, str(name)))
+    if not candidates:
+        raise RuntimeError(
+            f"No published {product} foundation release satisfies {requested}."
+        )
+    return max(candidates)[1]
+
+
+def _layer_manifest(
+    org: str,
+    owner: str,
+    products: Sequence[str],
+    handoff: dict[str, Any],
+    *,
+    run: Run,
+    department_units: Sequence[str] = (),
+    repository_root: Path | None = None,
+) -> dict[str, Any]:
+    refs = (handoff.get("foundation") or {}).get("refs") or {}
+    layers: list[dict[str, Any]] = []
+    for product in products:
+        requested = refs.get(product) or LEGACY_FOUNDATION_REFS.get(product)
+        if not isinstance(requested, str) or not requested:
+            raise RuntimeError(
+                f"The organization handoff is missing foundation.refs.{product}."
+            )
+        exact_ref = _resolve_foundation_ref(product, requested, run=run)
+        personal_id = "cli-personal" if product == "cli" else f"{product}-personal"
+        organization_id = "org-internal" if product == "cli" else f"{product}-organization"
+        foundation_id = "foundation" if product == "cli" else f"{product}-foundation"
+        private_foundation = product in {"knowledge", "cli"}
+        foundation_repo = (
+            f"git@github-work:Everyone-Needs-A-Copilot/{product}-copilot.git"
+            if private_foundation
+            else f"https://github.com/Everyone-Needs-A-Copilot/{product}-copilot.git"
+        )
+        layer_specs = [
+            (
+                personal_id,
+                "personal",
+                10,
+                f"git@github-personal:{owner}/{product}-copilot-private.git",
+                "main",
+                "personal",
+            ),
+            *[
+                (
+                    f"{product}-department-{unit}",
+                    "department",
+                    20,
+                    f"git@github-work:{org}/{product}-copilot-{unit}.git",
+                    "main",
+                    "work",
+                )
+                for unit in department_units
+            ],
+            (
+                organization_id,
+                "organization",
+                30,
+                f"git@github-work:{org}/{product}-copilot-internal.git",
+                "main",
+                "work",
+            ),
+            (
+                foundation_id,
+                "foundation",
+                40,
+                foundation_repo,
+                exact_ref,
+                "work" if private_foundation else "anon",
+            ),
+        ]
+        for layer_id, role, rank, repo, ref, auth in layer_specs:
+            source: dict[str, str] = {"repo": repo, "ref": ref}
+            if repository_root is not None:
+                if role == "personal":
+                    repo_name = f"{product}-copilot-private"
+                elif role == "department":
+                    unit = next(
+                        unit
+                        for unit in department_units
+                        if layer_id.endswith("-" + unit)
+                    )
+                    repo_name = f"{product}-copilot-{unit}"
+                elif role == "organization":
+                    repo_name = f"{product}-copilot-internal"
+                else:
+                    repo_name = f"{product}-copilot"
+                source["path"] = str(repository_root / repo_name)
+            if product == "claude" and role == "foundation":
+                source["subpath"] = ".claude"
+            layer = {
+                    "id": layer_id,
+                    "role": role,
+                    "rank": rank,
+                    "product": product,
+                    "source": source,
+                    "auth": auth,
+                    "activation": "always",
+                    "policy": {
+                        "allowed_signers": list(FOUNDATION_ALLOWED_SIGNERS.get(product, ()))
+                        if role == "foundation"
+                        else []
+                    },
+                }
+            if role == "department":
+                layer["unit"] = next(
+                    unit for unit in department_units if layer_id.endswith("-" + unit)
+                )
+            layers.append(layer)
+    return {"version": 1, "org": org, "layers": layers}
+
+
+def _atomic_yaml(path: Path, payload: dict[str, Any]) -> None:
+    # Guard before mkdir/tempfile creation, not only before os.replace: a
+    # pytest isolation escape must leave no directory or temporary artifact
+    # behind at any of the real active/legacy manifest locations.
+    assert_write_is_isolated(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        "w", dir=path.parent, delete=False, encoding="utf-8"
+    ) as handle:
+        handle.write(yaml.safe_dump(payload, sort_keys=False))
+        temp = Path(handle.name)
+    os.replace(temp, path)
+
+
+def _existing_manifest(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Load a supported manifest without rewriting unrequested products.
+
+    The first CLI inheritance release called the product discriminator
+    ``component``. It is a deterministic predecessor of ``product`` and can
+    therefore be compared through a normalized view. The raw view is retained
+    for serialization so onboarding Claude or Codex cannot rewrite a CLI,
+    Knowledge, or future product layer as an unrelated side effect.
+    """
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise ManifestError(
+            "The existing layer manifest could not be read safely."
+        ) from exc
+    if (
+        not isinstance(raw, dict)
+        or raw.get("version") != 1
+        or not isinstance(raw.get("layers"), list)
+    ):
+        raise ManifestError(
+            "The existing layer manifest is not a supported version-1 manifest."
+        )
+
+    normalized: list[dict[str, Any]] = []
+    for raw_layer in raw["layers"]:
+        if not isinstance(raw_layer, dict):
+            raise ManifestError(
+                "The existing layer manifest contains an unfamiliar layer."
+            )
+        layer = normalize_layer_product(raw_layer)
+        layer.setdefault("activation", "always")
+        if not _safe_repository_reference((layer.get("source") or {}).get("repo")):
+            raise ManifestError(
+                "The existing layer manifest contains an unsafe repository reference."
+            )
+        normalized.append(layer)
+    validate_layers(normalized)
+    normalized_result = dict(raw)
+    normalized_result["layers"] = normalized
+    return raw, normalized_result
+
+
+def _managed_product_is_compatible(
+    existing: list[dict[str, Any]], desired: list[dict[str, Any]]
+) -> bool:
+    """Return true only for a previously generated stack we can repair."""
+    if not existing:
+        return False
+    def canonical_role(value: Any) -> Any:
+        return {
+            "org": "organization",
+            "organization": "organization",
+            "dept": "department",
+            "department": "department",
+        }.get(value, value)
+    desired_by_key = {
+        (layer.get("product"), canonical_role(layer.get("role"))): layer
+        for layer in desired
+    }
+    allowed_keys = {
+        "id",
+        "role",
+        "rank",
+        "product",
+        "unit",
+        "source",
+        "auth",
+        "activation",
+        "policy",
+    }
+    auth_equivalents = (
+        {"personal", "ssh-personal"},
+        {"work", "ssh-work"},
+        {"anon"},
+    )
+    for layer in existing:
+        key = (layer.get("product"), canonical_role(layer.get("role")))
+        expected = desired_by_key.get(key)
+        if expected is None:
+            return False
+        recognized_ids = {expected["id"]}
+        if layer.get("product") == "cli":
+            recognized_ids.update(
+                {
+                    "personal": {"cli-personal"},
+                    "organization": {"cli-organization", "org-internal"},
+                    "foundation": {"cli-foundation", "foundation"},
+                }.get(canonical_role(layer.get("role")), set())
+            )
+        if layer.get("id") not in recognized_ids:
+            return False
+        if set(layer) - allowed_keys:
+            return False
+        actual_role = canonical_role(layer.get("role"))
+        expected_role = canonical_role(expected.get("role"))
+        if actual_role != expected_role or any(
+            layer.get(key) != expected.get(key)
+            for key in ("rank", "product", "unit")
+        ):
+            return False
+        actual_source = layer.get("source") or {}
+        expected_source = expected.get("source") or {}
+        if _repository_identity(actual_source.get("repo")) != _repository_identity(
+            expected_source.get("repo")
+        ):
+            return False
+        if actual_source.get("subpath") != expected_source.get("subpath"):
+            return False
+        if expected["role"] != "foundation" and actual_source.get(
+            "ref"
+        ) != expected_source.get("ref"):
+            return False
+        actual_auth, expected_auth = layer.get("auth"), expected.get("auth")
+        foundation_transport_upgrade = (
+            expected_role == "foundation"
+            and {actual_auth, expected_auth} <= {"anon", "work", "ssh-work"}
+        )
+        if not foundation_transport_upgrade and not any(
+            {actual_auth, expected_auth} <= group for group in auth_equivalents
+        ):
+            return False
+        if layer.get("activation", "always") != "always":
+            return False
+    return True
+
+
+def _repository_identity(value: Any) -> str | None:
+    """Canonical GitHub owner/repository identity across HTTPS and SSH aliases."""
+    if not isinstance(value, str) or not value:
+        return None
+    candidate = value.strip()
+    if candidate.startswith("git@") and ":" in candidate:
+        candidate = candidate.split(":", 1)[1]
+    else:
+        parsed = urlsplit(candidate)
+        if parsed.hostname and parsed.hostname.casefold() == "github.com":
+            candidate = parsed.path
+    candidate = candidate.strip("/")
+    if candidate.endswith(".git"):
+        candidate = candidate[:-4]
+    parts = candidate.split("/")
+    if len(parts) != 2 or not all(parts):
+        return None
+    return "/".join(parts).casefold()
+
+
+def _manifest_adoption_plan(
+    desired: dict[str, Any],
+    destination: Path,
+    *,
+    configured_path: Path | str | None = None,
+    legacy_paths: Sequence[Path | str] = (),
+    allowed_root: Path | str | None = None,
+) -> ManifestAdoption:
+    """Inventory and merge a recognized existing manifest without data loss."""
+    destination = destination.expanduser()
+    candidates: list[Path] = [destination]
+    if configured_path:
+        candidates.append(Path(configured_path).expanduser())
+    candidates.extend(Path(path).expanduser() for path in legacy_paths)
+
+    source = next((path for path in dict.fromkeys(candidates) if path.is_file()), None)
+    if source is None:
+        return ManifestAdoption(
+            "missing",
+            "create",
+            "Nothing is connected yet. Setup will connect all of it for you.",
+            None,
+            destination,
+            desired,
+        )
+    if source.is_symlink() or destination.is_symlink():
+        return ManifestAdoption(
+            "unfamiliar",
+            "review",
+            "This is set up through a link I don't manage, so I'll leave it untouched until it's looked at.",
+            source,
+            destination,
+            None,
+        )
+    if allowed_root is not None:
+        try:
+            root = Path(allowed_root).expanduser().resolve()
+            source.resolve().relative_to(root)
+            destination.resolve().relative_to(root)
+        except (OSError, ValueError):
+            return ManifestAdoption(
+                "unfamiliar",
+                "review",
+                "Something is set up somewhere I don't manage, so I'll leave it untouched.",
+                source,
+                destination,
+                None,
+            )
+    try:
+        existing_raw, existing = _existing_manifest(source)
+    except ManifestError:
+        return ManifestAdoption(
+            "unfamiliar",
+            "review",
+            "I don't recognize an existing setting here, so I'll leave it untouched until it's looked at.",
+            source,
+            destination,
+            None,
+        )
+
+    desired_layers = list(desired["layers"])
+    desired_products = {layer["product"] for layer in desired_layers}
+    retained = [
+        raw_layer
+        for raw_layer, normalized_layer in zip(
+            existing_raw["layers"], existing["layers"], strict=True
+        )
+        if normalized_layer["product"] not in desired_products
+    ]
+    existing_managed = [
+        layer for layer in existing["layers"] if layer["product"] in desired_products
+    ]
+    if existing_managed and not _managed_product_is_compatible(
+        existing_managed, desired_layers
+    ):
+        return ManifestAdoption(
+            "conflict",
+            "review",
+            "Your existing Claude or Codex setup isn't one I recognize, so I won't replace any of it.",
+            source,
+            destination,
+            None,
+        )
+
+    existing_org = existing_raw.get("org")
+    desired_org = desired.get("org")
+    if existing_org not in (None, desired_org):
+        return ManifestAdoption(
+            "conflict",
+            "review",
+            "This manifest belongs to a different organization, so I won't replace it.",
+            source,
+            destination,
+            None,
+        )
+    merged = dict(existing_raw)
+    merged["version"] = 1
+    if desired_org:
+        merged["org"] = desired_org
+    merged["layers"] = [*retained, *desired_layers]
+    try:
+        validate_layers(
+            [
+                {
+                    **normalize_layer_product(layer),
+                    "activation": layer.get("activation", "always"),
+                }
+                for layer in merged["layers"]
+            ]
+        )
+    except ManifestError:
+        return ManifestAdoption(
+            "conflict",
+            "review",
+            "The existing and planned layers cannot be combined safely. Nothing will be replaced.",
+            source,
+            destination,
+            None,
+        )
+
+    if source == destination and existing_raw == merged:
+        return ManifestAdoption(
+            "ready",
+            "reuse",
+            "Everything is already described correctly, so I'll keep it as it is.",
+            source,
+            destination,
+            merged,
+        )
+    if source != destination:
+        return ManifestAdoption(
+            "legacy",
+            "migrate",
+            "I recognize an earlier setup. I'll bring it forward and add what's missing, keeping a copy first.",
+            source,
+            destination,
+            merged,
+        )
+    return ManifestAdoption(
+        "partial",
+        "repair",
+        "What's already set up will be kept, and I'll add the parts that are missing.",
+        source,
+        destination,
+        merged,
+    )
+
+
+def _backup_path(path: Path) -> Path:
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    root = path.parent / ".copilot-control-tower-backups" / digest
+    return root / path.name
+
+
+def _apply_manifest_adoption(plan: ManifestAdoption) -> Path | None:
+    """Apply a reviewed manifest plan with a content-addressed rollback copy."""
+    if plan.action == "review" or plan.payload is None:
+        raise RuntimeError(
+            "The existing layer manifest needs review before setup can continue."
+        )
+    if plan.action == "reuse":
+        return None
+
+    backup: Path | None = None
+    if plan.source is not None and plan.source.is_file():
+        backup = _backup_path(plan.source)
+        if not backup.exists():
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(plan.source, backup)
+    _atomic_yaml(plan.destination, plan.payload)
+    if (
+        plan.action == "migrate"
+        and plan.source is not None
+        and plan.source != plan.destination
+    ):
+        # Remove only the byte-for-byte source that was just backed up. If a
+        # concurrent actor changed it, preserve it and leave duplicate
+        # recognized manifests rather than risking authored work.
+        if backup is not None and plan.source.read_bytes() == backup.read_bytes():
+            plan.source.unlink()
+    return backup
+
+
+def _atomic_bytes(path: Path, content: bytes) -> None:
+    """Replace one controlled file while preserving its exact prior bytes."""
+    assert_write_is_isolated(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("wb", dir=path.parent, delete=False) as handle:
+        handle.write(content)
+        temp = Path(handle.name)
+    os.replace(temp, path)
+
+
+def _rollback_manifest_adoption(plan: ManifestAdoption, backup: Path | None) -> bool:
+    """Restore the exact pre-transaction manifest when a later gate fails.
+
+    The rollback refuses to overwrite concurrent edits: the destination must
+    still equal the payload this transaction wrote, and a migrated source must
+    still be absent (or already equal its backup).
+    """
+    if plan.action == "reuse":
+        return True
+    expected = yaml.safe_dump(plan.payload, sort_keys=False).encode()
+    try:
+        if not plan.destination.is_file() or plan.destination.read_bytes() != expected:
+            return False
+        if plan.source is None:
+            plan.destination.unlink()
+            return True
+        if backup is None or not backup.is_file():
+            return False
+        prior = backup.read_bytes()
+        if plan.source == plan.destination:
+            _atomic_bytes(plan.destination, prior)
+            return True
+        if plan.source.exists() and plan.source.read_bytes() != prior:
+            return False
+        if not plan.source.exists():
+            _atomic_bytes(plan.source, prior)
+        plan.destination.unlink()
+        return True
+    except OSError:
+        return False
+
+
+def _copilot_layers_payload(manifest_path: Path) -> tuple[dict[str, Any] | None, str]:
+    """Ask the installed CLI to resolve one candidate manifest."""
+    executable = resolve_executable("copilot")
+    if executable is None:
+        return None, "The installed `copilot` command is unavailable."
+    environment = os.environ.copy()
+    environment["COPILOT_LAYERS_FILE"] = str(manifest_path)
+    try:
+        result = subprocess.run(
+            (str(executable), "--json", "layers"),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=environment,
+            timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return None, f"The installed `copilot` reader could not be checked: {exc}"
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or "unknown error"
+        return None, f"The installed `copilot` reader rejected the manifest: {detail}"
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None, "The installed `copilot` reader returned unreadable output."
+    if not isinstance(payload, dict):
+        return None, "The installed `copilot` reader returned an unfamiliar report."
+    return payload, ""
+
+
+def _probe_cli_candidate(candidate: Path, baseline: Path | None) -> dict[str, str]:
+    """Reject a candidate that removes CLI layers or visible capabilities."""
+    candidate_layers = load_layers(candidate)
+    expected_chain = [
+        {
+            "id": layer["id"],
+            "role": layer["role"],
+            "rank": layer["rank"],
+            "repo": layer["source"]["repo"],
+            "ref": layer["source"].get("ref"),
+            "auth": layer["auth"],
+            "unit": layer.get("unit"),
+        }
+        for layer in candidate_layers
+        if layer["product"] == "cli"
+    ]
+    if not expected_chain:
+        return {"result": "ready"}
+
+    candidate_payload, detail = _copilot_layers_payload(candidate)
+    if candidate_payload is None:
+        return {"result": "blocked", "detail": detail}
+    resolved_chain = [
+        {
+            key: layer.get(key)
+            for key in ("id", "role", "rank", "repo", "ref", "auth", "unit")
+        }
+        for layer in candidate_payload.get("chain", [])
+        if isinstance(layer, dict)
+    ]
+    if resolved_chain != expected_chain:
+        return {
+            "result": "blocked",
+            "detail": (
+                "The installed `copilot` reader would change or lose CLI layers "
+                f"(expected {[item['id'] for item in expected_chain]}, "
+                f"resolved {[item['id'] for item in resolved_chain]})."
+            ),
+        }
+
+    if baseline is not None and baseline.is_file():
+        baseline_payload, _ = _copilot_layers_payload(baseline)
+        if baseline_payload is not None:
+            before = {
+                service.get("name"): (service.get("tier"), service.get("mode"))
+                for service in baseline_payload.get("services", [])
+                if isinstance(service, dict) and service.get("name")
+            }
+            after = {
+                service.get("name"): (service.get("tier"), service.get("mode"))
+                for service in candidate_payload.get("services", [])
+                if isinstance(service, dict) and service.get("name")
+            }
+            changed = sorted(
+                name
+                for name, provenance in before.items()
+                if after.get(name) != provenance
+            )
+            if changed:
+                return {
+                    "result": "blocked",
+                    "detail": (
+                        "The candidate would remove or downgrade installed CLI "
+                        "capabilities: " + ", ".join(changed)
+                    ),
+                }
+    return {"result": "ready"}
+
+
+def _validate_manifest_candidate(
+    plan: ManifestAdoption,
+    probe: Callable[[Path, Path | None], dict[str, str]],
+) -> dict[str, str]:
+    """Validate staged bytes with cc and every relevant installed consumer."""
+    if plan.payload is None:
+        return {
+            "result": "blocked",
+            "detail": "No safe layer-manifest candidate was available.",
+        }
+    if plan.action == "reuse":
+        candidate = plan.destination
+        if not candidate.is_file() and plan.source is not None:
+            candidate = plan.source
+        return probe(candidate, plan.source)
+
+    with tempfile.TemporaryDirectory(prefix="cc-manifest-candidate-") as temp_root:
+        candidate = Path(temp_root) / "copilot.layers.yml"
+        candidate.write_text(
+            yaml.safe_dump(plan.payload, sort_keys=False), encoding="utf-8"
+        )
+        try:
+            validate_layers(load_layers(candidate))
+        except ManifestError as exc:
+            return {
+                "result": "blocked",
+                "detail": f"The staged layer manifest is invalid: {exc}",
+            }
+        return probe(candidate, plan.source)
+
+
+def _sync_cli_manifest(manifest_path: Path) -> dict[str, str]:
+    """Sync CLI Copilot's product-owned mirrors against one staged manifest."""
+    executable = resolve_executable("copilot")
+    if executable is None:
+        return {
+            "result": "blocked",
+            "detail": "The installed `copilot` command is unavailable.",
+        }
+    environment = os.environ.copy()
+    environment["COPILOT_LAYERS_FILE"] = str(manifest_path)
+    configured_root = resolve_key("paths.mirrors_root")
+    if configured_root:
+        # CLI Copilot's compatibility variable names the directory *above*
+        # its `mirrors/cli/<id>` tree; cc stores the shared mirrors directory.
+        environment["COPILOT_MIRRORS_ROOT"] = str(
+            Path(str(configured_root)).expanduser().parent
+        )
+    try:
+        result = subprocess.run(
+            (str(executable), "--json", "update"),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=environment,
+            timeout=120,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"result": "blocked", "detail": f"CLI sync could not run: {exc}"}
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        payload = {}
+    if result.returncode != 0 or payload.get("overall") != "ok":
+        detail = (
+            payload.get("detail")
+            or result.stderr.strip()
+            or result.stdout.strip()
+            or "CLI Copilot did not confirm its layer mirrors."
+        )
+        return {"result": "blocked", "detail": str(detail)}
+    return {"result": "ready"}
+
+
+def _knowledge_mirror_paths(manifest: dict[str, Any]) -> list[str]:
+    base = Path(str(resolve_key("paths.mirrors_root"))).expanduser()
+    return [
+        str(base / "knowledge" / layer["id"])
+        for layer in sorted(manifest["layers"], key=lambda item: item["rank"])
+        if layer.get("product") == "knowledge"
+    ]
+
+
+def _set_dotted(payload: dict[str, Any], key: str, value: Any) -> None:
+    current = payload
+    parts = key.split(".")
+    for part in parts[:-1]:
+        child = current.get(part)
+        if not isinstance(child, dict):
+            child = {}
+            current[part] = child
+        current = child
+    current[parts[-1]] = value
+
+
+def _commit_machine_pointers(
+    manifest_path: Path,
+    knowledge_paths: Sequence[str],
+    repository_root: Path | None = None,
+) -> Path:
+    """Commit topology and Knowledge consumption pointers in one atomic write."""
+    path = machine_config_path()
+    payload = load_machine_config()
+    if not payload:
+        payload = {"$schema": "cc-config-v1", "version": 1}
+    _set_dotted(payload, "layers.manifest", str(manifest_path))
+    _set_dotted(payload, "paths.knowledge_repo", list(knowledge_paths))
+    if repository_root is not None:
+        _set_dotted(payload, "paths.repositories_root", str(repository_root))
+    content = (json.dumps(payload, indent=2) + "\n").encode("utf-8")
+    _atomic_bytes(path, content)
+    return path
+
+def _provision_store(store: dict[str, Any], *, apply: bool, run: Run) -> dict[str, Any]:
+    if store.get("status") != "connected":
+        return {"result": "deferred"}
+    if store.get("type") != "infisical":
+        return {
+            "result": "blocked",
+            "detail": "Automated device identity provisioning currently supports Infisical.",
+        }
+    required = ("workspace_id", "environment", "secret_path")
+    if not all(isinstance(store.get(key), str) and store.get(key) for key in required):
+        return {
+            "result": "blocked",
+            "detail": "The Admin handoff is missing workspace_id, environment, or secret_path.",
+        }
+    args = [
+        "copilot",
+        "infisical",
+        "--json",
+        "identity",
+        "provision",
+        "--project",
+        store["workspace_id"],
+        "--environment",
+        store["environment"],
+        "--secret-path",
+        store["secret_path"],
+    ]
+    if apply:
+        args.append("--apply")
+    result = run(tuple(args))
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return {
+            "result": "deferred",
+            "type": "infisical",
+            "detail": (
+                "The shared credential store could not be connected on this Mac. "
+                "Setup kept this Mac's existing credentials and will continue "
+                "without shared integrations."
+            ),
+        }
+    if result.returncode != 0 or payload.get("result") in {"blocked", "deferred"}:
+        return {
+            "result": "deferred",
+            "type": "infisical",
+            "detail": payload.get(
+                "detail",
+                "The shared credential store could not be connected on this Mac. "
+                "Setup kept this Mac's existing credentials and will continue "
+                "without shared integrations.",
+            ),
+        }
+    return {
+        "result": payload.get("result", "ready"),
+        "type": "infisical",
+        # The provisioner's internal scope is a structured policy object.
+        # The onboarding contract deliberately exposes only a non-secret
+        # summary string; its schema does not accept arbitrary nested policy.
+        "scope": f"{store['environment']}:{store['secret_path']}:read",
+    }
+
+
+def _codex_marketplace_failure(result: subprocess.CompletedProcess[str]) -> str:
+    if result.returncode == 127 and result.stderr.startswith("codex is not installed"):
+        return "Codex is not installed in a supported location on this Mac."
+    if result.returncode == 127 and "runtime required by codex" in result.stderr:
+        return (
+            "Codex is installed, but its required command-line runtime "
+            "could not be started outside the terminal."
+        )
+    return "Codex rejected the verified local marketplace."
+
+
+def _install_codex_plugin(*, apply: bool, run: Run) -> dict[str, Any]:
+    root = Path(str(resolve_key("paths.codex_materialize_root"))).expanduser()
+    plugin = root / "plugins" / "codex-copilot"
+    marketplace = root / ".agents" / "plugins" / "marketplace.json"
+    if not apply:
+        if (
+            not plugin.joinpath(".codex-plugin", "plugin.json").is_file()
+            or not marketplace.is_file()
+        ):
+            return {"result": "changes-required"}
+        listed_marketplaces = run(("codex", "plugin", "marketplace", "list", "--json"))
+        if listed_marketplaces.returncode != 0:
+            return {
+                "result": "blocked",
+                "detail": _codex_marketplace_failure(listed_marketplaces),
+            }
+        try:
+            marketplace_payload = json.loads(listed_marketplaces.stdout)
+            registered = any(
+                row.get("name") == "enac-materialized"
+                and isinstance(row.get("root"), str)
+                and Path(row.get("root", "")).expanduser().resolve() == root.resolve()
+                for row in marketplace_payload["marketplaces"]
+            )
+        except (json.JSONDecodeError, KeyError, OSError, TypeError):
+            return {
+                "result": "blocked",
+                "detail": "Codex returned an unreadable marketplace inventory.",
+            }
+        if not registered:
+            return {"result": "changes-required"}
+        listed_plugins = run(("codex", "plugin", "list", "--json"))
+        if listed_plugins.returncode != 0:
+            return {
+                "result": "blocked",
+                "detail": "Codex could not inspect installed plugins.",
+            }
+        try:
+            plugin_payload = json.loads(listed_plugins.stdout)
+            ready = any(
+                row.get("pluginId") == "codex-copilot@enac-materialized"
+                and row.get("installed") is True
+                and row.get("enabled") is True
+                for row in plugin_payload["installed"]
+            )
+        except (json.JSONDecodeError, KeyError, TypeError):
+            return {
+                "result": "blocked",
+                "detail": "Codex returned an unreadable plugin inventory.",
+            }
+        return {"result": "ready" if ready else "changes-required"}
+    if not plugin.joinpath(".codex-plugin", "plugin.json").is_file():
+        return {
+            "result": "blocked",
+            "detail": "The verified Codex Copilot plugin was not materialized.",
+        }
+    payload = {
+        "name": "enac-materialized",
+        "interface": {"displayName": "Copilot Control Tower"},
+        "plugins": [
+            {
+                "name": "codex-copilot",
+                "source": {"source": "local", "path": "./plugins/codex-copilot"},
+                "policy": {
+                    "installation": "INSTALLED_BY_DEFAULT",
+                    "authentication": "ON_INSTALL",
+                },
+                "category": "Productivity",
+            }
+        ],
+    }
+    marketplace.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        "w", dir=marketplace.parent, delete=False, encoding="utf-8"
+    ) as handle:
+        json.dump(payload, handle, indent=2)
+        handle.write("\n")
+        temp = Path(handle.name)
+    os.replace(temp, marketplace)
+    added = run(("codex", "plugin", "marketplace", "add", str(root), "--json"))
+    if added.returncode != 0:
+        return {
+            "result": "blocked",
+            "detail": _codex_marketplace_failure(added),
+        }
+    installed = run(
+        ("codex", "plugin", "add", "codex-copilot@enac-materialized", "--json")
+    )
+    if installed.returncode != 0:
+        return {
+            "result": "blocked",
+            "detail": "Codex rejected the Codex Copilot plugin installation.",
+        }
+    return {"result": "ready"}
+
+
+def _ecosystem_result(
+    org: str,
+    products: Sequence[str],
+    apply: bool,
+    result: str,
+    stages: list[dict[str, Any]],
+    layers: Sequence[dict[str, Any]] | None = None,
+    inventory: Sequence[dict[str, Any]] | None = None,
+    components: Sequence[str] | None = None,
+) -> dict[str, Any]:
+    report = {
+        "schema_version": SCHEMA_VERSION,
+        "scope": "ecosystem",
+        "mode": "apply" if apply else "plan",
+        "result": result,
+        "org": org,
+        "products": list(products),
+        "components": list(components or products),
+        "stages": stages,
+    }
+    report["layers"] = []
+    optional_layer_fields = (
+        "unit",
+        "repository_owner",
+        "repository_name",
+        "repository_visibility",
+        "remote_state",
+        "local_path",
+        "local_state",
+        "connection_state",
+        "sync_state",
+        "action",
+        "detail",
+    )
+    for layer in (layers or ()):
+        row = {
+            "id": layer["id"],
+            "product": layer["product"],
+            "role": layer["role"],
+            "rank": layer["rank"],
+        }
+        row.update({key: layer.get(key) for key in optional_layer_fields if key in layer})
+        report["layers"].append(row)
+    report["inventory"] = list(inventory or ())
+    report["inventory_summary"] = {
+        "reused": sum(item.get("action") == "reuse" for item in report["inventory"]),
+        "changes": sum(
+            item.get("action") in {"create", "migrate", "repair"}
+            for item in report["inventory"]
+        ),
+        "review": sum(item.get("action") == "review" for item in report["inventory"]),
+    }
+    return report
+
+
+def _personal_inventory(personal: dict[str, Any]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for row in personal.get("repositories", []):
+        component = row.get("component", "unknown")
+        package_state = row.get("package_state")
+        # `adoptable` is a pure offer (B1): it needs a `create`-shaped action
+        # so a plan whose only open item is an offer to include existing
+        # content is honestly "changes-required", never silently "ready" and
+        # never conflated with a genuine `held`/unfamiliar `review`.
+        action = (
+            "create"
+            if row.get("state") == "missing" or package_state in {"empty", "adoptable"}
+            else "reuse"
+            if package_state in {"ready", "seeded", "adopted"}
+            else "review"
+        )
+        items.append(
+            {
+                "id": f"personal-{component}",
+                "scope": "personal",
+                "title": f"Your {_component_label(component)} Copilot space",
+                "state": package_state or row.get("state", "unknown"),
+                "action": action,
+                "detail": row.get("package_detail") or row.get("detail") or "",
+                "source_path": None,
+                "destination_path": None,
+                # An adoptable offer is reversible (nothing has been written
+                # yet, and declining costs nothing); every other state here
+                # keeps the prior unconditional False.
+                "reversible": package_state == "adoptable",
+                "decline_detail": row.get("decline_detail") or "",
+            }
+        )
+    return items
+
+
+# The `ecosystemStage` schema entry declares `additionalProperties: false`,
+# so only these fields from an `ensure_machine_ssh_identity` report may be
+# spread into the `device-ssh` stage; richer fields (`decline_detail`,
+# `adopted_alias`, `missing_alias`) are consumed by `_ssh_inventory` instead.
+_SSH_STAGE_FIELDS = ("result", "key", "registration", "config", "detail")
+
+
+def _ssh_stage_fields(ssh: dict[str, Any]) -> dict[str, Any]:
+    return {key: ssh[key] for key in _SSH_STAGE_FIELDS if key in ssh}
+
+
+def _ssh_inventory(ssh: dict[str, Any]) -> list[dict[str, Any]]:
+    """An adoptable SSH alias is a pure offer (B1), the same shape as an
+    adoptable personal package: a `create`-shaped action, reversible because
+    nothing has been written yet, with a cost-of-declining detail.
+    """
+    if ssh.get("config") != "adoptable":
+        return []
+    return [
+        {
+            "id": "device-ssh",
+            "scope": "machine",
+            "title": "Your Mac's connection to GitHub",
+            "state": "adoptable",
+            "action": "create",
+            "detail": ssh.get("detail") or "",
+            "source_path": None,
+            "destination_path": None,
+            "reversible": True,
+            "decline_detail": ssh.get("decline_detail") or "",
+        }
+    ]
+
+
+def build_ecosystem_onboard_report(
+    *,
+    org: str,
+    products: Sequence[str] = PRODUCTS,
+    apply: bool = False,
+    adopt_existing: Sequence[str] = (),
+    run: Run | None = None,
+    manifest_path: Path | str | None = None,
+    repository_root: Path | str | None = None,
+    personal_fn: Callable[..., dict[str, Any]] | None = None,
+    ssh_fn: Callable[..., dict[str, Any]] | None = None,
+    store_fn: Callable[..., dict[str, Any]] | None = None,
+    codex_fn: Callable[..., dict[str, Any]] | None = None,
+    cli_fn: Callable[[Path], dict[str, str]] | None = None,
+    update_fn: Callable[..., tuple[dict[str, Any], int]] | None = None,
+    doctor_fn: Callable[..., dict[str, Any]] | None = None,
+    resolve_fn: Callable[..., dict[str, Any]] | None = None,
+    commit_config_fn: Callable[..., Path] | None = None,
+    personal_mirror_cleanup_fn: Callable[..., list[str]] | None = None,
+    consumer_probe_fn: Callable[[Path, Path | None], dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    """Run the resumable Admin-handoff-to-healthy-machine transaction.
+
+    Every injectable collaborator defaults to `None` and is resolved to its
+    real module-level implementation HERE, inside the function body, rather
+    than as a `param: T = real_impl` default-argument value. Python binds
+    default-argument values exactly once, at function-DEFINITION time (module
+    import) -- so a bare `ssh_fn: ... = ensure_machine_ssh_identity` default
+    captures whatever `ensure_machine_ssh_identity` pointed at when this
+    module first loaded, and a later `monkeypatch.setattr(onboard_module,
+    "ensure_machine_ssh_identity", fake)` -- this codebase's usual seam for
+    substituting real collaborators in tests -- has no effect on any call
+    that omits the keyword, since the default was already captured. Resolving
+    with `if x is None: x = <module-level name>` instead performs that name
+    lookup fresh on every call, so it picks up whatever the module attribute
+    currently is -- letting `onboard_cmd` (which passes none of these
+    keywords) still be safely monkeypatchable at the CLI level. See
+    tests/test_onboard_contract.py's `TestOnboardCmdWiring` for the
+    regression test that proves this holds.
+    """
+    if run is None:
+        run = _run
+    if personal_fn is None:
+        personal_fn = build_personal_onboard_report
+    if ssh_fn is None:
+        ssh_fn = ensure_machine_ssh_identity
+    if store_fn is None:
+        store_fn = _provision_store
+    if codex_fn is None:
+        codex_fn = _install_codex_plugin
+    if cli_fn is None:
+        cli_fn = _sync_cli_manifest
+    if update_fn is None:
+        update_fn = execute_update
+    if doctor_fn is None:
+        doctor_fn = build_doctor_report
+    if resolve_fn is None:
+        resolve_fn = build_resolve_report
+    if commit_config_fn is None:
+        commit_config_fn = _commit_machine_pointers
+    if personal_mirror_cleanup_fn is None:
+        personal_mirror_cleanup_fn = _quarantine_legacy_personal_mirrors
+    if consumer_probe_fn is None:
+        consumer_probe_fn = _probe_cli_candidate
+
+    normalized = tuple(dict.fromkeys(value.strip().lower() for value in products))
+    org = org.strip()
+    if not org or not normalized or any(value not in PRODUCTS for value in normalized):
+        raise ValueError(
+            "An organization and supported products (claude,codex) are required."
+        )
+    if org.casefold() == "auto":
+        org = _discover_org(normalized, run=run)
+    stages: list[dict[str, Any]] = []
+    inventory: list[dict[str, Any]] = []
+    handoff = _load_handoff(org, normalized, run=run)
+    configured_components = handoff.get("components")
+    if (
+        not isinstance(configured_components, list)
+        or not configured_components
+        or any(value not in COMPONENTS for value in configured_components)
+        or len(configured_components) != len(set(configured_components))
+    ):
+        raise RuntimeError(
+            "The organization handoff does not name a supported, unique component set."
+        )
+    ecosystem_components = tuple(configured_components)
+    missing_components = [
+        component for component in COMPONENTS if component not in ecosystem_components
+    ]
+    if missing_components:
+        raise RuntimeError(
+            "The organization handoff is incomplete. It must enable Knowledge, CLI, Claude, and Codex."
+        )
+    stages.append({"stage": "organization-handoff", "result": "ready"})
+    # Every apply begins with a complete read-only plan. No personal
+    # repository, SSH config, store identity, or local manifest is mutated
+    # until all adoption decisions are known to be safe.
+    personal = personal_fn(
+        components=ecosystem_components,
+        apply=False,
+        adopt_existing=adopt_existing,
+        run=run,
+    )
+    personal_detail = next(
+        (
+            row.get("package_detail") or row.get("detail")
+            for row in personal.get("repositories", [])
+            if row.get("action") == "blocked" or row.get("package_action") == "blocked"
+        ),
+        None,
+    )
+    personal_stage = {
+        "stage": "personal-packages",
+        "result": personal["result"],
+        "summary": personal["summary"],
+    }
+    if personal_detail:
+        personal_stage["detail"] = personal_detail
+    stages.append(personal_stage)
+    inventory.extend(_personal_inventory(personal))
+    if personal["result"] == "blocked":
+        return _ecosystem_result(
+            org,
+            normalized,
+            apply,
+            "blocked",
+            stages,
+            inventory=inventory,
+            components=ecosystem_components,
+        )
+    department_units = _eligible_department_units(
+        handoff, org, personal["owner"], run=run
+    )
+    legacy_injected_mode = manifest_path is not None and repository_root is None
+    visible_root = (
+        Path(repository_root).expanduser()
+        if repository_root is not None
+        else _infer_repository_root(department_units)
+    )
+    manifest = _layer_manifest(
+        org,
+        personal["owner"],
+        ecosystem_components,
+        handoff,
+        run=run,
+        department_units=department_units,
+        repository_root=visible_root,
+    )
+    topology_layers = _topology_report_layers(manifest, run=run)
+    if legacy_injected_mode:
+        for row in topology_layers:
+            row.update(
+                local_state="legacy-test-mode",
+                connection_state="planned",
+                sync_state="not-checked",
+                action="reuse",
+                detail="Visible repository placement was not requested by this injected transaction.",
+            )
+    repository_stage = {
+            "stage": "repository-location",
+            "result": "ready" if visible_root is not None or legacy_injected_mode else "changes-required",
+            "action": "reuse" if visible_root is not None or legacy_injected_mode else "choose",
+            "detail": (
+                f"Copilot repositories are visible in {visible_root}."
+                if visible_root is not None
+                else "Visible repository placement is controlled by this injected transaction."
+                if legacy_injected_mode
+                else "Choose the visible folder where Copilot repositories should be created or downloaded."
+            ),
+        }
+    if visible_root is not None:
+        repository_stage["path"] = str(visible_root)
+    if not legacy_injected_mode:
+        stages.append(repository_stage)
+    if manifest_path:
+        target = Path(manifest_path).expanduser()
+        configured_manifest: Path | str | None = target
+        legacy_manifests: tuple[Path, ...] = ()
+    else:
+        target = Path.home() / ".config" / "copilot" / "copilot.layers.yml"
+        configured_manifest = resolve_key("layers.manifest")
+        legacy_manifests = (
+            Path.home() / ".copilot" / "copilot.layers.yml",
+            Path.home() / ".copilot-cli" / "copilot.layers.yml",
+        )
+    adoption = _manifest_adoption_plan(
+        manifest,
+        target,
+        configured_path=configured_manifest,
+        legacy_paths=legacy_manifests,
+        allowed_root=None if manifest_path else Path.home(),
+    )
+    inventory.append(adoption.as_item())
+    # `github-work` is what the layer manifest above just wired every org
+    # repo through; `github-personal` is what it wired every personal repo
+    # through. Both are real targets an adopted alias can be proven against
+    # (B1 check 4), not just a live login.
+    ssh_verify_repos = {
+        "github-work": f"{org}/{normalized[0]}-copilot-internal",
+        "github-personal": f"{personal['owner']}/{normalized[0]}-copilot-private",
+    }
+    ssh = ssh_fn(
+        apply=False,
+        run=run,
+        adopt_existing=adopt_existing,
+        verify_repos=ssh_verify_repos,
+    )
+    stages.append({"stage": "device-ssh", **_ssh_stage_fields(ssh)})
+    inventory.extend(_ssh_inventory(ssh))
+    if ssh["result"] == "blocked":
+        return _ecosystem_result(
+            org,
+            normalized,
+            apply,
+            "blocked",
+            stages,
+            topology_layers,
+            inventory,
+            ecosystem_components,
+        )
+    stages.append(
+        {
+            "stage": "layer-manifest",
+            "result": "blocked"
+            if adoption.action == "review"
+            else ("ready" if adoption.action == "reuse" else "changes-required"),
+            "action": adoption.action,
+            "detail": adoption.detail,
+            "path": str(target),
+            "layers": len(adoption.payload["layers"])
+            if adoption.payload
+            else len(manifest["layers"]),
+        }
+    )
+    if adoption.action == "review":
+        return _ecosystem_result(
+            org,
+            normalized,
+            apply,
+            "blocked",
+            stages,
+            topology_layers,
+            inventory,
+            ecosystem_components,
+        )
+    candidate = _validate_manifest_candidate(adoption, consumer_probe_fn)
+    if candidate["result"] == "blocked":
+        manifest_stage = next(
+            stage for stage in stages if stage["stage"] == "layer-manifest"
+        )
+        manifest_stage["result"] = "blocked"
+        manifest_stage["detail"] = candidate["detail"]
+        return _ecosystem_result(
+            org,
+            normalized,
+            apply,
+            "blocked",
+            stages,
+            topology_layers,
+            inventory,
+            ecosystem_components,
+        )
+    store = handoff.get("store") or {}
+    store_report = store_fn(store, apply=False, run=run)
+    stages.append({"stage": "secret-store", **store_report})
+    if store_report["result"] == "blocked":
+        return _ecosystem_result(
+            org,
+            normalized,
+            apply,
+            "blocked",
+            stages,
+            manifest["layers"],
+            inventory,
+            ecosystem_components,
+        )
+    if "codex" in normalized:
+        codex_plan = codex_fn(apply=False, run=run)
+        stages.append({"stage": "codex-plugin", **codex_plan})
+        if codex_plan["result"] == "blocked":
+            return _ecosystem_result(
+                org,
+                normalized,
+                False,
+                "blocked",
+                stages,
+                manifest["layers"],
+                inventory,
+                ecosystem_components,
+            )
+    if not apply:
+        needs_change = any(
+            item["action"] in {"create", "migrate", "repair"} for item in inventory
+        ) or any(layer.get("action") != "reuse" for layer in topology_layers)
+        return _ecosystem_result(
+            org,
+            normalized,
+            False,
+            "changes-required" if needs_change else "ready",
+            stages,
+            topology_layers,
+            inventory,
+            ecosystem_components,
+        )
+
+    if visible_root is None and not legacy_injected_mode:
+        return _ecosystem_result(
+            org,
+            normalized,
+            True,
+            "blocked",
+            stages,
+            topology_layers,
+            inventory,
+            ecosystem_components,
+        )
+
+    personal = personal_fn(
+        components=ecosystem_components,
+        apply=True,
+        adopt_existing=adopt_existing,
+        run=run,
+    )
+    personal_stage = next(
+        stage for stage in stages if stage["stage"] == "personal-packages"
+    )
+    personal_stage.update(result=personal["result"], summary=personal["summary"])
+    if personal["result"] == "blocked":
+        return _ecosystem_result(
+            org,
+            normalized,
+            True,
+            "blocked",
+            stages,
+            manifest["layers"],
+            inventory,
+            ecosystem_components,
+        )
+
+    ssh = ssh_fn(
+        apply=True,
+        run=run,
+        adopt_existing=adopt_existing,
+        verify_repos=ssh_verify_repos,
+    )
+    ssh_stage = next(stage for stage in stages if stage["stage"] == "device-ssh")
+    ssh_stage.update(_ssh_stage_fields(ssh))
+    if ssh["result"] == "blocked":
+        return _ecosystem_result(
+            org,
+            normalized,
+            True,
+            "blocked",
+            stages,
+            manifest["layers"],
+            inventory,
+            ecosystem_components,
+        )
+
+    if legacy_injected_mode:
+        topology_ok, topology_detail = True, None
+    else:
+        topology_ok, topology_detail = _apply_visible_topology(
+            manifest, topology_layers, run=run
+        )
+        stages.append({
+            "stage": "visible-repositories",
+            "result": "ready" if topology_ok else "blocked",
+            "detail": topology_detail
+            or f"All {len(topology_layers)} expected repositories are visible in {visible_root}.",
+            "path": str(visible_root),
+            "layers": len(topology_layers),
+        })
+    if not topology_ok:
+        return _ecosystem_result(
+            org,
+            normalized,
+            True,
+            "blocked",
+            stages,
+            topology_layers,
+            inventory,
+            ecosystem_components,
+        )
+
+    store_report = store_fn(store, apply=True, run=run)
+    store_stage = next(stage for stage in stages if stage["stage"] == "secret-store")
+    store_stage.update(store_report)
+    if store_report["result"] == "blocked":
+        return _ecosystem_result(
+            org,
+            normalized,
+            True,
+            "blocked",
+            stages,
+            manifest["layers"],
+            inventory,
+            ecosystem_components,
+        )
+
+    backup = _apply_manifest_adoption(adoption)
+    manifest_stage = next(
+        stage for stage in stages if stage["stage"] == "layer-manifest"
+    )
+    manifest_stage["result"] = "reused" if adoption.action == "reuse" else "applied"
+    if backup is not None:
+        manifest_stage["rollback_path"] = str(backup)
+
+    def blocked_after_write(detail: str) -> dict[str, Any]:
+        rolled_back = _rollback_manifest_adoption(adoption, backup)
+        prior_manifest = adoption.source
+        if (
+            rolled_back
+            and prior_manifest is not None
+            and prior_manifest.is_file()
+            and adoption.action != "reuse"
+        ):
+            try:
+                _, restore_exit = update_fn(
+                    dry_run=False, _manifest_path=prior_manifest
+                )
+                rolled_back = restore_exit == 0
+            except Exception:
+                rolled_back = False
+        if rolled_back and prior_manifest is not None and prior_manifest.is_file():
+            try:
+                rolled_back = cli_fn(prior_manifest).get("result") == "ready"
+            except Exception:
+                rolled_back = False
+        manifest_stage["result"] = "rolled-back" if rolled_back else "rollback-failed"
+        manifest_stage["detail"] = (
+            f"{detail} The previous manifest was restored."
+            if rolled_back
+            else (
+                f"{detail} Automatic rollback could not be proven complete; "
+                f"use {backup} to recover before continuing."
+                if backup is not None
+                else f"{detail} Automatic rollback could not be proven complete."
+            )
+        )
+        return _ecosystem_result(
+            org,
+            normalized,
+            True,
+            "blocked",
+            stages,
+            manifest["layers"],
+            inventory,
+            ecosystem_components,
+        )
+
+    try:
+        update, update_exit = update_fn(dry_run=False, _manifest_path=target)
+    except Exception as exc:
+        return blocked_after_write(f"Materialization failed: {exc}")
+    stages.append(
+        {
+            "stage": "materialize",
+            "result": update.get("result", "blocked"),
+            "blocked": len(update.get("blocked", [])),
+            "held": len(update.get("held_for_approval", [])),
+        }
+    )
+    if update_exit != 0:
+        return blocked_after_write(
+            "Materialization rejected the candidate layer manifest."
+        )
+    try:
+        cli_report = cli_fn(target)
+    except Exception as exc:
+        return blocked_after_write(f"CLI layer sync failed: {exc}")
+    stages.append({"stage": "cli-sync", **cli_report})
+    if cli_report.get("result") != "ready":
+        return blocked_after_write(
+            cli_report.get("detail", "CLI layer sync rejected the candidate manifest.")
+        )
+    if update_exit == 0 and "codex" in normalized:
+        try:
+            codex_report = codex_fn(apply=True, run=run)
+        except Exception as exc:
+            return blocked_after_write(f"Codex activation failed: {exc}")
+        next(stage for stage in stages if stage["stage"] == "codex-plugin").update(
+            codex_report
+        )
+        if codex_report["result"] == "blocked":
+            return blocked_after_write(
+                "Codex activation rejected the candidate layer manifest."
+            )
+    try:
+        doctor = doctor_fn(_manifest_path=target)
+    except Exception as exc:
+        return blocked_after_write(f"The post-apply health check failed: {exc}")
+    stages.append(
+        {
+            "stage": "doctor",
+            "result": doctor.get("status", "unknown"),
+            "score": doctor.get("score"),
+        }
+    )
+    if doctor.get("status") != "healthy":
+        return blocked_after_write(
+            "The candidate made the post-apply health check unhealthy."
+        )
+    if not legacy_injected_mode:
+        try:
+            resolution = resolve_fn(_manifest_path=target)
+        except Exception as exc:
+            return blocked_after_write(f"The post-apply resolution check failed: {exc}")
+        resolved_items = resolution.get("items", [])
+        stages.append(
+            {
+                "stage": "resolve",
+                "result": "ready" if resolved_items else "blocked",
+                "layers": len(resolved_items),
+                "detail": (
+                    f"Resolved {len(resolved_items)} effective Copilot capabilities."
+                    if resolved_items
+                    else "No effective Copilot capabilities resolved from the candidate topology."
+                ),
+            }
+        )
+        if not resolved_items:
+            return blocked_after_write(
+                "The candidate topology did not resolve any effective Copilot capabilities."
+            )
+    try:
+        knowledge_paths = [
+            str(Path(layer["source"]["path"]).expanduser())
+            for layer in sorted(manifest["layers"], key=lambda item: item["rank"])
+            if layer.get("product") == "knowledge" and layer.get("source", {}).get("path")
+        ]
+        if visible_root is None:
+            commit_config_fn(target, _knowledge_mirror_paths(manifest))
+        else:
+            commit_config_fn(target, knowledge_paths, visible_root)
+    except Exception as exc:
+        return blocked_after_write(
+            f"The ecosystem pointers could not be committed: {exc}"
+        )
+    if not legacy_injected_mode:
+        try:
+            moved_personal = personal_mirror_cleanup_fn(manifest)
+        except Exception as exc:
+            return blocked_after_write(
+                f"Legacy hidden Personal repositories could not be quarantined: {exc}"
+            )
+        stages.append(
+            {
+                "stage": "personal-repository-location",
+                "result": "ready",
+                "layers": len(moved_personal),
+                "detail": (
+                    "Superseded hidden Personal repositories were moved to a recoverable legacy location."
+                    if moved_personal
+                    else "No hidden Personal repositories remain in the active mirror location."
+                ),
+            }
+        )
+    return _ecosystem_result(
+        org,
+        normalized,
+        True,
+        "ready",
+        stages,
+        _topology_report_layers(manifest, run=run, verified=True),
+        inventory,
+        ecosystem_components,
+    )
+
+
+def onboard_cmd(
+    scope: str = typer.Option(
+        "personal", "--scope", help="Repository scope; currently personal."
+    ),
+    components: str = typer.Option(
+        ",".join(COMPONENTS),
+        "--components",
+        help="Comma-separated ecosystem components.",
+    ),
+    apply: bool = typer.Option(
+        False, "--apply", help="Create confirmed-missing private repositories."
+    ),
+    output_json: bool = typer.Option(
+        False, "--json", help="Emit the versioned onboarding report."
+    ),
+    org: str | None = typer.Option(
+        None, "--org", help="Organization slug for the complete ecosystem transaction."
+    ),
+    products: str = typer.Option(
+        ",".join(PRODUCTS), "--products", help="Comma-separated Copilot products."
+    ),
+    adopt_existing: str = typer.Option(
+        "",
+        "--adopt-existing",
+        help=(
+            "Comma-separated components (or `ssh`, for the device's existing "
+            "GitHub SSH alias) whose existing content the person consented to "
+            "include (B1). Scoped per item: each is decided on its own, never "
+            "all-or-nothing. Any adoptable item left out of this list is a no-op."
+        ),
+    ),
+    repository_root: str | None = typer.Option(
+        None,
+        "--repository-root",
+        help=(
+            "Visible folder where ecosystem repositories are kept. When omitted, "
+            "cc uses the saved folder or a single unambiguous match inside approved project roots."
+        ),
+    ),
+) -> None:
+    """Discover personal repositories, then optionally create confirmed-missing ones."""
+    adopt_components = tuple(
+        value.strip() for value in adopt_existing.split(",") if value.strip()
+    )
+    if org:
+        try:
+            report = build_ecosystem_onboard_report(
+                org=org,
+                products=products.split(","),
+                apply=apply,
+                adopt_existing=adopt_components,
+                repository_root=repository_root,
+            )
+        except (RuntimeError, ValueError) as exc:
+            if output_json:
+                typer.echo(
+                    json.dumps(
+                        {
+                            "schema_version": SCHEMA_VERSION,
+                            "error": {
+                                "code": "onboard-unavailable",
+                                "message": str(exc),
+                            },
+                        }
+                    )
+                )
+            else:
+                typer.echo(str(exc), err=True)
+            raise typer.Exit(2) from exc
+        typer.echo(
+            json.dumps(report)
+            if output_json
+            else f"{report['result']}: {report['org']}"
+        )
+        if report["result"] == "blocked":
+            raise typer.Exit(1)
+        return
+    if scope != "personal":
+        message = "Only personal onboarding is available from the user CLI."
+        if output_json:
+            typer.echo(
+                json.dumps(
+                    {
+                        "schema_version": SCHEMA_VERSION,
+                        "error": {"code": "unsupported-scope", "message": message},
+                    }
+                )
+            )
+        raise typer.Exit(2)
+    try:
+        report = build_personal_onboard_report(
+            components=components.split(","),
+            apply=apply,
+            adopt_existing=adopt_components,
+        )
+    except (RuntimeError, ValueError) as exc:
+        if output_json:
+            typer.echo(
+                json.dumps(
+                    {
+                        "schema_version": SCHEMA_VERSION,
+                        "error": {"code": "onboard-unavailable", "message": str(exc)},
+                    }
+                )
+            )
+        else:
+            typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(
+        json.dumps(report) if output_json else f"{report['result']}: {report['owner']}"
+    )
+    if report["result"] == "blocked":
+        raise typer.Exit(1)
