@@ -2455,6 +2455,195 @@ def test_visible_apply_cannot_report_ready_when_resolution_is_empty(
 
 
 # ---------------------------------------------------------------------------
+# G-3 (task 206): every deterministic preflight check -- topology/history
+# classification (via `_classify_repository_history`, already proven correct
+# by the real-git-fixture tests below and in the `_apply_visible_topology()`
+# suite), origin-URL checks, local-path-conflict checks, and manifest-adoption
+# validation -- must complete, and pass, BEFORE `personal_fn`/`ssh_fn` (the
+# only two collaborators that ever create a GitHub repository or register a
+# device SSH key) are ever invoked with `apply=True`. Before this fix, a
+# `review`-state topology row was only acted on inside
+# `_apply_visible_topology`, which ran AFTER both of those irreversible
+# writes -- exactly how a real run created orphaned Personal repositories on
+# GitHub and only then blocked on a fully deterministic Git-ancestry
+# condition it could have checked first.
+#
+# `personal_fn`/`ssh_fn` below double as failpoints: raising the instant
+# either is ever called with `apply=True` makes a ordering regression fail
+# loudly here, rather than risk a real `gh api -X POST`/key-registration call
+# against a blocked plan.
+# ---------------------------------------------------------------------------
+
+
+def _blocking_topology_layers(manifest, **_kwargs):
+    """One layer closed `review` by a real classifier elsewhere (task 204's
+    `ahead-only` state: local commits not yet on GitHub, never auto-repaired)
+    -- every other layer is a clean `reuse`. Reused verbatim here at the
+    orchestration level; the classifier's own correctness is proven with real
+    git fixtures by `test_classify_repository_history_ahead_only_is_never_auto_repaired`
+    and `test_apply_visible_topology_ahead_only_cannot_produce_a_synced_result`.
+    """
+    rows = []
+    for layer in manifest["layers"]:
+        blocking = layer["role"] == "organization" and layer["product"] == "codex"
+        rows.append(
+            {
+                "id": layer["id"],
+                "product": layer["product"],
+                "role": layer["role"],
+                "rank": layer["rank"],
+                "unit": layer.get("unit"),
+                "local_state": "visible",
+                "connection_state": "blocked" if blocking else "connected",
+                "sync_state": "ahead" if blocking else "current",
+                "action": "review" if blocking else "reuse",
+                "detail": (
+                    "Visible; local commits are not yet on GitHub and will "
+                    "be preserved, not overwritten."
+                    if blocking
+                    else "Visible and current."
+                ),
+            }
+        )
+    return rows
+
+
+def test_divergent_topology_layer_blocks_before_any_gh_mutation(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        onboard_module, "_topology_report_layers", _blocking_topology_layers
+    )
+    apply_calls: dict[str, list[bool]] = {"personal": [], "ssh": []}
+
+    def personal(*, apply, **_kwargs):
+        apply_calls["personal"].append(apply)
+        if apply:
+            raise AssertionError(
+                "personal_fn must never run apply=True after a blocking "
+                "topology preflight -- this would create a real GitHub "
+                "repository."
+            )
+        return _personal()
+
+    def ssh(*, apply, **_kwargs):
+        apply_calls["ssh"].append(apply)
+        if apply:
+            raise AssertionError(
+                "ssh_fn must never run apply=True after a blocking topology "
+                "preflight -- this would register a real device SSH key."
+            )
+        return _ssh()
+
+    target = tmp_path / "layers.yml"
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        repository_root=tmp_path / "Sites" / "COPILOT",
+        personal_fn=personal,
+        ssh_fn=ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+    )
+
+    assert report["result"] == "blocked"
+    assert apply_calls["personal"] == [False]
+    assert apply_calls["ssh"] == [False]
+    visible_stage = next(
+        stage for stage in report["stages"] if stage["stage"] == "visible-repositories"
+    )
+    assert visible_stage["result"] == "blocked"
+    assert "not yet on GitHub" in visible_stage["detail"]
+    assert not target.exists()
+    _assert_valid_onboard_report(report)
+
+
+def test_ecosystem_apply_orders_topology_preflight_before_first_remote_mutation(
+    tmp_path, monkeypatch
+):
+    """Passing path: assert the recorded call ORDER, not just that every
+    collaborator eventually ran. The read-only topology preflight (and,
+    earlier still, the personal-packages/ssh read-only plans) must appear in
+    `events` before either `personal_fn` or `ssh_fn` is ever called with
+    `apply=True`."""
+    events: list[str] = []
+
+    def topology(manifest, *, run, verified=False):
+        events.append("topology-final" if verified else "topology-preflight")
+        return [
+            {
+                "id": layer["id"],
+                "product": layer["product"],
+                "role": layer["role"],
+                "rank": layer["rank"],
+                "unit": layer.get("unit"),
+                "local_state": "visible",
+                "connection_state": "connected",
+                "sync_state": "current",
+                "action": "reuse",
+                "detail": "Visible and current.",
+            }
+            for layer in manifest["layers"]
+        ]
+
+    def personal(*, apply, **_kwargs):
+        events.append(f"personal-{'apply' if apply else 'plan'}")
+        return _personal()
+
+    def ssh(*, apply, **_kwargs):
+        events.append(f"ssh-{'apply' if apply else 'plan'}")
+        return _ssh()
+
+    def apply_topology(*_args, **_kwargs):
+        events.append("visible-topology-apply")
+        return True, None
+
+    monkeypatch.setattr(onboard_module, "_topology_report_layers", topology)
+    monkeypatch.setattr(onboard_module, "_apply_visible_topology", apply_topology)
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=tmp_path / "layers.yml",
+        repository_root=tmp_path / "Sites" / "COPILOT",
+        personal_fn=personal,
+        ssh_fn=ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=lambda **_: (
+            {"result": "up-to-date", "blocked": [], "held_for_approval": []},
+            0,
+        ),
+        doctor_fn=lambda **_: {"status": "healthy", "score": 100},
+        resolve_fn=lambda **_: {"schema_version": "1.0", "items": [{"name": "git"}]},
+        commit_config_fn=lambda *_args: None,
+        personal_mirror_cleanup_fn=lambda *_args: [],
+    )
+
+    assert report["result"] == "ready"
+    first_mutation = min(
+        events.index("personal-apply"), events.index("ssh-apply")
+    )
+    assert events.index("topology-preflight") < first_mutation
+    assert events.index("personal-plan") < first_mutation
+    assert events.index("ssh-plan") < first_mutation
+    assert events.index("visible-topology-apply") > first_mutation
+    assert events == [
+        "personal-plan",
+        "topology-preflight",
+        "ssh-plan",
+        "personal-apply",
+        "ssh-apply",
+        "visible-topology-apply",
+        "topology-final",
+    ]
+    _assert_valid_onboard_report(report)
+
+
+# ---------------------------------------------------------------------------
 # _apply_visible_topology() -- task 205 (G-2). Apply reads `row["action"]`
 # verbatim from `_classify_repository_history` (task 204); it never
 # re-derives Git state on its own. Only a row proven `fast-forwardable` may

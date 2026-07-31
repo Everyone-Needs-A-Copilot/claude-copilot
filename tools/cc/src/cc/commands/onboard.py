@@ -2501,6 +2501,51 @@ def build_ecosystem_onboard_report(
             ecosystem_components,
         )
 
+    # G-3 (task 206): `topology_layers` was already closed above by
+    # `_topology_report_layers`, which runs `_classify_repository_history` --
+    # history, origin-URL, and local-path-conflict verdicts -- for every
+    # visible layer. That verdict is deterministic and entirely read-only, so
+    # any blocking (`review`/`choose-location`) row must stop the run HERE,
+    # before `personal_fn`/`ssh_fn` are ever invoked with `apply=True` and
+    # reach out to create a GitHub repository or register a device SSH key.
+    # Previously this same verdict was only acted on inside
+    # `_apply_visible_topology`, called after both of those irreversible
+    # remote writes -- exactly how a run created orphaned Personal
+    # repositories on GitHub and only then blocked on a fully deterministic
+    # Git-ancestry condition it could have checked first. `_apply_visible_topology`
+    # still carries its own `review`/`choose-location` guard as defense-in-depth;
+    # it should now be unreachable except by a state change between here and
+    # its own read of these same rows.
+    if not legacy_injected_mode:
+        blocking_layer = next(
+            (
+                row
+                for row in topology_layers
+                if row["action"] in {"review", "choose-location"}
+            ),
+            None,
+        )
+        if blocking_layer is not None:
+            stages.append(
+                {
+                    "stage": "visible-repositories",
+                    "result": "blocked",
+                    "detail": blocking_layer["detail"],
+                    "path": str(visible_root),
+                    "layers": len(topology_layers),
+                }
+            )
+            return _ecosystem_result(
+                org,
+                normalized,
+                True,
+                "blocked",
+                stages,
+                topology_layers,
+                inventory,
+                ecosystem_components,
+            )
+
     personal = personal_fn(
         components=ecosystem_components,
         apply=True,
