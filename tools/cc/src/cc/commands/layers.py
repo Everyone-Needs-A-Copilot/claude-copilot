@@ -10,8 +10,9 @@ See:
 `cc layers --json` (also the bare `cc layers --json` default, no
 subcommand) is READ-ONLY: it enumerates every department/org layer the
 current account context could plausibly join (the catalog --
-`core/ecosystem/ecosystem_config.departments()`, the org's inherited
-`ecosystem.yml`) and reports, per layer, whether the current identity is
+`core/ecosystem/ecosystem_config.department_catalog()`, the org's
+inherited `ecosystem.yml`, reconciled + fanned out per WP-372 P1.3/
+P2.1-prereq) and reports, per layer, whether the current identity is
 **entitled** (GitHub repo access, D3 -- computed CLI-side via
 `core/ecosystem/entitlement.py`, never by Control Tower) and whether it is
 already **joined** (present in the local layer manifest,
@@ -44,6 +45,7 @@ against a real machine or a real network.
 from __future__ import annotations
 
 import json as _json
+import logging
 import socket
 from pathlib import Path
 from typing import Any, Optional
@@ -54,7 +56,9 @@ import yaml
 from cc.core import authstore, keychain
 from cc.core.config import resolve_key
 from cc.core.ecosystem import entitlement, mirror
-from cc.core.ecosystem.ecosystem_config import departments as _departments_from_cfg
+from cc.core.ecosystem.ecosystem_config import (
+    department_catalog as _departments_from_cfg,
+)
 from cc.core.ecosystem.ecosystem_config import (
     ecosystem_config_path,
     load_ecosystem_config,
@@ -62,6 +66,8 @@ from cc.core.ecosystem.ecosystem_config import (
 from cc.core.ecosystem.lockfile import default_lockfile_path, read_lockfile
 from cc.core.ecosystem.manifest import ManifestError, load_layers
 from cc.core.locking import LockContentionError, copilot_lock, lock_path
+
+_log = logging.getLogger(__name__)
 
 SCHEMA_VERSION = "1.0"
 
@@ -123,10 +129,15 @@ def _catalog(
     """
     Resolve the department/org layer catalog -- the org's inherited
     `ecosystem.yml` (`core/ecosystem/ecosystem_config.py`). Every entry
-    this module ever emits is tier `"department"` -- `departments()` is
-    the only catalog source this proposed contract wires up today (an
+    this module ever emits is tier `"department"` -- `department_catalog()`
+    is the only catalog source this proposed contract wires up today (an
     `"org"` tier entry has no producer yet); the `tier` enum still admits
     `"org"` for whenever that catalog source exists.
+
+    `department_catalog()` (not the raw `departments()`) is what reconciles
+    this org's real `{unit, topology}` `ecosystem.yml` shape into the
+    `{id, repo}` shape this function's own loop (below) requires -- WP-372
+    P1.3(b); already-shaped `{id, repo}` entries pass through unchanged.
 
     Fail-open: a missing/malformed `ecosystem.yml` degrades to `[]` (never
     raises) -- `ecosystem_config.py`'s own read-only fail-open contract,
@@ -266,7 +277,18 @@ def build_layers_report(
         if not layer_id or not repo:
             # Malformed catalog entry -- skip rather than crash (mirrors
             # ecosystem_config.py's own fail-open posture for the file
-            # this data came from).
+            # this data came from), but never SILENTLY -- WP-372 P1.3(c):
+            # the audit's specific complaint was that this exact skip gave
+            # no clue which entry vanished or why. By the time a well-
+            # formed `ecosystem.yml` reaches here, `department_catalog()`
+            # has already reconciled/warned on shape problems -- this is
+            # the final defensive gate for a directly-injected `_departments`
+            # override (tests) or a catalog source that bypasses that
+            # reconciliation.
+            _log.warning(
+                "layers catalog entry missing {id, repo} -- skipping "
+                "malformed entry: %r", dept,
+            )
             continue
 
         entitled, reason = _entitlement_for(
@@ -343,6 +365,26 @@ def _next_rank(layers: list[dict[str, Any]]) -> int:
 
 
 def _new_manifest_layer(dept: dict[str, Any], *, source_path: Optional[str]) -> dict[str, Any]:
+    """
+    Build the `copilot.layers.yml` layer entry a join writes.
+
+    WP-372 P2.1-prereq: `product` used to hardcode `"cli"` unconditionally,
+    so ANY department join would create a cli-product layer regardless of
+    which components the department actually has. Every catalog entry
+    `core/ecosystem/ecosystem_config.department_catalog()` derives now
+    carries its own explicit `product` (one catalog entry per department
+    UNIT x COMPONENT pair -- see that function's docstring), so a real join
+    of a derived entry never reaches this default at all: joining
+    `accounting-claude` sets `product: claude`, joining `accounting-codex`
+    sets `product: codex`, etc. -- "one layer per product" per-department,
+    not one cli-product layer for the whole department.
+
+    The `"cli"` fallback below is kept ONLY for backward compatibility with
+    an org that hand-authors the legacy `{id, repo}` catalog shape (this
+    module's original, pre-P1.3 docstring example) without an explicit
+    `product` -- a real, already-tested call shape this function must not
+    break. It is never exercised by the convention-derived path.
+    """
     source: dict[str, Any] = {"repo": str(dept["repo"]), "ref": dept.get("ref", "main")}
     if source_path:
         source["path"] = source_path

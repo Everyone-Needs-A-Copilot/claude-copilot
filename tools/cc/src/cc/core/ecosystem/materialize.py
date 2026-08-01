@@ -762,3 +762,127 @@ def materialize(
                 )
 
     return {"ops": ops, "lock": new_lock}
+
+
+# ---------------------------------------------------------------------------
+# materialize_ecosystem_config -- WP-372 P1.3(a): deliver the org's
+# inherited ecosystem.yml to the materialize root
+# ---------------------------------------------------------------------------
+
+
+def materialize_ecosystem_config(
+    layers: list[dict[str, Any]],
+    *,
+    layer_source_paths: dict[str, Optional[str]],
+    materialize_root: Optional[Path | str],
+    personal_roots: Iterable[Path | str] = (),
+    mirror_roots: Iterable[Path | str] = (),
+    dry_run: bool = False,
+) -> Optional[MaterializeOp]:
+    """
+    Deliver the org's inherited `ecosystem.yml` to
+    `<materialize_root>/ecosystem.yml` -- `core/ecosystem/
+    ecosystem_config.py`'s `ecosystem_config_path()` already documents this
+    as its default location; nothing in the codebase actually placed the
+    file there before WP-372 P1.3.
+
+    THIS IS DELIBERATELY NOT A NEW DIMENSION in `PRODUCT_TARGET_ALLOWLIST`
+    or `core/ecosystem/dimensions.py`. Every dimension `materialize()`
+    (above) folds is a DIRECTORY of many items at `<layer root>/
+    <dimension>/<item>`; `ecosystem.yml` is a single well-known file that
+    sits at a layer's OWN ROOT (`<layer root>/ecosystem.yml`) -- the same
+    repo-root-metadata convention `copilot.layer.yml` already uses.
+    Threading a root-level singleton through the generic per-item pipeline
+    (`core/ecosystem/discovery.py`'s `discover_contributions()`, this
+    module's own `_find_source_child()`) would mean special-casing "this
+    one dimension's folder IS the layer root" in code shared by every
+    OTHER dimension every other product/layer combination also flows
+    through -- a much larger blast radius than one small, dedicated,
+    independently-testable copy step for a single file. This function
+    still reuses the actual security-critical piece of that pipeline
+    directly: `guard_personal_reason()`, unchanged, so a materialize target
+    that is itself a protected personal/authoring tree, or a symlink
+    escaping `materialize_root` (WP-372 P0.3 -- the exact live-incident
+    shape), is refused exactly like every other materialize write.
+
+    "Winning" layer: among `layers` with `product == "claude"` (the only
+    product `ecosystem.yml` is host-config for today), the one with the
+    LOWEST `rank` (nearest-tier-wins -- the same precedence every OVERRIDE
+    dimension already applies) whose `layer_source_paths` entry actually
+    has an `ecosystem.yml` at its root. Typically only the organization
+    tier ships one; a personal or future foundation-shipped copy would
+    still resolve correctly under this same precedence. Layers with no
+    local `ecosystem.yml` (i.e. every tier except org, today) are silently
+    skipped -- consistent with `ecosystem_config.py`'s own "absent is a
+    valid machine state" fail-open contract -- and this function returns
+    `None` when no `claude`-product layer has one at all.
+
+    Returns a single `MaterializeOp` (reusing the exact shape `materialize()`
+    itself emits, so a caller can append it straight into that function's
+    `ops` list / `changed` rendering) describing what happened, or `None`
+    if there was nothing to do. `dry_run=True` computes the op WITHOUT
+    writing anything, mirroring `materialize()`'s own `dry_run` contract.
+
+    KNOWN LIMITATION (deliberate, documented, not "fixed" by this
+    function): unlike every dimension `materialize()` folds, this
+    singleton is NOT pruned if every `claude`-product layer stops shipping
+    an `ecosystem.yml` (e.g. the org removes it) -- there is no per-layer
+    lock entry tracking provenance for it the way `materialize()`'s own
+    `new_lock` does for dimension items, and guessing "this machine's
+    `~/.claude/ecosystem.yml` must be ours to delete" without that
+    provenance would risk deleting a file this function never wrote. The
+    conservative failure mode (a stale file lingers) is preferred over the
+    unsafe one (deleting something we cannot prove we own) -- the same
+    bias `core/ecosystem/dimensions.py`'s `semantics_for()` documents for
+    an unrecognized dimension ("only ever shadows an extra copy, safe
+    failure mode").
+    """
+    claude_layers = sorted(
+        (layer for layer in layers if layer.get("product") == "claude"),
+        key=lambda layer: layer.get("rank", 0) if isinstance(layer.get("rank"), int) else 0,
+    )
+
+    if materialize_root is None:
+        return None
+    dest = Path(materialize_root).expanduser() / "ecosystem.yml"
+
+    for layer in claude_layers:
+        source_root = layer_source_paths.get(layer["id"])
+        if not source_root:
+            continue
+        source_file = Path(source_root).expanduser() / "ecosystem.yml"
+        try:
+            if not source_file.is_file():
+                continue
+        except OSError:
+            continue
+
+        candidate_sha = _content_sha(source_file)
+
+        guard_reason = guard_personal_reason(
+            dest,
+            personal_roots=personal_roots,
+            materialize_root=Path(materialize_root).expanduser(),
+            mirror_roots=mirror_roots,
+        )
+        if guard_reason is not None:
+            return _op(
+                product="claude", dimension="ecosystem", layer=layer["id"],
+                item="ecosystem", op="held", path=dest, signed=True,
+                reason=f"protected: {guard_reason} -- never overwritten",
+                from_sha=None, to_sha=candidate_sha,
+            )
+
+        existed = dest.exists()
+        changed = not existed or not _content_matches(source_file, dest)
+        if changed and not dry_run:
+            _copy_in(source_file, dest)
+        op_name = "unchanged" if not changed else ("updated" if existed else "added")
+
+        return _op(
+            product="claude", dimension="ecosystem", layer=layer["id"],
+            item="ecosystem", op=op_name, path=dest, signed=True,
+            from_sha=None, to_sha=candidate_sha,
+        )
+
+    return None

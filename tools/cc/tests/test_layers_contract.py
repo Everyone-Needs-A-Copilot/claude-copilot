@@ -253,6 +253,22 @@ def test_list_report_empty_catalog_is_valid_never_crashes():
     assert report["layers"] == []
 
 
+def test_list_report_malformed_catalog_entry_warns_and_is_skipped(caplog):
+    """WP-372 P1.3(c): the final defensive gate (a directly-injected
+    `_departments` override that bypasses `department_catalog()`'s own
+    reconciliation) must log WHICH entry it dropped, not skip silently."""
+    with caplog.at_level("WARNING"):
+        report = build_layers_report(
+            _identity=IDENTITY,
+            _get_secret=_fake_get_secret_factory(TOKENS),
+            _departments=[{"id": "finance"}],  # missing repo
+            _layers=[],
+        )
+    _validate(report)
+    assert report["layers"] == []
+    assert any("malformed entry" in rec.message for rec in caplog.records)
+
+
 def test_list_report_missing_local_manifest_file_is_empty_not_a_crash(tmp_path):
     """A `layers.manifest` path that has never been written yet (no join
     has ever happened on this machine) must degrade to `joined: False`
@@ -344,6 +360,129 @@ def test_join_happy_path_materializes_and_validates_against_schema(tmp_path):
     assert lockfile_path.exists()
     written_lock = json.loads(lockfile_path.read_text())
     assert written_lock["finance"]["agents"]["sec"]
+
+
+# ---------------------------------------------------------------------------
+# WP-372 P1.3(b): the REAL {unit, topology} ecosystem.yml shape, end-to-end
+# through the `list` report catalog.
+# ---------------------------------------------------------------------------
+
+
+def test_list_report_derives_catalog_from_real_unit_topology_shape(tmp_path):
+    """`cc layers --json`'s catalog reconciles this org's REAL live
+    ecosystem.yml shape (`{unit, topology}` + top-level `components`),
+    fanning one department unit into one catalog entry per component --
+    not the hand-authored `{id, repo}` shape every other test in this file
+    injects directly."""
+    ecosystem_path = tmp_path / "ecosystem.yml"
+    ecosystem_path.write_text(
+        yaml.safe_dump(
+            {
+                "org": "Everyone-Needs-A-Copilot",
+                "components": ["knowledge", "cli", "claude", "codex"],
+                "departments": [{"unit": "accounting", "topology": "separate"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_layers_report(
+        _identity=IDENTITY,
+        _get_secret=_fake_get_secret_factory(TOKENS),
+        _ecosystem_cfg_path=ecosystem_path,
+        _layers=[],
+        _get_json=_get_json_status(200),
+    )
+
+    _validate(report)
+    ids = {layer["id"] for layer in report["layers"]}
+    assert ids == {
+        "accounting-knowledge",
+        "accounting-cli",
+        "accounting-claude",
+        "accounting-codex",
+    }
+    claude_layer = next(
+        layer for layer in report["layers"] if layer["id"] == "accounting-claude"
+    )
+    assert claude_layer["repo"] == "Everyone-Needs-A-Copilot/claude-copilot-accounting"
+    assert claude_layer["tier"] == "department"
+    assert claude_layer["entitled"] is True
+    assert claude_layer["joined"] is False
+
+
+# ---------------------------------------------------------------------------
+# WP-372 P2.1-prereq: joining a department must add the CORRECT per-product
+# layer -- not a hardcoded product: "cli" regardless of what was joined.
+# ---------------------------------------------------------------------------
+
+
+def test_join_derived_catalog_entries_set_correct_product_not_hardcoded_cli(tmp_path):
+    """Two catalog entries from the SAME department unit (accounting),
+    one per component -- joining each must produce a manifest layer with
+    ITS OWN product, proving `_new_manifest_layer()`'s legacy `"cli"`
+    default is never exercised by a real, correctly-shaped catalog entry
+    (WP-372 case 5a)."""
+    claude_source = _make_source_repo(
+        tmp_path, {"agents/claude-agent.md": "claude content"}, name="accounting-claude-repo"
+    )
+    codex_source = _make_source_repo(
+        tmp_path, {"plugins/codex-plugin.md": "codex content"}, name="accounting-codex-repo"
+    )
+    catalog = [
+        {
+            "id": "accounting-claude",
+            "name": "Accounting (claude)",
+            "repo": str(claude_source),
+            "product": "claude",
+            "role": "department",
+            "rank": 20,
+            "auth": "anon",
+        },
+        {
+            "id": "accounting-codex",
+            "name": "Accounting (codex)",
+            "repo": str(codex_source),
+            "product": "codex",
+            "role": "department",
+            "rank": 20,
+            "auth": "anon",
+        },
+    ]
+    manifest_path = tmp_path / "copilot.layers.yml"
+    lockfile_path = tmp_path / "copilot.lock.json"
+
+    common_kwargs = dict(
+        _identity=IDENTITY,
+        _get_secret=_fake_get_secret_factory(TOKENS),
+        _departments=catalog,
+        _manifest_path=manifest_path,
+        _get_json=_get_json_status(200),
+        _mirror_root=tmp_path / "mirrors",
+        _materialize_root=tmp_path / "materialize",
+        _lockfile_path=lockfile_path,
+        _lock_write_path=lockfile_path,
+        _policy=permissive_policy,
+    )
+
+    claude_report, claude_exit = execute_layers_join(
+        "accounting-claude", _lock_path=tmp_path / "copilot.lock.1", **common_kwargs
+    )
+    codex_report, codex_exit = execute_layers_join(
+        "accounting-codex", _lock_path=tmp_path / "copilot.lock.2", **common_kwargs
+    )
+
+    assert claude_report["result"] == "joined"
+    assert codex_report["result"] == "joined"
+    assert claude_exit == 0
+    assert codex_exit == 0
+
+    written_manifest = yaml.safe_load(manifest_path.read_text())
+    layers_by_id = {layer["id"]: layer for layer in written_manifest["layers"]}
+    assert layers_by_id["accounting-claude"]["product"] == "claude"
+    assert layers_by_id["accounting-claude"]["rank"] == 20
+    assert layers_by_id["accounting-codex"]["product"] == "codex"
+    assert layers_by_id["accounting-codex"]["rank"] == 20
 
 
 def test_join_second_call_is_already_joined(tmp_path):

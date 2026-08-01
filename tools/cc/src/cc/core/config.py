@@ -39,6 +39,11 @@ DEFAULTS: dict[str, Any] = {
     "memory.embedding_model": "none",
     "memory.default_threshold": 0.7,
     "skills.cache_ttl_hours": 24,
+    # WP-372 P2.2: frontmatter cache for `cc skill` discovery (mirrors
+    # docs.cache_dir's pattern -- core/docs_cache.py / core/docs_paths.py).
+    # `skills.cache_ttl_hours` above was already reserved but had no
+    # consumer before this; `core/skill_cache.py` is the consumer.
+    "skills.cache_dir": "~/.claude/cache/skills",
     "telemetry.enabled": False,
     # docs subsystem
     "docs.cache_dir": "~/.claude/cache/docs",

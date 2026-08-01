@@ -17,17 +17,17 @@ import json
 from pathlib import Path
 
 import pytest
-from typer.testing import CliRunner
-
 from cc.core.skill_store import (
     SkillMeta,
+    default_skill_paths,
     discover_skills,
     discover_skills_with_sources,
-    find_skill_by_name,
     get_skill_content,
+    knowledge_skill_paths,
     search_skills,
 )
 from cc.main import app
+from typer.testing import CliRunner
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -202,6 +202,329 @@ class TestDiscoverSkillsWithSources:
         assert dupe_skills[0].source == "project"
         assert dupe_skills[0].description == "From source 1"
 
+    def test_knowledge_is_lowest_precedence_in_all_scope(self, tmp_path: Path) -> None:
+        """project -> machine -> knowledge: a name collision across all
+        three is won by project, per the documented resolution order."""
+        for label in ("project", "machine", "knowledge"):
+            d = tmp_path / label / "dupe"
+            d.mkdir(parents=True)
+            (d / "SKILL.md").write_text(
+                f"---\nname: dupe-skill\ndescription: From {label}\ntags: []\nversion: 1.0\n---\nBody.\n",
+                encoding="utf-8",
+            )
+
+        skills = discover_skills_with_sources(
+            [
+                (tmp_path / "project", "project"),
+                (tmp_path / "machine", "machine"),
+                (tmp_path / "knowledge", "knowledge"),
+            ]
+        )
+        dupe = next(s for s in skills if s.name == "dupe-skill")
+        assert dupe.source == "project"
+
+
+# ---------------------------------------------------------------------------
+# WP-372 P2.2: knowledge-repo skill discovery (03-ai-enabling/01-skills/)
+# ---------------------------------------------------------------------------
+
+
+class TestKnowledgeSkillPaths:
+    def test_knowledge_skill_paths_uses_canonical_subpath(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        knowledge_repo = tmp_path / "knowledge-copilot-internal"
+        skills_dir = knowledge_repo / "03-ai-enabling" / "01-skills"
+        skills_dir.mkdir(parents=True)
+        (skills_dir / "13-personal-finance" / "01-budget-analysis").mkdir(parents=True)
+        (skills_dir / "13-personal-finance" / "01-budget-analysis" / "SKILL.md").write_text(
+            "---\nname: budget-analysis\ndescription: Budget work\n"
+            "triggers:\n  keywords: [budget]\n---\nBody.\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(
+            "cc.core.config.resolve_knowledge_repos", lambda: [str(knowledge_repo)]
+        )
+
+        paths = knowledge_skill_paths()
+        assert paths == [skills_dir]
+
+    def test_knowledge_skill_paths_multiple_configured_repos_all_included(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Every paths.knowledge_repo entry -- not just the first -- WP-372
+        case 3 found CC_KNOWLEDGE_REPO truncated to one entry; this reads
+        the full ordered list via resolve_knowledge_repos() instead."""
+        org_repo = tmp_path / "org-knowledge"
+        personal_repo = tmp_path / "personal-knowledge"
+        for repo in (org_repo, personal_repo):
+            skills_dir = repo / "03-ai-enabling" / "01-skills"
+            skills_dir.mkdir(parents=True)
+
+        monkeypatch.setattr(
+            "cc.core.config.resolve_knowledge_repos",
+            lambda: [str(org_repo), str(personal_repo)],
+        )
+
+        paths = knowledge_skill_paths()
+        assert paths == [
+            org_repo / "03-ai-enabling" / "01-skills",
+            personal_repo / "03-ai-enabling" / "01-skills",
+        ]
+
+    def test_knowledge_skill_paths_no_configured_repo_is_empty(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("cc.core.config.resolve_knowledge_repos", lambda: [])
+        assert knowledge_skill_paths() == []
+
+    def test_knowledge_skill_paths_skips_repo_missing_skills_subtree(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        empty_repo = tmp_path / "no-skills-here"
+        empty_repo.mkdir()
+        monkeypatch.setattr(
+            "cc.core.config.resolve_knowledge_repos", lambda: [str(empty_repo)]
+        )
+        assert knowledge_skill_paths() == []
+
+    def test_default_skill_paths_includes_knowledge_tier(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        knowledge_repo = tmp_path / "knowledge-repo"
+        skills_dir = knowledge_repo / "03-ai-enabling" / "01-skills"
+        skills_dir.mkdir(parents=True)
+        monkeypatch.setattr(
+            "cc.core.config.resolve_knowledge_repos", lambda: [str(knowledge_repo)]
+        )
+        # No git repo / no ~/.claude/skills expected in this sandbox --
+        # isolate those two so this test only proves the knowledge entry.
+        monkeypatch.setattr("cc.core.skill_store._git_root", lambda: None)
+        monkeypatch.setattr(Path, "home", lambda: tmp_path / "no-home")
+
+        pairs = default_skill_paths()
+        assert (skills_dir, "knowledge") in pairs
+
+
+class TestKnowledgeSkillDiscovery:
+    def test_discovers_real_knowledge_repo_structure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Reproduces the live knowledge repo shape: category-numbered
+        directories, a nested skill, real `triggers` frontmatter."""
+        knowledge_repo = tmp_path / "knowledge-copilot-internal"
+        skill_dir = (
+            knowledge_repo
+            / "03-ai-enabling"
+            / "01-skills"
+            / "13-personal-finance"
+            / "01-budget-analysis"
+        )
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\n"
+            "name: budget-analysis\n"
+            "description: Analyze spending patterns.\n"
+            "triggers:\n"
+            "  files: [\"**/finance/**\", \"**/budget/**\"]\n"
+            "  keywords: [\"budget\", \"spending\", \"expenses\"]\n"
+            "allowed-tools: Read, Write, Edit\n"
+            "---\n\n# Budget Analysis\n\nBody content.\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            "cc.core.config.resolve_knowledge_repos", lambda: [str(knowledge_repo)]
+        )
+
+        skills = discover_skills_with_sources(
+            [(path, "knowledge") for path in knowledge_skill_paths()]
+        )
+
+        assert len(skills) == 1
+        skill = skills[0]
+        assert skill.name == "budget-analysis"
+        assert skill.source == "knowledge"
+        assert skill.extra["triggers"] == {
+            "files": ["**/finance/**", "**/budget/**"],
+            "keywords": ["budget", "spending", "expenses"],
+        }
+
+
+# ---------------------------------------------------------------------------
+# WP-372 P2.2: frontmatter must always be JSON-safe -- discovered live
+# against the real knowledge repo corpus (`last_updated: 2026-02-25`,
+# unquoted, parses as a real datetime.date via yaml.safe_load()).
+# ---------------------------------------------------------------------------
+
+
+class TestFrontmatterJsonSafety:
+    def test_unquoted_date_frontmatter_is_json_serializable(self, tmp_path: Path) -> None:
+        import json
+
+        skill_dir = tmp_path / "dated-skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: dated-skill\ndescription: d\nlast_updated: 2026-02-25\nstatus: active\n---\nBody.\n",
+            encoding="utf-8",
+        )
+
+        skills = discover_skills([tmp_path])
+        assert len(skills) == 1
+        # Must not raise -- this is the exact live crash WP-372 P2.2 found.
+        dumped = json.dumps(skills[0].extra)
+        assert json.loads(dumped)["last_updated"] == "2026-02-25"
+
+    def test_nested_date_inside_dict_frontmatter_is_json_serializable(
+        self, tmp_path: Path
+    ) -> None:
+        import json
+
+        skill_dir = tmp_path / "nested-dated-skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text(
+            "---\n"
+            "name: nested-dated-skill\n"
+            "description: d\n"
+            "meta:\n"
+            "  reviewed: 2026-01-01\n"
+            "---\nBody.\n",
+            encoding="utf-8",
+        )
+
+        skills = discover_skills([tmp_path])
+        dumped = json.dumps(skills[0].extra)
+        assert json.loads(dumped)["meta"]["reviewed"] == "2026-01-01"
+
+
+# ---------------------------------------------------------------------------
+# WP-372 P2.2: frontmatter-only reads (perf) -- discover_skills() must
+# never need the full file body to parse frontmatter correctly.
+# ---------------------------------------------------------------------------
+
+
+class TestFrontmatterOnlyRead:
+    def test_parses_correctly_with_large_body(self, tmp_path: Path) -> None:
+        skill_dir = tmp_path / "big-skill"
+        skill_dir.mkdir()
+        large_body = "Lorem ipsum dolor sit amet. " * 10_000  # far past any read chunk
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: big-skill\ndescription: Has a huge body\ntags: [big]\nversion: 1.0\n---\n\n"
+            + large_body,
+            encoding="utf-8",
+        )
+
+        skills = discover_skills([tmp_path])
+        assert len(skills) == 1
+        assert skills[0].name == "big-skill"
+        assert skills[0].description == "Has a huge body"
+
+    def test_body_containing_triple_dash_does_not_confuse_parsing(
+        self, tmp_path: Path
+    ) -> None:
+        """A `---` horizontal rule INSIDE the body, well past any small
+        read chunk, must not be mistaken for the frontmatter's own closing
+        delimiter."""
+        skill_dir = tmp_path / "hr-skill"
+        skill_dir.mkdir()
+        padding = "x " * 5000
+        (skill_dir / "SKILL.md").write_text(
+            f"---\nname: hr-skill\ndescription: Has a horizontal rule\n---\n\n{padding}\n\n---\n\nMore body.\n",
+            encoding="utf-8",
+        )
+
+        skills = discover_skills([tmp_path])
+        assert len(skills) == 1
+        assert skills[0].description == "Has a horizontal rule"
+
+    def test_equivalent_to_full_read_for_fixture_corpus(self, tmp_path: Path) -> None:
+        """The partial-read optimization must produce byte-identical
+        parsed results to what a full .read_text() + parse would have."""
+        from cc.core.skill_store import (
+            _parse_skill_frontmatter,
+            _read_frontmatter_prefix,
+        )
+
+        skill_file = tmp_path / "SKILL.md"
+        skill_file.write_text(
+            "---\nname: compare\ndescription: text\ntags: [a, b]\nversion: 3.0\n---\n\nBody.\n",
+            encoding="utf-8",
+        )
+
+        full = _parse_skill_frontmatter(skill_file.read_text(encoding="utf-8"))
+        partial = _parse_skill_frontmatter(_read_frontmatter_prefix(skill_file))
+        assert full == partial
+
+
+# ---------------------------------------------------------------------------
+# WP-372 P2.2: discover_skills() caching (opt-in via cache_dir)
+# ---------------------------------------------------------------------------
+
+
+class TestSkillFrontmatterCaching:
+    def test_uncached_by_default(self, tmp_path: Path) -> None:
+        """No cache_dir passed -- discover_skills() never touches the
+        skill_cache module at all (existing direct callers/tests are
+        unaffected)."""
+        skill_dir = tmp_path / "alpha"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: alpha\ndescription: d\n---\nBody.\n", encoding="utf-8"
+        )
+        skills = discover_skills([tmp_path])
+        assert skills[0].name == "alpha"
+
+    def test_cache_hit_returns_same_result_without_rereading(
+        self, tmp_path: Path
+    ) -> None:
+        from cc.core.skill_cache import cache_get_frontmatter
+
+        skill_dir = tmp_path / "alpha"
+        skill_dir.mkdir()
+        skill_file = skill_dir / "SKILL.md"
+        skill_file.write_text(
+            "---\nname: alpha\ndescription: original\n---\nBody.\n", encoding="utf-8"
+        )
+        cache_dir = tmp_path / "cache"
+
+        first = discover_skills([tmp_path], cache_dir=cache_dir)
+        assert first[0].description == "original"
+
+        # Confirm the cache was actually populated (not a no-op).
+        stat = skill_file.stat()
+        cached = cache_get_frontmatter(
+            skill_file, mtime=stat.st_mtime, size=stat.st_size, cache_dir=cache_dir
+        )
+        assert cached is not None
+        assert cached["description"] == "original"
+
+        second = discover_skills([tmp_path], cache_dir=cache_dir)
+        assert second[0].description == "original"
+
+    def test_cache_invalidates_on_content_change(self, tmp_path: Path) -> None:
+        skill_dir = tmp_path / "alpha"
+        skill_dir.mkdir()
+        skill_file = skill_dir / "SKILL.md"
+        skill_file.write_text(
+            "---\nname: alpha\ndescription: v1\n---\nBody.\n", encoding="utf-8"
+        )
+        cache_dir = tmp_path / "cache"
+
+        first = discover_skills([tmp_path], cache_dir=cache_dir)
+        assert first[0].description == "v1"
+
+        # Change content AND mtime (a real edit always updates mtime).
+        import os
+        import time
+
+        skill_file.write_text(
+            "---\nname: alpha\ndescription: v2\n---\nBody.\n", encoding="utf-8"
+        )
+        os.utime(skill_file, (time.time() + 5, time.time() + 5))
+
+        second = discover_skills([tmp_path], cache_dir=cache_dir)
+        assert second[0].description == "v2"
+
 
 # ---------------------------------------------------------------------------
 # search_skills tests
@@ -363,6 +686,99 @@ class TestSkillListCommand:
     def test_invalid_scope_exits_nonzero(self, patched_runner: CliRunner) -> None:
         result = patched_runner.invoke(app, ["skill", "list", "--scope", "bogus"])
         assert result.exit_code != 0
+
+    def test_knowledge_scope_is_a_valid_scope(self, patched_runner: CliRunner) -> None:
+        """WP-372 P2.2: `--scope knowledge` must not be rejected as an
+        unknown scope value (the patched loader ignores the scope filter
+        itself -- this only proves CLI-level validation accepts it)."""
+        result = patched_runner.invoke(app, ["skill", "list", "--scope", "knowledge"])
+        assert result.exit_code == 0
+
+
+class TestSkillListJsonRoutingFields:
+    """WP-372 P2.2: `cc skill list --json` surfaces `triggers` (and other
+    declared frontmatter) so an agent routes from CLI-provided data."""
+
+    @pytest.fixture
+    def patched_runner_with_triggers(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> CliRunner:
+        import cc.commands.skill as skill_cmd
+
+        skill_dir = tmp_path / "13-personal-finance" / "01-budget-analysis"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\n"
+            "name: budget-analysis\n"
+            "description: Analyze spending patterns.\n"
+            "triggers:\n"
+            "  files: [\"**/finance/**\", \"**/budget/**\"]\n"
+            "  keywords: [\"budget\", \"spending\"]\n"
+            "allowed-tools: Read, Write\n"
+            "status: active\n"
+            "---\n\nBody.\n",
+            encoding="utf-8",
+        )
+
+        def _patched_load(scope="all"):
+            from cc.core.skill_store import discover_skills_with_sources
+
+            return discover_skills_with_sources([(tmp_path, "knowledge")])
+
+        monkeypatch.setattr(skill_cmd, "_load_all_skills", _patched_load)
+        return runner
+
+    def test_triggers_present_in_list_json(
+        self, patched_runner_with_triggers: CliRunner
+    ) -> None:
+        result = patched_runner_with_triggers.invoke(app, ["skill", "list", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        entry = next(d for d in data if d["name"] == "budget-analysis")
+        assert entry["triggers"] == {
+            "files": ["**/finance/**", "**/budget/**"],
+            "keywords": ["budget", "spending"],
+        }
+
+    def test_other_frontmatter_surfaced_in_metadata(
+        self, patched_runner_with_triggers: CliRunner
+    ) -> None:
+        result = patched_runner_with_triggers.invoke(app, ["skill", "list", "--json"])
+        data = json.loads(result.output)
+        entry = next(d for d in data if d["name"] == "budget-analysis")
+        assert entry["metadata"]["allowed-tools"] == "Read, Write"
+        assert entry["metadata"]["status"] == "active"
+        assert "triggers" not in entry["metadata"]  # not duplicated
+
+    def test_triggers_present_in_search_json(
+        self, patched_runner_with_triggers: CliRunner
+    ) -> None:
+        result = patched_runner_with_triggers.invoke(
+            app, ["skill", "search", "budget", "--json"]
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        entry = next(d for d in data if d["name"] == "budget-analysis")
+        assert entry["triggers"]["keywords"] == ["budget", "spending"]
+
+    def test_triggers_null_when_absent(self, patched_runner: CliRunner) -> None:
+        """A skill with no `triggers:` frontmatter still gets the key,
+        valued `null` -- a consistent, always-present JSON shape."""
+        result = patched_runner.invoke(app, ["skill", "list", "--json"])
+        data = json.loads(result.output)
+        entry = next(d for d in data if d["name"] == "alpha")
+        assert entry["triggers"] is None
+
+    def test_get_output_includes_raw_frontmatter_with_triggers(
+        self, patched_runner_with_triggers: CliRunner
+    ) -> None:
+        """`cc skill get` dumps the full file verbatim -- the routing
+        frontmatter is already present with zero extra code, since the
+        whole file (frontmatter + body) is what gets printed."""
+        result = patched_runner_with_triggers.invoke(app, ["skill", "get", "budget-analysis"])
+        assert result.exit_code == 0
+        assert "triggers:" in result.output
+        assert "budget" in result.output
 
 
 class TestSkillSearchCommand:

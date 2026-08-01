@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import sys
-from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import typer
 from rich.console import Console
 from rich.table import Table
+
+_log = logging.getLogger(__name__)
 
 skill_app = typer.Typer(
     name="skill",
@@ -20,35 +22,76 @@ skill_app = typer.Typer(
 console = Console()
 err_console = Console(stderr=True)
 
+# WP-372 P2.2: "knowledge" is a third scope, alongside project/machine --
+# every configured paths.knowledge_repo entry's 03-ai-enabling/01-skills/
+# tree (core/skill_store.py's knowledge_skill_paths()).
+_VALID_SCOPES = frozenset({"project", "machine", "knowledge", "all"})
+
+
+def _resolve_skill_cache_dir():
+    """Real production cache dir (WP-372 P2.2), or `None` on any failure --
+    a cache problem must never block `cc skill` from working. Deliberately
+    NOT called by anything that runs during tests: this module's own tests
+    monkeypatch `_load_all_skills` wholesale (see tests/test_skills.py's
+    `patched_runner` fixture), and `core/skill_store.py`'s own tests call
+    `discover_skills()`/`discover_skills_with_sources()` directly with no
+    `cache_dir` (caching disabled by default) -- so this is only ever
+    exercised against the real machine, never a test's tmp_path.
+    """
+    try:
+        from cc.core.skill_cache import skill_cache_dir
+
+        return skill_cache_dir()
+    except OSError:
+        _log.debug("skill cache dir resolution failed; discovery will run uncached", exc_info=True)
+        return None
+
 
 def _load_all_skills(scope: str = "all"):
     """Load skills according to the requested scope.
 
     scope values:
-        "project"  — only .claude/skills/ in the current git repo
-        "machine"  — only ~/.claude/skills/
-        "all"      — project + machine (resolution order: project → machine)
+        "project"    — only .claude/skills/ in the current git repo
+        "machine"    — only ~/.claude/skills/
+        "knowledge"  — every configured paths.knowledge_repo entry's
+                       03-ai-enabling/01-skills/ tree (WP-372 P2.2)
+        "all"        — project + machine + knowledge
+                       (resolution order: project → machine → knowledge)
+
+    Delegates path-listing to `core/skill_store.py`'s `default_skill_paths()`
+    (the single authoritative project/machine/knowledge root list --
+    `cc.api`'s `skill_get`/`skill_search` use the exact same function, so
+    both surfaces see the identical catalog) filtered to the requested
+    scope, rather than re-implementing root discovery here.
     """
-    from cc.core.skill_store import (
-        _git_root,
-        discover_skills_with_sources,
-    )
+    from cc.core.skill_store import default_skill_paths, discover_skills_with_sources
 
-    pairs: list[tuple[Path, str]] = []
+    all_pairs = default_skill_paths()
+    pairs = all_pairs if scope == "all" else [p for p in all_pairs if p[1] == scope]
 
-    if scope in ("project", "all"):
-        repo = _git_root()
-        if repo is not None:
-            project_skills = repo / ".claude" / "skills"
-            if project_skills.exists():
-                pairs.append((project_skills, "project"))
+    return discover_skills_with_sources(pairs, cache_dir=_resolve_skill_cache_dir())
 
-    if scope in ("machine", "all"):
-        machine_skills = Path.home() / ".claude" / "skills"
-        if machine_skills.exists():
-            pairs.append((machine_skills, "machine"))
 
-    return discover_skills_with_sources(pairs)
+def _skill_to_dict(s: Any, *, include_path: bool = True) -> dict[str, Any]:
+    """Shared `--json` serialization for a `SkillMeta` (WP-372 P2.2): every
+    frontmatter fact beyond the canonical named fields -- `triggers`
+    (`{files: [...], keywords: [...]}`) most notably, but also anything
+    else a SKILL.md declares (`allowed-tools`, `status`, ...) -- is
+    surfaced so an AGENT can route from CLI-provided data. This module
+    never curates which fields are "useful for routing"; it exposes what
+    was declared (parse, never compute)."""
+    data: dict[str, Any] = {
+        "name": s.name,
+        "description": s.description,
+        "tags": s.tags,
+        "version": s.version,
+        "source": s.source,
+        "triggers": s.extra.get("triggers"),
+        "metadata": {k: v for k, v in s.extra.items() if k != "triggers"},
+    }
+    if include_path:
+        data["path"] = str(s.path)
+    return data
 
 
 @skill_app.command("list")
@@ -56,32 +99,21 @@ def skill_list(
     scope: Optional[str] = typer.Option(
         "all",
         "--scope",
-        help="Scope to scan: project | machine | all",
+        help="Scope to scan: project | machine | knowledge | all",
     ),
     output_json: bool = typer.Option(False, "--json", help="Output as JSON."),
 ) -> None:
     """List all discovered skills with name and description."""
-    valid_scopes = {"project", "machine", "all"}
-    if scope not in valid_scopes:
+    if scope not in _VALID_SCOPES:
         err_console.print(
-            f"[red]Error:[/red] --scope must be one of: {', '.join(sorted(valid_scopes))}"
+            f"[red]Error:[/red] --scope must be one of: {', '.join(sorted(_VALID_SCOPES))}"
         )
         raise typer.Exit(1)
 
     skills = _load_all_skills(scope)
 
     if output_json:
-        data = [
-            {
-                "name": s.name,
-                "description": s.description,
-                "tags": s.tags,
-                "version": s.version,
-                "source": s.source,
-                "path": str(s.path),
-            }
-            for s in skills
-        ]
+        data = [_skill_to_dict(s) for s in skills]
         typer.echo(json.dumps(data))
         return
 
@@ -112,17 +144,16 @@ def skill_search(
     scope: Optional[str] = typer.Option(
         "all",
         "--scope",
-        help="Scope to scan: project | machine | all",
+        help="Scope to scan: project | machine | knowledge | all",
     ),
     output_json: bool = typer.Option(False, "--json", help="Output as JSON."),
 ) -> None:
     """Search skills by keyword (matches name, description, tags)."""
     from cc.core.skill_store import search_skills
 
-    valid_scopes = {"project", "machine", "all"}
-    if scope not in valid_scopes:
+    if scope not in _VALID_SCOPES:
         err_console.print(
-            f"[red]Error:[/red] --scope must be one of: {', '.join(sorted(valid_scopes))}"
+            f"[red]Error:[/red] --scope must be one of: {', '.join(sorted(_VALID_SCOPES))}"
         )
         raise typer.Exit(1)
 
@@ -130,16 +161,7 @@ def skill_search(
     results = search_skills(query, all_skills)
 
     if output_json:
-        data = [
-            {
-                "name": s.name,
-                "description": s.description,
-                "tags": s.tags,
-                "source": s.source,
-                "path": str(s.path),
-            }
-            for s in results
-        ]
+        data = [_skill_to_dict(s) for s in results]
         typer.echo(json.dumps(data))
         return
 
@@ -166,7 +188,7 @@ def skill_get(
     scope: Optional[str] = typer.Option(
         "all",
         "--scope",
-        help="Scope to scan: project | machine | all",
+        help="Scope to scan: project | machine | knowledge | all",
     ),
 ) -> None:
     """Print the full SKILL.md content (plain text, pipeable).
@@ -196,7 +218,7 @@ def skill_path(
     scope: Optional[str] = typer.Option(
         "all",
         "--scope",
-        help="Scope to scan: project | machine | all",
+        help="Scope to scan: project | machine | knowledge | all",
     ),
 ) -> None:
     """Print the absolute path to a SKILL.md file (plain text, pipeable).

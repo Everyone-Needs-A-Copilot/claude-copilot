@@ -201,6 +201,87 @@ def test_update_json_applied_validates_against_contract_schema(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# WP-372 P1.3(a): ecosystem.yml delivery, end-to-end through cc update
+# ---------------------------------------------------------------------------
+
+
+def test_update_delivers_org_ecosystem_yml_and_validates_against_schema(tmp_path):
+    """The org layer's ecosystem.yml lands at
+    <materialize_root>/ecosystem.yml through the real mirror-sync ->
+    materialize pipeline, and the op it produces still validates against
+    update.schema.json (dimension is a free string in that schema, so this
+    is a purely additive widening -- no schema change required)."""
+    org_repo = _make_source_repo(
+        tmp_path,
+        {"ecosystem.yml": "org: acme\ndepartments:\n  - unit: accounting\n    topology: separate\n"},
+        name="org-repo",
+    )
+    layers = [
+        {
+            "id": "claude-organization",
+            "role": "organization",
+            "rank": 30,
+            "product": "claude",
+            "source": {"repo": str(org_repo), "ref": "main"},
+            "auth": "anon",
+            "activation": "always",
+        }
+    ]
+
+    report = build_update_report(
+        _layers=layers,
+        _previous_lock={},
+        _mirror_root=tmp_path / "mirrors",
+        _materialize_root=tmp_path / "materialize",
+        _lock_write_path=tmp_path / "copilot.lock.json",
+        _policy=permissive_policy,
+    )
+
+    _validate(report)
+    ecosystem_changes = [c for c in report["changed"] if c["dimension"] == "ecosystem"]
+    assert len(ecosystem_changes) == 1
+    assert ecosystem_changes[0]["op"] == "added"
+    assert ecosystem_changes[0]["layer"] == "claude-organization"
+    dest = tmp_path / "materialize" / "ecosystem.yml"
+    assert dest.exists()
+    assert "accounting" in dest.read_text(encoding="utf-8")
+
+
+def test_update_second_run_reports_ecosystem_yml_unchanged(tmp_path):
+    org_repo = _make_source_repo(
+        tmp_path, {"ecosystem.yml": "org: acme\n"}, name="org-repo",
+    )
+    layers = [
+        {
+            "id": "claude-organization",
+            "role": "organization",
+            "rank": 30,
+            "product": "claude",
+            "source": {"repo": str(org_repo), "ref": "main"},
+            "auth": "anon",
+            "activation": "always",
+        }
+    ]
+    common_kwargs = dict(
+        _layers=layers,
+        _mirror_root=tmp_path / "mirrors",
+        _materialize_root=tmp_path / "materialize",
+        _lock_write_path=tmp_path / "copilot.lock.json",
+        _policy=permissive_policy,
+    )
+
+    first = build_update_report(_previous_lock={}, **common_kwargs)
+    second = build_update_report(_previous_lock={}, **common_kwargs)
+
+    _validate(first)
+    _validate(second)
+    first_eco = [c for c in first["changed"] if c["dimension"] == "ecosystem"][0]
+    second_eco = [c for c in second["changed"] if c["dimension"] == "ecosystem"][0]
+    assert first_eco["op"] == "added"
+    assert second_eco["op"] == "unchanged"
+
+
+# ---------------------------------------------------------------------------
 # WP-372 P0.3: personal_roots_from_config() production feeder wiring
 # ---------------------------------------------------------------------------
 

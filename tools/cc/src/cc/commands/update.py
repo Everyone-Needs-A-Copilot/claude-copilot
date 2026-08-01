@@ -44,7 +44,7 @@ from cc.core.ecosystem.lockfile import (
     write_lockfile,
 )
 from cc.core.ecosystem.manifest import ManifestError, load_layers, validate_layers
-from cc.core.ecosystem.materialize import materialize
+from cc.core.ecosystem.materialize import materialize, materialize_ecosystem_config
 from cc.core.ecosystem.policy import PolicyFn
 from cc.core.ecosystem.policy import evaluate as default_policy
 from cc.core.ecosystem.resolver import resolve_layers
@@ -314,6 +314,28 @@ def build_update_report(
 
     lock_after = lock_fingerprint(mat_report["lock"])
     shadow_lookup = _shadowed_by_lookup(resolved)
+
+    # WP-372 P1.3(a): deliver the org's inherited ecosystem.yml alongside
+    # the regular dimension fold -- see materialize_ecosystem_config()'s
+    # own docstring (core/ecosystem/materialize.py) for why this is a
+    # dedicated step, not a new PRODUCT_TARGET_ALLOWLIST dimension. Runs
+    # AFTER the lock/set_layer_meta bookkeeping above so this op (which
+    # never touches mat_report["lock"] -- see that function's "known
+    # limitation" docstring section) can never be mistaken for a
+    # dimension-tracked item when computing `incomplete_layers`.
+    claude_materialize_root = (
+        materialize_roots.get("claude") if materialize_roots is not None else materialize_root
+    )
+    ecosystem_op = materialize_ecosystem_config(
+        effective_layers,
+        layer_source_paths=layer_source_paths,
+        materialize_root=claude_materialize_root,
+        personal_roots=personal_roots,
+        mirror_roots=[mirror_root_base],
+        dry_run=_dry_run,
+    )
+    if ecosystem_op is not None:
+        mat_report["ops"].append(ecosystem_op)
 
     changed: list[dict[str, Any]] = []
     held_for_approval: list[dict[str, Any]] = []

@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 from cc.core.ecosystem.ecosystem_config import (
+    department_catalog,
     departments,
     ecosystem_config_path,
     github_client_id,
@@ -174,3 +175,145 @@ departments:
     assert departments(cfg) == [
         {"id": "finance", "name": "Finance", "repo": "org/dept-finance-copilot"}
     ]
+
+
+# ---------------------------------------------------------------------------
+# department_catalog() -- WP-372 P1.3(b)/(c)
+# ---------------------------------------------------------------------------
+
+
+def test_department_catalog_derives_one_entry_per_component():
+    """The REAL live shape: {unit, topology} + top-level components:
+    fans into one catalog entry per (unit, component) pair."""
+    cfg = {
+        "org": "Everyone-Needs-A-Copilot",
+        "components": ["knowledge", "cli", "claude", "codex"],
+        "departments": [{"unit": "accounting", "topology": "separate"}],
+    }
+    catalog = department_catalog(cfg)
+
+    ids = {entry["id"] for entry in catalog}
+    assert ids == {
+        "accounting-knowledge",
+        "accounting-cli",
+        "accounting-claude",
+        "accounting-codex",
+    }
+    claude_entry = next(e for e in catalog if e["id"] == "accounting-claude")
+    assert claude_entry["repo"] == "Everyone-Needs-A-Copilot/claude-copilot-accounting"
+    assert claude_entry["product"] == "claude"
+    assert claude_entry["role"] == "department"
+    assert claude_entry["rank"] == 20
+    assert claude_entry["auth"] == "ssh-work"
+
+
+def test_department_catalog_defaults_missing_topology_to_separate():
+    cfg = {
+        "org": "acme",
+        "components": ["claude"],
+        "departments": [{"unit": "finance"}],
+    }
+    catalog = department_catalog(cfg)
+    assert catalog == [
+        {
+            "id": "finance-claude",
+            "name": "Finance (claude)",
+            "repo": "acme/claude-copilot-finance",
+            "product": "claude",
+            "role": "department",
+            "rank": 20,
+            "auth": "ssh-work",
+        }
+    ]
+
+
+def test_department_catalog_passes_through_already_shaped_entries():
+    """A hand-authored {id, repo} entry (this reader's original shape) is
+    never reconciled -- an explicit admin declaration always wins."""
+    cfg = {
+        "departments": [
+            {"id": "finance", "name": "Finance", "repo": "org/dept-finance-copilot"}
+        ]
+    }
+    assert department_catalog(cfg) == [
+        {"id": "finance", "name": "Finance", "repo": "org/dept-finance-copilot"}
+    ]
+
+
+def test_department_catalog_mixes_both_shapes():
+    cfg = {
+        "org": "acme",
+        "components": ["claude"],
+        "departments": [
+            {"id": "legacy", "repo": "acme/legacy-copilot"},
+            {"unit": "finance"},
+        ],
+    }
+    catalog = department_catalog(cfg)
+    ids = {entry["id"] for entry in catalog}
+    assert ids == {"legacy", "finance-claude"}
+
+
+def test_department_catalog_warns_and_skips_entry_missing_both_shapes(caplog):
+    cfg = {"org": "acme", "components": ["claude"], "departments": [{"topology": "separate"}]}
+    with caplog.at_level("WARNING"):
+        catalog = department_catalog(cfg)
+    assert catalog == []
+    assert any("malformed entry" in rec.message for rec in caplog.records)
+
+
+def test_department_catalog_warns_and_skips_unsupported_topology(caplog):
+    cfg = {
+        "org": "acme",
+        "components": ["claude"],
+        "departments": [{"unit": "finance", "topology": "subfolder"}],
+    }
+    with caplog.at_level("WARNING"):
+        catalog = department_catalog(cfg)
+    assert catalog == []
+    assert any("topology" in rec.message for rec in caplog.records)
+
+
+def test_department_catalog_warns_and_skips_when_org_missing(caplog):
+    cfg = {"components": ["claude"], "departments": [{"unit": "finance"}]}
+    with caplog.at_level("WARNING"):
+        catalog = department_catalog(cfg)
+    assert catalog == []
+    assert any("`org`" in rec.message for rec in caplog.records)
+
+
+def test_department_catalog_warns_and_skips_when_components_missing(caplog):
+    cfg = {"org": "acme", "departments": [{"unit": "finance"}]}
+    with caplog.at_level("WARNING"):
+        catalog = department_catalog(cfg)
+    assert catalog == []
+    assert any("components" in rec.message for rec in caplog.records)
+
+
+def test_department_catalog_one_malformed_department_does_not_block_others():
+    cfg = {
+        "org": "acme",
+        "components": ["claude"],
+        "departments": [
+            {"topology": "separate"},  # malformed: no id/repo AND no unit
+            {"unit": "finance"},
+        ],
+    }
+    catalog = department_catalog(cfg)
+    assert [entry["id"] for entry in catalog] == ["finance-claude"]
+
+
+def test_department_catalog_empty_departments_returns_empty_list():
+    assert department_catalog({}) == []
+
+
+def test_department_catalog_default_loads_real_ecosystem_config(tmp_path):
+    """cfg=None resolves via load_ecosystem_config() like every other
+    reader in this module."""
+    config_path = tmp_path / "ecosystem.yml"
+    config_path.write_text(
+        "org: acme\ncomponents: [claude]\ndepartments:\n  - unit: finance\n",
+        encoding="utf-8",
+    )
+    cfg = load_ecosystem_config(config_path)
+    assert department_catalog(cfg)[0]["id"] == "finance-claude"

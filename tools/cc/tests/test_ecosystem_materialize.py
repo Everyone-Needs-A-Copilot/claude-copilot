@@ -21,7 +21,12 @@ from pathlib import Path
 
 import pytest
 from cc.core.ecosystem.discovery import discover_contributions
-from cc.core.ecosystem.materialize import guard_personal, guard_personal_reason, materialize
+from cc.core.ecosystem.materialize import (
+    guard_personal,
+    guard_personal_reason,
+    materialize,
+    materialize_ecosystem_config,
+)
 from cc.core.ecosystem.policy import evaluate as fail_closed_policy
 from cc.core.ecosystem.policy import permissive_policy
 from cc.core.ecosystem.resolver import resolve_layers
@@ -755,4 +760,250 @@ def test_product_target_allowlist_blocks_cross_product_dimension(tmp_path):
 
     assert report["ops"][0]["op"] == "blocked"
     assert report["ops"][0]["reason"] == "product target is not allowlisted"
+
+
+# ---------------------------------------------------------------------------
+# materialize_ecosystem_config() -- WP-372 P1.3(a)
+# ---------------------------------------------------------------------------
+
+
+def _claude_layer(layer_id: str, role: str, rank: int) -> dict:
+    return {
+        "id": layer_id,
+        "role": role,
+        "rank": rank,
+        "product": "claude",
+        "source": {"repo": f"https://example.invalid/{layer_id}.git"},
+        "auth": "anon",
+        "activation": "always",
+    }
+
+
+def test_materialize_ecosystem_config_delivers_org_file(tmp_path):
+    org_root = tmp_path / "org-mirror"
+    org_root.mkdir()
+    (org_root / "ecosystem.yml").write_text("org: acme\ndepartments: []\n", encoding="utf-8")
+    materialize_root = tmp_path / "materialize"
+    materialize_root.mkdir()
+
+    layers = [_claude_layer("claude-organization", "organization", 30)]
+    op = materialize_ecosystem_config(
+        layers,
+        layer_source_paths={"claude-organization": org_root},
+        materialize_root=materialize_root,
+    )
+
+    assert op is not None
+    assert op["op"] == "added"
+    assert op["dimension"] == "ecosystem"
+    assert op["layer"] == "claude-organization"
+    dest = materialize_root / "ecosystem.yml"
+    assert dest.read_text(encoding="utf-8") == "org: acme\ndepartments: []\n"
+
+
+def test_materialize_ecosystem_config_unchanged_on_second_run(tmp_path):
+    org_root = tmp_path / "org-mirror"
+    org_root.mkdir()
+    (org_root / "ecosystem.yml").write_text("org: acme\n", encoding="utf-8")
+    materialize_root = tmp_path / "materialize"
+    materialize_root.mkdir()
+    layers = [_claude_layer("claude-organization", "organization", 30)]
+
+    first = materialize_ecosystem_config(
+        layers, layer_source_paths={"claude-organization": org_root},
+        materialize_root=materialize_root,
+    )
+    second = materialize_ecosystem_config(
+        layers, layer_source_paths={"claude-organization": org_root},
+        materialize_root=materialize_root,
+    )
+
+    assert first["op"] == "added"
+    assert second["op"] == "unchanged"
+
+
+def test_materialize_ecosystem_config_updates_on_content_change(tmp_path):
+    org_root = tmp_path / "org-mirror"
+    org_root.mkdir()
+    ecosystem_file = org_root / "ecosystem.yml"
+    ecosystem_file.write_text("org: acme\n", encoding="utf-8")
+    materialize_root = tmp_path / "materialize"
+    materialize_root.mkdir()
+    layers = [_claude_layer("claude-organization", "organization", 30)]
+
+    materialize_ecosystem_config(
+        layers, layer_source_paths={"claude-organization": org_root},
+        materialize_root=materialize_root,
+    )
+    ecosystem_file.write_text("org: acme\ndepartments: [{unit: accounting}]\n", encoding="utf-8")
+    second = materialize_ecosystem_config(
+        layers, layer_source_paths={"claude-organization": org_root},
+        materialize_root=materialize_root,
+    )
+
+    assert second["op"] == "updated"
+    dest = materialize_root / "ecosystem.yml"
+    assert "accounting" in dest.read_text(encoding="utf-8")
+
+
+def test_materialize_ecosystem_config_nearest_tier_wins(tmp_path):
+    """A personal-tier ecosystem.yml (rank 10) beats the org-tier one
+    (rank 30) -- same nearest-tier-wins precedence every OVERRIDE
+    dimension already applies."""
+    personal_root = tmp_path / "personal-mirror"
+    personal_root.mkdir()
+    (personal_root / "ecosystem.yml").write_text("org: personal-override\n", encoding="utf-8")
+    org_root = tmp_path / "org-mirror"
+    org_root.mkdir()
+    (org_root / "ecosystem.yml").write_text("org: acme\n", encoding="utf-8")
+    materialize_root = tmp_path / "materialize"
+    materialize_root.mkdir()
+
+    layers = [
+        _claude_layer("claude-organization", "organization", 30),
+        _claude_layer("claude-personal", "personal", 10),
+    ]
+    op = materialize_ecosystem_config(
+        layers,
+        layer_source_paths={
+            "claude-organization": org_root,
+            "claude-personal": personal_root,
+        },
+        materialize_root=materialize_root,
+    )
+
+    assert op["layer"] == "claude-personal"
+    dest = materialize_root / "ecosystem.yml"
+    assert "personal-override" in dest.read_text(encoding="utf-8")
+
+
+def test_materialize_ecosystem_config_absent_everywhere_is_noop(tmp_path):
+    org_root = tmp_path / "org-mirror"
+    org_root.mkdir()  # no ecosystem.yml inside
+    materialize_root = tmp_path / "materialize"
+    materialize_root.mkdir()
+    layers = [_claude_layer("claude-organization", "organization", 30)]
+
+    op = materialize_ecosystem_config(
+        layers, layer_source_paths={"claude-organization": org_root},
+        materialize_root=materialize_root,
+    )
+
+    assert op is None
+    assert not (materialize_root / "ecosystem.yml").exists()
+
+
+def test_materialize_ecosystem_config_ignores_non_claude_products(tmp_path):
+    codex_root = tmp_path / "codex-mirror"
+    codex_root.mkdir()
+    (codex_root / "ecosystem.yml").write_text("org: acme\n", encoding="utf-8")
+    materialize_root = tmp_path / "materialize"
+    materialize_root.mkdir()
+
+    layers = [
+        {
+            "id": "codex-organization", "role": "organization", "rank": 30,
+            "product": "codex",
+            "source": {"repo": "https://example.invalid/codex-org.git"},
+            "auth": "anon", "activation": "always",
+        },
+    ]
+    op = materialize_ecosystem_config(
+        layers, layer_source_paths={"codex-organization": codex_root},
+        materialize_root=materialize_root,
+    )
+
+    assert op is None
+
+
+def test_materialize_ecosystem_config_dry_run_never_writes(tmp_path):
+    org_root = tmp_path / "org-mirror"
+    org_root.mkdir()
+    (org_root / "ecosystem.yml").write_text("org: acme\n", encoding="utf-8")
+    materialize_root = tmp_path / "materialize"
+    materialize_root.mkdir()
+    layers = [_claude_layer("claude-organization", "organization", 30)]
+
+    op = materialize_ecosystem_config(
+        layers, layer_source_paths={"claude-organization": org_root},
+        materialize_root=materialize_root, dry_run=True,
+    )
+
+    assert op["op"] == "added"  # plan says it WOULD be added
+    assert not (materialize_root / "ecosystem.yml").exists()
+
+
+def test_materialize_ecosystem_config_no_materialize_root_is_noop(tmp_path):
+    org_root = tmp_path / "org-mirror"
+    org_root.mkdir()
+    (org_root / "ecosystem.yml").write_text("org: acme\n", encoding="utf-8")
+    layers = [_claude_layer("claude-organization", "organization", 30)]
+
+    op = materialize_ecosystem_config(
+        layers, layer_source_paths={"claude-organization": org_root},
+        materialize_root=None,
+    )
+
+    assert op is None
+
+
+def test_materialize_ecosystem_config_never_overwrites_dirty_personal_tree(tmp_path):
+    """WP-372 P0.3 guard, applied to this new write path too: a materialize
+    target sitting inside a dirty personal working tree is never
+    overwritten -- reproduces the never-destroy proof this module's other
+    tests already establish for the dimension pipeline, for this new
+    single-file path."""
+    org_root = tmp_path / "org-mirror"
+    org_root.mkdir()
+    (org_root / "ecosystem.yml").write_text("org: new-content\n", encoding="utf-8")
+
+    materialize_root = tmp_path / "materialize"
+    materialize_root.mkdir()
+    _git_init(materialize_root)
+    (materialize_root / "ecosystem.yml").write_text("org: personal-authored\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=materialize_root, check=True)
+    # Deliberately left uncommitted (dirty) -- untracked/staged-but-uncommitted
+    # is exactly the "dirty working tree" guard_personal_reason() protects.
+
+    layers = [_claude_layer("claude-organization", "organization", 30)]
+    op = materialize_ecosystem_config(
+        layers, layer_source_paths={"claude-organization": org_root},
+        materialize_root=materialize_root,
+    )
+
+    assert op["op"] == "held"
+    assert "protected" in op["reason"]
+    assert (materialize_root / "ecosystem.yml").read_text(encoding="utf-8") == "org: personal-authored\n"
+
+
+def test_materialize_ecosystem_config_refuses_symlinked_materialize_root(tmp_path):
+    """WP-372 P0 reproduction, for this new write path: `materialize_root`
+    itself resolving (via symlink) into a real, clean, tracked authoring
+    repo with a remote must never be written through -- caught by
+    `guard_personal_reason()`'s "clean tracked repo with a remote" check
+    (the same check that closes the P0 incident's actual shape: the
+    incident repo was clean, not dirty, at the moment it was destroyed)."""
+    authoring_repo = tmp_path / "authoring-repo"
+    authoring_repo.mkdir()
+    _git_init_with_remote(authoring_repo)
+    (authoring_repo / "ecosystem.yml").write_text("org: personal-authored\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=authoring_repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=authoring_repo, check=True)
+
+    materialize_root = tmp_path / "materialize"
+    materialize_root.symlink_to(authoring_repo, target_is_directory=True)
+
+    org_root = tmp_path / "org-mirror"
+    org_root.mkdir()
+    (org_root / "ecosystem.yml").write_text("org: new-content\n", encoding="utf-8")
+
+    layers = [_claude_layer("claude-organization", "organization", 30)]
+    op = materialize_ecosystem_config(
+        layers, layer_source_paths={"claude-organization": org_root},
+        materialize_root=materialize_root,
+    )
+
+    assert op["op"] == "held"
+    assert "protected authoring repository" in op["reason"]
+    assert (authoring_repo / "ecosystem.yml").read_text(encoding="utf-8") == "org: personal-authored\n"
     assert not (tmp_path / "codex-target" / "agents").exists()
