@@ -1,0 +1,4143 @@
+import base64
+import json
+import shutil
+import subprocess
+from pathlib import Path
+
+import cc.commands.onboard as onboard_module
+import pytest
+import yaml
+from cc.commands.onboard import (
+    build_ecosystem_onboard_report,
+    build_personal_onboard_report,
+)
+from jsonschema import Draft202012Validator
+
+# WS-A contract: every report this module emits must validate against the
+# vendored copilot-control-tower onboard.schema.json (same vendoring
+# precedent as test_doctor_contract.py -- see the `$comment` header on the
+# vendored file). The schema's top-level `oneOf` already discriminates
+# between the personal `repositoryReport` shape and the `ecosystemReport`
+# shape, so one validator call handles both report families.
+_SCHEMA_DIR = Path(__file__).parent / "fixtures" / "schemas"
+
+
+def _onboard_validator() -> Draft202012Validator:
+    schema = json.loads(
+        (_SCHEMA_DIR / "onboard.schema.json").read_text(encoding="utf-8")
+    )
+    return Draft202012Validator(schema)
+
+
+def _assert_valid_onboard_report(report: dict) -> None:
+    validator = _onboard_validator()
+    errors = sorted(validator.iter_errors(report), key=lambda e: e.path)
+    assert not errors, "\n".join(f"{list(e.path)}: {e.message}" for e in errors)
+
+
+class FakeGitHub:
+    def __init__(self, repos=None, errors=None):
+        self.repos = {
+            name: (
+                value if isinstance(value, dict) else {"private": value, "files": {}}
+            )
+            for name, value in (repos or {}).items()
+        }
+        self.errors = set(errors or ())
+        self.calls = []
+
+    def __call__(self, args):
+        args = tuple(args)
+        self.calls.append(args)
+        if args[:4] == ("gh", "api", "user", "--jq"):
+            return subprocess.CompletedProcess(args, 0, "pablo\n", "")
+        if "POST" in args and "user/repos" in args:
+            name = args[args.index("-f") + 1].removeprefix("name=")
+            self.repos[name] = {"private": True, "files": {}}
+            return subprocess.CompletedProcess(args, 0, "{}", "")
+        if "PUT" in args:
+            endpoint = args[args.index("PUT") + 1]
+            parts = endpoint.split("/")
+            name = parts[2]
+            encoded = next(
+                value.removeprefix("content=")
+                for value in args
+                if value.startswith("content=")
+            )
+            self.repos[name]["files"]["copilot.layer.yml"] = base64.b64decode(
+                encoded
+            ).decode()
+            return subprocess.CompletedProcess(args, 0, "{}", "")
+
+        endpoint = args[2]
+        parts = endpoint.split("/")
+        name = parts[2]
+        if name in self.errors:
+            return subprocess.CompletedProcess(args, 1, "", "network unavailable")
+        if name not in self.repos:
+            return subprocess.CompletedProcess(args, 1, "", "gh: Not Found (HTTP 404)")
+        repo = self.repos[name]
+        if len(parts) == 3:
+            return subprocess.CompletedProcess(
+                args, 0, json.dumps({"private": repo["private"]}), ""
+            )
+        files = repo["files"]
+        if len(parts) == 4:  # root contents
+            if not files:
+                return subprocess.CompletedProcess(
+                    args, 1, "", "gh: Not Found (HTTP 404)"
+                )
+            return subprocess.CompletedProcess(
+                args, 0, json.dumps([{"name": path} for path in files]), ""
+            )
+        path = "/".join(parts[4:])
+        if path not in files:
+            return subprocess.CompletedProcess(args, 1, "", "gh: Not Found (HTTP 404)")
+        encoded = base64.b64encode(files[path].encode()).decode()
+        return subprocess.CompletedProcess(
+            args, 0, json.dumps({"content": encoded}), ""
+        )
+
+
+def test_default_github_runner_uses_authorized_keychain_token_without_argv_leak(
+    monkeypatch,
+):
+    captured = {}
+
+    def fake_run(args, **kwargs):
+        captured["args"] = tuple(args)
+        captured["env"] = kwargs["env"]
+        return subprocess.CompletedProcess(args, 0, "{}", "")
+
+    monkeypatch.setattr(
+        onboard_module, "resolve_executable", lambda _: Path("/usr/local/bin/gh")
+    )
+    monkeypatch.setattr(
+        onboard_module.authstore, "read_identity", lambda: {"login": "pablo"}
+    )
+    monkeypatch.setattr(onboard_module, "resolve_key", lambda _: "github-service")
+    monkeypatch.setattr(
+        onboard_module.keychain,
+        "get_secret",
+        lambda account, service: "synthetic-token",
+    )
+    monkeypatch.setattr(onboard_module.subprocess, "run", fake_run)
+
+    result = onboard_module._run(("gh", "api", "user"))
+
+    assert result.returncode == 0
+    assert captured["args"] == ("/usr/local/bin/gh", "api", "user")
+    assert "synthetic-token" not in captured["args"]
+    assert captured["env"]["GH_TOKEN"] == "synthetic-token"
+
+
+def test_default_github_runner_falls_back_to_supported_absolute_path(
+    monkeypatch, tmp_path
+):
+    gh_path = tmp_path / "gh"
+    gh_path.write_text("#!/bin/sh\n", encoding="utf-8")
+    gh_path.chmod(0o755)
+    captured = {}
+
+    def fake_run(args, **kwargs):
+        captured["args"] = tuple(args)
+        return subprocess.CompletedProcess(args, 0, "[]", "")
+
+    monkeypatch.setattr(
+        onboard_module, "resolve_executable", lambda _: gh_path.resolve()
+    )
+    monkeypatch.setattr(onboard_module.authstore, "read_identity", lambda: {})
+    monkeypatch.setattr(onboard_module.subprocess, "run", fake_run)
+
+    result = onboard_module._run(("gh", "api", "user/orgs", "--paginate"))
+
+    assert result.returncode == 0
+    assert captured["args"] == (
+        str(gh_path.resolve()),
+        "api",
+        "user/orgs",
+        "--paginate",
+    )
+
+
+def test_default_github_runner_stays_fail_closed_without_supported_binary(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(onboard_module, "resolve_executable", lambda _: None)
+
+    result = onboard_module._run(("gh", "api", "user/orgs", "--paginate"))
+
+    assert result.returncode == 127
+    assert result.stdout == ""
+    assert result.stderr == "gh is not installed."
+
+
+def test_default_codex_runner_resolves_env_node_runtime_outside_shell_path(
+    monkeypatch, tmp_path
+):
+    codex = tmp_path / "lib" / "codex.js"
+    codex.parent.mkdir(parents=True)
+    codex.write_text("#!/usr/bin/env node\n", encoding="utf-8")
+    codex.chmod(0o755)
+    node = tmp_path / "bin" / "node"
+    node.parent.mkdir()
+    node.write_text(
+        "#!/bin/sh\nprintf '%s\\n' '{\"marketplaceName\":\"enac-materialized\"}'\n",
+        encoding="utf-8",
+    )
+    node.chmod(0o755)
+
+    def resolve(command):
+        return {"codex": codex, "node": node}.get(command)
+
+    monkeypatch.setattr(onboard_module, "resolve_executable", resolve)
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+
+    result = onboard_module._run(
+        ("codex", "plugin", "marketplace", "add", "/tmp/catalog", "--json")
+    )
+
+    assert result.returncode == 0
+    assert json.loads(result.stdout)["marketplaceName"] == "enac-materialized"
+
+
+def test_default_codex_runner_fails_closed_when_env_runtime_is_missing(
+    monkeypatch, tmp_path
+):
+    codex = tmp_path / "codex.js"
+    codex.write_text("#!/usr/bin/env node\n", encoding="utf-8")
+    codex.chmod(0o755)
+    monkeypatch.setattr(
+        onboard_module,
+        "resolve_executable",
+        lambda command: codex if command == "codex" else None,
+    )
+
+    result = onboard_module._run(("codex", "plugin", "list", "--json"))
+
+    assert result.returncode == 127
+    assert result.stdout == ""
+    assert result.stderr == "node runtime required by codex is not installed."
+
+
+def test_codex_plugin_install_is_idempotent_and_uses_supported_commands(
+    monkeypatch, tmp_path
+):
+    root = tmp_path / "materialized" / "codex"
+    manifest = root / "plugins" / "codex-copilot" / ".codex-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"name":"codex-copilot"}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        onboard_module,
+        "resolve_key",
+        lambda key: root if key == "paths.codex_materialize_root" else None,
+    )
+    calls = []
+
+    def run(args):
+        calls.append(tuple(args))
+        if args[2] == "marketplace":
+            return subprocess.CompletedProcess(
+                args,
+                0,
+                '{"marketplaceName":"enac-materialized","alreadyAdded":true}',
+                "",
+            )
+        return subprocess.CompletedProcess(
+            args,
+            0,
+            '{"pluginId":"codex-copilot@enac-materialized"}',
+            "",
+        )
+
+    first = onboard_module._install_codex_plugin(apply=True, run=run)
+    second = onboard_module._install_codex_plugin(apply=True, run=run)
+
+    assert first == {"result": "ready"}
+    assert second == {"result": "ready"}
+    assert (
+        calls
+        == [
+            (
+                "codex",
+                "plugin",
+                "marketplace",
+                "add",
+                str(root),
+                "--json",
+            ),
+            (
+                "codex",
+                "plugin",
+                "add",
+                "codex-copilot@enac-materialized",
+                "--json",
+            ),
+        ]
+        * 2
+    )
+    marketplace = json.loads(
+        (root / ".agents" / "plugins" / "marketplace.json").read_text(encoding="utf-8")
+    )
+    assert marketplace["name"] == "enac-materialized"
+    assert marketplace["plugins"][0]["source"]["path"] == "./plugins/codex-copilot"
+
+
+def test_codex_plugin_plan_uses_read_only_codex_inventory(monkeypatch, tmp_path):
+    root = tmp_path / "materialized" / "codex"
+    manifest = root / "plugins" / "codex-copilot" / ".codex-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"name":"codex-copilot"}\n', encoding="utf-8")
+    marketplace = root / ".agents" / "plugins" / "marketplace.json"
+    marketplace.parent.mkdir(parents=True)
+    marketplace.write_text('{"name":"enac-materialized"}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        onboard_module,
+        "resolve_key",
+        lambda key: root if key == "paths.codex_materialize_root" else None,
+    )
+    calls = []
+
+    def run(args):
+        calls.append(tuple(args))
+        if args[2] == "marketplace":
+            payload = {
+                "marketplaces": [{"name": "enac-materialized", "root": str(root)}]
+            }
+        else:
+            payload = {
+                "installed": [
+                    {
+                        "pluginId": "codex-copilot@enac-materialized",
+                        "installed": True,
+                        "enabled": True,
+                    }
+                ]
+            }
+        return subprocess.CompletedProcess(args, 0, json.dumps(payload), "")
+
+    report = onboard_module._install_codex_plugin(apply=False, run=run)
+
+    assert report == {"result": "ready"}
+    assert calls == [
+        ("codex", "plugin", "marketplace", "list", "--json"),
+        ("codex", "plugin", "list", "--json"),
+    ]
+
+
+def test_codex_plugin_plan_reports_unregistered_marketplace_as_change(
+    monkeypatch, tmp_path
+):
+    root = tmp_path / "materialized" / "codex"
+    manifest = root / "plugins" / "codex-copilot" / ".codex-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"name":"codex-copilot"}\n', encoding="utf-8")
+    marketplace = root / ".agents" / "plugins" / "marketplace.json"
+    marketplace.parent.mkdir(parents=True)
+    marketplace.write_text('{"name":"enac-materialized"}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        onboard_module,
+        "resolve_key",
+        lambda key: root if key == "paths.codex_materialize_root" else None,
+    )
+
+    report = onboard_module._install_codex_plugin(
+        apply=False,
+        run=lambda args: subprocess.CompletedProcess(
+            args, 0, '{"marketplaces":[]}', ""
+        ),
+    )
+
+    assert report == {"result": "changes-required"}
+
+
+def test_codex_plugin_plan_fails_closed_when_codex_cannot_start(monkeypatch, tmp_path):
+    root = tmp_path / "materialized" / "codex"
+    manifest = root / "plugins" / "codex-copilot" / ".codex-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"name":"codex-copilot"}\n', encoding="utf-8")
+    marketplace = root / ".agents" / "plugins" / "marketplace.json"
+    marketplace.parent.mkdir(parents=True)
+    marketplace.write_text('{"name":"enac-materialized"}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        onboard_module,
+        "resolve_key",
+        lambda key: root if key == "paths.codex_materialize_root" else None,
+    )
+
+    report = onboard_module._install_codex_plugin(
+        apply=False,
+        run=lambda args: subprocess.CompletedProcess(
+            args, 127, "", "node runtime required by codex is not installed."
+        ),
+    )
+
+    assert report == {
+        "result": "blocked",
+        "detail": (
+            "Codex is installed, but its required command-line runtime "
+            "could not be started outside the terminal."
+        ),
+    }
+
+
+@pytest.mark.parametrize(
+    ("marketplace_stdout", "plugin_stdout", "detail"),
+    (
+        (
+            "not-json",
+            None,
+            "Codex returned an unreadable marketplace inventory.",
+        ),
+        (
+            '{"marketplaces":[{"name":"enac-materialized","root":"ROOT"}]}',
+            "not-json",
+            "Codex returned an unreadable plugin inventory.",
+        ),
+    ),
+)
+def test_codex_plugin_plan_fails_closed_on_unreadable_inventory(
+    monkeypatch, tmp_path, marketplace_stdout, plugin_stdout, detail
+):
+    root = tmp_path / "materialized" / "codex"
+    manifest = root / "plugins" / "codex-copilot" / ".codex-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"name":"codex-copilot"}\n', encoding="utf-8")
+    marketplace = root / ".agents" / "plugins" / "marketplace.json"
+    marketplace.parent.mkdir(parents=True)
+    marketplace.write_text('{"name":"enac-materialized"}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        onboard_module,
+        "resolve_key",
+        lambda key: root if key == "paths.codex_materialize_root" else None,
+    )
+    marketplace_stdout = marketplace_stdout.replace("ROOT", str(root))
+    responses = iter(
+        response
+        for response in (marketplace_stdout, plugin_stdout)
+        if response is not None
+    )
+
+    report = onboard_module._install_codex_plugin(
+        apply=False,
+        run=lambda args: subprocess.CompletedProcess(args, 0, next(responses), ""),
+    )
+
+    assert report == {"result": "blocked", "detail": detail}
+
+
+@pytest.mark.parametrize(
+    ("result", "detail"),
+    (
+        (
+            subprocess.CompletedProcess(
+                (),
+                127,
+                "",
+                "codex is not installed.",
+            ),
+            "Codex is not installed in a supported location on this Mac.",
+        ),
+        (
+            subprocess.CompletedProcess(
+                (),
+                127,
+                "",
+                "node runtime required by codex is not installed.",
+            ),
+            (
+                "Codex is installed, but its required command-line runtime "
+                "could not be started outside the terminal."
+            ),
+        ),
+        (
+            subprocess.CompletedProcess((), 1, "", "policy rejected"),
+            "Codex rejected the verified local marketplace.",
+        ),
+    ),
+)
+def test_codex_marketplace_failures_are_distinct_and_do_not_leak_stderr(
+    monkeypatch, tmp_path, result, detail
+):
+    root = tmp_path / "materialized" / "codex"
+    manifest = root / "plugins" / "codex-copilot" / ".codex-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"name":"codex-copilot"}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        onboard_module,
+        "resolve_key",
+        lambda key: root if key == "paths.codex_materialize_root" else None,
+    )
+
+    report = onboard_module._install_codex_plugin(apply=True, run=lambda _args: result)
+
+    assert report == {"result": "blocked", "detail": detail}
+    assert result.stderr not in report["detail"]
+
+
+def test_codex_plugin_install_failure_is_distinct_from_marketplace_failure(
+    monkeypatch, tmp_path
+):
+    root = tmp_path / "materialized" / "codex"
+    manifest = root / "plugins" / "codex-copilot" / ".codex-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"name":"codex-copilot"}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        onboard_module,
+        "resolve_key",
+        lambda key: root if key == "paths.codex_materialize_root" else None,
+    )
+    calls = 0
+
+    def run(args):
+        nonlocal calls
+        calls += 1
+        return subprocess.CompletedProcess(
+            args,
+            0 if calls == 1 else 1,
+            "{}",
+            "" if calls == 1 else "install policy rejected",
+        )
+
+    report = onboard_module._install_codex_plugin(apply=True, run=run)
+
+    assert report == {
+        "result": "blocked",
+        "detail": "Codex rejected the Codex Copilot plugin installation.",
+    }
+
+
+def test_copilot_probe_uses_resolved_absolute_executable(monkeypatch, tmp_path):
+    copilot = tmp_path / "copilot"
+    copilot.write_text("#!/bin/sh\n", encoding="utf-8")
+    copilot.chmod(0o755)
+    manifest = tmp_path / "copilot.layers.yml"
+    manifest.write_text("version: 1\nlayers: []\n", encoding="utf-8")
+    captured = {}
+
+    def fake_run(args, **kwargs):
+        captured["args"] = tuple(args)
+        captured["env"] = kwargs["env"]
+        return subprocess.CompletedProcess(args, 0, '{"chain": [], "services": []}', "")
+
+    monkeypatch.setattr(
+        onboard_module, "resolve_executable", lambda _: copilot.resolve()
+    )
+    monkeypatch.setattr(onboard_module.subprocess, "run", fake_run)
+
+    payload, detail = onboard_module._copilot_layers_payload(manifest)
+
+    assert detail == ""
+    assert payload == {"chain": [], "services": []}
+    assert captured["args"] == (str(copilot.resolve()), "--json", "layers")
+    assert captured["env"]["COPILOT_LAYERS_FILE"] == str(manifest)
+
+
+def test_plan_reuses_private_and_marks_only_404_missing():
+    gh = FakeGitHub({"claude-copilot-private": True})
+    report = build_personal_onboard_report(components=("claude", "codex"), run=gh)
+    assert report["result"] == "changes-required"
+    assert [row["state"] for row in report["repositories"]] == [
+        "existing-private",
+        "missing",
+    ]
+    assert not any("POST" in call for call in gh.calls)
+    _assert_valid_onboard_report(report)
+
+
+def test_apply_creates_missing_private_repository():
+    gh = FakeGitHub()
+    report = build_personal_onboard_report(components=("codex",), apply=True, run=gh)
+    assert report["result"] == "applied"
+    assert report["repositories"][0]["state"] == "created"
+    assert report["repositories"][0]["package_state"] == "seeded"
+    post = next(call for call in gh.calls if "POST" in call)
+    assert "private=true" in post
+    assert "auto_init=false" in post
+    assert any("PUT" in call for call in gh.calls)
+    _assert_valid_onboard_report(report)
+
+
+def test_unknown_read_blocks_all_creation():
+    gh = FakeGitHub(errors={"codex-copilot-private"})
+    report = build_personal_onboard_report(
+        components=("claude", "codex"), apply=True, run=gh
+    )
+    assert report["result"] == "blocked"
+    assert report["repositories"][1]["state"] == "unknown"
+    assert not any("POST" in call for call in gh.calls)
+    _assert_valid_onboard_report(report)
+
+
+def test_public_collision_blocks_all_creation():
+    gh = FakeGitHub({"codex-copilot-private": False})
+    report = build_personal_onboard_report(
+        components=("claude", "codex"), apply=True, run=gh
+    )
+    assert report["result"] == "blocked"
+    assert report["repositories"][1]["state"] == "conflict-public"
+    assert not any("POST" in call for call in gh.calls)
+    _assert_valid_onboard_report(report)
+
+
+def test_existing_empty_private_repository_is_seeded_without_recreation():
+    gh = FakeGitHub({"codex-copilot-private": True})
+    report = build_personal_onboard_report(components=("codex",), apply=True, run=gh)
+    assert report["result"] == "applied"
+    assert report["repositories"][0]["state"] == "existing-private"
+    assert report["repositories"][0]["package_state"] == "seeded"
+    assert not any("POST" in call for call in gh.calls)
+    _assert_valid_onboard_report(report)
+
+
+def test_existing_valid_rank_ten_manifest_is_reused():
+    manifest = """schema_version: '1.0'\npackage:\n  role: personal\n  rank: 10\n  product: codex\n  owner: authenticated-user\ndimensions: []\n"""
+    gh = FakeGitHub(
+        {
+            "codex-copilot-private": {
+                "private": True,
+                "files": {"copilot.layer.yml": manifest},
+            }
+        }
+    )
+    report = build_personal_onboard_report(components=("codex",), apply=True, run=gh)
+    assert report["result"] == "applied"
+    assert report["repositories"][0]["package_state"] == "ready"
+    assert not any("PUT" in call or "POST" in call for call in gh.calls)
+    _assert_valid_onboard_report(report)
+
+
+# ---------------------------------------------------------------------------
+# B1: the personal-content refusal becomes an offer (`adoptable`)
+# ---------------------------------------------------------------------------
+
+
+def test_adoptable_state_is_not_blocked():
+    """A private, non-empty repo with no root marker is an offer, not a
+    refusal: plan result is `changes-required`, never `blocked`."""
+    gh = FakeGitHub(
+        {"claude-copilot-private": {"private": True, "files": {"notes.md": "mine"}}}
+    )
+    report = build_personal_onboard_report(components=("claude", "codex"), run=gh)
+    assert report["result"] == "changes-required"
+    claude_row = report["repositories"][0]
+    assert claude_row["package_state"] == "adoptable"
+    assert claude_row["package_action"] == "adopt"
+    assert claude_row["action"] == "none"
+    # The cost of declining is component-specific, plain-language, and
+    # CLI-authored -- the app never invents this sentence (invariant #1).
+    assert claude_row["decline_detail"] == (
+        "Without this, Claude Copilot can't be set up on this Mac. "
+        "You can include it later."
+    )
+    codex_row = report["repositories"][1]
+    assert codex_row["package_state"] == "missing"
+    assert codex_row["decline_detail"] == ""
+    assert not any("PUT" in call or "POST" in call for call in gh.calls)
+    _assert_valid_onboard_report(report)
+
+
+def test_invalid_marker_still_blocks():
+    """A present-but-unrecognized marker MUST stay hard-blocking `held`: the
+    write would not be purely additive, unlike the no-marker-at-all case."""
+    gh = FakeGitHub(
+        {
+            "claude-copilot-private": {
+                "private": True,
+                "files": {"copilot.layer.yml": "not: a-recognized-manifest\n"},
+            }
+        }
+    )
+    report = build_personal_onboard_report(
+        components=("claude", "codex"), apply=True, run=gh
+    )
+    assert report["result"] == "blocked"
+    assert report["repositories"][0]["package_state"] == "held"
+    assert not any("PUT" in call or "POST" in call for call in gh.calls)
+    _assert_valid_onboard_report(report)
+
+
+def test_adopt_writes_marker_only_with_consent():
+    """Consenting to adopt writes exactly the marker file -- additive only,
+    the person's own pre-existing content is left untouched."""
+    gh = FakeGitHub(
+        {"claude-copilot-private": {"private": True, "files": {"notes.md": "mine"}}}
+    )
+    report = build_personal_onboard_report(
+        components=("claude",), apply=True, adopt_existing=("claude",), run=gh
+    )
+    assert report["result"] == "applied"
+    row = report["repositories"][0]
+    assert row["package_state"] == "adopted"
+    assert row["package_action"] == "none"
+    assert not any("POST" in call for call in gh.calls)
+    assert sum("PUT" in call for call in gh.calls) == 1
+    files = gh.repos["claude-copilot-private"]["files"]
+    assert files["notes.md"] == "mine"
+    assert "copilot.layer.yml" in files
+    _assert_valid_onboard_report(report)
+
+
+def test_no_consent_is_a_noop():
+    """An adoptable component left out of `--adopt-existing` is a no-op:
+    nothing is written, and the offer stays open for next time."""
+    gh = FakeGitHub(
+        {"claude-copilot-private": {"private": True, "files": {"notes.md": "mine"}}}
+    )
+    report = build_personal_onboard_report(components=("claude",), apply=True, run=gh)
+    assert report["result"] == "applied"
+    row = report["repositories"][0]
+    assert row["package_state"] == "adoptable"
+    assert row["package_action"] == "adopt"
+    assert not any("PUT" in call or "POST" in call for call in gh.calls)
+    assert gh.repos["claude-copilot-private"]["files"] == {"notes.md": "mine"}
+    _assert_valid_onboard_report(report)
+
+
+def test_mixed_two_of_four_component_consent():
+    """Claude, Codex, Knowledge, and CLI never share a fate: each adoptable
+    component is decided on its own, never all-or-nothing."""
+    gh = FakeGitHub(
+        {
+            f"{component}-copilot-private": {
+                "private": True,
+                "files": {"notes.md": "mine"},
+            }
+            for component in ("claude", "codex", "knowledge", "cli")
+        }
+    )
+    report = build_personal_onboard_report(
+        components=("claude", "codex", "knowledge", "cli"),
+        apply=True,
+        adopt_existing=("claude", "knowledge"),
+        run=gh,
+    )
+    assert report["result"] == "applied"
+    by_component = {row["component"]: row for row in report["repositories"]}
+    assert by_component["claude"]["package_state"] == "adopted"
+    assert by_component["knowledge"]["package_state"] == "adopted"
+    assert by_component["codex"]["package_state"] == "adoptable"
+    assert by_component["cli"]["package_state"] == "adoptable"
+    # Consenting clears the cost of declining; a still-adoptable component
+    # keeps its own component-specific sentence, never a shared one.
+    assert by_component["claude"]["decline_detail"] == ""
+    assert by_component["knowledge"]["decline_detail"] == ""
+    assert by_component["codex"]["decline_detail"] == (
+        "Without this, Codex Copilot can't be set up on this Mac. "
+        "You can include it later."
+    )
+    assert by_component["cli"]["decline_detail"] == (
+        "Without this, CLI Copilot can't be set up on this Mac. "
+        "You can include it later."
+    )
+    written = {
+        name for name, repo in gh.repos.items() if "copilot.layer.yml" in repo["files"]
+    }
+    assert written == {"claude-copilot-private", "knowledge-copilot-private"}
+    _assert_valid_onboard_report(report)
+
+
+def test_personal_inventory_carries_decline_detail_only_for_adoptable_rows():
+    """The wizard's question-screen items get the same `decline_detail` the
+    repository rows carry -- present (non-empty) only where the CLI marked
+    the component `adoptable`, empty everywhere else."""
+    personal = {
+        "repositories": [
+            {
+                "component": "claude",
+                "state": "existing-private",
+                "package_state": "adoptable",
+                "package_detail": "Your own content is already in here.",
+                "decline_detail": (
+                    "Without this, Claude Copilot can't be set up on this "
+                    "Mac. You can include it later."
+                ),
+            },
+            {
+                "component": "codex",
+                "state": "existing-private",
+                "package_state": "ready",
+                "package_detail": "Already set up. Everything in here will be kept.",
+                "decline_detail": "",
+            },
+        ]
+    }
+    items = onboard_module._personal_inventory(personal)
+    by_id = {item["id"]: item for item in items}
+    assert by_id["personal-claude"]["decline_detail"] == (
+        "Without this, Claude Copilot can't be set up on this Mac. "
+        "You can include it later."
+    )
+    assert by_id["personal-codex"]["decline_detail"] == ""
+
+
+def _aggregate_run(args):
+    endpoint = args[2]
+    if endpoint.endswith("/contents/ecosystem.yml"):
+        handoff = """schema_version: '2.0'
+org: Acme
+harness: [claude, codex]
+components: [knowledge, cli, claude, codex]
+store:
+  status: deferred
+foundation:
+  refs:
+    knowledge: '^0.1.0'
+    cli: '^0.3.0'
+    claude: '^5.8.0'
+    codex: '^0.6.0'
+"""
+        encoded = base64.b64encode(handoff.encode()).decode()
+        return subprocess.CompletedProcess(
+            args, 0, json.dumps({"content": encoded}), ""
+        )
+    if endpoint.endswith("claude-copilot/tags"):
+        return subprocess.CompletedProcess(
+            args, 0, '[{"name":"v5.9.0"},{"name":"v6.0.0"}]', ""
+        )
+    if endpoint.endswith("codex-copilot/tags"):
+        return subprocess.CompletedProcess(args, 0, '[{"name":"v0.6.2"}]', "")
+    if endpoint.endswith("knowledge-copilot/tags"):
+        return subprocess.CompletedProcess(args, 0, '[{"name":"v0.1.0"}]', "")
+    if endpoint.endswith("cli-copilot/tags"):
+        return subprocess.CompletedProcess(args, 0, '[{"name":"v0.3.1"}]', "")
+    raise AssertionError(args)
+
+
+def _personal(**_kwargs):
+    return {
+        "result": "ready",
+        "owner": "pablo",
+        "summary": {
+            "existing": 2,
+            "missing": 0,
+            "created": 0,
+            "seeded": 0,
+            "held": 0,
+            "blocked": 0,
+        },
+    }
+
+
+def _ssh(**_kwargs):
+    return {
+        "result": "ready",
+        "key": "existing",
+        "registration": "registered",
+        "config": "ready",
+        "detail": "ready",
+    }
+
+
+def _ssh_adoptable(**_kwargs):
+    """B1 for the SSH gate, shaped exactly like a real `changes-required`
+    adoption report: an already-working alias offered instead of refused."""
+    return {
+        "result": "changes-required",
+        "key": "existing",
+        "registration": "registered",
+        "config": "adoptable",
+        "detail": (
+            "Your existing github-work alias already works and signs in as "
+            "pablo. I'll leave it exactly as it is."
+        ),
+        "decline_detail": (
+            "Without this, the github-personal alias won't be set up, and "
+            "this device won't have everything it needs. Your existing "
+            "github-work alias is never touched either way."
+        ),
+        "adopted_alias": "github-work",
+        "missing_alias": "github-personal",
+    }
+
+
+def _codex(*, apply, **_kwargs):
+    return {"result": "ready" if apply else "changes-required"}
+
+
+def _cli(_manifest_path):
+    return {"result": "ready"}
+
+
+def _consumer_ready(*_args):
+    return {"result": "ready"}
+
+
+def _no_mirror_seed(*_args, **_kwargs):
+    """Safe `mirror_seed_fn` test double: the real default
+    (`_seed_cold_start_mirrors`) performs actual `git ls-remote`/`git clone`
+    network I/O -- never appropriate against these tests' fake repo URLs.
+    Every test whose apply reaches the doctor stage injects this, exactly
+    like `personal_fn`/`ssh_fn`/`codex_fn`/`cli_fn`/`consumer_probe_fn`
+    already avoid the real GitHub-touching collaborators above."""
+    return []
+
+
+def test_ecosystem_plan_fails_closed_when_codex_inventory_is_blocked(tmp_path):
+    def blocked_codex(**_kwargs):
+        return {
+            "result": "blocked",
+            "detail": "Codex could not inspect installed plugins.",
+        }
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=False,
+        run=_aggregate_run,
+        manifest_path=tmp_path / "layers.yml",
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=blocked_codex,
+        consumer_probe_fn=_consumer_ready,
+    )
+
+    assert report["result"] == "blocked"
+    assert report["stages"][-1] == {
+        "stage": "codex-plugin",
+        "result": "blocked",
+        "detail": "Codex could not inspect installed plugins.",
+    }
+    _assert_valid_onboard_report(report)
+
+
+def test_ecosystem_plan_builds_four_isolated_three_layer_stacks(tmp_path):
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=False,
+        run=_aggregate_run,
+        manifest_path=tmp_path / "layers.yml",
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        consumer_probe_fn=_consumer_ready,
+    )
+    assert report["result"] == "changes-required"
+    assert report["components"] == ["knowledge", "cli", "claude", "codex"]
+    assert [
+        (layer["product"], layer["role"], layer["rank"]) for layer in report["layers"]
+    ] == [
+        ("knowledge", "personal", 10),
+        ("knowledge", "organization", 30),
+        ("knowledge", "foundation", 40),
+        ("cli", "personal", 10),
+        ("cli", "organization", 30),
+        ("cli", "foundation", 40),
+        ("claude", "personal", 10),
+        ("claude", "organization", 30),
+        ("claude", "foundation", 40),
+        ("codex", "personal", 10),
+        ("codex", "organization", 30),
+        ("codex", "foundation", 40),
+    ]
+    assert [stage["stage"] for stage in report["stages"]] == [
+        "organization-handoff",
+        "personal-packages",
+        "device-ssh",
+        "layer-manifest",
+        "secret-store",
+        "codex-plugin",
+    ]
+    assert not (tmp_path / "layers.yml").exists()
+    _assert_valid_onboard_report(report)
+
+
+def test_ecosystem_plan_provisions_every_handoff_component(tmp_path):
+    seen: list[tuple[str, ...]] = []
+
+    def personal(**kwargs):
+        seen.append(tuple(kwargs["components"]))
+        return _personal(**kwargs)
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        products=("claude",),
+        apply=False,
+        run=_aggregate_run,
+        manifest_path=tmp_path / "layers.yml",
+        personal_fn=personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+    )
+
+    assert seen == [("knowledge", "cli", "claude", "codex")]
+    assert report["products"] == ["claude"]
+    assert report["components"] == ["knowledge", "cli", "claude", "codex"]
+    _assert_valid_onboard_report(report)
+
+
+def test_ecosystem_plan_offers_adoptable_ssh_alias_instead_of_blocking(tmp_path):
+    """B1 for the SSH gate: a working-but-unmanaged alias downgrades the plan
+    to `changes-required`, never `blocked`, and surfaces a machine-scope
+    inventory row an app can render as a question -- the same shape an
+    adoptable personal package already gets, and the same `--adopt-existing`
+    plumbing carries the consent back in."""
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=False,
+        run=_aggregate_run,
+        manifest_path=tmp_path / "layers.yml",
+        personal_fn=_personal,
+        ssh_fn=_ssh_adoptable,
+        codex_fn=_codex,
+        consumer_probe_fn=_consumer_ready,
+    )
+    assert report["result"] == "changes-required"
+    ssh_stage = next(
+        stage for stage in report["stages"] if stage["stage"] == "device-ssh"
+    )
+    assert ssh_stage["config"] == "adoptable"
+    # The stage dict only ever carries the schema's whitelisted fields --
+    # the richer adoption fields belong to the inventory row, not the stage.
+    assert "adopted_alias" not in ssh_stage
+    assert "decline_detail" not in ssh_stage
+    ssh_item = next(item for item in report["inventory"] if item["id"] == "device-ssh")
+    assert ssh_item["scope"] == "machine"
+    assert ssh_item["action"] == "create"
+    assert ssh_item["reversible"] is True
+    assert ssh_item["decline_detail"]
+    _assert_valid_onboard_report(report)
+
+
+def test_manifest_plan_keeps_recognized_legacy_cli_layers(tmp_path):
+    target = tmp_path / "copilot.layers.yml"
+    target.write_text(
+        """version: 1
+layers:
+  - id: cli-organization
+    role: organization
+    component: cli
+    rank: 30
+    source: {repo: git@github-work:Acme/cli-copilot-internal.git, ref: main}
+    auth: ssh-work
+""",
+        encoding="utf-8",
+    )
+    desired = {
+        "version": 1,
+        "org": "Acme",
+        "layers": [
+            {
+                "id": "claude-personal",
+                "role": "personal",
+                "rank": 10,
+                "product": "claude",
+                "source": {
+                    "repo": "git@github-personal:pablo/claude-copilot-private.git",
+                    "ref": "main",
+                },
+                "auth": "personal",
+                "activation": "always",
+            }
+        ],
+    }
+
+    plan = onboard_module._manifest_adoption_plan(
+        desired, target, configured_path=target
+    )
+
+    assert plan.action == "repair"
+    retained, managed = plan.payload["layers"]
+    assert retained["id"] == "cli-organization"
+    assert retained["component"] == "cli"
+    assert "product" not in retained
+    assert "activation" not in retained
+    assert managed["product"] == "claude"
+
+
+def test_manifest_plan_holds_managed_id_with_different_repository(tmp_path):
+    target = tmp_path / "copilot.layers.yml"
+    target.write_text(
+        """version: 1
+org: Acme
+layers:
+  - id: codex-personal
+    role: personal
+    rank: 10
+    product: codex
+    source: {repo: git@github-personal:pablo/my-custom-layer.git, ref: main}
+    auth: personal
+    activation: always
+""",
+        encoding="utf-8",
+    )
+    desired = {
+        "version": 1,
+        "org": "Acme",
+        "layers": [
+            {
+                "id": "codex-personal",
+                "role": "personal",
+                "rank": 10,
+                "product": "codex",
+                "source": {
+                    "repo": "git@github-personal:pablo/codex-copilot-private.git",
+                    "ref": "main",
+                },
+                "auth": "personal",
+                "activation": "always",
+            }
+        ],
+    }
+
+    plan = onboard_module._manifest_adoption_plan(
+        desired, target, configured_path=target
+    )
+
+    assert plan.action == "review"
+    assert "isn't one I recognize" in plan.detail
+
+
+def test_existing_eight_layer_machine_repairs_to_all_twelve_layers(tmp_path):
+    handoff = {
+        "foundation": {
+            "refs": {
+                "knowledge": "v0.1.0",
+                "cli": "v0.3.1",
+                "claude": "v5.9.0",
+                "codex": "v0.6.2",
+            }
+        }
+    }
+    desired = onboard_module._layer_manifest(
+        "Acme", "pablo", ("knowledge", "cli", "claude", "codex"), handoff, run=_aggregate_run
+    )
+    existing_layers = [
+        dict(layer)
+        for layer in desired["layers"]
+        if layer["product"] in {"cli", "claude", "codex"}
+        and not (layer["product"] == "cli" and layer["role"] == "personal")
+    ]
+    for layer in existing_layers:
+        if layer["product"] == "cli" and layer["role"] == "organization":
+            layer["role"] = "org"
+            layer["auth"] = "ssh-work"
+        if layer["product"] == "cli" and layer["role"] == "foundation":
+            layer["source"] = {
+                "repo": "https://github.com/Everyone-Needs-A-Copilot/cli-copilot.git",
+                "ref": "^0.3.0",
+            }
+            layer["auth"] = "anon"
+    target = tmp_path / "copilot.layers.yml"
+    target.write_text(
+        yaml.safe_dump({"version": 1, "org": "Acme", "layers": existing_layers}),
+        encoding="utf-8",
+    )
+    authoring = tmp_path / "knowledge-copilot-internal"
+    authoring.mkdir()
+    authored_file = authoring / "private.md"
+    authored_file.write_text("keep me", encoding="utf-8")
+
+    plan = onboard_module._manifest_adoption_plan(desired, target, configured_path=target)
+
+    assert plan.action == "repair"
+    assert plan.payload is not None
+    assert len(plan.payload["layers"]) == 12
+    assert {layer["product"] for layer in plan.payload["layers"]} == {
+        "knowledge", "cli", "claude", "codex"
+    }
+    assert authored_file.read_text(encoding="utf-8") == "keep me"
+
+
+def test_existing_eight_layer_machine_apply_commits_all_four_products_without_touching_authored_repos(
+    tmp_path,
+):
+    handoff = {
+        "foundation": {
+            "refs": {
+                "knowledge": "v0.1.0",
+                "cli": "v0.3.1",
+                "claude": "v5.9.0",
+                "codex": "v0.6.2",
+            }
+        }
+    }
+    desired = onboard_module._layer_manifest(
+        "Acme",
+        "pablo",
+        ("knowledge", "cli", "claude", "codex"),
+        handoff,
+        run=_aggregate_run,
+    )
+    existing_layers = [
+        dict(layer)
+        for layer in desired["layers"]
+        if layer["product"] in {"cli", "claude", "codex"}
+        and not (layer["product"] == "cli" and layer["role"] == "personal")
+    ]
+    for layer in existing_layers:
+        if layer["product"] == "cli" and layer["role"] == "organization":
+            layer["role"] = "org"
+            layer["auth"] = "ssh-work"
+        if layer["product"] == "cli" and layer["role"] == "foundation":
+            layer["source"] = {
+                "repo": "https://github.com/Everyone-Needs-A-Copilot/cli-copilot.git",
+                "ref": "^0.3.0",
+            }
+            layer["auth"] = "anon"
+    target = tmp_path / "copilot.layers.yml"
+    target.write_text(
+        yaml.safe_dump({"version": 1, "org": "Acme", "layers": existing_layers}),
+        encoding="utf-8",
+    )
+    before = target.read_bytes()
+    authoring = tmp_path / "knowledge-copilot-internal"
+    authoring.mkdir()
+    authored_file = authoring / "private.md"
+    authored_file.write_text("keep me exactly", encoding="utf-8")
+    committed = []
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=lambda **_: (
+            {"result": "up-to-date", "blocked": [], "held_for_approval": []},
+            0,
+        ),
+        doctor_fn=lambda **_: {"status": "healthy", "score": 100},
+        mirror_seed_fn=_no_mirror_seed,
+        commit_config_fn=lambda path, knowledge: committed.append(
+            (path, list(knowledge))
+        ),
+    )
+
+    assert report["result"] == "ready"
+    applied = yaml.safe_load(target.read_text(encoding="utf-8"))
+    assert len(applied["layers"]) == 12
+    assert {
+        (layer["product"], layer["role"])
+        for layer in applied["layers"]
+    } == {
+        (product, role)
+        for product in ("knowledge", "cli", "claude", "codex")
+        for role in ("personal", "organization", "foundation")
+    }
+    rollback = Path(
+        next(
+            stage for stage in report["stages"] if stage["stage"] == "layer-manifest"
+        )["rollback_path"]
+    )
+    assert rollback.read_bytes() == before
+    assert authored_file.read_text(encoding="utf-8") == "keep me exactly"
+    assert committed and committed[0][0] == target
+    assert len(committed[0][1]) == 3
+    _assert_valid_onboard_report(report)
+
+
+def test_machine_pointer_commit_is_atomic_and_preserves_unrelated_config(tmp_path):
+    config_path = onboard_module.machine_config_path()
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        json.dumps(
+            {
+                "$schema": "cc-config-v1",
+                "version": 1,
+                "github_app": {"org": "Acme"},
+                "paths": {"projects": "/existing"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    manifest_path = tmp_path / "copilot.layers.yml"
+    knowledge_paths = ["/mirrors/knowledge/personal", "/mirrors/knowledge/org"]
+
+    written = onboard_module._commit_machine_pointers(
+        manifest_path, knowledge_paths
+    )
+
+    assert written == config_path
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    assert payload["layers"]["manifest"] == str(manifest_path)
+    assert payload["paths"]["knowledge_repo"] == knowledge_paths
+    assert payload["paths"]["projects"] == "/existing"
+    assert payload["github_app"]["org"] == "Acme"
+
+
+def test_manifest_migration_is_reversible_and_removes_only_recognized_source(tmp_path):
+    legacy = tmp_path / "old" / "copilot.layers.yml"
+    legacy.parent.mkdir()
+    legacy.write_text(
+        """version: 1
+layers:
+  - id: cli-foundation
+    role: foundation
+    component: cli
+    rank: 40
+    source: {repo: https://example.test/cli.git, ref: v1.0.0}
+    auth: anon
+""",
+        encoding="utf-8",
+    )
+    target = tmp_path / "new" / "copilot.layers.yml"
+    desired = {
+        "version": 1,
+        "org": "Acme",
+        "layers": [
+            {
+                "id": "codex-foundation",
+                "role": "foundation",
+                "rank": 40,
+                "product": "codex",
+                "source": {"repo": "https://example.test/codex.git", "ref": "v1.0.0"},
+                "auth": "anon",
+                "activation": "always",
+            }
+        ],
+    }
+    before = legacy.read_bytes()
+    plan = onboard_module._manifest_adoption_plan(
+        desired, target, configured_path=legacy
+    )
+
+    backup = onboard_module._apply_manifest_adoption(plan)
+
+    assert plan.action == "migrate"
+    assert backup is not None and backup.read_bytes() == before
+    assert not legacy.exists()
+    retained = yaml.safe_load(target.read_text())["layers"][0]
+    assert retained["component"] == "cli"
+    assert "product" not in retained
+
+
+def test_manifest_repair_is_not_a_checkbox_and_applies_without_any_consent(tmp_path):
+    """`layer-manifest` is infrastructure, not a B1 offer: a `repair` row
+    must never be `reversible` (that would render an ask-row checkbox the
+    person could clear), and the repair must complete on `apply=True` even
+    when `adopt_existing` is empty -- nobody is ever asked. If this ever
+    regresses to gating the write on a consent token, the file would stay
+    unrepaired here and the assertions below would catch it."""
+    target = tmp_path / "layers.yml"
+    target.write_text(
+        """version: 1
+layers:
+  - id: cli-organization
+    role: organization
+    component: cli
+    rank: 30
+    source: {repo: git@github-work:Acme/cli-copilot-internal.git, ref: main}
+    auth: ssh-work
+""",
+        encoding="utf-8",
+    )
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        adopt_existing=(),  # explicit: nobody consented to anything
+        update_fn=lambda **_: (
+            {"result": "up-to-date", "blocked": [], "held_for_approval": []},
+            0,
+        ),
+        doctor_fn=lambda **_: {"status": "healthy", "score": 100},
+        mirror_seed_fn=_no_mirror_seed,
+    )
+    manifest_stage = next(s for s in report["stages"] if s["stage"] == "layer-manifest")
+    assert manifest_stage["action"] == "repair"
+    assert manifest_stage["result"] == "applied"
+    manifest_item = next(i for i in report["inventory"] if i["id"] == "layer-manifest")
+    assert manifest_item["reversible"] is False
+    written = yaml.safe_load(target.read_text())
+    cli = next(layer for layer in written["layers"] if layer["id"] == "org-internal")
+    assert cli["product"] == "cli"
+    products = {layer["product"] for layer in written["layers"] if "product" in layer}
+    assert products == {"knowledge", "cli", "claude", "codex"}
+    assert report["result"] == "ready"
+    _assert_valid_onboard_report(report)
+
+
+def test_candidate_consumer_rejection_blocks_before_any_apply(tmp_path):
+    target = tmp_path / "layers.yml"
+    target.write_text(
+        """version: 1
+layers:
+  - id: cli-organization
+    role: organization
+    component: cli
+    rank: 30
+    source: {repo: git@github-work:Acme/cli-copilot-internal.git, ref: main}
+    auth: ssh-work
+""",
+        encoding="utf-8",
+    )
+    before = target.read_bytes()
+    apply_calls = []
+
+    def personal(*, apply, **_kwargs):
+        apply_calls.append(apply)
+        return _personal()
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=lambda *_: {
+            "result": "blocked",
+            "detail": "The installed reader would lose Discord.",
+        },
+    )
+
+    assert report["result"] == "blocked"
+    assert apply_calls == [False]
+    assert target.read_bytes() == before
+    assert not (tmp_path / ".copilot-control-tower-backups").exists()
+    manifest_stage = next(s for s in report["stages"] if s["stage"] == "layer-manifest")
+    assert manifest_stage["result"] == "blocked"
+    assert "lose Discord" in manifest_stage["detail"]
+    _assert_valid_onboard_report(report)
+
+
+def test_cli_candidate_probe_rejects_capability_loss(tmp_path, monkeypatch):
+    baseline = tmp_path / "before.yml"
+    baseline.write_text("version: 1\nlayers: []\n", encoding="utf-8")
+    candidate = tmp_path / "candidate.yml"
+    candidate.write_text(
+        """version: 1
+layers:
+  - id: cli-organization
+    role: organization
+    product: cli
+    rank: 30
+    source: {repo: git@github-work:Acme/cli-copilot-internal.git, ref: main}
+    auth: work
+    activation: always
+""",
+        encoding="utf-8",
+    )
+
+    def payload(path):
+        services = [
+            {"name": "git", "tier": "foundation", "mode": "base"},
+            {"name": "discord", "tier": "foundation", "mode": "base"},
+        ]
+        if path == baseline:
+            services[-1] = {
+                "name": "discord",
+                "tier": "organization",
+                "mode": "provides",
+            }
+        return (
+            {
+                "chain": [
+                    {
+                        "id": "cli-organization",
+                        "role": "organization",
+                        "rank": 30,
+                        "repo": "git@github-work:Acme/cli-copilot-internal.git",
+                        "ref": "main",
+                        "auth": "work",
+                        "unit": None,
+                    }
+                ],
+                "services": services,
+            },
+            "",
+        )
+
+    monkeypatch.setattr(onboard_module, "_copilot_layers_payload", payload)
+
+    result = onboard_module._probe_cli_candidate(candidate, baseline)
+
+    assert result["result"] == "blocked"
+    assert "discord" in result["detail"]
+
+
+def test_materialize_failure_restores_exact_manifest_and_rematerializes_prior(
+    tmp_path,
+):
+    target = tmp_path / "layers.yml"
+    target.write_text(
+        """version: 1
+layers:
+  - id: cli-organization
+    role: organization
+    component: cli
+    rank: 30
+    source: {repo: git@github-work:Acme/cli-copilot-internal.git, ref: main}
+    auth: ssh-work
+""",
+        encoding="utf-8",
+    )
+    before = target.read_bytes()
+    updates = []
+
+    def update(**kwargs):
+        updates.append(Path(kwargs["_manifest_path"]).read_bytes())
+        if len(updates) == 1:
+            return {"result": "blocked", "blocked": [{}], "held_for_approval": []}, 2
+        return {"result": "up-to-date", "blocked": [], "held_for_approval": []}, 0
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=update,
+        doctor_fn=lambda **_: pytest.fail("doctor must not run after update failure"),
+    )
+
+    assert report["result"] == "blocked"
+    assert len(updates) == 2
+    assert updates[0] != before
+    assert updates[1] == before
+    assert target.read_bytes() == before
+    manifest_stage = next(s for s in report["stages"] if s["stage"] == "layer-manifest")
+    assert manifest_stage["result"] == "rolled-back"
+    assert Path(manifest_stage["rollback_path"]).read_bytes() == before
+    # G-4 (task 207): the manifest write is recorded, not omitted -- it
+    # appears in `completed_actions` with `outcome == "rolled-back"`, never
+    # silently dropped just because it was later undone.
+    manifest_entries = [
+        entry
+        for entry in report["completed_actions"]
+        if entry["kind"] == "layer-manifest"
+    ]
+    assert len(manifest_entries) == 1
+    assert manifest_entries[0]["outcome"] == "rolled-back"
+    assert manifest_entries[0]["target"] == str(target)
+    assert "restored" in manifest_entries[0]["summary"].lower()
+    assert report["resume"]["safe_to_rerun"] is True
+    assert "undone" in report["resume"]["detail"].lower()
+    _assert_valid_onboard_report(report)
+
+
+_SINGLE_LAYER_MANIFEST = """version: 1
+layers:
+  - id: cli-organization
+    role: organization
+    component: cli
+    rank: 30
+    source: {repo: git@github-work:Acme/cli-copilot-internal.git, ref: main}
+    auth: ssh-work
+"""
+
+
+def _fake_healthy_doctor(**_kwargs):
+    return {"status": "healthy", "score": 100}
+
+
+def _fake_commit_config(events=None):
+    def commit_config(path, knowledge):
+        if events is not None:
+            events.append("commit-config")
+    return commit_config
+
+
+def test_materialize_held_items_do_not_roll_back_manifest_and_are_reported(tmp_path):
+    """G-9 (task 215 blocker fix): a guard-protected `held` item is honest,
+    not fatal -- the manifest write commits and stays, the overall
+    transaction still completes, and the held item is reported plainly in
+    the new `materialize` field rather than triggering a rollback."""
+    target = tmp_path / "layers.yml"
+    target.write_text(_SINGLE_LAYER_MANIFEST, encoding="utf-8")
+    before = target.read_bytes()
+
+    def update(**kwargs):
+        assert Path(kwargs["_manifest_path"]).read_bytes() != before
+        return (
+            {
+                "result": "held",
+                "changed": [],
+                "blocked": [],
+                "held_for_approval": [
+                    {
+                        "product": "claude",
+                        "dimension": "knowledge",
+                        "from": "aaa",
+                        "to": "aaa",
+                        "reason": "protected: symlink escapes the materialize root -- never overwritten",
+                    }
+                ],
+            },
+            1,
+        )
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=update,
+        doctor_fn=_fake_healthy_doctor,
+        mirror_seed_fn=_no_mirror_seed,
+        commit_config_fn=_fake_commit_config(),
+    )
+
+    assert report["result"] == "ready"
+    # The candidate manifest was written and KEPT -- never rolled back --
+    # even though the materialize step reported a held item.
+    assert target.read_bytes() != before
+    manifest_stage = next(s for s in report["stages"] if s["stage"] == "layer-manifest")
+    assert manifest_stage["result"] == "applied"
+    materialize_stage = next(s for s in report["stages"] if s["stage"] == "materialize")
+    assert materialize_stage["result"] == "held"
+    assert materialize_stage["held"] == 1
+    assert materialize_stage["blocked"] == 0
+    assert report["materialize"]["result"] == "held"
+    assert report["materialize"]["held"] == 1
+    assert report["materialize"]["blocked"] == 0
+    assert len(report["materialize"]["held_items"]) == 1
+    assert report["materialize"]["held_items"][0]["reason"].startswith("protected:")
+    manifest_entries = [
+        e for e in report["completed_actions"] if e["kind"] == "layer-manifest"
+    ]
+    assert manifest_entries[0]["outcome"] == "completed"
+    materialization_entries = [
+        e for e in report["completed_actions"] if e["kind"] == "materialization"
+    ]
+    assert materialization_entries[0]["outcome"] == "completed"
+    assert "resume" not in report
+    _assert_valid_onboard_report(report)
+
+
+def test_materialize_blocked_items_do_not_roll_back_manifest_and_are_reported(
+    tmp_path,
+):
+    """G-9 (task 215 blocker fix): the fail-closed signature policy's
+    `blocked` (unverified) verdict is an honest per-item outcome too --
+    same treatment as `held` above, never fatal to the manifest write or
+    the overall transaction on its own."""
+    target = tmp_path / "layers.yml"
+    target.write_text(_SINGLE_LAYER_MANIFEST, encoding="utf-8")
+    before = target.read_bytes()
+
+    def update(**_kwargs):
+        return (
+            {
+                "result": "blocked",
+                "changed": [],
+                "blocked": [
+                    {
+                        "product": "claude",
+                        "dimension": "agents",
+                        "layer": "claude-foundation",
+                        "item": "qa",
+                        "reason": "unverified",
+                    }
+                ],
+                "held_for_approval": [],
+            },
+            1,
+        )
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=update,
+        doctor_fn=_fake_healthy_doctor,
+        mirror_seed_fn=_no_mirror_seed,
+        commit_config_fn=_fake_commit_config(),
+    )
+
+    assert report["result"] == "ready"
+    assert target.read_bytes() != before
+    manifest_stage = next(s for s in report["stages"] if s["stage"] == "layer-manifest")
+    assert manifest_stage["result"] == "applied"
+    materialize_stage = next(s for s in report["stages"] if s["stage"] == "materialize")
+    assert materialize_stage["result"] == "blocked"
+    assert materialize_stage["blocked"] == 1
+    assert materialize_stage["held"] == 0
+    assert report["materialize"]["result"] == "blocked"
+    assert report["materialize"]["blocked"] == 1
+    assert len(report["materialize"]["blocked_items"]) == 1
+    assert report["materialize"]["blocked_items"][0] == {
+        "product": "claude",
+        "dimension": "agents",
+        "layer": "claude-foundation",
+        "item": "qa",
+        "reason": "unverified",
+    }
+    manifest_entries = [
+        e for e in report["completed_actions"] if e["kind"] == "layer-manifest"
+    ]
+    assert manifest_entries[0]["outcome"] == "completed"
+    assert "resume" not in report
+    _assert_valid_onboard_report(report)
+
+
+def test_materialize_held_still_activates_codex_and_completes_the_pipeline(
+    tmp_path,
+):
+    """Held/blocked materialize outcomes must not skip downstream steps
+    (codex activation, doctor, commit-config) either -- only a genuine
+    environment-level materialize failure (exit code outside {0, 1}, or an
+    exception) may still stop the run."""
+    target = tmp_path / "layers.yml"
+    target.write_text(_SINGLE_LAYER_MANIFEST, encoding="utf-8")
+    codex_calls = []
+
+    def codex(*, apply, **_kwargs):
+        codex_calls.append(apply)
+        return {"result": "ready" if apply else "changes-required"}
+
+    def update(**_kwargs):
+        return (
+            {
+                "result": "held",
+                "changed": [],
+                "blocked": [],
+                "held_for_approval": [{"product": "claude", "dimension": "knowledge", "from": "a", "to": "a", "reason": "held"}],
+            },
+            1,
+        )
+
+    events = []
+
+    def doctor(**_kwargs):
+        events.append("doctor")
+        return {"status": "healthy", "score": 100}
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=update,
+        doctor_fn=doctor,
+        mirror_seed_fn=_no_mirror_seed,
+        commit_config_fn=_fake_commit_config(events),
+    )
+
+    assert report["result"] == "ready"
+    # codex_fn is invoked at plan time (apply=False) AND again at apply time
+    # (apply=True) -- the fix removed the stale `update_exit == 0 and`
+    # guard, which used to make the apply=True call unreachable whenever
+    # materialize reported held/blocked.
+    assert True in codex_calls
+    assert events == ["doctor", "commit-config"]
+    _assert_valid_onboard_report(report)
+
+
+def test_materialize_environment_failure_still_rolls_back_manifest_loudly(tmp_path):
+    """A materialize failure that is TOTAL and unexpected (an exit code
+    outside {0, 1} -- lock contention, an invalid manifest) is NOT an
+    honest per-item outcome, and still fails the run loudly with the
+    manifest state explicit."""
+    target = tmp_path / "layers.yml"
+    target.write_text(_SINGLE_LAYER_MANIFEST, encoding="utf-8")
+    before = target.read_bytes()
+    calls = []
+
+    def update(**kwargs):
+        calls.append(Path(kwargs["_manifest_path"]).read_bytes())
+        if len(calls) == 1:
+            return (
+                {"result": "blocked", "blocked": [], "held_for_approval": []},
+                2,
+            )
+        return {"result": "up-to-date", "blocked": [], "held_for_approval": []}, 0
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=update,
+        doctor_fn=lambda **_: pytest.fail("doctor must not run after an environment materialize failure"),
+    )
+
+    assert report["result"] == "blocked"
+    assert len(calls) == 2
+    assert target.read_bytes() == before
+    manifest_stage = next(s for s in report["stages"] if s["stage"] == "layer-manifest")
+    assert manifest_stage["result"] == "rolled-back"
+    assert "materialize" not in report
+    _assert_valid_onboard_report(report)
+
+
+def test_materialize_raised_exception_still_rolls_back_manifest_loudly(tmp_path):
+    """A genuine crash (the materialize engine itself raising, not
+    returning a structured held/blocked result) still fails the run loudly
+    and rolls back -- the exception path is untouched by this fix."""
+    target = tmp_path / "layers.yml"
+    target.write_text(_SINGLE_LAYER_MANIFEST, encoding="utf-8")
+    before = target.read_bytes()
+    calls = []
+
+    def update(**kwargs):
+        calls.append(Path(kwargs["_manifest_path"]).read_bytes())
+        if len(calls) == 1:
+            raise RuntimeError("disk full")
+        return {"result": "up-to-date", "blocked": [], "held_for_approval": []}, 0
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=update,
+        doctor_fn=lambda **_: pytest.fail("doctor must not run after a raised materialize exception"),
+    )
+
+    assert report["result"] == "blocked"
+    assert len(calls) == 2
+    assert target.read_bytes() == before
+    manifest_stage = next(s for s in report["stages"] if s["stage"] == "layer-manifest")
+    assert manifest_stage["result"] == "rolled-back"
+    assert "disk full" in manifest_stage["detail"]
+    assert "materialize" not in report
+    _assert_valid_onboard_report(report)
+
+
+def test_rollback_confirmation_compares_bytes_not_the_restored_manifests_own_gate_outcome(
+    tmp_path,
+):
+    """G-9 (task 215 blocker fix): the exact live-incident shape. The
+    candidate materialize genuinely fails for an environment reason (exit
+    2), triggering rollback; the manifest FILE is restored byte-identical
+    (proven below), but the best-effort reconciliation pass against the
+    RESTORED (old) manifest hits the SAME fail-closed gate (exit 1,
+    held/blocked) for that manifest's own, unrelated content. That must be
+    reported honestly as its own thing, never conflated into
+    "rollback-failed" -- the file rollback is confirmed by bytes, not by
+    re-running the gate a second time.
+    """
+    target = tmp_path / "layers.yml"
+    target.write_text(_SINGLE_LAYER_MANIFEST, encoding="utf-8")
+    before = target.read_bytes()
+    calls = []
+
+    def update(**kwargs):
+        calls.append(Path(kwargs["_manifest_path"]).read_bytes())
+        if len(calls) == 1:
+            # The new candidate: a genuine, non-gate materialize failure.
+            return (
+                {"result": "blocked", "blocked": [], "held_for_approval": []},
+                2,
+            )
+        # Reconciling the RESTORED prior manifest hits the SAME fail-closed
+        # gate for ITS OWN content -- an honest, unrelated per-item outcome,
+        # never evidence the file rollback itself failed.
+        return (
+            {
+                "result": "held",
+                "blocked": [],
+                "held_for_approval": [
+                    {"product": "cli", "dimension": "commands", "from": "a", "to": "a", "reason": "held"}
+                ],
+            },
+            1,
+        )
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=update,
+        doctor_fn=lambda **_: pytest.fail("doctor must not run after a rolled-back manifest"),
+    )
+
+    assert report["result"] == "blocked"
+    assert len(calls) == 2
+    assert calls[1] == before
+    assert target.read_bytes() == before
+    manifest_stage = next(s for s in report["stages"] if s["stage"] == "layer-manifest")
+    # THE regression proof: under the pre-fix conflation, this would have
+    # been "rollback-failed" purely because the reconcile pass's OWN exit
+    # code was 1 (held), even though the file was byte-identical restored.
+    assert manifest_stage["result"] == "rolled-back"
+    assert "restored" in manifest_stage["detail"].lower()
+    manifest_entries = [
+        e for e in report["completed_actions"] if e["kind"] == "layer-manifest"
+    ]
+    assert manifest_entries[0]["outcome"] == "rolled-back"
+    _assert_valid_onboard_report(report)
+
+
+def test_rollback_confirmation_still_fails_when_bytes_do_not_match(tmp_path):
+    """The byte-comparison confirmation must still correctly report
+    `rollback-failed` when the restore genuinely could not be proven --
+    this is not a new bypass, only a more precise signal."""
+    target = tmp_path / "layers.yml"
+    target.write_text(_SINGLE_LAYER_MANIFEST, encoding="utf-8")
+    before = target.read_bytes()
+
+    def update(**kwargs):
+        # A concurrent actor changes the manifest AFTER this transaction's
+        # write but BEFORE rollback runs -- `_rollback_manifest_adoption`
+        # must refuse rather than clobber it (unchanged pre-existing
+        # safety property; this test just proves the new confirmation path
+        # still surfaces that refusal as `rollback-failed`).
+        Path(kwargs["_manifest_path"]).write_text("tampered: true\n", encoding="utf-8")
+        return {"result": "blocked", "blocked": [], "held_for_approval": []}, 2
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=update,
+        doctor_fn=lambda **_: pytest.fail("doctor must not run after a failed rollback"),
+    )
+
+    assert report["result"] == "blocked"
+    manifest_stage = next(s for s in report["stages"] if s["stage"] == "layer-manifest")
+    assert manifest_stage["result"] == "rollback-failed"
+    assert target.read_bytes() != before
+    _assert_valid_onboard_report(report)
+
+
+def test_fail_severity_post_apply_doctor_restores_exact_manifest(tmp_path):
+    """A real FAIL-severity checker (corruption, a missing path, a signature
+    failure) still rolls back exactly as before G-10 -- only a WARN-only
+    report (see the two tests below) is no longer treated as fatal."""
+    target = tmp_path / "layers.yml"
+    target.write_text(
+        """version: 1
+layers:
+  - id: cli-organization
+    role: organization
+    component: cli
+    rank: 30
+    source: {repo: git@github-work:Acme/cli-copilot-internal.git, ref: main}
+    auth: ssh-work
+""",
+        encoding="utf-8",
+    )
+    before = target.read_bytes()
+    updates = []
+
+    def update(**kwargs):
+        updates.append(Path(kwargs["_manifest_path"]).read_bytes())
+        return {"result": "up-to-date", "blocked": [], "held_for_approval": []}, 0
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=update,
+        mirror_seed_fn=_no_mirror_seed,
+        doctor_fn=lambda **_: {
+            "status": "needs-attention",
+            "score": 20,
+            "checkers": [
+                {
+                    "id": "ecosystem-layer-manifest",
+                    "severity": "fail",
+                    "detail": "Ecosystem layer manifest is unreadable or invalid.",
+                }
+            ],
+        },
+    )
+
+    assert report["result"] == "blocked"
+    assert len(updates) == 2
+    assert updates[1] == before
+    assert target.read_bytes() == before
+    manifest_stage = next(s for s in report["stages"] if s["stage"] == "layer-manifest")
+    assert manifest_stage["result"] == "rolled-back"
+    doctor_stage = next(s for s in report["stages"] if s["stage"] == "doctor")
+    assert doctor_stage["result"] == "needs-attention"
+    _assert_valid_onboard_report(report)
+
+
+def test_warn_only_post_apply_doctor_keeps_manifest_and_surfaces_warnings(tmp_path):
+    """G-10 (task 215, second blocker fix): a cold-start layer's first-ever
+    appearance in a manifest doctor checks can only ever produce WARN
+    severity (`could not reach remote to verify sync` / `offline`), never
+    FAIL. That honest warning must not roll back an already byte-verified
+    manifest write -- it surfaces plainly on the `doctor` stage instead."""
+    target = tmp_path / "layers.yml"
+    target.write_text(
+        """version: 1
+layers:
+  - id: cli-organization
+    role: organization
+    component: cli
+    rank: 30
+    source: {repo: git@github-work:Acme/cli-copilot-internal.git, ref: main}
+    auth: ssh-work
+""",
+        encoding="utf-8",
+    )
+
+    def update(**kwargs):
+        return {"result": "up-to-date", "blocked": [], "held_for_approval": []}, 0
+
+    warn_checkers = [
+        {
+            "id": f"knowledge-knowledge-{role}-sync",
+            "severity": "warn",
+            "layer": f"knowledge-{role}",
+            "product": "knowledge",
+            "detail": f"knowledge/knowledge-{role}: could not reach remote to verify sync",
+        }
+        for role in ("personal", "department", "organization", "foundation")
+    ]
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=update,
+        mirror_seed_fn=_no_mirror_seed,
+        doctor_fn=lambda **_: {
+            "status": "offline",
+            "score": 48,
+            "offline": True,
+            "checkers": warn_checkers,
+        },
+    )
+
+    assert report["result"] == "ready"
+    manifest_stage = next(s for s in report["stages"] if s["stage"] == "layer-manifest")
+    assert manifest_stage["result"] == "applied"
+    doctor_stage = next(s for s in report["stages"] if s["stage"] == "doctor")
+    # The raw status is surfaced honestly -- it just no longer gates the write.
+    assert doctor_stage["result"] == "offline"
+    assert doctor_stage["score"] == 48
+    assert "0 checker(s) failed" in doctor_stage["detail"]
+    assert "4 reported a warning" in doctor_stage["detail"]
+    assert not any(
+        entry.get("kind") == "layer-manifest" and entry.get("outcome") == "rolled-back"
+        for entry in report["completed_actions"]
+    )
+    _assert_valid_onboard_report(report)
+
+
+def test_mirror_seed_runs_before_doctor_and_is_ledgered(tmp_path, monkeypatch):
+    """G-10 (task 215, second blocker fix): onboard's apply path seeds the
+    read-only mirror clone for cold-start layers (reusing `cc update`'s own
+    `mirror.clone_or_update_mirror`, never duplicating it) BEFORE the doctor
+    check, and records every layer it actually seeded onto the
+    `completed_actions` ledger and the `doctor` stage's own detail. This is
+    a real (non-legacy-injected) visible-checkout apply -- `legacy_injected_mode`
+    (a `manifest_path`-only injection used elsewhere in this file for
+    lighter-weight fixtures) never seeds mirrors, since it never performs
+    real topology work either."""
+
+    def topology(manifest, **_kwargs):
+        return [
+            {
+                "id": layer["id"],
+                "product": layer["product"],
+                "role": layer["role"],
+                "rank": layer["rank"],
+                "unit": layer.get("unit"),
+                "repository_owner": "Acme",
+                "repository_name": f"{layer['product']}-copilot-internal",
+                "repository_visibility": None,
+                "remote_state": "ready",
+                "local_path": (layer.get("source") or {}).get("path"),
+                "local_state": "visible",
+                "connection_state": "connected",
+                "sync_state": "current",
+                "action": "reuse",
+                "detail": "Visible and current.",
+            }
+            for layer in manifest["layers"]
+        ]
+
+    monkeypatch.setattr(onboard_module, "_topology_report_layers", topology)
+    monkeypatch.setattr(
+        onboard_module, "_apply_visible_topology", lambda *_args, **_kwargs: (True, None)
+    )
+
+    def update(**kwargs):
+        return {"result": "up-to-date", "blocked": [], "held_for_approval": []}, 0
+
+    events = []
+
+    def mirror_seed(manifest):
+        events.append("mirror-seed")
+        assert manifest["layers"], "mirror_seed_fn must see the candidate manifest"
+        return ["cli-organization"]
+
+    def doctor(**_kwargs):
+        events.append("doctor")
+        return {"status": "healthy", "score": 100, "checkers": []}
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=tmp_path / "config" / "layers.yml",
+        repository_root=tmp_path / "Sites" / "COPILOT",
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=update,
+        mirror_seed_fn=mirror_seed,
+        doctor_fn=doctor,
+        resolve_fn=lambda **_: {"schema_version": "1.0", "items": [{"name": "git"}]},
+        commit_config_fn=lambda *_args: None,
+        personal_mirror_cleanup_fn=lambda *_args: [],
+    )
+
+    assert report["result"] == "ready"
+    assert events == ["mirror-seed", "doctor"]
+    assert any(
+        entry.get("kind") == "mirror-seed" and entry.get("target") == "cli-organization"
+        for entry in report["completed_actions"]
+    )
+    doctor_stage = next(s for s in report["stages"] if s["stage"] == "doctor")
+    assert "Seeded 1 first-time mirror clone(s)" in doctor_stage["detail"]
+    _assert_valid_onboard_report(report)
+
+
+def test_unfamiliar_manifest_blocks_before_personal_apply(tmp_path):
+    target = tmp_path / "layers.yml"
+    target.write_text("this: is-not-a-layer-manifest\n", encoding="utf-8")
+    apply_calls = []
+
+    def personal(*, apply, **_kwargs):
+        apply_calls.append(apply)
+        return {
+            "result": "ready",
+            "owner": "pablo",
+            "repositories": [],
+            "summary": {
+                "existing": 2,
+                "missing": 0,
+                "created": 0,
+                "seeded": 0,
+                "held": 0,
+                "blocked": 0,
+            },
+        }
+
+    before = target.read_bytes()
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        consumer_probe_fn=_consumer_ready,
+    )
+
+    assert report["result"] == "blocked"
+    assert report["inventory"][-1]["action"] == "review"
+    assert apply_calls == [False]
+    assert target.read_bytes() == before
+    _assert_valid_onboard_report(report)
+
+
+def test_symlinked_manifest_is_held_without_following_or_replacing_it(tmp_path):
+    outside = tmp_path / "outside.yml"
+    outside.write_text("version: 1\nlayers: []\n", encoding="utf-8")
+    target = tmp_path / "home" / "copilot.layers.yml"
+    target.parent.mkdir()
+    target.symlink_to(outside)
+    desired = {"version": 1, "org": "Acme", "layers": [{"id": "codex-foundation"}]}
+
+    plan = onboard_module._manifest_adoption_plan(
+        desired,
+        target,
+        configured_path=target,
+        allowed_root=target.parent,
+    )
+
+    assert plan.action == "review"
+    assert target.is_symlink()
+    assert outside.read_text() == "version: 1\nlayers: []\n"
+
+
+@pytest.mark.parametrize(
+    "target",
+    (
+        Path.home() / ".config" / "copilot" / "copilot.layers.yml",
+        Path.home() / ".copilot" / "copilot.layers.yml",
+        Path.home() / ".copilot-cli" / "copilot.layers.yml",
+    ),
+)
+def test_atomic_yaml_refuses_real_manifest_paths_during_pytest(target):
+    """Prevention fires before mkdir/tempfile/replace at every real path."""
+    from cc.core.write_guard import TestIsolationEscapeError
+
+    before = target.read_bytes() if target.is_file() else None
+    parent_existed = target.parent.exists()
+
+    with pytest.raises(TestIsolationEscapeError, match="Refusing to write"):
+        onboard_module._atomic_yaml(target, {"version": 1, "layers": []})
+
+    assert (target.read_bytes() if target.is_file() else None) == before
+    assert target.parent.exists() is parent_existed
+
+
+def test_manifest_with_url_embedded_credential_is_held_and_not_copied(tmp_path):
+    target = tmp_path / "copilot.layers.yml"
+    target.write_text(
+        """version: 1
+layers:
+  - id: cli-foundation
+    role: foundation
+    component: cli
+    rank: 40
+    source: {repo: "https://ghp_example@example.test/cli.git", ref: v1}
+    auth: anon
+""",
+        encoding="utf-8",
+    )
+
+    plan = onboard_module._manifest_adoption_plan(
+        {"version": 1, "org": "Acme", "layers": []},
+        target,
+        configured_path=target,
+    )
+
+    assert plan.action == "review"
+    assert not (tmp_path / ".copilot-control-tower-backups").exists()
+
+
+def test_ecosystem_apply_writes_exact_refs_and_runs_update_doctor(
+    tmp_path, monkeypatch
+):
+    config_writes = []
+    events = []
+
+    def commit_config(path, knowledge):
+        events.append("commit-config")
+        config_writes.append((str(path), list(knowledge)))
+
+    def update(**_kwargs):
+        events.append("cc-update")
+        return {"result": "up-to-date", "blocked": [], "held_for_approval": []}, 0
+
+    def cli(_path):
+        events.append("cli-update")
+        return {"result": "ready"}
+
+    def doctor(**_kwargs):
+        events.append("doctor")
+        return {"status": "healthy", "score": 100}
+    monkeypatch.setattr(
+        onboard_module,
+        "FOUNDATION_ALLOWED_SIGNERS",
+        {
+            "knowledge": (),
+            "cli": (),
+            "claude": ("CLAUDE-FINGERPRINT",),
+            "codex": ("CODEX-FINGERPRINT",),
+        },
+    )
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=tmp_path / "layers.yml",
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=update,
+        doctor_fn=doctor,
+        mirror_seed_fn=_no_mirror_seed,
+        commit_config_fn=commit_config,
+    )
+    assert report["result"] == "ready"
+    manifest = yaml.safe_load((tmp_path / "layers.yml").read_text())
+    assert [(item["product"], item["rank"]) for item in manifest["layers"]] == [
+        ("knowledge", 10),
+        ("knowledge", 30),
+        ("knowledge", 40),
+        ("cli", 10),
+        ("cli", 30),
+        ("cli", 40),
+        ("claude", 10),
+        ("claude", 30),
+        ("claude", 40),
+        ("codex", 10),
+        ("codex", 30),
+        ("codex", 40),
+    ]
+    assert manifest["layers"][2]["source"]["ref"] == "v0.1.0"
+    assert manifest["layers"][5]["source"]["ref"] == "v0.3.1"
+    assert manifest["layers"][8]["source"]["ref"] == "v5.9.0"
+    assert manifest["layers"][11]["source"]["ref"] == "v0.6.2"
+    assert manifest["layers"][8]["policy"]["allowed_signers"] == ["CLAUDE-FINGERPRINT"]
+    assert manifest["layers"][11]["policy"]["allowed_signers"] == ["CODEX-FINGERPRINT"]
+    assert manifest["layers"][0]["policy"]["allowed_signers"] == []
+    assert config_writes == [
+        (
+            str(tmp_path / "layers.yml"),
+            [
+                str(Path.home() / ".copilot/mirrors/knowledge/knowledge-personal"),
+                str(Path.home() / ".copilot/mirrors/knowledge/knowledge-organization"),
+                str(Path.home() / ".copilot/mirrors/knowledge/knowledge-foundation"),
+            ],
+        )
+    ]
+    assert events == ["cc-update", "cli-update", "doctor", "commit-config"]
+    _assert_valid_onboard_report(report)
+
+
+def test_foundation_release_signer_is_compiled_for_both_products():
+    approved = "SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo"
+
+    assert onboard_module.FOUNDATION_ALLOWED_SIGNERS == {
+        "knowledge": (),
+        "cli": (),
+        "claude": (approved,),
+        "codex": (approved,),
+    }
+
+
+def test_connected_store_without_scope_identifiers_blocks_before_writes(tmp_path):
+    def connected(args):
+        result = _aggregate_run(args)
+        if args[2].endswith("/contents/ecosystem.yml"):
+            payload = json.loads(result.stdout)
+            handoff = (
+                base64.b64decode(payload["content"])
+                .decode()
+                .replace("status: deferred", "status: connected\n  type: infisical")
+            )
+            return subprocess.CompletedProcess(
+                args,
+                0,
+                json.dumps({"content": base64.b64encode(handoff.encode()).decode()}),
+                "",
+            )
+        return result
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=connected,
+        manifest_path=tmp_path / "layers.yml",
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        consumer_probe_fn=_consumer_ready,
+    )
+    assert report["result"] == "blocked"
+    assert report["stages"][-1]["stage"] == "secret-store"
+    assert len(report["layers"]) == 12
+    assert not (tmp_path / "layers.yml").exists()
+    _assert_valid_onboard_report(report)
+
+
+def test_valid_connected_store_identity_refusal_defers_without_overwriting_credentials():
+    store = {
+        "status": "connected",
+        "type": "infisical",
+        "workspace_id": "workspace-1",
+        "environment": "prod",
+        "secret_path": "/shared",
+    }
+
+    report = onboard_module._provision_store(
+        store,
+        apply=True,
+        run=lambda args: subprocess.CompletedProcess(
+            args,
+            1,
+            json.dumps(
+                {
+                    "schema_version": "1.0",
+                    "result": "blocked",
+                    "detail": (
+                        "This device already has store credentials for another "
+                        "identity; setup did not replace them."
+                    ),
+                }
+            ),
+            "",
+        ),
+    )
+
+    assert report == {
+        "result": "deferred",
+        "type": "infisical",
+        "detail": (
+            "This device already has store credentials for another identity; "
+            "setup did not replace them."
+        ),
+    }
+
+
+def test_store_without_bootstrap_authority_defers_on_unreadable_cli_failure():
+    store = {
+        "status": "connected",
+        "type": "infisical",
+        "workspace_id": "workspace-1",
+        "environment": "prod",
+        "secret_path": "/shared",
+    }
+
+    report = onboard_module._provision_store(
+        store,
+        apply=True,
+        run=lambda args: subprocess.CompletedProcess(
+            args, 1, "", "Infisical credentials not configured."
+        ),
+    )
+
+    assert report["result"] == "deferred"
+    assert report["type"] == "infisical"
+    assert "existing credentials" in report["detail"]
+
+
+def test_unavailable_optional_store_does_not_block_core_apply(tmp_path):
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=tmp_path / "layers.yml",
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        store_fn=lambda *_args, **_kwargs: {
+            "result": "deferred",
+            "type": "infisical",
+            "detail": "Shared integrations were left for later.",
+        },
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=lambda **_: (
+            {"result": "up-to-date", "blocked": [], "held_for_approval": []},
+            0,
+        ),
+        doctor_fn=lambda **_: {"status": "healthy", "score": 100},
+        mirror_seed_fn=_no_mirror_seed,
+    )
+
+    assert report["result"] == "ready"
+    store_stage = next(
+        stage for stage in report["stages"] if stage["stage"] == "secret-store"
+    )
+    assert store_stage["result"] == "deferred"
+    assert (tmp_path / "layers.yml").is_file()
+    _assert_valid_onboard_report(report)
+
+
+def test_successful_store_scope_is_a_non_secret_schema_summary():
+    store = {
+        "status": "connected",
+        "type": "infisical",
+        "workspace_id": "workspace-1",
+        "environment": "prod",
+        "secret_path": "/shared",
+    }
+
+    report = onboard_module._provision_store(
+        store,
+        apply=False,
+        run=lambda args: subprocess.CompletedProcess(
+            args,
+            0,
+            json.dumps(
+                {
+                    "schema_version": "1.0",
+                    "result": "ready",
+                    "scope": {
+                        "environment": "prod",
+                        "secret_path": "/shared",
+                        "access": "read",
+                    },
+                }
+            ),
+            "",
+        ),
+    )
+
+    assert report == {
+        "result": "ready",
+        "type": "infisical",
+        "scope": "prod:/shared:read",
+    }
+
+
+def test_aggregate_block_before_manifest_reports_layers_as_not_computed(tmp_path):
+    """G-5 (task 208): this is the one exit path that genuinely returns
+    before `_layer_manifest`/`_topology_report_layers` ever run (the
+    personal-packages gate is checked before the manifest is even built). An
+    empty `layers` here is only ever valid alongside the explicit typed
+    absence `layers_state: "not-computed"` -- never a bare `[]` that looks
+    indistinguishable from a `reported` empty topology (which the schema
+    forbids outright, see `test_reported_layers_state_forbids_empty_layers`
+    below)."""
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=tmp_path / "layers.yml",
+        personal_fn=lambda **_: {
+            "result": "blocked",
+            "summary": {
+                "existing": 0,
+                "missing": 0,
+                "created": 0,
+                "seeded": 0,
+                "held": 1,
+                "blocked": 1,
+            },
+        },
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        consumer_probe_fn=_consumer_ready,
+    )
+    assert report["result"] == "blocked"
+    assert report["layers_state"] == "not-computed"
+    assert report["layers"] == []
+    assert not (tmp_path / "layers.yml").exists()
+    _assert_valid_onboard_report(report)
+
+
+# ---------------------------------------------------------------------------
+# G-5 (task 208): the schema's tightened `ecosystemLayer` contract. Every
+# `_ecosystem_result` call site that has a topology report available must
+# thread through fully-populated rows -- never the raw four-field
+# `manifest["layers"]` look-alike the schema used to accept identically.
+# `_full_topology_rows` below is the same "monkeypatch
+# `_topology_report_layers`" technique
+# `test_divergent_topology_layer_blocks_before_any_gh_mutation` and
+# `test_ecosystem_apply_orders_topology_preflight_before_first_remote_mutation`
+# already use above -- it lets these tests reach the *later* apply=True
+# blocked exits (personal/ssh/store's second, post-preflight call) without
+# any real `git`/`gh` plumbing.
+# ---------------------------------------------------------------------------
+
+
+def _full_topology_rows(manifest, *, run, verified=False):
+    rows = []
+    for layer in manifest["layers"]:
+        identity = onboard_module._repo_identity_from_layer(layer)
+        owner, name = identity or ("", "")
+        rows.append(
+            {
+                "id": layer["id"],
+                "product": layer["product"],
+                "role": layer["role"],
+                "rank": layer["rank"],
+                "unit": layer.get("unit"),
+                "repository_owner": owner,
+                "repository_name": name,
+                "repository_visibility": None,
+                "remote_state": "ready",
+                "local_path": (layer.get("source") or {}).get("path"),
+                "local_state": "visible",
+                "connection_state": "verified" if verified else "connected",
+                "sync_state": "current",
+                "action": "reuse",
+                "detail": "Visible and current.",
+            }
+        )
+    return rows
+
+
+def _assert_layers_fully_reported(report: dict) -> None:
+    assert report["layers_state"] == "reported"
+    assert len(report["layers"]) > 0
+    required = {
+        "id", "product", "role", "rank",
+        "action", "local_state", "sync_state", "remote_state",
+        "repository_name", "local_path",
+    }
+    for row in report["layers"]:
+        assert required.issubset(row.keys())
+
+
+def test_personal_apply_blocked_after_topology_preflight_still_reports_layers(
+    tmp_path, monkeypatch
+):
+    """Site #3: `personal_fn(apply=True)` blocks after the read-only
+    preflight already passed. The emitted `layers` must be the closed
+    topology rows, not the raw manifest look-alike."""
+    monkeypatch.setattr(onboard_module, "_topology_report_layers", _full_topology_rows)
+
+    def personal(*, apply, **_kwargs):
+        return {"result": "blocked", "summary": {}} if apply else _personal()
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=tmp_path / "layers.yml",
+        personal_fn=personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        consumer_probe_fn=_consumer_ready,
+    )
+    assert report["result"] == "blocked"
+    _assert_layers_fully_reported(report)
+    _assert_valid_onboard_report(report)
+
+
+def test_ssh_apply_blocked_after_topology_preflight_still_reports_layers(
+    tmp_path, monkeypatch
+):
+    """Site #4: `ssh_fn(apply=True)` blocks after both read-only plans
+    already passed."""
+    monkeypatch.setattr(onboard_module, "_topology_report_layers", _full_topology_rows)
+
+    def ssh(*, apply, **_kwargs):
+        return {"result": "blocked", "detail": "Device key rejected."} if apply else _ssh()
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=tmp_path / "layers.yml",
+        personal_fn=_personal,
+        ssh_fn=ssh,
+        codex_fn=_codex,
+        consumer_probe_fn=_consumer_ready,
+    )
+    assert report["result"] == "blocked"
+    _assert_layers_fully_reported(report)
+    _assert_valid_onboard_report(report)
+
+
+def test_store_apply_blocked_after_topology_apply_still_reports_layers(
+    tmp_path, monkeypatch
+):
+    """Site #5: the second `store_fn(apply=True)` call blocks after personal,
+    ssh, and the visible-topology apply have all already succeeded."""
+    monkeypatch.setattr(onboard_module, "_topology_report_layers", _full_topology_rows)
+
+    def store(_store, *, apply, run):
+        return {"result": "blocked", "detail": "Store rejected the write."} if apply else {
+            "result": "deferred"
+        }
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=tmp_path / "layers.yml",
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        store_fn=store,
+        codex_fn=_codex,
+        consumer_probe_fn=_consumer_ready,
+    )
+    assert report["result"] == "blocked"
+    _assert_layers_fully_reported(report)
+    _assert_valid_onboard_report(report)
+
+
+def test_reported_layers_state_forbids_empty_layers():
+    """The schema's other legal shape: `layers_state: "reported"` requires
+    `minItems: 1` -- an empty `layers` may only ever pair with
+    `layers_state: "not-computed"`, never with `"reported"`."""
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=False,
+        run=_aggregate_run,
+        manifest_path=Path("/tmp/unused-layers.yml"),
+        personal_fn=lambda **_: {
+            "result": "blocked",
+            "summary": {
+                "existing": 0, "missing": 0, "created": 0,
+                "seeded": 0, "held": 1, "blocked": 1,
+            },
+        },
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        consumer_probe_fn=_consumer_ready,
+    )
+    assert report["layers_state"] == "not-computed"
+    tampered = dict(report)
+    tampered["layers_state"] = "reported"
+    validator = _onboard_validator()
+    errors = list(validator.iter_errors(tampered))
+    assert errors, "an empty `layers` claiming `layers_state: reported` must fail validation"
+
+
+def test_skeletal_four_field_layer_row_fails_validation():
+    """The defect this task closes: a raw manifest-shaped row (only
+    id/product/role/rank, no topology evidence) must no longer validate
+    identically to a fully-computed topology row."""
+    base_report = {
+        "schema_version": "2.0",
+        "scope": "ecosystem",
+        "mode": "plan",
+        "result": "changes-required",
+        "org": "Acme",
+        "products": ["claude", "codex"],
+        "components": ["knowledge", "cli", "claude", "codex"],
+        "stages": [],
+        "layers_state": "reported",
+        "layers": [
+            {"id": "claude-personal", "product": "claude", "role": "personal", "rank": 10}
+        ],
+        "inventory": [],
+        "inventory_summary": {"reused": 0, "changes": 0, "review": 0},
+        "completed_actions": [],
+    }
+    validator = _onboard_validator()
+    errors = list(validator.iter_errors(base_report))
+    assert errors, "a skeletal four-field layer row must fail validation"
+
+
+def test_department_membership_expands_visible_manifest_to_sixteen_layers(tmp_path):
+    handoff = {
+        "foundation": {
+            "refs": {
+                "knowledge": "v0.1.0",
+                "cli": "v0.3.1",
+                "claude": "v5.9.0",
+                "codex": "v0.6.2",
+            }
+        }
+    }
+
+    manifest = onboard_module._layer_manifest(
+        "Acme",
+        "pablo",
+        ("knowledge", "cli", "claude", "codex"),
+        handoff,
+        run=_aggregate_run,
+        department_units=("accounting",),
+        repository_root=tmp_path,
+    )
+
+    assert len(manifest["layers"]) == 16
+    assert {
+        (layer["product"], layer["role"], layer.get("unit"))
+        for layer in manifest["layers"]
+    } == {
+        (product, role, "accounting" if role == "department" else None)
+        for product in ("knowledge", "cli", "claude", "codex")
+        for role in ("personal", "department", "organization", "foundation")
+    }
+    personal = next(
+        layer
+        for layer in manifest["layers"]
+        if layer["product"] == "knowledge" and layer["role"] == "personal"
+    )
+    assert personal["source"]["path"] == str(tmp_path / "knowledge-copilot-private")
+    assert ".copilot/mirrors" not in personal["source"]["path"]
+
+
+def test_department_entitlement_requires_declared_active_membership():
+    calls = []
+
+    def run(args):
+        calls.append(tuple(args))
+        state = "active" if "/accounting/" in args[2] else "pending"
+        return subprocess.CompletedProcess(args, 0, json.dumps({"state": state}), "")
+
+    units = onboard_module._eligible_department_units(
+        {
+            "departments": [
+                {"unit": "accounting", "topology": "separate"},
+                {"unit": "legal", "topology": "separate"},
+                {"unit": "../unsafe", "topology": "separate"},
+            ]
+        },
+        "Acme",
+        "pablo",
+        run=run,
+    )
+
+    assert units == ("accounting",)
+    assert len(calls) == 2
+
+
+def test_repository_root_inference_finds_one_existing_component_cluster(
+    tmp_path, monkeypatch
+):
+    sites = tmp_path / "Sites"
+    cluster = sites / "COPILOT"
+    cluster.mkdir(parents=True)
+    (cluster / "knowledge-copilot").mkdir()
+    (cluster / "cli-copilot-internal").mkdir()
+    monkeypatch.setattr(
+        onboard_module,
+        "resolve_key",
+        lambda key: [str(sites)] if key == "projects.roots" else None,
+    )
+
+    assert onboard_module._infer_repository_root(("accounting",)) == cluster
+
+
+def test_topology_reports_connected_then_independently_verified(tmp_path):
+    checkout = tmp_path / "codex-copilot-private"
+    (checkout / ".git").mkdir(parents=True)
+    manifest = {
+        "version": 1,
+        "layers": [
+            {
+                "id": "codex-personal",
+                "product": "codex",
+                "role": "personal",
+                "rank": 10,
+                "source": {
+                    "repo": "git@github-personal:pablo/codex-copilot-private.git",
+                    "ref": "main",
+                    "path": str(checkout),
+                },
+            }
+        ],
+    }
+
+    def run(args):
+        args = tuple(args)
+        if args[:3] == ("gh", "api", "repos/pablo/codex-copilot-private"):
+            return subprocess.CompletedProcess(args, 0, json.dumps({"private": True}), "")
+        if args[:3] == ("gh", "api", "repos/pablo/codex-copilot-private/contents"):
+            return subprocess.CompletedProcess(args, 0, "[]", "")
+        if args[:4] == ("git", "-C", str(checkout), "remote"):
+            return subprocess.CompletedProcess(
+                args, 0, "git@github-personal:pablo/codex-copilot-private.git\n", ""
+            )
+        if args[:4] == ("git", "-C", str(checkout), "rev-parse"):
+            return subprocess.CompletedProcess(args, 0, "abc123\n", "")
+        if args[:4] == ("git", "-C", str(checkout), "status"):
+            return subprocess.CompletedProcess(args, 0, "", "")
+        if args[:4] == ("git", "-C", str(checkout), "fetch"):
+            return subprocess.CompletedProcess(args, 0, "", "")
+        raise AssertionError(args)
+
+    planned = onboard_module._topology_report_layers(manifest, run=run)
+    verified = onboard_module._topology_report_layers(manifest, run=run, verified=True)
+
+    assert planned[0]["connection_state"] == "connected"
+    assert verified[0]["connection_state"] == "verified"
+    assert verified[0]["sync_state"] == "current"
+
+
+# ---------------------------------------------------------------------------
+# _classify_repository_history() -- G-1 closed history classifier (task 204)
+#
+# Every fixture below is a real, disposable `git init` repo under `tmp_path`
+# -- never a live working tree on this machine -- driven through the exact
+# `run` signature `_classify_repository_history` expects, with real
+# `git fetch` / `git merge-base --is-ancestor` doing the actual proving. The
+# classifier never shells out to `gh`, so no GitHub stub is required here.
+# ---------------------------------------------------------------------------
+
+
+def _real_run(args):
+    return subprocess.run(list(args), capture_output=True, text=True)
+
+
+def _init_content_repo(path: Path, filename: str, content: str, *, message: str = "init") -> None:
+    """A real, disposable one-commit repo -- the G-1 fixture rule (never a
+    live tree)."""
+    path.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=path, check=True)
+    _commit(path, filename, content, message)
+
+
+def _commit(path: Path, filename: str, content: str, message: str) -> None:
+    (path / filename).write_text(content, encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", message], cwd=path, check=True)
+
+
+def _set_fake_origin(path: Path, owner: str, name: str) -> None:
+    """`_classify_repository_history` fetches `source["repo"]` directly --
+    exactly like `_apply_visible_topology`'s `repair` branch -- never
+    `origin`. `origin` only feeds the wrong-origin identity check, so a
+    syntactically valid, never-dereferenced GitHub SSH URL is sufficient and
+    keeps every fixture fully offline."""
+    subprocess.run(
+        ["git", "-C", str(path), "remote", "add", "origin", f"git@github.com:{owner}/{name}.git"],
+        check=True,
+    )
+
+
+def _clone_with_fake_origin(remote: Path, local: Path, owner: str, name: str) -> None:
+    subprocess.run(["git", "clone", "-q", str(remote), str(local)], check=True)
+    subprocess.run(["git", "-C", str(local), "remote", "remove", "origin"], check=True)
+    _set_fake_origin(local, owner, name)
+
+
+def _lightweight_tag(path: Path, tag: str, message: str = "unused") -> None:
+    """A lightweight tag: `git tag <name>` creates no tag object, so
+    `git rev-parse <name>` already returns the commit SHA directly.
+    `FETCH_HEAD` never needed peeling for this case, so it never reproduced
+    the live annotated-tag bug on its own -- kept as a regression guard that
+    the fix's `^{commit}` peel is also a no-op passthrough here."""
+    subprocess.run(["git", "-C", str(path), "tag", tag], check=True)
+
+
+def _annotated_tag(path: Path, tag: str, message: str = "release") -> None:
+    """A real annotated tag object, distinct from the commit it points at --
+    the exact fixture shape that reproduces the live bug: `git rev-parse
+    FETCH_HEAD` resolves to the tag OBJECT SHA after fetching this ref, not
+    the peeled commit SHA `HEAD` can ever equal."""
+    subprocess.run(
+        ["git", "-C", str(path), "tag", "-a", tag, "-m", message], check=True
+    )
+
+
+def _init_content_repo_with_parent(
+    path: Path, filename: str, content: str, *, message: str = "init"
+) -> None:
+    """Like `_init_content_repo`, but with a preceding commit so the final
+    commit is NOT a root/parentless commit -- the shape of a real,
+    continuously-evolving repository (the cli-copilot shape, task 209/G-7)
+    where a pinned ref's target commit always has a parent, as opposed to a
+    foundation snapshot release's deliberately parentless pin. The seed
+    commit writes the same `filename` (with placeholder content) so the
+    final tree contains only `filename`/`content` -- identical in shape to
+    `_init_content_repo`'s single-commit tree, just reached via a second,
+    non-root commit."""
+    _init_content_repo(path, filename, "placeholder", message="seed")
+    _commit(path, filename, content, message)
+
+
+def test_classify_repository_history_exact(tmp_path):
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, "note.txt", "v1")
+    _clone_with_fake_origin(remote, local, "pablo", "widget")
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "main"},
+        run=_real_run,
+    )
+
+    assert classification.state == "exact"
+    assert classification.sync_state == "current"
+    assert classification.action == "reuse"
+
+
+def test_classify_repository_history_fast_forwardable_is_proven_by_merge_base(tmp_path):
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, "note.txt", "v1")
+    _clone_with_fake_origin(remote, local, "pablo", "widget")
+    _commit(remote, "note.txt", "v2", "advance")
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "main"},
+        run=_real_run,
+    )
+
+    assert classification.state == "fast-forwardable"
+    assert classification.sync_state == "behind"
+    assert classification.action == "repair"
+    assert "clean fast-forward is available" in classification.detail
+
+
+# ---------------------------------------------------------------------------
+# Annotated-tag pins (G-6 live defect): `git rev-parse FETCH_HEAD` resolves
+# to the tag OBJECT SHA for an annotated tag, never the commit it points at,
+# so a checkout sitting exactly at the pin could never satisfy the
+# `head_sha == target_sha` exact-match test above `rev-parse` peels via
+# `^{commit}`. Lightweight-tag coverage is parametrized alongside the
+# annotated case to prove the peel is a harmless passthrough there (a
+# lightweight tag has no object of its own -- `rev-parse <name>` already
+# returns the commit SHA).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "make_tag",
+    [_lightweight_tag, _annotated_tag],
+    ids=["lightweight-tag", "annotated-tag"],
+)
+def test_classify_repository_history_exact_at_peeled_tag(tmp_path, make_tag):
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, "note.txt", "v1")
+    make_tag(remote, "v1.0.0")
+    _clone_with_fake_origin(remote, local, "pablo", "widget")
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "v1.0.0"},
+        run=_real_run,
+    )
+
+    assert classification.state == "exact"
+    assert classification.sync_state == "current"
+    assert classification.action == "reuse"
+
+
+def test_classify_repository_history_fast_forwardable_to_annotated_tag(tmp_path):
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, "note.txt", "v1")
+    _clone_with_fake_origin(remote, local, "pablo", "widget")
+    _commit(remote, "note.txt", "v2", "advance")
+    _annotated_tag(remote, "v2.0.0")
+    peeled_commit = _rev_parse(remote)
+    tag_object_sha = _rev_parse(remote, "v2.0.0")
+    assert tag_object_sha != peeled_commit  # sanity: a real tag object, not a passthrough
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "v2.0.0"},
+        run=_real_run,
+    )
+
+    assert classification.state == "fast-forwardable"
+    assert classification.sync_state == "behind"
+    assert classification.action == "repair"
+    assert "clean fast-forward is available" in classification.detail
+
+
+# ---------------------------------------------------------------------------
+# Parentless snapshot pins (task 209/G-7 live dead-end): foundation
+# snapshot releases (`foundation-snapshot-release.py`, e.g. codex-copilot)
+# publish a deliberately PARENTLESS annotated tag -- the tag's commit is
+# never an ancestor or descendant of any working branch, so it can only
+# ever reach this classifier's tree-comparison fallback below, never the
+# ancestry checks above. Before the fix, a checkout whose content already
+# matched such a pin byte-for-byte was misclassified
+# `divergent-identical-tree`/`review` forever, with no Git action the owner
+# could ever take to clear it -- this is the exact fixture shape that
+# reproduced the live bug (codex-copilot's `v0.6.2` tag: annotated, signed,
+# parentless, tree-identical to HEAD).
+# ---------------------------------------------------------------------------
+
+
+def test_classify_repository_history_parentless_snapshot_pin_identical_tree_is_current(
+    tmp_path,
+):
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, "note.txt", "same content")
+    _annotated_tag(remote, "v1.0.0")
+    _init_content_repo(local, "note.txt", "same content", message="independent history")
+    _set_fake_origin(local, "pablo", "widget")
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "v1.0.0"},
+        run=_real_run,
+    )
+
+    assert classification.state == "parentless-snapshot-match"
+    assert classification.sync_state == "current"
+    assert classification.action == "reuse"
+    assert "matches the pinned snapshot" in classification.detail
+
+
+def test_classify_repository_history_parentless_snapshot_pin_different_tree_is_diverged(
+    tmp_path,
+):
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, "note.txt", "remote content")
+    _annotated_tag(remote, "v1.0.0")
+    _init_content_repo(local, "note.txt", "local content", message="independent history")
+    _set_fake_origin(local, "pablo", "widget")
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "v1.0.0"},
+        run=_real_run,
+    )
+
+    assert classification.state == "divergent-different-content"
+    assert classification.sync_state == "diverged"
+    assert classification.action == "review"
+
+
+def test_classify_repository_history_dirty_working_tree_is_never_touched(tmp_path):
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, "note.txt", "v1")
+    _clone_with_fake_origin(remote, local, "pablo", "widget")
+    (local / "note.txt").write_text("uncommitted edit", encoding="utf-8")
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "main"},
+        run=_real_run,
+    )
+
+    assert classification.state == "dirty"
+    assert classification.sync_state == "local-changes"
+    assert classification.action == "review"
+
+
+def test_classify_repository_history_ahead_only_is_never_auto_repaired(tmp_path):
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, "note.txt", "v1")
+    _clone_with_fake_origin(remote, local, "pablo", "widget")
+    _commit(local, "note.txt", "v2 (unpublished)", "local-only work")
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "main"},
+        run=_real_run,
+    )
+
+    assert classification.state == "ahead-only"
+    assert classification.action == "review"
+    assert classification.action != "repair"
+
+
+def test_classify_repository_history_divergent_identical_tree(tmp_path):
+    """The cli-copilot shape (task 209/G-7): a real, continuously-evolving
+    repository's pinned commit always has a parent, so -- unlike a
+    foundation snapshot release's deliberately parentless pin -- history
+    alignment genuinely remains possible in principle, even though these two
+    independent histories happen to share no ancestry here. This must stay
+    `review`, never auto-classified `current`, precisely because the target
+    is not parentless."""
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo_with_parent(remote, "note.txt", "same content")
+    _init_content_repo(local, "note.txt", "same content", message="independent history")
+    _set_fake_origin(local, "pablo", "widget")
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "main"},
+        run=_real_run,
+    )
+
+    assert classification.state == "divergent-identical-tree"
+    assert classification.action == "review"
+    assert classification.action != "repair"
+    assert "content is identical" in classification.detail
+
+
+def test_classify_repository_history_divergent_different_content(tmp_path):
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, "note.txt", "remote content")
+    _init_content_repo(local, "note.txt", "local content", message="independent history")
+    _set_fake_origin(local, "pablo", "widget")
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "main"},
+        run=_real_run,
+    )
+
+    assert classification.state == "divergent-different-content"
+    assert classification.action == "review"
+
+
+def test_classify_repository_history_wrong_origin(tmp_path):
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, "note.txt", "v1")
+    _clone_with_fake_origin(remote, local, "someone-else", "unrelated")
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "main"},
+        run=_real_run,
+    )
+
+    assert classification.state == "wrong-origin"
+    assert classification.action == "review"
+
+
+def test_classify_repository_history_unreadable_not_a_git_repository(tmp_path):
+    local = tmp_path / "local"
+    local.mkdir()
+    (local / ".git").write_text("not a real gitdir", encoding="utf-8")
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(tmp_path / "remote"), "ref": "main"},
+        run=_real_run,
+    )
+
+    assert classification.state == "unreadable"
+    assert classification.action == "review"
+
+
+def test_classify_repository_history_unreadable_when_fetch_fails(tmp_path):
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, "note.txt", "v1")
+    _clone_with_fake_origin(remote, local, "pablo", "widget")
+    shutil.rmtree(remote)
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "main"},
+        run=_real_run,
+    )
+
+    assert classification.state == "unreadable"
+    assert classification.action == "review"
+
+
+# ---------------------------------------------------------------------------
+# _topology_report_layers() -- the read-only plan path must never promise a
+# fast-forward it can't prove. `_repo_identity_from_layer`/
+# `_remote_repository_state` are stubbed here only because they talk to
+# `gh`/GitHub identity parsing, which is orthogonal to G-1; the Git history
+# classification itself runs for real against disposable fixture repos.
+# ---------------------------------------------------------------------------
+
+
+def _topology_manifest(layer_id: str, local: Path, repo: Path, ref: str = "main") -> dict:
+    return {
+        "version": 1,
+        "layers": [
+            {
+                "id": layer_id,
+                "product": "codex",
+                "role": "personal",
+                "rank": 10,
+                "source": {"repo": str(repo), "ref": ref, "path": str(local)},
+            }
+        ],
+    }
+
+
+def test_topology_report_never_promises_a_fast_forward_for_ahead_only(tmp_path, monkeypatch):
+    remote = tmp_path / "remote"
+    local = tmp_path / "codex-copilot-private"
+    _init_content_repo(remote, "note.txt", "v1")
+    _clone_with_fake_origin(remote, local, "pablo", "codex-copilot-private")
+    _commit(local, "note.txt", "v2 (unpublished)", "local-only work")
+    monkeypatch.setattr(
+        onboard_module,
+        "_repo_identity_from_layer",
+        lambda layer: ("pablo", "codex-copilot-private"),
+    )
+    monkeypatch.setattr(
+        onboard_module,
+        "_remote_repository_state",
+        lambda owner, name, *, run: ("ready", "private"),
+    )
+
+    rows = onboard_module._topology_report_layers(
+        _topology_manifest("codex-personal", local, remote), run=_real_run
+    )
+
+    assert rows[0]["sync_state"] == "ahead"
+    assert rows[0]["action"] == "review"
+    assert rows[0]["action"] != "repair"
+
+
+def test_topology_report_never_promises_a_fast_forward_for_divergent_identical_tree(
+    tmp_path, monkeypatch
+):
+    # The cli-copilot shape (task 209/G-7): `remote`'s target commit has a
+    # parent, so this must stay `review` rather than the parentless-pin
+    # `current`/`reuse` short-circuit -- see `_init_content_repo_with_parent`.
+    remote = tmp_path / "remote"
+    local = tmp_path / "codex-copilot-private"
+    _init_content_repo_with_parent(remote, "note.txt", "same content")
+    _init_content_repo(local, "note.txt", "same content", message="independent history")
+    _set_fake_origin(local, "pablo", "codex-copilot-private")
+    monkeypatch.setattr(
+        onboard_module,
+        "_repo_identity_from_layer",
+        lambda layer: ("pablo", "codex-copilot-private"),
+    )
+    monkeypatch.setattr(
+        onboard_module,
+        "_remote_repository_state",
+        lambda owner, name, *, run: ("ready", "private"),
+    )
+
+    rows = onboard_module._topology_report_layers(
+        _topology_manifest("codex-personal", local, remote), run=_real_run
+    )
+
+    assert rows[0]["sync_state"] == "diverged-identical"
+    assert rows[0]["action"] == "review"
+    assert rows[0]["action"] != "repair"
+
+
+def test_legacy_personal_mirrors_move_out_of_active_tree(tmp_path):
+    mirrors = tmp_path / ".copilot" / "mirrors"
+    visible = tmp_path / "Sites" / "COPILOT"
+    layers = []
+    for product, layer_id in (
+        ("knowledge", "knowledge-personal"),
+        ("cli", "cli-personal"),
+        ("claude", "claude-personal"),
+        ("codex", "codex-personal"),
+    ):
+        (visible / f"{product}-copilot-private").mkdir(parents=True)
+        legacy = mirrors / layer_id
+        legacy.mkdir(parents=True)
+        (legacy / "preserved.txt").write_text(product, encoding="utf-8")
+        layers.append(
+            {
+                "id": layer_id,
+                "product": product,
+                "role": "personal",
+                "source": {"path": str(visible / f"{product}-copilot-private")},
+            }
+        )
+
+    moved = onboard_module._quarantine_legacy_personal_mirrors(
+        {"layers": layers}, mirrors_root=mirrors
+    )
+
+    assert len(moved) == 4
+    assert not any((mirrors / layer["id"]).exists() for layer in layers)
+    quarantined = mirrors.parent / "legacy-mirrors"
+    assert sorted(path.read_text(encoding="utf-8") for path in quarantined.glob("*/preserved.txt")) == [
+        "claude", "cli", "codex", "knowledge"
+    ]
+
+
+def test_seed_cold_start_mirrors_skips_published_and_existing_and_seeds_the_rest(
+    tmp_path,
+):
+    mirrors = tmp_path / "mirrors"
+    manifest = {
+        "layers": [
+            # Already publishes a freshness pointer -- nothing to seed.
+            {
+                "id": "claude-foundation",
+                "product": "claude",
+                "source": {"repo": "https://example.invalid/claude-copilot.git", "ref": "main"},
+            },
+            # Already has a local mirror on disk -- nothing new to adopt.
+            {
+                "id": "codex-organization",
+                "product": "codex",
+                "source": {"repo": "git@github-work:Acme/codex-copilot-internal.git", "ref": "main"},
+            },
+            # Cold start: no pointer, no mirror -- must be seeded.
+            {
+                "id": "knowledge-department-accounting",
+                "product": "knowledge",
+                "source": {"repo": "git@github-work:Acme/knowledge-copilot-accounting.git", "ref": "main"},
+            },
+            # A clone that itself fails offline stays honestly unseeded.
+            {
+                "id": "cli-department-accounting",
+                "product": "cli",
+                "source": {"repo": "git@github-work:Acme/cli-copilot-accounting.git", "ref": "main"},
+            },
+        ]
+    }
+    # codex is NOT one of `mirror.EXTERNALLY_CONSUMED_PRODUCTS` (only
+    # knowledge/cli nest under `<mirror_root>/<product>/<layer id>`), so its
+    # mirror lives directly at `<mirror_root>/<layer id>` -- see
+    # `mirror.mirror_root()`.
+    existing_mirror = mirrors / "codex-organization" / ".git"
+    existing_mirror.mkdir(parents=True)
+
+    def latest_sha(repo, _ref):
+        return "deadbeef" if "claude-copilot.git" in repo else None
+
+    cloned = []
+
+    def clone(layer_id, *_args, **_kwargs):
+        cloned.append(layer_id)
+        if layer_id == "cli-department-accounting":
+            return {"ok": False, "offline": True}
+        return {"ok": True}
+
+    seeded = onboard_module._seed_cold_start_mirrors(
+        manifest, mirrors_root=mirrors, latest_sha_fn=latest_sha, clone_fn=clone
+    )
+
+    assert seeded == ["knowledge-department-accounting"]
+    # Never re-probed the layer that already publishes a lock ref, and never
+    # re-cloned the layer that already has a local mirror.
+    assert cloned == ["knowledge-department-accounting", "cli-department-accounting"]
+
+
+def test_seed_cold_start_mirrors_never_raises_on_a_misbehaving_collaborator(tmp_path):
+    manifest = {
+        "layers": [
+            {
+                "id": "claude-personal",
+                "product": "claude",
+                "source": {"repo": "git@github-personal:pablo/claude-copilot-private.git", "ref": "main"},
+            }
+        ]
+    }
+
+    def explode(*_args, **_kwargs):
+        raise RuntimeError("network is not real in a test")
+
+    seeded = onboard_module._seed_cold_start_mirrors(
+        manifest,
+        mirrors_root=tmp_path / "mirrors",
+        latest_sha_fn=explode,
+        clone_fn=explode,
+    )
+
+    assert seeded == []
+
+
+def test_visible_apply_cannot_report_ready_when_resolution_is_empty(
+    tmp_path, monkeypatch
+):
+    def topology(manifest, **_kwargs):
+        rows = []
+        for layer in manifest["layers"]:
+            identity = onboard_module._repo_identity_from_layer(layer)
+            owner, name = identity or ("", "")
+            rows.append(
+                {
+                    "id": layer["id"],
+                    "product": layer["product"],
+                    "role": layer["role"],
+                    "rank": layer["rank"],
+                    "unit": layer.get("unit"),
+                    "repository_owner": owner,
+                    "repository_name": name,
+                    "repository_visibility": None,
+                    "remote_state": "ready",
+                    "local_path": (layer.get("source") or {}).get("path"),
+                    "local_state": "visible",
+                    "connection_state": "connected",
+                    "sync_state": "current",
+                    "action": "reuse",
+                    "detail": "Visible and current.",
+                }
+            )
+        return rows
+
+    monkeypatch.setattr(onboard_module, "_topology_report_layers", topology)
+    monkeypatch.setattr(
+        onboard_module, "_apply_visible_topology", lambda *_args, **_kwargs: (True, None)
+    )
+    target = tmp_path / "config" / "layers.yml"
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        repository_root=tmp_path / "Sites" / "COPILOT",
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=lambda **_: (
+            {"result": "up-to-date", "blocked": [], "held_for_approval": []},
+            0,
+        ),
+        doctor_fn=lambda **_: {"status": "healthy", "score": 100},
+        mirror_seed_fn=_no_mirror_seed,
+        resolve_fn=lambda **_: {"schema_version": "1.0", "items": []},
+        commit_config_fn=lambda *_args: pytest.fail("empty resolution must not commit"),
+        personal_mirror_cleanup_fn=lambda *_args: pytest.fail(
+            "empty resolution must not move legacy repositories"
+        ),
+    )
+
+    assert report["result"] == "blocked"
+    assert next(stage for stage in report["stages"] if stage["stage"] == "resolve")[
+        "result"
+    ] == "blocked"
+    assert not target.exists()
+    _assert_valid_onboard_report(report)
+
+
+# ---------------------------------------------------------------------------
+# G-3 (task 206): every deterministic preflight check -- topology/history
+# classification (via `_classify_repository_history`, already proven correct
+# by the real-git-fixture tests below and in the `_apply_visible_topology()`
+# suite), origin-URL checks, local-path-conflict checks, and manifest-adoption
+# validation -- must complete, and pass, BEFORE `personal_fn`/`ssh_fn` (the
+# only two collaborators that ever create a GitHub repository or register a
+# device SSH key) are ever invoked with `apply=True`. Before this fix, a
+# `review`-state topology row was only acted on inside
+# `_apply_visible_topology`, which ran AFTER both of those irreversible
+# writes -- exactly how a real run created orphaned Personal repositories on
+# GitHub and only then blocked on a fully deterministic Git-ancestry
+# condition it could have checked first.
+#
+# `personal_fn`/`ssh_fn` below double as failpoints: raising the instant
+# either is ever called with `apply=True` makes a ordering regression fail
+# loudly here, rather than risk a real `gh api -X POST`/key-registration call
+# against a blocked plan.
+# ---------------------------------------------------------------------------
+
+
+def _blocking_topology_layers(manifest, **_kwargs):
+    """One layer closed `review` by a real classifier elsewhere (task 204's
+    `ahead-only` state: local commits not yet on GitHub, never auto-repaired)
+    -- every other layer is a clean `reuse`. Reused verbatim here at the
+    orchestration level; the classifier's own correctness is proven with real
+    git fixtures by `test_classify_repository_history_ahead_only_is_never_auto_repaired`
+    and `test_apply_visible_topology_ahead_only_cannot_produce_a_synced_result`.
+    """
+    rows = []
+    for layer in manifest["layers"]:
+        blocking = layer["role"] == "organization" and layer["product"] == "codex"
+        identity = onboard_module._repo_identity_from_layer(layer)
+        owner, name = identity or ("", "")
+        rows.append(
+            {
+                "id": layer["id"],
+                "product": layer["product"],
+                "role": layer["role"],
+                "rank": layer["rank"],
+                "unit": layer.get("unit"),
+                "repository_owner": owner,
+                "repository_name": name,
+                "repository_visibility": None,
+                "remote_state": "ready",
+                "local_path": (layer.get("source") or {}).get("path"),
+                "local_state": "visible",
+                "connection_state": "blocked" if blocking else "connected",
+                "sync_state": "ahead" if blocking else "current",
+                "action": "review" if blocking else "reuse",
+                "detail": (
+                    "Visible; local commits are not yet on GitHub and will "
+                    "be preserved, not overwritten."
+                    if blocking
+                    else "Visible and current."
+                ),
+            }
+        )
+    return rows
+
+
+def test_divergent_topology_layer_blocks_before_any_gh_mutation(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        onboard_module, "_topology_report_layers", _blocking_topology_layers
+    )
+    apply_calls: dict[str, list[bool]] = {"personal": [], "ssh": []}
+
+    def personal(*, apply, **_kwargs):
+        apply_calls["personal"].append(apply)
+        if apply:
+            raise AssertionError(
+                "personal_fn must never run apply=True after a blocking "
+                "topology preflight -- this would create a real GitHub "
+                "repository."
+            )
+        return _personal()
+
+    def ssh(*, apply, **_kwargs):
+        apply_calls["ssh"].append(apply)
+        if apply:
+            raise AssertionError(
+                "ssh_fn must never run apply=True after a blocking topology "
+                "preflight -- this would register a real device SSH key."
+            )
+        return _ssh()
+
+    target = tmp_path / "layers.yml"
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        repository_root=tmp_path / "Sites" / "COPILOT",
+        personal_fn=personal,
+        ssh_fn=ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+    )
+
+    assert report["result"] == "blocked"
+    assert apply_calls["personal"] == [False]
+    assert apply_calls["ssh"] == [False]
+    visible_stage = next(
+        stage for stage in report["stages"] if stage["stage"] == "visible-repositories"
+    )
+    assert visible_stage["result"] == "blocked"
+    assert "not yet on GitHub" in visible_stage["detail"]
+    assert not target.exists()
+    # G-4 (task 207): nothing was ever mutated -- both collaborators above
+    # would have raised had they run with `apply=True` -- so the ledger MUST
+    # be empty, and only an empty ledger is allowed to license this result
+    # honestly saying nothing changed.
+    assert report["completed_actions"] == []
+    assert report["resume"]["safe_to_rerun"] is True
+    assert "nothing" in report["resume"]["detail"].lower()
+    _assert_valid_onboard_report(report)
+
+
+def test_ecosystem_apply_orders_topology_preflight_before_first_remote_mutation(
+    tmp_path, monkeypatch
+):
+    """Passing path: assert the recorded call ORDER, not just that every
+    collaborator eventually ran. The read-only topology preflight (and,
+    earlier still, the personal-packages/ssh read-only plans) must appear in
+    `events` before either `personal_fn` or `ssh_fn` is ever called with
+    `apply=True`."""
+    events: list[str] = []
+
+    def topology(manifest, *, run, verified=False):
+        events.append("topology-final" if verified else "topology-preflight")
+        rows = []
+        for layer in manifest["layers"]:
+            identity = onboard_module._repo_identity_from_layer(layer)
+            owner, name = identity or ("", "")
+            rows.append(
+                {
+                    "id": layer["id"],
+                    "product": layer["product"],
+                    "role": layer["role"],
+                    "rank": layer["rank"],
+                    "unit": layer.get("unit"),
+                    "repository_owner": owner,
+                    "repository_name": name,
+                    "repository_visibility": None,
+                    "remote_state": "ready",
+                    "local_path": (layer.get("source") or {}).get("path"),
+                    "local_state": "visible",
+                    "connection_state": "verified" if verified else "connected",
+                    "sync_state": "current",
+                    "action": "reuse",
+                    "detail": "Visible and current.",
+                }
+            )
+        return rows
+
+    def personal(*, apply, **_kwargs):
+        events.append(f"personal-{'apply' if apply else 'plan'}")
+        return _personal()
+
+    def ssh(*, apply, **_kwargs):
+        events.append(f"ssh-{'apply' if apply else 'plan'}")
+        return _ssh()
+
+    def apply_topology(*_args, **_kwargs):
+        events.append("visible-topology-apply")
+        return True, None
+
+    monkeypatch.setattr(onboard_module, "_topology_report_layers", topology)
+    monkeypatch.setattr(onboard_module, "_apply_visible_topology", apply_topology)
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=tmp_path / "layers.yml",
+        repository_root=tmp_path / "Sites" / "COPILOT",
+        personal_fn=personal,
+        ssh_fn=ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=lambda **_: (
+            {"result": "up-to-date", "blocked": [], "held_for_approval": []},
+            0,
+        ),
+        doctor_fn=lambda **_: {"status": "healthy", "score": 100},
+        mirror_seed_fn=_no_mirror_seed,
+        resolve_fn=lambda **_: {"schema_version": "1.0", "items": [{"name": "git"}]},
+        commit_config_fn=lambda *_args: None,
+        personal_mirror_cleanup_fn=lambda *_args: [],
+    )
+
+    assert report["result"] == "ready"
+    first_mutation = min(
+        events.index("personal-apply"), events.index("ssh-apply")
+    )
+    assert events.index("topology-preflight") < first_mutation
+    assert events.index("personal-plan") < first_mutation
+    assert events.index("ssh-plan") < first_mutation
+    assert events.index("visible-topology-apply") > first_mutation
+    assert events == [
+        "personal-plan",
+        "topology-preflight",
+        "ssh-plan",
+        "personal-apply",
+        "ssh-apply",
+        "visible-topology-apply",
+        "topology-final",
+    ]
+    _assert_valid_onboard_report(report)
+
+
+# ---------------------------------------------------------------------------
+# completed_actions ledger + partial-result contract -- task 207 (G-4).
+# `_ecosystem_result` must never claim nothing changed once a mutation has
+# actually been attempted; `personal_fn`/`build_personal_onboard_report` runs
+# for real here (not the fixed-shape `_personal()` stub used elsewhere), with
+# a fake `gh` recorded-call layer -- the same fixture style task 206 already
+# established -- so the ledger can be checked against exactly what GitHub was
+# actually asked to do.
+# ---------------------------------------------------------------------------
+
+
+def _org_handoff_and_tags_or_github(gh: "FakeGitHub") -> "onboard_module.Run":
+    """One `run` fake that answers the organization-handoff/foundation-tag
+    reads through `_aggregate_run` and everything else (owner lookup,
+    repository probes, creation, package-marker writes) through `gh` -- so a
+    real `build_personal_onboard_report` apply can run end-to-end without a
+    live GitHub account.
+    """
+
+    def run(args):
+        args = tuple(args)
+        endpoint = args[2] if len(args) > 2 else ""
+        if isinstance(endpoint, str) and (
+            endpoint.endswith("/contents/ecosystem.yml") or endpoint.endswith("/tags")
+        ):
+            return _aggregate_run(args)
+        return gh(args)
+
+    return run
+
+
+def test_failure_after_personal_repo_creation_ledger_names_created_repos(tmp_path):
+    """Failpoint (task 207, live-evidence regression): every component's
+    private repository is created successfully, then the package-marker
+    write for the last one (`codex`) fails. The emitted result must name
+    every created repository in `completed_actions`, must not claim nothing
+    changed, and must carry a resume hint that only ever promises adoption,
+    never recreation.
+    """
+    gh = FakeGitHub()
+
+    def run(args):
+        args = tuple(args)
+        if "PUT" in args:
+            endpoint = args[args.index("PUT") + 1]
+            if "codex-copilot-private" in endpoint:
+                return subprocess.CompletedProcess(
+                    args, 1, "", "gh: validation failed"
+                )
+        return _org_handoff_and_tags_or_github(gh)(args)
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=run,
+        manifest_path=tmp_path / "layers.yml",
+        personal_fn=build_personal_onboard_report,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+    )
+
+    assert report["result"] == "blocked"
+    created = [
+        entry
+        for entry in report["completed_actions"]
+        if entry["kind"] == "github-repository"
+    ]
+    assert {entry["target"] for entry in created} == {
+        "pablo/knowledge-copilot-private",
+        "pablo/cli-copilot-private",
+        "pablo/claude-copilot-private",
+        "pablo/codex-copilot-private",
+    }
+    assert all(entry["outcome"] == "completed" for entry in created)
+    assert all(entry["url"] == f"https://github.com/{entry['target']}" for entry in created)
+    failed_content = [
+        entry
+        for entry in report["completed_actions"]
+        if entry["kind"] == "github-repository-content" and entry["outcome"] == "failed"
+    ]
+    assert len(failed_content) == 1
+    assert failed_content[0]["target"] == "pablo/codex-copilot-private"
+    # Never claim nothing changed: the ledger is populated, so no summary in
+    # it may read as an honest "nothing changed" statement.
+    assert report["completed_actions"]
+    assert "resume" in report
+    assert report["resume"]["safe_to_rerun"] is True
+    assert "recreat" in report["resume"]["detail"].lower()
+    assert "github-repository" in report["resume"]["already_completed_kinds"]
+    _assert_valid_onboard_report(report)
+
+
+def test_ecosystem_apply_ledger_matches_recorded_github_mutations_one_to_one(
+    tmp_path,
+):
+    """Success-path integration: every `POST`/`PUT` the fake `gh`
+    recorded-call layer actually saw has exactly one corresponding
+    `completed_actions` row, in the order the mutations happened, and the
+    layer-manifest write is recorded too -- with no `resume` hint needed
+    once the whole run reaches `ready`.
+    """
+    gh = FakeGitHub()
+    run = _org_handoff_and_tags_or_github(gh)
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=run,
+        manifest_path=tmp_path / "layers.yml",
+        personal_fn=build_personal_onboard_report,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=lambda **_: (
+            {"result": "up-to-date", "blocked": [], "held_for_approval": []},
+            0,
+        ),
+        doctor_fn=lambda **_: {"status": "healthy", "score": 100},
+        mirror_seed_fn=_no_mirror_seed,
+        commit_config_fn=lambda *_args: None,
+    )
+
+    assert report["result"] == "ready"
+    post_calls = [call for call in gh.calls if "POST" in call and "user/repos" in call]
+    put_calls = [call for call in gh.calls if "PUT" in call]
+    assert len(post_calls) == 4
+    assert len(put_calls) == 4
+    repo_entries = [
+        entry
+        for entry in report["completed_actions"]
+        if entry["kind"] == "github-repository"
+    ]
+    content_entries = [
+        entry
+        for entry in report["completed_actions"]
+        if entry["kind"] == "github-repository-content"
+    ]
+    assert len(repo_entries) == len(post_calls)
+    assert len(content_entries) == len(put_calls)
+    assert all(entry["outcome"] == "completed" for entry in repo_entries + content_entries)
+    manifest_entries = [
+        entry
+        for entry in report["completed_actions"]
+        if entry["kind"] == "layer-manifest"
+    ]
+    assert len(manifest_entries) == 1
+    assert manifest_entries[0]["outcome"] == "completed"
+    kinds_in_order = [entry["kind"] for entry in report["completed_actions"]]
+    assert kinds_in_order.index("github-repository") < kinds_in_order.index(
+        "layer-manifest"
+    )
+    assert "resume" not in report
+    _assert_valid_onboard_report(report)
+
+
+# ---------------------------------------------------------------------------
+# _apply_visible_topology() -- task 205 (G-2). Apply reads `row["action"]`
+# verbatim from `_classify_repository_history` (task 204); it never
+# re-derives Git state on its own. Only a row proven `fast-forwardable` may
+# ever reach the `repair` branch, and a fast-forward merge exiting 0 is not
+# trusted as proof of anything: HEAD must actually reach the fetched target
+# SHA before this ever reports success. Every fixture below is a real,
+# disposable `git init`/`git clone` repo under `tmp_path`, matching the G-1
+# fixture rule from the classifier tests above.
+# ---------------------------------------------------------------------------
+
+
+def _repair_row_fixture(layer_id: str, local: Path, ref: str = "main") -> tuple[dict, list[dict]]:
+    """A manifest/row pair claiming `action == "repair"` for `local`.
+
+    `source["repo"]` is deliberately a placeholder: the `repair` branch of
+    `_apply_visible_topology` fetches from the checkout's own `origin`
+    remote, never from `source["repo"]` (that field only feeds the
+    classifier's own direct fetch, exercised separately above).
+    """
+    manifest = {
+        "version": 1,
+        "layers": [
+            {
+                "id": layer_id,
+                "product": "codex",
+                "role": "personal",
+                "rank": 10,
+                "source": {"repo": "unused-by-repair", "ref": ref, "path": str(local)},
+            }
+        ],
+    }
+    rows = [
+        {
+            "id": layer_id,
+            "repository_owner": "pablo",
+            "repository_name": "codex-copilot-private",
+            "action": "repair",
+            "sync_state": "behind",
+            "detail": "Visible; a clean fast-forward is available.",
+        }
+    ]
+    return manifest, rows
+
+
+def _rev_parse(path: Path, ref: str = "HEAD") -> str:
+    return subprocess.run(
+        ["git", "-C", str(path), "rev-parse", ref],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+
+def test_apply_visible_topology_fast_forwardable_succeeds_and_reaches_target(tmp_path):
+    remote = tmp_path / "remote"
+    local = tmp_path / "codex-copilot-private"
+    _init_content_repo(remote, "note.txt", "v1")
+    subprocess.run(["git", "clone", "-q", str(remote), str(local)], check=True)
+    _commit(remote, "note.txt", "v2", "advance")
+    manifest, rows = _repair_row_fixture("codex-personal", local)
+
+    ok, detail = onboard_module._apply_visible_topology(manifest, rows, run=_real_run)
+
+    assert ok is True
+    assert detail is None
+    assert _rev_parse(local) == _rev_parse(remote)
+    assert "fast-forwarded to the expected revision" in rows[0]["detail"]
+
+
+def test_apply_visible_topology_fast_forwardable_to_annotated_tag_reaches_peeled_sha(
+    tmp_path,
+):
+    """G-6 live defect regression: the `repair` branch's postcondition
+    (`git rev-parse HEAD` == the fetched target SHA) must compare against
+    the peeled commit, not the annotated tag object -- otherwise a
+    genuinely successful fast-forward to a tag pin is reported failed."""
+    remote = tmp_path / "remote"
+    local = tmp_path / "codex-copilot-private"
+    _init_content_repo(remote, "note.txt", "v1")
+    subprocess.run(["git", "clone", "-q", str(remote), str(local)], check=True)
+    _commit(remote, "note.txt", "v2", "advance")
+    _annotated_tag(remote, "v2.0.0")
+    peeled_commit = _rev_parse(remote)
+    tag_object_sha = _rev_parse(remote, "v2.0.0")
+    assert tag_object_sha != peeled_commit  # sanity: a real tag object, not a passthrough
+    manifest, rows = _repair_row_fixture("codex-personal", local, ref="v2.0.0")
+
+    ok, detail = onboard_module._apply_visible_topology(manifest, rows, run=_real_run)
+
+    assert ok is True
+    assert detail is None
+    assert _rev_parse(local) == peeled_commit
+    assert _rev_parse(local) != tag_object_sha
+    assert "fast-forwarded to the expected revision" in rows[0]["detail"]
+
+
+def test_apply_visible_topology_repair_reports_already_at_target_when_nothing_moves(
+    tmp_path,
+):
+    """A row can arrive at apply still marked `repair` from a stale plan-time
+    snapshot even though the checkout is already at the target (e.g. it was
+    fast-forwarded by something else between plan and apply). Apply must
+    call this its own honest outcome -- "already at target" -- never
+    "repaired", since nothing actually moved."""
+    remote = tmp_path / "remote"
+    local = tmp_path / "codex-copilot-private"
+    _init_content_repo(remote, "note.txt", "v1")
+    subprocess.run(["git", "clone", "-q", str(remote), str(local)], check=True)
+    _commit(remote, "note.txt", "v2", "advance")
+    subprocess.run(["git", "-C", str(local), "fetch", "-q", "origin", "main"], check=True)
+    subprocess.run(
+        ["git", "-C", str(local), "merge", "-q", "--ff-only", "FETCH_HEAD"], check=True
+    )
+    manifest, rows = _repair_row_fixture("codex-personal", local)
+
+    ok, detail = onboard_module._apply_visible_topology(manifest, rows, run=_real_run)
+
+    assert ok is True
+    assert detail is None
+    assert "already at the expected revision" in rows[0]["detail"]
+    assert "no fast-forward was needed" in rows[0]["detail"]
+    assert "fast-forwarded" not in rows[0]["detail"]
+
+
+def test_apply_visible_topology_repair_reports_failed_when_postcondition_fails(
+    tmp_path, monkeypatch
+):
+    """Defense in depth: even when the underlying fetch/merge genuinely
+    succeed, a corrupted or unconfirmable post-merge `rev-parse HEAD` must
+    yield failed, never synced (G-2)."""
+    remote = tmp_path / "remote"
+    local = tmp_path / "codex-copilot-private"
+    _init_content_repo(remote, "note.txt", "v1")
+    subprocess.run(["git", "clone", "-q", str(remote), str(local)], check=True)
+    _commit(remote, "note.txt", "v2", "advance")
+    manifest, rows = _repair_row_fixture("codex-personal", local)
+    original_git_output = onboard_module._git_output
+
+    def corrupted_git_output(path, *args, run):
+        if Path(path) == local and args == ("rev-parse", "HEAD"):
+            return subprocess.CompletedProcess(args, 0, f"{'0' * 40}\n", "")
+        return original_git_output(path, *args, run=run)
+
+    monkeypatch.setattr(onboard_module, "_git_output", corrupted_git_output)
+
+    ok, detail = onboard_module._apply_visible_topology(manifest, rows, run=_real_run)
+
+    assert ok is False
+    assert "did not reach the expected revision" in detail
+    assert "reporting this failed rather than synced" in detail
+    # The real merge underneath genuinely succeeded -- only the corrupted
+    # postcondition read should be why this is reported failed.
+    assert _rev_parse(local) == _rev_parse(remote)
+
+
+def test_apply_visible_topology_ahead_only_cannot_produce_a_synced_result(
+    tmp_path, monkeypatch
+):
+    remote = tmp_path / "remote"
+    local = tmp_path / "codex-copilot-private"
+    _init_content_repo(remote, "note.txt", "v1")
+    _clone_with_fake_origin(remote, local, "pablo", "codex-copilot-private")
+    _commit(local, "note.txt", "v2 (unpublished)", "local-only work")
+    monkeypatch.setattr(
+        onboard_module,
+        "_repo_identity_from_layer",
+        lambda layer: ("pablo", "codex-copilot-private"),
+    )
+    monkeypatch.setattr(
+        onboard_module,
+        "_remote_repository_state",
+        lambda owner, name, *, run: ("ready", "private"),
+    )
+    manifest = _topology_manifest("codex-personal", local, remote)
+    rows = onboard_module._topology_report_layers(manifest, run=_real_run)
+    assert rows[0]["action"] == "review"
+    head_before = _rev_parse(local)
+
+    ok, detail = onboard_module._apply_visible_topology(manifest, rows, run=_real_run)
+
+    assert ok is False
+    assert detail == rows[0]["detail"]
+    assert _rev_parse(local) == head_before
+
+
+def test_apply_visible_topology_divergent_identical_tree_routes_to_review(
+    tmp_path, monkeypatch
+):
+    # The cli-copilot shape (task 209/G-7): `remote`'s target commit has a
+    # parent, so this must stay `review` rather than the parentless-pin
+    # `current`/`reuse` short-circuit -- see `_init_content_repo_with_parent`.
+    remote = tmp_path / "remote"
+    local = tmp_path / "codex-copilot-private"
+    _init_content_repo_with_parent(remote, "note.txt", "same content")
+    _init_content_repo(local, "note.txt", "same content", message="independent history")
+    _set_fake_origin(local, "pablo", "codex-copilot-private")
+    monkeypatch.setattr(
+        onboard_module,
+        "_repo_identity_from_layer",
+        lambda layer: ("pablo", "codex-copilot-private"),
+    )
+    monkeypatch.setattr(
+        onboard_module,
+        "_remote_repository_state",
+        lambda owner, name, *, run: ("ready", "private"),
+    )
+    manifest = _topology_manifest("codex-personal", local, remote)
+    rows = onboard_module._topology_report_layers(manifest, run=_real_run)
+    assert rows[0]["action"] == "review"
+    head_before = _rev_parse(local)
+
+    ok, detail = onboard_module._apply_visible_topology(manifest, rows, run=_real_run)
+
+    assert ok is False
+    assert detail == rows[0]["detail"]
+    assert _rev_parse(local) == head_before
+
+
+def test_apply_visible_topology_divergent_different_content_routes_to_review(
+    tmp_path, monkeypatch
+):
+    remote = tmp_path / "remote"
+    local = tmp_path / "codex-copilot-private"
+    _init_content_repo(remote, "note.txt", "remote content")
+    _init_content_repo(local, "note.txt", "local content", message="independent history")
+    _set_fake_origin(local, "pablo", "codex-copilot-private")
+    monkeypatch.setattr(
+        onboard_module,
+        "_repo_identity_from_layer",
+        lambda layer: ("pablo", "codex-copilot-private"),
+    )
+    monkeypatch.setattr(
+        onboard_module,
+        "_remote_repository_state",
+        lambda owner, name, *, run: ("ready", "private"),
+    )
+    manifest = _topology_manifest("codex-personal", local, remote)
+    rows = onboard_module._topology_report_layers(manifest, run=_real_run)
+    assert rows[0]["action"] == "review"
+    head_before = _rev_parse(local)
+
+    ok, detail = onboard_module._apply_visible_topology(manifest, rows, run=_real_run)
+
+    assert ok is False
+    assert detail == rows[0]["detail"]
+    assert _rev_parse(local) == head_before
