@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://everyoneneedsacopilot.com/schemas/copilot-control-tower/auth.schema.json",
+  "$comment": "VENDORED COPY for the WS-A contract test in claude-copilot/tools/cc. Source of truth is copilot-control-tower/docs/01-architecture/schemas/auth.schema.json — update this copy from there, not the reverse.",
+  "title": "copilot auth --json",
+  "description": "GitHub device-flow sign-in and least-privilege permission-grant seam (WS-A Stream-A). Five payload kinds are discriminated by `kind`, plus the shared error envelope: `device-code`, `poll`, `status`, `grant-device-code`, and `grant-poll`. OAuth access tokens are written directly to the per-user OS keychain by the CLI and NEVER appear in any instance of this schema.",
+  "type": "object",
+  "oneOf": [
+    { "$ref": "#/$defs/deviceCode" },
+    { "$ref": "#/$defs/poll" },
+    { "$ref": "#/$defs/status" },
+    { "$ref": "#/$defs/grantDeviceCode" },
+    { "$ref": "#/$defs/grantPoll" },
+    { "$ref": "#/$defs/errorEnvelope" }
+  ],
+  "allOf": [
+    { "$ref": "#/$defs/noSecretKeys" }
+  ],
+  "$defs": {
+    "deviceCode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "kind",
+        "user_code",
+        "verification_uri",
+        "expires_in",
+        "interval",
+        "device_code"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "_envelope.schema.json#/$defs/schema_version" },
+        "kind": { "const": "device-code" },
+        "user_code": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The short code the user types at verification_uri."
+        },
+        "verification_uri": {
+          "type": "string",
+          "format": "uri",
+          "description": "Where the user completes sign-in in a browser."
+        },
+        "expires_in": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Seconds until this device_code expires."
+        },
+        "interval": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Minimum seconds to wait between poll attempts."
+        },
+        "device_code": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Short-lived flow handle the caller polls with next (`cc auth login --poll --device-code <this>`). NOT a credential by itself -- GitHub also requires the originating client_id on every poll, and it expires in `expires_in` seconds. Distinct from an OAuth access token, which this schema never carries (see the top-level NO-SECRET invariant)."
+        }
+      }
+    },
+    "poll": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "status"],
+      "properties": {
+        "schema_version": { "$ref": "_envelope.schema.json#/$defs/schema_version" },
+        "kind": { "const": "poll" },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "authorized", "expired", "denied"],
+          "description": "Result of one GitHub device-flow poll step. `pending`: keep polling (covers both GitHub's authorization_pending and slow_down responses). `authorized`: sign-in succeeded -- the CLI stored the token directly in the OS keychain; it is NEVER present in this payload. `expired`: the device_code expired -- restart from `device-code`. `denied`: the user declined (or GitHub returned an otherwise-unrecognized terminal error, treated fail-closed as denied)."
+        }
+      }
+    },
+    "grantDeviceCode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "kind",
+        "permission",
+        "user_code",
+        "verification_uri",
+        "expires_in",
+        "interval",
+        "device_code"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "_envelope.schema.json#/$defs/schema_version" },
+        "kind": { "const": "grant-device-code" },
+        "permission": { "const": "write:public_key" },
+        "user_code": { "type": "string", "minLength": 1 },
+        "verification_uri": { "type": "string", "format": "uri" },
+        "expires_in": { "type": "integer", "minimum": 1 },
+        "interval": { "type": "integer", "minimum": 1 },
+        "device_code": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Short-lived flow handle for `cc auth grant --poll`; never an OAuth access token."
+        }
+      }
+    },
+    "grantPoll": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "status"],
+      "properties": {
+        "schema_version": { "$ref": "_envelope.schema.json#/$defs/schema_version" },
+        "kind": { "const": "grant-poll" },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "granted",
+            "denied",
+            "expired",
+            "identity-mismatch",
+            "insufficient-scope"
+          ],
+          "description": "The upgrade commits only after the candidate identity matches the current cc identity and GitHub confirms write:public_key (or its broader admin:public_key superset)."
+        }
+      }
+    },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "status"],
+      "properties": {
+        "schema_version": { "$ref": "_envelope.schema.json#/$defs/schema_version" },
+        "kind": { "const": "status" },
+        "status": {
+          "type": "string",
+          "enum": ["authorized", "signed-out"],
+          "description": "Computed OFFLINE-SAFE from the local non-secret identity pointer plus a keychain presence check only -- never a network call."
+        },
+        "identity": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["login"],
+          "properties": {
+            "login": { "type": "string", "minLength": 1 }
+          },
+          "description": "Present only when status is authorized."
+        },
+        "scope": {
+          "type": "string",
+          "description": "The OAuth scopes granted at sign-in. Present only when status is authorized and a scope string was recorded at sign-in time; its absence must not be read as a granted-no-scopes signal."
+        }
+      },
+      "$comment": "`identity`/`scope` are optional even though `status` (which they depend on) is required at the object level -- a consumer must not assume presence just because status=authorized, but the CLI is expected to emit both whenever the local identity pointer has them."
+    },
+    "errorEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "error"],
+      "properties": {
+        "schema_version": { "$ref": "_envelope.schema.json#/$defs/schema_version" },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message"],
+          "properties": {
+            "code": { "type": "string", "minLength": 1 },
+            "message": { "type": "string", "minLength": 1 }
+          }
+        }
+      },
+      "description": "Shared exit-2 error envelope. Auth codes include organization/bootstrap failures (`no-company-app`, `org-required`, `org-not-found`, `network-unavailable`), local transaction failures (`signed-in-required`, `keychain-unavailable`, `identity-write-failed`), and CLI misuse (`missing-argument`). The code remains free-form so additive errors do not require a schema-major change."
+    },
+    "noSecretKeys": {
+      "$comment": "NO-SECRET fitness invariant, applied via the top-level `allOf`: recursively forbids access_token/token/refresh_token/secret as a property name at ANY nesting depth, in any object or array, anywhere in an `auth --json` instance. The OAuth token is written directly to the OS keychain by the CLI (claude-copilot/tools/cc/src/cc/core/keychain.py) and MUST NEVER appear in this contract -- see claude-copilot/tools/cc/tests/test_auth_contract.py's recursive NO-SECRET fitness test, which additionally asserts this against real build_auth_poll_report()/execute_auth_login() output (not just schema-shape fixtures) and against the keychain spy that actually received the token.",
+      "if": { "type": "object" },
+      "then": {
+        "propertyNames": {
+          "not": { "enum": ["access_token", "token", "refresh_token", "secret"] }
+        },
+        "additionalProperties": { "$ref": "#/$defs/noSecretKeys" }
+      },
+      "else": {
+        "if": { "type": "array" },
+        "then": { "items": { "$ref": "#/$defs/noSecretKeys" } }
+      }
+    }
+  }
+}
