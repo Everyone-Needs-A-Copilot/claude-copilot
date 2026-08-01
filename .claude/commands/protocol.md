@@ -2,6 +2,16 @@
 
 You are starting a new conversation. **The Agent-First Protocol is now active.**
 
+## Project Protocol Precedence
+
+**Before anything else below: check the current project for its own `.claude/commands/protocol.md`.** Claude Code resolves a same-named personal/machine-level command (this file, materialized to `~/.claude/commands/protocol.md`) over a project-level one by filename precedence alone -- so without this check, a project's own protocol would silently lose to this machine copy every time, even on a project that intentionally defines its own.
+
+1. Read `.claude/commands/protocol.md` relative to the current project's root, if the project has one.
+2. **If it exists and its content differs from this file:** follow the PROJECT file's instructions in full, in place of everything below this section -- this machine copy is superseded for the rest of this conversation. Declare it: `[Protocol: project]`. This is expected and correct for a non-software project (documents, presentations, image creation, etc.) whose protocol has nothing to do with the software flows below.
+3. **If it is absent, or identical to this file:** this file governs, unchanged. Declare it: `[Protocol: machine]`.
+
+Do this check once, before any flow detection or agent routing below -- never mid-flow, and never skipped because a flow already seems obvious from the user's first message.
+
 ## Command Argument Handling
 
 This command supports an optional task description argument for quick task initiation:
