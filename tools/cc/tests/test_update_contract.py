@@ -200,6 +200,86 @@ def test_update_json_applied_validates_against_contract_schema(tmp_path):
     assert changed_ops["sec"] == "added"
 
 
+def _two_local_layers(org_root: Path, foundation_root: Path) -> list[dict]:
+    # `source.repo` is required by validate_layers() even for a visible
+    # local checkout (`source.path` set directly, no `subpath`) -- see
+    # manifest.py's own "must be an object with at least a `repo` key"
+    # check. It is never dereferenced here because neither of
+    # build_update_report()'s mirror-sync (`repo and not local_path`) nor
+    # subpath-join (`local_path and subpath`) branches fires when `path`
+    # is already given with no `subpath` -- `source["path"]` passes
+    # through unchanged, exactly matching materialize.py's own test
+    # helper `_layer()` (tests/test_ecosystem_materialize.py).
+    return [
+        {
+            "id": "claude-organization",
+            "role": "organization",
+            "rank": 20,
+            "product": "claude",
+            "source": {"repo": "https://example.invalid/claude-organization.git", "path": str(org_root)},
+            "auth": "anon",
+            "activation": "always",
+        },
+        {
+            "id": "claude-foundation",
+            "role": "foundation",
+            "rank": 40,
+            "product": "claude",
+            "source": {"repo": "https://example.invalid/claude-foundation.git", "path": str(foundation_root)},
+            "auth": "anon",
+            "activation": "always",
+        },
+    ]
+
+
+def test_update_json_fold_fallback_reports_blocked_winner_and_validates_against_schema(
+    tmp_path,
+):
+    """task 220 Fix 1, end to end through `cc update`'s own JSON builder --
+    the live WP-384 regression: org's `commands/protocol.md` wins the
+    OVERRIDE fold but is policy-blocked (unverified, by design -- no wired
+    org signer). The foundation's own verified copy underneath it
+    materializes in its place, un-freezing the slot, and the substitution
+    is reported honestly on the `changed[]` entry -- never silently as if
+    org's content had applied -- while the payload still validates against
+    update.schema.json's additive `blocked_winner`/`reason` fields."""
+    org_root = tmp_path / "org-src"
+    (org_root / "commands").mkdir(parents=True)
+    (org_root / "commands" / "protocol.md").write_text("org protocol", encoding="utf-8")
+
+    foundation_root = tmp_path / "foundation-src"
+    (foundation_root / "commands").mkdir(parents=True)
+    (foundation_root / "commands" / "protocol.md").write_text(
+        "foundation protocol", encoding="utf-8"
+    )
+
+    layers = _two_local_layers(org_root, foundation_root)
+
+    def org_blocked_policy(item):
+        return "block" if item["layer"] == "claude-organization" else "allow"
+
+    report = build_update_report(
+        _layers=layers,
+        _previous_lock={},
+        _mirror_root=tmp_path / "mirrors",
+        _materialize_root=tmp_path / "materialize",
+        _lock_write_path=tmp_path / "copilot.lock.json",
+        _policy=org_blocked_policy,
+    )
+
+    _validate(report)
+    assert report["result"] == "applied"
+    assert (
+        tmp_path / "materialize" / "commands" / "protocol.md"
+    ).read_text(encoding="utf-8") == "foundation protocol"
+
+    change = next(c for c in report["changed"] if c["item"] == "protocol")
+    assert change["layer"] == "claude-foundation"
+    assert change["blocked_winner"] == "claude-organization"
+    assert change["reason"] is not None and "unverified" in change["reason"]
+    assert not report["blocked"]  # un-frozen -- no longer stuck reporting blocked
+
+
 def test_update_threads_each_layers_resolved_ref_into_the_policy_gate(tmp_path):
     """G-9 (task 215 blocker fix): `build_update_report` computes
     `layer_source_refs` from each effective layer's OWN `source.ref` (the

@@ -60,6 +60,16 @@
             "type": ["string", "null"],
             "description": "Identifier of the layer/item shadowing this one; null when not shadowed.",
             "$comment": "Prose names the field without a type; encoded as nullable string."
+          },
+          "blocked_winner": {
+            "type": ["string", "null"],
+            "description": "ADDITIVE (task 220 Fix 1, fold un-freeze): non-null only when this change is a fold fallback substitution -- `layer` above is a SHADOWED layer whose own copy verified, materialized in place of the resolver's real OVERRIDE winner named here, which was policy-blocked (unverified) and never applied. Null for every ordinary (non-substituted) change.",
+            "$comment": "ADDED 2026-08-01: closes the fold-never-falls-back-off-a-blocked-winner gap (WP-384) -- see copilot-control-tower/docs task 220. Additive-only widening; absent/null is fully backward compatible with every prior consumer of this schema."
+          },
+          "reason": {
+            "type": ["string", "null"],
+            "description": "Human-readable explanation, present when `blocked_winner` is non-null (e.g. 'winner <layer> blocked: unverified; materialized verified layer <layer> instead'); null otherwise.",
+            "$comment": "ADDED 2026-08-01, task 220 Fix 1 -- additive, mirrors the `reason` field `held_for_approval[]`/`blocked[]` entries already carry."
           }
         }
       }

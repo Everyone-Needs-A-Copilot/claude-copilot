@@ -388,6 +388,16 @@ def build_update_report(
                     "shadowed_by": shadow_lookup.get(
                         (op["product"], op["dimension"], op["item"])
                     ),
+                    # ADDITIVE (task 220 Fix 1): non-null only for a fold
+                    # fallback substitution -- `layer` above is the
+                    # SHADOWED layer whose verified copy actually
+                    # materialized; `blocked_winner` names the resolver's
+                    # real OVERRIDE winner, which was policy-blocked
+                    # (unverified) and never applied. `reason` carries the
+                    # human-readable explanation. Both are `null` for
+                    # every ordinary (non-substituted) change.
+                    "blocked_winner": op.get("blocked_winner"),
+                    "reason": op.get("reason"),
                 }
             )
 

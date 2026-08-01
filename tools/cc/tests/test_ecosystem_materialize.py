@@ -749,6 +749,199 @@ def test_materialize_without_layer_source_refs_passes_none(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Fold fallback: a policy-blocked OVERRIDE winner un-freezes to the next
+# verified shadowed layer (task 220 Fix 1 -- WP-384's live regression: the
+# org tier permanently wins commands/protocol's OVERRIDE fold but has no
+# wired signer by design, so it is always `blocked: unverified`, and
+# without a fallback the foundation's own (verified) copy underneath it
+# could never materialize again).
+# ---------------------------------------------------------------------------
+
+
+def _two_layer_resolved(
+    tmp_path: Path,
+    *,
+    winner_root: Path,
+    shadow_root: Path,
+    winner_id: str = "claude-organization",
+    shadow_id: str = "claude-foundation",
+    winner_rank: int = 20,
+    shadow_rank: int = 40,
+    lockfile: dict | None = None,
+):
+    layers = [
+        _layer(winner_id, winner_rank, winner_root),
+        _layer(shadow_id, shadow_rank, shadow_root),
+    ]
+    contributions = discover_contributions(layers)
+    resolved = resolve_layers(layers, contributions, lockfile=lockfile or {})
+    source_paths = {winner_id: winner_root, shadow_id: shadow_root}
+    return resolved, source_paths
+
+
+def test_materialize_falls_back_to_verified_shadow_when_winner_blocked(tmp_path):
+    org_root = tmp_path / "org-src"
+    (org_root / "commands").mkdir(parents=True)
+    (org_root / "commands" / "protocol.md").write_text("org protocol", encoding="utf-8")
+
+    foundation_root = tmp_path / "foundation-src"
+    (foundation_root / "commands").mkdir(parents=True)
+    (foundation_root / "commands" / "protocol.md").write_text(
+        "foundation protocol", encoding="utf-8"
+    )
+
+    resolved, source_paths = _two_layer_resolved(
+        tmp_path, winner_root=org_root, shadow_root=foundation_root
+    )
+    assert resolved[0]["winning_layer"] == "claude-organization"
+    assert resolved[0]["shadowed"][0]["layer"] == "claude-foundation"
+
+    def org_blocked_policy(item):
+        return "block" if item["layer"] == "claude-organization" else "allow"
+
+    materialize_root = tmp_path / "materialize"
+    report = materialize(
+        resolved,
+        materialize_root=materialize_root,
+        previous_lock={},
+        layer_source_paths=source_paths,
+        policy=org_blocked_policy,
+    )
+
+    materialized = materialize_root / "commands" / "protocol.md"
+    assert materialized.read_text(encoding="utf-8") == "foundation protocol"
+
+    op = next(o for o in report["ops"] if o["item"] == "protocol")
+    assert op["op"] == "added"
+    assert op["layer"] == "claude-foundation"  # the verified layer that actually landed
+    assert op["blocked_winner"] == "claude-organization"  # the real, blocked winner
+    assert op["reason"] is not None and "unverified" in op["reason"]
+
+    # Materialized under the layer that actually supplied the content --
+    # never silently pinned as if the blocked org layer had applied.
+    assert report["lock"]["claude-foundation"]["commands"]["protocol"]
+    assert "claude-organization" not in report["lock"]
+
+
+def test_materialize_all_blocked_stays_blocked_honest_nothing_stale_kept(tmp_path):
+    org_root = tmp_path / "org-src"
+    (org_root / "commands").mkdir(parents=True)
+    (org_root / "commands" / "protocol.md").write_text("org protocol", encoding="utf-8")
+
+    foundation_root = tmp_path / "foundation-src"
+    (foundation_root / "commands").mkdir(parents=True)
+    (foundation_root / "commands" / "protocol.md").write_text(
+        "foundation protocol", encoding="utf-8"
+    )
+
+    resolved, source_paths = _two_layer_resolved(
+        tmp_path, winner_root=org_root, shadow_root=foundation_root
+    )
+
+    def all_blocked_policy(_item):
+        return "block"
+
+    materialize_root = tmp_path / "materialize"
+    report = materialize(
+        resolved,
+        materialize_root=materialize_root,
+        previous_lock={},
+        layer_source_paths=source_paths,
+        policy=all_blocked_policy,
+    )
+
+    assert not (materialize_root / "commands" / "protocol.md").exists()
+    op = next(o for o in report["ops"] if o["item"] == "protocol")
+    assert op["op"] == "blocked"
+    assert op["layer"] == "claude-organization"  # still the real winner, honestly unapplied
+    assert op["blocked_winner"] is None  # no substitution happened -- nothing to report
+    assert op["reason"] == "unverified"
+    assert report["lock"] == {}  # nothing pinned -- never applied, nothing stale kept
+
+
+def test_materialize_winner_verified_no_fallback_substitution(tmp_path):
+    """Both layers verify: the resolver's real winner materializes exactly
+    as before Fix 1 -- the fallback path must never fire when it isn't
+    needed."""
+    org_root = tmp_path / "org-src"
+    (org_root / "commands").mkdir(parents=True)
+    (org_root / "commands" / "protocol.md").write_text("org protocol", encoding="utf-8")
+
+    foundation_root = tmp_path / "foundation-src"
+    (foundation_root / "commands").mkdir(parents=True)
+    (foundation_root / "commands" / "protocol.md").write_text(
+        "foundation protocol", encoding="utf-8"
+    )
+
+    resolved, source_paths = _two_layer_resolved(
+        tmp_path, winner_root=org_root, shadow_root=foundation_root
+    )
+
+    materialize_root = tmp_path / "materialize"
+    report = materialize(
+        resolved,
+        materialize_root=materialize_root,
+        previous_lock={},
+        layer_source_paths=source_paths,
+        policy=permissive_policy,
+    )
+
+    materialized = materialize_root / "commands" / "protocol.md"
+    assert materialized.read_text(encoding="utf-8") == "org protocol"
+
+    op = next(o for o in report["ops"] if o["item"] == "protocol")
+    assert op["op"] == "added"
+    assert op["layer"] == "claude-organization"
+    assert op["blocked_winner"] is None
+    assert op["reason"] is None
+
+
+def test_materialize_fallback_carries_forward_blocked_winners_own_prior_pin(tmp_path):
+    """The blocked winner's own previously-recorded pin (if any -- e.g. a
+    stale entry from before its content ever changed) is preserved
+    untouched, not silently dropped or advanced, while the verified
+    shadow layer's own prior pin is what actually informs `from`/`to` for
+    the applied change."""
+    org_root = tmp_path / "org-src"
+    (org_root / "commands").mkdir(parents=True)
+    (org_root / "commands" / "protocol.md").write_text("org protocol v2", encoding="utf-8")
+
+    foundation_root = tmp_path / "foundation-src"
+    (foundation_root / "commands").mkdir(parents=True)
+    (foundation_root / "commands" / "protocol.md").write_text(
+        "foundation protocol v2", encoding="utf-8"
+    )
+
+    previous_lock = {
+        "claude-organization": {"commands": {"protocol": "org-sha-v1"}},
+        "claude-foundation": {"commands": {"protocol": "foundation-sha-v1"}},
+    }
+    resolved, source_paths = _two_layer_resolved(
+        tmp_path,
+        winner_root=org_root,
+        shadow_root=foundation_root,
+        lockfile=previous_lock,
+    )
+
+    def org_blocked_policy(item):
+        return "block" if item["layer"] == "claude-organization" else "allow"
+
+    materialize_root = tmp_path / "materialize"
+    report = materialize(
+        resolved,
+        materialize_root=materialize_root,
+        previous_lock=previous_lock,
+        layer_source_paths=source_paths,
+        policy=org_blocked_policy,
+    )
+
+    op = next(o for o in report["ops"] if o["item"] == "protocol")
+    assert op["from_sha"] == "foundation-sha-v1"  # the SHADOW's own prior pin
+    assert report["lock"]["claude-organization"]["commands"]["protocol"] == "org-sha-v1"
+    assert report["lock"]["claude-foundation"]["commands"]["protocol"] != "foundation-sha-v1"
+
+
+# ---------------------------------------------------------------------------
 # dry_run
 # ---------------------------------------------------------------------------
 

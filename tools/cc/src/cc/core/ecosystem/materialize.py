@@ -62,6 +62,16 @@ class MaterializeOp(TypedDict):
     reason: Optional[str]
     from_sha: Optional[str]
     to_sha: Optional[str]
+    # ADDITIVE (task 220 Fix 1): non-None only when this op is a fold
+    # fallback substitution -- the resolver's actual OVERRIDE winner
+    # (`entry["winning_layer"]`) was policy-blocked (unverified), so this
+    # op instead materializes the next-ranked SHADOWED layer whose own
+    # copy verifies. Carries the ORIGINAL (blocked) winning layer's id so
+    # the report stays honest about what actually happened -- never
+    # silently reported as if the blocked layer's own content landed on
+    # disk. `None` for every ordinary (non-substituted) op, including a
+    # `blocked` op where no shadowed layer verified either.
+    blocked_winner: Optional[str]
 
 
 class MaterializeReport(TypedDict):
@@ -465,6 +475,7 @@ def _op(
     reason: Optional[str] = None,
     from_sha: Optional[str] = None,
     to_sha: Optional[str] = None,
+    blocked_winner: Optional[str] = None,
 ) -> MaterializeOp:
     return {
         "product": product,
@@ -477,6 +488,7 @@ def _op(
         "reason": reason,
         "from_sha": from_sha,
         "to_sha": to_sha,
+        "blocked_winner": blocked_winner,
     }
 
 
@@ -596,6 +608,63 @@ def materialize(
             new_lock.setdefault(layer_id, {}).setdefault(dimension, {})[item] = prev_sha
         return prev_sha
 
+    def _first_verified_shadow(
+        *,
+        dimension: str,
+        item: str,
+        product: str,
+        shadowed: list[dict[str, Any]],
+    ) -> Optional[tuple[str, Path, Optional[str]]]:
+        """Fold un-freeze (task 220 Fix 1): when the resolver's OVERRIDE
+        winner is policy-blocked, try each shadowed layer in the
+        resolver's own nearest-shadowed-first order (`resolver.py`'s
+        `_resolve_override()`) and return the first one whose own copy
+        actually verifies against THIS SAME policy gate -- rather than
+        freezing the slot at the blocked winner's last-good content
+        forever. Blocked content still never materializes: this only
+        widens WHICH layer's already-verifiable content is eligible to
+        fill the slot, it never weakens the gate itself (the exact same
+        `gate()` callable, called the exact same way, is applied to each
+        shadow candidate).
+
+        Returns `(layer_id, source_child, candidate_sha)` for the first
+        shadowed layer that (a) has real source content on disk and (b)
+        the policy gate allows, or `None` if every shadowed layer is also
+        blocked/held/missing -- in which case the caller's existing
+        `blocked` handling is unchanged.
+        """
+        for shadow in shadowed:
+            shadow_id = shadow["layer"]
+            shadow_source_root = layer_source_paths.get(shadow_id)
+            shadow_dim_dir = (
+                Path(shadow_source_root).expanduser() / dimension
+                if shadow_source_root
+                else None
+            )
+            shadow_source_child = (
+                _find_source_child(shadow_dim_dir, item) if shadow_dim_dir else None
+            )
+            if shadow_source_child is None:
+                continue
+            shadow_candidate_sha = _content_sha(shadow_source_child)
+            shadow_verdict = gate(
+                {
+                    "product": product,
+                    "dimension": dimension,
+                    "layer": shadow_id,
+                    "item": item,
+                    "sha": shadow_candidate_sha,
+                    "source_root": str(shadow_source_root) if shadow_source_root else None,
+                    "relative_path": f"{dimension}/{shadow_source_child.name}",
+                    "layer_policy": layer_policies.get(shadow_id),
+                    "ref": layer_source_refs.get(shadow_id),
+                }
+            )
+            if shadow_verdict != "allow":
+                continue
+            return shadow_id, shadow_source_child, shadow_candidate_sha
+        return None
+
     for entry in resolved_set:
         dimension = entry["dimension"]
         if semantics_for(dimension) not in _MATERIALIZABLE_SEMANTICS:
@@ -652,17 +721,44 @@ def materialize(
             }
         )
 
+        blocked_winner: Optional[str] = None
         if verdict == "block":
-            _carry_forward(layer_id, dimension, item)
-            ops.append(
-                _op(
-                    product=product,
-                    dimension=dimension, layer=layer_id, item=item, op="blocked",
-                    path=dest_path, signed=False, reason="unverified",
-                    from_sha=prev_sha, to_sha=candidate_sha,
-                )
+            fallback = _first_verified_shadow(
+                dimension=dimension,
+                item=item,
+                product=product,
+                shadowed=entry.get("shadowed") or [],
             )
-            continue
+            if fallback is None:
+                _carry_forward(layer_id, dimension, item)
+                ops.append(
+                    _op(
+                        product=product,
+                        dimension=dimension, layer=layer_id, item=item, op="blocked",
+                        path=dest_path, signed=False, reason="unverified",
+                        from_sha=prev_sha, to_sha=candidate_sha,
+                    )
+                )
+                continue
+
+            # Fold fallback (task 220 Fix 1): the OVERRIDE winner is
+            # policy-blocked (unverified) and a shadowed layer's own copy
+            # verifies. The blocked winner's own PRIOR pin (if any)
+            # carries forward untouched -- it was never actually applied,
+            # so its recorded sha must not silently change -- and
+            # materialization proceeds below using the verified shadow
+            # layer's own id/content/prior pin instead. `blocked_winner`
+            # travels with every op emitted from here on so the report
+            # never silently implies the blocked layer's content is what
+            # landed on disk.
+            _carry_forward(layer_id, dimension, item)
+            blocked_winner = layer_id
+            layer_id, source_child, candidate_sha = fallback
+            prev_sha = previous_lock.get(layer_id, {}).get(dimension, {}).get(item)
+            fallback_dest = _target(product, dimension, source_child.name)
+            if fallback_dest is not None:
+                dest_path = fallback_dest
+            verdict = "allow"
 
         if verdict == "hold":
             _carry_forward(layer_id, dimension, item)
@@ -686,6 +782,7 @@ def materialize(
                     path=dest_path, signed=True,
                     reason=f"protected: {guard_reason} -- never overwritten",
                     from_sha=prev_sha, to_sha=candidate_sha,
+                    blocked_winner=blocked_winner,
                 )
             )
             continue
@@ -698,6 +795,7 @@ def materialize(
                     dimension=dimension, layer=layer_id, item=item, op="blocked",
                     path=dest_path, signed=False, reason="source content not found",
                     from_sha=prev_sha, to_sha=None,
+                    blocked_winner=blocked_winner,
                 )
             )
             continue
@@ -709,13 +807,20 @@ def materialize(
             _copy_in(source_child, dest_path)
 
         op_name = "unchanged" if not changed else ("updated" if existed else "added")
+        substitution_reason = (
+            f"winner {blocked_winner} blocked: unverified; materialized "
+            f"verified layer {layer_id} instead"
+            if blocked_winner is not None
+            else None
+        )
 
         ops.append(
             _op(
                 product=product,
                 dimension=dimension, layer=layer_id, item=item, op=op_name,
-                path=dest_path, signed=True,
+                path=dest_path, signed=True, reason=substitution_reason,
                 from_sha=prev_sha, to_sha=candidate_sha,
+                blocked_winner=blocked_winner,
             )
         )
         new_lock.setdefault(layer_id, {}).setdefault(dimension, {})[item] = candidate_sha or ""
