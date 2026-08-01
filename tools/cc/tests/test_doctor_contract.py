@@ -23,6 +23,7 @@ from pathlib import Path
 
 import pytest
 from cc.commands.doctor import build_doctor_report
+from cc.core.ecosystem import mirror
 from cc.core.locking import copilot_lock
 from cc.main import app
 from jsonschema import Draft202012Validator
@@ -243,6 +244,68 @@ def test_status_healthy_with_matching_component_checker(tmp_path):
     sync_checker = next(c for c in report["checkers"] if c["id"] == "knowledge-org-sync")
     assert sync_checker["severity"] == "pass"
     assert sync_checker["local_sha"] == sync_checker["remote_sha"]
+
+
+# ---------------------------------------------------------------------------
+# WP-372 P5.2: doctor's "local none" investigation. The read path
+# (component_status.py's `_local_sha_for_layer()`/`layer_meta()`) and the
+# write path (update.py's `set_layer_meta(..., source_sha=...)`) agree on
+# the SAME `default_lockfile_path()` -- there is no "doctor reads a
+# different pin than update writes" divergence in the code itself (see
+# `core/ecosystem/lockfile.py`'s `default_lockfile_path()` docstring for
+# the full writeup of the one concrete way this still shows up live).
+# This test proves the READ side is correct end-to-end through
+# `build_doctor_report()` for the realistic case with no published
+# `refs/copilot/lock` (the mirror-clone-HEAD fallback, matching
+# `_meta.source_sha`) -- exactly the shape `update.py` actually writes on
+# this machine.
+# ---------------------------------------------------------------------------
+
+
+def test_status_healthy_via_mirror_fallback_with_meta_source_sha(tmp_path):
+    """No lock-pointer ref published (the common real-world case) -- the
+    mirror-clone-HEAD fallback compares against `_meta.source_sha`, EXACTLY
+    the shape `commands/update.py`'s `set_layer_meta(..., source_sha=...)`
+    writes. Given a lockfile matching that real shape, doctor must report
+    `pass`/`healthy`, never a fabricated "local none"."""
+    source = tmp_path / "org-source"
+    source.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(["git", "config", "user.email", "t@example.invalid"], cwd=source, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=source, check=True)
+    subprocess.run(["git", "checkout", "-q", "-b", "main"], cwd=source, check=True)
+    (source / "agents").mkdir()
+    (source / "agents" / "sec.md").write_text("v1", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=source, check=True)
+    subprocess.run(["git", "commit", "-qm", "init"], cwd=source, check=True)
+
+    # "cli" is one of mirror.EXTERNALLY_CONSUMED_PRODUCTS -- its mirrors
+    # nest one level deeper (<mirror_root>/cli/<layer id>), matching
+    # commands/update.py's own product-aware mirror_root computation.
+    mirror_root = tmp_path / "mirrors"
+    sync = mirror.clone_or_update_mirror(
+        "org-internal", str(source), "main", mirror_root=mirror_root / "cli"
+    )
+    assert sync["ok"] is True
+
+    # The REAL shape update.py's set_layer_meta() writes -- no per-item
+    # dimension pins needed for this checker; only `_meta.source_sha`.
+    lock = {"org-internal": {"_meta": {"product": "cli", "source_sha": sync["head_sha"]}}}
+
+    report = build_doctor_report(
+        **_base_kwargs(
+            tmp_path,
+            _layers=[_layer("org-internal", "cli", source)],
+            _lockfile=lock,
+            _mirror_root=mirror_root,
+        )
+    )
+
+    sync_checker = next(c for c in report["checkers"] if c["id"] == "cli-org-internal-sync")
+    assert sync_checker["severity"] == "pass", sync_checker.get("detail")
+    assert sync_checker["local_sha"] == sync_checker["remote_sha"] == sync["head_sha"]
+    assert "local none" not in sync_checker.get("detail", "")
+    assert report["status"] == "healthy"
 
 
 def test_status_update_available_when_local_behind_remote(tmp_path):

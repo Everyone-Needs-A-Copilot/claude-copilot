@@ -297,6 +297,54 @@ def resolve_knowledge_repos(value: Any = _UNSET) -> list[str]:
     return []
 
 
+def _normalize_str_list(value: Any) -> list[str]:
+    """Same list-or-legacy-string normalization as `resolve_knowledge_repos()`,
+    generalized for any LIST_VALUED_KEYS-style config value (used below by
+    `personal_roots_from_config()` for `projects.roots`)."""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(v) for v in value if v]
+    if isinstance(value, str):
+        return [value] if value.strip() else []
+    return []
+
+
+def personal_roots_from_config() -> list[str]:
+    """
+    Known human-owned/authoring tree roots this machine's config already
+    names -- the production feeder for `core/ecosystem/materialize.py`'s
+    `guard_personal()` (WP-372 P0.3: the never-destroy guard hole this
+    closes -- `commands/update.py`'s `_personal_roots` had NO production
+    feeder before this, so `guard_personal()` only ever protected a path
+    that happened to already be dirty; the live P0 incident hit a CLEAN
+    authoring repo that was never registered here).
+
+    Two config-declared sources, concatenated in order (duplicates are
+    harmless -- `guard_personal()` checks path containment, not list
+    identity):
+      - every `paths.knowledge_repo` entry (`resolve_knowledge_repos()` --
+        already ordered-list-aware; an author's knowledge checkout(s), the
+        EXACT tree the P0 incident destroyed).
+      - every `projects.roots` entry (the directories this machine scans
+        for projects -- already a LIST_VALUED_KEYS key, so `resolve_key()`
+        already returns it list-normalized). A person's own project trees
+        are human-owned by definition, even though `cc update`'s
+        materialize step never legitimately targets them directly -- this
+        is defense-in-depth against exactly the kind of symlink/
+        misconfiguration that caused the incident, not a claim that these
+        paths are ordinarily reachable from a materialize root.
+
+    Never raises: `resolve_key()`/`resolve_knowledge_repos()` already
+    degrade to `None`/`[]` on missing config, so an unconfigured machine
+    simply contributes nothing extra here -- never a crash, never a
+    fabricated root.
+    """
+    roots = list(resolve_knowledge_repos())
+    roots.extend(_normalize_str_list(resolve_key("projects.roots")))
+    return roots
+
+
 def get_resolved_config(
     *,
     _machine: dict[str, Any] | None = None,

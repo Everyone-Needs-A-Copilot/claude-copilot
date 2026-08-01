@@ -30,9 +30,9 @@ exercised against a real machine.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
-from cc.core.config import resolve_key
+from cc.core.config import personal_roots_from_config, resolve_key
 from cc.core.ecosystem.deprovision import deprovision
 from cc.core.ecosystem.lockfile import default_lockfile_path, read_lockfile
 from cc.core.locking import LockContentionError, copilot_lock, lock_path
@@ -50,7 +50,7 @@ def build_deprovision_report(
     _mirror_root: Any = _UNSET,
     _materialize_root: Any = _UNSET,
     _mode: str = "soft",
-    _personal_roots: Iterable[Any] = (),
+    _personal_roots: Any = _UNSET,
     _dry_run: bool = False,
 ) -> dict[str, Any]:
     """
@@ -64,6 +64,13 @@ def build_deprovision_report(
     supply `_mirror_root`/`_materialize_root`/`_lockfile_path` (or
     `_previous_lock` directly) to keep this entirely inside a tmp sandbox.
     `_dry_run=True` computes the exact plan/counts WITHOUT touching disk.
+
+    `_personal_roots`: WP-372 P0.3, same production feeder as
+    `commands/update.py`'s `build_update_report()` -- when not explicitly
+    injected, defaults to `personal_roots_from_config()` rather than an
+    empty tuple, so `deprovision` (an even more destructive verb than
+    `update`) never wipes a known human-owned tree it simply forgot to
+    protect.
 
     Does NOT acquire `copilot_lock()` itself -- that is
     `execute_deprovision()`'s job (the CLI-facing wrapper), so this stays a
@@ -88,12 +95,16 @@ def build_deprovision_report(
         else Path(str(resolve_key("paths.materialize_root"))).expanduser()
     )
 
+    personal_roots = (
+        list(_personal_roots) if _personal_roots is not _UNSET else personal_roots_from_config()
+    )
+
     engine_report = deprovision(
         materialize_root=materialize_root,
         mirror_root=mirror_root,
         previous_lock=previous_lock,
         mode=_mode,
-        personal_roots=_personal_roots,
+        personal_roots=personal_roots,
         dry_run=_dry_run,
     )
 

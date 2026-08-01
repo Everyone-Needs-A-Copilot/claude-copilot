@@ -15,12 +15,13 @@ call it (every root is a required keyword argument).
 
 from __future__ import annotations
 
+import hashlib
 import subprocess
 from pathlib import Path
 
 import pytest
 from cc.core.ecosystem.discovery import discover_contributions
-from cc.core.ecosystem.materialize import guard_personal, materialize
+from cc.core.ecosystem.materialize import guard_personal, guard_personal_reason, materialize
 from cc.core.ecosystem.policy import evaluate as fail_closed_policy
 from cc.core.ecosystem.policy import permissive_policy
 from cc.core.ecosystem.resolver import resolve_layers
@@ -60,6 +61,26 @@ def _git_init(repo: Path) -> None:
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
     subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True)
     subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+
+
+def _git_init_with_remote(repo: Path, remote_url: str = "https://example.invalid/org-repo.git") -> None:
+    """A CLEAN, tracked git working tree with a configured remote -- the
+    exact shape of the P0 incident's authoring repo (knowledge-copilot-
+    internal): committed, not dirty, but a real clone of somewhere."""
+    _git_init(repo)
+    subprocess.run(["git", "remote", "add", "origin", remote_url], cwd=repo, check=True)
+
+
+def _fingerprint_tree(path: Path) -> str:
+    """Whole-tree content fingerprint (sorted relative-path + bytes) --
+    used to prove an authoring repo is BYTE-IDENTICAL before/after a
+    materialize run that should have refused to touch it at all."""
+    digest = hashlib.sha256()
+    for child in sorted(path.rglob("*")):
+        if child.is_file():
+            digest.update(child.relative_to(path).as_posix().encode("utf-8"))
+            digest.update(child.read_bytes())
+    return digest.hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -119,6 +140,129 @@ def test_guard_personal_non_git_non_personal_path_is_not_flagged(tmp_path):
     plain.write_text("x", encoding="utf-8")
 
     assert guard_personal(plain, personal_roots=[]) is False
+
+
+# ---------------------------------------------------------------------------
+# guard_personal() -- WP-372 P0.3: symlink escape / clean tracked repo
+# ---------------------------------------------------------------------------
+
+
+def test_guard_personal_symlink_escaping_materialize_root_is_flagged(tmp_path):
+    materialize_root = tmp_path / "claude-materialize"
+    materialize_root.mkdir()
+
+    authoring_repo = tmp_path / "org-authoring-repo"
+    authoring_repo.mkdir()
+    _git_init_with_remote(authoring_repo)
+    (authoring_repo / "item.md").write_text("org content", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=authoring_repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "init"], cwd=authoring_repo, check=True)
+
+    # The exact incident shape: a dimension directory that is ITSELF a
+    # symlink into a real authoring checkout.
+    (materialize_root / "knowledge").symlink_to(authoring_repo, target_is_directory=True)
+    target = materialize_root / "knowledge" / "item.md"
+
+    reason = guard_personal_reason(target, materialize_root=materialize_root)
+    assert reason is not None
+    assert "symlink" in reason
+    assert str(materialize_root / "knowledge") in reason
+    assert str(authoring_repo.resolve()) in reason
+    assert guard_personal(target, materialize_root=materialize_root) is True
+
+
+def test_guard_personal_symlink_within_root_still_works(tmp_path):
+    """A symlink that stays confined inside the materialize root (a
+    legitimate in-tree alias) must NOT be treated as an escape."""
+    materialize_root = tmp_path / "claude-materialize"
+    real_dir = materialize_root / "agents" / "_archive"
+    real_dir.mkdir(parents=True)
+    (real_dir / "qa.md").write_text("archived", encoding="utf-8")
+
+    alias = materialize_root / "agents" / "qa-alias"
+    alias.symlink_to(real_dir, target_is_directory=True)
+    target = alias / "qa.md"
+
+    assert guard_personal_reason(target, materialize_root=materialize_root) is None
+    assert guard_personal(target, materialize_root=materialize_root) is False
+
+
+def test_guard_personal_clean_tracked_repo_with_remote_flagged_without_symlink(tmp_path):
+    """Direct misconfiguration (materialize_root itself IS an authoring
+    checkout, no symlink involved) must also be caught -- the symlink is
+    one mechanism for this hole, not the only one."""
+    materialize_root = tmp_path / "materialize-root-is-authoring-repo"
+    materialize_root.mkdir()
+    _git_init_with_remote(materialize_root)
+    target = materialize_root / "agents" / "qa.md"
+    target.parent.mkdir(parents=True)
+    target.write_text("org content", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=materialize_root, check=True)
+    subprocess.run(["git", "commit", "-qm", "init"], cwd=materialize_root, check=True)
+
+    reason = guard_personal_reason(target, materialize_root=materialize_root)
+    assert reason is not None
+    assert "configured remote" in reason
+    assert guard_personal(target, materialize_root=materialize_root) is True
+
+
+def test_guard_personal_clean_tracked_repo_check_not_applied_without_materialize_root(tmp_path):
+    """The clean-tracked-repo check is gated on `materialize_root` being
+    passed -- callers that never pass it (deprovision.py's mirror wipe,
+    projects.py's fanout) must see their pre-P0.3 behavior unchanged."""
+    repo = tmp_path / "repo-with-remote"
+    repo.mkdir()
+    _git_init_with_remote(repo)
+    tracked = repo / "agents" / "qa.md"
+    tracked.parent.mkdir(parents=True)
+    tracked.write_text("committed", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "init"], cwd=repo, check=True)
+
+    # No materialize_root passed -- checks 2/3 never run; a CLEAN tree
+    # (even with a remote) is not flagged via checks 1/4 alone.
+    assert guard_personal(tracked, personal_roots=[]) is False
+
+
+def test_guard_personal_mirror_root_exempts_clean_tracked_repo_check(tmp_path):
+    """A target that legitimately resolves into a registered mirror root
+    must not be refused just for being a clean git repo with a remote --
+    mirrors are disposable by construction."""
+    materialize_root = tmp_path / "materialize-root"
+    materialize_root.mkdir()
+    mirror_root = tmp_path / "mirrors"
+    mirror_clone = mirror_root / "some-tier"
+    mirror_clone.mkdir(parents=True)
+    _git_init_with_remote(mirror_clone)
+    target = mirror_clone / "agents" / "qa.md"
+    target.parent.mkdir(parents=True)
+    target.write_text("mirror content", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=mirror_clone, check=True)
+    subprocess.run(["git", "commit", "-qm", "init"], cwd=mirror_clone, check=True)
+
+    reason = guard_personal_reason(
+        target, materialize_root=mirror_root, mirror_roots=[mirror_root]
+    )
+    assert reason is None
+
+
+def test_guard_personal_clean_tree_without_remote_unprotected_even_with_materialize_root(
+    tmp_path,
+):
+    """A bare `git init` scratch tree with NO remote configured (this test
+    module's own `_git_init()` fixture shape) must stay unprotected even
+    when `materialize_root` IS passed -- proves check 3 doesn't over-fire
+    against every git-tracked materialize root, only ones with a remote."""
+    materialize_root = tmp_path / "materialize"
+    materialize_root.mkdir()
+    _git_init(materialize_root)  # no remote
+    tracked = materialize_root / "agents" / "qa.md"
+    tracked.parent.mkdir(parents=True)
+    tracked.write_text("committed", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=materialize_root, check=True)
+    subprocess.run(["git", "commit", "-qm", "init"], cwd=materialize_root, check=True)
+
+    assert guard_personal_reason(tracked, materialize_root=materialize_root) is None
 
 
 # ---------------------------------------------------------------------------
@@ -375,6 +519,142 @@ def test_never_destroy_prune_skips_a_personal_protected_path(tmp_path):
     assert tracked.read_bytes() == hash_before
     ops = [o for o in report["ops"] if o["item"] == "qa"]
     assert ops[0]["op"] == "held"
+
+
+# ---------------------------------------------------------------------------
+# NEVER-DESTROY #3: WP-372 P0.3 -- REPRODUCE THE EXACT INCIDENT SHAPE
+#
+# The live P0: `~/.claude/knowledge` was a symlink into the org authoring
+# repo `knowledge-copilot-internal` (clean, tracked, real remote). A
+# materialize run resolved a personal-layer "knowledge" item, wrote/pruned
+# through the symlink, and reconcile-deleted 12,537 lines of the org repo.
+# These tests build that EXACT fixture shape (symlink dimension directory
+# -> a separate, clean, git-tracked "authoring repo" with a remote and its
+# own unrelated content) and assert the fixed guard refuses on both the
+# write path and the prune path, with the authoring repo BYTE-IDENTICAL
+# before/after and a structured (non-crashing) reason -- never a
+# traceback, never a silent skip.
+# ---------------------------------------------------------------------------
+
+
+def _make_incident_fixture(tmp_path: Path):
+    """Build the exact incident shape: `materialize_root/knowledge` is a
+    symlink into a separate, clean, git-tracked authoring repo with a
+    remote and its own real content (unrelated to anything this
+    materialize run is trying to place). Returns
+    (materialize_root, authoring_repo)."""
+    materialize_root = tmp_path / "claude-materialize"
+    materialize_root.mkdir()
+
+    authoring_repo = tmp_path / "knowledge-copilot-internal"
+    authoring_repo.mkdir()
+    _git_init_with_remote(authoring_repo)
+    (authoring_repo / "01-company").mkdir()
+    (authoring_repo / "01-company" / "brand.md").write_text(
+        "brand voice, unrelated to this materialize run", encoding="utf-8"
+    )
+    (authoring_repo / ".claude" / "agents").mkdir(parents=True)
+    (authoring_repo / ".claude" / "agents" / "cw.md").write_text(
+        "org agent extension", encoding="utf-8"
+    )
+    # The other 3 top-level names the real incident's personal layer
+    # "owned" (and reconcile-deleted) alongside `.claude`.
+    (authoring_repo / "docs").mkdir()
+    (authoring_repo / "docs" / "consumption-contract.md").write_text(
+        "org docs", encoding="utf-8"
+    )
+    (authoring_repo / "knowledge-manifest").mkdir()
+    (authoring_repo / "knowledge-manifest" / "v1.json").write_text("{}", encoding="utf-8")
+    (authoring_repo / "skills").mkdir()
+    (authoring_repo / "skills" / "README.md").write_text("org skills", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=authoring_repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "org content"], cwd=authoring_repo, check=True)
+
+    (materialize_root / "knowledge").symlink_to(authoring_repo, target_is_directory=True)
+    return materialize_root, authoring_repo
+
+
+def test_incident_reproduction_write_path_refuses_through_symlinked_dimension(tmp_path):
+    materialize_root, authoring_repo = _make_incident_fixture(tmp_path)
+    fingerprint_before = _fingerprint_tree(authoring_repo)
+
+    layer_root = tmp_path / "personal-src"
+    (layer_root / "knowledge").mkdir(parents=True)
+    (layer_root / "knowledge" / ".claude").mkdir()
+    (layer_root / "knowledge" / ".claude" / "settings.json").write_text(
+        "{}", encoding="utf-8"
+    )
+    resolved = [
+        {
+            "product": "claude",
+            "dimension": "knowledge",
+            "item": ".claude",
+            "winning_layer": "claude-personal",
+        }
+    ]
+
+    report = materialize(
+        resolved,
+        materialize_roots={"claude": materialize_root},
+        layer_source_paths={"claude-personal": layer_root},
+        layer_products={"claude-personal": "claude"},
+        previous_lock={},
+        policy=permissive_policy,
+    )
+
+    ops = [o for o in report["ops"] if o["item"] == ".claude"]
+    assert len(ops) == 1
+    assert ops[0]["op"] == "held"  # REFUSED -- never "added"/"updated"
+    assert "symlink" in ops[0]["reason"]
+    assert ops[0]["reason"]  # structured, non-empty -- never a crash
+
+    # The authoring repo is BYTE-IDENTICAL after -- nothing was written
+    # through the symlink.
+    assert _fingerprint_tree(authoring_repo) == fingerprint_before
+    assert (authoring_repo / ".claude" / "agents" / "cw.md").read_text() == "org agent extension"
+
+
+def test_incident_reproduction_prune_path_refuses_through_symlinked_dimension(tmp_path):
+    """Same fixture, but this time the item is no longer resolved at all
+    this round (the prune path) -- reconcile-delete must ALSO refuse to
+    delete through the symlink, exactly the mechanism that reconcile-
+    deleted 12,537 lines of the real org repo."""
+    materialize_root, authoring_repo = _make_incident_fixture(tmp_path)
+    fingerprint_before = _fingerprint_tree(authoring_repo)
+
+    layer_root = tmp_path / "personal-src"
+    layer_root.mkdir()  # nothing resolves this round -- previously-lock-tracked item is "gone"
+
+    previous_lock = {
+        "claude-personal": {
+            "knowledge": {
+                ".claude": "old-sha",
+                "docs": "old-sha",
+                "knowledge-manifest": "old-sha",
+                "skills": "old-sha",
+            }
+        }
+    }
+
+    report = materialize(
+        [],
+        materialize_roots={"claude": materialize_root},
+        layer_source_paths={"claude-personal": layer_root},
+        layer_products={"claude-personal": "claude"},
+        previous_lock=previous_lock,
+        policy=permissive_policy,
+    )
+
+    prune_ops = [o for o in report["ops"] if o["layer"] == "claude-personal"]
+    assert prune_ops, "expected the prune loop to consider the 4 lock-tracked knowledge items"
+    for op in prune_ops:
+        assert op["op"] == "held"  # REFUSED -- never "pruned"
+        assert "symlink" in op["reason"]
+
+    # Nothing under the authoring repo was deleted or modified.
+    assert _fingerprint_tree(authoring_repo) == fingerprint_before
+    assert (authoring_repo / "01-company" / "brand.md").exists()
+    assert (authoring_repo / ".claude" / "agents" / "cw.md").exists()
 
 
 # ---------------------------------------------------------------------------

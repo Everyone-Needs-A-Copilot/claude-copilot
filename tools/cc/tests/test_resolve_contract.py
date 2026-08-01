@@ -211,6 +211,105 @@ layers:
 
 
 # ---------------------------------------------------------------------------
+# WP-372 P5.1: `cc resolve` was blind to every pathless (remote-sourced)
+# layer -- discover_contributions() requires a static local source.path,
+# and the live manifest never carries one. resolve.py now synthesizes the
+# same mirror-based path update.py already does (mirror.synthesize_
+# source_path()), read-only.
+# ---------------------------------------------------------------------------
+
+
+def _pathless_layer(layer_id: str = "foundation", *, product: str = "claude") -> dict:
+    """A layer with NO static `source.path` -- the exact shape of the live
+    manifest (only `source.repo`, nothing local)."""
+    return {
+        "id": layer_id,
+        "role": "foundation",
+        "rank": 40,
+        "product": product,
+        "source": {"repo": f"https://example.invalid/{layer_id}.git", "ref": "main"},
+        "auth": "anon",
+        "activation": "always",
+    }
+
+
+def test_resolve_synthesizes_mirror_path_for_pathless_layer_and_folds_items(tmp_path):
+    """A manifest with a pathless layer + a mirror ALREADY on disk (as if
+    `cc update` already ran) -- resolve must fold real items, not report
+    0, and must never clone/fetch anything to do it."""
+    from cc.commands.resolve import build_resolve_report
+
+    mirror_root = tmp_path / "mirrors"
+    (mirror_root / "foundation" / "agents").mkdir(parents=True)
+    (mirror_root / "foundation" / "agents" / "sec.md").write_text(
+        "security agent body", encoding="utf-8"
+    )
+
+    report = build_resolve_report(
+        _layers=[_pathless_layer("foundation")],
+        _lockfile={},
+        _mirror_root=mirror_root,
+    )
+
+    assert report["items"], "expected the already-mirrored content to resolve"
+    item = report["items"][0]
+    assert item["dimension"] == "agents"
+    assert item["item"] == "sec"
+    assert item["winning_layer"] == "foundation"
+
+
+def test_resolve_synthesizes_product_scoped_mirror_path_for_externally_consumed_product(
+    tmp_path,
+):
+    """knowledge/cli layers mirror one directory deeper
+    (`<mirror_root>/<product>/<layer id>`) -- resolve must compute the
+    SAME nested path `cc update` does (mirror.EXTERNALLY_CONSUMED_PRODUCTS),
+    not the flat one."""
+    from cc.commands.resolve import build_resolve_report
+
+    mirror_root = tmp_path / "mirrors"
+    (mirror_root / "knowledge" / "foundation" / "agents").mkdir(parents=True)
+    (mirror_root / "knowledge" / "foundation" / "agents" / "kc.md").write_text(
+        "knowledge agent body", encoding="utf-8"
+    )
+
+    report = build_resolve_report(
+        _layers=[_pathless_layer("foundation", product="knowledge")],
+        _lockfile={},
+        _mirror_root=mirror_root,
+    )
+
+    assert report["items"]
+    assert report["items"][0]["item"] == "kc"
+
+
+def test_resolve_pathless_layer_with_no_mirror_on_disk_yet_is_honest_empty(tmp_path):
+    """Read-only contract: if no `cc update` has run yet (no mirror on
+    disk), resolve must NOT clone/fetch -- it degrades to an honest empty
+    result via discover_contributions()'s own existing "path doesn't
+    exist" fallback, never a crash."""
+    from cc.commands.resolve import build_resolve_report
+
+    report = build_resolve_report(
+        _layers=[_pathless_layer("foundation")],
+        _lockfile={},
+        _mirror_root=tmp_path / "mirrors-that-do-not-exist",
+    )
+
+    assert report["items"] == []
+
+
+def test_resolve_layer_with_explicit_local_path_is_unaffected_by_synthesis(monkeypatch, tmp_path):
+    """A layer that ALREADY carries a static local source.path (the
+    pre-P5.1 working case) must be completely unaffected -- synthesis is a
+    no-op for it (mirror.synthesize_source_path() returns None whenever
+    local_path is already set)."""
+    payload, exit_code = _invoke_resolve_json(monkeypatch, tmp_path)
+    assert exit_code == 0
+    assert payload["items"]
+
+
+# ---------------------------------------------------------------------------
 # `cc resolve` verb collision: legacy single-key mode must be unaffected
 # ---------------------------------------------------------------------------
 

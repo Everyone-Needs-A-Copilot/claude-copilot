@@ -8,20 +8,33 @@ Usage:
 
 from __future__ import annotations
 
-import json
-from typing import Optional
+import re
+from pathlib import Path
 
-import typer
 from rich.console import Console
 
 from cc.core.config import (
     get_resolved_config,
     load_machine_secrets,
     load_project_secrets,
-    resolve_key,
+    resolve_knowledge_repos,
 )
 
 err_console = Console(stderr=True)
+
+# The machine-wide personal-tier repo naming convention `cc onboard` itself
+# creates/clones under (see commands/onboard.py's `_personal_seed()` /
+# `build_personal_onboard_report()`: every personal package is a
+# `<product>-copilot-private` repo, cloned via the `github-personal` SSH
+# identity -- four-tier-topology.md's own "personal identity" convention,
+# e.g. `claude-copilot-private`). Matched against every path SEGMENT (not
+# just the leaf) so `.../claude-copilot-private/knowledge` still matches on
+# its `claude-copilot-private` ancestor segment.
+_PERSONAL_REPO_SEGMENT = re.compile(r"^.+-copilot-private$")
+
+
+def _is_personal_knowledge_path(path: str) -> bool:
+    return any(_PERSONAL_REPO_SEGMENT.match(part) for part in Path(path).parts)
 
 
 def _key_to_env_name(key: str) -> str:
@@ -72,6 +85,33 @@ def run_env(
     for alias, source in _PATH_ALIASES.items():
         if source in exports and alias not in exports:
             exports[alias] = exports[source]
+
+    # WP-372 P3.1: paths.knowledge_repo is list-valued (a personal knowledge
+    # layer rides as one more list entry), but the pre-P3.1 alias below
+    # truncated to the FIRST element -- making every entry past index 0
+    # (in practice: the personal one, appended last via `cc config add`)
+    # structurally invisible to every agent instruction that only ever
+    # reads CC_KNOWLEDGE_REPO. Two additions, both additive (never remove
+    # CC_KNOWLEDGE_REPO's existing first-element back-compat behavior
+    # below):
+    #   - CC_KNOWLEDGE_REPOS: the full ordered comma list (same content as
+    #     CC_PATHS_KNOWLEDGE_REPO, under the short-form name agents are
+    #     actually instructed to read -- see knowledge-copilot's
+    #     consumption contract).
+    #   - CC_PERSONAL_KNOWLEDGE_REPO: whichever entry (if any) resides
+    #     under a `<product>-copilot-private` repo -- the personal-tier
+    #     naming convention `cc onboard` itself creates
+    #     (`_is_personal_knowledge_path()` above). Never emitted if no
+    #     entry matches -- an honest "no personal knowledge repo
+    #     configured", never a fabricated guess.
+    knowledge_repos = resolve_knowledge_repos(cfg.get("paths.knowledge_repo"))
+    if knowledge_repos:
+        exports["CC_KNOWLEDGE_REPOS"] = ",".join(knowledge_repos)
+        personal_repo = next(
+            (repo for repo in knowledge_repos if _is_personal_knowledge_path(repo)), None
+        )
+        if personal_repo is not None:
+            exports["CC_PERSONAL_KNOWLEDGE_REPO"] = personal_repo
 
     # CC_KNOWLEDGE_REPO is a single-value back-compat alias: when
     # paths.knowledge_repo resolves to an ordered list (comma-joined above

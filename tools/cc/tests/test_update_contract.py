@@ -200,6 +200,73 @@ def test_update_json_applied_validates_against_contract_schema(tmp_path):
     assert changed_ops["sec"] == "added"
 
 
+# ---------------------------------------------------------------------------
+# WP-372 P0.3: personal_roots_from_config() production feeder wiring
+# ---------------------------------------------------------------------------
+
+
+def test_update_default_personal_roots_feeder_protects_configured_root(monkeypatch, tmp_path):
+    """When `_personal_roots` is NOT injected (the real production path),
+    `build_update_report()` must consult `personal_roots_from_config()`
+    and pass the result through to `materialize()` -- proving the
+    production feeder is actually wired, not merely present as a function
+    (the P0 incident's exact defect: the parameter existed, nothing fed
+    it)."""
+    source_repo = _make_source_repo(tmp_path, {"agents/sec.md": "v1"})
+    layers = _one_layer(source_repo)
+    materialize_root = tmp_path / "materialize"
+
+    # Register the agents/ dimension directory itself as a "personal root"
+    # -- simulating a configured paths.knowledge_repo/projects.roots entry
+    # that happens to coincide with a materialize target.
+    monkeypatch.setattr(
+        "cc.commands.update.personal_roots_from_config",
+        lambda: [str(materialize_root / "agents")],
+    )
+
+    report = build_update_report(
+        _layers=layers,
+        _previous_lock={},
+        _mirror_root=tmp_path / "mirrors",
+        _materialize_root=materialize_root,
+        _lock_write_path=tmp_path / "copilot.lock.json",
+        _policy=permissive_policy,
+        # _personal_roots deliberately NOT passed -- exercising the default.
+    )
+
+    assert not (materialize_root / "agents" / "sec.md").exists()
+    held = report["held_for_approval"]
+    assert held, "expected the configured personal root to hold the item"
+    assert "personal root" in held[0]["reason"]
+
+
+def test_update_explicit_personal_roots_override_skips_config_feeder(monkeypatch, tmp_path):
+    """An explicitly injected `_personal_roots=[]` must NOT be replaced by
+    `personal_roots_from_config()` -- tests (and any future caller wanting
+    to opt out) can still pass an explicit list."""
+    source_repo = _make_source_repo(tmp_path, {"agents/sec.md": "v1"})
+    layers = _one_layer(source_repo)
+    materialize_root = tmp_path / "materialize"
+
+    monkeypatch.setattr(
+        "cc.commands.update.personal_roots_from_config",
+        lambda: [str(materialize_root / "agents")],  # would protect if consulted
+    )
+
+    report = build_update_report(
+        _layers=layers,
+        _previous_lock={},
+        _mirror_root=tmp_path / "mirrors",
+        _materialize_root=materialize_root,
+        _lock_write_path=tmp_path / "copilot.lock.json",
+        _policy=permissive_policy,
+        _personal_roots=[],  # explicit override -- config feeder must be skipped
+    )
+
+    assert (materialize_root / "agents" / "sec.md").read_text() == "v1"
+    assert report["held_for_approval"] == []
+
+
 def test_update_syncs_external_product_mirrors_without_materializing_authored_shapes(
     tmp_path,
 ):

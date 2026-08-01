@@ -31,9 +31,9 @@ from __future__ import annotations
 
 import socket
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
-from cc.core.config import resolve_key
+from cc.core.config import personal_roots_from_config, resolve_key
 from cc.core.ecosystem import mirror
 from cc.core.ecosystem.freshness import lock_fingerprint
 from cc.core.ecosystem.lockfile import (
@@ -94,7 +94,7 @@ def build_update_report(
     _materialize_roots: Any = _UNSET,
     _target_allowlist: Any = _UNSET,
     _policy: Optional[PolicyFn] = None,
-    _personal_roots: Iterable[Any] = (),
+    _personal_roots: Any = _UNSET,
     _dry_run: bool = False,
 ) -> dict[str, Any]:
     """
@@ -109,6 +109,15 @@ def build_update_report(
     entirely inside a tmp sandbox. `_dry_run=True` computes every op
     WITHOUT writing/pruning materialize-root content and WITHOUT writing
     the lockfile -- a safe preview of the plan.
+
+    `_personal_roots`: WP-372 P0.3 -- when NOT explicitly injected (the
+    real production path; only tests override this), defaults to
+    `personal_roots_from_config()` (`core/config.py`) rather than the
+    empty tuple this used to silently default to. This is half of closing
+    the live incident's guard hole -- every configured
+    `paths.knowledge_repo` entry and `projects.roots` entry is a known
+    human-owned tree and is now ALWAYS passed to `guard_personal()`,
+    whether or not it happens to be dirty right now.
 
     Does NOT acquire `copilot_lock()` itself -- that is `execute_update()`'s
     job (the CLI-facing wrapper), so this function stays a plain,
@@ -169,7 +178,7 @@ def build_update_report(
     source_shas: dict[str, str] = {}
     any_offline_without_cache = False
 
-    externally_consumed_products = {"knowledge", "cli"}
+    externally_consumed_products = mirror.EXTERNALLY_CONSUMED_PRODUCTS
 
     for layer in sorted(layers, key=lambda item: item["rank"]):
         layer_copy = dict(layer)
@@ -202,14 +211,14 @@ def build_update_report(
                 if source_sha:
                     source_shas[layer["id"]] = source_sha
                 source = dict(source)
-                content_root = mirror_path
-                if subpath:
-                    relative = Path(str(subpath))
-                    if relative.is_absolute() or ".." in relative.parts:
-                        raise ManifestError(
-                            f"Layer {layer['id']!r} source.subpath must stay inside its mirror."
-                        )
-                    content_root = mirror_path / relative
+                # WP-372 P5.1: shared with commands/resolve.py -- see
+                # mirror.synthesize_source_path()'s own docstring for why
+                # this is no longer computed inline here.
+                content_root = mirror.synthesize_source_path(
+                    layer,
+                    mirror_root_base=mirror_root_base,
+                    externally_consumed_products=externally_consumed_products,
+                )
                 source["path"] = str(content_root)
         elif local_path and subpath:
             relative = Path(str(subpath))
@@ -258,6 +267,13 @@ def build_update_report(
         if (layer.get("source") or {}).get("path")
     }
 
+    # WP-372 P0.3: production feeder for guard_personal()'s personal_roots
+    # -- see build_update_report()'s own docstring above and
+    # core/config.py's personal_roots_from_config() for the full rationale.
+    personal_roots = (
+        list(_personal_roots) if _personal_roots is not _UNSET else personal_roots_from_config()
+    )
+
     mat_report = materialize(
         resolved,
         materialize_root=materialize_root,
@@ -268,7 +284,8 @@ def build_update_report(
         layer_policies={layer["id"]: layer.get("policy", {}) for layer in effective_layers},
         layer_products={layer["id"]: layer["product"] for layer in effective_layers},
         policy=_policy or default_policy,
-        personal_roots=_personal_roots,
+        personal_roots=personal_roots,
+        mirror_roots=[mirror_root_base],
         dry_run=_dry_run,
     )
 

@@ -41,6 +41,7 @@ from typing import Any, Callable, Optional, TypedDict
 
 from cc.core import authstore, keychain
 from cc.core.config import resolve_key
+from cc.core.ecosystem.manifest import ManifestError
 
 # Default published lock-pointer ref name (owner-ratified convention --
 # see module docstring). Callers may override per-tier via a manifest
@@ -56,6 +57,16 @@ _UNSET: Any = object()
 _EXACT_SEMVER = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
 _CARET_SEMVER = re.compile(r"^\^v?(\d+)\.(\d+)\.(\d+)$")
 _MAJOR_X_SEMVER = re.compile(r"^v?(\d+)\.x$")
+
+# Products whose mirrors are nested one level deeper (`<mirror_root>/
+# <product>/<layer id>` rather than `<mirror_root>/<layer id>`) because
+# they are synced but never folded into the materialize root -- see
+# `commands/update.py`'s own module docstring / `externally_consumed_
+# products` local. Single source of truth for BOTH `clone_or_update_mirror()`
+# callers (update.py) and `synthesize_source_path()` (update.py + resolve.py)
+# below, so the two can never compute a different mirror location for the
+# same layer.
+EXTERNALLY_CONSUMED_PRODUCTS: frozenset[str] = frozenset({"knowledge", "cli"})
 
 
 def mirror_root(tier: str, *, _root: Optional[Path | str] = None) -> Path:
@@ -79,6 +90,71 @@ def mirror_root(tier: str, *, _root: Optional[Path | str] = None) -> Path:
             else Path.home() / ".copilot" / "mirrors"
         )
     return base / tier
+
+
+def synthesize_source_path(
+    layer: dict[str, Any],
+    *,
+    mirror_root_base: Path | str,
+    externally_consumed_products: frozenset[str] = EXTERNALLY_CONSUMED_PRODUCTS,
+) -> Optional[Path]:
+    """
+    Compute the on-disk content root a remote-sourced layer's mirror
+    clone resolves (or WOULD resolve) to: `<mirror_root_base>/<product>/
+    <layer id>` for `externally_consumed_products` (knowledge/cli),
+    `<mirror_root_base>/<layer id>` for everything else, plus any declared
+    `source.subpath` joined on top -- the EXACT same construction
+    `clone_or_update_mirror()`'s own `target = Path(mirror_root).expanduser()
+    / tier` uses.
+
+    WP-372 P5.1: pure path arithmetic -- never touches disk or network,
+    never clones/fetches anything, and never requires the mirror to
+    actually exist (callers decide whether/how to check that). This is
+    the SINGLE SOURCE OF TRUTH shared by:
+      - `commands/update.py` (MUTATING: clones/updates the mirror first,
+        then calls this to compute the resulting `source["path"]` it
+        materializes from).
+      - `commands/resolve.py` (READ-ONLY: calls this directly against
+        whatever mirror already happens to exist on disk from a prior
+        `cc update`, per its own never-clones-anything contract -- see
+        resolve.py's module docstring -- so `cc resolve --explain` stops
+        being blind to any layer whose manifest entry has no static
+        `source.path`, which is every remote-sourced layer in the live
+        manifest).
+    Before this, `update.py` computed this inline and `resolve.py` had NO
+    equivalent at all (`discover_contributions()` requires a static
+    `source.path` that the manifest never carries), so `cc resolve` always
+    reported 0 items even when materialize demonstrably worked.
+
+    Returns `None` for a layer with no `source.repo`, or one that already
+    carries an explicit local `source.path` (a local-path-sourced layer is
+    not this function's concern -- its path is already static). Raises
+    `ManifestError` for a `source.subpath` that escapes its mirror (`..`
+    or an absolute path) -- the SAME validation `update.py` already
+    performs at materialize time, now shared so `resolve --explain` can
+    never silently disagree with what `update` would actually do.
+    """
+    source = layer.get("source") or {}
+    repo = source.get("repo")
+    local_path = source.get("path")
+    if not repo or local_path:
+        return None
+
+    product = layer.get("product")
+    base = Path(mirror_root_base).expanduser()
+    product_root = base / str(product) if product in externally_consumed_products else base
+    content_root = product_root / layer["id"]
+
+    subpath = source.get("subpath")
+    if not subpath:
+        return content_root
+
+    relative = Path(str(subpath))
+    if relative.is_absolute() or ".." in relative.parts:
+        raise ManifestError(
+            f"Layer {layer['id']!r} source.subpath must stay inside its mirror."
+        )
+    return content_root / relative
 
 
 def latest_lock_sha(

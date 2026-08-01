@@ -133,15 +133,209 @@ def _is_dirty_git_tree(path: Path, *, timeout: float = 5.0) -> bool:
     return bool(result.stdout.strip())
 
 
+def _has_configured_remote(git_root: Path, *, timeout: float = 5.0) -> bool:
+    """
+    True if the git working tree rooted at `git_root` has at least one
+    configured remote (`git remote`) -- i.e. it is a real clone of
+    somewhere, not just a bare local scratch repo (materialize.py's own
+    tests deliberately `git init` throwaway repos with no remote, which
+    must stay unaffected by the WP-372 P0.3 "clean tracked repo" guard
+    below). Fails CLOSED, same posture as `_is_dirty_git_tree()`: if the
+    check itself can't run, treat it as IF a remote is configured (the
+    safer assumption -- protect, don't silently allow).
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(git_root), "remote"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return True  # fail closed
+
+    if result.returncode != 0:
+        return True  # fail closed
+
+    return bool(result.stdout.strip())
+
+
+def _is_under_any(path: Path, roots: Iterable[Path]) -> bool:
+    for root in roots:
+        if path == root:
+            return True
+        try:
+            path.relative_to(root)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+def _first_symlink_escaping_root(path: Path, root: Path) -> Optional[tuple[Path, Path]]:
+    """
+    Walk `path`'s ancestor chain from itself up to (but not including)
+    `root`, looking for the first EXISTING component that is itself a
+    symlink whose resolved target lands OUTSIDE `root`'s own resolved
+    boundary.
+
+    Returns `(symlink_path, resolved_target)` for the first such offender,
+    or `None` if nothing along the chain escapes `root`.
+
+    This is the exact shape of the WP-372 P0 live incident:
+    `~/.claude/knowledge` was a symlink into the org authoring repo
+    `knowledge-copilot-internal`, so every write "under"
+    `~/.claude/knowledge/<item>` silently landed outside the materialize
+    root (`~/.claude`) it was supposed to be confined to.
+
+    Only the segment between `root` and `path` (inclusive of `path`) is
+    ever inspected -- this is a one-target confinement check, not a
+    general filesystem symlink audit, and never resolves anything above
+    `root` itself.
+    """
+    try:
+        root_real = root.resolve()
+    except OSError:
+        return None
+
+    try:
+        path.relative_to(root)
+    except ValueError:
+        # `path` isn't even nominally under `root` -- not this check's
+        # job (materialize.py only ever builds in-root targets; this is
+        # defense-in-depth on top of that construction, not the primary
+        # confinement mechanism).
+        return None
+
+    for candidate in [path, *path.parents]:
+        if candidate == root:
+            break
+        try:
+            if not candidate.is_symlink():
+                continue
+            target_real = candidate.resolve()
+        except OSError:
+            continue
+        try:
+            target_real.relative_to(root_real)
+        except ValueError:
+            return candidate, target_real
+
+    return None
+
+
+def guard_personal_reason(
+    path: Path | str,
+    *,
+    personal_roots: Iterable[Path | str] = (),
+    materialize_root: Path | str | None = None,
+    mirror_roots: Iterable[Path | str] = (),
+) -> Optional[str]:
+    """
+    The never-destroy hard stop, WP-372 P0.3 shape (three protections,
+    defense in depth -- the live incident defeated the pre-P0.3 version of
+    this check because it only ever looked at `path` itself, never at what
+    a symlink along the way actually resolved to, and never at whether
+    `path` was itself sitting inside someone else's git remote):
+
+      1. `personal_roots` containment (unchanged from before P0.3) --
+         `path` is (or is under) a registered personal/authoring root.
+      2. SYMLINK ESCAPE (new): if `materialize_root` is given, refuse when
+         any ancestor of `path` between `materialize_root` and `path`
+         itself is a symlink whose resolved target lands outside
+         `materialize_root` -- the exact incident shape
+         (`~/.claude/knowledge` -> a real org authoring checkout).
+      3. CLEAN TRACKED REPO (new, ALSO gated on `materialize_root` being
+         given -- see below): refuse when `path` sits inside ANY git
+         working tree that has a configured remote, UNLESS that tree is
+         itself under one of `mirror_roots` (a disposable, engine-managed
+         mirror clone is expected to have a remote and is never personal).
+         This catches a materialize target that IS itself an authoring
+         checkout even with no symlink involved, and even when clean (the
+         incident repo was clean at the moment it was destroyed -- dirty
+         alone was never a sufficient guard).
+      4. DIRTY TREE (unchanged from before P0.3) -- `path` sits inside ANY
+         dirty git working tree, registered or not.
+
+    Checks 2 and 3 are BOTH gated on `materialize_root` being passed (not
+    just check 2): they only make sense for a caller that is confining
+    writes/deletes to one specific root -- exactly `materialize()`'s own
+    write and prune loops below, the one place the P0 incident's write
+    actually happened. Callers that reuse this same gate for a DIFFERENT
+    purpose must not get check 3 for free: `deprovision.py`'s mirror-tier
+    wipe intentionally deletes disposable mirror clones, which ARE git
+    repos with a configured remote by construction (`cc update` clones
+    them from one) -- passing no `materialize_root` there (as it always
+    has) keeps that wipe working exactly as before. Likewise
+    `commands/projects.py` / `core/ecosystem/projects.py` write into a
+    discovered PROJECT's own repo, which legitimately has its own remote
+    too -- `cc update --fanout`'s entire purpose would break if every
+    fanout target were suddenly "protected" for having a remote, so those
+    call sites also never pass `materialize_root` and stay on checks 1/4
+    only, unchanged from before P0.3.
+
+    Returns the (human-readable) reason string for the FIRST protection
+    that fires, or `None` if `path` is not protected by any of them.
+    `guard_personal()` below is the boolean view of this for callers that
+    only need the yes/no answer (deprovision.py, projects.py, and this
+    module's own prune loop).
+    """
+    target = Path(path).expanduser()
+
+    for root in personal_roots:
+        root_path = Path(root).expanduser()
+        if target == root_path:
+            return f"personal root {root_path}"
+        try:
+            target.relative_to(root_path)
+            return f"personal root {root_path}"
+        except ValueError:
+            continue
+
+    if materialize_root is not None:
+        boundary = Path(materialize_root).expanduser()
+
+        escape = _first_symlink_escaping_root(target, boundary)
+        if escape is not None:
+            symlink_path, resolved_target = escape
+            return (
+                f"symlink {symlink_path} resolves to {resolved_target}, which "
+                f"escapes the materialize root {boundary} -- refusing to "
+                "write or delete through it"
+            )
+
+        mirror_root_paths = [Path(m).expanduser() for m in mirror_roots]
+        git_root = _find_git_root(target)
+        if (
+            git_root is not None
+            and not _is_under_any(git_root, mirror_root_paths)
+            and _has_configured_remote(git_root)
+        ):
+            return (
+                f"{target} sits inside a git working tree at {git_root} with "
+                "a configured remote -- treated as a protected authoring "
+                "repository, not a disposable materialize/mirror target"
+            )
+
+    if _is_dirty_git_tree(target):
+        return "personal/dirty working tree"
+
+    return None
+
+
 def guard_personal(
     path: Path | str,
     *,
     personal_roots: Iterable[Path | str] = (),
+    materialize_root: Path | str | None = None,
+    mirror_roots: Iterable[Path | str] = (),
 ) -> bool:
     """
-    True if `path` is (or is under) a personal/authoring tree, OR sits in a
-    dirty git working tree -- i.e. this path must NEVER be deleted or
-    overwritten by a reconciling sync.
+    True if `path` must NEVER be deleted or overwritten by a reconciling
+    sync -- see `guard_personal_reason()` for the full four-check ladder
+    this is a boolean view of (personal root / symlink escape / clean
+    tracked repo with a remote / dirty git tree).
 
     `personal_roots` is the injectable set of known personal/authoring
     tree roots (e.g. the personal-tier's local checkout, or an author's
@@ -150,25 +344,27 @@ def guard_personal(
     an ancestor of `path`), not by string prefix, so `.../personal-2/x`
     never false-positives against a `personal` root.
 
-    Even with an empty `personal_roots`, this still refuses a path inside
+    `materialize_root`/`mirror_roots` are optional and default to a no-op
+    (preserving this function's pre-P0.3 behavior exactly for callers that
+    don't pass them, e.g. `deprovision.py`'s mirror-tier wipe, which MUST
+    keep treating a mirror clone -- itself a git repo with a remote -- as
+    disposable, not personal).
+
+    Even with nothing else configured, this still refuses a path inside
     ANY dirty git working tree (a human-owned, uncommitted-changes tree is
     "personal" for never-destroy's purposes regardless of whether it was
     pre-registered -- CLAUDE.md invariant #3: "never touches a dirty
     personal working tree").
     """
-    target = Path(path).expanduser()
-
-    for root in personal_roots:
-        root_path = Path(root).expanduser()
-        if target == root_path:
-            return True
-        try:
-            target.relative_to(root_path)
-            return True
-        except ValueError:
-            continue
-
-    return _is_dirty_git_tree(target)
+    return (
+        guard_personal_reason(
+            path,
+            personal_roots=personal_roots,
+            materialize_root=materialize_root,
+            mirror_roots=mirror_roots,
+        )
+        is not None
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -296,6 +492,7 @@ def materialize(
     layer_products: Optional[dict[str, str]] = None,
     policy: Optional[PolicyFn] = None,
     personal_roots: Iterable[Path | str] = (),
+    mirror_roots: Iterable[Path | str] = (),
     dry_run: bool = False,
 ) -> MaterializeReport:
     """
@@ -319,6 +516,16 @@ def materialize(
     protected item carries its PREVIOUS sha forward unchanged (the file
     itself was never touched, so its recorded pin must not silently
     change either).
+
+    WP-372 P0.3 (the live incident post-mortem -- see `guard_personal_reason()`):
+    every `guard_personal()` call below passes THIS entry's own product-
+    scoped confinement root (`_confinement_root()`), so the symlink-escape
+    and clean-tracked-repo checks are always evaluated against the exact
+    boundary this write/prune is supposed to stay inside -- never a bare
+    personal-roots-only check the way this module used to call it.
+    `mirror_roots` (optional; defaults to none configured) exempts a
+    disposable, engine-managed mirror clone from the clean-tracked-repo
+    check should a target ever legitimately resolve into one.
     """
     gate = policy or _default_policy
     if materialize_roots is None and materialize_root is None:
@@ -332,9 +539,26 @@ def materialize(
     layer_products = layer_products or {}
     previous_lock = previous_lock or {}
     personal_roots = list(personal_roots)
+    mirror_roots = list(mirror_roots)
 
     ops: list[MaterializeOp] = []
     new_lock: Lockfile = {}
+
+    def _confinement_root(product: str) -> Optional[Path]:
+        """The materialize-root boundary THIS product's writes/deletes must
+        stay inside -- single-root mode uses `legacy_root` for everything;
+        multi-root mode looks up this specific product's own root (never a
+        DIFFERENT product's root, so a claude-targeted symlink escape can
+        never be masked by codex's boundary or vice versa)."""
+        return legacy_root if materialize_roots is None else product_roots.get(product)
+
+    def _guard_reason(target: Path, product: str) -> Optional[str]:
+        return guard_personal_reason(
+            target,
+            personal_roots=personal_roots,
+            materialize_root=_confinement_root(product),
+            mirror_roots=mirror_roots,
+        )
 
     def _target(product: str, dimension: str, name: str) -> Optional[Path]:
         if materialize_roots is None:
@@ -439,14 +663,15 @@ def materialize(
             )
             continue
 
-        if guard_personal(dest_path, personal_roots=personal_roots):
+        guard_reason = _guard_reason(dest_path, product)
+        if guard_reason is not None:
             _carry_forward(layer_id, dimension, item)
             ops.append(
                 _op(
                     product=product,
                     dimension=dimension, layer=layer_id, item=item, op="held",
                     path=dest_path, signed=True,
-                    reason="protected: personal/dirty working tree -- never overwritten",
+                    reason=f"protected: {guard_reason} -- never overwritten",
                     from_sha=prev_sha, to_sha=candidate_sha,
                 )
             )
@@ -511,13 +736,14 @@ def materialize(
                 if target is None:
                     continue  # nothing materialized to prune -- already absent
 
-                if guard_personal(target, personal_roots=personal_roots):
+                guard_reason = _guard_reason(target, product)
+                if guard_reason is not None:
                     ops.append(
                         _op(
                             product=product,
                             dimension=dimension, layer=layer_id, item=item, op="held",
                             path=target, signed=True,
-                            reason="protected: personal/dirty working tree -- never pruned",
+                            reason=f"protected: {guard_reason} -- never pruned",
                             from_sha=prev_sha, to_sha=None,
                         )
                     )

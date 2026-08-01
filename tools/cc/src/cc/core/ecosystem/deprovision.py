@@ -71,7 +71,7 @@ from pathlib import Path
 from typing import Iterable, Optional, TypedDict
 
 from cc.core.ecosystem.dimensions import ACCUMULATE, OVERRIDE, semantics_for
-from cc.core.ecosystem.materialize import _find_source_child, guard_personal
+from cc.core.ecosystem.materialize import _find_source_child, guard_personal_reason
 
 # Dimensions `materialize()` ever writes -- see materialize.py's own
 # `_MATERIALIZABLE_SEMANTICS`. Re-checked here defensively: even a
@@ -196,7 +196,13 @@ def deprovision(
                 if target is None:
                     continue  # nothing materialized here -- already absent
 
-                if guard_personal(target, personal_roots=personal_roots):
+                guard_reason = guard_personal_reason(
+                    target,
+                    personal_roots=personal_roots,
+                    materialize_root=root,
+                    mirror_roots=[mroot],
+                )
+                if guard_reason is not None:
                     retained_dirty.append(str(target))
                     ops.append(
                         {
@@ -207,7 +213,7 @@ def deprovision(
                             "tier": None,
                             "path": str(target),
                             "action": "retained",
-                            "reason": "protected: personal/dirty working tree -- never wiped",
+                            "reason": f"protected: {guard_reason} -- never wiped",
                         }
                     )
                     continue
@@ -266,7 +272,14 @@ def deprovision(
         nonlocal partial
         tier_name = tier_path.name
 
-        if guard_personal(tier_path, personal_roots=personal_roots):
+        # Deliberately NO materialize_root/mirror_roots here (unlike the
+        # materialized-content loop above): a mirror tier clone IS a git
+        # repo with a configured remote by construction (`cc update`
+        # clones it from one) -- it must stay wipeable. Passing
+        # materialize_root would wrongly turn WP-372 P0.3's new "clean
+        # tracked repo" check against every mirror tier.
+        mirror_guard_reason = guard_personal_reason(tier_path, personal_roots=personal_roots)
+        if mirror_guard_reason is not None:
             retained_dirty.append(str(tier_path))
             ops.append(
                 {
@@ -277,7 +290,7 @@ def deprovision(
                     "tier": tier_name,
                     "path": str(tier_path),
                     "action": "retained",
-                    "reason": "protected: personal/dirty working tree -- never wiped",
+                    "reason": f"protected: {mirror_guard_reason} -- never wiped",
                 }
             )
             return

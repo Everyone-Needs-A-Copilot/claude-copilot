@@ -29,6 +29,17 @@ unresolved here -- same deferred status as lockfile.py's own note --
 because reconciling the two schemas under one filename is Phase 1's job
 (freeze the lock-manifest schema), not this read-side slice's.
 
+CONFIRMED LIVE (WP-372 P5.2): `claude-copilot` itself -- the `cc`
+framework's own dev checkout -- IS this edge case (it already has
+framework components installed at its own repo root, so it already
+carries a `copilot.lock.json` in THIS module's shape). Running `cc
+doctor`/`cc update` from inside that repo makes `lockfile.py`'s
+`default_lockfile_path()` read this file as if it were the OTHER shape,
+degrading every layer lookup to empty (the "local none behind remote
+<sha>" doctor symptom -- see `default_lockfile_path()`'s own docstring
+for the full writeup). Not a hidden defect; a concrete instance of the
+gap this docstring already named.
+
 PRODUCT CLASSIFICATION (encoded as data via two frozensets, not inferred
 from a possibly-stale per-file `scope` field): `PROJECT_SCOPED_PRODUCTS`
 (claude, codex) fan out per project; `GLOBAL_ONCE_PRODUCTS` (knowledge,

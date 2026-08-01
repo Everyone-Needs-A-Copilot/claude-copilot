@@ -202,6 +202,43 @@ def test_deprovision_never_destroy_dirty_git_tree_retained_byte_identical(tmp_pa
 
 
 # ---------------------------------------------------------------------------
+# WP-372 P0.3: personal_roots_from_config() production feeder wiring
+# ---------------------------------------------------------------------------
+
+
+def test_deprovision_default_personal_roots_feeder_protects_configured_root(
+    monkeypatch, tmp_path
+):
+    """`deprovision` is an even more destructive verb than `update` -- the
+    same production feeder must be wired here too when `_personal_roots`
+    is not explicitly injected."""
+    materialize_root = tmp_path / "materialize"
+    (materialize_root / "agents").mkdir(parents=True)
+    engine_owned = materialize_root / "agents" / "qa.md"
+    engine_owned.write_text("engine-placed", encoding="utf-8")
+    hash_before = engine_owned.read_bytes()
+
+    monkeypatch.setattr(
+        "cc.commands.deprovision.personal_roots_from_config",
+        lambda: [str(materialize_root / "agents")],
+    )
+
+    previous_lock = {"foundation": {"agents": {"qa": "sha-1"}}}
+
+    report = build_deprovision_report(
+        _previous_lock=previous_lock,
+        _mirror_root=tmp_path / "mirrors",
+        _materialize_root=materialize_root,
+        # _personal_roots deliberately NOT passed -- exercising the default.
+    )
+
+    assert engine_owned.exists()
+    assert engine_owned.read_bytes() == hash_before
+    assert str(engine_owned) in report["retained_dirty"]
+    assert report["removed"]["materialized"] == 0
+
+
+# ---------------------------------------------------------------------------
 # Mirrors: hard mode fully removes; soft mode (default) quarantines --
 # nothing outside the injected roots is ever touched.
 # ---------------------------------------------------------------------------

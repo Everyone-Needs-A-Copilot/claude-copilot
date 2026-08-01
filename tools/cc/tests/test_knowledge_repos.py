@@ -11,9 +11,11 @@ import json
 
 from typer.testing import CliRunner
 
+from cc.commands.env import _is_personal_knowledge_path
 from cc.core.config import (
     add_to_list_config,
     get_resolved_config,
+    personal_roots_from_config,
     remove_from_list_config,
     resolve_key,
     resolve_knowledge_repos,
@@ -314,3 +316,190 @@ def test_env_empty_list_is_skipped(monkeypatch):
     assert result.exit_code == 0
     assert "CC_PATHS_KNOWLEDGE_REPO" not in result.output
     assert "CC_KNOWLEDGE_REPO" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# _is_personal_knowledge_path(): the <product>-copilot-private convention
+# ---------------------------------------------------------------------------
+
+
+def test_is_personal_knowledge_path_matches_ancestor_segment():
+    assert _is_personal_knowledge_path(
+        "/Volumes/Dev/Sites/COPILOT/claude-copilot-private/knowledge"
+    )
+
+
+def test_is_personal_knowledge_path_matches_leaf_segment():
+    assert _is_personal_knowledge_path("/Volumes/Dev/Sites/COPILOT/codex-copilot-private")
+
+
+def test_is_personal_knowledge_path_false_for_org_repo():
+    assert not _is_personal_knowledge_path(
+        "/Volumes/Dev/Sites/COPILOT/knowledge-copilot-internal"
+    )
+
+
+def test_is_personal_knowledge_path_false_for_org_private_naming():
+    """`<org>-org-private` is a DIFFERENT (org-tier) naming convention --
+    must not false-positive as personal."""
+    assert not _is_personal_knowledge_path("/Volumes/Dev/Sites/COPILOT/enac-org-private")
+
+
+# ---------------------------------------------------------------------------
+# WP-372 P3.1: CC_KNOWLEDGE_REPOS (full list) + CC_PERSONAL_KNOWLEDGE_REPO
+# (personal entry, if any) -- CC_KNOWLEDGE_REPO stays first-element only.
+# ---------------------------------------------------------------------------
+
+
+def test_env_emits_full_ordered_list_under_short_form_knowledge_repos(monkeypatch):
+    monkeypatch.setattr(
+        "cc.commands.env.get_resolved_config",
+        lambda **_: {
+            "paths.knowledge_repo": [
+                "/Volumes/Dev/Sites/COPILOT/knowledge-copilot-internal",
+                "/Volumes/Dev/Sites/COPILOT/claude-copilot-private/knowledge",
+            ]
+        },
+    )
+
+    result = invoke("env")
+    assert result.exit_code == 0
+    assert (
+        'export CC_KNOWLEDGE_REPOS='
+        '"/Volumes/Dev/Sites/COPILOT/knowledge-copilot-internal,'
+        '/Volumes/Dev/Sites/COPILOT/claude-copilot-private/knowledge"' in result.output
+    )
+    # CC_KNOWLEDGE_REPO is UNCHANGED -- still first-element only.
+    assert (
+        'export CC_KNOWLEDGE_REPO="/Volumes/Dev/Sites/COPILOT/knowledge-copilot-internal"'
+        in result.output
+    )
+
+
+def test_env_emits_personal_knowledge_repo_when_a_private_entry_is_present(monkeypatch):
+    monkeypatch.setattr(
+        "cc.commands.env.get_resolved_config",
+        lambda **_: {
+            "paths.knowledge_repo": [
+                "/Volumes/Dev/Sites/COPILOT/knowledge-copilot-internal",
+                "/Volumes/Dev/Sites/COPILOT/claude-copilot-private/knowledge",
+            ]
+        },
+    )
+
+    result = invoke("env")
+    assert result.exit_code == 0
+    assert (
+        'export CC_PERSONAL_KNOWLEDGE_REPO='
+        '"/Volumes/Dev/Sites/COPILOT/claude-copilot-private/knowledge"' in result.output
+    )
+
+
+def test_env_personal_knowledge_repo_absent_when_no_private_entry_matches(monkeypatch):
+    """Honest omission -- never a fabricated guess when nothing in the
+    ordered list matches the `<product>-copilot-private` naming
+    convention."""
+    monkeypatch.setattr(
+        "cc.commands.env.get_resolved_config",
+        lambda **_: {
+            "paths.knowledge_repo": [
+                "/Volumes/Dev/Sites/COPILOT/knowledge-copilot-internal",
+            ]
+        },
+    )
+
+    result = invoke("env")
+    assert result.exit_code == 0
+    assert "CC_PERSONAL_KNOWLEDGE_REPO" not in result.output
+
+
+def test_env_knowledge_repos_and_personal_repo_absent_when_key_unset(monkeypatch):
+    monkeypatch.setattr(
+        "cc.commands.env.get_resolved_config",
+        lambda **_: {},
+    )
+
+    result = invoke("env")
+    assert result.exit_code == 0
+    assert "CC_KNOWLEDGE_REPOS" not in result.output
+    assert "CC_PERSONAL_KNOWLEDGE_REPO" not in result.output
+
+
+def test_env_personal_knowledge_repo_works_for_single_string_value(monkeypatch):
+    """Back-compat shape: a plain (non-list) personal-only knowledge_repo
+    string still resolves to a personal entry."""
+    monkeypatch.setattr(
+        "cc.commands.env.get_resolved_config",
+        lambda **_: {
+            "paths.knowledge_repo": "/Volumes/Dev/Sites/COPILOT/claude-copilot-private/knowledge"
+        },
+    )
+
+    result = invoke("env")
+    assert result.exit_code == 0
+    assert (
+        'export CC_PERSONAL_KNOWLEDGE_REPO='
+        '"/Volumes/Dev/Sites/COPILOT/claude-copilot-private/knowledge"' in result.output
+    )
+    assert (
+        'export CC_KNOWLEDGE_REPOS='
+        '"/Volumes/Dev/Sites/COPILOT/claude-copilot-private/knowledge"' in result.output
+    )
+
+
+# ---------------------------------------------------------------------------
+# personal_roots_from_config() -- WP-372 P0.3 production feeder for
+# guard_personal()'s personal_roots
+# ---------------------------------------------------------------------------
+
+
+def test_personal_roots_includes_every_knowledge_repo_entry(monkeypatch):
+    monkeypatch.setattr(
+        "cc.core.config.resolve_knowledge_repos",
+        lambda: ["/shared/kc", "/personal/kc"],
+    )
+    monkeypatch.setattr("cc.core.config.resolve_key", lambda key, **_: None)
+
+    assert personal_roots_from_config() == ["/shared/kc", "/personal/kc"]
+
+
+def test_personal_roots_includes_every_projects_root_entry(monkeypatch):
+    monkeypatch.setattr("cc.core.config.resolve_knowledge_repos", lambda: [])
+    monkeypatch.setattr(
+        "cc.core.config.resolve_key",
+        lambda key, **_: ["/Users/me/projects", "/Volumes/Dev/Sites"]
+        if key == "projects.roots"
+        else None,
+    )
+
+    assert personal_roots_from_config() == ["/Users/me/projects", "/Volumes/Dev/Sites"]
+
+
+def test_personal_roots_concatenates_knowledge_repos_and_projects_roots(monkeypatch):
+    monkeypatch.setattr(
+        "cc.core.config.resolve_knowledge_repos",
+        lambda: ["/shared/kc"],
+    )
+    monkeypatch.setattr(
+        "cc.core.config.resolve_key",
+        lambda key, **_: ["/Volumes/Dev/Sites"] if key == "projects.roots" else None,
+    )
+
+    assert personal_roots_from_config() == ["/shared/kc", "/Volumes/Dev/Sites"]
+
+
+def test_personal_roots_projects_roots_legacy_string_becomes_one_element(monkeypatch):
+    monkeypatch.setattr("cc.core.config.resolve_knowledge_repos", lambda: [])
+    monkeypatch.setattr(
+        "cc.core.config.resolve_key",
+        lambda key, **_: "/Volumes/Dev/Sites" if key == "projects.roots" else None,
+    )
+
+    assert personal_roots_from_config() == ["/Volumes/Dev/Sites"]
+
+
+def test_personal_roots_empty_when_nothing_configured(monkeypatch):
+    monkeypatch.setattr("cc.core.config.resolve_knowledge_repos", lambda: [])
+    monkeypatch.setattr("cc.core.config.resolve_key", lambda key, **_: None)
+
+    assert personal_roots_from_config() == []
