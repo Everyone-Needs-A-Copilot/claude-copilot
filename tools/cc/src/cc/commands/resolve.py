@@ -44,7 +44,7 @@ from cc.core.config import resolve_key
 from cc.core.ecosystem import mirror
 from cc.core.ecosystem.discovery import discover_contributions
 from cc.core.ecosystem.lockfile import default_lockfile_path, read_lockfile
-from cc.core.ecosystem.manifest import load_layers, validate_layers
+from cc.core.ecosystem.manifest import ManifestError, load_layers, validate_layers
 from cc.core.ecosystem.resolver import resolve_layers
 
 SCHEMA_VERSION = "1.0"
@@ -68,14 +68,41 @@ def _synthesize_effective_layers(
     yet), `discover_contributions()`'s own existing "path doesn't exist ->
     contributes nothing" degrade handles it honestly, exactly as it
     already does for any other unreachable local_root.
+
+    WP-372 (protocol-override live-verify): `mirror.synthesize_source_path()`
+    is a no-op for a layer that already carries an explicit local
+    `source.path` (a "visible checkout" — see `feat(cc): place ecosystem
+    repositories visibly`) by design (its own docstring: "a local-path-
+    sourced layer is not this function's concern"). But `update.py`'s
+    `elif local_path and subpath:` branch (the ONLY place that ever joined
+    `source.subpath` onto an explicit `source.path`) has no counterpart
+    here, so any visible-checkout layer that ALSO declares a `subpath`
+    (the live manifest's `claude-foundation` entry: `path: .../claude-
+    copilot`, `subpath: .claude`) resolved against the wrong root —
+    `discover_contributions()` scanned `.../claude-copilot/<dimension>`
+    instead of `.../claude-copilot/.claude/<dimension>`, so foundation's
+    real content (which lives under `.claude/`) was never discovered and
+    could never appear in another layer's `shadowed[]`. This mirrors
+    `update.py`'s own subpath-join exactly, so `resolve --explain` can no
+    longer silently disagree with what `update` actually materializes.
     """
     effective: list[dict[str, Any]] = []
     for layer in layers:
         layer_copy = dict(layer)
+        source = dict(layer.get("source") or {})
+        local_path = source.get("path")
+        subpath = source.get("subpath")
         synthesized = mirror.synthesize_source_path(layer, mirror_root_base=mirror_root_base)
         if synthesized is not None:
-            source = dict(layer.get("source") or {})
             source["path"] = str(synthesized)
+            layer_copy["source"] = source
+        elif local_path and subpath:
+            relative = Path(str(subpath))
+            if relative.is_absolute() or ".." in relative.parts:
+                raise ManifestError(
+                    f"Layer {layer['id']!r} source.subpath must stay inside its checkout."
+                )
+            source["path"] = str(Path(str(local_path)).expanduser() / relative)
             layer_copy["source"] = source
         effective.append(layer_copy)
     return effective

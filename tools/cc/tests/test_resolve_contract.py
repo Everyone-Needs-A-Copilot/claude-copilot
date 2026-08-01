@@ -309,6 +309,91 @@ def test_resolve_layer_with_explicit_local_path_is_unaffected_by_synthesis(monke
     assert payload["items"]
 
 
+def test_resolve_joins_subpath_onto_explicit_local_path(tmp_path):
+    """A "visible checkout" layer (explicit `source.path`, the default
+    since `feat(cc): place ecosystem repositories visibly`) that ALSO
+    declares `source.subpath` (the live manifest's `claude-foundation`
+    entry: checkout root + `.claude`) must resolve against
+    `<path>/<subpath>`, exactly like `update.py`'s `elif local_path and
+    subpath:` branch -- not the bare checkout root, which has no
+    `commands/`/`agents/`/`skills/` of its own. Regression for the gap
+    where `mirror.synthesize_source_path()` is a documented no-op for any
+    layer with an explicit local path, so subpath was silently dropped and
+    `cc resolve --explain` disagreed with what `cc update` actually
+    materializes."""
+    from cc.commands.resolve import build_resolve_report
+
+    checkout_root = tmp_path / "claude-copilot"
+    (checkout_root / ".claude" / "commands").mkdir(parents=True)
+    (checkout_root / ".claude" / "commands" / "protocol.md").write_text(
+        "foundation protocol body", encoding="utf-8"
+    )
+    # A decoy at the checkout root (NOT under .claude/) proves the fix
+    # resolves against the subpath-joined root, not the bare checkout.
+    (checkout_root / "commands").mkdir(parents=True)
+    (checkout_root / "commands" / "protocol.md").write_text(
+        "should never be discovered", encoding="utf-8"
+    )
+
+    layer = {
+        "id": "claude-foundation",
+        "role": "foundation",
+        "rank": 40,
+        "product": "claude",
+        "source": {
+            "repo": "https://example.invalid/claude-copilot.git",
+            "ref": "v1.0.0",
+            "path": str(checkout_root),
+            "subpath": ".claude",
+        },
+        "auth": "anon",
+        "activation": "always",
+    }
+
+    report = build_resolve_report(
+        _layers=[layer],
+        _lockfile={},
+        _mirror_root=tmp_path / "mirrors-unused",
+    )
+
+    assert report["items"], "expected the subpath-joined foundation content to resolve"
+    item = next(i for i in report["items"] if i["dimension"] == "commands")
+    assert item["item"] == "protocol"
+    assert item["winning_layer"] == "claude-foundation"
+
+
+def test_resolve_rejects_subpath_that_escapes_the_checkout(tmp_path):
+    """Same fail-closed boundary `update.py` already enforces: a
+    `source.subpath` of `..` (or absolute) must raise ManifestError, never
+    silently resolve outside the checkout."""
+    from cc.commands.resolve import build_resolve_report
+    from cc.core.ecosystem.manifest import ManifestError
+
+    checkout_root = tmp_path / "claude-copilot"
+    checkout_root.mkdir(parents=True)
+
+    layer = {
+        "id": "claude-foundation",
+        "role": "foundation",
+        "rank": 40,
+        "product": "claude",
+        "source": {
+            "repo": "https://example.invalid/claude-copilot.git",
+            "path": str(checkout_root),
+            "subpath": "../escape",
+        },
+        "auth": "anon",
+        "activation": "always",
+    }
+
+    with pytest.raises(ManifestError):
+        build_resolve_report(
+            _layers=[layer],
+            _lockfile={},
+            _mirror_root=tmp_path / "mirrors-unused",
+        )
+
+
 # ---------------------------------------------------------------------------
 # `cc resolve` verb collision: legacy single-key mode must be unaffected
 # ---------------------------------------------------------------------------
