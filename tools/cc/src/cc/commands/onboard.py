@@ -837,7 +837,15 @@ def _classify_repository_history(
             "review",
             f"Visible at {local}; GitHub currency could not be confirmed.",
         )
-    target = _git_output(local, "rev-parse", "FETCH_HEAD", run=run)
+    # `FETCH_HEAD^{commit}` peels an annotated tag object down to the commit
+    # it points at; a lightweight tag or branch/commit ref is already a
+    # commit and passes through unchanged. Every downstream comparison in
+    # this function (exact-match, merge-base ancestry, tree equality) -- and
+    # the mirrored fetch in `_apply_visible_topology`'s `repair` branch --
+    # must resolve `FETCH_HEAD` the same way, or a repository pinned exactly
+    # at an annotated tag can never match ``target_sha`` (`rev-parse`, unlike
+    # `merge`/`checkout`/`merge-base`, does not auto-peel tag objects).
+    target = _git_output(local, "rev-parse", "FETCH_HEAD^{commit}", run=run)
     if target.returncode != 0:
         return HistoryClassification(
             "unreadable",
@@ -1111,10 +1119,19 @@ def _apply_visible_topology(
             fetch = _git_output(target, "fetch", "origin", source.get("ref", "main"), run=run)
             if fetch.returncode != 0:
                 return False, f"Git could not fetch {row['repository_owner']}/{row['repository_name']}."
-            fetched_head = _git_output(target, "rev-parse", "FETCH_HEAD", run=run)
+            # `FETCH_HEAD^{commit}` peels an annotated tag object to the
+            # commit it points at, mirroring `_classify_repository_history`
+            # above -- `rev-parse` does not auto-peel, so an unpeeled
+            # `target_sha` here would make the postcondition below fail even
+            # after a genuinely successful fast-forward to an annotated tag.
+            fetched_head = _git_output(target, "rev-parse", "FETCH_HEAD^{commit}", run=run)
             if fetched_head.returncode != 0:
                 return False, f"Git could not resolve the fetched revision for {row['repository_owner']}/{row['repository_name']}."
             target_sha = fetched_head.stdout.strip()
+            # `merge` (unlike `rev-parse`) treats an annotated tag object as
+            # a commit-ish and peels it automatically, so merging the
+            # unpeeled `FETCH_HEAD` ref here is safe and reaches the same
+            # commit as `target_sha`.
             merge = _git_output(target, "merge", "--ff-only", "FETCH_HEAD", run=run)
             if merge.returncode != 0:
                 return False, f"{target} could not be fast-forwarded safely; local work was preserved."

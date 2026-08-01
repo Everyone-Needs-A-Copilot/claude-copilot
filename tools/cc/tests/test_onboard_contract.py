@@ -2321,6 +2321,25 @@ def _clone_with_fake_origin(remote: Path, local: Path, owner: str, name: str) ->
     _set_fake_origin(local, owner, name)
 
 
+def _lightweight_tag(path: Path, tag: str, message: str = "unused") -> None:
+    """A lightweight tag: `git tag <name>` creates no tag object, so
+    `git rev-parse <name>` already returns the commit SHA directly.
+    `FETCH_HEAD` never needed peeling for this case, so it never reproduced
+    the live annotated-tag bug on its own -- kept as a regression guard that
+    the fix's `^{commit}` peel is also a no-op passthrough here."""
+    subprocess.run(["git", "-C", str(path), "tag", tag], check=True)
+
+
+def _annotated_tag(path: Path, tag: str, message: str = "release") -> None:
+    """A real annotated tag object, distinct from the commit it points at --
+    the exact fixture shape that reproduces the live bug: `git rev-parse
+    FETCH_HEAD` resolves to the tag OBJECT SHA after fetching this ref, not
+    the peeled commit SHA `HEAD` can ever equal."""
+    subprocess.run(
+        ["git", "-C", str(path), "tag", "-a", tag, "-m", message], check=True
+    )
+
+
 def test_classify_repository_history_exact(tmp_path):
     remote = tmp_path / "remote"
     local = tmp_path / "local"
@@ -2359,6 +2378,92 @@ def test_classify_repository_history_fast_forwardable_is_proven_by_merge_base(tm
     assert classification.sync_state == "behind"
     assert classification.action == "repair"
     assert "clean fast-forward is available" in classification.detail
+
+
+# ---------------------------------------------------------------------------
+# Annotated-tag pins (G-6 live defect): `git rev-parse FETCH_HEAD` resolves
+# to the tag OBJECT SHA for an annotated tag, never the commit it points at,
+# so a checkout sitting exactly at the pin could never satisfy the
+# `head_sha == target_sha` exact-match test above `rev-parse` peels via
+# `^{commit}`. Lightweight-tag coverage is parametrized alongside the
+# annotated case to prove the peel is a harmless passthrough there (a
+# lightweight tag has no object of its own -- `rev-parse <name>` already
+# returns the commit SHA).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "make_tag",
+    [_lightweight_tag, _annotated_tag],
+    ids=["lightweight-tag", "annotated-tag"],
+)
+def test_classify_repository_history_exact_at_peeled_tag(tmp_path, make_tag):
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, "note.txt", "v1")
+    make_tag(remote, "v1.0.0")
+    _clone_with_fake_origin(remote, local, "pablo", "widget")
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "v1.0.0"},
+        run=_real_run,
+    )
+
+    assert classification.state == "exact"
+    assert classification.sync_state == "current"
+    assert classification.action == "reuse"
+
+
+def test_classify_repository_history_fast_forwardable_to_annotated_tag(tmp_path):
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, "note.txt", "v1")
+    _clone_with_fake_origin(remote, local, "pablo", "widget")
+    _commit(remote, "note.txt", "v2", "advance")
+    _annotated_tag(remote, "v2.0.0")
+    peeled_commit = _rev_parse(remote)
+    tag_object_sha = _rev_parse(remote, "v2.0.0")
+    assert tag_object_sha != peeled_commit  # sanity: a real tag object, not a passthrough
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "v2.0.0"},
+        run=_real_run,
+    )
+
+    assert classification.state == "fast-forwardable"
+    assert classification.sync_state == "behind"
+    assert classification.action == "repair"
+    assert "clean fast-forward is available" in classification.detail
+
+
+def test_classify_repository_history_divergent_identical_tree_against_annotated_tag(
+    tmp_path,
+):
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, "note.txt", "same content")
+    _annotated_tag(remote, "v1.0.0")
+    _init_content_repo(local, "note.txt", "same content", message="independent history")
+    _set_fake_origin(local, "pablo", "widget")
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "v1.0.0"},
+        run=_real_run,
+    )
+
+    assert classification.state == "divergent-identical-tree"
+    assert classification.action == "review"
+    assert classification.action != "repair"
+    assert "content is identical" in classification.detail
 
 
 def test_classify_repository_history_dirty_working_tree_is_never_touched(tmp_path):
@@ -3109,6 +3214,33 @@ def test_apply_visible_topology_fast_forwardable_succeeds_and_reaches_target(tmp
     assert ok is True
     assert detail is None
     assert _rev_parse(local) == _rev_parse(remote)
+    assert "fast-forwarded to the expected revision" in rows[0]["detail"]
+
+
+def test_apply_visible_topology_fast_forwardable_to_annotated_tag_reaches_peeled_sha(
+    tmp_path,
+):
+    """G-6 live defect regression: the `repair` branch's postcondition
+    (`git rev-parse HEAD` == the fetched target SHA) must compare against
+    the peeled commit, not the annotated tag object -- otherwise a
+    genuinely successful fast-forward to a tag pin is reported failed."""
+    remote = tmp_path / "remote"
+    local = tmp_path / "codex-copilot-private"
+    _init_content_repo(remote, "note.txt", "v1")
+    subprocess.run(["git", "clone", "-q", str(remote), str(local)], check=True)
+    _commit(remote, "note.txt", "v2", "advance")
+    _annotated_tag(remote, "v2.0.0")
+    peeled_commit = _rev_parse(remote)
+    tag_object_sha = _rev_parse(remote, "v2.0.0")
+    assert tag_object_sha != peeled_commit  # sanity: a real tag object, not a passthrough
+    manifest, rows = _repair_row_fixture("codex-personal", local, ref="v2.0.0")
+
+    ok, detail = onboard_module._apply_visible_topology(manifest, rows, run=_real_run)
+
+    assert ok is True
+    assert detail is None
+    assert _rev_parse(local) == peeled_commit
+    assert _rev_parse(local) != tag_object_sha
     assert "fast-forwarded to the expected revision" in rows[0]["detail"]
 
 
