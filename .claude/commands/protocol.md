@@ -536,13 +536,23 @@ cc memory store --type lesson "<key learning>"           # repeat for each key l
 
 ## Extension Resolution
 
-Before invoking any agent, check for knowledge repository extensions:
+Before invoking any agent, check for knowledge repository extensions from **two declared sources**, never just one:
 
-1. **Check the knowledge repository for an agent extension** matching the agent ID
-2. **Apply extension based on type:**
+1. **Personal** -- `$CC_PERSONAL_KNOWLEDGE_REPO/knowledge-manifest.json` (`CC_PERSONAL_KNOWLEDGE_REPO` is exported by `cc env` since cc 2.0.3; if it is unset, no personal knowledge repo is configured -- skip this source entirely, never guess a path).
+2. **Company/org** -- `~/.claude/knowledge/knowledge-manifest.json`.
+
+**"Write as me" vs "write as the company" is an explicit selection, never an inference:**
+
+1. **Read both manifests** (a manifest that doesn't exist or fails to parse is skipped, silently -- never block an agent invocation on a missing or malformed personal or org manifest).
+2. **Look for an `extensions[]` entry matching the invoked agent's ID** in each manifest.
+3. **If both declare an extension for this agent, personal wins** (personal-over-org precedence, same tier ordering the layer manifest uses elsewhere: personal rank 10 nearer than organization rank 30). This is "write as me."
+4. **If only one source declares an extension**, use it -- this is "write as the company" when only the org manifest matches, or "write as me" when only the personal manifest matches.
+5. **Apply the selected extension based on its type:**
    - `override`: Use extension content AS the agent instructions (ignore base agent)
    - `extension`: Merge extension with base agent (extension sections override base)
-3. **If no extension exists:** Use base agent unchanged
+6. **If neither source declares an extension:** Use base agent unchanged
+
+Always name which source won in the protocol declaration (see "Extension Status in Protocol Declaration" below) -- the choice must be visible, not silent.
 
 ### Required Skills Check
 
@@ -555,9 +565,12 @@ If the extension has `requiredSkills`:
 
 ### Extension Status in Protocol Declaration
 
-When an extension is active, update the protocol declaration:
+When an extension is active, update the protocol declaration and name its source:
 ```
-[PROTOCOL: EXPERIENCE | Agent: @agent-sd (Moments Framework override) | Action: INVOKING]
+[PROTOCOL: EXPERIENCE | Agent: @agent-sd (Moments Framework override, company) | Action: INVOKING]
+```
+```
+[PROTOCOL: EXPERIENCE | Agent: @agent-cw (personal voice) | Action: INVOKING]
 ```
 
 When falling back to base with warning:
