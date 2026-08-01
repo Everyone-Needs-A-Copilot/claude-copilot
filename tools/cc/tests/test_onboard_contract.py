@@ -863,6 +863,16 @@ def _consumer_ready(*_args):
     return {"result": "ready"}
 
 
+def _no_mirror_seed(*_args, **_kwargs):
+    """Safe `mirror_seed_fn` test double: the real default
+    (`_seed_cold_start_mirrors`) performs actual `git ls-remote`/`git clone`
+    network I/O -- never appropriate against these tests' fake repo URLs.
+    Every test whose apply reaches the doctor stage injects this, exactly
+    like `personal_fn`/`ssh_fn`/`codex_fn`/`cli_fn`/`consumer_probe_fn`
+    already avoid the real GitHub-touching collaborators above."""
+    return []
+
+
 def test_ecosystem_plan_fails_closed_when_codex_inventory_is_blocked(tmp_path):
     def blocked_codex(**_kwargs):
         return {
@@ -1193,6 +1203,7 @@ def test_existing_eight_layer_machine_apply_commits_all_four_products_without_to
             0,
         ),
         doctor_fn=lambda **_: {"status": "healthy", "score": 100},
+        mirror_seed_fn=_no_mirror_seed,
         commit_config_fn=lambda path, knowledge: committed.append(
             (path, list(knowledge))
         ),
@@ -1332,6 +1343,7 @@ layers:
             0,
         ),
         doctor_fn=lambda **_: {"status": "healthy", "score": 100},
+        mirror_seed_fn=_no_mirror_seed,
     )
     manifest_stage = next(s for s in report["stages"] if s["stage"] == "layer-manifest")
     assert manifest_stage["action"] == "repair"
@@ -1575,6 +1587,7 @@ def test_materialize_held_items_do_not_roll_back_manifest_and_are_reported(tmp_p
         consumer_probe_fn=_consumer_ready,
         update_fn=update,
         doctor_fn=_fake_healthy_doctor,
+        mirror_seed_fn=_no_mirror_seed,
         commit_config_fn=_fake_commit_config(),
     )
 
@@ -1647,6 +1660,7 @@ def test_materialize_blocked_items_do_not_roll_back_manifest_and_are_reported(
         consumer_probe_fn=_consumer_ready,
         update_fn=update,
         doctor_fn=_fake_healthy_doctor,
+        mirror_seed_fn=_no_mirror_seed,
         commit_config_fn=_fake_commit_config(),
     )
 
@@ -1720,6 +1734,7 @@ def test_materialize_held_still_activates_codex_and_completes_the_pipeline(
         consumer_probe_fn=_consumer_ready,
         update_fn=update,
         doctor_fn=doctor,
+        mirror_seed_fn=_no_mirror_seed,
         commit_config_fn=_fake_commit_config(events),
     )
 
@@ -1923,7 +1938,10 @@ def test_rollback_confirmation_still_fails_when_bytes_do_not_match(tmp_path):
     _assert_valid_onboard_report(report)
 
 
-def test_unhealthy_post_apply_doctor_restores_exact_manifest(tmp_path):
+def test_fail_severity_post_apply_doctor_restores_exact_manifest(tmp_path):
+    """A real FAIL-severity checker (corruption, a missing path, a signature
+    failure) still rolls back exactly as before G-10 -- only a WARN-only
+    report (see the two tests below) is no longer treated as fatal."""
     target = tmp_path / "layers.yml"
     target.write_text(
         """version: 1
@@ -1955,7 +1973,18 @@ layers:
         cli_fn=_cli,
         consumer_probe_fn=_consumer_ready,
         update_fn=update,
-        doctor_fn=lambda **_: {"status": "unhealthy", "score": 20},
+        mirror_seed_fn=_no_mirror_seed,
+        doctor_fn=lambda **_: {
+            "status": "needs-attention",
+            "score": 20,
+            "checkers": [
+                {
+                    "id": "ecosystem-layer-manifest",
+                    "severity": "fail",
+                    "detail": "Ecosystem layer manifest is unreadable or invalid.",
+                }
+            ],
+        },
     )
 
     assert report["result"] == "blocked"
@@ -1964,6 +1993,160 @@ layers:
     assert target.read_bytes() == before
     manifest_stage = next(s for s in report["stages"] if s["stage"] == "layer-manifest")
     assert manifest_stage["result"] == "rolled-back"
+    doctor_stage = next(s for s in report["stages"] if s["stage"] == "doctor")
+    assert doctor_stage["result"] == "needs-attention"
+    _assert_valid_onboard_report(report)
+
+
+def test_warn_only_post_apply_doctor_keeps_manifest_and_surfaces_warnings(tmp_path):
+    """G-10 (task 215, second blocker fix): a cold-start layer's first-ever
+    appearance in a manifest doctor checks can only ever produce WARN
+    severity (`could not reach remote to verify sync` / `offline`), never
+    FAIL. That honest warning must not roll back an already byte-verified
+    manifest write -- it surfaces plainly on the `doctor` stage instead."""
+    target = tmp_path / "layers.yml"
+    target.write_text(
+        """version: 1
+layers:
+  - id: cli-organization
+    role: organization
+    component: cli
+    rank: 30
+    source: {repo: git@github-work:Acme/cli-copilot-internal.git, ref: main}
+    auth: ssh-work
+""",
+        encoding="utf-8",
+    )
+
+    def update(**kwargs):
+        return {"result": "up-to-date", "blocked": [], "held_for_approval": []}, 0
+
+    warn_checkers = [
+        {
+            "id": f"knowledge-knowledge-{role}-sync",
+            "severity": "warn",
+            "layer": f"knowledge-{role}",
+            "product": "knowledge",
+            "detail": f"knowledge/knowledge-{role}: could not reach remote to verify sync",
+        }
+        for role in ("personal", "department", "organization", "foundation")
+    ]
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=update,
+        mirror_seed_fn=_no_mirror_seed,
+        doctor_fn=lambda **_: {
+            "status": "offline",
+            "score": 48,
+            "offline": True,
+            "checkers": warn_checkers,
+        },
+    )
+
+    assert report["result"] == "ready"
+    manifest_stage = next(s for s in report["stages"] if s["stage"] == "layer-manifest")
+    assert manifest_stage["result"] == "applied"
+    doctor_stage = next(s for s in report["stages"] if s["stage"] == "doctor")
+    # The raw status is surfaced honestly -- it just no longer gates the write.
+    assert doctor_stage["result"] == "offline"
+    assert doctor_stage["score"] == 48
+    assert "0 checker(s) failed" in doctor_stage["detail"]
+    assert "4 reported a warning" in doctor_stage["detail"]
+    assert not any(
+        entry.get("kind") == "layer-manifest" and entry.get("outcome") == "rolled-back"
+        for entry in report["completed_actions"]
+    )
+    _assert_valid_onboard_report(report)
+
+
+def test_mirror_seed_runs_before_doctor_and_is_ledgered(tmp_path, monkeypatch):
+    """G-10 (task 215, second blocker fix): onboard's apply path seeds the
+    read-only mirror clone for cold-start layers (reusing `cc update`'s own
+    `mirror.clone_or_update_mirror`, never duplicating it) BEFORE the doctor
+    check, and records every layer it actually seeded onto the
+    `completed_actions` ledger and the `doctor` stage's own detail. This is
+    a real (non-legacy-injected) visible-checkout apply -- `legacy_injected_mode`
+    (a `manifest_path`-only injection used elsewhere in this file for
+    lighter-weight fixtures) never seeds mirrors, since it never performs
+    real topology work either."""
+
+    def topology(manifest, **_kwargs):
+        return [
+            {
+                "id": layer["id"],
+                "product": layer["product"],
+                "role": layer["role"],
+                "rank": layer["rank"],
+                "unit": layer.get("unit"),
+                "repository_owner": "Acme",
+                "repository_name": f"{layer['product']}-copilot-internal",
+                "repository_visibility": None,
+                "remote_state": "ready",
+                "local_path": (layer.get("source") or {}).get("path"),
+                "local_state": "visible",
+                "connection_state": "connected",
+                "sync_state": "current",
+                "action": "reuse",
+                "detail": "Visible and current.",
+            }
+            for layer in manifest["layers"]
+        ]
+
+    monkeypatch.setattr(onboard_module, "_topology_report_layers", topology)
+    monkeypatch.setattr(
+        onboard_module, "_apply_visible_topology", lambda *_args, **_kwargs: (True, None)
+    )
+
+    def update(**kwargs):
+        return {"result": "up-to-date", "blocked": [], "held_for_approval": []}, 0
+
+    events = []
+
+    def mirror_seed(manifest):
+        events.append("mirror-seed")
+        assert manifest["layers"], "mirror_seed_fn must see the candidate manifest"
+        return ["cli-organization"]
+
+    def doctor(**_kwargs):
+        events.append("doctor")
+        return {"status": "healthy", "score": 100, "checkers": []}
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=tmp_path / "config" / "layers.yml",
+        repository_root=tmp_path / "Sites" / "COPILOT",
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=update,
+        mirror_seed_fn=mirror_seed,
+        doctor_fn=doctor,
+        resolve_fn=lambda **_: {"schema_version": "1.0", "items": [{"name": "git"}]},
+        commit_config_fn=lambda *_args: None,
+        personal_mirror_cleanup_fn=lambda *_args: [],
+    )
+
+    assert report["result"] == "ready"
+    assert events == ["mirror-seed", "doctor"]
+    assert any(
+        entry.get("kind") == "mirror-seed" and entry.get("target") == "cli-organization"
+        for entry in report["completed_actions"]
+    )
+    doctor_stage = next(s for s in report["stages"] if s["stage"] == "doctor")
+    assert "Seeded 1 first-time mirror clone(s)" in doctor_stage["detail"]
     _assert_valid_onboard_report(report)
 
 
@@ -2117,6 +2300,7 @@ def test_ecosystem_apply_writes_exact_refs_and_runs_update_doctor(
         consumer_probe_fn=_consumer_ready,
         update_fn=update,
         doctor_fn=doctor,
+        mirror_seed_fn=_no_mirror_seed,
         commit_config_fn=commit_config,
     )
     assert report["result"] == "ready"
@@ -2284,6 +2468,7 @@ def test_unavailable_optional_store_does_not_block_core_apply(tmp_path):
             0,
         ),
         doctor_fn=lambda **_: {"status": "healthy", "score": 100},
+        mirror_seed_fn=_no_mirror_seed,
     )
 
     assert report["result"] == "ready"
@@ -3188,6 +3373,90 @@ def test_legacy_personal_mirrors_move_out_of_active_tree(tmp_path):
     ]
 
 
+def test_seed_cold_start_mirrors_skips_published_and_existing_and_seeds_the_rest(
+    tmp_path,
+):
+    mirrors = tmp_path / "mirrors"
+    manifest = {
+        "layers": [
+            # Already publishes a freshness pointer -- nothing to seed.
+            {
+                "id": "claude-foundation",
+                "product": "claude",
+                "source": {"repo": "https://example.invalid/claude-copilot.git", "ref": "main"},
+            },
+            # Already has a local mirror on disk -- nothing new to adopt.
+            {
+                "id": "codex-organization",
+                "product": "codex",
+                "source": {"repo": "git@github-work:Acme/codex-copilot-internal.git", "ref": "main"},
+            },
+            # Cold start: no pointer, no mirror -- must be seeded.
+            {
+                "id": "knowledge-department-accounting",
+                "product": "knowledge",
+                "source": {"repo": "git@github-work:Acme/knowledge-copilot-accounting.git", "ref": "main"},
+            },
+            # A clone that itself fails offline stays honestly unseeded.
+            {
+                "id": "cli-department-accounting",
+                "product": "cli",
+                "source": {"repo": "git@github-work:Acme/cli-copilot-accounting.git", "ref": "main"},
+            },
+        ]
+    }
+    # codex is NOT one of `mirror.EXTERNALLY_CONSUMED_PRODUCTS` (only
+    # knowledge/cli nest under `<mirror_root>/<product>/<layer id>`), so its
+    # mirror lives directly at `<mirror_root>/<layer id>` -- see
+    # `mirror.mirror_root()`.
+    existing_mirror = mirrors / "codex-organization" / ".git"
+    existing_mirror.mkdir(parents=True)
+
+    def latest_sha(repo, _ref):
+        return "deadbeef" if "claude-copilot.git" in repo else None
+
+    cloned = []
+
+    def clone(layer_id, *_args, **_kwargs):
+        cloned.append(layer_id)
+        if layer_id == "cli-department-accounting":
+            return {"ok": False, "offline": True}
+        return {"ok": True}
+
+    seeded = onboard_module._seed_cold_start_mirrors(
+        manifest, mirrors_root=mirrors, latest_sha_fn=latest_sha, clone_fn=clone
+    )
+
+    assert seeded == ["knowledge-department-accounting"]
+    # Never re-probed the layer that already publishes a lock ref, and never
+    # re-cloned the layer that already has a local mirror.
+    assert cloned == ["knowledge-department-accounting", "cli-department-accounting"]
+
+
+def test_seed_cold_start_mirrors_never_raises_on_a_misbehaving_collaborator(tmp_path):
+    manifest = {
+        "layers": [
+            {
+                "id": "claude-personal",
+                "product": "claude",
+                "source": {"repo": "git@github-personal:pablo/claude-copilot-private.git", "ref": "main"},
+            }
+        ]
+    }
+
+    def explode(*_args, **_kwargs):
+        raise RuntimeError("network is not real in a test")
+
+    seeded = onboard_module._seed_cold_start_mirrors(
+        manifest,
+        mirrors_root=tmp_path / "mirrors",
+        latest_sha_fn=explode,
+        clone_fn=explode,
+    )
+
+    assert seeded == []
+
+
 def test_visible_apply_cannot_report_ready_when_resolution_is_empty(
     tmp_path, monkeypatch
 ):
@@ -3238,6 +3507,7 @@ def test_visible_apply_cannot_report_ready_when_resolution_is_empty(
             0,
         ),
         doctor_fn=lambda **_: {"status": "healthy", "score": 100},
+        mirror_seed_fn=_no_mirror_seed,
         resolve_fn=lambda **_: {"schema_version": "1.0", "items": []},
         commit_config_fn=lambda *_args: pytest.fail("empty resolution must not commit"),
         personal_mirror_cleanup_fn=lambda *_args: pytest.fail(
@@ -3440,6 +3710,7 @@ def test_ecosystem_apply_orders_topology_preflight_before_first_remote_mutation(
             0,
         ),
         doctor_fn=lambda **_: {"status": "healthy", "score": 100},
+        mirror_seed_fn=_no_mirror_seed,
         resolve_fn=lambda **_: {"schema_version": "1.0", "items": [{"name": "git"}]},
         commit_config_fn=lambda *_args: None,
         personal_mirror_cleanup_fn=lambda *_args: [],
@@ -3586,6 +3857,7 @@ def test_ecosystem_apply_ledger_matches_recorded_github_mutations_one_to_one(
             0,
         ),
         doctor_fn=lambda **_: {"status": "healthy", "score": 100},
+        mirror_seed_fn=_no_mirror_seed,
         commit_config_fn=lambda *_args: None,
     )
 

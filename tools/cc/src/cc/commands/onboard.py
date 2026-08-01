@@ -25,6 +25,7 @@ from cc.commands.update import execute_update
 from cc.core import authstore, keychain
 from cc.core.config import load_machine_config, resolve_key
 from cc.core.config_paths import machine_config_path
+from cc.core.ecosystem import mirror
 from cc.core.ecosystem.manifest import (
     ManifestError,
     load_layers,
@@ -1240,6 +1241,76 @@ def _quarantine_legacy_personal_mirrors(
             candidate.rename(destination)
             moved.append(f"{candidate} -> {destination}")
     return moved
+
+
+def _seed_cold_start_mirrors(
+    manifest: dict[str, Any],
+    *,
+    mirrors_root: Path | str | None = None,
+    latest_sha_fn: Callable[[str, str], str | None] | None = None,
+    clone_fn: Callable[..., dict[str, Any]] | None = None,
+) -> list[str]:
+    """Best-effort seed the read-only mirror clone for a layer that has never
+    published a ``refs/copilot/lock`` freshness pointer and has no mirror on
+    disk yet (G-10, task 215 second blocker fix).
+
+    A layer's FIRST appearance in ANY manifest this doctor ladder has ever
+    checked can never have a pre-existing published freshness pointer or
+    local mirror-clone fallback -- that is cold start, not corruption (see
+    the doctor-gate fix in ``build_ecosystem_onboard_report``, below). This
+    shrinks that window where cheap and honest: it reuses the SAME clone
+    step ``cc update`` performs for its own hidden-mirror layers
+    (``mirror.clone_or_update_mirror`` -- never duplicated here) so a layer
+    whose content already lives at a VISIBLE checkout path (this apply's
+    normal shape; ``_apply_visible_topology`` above never populates
+    ``paths.mirrors_root`` for a layer with a local ``source.path``) also
+    gets a real, git-verified local HEAD commit at the location doctor's own
+    sync-checker fallback (``core/ecosystem/component_status.py``'s
+    ``_mirror_clone_head_sha``) actually reads -- converting a "could not
+    reach remote to verify sync" warning into a genuine ``pass``/``behind``
+    verdict on this very first run.
+
+    Deliberately narrow and never fatal to the caller: skips any layer that
+    already publishes a lock-pointer ref (nothing to seed) or already has a
+    local mirror (nothing new to adopt), and a clone that itself fails
+    offline or errors is left exactly as honestly unverified as it was
+    before -- this never fabricates a lock ref or sync state, and a failure
+    here is never raised past this function (see its one call site's own
+    ``try/except``, which exists only for a collaborator that misbehaves in
+    a way this function itself does not).
+    """
+    configured = mirrors_root if mirrors_root is not None else resolve_key("paths.mirrors_root")
+    if not configured:
+        return []
+    base = Path(str(configured)).expanduser()
+    latest_sha = latest_sha_fn or mirror.latest_lock_sha
+    clone = clone_fn or mirror.clone_or_update_mirror
+    seeded: list[str] = []
+    for layer in manifest.get("layers", []):
+        source = layer.get("source") or {}
+        repo = source.get("repo")
+        layer_id = layer.get("id")
+        if not repo or not layer_id:
+            continue
+        product = layer.get("product")
+        product_root = (
+            base / str(product) if product in mirror.EXTERNALLY_CONSUMED_PRODUCTS else base
+        )
+        if (product_root / str(layer_id) / ".git").is_dir():
+            continue  # already has a local mirror -- nothing new to seed
+        ref_pointer = source.get("lock_ref") or mirror.DEFAULT_LOCK_POINTER_REF
+        try:
+            if latest_sha(repo, ref_pointer) is not None:
+                continue  # already publishes a freshness pointer -- no fallback needed
+            transport = mirror.resolve_transport(repo, layer.get("auth", "anon"))
+            result = clone(
+                layer_id, transport, source.get("ref", "main"), mirror_root=product_root,
+            )
+        except Exception:
+            continue
+        if isinstance(result, dict) and result.get("ok"):
+            seeded.append(str(layer_id))
+    return seeded
 
 
 _SEMVER = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
@@ -2538,6 +2609,7 @@ def build_ecosystem_onboard_report(
     commit_config_fn: Callable[..., Path] | None = None,
     personal_mirror_cleanup_fn: Callable[..., list[str]] | None = None,
     consumer_probe_fn: Callable[[Path, Path | None], dict[str, str]] | None = None,
+    mirror_seed_fn: Callable[..., list[str]] | None = None,
 ) -> dict[str, Any]:
     """Run the resumable Admin-handoff-to-healthy-machine transaction.
 
@@ -2582,6 +2654,8 @@ def build_ecosystem_onboard_report(
         personal_mirror_cleanup_fn = _quarantine_legacy_personal_mirrors
     if consumer_probe_fn is None:
         consumer_probe_fn = _probe_cli_candidate
+    if mirror_seed_fn is None:
+        mirror_seed_fn = _seed_cold_start_mirrors
 
     normalized = tuple(dict.fromkeys(value.strip().lower() for value in products))
     org = org.strip()
@@ -3180,20 +3254,80 @@ def build_ecosystem_onboard_report(
             return blocked_after_write(
                 "Codex activation rejected the candidate layer manifest."
             )
+    # G-10 (task 215, second blocker fix): best-effort, never-fatal seeding
+    # of the read-only mirror clone for any layer whose first-ever
+    # appearance in a manifest this doctor ladder checks would otherwise
+    # only ever see cold start -- see `_seed_cold_start_mirrors`'s own
+    # docstring. A collaborator failure here (a bad test double, or a
+    # genuinely misbehaving injected function) never blocks the
+    # already-verified manifest write below; `_seed_cold_start_mirrors`
+    # itself already degrades every real network/offline failure to an
+    # honest no-op, so this `except` exists only for the collaborator
+    # contract, not for anything network-shaped.
+    seeded_mirrors: list[str] = []
+    if not legacy_injected_mode:
+        try:
+            seeded_mirrors = mirror_seed_fn(manifest)
+        except Exception:
+            seeded_mirrors = []
+        for layer_id in seeded_mirrors:
+            ledger.append(
+                _ledger_entry(
+                    kind="mirror-seed",
+                    target=layer_id,
+                    outcome="completed",
+                    summary=(
+                        f"Seeded a first-time read-only mirror clone for {layer_id} so "
+                        "its health check has a real local revision to verify, not just "
+                        "an unpublished freshness pointer."
+                    ),
+                )
+            )
+
     try:
         doctor = doctor_fn(_manifest_path=target)
     except Exception as exc:
         return blocked_after_write(f"The post-apply health check failed: {exc}")
-    stages.append(
-        {
-            "stage": "doctor",
-            "result": doctor.get("status", "unknown"),
-            "score": doctor.get("score"),
-        }
+    doctor_checkers = doctor.get("checkers") or []
+    doctor_fail_count = sum(
+        1 for c in doctor_checkers if isinstance(c, dict) and c.get("severity") == "fail"
     )
-    if doctor.get("status") != "healthy":
+    doctor_warn_count = sum(
+        1 for c in doctor_checkers if isinstance(c, dict) and c.get("severity") == "warn"
+    )
+    doctor_stage: dict[str, Any] = {
+        "stage": "doctor",
+        "result": doctor.get("status", "unknown"),
+        "score": doctor.get("score"),
+    }
+    if doctor_checkers or seeded_mirrors:
+        detail_parts = []
+        if seeded_mirrors:
+            detail_parts.append(
+                f"Seeded {len(seeded_mirrors)} first-time mirror clone(s) before this check."
+            )
+        detail_parts.append(
+            f"{doctor_fail_count} checker(s) failed, {doctor_warn_count} reported a "
+            "warning -- only a failure can undo this manifest write."
+        )
+        doctor_stage["detail"] = " ".join(detail_parts)
+    stages.append(doctor_stage)
+    # G-10 (task 215, second blocker fix): only a real FAIL-severity checker
+    # -- corruption, a missing path, a signature failure -- invalidates the
+    # topology this run already verified byte-for-byte above. A layer's
+    # FIRST appearance in ANY manifest this doctor ladder has ever checked
+    # can never have a pre-existing published freshness pointer
+    # (`refs/copilot/lock`) or local mirror; that is cold start, not
+    # corruption, and `core/ecosystem/component_status.py`'s own contract
+    # ("This module never emits `severity: fail`") guarantees a sync gap
+    # always reports `warn`. Rolling back a byte-verified write on an
+    # honest warn -- including the aggregate `status: offline` this
+    # produces -- made first-time adoption of ANY new layer structurally
+    # impossible. `status` is still surfaced above exactly as doctor
+    # reported it; it no longer gates whether this write survives.
+    if doctor_fail_count:
         return blocked_after_write(
-            "The candidate made the post-apply health check unhealthy."
+            "The post-apply health check found a real failure, not just an honest warning."
         )
     if not legacy_injected_mode:
         try:
