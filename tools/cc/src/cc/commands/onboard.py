@@ -104,16 +104,32 @@ class PackageProbe:
 @dataclass(frozen=True)
 class HistoryClassification:
     """The closed result of comparing a visible checkout's Git history to its
-    expected GitHub origin (G-1). Exactly one of eight states is returned,
+    expected GitHub origin (G-1). Exactly one of nine states is returned,
     never anything invented in between, and every field is proven by an
     actual `git`/`gh` fact -- never inferred from "the tree is clean and the
     SHAs differ".
 
     ``state`` is the canonical, closed classification (one of: ``exact``,
     ``fast-forwardable``, ``dirty``, ``ahead-only``,
-    ``divergent-identical-tree``, ``divergent-different-content``,
-    ``wrong-origin``, ``unreadable``). ``sync_state``/``action``/``detail``
-    are the user-facing fields this collapses onto in the topology report.
+    ``parentless-snapshot-match``, ``divergent-identical-tree``,
+    ``divergent-different-content``, ``wrong-origin``, ``unreadable``).
+    ``sync_state``/``action``/``detail`` are the user-facing fields this
+    collapses onto in the topology report.
+
+    ``parentless-snapshot-match`` (task 209/G-7) covers foundation snapshot
+    releases (e.g. `foundation-snapshot-release.py`), which deliberately
+    publish PARENTLESS pinned commits/tags -- the pin's commit is never an
+    ancestor or descendant of any working branch, so ordinary ancestry
+    comparison can never align it. Without this state, a checkout that
+    already matches such a pin byte-for-byte would be misclassified
+    ``divergent-identical-tree``/``review`` forever, with no Git action the
+    owner could ever take to clear it. It is deliberately narrow: only a
+    PARENTLESS pinned target whose tree is byte-identical to a clean working
+    tree qualifies; a non-parentless pin with an identical tree (a real,
+    continuously-evolving repository, where history alignment genuinely
+    remains possible) still classifies ``divergent-identical-tree``/
+    ``review``, and a parentless pin whose tree differs still classifies
+    ``divergent-different-content``/``review``.
 
     This is the single source of truth for "is it safe to touch this
     checkout, and how" -- both the plan/report path
@@ -889,6 +905,25 @@ def _classify_repository_history(
         and local_tree.stdout.strip()
         and local_tree.stdout.strip() == target_tree.stdout.strip()
     ):
+        # `target_sha^@` lists the target commit's parent SHA(s) (empty
+        # output means it has none). A working tree that's already clean
+        # (proven above) and byte-identical to a PARENTLESS pinned target
+        # genuinely *is* the pin -- only its unrelated commit history
+        # differs, which is permanent and expected for a foundation
+        # snapshot release, not a real divergence no owner action could
+        # ever resolve. See `HistoryClassification`'s docstring (task
+        # 209/G-7). A non-parentless target reaching this point (the
+        # cli-copilot shape, where history alignment genuinely remains
+        # possible) still falls through to `divergent-identical-tree`
+        # below, unchanged.
+        parents = _git_output(local, "rev-parse", f"{target_sha}^@", run=run)
+        if parents.returncode == 0 and not parents.stdout.strip():
+            return HistoryClassification(
+                "parentless-snapshot-match",
+                "current",
+                "reuse",
+                f"Visible at {local}; content matches the pinned snapshot exactly (foundation snapshot releases are parentless by design, so only their unrelated commit history differs).",
+            )
         return HistoryClassification(
             "divergent-identical-tree",
             "diverged-identical",

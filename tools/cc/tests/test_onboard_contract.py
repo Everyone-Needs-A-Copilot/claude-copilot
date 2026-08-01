@@ -2340,6 +2340,22 @@ def _annotated_tag(path: Path, tag: str, message: str = "release") -> None:
     )
 
 
+def _init_content_repo_with_parent(
+    path: Path, filename: str, content: str, *, message: str = "init"
+) -> None:
+    """Like `_init_content_repo`, but with a preceding commit so the final
+    commit is NOT a root/parentless commit -- the shape of a real,
+    continuously-evolving repository (the cli-copilot shape, task 209/G-7)
+    where a pinned ref's target commit always has a parent, as opposed to a
+    foundation snapshot release's deliberately parentless pin. The seed
+    commit writes the same `filename` (with placeholder content) so the
+    final tree contains only `filename`/`content` -- identical in shape to
+    `_init_content_repo`'s single-commit tree, just reached via a second,
+    non-root commit."""
+    _init_content_repo(path, filename, "placeholder", message="seed")
+    _commit(path, filename, content, message)
+
+
 def test_classify_repository_history_exact(tmp_path):
     remote = tmp_path / "remote"
     local = tmp_path / "local"
@@ -2442,7 +2458,22 @@ def test_classify_repository_history_fast_forwardable_to_annotated_tag(tmp_path)
     assert "clean fast-forward is available" in classification.detail
 
 
-def test_classify_repository_history_divergent_identical_tree_against_annotated_tag(
+# ---------------------------------------------------------------------------
+# Parentless snapshot pins (task 209/G-7 live dead-end): foundation
+# snapshot releases (`foundation-snapshot-release.py`, e.g. codex-copilot)
+# publish a deliberately PARENTLESS annotated tag -- the tag's commit is
+# never an ancestor or descendant of any working branch, so it can only
+# ever reach this classifier's tree-comparison fallback below, never the
+# ancestry checks above. Before the fix, a checkout whose content already
+# matched such a pin byte-for-byte was misclassified
+# `divergent-identical-tree`/`review` forever, with no Git action the owner
+# could ever take to clear it -- this is the exact fixture shape that
+# reproduced the live bug (codex-copilot's `v0.6.2` tag: annotated, signed,
+# parentless, tree-identical to HEAD).
+# ---------------------------------------------------------------------------
+
+
+def test_classify_repository_history_parentless_snapshot_pin_identical_tree_is_current(
     tmp_path,
 ):
     remote = tmp_path / "remote"
@@ -2460,10 +2491,33 @@ def test_classify_repository_history_divergent_identical_tree_against_annotated_
         run=_real_run,
     )
 
-    assert classification.state == "divergent-identical-tree"
+    assert classification.state == "parentless-snapshot-match"
+    assert classification.sync_state == "current"
+    assert classification.action == "reuse"
+    assert "matches the pinned snapshot" in classification.detail
+
+
+def test_classify_repository_history_parentless_snapshot_pin_different_tree_is_diverged(
+    tmp_path,
+):
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, "note.txt", "remote content")
+    _annotated_tag(remote, "v1.0.0")
+    _init_content_repo(local, "note.txt", "local content", message="independent history")
+    _set_fake_origin(local, "pablo", "widget")
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "v1.0.0"},
+        run=_real_run,
+    )
+
+    assert classification.state == "divergent-different-content"
+    assert classification.sync_state == "diverged"
     assert classification.action == "review"
-    assert classification.action != "repair"
-    assert "content is identical" in classification.detail
 
 
 def test_classify_repository_history_dirty_working_tree_is_never_touched(tmp_path):
@@ -2507,9 +2561,16 @@ def test_classify_repository_history_ahead_only_is_never_auto_repaired(tmp_path)
 
 
 def test_classify_repository_history_divergent_identical_tree(tmp_path):
+    """The cli-copilot shape (task 209/G-7): a real, continuously-evolving
+    repository's pinned commit always has a parent, so -- unlike a
+    foundation snapshot release's deliberately parentless pin -- history
+    alignment genuinely remains possible in principle, even though these two
+    independent histories happen to share no ancestry here. This must stay
+    `review`, never auto-classified `current`, precisely because the target
+    is not parentless."""
     remote = tmp_path / "remote"
     local = tmp_path / "local"
-    _init_content_repo(remote, "note.txt", "same content")
+    _init_content_repo_with_parent(remote, "note.txt", "same content")
     _init_content_repo(local, "note.txt", "same content", message="independent history")
     _set_fake_origin(local, "pablo", "widget")
 
@@ -2653,9 +2714,12 @@ def test_topology_report_never_promises_a_fast_forward_for_ahead_only(tmp_path, 
 def test_topology_report_never_promises_a_fast_forward_for_divergent_identical_tree(
     tmp_path, monkeypatch
 ):
+    # The cli-copilot shape (task 209/G-7): `remote`'s target commit has a
+    # parent, so this must stay `review` rather than the parentless-pin
+    # `current`/`reuse` short-circuit -- see `_init_content_repo_with_parent`.
     remote = tmp_path / "remote"
     local = tmp_path / "codex-copilot-private"
-    _init_content_repo(remote, "note.txt", "same content")
+    _init_content_repo_with_parent(remote, "note.txt", "same content")
     _init_content_repo(local, "note.txt", "same content", message="independent history")
     _set_fake_origin(local, "pablo", "codex-copilot-private")
     monkeypatch.setattr(
@@ -3336,9 +3400,12 @@ def test_apply_visible_topology_ahead_only_cannot_produce_a_synced_result(
 def test_apply_visible_topology_divergent_identical_tree_routes_to_review(
     tmp_path, monkeypatch
 ):
+    # The cli-copilot shape (task 209/G-7): `remote`'s target commit has a
+    # parent, so this must stay `review` rather than the parentless-pin
+    # `current`/`reuse` short-circuit -- see `_init_content_repo_with_parent`.
     remote = tmp_path / "remote"
     local = tmp_path / "codex-copilot-private"
-    _init_content_repo(remote, "note.txt", "same content")
+    _init_content_repo_with_parent(remote, "note.txt", "same content")
     _init_content_repo(local, "note.txt", "same content", message="independent history")
     _set_fake_origin(local, "pablo", "codex-copilot-private")
     monkeypatch.setattr(
