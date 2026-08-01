@@ -28,6 +28,9 @@ temp/
 # Node
 node_modules/
 
+# Build output (PyInstaller-built cc binaries, etc.)
+dist/
+
 # MCP server builds
 mcp-servers/*/dist/
 mcp-servers/*/*.db
