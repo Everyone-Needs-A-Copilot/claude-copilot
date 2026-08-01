@@ -1,0 +1,244 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ineedacopilot.com/schemas/onboard.schema.json",
+  "title": "Copilot onboarding plan/apply report",
+  "oneOf": [
+    { "$ref": "#/$defs/repositoryReport" },
+    { "$ref": "#/$defs/ecosystemReport" }
+  ],
+  "$defs": {
+    "repositoryReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "scope", "owner", "mode", "result", "repositories", "summary"],
+      "properties": {
+        "schema_version": { "const": "2.0" },
+        "scope": { "enum": ["organization", "personal"] },
+        "owner": { "type": "string", "minLength": 1 },
+        "mode": { "enum": ["plan", "apply"] },
+        "result": { "enum": ["ready", "changes-required", "applied", "blocked"] },
+        "repositories": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/repository" }
+        },
+        "summary": { "$ref": "#/$defs/repositorySummary" }
+      }
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["component", "role", "unit", "owner", "name", "visibility", "state", "action", "detail", "rank", "package_state", "package_action", "package_detail", "decline_detail"],
+      "properties": {
+        "component": { "enum": ["knowledge", "cli", "claude", "codex"] },
+        "role": { "enum": ["org", "organization", "department", "personal"] },
+        "unit": { "type": ["string", "null"] },
+        "owner": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "visibility": { "enum": ["private", "public", null] },
+        "state": { "enum": ["existing-private", "missing", "created", "conflict-public", "unknown"] },
+        "action": { "enum": ["none", "create", "blocked"] },
+        "detail": { "type": "string", "minLength": 1 },
+        "rank": { "type": "integer", "minimum": 0 },
+        "package_state": { "type": "string", "minLength": 1 },
+        "package_action": { "type": "string", "minLength": 1 },
+        "package_detail": { "type": "string", "minLength": 1 },
+        "decline_detail": { "type": "string" }
+      }
+    },
+    "repositorySummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["existing", "missing", "created", "blocked"],
+      "properties": {
+        "existing": { "type": "integer", "minimum": 0 },
+        "missing": { "type": "integer", "minimum": 0 },
+        "created": { "type": "integer", "minimum": 0 },
+        "blocked": { "type": "integer", "minimum": 0 },
+        "seeded": { "type": "integer", "minimum": 0 },
+        "held": { "type": "integer", "minimum": 0 },
+        "adoptable": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "ecosystemReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "G-5 (task 208, breaking bump from schema_version 1.0): `layers` now has exactly two legal shapes, discriminated by `layers_state` -- there is no third, in-between shape. `layers_state: \"reported\"` means the topology report has been computed and `layers` is a non-empty array of fully-required `ecosystemLayer` rows (never a skeletal id/product/role/rank-only row). `layers_state: \"not-computed\"` means this exit path returned before topology could be computed at all, and `layers` MUST be `[]` -- this is the one honest way to represent absence; an empty array is otherwise never valid. `layers_state` and `layers` are both always present.",
+      "required": ["schema_version", "scope", "mode", "result", "org", "products", "components", "stages", "layers_state", "layers", "inventory", "inventory_summary", "completed_actions"],
+      "properties": {
+        "schema_version": { "const": "2.0" },
+        "scope": { "const": "ecosystem" },
+        "mode": { "enum": ["plan", "apply"] },
+        "result": { "enum": ["ready", "changes-required", "applied", "blocked"] },
+        "org": { "type": "string", "minLength": 1 },
+        "products": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["claude", "codex"] }
+        },
+        "components": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "description": "The complete CSE component set provisioned by this ecosystem transaction, independent of the selected assistant runtimes.",
+          "items": { "enum": ["knowledge", "cli", "claude", "codex"] },
+          "allOf": [
+            { "contains": { "const": "knowledge" } },
+            { "contains": { "const": "cli" } },
+            { "contains": { "const": "claude" } },
+            { "contains": { "const": "codex" } }
+          ]
+        },
+        "stages": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ecosystemStage" }
+        },
+        "layers_state": {
+          "description": "Discriminates the two legal `layers` shapes below. `reported`: topology was computed for this exit -- `layers` has at least one fully-populated row. `not-computed`: this exit returned before topology could be computed -- `layers` is `[]`. An app MUST branch on this field before reading `layers`, never infer absence from an empty array alone.",
+          "enum": ["reported", "not-computed"]
+        },
+        "layers": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ecosystemLayer" }
+        },
+        "inventory": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/inventoryItem" }
+        },
+        "inventory_summary": {
+          "$ref": "#/$defs/inventorySummary"
+        },
+        "completed_actions": {
+          "description": "G-4 (task 207), formalized by G-5 (task 208): every mutation this run actually completed, attempted, or rolled back, in the order it happened. Always present, possibly empty -- a `result` may only claim nothing changed when this is empty.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/completedAction" }
+        },
+        "resume": {
+          "description": "Only present when `result` is `blocked`: what remains, and that re-running adopts (never recreates) whatever `completed_actions` already shows as `completed`.",
+          "$ref": "#/$defs/resumeHint"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "layers_state": { "const": "reported" } },
+            "required": ["layers_state"]
+          },
+          "then": {
+            "properties": { "layers": { "minItems": 1 } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "layers_state": { "const": "not-computed" } },
+            "required": ["layers_state"]
+          },
+          "then": {
+            "properties": { "layers": { "maxItems": 0 } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "result": { "const": "blocked" } },
+            "required": ["result"]
+          },
+          "then": { "required": ["resume"] }
+        }
+      ]
+    },
+    "completedAction": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["kind", "target", "outcome", "summary"],
+      "properties": {
+        "kind": { "type": "string", "minLength": 1 },
+        "target": { "type": "string", "minLength": 1 },
+        "outcome": { "enum": ["completed", "failed", "rolled-back"] },
+        "summary": { "type": "string", "minLength": 1 }
+      }
+    },
+    "resumeHint": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["safe_to_rerun", "detail"],
+      "properties": {
+        "safe_to_rerun": { "type": "boolean" },
+        "detail": { "type": "string", "minLength": 1 }
+      }
+    },
+    "ecosystemStage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage", "result"],
+      "properties": {
+        "stage": { "enum": ["organization-handoff", "personal-packages", "repository-location", "visible-repositories", "device-ssh", "layer-manifest", "secret-store", "codex-plugin", "cli-sync", "materialize", "doctor", "resolve", "personal-repository-location"] },
+        "result": { "type": "string", "minLength": 1 },
+        "detail": { "type": "string", "minLength": 1 },
+        "action": { "enum": ["reuse", "create", "migrate", "repair", "review", "choose"] },
+        "path": { "type": "string", "minLength": 1 },
+        "rollback_path": { "type": "string", "minLength": 1 },
+        "layers": { "type": "integer", "minimum": 0 },
+        "blocked": { "type": "integer", "minimum": 0 },
+        "held": { "type": "integer", "minimum": 0 },
+        "score": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
+        "key": { "type": "string", "minLength": 1 },
+        "registration": { "type": "string", "minLength": 1 },
+        "config": { "type": "string", "minLength": 1 },
+        "type": { "type": "string", "minLength": 1 },
+        "scope": { "type": ["string", "null"] },
+        "summary": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "ecosystemLayer": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "G-5 (task 208): every field a consumer needs to render one row of topology evidence is now required, closing the gap where a raw manifest layer (id/product/role/rank only, no topology evidence) validated identically to a fully-computed row. `unit`, `repository_owner`, `repository_visibility`, `connection_state`, and `detail` stay optional -- they are either role-conditional (`unit` is only ever set for `department`) or purely explanatory, never load-bearing for an app's state rendering.",
+      "required": ["id", "product", "role", "rank", "action", "local_state", "sync_state", "remote_state", "repository_name", "local_path"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "product": { "enum": ["knowledge", "cli", "claude", "codex"] },
+        "role": { "enum": ["personal", "department", "organization", "foundation"] },
+        "rank": { "type": "integer", "minimum": 0 },
+        "unit": { "type": ["string", "null"] },
+        "repository_owner": { "type": "string" },
+        "repository_name": { "type": "string" },
+        "repository_visibility": { "type": ["string", "null"] },
+        "remote_state": { "type": "string" },
+        "local_path": { "type": ["string", "null"] },
+        "local_state": { "type": "string" },
+        "connection_state": { "type": "string" },
+        "sync_state": { "type": "string" },
+        "action": { "type": "string" },
+        "detail": { "type": "string" }
+      }
+    },
+    "inventoryItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "scope", "title", "state", "action", "detail", "source_path", "destination_path", "reversible"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "scope": { "enum": ["personal", "machine", "project"] },
+        "title": { "type": "string", "minLength": 1 },
+        "state": { "type": "string", "minLength": 1 },
+        "action": { "enum": ["reuse", "create", "migrate", "repair", "review"] },
+        "detail": { "type": "string", "minLength": 1 },
+        "source_path": { "type": ["string", "null"] },
+        "destination_path": { "type": ["string", "null"] },
+        "reversible": { "type": "boolean" },
+        "decline_detail": { "type": "string" }
+      }
+    },
+    "inventorySummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reused", "changes", "review"],
+      "properties": {
+        "reused": { "type": "integer", "minimum": 0 },
+        "changes": { "type": "integer", "minimum": 0 },
+        "review": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}
