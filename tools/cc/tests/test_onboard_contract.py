@@ -1512,6 +1512,417 @@ layers:
     _assert_valid_onboard_report(report)
 
 
+_SINGLE_LAYER_MANIFEST = """version: 1
+layers:
+  - id: cli-organization
+    role: organization
+    component: cli
+    rank: 30
+    source: {repo: git@github-work:Acme/cli-copilot-internal.git, ref: main}
+    auth: ssh-work
+"""
+
+
+def _fake_healthy_doctor(**_kwargs):
+    return {"status": "healthy", "score": 100}
+
+
+def _fake_commit_config(events=None):
+    def commit_config(path, knowledge):
+        if events is not None:
+            events.append("commit-config")
+    return commit_config
+
+
+def test_materialize_held_items_do_not_roll_back_manifest_and_are_reported(tmp_path):
+    """G-9 (task 215 blocker fix): a guard-protected `held` item is honest,
+    not fatal -- the manifest write commits and stays, the overall
+    transaction still completes, and the held item is reported plainly in
+    the new `materialize` field rather than triggering a rollback."""
+    target = tmp_path / "layers.yml"
+    target.write_text(_SINGLE_LAYER_MANIFEST, encoding="utf-8")
+    before = target.read_bytes()
+
+    def update(**kwargs):
+        assert Path(kwargs["_manifest_path"]).read_bytes() != before
+        return (
+            {
+                "result": "held",
+                "changed": [],
+                "blocked": [],
+                "held_for_approval": [
+                    {
+                        "product": "claude",
+                        "dimension": "knowledge",
+                        "from": "aaa",
+                        "to": "aaa",
+                        "reason": "protected: symlink escapes the materialize root -- never overwritten",
+                    }
+                ],
+            },
+            1,
+        )
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=update,
+        doctor_fn=_fake_healthy_doctor,
+        commit_config_fn=_fake_commit_config(),
+    )
+
+    assert report["result"] == "ready"
+    # The candidate manifest was written and KEPT -- never rolled back --
+    # even though the materialize step reported a held item.
+    assert target.read_bytes() != before
+    manifest_stage = next(s for s in report["stages"] if s["stage"] == "layer-manifest")
+    assert manifest_stage["result"] == "applied"
+    materialize_stage = next(s for s in report["stages"] if s["stage"] == "materialize")
+    assert materialize_stage["result"] == "held"
+    assert materialize_stage["held"] == 1
+    assert materialize_stage["blocked"] == 0
+    assert report["materialize"]["result"] == "held"
+    assert report["materialize"]["held"] == 1
+    assert report["materialize"]["blocked"] == 0
+    assert len(report["materialize"]["held_items"]) == 1
+    assert report["materialize"]["held_items"][0]["reason"].startswith("protected:")
+    manifest_entries = [
+        e for e in report["completed_actions"] if e["kind"] == "layer-manifest"
+    ]
+    assert manifest_entries[0]["outcome"] == "completed"
+    materialization_entries = [
+        e for e in report["completed_actions"] if e["kind"] == "materialization"
+    ]
+    assert materialization_entries[0]["outcome"] == "completed"
+    assert "resume" not in report
+    _assert_valid_onboard_report(report)
+
+
+def test_materialize_blocked_items_do_not_roll_back_manifest_and_are_reported(
+    tmp_path,
+):
+    """G-9 (task 215 blocker fix): the fail-closed signature policy's
+    `blocked` (unverified) verdict is an honest per-item outcome too --
+    same treatment as `held` above, never fatal to the manifest write or
+    the overall transaction on its own."""
+    target = tmp_path / "layers.yml"
+    target.write_text(_SINGLE_LAYER_MANIFEST, encoding="utf-8")
+    before = target.read_bytes()
+
+    def update(**_kwargs):
+        return (
+            {
+                "result": "blocked",
+                "changed": [],
+                "blocked": [
+                    {
+                        "product": "claude",
+                        "dimension": "agents",
+                        "layer": "claude-foundation",
+                        "item": "qa",
+                        "reason": "unverified",
+                    }
+                ],
+                "held_for_approval": [],
+            },
+            1,
+        )
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=update,
+        doctor_fn=_fake_healthy_doctor,
+        commit_config_fn=_fake_commit_config(),
+    )
+
+    assert report["result"] == "ready"
+    assert target.read_bytes() != before
+    manifest_stage = next(s for s in report["stages"] if s["stage"] == "layer-manifest")
+    assert manifest_stage["result"] == "applied"
+    materialize_stage = next(s for s in report["stages"] if s["stage"] == "materialize")
+    assert materialize_stage["result"] == "blocked"
+    assert materialize_stage["blocked"] == 1
+    assert materialize_stage["held"] == 0
+    assert report["materialize"]["result"] == "blocked"
+    assert report["materialize"]["blocked"] == 1
+    assert len(report["materialize"]["blocked_items"]) == 1
+    assert report["materialize"]["blocked_items"][0] == {
+        "product": "claude",
+        "dimension": "agents",
+        "layer": "claude-foundation",
+        "item": "qa",
+        "reason": "unverified",
+    }
+    manifest_entries = [
+        e for e in report["completed_actions"] if e["kind"] == "layer-manifest"
+    ]
+    assert manifest_entries[0]["outcome"] == "completed"
+    assert "resume" not in report
+    _assert_valid_onboard_report(report)
+
+
+def test_materialize_held_still_activates_codex_and_completes_the_pipeline(
+    tmp_path,
+):
+    """Held/blocked materialize outcomes must not skip downstream steps
+    (codex activation, doctor, commit-config) either -- only a genuine
+    environment-level materialize failure (exit code outside {0, 1}, or an
+    exception) may still stop the run."""
+    target = tmp_path / "layers.yml"
+    target.write_text(_SINGLE_LAYER_MANIFEST, encoding="utf-8")
+    codex_calls = []
+
+    def codex(*, apply, **_kwargs):
+        codex_calls.append(apply)
+        return {"result": "ready" if apply else "changes-required"}
+
+    def update(**_kwargs):
+        return (
+            {
+                "result": "held",
+                "changed": [],
+                "blocked": [],
+                "held_for_approval": [{"product": "claude", "dimension": "knowledge", "from": "a", "to": "a", "reason": "held"}],
+            },
+            1,
+        )
+
+    events = []
+
+    def doctor(**_kwargs):
+        events.append("doctor")
+        return {"status": "healthy", "score": 100}
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=update,
+        doctor_fn=doctor,
+        commit_config_fn=_fake_commit_config(events),
+    )
+
+    assert report["result"] == "ready"
+    # codex_fn is invoked at plan time (apply=False) AND again at apply time
+    # (apply=True) -- the fix removed the stale `update_exit == 0 and`
+    # guard, which used to make the apply=True call unreachable whenever
+    # materialize reported held/blocked.
+    assert True in codex_calls
+    assert events == ["doctor", "commit-config"]
+    _assert_valid_onboard_report(report)
+
+
+def test_materialize_environment_failure_still_rolls_back_manifest_loudly(tmp_path):
+    """A materialize failure that is TOTAL and unexpected (an exit code
+    outside {0, 1} -- lock contention, an invalid manifest) is NOT an
+    honest per-item outcome, and still fails the run loudly with the
+    manifest state explicit."""
+    target = tmp_path / "layers.yml"
+    target.write_text(_SINGLE_LAYER_MANIFEST, encoding="utf-8")
+    before = target.read_bytes()
+    calls = []
+
+    def update(**kwargs):
+        calls.append(Path(kwargs["_manifest_path"]).read_bytes())
+        if len(calls) == 1:
+            return (
+                {"result": "blocked", "blocked": [], "held_for_approval": []},
+                2,
+            )
+        return {"result": "up-to-date", "blocked": [], "held_for_approval": []}, 0
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=update,
+        doctor_fn=lambda **_: pytest.fail("doctor must not run after an environment materialize failure"),
+    )
+
+    assert report["result"] == "blocked"
+    assert len(calls) == 2
+    assert target.read_bytes() == before
+    manifest_stage = next(s for s in report["stages"] if s["stage"] == "layer-manifest")
+    assert manifest_stage["result"] == "rolled-back"
+    assert "materialize" not in report
+    _assert_valid_onboard_report(report)
+
+
+def test_materialize_raised_exception_still_rolls_back_manifest_loudly(tmp_path):
+    """A genuine crash (the materialize engine itself raising, not
+    returning a structured held/blocked result) still fails the run loudly
+    and rolls back -- the exception path is untouched by this fix."""
+    target = tmp_path / "layers.yml"
+    target.write_text(_SINGLE_LAYER_MANIFEST, encoding="utf-8")
+    before = target.read_bytes()
+    calls = []
+
+    def update(**kwargs):
+        calls.append(Path(kwargs["_manifest_path"]).read_bytes())
+        if len(calls) == 1:
+            raise RuntimeError("disk full")
+        return {"result": "up-to-date", "blocked": [], "held_for_approval": []}, 0
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=update,
+        doctor_fn=lambda **_: pytest.fail("doctor must not run after a raised materialize exception"),
+    )
+
+    assert report["result"] == "blocked"
+    assert len(calls) == 2
+    assert target.read_bytes() == before
+    manifest_stage = next(s for s in report["stages"] if s["stage"] == "layer-manifest")
+    assert manifest_stage["result"] == "rolled-back"
+    assert "disk full" in manifest_stage["detail"]
+    assert "materialize" not in report
+    _assert_valid_onboard_report(report)
+
+
+def test_rollback_confirmation_compares_bytes_not_the_restored_manifests_own_gate_outcome(
+    tmp_path,
+):
+    """G-9 (task 215 blocker fix): the exact live-incident shape. The
+    candidate materialize genuinely fails for an environment reason (exit
+    2), triggering rollback; the manifest FILE is restored byte-identical
+    (proven below), but the best-effort reconciliation pass against the
+    RESTORED (old) manifest hits the SAME fail-closed gate (exit 1,
+    held/blocked) for that manifest's own, unrelated content. That must be
+    reported honestly as its own thing, never conflated into
+    "rollback-failed" -- the file rollback is confirmed by bytes, not by
+    re-running the gate a second time.
+    """
+    target = tmp_path / "layers.yml"
+    target.write_text(_SINGLE_LAYER_MANIFEST, encoding="utf-8")
+    before = target.read_bytes()
+    calls = []
+
+    def update(**kwargs):
+        calls.append(Path(kwargs["_manifest_path"]).read_bytes())
+        if len(calls) == 1:
+            # The new candidate: a genuine, non-gate materialize failure.
+            return (
+                {"result": "blocked", "blocked": [], "held_for_approval": []},
+                2,
+            )
+        # Reconciling the RESTORED prior manifest hits the SAME fail-closed
+        # gate for ITS OWN content -- an honest, unrelated per-item outcome,
+        # never evidence the file rollback itself failed.
+        return (
+            {
+                "result": "held",
+                "blocked": [],
+                "held_for_approval": [
+                    {"product": "cli", "dimension": "commands", "from": "a", "to": "a", "reason": "held"}
+                ],
+            },
+            1,
+        )
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=update,
+        doctor_fn=lambda **_: pytest.fail("doctor must not run after a rolled-back manifest"),
+    )
+
+    assert report["result"] == "blocked"
+    assert len(calls) == 2
+    assert calls[1] == before
+    assert target.read_bytes() == before
+    manifest_stage = next(s for s in report["stages"] if s["stage"] == "layer-manifest")
+    # THE regression proof: under the pre-fix conflation, this would have
+    # been "rollback-failed" purely because the reconcile pass's OWN exit
+    # code was 1 (held), even though the file was byte-identical restored.
+    assert manifest_stage["result"] == "rolled-back"
+    assert "restored" in manifest_stage["detail"].lower()
+    manifest_entries = [
+        e for e in report["completed_actions"] if e["kind"] == "layer-manifest"
+    ]
+    assert manifest_entries[0]["outcome"] == "rolled-back"
+    _assert_valid_onboard_report(report)
+
+
+def test_rollback_confirmation_still_fails_when_bytes_do_not_match(tmp_path):
+    """The byte-comparison confirmation must still correctly report
+    `rollback-failed` when the restore genuinely could not be proven --
+    this is not a new bypass, only a more precise signal."""
+    target = tmp_path / "layers.yml"
+    target.write_text(_SINGLE_LAYER_MANIFEST, encoding="utf-8")
+    before = target.read_bytes()
+
+    def update(**kwargs):
+        # A concurrent actor changes the manifest AFTER this transaction's
+        # write but BEFORE rollback runs -- `_rollback_manifest_adoption`
+        # must refuse rather than clobber it (unchanged pre-existing
+        # safety property; this test just proves the new confirmation path
+        # still surfaces that refusal as `rollback-failed`).
+        Path(kwargs["_manifest_path"]).write_text("tampered: true\n", encoding="utf-8")
+        return {"result": "blocked", "blocked": [], "held_for_approval": []}, 2
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        apply=True,
+        run=_aggregate_run,
+        manifest_path=target,
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=update,
+        doctor_fn=lambda **_: pytest.fail("doctor must not run after a failed rollback"),
+    )
+
+    assert report["result"] == "blocked"
+    manifest_stage = next(s for s in report["stages"] if s["stage"] == "layer-manifest")
+    assert manifest_stage["result"] == "rollback-failed"
+    assert target.read_bytes() != before
+    _assert_valid_onboard_report(report)
+
+
 def test_unhealthy_post_apply_doctor_restores_exact_manifest(tmp_path):
     target = tmp_path / "layers.yml"
     target.write_text(

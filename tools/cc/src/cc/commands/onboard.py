@@ -2338,6 +2338,29 @@ def _resume_hint(completed_actions: Sequence[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _materialize_summary(update: dict[str, Any]) -> dict[str, Any]:
+    """The honest, per-item materialize outcome (G-9, task 215 blocker fix).
+
+    Reuses the SAME `held_for_approval`/`blocked` item shapes `update.py`'s
+    own `--json` contract already emits (product/dimension/from/to/reason
+    for a hold; product/dimension/layer/item/reason for a block) -- never a
+    new vocabulary -- so a `held`/`blocked` outcome is surfaced plainly on
+    the onboarding report without this transaction's manifest write or
+    overall `result` ever being made hostage to it (see the apply loop's
+    materialize step, above).
+    """
+    held_items = update.get("held_for_approval", [])
+    blocked_items = update.get("blocked", [])
+    return {
+        "result": update.get("result", "blocked"),
+        "completed": len(update.get("changed", [])),
+        "held": len(held_items),
+        "blocked": len(blocked_items),
+        "held_items": held_items,
+        "blocked_items": blocked_items,
+    }
+
+
 def _ecosystem_result(
     org: str,
     products: Sequence[str],
@@ -2348,6 +2371,7 @@ def _ecosystem_result(
     inventory: Sequence[dict[str, Any]] | None = None,
     components: Sequence[str] | None = None,
     completed_actions: Sequence[dict[str, Any]] | None = None,
+    materialize: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     report = {
         "schema_version": SCHEMA_VERSION,
@@ -2410,6 +2434,17 @@ def _ecosystem_result(
         ),
         "review": sum(item.get("action") == "review" for item in report["inventory"]),
     }
+    # G-9 (task 215 blocker fix): purely additive/optional -- only present
+    # once a real apply has actually run the materialize step; never `null`,
+    # never a key that appears with placeholder/empty content on a path
+    # that never reached materialize (plan mode, or any earlier block).
+    # Carries the SAME per-item `held_for_approval`/`blocked` shapes
+    # `update.py`'s own `--json` contract already emits, so a `held`/
+    # `blocked` outcome here is reported honestly without ever making the
+    # manifest write (already committed above) or this transaction's
+    # overall `result` hostage to it.
+    if materialize is not None:
+        report["materialize"] = materialize
     return report
 
 
@@ -2990,29 +3025,61 @@ def build_ecosystem_onboard_report(
         ledger.append(manifest_ledger_entry)
 
     def blocked_after_write(detail: str) -> dict[str, Any]:
+        # G-9 (task 215 blocker fix): rollback CONFIRMATION is a pure byte
+        # comparison, never a re-run of the materialize/policy gates.
+        # `_rollback_manifest_adoption` above already proves the manifest
+        # FILE was restored (or removed) to its exact pre-transaction bytes
+        # -- reading back `plan.destination`/`plan.source` and comparing
+        # against `backup`'s bytes -- before it ever returns `True`; nothing
+        # below may downgrade that to "rollback-failed" just because a
+        # LATER, separate reconciliation pass's own fail-closed materialize
+        # gates report `held`/`blocked` for the RESTORED (old) manifest's
+        # own content. That was the live incident's exact conflation: the
+        # file was verifiably restored byte-identical, yet the stage
+        # self-reported "rollback-failed" because the confirmation re-ran
+        # the same gates the restored manifest's own content still (validly)
+        # trips. A `held`/`blocked` verdict is an honest per-item outcome of
+        # the gate, never evidence the file rollback itself failed.
         rolled_back = _rollback_manifest_adoption(adoption, backup)
         prior_manifest = adoption.source
+        reconcile_note = ""
         if (
             rolled_back
             and prior_manifest is not None
             and prior_manifest.is_file()
             and adoption.action != "reuse"
         ):
+            # Best-effort machine reconciliation: fold back out anything the
+            # failed candidate already materialized so the restored (old)
+            # manifest's own machine content stays honest, mirroring the
+            # main materialize gate below. Its own result is reported, but
+            # -- like that gate -- only a genuine environment failure (an
+            # exception, or an exit code outside 0/1) is worth surfacing;
+            # `held`/`blocked` (exit 1) is that content's own honest,
+            # unrelated state, never proof the FILE rollback (already
+            # byte-confirmed above) failed.
             try:
                 _, restore_exit = update_fn(
                     dry_run=False, _manifest_path=prior_manifest
                 )
-                rolled_back = restore_exit == 0
-            except Exception:
-                rolled_back = False
-        if rolled_back and prior_manifest is not None and prior_manifest.is_file():
+                if restore_exit not in (0, 1):
+                    reconcile_note = (
+                        " The restored manifest's own machine reconciliation "
+                        "could not be confirmed; run `cc update` to finish "
+                        "reconciling it."
+                    )
+            except Exception as exc:
+                reconcile_note = (
+                    " The restored manifest's own machine reconciliation "
+                    f"failed: {exc}"
+                )
             try:
-                rolled_back = cli_fn(prior_manifest).get("result") == "ready"
-            except Exception:
-                rolled_back = False
+                cli_fn(prior_manifest)
+            except Exception as exc:
+                reconcile_note += f" CLI layer sync could not be reconciled: {exc}"
         manifest_stage["result"] = "rolled-back" if rolled_back else "rollback-failed"
         manifest_stage["detail"] = (
-            f"{detail} The previous manifest was restored."
+            f"{detail} The previous manifest was restored.{reconcile_note}"
             if rolled_back
             else (
                 f"{detail} Automatic rollback could not be proven complete; "
@@ -3045,24 +3112,51 @@ def build_ecosystem_onboard_report(
         update, update_exit = update_fn(dry_run=False, _manifest_path=target)
     except Exception as exc:
         return blocked_after_write(f"Materialization failed: {exc}")
+    materialize_result = update.get("result", "blocked")
+    materialize_held_items = update.get("held_for_approval", [])
+    materialize_blocked_items = update.get("blocked", [])
     stages.append(
         {
             "stage": "materialize",
-            "result": update.get("result", "blocked"),
-            "blocked": len(update.get("blocked", [])),
-            "held": len(update.get("held_for_approval", [])),
+            "result": materialize_result,
+            "blocked": len(materialize_blocked_items),
+            "held": len(materialize_held_items),
         }
     )
-    if update_exit != 0:
+    # G-9 (task 215 blocker fix): topology is already verified and the
+    # manifest is already written above -- from here on, only a materialize
+    # failure that is TOTAL and unexpected invalidates that write. Per
+    # `update.py`'s own `compute_exit_code` contract, exit 0 is
+    # applied/up-to-date and exit 1 is held/blocked -- both are the
+    # materialize engine running to completion and reporting an HONEST
+    # per-item outcome (a never-destroy guard refusing to overwrite
+    # protected content, or the fail-closed signature policy refusing
+    # unverified content). Neither is corruption, and neither may roll back
+    # topology this run already verified. Only an exit code outside {0, 1}
+    # (an environment-level failure -- lock contention, an invalid
+    # manifest -- see `compute_exit_code`'s docstring) reaches here, besides
+    # the exception case already handled above.
+    if update_exit not in (0, 1):
         return blocked_after_write(
-            "Materialization rejected the candidate layer manifest."
+            "Materialization failed for an environment reason, not a per-item policy hold or block."
         )
     ledger.append(
         _ledger_entry(
             kind="materialization",
             target=str(target),
             outcome="completed",
-            summary=f"Materialized the local Copilot layer mirrors described by {target}.",
+            summary=(
+                f"Materialized the local Copilot layer mirrors described by {target}."
+                if materialize_result in ("applied", "up-to-date")
+                else (
+                    f"Materialized what the fail-closed signature policy and "
+                    f"never-destroy guard currently allow from {target}: "
+                    f"{len(materialize_held_items)} item(s) held for approval, "
+                    f"{len(materialize_blocked_items)} item(s) unverified. "
+                    "Neither stops this transaction -- see the `materialize` "
+                    "field for the honest per-item detail."
+                )
+            ),
         )
     )
     try:
@@ -3074,7 +3168,7 @@ def build_ecosystem_onboard_report(
         return blocked_after_write(
             cli_report.get("detail", "CLI layer sync rejected the candidate manifest.")
         )
-    if update_exit == 0 and "codex" in normalized:
+    if "codex" in normalized:
         try:
             codex_report = codex_fn(apply=True, run=run)
         except Exception as exc:
@@ -3166,6 +3260,7 @@ def build_ecosystem_onboard_report(
         inventory,
         ecosystem_components,
         completed_actions=ledger,
+        materialize=_materialize_summary(update),
     )
 
 

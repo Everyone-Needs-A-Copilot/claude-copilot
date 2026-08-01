@@ -690,6 +690,64 @@ def test_materialize_fail_closed_policy_blocks_unverified_item(tmp_path):
     assert "foundation" not in report["lock"]  # nothing pinned -- never applied
 
 
+def test_materialize_threads_layer_source_ref_into_policy_item(tmp_path):
+    """G-9 (task 215 blocker fix): each layer's resolved/pinned
+    `source.ref` reaches `policy.evaluate()`'s item dict as `item["ref"]`,
+    so a foundation checkout that reached `reuse` via
+    `parentless-snapshot-match` (task 209/G-7) can be verified against the
+    commit the manifest actually pinned, not blind HEAD."""
+    layer_root = tmp_path / "foundation-src"
+    (layer_root / "agents").mkdir(parents=True)
+    (layer_root / "agents" / "qa.md").write_text("qa body", encoding="utf-8")
+
+    resolved, source_paths = _resolved_and_paths(tmp_path, layer_root)
+    materialize_root = tmp_path / "materialize"
+    seen_refs = []
+
+    def capture_ref_policy(item):
+        seen_refs.append(item.get("ref"))
+        return "allow"
+
+    materialize(
+        resolved,
+        materialize_root=materialize_root,
+        previous_lock={},
+        layer_source_paths=source_paths,
+        layer_source_refs={"foundation": "v5.13.23"},
+        policy=capture_ref_policy,
+    )
+
+    assert seen_refs == ["v5.13.23"]
+
+
+def test_materialize_without_layer_source_refs_passes_none(tmp_path):
+    """`layer_source_refs` is optional -- an omitted or unknown layer id
+    must reach the policy item as `None`, never a KeyError, so every
+    existing caller that doesn't know about pinned refs keeps working
+    unchanged."""
+    layer_root = tmp_path / "foundation-src"
+    (layer_root / "agents").mkdir(parents=True)
+    (layer_root / "agents" / "qa.md").write_text("qa body", encoding="utf-8")
+
+    resolved, source_paths = _resolved_and_paths(tmp_path, layer_root)
+    materialize_root = tmp_path / "materialize"
+    seen_refs = []
+
+    def capture_ref_policy(item):
+        seen_refs.append(item.get("ref"))
+        return "allow"
+
+    materialize(
+        resolved,
+        materialize_root=materialize_root,
+        previous_lock={},
+        layer_source_paths=source_paths,
+        policy=capture_ref_policy,
+    )
+
+    assert seen_refs == [None]
+
+
 # ---------------------------------------------------------------------------
 # dry_run
 # ---------------------------------------------------------------------------

@@ -488,6 +488,7 @@ def materialize(
     target_allowlist: Optional[dict[str, dict[str, str]]] = None,
     previous_lock: Optional[Lockfile] = None,
     layer_source_paths: dict[str, Path | str],
+    layer_source_refs: Optional[dict[str, str]] = None,
     layer_policies: Optional[dict[str, dict[str, Any]]] = None,
     layer_products: Optional[dict[str, str]] = None,
     policy: Optional[PolicyFn] = None,
@@ -526,6 +527,16 @@ def materialize(
     `mirror_roots` (optional; defaults to none configured) exempts a
     disposable, engine-managed mirror clone from the clean-tracked-repo
     check should a target ever legitimately resolve into one.
+
+    `layer_source_refs` (task 215 blocker fix, G-9; optional): each layer's
+    actually-resolved/pinned `source.ref` (e.g. a signed foundation
+    snapshot tag), threaded through to `policy.evaluate()`/`verify_git_item()`
+    so a checkout that reached `reuse` via `parentless-snapshot-match`
+    (content-identical to the pin but on an unrelated branch history) is
+    verified against the commit that was actually pinned, not whatever the
+    working tree's arbitrary HEAD happens to be. Omitted or missing for a
+    given layer, this is simply `None` and `verify_git_item()` falls back
+    to its prior blind-HEAD check -- never a new failure mode.
     """
     gate = policy or _default_policy
     if materialize_roots is None and materialize_root is None:
@@ -537,6 +548,7 @@ def materialize(
     allowlist = target_allowlist or PRODUCT_TARGET_ALLOWLIST
     layer_policies = layer_policies or {}
     layer_products = layer_products or {}
+    layer_source_refs = layer_source_refs or {}
     previous_lock = previous_lock or {}
     personal_roots = list(personal_roots)
     mirror_roots = list(mirror_roots)
@@ -636,6 +648,7 @@ def materialize(
                 "source_root": str(source_root) if source_root else None,
                 "relative_path": f"{dimension}/{dest_name}",
                 "layer_policy": layer_policies.get(layer_id),
+                "ref": layer_source_refs.get(layer_id),
             }
         )
 

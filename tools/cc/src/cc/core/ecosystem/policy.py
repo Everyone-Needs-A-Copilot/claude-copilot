@@ -60,10 +60,11 @@ def verify_git_item(
     relative_path: str,
     allowed_signers: Sequence[str],
     *,
+    ref: str | None = None,
     run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
     _trusted_keys: dict[str, str] = FOUNDATION_SSH_SIGNING_KEYS,
 ) -> tuple[bool, str | None]:
-    """Verify the last commit touching one item and return its signer.
+    """Verify the commit that introduced one item at ``ref`` and return its signer.
 
     Git's ``%G?`` performs cryptographic verification with the configured
     GPG/SSH verifier. ``%GF`` returns the key fingerprint. A good signature is
@@ -74,6 +75,29 @@ def verify_git_item(
     fingerprints are also requested by the signed layer manifest. The two
     independent gates mean a manifest cannot introduce a new trust root, and
     a compiled key cannot authorize a layer unless the manifest names it.
+
+    ``ref`` (task 215 blocker fix, G-9): the layer's actually-RESOLVED and
+    PINNED revision (``layer["source"]["ref"]`` -- e.g. a signed foundation
+    snapshot tag such as ``v5.13.23``), when the caller has one. Without it,
+    ``git log -1 -- <path>`` implicitly inspects whatever is checked out as
+    HEAD in the working tree -- which is only ever the pinned revision for
+    an EXACT-match or freshly-cloned/fast-forwarded checkout. A checkout
+    that reached ``reuse`` via ``parentless-snapshot-match`` (task 209/G-7:
+    content byte-identical to a parentless foundation snapshot tag, but on
+    an unrelated branch -- e.g. a foundation maintainer's own dev checkout)
+    is a real, topology-verified, content-identical match to the signed
+    pin, yet HEAD's own branch history was never the signed commit, so the
+    blind-HEAD check misreports genuinely-signed foundation content as
+    unverified. Passing ``ref`` scopes the check to the commit the manifest
+    actually pinned, exactly the same revision `_classify_repository_history`
+    (`onboard.py`) already proved this checkout's tree matches -- this is
+    strictly a MORE PRECISE check (a tighter classification of what "the
+    introducing commit" means), never a weaker one: every case where
+    blind-HEAD already agreed with ``ref`` (org/department/personal tiers,
+    whose checkout is fast-forwarded/cloned exactly onto ``ref`` before this
+    ever runs) is unaffected, and a checkout whose content does NOT actually
+    match ``ref`` continues to fail closed exactly as before (unresolvable
+    ``ref`` falls back to the prior blind-HEAD check, never to "allow").
     """
     source = Path(source_root).expanduser().resolve()
     allowed = {_normalize_fingerprint(value) for value in allowed_signers if value}
@@ -96,6 +120,27 @@ def verify_git_item(
         repo_relative_path = item_path.relative_to(root).as_posix()
     except ValueError:
         return False, None
+
+    # Resolve `ref` to a concrete commit FIRST, as its own step, so a `ref`
+    # that fails to resolve locally (never fetched, unknown revision, ...)
+    # falls back to the unscoped blind-HEAD check below rather than ever
+    # failing this whole verification for a resolution problem it didn't
+    # have before `ref` existed as a parameter. When `ref` resolves, that
+    # commit -- not implicit HEAD -- is what `git log` is scoped to.
+    pinned_commit: str | None = None
+    if ref:
+        try:
+            resolved = run(
+                ["git", "-C", str(root), "rev-parse", f"{ref}^{{commit}}"],
+                capture_output=True,
+                text=True,
+                timeout=8.0,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            resolved = None
+        if resolved is not None and resolved.returncode == 0 and resolved.stdout.strip():
+            pinned_commit = resolved.stdout.strip()
 
     try:
         with tempfile.TemporaryDirectory(prefix="cc-allowed-signers-") as temp_root:
@@ -120,6 +165,7 @@ def verify_git_item(
                     "log",
                     "-1",
                     "--format=%G?%n%GF%n%GS",
+                    *([pinned_commit] if pinned_commit else []),
                     "--",
                     repo_relative_path,
                 ],
@@ -156,7 +202,15 @@ def evaluate(item: dict[str, Any]) -> Verdict:
     if not source_root or not relative_path:
         return "block"
 
-    verified, _signer = verify_git_item(source_root, relative_path, signers)
+    # `ref` (task 215 blocker fix, G-9): the layer's own resolved/pinned
+    # revision, when the caller supplied one -- see `verify_git_item`'s
+    # docstring for why this matters (a `parentless-snapshot-match`
+    # checkout's HEAD is never the signed commit, only its tree is
+    # identical to it).
+    ref = item.get("ref")
+    verified, _signer = verify_git_item(
+        source_root, relative_path, signers, ref=ref if isinstance(ref, str) else None
+    )
     return "allow" if verified else "block"
 
 

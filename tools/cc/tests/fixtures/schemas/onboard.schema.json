@@ -117,6 +117,10 @@
         "resume": {
           "description": "Only present when `result` is `blocked`: what remains, and that re-running adopts (never recreates) whatever `completed_actions` already shows as `completed`.",
           "$ref": "#/$defs/resumeHint"
+        },
+        "materialize": {
+          "description": "G-9 (task 215 blocker fix, additive to schema 2.0): only present once a real apply has actually run the materialize step. The honest per-item outcome of that step -- `held`/`blocked` items are never fatal to this transaction's manifest write or overall `result` on their own; they are surfaced here instead of being conflated with failure. Absent on every exit path that never reached materialize (plan mode; any earlier block).",
+          "$ref": "#/$defs/materializeSummary"
         }
       },
       "allOf": [
@@ -165,6 +169,50 @@
       "properties": {
         "safe_to_rerun": { "type": "boolean" },
         "detail": { "type": "string", "minLength": 1 }
+      }
+    },
+    "materializeSummary": {
+      "description": "G-9 (task 215 blocker fix): the materialize engine's own honest per-item result, reusing `cc update --json`'s own `held_for_approval`/`blocked` shapes verbatim -- never a new vocabulary. `result` mirrors that contract's `applied | up-to-date | held | blocked`.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result", "completed", "held", "blocked", "held_items", "blocked_items"],
+      "properties": {
+        "result": { "type": "string", "minLength": 1 },
+        "completed": { "type": "integer", "minimum": 0 },
+        "held": { "type": "integer", "minimum": 0 },
+        "blocked": { "type": "integer", "minimum": 0 },
+        "held_items": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/materializeHeldItem" }
+        },
+        "blocked_items": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/materializeBlockedItem" }
+        }
+      }
+    },
+    "materializeHeldItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["product", "dimension", "from", "to", "reason"],
+      "properties": {
+        "product": { "type": "string", "minLength": 1 },
+        "dimension": { "type": "string", "minLength": 1 },
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "materializeBlockedItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["product", "dimension", "layer", "item", "reason"],
+      "properties": {
+        "product": { "type": "string", "minLength": 1 },
+        "dimension": { "type": "string", "minLength": 1 },
+        "layer": { "type": "string", "minLength": 1 },
+        "item": { "type": "string", "minLength": 1 },
+        "reason": { "type": ["string", "null"] }
       }
     },
     "ecosystemStage": {

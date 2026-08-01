@@ -200,6 +200,33 @@ def test_update_json_applied_validates_against_contract_schema(tmp_path):
     assert changed_ops["sec"] == "added"
 
 
+def test_update_threads_each_layers_resolved_ref_into_the_policy_gate(tmp_path):
+    """G-9 (task 215 blocker fix): `build_update_report` computes
+    `layer_source_refs` from each effective layer's OWN `source.ref` (the
+    manifest's resolved/pinned revision) and threads it all the way into
+    the policy gate's item dict -- proven end-to-end here through the real
+    mirror-sync -> materialize wiring, not just materialize()'s own unit
+    tests."""
+    source_repo = _make_source_repo(tmp_path, {"agents/sec.md": "v1"})
+    layers = _one_layer(source_repo)
+    seen_refs = []
+
+    def capture_ref_policy(item):
+        seen_refs.append(item.get("ref"))
+        return "allow"
+
+    build_update_report(
+        _layers=layers,
+        _previous_lock={},
+        _mirror_root=tmp_path / "mirrors",
+        _materialize_root=tmp_path / "materialize",
+        _lock_write_path=tmp_path / "copilot.lock.json",
+        _policy=capture_ref_policy,
+    )
+
+    assert seen_refs == ["main"]  # `_one_layer`'s declared `source.ref`
+
+
 # ---------------------------------------------------------------------------
 # WP-372 P1.3(a): ecosystem.yml delivery, end-to-end through cc update
 # ---------------------------------------------------------------------------

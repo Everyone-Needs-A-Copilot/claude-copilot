@@ -266,6 +266,16 @@ def build_update_report(
         for layer in effective_layers
         if (layer.get("source") or {}).get("path")
     }
+    # G-9 (task 215 blocker fix): each layer's actually-resolved/pinned
+    # `source.ref` (e.g. a signed foundation snapshot tag), threaded to the
+    # policy gate -- see materialize()'s own `layer_source_refs` docstring
+    # for why blind-HEAD signature verification is not always the same
+    # question as "does this content match what the manifest pinned".
+    layer_source_refs = {
+        layer["id"]: (layer.get("source") or {}).get("ref")
+        for layer in effective_layers
+        if (layer.get("source") or {}).get("ref")
+    }
 
     # WP-372 P0.3: production feeder for guard_personal()'s personal_roots
     # -- see build_update_report()'s own docstring above and
@@ -281,6 +291,7 @@ def build_update_report(
         target_allowlist=None if _target_allowlist is _UNSET else _target_allowlist,
         previous_lock=previous_lock,
         layer_source_paths=layer_source_paths,
+        layer_source_refs=layer_source_refs,
         layer_policies={layer["id"]: layer.get("policy", {}) for layer in effective_layers},
         layer_products={layer["id"]: layer["product"] for layer in effective_layers},
         policy=_policy or default_policy,
