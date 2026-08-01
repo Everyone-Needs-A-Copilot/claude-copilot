@@ -45,6 +45,12 @@ NEVER-DESTROY: materialize writes ONLY `ownership: framework` paths
 `materialize.py`'s own `guard_personal()` UNWEAKENED for the dirty-tree
 hold check (never a second, looser reimplementation of that guard) --
 ADR-002's "hold the whole component update for that project" rule.
+ALSO holds on recorded-checksum drift (task-372) -- a framework-owned
+file whose on-disk content no longer matches the checksum this manifest
+itself last recorded is held with reason `"locally-modified"` regardless
+of git status, so a customization the project owner COMMITTED (tree
+clean, `guard_personal()` alone sees nothing to hold) is never silently
+overwritten by a later fanout.
 """
 
 from __future__ import annotations
@@ -64,6 +70,7 @@ from cc.core.ecosystem.projects import (
     PROJECT_SCOPED_PRODUCTS,
     discover_projects,
     framework_owned_paths,
+    locally_modified_paths,
     project_freshness,
     read_project_lock,
     write_project_lock,
@@ -235,6 +242,16 @@ def build_materialize_project_report(
         reach the content this update needs" -- mirrors `update.py`'s own
         "no partial materialize" rule: nothing is written, never a partial
         apply of only the files that WERE found).
+      - any framework-owned path's ACTUAL on-disk checksum no longer
+        matches the checksum THIS manifest last recorded for it -> `held`,
+        reason `"locally-modified"` (task-372: independent of git status --
+        catches a customization the owner COMMITTED, not just an
+        uncommitted one; `guard_personal()`'s dirty-tree check alone cannot
+        see a clean-but-customized tree, and empirically did not hold one).
+        Checked BEFORE the dirty-tree guard so a genuine content
+        customization is always reported as "locally-modified", the more
+        actionable of the two reasons, even if the tree also happens to be
+        dirty for an unrelated reason.
       - any framework-owned path sits inside a dirty git working tree
         (`guard_personal()`, reused unweakened) -> `held`, `heldReason`
         carried in the existing `held_for_approval[].reason` field as
@@ -329,6 +346,36 @@ def build_materialize_project_report(
     if not rel_paths:
         return _report(result="up-to-date")
 
+    # task-372 protocol-override fix: recorded-checksum drift is its OWN
+    # hold signal, independent of `guard_personal()`'s git-dirty check.
+    # `guard_personal()` only protects a file while it is UNCOMMITTED --
+    # the moment a human commits their customization (the ordinary, expected
+    # git workflow), the tree goes clean and the dirty-tree guard sees
+    # nothing to hold, so a stale-but-committed customization was silently
+    # overwritten by whatever the fanout target's source content is
+    # (empirically confirmed live: a project's committed edit to a
+    # `ownership: framework` file was clobbered with `result: "applied"`,
+    # zero hold, zero block). `locally_modified_paths()` is shared with
+    # `project_freshness()`'s read-only preview so the two never disagree.
+    files_by_path = {
+        f.get("path"): f
+        for f in entry.get("files", []) or []
+        if isinstance(f, dict) and isinstance(f.get("path"), str)
+    }
+
+    if locally_modified_paths(project, entry):
+        return _report(
+            result="held",
+            held_for_approval=[
+                {
+                    "dimension": component,
+                    "from": current_version or "",
+                    "to": resolved_target or "",
+                    "reason": "locally-modified",
+                }
+            ],
+        )
+
     if any(
         guard_personal(project / rel_path, personal_roots=_personal_roots)
         for rel_path in rel_paths
@@ -360,11 +407,6 @@ def build_materialize_project_report(
         )
 
     changed: list[dict[str, Any]] = []
-    files_by_path = {
-        f.get("path"): f
-        for f in entry.get("files", []) or []
-        if isinstance(f, dict) and isinstance(f.get("path"), str)
-    }
 
     for rel_path in rel_paths:
         src = source_base / rel_path

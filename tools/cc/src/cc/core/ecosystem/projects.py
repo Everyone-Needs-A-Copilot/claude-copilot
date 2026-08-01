@@ -57,6 +57,7 @@ result is ever aborted by one bad input" convention.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Iterable, Optional, TypedDict
@@ -165,6 +166,50 @@ def framework_owned_paths(entry: dict[str, Any]) -> list[str]:
         if isinstance(rel_path, str) and rel_path:
             paths.append(rel_path)
     return paths
+
+
+def locally_modified_paths(project_path: Path, entry: dict[str, Any]) -> list[str]:
+    """
+    task-372 (protocol-override live-verify): `ownership: framework` paths
+    whose ACTUAL on-disk checksum no longer matches the checksum THIS
+    manifest entry itself last recorded for them.
+
+    This is the customization signal that survives a `git commit` -- unlike
+    `guard_personal()`'s git-dirty-tree check, which stops protecting a
+    file the moment its edit is committed (the ordinary git workflow).
+    Empirically, a project that customized a framework-owned file (e.g.
+    `commands/protocol.md` for a company-level override) and committed it
+    was silently overwritten by a real `cc update --project` run before
+    this existed (`result: "applied"`, zero hold).
+
+    Shared by `project_freshness()`'s read-only preview (below) and
+    `commands/projects.py`'s real materialize/hold decision, so the
+    preview can never promise a project is safe to auto-apply when a real
+    run against it would actually hold.
+
+    A file with no recorded checksum, or that does not exist on disk yet,
+    is never reported as "modified" here -- those are different, already-
+    handled states (an invalid lock entry, or a file `cc update` still
+    needs to add for the first time), not a customization to protect.
+    """
+    files_by_path = {
+        f.get("path"): f
+        for f in entry.get("files", []) or []
+        if isinstance(f, dict) and isinstance(f.get("path"), str)
+    }
+    modified: list[str] = []
+    for rel_path in framework_owned_paths(entry):
+        recorded = files_by_path.get(rel_path, {}).get("checksum")
+        if not isinstance(recorded, str):
+            continue
+        target = project_path / rel_path
+        try:
+            actual = f"sha256:{hashlib.sha256(target.read_bytes()).hexdigest()}"
+        except (FileNotFoundError, OSError):
+            continue
+        if actual != recorded:
+            modified.append(rel_path)
+    return modified
 
 
 def _component_scope(product: str, entry: dict[str, Any]) -> str:
@@ -381,12 +426,16 @@ def project_freshness(
     `True`/`False` only when both are known -- never coerced.
 
     `held`: `True` when this component IS stale AND at least one of its
-    `ownership: framework` paths currently sits inside a dirty git working
-    tree (reused, unweakened, via `materialize.py`'s `guard_personal()`) --
-    a preview of what a materialize run against this project would report,
-    computed WITHOUT writing/locking/mutating anything (this function never
-    calls `guard_personal()` for a component that isn't even stale, since
-    there is nothing pending to hold).
+    `ownership: framework` paths EITHER currently sits inside a dirty git
+    working tree (reused, unweakened, via `materialize.py`'s
+    `guard_personal()`) OR has drifted from the checksum THIS manifest
+    itself last recorded for it (`locally_modified_paths()`, task-372 --
+    catches a customization the owner already COMMITTED, which a bare
+    dirty-tree check cannot see) -- a preview of what a materialize run
+    against this project would report, computed WITHOUT writing/locking/
+    mutating anything (this function never runs either check for a
+    component that isn't even stale, since there is nothing pending to
+    hold).
 
     Overall project `stale`: `True` if any component is definitely stale;
     else `None` if any component's staleness is unknown; else `False`
@@ -420,7 +469,7 @@ def project_freshness(
 
         held = False
         if stale:
-            held = any(
+            held = bool(locally_modified_paths(project_path, entry)) or any(
                 guard_personal(project_path / rel_path, personal_roots=_personal_roots)
                 for rel_path in framework_owned_paths(entry)
             )

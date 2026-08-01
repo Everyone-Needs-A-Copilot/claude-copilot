@@ -14,7 +14,9 @@ file discovers/materializes against the real machine.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -98,7 +100,24 @@ def _write_files(repo: Path, files: dict[str, str]) -> None:
         target.write_text(content, encoding="utf-8")
 
 
-def _framework_file(path: str, checksum: str = "sha256:placeholder") -> dict:
+def _sha256_text(content: str) -> str:
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def _framework_file(
+    path: str, *, content: str | None = None, checksum: str | None = None
+) -> dict:
+    """A framework-owned file entry. Pass `content` matching whatever
+    `_write_files()` actually wrote at `path` to record a checksum that
+    genuinely matches on-disk content -- the realistic "unmodified, safe to
+    auto-apply" case (task-372: `build_materialize_project_report()` now
+    checks recorded-checksum drift as its own hold signal, so a fixture
+    using a placeholder/mismatched checksum would make EVERY project look
+    "locally-modified" regardless of what the test intends). Pass an
+    explicit `checksum` instead when a test deliberately wants a stale
+    record that does NOT match on-disk content."""
+    if checksum is None:
+        checksum = f"sha256:{_sha256_text(content)}" if content is not None else "sha256:placeholder"
     return {"path": path, "ownership": "framework", "checksum": checksum}
 
 
@@ -213,7 +232,7 @@ def test_all_projects_freshness_stale_and_fresh_correctness_and_schema(tmp_path)
     _write_files(fresh_project, {".claude/commands/x.md": "v1"})
     _write_manifest(
         fresh_project,
-        [_component("claude", "1.0.0", files=[_framework_file(".claude/commands/x.md")])],
+        [_component("claude", "1.0.0", files=[_framework_file(".claude/commands/x.md", content="v1")])],
     )
     _git_commit_all(fresh_project)
 
@@ -223,7 +242,7 @@ def test_all_projects_freshness_stale_and_fresh_correctness_and_schema(tmp_path)
     _write_manifest(
         stale_project,
         [
-            _component("claude", "0.9.0", files=[_framework_file(".claude/commands/x.md")]),
+            _component("claude", "0.9.0", files=[_framework_file(".claude/commands/x.md", content="v1")]),
             _component("knowledge", "3.0.0", files=[_framework_file(".claude/knowledge/a.md")]),
         ],
     )
@@ -290,6 +309,35 @@ def test_project_freshness_held_true_when_dirty_wip_touches_framework_path(tmp_p
     assert component["held"] is True
 
 
+def test_project_freshness_held_true_when_customization_committed(tmp_path):
+    """task-372: the read-only preview must never promise a project is
+    safe to auto-apply when a real materialize run against it would
+    actually hold -- so `held` must also go `True` for a COMMITTED
+    customization (clean tree), not only an uncommitted one."""
+    project = tmp_path / "proj"
+    _git_init(project)
+    _write_files(project, {".claude/commands/x.md": "v1"})
+    _write_manifest(
+        project,
+        [_component("claude", "1.0.0", files=[_framework_file(".claude/commands/x.md", content="v1")])],
+    )
+    _git_commit_all(project, "initial framework embed")
+
+    (project / ".claude" / "commands" / "x.md").write_text("customized and committed")
+    _git_commit_all(project, "customize x.md")
+
+    status = subprocess.run(
+        ["git", "-C", str(project), "status", "--porcelain"],
+        capture_output=True, text=True, check=True,
+    )
+    assert status.stdout.strip() == ""  # clean tree -- not a dirty-tree hold
+
+    result = project_freshness(project, latest_by_product={"claude": "2.0.0"})
+    component = result["components"][0]
+    assert component["stale"] is True
+    assert component["held"] is True
+
+
 def test_build_all_projects_freshness_fail_open_skips_bad_project(tmp_path):
     good = tmp_path / "good"
     _git_init(good)
@@ -313,6 +361,13 @@ def test_build_all_projects_freshness_fail_open_skips_bad_project(tmp_path):
 
 
 def test_materialize_project_dirty_working_tree_is_held_byte_identical(tmp_path):
+    """A dirty git working tree that does NOT change the file's actual
+    content (a permissions/mode-only diff) -- proves `guard_personal()`'s
+    dirty-tree fallback still holds even when the recorded-checksum check
+    alone would see a match. Content-changing dirt is covered separately by
+    `test_materialize_project_locally_modified_is_held_even_when_committed`
+    below, which is the more common real case and reports the more
+    specific `"locally-modified"` reason instead (checked first)."""
     project = tmp_path / "dirty-project"
     _git_init(project)
     _write_files(project, {".claude/commands/x.md": "v1", ".claude/agents/mine.md": "personal"})
@@ -323,7 +378,7 @@ def test_materialize_project_dirty_working_tree_is_held_byte_identical(tmp_path)
                 "claude",
                 "1.0.0",
                 files=[
-                    _framework_file(".claude/commands/x.md"),
+                    _framework_file(".claude/commands/x.md", content="v1"),
                     _project_file(".claude/agents/mine.md"),
                 ],
             )
@@ -331,10 +386,12 @@ def test_materialize_project_dirty_working_tree_is_held_byte_identical(tmp_path)
     )
     _git_commit_all(project)
 
-    # Dirty WIP touching the framework-owned path.
-    (project / ".claude" / "commands" / "x.md").write_text("uncommitted local edit")
-    before_bytes = (project / ".claude" / "commands" / "x.md").read_bytes()
+    # Dirty WIP touching the framework-owned path WITHOUT changing its
+    # content -- a permission-bit-only diff `git status` still reports.
+    target = project / ".claude" / "commands" / "x.md"
+    before_bytes = target.read_bytes()
     manifest_before = (project / "copilot.lock.json").read_text()
+    os.chmod(target, 0o755)
 
     source_root = _make_source_repo(tmp_path, {".claude/commands/x.md": "v2"}, name="source-v2")
 
@@ -350,7 +407,57 @@ def test_materialize_project_dirty_working_tree_is_held_byte_identical(tmp_path)
     assert report["result"] == "held"
     assert report["held_for_approval"][0]["reason"] == "dirty-working-tree"
     assert report["changed"] == []
-    assert (project / ".claude" / "commands" / "x.md").read_bytes() == before_bytes
+    assert target.read_bytes() == before_bytes
+    assert (project / "copilot.lock.json").read_text() == manifest_before
+
+
+def test_materialize_project_locally_modified_is_held_even_when_committed(tmp_path):
+    """task-372: the owner's vital never-clobber requirement. A project
+    that customizes a framework-owned file (e.g. `commands/protocol.md`
+    for a company-level override) and then COMMITS it -- the ordinary git
+    workflow -- must still be held, not silently overwritten. Empirically,
+    before this fix, a clean-but-customized tree returned `result:
+    "applied"` here because `guard_personal()`'s dirty-tree check alone has
+    nothing to see once the tree is clean; comparing the file's actual
+    checksum against the checksum THIS manifest itself last recorded
+    catches it regardless of commit status."""
+    project = tmp_path / "customized-project"
+    _git_init(project)
+    _write_files(project, {".claude/commands/x.md": "v1"})
+    _write_manifest(
+        project,
+        [_component("claude", "1.0.0", files=[_framework_file(".claude/commands/x.md", content="v1")])],
+    )
+    _git_commit_all(project, "initial framework embed")
+
+    target = project / ".claude" / "commands" / "x.md"
+    target.write_text("CUSTOMIZED -- company override, committed like any other change")
+    _git_commit_all(project, "customize x.md for this project")
+    before_bytes = target.read_bytes()
+    manifest_before = (project / "copilot.lock.json").read_text()
+
+    # Tree is clean -- proves this is NOT a dirty-tree hold.
+    status = subprocess.run(
+        ["git", "-C", str(project), "status", "--porcelain"],
+        capture_output=True, text=True, check=True,
+    )
+    assert status.stdout.strip() == ""
+
+    source_root = _make_source_repo(tmp_path, {".claude/commands/x.md": "v2"}, name="source-v2")
+
+    report = build_materialize_project_report(
+        project,
+        component="claude",
+        target_version="2.0.0",
+        release_tag="claude@2.0.0",
+        source_root=source_root,
+    )
+
+    _validate(report, "update.schema.json")
+    assert report["result"] == "held"
+    assert report["held_for_approval"][0]["reason"] == "locally-modified"
+    assert report["changed"] == []
+    assert target.read_bytes() == before_bytes
     assert (project / "copilot.lock.json").read_text() == manifest_before
 
 
@@ -365,7 +472,7 @@ def test_materialize_project_applied_in_clean_project(tmp_path):
                 "claude",
                 "1.0.0",
                 files=[
-                    _framework_file(".claude/commands/x.md"),
+                    _framework_file(".claude/commands/x.md", content="v1"),
                     _project_file(".claude/agents/mine.md"),
                 ],
             )
@@ -432,7 +539,7 @@ def test_materialize_project_offline_when_source_root_unreachable(tmp_path):
     _write_files(project, {".claude/commands/x.md": "v1"})
     _write_manifest(
         project,
-        [_component("claude", "1.0.0", files=[_framework_file(".claude/commands/x.md")])],
+        [_component("claude", "1.0.0", files=[_framework_file(".claude/commands/x.md", content="v1")])],
     )
     _git_commit_all(project)
 
@@ -494,7 +601,7 @@ def test_materialize_project_dry_run_computes_plan_without_writing(tmp_path):
     _write_files(project, {".claude/commands/x.md": "v1"})
     _write_manifest(
         project,
-        [_component("claude", "1.0.0", files=[_framework_file(".claude/commands/x.md")])],
+        [_component("claude", "1.0.0", files=[_framework_file(".claude/commands/x.md", content="v1")])],
     )
     _git_commit_all(project)
 
@@ -542,7 +649,7 @@ def test_execute_materialize_project_applies_and_releases_lock(tmp_path):
     _write_files(project, {".claude/commands/x.md": "v1"})
     _write_manifest(
         project,
-        [_component("claude", "1.0.0", files=[_framework_file(".claude/commands/x.md")])],
+        [_component("claude", "1.0.0", files=[_framework_file(".claude/commands/x.md", content="v1")])],
     )
     _git_commit_all(project)
 
@@ -577,7 +684,7 @@ def _stale_project(tmp_path: Path, name: str, *, current: str) -> Path:
     _write_files(project, {".claude/commands/x.md": "v1"})
     _write_manifest(
         project,
-        [_component("claude", current, files=[_framework_file(".claude/commands/x.md")])],
+        [_component("claude", current, files=[_framework_file(".claude/commands/x.md", content="v1")])],
     )
     _git_commit_all(project)
     return project
@@ -596,7 +703,7 @@ def test_fanout_roll_up_counts_correct_mixed_outcomes(tmp_path):
     _write_files(offline_project, {".claude/commands/y.md": "v1"})
     _write_manifest(
         offline_project,
-        [_component("codex", "1.0.0", files=[_framework_file(".claude/commands/y.md")])],
+        [_component("codex", "1.0.0", files=[_framework_file(".claude/commands/y.md", content="v1")])],
     )
     _git_commit_all(offline_project)
 
