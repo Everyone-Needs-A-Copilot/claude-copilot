@@ -214,6 +214,54 @@ def doctor_cmd(
     raise typer.Exit(compute_exit_code(report))
 
 
+@app.command("connections")
+def connections_cmd(
+    output_json: bool = typer.Option(
+        False, "--json", help="Output the `cc connections --json` contract as JSON."
+    ),
+) -> None:
+    """Enumerate the organization's declared services and each one's
+    shared-credential-store connection state (WP-388/389/390 stage B).
+
+    Read-only -- does not take the copilot lock. Shells `copilot --json
+    layers` (cli-copilot foundation >=0.3.2) for the service roster and,
+    for each service's store/any-hinted `requires_secret` names, checks
+    presence (never values) in the organization's shared Infisical store
+    via one `copilot infisical --json secret list` call per distinct
+    (workspace, environment, path) scope. Computed entirely CLI-side
+    (invariant #1) -- Control Tower only ever filters on `secret_state`.
+    """
+    import json as _json
+
+    from cc.commands.connections import (
+        build_connections_report,
+        render_connections_report_rich,
+    )
+
+    try:
+        report = build_connections_report()
+    except Exception as exc:  # environment/unexpected error -> exit 2
+        if output_json:
+            typer.echo(
+                _json.dumps(
+                    {
+                        "schema_version": "1.0",
+                        "error": {"code": "environment-error", "message": str(exc)},
+                    }
+                )
+            )
+        else:
+            typer.echo(f"connections: environment error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+
+    if output_json:
+        typer.echo(_json.dumps(report))
+    else:
+        render_connections_report_rich(report)
+
+    raise typer.Exit(0 if report.get("result") == "ok" else 1)
+
+
 @app.command("freshness")
 def freshness_cmd(
     output_json: bool = typer.Option(

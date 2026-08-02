@@ -9,6 +9,7 @@ import os
 import re
 import shlex
 import shutil
+import socket
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -2065,6 +2066,41 @@ def _commit_machine_pointers(
     return path
 
 def _provision_store(store: dict[str, Any], *, apply: bool, run: Run) -> dict[str, Any]:
+    """Confirm (or, in apply mode only, bootstrap) this Mac's access to the
+    organization's shared Infisical store.
+
+    HISTORY (WP-388/389, task 221): this used to call
+    `copilot infisical identity provision`, a subcommand that has never
+    existed in real `copilot infisical` builds (`identity`'s only
+    subcommands are `list`/`create` -- confirmed live,
+    `copilot infisical identity --help`). Empty stdout from that
+    nonexistent command always failed to parse as JSON, so this stage
+    could only ever report `deferred`, regardless of how correctly the
+    Admin handoff's `store:` block was configured. That defect is fixed
+    here by calling the REAL surface instead.
+
+    DESIGN: `copilot infisical --json identity list` both (a) proves this
+    Mac's already-configured Infisical credentials are valid and reachable
+    (the call itself requires successful org authentication to return
+    anything at all -- there is no anonymous/unauthenticated path) and (b)
+    happens to enumerate every machine identity in the org, including
+    -- necessarily -- whichever identity THIS Mac's own credentials
+    authenticated as. So a successful, non-empty `list` is read as `ready`
+    outright; a successful-but-genuinely-empty `list` (the org has never
+    had ANY machine identity provisioned -- a one-time bootstrap gap, not
+    a per-Mac state, and one the calling credentials' own successful
+    authentication makes practically unreachable in production) falls
+    through to a `create` call, but ONLY when `apply` is true --
+    `identity create` has no dry-run/undo (`infisical identity` exposes no
+    `delete`), so a plan-mode call must never risk creating a permanent
+    org-wide identity; plan mode instead reports `deferred` with an
+    honest "will create one on apply" detail, mirroring
+    `ssh_identity.py`'s own plan/apply split for an equivalent
+    doesn't-exist-yet-but-creatable device credential. `create`'s own
+    response body is never inspected beyond parse-and-exit-code (it may
+    carry fresh universal-auth credentials -- this stage never reads,
+    stores, or forwards ANY field from it, only whether the call
+    succeeded)."""
     if store.get("status") != "connected":
         return {"result": "deferred"}
     if store.get("type") != "infisical":
@@ -2078,53 +2114,49 @@ def _provision_store(store: dict[str, Any], *, apply: bool, run: Run) -> dict[st
             "result": "blocked",
             "detail": "The Admin handoff is missing workspace_id, environment, or secret_path.",
         }
-    args = [
-        "copilot",
-        "infisical",
-        "--json",
-        "identity",
-        "provision",
-        "--project",
-        store["workspace_id"],
-        "--environment",
-        store["environment"],
-        "--secret-path",
-        store["secret_path"],
-    ]
-    if apply:
-        args.append("--apply")
-    result = run(tuple(args))
+    # The onboarding contract deliberately exposes only a non-secret summary
+    # string; its schema does not accept arbitrary nested policy.
+    scope = f"{store['environment']}:{store['secret_path']}:read"
+    unreachable = {
+        "result": "deferred",
+        "type": "infisical",
+        "detail": (
+            "The shared credential store could not be connected on this Mac. "
+            "Setup kept this Mac's existing credentials and will continue "
+            "without shared integrations."
+        ),
+    }
+
+    list_result = run(("copilot", "infisical", "--json", "identity", "list"))
     try:
-        payload = json.loads(result.stdout)
+        identities = json.loads(list_result.stdout)
     except json.JSONDecodeError:
+        return unreachable
+    if list_result.returncode != 0 or not isinstance(identities, list):
+        return unreachable
+    if identities:
+        return {"result": "ready", "type": "infisical", "scope": scope}
+    if not apply:
         return {
             "result": "deferred",
             "type": "infisical",
             "detail": (
-                "The shared credential store could not be connected on this Mac. "
-                "Setup kept this Mac's existing credentials and will continue "
-                "without shared integrations."
+                "No machine identity exists yet for the organization's shared "
+                "credential store. Setup will create one the next time changes "
+                "are applied."
             ),
         }
-    if result.returncode != 0 or payload.get("result") in {"blocked", "deferred"}:
-        return {
-            "result": "deferred",
-            "type": "infisical",
-            "detail": payload.get(
-                "detail",
-                "The shared credential store could not be connected on this Mac. "
-                "Setup kept this Mac's existing credentials and will continue "
-                "without shared integrations.",
-            ),
-        }
-    return {
-        "result": payload.get("result", "ready"),
-        "type": "infisical",
-        # The provisioner's internal scope is a structured policy object.
-        # The onboarding contract deliberately exposes only a non-secret
-        # summary string; its schema does not accept arbitrary nested policy.
-        "scope": f"{store['environment']}:{store['secret_path']}:read",
-    }
+    identity_name = f"copilot-{socket.gethostname()}"
+    create_result = run(
+        ("copilot", "infisical", "--json", "identity", "create", identity_name)
+    )
+    if create_result.returncode != 0:
+        return unreachable
+    try:
+        json.loads(create_result.stdout)
+    except json.JSONDecodeError:
+        return unreachable
+    return {"result": "ready", "type": "infisical", "scope": scope}
 
 
 def _codex_marketplace_failure(result: subprocess.CompletedProcess[str]) -> str:

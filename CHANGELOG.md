@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`cc connections --json` (`cc` 2.2.0):** new read-only verb that closes the
+  "Your connections" empty-state gap (task 221 investigation, WP-388/389/390).
+  Projects cli-copilot's `copilot --json layers` `services[]` (foundation
+  ≥v0.3.2, which now carries `requires_secret`/`store_scope` per service) and,
+  for each service's `store`/`any`-hinted secret names, presence-checks them
+  (never values) against the organization's shared Infisical store — one
+  `copilot infisical --json secret list` call per run, never per secret name.
+  Each row reports a closed `secret_state` (`ready`/`needs-connect`/
+  `no-store`) that a consumer can filter on alone to render "ready to use" vs.
+  "available to connect", computing nothing itself. Two distinct, honestly
+  named fail-closed `result` values (`copilot-unavailable` /
+  `org-config-unavailable`) replace a generic error bucket; the latter still
+  returns the full service roster with every store-dependent row marked
+  `no-store` rather than an empty list. See
+  `docs/01-architecture/schemas/connections.schema.json` (copilot-control-tower)
+  and `tools/cc/src/cc/commands/connections.py`'s module docstring.
+- **`onboard`'s `secret-store` stage no longer permanently deferred (`cc`
+  2.2.0):** `_provision_store` used to call
+  `copilot infisical identity provision`, a subcommand that has never existed
+  (confirmed live: `identity`'s only subcommands are `list`/`create`), so this
+  stage could only ever report `deferred` regardless of how correctly the
+  organization's shared-store handoff was configured. It now calls the real
+  `identity list`/`create` surface: a successful, non-empty `list` (this
+  Mac's own credentials authenticating at all is itself the connectivity
+  proof) reads `ready` directly; a genuinely empty org-wide identity roster
+  falls through to `identity create`, but ONLY in apply mode (plan mode
+  never risks creating a permanent, undeleteable org identity) — mirrors
+  `ssh_identity.py`'s own plan/apply split for an equivalent
+  doesn't-exist-yet-but-creatable device credential.
 - **Visible, Department-aware ecosystem topology (`cc` 1.7.16):** aggregate
   onboarding now includes active handoff-declared Department membership and
   reports the complete repository, visible-checkout, connection, sync, and

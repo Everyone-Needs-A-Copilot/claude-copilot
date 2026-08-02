@@ -2386,7 +2386,122 @@ def test_connected_store_without_scope_identifiers_blocks_before_writes(tmp_path
     _assert_valid_onboard_report(report)
 
 
-def test_valid_connected_store_identity_refusal_defers_without_overwriting_credentials():
+def test_identity_list_failure_defers_without_ever_calling_create():
+    """A non-zero/unparseable `identity list` must defer honestly and must
+    NEVER fall through to `identity create` -- creating a permanent
+    org-wide identity is never an appropriate response to a failed list
+    call (there is no `identity delete` to undo it)."""
+    store = {
+        "status": "connected",
+        "type": "infisical",
+        "workspace_id": "workspace-1",
+        "environment": "prod",
+        "secret_path": "/shared",
+    }
+    calls: list[tuple[str, ...]] = []
+
+    def run(args: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+        calls.append(tuple(args))
+        return subprocess.CompletedProcess(args, 1, "", "unauthorized")
+
+    report = onboard_module._provision_store(store, apply=True, run=run)
+
+    assert report == {
+        "result": "deferred",
+        "type": "infisical",
+        "detail": (
+            "The shared credential store could not be connected on this Mac. "
+            "Setup kept this Mac's existing credentials and will continue "
+            "without shared integrations."
+        ),
+    }
+    assert calls == [("copilot", "infisical", "--json", "identity", "list")]
+
+
+def test_existing_identity_reads_ready_without_ever_calling_create():
+    """The common, live-verified case (task 221): this Mac's own Infisical
+    credentials already authenticate as an existing org identity --
+    `identity list` succeeding at all is itself the connectivity+auth
+    proof (there is no anonymous path to that endpoint), so `create` is
+    never called."""
+    store = {
+        "status": "connected",
+        "type": "infisical",
+        "workspace_id": "workspace-1",
+        "environment": "prod",
+        "secret_path": "/shared",
+    }
+    calls: list[tuple[str, ...]] = []
+
+    def run(args: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+        calls.append(tuple(args))
+        return subprocess.CompletedProcess(
+            args,
+            0,
+            json.dumps([{"identity": {"name": "ecosystem-admin"}}]),
+            "",
+        )
+
+    report = onboard_module._provision_store(store, apply=False, run=run)
+
+    assert report == {"result": "ready", "type": "infisical", "scope": "prod:/shared:read"}
+    assert calls == [("copilot", "infisical", "--json", "identity", "list")]
+
+
+def test_no_identity_yet_plan_mode_defers_without_creating_one():
+    store = {
+        "status": "connected",
+        "type": "infisical",
+        "workspace_id": "workspace-1",
+        "environment": "prod",
+        "secret_path": "/shared",
+    }
+    calls: list[tuple[str, ...]] = []
+
+    def run(args: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+        calls.append(tuple(args))
+        return subprocess.CompletedProcess(args, 0, "[]", "")
+
+    report = onboard_module._provision_store(store, apply=False, run=run)
+
+    assert report["result"] == "deferred"
+    assert report["type"] == "infisical"
+    assert "will create one" in report["detail"]
+    # Plan mode must never create a permanent, unremovable org identity.
+    assert calls == [("copilot", "infisical", "--json", "identity", "list")]
+
+
+def test_no_identity_yet_apply_mode_creates_one_and_reads_ready(monkeypatch):
+    store = {
+        "status": "connected",
+        "type": "infisical",
+        "workspace_id": "workspace-1",
+        "environment": "prod",
+        "secret_path": "/shared",
+    }
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(
+        onboard_module.socket, "gethostname", lambda: "pablos-macbook"
+    )
+
+    def run(args: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+        calls.append(tuple(args))
+        if args[-1] == "list":
+            return subprocess.CompletedProcess(args, 0, "[]", "")
+        return subprocess.CompletedProcess(
+            args, 0, json.dumps({"identityId": "new-id"}), ""
+        )
+
+    report = onboard_module._provision_store(store, apply=True, run=run)
+
+    assert report == {"result": "ready", "type": "infisical", "scope": "prod:/shared:read"}
+    assert calls == [
+        ("copilot", "infisical", "--json", "identity", "list"),
+        ("copilot", "infisical", "--json", "identity", "create", "copilot-pablos-macbook"),
+    ]
+
+
+def test_create_failure_after_empty_list_defers_honestly():
     store = {
         "status": "connected",
         "type": "infisical",
@@ -2395,34 +2510,15 @@ def test_valid_connected_store_identity_refusal_defers_without_overwriting_crede
         "secret_path": "/shared",
     }
 
-    report = onboard_module._provision_store(
-        store,
-        apply=True,
-        run=lambda args: subprocess.CompletedProcess(
-            args,
-            1,
-            json.dumps(
-                {
-                    "schema_version": "1.0",
-                    "result": "blocked",
-                    "detail": (
-                        "This device already has store credentials for another "
-                        "identity; setup did not replace them."
-                    ),
-                }
-            ),
-            "",
-        ),
-    )
+    def run(args: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+        if args[-1] == "list":
+            return subprocess.CompletedProcess(args, 0, "[]", "")
+        return subprocess.CompletedProcess(args, 1, "", "org role required")
 
-    assert report == {
-        "result": "deferred",
-        "type": "infisical",
-        "detail": (
-            "This device already has store credentials for another identity; "
-            "setup did not replace them."
-        ),
-    }
+    report = onboard_module._provision_store(store, apply=True, run=run)
+
+    assert report["result"] == "deferred"
+    assert report["type"] == "infisical"
 
 
 def test_store_without_bootstrap_authority_defers_on_unreadable_cli_failure():
@@ -2481,6 +2577,10 @@ def test_unavailable_optional_store_does_not_block_core_apply(tmp_path):
 
 
 def test_successful_store_scope_is_a_non_secret_schema_summary():
+    """The onboarding contract's `scope` is always this CLI-composed
+    `env:path:read` string -- never a raw field forwarded from
+    `identity list`'s own response body (which the CLI never inspects
+    beyond parse-and-non-emptiness, see `_provision_store`'s docstring)."""
     store = {
         "status": "connected",
         "type": "infisical",
@@ -2495,17 +2595,7 @@ def test_successful_store_scope_is_a_non_secret_schema_summary():
         run=lambda args: subprocess.CompletedProcess(
             args,
             0,
-            json.dumps(
-                {
-                    "schema_version": "1.0",
-                    "result": "ready",
-                    "scope": {
-                        "environment": "prod",
-                        "secret_path": "/shared",
-                        "access": "read",
-                    },
-                }
-            ),
+            json.dumps([{"identity": {"name": "ecosystem-admin"}}]),
             "",
         ),
     )

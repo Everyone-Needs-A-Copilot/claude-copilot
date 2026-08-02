@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://everyoneneedsacopilot.com/schemas/copilot-control-tower/connections.schema.json",
+  "title": "cc connections --json",
+  "description": "The organization's declared service roster (projected from cli-copilot foundation's `copilot --json layers` services[], >=schema_version 1 with the id/requires_secret/store_scope addition) plus, per service, whether its declared credential names are present (never their values) in the organization's shared Infisical store. Computed entirely CLI-side (invariant #1: parse, never compute) -- Control Tower renders the roster and filters into its two card groups (READY TO USE / AVAILABLE TO CONNECT) using `connections[].secret_state` alone. See docs/01-architecture/cli-contract.md and claude-copilot/tools/cc/src/cc/commands/connections.py's module docstring for the full design (WP-388/389/390, task 221).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "result", "detail", "org", "store", "connections"],
+  "properties": {
+    "schema_version": { "$ref": "_envelope.schema.json#/$defs/schema_version" },
+    "result": {
+      "type": "string",
+      "enum": ["ok", "copilot-unavailable", "org-config-unavailable"],
+      "description": "Envelope-level outcome, distinct per fail-closed reason rather than a generic error bucket. 'copilot-unavailable': the `copilot` binary could not be resolved/run, or returned an unreadable/unfamiliar report -- `connections` is empty because the service roster itself could not be enumerated. 'org-config-unavailable': the inherited `ecosystem.yml` was not found on this Mac -- `connections` is STILL populated from `copilot --json layers` alone (tier/mode/requires_secret do not depend on the org config), but `store.reachable` is false and every row needing a store-checkable secret reads `secret_state: \"no-store\"`. 'ok': normal operation; `store.reachable` and each row's `secret_state` carry any further degradation. This field is a diagnostic for the app to log/report, not something the app should filter connections on -- that is `connections[].secret_state`'s job alone."
+    },
+    "detail": {
+      "type": ["string", "null"],
+      "description": "Plain-language reason, present whenever `result` is not \"ok\"; null when `result` is \"ok\"."
+    },
+    "org": {
+      "type": ["string", "null"],
+      "description": "The organization name from the inherited `ecosystem.yml` (`org:` key), or null when unknown (no org config materialized, or it lacks an `org` key)."
+    },
+    "store": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "reachable", "scope", "detail"],
+      "properties": {
+        "type": {
+          "type": ["string", "null"],
+          "description": "The org's declared shared-store type (`ecosystem.yml` `store.type`, e.g. \"infisical\"), or null when unknown."
+        },
+        "reachable": {
+          "type": "boolean",
+          "description": "True only after a real presence-check call against the store succeeded. False whenever the store is unconfigured, deferred, of an unsupported type, or unreachable on this Mac -- never assumed true."
+        },
+        "scope": {
+          "type": ["string", "null"],
+          "description": "Non-secret `environment:secret_path` summary of where this run looked (e.g. \"prod:/shared\"). Never includes the opaque workspace id or any credential. Null when the org config does not declare a usable environment/secret_path."
+        },
+        "detail": {
+          "type": ["string", "null"],
+          "description": "Plain-language reason the store is not reachable, or null when reachable (or when nothing further to report)."
+        }
+      }
+    },
+    "connections": {
+      "type": "array",
+      "description": "One row per `copilot --json layers` service, in that payload's own order. Empty only when `result` is \"copilot-unavailable\" (the roster itself could not be read).",
+      "items": { "$ref": "#/$defs/connection" }
+    }
+  },
+  "$defs": {
+    "connection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "description", "tier", "mode", "requires_secret", "store_scope", "secret_state", "missing"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "description": "Stable slug (cli-copilot's `services[].id`, or `name` when the installed `copilot` predates that field)." },
+        "name": { "type": "string", "minLength": 1, "description": "The `copilot <name>` command group -- this row's identity for a Connect action to reference." },
+        "description": { "type": "string", "description": "One-line description (projected from cli-copilot's `services[].help`)." },
+        "tier": { "type": "string", "minLength": 1, "description": "Which layer id this service resolves from (cli-copilot's `services[].tier`), e.g. \"org-internal\" or \"foundation\"." },
+        "mode": {
+          "type": "string",
+          "enum": ["base", "adopt", "override", "provides"],
+          "description": "Same vocabulary as cli-copilot's `services[].mode`: 'base' untouched foundation service, 'adopt' a tier turned on a base service with its own config/secrets, 'override' a tier replaced the implementation, 'provides' a tier added a service the base 12 do not have at all."
+        },
+        "requires_secret": {
+          "type": "array",
+          "description": "Every credential NAME this service declares, in declaration order. Names only, never values. Empty when the service declares none.",
+          "items": { "$ref": "#/$defs/requiredSecret" }
+        },
+        "store_scope": {
+          "type": ["string", "null"],
+          "description": "This service's declared store scope (maps to the org's `ecosystem.yml` `team_scopes`), passed through verbatim. Null when the declaring tier's overlay entry does not set one -- the common case today (the real org's `team_scopes` is currently empty)."
+        },
+        "secret_state": {
+          "type": "string",
+          "enum": ["ready", "needs-connect", "no-store"],
+          "description": "'ready': no `store`/`any`-hinted secret is required, or every one required is present in the shared store (a service with only `keychain`-hinted secrets, or none at all, is `ready` -- there is nothing for the shared store to prove). 'needs-connect': the store is reachable but at least one required `store`/`any`-hinted secret name is absent from it -- see `missing`. 'no-store': the shared store itself is unreachable/unconfigured, so no `store`/`any`-hinted secret required by this row could be verified -- distinct from `needs-connect` (a store problem, not a per-secret gap)."
+        },
+        "missing": {
+          "type": "array",
+          "description": "Secret NAMES (never values) this row still needs, in `requires_secret` order. Empty when `secret_state` is \"ready\"; every store/any-hinted required name when `secret_state` is \"no-store\" (none could be verified); the specific absent subset when `secret_state` is \"needs-connect\".",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "requiredSecret": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "from"],
+      "description": "Byte-identical shape to cli-copilot's own `$defs.requiredSecret` (docs/schemas/layers.schema.json) -- duplicated here (a different repo/schema file) rather than cross-referenced, since Control Tower never resolves a cli-copilot-hosted $ref at runtime.",
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "description": "The credential name resolved via the credential ladder. Never a value." },
+        "from": {
+          "type": "string",
+          "enum": ["any", "store", "keychain"],
+          "description": "Routing hint restricting which credential-ladder rungs are tried for this name. 'any' is the default when the declaring tier's overlay entry is a bare string name (tries every rung). This verb presence-checks only `store`/`any`-hinted names against the shared store; `keychain`-hinted names are excluded from `secret_state`/`missing` computation (see `connections.schema.json`'s own `secret_state` description)."
+        }
+      }
+    }
+  }
+}
