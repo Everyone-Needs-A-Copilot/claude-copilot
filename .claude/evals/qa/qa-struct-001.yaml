@@ -1,0 +1,24 @@
+id: qa-struct-001
+name: "QA agent defines ARTIFACT requirement"
+priority: P0
+description: |
+  The QA agent definition must include the mandatory ARTIFACT marker requirement.
+  This is the meta-test: removing the ARTIFACT requirement from qa.md makes this case FAIL,
+  which proves the eval harness catches regressions in the agent contract.
+type: structural
+source:
+  type: file
+  path: ".claude/agents/qa.md"
+assertions:
+  - type: file-contains
+    value: "ARTIFACT:"
+    description: "qa.md must define the ARTIFACT marker requirement"
+  - type: file-contains
+    value: "VERDICT: APPROVED"
+    description: "qa.md must define the VERDICT: APPROVED token"
+  - type: file-contains
+    value: "VERDICT: REJECTED"
+    description: "qa.md must define the VERDICT: REJECTED token"
+  - type: file-contains
+    value: "test-run"
+    description: "qa.md must define the test-run artifact type"
