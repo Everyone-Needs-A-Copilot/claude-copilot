@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`cc connect <service-id> [--check] --json` (`cc` 2.3.0, WP-395 D-6, task 222):** the
+  in-app secret-input connect mechanism the owner ratified (never `.env`; a future
+  device-flow/OIDC North Star model remains separate and unbuilt, WP-396). Reuses `cc
+  connections`' own service-roster/presence-check machinery to find one service's
+  currently-missing credential NAMES, reads their VALUES from stdin ONLY as a JSON
+  object `{"<NAME>": "<value>", ...}` — never argv (world-readable via `ps` for the
+  lifetime of the call), never an environment variable (inherited by every child
+  process), and never a file (would put the value at rest on disk) — and writes each to
+  the per-user OS keychain (service `copilot-cli`, account = the NAME) via a new
+  non-leaking `core/keychain.py` writer, `set_secret_stdin()`, which shells `security -i`
+  (interactive/batch mode, value carried on the stdin stream `security` itself reads)
+  instead of the leaking `security add-generic-password ... -w '<value>'` argv form —
+  verified live against a real `security -i` invocation, including that a value
+  containing a line break cannot be represented on that one-line batch protocol at all
+  and is rejected up front rather than risking truncation or a stderr leak. After
+  writing, it re-runs `cc connections`' presence checks and returns the fresh row plus a
+  per-credential outcome (`stored`/`already-present`/`failed`, never a value); an
+  unknown `service-id` and a service with zero missing credentials (which never reads
+  stdin at all) are both honest, fully-structured results, and a partial write failure
+  leaves an accurate per-credential report rather than an opaque top-level error.
+  `--check` re-evaluates and returns the row only, with no stdin read and no write (the
+  app's post-connect refresh). See
+  `docs/01-architecture/schemas/connect.schema.json` (copilot-control-tower),
+  `docs/06-deployment/connecting-a-machine-to-the-shared-store.md` (the runbook — the
+  same manual `security` commands, where the values come from per RD-1, and how `cc
+  connect` replaces them), and `tools/cc/src/cc/commands/connect.py`'s module docstring.
 - **`cc connections --json` (`cc` 2.2.0):** new read-only verb that closes the
   "Your connections" empty-state gap (task 221 investigation, WP-388/389/390).
   Projects cli-copilot's `copilot --json layers` `services[]` (foundation

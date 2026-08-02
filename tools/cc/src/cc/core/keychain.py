@@ -85,6 +85,93 @@ def set_secret(
     return result.returncode == 0
 
 
+def _quote(text: str) -> str:
+    """Double-quote *text* for one line of `security -i`'s batch-command
+    protocol, escaping the two characters that protocol treats specially
+    inside a double-quoted token (`\\` and `"`) -- verified round-trip
+    correct against a live `security -i` invocation (spaces, embedded
+    quotes, backslashes, a leading `-`, and the empty string all survive
+    byte-for-byte) before this function was written."""
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def set_secret_stdin(
+    account: str,
+    secret: str,
+    *,
+    service: str,
+    _run: RunFn = subprocess.run,
+) -> bool:
+    """
+    Store `secret` in the macOS Keychain under (`service`, `account`)
+    WITHOUT ever placing the value in a subprocess argv element -- the
+    writer `cc connect` uses (WP-395's manual keychain floor, D-6), where
+    the value originates from a human typing it into a non-technical
+    surface and must never become visible to `ps`/`/proc`/any other
+    process-listing tool for the lifetime of the call.
+
+    `add-generic-password`'s `-w`/`-p` flags normally take the value as an
+    argv token -- exactly that leak (`security`'s own `-h` usage text
+    agrees: "Use of the -p or -w options is insecure"). `-w` with no
+    trailing value instead prompts via `getpass()`-equivalent, but that
+    reads the controlling TTY directly, not this process's stdin pipe --
+    unusable from a non-interactive `cc` subprocess call (verified live:
+    piping a value at it does not satisfy the prompt).
+
+    The non-leaking mechanism this function uses instead is `security`'s
+    documented **interactive/batch mode** (`-i`, "allow the user to enter
+    multiple commands on stdin"): the whole `add-generic-password ...`
+    invocation, VALUE INCLUDED, is written as one line of the *stdin
+    stream* `security` itself reads, never as an execve() argv element --
+    so the value never appears in `ps`, a core dump of the argv vector, or
+    any process-listing tool. `account`/`service`/`secret` are each
+    double-quoted and backslash/double-quote-escaped (`_quote()`) so a
+    value containing spaces, quotes, backslashes, or a leading `-`
+    round-trips byte-for-byte.
+
+    A `secret` containing a line break (`\\n`/`\\r`) cannot be represented
+    on `-i`'s one-line command protocol at all -- forcing it through would
+    either truncate the value or (worse, verified live against a real
+    `security -i`) leak the REMAINDER of the value into `security`'s own
+    stderr as an "unknown command" parse error. This function refuses that
+    case outright (`ValueError`) rather than risk either outcome; `cc
+    connect` validates for this up front (before ever calling this
+    function) so it can report a structured, value-free per-credential
+    `failed` outcome instead of raising.
+
+    `-U` (update) matches `set_secret()`'s existing semantics: overwrites
+    any existing item for the same service/account pair instead of
+    erroring on a duplicate.
+
+    NEVER logs or echoes `secret` -- it is written only into the `-i`
+    stdin stream and never appears in any message this function emits,
+    including on failure. Deliberately does NOT reuse `set_secret()`
+    above: that function is the established GitHub device-flow writer
+    (locked in by its own tests' exact-argv assertions) and this codebase's
+    convention is to add a new, separately-tested function rather than
+    change an existing one's observable behavior for an unrelated caller.
+    """
+    _ensure_darwin()
+    if "\n" in secret or "\r" in secret:
+        raise ValueError("secret value must not contain a line break")
+    command = (
+        f"add-generic-password -a {_quote(account)} -s {_quote(service)} "
+        f"-w {_quote(secret)} -U\n"
+    )
+    try:
+        result = _run(
+            ["security", "-i"],
+            input=command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
+
+
 def get_secret(
     account: str,
     *,

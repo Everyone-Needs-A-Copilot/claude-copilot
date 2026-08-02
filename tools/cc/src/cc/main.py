@@ -262,6 +262,71 @@ def connections_cmd(
     raise typer.Exit(0 if report.get("result") == "ok" else 1)
 
 
+@app.command("connect")
+def connect_cmd(
+    service_id: str = typer.Argument(
+        ..., help="The service id/name to connect (from `cc connections --json`)."
+    ),
+    check: bool = typer.Option(
+        False,
+        "--check",
+        help=(
+            "Re-evaluate and return the service's connection row only -- "
+            "never reads stdin, never writes anything (the app's "
+            "post-connect refresh)."
+        ),
+    ),
+    output_json: bool = typer.Option(
+        False, "--json", help="Output the `cc connect --json` contract as JSON."
+    ),
+) -> None:
+    """Write locally-supplied secret VALUES into the per-user OS keychain
+    for one service's missing credential NAMES (WP-395 D-6, the manual
+    keychain floor), then re-run `cc connections`' own presence checks and
+    report the fresh row.
+
+    Values are read EXCLUSIVELY from stdin, as a JSON object
+    `{"<NAME>": "<value>", ...}` -- never argv (world-readable via `ps` for
+    the lifetime of the call), never an environment variable (inherited by
+    every child process and dumped more readily than argv or stdin by
+    shells/supervisors/crash reporters), and never a file (would leave the
+    value at rest on disk, which this verb's entire job is to avoid doing
+    anywhere but the OS keychain). See `cc.commands.connect`'s module
+    docstring for the full rationale. Use `--check` for a read-only
+    re-evaluation with no stdin at all.
+    """
+    import json as _json
+
+    from cc.commands.connect import (
+        _connect_exit_code,
+        build_connect_report,
+        render_connect_report_rich,
+    )
+
+    try:
+        report = build_connect_report(service_id, check_only=check)
+    except Exception as exc:  # environment/unexpected error -> exit 2
+        if output_json:
+            typer.echo(
+                _json.dumps(
+                    {
+                        "schema_version": "1.0",
+                        "error": {"code": "environment-error", "message": str(exc)},
+                    }
+                )
+            )
+        else:
+            typer.echo(f"connect: environment error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+
+    if output_json:
+        typer.echo(_json.dumps(report))
+    else:
+        render_connect_report_rich(report)
+
+    raise typer.Exit(_connect_exit_code(report))
+
+
 @app.command("freshness")
 def freshness_cmd(
     output_json: bool = typer.Option(
