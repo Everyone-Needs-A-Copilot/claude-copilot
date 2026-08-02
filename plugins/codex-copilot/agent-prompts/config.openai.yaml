@@ -1,0 +1,8 @@
+interface:
+  display_name: "Config"
+  short_description: "Inspect cc config"
+  default_prompt: "Use $config to inspect Copilot configuration, known references, paths, and env hydration."
+
+policy:
+  allow_implicit_invocation: false
+

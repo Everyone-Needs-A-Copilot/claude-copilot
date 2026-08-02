@@ -1,0 +1,788 @@
+# Claude Copilot Upgrade Guide
+
+## Upgrading to v5.6.0
+
+**Component versions:** cc 1.2.0 · commands 5.3.1
+
+**What changed:**
+- **Python 3.9 dropped (EOL).** The framework now requires Python 3.10+. Run `python3 --version` to verify.
+- **`install.sh` auto-appends `~/.local/bin` to PATH.** `bash tools/cc/install.sh` now idempotently adds `~/.local/bin` to `~/.zshrc`, `~/.zprofile`, `~/.bashrc`, and `~/.bash_profile`. No manual PATH step is required; reload your shell after install.
+- **`packages/installer/` removed.** The `@copilot/installer` NPM package is gone. Installation is `bash tools/cc/install.sh` + `pip install -e tools/tc` — no Node.js required.
+- **`mcp-servers/` fully removed.** The remaining MCP server directories are gone. `cc` and `tc` CLIs are the complete architecture.
+
+**Migration steps:**
+
+```bash
+# Verify Python version (3.10+ required)
+python3 --version
+
+# Reinstall cc CLI (picks up 1.2.0 changes + auto-PATH logic)
+bash tools/cc/install.sh
+# Reload shell (installer updated your profile automatically)
+source ~/.zshrc   # or ~/.bash_profile / ~/.zprofile
+
+# Reinstall tc CLI
+pip install -e ~/.claude/copilot/tools/tc
+
+# Sync your projects
+cd /your/project && claude
+# Run: /update-project
+```
+
+**No action required** for PATH if you reinstall — `install.sh` handles it. If upgrading from v5.5.0, the only breaking change is the Python 3.10 floor.
+
+---
+
+## Upgrading to v5.5.0
+
+This release makes skills auto-firing the **primary** discovery path and demotes `cc skill search` to a fallback.
+
+**Component versions:** skills 3.3.0 · cc 1.1.1 · agents 5.3.1
+
+**What changed:**
+- Skills now auto-fire as the primary discovery mechanism. Native Claude Code reads each skill's `description` field and fires matching skills automatically when a prompt matches — no explicit `cc skill search` call needed.
+- `cc skill search` is now a **fallback** — used by subagents that do not receive hook-injected context, or when explicit lookup is needed.
+- `@include` remains valid for code-bearing skills but is not the primary mechanism.
+- No breaking changes for existing skills: `name`, `description`, `version` frontmatter fields continue to work. Legacy fields (`skill_name`, `trigger_files`, `trigger_keywords`) are harmless if present.
+
+**Migration steps:**
+
+```bash
+# Pull latest framework
+cd ~/.claude/copilot
+git pull origin main
+
+# Reinstall cc CLI (picks up 1.1.1 changes)
+bash tools/cc/install.sh
+
+# Sync your projects
+cd /your/project && claude
+# Run: /update-project
+
+# Verify skill auto-fire is working
+cc skill list  # confirm skills present
+```
+
+**No action required** if your skills already have a trigger-rich `description` field. If your skills have sparse descriptions, add context so the model can match them automatically. See the [Skills Authoring Guide](../30-operations/06-skills-authoring-guide.md) for the canonical `description` format.
+
+---
+
+## Upgrading to v5.1.0 (PRD-2 — May 2026)
+
+This release modernizes the framework from MCP-server dependencies to the `cc`/`tc` CLI architecture.
+
+**Breaking Changes:**
+- `cc skill evaluate` is removed. Use `cc skill search "<query>"` + `cc skill get <name>` instead.
+- MCP server setup (copilot-memory, skills-copilot Node.js servers) is no longer required. The `cc` and `tc` CLIs replace them entirely.
+- Memory uses FTS5 keyword search. Semantic/vector search was never shipped; if docs or agents referenced it, that was incorrect.
+- At v5.1, agent roster was reduced from 14 to 8: `uxd`, `uids`, `uid`, `cw`, `cco`, and `sec` were consolidated into `design` and the `security/stride-dread` skill. The current framework (v5.2+) has restored the full 16-agent roster; `design` is retired and replaced by the `uxd`→`uids`→`uid` design chain.
+- Skills now auto-fire from their trigger-rich `description` field (primary path). `cc skill search` / `cc skill get` are the fallback for explicit discovery. `@include` is a valid manual-load convention for code-bearing skills but is not the primary mechanism.
+
+**Migration steps:**
+
+```bash
+# 1. Install CLIs
+bash ~/.claude/copilot/tools/cc/install.sh
+
+# 2. Configure paths
+cc config set paths.shared_docs /path/to/your/shared/docs
+cc config set paths.knowledge_repo ~/.claude/knowledge
+
+# 3. Register any stable references
+cc config set refs.staging_url https://staging.example.com
+
+# 4. Update project files
+cd ~/your-project && claude
+/update-project
+
+# 5. Rebuild memory index if needed
+cc memory index --rebuild
+```
+
+**Verify:**
+```bash
+cc --version
+tc version
+cc skill list | head -3
+cc memory search "test"
+```
+
+---
+
+## Upgrading to v2.0.0 (Earlier — Orchestration)
+
+This section documents the v2.0.0 upgrade introducing parallel stream orchestration and WebSocket event streaming.
+
+**Difficulty:** Easy (backwards compatible)
+**Breaking Changes:** None
+
+---
+
+## Table of Contents
+
+1. [Pre-Upgrade Checklist](#pre-upgrade-checklist)
+2. [Standard Upgrade (Recommended)](#standard-upgrade-recommended)
+3. [Manual Upgrade](#manual-upgrade)
+4. [Post-Upgrade Verification](#post-upgrade-verification)
+5. [New Features Configuration](#new-features-configuration)
+6. [Troubleshooting](#troubleshooting)
+7. [Rollback Instructions](#rollback-instructions)
+
+---
+
+## Pre-Upgrade Checklist
+
+Before upgrading, verify your current setup:
+
+### 1. Check Current Version
+
+```bash
+cd ~/.claude/copilot
+git log --oneline -1
+```
+
+**Expected output:**
+- If on v1.7.0 or v1.7.1: Ready to upgrade
+- If on v1.6.x or earlier: Review [CHANGELOG.md](../../CHANGELOG.md) for intermediate changes
+
+### 2. Commit Uncommitted Work
+
+```bash
+# In all project directories
+git status
+git add .
+git commit -m "WIP: Pre-upgrade checkpoint"
+```
+
+### 3. Backup Current Configuration
+
+```bash
+# Backup MCP configuration
+cp ~/.mcp/config.json ~/.mcp/config.json.backup
+
+# Or backup project-level config
+cp ~/your-project/.mcp.json ~/your-project/.mcp.json.backup
+```
+
+### 4. Check Node Version
+
+```bash
+node --version
+```
+
+**Required:** Node.js 18.0.0 or higher
+
+### 5. Check Disk Space
+
+```bash
+df -h ~/.claude
+```
+
+**Required:** At least 500 MB free space
+
+### 6. Review Active Work Context
+
+```bash
+# Review stored working context and recent progress
+cc memory list --json
+tc progress --json
+```
+
+Note any in-flight work - you'll resume it after upgrade.
+
+---
+
+## Standard Upgrade (Recommended)
+
+The standard upgrade uses the built-in `/update-copilot` and `/update-project` commands.
+
+### Step 1: Update Framework
+
+```bash
+# Navigate to Claude Copilot installation
+cd ~/.claude/copilot
+
+# Start Claude Code
+claude
+```
+
+In Claude Code:
+```
+/update-copilot
+```
+
+**What this does:**
+- Pulls latest changes from `origin/main`
+- Rebuilds all MCP servers
+- Updates global `.claude/` directory
+- Preserves your custom extensions
+
+**Expected output:**
+```
+Updating Claude Copilot Framework
+
+Current version: v1.7.1
+Latest version: v1.8.0
+
+Changes:
+- Parallel stream orchestration
+- WebSocket bridge
+- Context recovery system
+- v1.8 harness features
+
+Pulling changes...
+✓ Git pull complete
+
+Rebuilding MCP servers...
+✓ copilot-memory rebuilt
+✓ skills-copilot rebuilt
+✓ websocket-bridge installed
+
+Framework updated successfully!
+
+Next: Update your projects with /update-project
+```
+
+### Step 2: Update Projects
+
+For **each project** using Claude Copilot:
+
+```bash
+cd ~/your-project
+claude
+```
+
+In Claude Code:
+```
+/update-project
+```
+
+**What this does:**
+- Syncs `.claude/` directory with latest framework
+- Updates agents with new features
+- Adds new commands (`/orchestrate`)
+- Preserves project-specific customizations
+- Updates `.gitignore` with orchestration directories
+
+**Expected output:**
+```
+Updating Project with Claude Copilot v1.8.0
+
+Files updated:
+✓ .claude/agents/ (16 agent files: 15 framework + kc setup-only)
+✓ .claude/commands/ (added orchestrate.md)
+✓ .gitignore (added .claude/orchestrator/)
+
+New features available:
+- /orchestrate command
+- Parallel stream execution
+- Context recovery system
+
+Update complete!
+```
+
+### Step 3: Restart Claude Code
+
+Close and reopen Claude Code to reload MCP server configurations.
+
+```bash
+# Close Claude Code
+# Reopen in your project
+cd ~/your-project
+claude
+```
+
+---
+
+## Manual Upgrade
+
+If `/update-copilot` is unavailable, follow these manual steps.
+
+### Step 1: Pull Latest Code
+
+```bash
+cd ~/.claude/copilot
+git pull origin main
+```
+
+**Expected output:**
+```
+remote: Enumerating objects: 847, done.
+remote: Counting objects: 100% (847/847), done.
+remote: Compressing objects: 100% (523/523), done.
+remote: Total 847 (delta 324), reused 847 (delta 324)
+Receiving objects: 100% (847/847), 1.23 MiB | 2.45 MiB/s, done.
+Resolving deltas: 100% (324/324), done.
+```
+
+### Step 2: Reinstall CLIs
+
+```bash
+# cc CLI — memory and skills
+bash ~/.claude/copilot/tools/cc/install.sh
+source ~/.zshrc   # installer auto-appends ~/.local/bin to your profile
+
+# tc CLI — Task Copilot
+pip install -e ~/.claude/copilot/tools/tc
+```
+
+### Step 3: Update Project Files
+
+For each project:
+
+```bash
+cd ~/your-project
+
+# Copy new command
+cp ~/.claude/copilot/.claude/commands/orchestrate.md .claude/commands/
+
+# Update agents (all 16 files)
+cp -r ~/.claude/copilot/.claude/agents/ .claude/
+```
+
+Note: `.claude/orchestrator/` is retired. No scripts need to be copied; `/orchestrate` is native-Task-only.
+
+### Step 4: Verify Installation
+
+```bash
+# Verify CLIs are installed and functional
+cc --version
+tc version
+```
+
+**Expected:** Both commands print their version strings without error.
+
+---
+
+## Post-Upgrade Verification
+
+Verify the upgrade completed successfully.
+
+### 1. Check Framework Version
+
+```bash
+cd ~/.claude/copilot
+git log --oneline -1
+```
+
+**Expected:** Commit from January 8, 2026 or later
+
+### 2. Verify MCP Servers
+
+In Claude Code:
+```bash
+claude
+# Check available tools
+```
+
+**New CLI commands should be available:**
+- `tc stream list --json`, `tc stream get <id> --json`
+- `tc handoff --from <a> --to <b> --task <id> --context "..." --json`
+- `tc log --task <id> --json`
+
+### 3. Test New Commands
+
+```bash
+claude
+```
+
+In Claude Code:
+```
+/orchestrate
+```
+
+**Expected output:**
+```
+## No Active Initiative
+
+Cannot generate orchestration without an active initiative.
+
+To create an initiative:
+1. Run /protocol
+2. Work with @agent-ta to create a PRD with tasks
+3. Ensure tasks are organized into streams
+```
+
+This confirms the `/orchestrate` command is installed.
+
+### 4. Verify Quality Gates
+
+Create a test quality gates config:
+
+```bash
+cat > .claude/quality-gates.json << 'EOF'
+{
+  "version": "1.0",
+  "defaultGates": ["tests_pass"],
+  "gates": {
+    "tests_pass": {
+      "name": "tests_pass",
+      "description": "Tests must pass",
+      "command": "echo 'Tests passed'",
+      "expectedExitCode": 0
+    }
+  }
+}
+EOF
+```
+
+Quality gates should now run automatically on task completion.
+
+### 5. Test `tc` CLI (Optional)
+
+If you want to verify task management is working:
+
+```bash
+tc --help
+tc task list --json
+```
+
+---
+
+## New Features Configuration
+
+Configure new features introduced in v1.8.0.
+
+### 1. Enable Orchestration
+
+**Prerequisites:**
+- `tc` CLI installed and in PATH
+- `claude` CLI in PATH (for native Task agents)
+- Git 2.5+ (for worktree support)
+
+> **Note:** The Python orchestrator (`orchestrate.py`, `start-streams.py`, tmux) was retired. `/orchestrate` is now native-Task-only — no background scripts or tmux required.
+
+**Usage:**
+```bash
+claude
+/protocol
+# Create a PRD with multiple streams via @agent-ta
+
+/orchestrate generate
+# Creates PRD + stream tasks via tc CLI
+
+/orchestrate start
+# Validates streams, creates git worktrees, prints launch instructions
+# Main session then spawns Task agents per stream
+```
+
+### 2. Enable WebSocket Bridge (Optional)
+
+> **Removed in v5.6.0.** The `mcp-servers/websocket-bridge` component no longer exists. Real-time event streaming via WebSocket is not available in the current architecture. `cc` and `tc` CLIs are the complete tooling surface.
+
+### 3. Configure Quality Gates
+
+Create `.claude/quality-gates.json` in your project:
+
+**Minimal (tests only):**
+```json
+{
+  "version": "1.0",
+  "defaultGates": ["tests_pass"],
+  "gates": {
+    "tests_pass": {
+      "name": "tests_pass",
+      "description": "Tests must pass",
+      "command": "npm test",
+      "expectedExitCode": 0
+    }
+  }
+}
+```
+
+**Comprehensive (tests, lint, build):**
+```json
+{
+  "version": "1.0",
+  "defaultGates": ["tests_pass", "lint_clean", "build_success"],
+  "gates": {
+    "tests_pass": {
+      "name": "tests_pass",
+      "description": "All tests pass",
+      "command": "npm test",
+      "expectedExitCode": 0,
+      "timeout": 300000
+    },
+    "lint_clean": {
+      "name": "lint_clean",
+      "description": "No linting errors",
+      "command": "npm run lint",
+      "expectedExitCode": 0
+    },
+    "build_success": {
+      "name": "build_success",
+      "description": "Build succeeds",
+      "command": "npm run build",
+      "expectedExitCode": 0,
+      "timeout": 120000
+    }
+  }
+}
+```
+
+### 4. Clean Up Legacy Streams (v1.7.1 Migration)
+
+If upgrading from pre-v1.7.1, clean up legacy streams:
+
+```bash
+# Archive old streams via the tc CLI or by re-running /orchestrate generate
+# which automatically archives previous streams
+tc stream list --json
+```
+
+**What this does:**
+- Archives all streams from previous initiatives
+- Prevents stream pollution when using `/continue`
+- One-time operation only needed after upgrade
+
+### 5. Context Recovery
+
+Context recovery in the native model is handled by re-running `/orchestrate status` to check stream progress and resuming incomplete `Task` agents manually. There is no separate config file — stream state is tracked in the `tc` database.
+
+```bash
+# Check what is complete and what is still pending
+tc progress --json
+tc stream list --json
+tc task list --json
+```
+
+---
+
+## Troubleshooting
+
+### Issue: `/update-copilot` command not found
+
+**Cause:** Old version of framework
+**Solution:** Use [Manual Upgrade](#manual-upgrade) instead
+
+---
+
+### Issue: cc or tc CLI not found after upgrade
+
+**Symptom:**
+```
+cc: command not found
+```
+
+**Solution:**
+```bash
+# Reinstall cc CLI (auto-appends ~/.local/bin to your shell profile)
+bash ~/.claude/copilot/tools/cc/install.sh
+source ~/.zshrc
+
+# Reinstall tc CLI
+pip install -e ~/.claude/copilot/tools/tc
+
+# Verify
+cc --version && tc version
+```
+
+---
+
+### Issue: `/orchestrate` command not available
+
+**Cause:** Project files not updated
+**Solution:**
+```bash
+cd ~/your-project
+cp ~/.claude/copilot/.claude/commands/orchestrate.md .claude/commands/
+```
+
+Restart Claude Code.
+
+---
+
+### Issue: Quality gates not running
+
+**Cause:** Invalid configuration or missing file
+**Solution:**
+```bash
+# Validate JSON syntax
+cat .claude/quality-gates.json | jq
+
+# If error, fix JSON syntax
+# Ensure gates match task metadata
+```
+
+---
+
+### Issue: Tests fail after upgrade
+
+**Symptom:** Existing tests fail that previously passed
+
+**Solution:**
+```bash
+# Clear test cache
+npm run test -- --clearCache
+
+# Rebuild
+npm run build
+
+# Run tests
+npm test
+```
+
+If tests still fail, review changes in [CHANGELOG.md](../../CHANGELOG.md) for breaking changes (there should be none, but verify).
+
+---
+
+### Issue: Agent performance seems slower
+
+**Cause:** New validation overhead
+**Solution:**
+- First upgrade is slower due to database migrations
+- Subsequent runs are normal speed
+- Disable quality gates temporarily if needed: `metadata: { qualityGates: [] }`
+
+---
+
+## Rollback Instructions
+
+If you encounter critical issues, rollback to previous version.
+
+### Step 1: Identify Previous Version
+
+```bash
+cd ~/.claude/copilot
+git log --oneline -10
+```
+
+Find the commit for v1.7.1 or your previous version.
+
+### Step 2: Rollback Framework
+
+```bash
+cd ~/.claude/copilot
+
+# Rollback to specific commit
+git reset --hard <commit-hash>
+
+# Or rollback to specific tag
+git checkout v1.7.1
+```
+
+### Step 3: Reinstall CLIs
+
+```bash
+bash ~/.claude/copilot/tools/cc/install.sh && source ~/.zshrc
+pip install -e ~/.claude/copilot/tools/tc
+```
+
+### Step 4: Restore Project Files
+
+```bash
+cd ~/your-project
+
+# Remove new files
+rm .claude/commands/orchestrate.md
+rm -rf .claude/orchestrator/
+
+# Restore agents from backup
+git checkout HEAD .claude/agents/
+```
+
+### Step 5: Restore Configuration
+
+```bash
+# Restore MCP config
+cp ~/.mcp/config.json.backup ~/.mcp/config.json
+
+# Or restore project config
+cp ~/your-project/.mcp.json.backup ~/your-project/.mcp.json
+```
+
+### Step 6: Restart Claude Code
+
+Close and reopen Claude Code.
+
+### Step 7: Verify Rollback
+
+```bash
+cd ~/.claude/copilot
+git log --oneline -1
+```
+
+Should show your previous version.
+
+---
+
+## Migration Notes
+
+### Database Migrations
+
+Task database automatically migrates on first run:
+
+- **No data loss:** Existing tasks preserved
+- **Automatic:** No manual intervention needed
+
+### Memory Schema
+
+Memory Copilot database remains compatible. New `agent_improvement` type is additive.
+
+### Configuration Changes
+
+**No breaking changes to:**
+- `.mcp.json` format
+- `CLAUDE.md` structure
+- Agent frontmatter schema
+- Tool signatures
+
+**New optional configs:**
+- `.claude/quality-gates.json` (optional)
+- `.claude/orchestrator/` (generated on-demand)
+- `contextRecovery` in orchestration config (optional)
+
+---
+
+## Getting Help
+
+If you encounter issues not covered in this guide:
+
+1. **Check Logs:**
+   ```bash
+   # MCP server logs
+   tail -f ~/.claude/logs/copilot-memory.log
+   ```
+
+2. **Search Issues:**
+   - [GitHub Issues](https://github.com/Everyone-Needs-A-Copilot/claude-copilot/issues)
+
+3. **Ask Community:**
+   - [GitHub Discussions](https://github.com/Everyone-Needs-A-Copilot/claude-copilot/discussions)
+
+4. **File Bug Report:**
+   - Include version: `git log --oneline -1`
+   - Include error messages
+   - Include steps to reproduce
+
+---
+
+## Next Steps
+
+After successful upgrade:
+
+1. **Explore New Features:**
+   - Try `/orchestrate` with a multi-stream PRD
+   - Set up quality gates for your project
+   - Test activation modes (`quick`, `thorough`, `analyze`)
+
+2. **Read Documentation:**
+   - [Orchestration Guide](../50-features/01-orchestration-workflow.md)
+   - [Enhancement Features](../50-features/00-enhancement-features.md)
+   - [Skills Authoring Guide](../30-operations/06-skills-authoring-guide.md)
+
+3. **Update Team:**
+   - Share upgrade guide with team members
+   - Configure shared quality gates
+   - Set up orchestration for large initiatives
+
+4. **Provide Feedback:**
+   - Report bugs or issues
+   - Suggest improvements
+   - Share success stories
+
+---
+
+**Welcome to Claude Copilot v1.8.0!**
+
+Enjoy parallel stream orchestration, real-time monitoring, and enhanced agent reliability.
