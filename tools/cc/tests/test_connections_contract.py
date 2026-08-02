@@ -113,7 +113,13 @@ def test_ready_service_with_no_required_secret_validates():
     _validate(report)
     assert report["result"] == "ok"
     assert report["org"] == "Acme"
-    assert report["store"] == {"type": "infisical", "reachable": True, "scope": "prod:/shared", "detail": None}
+    assert report["store"] == {
+        "type": "infisical",
+        "reachable": True,
+        "scope": "prod:/shared",
+        "detail": None,
+        "diagnostic": None,
+    }
     assert report["connections"] == [
         {
             "id": "git",
@@ -152,16 +158,20 @@ def test_present_secret_reads_ready():
 
 
 def test_missing_secret_names_are_reported_by_name():
+    """Generic store-checked names (NOT in `_NEVER_FROM_STORE`) -- exercises
+    the plain store-presence path. See the dedicated
+    `TestInfisicalBootstrapCredsRouteToKeychain` tests below for the G-1
+    bootstrap-name routing behavior, which these names deliberately avoid."""
     services = [
         {
-            "name": "infisical",
-            "help": "Infisical secrets management",
+            "name": "sample-store-service",
+            "help": "Sample store-backed service",
             "tier": "org-internal",
             "mode": "adopt",
-            "id": "infisical",
+            "id": "sample-store-service",
             "requires_secret": [
-                {"name": "INFISICAL_CLIENT_ID", "from": "any"},
-                {"name": "INFISICAL_CLIENT_SECRET", "from": "any"},
+                {"name": "SAMPLE_API_KEY", "from": "any"},
+                {"name": "SAMPLE_API_SECRET", "from": "any"},
             ],
             "store_scope": None,
         }
@@ -173,7 +183,7 @@ def test_missing_secret_names_are_reported_by_name():
     _validate(report)
     row = report["connections"][0]
     assert row["secret_state"] == "needs-connect"
-    assert row["missing"] == ["INFISICAL_CLIENT_ID", "INFISICAL_CLIENT_SECRET"]
+    assert row["missing"] == ["SAMPLE_API_KEY", "SAMPLE_API_SECRET"]
 
 
 def test_partial_presence_reports_only_the_absent_names():
@@ -204,12 +214,11 @@ def test_partial_presence_reports_only_the_absent_names():
     assert row["missing"] == ["PROJECT_COPILOT_AGENT_API_SECRET_KEY"]
 
 
-def test_keychain_only_secret_reads_ready_nothing_for_the_store_to_prove():
+def test_keychain_only_secret_present_reads_ready():
     """The real `discord` service declares DISCORD_BOT_TOKEN with `from:
-    keychain` -- this verb only presence-checks the shared store, so a row
-    whose secrets are ALL keychain-hinted has nothing store-checkable
-    required and reads `ready`, the same literal extension of "empty
-    requires_secret -> ready" this module's docstring documents."""
+    keychain` -- this verb has nothing store-checkable to prove for it, but
+    (WP-395 G-1) it IS genuinely presence-checked against the local OS
+    keychain rather than assumed ready. Present -> `ready`."""
     services = [
         {
             "name": "discord",
@@ -224,6 +233,7 @@ def test_keychain_only_secret_reads_ready_nothing_for_the_store_to_prove():
     report = build_connections_report(
         run=_fake_run(layers_services=services, secret_keys=[]),
         ecosystem_cfg=_CONNECTED_STORE_CFG,
+        check_keychain=lambda name: True,
     )
     _validate(report)
     row = report["connections"][0]
@@ -232,7 +242,128 @@ def test_keychain_only_secret_reads_ready_nothing_for_the_store_to_prove():
     assert row["missing"] == []
 
 
+def test_keychain_only_secret_absent_reads_needs_connect():
+    """Same row, but the OS keychain does NOT have the name -- WP-395 G-1's
+    whole point is that this state must be verified, never assumed away."""
+    services = [
+        {
+            "name": "discord",
+            "help": "Discord handoff threads",
+            "tier": "org-internal",
+            "mode": "provides",
+            "id": "discord",
+            "requires_secret": [{"name": "DISCORD_BOT_TOKEN", "from": "keychain"}],
+            "store_scope": None,
+        }
+    ]
+    report = build_connections_report(
+        run=_fake_run(layers_services=services, secret_keys=[]),
+        ecosystem_cfg=_CONNECTED_STORE_CFG,
+        check_keychain=lambda name: False,
+    )
+    _validate(report)
+    row = report["connections"][0]
+    assert row["secret_state"] == "needs-connect"
+    assert row["missing"] == ["DISCORD_BOT_TOKEN"]
+
+
+class TestInfisicalBootstrapCredsRouteToKeychain:
+    """WP-395 G-1: the Infisical bootstrap pair is `_NEVER_FROM_STORE` --
+    even if a tier's overlay still (incorrectly) declares them `from: "any"`
+    (the exact live defect this WP fixed at the `cli.overlay.yml` source),
+    this verb must route them to the OS keychain, never the shared store,
+    so the row can never read a permanent false `needs-connect` again."""
+
+    _SERVICES = [
+        {
+            "name": "infisical",
+            "help": "Infisical secrets management",
+            "tier": "org-internal",
+            "mode": "adopt",
+            "id": "infisical",
+            "requires_secret": [
+                {"name": "INFISICAL_CLIENT_ID", "from": "any"},
+                {"name": "INFISICAL_CLIENT_SECRET", "from": "any"},
+            ],
+            "store_scope": None,
+        }
+    ]
+
+    def test_present_in_keychain_reads_ready_even_though_store_cannot_have_them(self):
+        # secret_keys deliberately empty -- the store never holds these
+        # names (and never will); `ready` must come from the keychain check.
+        report = build_connections_report(
+            run=_fake_run(layers_services=self._SERVICES, secret_keys=[]),
+            ecosystem_cfg=_CONNECTED_STORE_CFG,
+            check_keychain=lambda name: True,
+        )
+        _validate(report)
+        row = report["connections"][0]
+        assert row["secret_state"] == "ready"
+        assert row["missing"] == []
+
+    def test_absent_from_keychain_reads_needs_connect_by_name(self):
+        report = build_connections_report(
+            run=_fake_run(layers_services=self._SERVICES, secret_keys=[]),
+            ecosystem_cfg=_CONNECTED_STORE_CFG,
+            check_keychain=lambda name: False,
+        )
+        _validate(report)
+        row = report["connections"][0]
+        assert row["secret_state"] == "needs-connect"
+        assert row["missing"] == ["INFISICAL_CLIENT_ID", "INFISICAL_CLIENT_SECRET"]
+
+    def test_present_in_the_store_is_never_treated_as_ready(self):
+        """Even if the (impossible in practice) store response somehow
+        carried these keys, this verb must never consult it for a
+        `_NEVER_FROM_STORE` name -- only the keychain result counts."""
+        report = build_connections_report(
+            run=_fake_run(
+                layers_services=self._SERVICES,
+                secret_keys=["INFISICAL_CLIENT_ID", "INFISICAL_CLIENT_SECRET"],
+            ),
+            ecosystem_cfg=_CONNECTED_STORE_CFG,
+            check_keychain=lambda name: False,
+        )
+        row = report["connections"][0]
+        assert row["secret_state"] == "needs-connect"
+        assert row["missing"] == ["INFISICAL_CLIENT_ID", "INFISICAL_CLIENT_SECRET"]
+
+    def test_default_check_keychain_calls_the_security_cli_with_no_value_flag(self, monkeypatch):
+        """The production `_check_keychain` default -- verifies the exact
+        macOS `security` invocation (presence-only: no `-w`) and that a
+        faked subprocess controls the found/not-found outcome, per WP-395
+        G-1's "tests with faked subprocess for both found/not-found."."""
+        import subprocess as subprocess_module
+
+        calls: list[Sequence[str]] = []
+
+        def fake_subprocess_run(args, **kwargs):
+            calls.append(args)
+            assert "-w" not in args
+            if args[-1] == "INFISICAL_CLIENT_ID":
+                return subprocess_module.CompletedProcess(args, 0, "found\n", "")
+            return subprocess_module.CompletedProcess(args, 44, "", "not found")
+
+        monkeypatch.setattr(
+            "cc.commands.connections.subprocess.run", fake_subprocess_run
+        )
+        report = build_connections_report(
+            run=_fake_run(layers_services=self._SERVICES, secret_keys=[]),
+            ecosystem_cfg=_CONNECTED_STORE_CFG,
+        )
+        row = report["connections"][0]
+        assert row["secret_state"] == "needs-connect"
+        assert row["missing"] == ["INFISICAL_CLIENT_SECRET"]
+        assert len(calls) == 2
+        assert all(c[:4] == ["security", "find-generic-password", "-s", "copilot-cli"] for c in calls)
+
+
 def test_store_unreachable_reads_no_store_with_every_required_name_listed():
+    """WP-395 G-2: the store's underlying call failure must never leak its
+    raw stderr into the human-facing `detail` -- `cc` authors a
+    plain-language, actor-routed sentence instead, and keeps the raw text
+    only in the additive, machine-only `diagnostic` field."""
     services = [
         {
             "name": "brevo",
@@ -251,10 +382,46 @@ def test_store_unreachable_reads_no_store_with_every_required_name_listed():
     _validate(report)
     assert report["result"] == "ok"
     assert report["store"]["reachable"] is False
-    assert "network unreachable" in report["store"]["detail"]
+    assert report["store"]["detail"] == (
+        "This Mac isn't connected to your organization's shared credential "
+        "store yet. Your IT admin can set that up — nothing is wrong with "
+        "your setup."
+    )
+    assert "network unreachable" not in report["store"]["detail"]
+    assert report["store"]["diagnostic"] == "network unreachable"
     row = report["connections"][0]
     assert row["secret_state"] == "no-store"
     assert row["missing"] == ["BREVO_API_KEY"]
+
+
+def test_store_unreachable_diagnostic_never_leaks_into_the_json_detail_field():
+    """Belt-and-suspenders: no substring of the raw stderr should reach
+    `detail` even under a different underlying error message."""
+    services = [
+        {
+            "name": "brevo",
+            "help": "Brevo email marketing",
+            "tier": "org-internal",
+            "mode": "provides",
+            "id": "brevo",
+            "requires_secret": [{"name": "BREVO_API_KEY", "from": "any"}],
+            "store_scope": None,
+        }
+    ]
+    report = build_connections_report(
+        run=_fake_run(
+            layers_services=services,
+            secret_list_returncode=1,
+            secret_list_stderr=(
+                "Infisical credentials not configured. Set INFISICAL_CLIENT_ID "
+                "and INFISICAL_CLIENT_SECRET in your .env."
+            ),
+        ),
+        ecosystem_cfg=_CONNECTED_STORE_CFG,
+    )
+    assert ".env" not in report["store"]["detail"]
+    assert "Set INFISICAL_CLIENT_ID" not in report["store"]["detail"]
+    assert ".env" in report["store"]["diagnostic"]
 
 
 def test_store_deferred_status_reads_no_store_honestly():
@@ -308,6 +475,7 @@ def test_org_config_unavailable_still_lists_the_roster():
         "reachable": False,
         "scope": None,
         "detail": report["detail"],
+        "diagnostic": None,
     }
     assert len(report["connections"]) == 2
     assert report["connections"][0]["secret_state"] == "ready"  # no secrets required
@@ -428,6 +596,11 @@ def test_connections_cmd_json_matches_schema(monkeypatch):
         "cc.commands.connections.load_ecosystem_config",
         lambda: _CONNECTED_STORE_CFG,
     )
+    # WP-395 G-1: INFISICAL_CLIENT_ID is a `_NEVER_FROM_STORE` bootstrap
+    # name, so it is now keychain-checked, not store-checked -- pin the
+    # keychain outcome rather than let the test depend on this machine's
+    # real keychain contents.
+    monkeypatch.setattr("cc.commands.connections._check_keychain", lambda name: False)
 
     result = runner.invoke(app, ["connections", "--json"])
     assert result.exit_code == 0
@@ -475,6 +648,7 @@ def test_connections_cmd_rich_output_has_two_groups(monkeypatch):
         "cc.commands.connections.load_ecosystem_config",
         lambda: _CONNECTED_STORE_CFG,
     )
+    monkeypatch.setattr("cc.commands.connections._check_keychain", lambda name: False)
 
     result = runner.invoke(app, ["connections"])
     assert result.exit_code == 0

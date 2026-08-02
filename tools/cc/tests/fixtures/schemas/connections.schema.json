@@ -40,7 +40,11 @@
         },
         "detail": {
           "type": ["string", "null"],
-          "description": "Plain-language reason the store is not reachable, or null when reachable (or when nothing further to report)."
+          "description": "Plain-language, non-technical, actor-routed sentence `cc` authors for why the store is not reachable (invariant #1: the CLI computes the copy, never a raw passthrough of an underlying command's stderr), or null when reachable (or when nothing further to report). This is the only field the app may render to a user for this reason -- see `diagnostic` for the machine-only counterpart."
+        },
+        "diagnostic": {
+          "type": ["string", "null"],
+          "description": "Additive (WP-395 G-2). Raw machine-readable text (e.g. the underlying `copilot infisical` call's stderr) for logging/debugging only -- the app must NEVER render this to a user; `detail` above is the human-facing sentence for that. Null whenever there is nothing further to log, or when the field is absent from an older `cc` that predates it (treat a missing key the same as null)."
         }
       }
     },
@@ -77,11 +81,11 @@
         "secret_state": {
           "type": "string",
           "enum": ["ready", "needs-connect", "no-store"],
-          "description": "'ready': no `store`/`any`-hinted secret is required, or every one required is present in the shared store (a service with only `keychain`-hinted secrets, or none at all, is `ready` -- there is nothing for the shared store to prove). 'needs-connect': the store is reachable but at least one required `store`/`any`-hinted secret name is absent from it -- see `missing`. 'no-store': the shared store itself is unreachable/unconfigured, so no `store`/`any`-hinted secret required by this row could be verified -- distinct from `needs-connect` (a store problem, not a per-secret gap)."
+          "description": "'ready': this row has no checkable secret at all, or every one checked verified present (in the shared store for a `store`/`any`-hinted name, or in the local OS keychain for a `keychain`-hinted or structurally never-store-able bootstrap name, e.g. the Infisical machine identity -- see WP-395 G-1). 'needs-connect': at least one checked secret name is verified absent -- either a `store`/`any`-hinted name missing from a reachable shared store, or a `keychain`-hinted/bootstrap-class name missing from the local OS keychain -- see `missing`. 'no-store': the shared store itself is unreachable/unconfigured, so no `store`/`any`-hinted secret required by this row could be verified -- distinct from `needs-connect` (a store problem, not a per-secret gap); a row's `keychain`-hinted/bootstrap-class names are still independently keychain-checked even when this applies."
         },
         "missing": {
           "type": "array",
-          "description": "Secret NAMES (never values) this row still needs, in `requires_secret` order. Empty when `secret_state` is \"ready\"; every store/any-hinted required name when `secret_state` is \"no-store\" (none could be verified); the specific absent subset when `secret_state` is \"needs-connect\".",
+          "description": "Secret NAMES (never values) this row still needs, in `requires_secret` order, from whichever place each was checked (shared store or local OS keychain). Empty when `secret_state` is \"ready\"; every store/any-hinted required name when `secret_state` is \"no-store\" (none of those could be verified -- keychain-checked names in the same row are still evaluated independently); the specific absent subset when `secret_state` is \"needs-connect\".",
           "items": { "type": "string", "minLength": 1 }
         }
       }
@@ -96,7 +100,7 @@
         "from": {
           "type": "string",
           "enum": ["any", "store", "keychain"],
-          "description": "Routing hint restricting which credential-ladder rungs are tried for this name. 'any' is the default when the declaring tier's overlay entry is a bare string name (tries every rung). This verb presence-checks only `store`/`any`-hinted names against the shared store; `keychain`-hinted names are excluded from `secret_state`/`missing` computation (see `connections.schema.json`'s own `secret_state` description)."
+          "description": "Routing hint restricting which credential-ladder rungs are tried for this name. 'any' is the default when the declaring tier's overlay entry is a bare string name (tries every rung). This verb presence-checks `store`/`any`-hinted names against the shared store, and `keychain`-hinted names directly against the local OS keychain (both feed `secret_state`/`missing` -- see this schema's own `secret_state` description). A name structurally impossible for the store to ever hold (e.g. the Infisical machine-identity bootstrap pair) is always keychain-checked regardless of its declared hint here -- a defensive backstop (WP-395 G-1), not something this field alone can express."
         }
       }
     }

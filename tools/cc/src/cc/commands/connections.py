@@ -45,20 +45,33 @@ scope boundary rather than silently guessed at.
 
 **`from` routing hints and what this verb can prove.** Each declared
 secret carries a `from` hint (`store` | `keychain` | `any`, cli-copilot's
-`$defs.requiredSecret`). This verb presence-checks only the names hinted
-`store` or `any` against the shared store -- a `keychain`-hinted name
-(e.g. the real `discord` service's `DISCORD_BOT_TOKEN`) is, by the
-declaring tier's own routing hint, never meant to resolve from the shared
-store at all, so checking the store for it would be checking the wrong
-place, not a keychain probe this verb does not perform. A row whose
-`requires_secret` are ALL `keychain`-hinted therefore has nothing
-store-checkable to prove and reads `ready` -- the same literal extension
-of "empty `requires_secret` -> ready (nothing to prove)" applied to "empty
-STORE-checkable `requires_secret` -> ready (nothing FOR THE STORE to
-prove)". This is a deliberate, narrow reading of this task's own
-specification, not a guess: a genuine local-keychain presence probe is a
-different, unbuilt capability, out of scope for the store bridge WP-388
-identified as the gap.
+`$defs.requiredSecret`). This verb presence-checks names hinted `store`
+or `any` against the shared store; a `keychain`-hinted name (e.g. the
+real `discord` service's `DISCORD_BOT_TOKEN`) is, by the declaring
+tier's own routing hint, never meant to resolve from the shared store at
+all, so this verb instead presence-checks it directly against the local
+OS keychain (`security find-generic-password`, presence only -- never
+`-w`/a value) -- WP-395 G-1. A row whose `requires_secret` are ALL
+`keychain`-hinted therefore has nothing STORE-checkable to prove, but its
+keychain-checked names are still genuinely verified, never assumed
+`ready`.
+
+**Bootstrap/never-store-able names -- the WP-395 G-1 defensive backstop.**
+A handful of names are structurally impossible for the shared store to
+ever hold (the store cannot hold the credentials used to authenticate to
+it -- `INFISICAL_CLIENT_ID`/`_SECRET` and their sibling store-config
+names). cli-copilot's own `config/managed_store.py` enforces this
+store-side via `_NEVER_FROM_STORE`; `cc` cannot import cli-copilot code,
+so `_NEVER_FROM_STORE` below duplicates that exact name list (the
+"honest mirror," not a guess -- see that module for the canonical list).
+Regardless of what `from` hint a tier's overlay declares for one of these
+names (including a still-buggy `from: "any"`/`"store"`, the exact defect
+WP-395 found live: `cli.overlay.yml` declared the Infisical bootstrap
+pair as bare strings, so they were `from: "any"` and checked against a
+store that can never hold them, a permanent false `needs-connect`), this
+verb always routes them to the OS keychain presence-check instead of the
+shared store -- so a future overlay regression of this exact kind can
+never reintroduce the false negative.
 
 **Fail-closed structured results.** A missing/unresolvable `copilot`
 binary and a missing/unmaterialized org config are DISTINCT, honestly
@@ -71,15 +84,16 @@ from `copilot --json layers` alone, independent of the org config) with
 rather than emptying `connections` outright -- the app can still render
 the roster even when the store portion is degraded.
 
-SAFETY: every collaborator is injectable (`run`, `ecosystem_cfg`) -- see
-`build_connections_report()`. Production defaults only ever resolve
-through `resolve_executable()` (the standard `copilot` executable
-registry, `core/executables.py` -- never a bare `copilot` string handed to
-`subprocess`, matching this codebase's translocation-safety convention)
-and `load_ecosystem_config()` (the standard inherited-config reader).
-NEVER prints, logs, or returns a secret VALUE -- only names (from the
-overlay's own declarations) and boolean presence (from Infisical's
-keys-only `secret list`).
+SAFETY: every collaborator is injectable (`run`, `ecosystem_cfg`,
+`check_keychain`) -- see `build_connections_report()`. Production
+defaults only ever resolve through `resolve_executable()` (the standard
+`copilot` executable registry, `core/executables.py` -- never a bare
+`copilot` string handed to `subprocess`, matching this codebase's
+translocation-safety convention), `load_ecosystem_config()` (the standard
+inherited-config reader), and the macOS `security` CLI (presence-only,
+never `-w`). NEVER prints, logs, or returns a secret VALUE -- only names
+(from the overlay's own declarations) and boolean presence (from
+Infisical's keys-only `secret list` and the keychain's exit code alone).
 
 Schema: copilot-control-tower/docs/01-architecture/schemas/connections.schema.json
 (vendored copy: tools/cc/tests/fixtures/schemas/connections.schema.json).
@@ -89,6 +103,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from typing import Any, Callable, NamedTuple, Optional, Sequence
 
 from cc.core.ecosystem.ecosystem_config import load_ecosystem_config
@@ -104,11 +119,63 @@ SCHEMA_VERSION = "1.0"
 _STORE_REQUIRED_KEYS: tuple[str, ...] = ("workspace_id", "environment", "secret_path")
 
 # `requires_secret[].from` values this verb presence-checks against the
-# shared store. `keychain` is deliberately excluded -- see the module
-# docstring's "from routing hints" section.
+# shared store. A name in `_NEVER_FROM_STORE` (below) is routed to the
+# keychain check instead, REGARDLESS of its declared hint -- see the
+# module docstring's "bootstrap/never-store-able names" section.
 _STORE_CHECKED_HINTS = frozenset({"store", "any"})
 
+# Bootstrap/store-configuration secret NAMES the shared store can never
+# hold (it cannot hold the credentials used to authenticate to it).
+# Duplicates cli-copilot's `config/managed_store.py` `_NEVER_FROM_STORE`
+# byte-for-byte -- `cc` cannot import cli-copilot code, so this is the
+# honest mirror, not a guess (WP-395 G-1). A name in this set is always
+# presence-checked against the OS keychain, never the shared store, no
+# matter what `from` hint a tier's overlay declares for it -- the
+# defensive backstop that keeps a future overlay regression of the exact
+# live defect WP-395 found (the Infisical bootstrap pair declared bare,
+# so `from: "any"`, store-checked, permanently absent) from reintroducing
+# a false `needs-connect`.
+_NEVER_FROM_STORE = frozenset(
+    {
+        "INFISICAL_CLIENT_ID",
+        "INFISICAL_CLIENT_SECRET",
+        "INFISICAL_BASE_URL",
+        "INFISICAL_ORG_ID",
+        "INFISICAL_WORKSPACE_ID",
+        "INFISICAL_ENVIRONMENT",
+        "INFISICAL_SECRET_PATH",
+    }
+)
+
+# Matches cli-copilot's `secrets_ladder.KEYCHAIN_SERVICE` -- the one OS
+# keychain service every credential-ladder-resolved name lives under.
+KEYCHAIN_SERVICE = "copilot-cli"
+
 Run = Callable[[Sequence[str]], "subprocess.CompletedProcess[str]"]
+CheckKeychain = Callable[[str], bool]
+
+
+def _check_keychain(name: str) -> bool:
+    """Default `CheckKeychain`: presence-only OS keychain lookup (macOS
+    `security find-generic-password`) for *name* under service
+    `copilot-cli` -- mirrors cli-copilot's `secrets_ladder._rung_keychain`
+    lookup exactly, but never reads the value (`-w` is omitted; only the
+    exit code is inspected) per this module's own value-blindness
+    contract. Non-macOS or any subprocess failure reads "absent", never
+    raises -- a probe, not a fail-closed resolution."""
+    if sys.platform != "darwin":
+        return False
+    try:
+        result = subprocess.run(
+            ["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", name],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
 
 
 def _run(args: Sequence[str]) -> "subprocess.CompletedProcess[str]":
@@ -146,6 +213,11 @@ class _StoreProbe(NamedTuple):
     reachable: bool
     present: frozenset[str]
     detail: Optional[str]
+    # Raw machine-only text (e.g. the underlying CLI's stderr) for logging/
+    # debugging -- NEVER rendered to a user; `detail` above is the plain-
+    # language sentence `cc` authors for that (invariant #1, WP-395 G-2).
+    # Null whenever there is nothing further to log.
+    diagnostic: Optional[str] = None
 
 
 def _copilot_layers(*, run: Run) -> tuple[Optional[dict[str, Any]], str]:
@@ -227,9 +299,23 @@ def _probe_store(store_cfg: dict[str, Any], *, run: Run) -> _StoreProbe:
         )
     )
     if result.returncode != 0:
-        detail = result.stderr.strip() or result.stdout.strip() or "unknown error"
+        # WP-395 G-2: the underlying CLI's raw stderr (e.g. "Infisical
+        # credentials not configured. Set INFISICAL_CLIENT_ID and
+        # INFISICAL_CLIENT_SECRET in your .env.") is a developer error
+        # message, wrong advice for a non-technical user (the ladder no
+        # longer reads the `.env` rung for these names at all -- G-1), and
+        # jargon this invariant forbids passing through verbatim. `cc`
+        # authors the human-facing sentence itself; the raw text is kept
+        # only in `diagnostic`, a machine-only field never rendered to a
+        # user (see `build_connections_report()`'s "store" mapping).
+        diagnostic = result.stderr.strip() or result.stdout.strip() or "unknown error"
         return _StoreProbe(
-            False, frozenset(), f"The shared credential store could not be reached: {detail}"
+            False,
+            frozenset(),
+            "This Mac isn't connected to your organization's shared credential "
+            "store yet. Your IT admin can set that up — nothing is wrong with "
+            "your setup.",
+            diagnostic,
         )
     try:
         payload = json.loads(result.stdout)
@@ -251,9 +337,16 @@ def _probe_store(store_cfg: dict[str, Any], *, run: Run) -> _StoreProbe:
     return _StoreProbe(True, present, None)
 
 
-def _connection_row(service: dict[str, Any], probe: _StoreProbe) -> dict[str, Any]:
+def _connection_row(
+    service: dict[str, Any],
+    probe: _StoreProbe,
+    *,
+    check_keychain: CheckKeychain,
+) -> dict[str, Any]:
     """Project one `copilot --json layers` service row into one connections
-    row, folding in this run's store presence-check. Tolerant of an older
+    row, folding in this run's store presence-check AND (WP-395 G-1) a real
+    OS-keychain presence-check for every `keychain`-hinted or structurally
+    never-store-able (`_NEVER_FROM_STORE`) name. Tolerant of an older
     `copilot` (pre-v0.3.2) that has no `id`/`requires_secret`/`store_scope`
     at all -- `.get()` with the same fallbacks the schema itself documents
     (`id` defaults to `name`; the others default empty/null), the same
@@ -269,17 +362,37 @@ def _connection_row(service: dict[str, Any], probe: _StoreProbe) -> dict[str, An
         for item in (raw_requires if isinstance(raw_requires, list) else [])
         if isinstance(item, dict) and isinstance(item.get("name"), str) and item["name"]
     ]
-    checked = [
-        item["name"] for item in requires_secret if item["from"] in _STORE_CHECKED_HINTS
-    ]
 
-    if not checked:
-        secret_state, missing = "ready", []
-    elif not probe.reachable:
-        secret_state, missing = "no-store", list(checked)
+    # Every declared name is checked exactly once, against exactly one
+    # place: the OS keychain for `keychain`-hinted or never-store-able
+    # names (regardless of hint -- the G-1 defensive backstop), the shared
+    # store for everything else hinted `store`/`any`. `missing` preserves
+    # `requires_secret` declaration order across both checks.
+    any_checked = False
+    store_unreachable_for_row = False
+    missing: list[str] = []
+    for item in requires_secret:
+        item_name, hint = item["name"], item["from"]
+        if hint == "keychain" or item_name in _NEVER_FROM_STORE:
+            any_checked = True
+            if not check_keychain(item_name):
+                missing.append(item_name)
+        elif hint in _STORE_CHECKED_HINTS:
+            any_checked = True
+            if not probe.reachable:
+                store_unreachable_for_row = True
+                missing.append(item_name)
+            elif item_name not in probe.present:
+                missing.append(item_name)
+
+    if not any_checked:
+        secret_state = "ready"
+    elif store_unreachable_for_row:
+        secret_state = "no-store"
+    elif missing:
+        secret_state = "needs-connect"
     else:
-        missing = [item for item in checked if item not in probe.present]
-        secret_state = "ready" if not missing else "needs-connect"
+        secret_state = "ready"
 
     return {
         "id": service.get("id") if isinstance(service.get("id"), str) and service.get("id") else name,
@@ -298,6 +411,7 @@ def build_connections_report(
     *,
     run: Optional[Run] = None,
     ecosystem_cfg: Optional[dict[str, Any]] = None,
+    check_keychain: Optional[CheckKeychain] = None,
 ) -> dict[str, Any]:
     """Build the `cc connections --json` contract object.
 
@@ -306,9 +420,13 @@ def build_connections_report(
     `load_ecosystem_config()` read; tests inject an already-loaded dict
     (mirrors `onboard.py`'s `_provision_store(store, ...)` taking an
     already-loaded `store:` block rather than re-reading it).
+    `check_keychain` defaults to `_check_keychain` (real, presence-only
+    `security` calls); tests inject a fake -- see WP-395 G-1.
     """
     if run is None:
         run = _run
+    if check_keychain is None:
+        check_keychain = _check_keychain
     cfg = ecosystem_cfg if ecosystem_cfg is not None else load_ecosystem_config()
     org = cfg.get("org") if isinstance(cfg.get("org"), str) and cfg.get("org") else None
     store_cfg = cfg.get("store") if isinstance(cfg.get("store"), dict) else {}
@@ -327,6 +445,7 @@ def build_connections_report(
                 "reachable": False,
                 "scope": scope,
                 "detail": layers_detail,
+                "diagnostic": None,
             },
             "connections": [],
         }
@@ -339,18 +458,28 @@ def build_connections_report(
             "not found on this Mac."
         )
         probe = _StoreProbe(False, frozenset(), detail)
-        connections = [_connection_row(service, probe) for service in services]
+        connections = [
+            _connection_row(service, probe, check_keychain=check_keychain) for service in services
+        ]
         return {
             "schema_version": SCHEMA_VERSION,
             "result": "org-config-unavailable",
             "detail": detail,
             "org": None,
-            "store": {"type": None, "reachable": False, "scope": None, "detail": detail},
+            "store": {
+                "type": None,
+                "reachable": False,
+                "scope": None,
+                "detail": detail,
+                "diagnostic": None,
+            },
             "connections": connections,
         }
 
     probe = _probe_store(store_cfg, run=run)
-    connections = [_connection_row(service, probe) for service in services]
+    connections = [
+        _connection_row(service, probe, check_keychain=check_keychain) for service in services
+    ]
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -362,6 +491,7 @@ def build_connections_report(
             "reachable": probe.reachable,
             "scope": scope,
             "detail": probe.detail,
+            "diagnostic": probe.diagnostic,
         },
         "connections": connections,
     }
