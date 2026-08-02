@@ -1,0 +1,219 @@
+"""Fail-closed capability and Git-signature policy for materialization.
+
+Executable-adjacent content is accepted only when the Git commit that last
+changed the item has a valid signature from the layer's declared signer
+allow-list. Non-executable knowledge is still integrity-pinned by the
+materializer, but it does not gain code-execution privileges and therefore
+does not require an executable-content signer.
+
+Missing Git context, a missing signer policy, an unknown signer, or an invalid
+signature blocks. Callers may inject a policy in tests; production has no
+"skip verification" switch.
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import tempfile
+from pathlib import Path
+from typing import Any, Callable, Literal, Sequence
+
+Verdict = Literal["allow", "hold", "block"]
+PolicyFn = Callable[[dict[str, Any]], Verdict]
+
+EXECUTABLE_DIMENSIONS = frozenset(
+    {"agents", "skills", "commands", "protocol", "cli-integrations", "plugins"}
+)
+
+
+def _normalize_fingerprint(value: str) -> str:
+    return "".join(value.split()).upper()
+
+
+FOUNDATION_SSH_SIGNING_KEYS: dict[str, str] = {
+    _normalize_fingerprint(
+        "SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo"
+    ): (
+        "ssh-ed25519 "
+        "AAAAC3NzaC1lZDI1NTE5AAAAINah8Gf036FQkhMcUU35m2p7Nqa41oBtVS/QV9tYZX8H"
+    ),
+}
+
+
+def _containing_git_root(path: Path) -> Path | None:
+    """Return the nearest repository root for a layer path.
+
+    Layer manifests may expose a verified subpath (for example the Claude
+    foundation's ``.claude`` directory) rather than the mirror root itself.
+    A worktree's ``.git`` can be either a directory or a pointer file, so
+    existence—not ``is_dir``—is the correct boundary check.
+    """
+    for candidate in (path, *path.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return None
+
+
+def verify_git_item(
+    source_root: Path | str,
+    relative_path: str,
+    allowed_signers: Sequence[str],
+    *,
+    ref: str | None = None,
+    run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+    _trusted_keys: dict[str, str] = FOUNDATION_SSH_SIGNING_KEYS,
+) -> tuple[bool, str | None]:
+    """Verify the commit that introduced one item at ``ref`` and return its signer.
+
+    Git's ``%G?`` performs cryptographic verification with the configured
+    GPG/SSH verifier. ``%GF`` returns the key fingerprint. A good signature is
+    still refused unless that fingerprint is explicitly allowlisted.
+
+    A fresh machine has no global ``gpg.ssh.allowedSignersFile``. Build an
+    invocation-scoped trust file only from public keys compiled into cc whose
+    fingerprints are also requested by the signed layer manifest. The two
+    independent gates mean a manifest cannot introduce a new trust root, and
+    a compiled key cannot authorize a layer unless the manifest names it.
+
+    ``ref`` (task 215 blocker fix, G-9): the layer's actually-RESOLVED and
+    PINNED revision (``layer["source"]["ref"]`` -- e.g. a signed foundation
+    snapshot tag such as ``v5.13.23``), when the caller has one. Without it,
+    ``git log -1 -- <path>`` implicitly inspects whatever is checked out as
+    HEAD in the working tree -- which is only ever the pinned revision for
+    an EXACT-match or freshly-cloned/fast-forwarded checkout. A checkout
+    that reached ``reuse`` via ``parentless-snapshot-match`` (task 209/G-7:
+    content byte-identical to a parentless foundation snapshot tag, but on
+    an unrelated branch -- e.g. a foundation maintainer's own dev checkout)
+    is a real, topology-verified, content-identical match to the signed
+    pin, yet HEAD's own branch history was never the signed commit, so the
+    blind-HEAD check misreports genuinely-signed foundation content as
+    unverified. Passing ``ref`` scopes the check to the commit the manifest
+    actually pinned, exactly the same revision `_classify_repository_history`
+    (`onboard.py`) already proved this checkout's tree matches -- this is
+    strictly a MORE PRECISE check (a tighter classification of what "the
+    introducing commit" means), never a weaker one: every case where
+    blind-HEAD already agreed with ``ref`` (org/department/personal tiers,
+    whose checkout is fast-forwarded/cloned exactly onto ``ref`` before this
+    ever runs) is unaffected, and a checkout whose content does NOT actually
+    match ``ref`` continues to fail closed exactly as before (unresolvable
+    ``ref`` falls back to the prior blind-HEAD check, never to "allow").
+    """
+    source = Path(source_root).expanduser().resolve()
+    allowed = {_normalize_fingerprint(value) for value in allowed_signers if value}
+    if not allowed:
+        return False, None
+
+    trusted = {
+        fingerprint: public_key
+        for fingerprint, public_key in _trusted_keys.items()
+        if _normalize_fingerprint(fingerprint) in allowed
+    }
+    if not trusted:
+        return False, None
+
+    root = _containing_git_root(source)
+    if root is None:
+        return False, None
+    item_path = (source / relative_path).resolve()
+    try:
+        repo_relative_path = item_path.relative_to(root).as_posix()
+    except ValueError:
+        return False, None
+
+    # Resolve `ref` to a concrete commit FIRST, as its own step, so a `ref`
+    # that fails to resolve locally (never fetched, unknown revision, ...)
+    # falls back to the unscoped blind-HEAD check below rather than ever
+    # failing this whole verification for a resolution problem it didn't
+    # have before `ref` existed as a parameter. When `ref` resolves, that
+    # commit -- not implicit HEAD -- is what `git log` is scoped to.
+    pinned_commit: str | None = None
+    if ref:
+        try:
+            resolved = run(
+                ["git", "-C", str(root), "rev-parse", f"{ref}^{{commit}}"],
+                capture_output=True,
+                text=True,
+                timeout=8.0,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            resolved = None
+        if resolved is not None and resolved.returncode == 0 and resolved.stdout.strip():
+            pinned_commit = resolved.stdout.strip()
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="cc-allowed-signers-") as temp_root:
+            trust_file = Path(temp_root) / "allowed_signers"
+            trust_file.write_text(
+                "".join(
+                    f'enac-foundation namespaces="git" {public_key}\n'
+                    for public_key in trusted.values()
+                ),
+                encoding="utf-8",
+            )
+            os.chmod(trust_file, 0o600)
+            result = run(
+                [
+                    "git",
+                    "-c",
+                    "gpg.format=ssh",
+                    "-c",
+                    f"gpg.ssh.allowedSignersFile={trust_file}",
+                    "-C",
+                    str(root),
+                    "log",
+                    "-1",
+                    "--format=%G?%n%GF%n%GS",
+                    *([pinned_commit] if pinned_commit else []),
+                    "--",
+                    repo_relative_path,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=8.0,
+                check=False,
+            )
+    except (OSError, subprocess.SubprocessError):
+        return False, None
+
+    lines = result.stdout.splitlines()
+    if result.returncode != 0 or len(lines) < 2 or lines[0].strip() not in {"G", "U"}:
+        return False, None
+    fingerprint = lines[1].strip()
+    if _normalize_fingerprint(fingerprint) not in allowed:
+        return False, fingerprint or None
+    return True, fingerprint
+
+
+def evaluate(item: dict[str, Any]) -> Verdict:
+    """Apply the production signature policy to one candidate item."""
+    if item.get("dimension") not in EXECUTABLE_DIMENSIONS:
+        return "allow"
+
+    policy = item.get("layer_policy")
+    if not isinstance(policy, dict):
+        return "block"
+    signers = policy.get("allowed_signers")
+    if not isinstance(signers, list):
+        return "block"
+    source_root = item.get("source_root")
+    relative_path = item.get("relative_path")
+    if not source_root or not relative_path:
+        return "block"
+
+    # `ref` (task 215 blocker fix, G-9): the layer's own resolved/pinned
+    # revision, when the caller supplied one -- see `verify_git_item`'s
+    # docstring for why this matters (a `parentless-snapshot-match`
+    # checkout's HEAD is never the signed commit, only its tree is
+    # identical to it).
+    ref = item.get("ref")
+    verified, _signer = verify_git_item(
+        source_root, relative_path, signers, ref=ref if isinstance(ref, str) else None
+    )
+    return "allow" if verified else "block"
+
+
+def permissive_policy(_item: dict[str, Any]) -> Verdict:
+    """Test-only policy used to exercise reconciliation mechanics."""
+    return "allow"
