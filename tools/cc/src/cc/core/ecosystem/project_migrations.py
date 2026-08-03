@@ -98,7 +98,9 @@ def _component_variant(workspace: dict[str, Any], component: str) -> Optional[st
     return None
 
 
-def _configured_source(component: str, supplied: Optional[Path | str]) -> Optional[Path]:
+def _configured_source(
+    component: str, supplied: Optional[Path | str]
+) -> Optional[Path]:
     raw: Any = supplied
     if raw is None:
         raw = resolve_key(f"paths.{component}_copilot_root")
@@ -150,7 +152,10 @@ def _codex_source_snapshot(source: Path) -> tuple[Optional[dict[str, Any]], str]
         if gate.is_symlink() or not gate.is_file():
             return None, "The authoritative Codex verification gate is unavailable."
         raw_manifest: Any = json.loads(manifest.read_text(encoding="utf-8"))
-        if not isinstance(raw_manifest, dict) or raw_manifest.get("name") != "codex-copilot":
+        if (
+            not isinstance(raw_manifest, dict)
+            or raw_manifest.get("name") != "codex-copilot"
+        ):
             return None, "The authoritative Codex plugin manifest is invalid."
 
         files: list[list[str]] = []
@@ -214,8 +219,13 @@ def _codex_project_preflight(
         if gate.is_symlink():
             gate_mode = "legacy-link"
         elif gate.exists():
-            if not gate.is_file() or _file_checksum(gate) != _file_checksum(source_gate):
-                return None, "The project verification gate is customized and was left alone."
+            if not gate.is_file() or _file_checksum(gate) != _file_checksum(
+                source_gate
+            ):
+                return (
+                    None,
+                    "This project's setup check is customized, so Control Tower left it alone.",
+                )
             gate_mode = "current-file"
 
         if lock_path.is_symlink():
@@ -261,7 +271,7 @@ def build_migration_candidate(
         "state": "not-needed",
         "automatable": False,
         "reason_code": "not-guided",
-        "detail": "This project does not currently need a deterministic guided migration.",
+        "detail": "This project does not currently need a grouped update.",
         "action": None,
         "verification": {
             "command": [
@@ -297,9 +307,7 @@ def build_migration_candidate(
         hold_code, hold_detail = "git-unreadable", git_error
     elif not git_state["clean"]:
         hold_code = "dirty-working-tree"
-        hold_detail = (
-            f"This project has {git_state['change_count']} uncommitted change(s), so it was left alone."
-        )
+        hold_detail = f"This project has {git_state['change_count']} local change(s), so Control Tower left it alone."
     stable["git"] = git_state
 
     if variants["claude"] == "claude-legacy-entry-v1":
@@ -324,7 +332,9 @@ def build_migration_candidate(
         source = _configured_source("codex", codex_root)
         if source is None:
             hold_code = hold_code or "codex-source-unavailable"
-            hold_detail = hold_detail or "The authoritative Codex source is unavailable."
+            hold_detail = (
+                hold_detail or "The authoritative Codex source is unavailable."
+            )
         else:
             source_snapshot, source_error = _codex_source_snapshot(source)
             project_snapshot, project_error = _codex_project_preflight(root, source)
@@ -372,7 +382,7 @@ def build_migration_candidate(
                 "state": "residual-guidance",
                 "reason_code": "no-deterministic-migration",
                 "detail": (
-                    "This guided project does not match a proven deterministic migration kind."
+                    "This project needs a tailored setup plan. Control Tower did not find a proven automatic update for it."
                 ),
             }
         )
@@ -396,7 +406,7 @@ def build_migration_candidate(
             "automatable": True,
             "reason_code": None,
             "detail": (
-                "A deterministic migration is available. The project remains unchanged until the exact plan is applied."
+                "Control Tower can update this project's recognized older setup without replacing its instructions or tools. Nothing has changed yet."
             ),
             "action": {
                 "id": action_id,
@@ -416,7 +426,9 @@ def build_migration_candidate(
 
 
 def build_migration_report(candidates: list[dict[str, Any]]) -> dict[str, Any]:
-    guided = [item for item in candidates if item["classification"] == "guided-integration"]
+    guided = [
+        item for item in candidates if item["classification"] == "guided-integration"
+    ]
     summary = {
         state: sum(item["state"] == state for item in guided)
         for state in ("eligible", "held", "residual-guidance")
@@ -436,9 +448,7 @@ def build_migration_report(candidates: list[dict[str, Any]]) -> dict[str, Any]:
         {"schema_version": MIGRATION_SCHEMA_VERSION, "candidates": stable}
     )
     result = (
-        "action-required"
-        if summary["eligible"]
-        else ("blocked" if guided else "ready")
+        "action-required" if summary["eligible"] else ("blocked" if guided else "ready")
     )
     return {
         "schema_version": MIGRATION_SCHEMA_VERSION,
@@ -464,9 +474,7 @@ def _capture(path: Path) -> _Snapshot:
     if not path.exists():
         return _Snapshot("missing", None, None)
     if path.is_file():
-        return _Snapshot(
-            "file", path.read_bytes(), stat.S_IMODE(path.stat().st_mode)
-        )
+        return _Snapshot("file", path.read_bytes(), stat.S_IMODE(path.stat().st_mode))
     raise OSError(f"unsupported migration target: {path}")
 
 
@@ -479,7 +487,9 @@ def _remove_target(path: Path) -> None:
 
 def _atomic_write(path: Path, payload: bytes, *, mode: int = 0o644) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.cc-", dir=path.parent)
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=f".{path.name}.cc-", dir=path.parent
+    )
     temporary_path = Path(temporary)
     try:
         with os.fdopen(descriptor, "wb") as handle:
@@ -554,7 +564,11 @@ def _codex_lock_payload(root: Path, version: str) -> bytes:
 def _append_claude_entry(path: Path) -> None:
     if path.exists():
         current = path.read_text(encoding="utf-8")
-        separator = "" if current.endswith("\n\n") else ("\n" if current.endswith("\n") else "\n\n")
+        separator = (
+            ""
+            if current.endswith("\n\n")
+            else ("\n" if current.endswith("\n") else "\n\n")
+        )
         payload = (current + separator + _CLAUDE_ENTRY_BLOCK).encode("utf-8")
         mode = stat.S_IMODE(path.stat().st_mode)
     else:
@@ -701,17 +715,23 @@ def apply_migration_action(
                 recorded(bridge, "install-project-local-skill-bridge")
 
                 source_gate = Path(source_snapshot["gate"])
-                if snapshots[gate].kind != "file" or _file_checksum(gate) != _file_checksum(source_gate):
+                if snapshots[gate].kind != "file" or _file_checksum(
+                    gate
+                ) != _file_checksum(source_gate):
                     _remove_target(gate)
                     shutil.copy2(staged_gate, gate)
                     recorded(gate, "install-project-local-gate")
 
-                config = json.loads(bytes(snapshots[config_path].payload or b"{}").decode("utf-8"))
+                config = json.loads(
+                    bytes(snapshots[config_path].payload or b"{}").decode("utf-8")
+                )
                 config["installType"] = "copy"
                 config["pluginPath"] = "./plugins/codex-copilot"
                 _atomic_write(
                     config_path,
-                    (json.dumps(config, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+                    (json.dumps(config, indent=2, sort_keys=True) + "\n").encode(
+                        "utf-8"
+                    ),
                     mode=snapshots[config_path].mode or 0o644,
                 )
                 recorded(config_path, "record-portable-copy")
@@ -730,8 +750,7 @@ def apply_migration_action(
             detail=True,
         )
         by_component = {
-            item["component"]: item["classification"]
-            for item in after["components"]
+            item["component"]: item["classification"] for item in after["components"]
         }
         targeted = []
         if CLAUDE_ENTRY_KIND in kinds:
@@ -739,13 +758,15 @@ def apply_migration_action(
         if CODEX_PORTABLE_KIND in kinds:
             targeted.append("codex")
         if any(by_component.get(component) != "ready" for component in targeted):
-            raise OSError("The migrated component did not pass independent verification")
+            raise OSError(
+                "The migrated component did not pass independent verification"
+            )
         return {
             "path": str(root),
             "name": root.name,
             "action_id": action_id,
             "status": "applied",
-            "detail": "The exact deterministic migration passed independent verification.",
+            "detail": "Control Tower updated this project and its independent check passed.",
             "completed_actions": completed,
             "verification": "ready",
             "after_inspection_id": after["inspection"]["id"],
@@ -764,9 +785,9 @@ def apply_migration_action(
             "action_id": action_id,
             "status": "rolled-back" if completed else "blocked",
             "detail": (
-                "The migration did not verify, so every completed write was rolled back."
+                "This project did not pass its independent check, so Control Tower restored every completed change."
                 if completed
-                else "The migration stopped before changing anything."
+                else "Control Tower stopped before changing this project."
             ),
             "error": str(exc),
             "completed_actions": rolled_back,
