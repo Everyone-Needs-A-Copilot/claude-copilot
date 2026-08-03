@@ -193,9 +193,7 @@ def _path_exists(path: Path) -> tuple[bool, bool]:
         return False, False
 
 
-def _framework_root(
-    component: str, supplied: Optional[Path | str]
-) -> Optional[Path]:
+def _framework_root(component: str, supplied: Optional[Path | str]) -> Optional[Path]:
     raw = supplied
     if raw is None:
         raw = resolve_key(f"paths.{component}_copilot_root")
@@ -224,8 +222,7 @@ def _claude_source_files(source: Path) -> Optional[dict[str, Path]]:
     }
     files.update(
         {
-            f".claude/agents/{agent}.md": source
-            / f".claude/agents/{agent}.md"
+            f".claude/agents/{agent}.md": source / f".claude/agents/{agent}.md"
             for agent in roster
         }
     )
@@ -251,9 +248,7 @@ def _codex_source_files(source: Path) -> Optional[dict[str, Path]]:
     return files
 
 
-def _source_files(
-    component: str, source: Optional[Path]
-) -> Optional[dict[str, Path]]:
+def _source_files(component: str, source: Optional[Path]) -> Optional[dict[str, Path]]:
     if source is None:
         return None
     return (
@@ -304,7 +299,11 @@ def _verify_lock_entry(
     missing: list[dict[str, str]] = []
     fingerprint: list[Any] = [component, entry.get("version"), entry.get("release_tag")]
     files = entry.get("files")
-    if not isinstance(entry.get("version"), str) or not isinstance(files, list) or not files:
+    if (
+        not isinstance(entry.get("version"), str)
+        or not isinstance(files, list)
+        or not files
+    ):
         missing.append(
             {
                 "id": "valid-lock-entry",
@@ -333,7 +332,7 @@ def _verify_lock_entry(
             missing.append(
                 {
                     "id": "safe-recorded-path",
-                    "detail": path_error
+                    "detail": (f"{rel_path}: {path_error}" if path_error else "")
                     or f"The {component} lock repeats {rel_path}.",
                 }
             )
@@ -395,7 +394,9 @@ def _verify_claude_entry(
         _evidence(
             "project-file",
             "CLAUDE.md",
-            text_state if text_state != "verified" else ("verified" if compatible else "mismatch"),
+            text_state
+            if text_state != "verified"
+            else ("verified" if compatible else "mismatch"),
             "The Claude project entry is compatible."
             if compatible
             else "The Claude project entry is missing, unreadable, or not a recognized variant.",
@@ -416,7 +417,9 @@ def _verify_claude_entry(
         _evidence(
             "marker",
             ".mcp.json",
-            mcp_state if mcp_state != "verified" else ("verified" if mcp_valid else "mismatch"),
+            mcp_state
+            if mcp_state != "verified"
+            else ("verified" if mcp_valid else "mismatch"),
             "The Claude MCP marker is valid."
             if mcp_valid
             else "The Claude MCP marker is missing or invalid.",
@@ -438,26 +441,128 @@ def _verify_internal_skill_link(root: Path) -> tuple[bool, str, list[Any]]:
     expected = (root / "plugins/codex-copilot/skills").resolve()
     try:
         if not link.is_symlink():
-            return False, "The Codex skill bridge is missing or is not a symlink.", [
-                "skill-link",
-                "missing",
-            ]
+            return (
+                False,
+                "The Codex skill bridge is missing or is not a symlink.",
+                [
+                    "skill-link",
+                    "missing",
+                ],
+            )
         resolved = link.resolve(strict=True)
         if resolved != expected or (resolved != root and root not in resolved.parents):
-            return False, "The Codex skill bridge points outside its project plugin.", [
+            return (
+                False,
+                "The Codex skill bridge points outside its project plugin.",
+                [
+                    "skill-link",
+                    str(link.readlink()),
+                    str(resolved),
+                ],
+            )
+        return (
+            True,
+            "The project-local Codex skill bridge was verified.",
+            [
                 "skill-link",
                 str(link.readlink()),
-                str(resolved),
-            ]
-        return True, "The project-local Codex skill bridge was verified.", [
-            "skill-link",
-            str(link.readlink()),
-        ]
+            ],
+        )
     except OSError:
-        return False, "The Codex skill bridge could not be resolved safely.", [
-            "skill-link",
-            "unreadable",
-        ]
+        return (
+            False,
+            "The Codex skill bridge could not be resolved safely.",
+            [
+                "skill-link",
+                "unreadable",
+            ],
+        )
+
+
+def _verify_legacy_linked_codex_setup(
+    root: Path,
+) -> tuple[bool, list[dict[str, str]], list[Any]]:
+    """Recognize the bounded pre-portable Codex installation topology.
+
+    Earlier setup tooling wrote ``installType: symlink`` and linked both the
+    project plugin and its Claude skill bridge to one shared checkout.  That
+    topology can keep working while its moving target invalidates the project
+    lock.  It is migration evidence, never readiness evidence.
+    """
+    config_state, config = _read_json_object(root / ".codex-copilot.json")
+    plugin = root / "plugins/codex-copilot"
+    bridge = root / ".claude/skills/codex-copilot"
+    gate = root / "scripts/copilot-gate.sh"
+    fingerprint: list[Any] = ["legacy-linked-codex", config_state, config]
+    if not (
+        config_state == "verified"
+        and config is not None
+        and config.get("installType") == "symlink"
+        and config.get("pluginPath") == "./plugins/codex-copilot"
+    ):
+        return False, [], fingerprint
+
+    try:
+        if not plugin.is_symlink() or not bridge.is_symlink():
+            return False, [], [*fingerprint, "missing-links"]
+        plugin_target = plugin.resolve(strict=True)
+        bridge_target = bridge.resolve(strict=True)
+        expected_bridge = (plugin_target / "skills").resolve(strict=True)
+        plugin_is_external = plugin_target != root and root not in plugin_target.parents
+        if not plugin_is_external or bridge_target != expected_bridge:
+            return (
+                False,
+                [],
+                [
+                    *fingerprint,
+                    str(plugin.readlink()),
+                    str(bridge.readlink()),
+                    "unrecognized-targets",
+                ],
+            )
+        manifest_state, manifest = _read_json_object(
+            plugin_target / ".codex-plugin/plugin.json"
+        )
+        if not (
+            manifest_state == "verified"
+            and manifest is not None
+            and manifest.get("name") == "codex-copilot"
+        ):
+            return False, [], [*fingerprint, "invalid-plugin-manifest"]
+        if gate.is_symlink():
+            expected_gate = (
+                plugin_target.parents[1] / "scripts/copilot-gate.sh"
+            ).resolve(strict=True)
+            if gate.resolve(strict=True) != expected_gate:
+                return False, [], [*fingerprint, "unrecognized-gate-link"]
+    except OSError:
+        return False, [], [*fingerprint, "unreadable-links"]
+
+    evidence = [
+        _evidence(
+            "marker",
+            ".codex-copilot.json",
+            "verified",
+            "This project uses the recognized earlier linked Codex setup.",
+        ),
+        _evidence(
+            "link",
+            "plugins/codex-copilot",
+            "verified",
+            "The legacy project plugin link and skill bridge resolve to the same Codex plugin.",
+        ),
+    ]
+    return (
+        True,
+        evidence,
+        [
+            *fingerprint,
+            str(plugin.readlink()),
+            str(bridge.readlink()),
+            str(gate.readlink()) if gate.is_symlink() else None,
+            "recognized",
+        ],
+    )
 
 
 def _verify_codex_entry(
@@ -469,15 +574,15 @@ def _verify_codex_entry(
 
     text_state, text = _read_text(root / "AGENTS.md")
     compatible = bool(
-        text
-        and "## Codex Copilot" in text
-        and "./plugins/codex-copilot" in text
+        text and "## Codex Copilot" in text and "./plugins/codex-copilot" in text
     )
     evidence.append(
         _evidence(
             "project-file",
             "AGENTS.md",
-            text_state if text_state != "verified" else ("verified" if compatible else "mismatch"),
+            text_state
+            if text_state != "verified"
+            else ("verified" if compatible else "mismatch"),
             "The Codex project entry is compatible."
             if compatible
             else "The Codex project entry is missing, unreadable, or not a recognized variant.",
@@ -512,10 +617,21 @@ def _verify_codex_entry(
     )
     fingerprint.append([".codex-copilot.json", config_state, config])
     if not config_valid:
+        legacy_linked_config = bool(
+            config_state == "verified"
+            and config is not None
+            and config.get("installType") == "symlink"
+            and config.get("pluginPath") == "./plugins/codex-copilot"
+        )
         missing.append(
             {
                 "id": "valid-codex-config",
-                "detail": ".codex-copilot.json must name the project-local plugin.",
+                "detail": (
+                    ".codex-copilot.json records an earlier linked installation; "
+                    "it needs a reviewed migration to a portable project-local plugin."
+                    if legacy_linked_config
+                    else ".codex-copilot.json must name the project-local plugin."
+                ),
             }
         )
 
@@ -555,9 +671,7 @@ def _verify_codex_entry(
     )
     fingerprint.append(link_fingerprint)
     if not link_valid:
-        missing.append(
-            {"id": "internal-skill-link", "detail": link_detail}
-        )
+        missing.append({"id": "internal-skill-link", "detail": link_detail})
     return not missing, evidence, missing, fingerprint
 
 
@@ -676,21 +790,18 @@ def _owner_state(root: Path) -> tuple[str, list[Any]]:
         return "absent", ["owner", "absent"]
     if state != "verified" or payload is None:
         return "unreadable", ["owner", "unreadable"]
-    if payload.get("decision_required") is True or payload.get("integration") == "owner-decision":
+    if (
+        payload.get("decision_required") is True
+        or payload.get("integration") == "owner-decision"
+    ):
         return "decision-required", ["owner", payload]
     return "unsupported", ["owner", payload]
 
 
-def _existing_component_paths(
-    root: Path, component: str
-) -> tuple[list[str], bool]:
+def _existing_component_paths(root: Path, component: str) -> tuple[list[str], bool]:
     existing_paths: list[str] = []
     readable = True
-    paths = (
-        _CLAUDE_RELEVANT_PATHS
-        if component == "claude"
-        else _CODEX_RELEVANT_PATHS
-    )
+    paths = _CLAUDE_RELEVANT_PATHS if component == "claude" else _CODEX_RELEVANT_PATHS
     for path in paths:
         present, path_readable = _path_exists(root / path)
         if present:
@@ -704,24 +815,26 @@ def _missing_action_targets(
     component: str,
     source_files: dict[str, Path],
 ) -> list[str]:
-    targets = (
-        _CLAUDE_ACTION_TARGETS
-        if component == "claude"
-        else _CODEX_ACTION_TARGETS
-    )
+    targets = _CLAUDE_ACTION_TARGETS if component == "claude" else _CODEX_ACTION_TARGETS
     missing = [path for path in targets if not (root / path).exists()]
     if component == "claude":
-        if any(
-            rel_path.startswith(".claude/agents/")
+        if (
+            any(
+                rel_path.startswith(".claude/agents/")
+                and not (root / rel_path).exists()
+                for rel_path in source_files
+            )
+            and ".claude/agents" not in missing
+        ):
+            missing.append(".claude/agents")
+    elif (
+        any(
+            rel_path.startswith("plugins/codex-copilot/")
             and not (root / rel_path).exists()
             for rel_path in source_files
-        ) and ".claude/agents" not in missing:
-            missing.append(".claude/agents")
-    elif any(
-        rel_path.startswith("plugins/codex-copilot/")
-        and not (root / rel_path).exists()
-        for rel_path in source_files
-    ) and "plugins/codex-copilot" not in missing:
+        )
+        and "plugins/codex-copilot" not in missing
+    ):
         missing.append("plugins/codex-copilot")
     return sorted(set(missing))
 
@@ -730,7 +843,14 @@ def _known_untracked_component(
     root: Path,
     component: str,
     source_files: Optional[dict[str, Path]],
-) -> tuple[str, Optional[dict[str, Any]], list[dict[str, str]], list[dict[str, str]], list[Any], list[str]]:
+) -> tuple[
+    str,
+    Optional[dict[str, Any]],
+    list[dict[str, str]],
+    list[dict[str, str]],
+    list[Any],
+    list[str],
+]:
     existing_paths, paths_readable = _existing_component_paths(root, component)
     fingerprint: list[Any] = [component, "untracked", existing_paths]
     if not paths_readable:
@@ -798,13 +918,38 @@ def _known_untracked_component(
     )
     fingerprint.extend(entry_fingerprint)
     unreadable = any(item["state"] == "unreadable" for item in entry_evidence)
+    if component == "codex" and source_files is not None and not unreadable:
+        legacy_linked, legacy_evidence, legacy_fingerprint = (
+            _verify_legacy_linked_codex_setup(root)
+        )
+        entry_requirement_ids = {item["id"] for item in entry_missing}
+        if legacy_linked and entry_requirement_ids <= {
+            "valid-codex-config",
+            "internal-skill-link",
+        }:
+            recognized = {
+                "variant_id": "codex-legacy-linked-v1",
+                "version": INTEGRATION_CONTRACT_VERSION,
+                "evidence": [*entry_evidence, *legacy_evidence],
+            }
+            return (
+                "guided-integration",
+                recognized,
+                [
+                    *entry_missing,
+                    {
+                        "id": "lock-record",
+                        "detail": "The earlier linked Codex setup is not recorded in the project lock.",
+                    },
+                ],
+                [*entry_evidence, *legacy_evidence],
+                [*fingerprint, legacy_fingerprint],
+                [],
+            )
     unsafe_link = any(
         item["kind"] == "link"
         and item["state"] != "verified"
-        and (
-            "outside" in item["detail"]
-            or "resolved safely" in item["detail"]
-        )
+        and ("outside" in item["detail"] or "resolved safely" in item["detail"])
         for item in entry_evidence
     )
     if unreadable or unsafe_link:
@@ -877,7 +1022,10 @@ def _known_untracked_component(
         try:
             if plugin.is_dir():
                 for path in plugin.rglob("*"):
-                    if path.is_file() and path.relative_to(root).as_posix() not in source_files:
+                    if (
+                        path.is_file()
+                        and path.relative_to(root).as_posix() not in source_files
+                    ):
                         mismatched.append(path.relative_to(root).as_posix())
         except OSError:
             return (
@@ -990,15 +1138,87 @@ def _component_draft(
             else _verify_codex_entry(root)
         )
         ok = lock_ok and entry_ok
-        classification = "ready" if ok else "could-not-verify"
-        actor = "none" if ok else "person"
+        guided_variant: Optional[str] = None
+        guided_evidence: list[dict[str, str]] = []
+        guided_fingerprint: list[Any] = []
+        lock_requirement_ids = {item["id"] for item in lock_missing}
+        entry_requirement_ids = {item["id"] for item in entry_missing}
+
+        legacy_claude_lock = bool(lock_missing) and all(
+            item["id"] == "required-lock-path"
+            and item["detail"].endswith(".claude/fitness-check.sh.")
+            for item in lock_missing
+        )
+        if (
+            component == "claude"
+            and (lock_ok or legacy_claude_lock)
+            and entry_requirement_ids <= {"compatible-claude-entry"}
+            and all(item["state"] != "unreadable" for item in entry_evidence)
+            and (lock_missing or entry_missing)
+        ):
+            guided_variant = (
+                "claude-legacy-lock-v1"
+                if legacy_claude_lock
+                else "claude-legacy-entry-v1"
+            )
+        elif component == "codex":
+            legacy_linked, legacy_evidence, legacy_fingerprint = (
+                _verify_legacy_linked_codex_setup(root)
+            )
+            guided_fingerprint = legacy_fingerprint
+            linked_lock_drift = bool(lock_missing) and all(
+                (
+                    item["id"] == "verified-framework-file"
+                    and item["detail"].startswith("plugins/codex-copilot/")
+                )
+                or (
+                    item["id"] == "required-lock-path"
+                    and item["detail"].endswith("scripts/copilot-gate.sh.")
+                )
+                or (
+                    item["id"] == "safe-recorded-path"
+                    and item["detail"].startswith(
+                        ("plugins/codex-copilot/", "scripts/copilot-gate.sh:")
+                    )
+                    and "follows a symlink outside the project" in item["detail"]
+                )
+                for item in lock_missing
+            )
+            legacy_entry_only = bool(entry_missing) and entry_requirement_ids <= {
+                "valid-codex-config",
+                "internal-skill-link",
+            }
+            if (
+                legacy_linked
+                and (lock_ok or linked_lock_drift)
+                and (entry_ok or legacy_entry_only)
+                and lock_requirement_ids
+                <= {
+                    "verified-framework-file",
+                    "required-lock-path",
+                    "safe-recorded-path",
+                }
+            ):
+                guided_variant = "codex-legacy-linked-v1"
+                guided_evidence = legacy_evidence
+
+        classification = (
+            "ready"
+            if ok
+            else ("guided-integration" if guided_variant else "could-not-verify")
+        )
+        actor = {
+            "ready": "none",
+            "guided-integration": "project-author",
+            "could-not-verify": "person",
+        }[classification]
         recognized = (
             {
-                "variant_id": f"{component}-tracked-lock-v1",
+                "variant_id": guided_variant or f"{component}-tracked-lock-v1",
                 "version": INTEGRATION_CONTRACT_VERSION,
-                "evidence": [*lock_evidence, *entry_evidence],
+                "evidence": [*lock_evidence, *entry_evidence, *guided_evidence],
             }
-            if ok
+            if ok or guided_variant
             else None
         )
         draft = {
@@ -1017,7 +1237,13 @@ def _component_draft(
         }
         return (
             draft,
-            [component, lock_fingerprint, entry_fingerprint],
+            [
+                component,
+                lock_fingerprint,
+                entry_fingerprint,
+                guided_variant,
+                guided_fingerprint,
+            ],
             None,
             [],
         )
@@ -1113,11 +1339,7 @@ def _safe_action(
     kinds = set(component_kinds.values())
     kind = next(iter(kinds)) if len(kinds) == 1 else "composite"
     paths = sorted(
-        {
-            path
-            for component in components
-            for path in missing_paths.get(component, [])
-        }
+        {path for component in components for path in missing_paths.get(component, [])}
     )
     paths.append(PROJECT_LOCK_FILENAME)
     will_add = [
@@ -1181,17 +1403,44 @@ def _integration_plan(
     ]
     prompt = None
     owner_handoff = None
+    legacy_variants = {
+        component["recognized_setup"]["variant_id"]
+        for component in components
+        if isinstance(component.get("recognized_setup"), dict)
+        and component["recognized_setup"]["variant_id"].startswith(
+            ("claude-legacy-", "codex-legacy-")
+        )
+    }
     if classification == "guided-integration":
-        prompt = {
-            "version": INTEGRATION_CONTRACT_VERSION,
-            "text": (
+        if legacy_variants:
+            prompt_text = (
+                "Migrate the recognized earlier linked project integration to "
+                "project-integration contract version 1. Treat this as a reviewed "
+                "project-author change, not an automatic repair. Preserve all "
+                "project-owned instructions, agents, commands, skills, and plugin "
+                "siblings. Stage a fresh project-local Codex plugin from the "
+                "authoritative configured source; do not copy through or modify the "
+                "external link. Replace only the recognized legacy Codex plugin link, "
+                "point the internal skill bridge at that project-local copy, replace "
+                "the recognized linked gate with the project-local gate when present, "
+                "update the install metadata to the portable copy form, merge the "
+                "recognized Claude Copilot entry when it is missing, and refresh "
+                "helper-owned lock evidence. Stop on any ownership conflict. Finish by running the "
+                "exact verification command; assistant self-report is not proof of "
+                "readiness."
+            )
+        else:
+            prompt_text = (
                 "Integrate project-integration contract version 1 for Claude and "
                 "Codex. Preserve every path named by this plan. Add compatible "
                 "routing or metadata without overwriting, renaming, deleting, or "
                 "flattening project capabilities. Stop on any ownership conflict. "
                 "Finish by running the exact verification command; assistant "
                 "self-report is not proof of readiness."
-            ),
+            )
+        prompt = {
+            "version": INTEGRATION_CONTRACT_VERSION,
+            "text": prompt_text,
         }
     else:
         owner_handoff = {
@@ -1260,8 +1509,7 @@ def _diagnostic(
         )
 
     prohibited = [
-        action.replace("-", " ")
-        for action in preservation["prohibited_actions"]
+        action.replace("-", " ") for action in preservation["prohibited_actions"]
     ]
     prompt = "\n".join(
         [
@@ -1334,14 +1582,16 @@ def inspect_project_integration(
     capabilities, capability_fingerprint = _project_capabilities(root)
     preservation = _preservation(root, capabilities)
     sources = {
-        "claude": _source_files(
-            "claude", _framework_root("claude", claude_root)
-        ),
+        "claude": _source_files("claude", _framework_root("claude", claude_root)),
         "codex": _source_files("codex", _framework_root("codex", codex_root)),
     }
 
     components: list[dict[str, Any]] = []
-    fingerprints: list[Any] = [lock_fingerprint, owner_fingerprint, capability_fingerprint]
+    fingerprints: list[Any] = [
+        lock_fingerprint,
+        owner_fingerprint,
+        capability_fingerprint,
+    ]
     component_kinds: dict[str, str] = {}
     component_missing_paths: dict[str, list[str]] = {}
     for component in SUPPORTED_COMPONENTS:
