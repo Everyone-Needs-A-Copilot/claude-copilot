@@ -15,6 +15,11 @@ from cc.core.config import (
     unset_config,
     write_config,
 )
+from cc.core.ecosystem.project_migrations import (
+    apply_migration_action,
+    build_migration_candidate,
+    build_migration_report,
+)
 from cc.core.ecosystem.workspaces import (
     SUPPORTED_COMPONENTS,
     ActivationError,
@@ -379,6 +384,151 @@ def plan_integration(
         else f"{report['result']}: {root.name}"
     )
     if report["result"] == "blocked":
+        raise typer.Exit(1)
+
+
+@workspaces_app.command("migrate")
+def migrate_integrations(
+    project: Optional[str] = typer.Option(
+        None, "--project", help="One guided project to inspect or migrate."
+    ),
+    all_projects: bool = typer.Option(
+        False, "--all", help="Inspect every guided project under approved roots."
+    ),
+    plan_id: Optional[str] = typer.Option(
+        None, "--plan-id", help="Exact reviewed plan id required by --apply."
+    ),
+    apply: bool = typer.Option(
+        False, "--apply", help="Apply only the exact eligible deterministic actions."
+    ),
+    output_json: bool = typer.Option(
+        False, "--json", help="Emit the versioned migration census and ledger."
+    ),
+) -> None:
+    """Plan or apply deterministic migrations for recognized guided projects."""
+    if bool(project) == bool(all_projects):
+        message = "Choose exactly one of --project or --all."
+        if output_json:
+            typer.echo(
+                json.dumps(
+                    {
+                        "schema_version": "1.0",
+                        "error": {"code": "invalid-argument", "message": message},
+                    }
+                )
+            )
+        raise typer.Exit(2)
+    if apply and not plan_id:
+        message = "--apply requires the exact --plan-id returned by a fresh migration plan."
+        if output_json:
+            typer.echo(
+                json.dumps(
+                    {
+                        "schema_version": "1.0",
+                        "error": {"code": "missing-plan-id", "message": message},
+                    }
+                )
+            )
+        raise typer.Exit(2)
+
+    roots = [Path(project).expanduser()] if project else discover_workspaces()
+
+    def census(paths: list[Path]) -> dict[str, Any]:
+        candidates = []
+        for root in paths:
+            workspace = workspace_status(root, detail=True)
+            candidates.append(build_migration_candidate(root, workspace))
+        return build_migration_report(candidates)
+
+    report = census(roots)
+    if not apply:
+        typer.echo(
+            json.dumps(report)
+            if output_json
+            else (
+                f"{report['result']}: {report['summary']['eligible']} eligible, "
+                f"{report['summary']['held']} held, "
+                f"{report['summary']['residual-guidance']} still guided"
+            )
+        )
+        if report["result"] == "blocked":
+            raise typer.Exit(1)
+        return
+
+    if report["plan_id"] != plan_id:
+        report["mode"] = "apply"
+        report["result"] = "blocked"
+        report["requested_plan_id"] = plan_id
+        report["detail"] = (
+            "This migration plan is stale. Every project was re-inspected and left unchanged."
+        )
+        typer.echo(
+            json.dumps(report)
+            if output_json
+            else f"blocked: {report['detail']}"
+        )
+        raise typer.Exit(1)
+
+    ledger: list[dict[str, Any]] = []
+    for candidate in report["candidates"]:
+        action = candidate.get("action")
+        if candidate["automatable"] and isinstance(action, dict):
+            ledger.append(
+                apply_migration_action(candidate["path"], action["id"])
+            )
+        elif candidate["classification"] == "guided-integration":
+            ledger.append(
+                {
+                    "path": candidate["path"],
+                    "name": candidate["name"],
+                    "action_id": None,
+                    "status": "unchanged",
+                    "detail": candidate["detail"],
+                    "completed_actions": [],
+                    "verification": "not-run",
+                }
+            )
+
+    after = census(roots)
+    applied_count = sum(item["status"] == "applied" for item in ledger)
+    failed_count = sum(item["status"] in ("blocked", "rolled-back") for item in ledger)
+    remaining_count = after["summary"]["total_guided"]
+    if failed_count:
+        result = "partial" if applied_count else "blocked"
+    elif applied_count and remaining_count:
+        result = "partial"
+    elif applied_count:
+        result = "applied"
+    else:
+        result = "blocked" if remaining_count else "ready"
+
+    report.update(
+        {
+            "mode": "apply",
+            "result": result,
+            "requested_plan_id": plan_id,
+            "ledger": ledger,
+            "apply_summary": {
+                "applied": applied_count,
+                "failed": failed_count,
+                "unchanged": sum(item["status"] == "unchanged" for item in ledger),
+                "remaining_guided": remaining_count,
+            },
+            "after": {
+                "plan_id": after["plan_id"],
+                "summary": after["summary"],
+            },
+        }
+    )
+    typer.echo(
+        json.dumps(report)
+        if output_json
+        else (
+            f"{result}: {applied_count} migrated, {failed_count} failed, "
+            f"{remaining_count} still guided"
+        )
+    )
+    if result in ("blocked", "partial"):
         raise typer.Exit(1)
 
 

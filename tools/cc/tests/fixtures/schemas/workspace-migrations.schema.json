@@ -1,0 +1,245 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://everyoneneedsacopilot.com/schemas/claude-copilot/workspace-migrations.schema.json",
+  "title": "cc workspace migrate report",
+  "description": "A read-only deterministic migration census or an exact-plan apply ledger for guided project integrations.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "mode",
+    "result",
+    "plan_id",
+    "summary",
+    "candidates",
+    "ledger"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "mode": { "enum": ["plan", "apply"] },
+    "result": {
+      "enum": ["ready", "action-required", "applied", "partial", "blocked"]
+    },
+    "plan_id": { "$ref": "#/$defs/opaqueId" },
+    "summary": { "$ref": "#/$defs/summary" },
+    "candidates": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/candidate" }
+    },
+    "ledger": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ledgerEntry" }
+    },
+    "requested_plan_id": { "$ref": "#/$defs/opaqueId" },
+    "detail": { "type": "string", "minLength": 1 },
+    "apply_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["applied", "failed", "unchanged", "remaining_guided"],
+      "properties": {
+        "applied": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "unchanged": { "type": "integer", "minimum": 0 },
+        "remaining_guided": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "after": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plan_id", "summary"],
+      "properties": {
+        "plan_id": { "$ref": "#/$defs/opaqueId" },
+        "summary": { "$ref": "#/$defs/summary" }
+      }
+    }
+  },
+  "$defs": {
+    "opaqueId": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eligible", "held", "residual-guidance", "total_guided"],
+      "properties": {
+        "eligible": { "type": "integer", "minimum": 0 },
+        "held": { "type": "integer", "minimum": 0 },
+        "residual-guidance": { "type": "integer", "minimum": 0 },
+        "total_guided": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "operation"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "operation": { "type": "string", "minLength": 1 }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path", "detail"],
+      "properties": {
+        "kind": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "detail": { "type": "string", "minLength": 1 }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "expected"],
+      "properties": {
+        "command": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "expected": { "type": "string", "minLength": 1 }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "inspection_id",
+        "migration_kinds",
+        "will_change",
+        "will_preserve",
+        "will_not_do"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/opaqueId" },
+        "inspection_id": { "$ref": "#/$defs/opaqueId" },
+        "migration_kinds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["claude-canonical-entry-v1", "codex-portable-copy-v1"]
+          }
+        },
+        "will_change": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/change" }
+        },
+        "will_preserve": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/artifact" }
+        },
+        "will_not_do": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "name",
+        "classification",
+        "inspection_id",
+        "migration_kinds",
+        "state",
+        "automatable",
+        "reason_code",
+        "detail",
+        "action",
+        "verification"
+      ],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "classification": {
+          "enum": [
+            "ready",
+            "safe-finish",
+            "guided-integration",
+            "owner-decision",
+            "could-not-verify"
+          ]
+        },
+        "inspection_id": { "$ref": "#/$defs/opaqueId" },
+        "migration_kinds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": ["claude-canonical-entry-v1", "codex-portable-copy-v1"]
+          }
+        },
+        "state": {
+          "enum": ["eligible", "held", "residual-guidance", "not-needed"]
+        },
+        "automatable": { "type": "boolean" },
+        "reason_code": {
+          "oneOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "null" }
+          ]
+        },
+        "detail": { "type": "string", "minLength": 1 },
+        "action": {
+          "oneOf": [
+            { "$ref": "#/$defs/action" },
+            { "type": "null" }
+          ]
+        },
+        "verification": { "$ref": "#/$defs/verification" }
+      }
+    },
+    "completedAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "operation", "status"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "operation": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["applied", "rolled-back"] }
+      }
+    },
+    "ledgerEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "name",
+        "action_id",
+        "status",
+        "detail",
+        "completed_actions",
+        "verification"
+      ],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "action_id": {
+          "oneOf": [
+            { "$ref": "#/$defs/opaqueId" },
+            { "type": "null" }
+          ]
+        },
+        "status": { "enum": ["applied", "blocked", "rolled-back", "unchanged"] },
+        "detail": { "type": "string", "minLength": 1 },
+        "completed_actions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/completedAction" }
+        },
+        "verification": { "enum": ["ready", "failed", "not-run"] },
+        "error": { "type": "string" },
+        "after_inspection_id": { "$ref": "#/$defs/opaqueId" },
+        "targeted_components": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["claude", "codex"] }
+        }
+      }
+    }
+  }
+}
