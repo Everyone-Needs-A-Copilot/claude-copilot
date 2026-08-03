@@ -1,0 +1,8 @@
+interface:
+  display_name: "Setup Copilot"
+  short_description: "Verify framework tooling"
+  default_prompt: "Use $setup-copilot to install or verify shared Copilot tooling for Codex-native projects."
+
+policy:
+  allow_implicit_invocation: false
+

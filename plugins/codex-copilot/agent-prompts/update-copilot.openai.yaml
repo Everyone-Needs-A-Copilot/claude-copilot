@@ -1,0 +1,8 @@
+interface:
+  display_name: "Update Copilot"
+  short_description: "Update framework"
+  default_prompt: "Use $update-copilot to update and verify the shared Codex Copilot framework."
+
+policy:
+  allow_implicit_invocation: false
+
