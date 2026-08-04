@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://everyoneneedsacopilot.com/schemas/copilot-control-tower/update.schema.json",
+  "$comment": "VENDORED COPY for the WS-A contract test in claude-copilot/tools/cc. Source of truth is copilot-control-tower/docs/01-architecture/schemas/update.schema.json — update this copy from there, not the reverse.",
+  "title": "copilot update --json",
+  "description": "Result of a reconciling ecosystem sync. `pruned` ops surface reconciling-sync deletions; `severity_trailer` + `shadowed_by` drive the un-dismissable security banner.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "result", "lock_before", "lock_after", "changed"],
+  "properties": {
+    "schema_version": { "$ref": "_envelope.schema.json#/$defs/schema_version" },
+    "host": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Host identifier the update was run for, e.g. 'claude-code'. Present in the upstream design's example (design-control-tower-integration.md §1.2) but not marked required since cli-contract.md's prose table omits it."
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ADDITIVE (Component Sync Stream-E, 02-component-sync initiative): the target project's absolute path, present only on a `cc materialize --project <path>`-style per-project result (module: claude-copilot/tools/cc/src/cc/commands/projects.py `build_materialize_project_report()`). Absent on the machine-wide `cc update --json` result this schema also describes -- optional, never required, so this remains a purely additive, backward-compatible widening of the same envelope shape.",
+      "$comment": "ADDED (Stream-E, 02-component-sync): reuses this schema's shape verbatim for the per-project materialize result rather than defining a parallel schema, per the initiative's 'result shape reuses update.schema.json's shape + a path field' build note."
+    },
+    "result": {
+      "type": "string",
+      "enum": ["applied", "up-to-date", "held", "blocked", "offline"],
+      "description": "Overall update outcome.",
+      "$comment": "CORRECTED 2026-07-07: the upstream design's `update --json` example (design-control-tower-integration.md §1.2) carries an explicit enum comment: `// applied | up-to-date | held | blocked | offline`. The prior draft left this as an unconstrained non-empty string; tightened to match."
+    },
+    "lock_before": { "$ref": "_envelope.schema.json#/$defs/git_sha" },
+    "lock_after": { "$ref": "_envelope.schema.json#/$defs/git_sha" },
+    "changed": {
+      "type": "array",
+      "description": "Per-item changes applied by the sync.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["dimension", "layer", "item", "op", "signed"],
+        "properties": {
+          "product": { "type": "string", "minLength": 1, "description": "Native host product receiving the item." },
+          "dimension": { "type": "string" },
+          "layer": { "type": "string" },
+          "item": { "type": "string" },
+          "op": {
+            "type": "string",
+            "enum": ["added", "updated", "pruned", "unchanged"],
+            "description": "`pruned` is the reconciling-sync deletion."
+          },
+          "from": { "type": ["string", "null"] },
+          "to": { "type": ["string", "null"] },
+          "signed": {
+            "type": "boolean",
+            "description": "Signature state of the introduced content. Security-relevant: a missing value is treated as unsigned (fail-closed); the CLI must always emit it."
+          },
+          "severity_trailer": {
+            "type": ["string", "null"],
+            "description": "Security-trailer text driving the un-dismissable banner; null when none.",
+            "$comment": "Prose names the field without a type; encoded as nullable string."
+          },
+          "shadowed_by": {
+            "type": ["string", "null"],
+            "description": "Identifier of the layer/item shadowing this one; null when not shadowed.",
+            "$comment": "Prose names the field without a type; encoded as nullable string."
+          },
+          "blocked_winner": {
+            "type": ["string", "null"],
+            "description": "ADDITIVE (task 220 Fix 1, fold un-freeze): non-null only when this change is a fold fallback substitution -- `layer` above is a SHADOWED layer whose own copy verified, materialized in place of the resolver's real OVERRIDE winner named here, which was policy-blocked (unverified) and never applied. Null for every ordinary (non-substituted) change.",
+            "$comment": "ADDED 2026-08-01: closes the fold-never-falls-back-off-a-blocked-winner gap (WP-384) -- see copilot-control-tower/docs task 220. Additive-only widening; absent/null is fully backward compatible with every prior consumer of this schema."
+          },
+          "reason": {
+            "type": ["string", "null"],
+            "description": "Human-readable explanation, present when `blocked_winner` is non-null (e.g. 'winner <layer> blocked: unverified; materialized verified layer <layer> instead'); null otherwise.",
+            "$comment": "ADDED 2026-08-01, task 220 Fix 1 -- additive, mirrors the `reason` field `held_for_approval[]`/`blocked[]` entries already carry."
+          }
+        }
+      }
+    },
+    "held_for_approval": {
+      "type": "array",
+      "description": "Changes withheld pending approval (e.g. a held-major awaiting IT/user approval).",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["dimension", "from", "to", "reason"],
+        "properties": {
+          "dimension": { "type": "string" },
+          "from": { "type": "string" },
+          "to": { "type": "string" },
+          "reason": {
+            "type": "string",
+            "description": "Why the change is held, e.g. 'major; ecosystem.yml policy=hold-majors'."
+          }
+        }
+      },
+      "$comment": "CORRECTED 2026-07-07: tightened to the shape shown in the upstream design's example (05-control-tower.md §6 / design-control-tower-integration.md §1.2): `{dimension, from, to, reason}`. The prior draft left this fully open; additionalProperties stays true since the example does not claim this is exhaustive."
+    },
+    "blocked": {
+      "type": "array",
+      "description": "Changes blocked from applying, e.g. capability-policy denials or signature failures.",
+      "items": { "type": "object", "additionalProperties": true },
+      "$comment": "cli-contract.md/design docs name `blocked:[...]` (capability-policy denials, sig failures) but the upstream design does not show a concrete example item shape for this array (only an empty `blocked: []` in the §1.2 example); left as an open array of objects until the CLI freezes it."
+    }
+  }
+}
