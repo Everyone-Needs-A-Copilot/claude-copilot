@@ -15,7 +15,7 @@
     "ledger"
   ],
   "properties": {
-    "schema_version": { "const": "1.0" },
+    "schema_version": { "const": "1.1" },
     "mode": { "enum": ["plan", "apply"] },
     "result": {
       "enum": ["ready", "action-required", "applied", "partial", "blocked"]
@@ -35,12 +35,23 @@
     "apply_summary": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["applied", "failed", "unchanged", "remaining_guided"],
+      "required": [
+        "applied",
+        "failed",
+        "unchanged",
+        "remaining_guided",
+        "updated_still_guided",
+        "failed_still_guided",
+        "detail"
+      ],
       "properties": {
         "applied": { "type": "integer", "minimum": 0 },
         "failed": { "type": "integer", "minimum": 0 },
         "unchanged": { "type": "integer", "minimum": 0 },
-        "remaining_guided": { "type": "integer", "minimum": 0 }
+        "remaining_guided": { "type": "integer", "minimum": 0 },
+        "updated_still_guided": { "type": "integer", "minimum": 0 },
+        "failed_still_guided": { "type": "integer", "minimum": 0 },
+        "detail": { "type": "string", "minLength": 1 }
       }
     },
     "after": {
@@ -51,12 +62,38 @@
         "plan_id": { "$ref": "#/$defs/opaqueId" },
         "summary": { "$ref": "#/$defs/summary" }
       }
-    }
+    },
+    "diagnostics": { "$ref": "#/$defs/diagnostics" }
   },
   "$defs": {
     "opaqueId": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "diagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "id",
+        "state",
+        "path",
+        "created_at",
+        "detail"
+      ],
+      "properties": {
+        "schema_version": { "const": "1.0" },
+        "id": { "type": "string", "minLength": 1 },
+        "state": { "enum": ["available", "unavailable"] },
+        "path": {
+          "oneOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "null" }
+          ]
+        },
+        "created_at": { "type": "string", "format": "date-time" },
+        "detail": { "type": "string", "minLength": 1 }
+      }
     },
     "summary": {
       "type": "object",

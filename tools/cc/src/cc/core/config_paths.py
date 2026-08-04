@@ -53,6 +53,15 @@ def machine_secrets_path() -> Path:
     return _machine_root() / "secrets.env"
 
 
+def machine_diagnostics_root() -> Path:
+    """Return the machine-local diagnostics directory.
+
+    Diagnostic artifacts are operational evidence, not project content.  They
+    therefore live beside machine config and honor the same isolation seam.
+    """
+    return _machine_root() / "diagnostics"
+
+
 def repo_root() -> Path | None:
     """Return the git repository root, or None if not inside a repo."""
     try:

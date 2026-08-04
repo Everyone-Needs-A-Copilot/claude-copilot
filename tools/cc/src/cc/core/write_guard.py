@@ -68,6 +68,7 @@ _FORBIDDEN_REAL_PATHS: tuple[Path, ...] = (
     _REAL_HOME / ".claude" / "cc" / "config.json",
     _REAL_HOME / ".claude" / "cc" / "secrets.env",
     _REAL_HOME / ".claude" / "cc" / "copilot.lock.json",
+    _REAL_HOME / ".claude" / "cc" / "diagnostics",
     _REAL_HOME / ".claude" / "memory",
     _REAL_HOME / ".config" / "copilot" / "copilot.layers.yml",
     _REAL_HOME / ".copilot" / "copilot.layers.yml",

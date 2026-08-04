@@ -25,7 +25,7 @@ from cc.core.config import resolve_key
 from cc.core.ecosystem.project_integration import inspect_project_integration
 from cc.core.ecosystem.projects import PROJECT_LOCK_FILENAME, read_project_lock
 
-MIGRATION_SCHEMA_VERSION = "1.0"
+MIGRATION_SCHEMA_VERSION = "1.1"
 CLAUDE_ENTRY_KIND = "claude-canonical-entry-v1"
 CODEX_PORTABLE_KIND = "codex-portable-copy-v1"
 
@@ -126,6 +126,71 @@ def _path_fingerprint(path: Path) -> list[Any]:
         return ["unsupported"]
     except OSError:
         return ["unreadable"]
+
+
+def _diagnostic_inspection(
+    workspace: Optional[dict[str, Any]],
+) -> Optional[dict[str, Any]]:
+    """Reduce authoritative inspection evidence without copying file contents."""
+    if not isinstance(workspace, dict):
+        return None
+    inspection = workspace.get("inspection")
+    components: list[dict[str, Any]] = []
+    for item in workspace.get("components", []):
+        if not isinstance(item, dict):
+            continue
+        recognized = item.get("recognized_setup")
+        recognized_record = None
+        if isinstance(recognized, dict):
+            recognized_record = {
+                "variant_id": recognized.get("variant_id"),
+                "version": recognized.get("version"),
+                "evidence": [
+                    {
+                        "kind": evidence.get("kind"),
+                        "path": evidence.get("path"),
+                        "state": evidence.get("state"),
+                        "detail": evidence.get("detail"),
+                    }
+                    for evidence in recognized.get("evidence", [])
+                    if isinstance(evidence, dict)
+                ],
+            }
+        components.append(
+            {
+                "component": item.get("component"),
+                "classification": item.get("classification"),
+                "recognized_setup": recognized_record,
+                "missing_requirements": [
+                    {
+                        "id": requirement.get("id"),
+                        "detail": requirement.get("detail"),
+                    }
+                    for requirement in item.get("missing_requirements", [])
+                    if isinstance(requirement, dict)
+                ],
+            }
+        )
+    return {
+        "inspection_id": inspection.get("id") if isinstance(inspection, dict) else None,
+        "classification": workspace.get("classification"),
+        "components": components,
+    }
+
+
+def _diagnostic_snapshot(
+    path: Path, root: Path, snapshot: "_Snapshot"
+) -> dict[str, Any]:
+    record: dict[str, Any] = {
+        "path": path.relative_to(root).as_posix(),
+        "kind": snapshot.kind,
+        "mode": snapshot.mode,
+    }
+    if snapshot.kind == "file":
+        record["checksum"] = _bytes_checksum(bytes(snapshot.payload or b""))
+    elif snapshot.kind == "symlink":
+        record["target"] = str(snapshot.payload)
+    return record
 
 
 def _parents_are_local(root: Path, target: Path) -> bool:
@@ -604,6 +669,26 @@ def apply_migration_action(
         run=run,
     )
     action = candidate.get("action")
+    diagnostic: dict[str, Any] = {
+        "project": str(root),
+        "action_id": action_id,
+        "preflight": {
+            "inspection_id": candidate.get("inspection_id"),
+            "classification": candidate.get("classification"),
+            "state": candidate.get("state"),
+            "automatable": candidate.get("automatable"),
+            "reason_code": candidate.get("reason_code"),
+            "migration_kinds": candidate.get("migration_kinds", []),
+            "git": _git_state(root, run=run)[0],
+            "inspection": _diagnostic_inspection(workspace),
+        },
+        "targets_before": [],
+        "source": None,
+        "completed_operations": [],
+        "verification_after_apply": None,
+        "rollback": [],
+        "verification_after_rollback": None,
+    }
     if not candidate["automatable"] or not action or action["id"] != action_id:
         return {
             "path": str(root),
@@ -613,6 +698,7 @@ def apply_migration_action(
             "detail": "This migration action is stale or no longer safe. Nothing was changed.",
             "completed_actions": [],
             "verification": "not-run",
+            "_diagnostic": diagnostic,
         }
 
     kinds = list(action["migration_kinds"])
@@ -641,7 +727,11 @@ def apply_migration_action(
             "detail": "A bounded migration target could not be backed up. Nothing was changed.",
             "completed_actions": [],
             "verification": "not-run",
+            "_diagnostic": diagnostic,
         }
+    diagnostic["targets_before"] = [
+        _diagnostic_snapshot(path, root, snapshots[path]) for path in target_paths
+    ]
 
     completed: list[dict[str, str]] = []
     mutation_count = 0
@@ -655,6 +745,7 @@ def apply_migration_action(
                 "status": "applied",
             }
         )
+        diagnostic["completed_operations"] = list(completed)
         mutation_count += 1
         if fail_after is not None and mutation_count >= fail_after:
             raise OSError("injected migration failure")
@@ -672,6 +763,11 @@ def apply_migration_action(
                 source_snapshot, source_error = _codex_source_snapshot(source)
                 if source_snapshot is None:
                     raise OSError(source_error)
+                diagnostic["source"] = {
+                    "path": source_snapshot.get("source"),
+                    "version": source_snapshot.get("version"),
+                    "fingerprint": source_snapshot.get("fingerprint"),
+                }
                 staged_plugin = stage / "plugins/codex-copilot"
                 staged_plugin.parent.mkdir(parents=True)
                 shutil.copytree(source / "plugins/codex-copilot", staged_plugin)
@@ -749,6 +845,7 @@ def apply_migration_action(
             codex_root=codex_root,
             detail=True,
         )
+        diagnostic["verification_after_apply"] = _diagnostic_inspection(after)
         by_component = {
             item["component"]: item["classification"] for item in after["components"]
         }
@@ -771,25 +868,85 @@ def apply_migration_action(
             "verification": "ready",
             "after_inspection_id": after["inspection"]["id"],
             "targeted_components": targeted,
+            "_diagnostic": diagnostic,
         }
     except (OSError, shutil.Error, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        diagnostic["exception"] = {
+            "type": type(exc).__name__,
+            "message": str(exc)[:2000],
+        }
+        if diagnostic["verification_after_apply"] is None and completed:
+            try:
+                diagnostic["verification_after_apply"] = _diagnostic_inspection(
+                    inspect_project_integration(
+                        root,
+                        claude_root=claude_root,
+                        codex_root=codex_root,
+                        detail=True,
+                    )
+                )
+            except (OSError, json.JSONDecodeError, UnicodeDecodeError) as verify_exc:
+                diagnostic["verification_after_apply"] = {
+                    "error_type": type(verify_exc).__name__,
+                    "detail": "The post-change inspection could not be completed.",
+                }
+        restoration_failed = False
         for path in reversed(target_paths):
             try:
                 _restore(path, snapshots[path])
-            except OSError:
-                continue
+                diagnostic["rollback"].append(
+                    {
+                        "path": path.relative_to(root).as_posix(),
+                        "restored": True,
+                    }
+                )
+            except OSError as restore_exc:
+                restoration_failed = True
+                diagnostic["rollback"].append(
+                    {
+                        "path": path.relative_to(root).as_posix(),
+                        "restored": False,
+                        "error_type": type(restore_exc).__name__,
+                        "detail": "The saved target could not be restored.",
+                    }
+                )
+        try:
+            diagnostic["verification_after_rollback"] = _diagnostic_inspection(
+                inspect_project_integration(
+                    root,
+                    claude_root=claude_root,
+                    codex_root=codex_root,
+                    detail=True,
+                )
+            )
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError) as verify_exc:
+            diagnostic["verification_after_rollback"] = {
+                "error_type": type(verify_exc).__name__,
+                "detail": "The restored project could not be re-inspected.",
+            }
         rolled_back = [{**item, "status": "rolled-back"} for item in completed]
+        targeted = []
+        if CLAUDE_ENTRY_KIND in kinds:
+            targeted.append("claude")
+        if CODEX_PORTABLE_KIND in kinds:
+            targeted.append("codex")
         return {
             "path": str(root),
             "name": root.name,
             "action_id": action_id,
-            "status": "rolled-back" if completed else "blocked",
+            "status": "rolled-back"
+            if completed and not restoration_failed
+            else "blocked",
             "detail": (
                 "This project did not pass its independent check, so Control Tower restored every completed change."
+                if completed and not restoration_failed
+                else "This project could not finish and every completed change could not be restored. Review its diagnostic record before continuing."
                 if completed
                 else "Control Tower stopped before changing this project."
             ),
             "error": str(exc),
             "completed_actions": rolled_back,
             "verification": "failed" if completed else "not-run",
+            "targeted_components": targeted,
+            "_diagnostic": diagnostic,
         }

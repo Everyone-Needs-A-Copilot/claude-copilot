@@ -15,6 +15,9 @@ from cc.core.config import (
     unset_config,
     write_config,
 )
+from cc.core.ecosystem.migration_diagnostics import (
+    write_workspace_migration_diagnostic,
+)
 from cc.core.ecosystem.project_migrations import (
     apply_migration_action,
     build_migration_candidate,
@@ -462,6 +465,7 @@ def migrate_integrations(
         report["detail"] = (
             "This migration plan is stale. Every project was re-inspected and left unchanged."
         )
+        report["diagnostics"] = write_workspace_migration_diagnostic(report, [])
         typer.echo(
             json.dumps(report)
             if output_json
@@ -470,12 +474,15 @@ def migrate_integrations(
         raise typer.Exit(1)
 
     ledger: list[dict[str, Any]] = []
+    action_diagnostics: list[dict[str, Any]] = []
     for candidate in report["candidates"]:
         action = candidate.get("action")
         if candidate["automatable"] and isinstance(action, dict):
-            ledger.append(
-                apply_migration_action(candidate["path"], action["id"])
-            )
+            entry = apply_migration_action(candidate["path"], action["id"])
+            diagnostic = entry.pop("_diagnostic", None)
+            if isinstance(diagnostic, dict):
+                action_diagnostics.append(diagnostic)
+            ledger.append(entry)
         elif candidate["classification"] == "guided-integration":
             ledger.append(
                 {
@@ -493,6 +500,20 @@ def migrate_integrations(
     applied_count = sum(item["status"] == "applied" for item in ledger)
     failed_count = sum(item["status"] in ("blocked", "rolled-back") for item in ledger)
     remaining_count = after["summary"]["total_guided"]
+    guided_after = {
+        candidate["path"]
+        for candidate in after["candidates"]
+        if candidate["classification"] == "guided-integration"
+    }
+    updated_still_guided = sum(
+        item["status"] == "applied" and item["path"] in guided_after
+        for item in ledger
+    )
+    failed_still_guided = sum(
+        item["status"] in ("blocked", "rolled-back")
+        and item["path"] in guided_after
+        for item in ledger
+    )
     if failed_count:
         result = "partial" if applied_count else "blocked"
     elif applied_count and remaining_count:
@@ -513,12 +534,23 @@ def migrate_integrations(
                 "failed": failed_count,
                 "unchanged": sum(item["status"] == "unchanged" for item in ledger),
                 "remaining_guided": remaining_count,
+                "updated_still_guided": updated_still_guided,
+                "failed_still_guided": failed_still_guided,
+                "detail": (
+                    f"{remaining_count} projects still need guided setup. "
+                    f"That includes {updated_still_guided} updated in one component "
+                    f"but still needing another, and {failed_still_guided} whose "
+                    "update could not finish."
+                ),
             },
             "after": {
                 "plan_id": after["plan_id"],
                 "summary": after["summary"],
             },
         }
+    )
+    report["diagnostics"] = write_workspace_migration_diagnostic(
+        report, action_diagnostics
     )
     typer.echo(
         json.dumps(report)

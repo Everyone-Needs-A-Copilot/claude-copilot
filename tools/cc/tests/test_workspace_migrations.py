@@ -140,7 +140,9 @@ def _workspace(
     )
 
 
-def test_census_is_read_only_and_offers_component_scoped_actions(tmp_path: Path) -> None:
+def test_census_is_read_only_and_offers_component_scoped_actions(
+    tmp_path: Path,
+) -> None:
     project, claude_root, codex_root = _legacy_project(tmp_path)
     before_status = _git(project, "status", "--porcelain=v1").stdout
     before_head = _git(project, "rev-parse", "HEAD").stdout
@@ -228,6 +230,11 @@ def test_apply_migrates_both_components_preserves_content_and_verifies(
     assert ledger["status"] == "applied"
     assert ledger["verification"] == "ready"
     assert set(ledger["targeted_components"]) == {"claude", "codex"}
+    assert (
+        ledger["_diagnostic"]["verification_after_apply"]["classification"]
+        == "ready"
+    )
+    assert ledger["_diagnostic"]["source"]["fingerprint"].startswith("sha256:")
     claude_after = (project / "CLAUDE.md").read_text(encoding="utf-8")
     assert claude_after.startswith(claude_before)
     assert "<!-- cc:project-integration:claude:v1:start -->" in claude_after
@@ -236,17 +243,14 @@ def test_apply_migrates_both_components_preserves_content_and_verifies(
     bridge = project / ".claude/skills/codex-copilot"
     assert bridge.is_symlink()
     assert bridge.resolve() == (project / "plugins/codex-copilot/skills").resolve()
-    config = json.loads(
-        (project / ".codex-copilot.json").read_text(encoding="utf-8")
-    )
+    config = json.loads((project / ".codex-copilot.json").read_text(encoding="utf-8"))
     assert config["installType"] == "copy"
     assert config["keptMetadata"] == "preserve-me"
-    lock_after = json.loads(
-        (project / "copilot.lock.json").read_text(encoding="utf-8")
+    lock_after = json.loads((project / "copilot.lock.json").read_text(encoding="utf-8"))
+    assert (
+        next(item for item in lock_after["components"] if item["component"] == "claude")
+        == old_claude_lock
     )
-    assert next(
-        item for item in lock_after["components"] if item["component"] == "claude"
-    ) == old_claude_lock
     after = _workspace(project, claude_root, codex_root, tmp_path)
     assert after["classification"] == "ready"
 
@@ -295,11 +299,19 @@ def test_stale_action_refuses_and_injected_failure_restores_exact_state(
         fail_after=2,
     )
     assert rollback_ledger["status"] == "rolled-back"
-    assert all(item["status"] == "rolled-back" for item in rollback_ledger["completed_actions"])
+    assert all(
+        item["status"] == "rolled-back" for item in rollback_ledger["completed_actions"]
+    )
+    assert rollback_ledger["_diagnostic"]["exception"]["type"] == "OSError"
+    assert rollback_ledger["_diagnostic"]["rollback"]
+    assert all(item["restored"] for item in rollback_ledger["_diagnostic"]["rollback"])
+    assert rollback_ledger["_diagnostic"]["verification_after_rollback"] is not None
     assert _git(rollback, "status", "--porcelain=v1").stdout == before["status"]
     assert (rollback / "CLAUDE.md").read_bytes() == before["claude"]
     assert str((rollback / "plugins/codex-copilot").readlink()) == before["plugin"]
-    assert str((rollback / ".claude/skills/codex-copilot").readlink()) == before["bridge"]
+    assert (
+        str((rollback / ".claude/skills/codex-copilot").readlink()) == before["bridge"]
+    )
     assert (rollback / ".codex-copilot.json").read_bytes() == before["config"]
     assert (rollback / "copilot.lock.json").read_bytes() == before["lock"]
 
@@ -334,7 +346,7 @@ def test_batch_report_counts_eligible_held_and_residual_rows(tmp_path: Path) -> 
     )
     report = build_migration_report([eligible_candidate, held_candidate, residual])
 
-    assert report["schema_version"] == "1.0"
+    assert report["schema_version"] == "1.1"
     assert report["mode"] == "plan"
     assert report["result"] == "action-required"
     assert report["plan_id"].startswith("sha256:")
@@ -344,7 +356,9 @@ def test_batch_report_counts_eligible_held_and_residual_rows(tmp_path: Path) -> 
         "residual-guidance": 1,
         "total_guided": 3,
     }
-    schema_path = Path(__file__).parent / "fixtures/schemas/workspace-migrations.schema.json"
+    schema_path = (
+        Path(__file__).parent / "fixtures/schemas/workspace-migrations.schema.json"
+    )
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     Draft202012Validator.check_schema(schema)
     assert not list(Draft202012Validator(schema).iter_errors(report))
