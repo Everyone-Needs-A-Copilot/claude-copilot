@@ -101,7 +101,9 @@ def test_warn_behind_when_shas_differ():
     lock = {"org": {"agents": {"sec": "abc1234"}}}
 
     checkers, offline = compute_component_checkers(
-        [layer], lockfile=lock, latest_sha_fn=lambda repo, ref: "def5678def5678def5678def5678def5678123"
+        [layer],
+        lockfile=lock,
+        latest_sha_fn=lambda repo, ref: "def5678def5678def5678def5678def5678123",
     )
 
     checker = checkers[0]
@@ -121,7 +123,9 @@ def test_local_sha_none_when_layer_never_materialized():
 
     checker = checkers[0]
     assert checker.local_sha is None
-    assert checker.severity == "warn"  # None != "abc1234" -- behind, not fabricated pass
+    assert (
+        checker.severity == "warn"
+    )  # None != "abc1234" -- behind, not fabricated pass
 
 
 def test_local_sha_excludes_reserved_meta_block():
@@ -129,7 +133,10 @@ def test_local_sha_excludes_reserved_meta_block():
     pin -- must not perturb the fingerprint or count as "has local content"."""
     layer = _layer(id="org")
     lock_with_meta = {
-        "org": {"agents": {"sec": "abc1234"}, "_meta": {"product": "knowledge", "tier": "org"}}
+        "org": {
+            "agents": {"sec": "abc1234"},
+            "_meta": {"product": "knowledge", "tier": "org"},
+        }
     }
     lock_without_meta = {"org": {"agents": {"sec": "abc1234"}}}
 
@@ -167,6 +174,82 @@ def test_warn_offline_and_signal_when_remote_unreachable_and_no_mirror():
     assert offline is True
 
 
+def test_reachable_repo_without_lock_pointer_uses_source_ref_and_visible_checkout(
+    tmp_path,
+):
+    source = _make_content_repo(tmp_path, {"agents/sec.md": "v1"})
+    layer = _layer(
+        id="personal",
+        role="personal",
+        source={"repo": str(source), "ref": "main", "path": str(source)},
+    )
+
+    checkers, offline = compute_component_checkers(
+        [layer], lockfile={}, latest_sha_fn=mirror.probe_remote_ref, mirror_root=None
+    )
+
+    expected = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=source,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    checker = checkers[0]
+    assert checker.local_sha == checker.remote_sha == expected
+    assert checker.severity == "pass"
+    assert offline is False
+
+
+def test_reachable_repo_without_lock_pointer_reports_source_checkout_behind(tmp_path):
+    source = _make_content_repo(tmp_path, {"agents/sec.md": "v1"})
+    checkout = tmp_path / "checkout"
+    subprocess.run(["git", "clone", "-q", str(source), str(checkout)], check=True)
+
+    (source / "agents" / "sec.md").write_text("v2", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=source, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "v2"], cwd=source, check=True)
+
+    layer = _layer(
+        id="personal",
+        role="personal",
+        source={"repo": str(source), "ref": "main", "path": str(checkout)},
+    )
+    checkers, offline = compute_component_checkers(
+        [layer], lockfile={}, latest_sha_fn=mirror.probe_remote_ref, mirror_root=None
+    )
+
+    checker = checkers[0]
+    assert checker.local_sha != checker.remote_sha
+    assert checker.severity == "warn"
+    assert checker.repair == "cc update"
+    assert offline is False
+
+
+def test_reachable_repo_missing_lock_and_source_refs_warns_without_offline(tmp_path):
+    source = _make_content_repo(tmp_path, {"agents/sec.md": "v1"})
+    layer = _layer(
+        id="personal",
+        role="personal",
+        source={
+            "repo": str(source),
+            "ref": "does-not-exist",
+            "path": str(source),
+        },
+    )
+
+    checkers, offline = compute_component_checkers(
+        [layer], lockfile={}, latest_sha_fn=mirror.probe_remote_ref, mirror_root=None
+    )
+
+    checker = checkers[0]
+    assert checker.remote_sha is None
+    assert checker.severity == "warn"
+    assert "reachable" in checker.detail
+    assert "sync reference is missing" in checker.detail
+    assert offline is False
+
+
 def test_no_repo_source_never_calls_latest_sha_fn(tmp_path):
     calls: list[str] = []
 
@@ -194,7 +277,9 @@ def _make_content_repo(tmp_path: Path, files: dict[str, str]) -> Path:
     repo = tmp_path / "source"
     repo.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
-    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True
+    )
     subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
     subprocess.run(["git", "checkout", "-q", "-b", "main"], cwd=repo, check=True)
     for relpath, content in files.items():
@@ -284,7 +369,10 @@ def test_mirror_root_none_never_falls_back_and_never_touches_home(tmp_path):
 def test_mirror_root_present_but_no_clone_on_disk_is_none(tmp_path):
     layer = _layer(id="foundation")
     checkers, offline = compute_component_checkers(
-        [layer], lockfile={}, latest_sha_fn=_never_reaches_remote, mirror_root=tmp_path / "mirrors"
+        [layer],
+        lockfile={},
+        latest_sha_fn=_never_reaches_remote,
+        mirror_root=tmp_path / "mirrors",
     )
     assert checkers[0].remote_sha is None
     assert offline is True

@@ -393,7 +393,9 @@ def _build_component_checkers(
         layers = _layers
     else:
         manifest_path = (
-            _manifest_path if _manifest_path is not _UNSET else resolve_key("layers.manifest")
+            _manifest_path
+            if _manifest_path is not _UNSET
+            else resolve_key("layers.manifest")
         )
         if not manifest_path:
             return [
@@ -425,9 +427,16 @@ def _build_component_checkers(
         )
         lock = read_lockfile(lockfile_path)
 
-    latest_sha_fn = _latest_sha_fn if _latest_sha_fn is not _UNSET else mirror.latest_lock_sha
+    # Doctor needs the richer reachability result so an absent optional ref
+    # cannot masquerade as a network outage. Freshness intentionally keeps
+    # using latest_lock_sha()'s nullable compatibility contract.
+    latest_sha_fn = (
+        _latest_sha_fn if _latest_sha_fn is not _UNSET else mirror.probe_remote_ref
+    )
     mirror_root = (
-        _mirror_root if _mirror_root is not _UNSET else resolve_key("paths.mirrors_root")
+        _mirror_root
+        if _mirror_root is not _UNSET
+        else resolve_key("paths.mirrors_root")
     )
 
     return compute_component_checkers(
@@ -483,7 +492,12 @@ def _build_auth_entries(
         expiry = _parse_timestamp(expires_at)
         if expiry is not None and expiry <= datetime.now(timezone.utc):
             return [
-                {"identity": login, "scope": scope, "state": "expired", "expires_at": expires_at}
+                {
+                    "identity": login,
+                    "scope": scope,
+                    "state": "expired",
+                    "expires_at": expires_at,
+                }
             ]
 
     if _keychain_get_secret is not _UNSET:

@@ -23,12 +23,13 @@ from pathlib import Path
 
 import pytest
 from cc.commands.doctor import build_doctor_report
-from cc.core.ecosystem import mirror
 from cc.core.locking import copilot_lock
 from cc.main import app
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 from typer.testing import CliRunner
+
+from cc.core.ecosystem import mirror
 
 runner = CliRunner()
 
@@ -101,7 +102,9 @@ def test_missing_ecosystem_manifest_fails_closed(tmp_path):
         **_base_kwargs(tmp_path, _layers=None, _manifest_path=None)
     )
 
-    checker = next(c for c in report["checkers"] if c["id"] == "ecosystem-layer-manifest")
+    checker = next(
+        c for c in report["checkers"] if c["id"] == "ecosystem-layer-manifest"
+    )
     assert checker["severity"] == "fail"
     assert checker["destructive"] is False
     assert report["status"] == "needs-attention"
@@ -116,7 +119,9 @@ def test_invalid_ecosystem_manifest_fails_closed(tmp_path):
         **_base_kwargs(tmp_path, _layers=None, _manifest_path=manifest)
     )
 
-    checker = next(c for c in report["checkers"] if c["id"] == "ecosystem-layer-manifest")
+    checker = next(
+        c for c in report["checkers"] if c["id"] == "ecosystem-layer-manifest"
+    )
     assert checker["severity"] == "fail"
     assert checker["path"] == str(manifest)
     assert report["status"] == "needs-attention"
@@ -173,7 +178,10 @@ def _make_source_repo(tmp_path: Path, lock_slice: dict, *, name: str, ref: str) 
     subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
     blob_sha = subprocess.run(
         ["git", "hash-object", "-w", "copilot.lock.json"],
-        cwd=repo, capture_output=True, text=True, check=True,
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.strip()
     subprocess.run(["git", "update-ref", ref, blob_sha], cwd=repo, check=True)
     return repo
@@ -227,7 +235,10 @@ def _base_kwargs(tmp_path: Path, **overrides) -> dict:
 
 def test_status_healthy_with_matching_component_checker(tmp_path):
     repo = _make_source_repo(
-        tmp_path, {"agents": {"sec": "abc1234"}}, name="org-source", ref="refs/copilot/lock"
+        tmp_path,
+        {"agents": {"sec": "abc1234"}},
+        name="org-source",
+        ref="refs/copilot/lock",
     )
     lock = {"org": {"agents": {"sec": "abc1234"}}}
 
@@ -241,9 +252,45 @@ def test_status_healthy_with_matching_component_checker(tmp_path):
 
     assert report["status"] == "healthy"
     assert report["offline"] is False
-    sync_checker = next(c for c in report["checkers"] if c["id"] == "knowledge-org-sync")
+    sync_checker = next(
+        c for c in report["checkers"] if c["id"] == "knowledge-org-sync"
+    )
     assert sync_checker["severity"] == "pass"
     assert sync_checker["local_sha"] == sync_checker["remote_sha"]
+
+
+def test_status_not_offline_when_reachable_personal_repo_has_no_lock_pointer(tmp_path):
+    """A normal personal repo publishes a branch but no refs/copilot/lock.
+
+    Git's successful empty response for the optional pointer proves the
+    repository is reachable; doctor must compare the branch with the visible
+    checkout instead of converting that missing ref into an offline verdict.
+    """
+    source = tmp_path / "personal-source"
+    source.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "t@example.invalid"], cwd=source, check=True
+    )
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=source, check=True)
+    subprocess.run(["git", "checkout", "-q", "-b", "main"], cwd=source, check=True)
+    (source / "AGENTS.md").write_text("personal\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=source, check=True)
+    subprocess.run(["git", "commit", "-qm", "init"], cwd=source, check=True)
+
+    layer = _layer("personal", "codex", source, rank=10)
+    layer["source"] = {"repo": str(source), "ref": "main", "path": str(source)}
+    report = build_doctor_report(
+        **_base_kwargs(tmp_path, _layers=[layer], _lockfile={})
+    )
+
+    sync_checker = next(
+        c for c in report["checkers"] if c["id"] == "codex-personal-sync"
+    )
+    assert sync_checker["severity"] == "pass"
+    assert sync_checker["local_sha"] == sync_checker["remote_sha"]
+    assert report["offline"] is False
+    assert report["status"] == "healthy"
 
 
 # ---------------------------------------------------------------------------
@@ -271,7 +318,9 @@ def test_status_healthy_via_mirror_fallback_with_meta_source_sha(tmp_path):
     source = tmp_path / "org-source"
     source.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=source, check=True)
-    subprocess.run(["git", "config", "user.email", "t@example.invalid"], cwd=source, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "t@example.invalid"], cwd=source, check=True
+    )
     subprocess.run(["git", "config", "user.name", "Test"], cwd=source, check=True)
     subprocess.run(["git", "checkout", "-q", "-b", "main"], cwd=source, check=True)
     (source / "agents").mkdir()
@@ -290,7 +339,9 @@ def test_status_healthy_via_mirror_fallback_with_meta_source_sha(tmp_path):
 
     # The REAL shape update.py's set_layer_meta() writes -- no per-item
     # dimension pins needed for this checker; only `_meta.source_sha`.
-    lock = {"org-internal": {"_meta": {"product": "cli", "source_sha": sync["head_sha"]}}}
+    lock = {
+        "org-internal": {"_meta": {"product": "cli", "source_sha": sync["head_sha"]}}
+    }
 
     report = build_doctor_report(
         **_base_kwargs(
@@ -301,7 +352,9 @@ def test_status_healthy_via_mirror_fallback_with_meta_source_sha(tmp_path):
         )
     )
 
-    sync_checker = next(c for c in report["checkers"] if c["id"] == "cli-org-internal-sync")
+    sync_checker = next(
+        c for c in report["checkers"] if c["id"] == "cli-org-internal-sync"
+    )
     assert sync_checker["severity"] == "pass", sync_checker.get("detail")
     assert sync_checker["local_sha"] == sync_checker["remote_sha"] == sync["head_sha"]
     assert "local none" not in sync_checker.get("detail", "")
@@ -310,7 +363,10 @@ def test_status_healthy_via_mirror_fallback_with_meta_source_sha(tmp_path):
 
 def test_status_update_available_when_local_behind_remote(tmp_path):
     repo = _make_source_repo(
-        tmp_path, {"agents": {"sec": "def5678"}}, name="org-source", ref="refs/copilot/lock"
+        tmp_path,
+        {"agents": {"sec": "def5678"}},
+        name="org-source",
+        ref="refs/copilot/lock",
     )
     lock = {"org": {"agents": {"sec": "abc1234"}}}  # local slice differs from remote's
 
@@ -324,7 +380,9 @@ def test_status_update_available_when_local_behind_remote(tmp_path):
 
     assert report["status"] == "update-available"
     assert report["offline"] is False
-    sync_checker = next(c for c in report["checkers"] if c["id"] == "knowledge-org-sync")
+    sync_checker = next(
+        c for c in report["checkers"] if c["id"] == "knowledge-org-sync"
+    )
     assert sync_checker["severity"] == "warn"
     assert sync_checker["repair"] == "cc update"
 
@@ -343,7 +401,9 @@ def test_status_offline_when_remote_unreachable(tmp_path):
 
     assert report["status"] == "offline"
     assert report["offline"] is True
-    sync_checker = next(c for c in report["checkers"] if c["id"] == "knowledge-org-sync")
+    sync_checker = next(
+        c for c in report["checkers"] if c["id"] == "knowledge-org-sync"
+    )
     assert sync_checker["severity"] == "warn"
     assert "could not reach remote" in sync_checker["detail"]
     assert "remote_sha" not in sync_checker
@@ -389,7 +449,9 @@ def test_status_signed_out_when_keychain_token_missing(tmp_path):
     )
 
     assert report["status"] == "signed-out"
-    assert report["auth"] == [{"identity": "octocat", "scope": "read:org repo", "state": "revoked"}]
+    assert report["auth"] == [
+        {"identity": "octocat", "scope": "read:org repo", "state": "revoked"}
+    ]
 
 
 def test_status_signed_out_expired_when_expires_at_in_past(tmp_path):
@@ -397,7 +459,11 @@ def test_status_signed_out_expired_when_expires_at_in_past(tmp_path):
     auth_root.mkdir()
     (auth_root / "active.json").write_text(
         json.dumps(
-            {"login": "octocat", "scopes": "read:org", "expires_at": "2020-01-01T00:00:00Z"}
+            {
+                "login": "octocat",
+                "scopes": "read:org",
+                "expires_at": "2020-01-01T00:00:00Z",
+            }
         ),
         encoding="utf-8",
     )
@@ -413,7 +479,9 @@ def test_status_signed_out_expired_when_expires_at_in_past(tmp_path):
 
 def test_no_auth_entry_when_never_signed_in(tmp_path):
     """No identity pointer at all -- not a failure, just no entry."""
-    report = build_doctor_report(**_base_kwargs(tmp_path, _auth_root=tmp_path / "no-such-auth-dir"))
+    report = build_doctor_report(
+        **_base_kwargs(tmp_path, _auth_root=tmp_path / "no-such-auth-dir")
+    )
     assert report["auth"] == []
 
 
@@ -440,7 +508,9 @@ def test_status_syncing_when_lock_currently_held(tmp_path):
     lock_probe_path = tmp_path / "copilot.lock"
 
     with copilot_lock(path=lock_probe_path):
-        report = build_doctor_report(**_base_kwargs(tmp_path, _lock_probe_path=lock_probe_path))
+        report = build_doctor_report(
+            **_base_kwargs(tmp_path, _lock_probe_path=lock_probe_path)
+        )
 
     assert report["status"] == "syncing"
 
@@ -451,7 +521,9 @@ def test_probe_never_creates_lock_file_when_absent(tmp_path):
     lock_probe_path = tmp_path / "copilot.lock"
     assert not lock_probe_path.exists()
 
-    report = build_doctor_report(**_base_kwargs(tmp_path, _lock_probe_path=lock_probe_path))
+    report = build_doctor_report(
+        **_base_kwargs(tmp_path, _lock_probe_path=lock_probe_path)
+    )
 
     assert report["status"] != "syncing"
     assert not lock_probe_path.exists()
@@ -472,9 +544,14 @@ def test_setup_needed_outranks_every_other_signal(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_doctor_json_with_component_and_auth_checkers_validates_against_schema(tmp_path):
+def test_doctor_json_with_component_and_auth_checkers_validates_against_schema(
+    tmp_path,
+):
     repo = _make_source_repo(
-        tmp_path, {"agents": {"sec": "abc1234"}}, name="org-source", ref="refs/copilot/lock"
+        tmp_path,
+        {"agents": {"sec": "abc1234"}},
+        name="org-source",
+        ref="refs/copilot/lock",
     )
     auth_root = tmp_path / "auth"
     auth_root.mkdir()
@@ -510,10 +587,15 @@ def test_field_set_parity_with_healthy_clean_fleet_corpus(tmp_path):
     emission shape (not just the schema, which is deliberately permissive
     via `additionalProperties: true` on checkers) matches what the app
     actually expects to render."""
-    corpus = json.loads((_CORPUS_DIR / "healthy-clean-fleet.json").read_text(encoding="utf-8"))
+    corpus = json.loads(
+        (_CORPUS_DIR / "healthy-clean-fleet.json").read_text(encoding="utf-8")
+    )
 
     repo = _make_source_repo(
-        tmp_path, {"agents": {"sec": "abc1234"}}, name="org-source", ref="refs/copilot/lock"
+        tmp_path,
+        {"agents": {"sec": "abc1234"}},
+        name="org-source",
+        ref="refs/copilot/lock",
     )
     lock = {"org": {"agents": {"sec": "abc1234"}}}
 
@@ -535,7 +617,9 @@ def test_field_set_parity_with_healthy_clean_fleet_corpus(tmp_path):
     # doesn't happen to exercise.
     assert report_checker_keys <= corpus_checker_keys
 
-    sync_checker = next(c for c in report["checkers"] if c["id"] == "knowledge-org-sync")
+    sync_checker = next(
+        c for c in report["checkers"] if c["id"] == "knowledge-org-sync"
+    )
     corpus_sync_checker = next(
         c for c in corpus["checkers"] if c["id"] == "knowledge-org-sync"
     )

@@ -36,6 +36,7 @@ import base64
 import re
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional, TypedDict
 
@@ -67,6 +68,21 @@ _MAJOR_X_SEMVER = re.compile(r"^v?(\d+)\.x$")
 # below, so the two can never compute a different mirror location for the
 # same layer.
 EXTERNALLY_CONSUMED_PRODUCTS: frozenset[str] = frozenset({"knowledge", "cli"})
+
+
+@dataclass(frozen=True)
+class RemoteRefProbe:
+    """Result of a read-only ``git ls-remote`` probe.
+
+    ``sha=None`` is not enough to decide that a machine is offline: Git
+    returns success with empty stdout when the repository is reachable but the
+    requested ref does not exist.  Keep that proven reachability separate so
+    doctor can distinguish a missing optional lock pointer from a transport,
+    authentication, timeout, or executable failure.
+    """
+
+    reachable: bool
+    sha: Optional[str]
 
 
 def mirror_root(tier: str, *, _root: Optional[Path | str] = None) -> Path:
@@ -142,7 +158,9 @@ def synthesize_source_path(
 
     product = layer.get("product")
     base = Path(mirror_root_base).expanduser()
-    product_root = base / str(product) if product in externally_consumed_products else base
+    product_root = (
+        base / str(product) if product in externally_consumed_products else base
+    )
     content_root = product_root / layer["id"]
 
     subpath = source.get("subpath")
@@ -157,22 +175,20 @@ def synthesize_source_path(
     return content_root / relative
 
 
-def latest_lock_sha(
+def probe_remote_ref(
     source: str,
     ref: str = DEFAULT_LOCK_POINTER_REF,
     *,
     timeout: float = 5.0,
-) -> Optional[str]:
+) -> RemoteRefProbe:
     """
-    Cheap, read-only check of a tier's published lock-pointer ref: a
+    Cheap, read-only check of one remote ref: a
     single `git ls-remote <source> <ref>` -- no clone, no fetch, no
-    working tree. See the module docstring for the ref-target convention.
+    working tree.
 
-    Never raises: any unreachable/offline/misconfigured condition (DNS
-    failure, auth failure, timeout, no such ref, `git` missing from PATH)
-    degrades to `None` ("could not determine"). Callers (freshness.py)
-    MUST treat `None` as an honest unknown, never as "up to date" -- this
-    mirrors doctor.py's "never a fabricated Healthy" rule.
+    Never raises. A successful invocation with empty stdout proves the
+    repository answered but the requested ref is absent. A non-zero result or
+    invocation exception means reachability could not be established.
     """
     try:
         result = subprocess.run(
@@ -183,19 +199,35 @@ def latest_lock_sha(
             check=False,
         )
     except (OSError, subprocess.SubprocessError):
-        return None
+        return RemoteRefProbe(reachable=False, sha=None)
 
     if result.returncode != 0:
-        return None
+        return RemoteRefProbe(reachable=False, sha=None)
 
     stdout = result.stdout.strip()
     if not stdout:
-        return None
+        return RemoteRefProbe(reachable=True, sha=None)
 
     first_line = stdout.splitlines()[0]
     sha, _, _ref_name = first_line.partition("\t")
     sha = sha.strip()
-    return sha or None
+    return RemoteRefProbe(reachable=True, sha=sha or None)
+
+
+def latest_lock_sha(
+    source: str,
+    ref: str = DEFAULT_LOCK_POINTER_REF,
+    *,
+    timeout: float = 5.0,
+) -> Optional[str]:
+    """Compatibility wrapper returning only a published lock-pointer SHA.
+
+    Freshness callers intentionally keep their existing nullable contract:
+    both an absent pointer and an unreachable repository remain an honest
+    unknown there. Doctor uses :func:`probe_remote_ref` directly because its
+    top-level ``offline`` verdict must distinguish those causes.
+    """
+    return probe_remote_ref(source, ref, timeout=timeout).sha
 
 
 def resolve_transport(source: str, auth: str) -> str:
@@ -237,7 +269,9 @@ def _basic_auth_header(token: str) -> str:
     URL-embedded credential (those get persisted into `.git/config`'s
     remote URL on clone; a `-c` override does not).
     """
-    encoded = base64.b64encode(f"x-access-token:{token}".encode("utf-8")).decode("ascii")
+    encoded = base64.b64encode(f"x-access-token:{token}".encode("utf-8")).decode(
+        "ascii"
+    )
     return f"Authorization: Basic {encoded}"
 
 

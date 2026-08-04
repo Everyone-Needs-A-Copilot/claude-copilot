@@ -81,8 +81,26 @@ def test_mirror_root_never_resolves_home_when_injected(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# latest_lock_sha()
+# probe_remote_ref() / latest_lock_sha()
 # ---------------------------------------------------------------------------
+
+
+def test_probe_remote_ref_distinguishes_found_missing_and_unreachable(tmp_path):
+    repo, blob_sha = _make_fixture_repo(
+        tmp_path,
+        {"foundation": {"agents": {"sec": "abc1234"}}},
+        ref="refs/copilot/lock",
+    )
+
+    found = mirror.probe_remote_ref(str(repo), "refs/copilot/lock")
+    missing = mirror.probe_remote_ref(str(repo), "refs/copilot/does-not-exist")
+    unreachable = mirror.probe_remote_ref(
+        str(tmp_path / "does-not-exist-at-all"), "refs/copilot/lock"
+    )
+
+    assert found == mirror.RemoteRefProbe(reachable=True, sha=blob_sha)
+    assert missing == mirror.RemoteRefProbe(reachable=True, sha=None)
+    assert unreachable == mirror.RemoteRefProbe(reachable=False, sha=None)
 
 
 def test_latest_lock_sha_reads_published_ref(tmp_path):
@@ -132,6 +150,9 @@ def test_latest_lock_sha_never_raises_on_bad_git_invocation(monkeypatch):
 
     monkeypatch.setattr(subprocess, "run", _boom)
     assert mirror.latest_lock_sha("https://example.invalid/repo.git") is None
+    assert mirror.probe_remote_ref(
+        "https://example.invalid/repo.git"
+    ) == mirror.RemoteRefProbe(reachable=False, sha=None)
 
 
 # ---------------------------------------------------------------------------
@@ -158,7 +179,9 @@ def _make_content_repo(
     repo = tmp_path / name
     repo.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
-    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True
+    )
     subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
     subprocess.run(["git", "checkout", "-q", "-b", branch], cwd=repo, check=True)
     for relpath, content in files.items():
@@ -275,9 +298,9 @@ def test_clone_or_update_mirror_resolves_caret_semver_to_highest_compatible_tag(
     )
 
     assert result["ok"] is True
-    assert (
-        tmp_path / "mirrors" / "foundation" / "version.txt"
-    ).read_text(encoding="utf-8") == "0.3.1"
+    assert (tmp_path / "mirrors" / "foundation" / "version.txt").read_text(
+        encoding="utf-8"
+    ) == "0.3.1"
 
 
 def test_clone_or_update_mirror_never_destroy_proof_confined_to_tier_subdir(tmp_path):
@@ -337,18 +360,26 @@ def test_clone_or_update_mirror_offline_leaves_existing_cache_untouched(tmp_path
     source = _make_content_repo(tmp_path, {"agents/sec.md": "v1"})
     mirror_root = tmp_path / "mirrors"
 
-    mirror.clone_or_update_mirror("foundation", str(source), "main", mirror_root=mirror_root)
-    cached_content_before = (mirror_root / "foundation" / "agents" / "sec.md").read_bytes()
+    mirror.clone_or_update_mirror(
+        "foundation", str(source), "main", mirror_root=mirror_root
+    )
+    cached_content_before = (
+        mirror_root / "foundation" / "agents" / "sec.md"
+    ).read_bytes()
 
     # Source becomes unreachable (simulate by pointing fetch at a dead path
     # via a broken 'origin' remote is complex; simplest honest simulation:
     # remove the source repo entirely so `git fetch` fails).
     shutil.rmtree(source)
 
-    result = mirror.clone_or_update_mirror("foundation", str(source), "main", mirror_root=mirror_root)
+    result = mirror.clone_or_update_mirror(
+        "foundation", str(source), "main", mirror_root=mirror_root
+    )
 
     assert result["offline"] is True
-    assert (mirror_root / "foundation" / "agents" / "sec.md").read_bytes() == cached_content_before
+    assert (
+        mirror_root / "foundation" / "agents" / "sec.md"
+    ).read_bytes() == cached_content_before
 
 
 def test_clone_or_update_mirror_never_resolves_home_when_injected(tmp_path):
@@ -356,7 +387,9 @@ def test_clone_or_update_mirror_never_resolves_home_when_injected(tmp_path):
     # The autouse _no_real_home fixture would fail this test if
     # clone_or_update_mirror touched Path.home() at all when mirror_root
     # is supplied.
-    mirror.clone_or_update_mirror("foundation", str(source), "main", mirror_root=tmp_path / "mirrors")
+    mirror.clone_or_update_mirror(
+        "foundation", str(source), "main", mirror_root=tmp_path / "mirrors"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -367,7 +400,9 @@ def test_clone_or_update_mirror_never_resolves_home_when_injected(tmp_path):
 def _b64_basic_header(token: str) -> str:
     import base64
 
-    encoded = base64.b64encode(f"x-access-token:{token}".encode("utf-8")).decode("ascii")
+    encoded = base64.b64encode(f"x-access-token:{token}".encode("utf-8")).decode(
+        "ascii"
+    )
     return f"Authorization: Basic {encoded}"
 
 
@@ -380,11 +415,17 @@ def test_basic_auth_header_uses_x_access_token_convention():
 def test_resolve_effective_token_explicit_override_wins(tmp_path):
     # Explicit override applies even for a plain local path (not https) --
     # lets tests spy on the argv plumbing without a real https remote.
-    assert mirror._resolve_effective_token(str(tmp_path), "explicit-token") == "explicit-token"
+    assert (
+        mirror._resolve_effective_token(str(tmp_path), "explicit-token")
+        == "explicit-token"
+    )
 
 
 def test_resolve_effective_token_explicit_none_forces_anonymous():
-    assert mirror._resolve_effective_token("https://example.invalid/repo.git", None) is None
+    assert (
+        mirror._resolve_effective_token("https://example.invalid/repo.git", None)
+        is None
+    )
 
 
 def test_resolve_effective_token_auto_resolve_skipped_for_non_https_source(tmp_path):
@@ -398,7 +439,9 @@ def test_resolve_effective_token_auto_resolve_skipped_for_non_https_source(tmp_p
 def test_resolve_effective_token_auto_resolve_attempted_for_https_source(monkeypatch):
     monkeypatch.setattr(mirror, "resolve_token", lambda: "auto-resolved-token")
     assert (
-        mirror._resolve_effective_token("https://example.invalid/repo.git", mirror._UNSET)
+        mirror._resolve_effective_token(
+            "https://example.invalid/repo.git", mirror._UNSET
+        )
         == "auto-resolved-token"
     )
 
@@ -470,7 +513,9 @@ def test_resolve_token_uses_login_as_keychain_account_and_configured_service():
     assert calls == [("octocat", "com.example.test")]
 
 
-def test_clone_or_update_mirror_injects_auth_header_on_clone_and_fetch(tmp_path, monkeypatch):
+def test_clone_or_update_mirror_injects_auth_header_on_clone_and_fetch(
+    tmp_path, monkeypatch
+):
     source = _make_content_repo(tmp_path, {"agents/sec.md": "v1"})
     mirror_root = tmp_path / "mirrors"
 
@@ -578,7 +623,15 @@ def test_clone_or_update_mirror_no_token_omits_extra_header_flag(tmp_path, monke
     )
 
     clone_argv = next(a for a in captured_argvs if "clone" in a)
-    assert clone_argv == ["git", "clone", "--quiet", "--origin", "origin", str(source), str(mirror_root / "foundation")]
+    assert clone_argv == [
+        "git",
+        "clone",
+        "--quiet",
+        "--origin",
+        "origin",
+        str(source),
+        str(mirror_root / "foundation"),
+    ]
     assert "-c" not in clone_argv
 
 

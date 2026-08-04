@@ -23,22 +23,20 @@ Per layer, this compares:
     successful update under the layer's `_meta.source_sha`. `None` when
     the comparable local identity is unknown -- an honest "unknown", never
     a fabricated sha.
-  - `remote_sha`: the layer's published lock-pointer ref
-    (`core/ecosystem/mirror.py`'s `latest_lock_sha()`, a single cheap
-    `git ls-remote` -- never a full clone/fetch), falling back to an
-    already-cloned mirror's local HEAD commit (`git rev-parse HEAD` inside
-    `<mirror_root>/<layer id>`) ONLY when a `mirror_root` was actually
-    supplied AND a mirror already exists there -- this module never clones
-    anything itself and never resolves `Path.home()` (mirrors this
-    codebase's "every I/O root injectable" rule -- see `update.py`'s
-    module docstring). This fallback is a weaker signal, but it is compared
-    only with the recorded source commit from the same identity namespace
-    -- never with an unrelated lock-content fingerprint.
+  - `remote_sha`: the layer's published lock-pointer ref when present. If
+    the repository answers but that optional pointer is absent, the declared
+    source ref is used instead and compared with the visible checkout HEAD
+    (or the recorded source commit when no checkout HEAD is readable). This
+    is the common Personal-repository shape. An already-cloned hidden mirror
+    remains the offline fallback used by inherited layers. No path here ever
+    clones, fetches, or resolves `Path.home()`.
 
 Severity fold (never fabricated):
-  - `remote_sha is None` (neither lookup answered) -> `warn`, and the
+  - `remote_sha is None` after no remote response -> `warn`, and the
     caller-visible `any_offline` return value is set -- "could not reach
     remote to verify sync", never coerced into pass or fail.
+  - the repository answered but neither the pointer nor declared source ref
+    exists -> `warn` without an offline signal.
   - `local_sha == remote_sha` -> `pass`.
   - otherwise -> `warn` ("behind"), with a `repair: "cc update"` hint.
 
@@ -58,7 +56,8 @@ from cc.core.ecosystem import mirror
 from cc.core.ecosystem.freshness import lock_fingerprint
 from cc.core.ecosystem.lockfile import LAYER_META_KEY, layer_meta
 
-LatestShaFn = Callable[[str, str], Optional[str]]
+LatestShaResult = Optional[str] | mirror.RemoteRefProbe
+LatestShaFn = Callable[[str, str], LatestShaResult]
 
 
 @dataclass
@@ -84,7 +83,11 @@ class Checker:
     remote_sha: Optional[str] = None
 
     def to_contract_dict(self) -> dict:
-        d: dict = {"id": self.id, "severity": self.severity, "destructive": self.destructive}
+        d: dict = {
+            "id": self.id,
+            "severity": self.severity,
+            "destructive": self.destructive,
+        }
         if self.layer:
             d["layer"] = self.layer
         if self.layer_role:
@@ -126,7 +129,12 @@ def _run_git(
 ) -> Optional["subprocess.CompletedProcess[str]"]:
     try:
         return subprocess.run(
-            ["git", *args], cwd=cwd, capture_output=True, text=True, timeout=timeout, check=False
+            ["git", *args],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -161,28 +169,69 @@ def _mirror_clone_head_sha(
     return sha or None
 
 
+def _visible_checkout_head_sha(layer: dict[str, Any]) -> Optional[str]:
+    """Read HEAD from the layer's configured visible checkout, if present."""
+    source = layer.get("source") or {}
+    configured = source.get("path")
+    if not configured:
+        return None
+    root = Path(str(configured)).expanduser()
+    if not root.is_dir():
+        return None
+    result = _run_git(["rev-parse", "HEAD"], cwd=root)
+    if result is None or result.returncode != 0:
+        return None
+    sha = result.stdout.strip()
+    return sha or None
+
+
+def _normalize_probe(result: LatestShaResult) -> mirror.RemoteRefProbe:
+    """Accept the historical Optional[str] test seam and the richer probe."""
+    if isinstance(result, mirror.RemoteRefProbe):
+        return result
+    if result is None:
+        return mirror.RemoteRefProbe(reachable=False, sha=None)
+    return mirror.RemoteRefProbe(reachable=True, sha=result)
+
+
 def _remote_sha_for_layer(
     layer: dict[str, Any],
     *,
     latest_sha_fn: LatestShaFn,
     mirror_root: Optional[Path | str],
-) -> tuple[Optional[str], str]:
+) -> tuple[Optional[str], str, bool]:
     source = layer.get("source") or {}
     repo = source.get("repo")
     if not repo:
-        return None, "unknown"
+        return None, "unknown", False
 
     ref = source.get("lock_ref") or mirror.DEFAULT_LOCK_POINTER_REF
-    remote = latest_sha_fn(repo, ref)
-    if remote is not None:
-        return remote, "lock"
+    lock_probe = _normalize_probe(latest_sha_fn(repo, ref))
+    if lock_probe.sha is not None:
+        return lock_probe.sha, "lock", True
+
+    # A successful empty response means the repository is reachable and only
+    # the optional lock pointer is absent. Personal repositories commonly use
+    # this shape. Their declared source branch is the next honest identity to
+    # compare; a second absent ref remains a warning, but never "offline"
+    # because the first response already proved reachability.
+    if lock_probe.reachable:
+        source_ref = source.get("ref") or "main"
+        source_probe = _normalize_probe(latest_sha_fn(repo, source_ref))
+        if source_probe.sha is not None:
+            return source_probe.sha, "source", True
+        return None, "missing", True
 
     mirror_sha = _mirror_clone_head_sha(
         layer.get("id", ""),
         product=layer.get("product"),
         mirror_root=mirror_root,
     )
-    return mirror_sha, "source" if mirror_sha is not None else "unknown"
+    return (
+        mirror_sha,
+        "source" if mirror_sha is not None else "unknown",
+        mirror_sha is not None,
+    )
 
 
 def compute_component_checkers(
@@ -213,12 +262,13 @@ def compute_component_checkers(
             # health check on a layer this module can't attribute.
             continue
 
-        remote_sha, comparison_kind = _remote_sha_for_layer(
+        remote_sha, comparison_kind, remote_reachable = _remote_sha_for_layer(
             layer, latest_sha_fn=latest_sha_fn, mirror_root=mirror_root
         )
         local_sha = (
-            layer_meta(lock, layer_id).get("source_sha")
-            if comparison_kind == "source"
+            _visible_checkout_head_sha(layer)
+            or layer_meta(lock, layer_id).get("source_sha")
+            if comparison_kind in {"source", "missing"}
             else _local_sha_for_layer(lock, layer_id)
         )
         checker_id = f"{product}-{layer_id}-sync"
@@ -232,7 +282,7 @@ def compute_component_checkers(
             "foundation": "foundation",
         }.get(raw_role, raw_role or None)
 
-        if remote_sha is None:
+        if remote_sha is None and not remote_reachable:
             any_offline = True
             checkers.append(
                 Checker(
@@ -242,6 +292,22 @@ def compute_component_checkers(
                     layer_role=layer_role,
                     product=product,
                     detail=f"{product}/{layer_id}: could not reach remote to verify sync",
+                    local_sha=local_sha,
+                    remote_sha=None,
+                )
+            )
+        elif remote_sha is None:
+            checkers.append(
+                Checker(
+                    id=checker_id,
+                    severity="warn",
+                    layer=layer_id,
+                    layer_role=layer_role,
+                    product=product,
+                    detail=(
+                        f"{product}/{layer_id}: remote is reachable but the "
+                        "declared sync reference is missing"
+                    ),
                     local_sha=local_sha,
                     remote_sha=None,
                 )
