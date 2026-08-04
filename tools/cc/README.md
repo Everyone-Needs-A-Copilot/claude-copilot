@@ -243,6 +243,82 @@ Keys set to `"@machine"` fall through to the machine config value, letting proje
 
 ---
 
+### Ecosystem Reconciliation
+
+`cc reconcile` is the Python-owned safety boundary for assessing and updating
+the selected Copilot ecosystem. `assess` is read-only. `plan`, `apply`, and
+`verify` all consume the same explicit request file; `apply` additionally
+requires the fresh opaque plan identifier returned by `plan`. `recover` takes
+no caller-authored mutation input: it resolves interrupted private transaction
+state before another apply can begin.
+
+```bash
+# Complete read-only machine and project census under configured approved roots
+cc reconcile assess --json
+
+# Freeze explicit user intent in a private file, then review the exact plan
+cc reconcile plan --request /private/path/reconcile-request.json --json
+
+# Apply only that freshly reviewed capability
+cc reconcile apply \
+  --request /private/path/reconcile-request.json \
+  --plan-id plan_0123456789abcdef0123456789abcdef \
+  --json
+
+# Finalize interrupted runs from their private, durable recovery authority
+cc reconcile recover --json
+
+# Independently inspect the same selected components again
+cc reconcile verify --request /private/path/reconcile-request.json --json
+```
+
+Request schema 1.0 is deliberately small and closed:
+
+```json
+{
+  "schema_version": "1.0",
+  "roots": ["/Volumes/Dev/Sites"],
+  "projects": [
+    {
+      "path": "/Volumes/Dev/Sites/example",
+      "components": ["claude", "codex"],
+      "recipe_ids": {
+        "claude": "claude.customized-preserve-entry.v1"
+      }
+    }
+  ]
+}
+```
+
+Every project keeps independent Claude and Codex states plus one primary
+route. Python authors the counts, explanations, recommendations, operations,
+preservation boundary, verification result, next actions, rollback outcomes,
+diagnostic reference, and any component-scoped `recipe_options`. The request
+may only echo a recipe identifier that Python issued for that component; plan
+revalidates its eligibility against a fresh dossier. A dirty, detached,
+excluded, ambiguous, or unverifiable project is reported without mutation.
+Customized projects accept only registered, typed, fully covering reviewed
+recipes. Plugin, gate, framework, lock, unreadable-config, and other ownership
+conflicts remain owner decisions with no mutation. Arbitrary shell or patch
+execution is not supported.
+
+`plan` capabilities expire and are single-use. `apply` repeats the assessment,
+claims the exact request/plan binding, re-inspects each project while holding
+its canonical lock, snapshots every bounded target, verifies selected
+components, and restores transaction-owned outputs on failure. Private
+redacted diagnostics live below the machine diagnostics root with directory
+mode `0700`, file mode `0600`, and a default retention of 20 records. A pending
+run blocks every new apply until `recover` either completes rollback and binds
+the final diagnostic or safely abandons a proven pre-claim intent. Repeating
+`recover` after finalization is a zero-op.
+
+JSON exit codes are part of the contract: `0` means the phase completed without
+a blocking outcome, `1` carries a valid structured `blocked` or `partial`
+report, and `2` carries a closed `phase: "error"` request/environment report.
+The frozen schemas are under `tests/fixtures/schemas/reconcile*.schema.json`.
+
+---
+
 ### Docs (Live Docs)
 
 Fetch version-exact documentation for installed packages so agents code against the real API, not stale training-data memory.

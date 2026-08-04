@@ -460,6 +460,44 @@ if codex_plugin.get("result") == "blocked":
     )
 PY
 
+# Exercise the complete read-only Phase 9 boundary from the frozen artifact.
+# Exit 1 is a valid, structured assessment when this Mac needs attention; exit
+# 2 is a transport/contract failure and must stop the release.
+finder_reconcile_probe="${scratch}/finder-reconcile-probe.json"
+set +e
+env \
+    HOME="${RELEASE_HOME}" \
+    PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+    "${artifact}" reconcile assess \
+    --json > "${finder_reconcile_probe}"
+finder_reconcile_exit=$?
+set -e
+[[ "${finder_reconcile_exit}" -eq 0 || "${finder_reconcile_exit}" -eq 1 ]] ||
+    die "Finder-environment reconciliation probe exited ${finder_reconcile_exit}"
+/usr/bin/python3 - "${finder_reconcile_probe}" "${expected_version}" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+if payload.get("schema_version") != "1.0":
+    raise SystemExit("reconciliation probe returned an incompatible schema")
+if payload.get("phase") != "assess":
+    raise SystemExit("reconciliation probe did not remain read-only")
+if payload.get("result") not in {"ready", "action-required", "blocked"}:
+    raise SystemExit("reconciliation probe returned an invalid result")
+if payload.get("machine", {}).get("helper", {}).get("version") != sys.argv[2]:
+    raise SystemExit("reconciliation probe did not execute the frozen helper version")
+projects = payload.get("projects")
+summary = payload.get("summary", {}).get("project_counts", {})
+if not isinstance(projects, list) or summary.get("total") != len(projects):
+    raise SystemExit("reconciliation project counts do not match project records")
+paths = [item.get("path") for item in projects if isinstance(item, dict)]
+if len(paths) != len(projects) or len(paths) != len(set(paths)):
+    raise SystemExit("reconciliation project census is incomplete or repeated")
+if not isinstance(payload.get("next_actions"), list):
+    raise SystemExit("reconciliation probe omitted Python-authored next actions")
+PY
+
 archive="${scratch}/cc-macos-universal.zip"
 ditto -c -k --keepParent "${artifact}" "${archive}"
 notary_args=()
@@ -538,6 +576,7 @@ cat > "${OUTPUT_DIR}/release-metadata.json" <<EOF
   "standalone_ticket_staple": "unsupported-by-apple",
   "device_flow_https_probe": "passed",
   "finder_onboard_probe": "passed",
+  "finder_reconciliation_probe": "passed",
   "sha256": "${artifact_sha}"
 }
 EOF

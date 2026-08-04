@@ -13,6 +13,7 @@ from cc.commands.layers import layers_app
 from cc.commands.mcp import mcp_app
 from cc.commands.memory import memory_app
 from cc.commands.onboard import onboard_cmd
+from cc.commands.reconcile import reconcile_app
 from cc.commands.skill import skill_app
 from cc.commands.usage import usage_app
 from cc.commands.workspaces import workspaces_app
@@ -35,6 +36,7 @@ app.add_typer(eval_app, name="eval")
 app.add_typer(auth_app, name="auth")
 app.add_typer(layers_app, name="layers")
 app.add_typer(workspaces_app, name="workspace")
+app.add_typer(reconcile_app, name="reconcile")
 app.command("onboard")(onboard_cmd)
 
 

@@ -54,3 +54,24 @@ jobs:
             tests/test_executables.py \
             tests/test_onboard_contract.py \
             tests/test_workspaces_contract.py::test_recommendations_use_gui_safe_executable_resolver
+
+      - name: Test Python-owned ecosystem reconciliation
+        working-directory: tools/cc
+        run: |
+          python -m pytest \
+            tests/test_machine_assessment.py \
+            tests/test_project_reconciliation.py \
+            tests/test_project_reconciliation_families.py \
+            tests/test_reconciliation_recipes.py \
+            tests/test_reconciliation_apply.py \
+            tests/test_reconciliation_contract.py \
+            tests/test_reconciliation_coordinator.py \
+            tests/test_reconciliation_recovery.py \
+            tests/test_reconcile_command.py \
+            tests/test_reconciliation_transaction_diagnostics.py \
+            tests/test_workspace_plan_store.py \
+            tests/test_workspace_snapshots.py \
+            tests/test_workspace_transaction_containment.py \
+            tests/test_workspace_transaction_faults.py \
+            tests/test_workspace_transaction_locking.py \
+            tests/test_workspace_transaction_recovery.py

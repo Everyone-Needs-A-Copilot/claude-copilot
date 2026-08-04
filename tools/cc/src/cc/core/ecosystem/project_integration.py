@@ -16,10 +16,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import stat
 from pathlib import Path, PurePosixPath
 from typing import Any, Optional
 
 from cc.core.config import resolve_key
+from cc.core.ecosystem.project_locking import (
+    fingerprint_file_payload,
+    fingerprint_symlink,
+)
 from cc.core.ecosystem.projects import PROJECT_LOCK_FILENAME
 
 INTEGRATION_CONTRACT_ID = "project-integration"
@@ -55,6 +60,20 @@ _CODEX_REQUIRED_LOCK_PATHS = (
     "plugins/codex-copilot/.codex-plugin/plugin.json",
     "scripts/copilot-gate.sh",
 )
+
+_MANAGED_OUTPUT_TARGET_KINDS = {
+    "claude": {
+        "CLAUDE.md": "managed-text",
+        ".mcp.json": "merged-json",
+        "copilot.project.json": "merged-json",
+    },
+    "codex": {
+        "AGENTS.md": "managed-text",
+        ".codex-copilot.json": "merged-json",
+        ".claude/skills/codex-copilot": "internal-symlink",
+        "copilot.project.json": "merged-json",
+    },
+}
 
 _CLAUDE_RELEVANT_PATHS = (
     "CLAUDE.md",
@@ -117,6 +136,22 @@ def _checksum(path: Path) -> str:
     return "sha256:" + hashlib.sha256(payload).hexdigest()
 
 
+def _managed_output_fingerprint(root: Path, relative: str) -> Optional[str]:
+    target, _ = _safe_relative_target(root, relative)
+    if target is None:
+        return None
+    try:
+        metadata = target.lstat()
+        mode = stat.S_IMODE(metadata.st_mode)
+        if stat.S_ISREG(metadata.st_mode):
+            return fingerprint_file_payload(target.read_bytes(), mode=mode)
+        if stat.S_ISLNK(metadata.st_mode):
+            return fingerprint_symlink(str(target.readlink()))
+    except OSError:
+        return None
+    return None
+
+
 def _evidence(kind: str, path: str, state: str, detail: str) -> dict[str, str]:
     return {"kind": kind, "path": path, "state": state, "detail": detail}
 
@@ -148,16 +183,30 @@ def _safe_relative_target(root: Path, raw_path: Any) -> tuple[Optional[Path], st
     if not isinstance(raw_path, str) or not raw_path:
         return None, "The recorded path is empty or not a string."
     pure = PurePosixPath(raw_path)
-    if pure.is_absolute() or ".." in pure.parts:
+    if (
+        pure.is_absolute()
+        or ".." in pure.parts
+        or "\\" in raw_path
+        or pure.as_posix() != raw_path
+        or any(ord(character) < 32 or ord(character) == 127 for character in raw_path)
+    ):
         return None, "The recorded path escapes the project."
-    target = root.joinpath(*pure.parts)
-    try:
-        if target.is_symlink():
-            resolved = target.resolve(strict=True)
-            if resolved != root and root not in resolved.parents:
-                return None, "The recorded path follows a symlink outside the project."
-    except OSError:
-        return None, "The recorded path could not be resolved safely."
+    target = root
+    for index, part in enumerate(pure.parts):
+        target = target / part
+        try:
+            metadata = target.lstat()
+        except FileNotFoundError:
+            # A missing leaf or ancestor is safe to classify as missing.  No
+            # subsequent path is read after this point.
+            return root.joinpath(*pure.parts), ""
+        except OSError:
+            return None, "The recorded path could not be inspected safely."
+        if index < len(pure.parts) - 1:
+            if stat.S_ISLNK(metadata.st_mode):
+                return None, "The recorded path has a symlink ancestor."
+            if not stat.S_ISDIR(metadata.st_mode):
+                return None, "The recorded path has a non-directory ancestor."
     return target, ""
 
 
@@ -358,6 +407,64 @@ def _verify_lock_entry(
                 {
                     "id": "verified-framework-file",
                     "detail": f"{rel_path} is {state}.",
+                }
+            )
+
+    managed_outputs = entry.get("managed_outputs", [])
+    if not isinstance(managed_outputs, list):
+        missing.append(
+            {
+                "id": "valid-managed-output",
+                "detail": f"The {component} lock managed-output evidence is invalid.",
+            }
+        )
+        return False, evidence, missing, fingerprint
+    managed_paths: set[str] = set()
+    allowed_managed = _MANAGED_OUTPUT_TARGET_KINDS[component]
+    for output in managed_outputs:
+        if (
+            not isinstance(output, dict)
+            or set(output) != {"path", "kind", "fingerprint"}
+            or not isinstance(output.get("path"), str)
+            or output.get("path") not in allowed_managed
+            or output.get("kind") != allowed_managed.get(output.get("path"))
+            or not isinstance(output.get("fingerprint"), str)
+            or not output["fingerprint"].startswith("sha256:")
+            or len(output["fingerprint"]) != 71
+            or any(
+                character not in "0123456789abcdef"
+                for character in output["fingerprint"][7:]
+            )
+            or output["path"] in managed_paths
+            or output["path"] in recorded
+        ):
+            missing.append(
+                {
+                    "id": "valid-managed-output",
+                    "detail": f"The {component} lock contains an invalid managed-output record.",
+                }
+            )
+            return False, evidence, missing, fingerprint
+        rel_path = str(output["path"])
+        managed_paths.add(rel_path)
+        actual = _managed_output_fingerprint(root, rel_path)
+        expected = str(output["fingerprint"])
+        fingerprint.append(
+            ["managed-output", rel_path, output["kind"], expected, actual]
+        )
+        if actual != expected:
+            evidence.append(
+                _evidence(
+                    "managed-output",
+                    rel_path,
+                    "missing" if actual is None else "mismatch",
+                    f"The recorded {component} managed output did not verify.",
+                )
+            )
+            missing.append(
+                {
+                    "id": "verified-managed-output",
+                    "detail": f"{rel_path} is missing or mismatched.",
                 }
             )
 
@@ -1169,7 +1276,9 @@ def _component_draft(
             linked_lock_drift = bool(lock_missing) and all(
                 (
                     item["id"] == "verified-framework-file"
-                    and item["detail"].startswith("plugins/codex-copilot/")
+                    and item["detail"].startswith(
+                        ("plugins/codex-copilot/", "scripts/copilot-gate.sh")
+                    )
                 )
                 or (
                     item["id"] == "required-lock-path"
@@ -1180,7 +1289,7 @@ def _component_draft(
                     and item["detail"].startswith(
                         ("plugins/codex-copilot/", "scripts/copilot-gate.sh:")
                     )
-                    and "follows a symlink outside the project" in item["detail"]
+                    and "symlink" in item["detail"]
                 )
                 for item in lock_missing
             )

@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Python-owned ecosystem reconciliation (`cc` 2.6.0):** `cc reconcile`
+  now provides one versioned `assess → plan → apply → recover → verify` contract for the
+  Mac and every Git project below explicitly approved roots. Python owns the
+  complete machine assessment, independent Claude/Codex project states,
+  recommendations for projects without Copilot, typed deterministic and
+  reviewed recipes, opaque expiring plan capabilities, lock-time fresh
+  preflight, contained mutation, exact snapshots and rollback, independent
+  verification, and private redacted diagnostics. Dirty, detached, excluded,
+  ambiguous, customized-without-a-reviewed-recipe, and unverifiable projects
+  remain unchanged with a named route. A durable run intent closes the
+  claim-before-journal crash gap, an explicit recovery barrier derives rollback
+  only from private persisted authority, per-project receipts survive failed
+  batch peers, and any final-census contradiction downgrades the overall result
+  without erasing an already proven project outcome. Component-scoped recipe
+  options are issued and revalidated by Python; only recipes covering the full
+  current dossier can mutate, while ownership conflicts remain no-write owner
+  decisions. The public JSON Schema 1.0 fixtures cover assess, plan, apply,
+  recover, verify, and closed error reports; the
+  signed frozen-helper release gate now exercises reconciliation in a
+  Finder-equivalent environment.
 - **`cc connect <service-id> [--check] --json` (`cc` 2.3.0, WP-395 D-6, task 222):** the
   in-app secret-input connect mechanism the owner ratified (never `.env`; a future
   device-flow/OIDC North Star model remains separate and unbuilt, WP-396). Reuses `cc

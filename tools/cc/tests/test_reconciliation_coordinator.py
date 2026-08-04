@@ -1,0 +1,519 @@
+from __future__ import annotations
+
+import json
+import subprocess
+from copy import deepcopy
+from pathlib import Path
+
+import pytest
+from cc.core.ecosystem.project_plan_store import PlanRecord
+from cc.core.ecosystem.project_reconciliation import assess_project
+from cc.core.ecosystem.reconciliation import (
+    ReconciliationError,
+    assess_reconciliation,
+    build_plan_report,
+)
+from cc.core.ecosystem.reconciliation_recipes import RecipeValidationError
+from cc.core.ecosystem.reconciliation_types import parse_reconciliation_request
+
+from cc.core.ecosystem import project_reconciliation as project_module
+from cc.core.ecosystem import reconciliation_recipes as recipes
+
+
+def _request(*, project: str = "/projects/one"):
+    return parse_reconciliation_request(
+        {
+            "schema_version": "1.0",
+            "roots": ["/projects"],
+            "projects": [{"path": project, "components": ["claude"]}],
+        }
+    )
+
+
+def _machine() -> dict:
+    return {
+        "state": "ready",
+        "helper": {
+            "state": "ready",
+            "version": "2.6.0",
+            "path": "/usr/local/bin/cc",
+            "detail": "The helper is available.",
+        },
+        "frameworks": [
+            {
+                "component": component,
+                "state": "ready",
+                "path": f"/{component}-framework",
+                "version": "1.0.0",
+                "detail": f"The {component.title()} framework is ready.",
+            }
+            for component in ("claude", "codex")
+        ],
+        "configuration": {
+            "state": "ready",
+            "path": "/config.json",
+            "approved_roots": ["/projects"],
+            "detail": "The machine configuration is readable.",
+        },
+        "authentication": {
+            "state": "signed-in",
+            "credential_state": "present",
+            "detail": "Sign-in is available.",
+        },
+        "connectivity": {"state": "online", "detail": "Network checks passed."},
+        "layers": {
+            "state": "ready",
+            "ready": 2,
+            "total": 2,
+            "detail": "Layers are ready.",
+        },
+        "dependencies": [],
+        "blockers": [],
+        "next_action": "Nothing needs to be changed.",
+    }
+
+
+def _project(*, path: str = "/projects/one", route: str = "ready") -> dict:
+    fingerprint = "sha256:" + ("a" * 64)
+    return {
+        "path": path,
+        "root": "/projects",
+        "name": path.rsplit("/", 1)[-1],
+        "inspection_id": fingerprint,
+        "presence": "claude-only",
+        "route": route,
+        "selected_components": ["claude"],
+        "components": [
+            {
+                "component": "claude",
+                "state": "ready",
+                "selected": True,
+                "recommended": True,
+                "recommendation_reason": "Claude is available.",
+                "responsible_actor": "none",
+                "evidence": [],
+                "missing_requirements": [],
+                "next_action": "Nothing needs to be changed.",
+                "recipe_options": [],
+            },
+            {
+                "component": "codex",
+                "state": "not-selected",
+                "selected": False,
+                "recommended": False,
+                "recommendation_reason": "Codex was not selected.",
+                "responsible_actor": "none",
+                "evidence": [],
+                "missing_requirements": [],
+                "next_action": "Nothing needs to be changed.",
+                "recipe_options": [],
+            },
+        ],
+        "blockers": [],
+        "next_action": "Nothing needs to be changed.",
+    }
+
+
+def _public_plan(*, operations: list | None = None) -> dict:
+    return {
+        "path": "/projects/one",
+        "inspection_id": "sha256:" + ("a" * 64),
+        "recipes": [{"component": "claude", "recipe_id": "claude-ready-receipt-v1"}],
+        "sources": [],
+        "operations": operations or [],
+        "preservation": [],
+        "prohibited_actions": ["overwrite-project-owned-content"],
+        "verification": ["claude-project-integration"],
+    }
+
+
+def _execution_plan(*, operations: list | None = None) -> dict:
+    return {"path": "/projects/one", "operations": operations or []}
+
+
+def _real_project(tmp_path: Path) -> Path:
+    project = tmp_path / "project"
+    project.mkdir()
+    subprocess.run(("git", "init", "-q"), cwd=project, check=True)
+    subprocess.run(
+        ("git", "config", "user.email", "fixture@example.invalid"),
+        cwd=project,
+        check=True,
+    )
+    subprocess.run(("git", "config", "user.name", "Fixture"), cwd=project, check=True)
+    return project
+
+
+def _write(path: Path, value: str, *, mode: int = 0o644) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(value, encoding="utf-8")
+    path.chmod(mode)
+
+
+def _claude_source(tmp_path: Path) -> Path:
+    source = tmp_path / "claude-source"
+    _write(
+        source / "VERSION.json",
+        json.dumps(
+            {
+                "framework": "5.13.3",
+                "components": {"agents": {"frameworkAgents": ["me"]}},
+            }
+        ),
+    )
+    _write(source / ".claude/commands/protocol.md", "protocol\n")
+    _write(source / ".claude/commands/continue.md", "continue\n")
+    _write(source / ".claude/fitness-check.sh", "#!/bin/sh\nexit 0\n", mode=0o755)
+    _write(source / ".claude/agents/me.md", "me\n")
+    _write(source / ".claude/agents/kc.md", "kc\n")
+    return source
+
+
+def _empty_integration_report() -> dict:
+    return {
+        "inspection": {"id": "sha256:" + "2" * 64},
+        "components": [
+            {
+                "component": component,
+                "classification": "safe-finish",
+                "recognized_setup": None,
+                "missing_requirements": [
+                    {
+                        "id": "component-setup",
+                        "detail": f"The {component.title()} integration is absent.",
+                    }
+                ],
+            }
+            for component in ("claude", "codex")
+        ],
+        "preservation": {"must_preserve": []},
+    }
+
+
+def _real_recipe_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    source: Path,
+) -> tuple[Path, dict, dict]:
+    project = _real_project(tmp_path)
+
+    def resolve(key: str) -> str | None:
+        if key == "paths.claude_copilot_root":
+            return str(source)
+        return None
+
+    monkeypatch.setattr(recipes, "resolve_key", resolve)
+    monkeypatch.setattr(project_module, "resolve_key", resolve)
+    monkeypatch.setattr(project_module, "is_project_excluded", lambda _path: False)
+    monkeypatch.setattr(
+        project_module,
+        "inspect_project_integration",
+        lambda _path, detail: _empty_integration_report(),
+    )
+    assessment = assess_project(
+        project,
+        approved_root=tmp_path,
+        selected_components=("claude",),
+    )
+    machine = _machine()
+    machine["configuration"]["approved_roots"] = [str(tmp_path)]
+    return project, assessment, machine
+
+
+def _real_recipe_request(root: Path, project: Path, recipe_id: str):
+    return parse_reconciliation_request(
+        {
+            "schema_version": "1.0",
+            "roots": [str(root)],
+            "projects": [
+                {
+                    "path": str(project),
+                    "components": ["claude"],
+                    "recipe_ids": {"claude": recipe_id},
+                }
+            ],
+        }
+    )
+
+
+def test_real_plan_record_shape_is_supported() -> None:
+    record = PlanRecord(
+        plan_id="plan_" + ("3" * 32),
+        state="reviewed",
+        request_fingerprint="sha256:" + ("4" * 64),
+        fresh_plan_fingerprint="sha256:" + ("5" * 64),
+        binding_fingerprint="sha256:" + ("6" * 64),
+        helper_version="2.6.0",
+        schema_version="1.0",
+        created_at="2026-08-04T18:00:00Z",
+        expires_at="2026-08-04T18:15:00Z",
+        plans=(_public_plan(),),
+        canonical_request=_request().as_dict(),
+    )
+
+    report = build_plan_report(
+        _request(),
+        machine_builder=_machine,
+        census_builder=lambda **_kwargs: [_project()],
+        plan_builder=lambda **_kwargs: ([_public_plan()], [_execution_plan()]),
+        plan_issuer=lambda **_kwargs: record,
+        run_id="run_" + ("7" * 32),
+    )
+
+    assert report["plan_id"] == record.plan_id
+    assert report["expires_at"] == record.expires_at
+
+
+@pytest.mark.parametrize(
+    "recipe_id",
+    [
+        "unknown-reviewed-recipe-v1",
+        "codex-project-update-v1",
+        "claude-ineligible-route-v1",
+    ],
+)
+def test_recipe_selection_failures_map_to_typed_invalid_recipe(
+    recipe_id: str,
+) -> None:
+    request = parse_reconciliation_request(
+        {
+            "schema_version": "1.0",
+            "roots": ["/projects"],
+            "projects": [
+                {
+                    "path": "/projects/one",
+                    "components": ["claude"],
+                    "recipe_ids": {"claude": recipe_id},
+                }
+            ],
+        }
+    )
+
+    def reject(**kwargs):
+        assert kwargs["recipe_ids"]["/projects/one"]["claude"] == recipe_id
+        raise RecipeValidationError("untrusted internal recipe detail")
+
+    with pytest.raises(ReconciliationError) as raised:
+        build_plan_report(
+            request,
+            machine_builder=_machine,
+            census_builder=lambda **_kwargs: [_project()],
+            plan_builder=reject,
+        )
+
+    assert (raised.value.code, raised.value.exit_code) == ("invalid-recipe", 2)
+    assert "untrusted internal" not in raised.value.detail
+
+
+def test_authoritative_recipe_source_failure_maps_to_business_block() -> None:
+    def unavailable(**_kwargs):
+        raise RecipeValidationError(
+            "authoritative source file /private/sentinel was unavailable"
+        )
+
+    with pytest.raises(ReconciliationError) as raised:
+        build_plan_report(
+            _request(),
+            machine_builder=_machine,
+            census_builder=lambda **_kwargs: [_project()],
+            plan_builder=unavailable,
+        )
+
+    assert (raised.value.code, raised.value.exit_code) == ("recipe-unavailable", 1)
+    assert "/private/sentinel" not in raised.value.detail
+
+
+@pytest.mark.parametrize(
+    "recipe_id",
+    [
+        "unknown-recipe-v1",
+        "codex-project-setup-v1",
+        "claude-canonical-entry-v1",
+    ],
+)
+def test_production_recipe_registry_failures_map_to_invalid_recipe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    recipe_id: str,
+) -> None:
+    source = _claude_source(tmp_path)
+    project, assessment, machine = _real_recipe_context(
+        tmp_path, monkeypatch, source=source
+    )
+    assert assessment["components"][0]["state"] == "safe-setup-available"
+
+    with pytest.raises(ReconciliationError) as raised:
+        build_plan_report(
+            _real_recipe_request(tmp_path, project, recipe_id),
+            machine_builder=lambda: machine,
+            census_builder=lambda **_kwargs: [assessment],
+        )
+
+    assert (raised.value.code, raised.value.exit_code) == ("invalid-recipe", 2)
+    assert recipe_id not in raised.value.detail
+
+
+def test_production_recipe_missing_authoritative_source_maps_to_business_block(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    missing_source = tmp_path / "private-missing-source"
+    project, assessment, machine = _real_recipe_context(
+        tmp_path, monkeypatch, source=missing_source
+    )
+    assert assessment["components"][0]["state"] == "safe-setup-available"
+
+    with pytest.raises(ReconciliationError) as raised:
+        build_plan_report(
+            _real_recipe_request(
+                tmp_path,
+                project,
+                "claude-project-setup-v1",
+            ),
+            machine_builder=lambda: machine,
+            census_builder=lambda **_kwargs: [assessment],
+        )
+
+    assert (raised.value.code, raised.value.exit_code) == ("recipe-unavailable", 1)
+    assert str(missing_source) not in raised.value.detail
+
+
+def test_census_exception_maps_to_safe_invalid_project_authority() -> None:
+    def fail_census(**_kwargs):
+        raise RuntimeError("/private/project and secret content")
+
+    with pytest.raises(ReconciliationError) as raised:
+        build_plan_report(
+            _request(),
+            machine_builder=_machine,
+            census_builder=fail_census,
+        )
+
+    assert (raised.value.code, raised.value.exit_code) == (
+        "invalid-project-authority",
+        2,
+    )
+    assert "/private/project" not in raised.value.detail
+    assert "secret content" not in raised.value.detail
+
+
+def test_selected_project_must_be_beneath_requested_root() -> None:
+    with pytest.raises(ReconciliationError, match="contained"):
+        build_plan_report(
+            _request(project="/elsewhere/one"),
+            machine_builder=_machine,
+            census_builder=lambda **_kwargs: [_project(path="/elsewhere/one")],
+            plan_builder=lambda **_kwargs: ([], []),
+        )
+
+
+def test_selected_project_must_appear_once_in_fresh_census() -> None:
+    with pytest.raises(ReconciliationError, match="every selected project"):
+        build_plan_report(
+            _request(),
+            machine_builder=_machine,
+            census_builder=lambda **_kwargs: [],
+            plan_builder=lambda **_kwargs: ([], []),
+        )
+
+
+def test_plan_fingerprint_binds_complete_machine_safety_evidence() -> None:
+    fingerprints: list[str] = []
+
+    def issue(**kwargs):
+        fingerprints.append(kwargs["fresh_plan_fingerprint"])
+        return {
+            "plan_id": "plan_" + (str(len(fingerprints)) * 32),
+            "expires_at": "2026-08-04T18:15:00Z",
+        }
+
+    first = _machine()
+    second = deepcopy(first)
+    second["authentication"]["state"] = "could-not-verify"
+    second["authentication"]["detail"] = "The credential store is unavailable."
+
+    for machine in (first, second):
+        build_plan_report(
+            _request(),
+            machine_builder=lambda value=machine: value,
+            census_builder=lambda **_kwargs: [_project()],
+            plan_builder=lambda **_kwargs: (
+                [_public_plan()],
+                [_execution_plan()],
+            ),
+            plan_issuer=issue,
+        )
+
+    assert fingerprints[0] != fingerprints[1]
+
+
+def test_plan_fingerprint_ignores_unselected_census_changes() -> None:
+    fingerprints: list[str] = []
+
+    def issue(**kwargs):
+        fingerprints.append(kwargs["fresh_plan_fingerprint"])
+        return {
+            "plan_id": "plan_" + (str(len(fingerprints)) * 32),
+            "expires_at": "2026-08-04T18:15:00Z",
+        }
+
+    unrelated = _project(path="/projects/unrelated")
+    unrelated["selected_components"] = []
+    for component in unrelated["components"]:
+        component["selected"] = False
+    changed_unrelated = deepcopy(unrelated)
+    changed_unrelated["route"] = "held"
+    changed_unrelated["components"][0]["state"] = "held"
+
+    for peer in (unrelated, changed_unrelated):
+        build_plan_report(
+            _request(),
+            machine_builder=_machine,
+            census_builder=lambda peer=peer, **_kwargs: [_project(), peer],
+            plan_builder=lambda **_kwargs: (
+                [_public_plan()],
+                [_execution_plan()],
+            ),
+            plan_issuer=issue,
+        )
+
+    assert fingerprints[0] == fingerprints[1]
+
+
+def test_unsafe_project_cannot_smuggle_operations_into_a_plan() -> None:
+    operation = {
+        "id": "op_" + ("8" * 64),
+        "kind": "create-file-from-source",
+        "component": "claude",
+        "target": "CLAUDE.md",
+        "description": "Create the portable Claude entry point.",
+        "expected_before_fingerprint": "sha256:" + ("9" * 64),
+        "source_fingerprint": "sha256:" + ("a" * 64),
+    }
+
+    with pytest.raises(ReconciliationError, match="cannot contain operations"):
+        build_plan_report(
+            _request(),
+            machine_builder=_machine,
+            census_builder=lambda **_kwargs: [_project(route="held")],
+            plan_builder=lambda **_kwargs: (
+                [_public_plan(operations=[operation])],
+                [{"path": "/projects/one"}],
+            ),
+        )
+
+
+def test_unknown_or_duplicate_census_routes_fail_closed() -> None:
+    invalid = _project(route="surprising")
+    with pytest.raises(ReconciliationError, match="unsupported project route"):
+        assess_reconciliation(
+            machine_builder=_machine,
+            census_builder=lambda **_kwargs: [invalid],
+        )
+
+    with pytest.raises(ReconciliationError, match="repeated project path"):
+        assess_reconciliation(
+            machine_builder=_machine,
+            census_builder=lambda **_kwargs: [_project(), _project()],
+        )
