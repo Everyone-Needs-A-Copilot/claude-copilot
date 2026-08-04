@@ -546,26 +546,32 @@ PY
     "${assistant_root}" \
     "${source_checkout}" \
     "${codex_source}" \
+    "${RELEASE_HOME}/.claude/cc/config.json" \
     "${assistant_request}" \
     "${assistant_project}" <<'PY'
 import json
 import pathlib
 import sys
 
-config_path, approved_root, claude_source, codex_source, request_path, project = sys.argv[1:]
+(
+    config_path,
+    approved_root,
+    claude_source,
+    codex_source,
+    base_config_path,
+    request_path,
+    project,
+) = sys.argv[1:]
+config = json.load(open(base_config_path, encoding="utf-8"))
+config["projects"] = {"roots": [approved_root]}
+config.setdefault("paths", {}).update(
+    {
+        "claude_copilot_root": claude_source,
+        "codex_copilot_root": codex_source,
+    }
+)
 pathlib.Path(config_path).write_text(
-    json.dumps(
-        {
-            "$schema": "cc-config-v1",
-            "version": 1,
-            "projects": {"roots": [approved_root]},
-            "paths": {
-                "claude_copilot_root": claude_source,
-                "codex_copilot_root": codex_source,
-            },
-        },
-        sort_keys=True,
-    ),
+    json.dumps(config, sort_keys=True),
     encoding="utf-8",
 )
 pathlib.Path(request_path).write_text(
@@ -590,7 +596,8 @@ assistant_env=(
 )
 env "${assistant_env[@]}" \
     "${artifact}" reconcile assistant-prepare \
-    --request "${assistant_request}" --json > "${assistant_prepare_probe}"
+    --request "${assistant_request}" --json > "${assistant_prepare_probe}" ||
+    die "frozen helper assistant-prepare probe failed: $(<"${assistant_prepare_probe}")"
 assistant_session="$({ /usr/bin/python3 - "${assistant_prepare_probe}" <<'PY'
 import json
 import sys
@@ -625,10 +632,12 @@ env "${assistant_env[@]}" \
     FAKE_CLAUDE_MODE=valid \
     FAKE_CLAUDE_PAYLOAD_JSON="${assistant_payload}" \
     "${artifact}" reconcile assistant-run \
-    --session-id "${assistant_session}" --json > "${assistant_run_probe}"
+    --session-id "${assistant_session}" --json > "${assistant_run_probe}" ||
+    die "frozen helper assistant-run probe failed: $(<"${assistant_run_probe}")"
 env "${assistant_env[@]}" \
     "${artifact}" reconcile assistant-status \
-    --session-id "${assistant_session}" --json > "${assistant_status_probe}"
+    --session-id "${assistant_session}" --json > "${assistant_status_probe}" ||
+    die "frozen helper assistant-status probe failed: $(<"${assistant_status_probe}")"
 /usr/bin/python3 - \
     "${assistant_request}" \
     "${assistant_status_probe}" \
@@ -648,7 +657,8 @@ PY
 chmod 600 "${assistant_proposal_request}"
 env "${assistant_env[@]}" \
     "${artifact}" reconcile plan \
-    --request "${assistant_proposal_request}" --json > "${assistant_plan_probe}"
+    --request "${assistant_proposal_request}" --json > "${assistant_plan_probe}" ||
+    die "frozen helper assistant-plan probe failed: $(<"${assistant_plan_probe}")"
 /usr/bin/python3 - \
     "${assistant_prepare_probe}" \
     "${assistant_run_probe}" \
