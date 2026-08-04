@@ -1,0 +1,5 @@
+{
+  "installType": "copy",
+  "pluginPath": "./plugins/codex-copilot",
+  "projectName": "claude-copilot"
+}

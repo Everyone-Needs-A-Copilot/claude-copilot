@@ -1,0 +1,8 @@
+interface:
+  display_name: "Knowledge Copilot"
+  short_description: "Set up knowledge"
+  default_prompt: "Use $knowledge-copilot to inspect, create, or link shared knowledge for Codex Copilot."
+
+policy:
+  allow_implicit_invocation: false
+
