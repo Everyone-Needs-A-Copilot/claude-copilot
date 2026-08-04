@@ -1,0 +1,389 @@
+{
+  "fixture_schema_version": "1.0",
+  "contract": {
+    "id": "project-integration",
+    "version": "1",
+    "components": [
+      "claude",
+      "codex"
+    ]
+  },
+  "cases": [
+    {
+      "id": "tracked-complete",
+      "description": "Both component contracts and their shared lock evidence are complete.",
+      "layout": [
+        {
+          "path": "CLAUDE.md",
+          "kind": "file",
+          "fixture": "claude-compatible-entry-v1",
+          "readability": "readable"
+        },
+        {
+          "path": "AGENTS.md",
+          "kind": "file",
+          "fixture": "codex-compatible-entry-v1",
+          "readability": "readable"
+        },
+        {
+          "path": ".claude/skills/codex-copilot",
+          "kind": "symlink",
+          "fixture": "internal-claude-skills-link-v1",
+          "readability": "readable"
+        },
+        {
+          "path": ".codex-copilot.json",
+          "kind": "file",
+          "fixture": "codex-project-config-v1",
+          "readability": "readable"
+        },
+        {
+          "path": "plugins/codex-copilot/.codex-plugin/plugin.json",
+          "kind": "file",
+          "fixture": "codex-plugin-manifest-v1",
+          "readability": "readable"
+        },
+        {
+          "path": "copilot.lock.json",
+          "kind": "file",
+          "fixture": "tracked-both-components-v1",
+          "readability": "readable"
+        }
+      ],
+      "capabilities": {
+        "instructions": 2,
+        "agents": 0,
+        "skills": 2,
+        "commands": 0,
+        "plugins": 1
+      },
+      "expected": {
+        "classification": "ready",
+        "legacy_state": "ready",
+        "responsible_actor": "none",
+        "safe_action_kind": null,
+        "components": {
+          "claude": "ready",
+          "codex": "ready"
+        }
+      }
+    },
+    {
+      "id": "compatible-missing-lock",
+      "description": "Compatible entries exist and only exact, versioned framework records are missing.",
+      "layout": [
+        {
+          "path": "CLAUDE.md",
+          "kind": "file",
+          "fixture": "claude-compatible-entry-v1",
+          "readability": "readable"
+        },
+        {
+          "path": "AGENTS.md",
+          "kind": "file",
+          "fixture": "codex-compatible-entry-v1",
+          "readability": "readable"
+        },
+        {
+          "path": ".claude/skills/codex-copilot",
+          "kind": "symlink",
+          "fixture": "internal-claude-skills-link-v1",
+          "readability": "readable"
+        },
+        {
+          "path": ".codex-copilot.json",
+          "kind": "file",
+          "fixture": "codex-project-config-v1",
+          "readability": "readable"
+        },
+        {
+          "path": "plugins/codex-copilot/.codex-plugin/plugin.json",
+          "kind": "file",
+          "fixture": "codex-plugin-manifest-v1",
+          "readability": "readable"
+        }
+      ],
+      "capabilities": {
+        "instructions": 2,
+        "agents": 0,
+        "skills": 2,
+        "commands": 0,
+        "plugins": 1
+      },
+      "expected": {
+        "classification": "safe-finish",
+        "legacy_state": "activation-required",
+        "responsible_actor": "cli",
+        "safe_action_kind": "adopt-existing",
+        "components": {
+          "claude": "safe-finish",
+          "codex": "safe-finish"
+        }
+      }
+    },
+    {
+      "id": "recognized-legacy",
+      "description": "Known legacy markers can be upgraded without touching project-owned material.",
+      "layout": [
+        {
+          "path": ".mcp.json",
+          "kind": "file",
+          "fixture": "claude-legacy-mcp-v1",
+          "readability": "readable"
+        },
+        {
+          "path": ".claude/commands/protocol.md",
+          "kind": "file",
+          "fixture": "claude-legacy-protocol-v1",
+          "readability": "readable"
+        },
+        {
+          "path": ".codex-copilot.json",
+          "kind": "file",
+          "fixture": "codex-legacy-config-v1",
+          "readability": "readable"
+        },
+        {
+          "path": "plugins/codex-copilot/.codex-plugin/plugin.json",
+          "kind": "file",
+          "fixture": "codex-plugin-manifest-v1",
+          "readability": "readable"
+        }
+      ],
+      "capabilities": {
+        "instructions": 0,
+        "agents": 0,
+        "skills": 0,
+        "commands": 1,
+        "plugins": 1
+      },
+      "expected": {
+        "classification": "safe-finish",
+        "legacy_state": "setup-available",
+        "responsible_actor": "cli",
+        "safe_action_kind": "repair-known",
+        "components": {
+          "claude": "safe-finish",
+          "codex": "safe-finish"
+        }
+      }
+    },
+    {
+      "id": "guidance-only",
+      "description": "Project-authored guidance exists without a recognized component integration contract.",
+      "layout": [
+        {
+          "path": "CLAUDE.md",
+          "kind": "file",
+          "fixture": "project-authored-guidance",
+          "readability": "readable"
+        },
+        {
+          "path": "AGENTS.md",
+          "kind": "file",
+          "fixture": "project-authored-guidance",
+          "readability": "readable"
+        }
+      ],
+      "capabilities": {
+        "instructions": 2,
+        "agents": 0,
+        "skills": 0,
+        "commands": 0,
+        "plugins": 0
+      },
+      "expected": {
+        "classification": "guided-integration",
+        "legacy_state": "blocked",
+        "responsible_actor": "project-author",
+        "safe_action_kind": null,
+        "components": {
+          "claude": "guided-integration",
+          "codex": "guided-integration"
+        }
+      }
+    },
+    {
+      "id": "deep-specialization",
+      "description": "A mature project capability model must be preserved and integrated by its author.",
+      "layout": [
+        {
+          "path": "CLAUDE.md",
+          "kind": "file",
+          "fixture": "project-authored-routing",
+          "readability": "readable"
+        },
+        {
+          "path": "AGENTS.md",
+          "kind": "file",
+          "fixture": "project-authored-routing",
+          "readability": "readable"
+        },
+        {
+          "path": ".claude/agents",
+          "kind": "directory",
+          "fixture": "synthetic-agent-tree-a",
+          "readability": "readable"
+        },
+        {
+          "path": ".claude/skills",
+          "kind": "directory",
+          "fixture": "synthetic-skill-tree-a",
+          "readability": "readable"
+        },
+        {
+          "path": ".agents/skills",
+          "kind": "directory",
+          "fixture": "synthetic-skill-tree-b",
+          "readability": "readable"
+        }
+      ],
+      "capabilities": {
+        "instructions": 2,
+        "agents": 24,
+        "skills": 8,
+        "commands": 7,
+        "plugins": 0
+      },
+      "expected": {
+        "classification": "guided-integration",
+        "legacy_state": "blocked",
+        "responsible_actor": "project-author",
+        "safe_action_kind": null,
+        "components": {
+          "claude": "guided-integration",
+          "codex": "guided-integration"
+        }
+      }
+    },
+    {
+      "id": "mixed-custom-entry",
+      "description": "One verified component does not authorize changing the other component's custom entry.",
+      "layout": [
+        {
+          "path": "CLAUDE.md",
+          "kind": "file",
+          "fixture": "claude-compatible-entry-v1",
+          "readability": "readable"
+        },
+        {
+          "path": ".claude/skills/codex-copilot",
+          "kind": "symlink",
+          "fixture": "internal-claude-skills-link-v1",
+          "readability": "readable"
+        },
+        {
+          "path": "AGENTS.md",
+          "kind": "file",
+          "fixture": "project-authored-routing",
+          "readability": "readable"
+        },
+        {
+          "path": ".agents/skills",
+          "kind": "directory",
+          "fixture": "synthetic-skill-tree-c",
+          "readability": "readable"
+        }
+      ],
+      "capabilities": {
+        "instructions": 2,
+        "agents": 3,
+        "skills": 5,
+        "commands": 1,
+        "plugins": 0
+      },
+      "expected": {
+        "classification": "guided-integration",
+        "legacy_state": "blocked",
+        "responsible_actor": "project-author",
+        "safe_action_kind": null,
+        "components": {
+          "claude": "ready",
+          "codex": "guided-integration"
+        }
+      }
+    },
+    {
+      "id": "owner-governed",
+      "description": "A project ownership declaration requires an explicit owner decision before integration.",
+      "layout": [
+        {
+          "path": ".copilot/project-owner.json",
+          "kind": "file",
+          "fixture": "owner-decision-required-v1",
+          "readability": "readable"
+        },
+        {
+          "path": "CLAUDE.md",
+          "kind": "file",
+          "fixture": "project-authored-guidance",
+          "readability": "readable"
+        },
+        {
+          "path": "AGENTS.md",
+          "kind": "file",
+          "fixture": "project-authored-guidance",
+          "readability": "readable"
+        }
+      ],
+      "capabilities": {
+        "instructions": 2,
+        "agents": 0,
+        "skills": 1,
+        "commands": 0,
+        "plugins": 0
+      },
+      "expected": {
+        "classification": "owner-decision",
+        "legacy_state": "blocked",
+        "responsible_actor": "project-owner",
+        "safe_action_kind": null,
+        "components": {
+          "claude": "owner-decision",
+          "codex": "owner-decision"
+        }
+      }
+    },
+    {
+      "id": "unreadable-contract-evidence",
+      "description": "Unreadable component evidence prevents the CLI from proving readiness or a safe finish.",
+      "layout": [
+        {
+          "path": "CLAUDE.md",
+          "kind": "file",
+          "fixture": "claude-compatible-entry-v1",
+          "readability": "readable"
+        },
+        {
+          "path": ".claude/skills/codex-copilot",
+          "kind": "symlink",
+          "fixture": "internal-claude-skills-link-v1",
+          "readability": "readable"
+        },
+        {
+          "path": ".codex-copilot.json",
+          "kind": "file",
+          "fixture": "codex-project-config-v1",
+          "readability": "unreadable"
+        }
+      ],
+      "capabilities": {
+        "instructions": 1,
+        "agents": 0,
+        "skills": 1,
+        "commands": 0,
+        "plugins": 0
+      },
+      "expected": {
+        "classification": "could-not-verify",
+        "legacy_state": "blocked",
+        "responsible_actor": "person",
+        "safe_action_kind": null,
+        "components": {
+          "claude": "ready",
+          "codex": "could-not-verify"
+        }
+      }
+    }
+  ]
+}

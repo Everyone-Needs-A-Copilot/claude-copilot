@@ -1,0 +1,33 @@
+{
+  "marketplace_spec": "1.0",
+  "name": "Claude Copilot Marketplace",
+  "description": "Single-entry marketplace for Claude Copilot. Add this as an extraKnownMarketplaces source so your team can discover and install the framework via /plugin install claude-copilot.",
+  "plugins": [
+    {
+      "name": "claude-copilot",
+      "version": "5.8.0",
+      "description": "Claude Copilot — specialized agents (ta/me/qa/sd/do/doc/kc), skills, commands, and hooks that give Claude persistent memory, expert methodology, and task tracking.",
+      "author": "Claude Copilot contributors",
+      "homepage": "https://github.com/pabloalej/claude-copilot",
+      "manifest": ".claude-plugin/plugin.json",
+      "tags": ["agents", "memory", "tasks", "skills", "hooks", "framework"],
+      "requires_external": {
+        "cc": {
+          "description": "cc CLI — memory, skill management, extension resolution",
+          "install": "bash tools/cc/install.sh",
+          "degraded_without": ["cc memory", "cc skill", "cc extension resolution", "agent override layer"]
+        },
+        "tc": {
+          "description": "tc CLI — task copilot (PRD, task, work product storage)",
+          "install": "pip install -e tools/tc",
+          "degraded_without": ["tc task", "tc wp", "tc handoff", "tc progress"]
+        }
+      }
+    }
+  ],
+  "_usage": {
+    "add_marketplace": "Add to your Claude Code settings: extraKnownMarketplaces: [\"<repo-url>/.claude-plugin/marketplace.json\"]",
+    "install": "/plugin install claude-copilot",
+    "after_install": "Run 'bash tools/cc/install.sh' and 'pip install -e tools/tc' to enable full functionality. Then run 'cc doctor' to verify."
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://everyoneneedsacopilot.com/schemas/claude-copilot/reconcile-request.schema.json",
+  "title": "cc reconcile explicit selection request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "roots", "projects"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "roots": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/literalAbsolutePath" }
+    },
+    "projects": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/projectSelection" }
+    }
+  },
+  "$defs": {
+    "literalAbsolutePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^/[^\\u0000-\\u001F\\u007F]*$",
+      "description": "A literal POSIX absolute path. Tilde expansion is not supported; the parser normalizes redundant separators and dot segments."
+    },
+    "projectSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "components"],
+      "properties": {
+        "path": { "$ref": "#/$defs/literalAbsolutePath" },
+        "components": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["claude", "codex"] }
+        },
+        "recipe_ids": {
+          "type": "object",
+          "additionalProperties": false,
+          "propertyNames": { "enum": ["claude", "codex"] },
+          "properties": {
+            "claude": { "$ref": "#/$defs/recipeId" },
+            "codex": { "$ref": "#/$defs/recipeId" }
+          }
+        }
+      }
+    },
+    "recipeId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    }
+  }
+}
