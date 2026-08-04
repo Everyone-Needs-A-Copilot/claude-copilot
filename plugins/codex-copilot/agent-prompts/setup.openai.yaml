@@ -1,0 +1,8 @@
+interface:
+  display_name: "Setup"
+  short_description: "Route setup"
+  default_prompt: "Use $setup to route machine, framework, project, update, or verification setup work."
+
+policy:
+  allow_implicit_invocation: false
+
