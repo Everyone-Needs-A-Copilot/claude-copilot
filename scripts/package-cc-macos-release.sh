@@ -842,6 +842,9 @@ allowed_environment_names = {
     "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS",
     "CLAUDE_CONFIG_DIR", "FAKE_CLAUDE_CAPTURE", "FAKE_CLAUDE_MODE",
     "FAKE_CLAUDE_PAYLOAD_JSON",
+    # Apple's /usr/bin/python3 shebang launcher adds these after exec. They are
+    # not present in the environment authored by the frozen helper.
+    "CPATH", "LIBRARY_PATH", "MANPATH", "SDKROOT", "__CF_USER_TEXT_ENCODING",
 }
 environment_names = set(capture.get("environment_keys", []))
 unexpected_environment = environment_names - allowed_environment_names
