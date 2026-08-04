@@ -513,8 +513,9 @@ assistant_run_probe="${scratch}/assistant-run-probe.json"
 assistant_status_probe="${scratch}/assistant-status-probe.json"
 assistant_plan_probe="${scratch}/assistant-plan-probe.json"
 assistant_proposal_request="${scratch}/assistant-proposal-request.json"
-mkdir -p "${assistant_root}"
+mkdir -p "${assistant_root}" "${assistant_machine_root}"
 assistant_root="$(cd "${assistant_root}" && pwd -P)"
+assistant_machine_root="$(cd "${assistant_machine_root}" && pwd -P)"
 assistant_project="${assistant_root}/customized-project"
 mkdir -p \
     "${assistant_project}/.claude/agents" \
