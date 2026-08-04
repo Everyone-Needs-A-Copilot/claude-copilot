@@ -516,6 +516,7 @@ assistant_proposal_request="${scratch}/assistant-proposal-request.json"
 mkdir -p "${assistant_root}" "${assistant_machine_root}"
 assistant_root="$(cd "${assistant_root}" && pwd -P)"
 assistant_machine_root="$(cd "${assistant_machine_root}" && pwd -P)"
+chmod 700 "${assistant_root}" "${assistant_machine_root}"
 assistant_project="${assistant_root}/customized-project"
 mkdir -p \
     "${assistant_project}/.claude/agents" \
@@ -632,6 +633,7 @@ PY
 env "${assistant_env[@]}" \
     CC_ASSISTANT_TEST_MODE=1 \
     CC_ASSISTANT_CLAUDE_PATH="${assistant_fake}" \
+    HTTPS_PROXY="https://release-probe:credential-canary@example.invalid:443" \
     FAKE_CLAUDE_CAPTURE="${assistant_capture}" \
     FAKE_CLAUDE_MODE=valid \
     FAKE_CLAUDE_PAYLOAD_JSON="${assistant_payload}" \
@@ -675,6 +677,8 @@ import base64
 import json
 import pathlib
 import re
+import stat
+import subprocess
 import sys
 
 prepare, run, status, plan, capture = [
@@ -694,21 +698,130 @@ if plan.get("phase") != "plan" or not isinstance(plans, list) or len(plans) != 1
 if plans[0].get("path") != project or not plans[0].get("operations"):
     raise SystemExit("frozen assistant proposal plan did not cover the fixture")
 argv = capture.get("argv")
-required_flags = {
-    "--safe-mode", "--tools", "--permission-mode", "--strict-mcp-config",
-    "--disable-slash-commands", "--no-session-persistence", "--no-chrome",
-    "--print", "--input-format", "--output-format", "--json-schema",
-}
-if not isinstance(argv, list) or not required_flags <= set(argv):
-    raise SystemExit("frozen assistant Claude invocation omitted a required guard")
-if argv[argv.index("--tools") + 1] != "" or argv[argv.index("--permission-mode") + 1] != "plan":
-    raise SystemExit("frozen assistant Claude invocation granted unsupported authority")
-if argv[argv.index("--input-format") + 1] != "text" or argv[argv.index("--output-format") + 1] != "json":
-    raise SystemExit("frozen assistant Claude invocation used an unsupported transport")
+expected_argv_prefix = [
+    "--safe-mode",
+    "--tools", "",
+    "--permission-mode", "plan",
+    "--strict-mcp-config",
+    "--disable-slash-commands",
+    "--no-session-persistence",
+    "--no-chrome",
+    "--print",
+    "--input-format", "text",
+    "--output-format", "json",
+    "--json-schema",
+]
+if not isinstance(argv, list) or argv[:-1] != expected_argv_prefix:
+    raise SystemExit("frozen assistant Claude invocation was not exactly guarded")
+try:
+    schema = json.loads(argv[-1])
+except (IndexError, TypeError, json.JSONDecodeError) as exc:
+    raise SystemExit("frozen assistant Claude invocation omitted its JSON schema") from exc
+selections_schema = schema.get("properties", {}).get("selections", {})
+selection_item_schema = selections_schema.get("items", {})
+candidate_schema = selection_item_schema.get("properties", {}).get(
+    "candidate_id", {}
+)
+candidate_ids = candidate_schema.get("enum")
+if (
+    schema.get("type") != "object"
+    or schema.get("additionalProperties") is not False
+    or schema.get("required") != ["selections"]
+    or selections_schema.get("type") != "array"
+    or not isinstance(selections_schema.get("minItems"), int)
+    or selections_schema.get("minItems") < 1
+    or selections_schema.get("maxItems") != selections_schema.get("minItems")
+    or selection_item_schema.get("type") != "object"
+    or selection_item_schema.get("additionalProperties") is not False
+    or selection_item_schema.get("required") != ["candidate_id"]
+    or candidate_schema.get("type") != "string"
+    or not isinstance(candidate_ids, list)
+    or not candidate_ids
+    or len(candidate_ids) != len(set(candidate_ids))
+    or any(
+        not isinstance(value, str)
+        or re.fullmatch(r"candidate_[0-9a-f]{64}", value) is None
+        for value in candidate_ids
+    )
+):
+    raise SystemExit("frozen assistant Claude invocation used an open output schema")
 prompt = base64.b64decode(capture["stdin_base64"]).decode("utf-8")
-if project in prompt or project in json.dumps(argv):
-    raise SystemExit("frozen assistant leaked a project path to Claude")
+private_values = {
+    project,
+    pathlib.Path(project).name,
+    "# Project-owned Claude instructions",
+    "project-owned agent",
+    "project-owned command",
+}
+invocation_text = json.dumps(argv)
+if any(value in prompt or value in invocation_text for value in private_values):
+    raise SystemExit("frozen assistant leaked project identity or content to Claude")
 payload = json.loads(prompt)
+expected_instruction = (
+    "Select exactly one offered candidate for every component group. "
+    "Return only the required structured output. Do not author or infer "
+    "commands, paths, content, patches, operations, or guidance."
+)
+packet = payload.get("packet") if isinstance(payload, dict) else None
+if (
+    not isinstance(payload, dict)
+    or set(payload) != {"instruction", "packet"}
+    or payload.get("instruction") != expected_instruction
+    or not isinstance(packet, dict)
+    or set(packet) != {"schema_version", "task", "projects", "rules"}
+    or packet.get("schema_version") != "1.0"
+    or packet.get("task") != "select-bounded-project-reconciliation-candidates"
+    or packet.get("rules")
+    != {
+        "select_exactly_one_candidate_per_component": True,
+        "author_commands_paths_content_patches_operations": False,
+    }
+    or not isinstance(packet.get("projects"), list)
+    or not packet["projects"]
+):
+    raise SystemExit("frozen assistant prompt was not the closed opaque packet")
+packet_candidate_ids = []
+packet_component_count = 0
+project_refs = set()
+for packet_project in packet["projects"]:
+    if (
+        not isinstance(packet_project, dict)
+        or set(packet_project) != {"project_ref", "components"}
+        or re.fullmatch(
+            r"project_[0-9a-f]{32}", packet_project.get("project_ref", "")
+        )
+        is None
+        or packet_project["project_ref"] in project_refs
+        or not isinstance(packet_project.get("components"), list)
+        or not packet_project["components"]
+    ):
+        raise SystemExit("frozen assistant prompt exposed an invalid project packet")
+    project_refs.add(packet_project["project_ref"])
+    for packet_component in packet_project["components"]:
+        if (
+            not isinstance(packet_component, dict)
+            or set(packet_component)
+            != {"component", "candidate_ids", "evidence_codes"}
+            or packet_component.get("component") not in {"claude", "codex"}
+            or packet_component.get("evidence_codes")
+            != ["customized-setup-present"]
+            or not isinstance(packet_component.get("candidate_ids"), list)
+            or not packet_component["candidate_ids"]
+            or any(
+                not isinstance(value, str)
+                or re.fullmatch(r"candidate_[0-9a-f]{64}", value) is None
+                for value in packet_component["candidate_ids"]
+            )
+        ):
+            raise SystemExit("frozen assistant prompt exposed an invalid component packet")
+        packet_component_count += 1
+        packet_candidate_ids.extend(packet_component["candidate_ids"])
+if (
+    len(packet_candidate_ids) != len(set(packet_candidate_ids))
+    or set(packet_candidate_ids) != set(candidate_ids)
+    or packet_component_count != selections_schema["minItems"]
+):
+    raise SystemExit("frozen assistant prompt and output schema were not bound")
 prohibited = {"command", "path", "content", "patch", "operation"}
 def walk(value):
     if isinstance(value, dict):
@@ -723,9 +836,74 @@ walk(payload)
 cwd = pathlib.Path(capture["cwd"]).resolve()
 if machine_root not in cwd.parents or project in str(cwd):
     raise SystemExit("frozen assistant did not run from its private workspace")
-secret_names = {"GITHUB_TOKEN", "GH_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "SSH_AUTH_SOCK"}
-if secret_names & set(capture.get("environment_keys", [])):
-    raise SystemExit("frozen assistant inherited a credential-bearing environment name")
+allowed_environment_names = {
+    "HOME", "USER", "LOGNAME", "SHELL", "PATH", "TMPDIR", "LANG",
+    "LC_ALL", "LC_CTYPE", "TERM", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY",
+    "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS",
+    "CLAUDE_CONFIG_DIR", "FAKE_CLAUDE_CAPTURE", "FAKE_CLAUDE_MODE",
+    "FAKE_CLAUDE_PAYLOAD_JSON",
+}
+environment_names = set(capture.get("environment_keys", []))
+unexpected_environment = environment_names - allowed_environment_names
+if unexpected_environment:
+    raise SystemExit(
+        "frozen assistant inherited unexpected environment names: "
+        + ", ".join(sorted(unexpected_environment))
+    )
+if "HTTPS_PROXY" in environment_names:
+    raise SystemExit("frozen assistant inherited a credential-bearing proxy URL")
+
+project_root = pathlib.Path(project)
+expected_files = {
+    "CLAUDE.md": b"# Project-owned Claude instructions\n",
+    ".claude/agents/me.md": b"project-owned agent\n",
+    ".claude/commands/project.md": b"project-owned command\n",
+}
+actual_files = {}
+actual_directories = set()
+for path in project_root.rglob("*"):
+    relative = path.relative_to(project_root)
+    if ".git" in relative.parts:
+        continue
+    metadata = path.lstat()
+    if stat.S_ISLNK(metadata.st_mode) or not (
+        stat.S_ISDIR(metadata.st_mode) or stat.S_ISREG(metadata.st_mode)
+    ):
+        raise SystemExit("frozen assistant changed the fixture to an unsafe file type")
+    if stat.S_ISREG(metadata.st_mode):
+        actual_files[str(relative)] = path.read_bytes()
+    elif stat.S_ISDIR(metadata.st_mode):
+        actual_directories.add(str(relative))
+expected_directories = {".claude", ".claude/agents", ".claude/commands"}
+if actual_files != expected_files or actual_directories != expected_directories:
+    raise SystemExit("frozen assistant changed the project-owned fixture tree")
+git_status = subprocess.run(
+    ["/usr/bin/git", "-C", project, "status", "--porcelain=v1", "--untracked-files=all"],
+    check=True,
+    capture_output=True,
+    text=True,
+)
+if git_status.stdout:
+    raise SystemExit("frozen assistant changed the clean fixture Git state")
+
+assistant_state = machine_root / "diagnostics/reconciliation/assistant"
+if not assistant_state.is_dir():
+    raise SystemExit("frozen assistant did not create its private state root")
+session_path = assistant_state / "sessions" / prepare["session_id"] / "session.json"
+proposal_path = assistant_state / "proposals" / f"{status['proposal_id']}.json"
+if not session_path.is_file() or not proposal_path.is_file():
+    raise SystemExit("frozen assistant omitted private session or proposal state")
+for path in (assistant_state, *assistant_state.rglob("*")):
+    metadata = path.lstat()
+    mode = stat.S_IMODE(metadata.st_mode)
+    if stat.S_ISDIR(metadata.st_mode):
+        if mode != 0o700:
+            raise SystemExit("frozen assistant state directory was not mode 0700")
+    elif stat.S_ISREG(metadata.st_mode):
+        if mode != 0o600 or metadata.st_nlink != 1:
+            raise SystemExit("frozen assistant state file was not private and single-link")
+    else:
+        raise SystemExit("frozen assistant state contained a symlink or special file")
 PY
 
 archive="${scratch}/cc-macos-universal.zip"
