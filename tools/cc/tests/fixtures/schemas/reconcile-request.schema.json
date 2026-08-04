@@ -17,6 +17,10 @@
       "type": "array",
       "minItems": 1,
       "items": { "$ref": "#/$defs/projectSelection" }
+    },
+    "assistant_proposal_id": {
+      "type": "string",
+      "pattern": "^proposal_[0-9a-f]{32}$"
     }
   },
   "$defs": {

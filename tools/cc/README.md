@@ -250,11 +250,21 @@ the selected Copilot ecosystem. `assess` is read-only. `plan`, `apply`, and
 `verify` all consume the same explicit request file; `apply` additionally
 requires the fresh opaque plan identifier returned by `plan`. `recover` takes
 no caller-authored mutation input: it resolves interrupted private transaction
-state before another apply can begin.
+state before another apply can begin. For customized projects, the optional
+assistant lifecycle lets Claude Code choose only among closed Python-authored
+recipes. Claude never receives project paths or content and never writes a
+project; Python validates the proposal and performs the ordinary plan/apply/
+verify flow.
 
 ```bash
 # Complete read-only machine and project census under configured approved roots
 cc reconcile assess --json
+
+# Prepare customized selections, run the opaque session in Claude Code, and
+# poll until Python issues an expiring proposal identifier
+cc reconcile assistant-prepare --request /private/path/reconcile-request.json --json
+cc reconcile assistant-run --session-id session_0123456789abcdef0123456789abcdef --json
+cc reconcile assistant-status --session-id session_0123456789abcdef0123456789abcdef --json
 
 # Freeze explicit user intent in a private file, then review the exact plan
 cc reconcile plan --request /private/path/reconcile-request.json --json

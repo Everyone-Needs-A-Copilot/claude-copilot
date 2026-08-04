@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Bounded Claude Code project preparation (`cc` 2.7.0):** reconciliation
+  now defaults to every currently fixable project and can prepare customized
+  projects through an opaque `assistant-prepare → assistant-run →
+  assistant-status` lifecycle. Claude Code receives only Python-authored
+  candidate identifiers in a private working directory; it never receives a
+  project path or project-authored content and cannot author commands, files,
+  patches, or operations. Python remains the only planner, writer, and verifier,
+  binds the selection to an expiring one-use proposal, and re-inspects every
+  project before plan, apply, and final verification. Unsafe symlinks, dirty
+  projects, stale state, malformed provider output, concurrent claims, and
+  unavailable closed recipes fail without changing a project.
+
 ### Changed
 
 - **Default-all project setup (`cc` 2.6.1):** reconciliation assessment now

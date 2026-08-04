@@ -498,6 +498,222 @@ if not isinstance(payload.get("next_actions"), list):
     raise SystemExit("reconciliation probe omitted Python-authored next actions")
 PY
 
+# Exercise the exact frozen helper's bounded Claude lifecycle against a clean,
+# disposable customized project. The inert Claude double receives only opaque
+# candidate ids; the probe stops after Python issues and plans the proposal, so
+# no project mutation is authorized or performed.
+assistant_root="${scratch}/assistant-fixture-root"
+assistant_project="${assistant_root}/customized-project"
+assistant_machine_root="${scratch}/assistant-machine"
+assistant_fake="${scratch}/fake-claude"
+assistant_capture="${scratch}/assistant-claude-capture.json"
+assistant_request="${scratch}/assistant-request.json"
+assistant_prepare_probe="${scratch}/assistant-prepare-probe.json"
+assistant_run_probe="${scratch}/assistant-run-probe.json"
+assistant_status_probe="${scratch}/assistant-status-probe.json"
+assistant_plan_probe="${scratch}/assistant-plan-probe.json"
+assistant_proposal_request="${scratch}/assistant-proposal-request.json"
+mkdir -p \
+    "${assistant_project}/.claude/agents" \
+    "${assistant_project}/.claude/commands" \
+    "${assistant_machine_root}"
+printf '%s\n' '# Project-owned Claude instructions' > "${assistant_project}/CLAUDE.md"
+printf '%s\n' 'project-owned agent' > "${assistant_project}/.claude/agents/me.md"
+printf '%s\n' 'project-owned command' > "${assistant_project}/.claude/commands/project.md"
+git -C "${assistant_project}" init -q
+git -C "${assistant_project}" config user.email release-probe@example.invalid
+git -C "${assistant_project}" config user.name 'Release Probe'
+git -C "${assistant_project}" add -A
+git -C "${assistant_project}" commit -qm 'assistant release fixture'
+install -m 700 \
+    "${source_checkout}/tools/cc/tests/fixtures/reconciliation/fake_claude.py" \
+    "${assistant_fake}"
+codex_source="$({ /usr/bin/python3 - "${finder_reconcile_probe}" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+for framework in payload.get("machine", {}).get("frameworks", []):
+    if framework.get("component") == "codex" and framework.get("state") == "ready":
+        print(framework["path"])
+        break
+else:
+    raise SystemExit("assistant probe could not resolve the verified Codex source")
+PY
+} )"
+/usr/bin/python3 - \
+    "${assistant_machine_root}/config.json" \
+    "${assistant_root}" \
+    "${source_checkout}" \
+    "${codex_source}" \
+    "${assistant_request}" \
+    "${assistant_project}" <<'PY'
+import json
+import pathlib
+import sys
+
+config_path, approved_root, claude_source, codex_source, request_path, project = sys.argv[1:]
+pathlib.Path(config_path).write_text(
+    json.dumps(
+        {
+            "$schema": "cc-config-v1",
+            "version": 1,
+            "projects": {"roots": [approved_root]},
+            "paths": {
+                "claude_copilot_root": claude_source,
+                "codex_copilot_root": codex_source,
+            },
+        },
+        sort_keys=True,
+    ),
+    encoding="utf-8",
+)
+pathlib.Path(request_path).write_text(
+    json.dumps(
+        {
+            "schema_version": "1.0",
+            "roots": [approved_root],
+            "projects": [
+                {"path": project, "components": ["claude", "codex"]}
+            ],
+        },
+        sort_keys=True,
+    ),
+    encoding="utf-8",
+)
+PY
+chmod 600 "${assistant_machine_root}/config.json" "${assistant_request}"
+assistant_env=(
+    HOME="${RELEASE_HOME}"
+    PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+    CC_MACHINE_ROOT="${assistant_machine_root}"
+)
+env "${assistant_env[@]}" \
+    "${artifact}" reconcile assistant-prepare \
+    --request "${assistant_request}" --json > "${assistant_prepare_probe}"
+assistant_session="$({ /usr/bin/python3 - "${assistant_prepare_probe}" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+if payload.get("result") != "ready":
+    raise SystemExit("frozen helper did not prepare an assistant session")
+print(payload["session_id"])
+PY
+} )"
+assistant_session_file="${assistant_machine_root}/diagnostics/reconciliation/assistant/sessions/${assistant_session}/session.json"
+assistant_payload="$({ /usr/bin/python3 - "${assistant_session_file}" <<'PY'
+import json
+import sys
+
+session = json.load(open(sys.argv[1], encoding="utf-8"))
+chosen = {}
+for candidate in session["candidates"]:
+    chosen.setdefault(
+        (candidate["project_ref"], candidate["component"]),
+        candidate["candidate_id"],
+    )
+if not chosen:
+    raise SystemExit("assistant probe produced no bounded candidates")
+print(json.dumps({"selections": [{"candidate_id": value} for value in chosen.values()]}))
+PY
+} )"
+env "${assistant_env[@]}" \
+    CC_ASSISTANT_TEST_MODE=1 \
+    CC_ASSISTANT_CLAUDE_PATH="${assistant_fake}" \
+    FAKE_CLAUDE_CAPTURE="${assistant_capture}" \
+    FAKE_CLAUDE_MODE=valid \
+    FAKE_CLAUDE_PAYLOAD_JSON="${assistant_payload}" \
+    "${artifact}" reconcile assistant-run \
+    --session-id "${assistant_session}" --json > "${assistant_run_probe}"
+env "${assistant_env[@]}" \
+    "${artifact}" reconcile assistant-status \
+    --session-id "${assistant_session}" --json > "${assistant_status_probe}"
+/usr/bin/python3 - \
+    "${assistant_request}" \
+    "${assistant_status_probe}" \
+    "${assistant_proposal_request}" <<'PY'
+import json
+import pathlib
+import sys
+
+request = json.load(open(sys.argv[1], encoding="utf-8"))
+status = json.load(open(sys.argv[2], encoding="utf-8"))
+proposal = status.get("proposal_id")
+if status.get("result") != "ready" or not isinstance(proposal, str):
+    raise SystemExit("frozen helper did not validate the assistant proposal")
+request["assistant_proposal_id"] = proposal
+pathlib.Path(sys.argv[3]).write_text(json.dumps(request, sort_keys=True), encoding="utf-8")
+PY
+chmod 600 "${assistant_proposal_request}"
+env "${assistant_env[@]}" \
+    "${artifact}" reconcile plan \
+    --request "${assistant_proposal_request}" --json > "${assistant_plan_probe}"
+/usr/bin/python3 - \
+    "${assistant_prepare_probe}" \
+    "${assistant_run_probe}" \
+    "${assistant_status_probe}" \
+    "${assistant_plan_probe}" \
+    "${assistant_capture}" \
+    "${assistant_project}" \
+    "${assistant_machine_root}" <<'PY'
+import base64
+import json
+import pathlib
+import re
+import sys
+
+prepare, run, status, plan, capture = [
+    json.load(open(path, encoding="utf-8")) for path in sys.argv[1:6]
+]
+project = sys.argv[6]
+machine_root = pathlib.Path(sys.argv[7]).resolve()
+if prepare.get("result") != "ready" or run.get("result") != "ready":
+    raise SystemExit("frozen assistant prepare/run probe failed")
+if status.get("result") != "ready" or not re.fullmatch(
+    r"proposal_[0-9a-f]{32}", status.get("proposal_id", "")
+):
+    raise SystemExit("frozen assistant status probe did not issue an opaque proposal")
+plans = plan.get("plans")
+if plan.get("phase") != "plan" or not isinstance(plans, list) or len(plans) != 1:
+    raise SystemExit("frozen assistant proposal did not produce one Python plan")
+if plans[0].get("path") != project or not plans[0].get("operations"):
+    raise SystemExit("frozen assistant proposal plan did not cover the fixture")
+argv = capture.get("argv")
+required_flags = {
+    "--safe-mode", "--tools", "--permission-mode", "--strict-mcp-config",
+    "--disable-slash-commands", "--no-session-persistence", "--no-chrome",
+    "--print", "--input-format", "--output-format", "--json-schema",
+}
+if not isinstance(argv, list) or not required_flags <= set(argv):
+    raise SystemExit("frozen assistant Claude invocation omitted a required guard")
+if argv[argv.index("--tools") + 1] != "" or argv[argv.index("--permission-mode") + 1] != "plan":
+    raise SystemExit("frozen assistant Claude invocation granted unsupported authority")
+if argv[argv.index("--input-format") + 1] != "text" or argv[argv.index("--output-format") + 1] != "json":
+    raise SystemExit("frozen assistant Claude invocation used an unsupported transport")
+prompt = base64.b64decode(capture["stdin_base64"]).decode("utf-8")
+if project in prompt or project in json.dumps(argv):
+    raise SystemExit("frozen assistant leaked a project path to Claude")
+payload = json.loads(prompt)
+prohibited = {"command", "path", "content", "patch", "operation"}
+def walk(value):
+    if isinstance(value, dict):
+        if prohibited & set(value):
+            raise SystemExit("frozen assistant prompt contained prohibited authority")
+        for item in value.values():
+            walk(item)
+    elif isinstance(value, list):
+        for item in value:
+            walk(item)
+walk(payload)
+cwd = pathlib.Path(capture["cwd"]).resolve()
+if machine_root not in cwd.parents or project in str(cwd):
+    raise SystemExit("frozen assistant did not run from its private workspace")
+secret_names = {"GITHUB_TOKEN", "GH_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "SSH_AUTH_SOCK"}
+if secret_names & set(capture.get("environment_keys", [])):
+    raise SystemExit("frozen assistant inherited a credential-bearing environment name")
+PY
+
 archive="${scratch}/cc-macos-universal.zip"
 ditto -c -k --keepParent "${artifact}" "${archive}"
 notary_args=()
@@ -577,6 +793,7 @@ cat > "${OUTPUT_DIR}/release-metadata.json" <<EOF
   "device_flow_https_probe": "passed",
   "finder_onboard_probe": "passed",
   "finder_reconciliation_probe": "passed",
+  "finder_reconciliation_assistant_probe": "passed",
   "sha256": "${artifact_sha}"
 }
 EOF

@@ -157,13 +157,17 @@ class ProjectSelection:
 class ReconciliationRequest:
     roots: tuple[str, ...]
     projects: tuple[ProjectSelection, ...]
+    assistant_proposal_id: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        result: dict[str, Any] = {
             "schema_version": RECONCILIATION_REQUEST_SCHEMA_VERSION,
             "roots": list(self.roots),
             "projects": [project.as_dict() for project in self.projects],
         }
+        if self.assistant_proposal_id is not None:
+            result["assistant_proposal_id"] = self.assistant_proposal_id
+        return result
 
 
 class RequestValidationError(ValueError):
@@ -171,6 +175,7 @@ class RequestValidationError(ValueError):
 
 
 _RECIPE_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
+_ASSISTANT_PROPOSAL_ID = re.compile(r"^proposal_[0-9a-f]{32}$")
 
 
 def _absolute_path(value: Any, *, field: str) -> str:
@@ -192,7 +197,16 @@ def parse_reconciliation_request(payload: Any) -> ReconciliationRequest:
     """Parse the exact selection contract without touching the filesystem."""
     if not isinstance(payload, dict):
         raise RequestValidationError("The reconciliation request must be an object.")
-    if set(payload) != {"schema_version", "roots", "projects"}:
+    if (
+        not {"schema_version", "roots", "projects"} <= set(payload)
+        or not set(payload)
+        <= {
+            "schema_version",
+            "roots",
+            "projects",
+            "assistant_proposal_id",
+        }
+    ):
         raise RequestValidationError(
             "The reconciliation request has missing or unsupported fields."
         )
@@ -269,7 +283,15 @@ def parse_reconciliation_request(payload: Any) -> ReconciliationRequest:
 
     if len(projects) != len({project.path for project in projects}):
         raise RequestValidationError("The reconciliation request repeats a project.")
-    return ReconciliationRequest(roots, tuple(projects))
+    assistant_proposal_id = payload.get("assistant_proposal_id")
+    if assistant_proposal_id is not None and (
+        not isinstance(assistant_proposal_id, str)
+        or _ASSISTANT_PROPOSAL_ID.fullmatch(assistant_proposal_id) is None
+    ):
+        raise RequestValidationError(
+            "assistant_proposal_id must be an opaque proposal identifier."
+        )
+    return ReconciliationRequest(roots, tuple(projects), assistant_proposal_id)
 
 
 def canonical_request_json(request: ReconciliationRequest) -> str:

@@ -346,12 +346,20 @@ def _verify_lock_entry(
         )
     ]
     missing: list[dict[str, str]] = []
-    fingerprint: list[Any] = [component, entry.get("version"), entry.get("release_tag")]
+    ownership_mode = entry.get("ownership_mode", "full")
+    fingerprint: list[Any] = [
+        component,
+        entry.get("version"),
+        entry.get("release_tag"),
+        ownership_mode,
+    ]
     files = entry.get("files")
     if (
         not isinstance(entry.get("version"), str)
         or not isinstance(files, list)
         or not files
+        or ownership_mode not in {"full", "customized-preserve"}
+        or (ownership_mode == "customized-preserve" and component != "claude")
     ):
         missing.append(
             {
@@ -474,10 +482,23 @@ def _verify_lock_entry(
         else _CODEX_REQUIRED_LOCK_PATHS
     )
     absent_required = [path for path in required if path not in recorded]
-    if component == "claude" and not any(
+    if (
+        component == "claude"
+        and ownership_mode == "full"
+        and not any(
         path.startswith(".claude/agents/") for path in recorded
+        )
     ):
         absent_required.append(".claude/agents/<framework-agent>.md")
+    if ownership_mode == "customized-preserve" and recorded != set(
+        _CLAUDE_REQUIRED_LOCK_PATHS
+    ):
+        missing.append(
+            {
+                "id": "valid-lock-entry",
+                "detail": "The customized Claude lock must record exactly the bounded support-file subset.",
+            }
+        )
     for path in absent_required:
         missing.append(
             {

@@ -64,6 +64,10 @@ jobs:
             tests/test_project_reconciliation_families.py \
             tests/test_reconciliation_recipes.py \
             tests/test_reconciliation_apply.py \
+            tests/test_reconciliation_assistant_fake.py \
+            tests/test_reconciliation_assistant_product.py \
+            tests/test_reconciliation_assistant_security.py \
+            tests/test_reconciliation_assistant_store_security.py \
             tests/test_reconciliation_contract.py \
             tests/test_reconciliation_coordinator.py \
             tests/test_reconciliation_recovery.py \

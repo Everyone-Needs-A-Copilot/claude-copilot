@@ -21,6 +21,7 @@ from typing import Any, Callable, Mapping, Sequence
 from cc.core.ecosystem.reconciliation_types import (
     RECONCILIATION_SCHEMA_VERSION,
     SUPPORTED_COMPONENTS,
+    ComponentRoute,
     ProjectRoute,
     ReconciliationRequest,
     canonical_request_json,
@@ -410,7 +411,13 @@ def _default_selection_for(
 
 def _default_batch(
     projects: Sequence[Mapping[str, Any]], census_builder: CensusBuilder
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, int]]:
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    dict[str, int],
+    list[dict[str, Any]],
+    dict[str, int],
+]:
     """Return Python-authored default selections and a display-ready census.
 
     The first census contains unselected facts. Every project that is not fully
@@ -418,6 +425,8 @@ def _default_batch(
     Only projects whose selected assessment is deterministic and safe enter the
     default batch. The GUI never repeats this eligibility decision.
     """
+    from cc.core.ecosystem.reconciliation_assistant import _eligible_recipe_ids
+
     baseline = _validated_projects(projects)
     candidate_paths = {
         str(project["path"])
@@ -457,6 +466,7 @@ def _default_batch(
         trial_by_path = {str(project["path"]): project for project in trial}
 
     selections: list[dict[str, Any]] = []
+    assistant_selections: list[dict[str, Any]] = []
     rendered: list[dict[str, Any]] = []
     counts = {
         "new_setup": 0,
@@ -477,6 +487,42 @@ def _default_batch(
         selection = _default_selection_for(trial_project, category=category)
         if selection is None:
             counts["needs_review"] += 1
+            component_assessments = {
+                str(item.get("component")): item
+                for item in trial_project.get("components", [])
+                if isinstance(item, Mapping)
+            }
+            customized = [
+                component
+                for component in SUPPORTED_COMPONENTS
+                if component_assessments.get(component, {}).get("state")
+                == ComponentRoute.CUSTOMIZED_GUIDED_ROUTE.value
+            ]
+            assistant_eligible = bool(customized) and all(
+                component_assessments.get(component, {}).get("state")
+                == ComponentRoute.CUSTOMIZED_GUIDED_ROUTE.value
+                or (
+                    component_assessments.get(component, {}).get("selected") is True
+                    and component_assessments.get(component, {}).get("recommended")
+                    is True
+                )
+                for component in SUPPORTED_COMPONENTS
+            ) and all(
+                _eligible_recipe_ids(
+                    trial_project,
+                    component,
+                    component_assessments[component],
+                )
+                for component in customized
+            )
+            if assistant_eligible:
+                assistant_selections.append(
+                    {
+                        "path": path,
+                        "components": list(SUPPORTED_COMPONENTS),
+                        "category": category,
+                    }
+                )
             rendered.append(project)
             continue
         selections.append(selection)
@@ -497,7 +543,41 @@ def _default_batch(
             "The default project batch counts did not reconcile.",
             exit_code=2,
         )
-    return rendered, selections, counts
+    assisted_paths = {item["path"] for item in assistant_selections}
+    if len(assisted_paths) != len(assistant_selections):
+        raise ReconciliationError(
+            "invalid-census",
+            "The assistant project selection repeated a project.",
+            exit_code=2,
+        )
+    resolution_summary = {
+        "automatic": len(selections),
+        "claude_assisted": len(assistant_selections),
+        "held": counts["needs_review"] - len(assistant_selections),
+        "total_actionable": len(selections) + len(assistant_selections),
+        "new_setup": sum(
+            item["category"] == "new-setup"
+            for item in (*selections, *assistant_selections)
+        ),
+        "correction": sum(
+            item["category"] == "correction"
+            for item in (*selections, *assistant_selections)
+        ),
+    }
+    if (
+        resolution_summary["automatic"]
+        + resolution_summary["claude_assisted"]
+        != resolution_summary["total_actionable"]
+        or resolution_summary["new_setup"]
+        + resolution_summary["correction"]
+        != resolution_summary["total_actionable"]
+    ):
+        raise ReconciliationError(
+            "invalid-census",
+            "The project resolution counts did not reconcile.",
+            exit_code=2,
+        )
+    return rendered, selections, counts, assistant_selections, resolution_summary
 
 
 def _next_actions(
@@ -1079,7 +1159,13 @@ def assess_reconciliation(
 ) -> dict[str, Any]:
     """Compose one complete, read-only machine and project assessment."""
     machine = (machine_builder or _default_machine_builder)()
-    selected_census, default_selection, batch_summary = _default_batch(
+    (
+        selected_census,
+        default_selection,
+        batch_summary,
+        assistant_selection,
+        resolution_summary,
+    ) = _default_batch(
         _validated_projects(
             (census_builder or _default_census_builder)(detail=True)
         ),
@@ -1096,6 +1182,8 @@ def assess_reconciliation(
         "projects": selected_census,
         "default_selection": default_selection,
         "batch_summary": batch_summary,
+        "assistant_selection": assistant_selection,
+        "resolution_summary": resolution_summary,
         "summary": _summary(selected_census),
         "next_actions": _next_actions(machine, selected_census),
     }
@@ -1109,12 +1197,25 @@ def prepare_reconciliation(
     plan_builder: PlanBuilder | None = None,
 ) -> PreparedReconciliation:
     """Freshly inspect and construct content-free plus executable plans."""
+    resolved_request = request
+    assistant_proposal: Mapping[str, Any] | None = None
+    if request.assistant_proposal_id is not None:
+        # The public request carries only an opaque proposal capability.  The
+        # private assistant store is the sole authority that may translate it
+        # into the Python-issued recipe ids Claude selected.  Import lazily to
+        # keep the ordinary reconciliation path independent of the optional
+        # assistant coordinator.
+        from cc.core.ecosystem.reconciliation_assistant import (
+            resolve_assistant_request,
+        )
+
+        resolved_request, assistant_proposal = resolve_assistant_request(request)
     selections = {
-        project.path: list(project.components) for project in request.projects
+        project.path: list(project.components) for project in resolved_request.projects
     }
     recipe_ids = {
         project.path: dict(project.recipe_ids)
-        for project in request.projects
+        for project in resolved_request.projects
         if project.recipe_ids
     }
     machine = (machine_builder or _default_machine_builder)()
@@ -1159,7 +1260,26 @@ def prepare_reconciliation(
             ),
             exit_code=1 if source_unavailable else 2,
         ) from exc
+    request_order = [project.path for project in request.projects]
+    public_by_path = {str(plan.get("path")): plan for plan in public_plans}
+    execution_by_path = {
+        str(_plan_value(plan, "path")): plan for plan in execution_plans
+    }
+    public_plans = [public_by_path[path] for path in request_order if path in public_by_path]
+    execution_plans = [
+        execution_by_path[path] for path in request_order if path in execution_by_path
+    ]
     _validate_plans(request, projects, public_plans, execution_plans)
+    if assistant_proposal is not None:
+        expected_plans_fingerprint = assistant_proposal.get("plans_fingerprint")
+        if (
+            not isinstance(expected_plans_fingerprint, str)
+            or expected_plans_fingerprint != _fingerprint(public_plans)
+        ):
+            raise ReconciliationError(
+                "assistant-proposal-stale",
+                "The Claude Code proposal no longer matches the fresh Python plan. Start the project preparation again.",
+            )
     canonical_request = json.loads(canonical_request_json(request))
     request_fingerprint = _fingerprint(canonical_request)
     selected_paths = {str(project.path) for project in request.projects}

@@ -999,6 +999,7 @@ def assess_project(
                         "summary": definition.summary,
                     }
                     for definition in eligible
+                    if not definition.assistant_only
                 ]
             else:
                 route = ComponentRoute.OWNER_DECISION

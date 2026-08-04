@@ -4,6 +4,9 @@
   "title": "cc reconcile report",
   "oneOf": [
     { "$ref": "#/$defs/assessReport" },
+    { "$ref": "#/$defs/assistantPrepareReport" },
+    { "$ref": "#/$defs/assistantRunReport" },
+    { "$ref": "#/$defs/assistantStatusReport" },
     { "$ref": "#/$defs/planReport" },
     { "$ref": "#/$defs/applyReport" },
     { "$ref": "#/$defs/recoverReport" },
@@ -13,6 +16,8 @@
   "$defs": {
     "opaqueRunId": { "type": "string", "pattern": "^run_[0-9a-f]{32}$" },
     "opaquePlanId": { "type": "string", "pattern": "^plan_[0-9a-f]{32}$" },
+    "opaqueSessionId": { "type": "string", "pattern": "^session_[0-9a-f]{32}$" },
+    "opaqueProposalId": { "type": "string", "pattern": "^proposal_[0-9a-f]{32}$" },
     "fingerprint": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "evidence": {
       "type": "object",
@@ -117,6 +122,22 @@
         "needs_review": { "type": "integer", "minimum": 0 },
         "selected": { "type": "integer", "minimum": 0 },
         "total": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "resolutionSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "automatic", "claude_assisted", "held", "total_actionable",
+        "new_setup", "correction"
+      ],
+      "properties": {
+        "automatic": { "type": "integer", "minimum": 0 },
+        "claude_assisted": { "type": "integer", "minimum": 0 },
+        "held": { "type": "integer", "minimum": 0 },
+        "total_actionable": { "type": "integer", "minimum": 0 },
+        "new_setup": { "type": "integer", "minimum": 0 },
+        "correction": { "type": "integer", "minimum": 0 }
       }
     },
     "machineSummary": {
@@ -503,7 +524,10 @@
         { "$ref": "#/$defs/commonSuccess" },
         {
           "type": "object", "additionalProperties": false,
-          "required": ["machine_summary", "default_selection", "batch_summary"],
+          "required": [
+            "machine_summary", "default_selection", "batch_summary",
+            "assistant_selection", "resolution_summary"
+          ],
           "properties": {
             "schema_version": {}, "phase": { "const": "assess" },
             "result": { "enum": ["ready", "action-required", "blocked"] },
@@ -515,8 +539,99 @@
               "items": { "$ref": "#/$defs/defaultSelection" }
             },
             "batch_summary": { "$ref": "#/$defs/batchSummary" },
+            "assistant_selection": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/defaultSelection" }
+            },
+            "resolution_summary": { "$ref": "#/$defs/resolutionSummary" },
             "summary": {}, "next_actions": {}
           }
+        }
+      ]
+    },
+    "assistantPrepareReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "phase", "result", "run_id", "generated_at",
+        "session_id", "expires_at", "selected_projects", "next_actions"
+      ],
+      "properties": {
+        "schema_version": { "const": "1.0" },
+        "phase": { "const": "assistant-prepare" },
+        "result": { "const": "ready" },
+        "run_id": { "$ref": "#/$defs/opaqueRunId" },
+        "generated_at": { "type": "string", "format": "date-time" },
+        "session_id": { "$ref": "#/$defs/opaqueSessionId" },
+        "expires_at": { "type": "string", "format": "date-time" },
+        "selected_projects": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "next_actions": {
+          "type": "array", "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "assistantRunReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "phase", "result", "run_id", "generated_at",
+        "session_id", "selected_projects", "detail", "next_actions"
+      ],
+      "properties": {
+        "schema_version": { "const": "1.0" },
+        "phase": { "const": "assistant-run" },
+        "result": { "const": "ready" },
+        "run_id": { "$ref": "#/$defs/opaqueRunId" },
+        "generated_at": { "type": "string", "format": "date-time" },
+        "session_id": { "$ref": "#/$defs/opaqueSessionId" },
+        "selected_projects": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "detail": { "type": "string", "minLength": 1 },
+        "next_actions": {
+          "type": "array", "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "assistantStatusReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "phase", "result", "run_id", "generated_at",
+        "session_id", "proposal_id", "selected_projects", "detail", "next_actions"
+      ],
+      "properties": {
+        "schema_version": { "const": "1.0" },
+        "phase": { "const": "assistant-status" },
+        "result": { "enum": ["running", "ready", "blocked"] },
+        "run_id": { "$ref": "#/$defs/opaqueRunId" },
+        "generated_at": { "type": "string", "format": "date-time" },
+        "session_id": { "$ref": "#/$defs/opaqueSessionId" },
+        "proposal_id": {
+          "oneOf": [
+            { "$ref": "#/$defs/opaqueProposalId" },
+            { "type": "null" }
+          ]
+        },
+        "selected_projects": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "detail": { "type": "string", "minLength": 1 },
+        "next_actions": {
+          "type": "array", "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "result": { "const": "ready" } } },
+          "then": { "properties": { "proposal_id": { "$ref": "#/$defs/opaqueProposalId" } } },
+          "else": { "properties": { "proposal_id": { "type": "null" } } }
         }
       ]
     },

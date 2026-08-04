@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import stat
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -485,6 +486,7 @@ class RecipeDefinition:
     builder: OperationBuilder
     summary: str = "Apply one reviewed, component-scoped reconciliation strategy."
     eligibility: RecipeEligibility | None = None
+    assistant_only: bool = False
 
     def __post_init__(self) -> None:
         if (
@@ -631,11 +633,17 @@ def _source_root(component: str) -> Path:
         )
     source = Path(str(configured)).expanduser()
     try:
-        if source.is_symlink() or not source.is_dir():
+        resolved = source.resolve(strict=True)
+        metadata = resolved.stat()
+        if (
+            not stat.S_ISDIR(metadata.st_mode)
+            or metadata.st_uid not in {0, os.geteuid()}
+            or stat.S_IMODE(metadata.st_mode) & 0o022
+        ):
             raise RecipeValidationError(
                 f"The authoritative {component.title()} source is unavailable."
             )
-        return source.resolve()
+        return resolved
     except OSError as exc:
         raise RecipeValidationError(
             f"The authoritative {component.title()} source is unavailable."
@@ -733,6 +741,22 @@ def _lock_entry(source: Path, component: str) -> dict[str, Any]:
         "version": version,
         "release_tag": f"v{version}",
         "files": _framework_files(source, component),
+    }
+
+
+def _claude_customized_lock_entry(source: Path) -> dict[str, Any]:
+    entry = _lock_entry(source, "claude")
+    owned_paths = {
+        ".claude/commands/protocol.md",
+        ".claude/commands/continue.md",
+        ".claude/fitness-check.sh",
+    }
+    return {
+        **entry,
+        "ownership_mode": "customized-preserve",
+        "files": [
+            item for item in entry["files"] if item.get("path") in owned_paths
+        ],
     }
 
 
@@ -1152,10 +1176,61 @@ def _safe_json_object(root: Path, target: str) -> bool:
     return isinstance(value, dict)
 
 
+def _safe_claude_project_tree(root: Path) -> bool:
+    """Reject Claude project trees containing any symlink or special file.
+
+    Preservation recipes deliberately leave project-authored files in place.
+    They must therefore prove that every existing entry below ``.claude`` is
+    an ordinary directory or regular file before offering a bounded repair.
+    This check never follows a project-controlled symlink.
+    """
+    for target in ("CLAUDE.md", ".mcp.json"):
+        if _safe_target_kind(root, target) == "unsafe":
+            return False
+    root_kind = _safe_target_kind(root, ".claude")
+    if root_kind == "missing":
+        return True
+    if root_kind != "directory":
+        return False
+    pending: list[Path] = []
+    for target in (
+        ".claude/agents",
+        ".claude/commands",
+        ".claude/cc",
+        ".claude/memory",
+    ):
+        kind = _safe_target_kind(root, target)
+        if kind == "unsafe" or kind == "regular":
+            return False
+        if kind == "directory":
+            pending.append(root / target)
+    if _safe_target_kind(root, ".claude/fitness-check.sh") == "unsafe":
+        return False
+    while pending:
+        directory = pending.pop()
+        try:
+            entries = list(os.scandir(directory))
+        except OSError:
+            return False
+        for entry in entries:
+            try:
+                if entry.is_symlink():
+                    return False
+                if entry.is_dir(follow_symlinks=False):
+                    pending.append(Path(entry.path))
+                elif not entry.is_file(follow_symlinks=False):
+                    return False
+            except OSError:
+                return False
+    return True
+
+
 def _claude_preserve_entry_eligible(
     root: Path, assessment: Mapping[str, Any], dossier: Mapping[str, Any]
 ) -> bool:
     del dossier
+    if not _safe_claude_project_tree(root):
+        return False
     requirements = _requirement_ids(assessment)
     if not requirements or not requirements <= {
         "compatible-claude-entry",
@@ -1170,6 +1245,31 @@ def _claude_preserve_entry_eligible(
         "valid-mcp-marker" not in requirements
         or _safe_target_kind(root, ".mcp.json") == "missing"
     )
+
+
+def _claude_assistant_preserve_entry_eligible(
+    root: Path, assessment: Mapping[str, Any], dossier: Mapping[str, Any]
+) -> bool:
+    """Allow only the closed preservation recipe for readable customized Claude.
+
+    Unlike the deterministic option, this route may also account for custom
+    framework-owned files. The operation builder never overwrites them: it
+    appends the Python-owned entry, creates only missing support paths, and
+    refreshes the component lock. Existing paths remain transaction inputs.
+    """
+    del dossier
+    if not _safe_claude_project_tree(root):
+        return False
+    requirements = _requirement_ids(assessment)
+    if not requirements or "project-owned-component-content" not in requirements:
+        return False
+    if _safe_target_kind(root, "CLAUDE.md") not in {"missing", "regular"}:
+        return False
+    if "valid-mcp-marker" in requirements and _safe_target_kind(
+        root, ".mcp.json"
+    ) != "missing":
+        return False
+    return True
 
 
 def _codex_preserve_entry_eligible(
@@ -1224,6 +1324,33 @@ def _claude_customized_preserve_entry(
         target="CLAUDE.md",
         block=_CLAUDE_BLOCK,
     )
+
+
+def _claude_assistant_preserve_entry(
+    root: Path, component: str
+) -> tuple[RecipeOperation, ...]:
+    source = _source_root(component)
+    operations = _claude_customized_preserve_entry(root, component)
+    bounded: list[RecipeOperation] = []
+    for operation in operations:
+        if operation.target == ".claude/agents":
+            continue
+        if operation.kind == RecipeOperationKind.UPSERT_LOCK_COMPONENT:
+            bounded.append(
+                _operation(
+                    root=root,
+                    component=component,
+                    kind=RecipeOperationKind.UPSERT_LOCK_COMPONENT,
+                    target="copilot.lock.json",
+                    description="Record only the bounded Claude support files installed by this customized-preservation route.",
+                    payload={
+                        "component_entry": _claude_customized_lock_entry(source)
+                    },
+                )
+            )
+            continue
+        bounded.append(operation)
+    return tuple(bounded)
 
 
 def _codex_customized_preserve_entry(
@@ -1328,6 +1455,15 @@ DEFAULT_RECIPE_REGISTRY = RecipeRegistry(
             _claude_customized_preserve_entry,
             "Preserve project-authored Claude instructions while adding the bounded framework entry and only missing framework-owned support files.",
             eligibility=_claude_preserve_entry_eligible,
+        ),
+        RecipeDefinition(
+            "claude.assistant-preserve-entry.v1",
+            "claude",
+            frozenset({ComponentRoute.CUSTOMIZED_GUIDED_ROUTE}),
+            _claude_assistant_preserve_entry,
+            "Preserve customized Claude content while adding only the canonical framework entry and missing framework-owned support files.",
+            eligibility=_claude_assistant_preserve_entry_eligible,
+            assistant_only=True,
         ),
         RecipeDefinition(
             "codex.customized-preserve-entry.v1",

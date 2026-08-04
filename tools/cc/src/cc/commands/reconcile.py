@@ -113,6 +113,64 @@ def plan(
     )
 
 
+@reconcile_app.command("assistant-prepare")
+def assistant_prepare(
+    request: Optional[Path] = typer.Option(
+        None, "--request", help="The exact selected project batch."
+    ),
+    output_json: bool = typer.Option(
+        False, "--json", help="Emit the bounded preparation session report."
+    ),
+) -> None:
+    """Prepare one private content-free Claude Code selection session."""
+    from cc.core.ecosystem.reconciliation_assistant import (
+        build_assistant_prepare_report,
+    )
+
+    _run_report(
+        lambda: build_assistant_prepare_report(_load_request(request)),
+        output_json=output_json,
+    )
+
+
+@reconcile_app.command("assistant-run")
+def assistant_run(
+    session_id: Optional[str] = typer.Option(
+        None, "--session-id", help="Opaque session identifier returned by prepare."
+    ),
+    output_json: bool = typer.Option(
+        False, "--json", help="Emit the bounded Claude Code runner report."
+    ),
+) -> None:
+    """Run one already-prepared Claude Code session without project access."""
+    from cc.core.ecosystem.reconciliation_assistant import run_assistant_session
+
+    _run_report(
+        lambda: run_assistant_session(session_id or ""),
+        output_json=output_json,
+    )
+
+
+@reconcile_app.command("assistant-status")
+def assistant_status(
+    session_id: Optional[str] = typer.Option(
+        None, "--session-id", help="Opaque session identifier returned by prepare."
+    ),
+    output_json: bool = typer.Option(
+        False, "--json", help="Emit the validated proposal status report."
+    ),
+) -> None:
+    """Read one private session and issue a proposal only after fresh validation."""
+    from cc.core.ecosystem.reconciliation_assistant import (
+        build_assistant_status_report,
+    )
+
+    _run_report(
+        lambda: build_assistant_status_report(session_id or ""),
+        output_json=output_json,
+    )
+
+
 @reconcile_app.command("apply")
 def apply(
     request: Optional[Path] = typer.Option(
