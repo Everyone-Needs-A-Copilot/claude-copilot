@@ -15,6 +15,12 @@ if not Path(ca_bundle).is_file():
     raise RuntimeError("the frozen cc helper is missing its CA bundle")
 os.environ["SSL_CERT_FILE"] = ca_bundle
 
+# The assistant coordinator is reached through lazy CLI imports so ordinary
+# Python startup stays small. Import it explicitly at the freezer boundary so
+# PyInstaller includes the complete assistant/store module graph in the signed
+# one-file helper.
+from cc.core.ecosystem import assistant_job_store as _assistant_job_store  # noqa: E402,F401
+from cc.core.ecosystem import reconciliation_assistant as _reconciliation_assistant  # noqa: E402,F401
 from cc.main import app
 
 
