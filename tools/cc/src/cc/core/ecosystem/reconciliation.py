@@ -20,6 +20,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 from cc.core.ecosystem.reconciliation_types import (
     RECONCILIATION_SCHEMA_VERSION,
+    SUPPORTED_COMPONENTS,
     ProjectRoute,
     ReconciliationRequest,
     canonical_request_json,
@@ -310,6 +311,193 @@ def _summary(projects: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             "may differ without changing the project count."
         ),
     }
+
+
+_DEFAULT_ACTIONABLE_ROUTES = {
+    ProjectRoute.SAFE_SETUP_AVAILABLE.value,
+    ProjectRoute.SAFE_UPDATE_AVAILABLE.value,
+    ProjectRoute.CUSTOMIZED_GUIDED_ROUTE.value,
+}
+_DEFAULT_ACTIONABLE_COMPONENT_ROUTES = {
+    "ready",
+    "safe-setup-available",
+    "safe-update-available",
+    "customized-guided-route",
+}
+
+
+def _machine_summary(machine: Mapping[str, Any]) -> dict[str, str]:
+    state = str(machine.get("state") or "could-not-verify")
+    next_action = machine.get("next_action")
+    detail = (
+        str(next_action)
+        if isinstance(next_action, str) and next_action
+        else "Run a fresh assessment before changing any project."
+    )
+    if state == "ready":
+        return {
+            "state": state,
+            "title": "This Mac has what it needs.",
+            "detail": "Control Tower can safely prepare reviewed project plans.",
+        }
+    if state == "action-required":
+        return {
+            "state": state,
+            "title": "This Mac needs attention.",
+            "detail": detail,
+        }
+    return {
+        "state": "could-not-verify",
+        "title": "Control Tower could not safely confirm this Mac yet.",
+        "detail": detail,
+    }
+
+
+def _default_selection_for(
+    project: Mapping[str, Any], *, category: str
+) -> dict[str, Any] | None:
+    if project.get("route") not in _DEFAULT_ACTIONABLE_ROUTES:
+        return None
+    if project.get("selected_components") != list(SUPPORTED_COMPONENTS):
+        return None
+    components = project.get("components")
+    if not isinstance(components, list) or len(components) != len(
+        SUPPORTED_COMPONENTS
+    ):
+        return None
+
+    recipe_ids: dict[str, str] = {}
+    observed: list[str] = []
+    for raw in components:
+        if not isinstance(raw, Mapping):
+            return None
+        component = raw.get("component")
+        route = raw.get("state")
+        if (
+            component not in SUPPORTED_COMPONENTS
+            or component in observed
+            or route not in _DEFAULT_ACTIONABLE_COMPONENT_ROUTES
+            or raw.get("selected") is not True
+            or raw.get("recommended") is not True
+        ):
+            return None
+        observed.append(str(component))
+        if route == "customized-guided-route":
+            options = raw.get("recipe_options")
+            if not isinstance(options, list) or len(options) != 1:
+                return None
+            option = options[0]
+            if (
+                not isinstance(option, Mapping)
+                or option.get("component") != component
+                or not isinstance(option.get("recipe_id"), str)
+                or not option["recipe_id"]
+            ):
+                return None
+            recipe_ids[str(component)] = str(option["recipe_id"])
+    if observed != list(SUPPORTED_COMPONENTS):
+        return None
+
+    result: dict[str, Any] = {
+        "path": str(project["path"]),
+        "components": list(SUPPORTED_COMPONENTS),
+        "category": category,
+    }
+    if recipe_ids:
+        result["recipe_ids"] = recipe_ids
+    return result
+
+
+def _default_batch(
+    projects: Sequence[Mapping[str, Any]], census_builder: CensusBuilder
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, int]]:
+    """Return Python-authored default selections and a display-ready census.
+
+    The first census contains unselected facts. Every project that is not fully
+    ready is then assessed once with the universal Claude-plus-Codex selection.
+    Only projects whose selected assessment is deterministic and safe enter the
+    default batch. The GUI never repeats this eligibility decision.
+    """
+    baseline = _validated_projects(projects)
+    candidate_paths = {
+        str(project["path"])
+        for project in baseline
+        if not (
+            project.get("route") == ProjectRoute.READY.value
+            and project.get("presence") == "both"
+        )
+    }
+    trial_by_path: dict[str, dict[str, Any]] = {}
+    if candidate_paths:
+        roots = list(
+            dict.fromkeys(
+                str(project["root"])
+                for project in baseline
+                if isinstance(project.get("root"), str) and project["root"]
+            )
+        )
+        trial = _validated_projects(
+            census_builder(
+                roots=roots,
+                selections={
+                    path: list(SUPPORTED_COMPONENTS)
+                    for path in sorted(candidate_paths)
+                },
+                detail=True,
+            )
+        )
+        if {str(project["path"]) for project in trial} != {
+            str(project["path"]) for project in baseline
+        }:
+            raise ReconciliationError(
+                "invalid-census",
+                "The project census changed while the safe default batch was being checked.",
+                exit_code=2,
+            )
+        trial_by_path = {str(project["path"]): project for project in trial}
+
+    selections: list[dict[str, Any]] = []
+    rendered: list[dict[str, Any]] = []
+    counts = {
+        "new_setup": 0,
+        "correction": 0,
+        "ready": 0,
+        "needs_review": 0,
+        "selected": 0,
+        "total": len(baseline),
+    }
+    for project in baseline:
+        path = str(project["path"])
+        if path not in candidate_paths:
+            counts["ready"] += 1
+            rendered.append(project)
+            continue
+        category = "new-setup" if project.get("presence") == "none" else "correction"
+        trial_project = trial_by_path[path]
+        selection = _default_selection_for(trial_project, category=category)
+        if selection is None:
+            counts["needs_review"] += 1
+            rendered.append(project)
+            continue
+        selections.append(selection)
+        counts["new_setup" if category == "new-setup" else "correction"] += 1
+        counts["selected"] += 1
+        rendered.append(trial_project)
+
+    if (
+        counts["new_setup"]
+        + counts["correction"]
+        + counts["ready"]
+        + counts["needs_review"]
+        != counts["total"]
+        or counts["selected"] != counts["new_setup"] + counts["correction"]
+    ):
+        raise ReconciliationError(
+            "invalid-census",
+            "The default project batch counts did not reconcile.",
+            exit_code=2,
+        )
+    return rendered, selections, counts
 
 
 def _next_actions(
@@ -891,19 +1079,25 @@ def assess_reconciliation(
 ) -> dict[str, Any]:
     """Compose one complete, read-only machine and project assessment."""
     machine = (machine_builder or _default_machine_builder)()
-    projects = _validated_projects(
-        (census_builder or _default_census_builder)(detail=True)
+    selected_census, default_selection, batch_summary = _default_batch(
+        _validated_projects(
+            (census_builder or _default_census_builder)(detail=True)
+        ),
+        census_builder or _default_census_builder,
     )
     return {
         "schema_version": RECONCILIATION_SCHEMA_VERSION,
         "phase": "assess",
-        "result": _assessment_result(machine, projects),
+        "result": _assessment_result(machine, selected_census),
         "run_id": _run_id(run_id),
         "generated_at": _timestamp(now),
         "machine": machine,
-        "projects": projects,
-        "summary": _summary(projects),
-        "next_actions": _next_actions(machine, projects),
+        "machine_summary": _machine_summary(machine),
+        "projects": selected_census,
+        "default_selection": default_selection,
+        "batch_summary": batch_summary,
+        "summary": _summary(selected_census),
+        "next_actions": _next_actions(machine, selected_census),
     }
 
 

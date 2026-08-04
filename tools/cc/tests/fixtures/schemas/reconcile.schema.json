@@ -76,6 +76,59 @@
         "summary": { "type": "string", "minLength": 1 }
       }
     },
+    "defaultSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "components", "category"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "components": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [
+            { "const": "claude" },
+            { "const": "codex" }
+          ],
+          "items": false
+        },
+        "category": { "enum": ["new-setup", "correction"] },
+        "recipe_ids": {
+          "type": "object",
+          "additionalProperties": false,
+          "propertyNames": { "enum": ["claude", "codex"] },
+          "properties": {
+            "claude": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$" },
+            "codex": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$" }
+          }
+        }
+      }
+    },
+    "batchSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "new_setup", "correction", "ready", "needs_review", "selected", "total"
+      ],
+      "properties": {
+        "new_setup": { "type": "integer", "minimum": 0 },
+        "correction": { "type": "integer", "minimum": 0 },
+        "ready": { "type": "integer", "minimum": 0 },
+        "needs_review": { "type": "integer", "minimum": 0 },
+        "selected": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "machineSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "title", "detail"],
+      "properties": {
+        "state": { "enum": ["ready", "action-required", "could-not-verify"] },
+        "title": { "type": "string", "minLength": 1 },
+        "detail": { "type": "string", "minLength": 1 }
+      }
+    },
     "framework": {
       "type": "object",
       "additionalProperties": false,
@@ -450,10 +503,18 @@
         { "$ref": "#/$defs/commonSuccess" },
         {
           "type": "object", "additionalProperties": false,
+          "required": ["machine_summary", "default_selection", "batch_summary"],
           "properties": {
             "schema_version": {}, "phase": { "const": "assess" },
             "result": { "enum": ["ready", "action-required", "blocked"] },
             "run_id": {}, "generated_at": {}, "machine": {}, "projects": {},
+            "machine_summary": { "$ref": "#/$defs/machineSummary" },
+            "default_selection": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/defaultSelection" }
+            },
+            "batch_summary": { "$ref": "#/$defs/batchSummary" },
             "summary": {}, "next_actions": {}
           }
         }

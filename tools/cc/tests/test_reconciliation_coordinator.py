@@ -517,3 +517,157 @@ def test_unknown_or_duplicate_census_routes_fail_closed() -> None:
             machine_builder=_machine,
             census_builder=lambda **_kwargs: [_project(), _project()],
         )
+
+
+def test_assessment_authors_universal_safe_default_batch_and_exact_counts() -> None:
+    def unselected(path: str, *, presence: str, route: str) -> dict:
+        project = _project(path=path, route=route)
+        project["presence"] = presence
+        project["selected_components"] = []
+        for component in project["components"]:
+            component.update(
+                {
+                    "state": "not-present",
+                    "selected": False,
+                    "recommended": True,
+                    "responsible_actor": "person",
+                }
+            )
+        return project
+
+    def selected(
+        project: dict,
+        *,
+        route: str,
+        component_states: tuple[str, str],
+        recommended: tuple[bool, bool] = (True, True),
+    ) -> dict:
+        result = deepcopy(project)
+        result["route"] = route
+        result["selected_components"] = ["claude", "codex"]
+        for component, state, is_recommended in zip(
+            result["components"], component_states, recommended, strict=True
+        ):
+            component.update(
+                {
+                    "state": state,
+                    "selected": True,
+                    "recommended": is_recommended,
+                    "responsible_actor": "cli",
+                    "recipe_options": [],
+                }
+            )
+        return result
+
+    new = unselected(
+        "/projects/new", presence="none", route="copilot-not-present"
+    )
+    correction = unselected(
+        "/projects/correction", presence="claude-only", route="ready"
+    )
+    correction["components"][0]["state"] = "ready"
+    ready = unselected("/projects/ready", presence="both", route="ready")
+    for component in ready["components"]:
+        component["state"] = "ready"
+    review = unselected(
+        "/projects/review", presence="none", route="copilot-not-present"
+    )
+
+    baseline = [new, correction, ready, review]
+    trial = [
+        selected(
+            new,
+            route="safe-setup-available",
+            component_states=("safe-setup-available", "safe-setup-available"),
+        ),
+        selected(
+            correction,
+            route="safe-setup-available",
+            component_states=("ready", "safe-setup-available"),
+        ),
+        ready,
+        selected(
+            review,
+            route="held",
+            component_states=("held", "held"),
+            recommended=(False, False),
+        ),
+    ]
+
+    def census(**kwargs):
+        return deepcopy(trial if kwargs.get("selections") else baseline)
+
+    report = assess_reconciliation(
+        machine_builder=_machine,
+        census_builder=census,
+        run_id="run_" + ("9" * 32),
+    )
+
+    assert report["default_selection"] == [
+        {
+            "path": "/projects/new",
+            "components": ["claude", "codex"],
+            "category": "new-setup",
+        },
+        {
+            "path": "/projects/correction",
+            "components": ["claude", "codex"],
+            "category": "correction",
+        },
+    ]
+    assert report["batch_summary"] == {
+        "new_setup": 1,
+        "correction": 1,
+        "ready": 1,
+        "needs_review": 1,
+        "selected": 2,
+        "total": 4,
+    }
+    assert report["summary"]["selected_projects"] == 2
+    assert report["machine_summary"] == {
+        "state": "ready",
+        "title": "This Mac has what it needs.",
+        "detail": "Control Tower can safely prepare reviewed project plans.",
+    }
+
+
+def test_ambiguous_custom_recipe_is_never_default_selected() -> None:
+    baseline = _project(route="customized-guided-route")
+    baseline["presence"] = "both"
+    baseline["selected_components"] = []
+    for component in baseline["components"]:
+        component.update({"selected": False, "state": "customized-guided-route"})
+
+    trial = deepcopy(baseline)
+    trial["selected_components"] = ["claude", "codex"]
+    for component in trial["components"]:
+        component.update(
+            {
+                "selected": True,
+                "recommended": True,
+                "state": "customized-guided-route",
+                "recipe_options": [
+                    {
+                        "recipe_id": f"{component['component']}.option-one.v1",
+                        "component": component["component"],
+                        "summary": "First reviewed route.",
+                    },
+                    {
+                        "recipe_id": f"{component['component']}.option-two.v1",
+                        "component": component["component"],
+                        "summary": "Second reviewed route.",
+                    },
+                ],
+            }
+        )
+
+    report = assess_reconciliation(
+        machine_builder=_machine,
+        census_builder=lambda **kwargs: [
+            deepcopy(trial if kwargs.get("selections") else baseline)
+        ],
+        run_id="run_" + ("8" * 32),
+    )
+
+    assert report["default_selection"] == []
+    assert report["batch_summary"]["needs_review"] == 1

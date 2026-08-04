@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Default-all project setup (`cc` 2.6.1):** reconciliation assessment now
+  authors one safe default batch for every project that can be set up or
+  corrected without an ownership decision. Each default selection always
+  includes both Claude Copilot and Codex Copilot, categorizes the project as a
+  new setup or a correction, and excludes dirty, held, ambiguous, or otherwise
+  unverifiable work. The response also includes plain-language machine status
+  and exact ready/review/actionable counts so Control Tower can present one
+  simple “handle everything safe” choice without reimplementing Python’s
+  safety decisions.
+
 ### Added
 
 - **Python-owned ecosystem reconciliation (`cc` 2.6.0):** `cc reconcile`
