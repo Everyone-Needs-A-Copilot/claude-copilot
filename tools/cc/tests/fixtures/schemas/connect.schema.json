@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://everyoneneedsacopilot.com/schemas/copilot-control-tower/connect.schema.json",
+  "title": "cc connect <service-id> [--check] --json",
+  "description": "Writes locally-supplied secret VALUES (read exclusively from stdin, never argv/env/a file -- see cc.commands.connect's module docstring) into the per-user OS keychain for one service's missing credential NAMES, then re-runs `cc connections`' own presence checks and returns the fresh row (WP-395 D-6, the manual keychain floor; Task Copilot task 222). `--check` re-evaluates and returns the row only, with no stdin read and no write. Computed entirely CLI-side (invariant #1): this verb reuses `cc connections`' own service-roster/presence-check machinery rather than recomputing what a service requires or what is missing; the only new computation is validating and writing supplied VALUES, which are never echoed anywhere in this payload. See docs/01-architecture/cli-contract.md and claude-copilot/tools/cc/src/cc/commands/connect.py's module docstring for the full design (WP-395/396/398, task 222).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "result", "detail", "mode", "service", "credentials"],
+  "properties": {
+    "schema_version": { "$ref": "_envelope.schema.json#/$defs/schema_version" },
+    "result": {
+      "type": "string",
+      "enum": ["ok", "unknown-service", "invalid-input", "copilot-unavailable", "org-config-unavailable"],
+      "description": "Envelope-level outcome. 'ok'/'copilot-unavailable'/'org-config-unavailable' carry `cc connections --json`'s own meaning for those values (see connections.schema.json) -- this verb reuses that report internally and passes its envelope-level result straight through when nothing about the input itself was invalid. 'unknown-service': the given service-id/name matched no row in this Mac's roster (`service` is null). 'invalid-input': stdin (in connect mode, when at least one credential was missing) was not valid JSON, or was valid JSON that was not an object of `{\"NAME\": \"value\"}` -- `service` is still populated (the row was already resolved before stdin was read) and every requested `credentials[]` entry for a missing name reads `outcome: \"failed\"` with a plain-language `detail`, never a copy of the malformed input."
+    },
+    "detail": {
+      "type": ["string", "null"],
+      "description": "Plain-language reason, present whenever `result` is not \"ok\"; null when `result` is \"ok\". Never a raw passthrough of stdin or an underlying command's stderr (mirrors connections.schema.json's own `store.detail` rule)."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["connect", "check"],
+      "description": "'connect': the default -- stdin was read (only when at least one credential name was missing) and any supplied values were written. 'check': `--check` was passed -- read-only re-evaluation, `credentials` is always null."
+    },
+    "service": {
+      "description": "The matched service's connections row -- byte-identical shape to `cc connections --json`'s own `connections[]` items (re-evaluated AFTER any writes in connect mode, so `secret_state`/`missing` reflect the outcome). Null when `result` is \"unknown-service\" or \"copilot-unavailable\" (no row could be resolved at all).",
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "connections.schema.json#/$defs/connection" }
+      ]
+    },
+    "credentials": {
+      "description": "Null in `check` mode, or when `result` is \"unknown-service\"/\"copilot-unavailable\" (nothing was evaluated per-credential). Otherwise one entry per the row's `requires_secret`, in that declared order: a name NOT in the row's `missing` list (as evaluated before this run) reads `already-present` and is never touched, regardless of whether stdin happened to supply a value for it; a name that WAS missing reads `stored` (write succeeded), `already-present` (a race: the keychain already held it by the time this run tried to write it -- never overwritten), or `failed` (no/invalid value supplied, or the keychain write itself failed) -- `detail` on a `failed` entry is always a plain-language reason, NEVER the value or any substring of it. Can be a non-empty array even when `result` is \"ok\" -- a partial per-credential failure does not change the envelope-level result, by design (mirrors connections.schema.json's own separation of envelope diagnostics from per-row state); a consumer that needs a single success/failure signal should check whether any entry's `outcome` is \"failed\".",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/credentialOutcome" }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "credentialOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "outcome", "detail"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "description": "The credential NAME this outcome is for. Never a value." },
+        "outcome": {
+          "type": "string",
+          "enum": ["stored", "already-present", "failed"],
+          "description": "'stored': this run wrote a new value to the OS keychain. 'already-present': nothing needed writing (see `credentials`' own description for the two cases this covers). 'failed': no value was written -- see `detail`."
+        },
+        "detail": {
+          "type": ["string", "null"],
+          "description": "Plain-language reason for a `failed` outcome (e.g. \"value must not be empty.\", \"no value was provided for this credential.\"); null for `stored`/`already-present`. NEVER contains the credential value or any substring of it."
+        }
+      }
+    }
+  }
+}
