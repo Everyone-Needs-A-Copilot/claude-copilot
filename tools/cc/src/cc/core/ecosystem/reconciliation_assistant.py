@@ -338,22 +338,37 @@ def build_assistant_prepare_report(
 
 
 def _resolved_claude_candidate() -> str | None:
-    """Resolve the `claude` executable without consulting the ambient PATH.
+    """Resolve the `claude` executable with the closed registry authoritative
+    over the ambient PATH, consulting PATH only when the registry has no
+    answer.
 
-    A PATH-order-dependent lookup (`shutil.which`) is Tampering surface: an
-    attacker who can influence this process's PATH before it runs could steer
-    resolution to a binary of their choosing (STRIDE, Finding B). Instead this
-    reuses `core/executables.py`'s closed registry of known, absolute install
-    locations -- the same mechanism this codebase already uses for `gh`,
-    `copilot`, `codex`, and `node` -- with its normal PATH-first step disabled
-    (`which=lambda _command: None`). The `CC_ASSISTANT_CLAUDE_PATH` operator
-    override, checked before this function runs, remains the only way to
-    point at a `claude` install outside that closed list. Every candidate,
-    from either source, still passes through the ownership/permission checks
-    below before it may be executed.
+    The Finding B defect (STRIDE, Tampering) was that a PATH-order-dependent
+    lookup (`shutil.which`) ran *first* and could therefore preempt a
+    legitimate, trusted install location -- an attacker who could influence
+    this process's PATH before it ran could steer resolution to a binary of
+    their choosing even when a real `claude` was already installed at a known
+    location. The defect was the ordering, not the mere existence of a PATH
+    fallback: disabling PATH outright (as the first fix did) left any real
+    user whose `claude` install is not one of `core/executables.py`'s known
+    absolute locations -- e.g. an install directory outside that closed
+    registry, or a sandboxed/non-standard `$HOME` -- with no way to resolve
+    Claude Code at all.
+
+    Resolution therefore checks `core/executables.py`'s closed registry of
+    known, absolute install locations first (the same registry this codebase
+    already uses for `gh`, `copilot`, `codex`, and `node`), and only falls
+    back to the ambient PATH when the registry yields nothing. A registry hit
+    can never be preempted by PATH. The `CC_ASSISTANT_CLAUDE_PATH` operator
+    override, checked before this function runs, remains the highest-priority
+    way to point at a `claude` install outside both of these sources. Every
+    candidate, from any source, still passes through the ownership/permission
+    checks in `_supported_claude_path` below before it may be executed.
     """
-    resolved = resolve_executable("claude", which=lambda _command: None)
-    return str(resolved) if resolved is not None else None
+    from_registry = resolve_executable("claude", which=lambda _command: None)
+    if from_registry is not None:
+        return str(from_registry)
+    from_path = resolve_executable("claude")
+    return str(from_path) if from_path is not None else None
 
 
 def _supported_claude_path(explicit: Path | None = None) -> Path:

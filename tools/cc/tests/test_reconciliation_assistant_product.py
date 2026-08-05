@@ -334,29 +334,81 @@ def _write_executable(path: Path, script: str = "#!/bin/sh\nexit 0\n") -> Path:
     return path
 
 
-def test_path_injected_claude_binary_is_never_selected(
+def test_registry_hit_outranks_hostile_path_binary(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A directory prepended to PATH must not influence which `claude` runs.
+    """A directory prepended to PATH must never preempt a registry hit.
 
-    The planted binary is deliberately owned by the current user and mode
-    0755 -- it would pass `_supported_claude_path`'s ownership/permission
-    checks if it were ever considered. Resolution must still refuse to run
-    it because PATH is never consulted at all for this security-relevant
-    executable (Finding B, STRIDE: Tampering).
+    The Finding B defect was that a PATH-order-dependent lookup ran *before*
+    the closed registry and could steer resolution to an attacker-controlled
+    binary even when a legitimate, trusted `claude` was already installed at
+    a known location (STRIDE: Tampering). The planted PATH binary here is
+    deliberately owned by the current user and mode 0755 -- it would pass
+    `_supported_claude_path`'s ownership/permission checks on its own -- but
+    resolution must still prefer the registry location because ordering,
+    not the mere existence of a PATH fallback, is the control.
     """
     monkeypatch.delenv("CC_ASSISTANT_CLAUDE_PATH", raising=False)
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    (tmp_path / "home").mkdir()
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    home.mkdir()
+    trusted = _write_executable(home / ".local" / "bin" / "claude")
     malicious = _write_executable(
         tmp_path / "attacker-path" / "claude", "#!/bin/sh\necho pwned\n"
     )
     monkeypatch.setenv("PATH", f"{malicious.parent}{os.pathsep}{os.environ.get('PATH', '')}")
 
+    resolved = assistant._supported_claude_path()
+
+    assert resolved == trusted.resolve()
+
+
+def test_path_only_claude_binary_resolves_when_registry_has_no_answer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The regression case: PATH is the only source that knows the location.
+
+    When the closed registry has no answer (e.g. `claude` is installed
+    somewhere outside `core/executables.py`'s known absolute locations),
+    resolution must still fall back to the ambient PATH rather than failing
+    closed -- but the resolved binary remains subject to the same
+    ownership/permission checks as any other candidate.
+    """
+    monkeypatch.delenv("CC_ASSISTANT_CLAUDE_PATH", raising=False)
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    home.mkdir()
+    only_on_path = _write_executable(tmp_path / "path-only" / "claude")
+    monkeypatch.setenv("PATH", f"{only_on_path.parent}{os.pathsep}{os.environ.get('PATH', '')}")
+
+    resolved = assistant._supported_claude_path()
+
+    assert resolved == only_on_path.resolve()
+
+
+def test_unsafe_path_only_claude_binary_still_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A PATH-resolved candidate still fails closed if it is unsafe.
+
+    Falling back to PATH does not relax the ownership/permission checks: a
+    group- or other-writable binary is refused with the same clean,
+    unambiguous `claude-code-unsafe` ReconciliationError that any other
+    unsafe candidate (registry or explicit override) would receive, even
+    though it is the only candidate PATH or the registry could offer.
+    """
+    monkeypatch.delenv("CC_ASSISTANT_CLAUDE_PATH", raising=False)
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    home.mkdir()
+    unsafe = _write_executable(tmp_path / "path-only" / "claude")
+    unsafe.chmod(0o775)
+    monkeypatch.setenv("PATH", f"{unsafe.parent}{os.pathsep}{os.environ.get('PATH', '')}")
+
     with pytest.raises(ReconciliationError) as excinfo:
         assistant._supported_claude_path()
 
-    assert excinfo.value.code == "claude-code-unavailable"
+    assert excinfo.value.code == "claude-code-unsafe"
 
 
 def test_env_override_still_resolves_a_trustworthy_claude_binary(
@@ -377,6 +429,16 @@ def test_env_override_still_resolves_a_trustworthy_claude_binary(
 def test_unresolvable_claude_refuses_session_cleanly_and_deterministic_path_survives(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """When neither the registry nor PATH knows of a `claude` install, the
+    bounded-assistant path fails closed cleanly and the documented
+    deterministic-only fallback remains fully usable.
+
+    PATH is deliberately narrowed to standard system directories -- not
+    stripped entirely -- so `git` stays available for the census below while
+    guaranteeing no `claude`, real or planted, is reachable through it. This
+    is the last-resort-PATH design's genuine failure case: no source, in
+    priority order, has an answer.
+    """
     project, request, machine_builder, census_builder = _fixture(
         tmp_path, monkeypatch
     )
@@ -384,10 +446,7 @@ def test_unresolvable_claude_refuses_session_cleanly_and_deterministic_path_surv
     monkeypatch.delenv("CC_ASSISTANT_CLAUDE_PATH", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     (tmp_path / "home").mkdir()
-    malicious = _write_executable(
-        tmp_path / "attacker-path" / "claude", "#!/bin/sh\necho pwned\n"
-    )
-    monkeypatch.setenv("PATH", f"{malicious.parent}{os.pathsep}{os.environ.get('PATH', '')}")
+    monkeypatch.setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
     prepare_report, _session = _prepare(request, machine_builder, census_builder)
 
     with pytest.raises(ReconciliationError) as excinfo:
