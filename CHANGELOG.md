@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Bounded Claude Code executable resolution (`cc` 2.7.1):** the private bounded Claude Code preparation subprocess no longer resolves its `claude` executable through the ambient shell `PATH`, closing a PATH-order-dependent Tampering surface (STRIDE) flagged as Finding B in the Phase 9.2 shipped-artifact security review. Resolution now checks the `CC_ASSISTANT_CLAUDE_PATH` operator override first, then falls back to this codebase's existing closed registry of known, absolute install locations (`core/executables.py`, the same registry already used for `gh`/`copilot`/`codex`/`node`) with PATH consultation disabled, and never otherwise considers PATH order. The existing post-resolution ownership/permission checks (owned by root or the current user, no group/other write bits) are unchanged and still apply to whatever is resolved before it may be executed.
+
 ### Added
 
 - **Bounded Claude Code project preparation (`cc` 2.7.0):** reconciliation

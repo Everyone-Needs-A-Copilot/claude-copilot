@@ -327,6 +327,95 @@ def test_safe_environment_drops_credential_bearing_proxy(
     assert environment["NO_PROXY"] == "localhost,127.0.0.1"
 
 
+def _write_executable(path: Path, script: str = "#!/bin/sh\nexit 0\n") -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(script, encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+def test_path_injected_claude_binary_is_never_selected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A directory prepended to PATH must not influence which `claude` runs.
+
+    The planted binary is deliberately owned by the current user and mode
+    0755 -- it would pass `_supported_claude_path`'s ownership/permission
+    checks if it were ever considered. Resolution must still refuse to run
+    it because PATH is never consulted at all for this security-relevant
+    executable (Finding B, STRIDE: Tampering).
+    """
+    monkeypatch.delenv("CC_ASSISTANT_CLAUDE_PATH", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    (tmp_path / "home").mkdir()
+    malicious = _write_executable(
+        tmp_path / "attacker-path" / "claude", "#!/bin/sh\necho pwned\n"
+    )
+    monkeypatch.setenv("PATH", f"{malicious.parent}{os.pathsep}{os.environ.get('PATH', '')}")
+
+    with pytest.raises(ReconciliationError) as excinfo:
+        assistant._supported_claude_path()
+
+    assert excinfo.value.code == "claude-code-unavailable"
+
+
+def test_env_override_still_resolves_a_trustworthy_claude_binary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    trusted = _write_executable(tmp_path / "trusted" / "claude")
+    malicious = _write_executable(
+        tmp_path / "attacker-path" / "claude", "#!/bin/sh\necho pwned\n"
+    )
+    monkeypatch.setenv("PATH", f"{malicious.parent}{os.pathsep}{os.environ.get('PATH', '')}")
+    monkeypatch.setenv("CC_ASSISTANT_CLAUDE_PATH", str(trusted))
+
+    resolved = assistant._supported_claude_path()
+
+    assert resolved == trusted.resolve()
+
+
+def test_unresolvable_claude_refuses_session_cleanly_and_deterministic_path_survives(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, request, machine_builder, census_builder = _fixture(
+        tmp_path, monkeypatch
+    )
+    unchanged = snapshot_tree(project)
+    monkeypatch.delenv("CC_ASSISTANT_CLAUDE_PATH", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    (tmp_path / "home").mkdir()
+    malicious = _write_executable(
+        tmp_path / "attacker-path" / "claude", "#!/bin/sh\necho pwned\n"
+    )
+    monkeypatch.setenv("PATH", f"{malicious.parent}{os.pathsep}{os.environ.get('PATH', '')}")
+    prepare_report, _session = _prepare(request, machine_builder, census_builder)
+
+    with pytest.raises(ReconciliationError) as excinfo:
+        assistant.run_assistant_session(prepare_report["session_id"])
+
+    assert excinfo.value.code == "claude-code-unavailable"
+    assert snapshot_tree(project) == unchanged
+    status = assistant.build_assistant_status_report(prepare_report["session_id"])
+    assert status["result"] == "blocked"
+    assert status["proposal_id"] is None
+    assert not _schema_errors(status)
+
+    # The bounded-assistant path refused cleanly; the documented fallback --
+    # deterministic-only reconciliation for a component that never touches
+    # `claude` at all -- must still be fully usable and untouched by the
+    # unresolvable-executable failure above.
+    deterministic_request = request.as_dict()
+    deterministic_request["projects"][0]["components"] = ["codex"]
+    deterministic_request = parse_reconciliation_request(deterministic_request)
+    plan = build_plan_report(
+        deterministic_request,
+        machine_builder=machine_builder,
+        census_builder=census_builder,
+    )
+    assert plan["result"] == "action-required"
+    assert snapshot_tree(project) == unchanged
+
+
 @pytest.mark.parametrize(
     "mode",
     [

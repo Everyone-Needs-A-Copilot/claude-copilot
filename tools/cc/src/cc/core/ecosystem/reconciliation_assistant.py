@@ -15,7 +15,6 @@ import os
 import re
 import resource
 import secrets
-import shutil
 import signal
 import stat
 import subprocess
@@ -46,6 +45,7 @@ from cc.core.ecosystem.reconciliation_types import (
     canonical_request_json,
     parse_reconciliation_request,
 )
+from cc.core.executables import resolve_executable
 
 _SESSION_ID = re.compile(r"^session_[0-9a-f]{32}$")
 _PROPOSAL_ID = re.compile(r"^proposal_[0-9a-f]{32}$")
@@ -337,12 +337,30 @@ def build_assistant_prepare_report(
     }
 
 
+def _resolved_claude_candidate() -> str | None:
+    """Resolve the `claude` executable without consulting the ambient PATH.
+
+    A PATH-order-dependent lookup (`shutil.which`) is Tampering surface: an
+    attacker who can influence this process's PATH before it runs could steer
+    resolution to a binary of their choosing (STRIDE, Finding B). Instead this
+    reuses `core/executables.py`'s closed registry of known, absolute install
+    locations -- the same mechanism this codebase already uses for `gh`,
+    `copilot`, `codex`, and `node` -- with its normal PATH-first step disabled
+    (`which=lambda _command: None`). The `CC_ASSISTANT_CLAUDE_PATH` operator
+    override, checked before this function runs, remains the only way to
+    point at a `claude` install outside that closed list. Every candidate,
+    from either source, still passes through the ownership/permission checks
+    below before it may be executed.
+    """
+    resolved = resolve_executable("claude", which=lambda _command: None)
+    return str(resolved) if resolved is not None else None
+
+
 def _supported_claude_path(explicit: Path | None = None) -> Path:
     raw_value = (
         str(explicit)
         if explicit is not None
-        else os.environ.get("CC_ASSISTANT_CLAUDE_PATH")
-        or shutil.which("claude")
+        else os.environ.get("CC_ASSISTANT_CLAUDE_PATH") or _resolved_claude_candidate()
     )
     if not raw_value:
         raise _reconciliation_error(
