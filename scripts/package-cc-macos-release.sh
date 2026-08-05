@@ -479,7 +479,7 @@ import json
 import sys
 
 payload = json.load(open(sys.argv[1], encoding="utf-8"))
-if payload.get("schema_version") != "1.0":
+if payload.get("schema_version") != "2.0":
     raise SystemExit("reconciliation probe returned an incompatible schema")
 if payload.get("phase") != "assess":
     raise SystemExit("reconciliation probe did not remain read-only")

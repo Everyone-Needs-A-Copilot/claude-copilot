@@ -29,16 +29,32 @@ def _entry_payload(path: Path, kind: str) -> bytes:
     return b""
 
 
-def _walk_without_following(root: Path) -> Iterator[Path]:
+def _walk_without_following(
+    root: Path, *, snapshot_root: Path | None = None
+) -> Iterator[Path]:
+    snapshot_root = root if snapshot_root is None else snapshot_root
     yield root
     if root.is_symlink() or not root.is_dir():
         return
     with os.scandir(root) as children:
         for child in sorted(children, key=lambda item: item.name):
             path = Path(child.path)
+            relative = path.relative_to(snapshot_root)
+            # Git may create and remove maintenance locks while a hostile
+            # assistant subprocess is running. These are process-liveness
+            # artifacts, not project state, and including them makes the
+            # before/after mutation proof race with Git itself.
+            if (
+                relative.parts
+                and relative.parts[0] == ".git"
+                and path.name.endswith(".lock")
+            ):
+                continue
             yield path
             if child.is_dir(follow_symlinks=False):
-                yield from list(_walk_without_following(path))[1:]
+                yield from list(
+                    _walk_without_following(path, snapshot_root=snapshot_root)
+                )[1:]
 
 
 def snapshot_tree(root: Path) -> tuple[TreeEntry, ...]:

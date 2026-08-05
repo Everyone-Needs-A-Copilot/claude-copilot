@@ -454,7 +454,9 @@ def test_nested_missing_targets_prepare_without_writes_and_rollback_exact_tree(
     ] == []
 
 
-def test_later_batch_project_is_freshly_reassessed_under_its_lock(tmp_path) -> None:
+def test_later_batch_project_is_freshly_reassessed_under_its_lock(
+    tmp_path, monkeypatch
+) -> None:
     first = _repo(tmp_path / "first")
     later = tmp_path / "later"
     later.mkdir()
@@ -473,6 +475,13 @@ def test_later_batch_project_is_freshly_reassessed_under_its_lock(tmp_path) -> N
         ),
         cwd=later,
         check=True,
+    )
+    # This test isolates transaction freshness. Source availability is covered
+    # by the project-reconciliation suite and must not depend on the runner's
+    # machine configuration here.
+    monkeypatch.setattr(
+        "cc.core.ecosystem.project_reconciliation._source_available",
+        lambda _component: True,
     )
     assessment = assess_project(
         later,

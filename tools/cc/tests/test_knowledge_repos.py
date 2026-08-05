@@ -467,12 +467,15 @@ def test_personal_roots_includes_every_projects_root_entry(monkeypatch):
     monkeypatch.setattr("cc.core.config.resolve_knowledge_repos", lambda: [])
     monkeypatch.setattr(
         "cc.core.config.resolve_key",
-        lambda key, **_: ["/Users/me/projects", "/Volumes/Dev/Sites"]
+        lambda key, **_: ["/Users/example/projects", "/Volumes/Dev/Sites"]
         if key == "projects.roots"
         else None,
     )
 
-    assert personal_roots_from_config() == ["/Users/me/projects", "/Volumes/Dev/Sites"]
+    assert personal_roots_from_config() == [
+        "/Users/example/projects",
+        "/Volumes/Dev/Sites",
+    ]
 
 
 def test_personal_roots_concatenates_knowledge_repos_and_projects_roots(monkeypatch):
