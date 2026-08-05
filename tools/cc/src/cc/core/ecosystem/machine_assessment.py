@@ -32,7 +32,7 @@ ExecutableVersionReader = Callable[[str, Path], str | None]
 FrameworkVersionReader = Callable[[Path, str], str | None]
 FrameworkSourceValidator = Callable[[str, Path], bool]
 
-_MINIMUM_HELPER_VERSION = "2.8.0"
+_MINIMUM_HELPER_VERSION = "2.9.0"
 _MINIMUM_FRAMEWORK_VERSIONS = {"claude": "5.13.3", "codex": "0.6.1"}
 _FRAMEWORK_CONFIG_KEYS = {
     "claude": "paths.claude_copilot_root",

@@ -1265,6 +1265,76 @@ if error.get("code") != "claude-code-unavailable":
     )
 PY
 
+# Exercise the frozen helper's new one-conversation guided lifecycle against
+# the same clean disposable project. Python must write a private immutable work
+# order, expose progress, and retain sole authority for final verification.
+guide_prepare_probe="${scratch}/guide-prepare-probe.json"
+guide_start_probe="${scratch}/guide-start-probe.json"
+guide_status_probe="${scratch}/guide-status-probe.json"
+guide_finalize_probe="${scratch}/guide-finalize-probe.json"
+env "${assistant_env[@]}" \
+    "${artifact}" reconcile guide-prepare \
+    --request "${assistant_request}" --json > "${guide_prepare_probe}" ||
+    die "frozen helper guide-prepare probe failed: $(<"${guide_prepare_probe}")"
+guide_id="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["guide_id"])' "${guide_prepare_probe}")"
+env "${assistant_env[@]}" \
+    "${artifact}" reconcile guide-start \
+    --guide-id "${guide_id}" --assistant codex --json > "${guide_start_probe}" ||
+    die "frozen helper guide-start probe failed: $(<"${guide_start_probe}")"
+env "${assistant_env[@]}" \
+    "${artifact}" reconcile guide-status \
+    --guide-id "${guide_id}" --json > "${guide_status_probe}" ||
+    die "frozen helper guide-status probe failed: $(<"${guide_status_probe}")"
+env "${assistant_env[@]}" \
+    "${artifact}" reconcile guide-finalize \
+    --guide-id "${guide_id}" --json > "${guide_finalize_probe}" ||
+    die "frozen helper guide-finalize probe failed: $(<"${guide_finalize_probe}")"
+/usr/bin/python3 - \
+    "${guide_prepare_probe}" \
+    "${guide_start_probe}" \
+    "${guide_status_probe}" \
+    "${guide_finalize_probe}" \
+    "${assistant_project}" <<'PY'
+import json
+import os
+import pathlib
+import stat
+import subprocess
+import sys
+
+prepare, start, status, final = [
+    json.load(open(path, encoding="utf-8")) for path in sys.argv[1:5]
+]
+project = pathlib.Path(sys.argv[5])
+if prepare.get("phase") != "guide-prepare" or prepare.get("result") != "ready":
+    raise SystemExit("frozen guide did not prepare one instruction package")
+if prepare.get("workspace_roots") != [str(project.parent)]:
+    raise SystemExit("frozen guide exposed an unexpected workspace root")
+if prepare.get("selected_projects") != [str(project)]:
+    raise SystemExit("frozen guide changed the exact selected project")
+instructions = pathlib.Path(prepare["instructions_path"])
+projects = pathlib.Path(prepare["projects_path"])
+for path in (instructions, projects):
+    metadata = path.lstat()
+    if not stat.S_ISREG(metadata.st_mode) or stat.S_IMODE(metadata.st_mode) != 0o400:
+        raise SystemExit("frozen guide package was not an immutable private file")
+if "one conversation" not in instructions.read_text(encoding="utf-8").lower():
+    raise SystemExit("frozen guide omitted the one-conversation instruction")
+project_payload = json.loads(projects.read_text(encoding="utf-8"))
+if [item.get("path") for item in project_payload.get("projects", [])] != [str(project)]:
+    raise SystemExit("frozen guide work order did not preserve exact project scope")
+if start.get("phase") != "guide-start" or start.get("result") != "running":
+    raise SystemExit("frozen guide did not record the visible assistant session")
+if status.get("phase") != "guide-status" or status.get("progress", {}).get("state") != "running":
+    raise SystemExit("frozen guide did not expose Python-owned live progress")
+if final.get("phase") != "guide-finalize":
+    raise SystemExit("frozen guide did not run fresh whole-batch verification")
+if final.get("progress", {}).get("selected_project_count") != 1:
+    raise SystemExit("frozen guide final report changed project scope")
+if subprocess.check_output(["git", "-C", str(project), "status", "--porcelain"]):
+    raise SystemExit("frozen guide preparation changed the selected project")
+PY
+
 archive="${scratch}/cc-macos-universal.zip"
 ditto -c -k --keepParent "${artifact}" "${archive}"
 notary_args=()
@@ -1344,6 +1414,7 @@ cat > "${OUTPUT_DIR}/release-metadata.json" <<EOF
   "device_flow_https_probe": "passed",
   "finder_onboard_probe": "passed",
   "finder_reconciliation_probe": "passed",
+  "finder_reconciliation_guide_probe": "passed",
   "finder_reconciliation_assistant_probe": "passed",
   "finder_reconciliation_assistant_default_resolution_probe": "passed",
   "sha256": "${artifact_sha}"

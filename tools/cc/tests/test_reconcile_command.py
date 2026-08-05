@@ -87,6 +87,27 @@ def test_normal_business_block_returns_exit_one_without_error_envelope(
     assert json.loads(result.stdout) == {"phase": "assess", "result": "blocked"}
 
 
+def test_guided_commands_are_wired_and_fail_closed_without_identifiers() -> None:
+    runner = CliRunner()
+    help_result = runner.invoke(command.reconcile_app, ["--help"])
+
+    assert help_result.exit_code == 0
+    for name in (
+        "guide-prepare",
+        "guide-start",
+        "guide-check",
+        "guide-status",
+        "guide-finalize",
+    ):
+        assert name in help_result.stdout
+
+    missing = runner.invoke(command.reconcile_app, ["guide-status", "--json"])
+    assert missing.exit_code == 2
+    report = json.loads(missing.stdout)
+    assert report["error"]["code"] == "guide-not-found"
+    assert not list(_validator().iter_errors(report))
+
+
 @pytest.mark.parametrize(
     "recipe_id",
     ["unknown-reviewed-recipe-v1", "codex-project-update-v1"],

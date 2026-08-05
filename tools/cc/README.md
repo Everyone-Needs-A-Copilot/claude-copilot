@@ -250,18 +250,29 @@ the selected Copilot ecosystem. `assess` is read-only. `plan`, `apply`, and
 `verify` all consume the same explicit request file; `apply` additionally
 requires the fresh opaque plan identifier returned by `plan`. `recover` takes
 no caller-authored mutation input: it resolves interrupted private transaction
-state before another apply can begin. For customized projects, the optional
-assistant lifecycle lets Claude Code choose only among closed Python-authored
-recipes. Claude never receives project paths or content and never writes a
-project; Python validates the proposal and performs the ordinary plan/apply/
-verify flow.
+state before another apply can begin. For a large mixed fleet, the guided
+lifecycle writes one immutable work order under an approved projects root,
+opens one user-selected Codex or Claude Code conversation at that root, and
+keeps per-project progress in private Python state. The assistant can inspect
+and correct the exact selected projects, but only Python's fresh verifier can
+mark them ready. Ecosystem repositories and projects held by safety policy
+never enter the work order. The earlier bounded assistant recipe selector
+remains available for deployments that do not allow an assistant to inspect
+project paths or content.
 
 ```bash
 # Complete read-only machine and project census under configured approved roots
 cc reconcile assess --json
 
-# Prepare customized selections, run the opaque session in Claude Code, and
-# poll until Python issues an expiring proposal identifier
+# Write one root-level instruction package for the exact assessed selection.
+# Start, check projects from, and finalize one visible Codex/Claude session.
+cc reconcile guide-prepare --request /private/path/reconcile-request.json --json
+cc reconcile guide-start --guide-id guide_0123456789abcdef0123456789abcdef --assistant codex --json
+cc reconcile guide-check --guide-id guide_0123456789abcdef0123456789abcdef --project /absolute/project/path --json
+cc reconcile guide-status --guide-id guide_0123456789abcdef0123456789abcdef --json
+cc reconcile guide-finalize --guide-id guide_0123456789abcdef0123456789abcdef --json
+
+# Optional bounded recipe-selection lifecycle with no project access
 cc reconcile assistant-prepare --request /private/path/reconcile-request.json --json
 cc reconcile assistant-run --session-id session_0123456789abcdef0123456789abcdef --json
 cc reconcile assistant-status --session-id session_0123456789abcdef0123456789abcdef --json

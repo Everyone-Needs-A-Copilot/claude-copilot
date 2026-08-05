@@ -21,6 +21,7 @@ os.environ["SSL_CERT_FILE"] = ca_bundle
 # one-file helper.
 from cc.core.ecosystem import assistant_job_store as _assistant_job_store  # noqa: E402,F401
 from cc.core.ecosystem import reconciliation_assistant as _reconciliation_assistant  # noqa: E402,F401
+from cc.core.ecosystem import reconciliation_guide as _reconciliation_guide  # noqa: E402,F401
 from cc.main import app
 
 

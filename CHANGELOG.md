@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **One-conversation guided project setup (`cc` 2.9.0):** reconciliation can
+  now write one private, immutable instruction package for an exact assessed
+  batch and drive one root-level Codex or Claude Code conversation through
+  `guide-prepare`, `guide-start`, `guide-check`, `guide-status`, and
+  `guide-finalize`. The package includes Python-authored project evidence,
+  preservation rules, allowed targets, and the verification loop. It excludes
+  Copilot ecosystem repositories, held or dirty work, and every approved root
+  that contains no selected project. The assistant may inspect and correct the
+  listed product projects in one conversation, while fresh Python verification
+  remains the only authority that can mark a project ready. Reports expose one
+  status and the exact current reasons for every selected project rather than
+  repeating rollback fingerprint bookkeeping as a failure explanation.
+
 - **Truthful project scope, component routes, and assistant progress (`cc`
   2.8.0):** reconciliation response schema 2.0 now proves which discovered Git
   repositories are product projects and which are Copilot ecosystem sources

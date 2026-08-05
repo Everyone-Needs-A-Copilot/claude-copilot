@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -170,6 +171,109 @@ def assistant_status(
 
     _run_report(
         lambda: build_assistant_status_report(session_id or ""),
+        output_json=output_json,
+    )
+
+
+@reconcile_app.command("guide-prepare")
+def guide_prepare(
+    request: Optional[Path] = typer.Option(
+        None, "--request", help="The exact selected project batch."
+    ),
+    output_json: bool = typer.Option(
+        False, "--json", help="Emit the guided instruction-package report."
+    ),
+) -> None:
+    """Write one Sites-root work order for Codex or Claude Code."""
+    from cc.core.ecosystem.reconciliation_guide import (
+        build_guide_prepare_report,
+    )
+
+    helper_path = str(Path(sys.executable if getattr(sys, "frozen", False) else sys.argv[0]).resolve())
+    _run_report(
+        lambda: build_guide_prepare_report(
+            _load_request(request), helper_path=helper_path
+        ),
+        output_json=output_json,
+    )
+
+
+@reconcile_app.command("guide-start")
+def guide_start(
+    guide_id: Optional[str] = typer.Option(
+        None, "--guide-id", help="Opaque guided-session identifier."
+    ),
+    assistant: Optional[str] = typer.Option(
+        None, "--assistant", help="codex or claude-code."
+    ),
+    output_json: bool = typer.Option(
+        False, "--json", help="Emit the guided-session start report."
+    ),
+) -> None:
+    """Record that one visible root-level assistant session started."""
+    from cc.core.ecosystem.reconciliation_guide import build_guide_start_report
+
+    _run_report(
+        lambda: build_guide_start_report(guide_id or "", assistant or ""),
+        output_json=output_json,
+    )
+
+
+@reconcile_app.command("guide-check")
+def guide_check(
+    guide_id: Optional[str] = typer.Option(
+        None, "--guide-id", help="Opaque guided-session identifier."
+    ),
+    project: Optional[str] = typer.Option(
+        None, "--project", help="One exact project path from the work order."
+    ),
+    output_json: bool = typer.Option(
+        False, "--json", help="Emit the fresh per-project check."
+    ),
+) -> None:
+    """Freshly verify one project and update Python-owned progress."""
+    from cc.core.ecosystem.reconciliation_guide import build_guide_check_report
+
+    _run_report(
+        lambda: build_guide_check_report(guide_id or "", project or ""),
+        output_json=output_json,
+    )
+
+
+@reconcile_app.command("guide-status")
+def guide_status(
+    guide_id: Optional[str] = typer.Option(
+        None, "--guide-id", help="Opaque guided-session identifier."
+    ),
+    output_json: bool = typer.Option(
+        False, "--json", help="Emit current Python-owned guided progress."
+    ),
+) -> None:
+    """Read one guided session without trusting assistant output."""
+    from cc.core.ecosystem.reconciliation_guide import build_guide_status_report
+
+    _run_report(
+        lambda: build_guide_status_report(guide_id or ""),
+        output_json=output_json,
+    )
+
+
+@reconcile_app.command("guide-finalize")
+def guide_finalize(
+    guide_id: Optional[str] = typer.Option(
+        None, "--guide-id", help="Opaque guided-session identifier."
+    ),
+    output_json: bool = typer.Option(
+        False, "--json", help="Emit the fresh whole-run verification."
+    ),
+) -> None:
+    """Freshly verify every selected project and close the guided run."""
+    from cc.core.ecosystem.reconciliation_guide import (
+        build_guide_finalize_report,
+    )
+
+    _run_report(
+        lambda: build_guide_finalize_report(guide_id or ""),
         output_json=output_json,
     )
 

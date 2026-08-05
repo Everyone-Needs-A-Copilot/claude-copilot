@@ -111,7 +111,7 @@ def _healthy_context(tmp_path: Path) -> dict[str, Any]:
             lambda path, component: state["framework_versions"].get(component)
         ),
         "framework_source_validator": lambda component, path: True,
-        "helper_version": "2.8.0",
+        "helper_version": "2.9.0",
         "executable_version_reader": (lambda command, path: f"{command} version 1.0.0"),
     }
     return {
@@ -134,7 +134,7 @@ def test_healthy_machine_is_schema_valid_and_leaks_no_credential(
 
     _validate_machine(assessment)
     assert assessment["state"] == "ready"
-    assert assessment["helper"]["version"] == "2.8.0"
+    assert assessment["helper"]["version"] == "2.9.0"
     assert assessment["authentication"] == {
         "state": "signed-in",
         "credential_state": "present",
