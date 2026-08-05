@@ -1,0 +1,84 @@
+#!/bin/bash
+# pre-commit hook to prevent time estimate language in agent templates
+# Install: cp scripts/pre-commit-time-check .git/hooks/pre-commit
+
+# Only check agent and command files that are staged
+STAGED_AGENT_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.claude/(agents|commands)/.*\.md$' || true)
+
+if [ -z "$STAGED_AGENT_FILES" ]; then
+  # No agent files staged, allow commit
+  exit 0
+fi
+
+echo "Checking staged agent files for time estimate language..."
+
+VIOLATIONS_FOUND=0
+
+# Check each staged file
+for file in $STAGED_AGENT_FILES; do
+  # Get staged content (not working tree)
+  CONTENT=$(git show :$file)
+
+  # Pattern 1: Direct time units (excluding acceptable contexts)
+  TIME_UNITS=$(echo "$CONTENT" | grep -nE '\b(hours?|days?|weeks?|months?|years?)\b' \
+    | grep -vE 'TTL|cache|testing|fast|slow|millisecond|performance' || true)
+
+  if [ ! -z "$TIME_UNITS" ]; then
+    echo ""
+    echo "❌ Time units found in: $file"
+    echo "$TIME_UNITS"
+    VIOLATIONS_FOUND=1
+  fi
+
+  # Pattern 2: Planning time language
+  PLANNING=$(echo "$CONTENT" | grep -nE '\b(timeline|schedule|deadline|due\s+date|ETA|delivery\s+date)\b' || true)
+
+  if [ ! -z "$PLANNING" ]; then
+    echo ""
+    echo "❌ Planning time language found in: $file"
+    echo "$PLANNING"
+    VIOLATIONS_FOUND=1
+  fi
+
+  # Pattern 3: Phase-based time
+  PHASES=$(echo "$CONTENT" | grep -nE 'Phase\s+\d+.*\((Week|Month|Q\d)' || true)
+
+  if [ ! -z "$PHASES" ]; then
+    echo ""
+    echo "❌ Time-based phases found in: $file"
+    echo "$PHASES"
+    VIOLATIONS_FOUND=1
+  fi
+
+  # Pattern 4: Severity/Time tables
+  TABLES=$(echo "$CONTENT" | grep -nE '(Response\s+Time|Completion\s+Time|Duration|Timeframe)\s*\|' || true)
+
+  if [ ! -z "$TABLES" ]; then
+    echo ""
+    echo "❌ Table with time commitments found in: $file"
+    echo "$TABLES"
+    VIOLATIONS_FOUND=1
+  fi
+done
+
+if [ $VIOLATIONS_FOUND -eq 1 ]; then
+  echo ""
+  echo "========================================="
+  echo "COMMIT BLOCKED: Time estimate violations"
+  echo "========================================="
+  echo ""
+  echo "Agent files should not contain time estimates or scheduling language."
+  echo ""
+  echo "Common fixes:"
+  echo "  • Replace 'timeline' → 'sequence' or 'dependencies'"
+  echo "  • Replace 'Response Time' → 'Priority' or 'Severity'"
+  echo "  • Remove time durations from phase descriptions"
+  echo "  • Focus on dependencies, not dates"
+  echo ""
+  echo "See: docs/qa/time-estimate-audit-report.md"
+  echo ""
+  exit 1
+fi
+
+echo "✓ No time estimate violations found"
+exit 0
