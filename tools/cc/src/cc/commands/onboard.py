@@ -123,14 +123,17 @@ class HistoryClassification:
     publish PARENTLESS pinned commits/tags -- the pin's commit is never an
     ancestor or descendant of any working branch, so ordinary ancestry
     comparison can never align it. Without this state, a checkout that
-    already matches such a pin byte-for-byte would be misclassified
-    ``divergent-identical-tree``/``review`` forever, with no Git action the
-    owner could ever take to clear it. It is deliberately narrow: only a
-    PARENTLESS pinned target whose tree is byte-identical to a clean working
-    tree qualifies; a non-parentless pin with an identical tree (a real,
-    continuously-evolving repository, where history alignment genuinely
-    remains possible) still classifies ``divergent-identical-tree``/
-    ``review``, and a parentless pin whose tree differs still classifies
+    already matches such a pin's active content byte-for-byte would be
+    misclassified ``divergent-identical-tree``/``review`` forever, with no
+    Git action the owner could ever take to clear it. It is deliberately
+    narrow: only a PARENTLESS pinned target whose full tree, or configured
+    ``source.subpath`` when present, is byte-identical to the same content in
+    a clean working tree qualifies. This lets a Foundation authoring checkout
+    retain release tooling outside the content Copilot actually consumes
+    without fabricating a divergence. A non-parentless pin with matching
+    content (a real, continuously-evolving repository, where history alignment
+    genuinely remains possible) still requires ordinary history alignment,
+    and any difference inside the active content still classifies
     ``divergent-different-content``/``review``.
 
     This is the single source of truth for "is it safe to touch this
@@ -901,31 +904,52 @@ def _classify_repository_history(
 
     local_tree = _git_output(local, "rev-parse", "HEAD^{tree}", run=run)
     target_tree = _git_output(local, "rev-parse", f"{target_sha}^{{tree}}", run=run)
-    if (
+    full_tree_matches = (
         local_tree.returncode == 0
         and target_tree.returncode == 0
         and local_tree.stdout.strip()
         and local_tree.stdout.strip() == target_tree.stdout.strip()
-    ):
+    )
+    active_subpath = source.get("subpath")
+    has_active_subpath = isinstance(active_subpath, str) and bool(active_subpath)
+    if full_tree_matches or has_active_subpath:
         # `target_sha^@` lists the target commit's parent SHA(s) (empty
         # output means it has none). A working tree that's already clean
-        # (proven above) and byte-identical to a PARENTLESS pinned target
-        # genuinely *is* the pin -- only its unrelated commit history
-        # differs, which is permanent and expected for a foundation
-        # snapshot release, not a real divergence no owner action could
-        # ever resolve. See `HistoryClassification`'s docstring (task
-        # 209/G-7). A non-parentless target reaching this point (the
-        # cli-copilot shape, where history alignment genuinely remains
-        # possible) still falls through to `divergent-identical-tree`
-        # below, unchanged.
+        # (proven above) and byte-identical to a PARENTLESS pinned target's
+        # active content genuinely *is* current for this layer -- only its
+        # unrelated commit history or files outside `source.subpath` differ.
+        # That is permanent and expected for a foundation snapshot release,
+        # not a real divergence any owner action could resolve. See
+        # `HistoryClassification`'s docstring (task 209/G-7, task 250).
         parents = _git_output(local, "rev-parse", f"{target_sha}^@", run=run)
-        if parents.returncode == 0 and not parents.stdout.strip():
-            return HistoryClassification(
-                "parentless-snapshot-match",
-                "current",
-                "reuse",
-                f"Visible at {local}; content matches the pinned snapshot exactly (foundation snapshot releases are parentless by design, so only their unrelated commit history differs).",
+        target_is_parentless = parents.returncode == 0 and not parents.stdout.strip()
+        if target_is_parentless:
+            if full_tree_matches:
+                return HistoryClassification(
+                    "parentless-snapshot-match",
+                    "current",
+                    "reuse",
+                    f"Visible at {local}; content matches the pinned snapshot exactly (foundation snapshot releases are parentless by design, so only their unrelated commit history differs).",
+                )
+            local_content = _git_output(
+                local, "rev-parse", f"{head_sha}:{active_subpath}", run=run
             )
+            target_content = _git_output(
+                local, "rev-parse", f"{target_sha}:{active_subpath}", run=run
+            )
+            if (
+                local_content.returncode == 0
+                and target_content.returncode == 0
+                and local_content.stdout.strip()
+                and local_content.stdout.strip() == target_content.stdout.strip()
+            ):
+                return HistoryClassification(
+                    "parentless-snapshot-match",
+                    "current",
+                    "reuse",
+                    f"Visible at {local}; the Copilot content this Mac uses matches the current release. Files outside that content are different and will be left alone.",
+                )
+    if full_tree_matches:
         return HistoryClassification(
             "divergent-identical-tree",
             "diverged-identical",

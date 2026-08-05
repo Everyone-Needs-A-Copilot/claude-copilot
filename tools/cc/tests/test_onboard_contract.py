@@ -2868,6 +2868,17 @@ def test_department_membership_expands_visible_manifest_to_sixteen_layers(tmp_pa
     )
     assert personal["source"]["path"] == str(tmp_path / "knowledge-copilot-private")
     assert ".copilot/mirrors" not in personal["source"]["path"]
+    claude_foundation = next(
+        layer
+        for layer in manifest["layers"]
+        if layer["product"] == "claude" and layer["role"] == "foundation"
+    )
+    assert claude_foundation["source"]["subpath"] == ".claude"
+    assert all(
+        "subpath" not in layer["source"]
+        for layer in manifest["layers"]
+        if layer is not claude_foundation
+    )
 
 
 def test_department_entitlement_requires_declared_active_membership():
@@ -2984,7 +2995,9 @@ def _init_content_repo(path: Path, filename: str, content: str, *, message: str 
 
 
 def _commit(path: Path, filename: str, content: str, message: str) -> None:
-    (path / filename).write_text(content, encoding="utf-8")
+    target = path / filename
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
     subprocess.run(["git", "add", "-A"], cwd=path, check=True)
     subprocess.run(["git", "commit", "-q", "-m", message], cwd=path, check=True)
 
@@ -3198,6 +3211,128 @@ def test_classify_repository_history_parentless_snapshot_pin_different_tree_is_d
         owner="pablo",
         name="widget",
         source={"repo": str(remote), "ref": "v1.0.0"},
+        run=_real_run,
+    )
+
+    assert classification.state == "divergent-different-content"
+    assert classification.sync_state == "diverged"
+    assert classification.action == "review"
+
+
+def test_classify_repository_history_parentless_snapshot_matching_active_subpath_is_current(
+    tmp_path,
+):
+    """Claude Foundation snapshots intentionally omit or rewrite release-only
+    repository files while the active `.claude` payload remains identical.
+    Those irrelevant root differences must not turn an authoring checkout into
+    a permanent review row."""
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, ".claude/skill.md", "same Copilot content")
+    _annotated_tag(remote, "v1.0.0")
+    _init_content_repo(
+        local,
+        ".claude/skill.md",
+        "same Copilot content",
+        message="independent authoring history",
+    )
+    _commit(local, "scripts/package-release.sh", "authoring-only", "release tooling")
+    _set_fake_origin(local, "pablo", "widget")
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "v1.0.0", "subpath": ".claude"},
+        run=_real_run,
+    )
+
+    assert classification.state == "parentless-snapshot-match"
+    assert classification.sync_state == "current"
+    assert classification.action == "reuse"
+    assert (
+        "Copilot content this Mac uses matches the current release"
+        in classification.detail
+    )
+    assert "outside that content" in classification.detail
+
+
+def test_classify_repository_history_parentless_snapshot_changed_active_subpath_is_diverged(
+    tmp_path,
+):
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, ".claude/skill.md", "published Copilot content")
+    _annotated_tag(remote, "v1.0.0")
+    _init_content_repo(
+        local,
+        ".claude/skill.md",
+        "different Copilot content",
+        message="independent authoring history",
+    )
+    _commit(local, "scripts/package-release.sh", "authoring-only", "release tooling")
+    _set_fake_origin(local, "pablo", "widget")
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "v1.0.0", "subpath": ".claude"},
+        run=_real_run,
+    )
+
+    assert classification.state == "divergent-different-content"
+    assert classification.sync_state == "diverged"
+    assert classification.action == "review"
+
+
+def test_classify_repository_history_parentless_snapshot_missing_active_subpath_is_diverged(
+    tmp_path,
+):
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, ".claude/skill.md", "published Copilot content")
+    _annotated_tag(remote, "v1.0.0")
+    _init_content_repo(local, "README.md", "no active Copilot content")
+    _set_fake_origin(local, "pablo", "widget")
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "v1.0.0", "subpath": ".claude"},
+        run=_real_run,
+    )
+
+    assert classification.state == "divergent-different-content"
+    assert classification.sync_state == "diverged"
+    assert classification.action == "review"
+
+
+def test_classify_repository_history_non_parentless_matching_subpath_stays_diverged(
+    tmp_path,
+):
+    """Subpath equality is not a general history bypass. A normal release
+    branch can still be reconciled through ancestry and retains the existing
+    fail-closed review behavior when its histories diverge."""
+    remote = tmp_path / "remote"
+    local = tmp_path / "local"
+    _init_content_repo(remote, ".claude/skill.md", "same Copilot content")
+    _commit(remote, "release.txt", "published", "ordinary release commit")
+    _init_content_repo(
+        local,
+        ".claude/skill.md",
+        "same Copilot content",
+        message="independent authoring history",
+    )
+    _commit(local, "authoring.txt", "local", "ordinary authoring commit")
+    _set_fake_origin(local, "pablo", "widget")
+
+    classification = onboard_module._classify_repository_history(
+        local,
+        owner="pablo",
+        name="widget",
+        source={"repo": str(remote), "ref": "main", "subpath": ".claude"},
         run=_real_run,
     )
 
