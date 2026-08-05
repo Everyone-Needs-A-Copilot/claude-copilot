@@ -476,9 +476,42 @@ def test_later_batch_project_is_freshly_reassessed_under_its_lock(
         cwd=later,
         check=True,
     )
-    # This test isolates transaction freshness. Source availability is covered
-    # by the project-reconciliation suite and must not depend on the runner's
-    # machine configuration here.
+    # This test isolates transaction freshness. Inspector and source behavior
+    # are covered by the project-reconciliation suite and must not depend on
+    # the runner's installed Copilot frameworks here.
+    monkeypatch.setattr(
+        "cc.core.ecosystem.project_reconciliation.inspect_project_integration",
+        lambda _path, detail: {
+            "inspection": {"id": "sha256:" + "1" * 64},
+            "components": [
+                {
+                    "component": "claude",
+                    "classification": "safe-finish",
+                    "recognized_setup": None,
+                    "missing_requirements": [
+                        {
+                            "id": "component-setup",
+                            "detail": "The Claude integration is absent.",
+                        }
+                    ],
+                },
+                {
+                    "component": "codex",
+                    "classification": "ready",
+                    "recognized_setup": {
+                        "variant_id": "codex-tracked-lock-v1",
+                        "evidence": [],
+                    },
+                    "missing_requirements": [],
+                },
+            ],
+            "preservation": {"must_preserve": []},
+        },
+    )
+    monkeypatch.setattr(
+        "cc.core.ecosystem.project_reconciliation.is_project_excluded",
+        lambda _path: False,
+    )
     monkeypatch.setattr(
         "cc.core.ecosystem.project_reconciliation._source_available",
         lambda _component: True,
