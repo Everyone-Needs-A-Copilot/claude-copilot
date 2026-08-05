@@ -1,0 +1,9 @@
+body {
+  --file-line-width: 1080px !important;
+}
+
+.markdown-preview-view.is-readable-line-width .markdown-preview-sizer,
+.markdown-source-view.mod-cm6.is-readable-line-width .cm-sizer,
+.markdown-source-view.mod-cm6.is-readable-line-width .cm-content {
+  max-width: 1080px !important;
+}

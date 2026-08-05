@@ -1,0 +1,8 @@
+interface:
+  display_name: "Pause"
+  short_description: "Preserve work state"
+  default_prompt: "Use $pause to preserve current work state in tc and memory before switching context."
+
+policy:
+  allow_implicit_invocation: false
+

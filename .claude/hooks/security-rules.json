@@ -1,0 +1,123 @@
+{
+  "$schema": "./security-rules.schema.json",
+  "version": "1.0.0",
+  "description": "Default security rules for PreToolUse hooks",
+  "rules": [
+    {
+      "id": "secret-detection",
+      "name": "Secret Detection",
+      "description": "Blocks writes containing API keys, passwords, tokens, or other secrets",
+      "enabled": true,
+      "priority": 90,
+      "patterns": [
+        "AKIA[0-9A-Z]{16}",
+        "AIza[0-9A-Za-z_-]{35}",
+        "gh[pousr]_[A-Za-z0-9_]{36,}",
+        "ghp_[A-Za-z0-9]{36}",
+        "sk_live_[0-9a-zA-Z]{24,}",
+        "xox[baprs]-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24,}",
+        "eyJ[A-Za-z0-9_-]*\\.eyJ[A-Za-z0-9_-]*\\.[A-Za-z0-9_-]*",
+        "password\\s*[=:]\\s*[\"']([^\"']{6,})[\"']",
+        "(postgres|mysql|mongodb)://[^:]+:[^@]+@",
+        "-----BEGIN (RSA|DSA|EC|OPENSSH) PRIVATE KEY-----"
+      ],
+      "action": "block",
+      "severity": "critical"
+    },
+    {
+      "id": "destructive-command",
+      "name": "Destructive Command Detection",
+      "description": "Warns on destructive commands like rm -rf, DROP TABLE, git reset --hard, etc.",
+      "enabled": true,
+      "priority": 85,
+      "patterns": [
+        "rm\\s+-rf\\s+/",
+        "rm\\s+-rf\\s+~",
+        "rm\\s+-rf\\s+\\*",
+        ":\\(\\)\\{\\s*:\\|:&\\s*\\};:",
+        "DROP\\s+(DATABASE|TABLE|SCHEMA)",
+        "TRUNCATE\\s+TABLE",
+        "DELETE\\s+FROM\\s+\\w+\\s*;",
+        "shutdown|reboot|halt",
+        "mkfs|dd\\s+if=",
+        "chmod\\s+777",
+        "git\\s+reset\\s+--hard",
+        "git\\s+clean\\s+.*-[a-zA-Z]*f[a-zA-Z]*",
+        "chmod\\s+-R"
+      ],
+      "action": "warn",
+      "severity": "high"
+    },
+    {
+      "id": "git-force-push",
+      "name": "Git Force Push Detection",
+      "description": "Blocks irreversible git force-push operations that overwrite remote history",
+      "enabled": true,
+      "priority": 92,
+      "patterns": [
+        "git\\s+push\\s+.*--force",
+        "git\\s+push\\s+-[a-zA-Z]*f(\\s|$)",
+        "git\\s+push\\s+\\S+\\s.*-[a-zA-Z]*f(\\s|$)"
+      ],
+      "action": "block",
+      "severity": "critical"
+    },
+    {
+      "id": "sensitive-file-protection",
+      "name": "Sensitive File Protection",
+      "description": "Blocks or warns when editing sensitive files like .env, credentials, private keys",
+      "enabled": true,
+      "priority": 80,
+      "patterns": [
+        "\\.env(\\.local|\\.production)?$",
+        "\\.env\\.[a-z]+$",
+        "credentials?(\\.(json|yaml|yml))?$",
+        "secrets?(\\.(json|yaml|yml))?$",
+        "\\.password$",
+        "id_rsa|id_dsa|id_ed25519$",
+        "\\.pem$",
+        "\\.key$",
+        "\\.aws/credentials$",
+        "\\.kube/config$",
+        "gcloud/credentials\\.json$"
+      ],
+      "action": "block",
+      "severity": "critical"
+    },
+    {
+      "id": "credential-url",
+      "name": "Credential URL Detection",
+      "description": "Blocks URLs containing embedded credentials",
+      "enabled": true,
+      "priority": 88,
+      "patterns": [
+        "https?://[^:]+:[^@]+@"
+      ],
+      "action": "block",
+      "severity": "critical"
+    }
+  ],
+  "customRules": {
+    "description": "Add your custom rules here. Format matches 'rules' array above.",
+    "examples": [
+      {
+        "id": "custom-pattern",
+        "name": "Custom Pattern Detection",
+        "description": "Example custom rule",
+        "enabled": false,
+        "priority": 50,
+        "patterns": [
+          "your-custom-pattern-here"
+        ],
+        "action": "warn",
+        "severity": "medium"
+      }
+    ]
+  },
+  "metadata": {
+    "createdAt": "2026-01-12",
+    "lastModified": "2026-01-12",
+    "author": "Claude Copilot",
+    "documentation": "https://github.com/yourusername/claude-copilot/docs/security-hooks.md"
+  }
+}

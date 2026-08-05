@@ -1,0 +1,889 @@
+{
+  "schema_version": "1.1",
+  "mode": "status",
+  "result": "blocked",
+  "workspaces": [
+    {
+      "path": "/fixture/tracked-complete",
+      "name": "tracked-complete",
+      "project_id": null,
+      "state": "ready",
+      "detail": "Both expected component contracts were verified.",
+      "declared_components": [
+        "claude",
+        "codex"
+      ],
+      "installed_components": [
+        "claude",
+        "codex"
+      ],
+      "recommended_components": [
+        "claude",
+        "codex"
+      ],
+      "personal_profile": {
+        "state": "local-only",
+        "project_id": null
+      },
+      "setup_policy": "not-offered",
+      "policy_detail": "The complete project integration contract is already present.",
+      "can_apply_now": false,
+      "apply_blocked_detail": null,
+      "undo": {
+        "available": false,
+        "detail": "There is no safe-finish action to undo."
+      },
+      "classification": "ready",
+      "responsible_actor": "none",
+      "inspection": {
+        "id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "contract_id": "project-integration",
+        "contract_version": "1",
+        "scope": "summary",
+        "complete": true
+      },
+      "components": [
+        {
+          "component": "claude",
+          "expected": true,
+          "expected_contract": {
+            "id": "project-integration",
+            "version": "1"
+          },
+          "classification": "ready",
+          "recognized_setup": {
+            "variant_id": "claude-linked-skill-v1",
+            "version": "1",
+            "evidence": [
+              {
+                "kind": "framework-file",
+                "path": "CLAUDE.md",
+                "state": "verified",
+                "detail": "The compatible Claude entry was verified."
+              }
+            ]
+          },
+          "missing_requirements": [],
+          "responsible_actor": "none",
+          "safe_action": null,
+          "verification": {
+            "command": [
+              "cc",
+              "workspace",
+              "verify",
+              "--project",
+              "/fixture/tracked-complete",
+              "--json"
+            ],
+            "expected": "Claude remains classified ready.",
+            "stop_conditions": [
+              "Stop if any recognized evidence changes."
+            ]
+          }
+        },
+        {
+          "component": "codex",
+          "expected": true,
+          "expected_contract": {
+            "id": "project-integration",
+            "version": "1"
+          },
+          "classification": "ready",
+          "recognized_setup": {
+            "variant_id": "codex-plugin-link-v1",
+            "version": "1",
+            "evidence": [
+              {
+                "kind": "manifest",
+                "path": "plugins/codex-copilot/.codex-plugin/plugin.json",
+                "state": "verified",
+                "detail": "The Codex plugin manifest was verified."
+              }
+            ]
+          },
+          "missing_requirements": [],
+          "responsible_actor": "none",
+          "safe_action": null,
+          "verification": {
+            "command": [
+              "cc",
+              "workspace",
+              "verify",
+              "--project",
+              "/fixture/tracked-complete",
+              "--json"
+            ],
+            "expected": "Codex remains classified ready.",
+            "stop_conditions": [
+              "Stop if any recognized evidence changes."
+            ]
+          }
+        }
+      ],
+      "capabilities": {
+        "instructions": 2,
+        "agents": 0,
+        "skills": 2,
+        "commands": 0,
+        "plugins": 1,
+        "integration_paths": [
+          ".claude/skills/codex-copilot",
+          "plugins/codex-copilot"
+        ]
+      },
+      "preservation": {
+        "must_preserve": [],
+        "prohibited_actions": [
+          "modify-verified-component",
+          "skip-verification"
+        ]
+      },
+      "safe_action": null,
+      "plan_available": false,
+      "integration_plan": null
+    },
+    {
+      "path": "/fixture/compatible-missing-lock",
+      "name": "compatible-missing-lock",
+      "project_id": null,
+      "state": "activation-required",
+      "detail": "Compatible component entries are present; exact framework records can be added safely.",
+      "declared_components": [
+        "claude",
+        "codex"
+      ],
+      "installed_components": [],
+      "recommended_components": [
+        "claude",
+        "codex"
+      ],
+      "personal_profile": {
+        "state": "local-only",
+        "project_id": null
+      },
+      "setup_policy": "ask",
+      "policy_detail": "The exact safe finish is available after confirmation.",
+      "can_apply_now": true,
+      "apply_blocked_detail": null,
+      "undo": {
+        "available": false,
+        "detail": "Nothing has been added by the safe-finish action yet."
+      },
+      "classification": "safe-finish",
+      "responsible_actor": "cli",
+      "inspection": {
+        "id": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "contract_id": "project-integration",
+        "contract_version": "1",
+        "scope": "summary",
+        "complete": true
+      },
+      "components": [
+        {
+          "component": "claude",
+          "expected": true,
+          "expected_contract": {
+            "id": "project-integration",
+            "version": "1"
+          },
+          "classification": "safe-finish",
+          "recognized_setup": {
+            "variant_id": "claude-linked-skill-v1",
+            "version": "1",
+            "evidence": [
+              {
+                "kind": "framework-file",
+                "path": "CLAUDE.md",
+                "state": "verified",
+                "detail": "The compatible Claude entry was verified."
+              }
+            ]
+          },
+          "missing_requirements": [
+            {
+              "id": "lock-record",
+              "detail": "The verified Claude setup is not recorded in the shared lock."
+            }
+          ],
+          "responsible_actor": "cli",
+          "safe_action": {
+            "id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "inspection_id": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            "kind": "adopt-existing",
+            "components": [
+              "claude",
+              "codex"
+            ],
+            "detail": "Record only the already verified compatible component setup.",
+            "apply_verb": "finish",
+            "will_add": [
+              {
+                "kind": "manifest",
+                "path": "copilot.lock.json",
+                "detail": "Add the versioned component evidence record."
+              }
+            ],
+            "will_preserve": [
+              {
+                "kind": "instruction",
+                "path": "CLAUDE.md",
+                "detail": "Keep the existing compatible entry unchanged."
+              }
+            ],
+            "will_not_change": [
+              {
+                "kind": "instruction",
+                "path": "AGENTS.md",
+                "detail": "Do not rewrite the existing Codex entry."
+              }
+            ],
+            "verification": {
+              "command": [
+                "cc",
+                "workspace",
+                "verify",
+                "--project",
+                "/fixture/compatible-missing-lock",
+                "--json"
+              ],
+              "expected": "Both component contracts classify ready.",
+              "stop_conditions": [
+                "Stop if the inspection id is stale."
+              ]
+            }
+          },
+          "verification": {
+            "command": [
+              "cc",
+              "workspace",
+              "verify",
+              "--project",
+              "/fixture/compatible-missing-lock",
+              "--json"
+            ],
+            "expected": "Claude classifies ready after the exact finish.",
+            "stop_conditions": [
+              "Stop if the compatible entry changes."
+            ]
+          }
+        },
+        {
+          "component": "codex",
+          "expected": true,
+          "expected_contract": {
+            "id": "project-integration",
+            "version": "1"
+          },
+          "classification": "safe-finish",
+          "recognized_setup": {
+            "variant_id": "codex-plugin-link-v1",
+            "version": "1",
+            "evidence": [
+              {
+                "kind": "manifest",
+                "path": "plugins/codex-copilot/.codex-plugin/plugin.json",
+                "state": "verified",
+                "detail": "The Codex plugin manifest was verified."
+              }
+            ]
+          },
+          "missing_requirements": [
+            {
+              "id": "lock-record",
+              "detail": "The verified Codex setup is not recorded in the shared lock."
+            }
+          ],
+          "responsible_actor": "cli",
+          "safe_action": {
+            "id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "inspection_id": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            "kind": "adopt-existing",
+            "components": [
+              "claude",
+              "codex"
+            ],
+            "detail": "Record only the already verified compatible component setup.",
+            "apply_verb": "finish",
+            "will_add": [
+              {
+                "kind": "manifest",
+                "path": "copilot.lock.json",
+                "detail": "Add the versioned component evidence record."
+              }
+            ],
+            "will_preserve": [
+              {
+                "kind": "instruction",
+                "path": "AGENTS.md",
+                "detail": "Keep the existing compatible entry unchanged."
+              }
+            ],
+            "will_not_change": [
+              {
+                "kind": "instruction",
+                "path": "CLAUDE.md",
+                "detail": "Do not rewrite the existing Claude entry."
+              }
+            ],
+            "verification": {
+              "command": [
+                "cc",
+                "workspace",
+                "verify",
+                "--project",
+                "/fixture/compatible-missing-lock",
+                "--json"
+              ],
+              "expected": "Both component contracts classify ready.",
+              "stop_conditions": [
+                "Stop if the inspection id is stale."
+              ]
+            }
+          },
+          "verification": {
+            "command": [
+              "cc",
+              "workspace",
+              "verify",
+              "--project",
+              "/fixture/compatible-missing-lock",
+              "--json"
+            ],
+            "expected": "Codex classifies ready after the exact finish.",
+            "stop_conditions": [
+              "Stop if the compatible entry changes."
+            ]
+          }
+        }
+      ],
+      "capabilities": {
+        "instructions": 2,
+        "agents": 0,
+        "skills": 2,
+        "commands": 0,
+        "plugins": 1,
+        "integration_paths": [
+          ".claude/skills/codex-copilot",
+          "plugins/codex-copilot"
+        ]
+      },
+      "preservation": {
+        "must_preserve": [
+          {
+            "kind": "instruction",
+            "path": "CLAUDE.md",
+            "detail": "Preserve the compatible project entry."
+          },
+          {
+            "kind": "instruction",
+            "path": "AGENTS.md",
+            "detail": "Preserve the compatible project entry."
+          }
+        ],
+        "prohibited_actions": [
+          "overwrite-project-instructions",
+          "modify-verified-component",
+          "skip-verification"
+        ]
+      },
+      "safe_action": {
+        "id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "inspection_id": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "kind": "adopt-existing",
+        "components": [
+          "claude",
+          "codex"
+        ],
+        "detail": "Record only the already verified compatible component setup.",
+        "apply_verb": "finish",
+        "will_add": [
+          {
+            "kind": "manifest",
+            "path": "copilot.lock.json",
+            "detail": "Add the versioned component evidence record."
+          }
+        ],
+        "will_preserve": [
+          {
+            "kind": "instruction",
+            "path": "CLAUDE.md",
+            "detail": "Keep the existing compatible entry unchanged."
+          },
+          {
+            "kind": "instruction",
+            "path": "AGENTS.md",
+            "detail": "Keep the existing compatible entry unchanged."
+          }
+        ],
+        "will_not_change": [
+          {
+            "kind": "skill",
+            "path": ".claude/skills",
+            "detail": "Do not change any project-owned skills."
+          }
+        ],
+        "verification": {
+          "command": [
+            "cc",
+            "workspace",
+            "verify",
+            "--project",
+            "/fixture/compatible-missing-lock",
+            "--json"
+          ],
+          "expected": "Both component contracts classify ready.",
+          "stop_conditions": [
+            "Stop if the inspection id is stale."
+          ]
+        }
+      },
+      "plan_available": false,
+      "integration_plan": null
+    },
+    {
+      "path": "/fixture/deep-specialization",
+      "name": "deep-specialization",
+      "project_id": null,
+      "state": "blocked",
+      "detail": "Project-authored routing and capabilities need guided integration.",
+      "declared_components": [],
+      "installed_components": [],
+      "recommended_components": [
+        "claude",
+        "codex"
+      ],
+      "personal_profile": {
+        "state": "local-only",
+        "project_id": null
+      },
+      "setup_policy": "not-offered",
+      "policy_detail": "Automatic setup cannot safely integrate this project-owned model.",
+      "can_apply_now": false,
+      "apply_blocked_detail": "A project author must perform the guided integration.",
+      "undo": {
+        "available": false,
+        "detail": "There is no CLI-authored change to undo."
+      },
+      "classification": "guided-integration",
+      "responsible_actor": "project-author",
+      "inspection": {
+        "id": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        "contract_id": "project-integration",
+        "contract_version": "1",
+        "scope": "summary",
+        "complete": true
+      },
+      "components": [
+        {
+          "component": "claude",
+          "expected": true,
+          "expected_contract": {
+            "id": "project-integration",
+            "version": "1"
+          },
+          "classification": "guided-integration",
+          "recognized_setup": null,
+          "missing_requirements": [
+            {
+              "id": "compatible-entry",
+              "detail": "Claude routing is project-authored and does not expose the versioned integration contract."
+            }
+          ],
+          "responsible_actor": "project-author",
+          "safe_action": null,
+          "verification": {
+            "command": [
+              "cc",
+              "workspace",
+              "verify",
+              "--project",
+              "/fixture/deep-specialization",
+              "--json"
+            ],
+            "expected": "Claude classifies ready only after the project-authored integration is complete.",
+            "stop_conditions": [
+              "Stop if project-owned routing would be replaced."
+            ]
+          }
+        },
+        {
+          "component": "codex",
+          "expected": true,
+          "expected_contract": {
+            "id": "project-integration",
+            "version": "1"
+          },
+          "classification": "guided-integration",
+          "recognized_setup": null,
+          "missing_requirements": [
+            {
+              "id": "compatible-entry",
+              "detail": "Codex routing is project-authored and does not expose the versioned integration contract."
+            }
+          ],
+          "responsible_actor": "project-author",
+          "safe_action": null,
+          "verification": {
+            "command": [
+              "cc",
+              "workspace",
+              "verify",
+              "--project",
+              "/fixture/deep-specialization",
+              "--json"
+            ],
+            "expected": "Codex classifies ready only after the project-authored integration is complete.",
+            "stop_conditions": [
+              "Stop if project-owned routing would be replaced."
+            ]
+          }
+        }
+      ],
+      "capabilities": {
+        "instructions": 2,
+        "agents": 24,
+        "skills": 8,
+        "commands": 7,
+        "plugins": 0,
+        "integration_paths": [
+          ".claude/agents",
+          ".claude/skills",
+          ".agents/skills"
+        ]
+      },
+      "preservation": {
+        "must_preserve": [
+          {
+            "kind": "instruction",
+            "path": "CLAUDE.md",
+            "detail": "Preserve project-authored routing."
+          },
+          {
+            "kind": "instruction",
+            "path": "AGENTS.md",
+            "detail": "Preserve project-authored routing."
+          },
+          {
+            "kind": "agent",
+            "path": ".claude/agents",
+            "detail": "Preserve the project's agent model."
+          },
+          {
+            "kind": "skill",
+            "path": ".agents/skills",
+            "detail": "Preserve project-owned skills."
+          }
+        ],
+        "prohibited_actions": [
+          "overwrite-project-instructions",
+          "delete-project-capabilities",
+          "rename-project-capabilities",
+          "flatten-project-model",
+          "skip-verification"
+        ]
+      },
+      "safe_action": null,
+      "plan_available": true,
+      "integration_plan": null
+    },
+    {
+      "path": "/fixture/owner-governed",
+      "name": "owner-governed",
+      "project_id": null,
+      "state": "blocked",
+      "detail": "The project ownership declaration requires an owner decision.",
+      "declared_components": [],
+      "installed_components": [],
+      "recommended_components": [
+        "claude",
+        "codex"
+      ],
+      "personal_profile": {
+        "state": "local-only",
+        "project_id": null
+      },
+      "setup_policy": "not-offered",
+      "policy_detail": "Only the named project owner can choose the integration direction.",
+      "can_apply_now": false,
+      "apply_blocked_detail": "An owner decision is required.",
+      "undo": {
+        "available": false,
+        "detail": "There is no CLI-authored change to undo."
+      },
+      "classification": "owner-decision",
+      "responsible_actor": "project-owner",
+      "inspection": {
+        "id": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+        "contract_id": "project-integration",
+        "contract_version": "1",
+        "scope": "summary",
+        "complete": true
+      },
+      "components": [
+        {
+          "component": "claude",
+          "expected": true,
+          "expected_contract": {
+            "id": "project-integration",
+            "version": "1"
+          },
+          "classification": "owner-decision",
+          "recognized_setup": null,
+          "missing_requirements": [
+            {
+              "id": "owner-direction",
+              "detail": "The owner has not chosen a Claude integration direction."
+            }
+          ],
+          "responsible_actor": "project-owner",
+          "safe_action": null,
+          "verification": {
+            "command": [
+              "cc",
+              "workspace",
+              "verify",
+              "--project",
+              "/fixture/owner-governed",
+              "--json"
+            ],
+            "expected": "Claude remains blocked until owner direction is recorded.",
+            "stop_conditions": [
+              "Stop until the project owner decides."
+            ]
+          }
+        },
+        {
+          "component": "codex",
+          "expected": true,
+          "expected_contract": {
+            "id": "project-integration",
+            "version": "1"
+          },
+          "classification": "owner-decision",
+          "recognized_setup": null,
+          "missing_requirements": [
+            {
+              "id": "owner-direction",
+              "detail": "The owner has not chosen a Codex integration direction."
+            }
+          ],
+          "responsible_actor": "project-owner",
+          "safe_action": null,
+          "verification": {
+            "command": [
+              "cc",
+              "workspace",
+              "verify",
+              "--project",
+              "/fixture/owner-governed",
+              "--json"
+            ],
+            "expected": "Codex remains blocked until owner direction is recorded.",
+            "stop_conditions": [
+              "Stop until the project owner decides."
+            ]
+          }
+        }
+      ],
+      "capabilities": {
+        "instructions": 2,
+        "agents": 0,
+        "skills": 1,
+        "commands": 0,
+        "plugins": 0,
+        "integration_paths": [
+          ".copilot/project-owner.json"
+        ]
+      },
+      "preservation": {
+        "must_preserve": [
+          {
+            "kind": "config",
+            "path": ".copilot/project-owner.json",
+            "detail": "Preserve the project ownership declaration."
+          }
+        ],
+        "prohibited_actions": [
+          "overwrite-project-instructions",
+          "trust-assistant-self-report",
+          "skip-verification"
+        ]
+      },
+      "safe_action": null,
+      "plan_available": true,
+      "integration_plan": null
+    },
+    {
+      "path": "/fixture/unreadable-contract-evidence",
+      "name": "unreadable-contract-evidence",
+      "project_id": null,
+      "state": "blocked",
+      "detail": "Codex contract evidence could not be read.",
+      "declared_components": [],
+      "installed_components": [
+        "claude"
+      ],
+      "recommended_components": [
+        "claude",
+        "codex"
+      ],
+      "personal_profile": {
+        "state": "local-only",
+        "project_id": null
+      },
+      "setup_policy": "not-offered",
+      "policy_detail": "The project cannot be changed while evidence is unreadable.",
+      "can_apply_now": false,
+      "apply_blocked_detail": "Restore read access and inspect again.",
+      "undo": {
+        "available": false,
+        "detail": "There is no verified CLI-authored change to undo."
+      },
+      "classification": "could-not-verify",
+      "responsible_actor": "person",
+      "inspection": {
+        "id": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "contract_id": "project-integration",
+        "contract_version": "1",
+        "scope": "summary",
+        "complete": true
+      },
+      "components": [
+        {
+          "component": "claude",
+          "expected": true,
+          "expected_contract": {
+            "id": "project-integration",
+            "version": "1"
+          },
+          "classification": "ready",
+          "recognized_setup": {
+            "variant_id": "claude-linked-skill-v1",
+            "version": "1",
+            "evidence": [
+              {
+                "kind": "framework-file",
+                "path": "CLAUDE.md",
+                "state": "verified",
+                "detail": "The compatible Claude entry was verified."
+              }
+            ]
+          },
+          "missing_requirements": [],
+          "responsible_actor": "none",
+          "safe_action": null,
+          "verification": {
+            "command": [
+              "cc",
+              "workspace",
+              "verify",
+              "--project",
+              "/fixture/unreadable-contract-evidence",
+              "--json"
+            ],
+            "expected": "Claude remains classified ready.",
+            "stop_conditions": [
+              "Stop if verified Claude evidence changes."
+            ]
+          }
+        },
+        {
+          "component": "codex",
+          "expected": true,
+          "expected_contract": {
+            "id": "project-integration",
+            "version": "1"
+          },
+          "classification": "could-not-verify",
+          "recognized_setup": {
+            "variant_id": "codex-project-config-v1",
+            "version": "1",
+            "evidence": [
+              {
+                "kind": "manifest",
+                "path": ".codex-copilot.json",
+                "state": "unreadable",
+                "detail": "The Codex project configuration could not be read."
+              }
+            ]
+          },
+          "missing_requirements": [
+            {
+              "id": "readable-evidence",
+              "detail": "The expected Codex configuration must be readable."
+            }
+          ],
+          "responsible_actor": "person",
+          "safe_action": null,
+          "verification": {
+            "command": [
+              "cc",
+              "workspace",
+              "verify",
+              "--project",
+              "/fixture/unreadable-contract-evidence",
+              "--json"
+            ],
+            "expected": "Codex can be classified only after evidence is readable.",
+            "stop_conditions": [
+              "Stop while any required evidence is unreadable."
+            ]
+          }
+        }
+      ],
+      "capabilities": {
+        "instructions": 1,
+        "agents": 0,
+        "skills": 1,
+        "commands": 0,
+        "plugins": 0,
+        "integration_paths": [
+          ".claude/skills/codex-copilot",
+          ".codex-copilot.json"
+        ]
+      },
+      "preservation": {
+        "must_preserve": [
+          {
+            "kind": "config",
+            "path": ".codex-copilot.json",
+            "detail": "Do not replace unreadable evidence."
+          }
+        ],
+        "prohibited_actions": [
+          "modify-verified-component",
+          "follow-external-symlink",
+          "skip-verification"
+        ]
+      },
+      "safe_action": null,
+      "plan_available": false,
+      "integration_plan": null
+    }
+  ],
+  "summary": {
+    "ready": 1,
+    "setup-available": 0,
+    "activation-required": 1,
+    "blocked": 3,
+    "total": 5
+  },
+  "classification_summary": {
+    "ready": 1,
+    "safe-finish": 1,
+    "guided-integration": 1,
+    "owner-decision": 1,
+    "could-not-verify": 1,
+    "total": 5
+  },
+  "discovery": {
+    "state": "granted",
+    "roots": [
+      {
+        "name": "Fixtures",
+        "path": "/fixture"
+      }
+    ]
+  },
+  "recently_set_up": []
+}
