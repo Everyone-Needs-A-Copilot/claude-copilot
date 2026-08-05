@@ -23,6 +23,13 @@ _SESSION_ID = re.compile(r"^session_[0-9a-f]{32}$")
 _PROPOSAL_ID = re.compile(r"^proposal_[0-9a-f]{32}$")
 _FINGERPRINT = re.compile(r"^sha256:[0-9a-f]{64}$")
 _SESSION_STATES = {"prepared", "running", "completed", "rejected", "proposed"}
+_PROGRESS_STAGES = (
+    "session-prepared",
+    "claude-code-running",
+    "python-validating-selections",
+    "python-validating-plan",
+    "ready",
+)
 
 
 class AssistantStoreError(RuntimeError):
@@ -94,6 +101,10 @@ def session_directory(session_id: str, root: Optional[Path] = None) -> Path:
 
 def _session_path(session_id: str, root: Optional[Path]) -> Path:
     return session_directory(session_id, root) / "session.json"
+
+
+def _progress_path(session_id: str, root: Optional[Path]) -> Path:
+    return session_directory(session_id, root) / "progress.json"
 
 
 def _proposal_path(proposal_id: str, root: Optional[Path]) -> Path:
@@ -215,6 +226,92 @@ def _validate_session(value: Mapping[str, Any]) -> dict[str, Any]:
     return dict(value)
 
 
+def _progress_payload(
+    session: Mapping[str, Any],
+    *,
+    stage: str,
+    updated: datetime,
+    failure_code: str | None = None,
+) -> dict[str, Any]:
+    groups = {
+        (str(item.get("project_ref")), str(item.get("component")))
+        for item in session["candidates"]
+        if isinstance(item, Mapping)
+    }
+    value: dict[str, Any] = {
+        "storage_schema_version": "1.0",
+        "session_id": session["session_id"],
+        "stage": stage,
+        "started_at": session["created_at"],
+        "updated_at": _timestamp(updated),
+        "selected_project_count": len(session["selected_projects"]),
+        "candidate_group_count": len(groups),
+        "candidate_count": len(session["candidates"]),
+        "failure_code": failure_code,
+    }
+    value["progress_fingerprint"] = fingerprint(value)
+    return value
+
+
+def _validate_progress(
+    value: Mapping[str, Any], *, session: Mapping[str, Any]
+) -> dict[str, Any]:
+    required = {
+        "storage_schema_version",
+        "session_id",
+        "stage",
+        "started_at",
+        "updated_at",
+        "selected_project_count",
+        "candidate_group_count",
+        "candidate_count",
+        "failure_code",
+        "progress_fingerprint",
+    }
+    fingerprint_value = value.get("progress_fingerprint")
+    unsigned = {key: item for key, item in value.items() if key != "progress_fingerprint"}
+    if (
+        set(value) != required
+        or value.get("storage_schema_version") != "1.0"
+        or value.get("session_id") != session.get("session_id")
+        or value.get("stage") not in {*_PROGRESS_STAGES, "blocked"}
+        or value.get("started_at") != session.get("created_at")
+        or not isinstance(value.get("updated_at"), str)
+        or not isinstance(fingerprint_value, str)
+        or _FINGERPRINT.fullmatch(fingerprint_value) is None
+        or fingerprint(unsigned) != fingerprint_value
+        or any(
+            not isinstance(value.get(field), int) or value[field] < 0
+            for field in (
+                "selected_project_count",
+                "candidate_group_count",
+                "candidate_count",
+            )
+        )
+        or value.get("failure_code") is not None
+        and not isinstance(value.get("failure_code"), str)
+    ):
+        raise AssistantBindingMismatch("The assistant progress state is invalid.")
+    expected = _progress_payload(
+        session,
+        stage=str(value["stage"]),
+        updated=_parse_timestamp(value["updated_at"]),
+        failure_code=value.get("failure_code"),
+    )
+    if any(
+        value[field] != expected[field]
+        for field in (
+            "selected_project_count",
+            "candidate_group_count",
+            "candidate_count",
+        )
+    ):
+        raise AssistantBindingMismatch("The assistant progress binding changed.")
+    _parse_timestamp(value["started_at"])
+    _parse_timestamp(value["updated_at"])
+    return dict(value)
+
+
 def create_session(
     *,
     base_request: Mapping[str, Any],
@@ -275,6 +372,10 @@ def create_session(
     )
     validated = _validate_session(raw)
     atomic_json_write(_session_path(identifier, root), validated)
+    atomic_json_write(
+        _progress_path(identifier, root),
+        _progress_payload(validated, stage="session-prepared", updated=created),
+    )
     return validated
 
 
@@ -287,6 +388,84 @@ def load_session(
     if _now(now) >= _parse_timestamp(raw["expires_at"]):
         raise AssistantExpired("The assistant session expired.")
     return raw
+
+
+def load_progress(
+    session_id: str,
+    *,
+    root: Optional[Path] = None,
+    now: Optional[datetime] = None,
+) -> dict[str, Any]:
+    """Load evidence-backed progress without changing assistant authority."""
+    session = load_session(session_id, root=root, now=now)
+    path = _progress_path(session_id, root)
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        stage = {
+            "prepared": "session-prepared",
+            "running": "claude-code-running",
+            "completed": "python-validating-plan",
+            "rejected": "blocked",
+            "proposed": "ready",
+        }[str(session["state"])]
+        return _progress_payload(
+            session,
+            stage=stage,
+            updated=_parse_timestamp(session["created_at"]),
+            failure_code=session.get("failure_code"),
+        )
+    except OSError as exc:
+        raise AssistantBindingMismatch(
+            "The assistant progress state is unavailable."
+        ) from exc
+    return _validate_progress(_load_private(path), session=session)
+
+
+def record_progress(
+    session_id: str,
+    stage: str,
+    *,
+    root: Optional[Path] = None,
+    failure_code: str | None = None,
+    now: Optional[datetime] = None,
+) -> dict[str, Any]:
+    """Advance one closed milestone or refresh its factual heartbeat."""
+    if stage not in {*_PROGRESS_STAGES, "blocked"}:
+        raise AssistantBindingMismatch("The assistant progress stage is invalid.")
+    if (stage == "blocked") != bool(failure_code):
+        raise AssistantBindingMismatch(
+            "Blocked assistant progress requires exactly one failure code."
+        )
+    path = _progress_path(session_id, root)
+    with advisory_file_lock(path.parent / ".session.lock"):
+        session = load_session(session_id, root=root, now=now)
+        try:
+            current = _validate_progress(_load_private(path), session=session)
+        except AssistantNotFound:
+            current = _progress_payload(
+                session,
+                stage="session-prepared",
+                updated=_parse_timestamp(session["created_at"]),
+            )
+        current_stage = str(current["stage"])
+        if current_stage in {"ready", "blocked"} and stage != current_stage:
+            raise AssistantAlreadyUsed("The assistant progress is already final.")
+        if (
+            current_stage != "blocked"
+            and stage != "blocked"
+            and _PROGRESS_STAGES.index(stage)
+            < _PROGRESS_STAGES.index(current_stage)
+        ):
+            raise AssistantBindingMismatch("The assistant progress cannot move backward.")
+        value = _progress_payload(
+            session,
+            stage=stage,
+            updated=_now(now),
+            failure_code=failure_code,
+        )
+        atomic_json_write(path, value)
+        return _validate_progress(value, session=session)
 
 
 def claim_session(
@@ -433,7 +612,9 @@ __all__ = [
     "create_session",
     "fingerprint",
     "issue_proposal",
+    "load_progress",
     "load_proposal",
     "load_session",
+    "record_progress",
     "session_directory",
 ]

@@ -18,9 +18,10 @@ import secrets
 import signal
 import stat
 import subprocess
+import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import urlsplit
 
 from cc.core.ecosystem.assistant_job_store import (
@@ -34,8 +35,10 @@ from cc.core.ecosystem.assistant_job_store import (
     create_session,
     fingerprint,
     issue_proposal,
+    load_progress,
     load_proposal,
     load_session,
+    record_progress,
     session_directory,
 )
 from cc.core.ecosystem.reconciliation_types import (
@@ -108,6 +111,51 @@ def _timestamp(value: datetime | None = None) -> str:
     return current.astimezone(timezone.utc).isoformat(timespec="seconds").replace(
         "+00:00", "Z"
     )
+
+
+def _progress_report(
+    progress: Mapping[str, Any], *, now: datetime | None = None
+) -> dict[str, Any]:
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    started = datetime.fromisoformat(str(progress["started_at"]).replace("Z", "+00:00"))
+    updated = datetime.fromisoformat(str(progress["updated_at"]).replace("Z", "+00:00"))
+    stage = str(progress["stage"])
+    age = max(0, int((current.astimezone(timezone.utc) - updated).total_seconds()))
+    elapsed = max(0, int((current.astimezone(timezone.utc) - started).total_seconds()))
+    if stage == "session-prepared":
+        liveness = "waiting"
+        detail = "The bounded Claude Code session is prepared and has not started yet."
+    elif stage == "claude-code-running" and age > 10:
+        liveness = "stale"
+        detail = "Claude Code is still marked as running, but Python has not recorded a recent heartbeat."
+    elif stage == "claude-code-running":
+        liveness = "active"
+        detail = "Claude Code is choosing only among the bounded Python candidates."
+    elif stage == "python-validating-selections":
+        liveness = "active"
+        detail = "Python is validating Claude Code's bounded selections."
+    elif stage == "python-validating-plan":
+        liveness = "active"
+        detail = "Python is rebuilding and validating the exact project plan."
+    elif stage == "ready":
+        liveness = "complete"
+        detail = "Python validated the exact plan and it is ready for review."
+    else:
+        liveness = "blocked"
+        detail = "Preparation stopped safely. No project was changed."
+    return {
+        "stage": stage,
+        "liveness": liveness,
+        "detail": detail,
+        "started_at": progress["started_at"],
+        "last_activity_at": progress["updated_at"],
+        "elapsed_seconds": elapsed,
+        "selected_project_count": progress["selected_project_count"],
+        "candidate_group_count": progress["candidate_group_count"],
+        "candidate_count": progress["candidate_count"],
+    }
 
 
 def _run_id() -> str:
@@ -322,6 +370,7 @@ def build_assistant_prepare_report(
             "The private Claude Code preparation session could not be created safely.",
             exit_code=2,
         ) from exc
+    progress = load_progress(session["session_id"], root=state_root, now=now)
     return {
         "schema_version": RECONCILIATION_SCHEMA_VERSION,
         "phase": "assistant-prepare",
@@ -331,6 +380,7 @@ def build_assistant_prepare_report(
         "session_id": session["session_id"],
         "expires_at": session["expires_at"],
         "selected_projects": selected_projects,
+        "progress": _progress_report(progress, now=now),
         "next_actions": [
             "Claude Code will choose only from Python-authored candidates. Nothing changes until you review and apply the resulting Python plan."
         ],
@@ -502,6 +552,7 @@ def _invoke_claude(
     claude_path: Path | None = None,
     timeout_seconds: int = _RUN_TIMEOUT_SECONDS,
     state_root: Path | None = None,
+    heartbeat: Callable[[], None] | None = None,
 ) -> bytes:
     executable = _supported_claude_path(claude_path)
     directory = session_directory(str(session["session_id"]), state_root)
@@ -576,7 +627,26 @@ def _invoke_claude(
             preexec_fn=_limit_child_output,
         )
         try:
-            process.communicate(input=_prompt(session), timeout=timeout_seconds)
+            if process.stdin is None:
+                raise OSError("Claude Code stdin is unavailable")
+            process.stdin.write(_prompt(session))
+            process.stdin.close()
+            deadline = time.monotonic() + timeout_seconds
+            while process.poll() is None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(command, timeout_seconds)
+                try:
+                    process.wait(timeout=min(2, remaining))
+                except subprocess.TimeoutExpired:
+                    if heartbeat is not None:
+                        try:
+                            heartbeat()
+                        except Exception:
+                            # Progress is observational, never assistant authority.
+                            # If its sidecar becomes unavailable, let the bounded
+                            # child finish and allow status to report stale evidence.
+                            pass
         except subprocess.TimeoutExpired as exc:
             os.killpg(process.pid, signal.SIGTERM)
             try:
@@ -729,6 +799,7 @@ def run_assistant_session(
     state_root: Path | None = None,
     claude_path: Path | None = None,
     timeout_seconds: int = _RUN_TIMEOUT_SECONDS,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     """Claim and run one assistant job without touching any project."""
     if not isinstance(session_id, str) or _SESSION_ID.fullmatch(session_id) is None:
@@ -747,23 +818,49 @@ def run_assistant_session(
             "The Claude Code preparation session is unavailable or already in use.",
         ) from exc
     try:
-        selections = _validated_selections(
-            _invoke_claude(
-                session,
-                claude_path=claude_path,
-                timeout_seconds=timeout_seconds,
-                state_root=state_root,
-            ),
+        record_progress(session_id, "claude-code-running", root=state_root)
+        if progress_callback is not None:
+            project_count = len(session["selected_projects"])
+            progress_callback(
+                f"Claude Code preparation started for {project_count} "
+                f"{'project' if project_count == 1 else 'projects'}."
+            )
+        output = _invoke_claude(
             session,
+            claude_path=claude_path,
+            timeout_seconds=timeout_seconds,
+            state_root=state_root,
+            heartbeat=lambda: record_progress(
+                session_id, "claude-code-running", root=state_root
+            ),
         )
+        record_progress(session_id, "python-validating-selections", root=state_root)
+        if progress_callback is not None:
+            progress_callback("Python is validating Claude Code's bounded selections.")
+        selections = _validated_selections(output, session)
         completed = complete_session(session_id, selections, root=state_root)
+        progress = record_progress(
+            session_id, "python-validating-plan", root=state_root
+        )
+        if progress_callback is not None:
+            progress_callback("Python is rebuilding the exact project plan.")
     except Exception as exc:
+        failure_code = getattr(exc, "code", None) or "assistant-run-rejected"
         try:
             complete_session(
                 session_id,
                 [],
                 root=state_root,
-                failure_code=(getattr(exc, "code", None) or "assistant-run-rejected"),
+                failure_code=failure_code,
+            )
+        except Exception:
+            pass
+        try:
+            record_progress(
+                session_id,
+                "blocked",
+                root=state_root,
+                failure_code=failure_code,
             )
         except Exception:
             pass
@@ -781,6 +878,7 @@ def run_assistant_session(
         "generated_at": _timestamp(),
         "session_id": session_id,
         "selected_projects": completed["selected_projects"],
+        "progress": _progress_report(progress),
         "detail": "Claude Code returned bounded selections for Python validation. No project was changed.",
         "next_actions": ["Return to Control Tower to review the exact Python plan."],
     }
@@ -834,6 +932,9 @@ def _proposal_for_session(
     plan_preparer: Any | None = None,
 ) -> dict[str, Any]:
     if session["state"] == "proposed" and session.get("proposal_id"):
+        record_progress(
+            str(session["session_id"]), "ready", root=state_root, now=now
+        )
         return load_proposal(str(session["proposal_id"]), root=state_root, now=now)
     if session["state"] != "completed":
         raise _reconciliation_error(
@@ -843,15 +944,32 @@ def _proposal_for_session(
     resolved, owned = _resolved_request(session)
     from cc.core.ecosystem.reconciliation import prepare_reconciliation
 
-    prepared = (plan_preparer or prepare_reconciliation)(resolved)
-    return issue_proposal(
-        str(session["session_id"]),
-        resolved_request=resolved.as_dict(),
-        owned_components=owned,
-        plans_fingerprint=fingerprint(prepared.public_plans),
-        root=state_root,
-        now=now,
-    )
+    session_id = str(session["session_id"])
+    record_progress(session_id, "python-validating-plan", root=state_root, now=now)
+    try:
+        prepared = (plan_preparer or prepare_reconciliation)(resolved)
+        proposal = issue_proposal(
+            session_id,
+            resolved_request=resolved.as_dict(),
+            owned_components=owned,
+            plans_fingerprint=fingerprint(prepared.public_plans),
+            root=state_root,
+            now=now,
+        )
+        record_progress(session_id, "ready", root=state_root, now=now)
+        return proposal
+    except Exception as exc:
+        try:
+            record_progress(
+                session_id,
+                "blocked",
+                root=state_root,
+                failure_code=(getattr(exc, "code", None) or "assistant-plan-invalid"),
+                now=now,
+            )
+        except Exception:
+            pass
+        raise
 
 
 def build_assistant_status_report(
@@ -870,13 +988,14 @@ def build_assistant_status_report(
         )
     try:
         session = load_session(session_id, root=state_root, now=now)
+        progress = load_progress(session_id, root=state_root, now=now)
         result = "running"
         proposal_id: str | None = None
         detail = "Claude Code is preparing bounded selections. Nothing has changed."
         next_actions = ["Keep Control Tower open while preparation finishes."]
-        if session["state"] == "rejected":
+        if session["state"] == "rejected" or progress["stage"] == "blocked":
             result = "blocked"
-            detail = "Claude Code did not return a valid bounded proposal. No project was changed."
+            detail = "Preparation stopped safely before Python could issue a valid plan. No project was changed."
             next_actions = ["Start project preparation again when Claude Code is available."]
         elif session["state"] in {"completed", "proposed"}:
             proposal = _proposal_for_session(
@@ -886,6 +1005,7 @@ def build_assistant_status_report(
                 plan_preparer=plan_preparer,
             )
             proposal_id = str(proposal["proposal_id"])
+            progress = load_progress(session_id, root=state_root, now=now)
             result = "ready"
             detail = "Python validated Claude Code's bounded selections. The exact project plan is ready for review."
             next_actions = ["Review the exact Python plan before applying any project change."]
@@ -903,6 +1023,7 @@ def build_assistant_status_report(
         "session_id": session_id,
         "proposal_id": proposal_id,
         "selected_projects": session["selected_projects"],
+        "progress": _progress_report(progress, now=now),
         "detail": detail,
         "next_actions": next_actions,
     }

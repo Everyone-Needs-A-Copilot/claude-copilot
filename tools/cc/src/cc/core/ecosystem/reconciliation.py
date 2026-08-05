@@ -139,6 +139,7 @@ def _validated_projects(
         project = dict(raw)
         path = project.get("path")
         route = project.get("route")
+        raw_scope = project.get("scope", {"kind": "product-project"})
         if not isinstance(path, str) or not path or path in seen:
             raise ReconciliationError(
                 "invalid-census",
@@ -151,6 +152,41 @@ def _validated_projects(
                 "The project census returned an unsupported project route.",
                 exit_code=2,
             )
+        if not isinstance(raw_scope, Mapping):
+            raise ReconciliationError(
+                "invalid-census",
+                "The project census returned unsupported repository scope evidence.",
+                exit_code=2,
+            )
+        scope = {str(key): str(value) for key, value in raw_scope.items()}
+        kind = scope.get("kind")
+        if kind == "product-project":
+            if set(scope) != {"kind"} or route == ProjectRoute.ECOSYSTEM_MANAGED.value:
+                raise ReconciliationError(
+                    "invalid-census",
+                    "A product project was assigned an incompatible ecosystem route.",
+                    exit_code=2,
+                )
+        elif kind == "ecosystem-repository":
+            if (
+                set(scope)
+                != {"kind", "product", "role", "layer_id", "repository"}
+                or any(not scope[field] for field in scope)
+                or route != ProjectRoute.ECOSYSTEM_MANAGED.value
+                or project.get("selected_components") not in (None, [])
+            ):
+                raise ReconciliationError(
+                    "invalid-census",
+                    "An ecosystem repository was not backed by complete manifest and origin evidence.",
+                    exit_code=2,
+                )
+        else:
+            raise ReconciliationError(
+                "invalid-census",
+                "The project census returned an unsupported repository scope.",
+                exit_code=2,
+            )
+        project["scope"] = scope
         seen.add(path)
         validated.append(project)
     return validated
@@ -206,6 +242,12 @@ def _validate_requested_authority(
         )
     for path, selection in requested.items():
         project = indexed[path]
+        if project.get("scope", {}).get("kind") == "ecosystem-repository":
+            raise ReconciliationError(
+                "ecosystem-repository-selected",
+                "Ecosystem repositories are managed separately and cannot be selected for project integration.",
+                exit_code=2,
+            )
         if project.get("root") not in request.roots or not _is_beneath(
             path, request.roots
         ):
@@ -222,6 +264,20 @@ def _validate_requested_authority(
                 "selection-mismatch",
                 "The project census did not preserve the exact component selection.",
                 exit_code=2,
+            )
+        components = {
+            str(item.get("component")): item
+            for item in project.get("components", [])
+            if isinstance(item, Mapping)
+        }
+        if any(
+            components.get(component, {}).get("state")
+            == ComponentRoute.SOURCE_UNAVAILABLE.value
+            for component in selection.components
+        ):
+            raise ReconciliationError(
+                "recipe-unavailable",
+                "A selected component has no verified framework recipe source. Repair the framework source, then assess again.",
             )
 
 
@@ -260,6 +316,8 @@ def _validate_plans(
         ProjectRoute.OWNER_DECISION.value,
         ProjectRoute.COULD_NOT_VERIFY.value,
         ProjectRoute.EXCLUDED.value,
+        ProjectRoute.SOURCE_UNAVAILABLE.value,
+        ProjectRoute.ECOSYSTEM_MANAGED.value,
     }
     for plan in public_plans:
         path = str(plan["path"])
@@ -302,14 +360,20 @@ def _summary(projects: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     counts = Counter(str(project.get("route")) for project in projects)
     project_counts = {route.value: counts[route.value] for route in ProjectRoute}
     project_counts["total"] = len(projects)
+    ecosystem_count = counts[ProjectRoute.ECOSYSTEM_MANAGED.value]
     selected = sum(bool(project.get("selected_components")) for project in projects)
     return {
         "project_counts": project_counts,
+        "scope_counts": {
+            "total_repositories": len(projects),
+            "product_projects": len(projects) - ecosystem_count,
+            "ecosystem_repositories": ecosystem_count,
+        },
         "selected_projects": selected,
         "overlap_explanation": (
-            "Each project appears in exactly one project state. Claude and Codex "
-            "are reported separately inside that project, so component outcomes "
-            "may differ without changing the project count."
+            "Each discovered repository appears in exactly one scope and state. "
+            "Ecosystem repositories are managed separately. Claude and Codex are "
+            "reported independently inside each product project."
         ),
     }
 
@@ -320,7 +384,6 @@ _DEFAULT_ACTIONABLE_ROUTES = {
     ProjectRoute.CUSTOMIZED_GUIDED_ROUTE.value,
 }
 _DEFAULT_ACTIONABLE_COMPONENT_ROUTES = {
-    "ready",
     "safe-setup-available",
     "safe-update-available",
     "customized-guided-route",
@@ -359,7 +422,14 @@ def _default_selection_for(
 ) -> dict[str, Any] | None:
     if project.get("route") not in _DEFAULT_ACTIONABLE_ROUTES:
         return None
-    if project.get("selected_components") != list(SUPPORTED_COMPONENTS):
+    selected_components = project.get("selected_components")
+    if (
+        not isinstance(selected_components, list)
+        or not selected_components
+        or any(item not in SUPPORTED_COMPONENTS for item in selected_components)
+        or selected_components
+        != [item for item in SUPPORTED_COMPONENTS if item in selected_components]
+    ):
         return None
     components = project.get("components")
     if not isinstance(components, list) or len(components) != len(
@@ -369,20 +439,25 @@ def _default_selection_for(
 
     recipe_ids: dict[str, str] = {}
     observed: list[str] = []
+    selected = set(selected_components)
     for raw in components:
         if not isinstance(raw, Mapping):
             return None
         component = raw.get("component")
         route = raw.get("state")
+        if component not in SUPPORTED_COMPONENTS or component in observed:
+            return None
+        observed.append(str(component))
+        if component not in selected:
+            if route != ComponentRoute.READY.value or raw.get("selected") is not False:
+                return None
+            continue
         if (
-            component not in SUPPORTED_COMPONENTS
-            or component in observed
-            or route not in _DEFAULT_ACTIONABLE_COMPONENT_ROUTES
+            route not in _DEFAULT_ACTIONABLE_COMPONENT_ROUTES
             or raw.get("selected") is not True
             or raw.get("recommended") is not True
         ):
             return None
-        observed.append(str(component))
         if route == "customized-guided-route":
             options = raw.get("recipe_options")
             if not isinstance(options, list) or len(options) != 1:
@@ -401,7 +476,7 @@ def _default_selection_for(
 
     result: dict[str, Any] = {
         "path": str(project["path"]),
-        "components": list(SUPPORTED_COMPONENTS),
+        "components": list(selected_components),
         "category": category,
     }
     if recipe_ids:
@@ -420,22 +495,33 @@ def _default_batch(
 ]:
     """Return Python-authored default selections and a display-ready census.
 
-    The first census contains unselected facts. Every project that is not fully
-    ready is then assessed once with the universal Claude-plus-Codex selection.
-    Only projects whose selected assessment is deterministic and safe enter the
-    default batch. The GUI never repeats this eligibility decision.
+    The first census contains unselected facts. Every non-ready component in a
+    product project is then selected independently. Only the components whose
+    selected assessment is deterministic and safe enter the default batch. The
+    GUI never repeats this eligibility decision, and ecosystem repositories do
+    not enter project integration at all.
     """
     from cc.core.ecosystem.reconciliation_assistant import _eligible_recipe_ids
 
     baseline = _validated_projects(projects)
-    candidate_paths = {
-        str(project["path"])
-        for project in baseline
-        if not (
-            project.get("route") == ProjectRoute.READY.value
-            and project.get("presence") == "both"
-        )
-    }
+    candidate_components: dict[str, list[str]] = {}
+    for project in baseline:
+        if project.get("scope", {}).get("kind") == "ecosystem-repository":
+            continue
+        assessments = {
+            str(item.get("component")): item
+            for item in project.get("components", [])
+            if isinstance(item, Mapping)
+        }
+        components = [
+            component
+            for component in SUPPORTED_COMPONENTS
+            if assessments.get(component, {}).get("state")
+            not in {ComponentRoute.READY.value, ComponentRoute.NOT_APPLICABLE.value}
+        ]
+        if components:
+            candidate_components[str(project["path"])] = components
+    candidate_paths = set(candidate_components)
     trial_by_path: dict[str, dict[str, Any]] = {}
     if candidate_paths:
         roots = list(
@@ -449,8 +535,7 @@ def _default_batch(
             census_builder(
                 roots=roots,
                 selections={
-                    path: list(SUPPORTED_COMPONENTS)
-                    for path in sorted(candidate_paths)
+                    path: candidate_components[path] for path in sorted(candidate_paths)
                 },
                 detail=True,
             )
@@ -475,9 +560,20 @@ def _default_batch(
         "needs_review": 0,
         "selected": 0,
         "total": len(baseline),
+        "product_projects": sum(
+            project.get("scope", {}).get("kind") == "product-project"
+            for project in baseline
+        ),
+        "managed_separately": sum(
+            project.get("scope", {}).get("kind") == "ecosystem-repository"
+            for project in baseline
+        ),
     }
     for project in baseline:
         path = str(project["path"])
+        if project.get("scope", {}).get("kind") == "ecosystem-repository":
+            rendered.append(project)
+            continue
         if path not in candidate_paths:
             counts["ready"] += 1
             rendered.append(project)
@@ -499,14 +595,14 @@ def _default_batch(
                 == ComponentRoute.CUSTOMIZED_GUIDED_ROUTE.value
             ]
             assistant_eligible = bool(customized) and all(
-                component_assessments.get(component, {}).get("state")
-                == ComponentRoute.CUSTOMIZED_GUIDED_ROUTE.value
-                or (
-                    component_assessments.get(component, {}).get("selected") is True
-                    and component_assessments.get(component, {}).get("recommended")
+                (
+                    component_assessments.get(component, {}).get("state")
+                    == ComponentRoute.CUSTOMIZED_GUIDED_ROUTE.value
+                    or component_assessments.get(component, {}).get("recommended")
                     is True
                 )
-                for component in SUPPORTED_COMPONENTS
+                and component_assessments.get(component, {}).get("selected") is True
+                for component in candidate_components[path]
             ) and all(
                 _eligible_recipe_ids(
                     trial_project,
@@ -519,7 +615,7 @@ def _default_batch(
                 assistant_selections.append(
                     {
                         "path": path,
-                        "components": list(SUPPORTED_COMPONENTS),
+                        "components": list(candidate_components[path]),
                         "category": category,
                     }
                 )
@@ -535,6 +631,8 @@ def _default_batch(
         + counts["correction"]
         + counts["ready"]
         + counts["needs_review"]
+        != counts["product_projects"]
+        or counts["product_projects"] + counts["managed_separately"]
         != counts["total"]
         or counts["selected"] != counts["new_setup"] + counts["correction"]
     ):
@@ -550,11 +648,33 @@ def _default_batch(
             "The assistant project selection repeated a project.",
             exit_code=2,
         )
-    resolution_summary = {
+    left_unchanged = {
+        "held": 0,
+        "owner_decision": 0,
+        "could_not_verify": 0,
+        "excluded": 0,
+        "source_unavailable": 0,
+        "other": 0,
+    }
+    for path in sorted(
+        candidate_paths - assisted_paths - {item["path"] for item in selections}
+    ):
+        route = str(trial_by_path[path].get("route"))
+        disposition = {
+            ProjectRoute.HELD.value: "held",
+            ProjectRoute.OWNER_DECISION.value: "owner_decision",
+            ProjectRoute.COULD_NOT_VERIFY.value: "could_not_verify",
+            ProjectRoute.EXCLUDED.value: "excluded",
+            ProjectRoute.SOURCE_UNAVAILABLE.value: "source_unavailable",
+        }.get(route, "other")
+        left_unchanged[disposition] += 1
+
+    resolution_summary: dict[str, Any] = {
         "automatic": len(selections),
         "claude_assisted": len(assistant_selections),
-        "held": counts["needs_review"] - len(assistant_selections),
         "total_actionable": len(selections) + len(assistant_selections),
+        "managed_separately": counts["managed_separately"],
+        "left_unchanged": left_unchanged,
         "new_setup": sum(
             item["category"] == "new-setup"
             for item in (*selections, *assistant_selections)
@@ -571,6 +691,12 @@ def _default_batch(
         or resolution_summary["new_setup"]
         + resolution_summary["correction"]
         != resolution_summary["total_actionable"]
+        or counts["ready"]
+        + resolution_summary["total_actionable"]
+        + sum(left_unchanged.values())
+        != counts["product_projects"]
+        or resolution_summary["claude_assisted"] + sum(left_unchanged.values())
+        != counts["needs_review"]
     ):
         raise ReconciliationError(
             "invalid-census",
@@ -597,6 +723,11 @@ def _next_actions(
 def _assessment_result(
     machine: Mapping[str, Any], projects: Sequence[Mapping[str, Any]]
 ) -> str:
+    product_projects = [
+        project
+        for project in projects
+        if project.get("scope", {}).get("kind") != "ecosystem-repository"
+    ]
     if machine.get("state") == "could-not-verify":
         return "blocked"
     if any(
@@ -606,11 +737,12 @@ def _assessment_result(
             ProjectRoute.OWNER_DECISION.value,
             ProjectRoute.COULD_NOT_VERIFY.value,
         }
-        for project in projects
+        for project in product_projects
     ):
         return "action-required"
     if machine.get("state") != "ready" or any(
-        project.get("route") != ProjectRoute.READY.value for project in projects
+        project.get("route") != ProjectRoute.READY.value
+        for project in product_projects
     ):
         return "action-required"
     return "ready"
@@ -627,7 +759,7 @@ def _diagnostic_dict(
         path = value.get("path")
         created_at = value.get("created_at")
         if (
-            value.get("schema_version") == RECONCILIATION_SCHEMA_VERSION
+            value.get("schema_version") in {"1.0", RECONCILIATION_SCHEMA_VERSION}
             and identifier == run_id
             and state in {"available", "unavailable"}
             and (
@@ -1235,7 +1367,19 @@ def prepare_reconciliation(
             "The selected project authority could not be inspected safely. Assess again before planning.",
             exit_code=2,
         ) from exc
-    _validate_requested_authority(request, machine, projects)
+    try:
+        _validate_requested_authority(request, machine, projects)
+    except ReconciliationError as exc:
+        if assistant_proposal is not None and exc.code in {
+            "ecosystem-repository-selected",
+            "recipe-unavailable",
+            "selection-mismatch",
+        }:
+            raise ReconciliationError(
+                "assistant-proposal-stale",
+                "The Claude Code proposal no longer matches the fresh project scope or framework source. Start project preparation again.",
+            ) from exc
+        raise
     try:
         public_plans, execution_plans = (plan_builder or _default_plan_builder)(
             projects=projects,

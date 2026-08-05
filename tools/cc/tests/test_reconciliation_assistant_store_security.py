@@ -9,7 +9,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
-
 from cc.core.ecosystem.assistant_job_store import (
     AssistantAlreadyUsed,
     AssistantBindingMismatch,
@@ -19,12 +18,13 @@ from cc.core.ecosystem.assistant_job_store import (
     create_session,
     fingerprint,
     issue_proposal,
+    load_progress,
     load_proposal,
     load_session,
+    record_progress,
     session_directory,
 )
 from cc.core.ecosystem.project_locking import ProjectLockContention
-
 
 NOW = datetime(2026, 8, 4, 20, 0, tzinfo=timezone.utc)
 SESSION_ID = "session_" + "a" * 32
@@ -159,6 +159,64 @@ def test_session_expiry_and_single_claim_fail_closed(tmp_path: Path) -> None:
         claim_session(SESSION_ID, root=root, now=NOW + timedelta(seconds=2))
     with pytest.raises(AssistantExpired):
         load_session(SESSION_ID, root=root, now=NOW + timedelta(seconds=10))
+
+
+def test_progress_milestones_are_private_monotonic_and_heartbeat_backed(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "assistant-state"
+    _create(root)
+    prepared = load_progress(SESSION_ID, root=root, now=NOW)
+
+    assert prepared["stage"] == "session-prepared"
+    assert prepared["selected_project_count"] == 1
+    assert prepared["candidate_group_count"] == 1
+    claim_session(SESSION_ID, root=root, now=NOW)
+    running = record_progress(
+        SESSION_ID,
+        "claude-code-running",
+        root=root,
+        now=NOW + timedelta(seconds=1),
+    )
+    heartbeat = record_progress(
+        SESSION_ID,
+        "claude-code-running",
+        root=root,
+        now=NOW + timedelta(seconds=5),
+    )
+
+    assert heartbeat["updated_at"] > running["updated_at"]
+    with pytest.raises(AssistantBindingMismatch):
+        record_progress(
+            SESSION_ID,
+            "session-prepared",
+            root=root,
+            now=NOW + timedelta(seconds=6),
+        )
+
+
+def test_running_status_reports_stale_when_python_heartbeat_stops(
+    tmp_path: Path,
+) -> None:
+    from cc.core.ecosystem.reconciliation_assistant import (
+        build_assistant_status_report,
+    )
+
+    root = tmp_path / "assistant-state"
+    _create(root)
+    claim_session(SESSION_ID, root=root, now=NOW)
+    record_progress(SESSION_ID, "claude-code-running", root=root, now=NOW)
+
+    report = build_assistant_status_report(
+        SESSION_ID,
+        state_root=root,
+        now=NOW + timedelta(seconds=11),
+    )
+
+    assert report["result"] == "running"
+    assert report["progress"]["stage"] == "claude-code-running"
+    assert report["progress"]["liveness"] == "stale"
+    assert report["progress"]["elapsed_seconds"] == 11
 
 
 def test_session_record_cannot_be_swapped_under_another_session_id(

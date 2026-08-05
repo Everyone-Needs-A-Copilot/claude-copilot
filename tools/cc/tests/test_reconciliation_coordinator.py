@@ -362,7 +362,9 @@ def test_production_recipe_missing_authoritative_source_maps_to_business_block(
     project, assessment, machine = _real_recipe_context(
         tmp_path, monkeypatch, source=missing_source
     )
-    assert assessment["components"][0]["state"] == "safe-setup-available"
+    assert assessment["components"][0]["state"] == "source-unavailable"
+    assert assessment["route"] == "source-unavailable"
+    assert assessment["components"][0]["recommended"] is False
 
     with pytest.raises(ReconciliationError) as raised:
         build_plan_report(
@@ -519,7 +521,7 @@ def test_unknown_or_duplicate_census_routes_fail_closed() -> None:
         )
 
 
-def test_assessment_authors_universal_safe_default_batch_and_exact_counts() -> None:
+def test_assessment_authors_component_scoped_safe_default_batch_and_exact_counts() -> None:
     def unselected(path: str, *, presence: str, route: str) -> dict:
         project = _project(path=path, route=route)
         project["presence"] = presence
@@ -593,6 +595,8 @@ def test_assessment_authors_universal_safe_default_batch_and_exact_counts() -> N
             recommended=(False, False),
         ),
     ]
+    trial[1]["selected_components"] = ["codex"]
+    trial[1]["components"][0]["selected"] = False
 
     def census(**kwargs):
         return deepcopy(trial if kwargs.get("selections") else baseline)
@@ -611,7 +615,7 @@ def test_assessment_authors_universal_safe_default_batch_and_exact_counts() -> N
         },
         {
             "path": "/projects/correction",
-            "components": ["claude", "codex"],
+            "components": ["codex"],
             "category": "correction",
         },
     ]
@@ -622,12 +626,147 @@ def test_assessment_authors_universal_safe_default_batch_and_exact_counts() -> N
         "needs_review": 1,
         "selected": 2,
         "total": 4,
+        "product_projects": 4,
+        "managed_separately": 0,
+    }
+    assert report["resolution_summary"] == {
+        "automatic": 2,
+        "claude_assisted": 0,
+        "total_actionable": 2,
+        "managed_separately": 0,
+        "left_unchanged": {
+            "held": 1,
+            "owner_decision": 0,
+            "could_not_verify": 0,
+            "excluded": 0,
+            "source_unavailable": 0,
+            "other": 0,
+        },
+        "new_setup": 1,
+        "correction": 1,
     }
     assert report["summary"]["selected_projects"] == 2
     assert report["machine_summary"] == {
         "state": "ready",
         "title": "This Mac has what it needs.",
         "detail": "Control Tower can safely prepare reviewed project plans.",
+    }
+
+
+def test_ecosystem_repositories_are_counted_but_never_enter_project_batch() -> None:
+    product = _project(path="/projects/product")
+    product.update(
+        {
+            "presence": "both",
+            "selected_components": [],
+            "scope": {"kind": "product-project"},
+        }
+    )
+    for component in product["components"]:
+        component.update({"state": "ready", "selected": False})
+    managed = _project(path="/projects/claude-foundation", route="ecosystem-managed")
+    managed.update(
+        {
+            "presence": "unknown",
+            "selected_components": [],
+            "scope": {
+                "kind": "ecosystem-repository",
+                "product": "claude",
+                "role": "foundation",
+                "layer_id": "claude-foundation",
+                "repository": "owner/claude-foundation",
+            },
+        }
+    )
+    for component in managed["components"]:
+        component.update(
+            {
+                "state": "not-applicable",
+                "selected": False,
+                "recommended": False,
+            }
+        )
+
+    report = assess_reconciliation(
+        machine_builder=_machine,
+        census_builder=lambda **_kwargs: [deepcopy(managed), deepcopy(product)],
+    )
+
+    assert report["result"] == "ready"
+    assert report["default_selection"] == []
+    assert report["batch_summary"] == {
+        "new_setup": 0,
+        "correction": 0,
+        "ready": 1,
+        "needs_review": 0,
+        "selected": 0,
+        "total": 2,
+        "product_projects": 1,
+        "managed_separately": 1,
+    }
+    assert report["summary"]["scope_counts"] == {
+        "total_repositories": 2,
+        "product_projects": 1,
+        "ecosystem_repositories": 1,
+    }
+    assert report["resolution_summary"]["managed_separately"] == 1
+
+    with pytest.raises(ReconciliationError) as raised:
+        build_plan_report(
+            _request(project="/projects/claude-foundation"),
+            machine_builder=_machine,
+            census_builder=lambda **_kwargs: [deepcopy(managed)],
+        )
+    assert raised.value.code == "ecosystem-repository-selected"
+
+
+def test_left_unchanged_counts_are_typed_dispositions_not_a_residual() -> None:
+    routes = (
+        "held",
+        "owner-decision",
+        "could-not-verify",
+        "excluded",
+        "source-unavailable",
+    )
+    baseline: list[dict] = []
+    trial: list[dict] = []
+    for index, route in enumerate(routes):
+        project = _project(path=f"/projects/project-{index}", route=route)
+        project.update({"presence": "both", "selected_components": []})
+        for component in project["components"]:
+            component.update(
+                {
+                    "state": route,
+                    "selected": False,
+                    "recommended": False,
+                }
+            )
+        baseline.append(project)
+        selected = deepcopy(project)
+        selected["selected_components"] = ["claude", "codex"]
+        for component in selected["components"]:
+            component["selected"] = True
+        trial.append(selected)
+
+    report = assess_reconciliation(
+        machine_builder=_machine,
+        census_builder=lambda **kwargs: deepcopy(
+            trial if kwargs.get("selections") else baseline
+        ),
+    )
+
+    assert report["resolution_summary"]["left_unchanged"] == {
+        "held": 1,
+        "owner_decision": 1,
+        "could_not_verify": 1,
+        "excluded": 1,
+        "source_unavailable": 1,
+        "other": 0,
+    }
+    assert "held" not in {
+        key
+        for key in report["resolution_summary"]
+        if key != "left_unchanged"
     }
 
 

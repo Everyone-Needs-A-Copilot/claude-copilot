@@ -30,8 +30,9 @@ CredentialReader = Callable[..., str | None]
 ExecutableResolver = Callable[[str], Path | None]
 ExecutableVersionReader = Callable[[str, Path], str | None]
 FrameworkVersionReader = Callable[[Path, str], str | None]
+FrameworkSourceValidator = Callable[[str, Path], bool]
 
-_MINIMUM_HELPER_VERSION = "2.6.0"
+_MINIMUM_HELPER_VERSION = "2.8.0"
 _MINIMUM_FRAMEWORK_VERSIONS = {"claude": "5.13.3", "codex": "0.6.1"}
 _FRAMEWORK_CONFIG_KEYS = {
     "claude": "paths.claude_copilot_root",
@@ -498,6 +499,7 @@ def _helper_assessment(
 def _framework_assessments(
     config: dict[str, Any],
     version_reader: FrameworkVersionReader,
+    source_validator: FrameworkSourceValidator,
 ) -> tuple[list[dict[str, Any]], list[Blocker], bool]:
     rows: list[dict[str, Any]] = []
     blockers: list[Blocker] = []
@@ -528,6 +530,18 @@ def _framework_assessments(
                     "ecosystem-owner",
                     detail,
                     f"Restore a readable {component.title()} framework source, then run assessment again.",
+                )
+            )
+        elif not source_validator(component, path):
+            state = "could-not-verify"
+            could_not_verify = True
+            detail = f"The configured {component.title()} framework source cannot supply a verified reconciliation recipe."
+            blockers.append(
+                _blocker(
+                    f"{component}-framework-recipe-source-unverified",
+                    "ecosystem-owner",
+                    detail,
+                    f"Restore the authoritative {component.title()} recipe source, then run assessment again.",
                 )
             )
         else:
@@ -989,6 +1003,7 @@ def build_machine_assessment(
     credential_reader: CredentialReader | None = None,
     executable_resolver: ExecutableResolver | None = None,
     framework_version_reader: FrameworkVersionReader | None = None,
+    framework_source_validator: FrameworkSourceValidator | None = None,
     helper_version: str | None = __version__,
     executable_version_reader: ExecutableVersionReader | None = None,
 ) -> MachineAssessment:
@@ -1040,6 +1055,12 @@ def build_machine_assessment(
         executable_resolver = resolve_executable
     if framework_version_reader is None:
         framework_version_reader = _default_framework_version
+    if framework_source_validator is None:
+        from cc.core.ecosystem.reconciliation_recipes import (
+            authoritative_source_available,
+        )
+
+        framework_source_validator = authoritative_source_available
     if executable_version_reader is None:
         executable_version_reader = _default_executable_version
 
@@ -1108,7 +1129,7 @@ def build_machine_assessment(
     could_not_verify = could_not_verify or diagnostics_unknown
 
     frameworks, framework_blockers, framework_unknown = _framework_assessments(
-        config, framework_version_reader
+        config, framework_version_reader, framework_source_validator
     )
     blockers.extend(framework_blockers)
     could_not_verify = could_not_verify or framework_unknown

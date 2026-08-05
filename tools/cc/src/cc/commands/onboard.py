@@ -33,6 +33,9 @@ from cc.core.ecosystem.manifest import (
     normalize_layer_product,
     validate_layers,
 )
+from cc.core.ecosystem.repository_scope import (
+    repository_identity as _repository_identity,
+)
 from cc.core.ecosystem.ssh_identity import ensure_machine_ssh_identity
 from cc.core.executables import resolve_executable
 from cc.core.write_guard import assert_write_is_isolated
@@ -1630,26 +1633,6 @@ def _managed_product_is_compatible(
         if layer.get("activation", "always") != "always":
             return False
     return True
-
-
-def _repository_identity(value: Any) -> str | None:
-    """Canonical GitHub owner/repository identity across HTTPS and SSH aliases."""
-    if not isinstance(value, str) or not value:
-        return None
-    candidate = value.strip()
-    if candidate.startswith("git@") and ":" in candidate:
-        candidate = candidate.split(":", 1)[1]
-    else:
-        parsed = urlsplit(candidate)
-        if parsed.hostname and parsed.hostname.casefold() == "github.com":
-            candidate = parsed.path
-    candidate = candidate.strip("/")
-    if candidate.endswith(".git"):
-        candidate = candidate[:-4]
-    parts = candidate.split("/")
-    if len(parts) != 2 or not all(parts):
-        return None
-    return "/".join(parts).casefold()
 
 
 def _manifest_adoption_plan(

@@ -210,12 +210,25 @@ def test_prepare_run_status_plan_apply_and_fresh_verify_both_components(
     capture_path = _valid_fake(monkeypatch, tmp_path, session)
 
     assert not _schema_errors(prepare_report)
+    assert prepare_report["progress"]["stage"] == "session-prepared"
+    assert prepare_report["progress"]["liveness"] == "waiting"
+    assert prepare_report["progress"]["selected_project_count"] == 1
+    assert prepare_report["progress"]["candidate_group_count"] == 1
 
+    milestones: list[str] = []
     run_report = assistant.run_assistant_session(
-        prepare_report["session_id"], claude_path=FAKE_CLAUDE
+        prepare_report["session_id"],
+        claude_path=FAKE_CLAUDE,
+        progress_callback=milestones.append,
     )
 
     assert run_report["result"] == "ready"
+    assert run_report["progress"]["stage"] == "python-validating-plan"
+    assert milestones == [
+        "Claude Code preparation started for 1 project.",
+        "Python is validating Claude Code's bounded selections.",
+        "Python is rebuilding the exact project plan.",
+    ]
     assert not _schema_errors(run_report)
     assert snapshot_tree(project) == unchanged
     capture = capture_record(capture_path)
@@ -268,6 +281,8 @@ def test_prepare_run_status_plan_apply_and_fresh_verify_both_components(
         prepare_report["session_id"], plan_preparer=plan_preparer
     )
     assert status["result"] == "ready"
+    assert status["progress"]["stage"] == "ready"
+    assert status["progress"]["liveness"] == "complete"
 
 
     assert not _schema_errors(status)
@@ -783,6 +798,98 @@ def test_proposal_becomes_stale_after_project_drift_without_more_writes(
         )
 
     assert snapshot_tree(project) == drifted
+
+
+def test_proposal_becomes_stale_after_framework_source_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, request, machine_builder, census_builder = _fixture(
+        tmp_path, monkeypatch
+    )
+    prepare_report, session = _prepare(request, machine_builder, census_builder)
+    _valid_fake(monkeypatch, tmp_path, session)
+    assistant.run_assistant_session(
+        prepare_report["session_id"], claude_path=FAKE_CLAUDE
+    )
+    status = assistant.build_assistant_status_report(
+        prepare_report["session_id"],
+        plan_preparer=lambda resolved: prepare_reconciliation(
+            resolved,
+            machine_builder=machine_builder,
+            census_builder=census_builder,
+        ),
+    )
+    attached = _attached(request, status["proposal_id"])
+    unchanged = snapshot_tree(project)
+    (tmp_path / "claude-source/.claude/commands/protocol.md").write_text(
+        "new framework protocol\n", encoding="utf-8"
+    )
+
+    with pytest.raises(ReconciliationError) as captured:
+        build_plan_report(
+            attached,
+            machine_builder=machine_builder,
+            census_builder=census_builder,
+        )
+
+    assert captured.value.code == "assistant-proposal-stale"
+    assert snapshot_tree(project) == unchanged
+
+
+def test_proposal_becomes_stale_when_project_scope_becomes_ecosystem_managed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, request, machine_builder, census_builder = _fixture(
+        tmp_path, monkeypatch
+    )
+    prepare_report, session = _prepare(request, machine_builder, census_builder)
+    _valid_fake(monkeypatch, tmp_path, session)
+    assistant.run_assistant_session(
+        prepare_report["session_id"], claude_path=FAKE_CLAUDE
+    )
+    status = assistant.build_assistant_status_report(
+        prepare_report["session_id"],
+        plan_preparer=lambda resolved: prepare_reconciliation(
+            resolved,
+            machine_builder=machine_builder,
+            census_builder=census_builder,
+        ),
+    )
+    attached = _attached(request, status["proposal_id"])
+
+    def changed_scope(**kwargs: Any) -> list[dict[str, Any]]:
+        assessment = census_builder(**kwargs)[0]
+        assessment.update(
+            {
+                "scope": {
+                    "kind": "ecosystem-repository",
+                    "product": "claude",
+                    "role": "foundation",
+                    "layer_id": "claude-foundation",
+                    "repository": "owner/claude-foundation",
+                },
+                "route": "ecosystem-managed",
+                "selected_components": [],
+            }
+        )
+        for component in assessment["components"]:
+            component.update(
+                {
+                    "state": "not-applicable",
+                    "selected": False,
+                    "recommended": False,
+                }
+            )
+        return [assessment]
+
+    with pytest.raises(ReconciliationError) as captured:
+        build_plan_report(
+            attached,
+            machine_builder=machine_builder,
+            census_builder=changed_scope,
+        )
+
+    assert captured.value.code == "assistant-proposal-stale"
 
 
 def test_cli_assistant_verbs_dispatch_the_same_bounded_lifecycle(

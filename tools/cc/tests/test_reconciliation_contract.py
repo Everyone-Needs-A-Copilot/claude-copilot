@@ -262,6 +262,7 @@ def _project(*, selected: bool = False) -> dict:
         "path": "/projects/one",
         "root": "/projects",
         "name": "one",
+        "scope": {"kind": "product-project"},
         "inspection_id": opaque,
         "presence": "both",
         "route": "ready",
@@ -396,6 +397,8 @@ def test_assess_and_verify_reports_validate_against_closed_schema() -> None:
         "owner-decision": 0,
         "could-not-verify": 0,
         "excluded": 0,
+        "source-unavailable": 0,
+        "ecosystem-managed": 0,
         "total": 1,
     }
 
@@ -443,4 +446,4 @@ def test_plan_report_uses_random_store_authority_not_state_hash_as_id() -> None:
     assert report["plan_id"] == "plan_" + ("3" * 32)
     assert captured["fresh_plan_fingerprint"].startswith("sha256:")
     assert captured["request_fingerprint"].startswith("sha256:")
-    assert captured["schema_version"] == "1.0"
+    assert captured["schema_version"] == "2.0"

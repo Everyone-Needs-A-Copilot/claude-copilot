@@ -110,7 +110,8 @@ def _healthy_context(tmp_path: Path) -> dict[str, Any]:
         "framework_version_reader": (
             lambda path, component: state["framework_versions"].get(component)
         ),
-        "helper_version": "2.6.0",
+        "framework_source_validator": lambda component, path: True,
+        "helper_version": "2.8.0",
         "executable_version_reader": (lambda command, path: f"{command} version 1.0.0"),
     }
     return {
@@ -133,7 +134,7 @@ def test_healthy_machine_is_schema_valid_and_leaks_no_credential(
 
     _validate_machine(assessment)
     assert assessment["state"] == "ready"
-    assert assessment["helper"]["version"] == "2.6.0"
+    assert assessment["helper"]["version"] == "2.8.0"
     assert assessment["authentication"] == {
         "state": "signed-in",
         "credential_state": "present",
@@ -346,6 +347,26 @@ def test_configured_framework_symlink_uses_its_readable_authoritative_target(
 
     assert assessment["frameworks"][0]["state"] == "ready"
     assert assessment["frameworks"][0]["path"] == str(linked)
+
+
+def test_framework_version_is_not_ready_when_recipe_source_cannot_be_verified(
+    tmp_path: Path,
+) -> None:
+    context = _healthy_context(tmp_path)
+    context["kwargs"]["framework_source_validator"] = (
+        lambda component, path: component == "codex"
+    )
+
+    assessment = build_machine_assessment(**context["kwargs"])
+
+    assert assessment["state"] == "could-not-verify"
+    assert [item["state"] for item in assessment["frameworks"]] == [
+        "could-not-verify",
+        "ready",
+    ]
+    assert "claude-framework-recipe-source-unverified" in {
+        item["code"] for item in assessment["blockers"]
+    }
 
 
 @pytest.mark.parametrize(

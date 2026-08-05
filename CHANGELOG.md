@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Truthful project scope, component routes, and assistant progress (`cc`
+  2.8.0):** reconciliation response schema 2.0 now proves which discovered Git
+  repositories are product projects and which are Copilot ecosystem sources
+  managed by their own release process. Ecosystem scope requires a validated
+  layer source path plus a matching GitHub origin; names alone never exclude a
+  product. Product selections can contain Claude only, Codex only, or both,
+  and the report carries exact product/ecosystem totals plus mutually exclusive
+  left-unchanged reason counts. Assistant prepare/run/status reports now carry
+  persisted stages, heartbeat-derived liveness (including an honest stale
+  state), plain-language detail, and bounded counts. Proposal caches are
+  invalidated when selected scope or source evidence drifts. Request schema
+  1.0 remains unchanged; Python still owns every route, total, stale verdict,
+  plan, write, rollback, and verification result.
+
 ### Changed
 
 - **The macOS release pipeline now probes the frozen helper's default `claude` resolution, not only the override path:** the bounded-assistant probe in `scripts/package-cc-macos-release.sh` sets `CC_ASSISTANT_CLAUDE_PATH` before invoking the frozen binary, which short-circuits resolution and meant the probe only proved the lifecycle works when handed an explicit path. It never exercised the default resolution the shipped product relies on, so `cc` 2.7.1 — whose default resolution was broken — passed all four of its own probes and was signed and notarized anyway; only Control Tower's sandboxed-`HOME` gates caught it. Three legs are added and a `finder_reconciliation_assistant_default_resolution_probe` claim is emitted in `release-metadata.json`, additive alongside the existing four claims: registry-only resolution succeeds, PATH-fallback resolution succeeds when the registry is empty, and resolution fails closed with `claude-code-unavailable` when nothing is resolvable. The PATH-fallback leg carries the regression-detection weight; the more obvious registry-based design was tried first and passes on the defective 2.7.1 binary, so all three legs were validated against both the 2.7.1 and 2.7.2 frozen artifacts to confirm the probe actually discriminates. Release tooling only — no runtime behavior changes.

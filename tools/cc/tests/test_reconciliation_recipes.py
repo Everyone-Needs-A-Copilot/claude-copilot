@@ -15,7 +15,9 @@ from cc.core.ecosystem.reconciliation_recipes import (
     RecipeOperation,
     RecipeRegistry,
     RecipeValidationError,
+    authoritative_source_available,
     build_recipe_plan,
+    validated_source_root,
 )
 from cc.core.ecosystem.reconciliation_transaction import (
     execute_reconciliation,
@@ -118,6 +120,30 @@ def _configure_sources(
     monkeypatch.setattr(project_module, "resolve_key", resolve)
     monkeypatch.setattr(integration_module, "resolve_key", resolve)
     monkeypatch.setattr(project_module, "is_project_excluded", lambda path: False)
+
+
+def test_configured_framework_compatibility_symlink_resolves_to_verified_source(
+    tmp_path: Path,
+) -> None:
+    claude, _ = _framework_sources(tmp_path)
+    compatibility_link = tmp_path / "installed-claude-source"
+    compatibility_link.symlink_to(claude, target_is_directory=True)
+
+    assert validated_source_root("claude", compatibility_link) == claude.resolve()
+    assert authoritative_source_available("claude", compatibility_link) is True
+
+
+def test_configured_framework_symlink_rejects_unprotected_target(
+    tmp_path: Path,
+) -> None:
+    claude, _ = _framework_sources(tmp_path)
+    claude.chmod(0o777)
+    compatibility_link = tmp_path / "installed-claude-source"
+    compatibility_link.symlink_to(claude, target_is_directory=True)
+
+    assert authoritative_source_available("claude", compatibility_link) is False
+    with pytest.raises(RecipeValidationError):
+        validated_source_root("claude", compatibility_link)
 
 
 def _selected_assessment(

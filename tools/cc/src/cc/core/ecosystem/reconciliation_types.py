@@ -16,7 +16,7 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Any, Mapping, NotRequired, TypedDict
 
-RECONCILIATION_SCHEMA_VERSION = "1.0"
+RECONCILIATION_SCHEMA_VERSION = "2.0"
 RECONCILIATION_REQUEST_SCHEMA_VERSION = "1.0"
 SUPPORTED_COMPONENTS = ("claude", "codex")
 
@@ -39,6 +39,8 @@ class ProjectRoute(StrEnum):
     OWNER_DECISION = "owner-decision"
     COULD_NOT_VERIFY = "could-not-verify"
     EXCLUDED = "excluded"
+    SOURCE_UNAVAILABLE = "source-unavailable"
+    ECOSYSTEM_MANAGED = "ecosystem-managed"
 
 
 class ComponentRoute(StrEnum):
@@ -52,6 +54,8 @@ class ComponentRoute(StrEnum):
     OWNER_DECISION = "owner-decision"
     COULD_NOT_VERIFY = "could-not-verify"
     EXCLUDED = "excluded"
+    SOURCE_UNAVAILABLE = "source-unavailable"
+    NOT_APPLICABLE = "not-applicable"
 
 
 class RecipeOperationKind(StrEnum):
@@ -114,6 +118,7 @@ class ProjectAssessment(TypedDict):
     path: str
     root: str
     name: str
+    scope: dict[str, str]
     inspection_id: str
     presence: str
     route: str

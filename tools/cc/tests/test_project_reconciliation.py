@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import jsonschema
@@ -129,6 +130,21 @@ def stable_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     source.mkdir()
     monkeypatch.setattr(reconciliation, "is_project_excluded", lambda path: False)
     monkeypatch.setattr(reconciliation, "resolve_key", lambda key: str(source))
+    monkeypatch.setattr(reconciliation, "_source_available", lambda component: True)
+    monkeypatch.setattr(
+        reconciliation,
+        "DEFAULT_RECIPE_REGISTRY",
+        SimpleNamespace(
+            eligible=lambda **kwargs: [
+                SimpleNamespace(
+                    recipe_id=f"{kwargs['component']}.fixture.v1",
+                    component=kwargs["component"],
+                    summary="Fixture route.",
+                    assistant_only=True,
+                )
+            ]
+        ),
+    )
     return source
 
 
@@ -218,14 +234,8 @@ def test_recipe_recommendation_requires_authoritative_source_not_executable(
     )
 
     claude = assessment["components"][0]
-    assert (
-        claude["state"]
-        == {
-            "setup": "safe-setup-available",
-            "update": "safe-update-available",
-            "custom": "customized-guided-route",
-        }[route]
-    )
+    assert claude["state"] == "source-unavailable"
+    assert assessment["route"] == "source-unavailable"
     assert claude["selected"] is (route == "setup")
     assert claude["recommended"] is False
     assert claude["recommendation_reason"] == (
@@ -314,14 +324,8 @@ def test_incomplete_recipe_source_is_never_recommended(
     )
 
     claude = assessment["components"][0]
-    assert (
-        claude["state"]
-        == {
-            "setup": "safe-setup-available",
-            "update": "safe-update-available",
-            "custom": "customized-guided-route",
-        }[route]
-    )
+    assert claude["state"] == "source-unavailable"
+    assert assessment["route"] == "source-unavailable"
     assert claude["recommended"] is False
     assert claude["recipe_options"] == []
     assert claude["recommendation_reason"] == (

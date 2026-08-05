@@ -161,7 +161,7 @@ def _claim_value(
             "request_fingerprint": request_fingerprint,
             "fresh_plan_fingerprint": fresh_plan_fingerprint,
             "helper_version": "2.6.0",
-            "schema_version": "1.0",
+            "schema_version": "2.0",
         },
         sort_keys=True,
         separators=(",", ":"),

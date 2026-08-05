@@ -625,8 +625,24 @@ def _operation(
     )
 
 
-def _source_root(component: str) -> Path:
-    configured = resolve_key(f"paths.{component}_copilot_root")
+def validated_source_root(
+    component: str, configured: Path | str | None = None
+) -> Path:
+    """Resolve one configured read-only framework source to a protected root.
+
+    A configured source may be a compatibility symlink (the established
+    ``~/.claude/copilot`` install is one), but the resolved directory must be
+    owned by root/current user and must not be group- or world-writable. Every
+    recipe still fingerprints the exact source bytes and rechecks them during
+    execution; this does not relax any target-side symlink boundary.
+    """
+    if component not in SUPPORTED_COMPONENTS:
+        raise RecipeValidationError("The authoritative framework source is unavailable.")
+    configured = (
+        configured
+        if configured is not None
+        else resolve_key(f"paths.{component}_copilot_root")
+    )
     if not configured:
         raise RecipeValidationError(
             f"The authoritative {component.title()} source is unavailable."
@@ -648,6 +664,10 @@ def _source_root(component: str) -> Path:
         raise RecipeValidationError(
             f"The authoritative {component.title()} source is unavailable."
         ) from exc
+
+
+def _source_root(component: str) -> Path:
+    return validated_source_root(component)
 
 
 def _version(source: Path, component: str) -> str:
@@ -766,11 +786,9 @@ def authoritative_source_available(
     """Verify that a configured source can produce the recipe's exact lock entry."""
     if component not in SUPPORTED_COMPONENTS or not configured:
         return False
-    source = Path(str(configured)).expanduser()
     try:
-        if source.is_symlink() or not source.is_dir():
-            return False
-        _lock_entry(source.resolve(), component)
+        source = validated_source_root(component, configured)
+        _lock_entry(source, component)
     except (OSError, RecipeValidationError):
         return False
     return True
@@ -1854,4 +1872,5 @@ __all__ = [
     "allowed_targets_for_components",
     "authoritative_source_available",
     "build_recipe_plan",
+    "validated_source_root",
 ]

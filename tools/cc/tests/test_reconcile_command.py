@@ -34,7 +34,7 @@ def test_missing_request_and_plan_id_use_versioned_error_contract() -> None:
             "exit_code": 2,
             "phase": "error",
             "result": "error",
-            "schema_version": "1.0",
+            "schema_version": "2.0",
         }
         assert not list(_validator().iter_errors(report))
 
@@ -184,7 +184,7 @@ def test_recover_command_emits_its_strict_schema_branch(
         command,
         "build_recover_report",
         lambda: {
-            "schema_version": "1.0",
+            "schema_version": "2.0",
             "phase": "recover",
             "result": result_state,
             "run_id": "run_" + "1" * 32,

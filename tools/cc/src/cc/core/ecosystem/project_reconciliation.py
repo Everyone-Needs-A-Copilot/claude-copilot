@@ -45,6 +45,10 @@ from cc.core.ecosystem.reconciliation_types import (
     ProjectPresence,
     ProjectRoute,
 )
+from cc.core.ecosystem.repository_scope import (
+    RepositoryScope,
+    managed_ecosystem_repositories,
+)
 from cc.core.ecosystem.workspaces import discover_workspaces, is_project_excluded
 
 
@@ -100,6 +104,8 @@ _ACTOR = {
     ComponentRoute.OWNER_DECISION: "project-owner",
     ComponentRoute.COULD_NOT_VERIFY: "person",
     ComponentRoute.EXCLUDED: "person",
+    ComponentRoute.SOURCE_UNAVAILABLE: "ecosystem-owner",
+    ComponentRoute.NOT_APPLICABLE: "none",
 }
 
 _MANAGED_OUTPUT_TARGET_KINDS = {
@@ -653,6 +659,8 @@ def _recommendation(
         ComponentRoute.OWNER_DECISION,
         ComponentRoute.EXCLUDED,
         ComponentRoute.HELD,
+        ComponentRoute.SOURCE_UNAVAILABLE,
+        ComponentRoute.NOT_APPLICABLE,
     }:
         return False, "Resolve the named project route before selecting this component."
     recipe_routes = {
@@ -715,6 +723,8 @@ def _component_next_action(route: ComponentRoute, component: str) -> str:
         ComponentRoute.OWNER_DECISION: f"Ask the project owner to choose the {label} route.",
         ComponentRoute.COULD_NOT_VERIFY: f"Resolve the unreadable or unsafe {label} evidence.",
         ComponentRoute.EXCLUDED: f"{label} remains unchanged while the project is excluded.",
+        ComponentRoute.SOURCE_UNAVAILABLE: f"Restore the verified {label} framework source, then assess again.",
+        ComponentRoute.NOT_APPLICABLE: f"{label} project integration does not apply to this ecosystem repository.",
     }[route]
 
 
@@ -725,6 +735,7 @@ def _project_route(components: Sequence[ComponentAssessment]) -> ProjectRoute:
         (ComponentRoute.COULD_NOT_VERIFY, ProjectRoute.COULD_NOT_VERIFY),
         (ComponentRoute.OWNER_DECISION, ProjectRoute.OWNER_DECISION),
         (ComponentRoute.HELD, ProjectRoute.HELD),
+        (ComponentRoute.SOURCE_UNAVAILABLE, ProjectRoute.SOURCE_UNAVAILABLE),
         (
             ComponentRoute.CUSTOMIZED_GUIDED_ROUTE,
             ProjectRoute.CUSTOMIZED_GUIDED_ROUTE,
@@ -821,6 +832,8 @@ def _next_action(route: ProjectRoute) -> str:
         ProjectRoute.OWNER_DECISION: "Obtain the named project-owner decision, then assess again.",
         ProjectRoute.COULD_NOT_VERIFY: "Resolve the named inspection failure without changing the project.",
         ProjectRoute.EXCLUDED: "Leave the project unchanged unless a person removes its exclusion.",
+        ProjectRoute.SOURCE_UNAVAILABLE: "Restore the verified framework source once, then assess affected projects again.",
+        ProjectRoute.ECOSYSTEM_MANAGED: "Keep this ecosystem repository under ecosystem management; project integration does not apply.",
     }[route]
 
 
@@ -866,6 +879,7 @@ def _could_not_verify_project(
         "path": str(project),
         "root": str(approved_root),
         "name": project.name,
+        "scope": {"kind": "product-project"},
         "inspection_id": inspection_id,
         "presence": ProjectPresence.UNKNOWN.value,
         "route": ProjectRoute.COULD_NOT_VERIFY.value,
@@ -902,6 +916,53 @@ def _could_not_verify_project(
             ],
         }
     return result
+
+
+def _ecosystem_managed_project(
+    project: Path,
+    approved_root: Path,
+    scope: RepositoryScope,
+) -> ProjectAssessment:
+    evidence: Evidence = {
+        "id": "ecosystem-repository-identity",
+        "state": "verified",
+        "detail": "The validated ecosystem manifest and this checkout's Git origin identify the same Copilot repository.",
+    }
+    inspection_id = _opaque_id(
+        {
+            "project": str(project),
+            "root": str(approved_root),
+            "scope": dict(scope),
+        }
+    )
+    components: list[ComponentAssessment] = [
+        {
+            "component": component,
+            "state": ComponentRoute.NOT_APPLICABLE.value,
+            "selected": False,
+            "recommended": False,
+            "recommendation_reason": "Project integration does not apply to a proven ecosystem repository.",
+            "responsible_actor": "none",
+            "evidence": [evidence],
+            "missing_requirements": [],
+            "next_action": "Keep this repository under ecosystem management.",
+            "recipe_options": [],
+        }
+        for component in SUPPORTED_COMPONENTS
+    ]
+    return {
+        "path": str(project),
+        "root": str(approved_root),
+        "name": project.name,
+        "scope": dict(scope),
+        "inspection_id": inspection_id,
+        "presence": ProjectPresence.UNKNOWN.value,
+        "route": ProjectRoute.ECOSYSTEM_MANAGED.value,
+        "selected_components": [],
+        "components": components,
+        "blockers": [],
+        "next_action": _next_action(ProjectRoute.ECOSYSTEM_MANAGED),
+    }
 
 
 def assess_project(
@@ -971,6 +1032,17 @@ def assess_project(
             route,
             present=presence_values[component],
         )
+        if (
+            not recommended
+            and route
+            in {
+                ComponentRoute.SAFE_SETUP_AVAILABLE,
+                ComponentRoute.SAFE_UPDATE_AVAILABLE,
+                ComponentRoute.CUSTOMIZED_GUIDED_ROUTE,
+            }
+            and not _source_available(component)
+        ):
+            route = ComponentRoute.SOURCE_UNAVAILABLE
         component_assessment: ComponentAssessment = {
             "component": component,
             "state": route.value,
@@ -1068,6 +1140,7 @@ def assess_project(
             ComponentRoute.OWNER_DECISION,
             ComponentRoute.COULD_NOT_VERIFY,
             ComponentRoute.CUSTOMIZED_GUIDED_ROUTE,
+            ComponentRoute.SOURCE_UNAVAILABLE,
         }:
             continue
         blockers.append(
@@ -1085,6 +1158,7 @@ def assess_project(
         "path": str(path),
         "root": str(root),
         "name": path.name,
+        "scope": {"kind": "product-project"},
         "inspection_id": inspection_id,
         "presence": _presence(presence_values).value,
         "route": route.value,
@@ -1111,7 +1185,11 @@ def assess_project(
             item["component"]
             for item in components
             if ComponentRoute(item["state"])
-            not in {ComponentRoute.READY, ComponentRoute.NOT_SELECTED}
+            not in {
+                ComponentRoute.READY,
+                ComponentRoute.NOT_SELECTED,
+                ComponentRoute.NOT_APPLICABLE,
+            }
         )
         dossier: ProjectDossier = {
             "inspection_id": inspection_id,
@@ -1145,6 +1223,7 @@ def build_project_census(
     roots: Sequence[Path | str] | None = None,
     selections: Mapping[str, Sequence[str]] | None = None,
     detail: bool = True,
+    managed_repositories: Mapping[str, RepositoryScope] | None = None,
 ) -> list[ProjectAssessment]:
     """Discover every Git project under approved roots and assess it exactly once."""
     approved = _approved_roots(roots)
@@ -1168,10 +1247,19 @@ def build_project_census(
     }
     for project in selected:
         discovered.setdefault(project, Path(project))
+    managed = dict(
+        managed_ecosystem_repositories()
+        if managed_repositories is None
+        else managed_repositories
+    )
     projects: list[ProjectAssessment] = []
     for key in sorted(discovered):
         project = discovered[key]
         approved_root = _project_root(project, approved)
+        scope = managed.get(key)
+        if scope is not None:
+            projects.append(_ecosystem_managed_project(project, approved_root, scope))
+            continue
         projects.append(
             assess_project(
                 project,
@@ -1211,6 +1299,10 @@ def build_project_plans(
                 "A selected project is absent from the fresh census."
             ) from exc
         components = selected[path]
+        if project.get("scope", {}).get("kind") == "ecosystem-repository":
+            raise ProjectReconciliationError(
+                "Ecosystem repositories are managed separately and cannot be planned as product projects."
+            )
         if tuple(project["selected_components"]) != components:
             raise ProjectReconciliationError(
                 "A project selection changed after the census; assess again."

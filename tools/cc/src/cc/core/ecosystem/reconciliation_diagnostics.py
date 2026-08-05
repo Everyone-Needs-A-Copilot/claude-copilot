@@ -46,6 +46,7 @@ _CLASSIFICATIONS = {
     "customized-guided-route",
     "eligible",
     "excluded",
+    "ecosystem-managed",
     "held",
     "not-present",
     "not-selected",
@@ -54,6 +55,7 @@ _CLASSIFICATIONS = {
     "safe-finish",
     "safe-setup-available",
     "safe-update-available",
+    "source-unavailable",
     "selected",
     "unknown",
 }
@@ -189,6 +191,11 @@ _OVERLAP_EXPLANATIONS = {
         "Each project appears in exactly one project state. Claude and Codex "
         "are reported separately inside that project, so component outcomes "
         "may differ without changing the project count."
+    ),
+    (
+        "Each discovered repository appears in exactly one scope and state. "
+        "Ecosystem repositories are managed separately. Claude and Codex are "
+        "reported independently inside each product project."
     ),
     "One updated component remains independently classified.",
 }

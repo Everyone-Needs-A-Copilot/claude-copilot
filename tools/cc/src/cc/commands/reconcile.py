@@ -146,7 +146,10 @@ def assistant_run(
     from cc.core.ecosystem.reconciliation_assistant import run_assistant_session
 
     _run_report(
-        lambda: run_assistant_session(session_id or ""),
+        lambda: run_assistant_session(
+            session_id or "",
+            progress_callback=(None if output_json else typer.echo),
+        ),
         output_json=output_json,
     )
 
