@@ -909,6 +909,362 @@ for path in (assistant_state, *assistant_state.rglob("*")):
         raise SystemExit("frozen assistant state contained a symlink or special file")
 PY
 
+# Exercise the frozen helper's DEFAULT `claude` resolution -- registry and
+# PATH, with `CC_ASSISTANT_CLAUDE_PATH` unset -- rather than the operator
+# override the lifecycle probe above always sets. The regression this closes
+# (cc 2.7.1, `_resolved_claude_candidate()` in
+# `tools/cc/src/cc/core/ecosystem/reconciliation_assistant.py`) was narrower
+# than "PATH is unchecked": 2.7.1 disabled PATH consultation entirely and
+# resolved only through `core/executables.py`'s closed HOME-relative/absolute
+# registry, so a real `claude` install anywhere else -- including under a
+# sandboxed or non-default `$HOME`, exactly what Control Tower's release
+# gates run -- silently produced a clean but wrong `claude-code-unavailable`
+# refusal. A leg that only places `claude` inside the registry does not
+# reproduce that: registry resolution was never broken, and this was
+# confirmed empirically by running it against both the 2.7.1 and 2.7.2 frozen
+# artifacts before writing this. The leg that actually reproduces the
+# regression is the PATH-fallback leg below, where the registry has no answer
+# under the probe's disposable `$HOME` and only PATH can find `claude`.
+# Because every probe above sets `CC_ASSISTANT_CLAUDE_PATH` explicitly, this
+# regression shipped signed and notarized -- all four release probes,
+# including the lifecycle probe above, "passed" -- and was only caught
+# downstream. A helper must not be able to self-certify a broken default
+# resolution path, so the three legs below run the bounded lifecycle through
+# default resolution alone: once succeeding via the registry, once succeeding
+# via the PATH fallback with nothing in the registry, and once failing closed
+# with nothing resolvable anywhere. Each leg gets its own disposable
+# HOME/machine-root pair so none depends on or pollutes the others or the
+# lifecycle probe above; all three reuse that probe's fixture project
+# (`${assistant_project}`), already forensically proven above to be left
+# untouched by the assistant lifecycle, rather than re-authoring one.
+
+write_assistant_config_and_request() {
+    local config_path="$1"
+    local request_path="$2"
+    local project_path="$3"
+    /usr/bin/python3 - \
+        "${config_path}" \
+        "${assistant_root}" \
+        "${source_checkout}" \
+        "${codex_source}" \
+        "${RELEASE_HOME}/.claude/cc/config.json" \
+        "${request_path}" \
+        "${project_path}" <<'PY'
+import json
+import pathlib
+import sys
+
+(
+    config_path,
+    approved_root,
+    claude_source,
+    codex_source,
+    base_config_path,
+    request_path,
+    project,
+) = sys.argv[1:]
+config = json.load(open(base_config_path, encoding="utf-8"))
+config["projects"] = {"roots": [approved_root]}
+config.setdefault("paths", {}).update(
+    {
+        "claude_copilot_root": claude_source,
+        "codex_copilot_root": codex_source,
+    }
+)
+pathlib.Path(config_path).write_text(
+    json.dumps(config, sort_keys=True),
+    encoding="utf-8",
+)
+pathlib.Path(request_path).write_text(
+    json.dumps(
+        {
+            "schema_version": "1.0",
+            "roots": [approved_root],
+            "projects": [
+                {"path": project, "components": ["claude", "codex"]}
+            ],
+        },
+        sort_keys=True,
+    ),
+    encoding="utf-8",
+)
+PY
+    chmod 600 "${config_path}" "${request_path}"
+}
+
+assistant_prepared_session_id() {
+    local prepare_probe="$1"
+    local label="$2"
+    /usr/bin/python3 - "${prepare_probe}" "${label}" <<'PY'
+import json
+import sys
+
+path, label = sys.argv[1:3]
+payload = json.load(open(path, encoding="utf-8"))
+if payload.get("result") != "ready":
+    raise SystemExit(f"{label} did not prepare an assistant session")
+print(payload["session_id"])
+PY
+}
+
+assistant_selection_payload() {
+    local session_file="$1"
+    /usr/bin/python3 - "${session_file}" <<'PY'
+import json
+import sys
+
+session = json.load(open(sys.argv[1], encoding="utf-8"))
+chosen = {}
+for candidate in session["candidates"]:
+    chosen.setdefault(
+        (candidate["project_ref"], candidate["component"]),
+        candidate["candidate_id"],
+    )
+if not chosen:
+    raise SystemExit("assistant probe produced no bounded candidates")
+print(json.dumps({"selections": [{"candidate_id": value} for value in chosen.values()]}))
+PY
+}
+
+# Leg 1 of 3: default resolution succeeds via the closed registry when a real
+# `claude` sits at the exact location `resolve_executable()` checks first
+# (`~/.local/bin/claude`; see `core/executables.py`'s `claude` entries). PATH
+# is restricted to system directories, exactly as the Finder-environment
+# probes above restrict it, and no other resolvable `claude` exists anywhere
+# under this disposable HOME, so a ready run here is only possible if default
+# resolution actually walked the registry and found this one. This leg alone
+# would NOT have caught the 2.7.1 regression -- registry resolution was never
+# broken -- it guards the registry-first half of default resolution.
+default_resolution_home="${scratch}/assistant-default-resolution-home"
+default_resolution_machine_root="${scratch}/assistant-default-resolution-machine"
+default_resolution_request="${scratch}/assistant-default-resolution-request.json"
+default_resolution_capture="${scratch}/assistant-default-resolution-capture.json"
+default_resolution_prepare_probe="${scratch}/assistant-default-resolution-prepare-probe.json"
+default_resolution_run_probe="${scratch}/assistant-default-resolution-run-probe.json"
+default_resolution_status_probe="${scratch}/assistant-default-resolution-status-probe.json"
+mkdir -p "${default_resolution_home}/.local/bin" "${default_resolution_machine_root}"
+default_resolution_home="$(cd "${default_resolution_home}" && pwd -P)"
+default_resolution_machine_root="$(cd "${default_resolution_machine_root}" && pwd -P)"
+chmod 700 "${default_resolution_home}" "${default_resolution_machine_root}"
+install -m 700 \
+    "${source_checkout}/tools/cc/tests/fixtures/reconciliation/fake_claude.py" \
+    "${default_resolution_home}/.local/bin/claude"
+
+write_assistant_config_and_request \
+    "${default_resolution_machine_root}/config.json" \
+    "${default_resolution_request}" \
+    "${assistant_project}"
+
+default_resolution_env=(
+    HOME="${default_resolution_home}"
+    PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+    CC_MACHINE_ROOT="${default_resolution_machine_root}"
+)
+env "${default_resolution_env[@]}" \
+    "${artifact}" reconcile assistant-prepare \
+    --request "${default_resolution_request}" --json > "${default_resolution_prepare_probe}" ||
+    die "frozen helper registry-resolution assistant-prepare probe failed: $(<"${default_resolution_prepare_probe}")"
+default_resolution_session="$(
+    assistant_prepared_session_id \
+        "${default_resolution_prepare_probe}" \
+        "frozen helper registry-resolution prepare"
+)"
+default_resolution_session_file="${default_resolution_machine_root}/diagnostics/reconciliation/assistant/sessions/${default_resolution_session}/session.json"
+default_resolution_payload="$(assistant_selection_payload "${default_resolution_session_file}")"
+env "${default_resolution_env[@]}" \
+    CC_ASSISTANT_TEST_MODE=1 \
+    FAKE_CLAUDE_CAPTURE="${default_resolution_capture}" \
+    FAKE_CLAUDE_MODE=valid \
+    FAKE_CLAUDE_PAYLOAD_JSON="${default_resolution_payload}" \
+    "${artifact}" reconcile assistant-run \
+    --session-id "${default_resolution_session}" --json > "${default_resolution_run_probe}" ||
+    die "frozen helper registry-resolution assistant-run probe failed (default claude resolution did not reach a ready run): $(<"${default_resolution_run_probe}")"
+env "${default_resolution_env[@]}" \
+    "${artifact}" reconcile assistant-status \
+    --session-id "${default_resolution_session}" --json > "${default_resolution_status_probe}" ||
+    die "frozen helper registry-resolution assistant-status probe failed: $(<"${default_resolution_status_probe}")"
+/usr/bin/python3 - \
+    "${default_resolution_prepare_probe}" \
+    "${default_resolution_run_probe}" \
+    "${default_resolution_status_probe}" \
+    "${default_resolution_capture}" <<'PY'
+import json
+import re
+import sys
+
+prepare_path, run_path, status_path, capture_path = sys.argv[1:5]
+prepare, run, status = (
+    json.load(open(path, encoding="utf-8"))
+    for path in (prepare_path, run_path, status_path)
+)
+if prepare.get("phase") != "assistant-prepare" or prepare.get("result") != "ready":
+    raise SystemExit("registry-resolution probe did not prepare an assistant session")
+if run.get("phase") != "assistant-run" or run.get("result") != "ready":
+    raise SystemExit(
+        "registry-resolution probe did not reach a ready run: default claude "
+        "resolution likely failed to locate the closed-registry install"
+    )
+if status.get("phase") != "assistant-status" or status.get("result") != "ready":
+    raise SystemExit("registry-resolution probe did not validate its proposal")
+if re.fullmatch(r"proposal_[0-9a-f]{32}", status.get("proposal_id", "")) is None:
+    raise SystemExit("registry-resolution probe did not issue an opaque proposal")
+capture = json.load(open(capture_path, encoding="utf-8"))
+if capture.get("schema_version") != "fake-claude.capture.v1":
+    raise SystemExit(
+        "registry-resolution probe reported a ready run without ever invoking "
+        "the closed-registry claude double; the run report cannot be trusted"
+    )
+PY
+
+# Leg 2 of 3: default resolution succeeds via the PATH fallback when `claude`
+# is NOT anywhere in the closed registry -- this is the leg that actually
+# reproduces the 2.7.1 regression. The fake executable sits in an arbitrary
+# scratch directory that matches none of `core/executables.py`'s registry
+# entries or Node version-manager globs; the disposable HOME has nothing
+# under any registry path either, so a ready run is only possible if
+# resolution fell through the registry and used PATH.
+path_fallback_home="${scratch}/assistant-path-fallback-home"
+path_fallback_bin="${scratch}/assistant-path-fallback-bin"
+path_fallback_machine_root="${scratch}/assistant-path-fallback-machine"
+path_fallback_request="${scratch}/assistant-path-fallback-request.json"
+path_fallback_capture="${scratch}/assistant-path-fallback-capture.json"
+path_fallback_prepare_probe="${scratch}/assistant-path-fallback-prepare-probe.json"
+path_fallback_run_probe="${scratch}/assistant-path-fallback-run-probe.json"
+path_fallback_status_probe="${scratch}/assistant-path-fallback-status-probe.json"
+mkdir -p "${path_fallback_home}" "${path_fallback_bin}" "${path_fallback_machine_root}"
+path_fallback_home="$(cd "${path_fallback_home}" && pwd -P)"
+path_fallback_bin="$(cd "${path_fallback_bin}" && pwd -P)"
+path_fallback_machine_root="$(cd "${path_fallback_machine_root}" && pwd -P)"
+chmod 700 "${path_fallback_home}" "${path_fallback_machine_root}"
+install -m 700 \
+    "${source_checkout}/tools/cc/tests/fixtures/reconciliation/fake_claude.py" \
+    "${path_fallback_bin}/claude"
+
+write_assistant_config_and_request \
+    "${path_fallback_machine_root}/config.json" \
+    "${path_fallback_request}" \
+    "${assistant_project}"
+
+path_fallback_env=(
+    HOME="${path_fallback_home}"
+    PATH="${path_fallback_bin}:/usr/bin:/bin:/usr/sbin:/sbin"
+    CC_MACHINE_ROOT="${path_fallback_machine_root}"
+)
+env "${path_fallback_env[@]}" \
+    "${artifact}" reconcile assistant-prepare \
+    --request "${path_fallback_request}" --json > "${path_fallback_prepare_probe}" ||
+    die "frozen helper path-fallback assistant-prepare probe failed: $(<"${path_fallback_prepare_probe}")"
+path_fallback_session="$(
+    assistant_prepared_session_id \
+        "${path_fallback_prepare_probe}" \
+        "frozen helper path-fallback prepare"
+)"
+path_fallback_session_file="${path_fallback_machine_root}/diagnostics/reconciliation/assistant/sessions/${path_fallback_session}/session.json"
+path_fallback_payload="$(assistant_selection_payload "${path_fallback_session_file}")"
+env "${path_fallback_env[@]}" \
+    CC_ASSISTANT_TEST_MODE=1 \
+    FAKE_CLAUDE_CAPTURE="${path_fallback_capture}" \
+    FAKE_CLAUDE_MODE=valid \
+    FAKE_CLAUDE_PAYLOAD_JSON="${path_fallback_payload}" \
+    "${artifact}" reconcile assistant-run \
+    --session-id "${path_fallback_session}" --json > "${path_fallback_run_probe}" ||
+    die "frozen helper path-fallback assistant-run probe failed (this is the exact 2.7.1 regression shape: a claude install outside the closed registry, reachable only via PATH, did not reach a ready run): $(<"${path_fallback_run_probe}")"
+env "${path_fallback_env[@]}" \
+    "${artifact}" reconcile assistant-status \
+    --session-id "${path_fallback_session}" --json > "${path_fallback_status_probe}" ||
+    die "frozen helper path-fallback assistant-status probe failed: $(<"${path_fallback_status_probe}")"
+/usr/bin/python3 - \
+    "${path_fallback_prepare_probe}" \
+    "${path_fallback_run_probe}" \
+    "${path_fallback_status_probe}" \
+    "${path_fallback_capture}" <<'PY'
+import json
+import re
+import sys
+
+prepare_path, run_path, status_path, capture_path = sys.argv[1:5]
+prepare, run, status = (
+    json.load(open(path, encoding="utf-8"))
+    for path in (prepare_path, run_path, status_path)
+)
+if prepare.get("phase") != "assistant-prepare" or prepare.get("result") != "ready":
+    raise SystemExit("path-fallback probe did not prepare an assistant session")
+if run.get("phase") != "assistant-run" or run.get("result") != "ready":
+    raise SystemExit(
+        "path-fallback probe did not reach a ready run: this is the exact "
+        "2.7.1 regression shape (a non-registry claude install reachable "
+        "only via PATH)"
+    )
+if status.get("phase") != "assistant-status" or status.get("result") != "ready":
+    raise SystemExit("path-fallback probe did not validate its proposal")
+if re.fullmatch(r"proposal_[0-9a-f]{32}", status.get("proposal_id", "")) is None:
+    raise SystemExit("path-fallback probe did not issue an opaque proposal")
+capture = json.load(open(capture_path, encoding="utf-8"))
+if capture.get("schema_version") != "fake-claude.capture.v1":
+    raise SystemExit(
+        "path-fallback probe reported a ready run without ever invoking the "
+        "PATH-only claude double; the run report cannot be trusted"
+    )
+PY
+
+# Leg 3 of 3: default resolution fails closed -- a structured
+# `claude-code-unavailable` refusal, not a hang or a crash -- when no
+# `claude` is resolvable anywhere: not on PATH, not in the closed registry,
+# and no `CC_ASSISTANT_CLAUDE_PATH` override set. Resolution failure raises
+# before any subprocess is spawned, so there is no lifecycle step here that
+# could hang; this leg proves the refusal is exactly the documented
+# `claude-code-unavailable` error and not a bare crash or timeout.
+unresolved_home="${scratch}/assistant-unresolved-home"
+unresolved_machine_root="${scratch}/assistant-unresolved-machine"
+unresolved_request="${scratch}/assistant-unresolved-request.json"
+unresolved_prepare_probe="${scratch}/assistant-unresolved-prepare-probe.json"
+unresolved_run_probe="${scratch}/assistant-unresolved-run-probe.json"
+mkdir -p "${unresolved_home}" "${unresolved_machine_root}"
+unresolved_home="$(cd "${unresolved_home}" && pwd -P)"
+unresolved_machine_root="$(cd "${unresolved_machine_root}" && pwd -P)"
+chmod 700 "${unresolved_home}" "${unresolved_machine_root}"
+
+write_assistant_config_and_request \
+    "${unresolved_machine_root}/config.json" \
+    "${unresolved_request}" \
+    "${assistant_project}"
+
+unresolved_env=(
+    HOME="${unresolved_home}"
+    PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+    CC_MACHINE_ROOT="${unresolved_machine_root}"
+)
+env "${unresolved_env[@]}" \
+    "${artifact}" reconcile assistant-prepare \
+    --request "${unresolved_request}" --json > "${unresolved_prepare_probe}" ||
+    die "frozen helper unresolved-claude assistant-prepare probe failed: $(<"${unresolved_prepare_probe}")"
+unresolved_session="$(
+    assistant_prepared_session_id \
+        "${unresolved_prepare_probe}" \
+        "frozen helper unresolved-claude prepare"
+)"
+set +e
+env "${unresolved_env[@]}" \
+    "${artifact}" reconcile assistant-run \
+    --session-id "${unresolved_session}" --json > "${unresolved_run_probe}"
+unresolved_run_exit=$?
+set -e
+[[ "${unresolved_run_exit}" -eq 1 ]] ||
+    die "frozen helper unresolved-claude assistant-run probe exited ${unresolved_run_exit}, expected the fail-closed exit code 1: $(<"${unresolved_run_probe}")"
+/usr/bin/python3 - "${unresolved_run_probe}" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+if payload.get("phase") != "error" or payload.get("result") != "error":
+    raise SystemExit("unresolved-claude probe did not fail closed with a structured error")
+error = payload.get("error", {})
+if error.get("code") != "claude-code-unavailable":
+    raise SystemExit(
+        f"unresolved-claude probe failed with the wrong error code: {error.get('code')!r}"
+    )
+PY
+
 archive="${scratch}/cc-macos-universal.zip"
 ditto -c -k --keepParent "${artifact}" "${archive}"
 notary_args=()
@@ -989,6 +1345,7 @@ cat > "${OUTPUT_DIR}/release-metadata.json" <<EOF
   "finder_onboard_probe": "passed",
   "finder_reconciliation_probe": "passed",
   "finder_reconciliation_assistant_probe": "passed",
+  "finder_reconciliation_assistant_default_resolution_probe": "passed",
   "sha256": "${artifact_sha}"
 }
 EOF
