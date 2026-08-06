@@ -126,7 +126,9 @@ def test_probe_remote_ref_peels_annotated_tag(tmp_path):
     result = mirror.probe_remote_ref(str(repo), "v1.0.0")
 
     assert tag_object_sha != commit_sha
-    assert result == mirror.RemoteRefProbe(reachable=True, sha=commit_sha)
+    assert result == mirror.RemoteRefProbe(
+        reachable=True, sha=commit_sha, peeled=True
+    )
 
 
 def test_latest_lock_sha_reads_published_ref(tmp_path):

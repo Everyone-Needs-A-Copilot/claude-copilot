@@ -345,6 +345,28 @@ def test_foundation_parentless_release_snapshot_with_same_tree_passes(tmp_path):
     assert offline is False
 
 
+def test_foundation_snapshot_without_local_tag_ref_still_passes(tmp_path):
+    source = _make_content_repo(tmp_path, {"agents/sec.md": "v1"})
+    snapshot = _tag_parentless_snapshot(source)
+    checkout = tmp_path / "visible-checkout"
+    subprocess.run(["git", "clone", "-q", str(source), str(checkout)], check=True)
+    subprocess.run(["git", "tag", "-d", "v1.0.0"], cwd=checkout, check=True)
+    layer = _layer(
+        source={"repo": str(source), "ref": "v1.0.0", "path": str(checkout)}
+    )
+
+    checkers, offline = compute_component_checkers(
+        [layer], lockfile={}, latest_sha_fn=mirror.probe_remote_ref
+    )
+
+    checker = checkers[0]
+    assert checker.local_sha != snapshot
+    assert checker.remote_sha == snapshot
+    assert checker.severity == "pass"
+    assert "content matches" in checker.detail
+    assert offline is False
+
+
 def test_foundation_parentless_release_snapshot_with_different_tree_warns(tmp_path):
     source = _make_content_repo(tmp_path, {"agents/sec.md": "v1"})
     snapshot = _tag_parentless_snapshot(source)

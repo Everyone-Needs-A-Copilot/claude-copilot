@@ -83,6 +83,7 @@ class RemoteRefProbe:
 
     reachable: bool
     sha: Optional[str]
+    peeled: bool = False
 
 
 def mirror_root(tier: str, *, _root: Optional[Path | str] = None) -> Path:
@@ -223,7 +224,11 @@ def probe_remote_ref(
             elif direct_sha is None:
                 direct_sha = sha.strip()
     sha = peeled_sha or direct_sha
-    return RemoteRefProbe(reachable=True, sha=sha or None)
+    return RemoteRefProbe(
+        reachable=True,
+        sha=sha or None,
+        peeled=peeled_sha is not None,
+    )
 
 
 def latest_lock_sha(

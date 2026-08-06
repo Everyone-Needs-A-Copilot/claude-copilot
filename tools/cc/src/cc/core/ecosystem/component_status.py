@@ -186,17 +186,27 @@ def _visible_checkout_head_sha(layer: dict[str, Any]) -> Optional[str]:
 
 
 def _matches_foundation_release_snapshot(
-    layer: dict[str, Any], *, local_sha: Optional[str], remote_sha: str
+    layer: dict[str, Any],
+    *,
+    local_sha: Optional[str],
+    remote_sha: str,
+    remote_ref_is_annotated_tag: bool,
 ) -> bool:
     """Prove a visible checkout matches a disconnected Foundation snapshot.
 
     Foundation releases are published as annotated tags whose peeled commit is
     a parentless, immutable snapshot. The authoring checkout can therefore have
     a different commit identity while carrying the exact released tree. Keep
-    this exception deliberately narrow: no other role, lightweight/ordinary
-    tag, branch, missing local ref, or tree mismatch can pass through it.
+    this exception deliberately narrow: the remote ref must be proven
+    annotated; any locally present ref must agree with it; and no other role,
+    lightweight/ordinary tag, branch, missing snapshot object, or tree mismatch
+    can pass through it.
     """
-    if layer.get("role") != "foundation" or not local_sha:
+    if (
+        layer.get("role") != "foundation"
+        or not local_sha
+        or not remote_ref_is_annotated_tag
+    ):
         return False
 
     source = layer.get("source") or {}
@@ -208,28 +218,41 @@ def _matches_foundation_release_snapshot(
     if not root.is_dir():
         return False
 
-    object_type = _run_git(["cat-file", "-t", str(declared_ref)], cwd=root)
-    peeled = _run_git(["rev-parse", f"{declared_ref}^{{}}"], cwd=root)
+    local_ref = _run_git(
+        ["rev-parse", "--verify", "--quiet", str(declared_ref)], cwd=root
+    )
+    if local_ref is None:
+        return False
+    if local_ref.returncode == 0:
+        object_type = _run_git(["cat-file", "-t", str(declared_ref)], cwd=root)
+        peeled = _run_git(["rev-parse", f"{declared_ref}^{{}}"], cwd=root)
+        if (
+            object_type is None
+            or object_type.returncode != 0
+            or object_type.stdout.strip() != "tag"
+            or peeled is None
+            or peeled.returncode != 0
+            or peeled.stdout.strip() != remote_sha
+        ):
+            return False
+
+    remote_type = _run_git(["cat-file", "-t", remote_sha], cwd=root)
     parents = _run_git(
-        ["rev-list", "--parents", "-n", "1", f"{declared_ref}^{{}}"], cwd=root
+        ["rev-list", "--parents", "-n", "1", remote_sha], cwd=root
     )
     head_tree = _run_git(["rev-parse", f"{local_sha}^{{tree}}"], cwd=root)
-    snapshot_tree = _run_git(
-        ["rev-parse", f"{declared_ref}^{{tree}}"], cwd=root
-    )
-    results = (object_type, peeled, parents, head_tree, snapshot_tree)
+    snapshot_tree = _run_git(["rev-parse", f"{remote_sha}^{{tree}}"], cwd=root)
+    results = (remote_type, parents, head_tree, snapshot_tree)
     if any(result is None or result.returncode != 0 for result in results):
         return False
 
-    assert object_type is not None
-    assert peeled is not None
+    assert remote_type is not None
     assert parents is not None
     assert head_tree is not None
     assert snapshot_tree is not None
     parent_fields = parents.stdout.strip().split()
     return (
-        object_type.stdout.strip() == "tag"
-        and peeled.stdout.strip() == remote_sha
+        remote_type.stdout.strip() == "commit"
         and len(parent_fields) == 1
         and parent_fields[0] == remote_sha
         and head_tree.stdout.strip() == snapshot_tree.stdout.strip()
@@ -270,7 +293,8 @@ def _remote_sha_for_layer(
         source_ref = source.get("ref") or "main"
         source_probe = _normalize_probe(latest_sha_fn(repo, source_ref))
         if source_probe.sha is not None:
-            return source_probe.sha, "source", True
+            comparison = "source-tag" if source_probe.peeled else "source"
+            return source_probe.sha, comparison, True
         return None, "missing", True
 
     mirror_sha = _mirror_clone_head_sha(
@@ -319,7 +343,7 @@ def compute_component_checkers(
         local_sha = (
             _visible_checkout_head_sha(layer)
             or layer_meta(lock, layer_id).get("source_sha")
-            if comparison_kind in {"source", "missing"}
+            if comparison_kind in {"source", "source-tag", "missing"}
             else _local_sha_for_layer(lock, layer_id)
         )
         checker_id = f"{product}-{layer_id}-sync"
@@ -376,8 +400,11 @@ def compute_component_checkers(
                     remote_sha=remote_sha,
                 )
             )
-        elif comparison_kind == "source" and _matches_foundation_release_snapshot(
-            layer, local_sha=local_sha, remote_sha=remote_sha
+        elif comparison_kind == "source-tag" and _matches_foundation_release_snapshot(
+            layer,
+            local_sha=local_sha,
+            remote_sha=remote_sha,
+            remote_ref_is_annotated_tag=True,
         ):
             checkers.append(
                 Checker(
