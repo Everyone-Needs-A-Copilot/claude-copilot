@@ -42,6 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`codex-portable-copy-v1` no longer fails on projects without a `scripts/` directory (`cc` 2.9.2):** the migration installed `scripts/copilot-gate.sh` with `shutil.copy2` but never created the parent directory, so any recognized legacy-linked project that had no `scripts/` directory of its own raised `FileNotFoundError` partway through. The guarded transaction rolled every completed change back correctly, but the migration could never succeed: the project stayed on its external plugin symlink and the only way forward was to create the directory by hand. The gate now creates the directories it needs, matching the sibling skill-bridge and safe-finish paths. Rollback also removes only the directories a failed migration itself created — a pre-existing directory, or one that turns out to be non-empty, is always left alone — so "restored every completed change" is now literally true rather than leaving a stray empty `scripts/`. Found while migrating two projects (`saas-financial-model`, `convoco-site`) whose recognized legacy setup predates the project-local gate.
+
 - **User-controlled Sites-root project handoff (`cc` 2.9.1):**
   `guide-prepare` now returns one short `start_prompt` that points to the
   private instruction file, and that instruction file uses exact helper paths

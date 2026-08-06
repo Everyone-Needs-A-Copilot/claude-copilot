@@ -568,6 +568,24 @@ def _atomic_write(path: Path, payload: bytes, *, mode: int = 0o644) -> None:
             temporary_path.unlink()
 
 
+def _create_missing_parents(target: Path, root: Path) -> list[Path]:
+    """Create the directories `target` needs, deepest last.
+
+    Returns only the directories this call created, so a rollback can remove
+    exactly those and leave pre-existing project directories alone.
+    """
+    missing: list[Path] = []
+    parent = target.parent
+    while parent != root and root in parent.parents and not parent.exists():
+        missing.append(parent)
+        parent = parent.parent
+    created: list[Path] = []
+    for directory in reversed(missing):
+        directory.mkdir()
+        created.append(directory)
+    return created
+
+
 def _restore(path: Path, snapshot: _Snapshot) -> None:
     _remove_target(path)
     if snapshot.kind == "missing":
@@ -734,6 +752,7 @@ def apply_migration_action(
     ]
 
     completed: list[dict[str, str]] = []
+    created_directories: list[Path] = []
     mutation_count = 0
 
     def recorded(path: Path, operation: str) -> None:
@@ -805,7 +824,7 @@ def apply_migration_action(
                 recorded(plugin, "install-portable-codex-plugin")
 
                 _remove_target(bridge)
-                bridge.parent.mkdir(parents=True, exist_ok=True)
+                created_directories.extend(_create_missing_parents(bridge, root))
                 relative = os.path.relpath(plugin / "skills", bridge.parent)
                 bridge.symlink_to(relative, target_is_directory=True)
                 recorded(bridge, "install-project-local-skill-bridge")
@@ -815,6 +834,7 @@ def apply_migration_action(
                     gate
                 ) != _file_checksum(source_gate):
                     _remove_target(gate)
+                    created_directories.extend(_create_missing_parents(gate, root))
                     shutil.copy2(staged_gate, gate)
                     recorded(gate, "install-project-local-gate")
 
@@ -910,6 +930,14 @@ def apply_migration_action(
                         "detail": "The saved target could not be restored.",
                     }
                 )
+        for directory in sorted(
+            set(created_directories), key=lambda item: len(item.parts), reverse=True
+        ):
+            try:
+                directory.rmdir()
+            except OSError:
+                # Keep any directory that is no longer empty; it holds project work.
+                continue
         try:
             diagnostic["verification_after_rollback"] = _diagnostic_inspection(
                 inspect_project_integration(

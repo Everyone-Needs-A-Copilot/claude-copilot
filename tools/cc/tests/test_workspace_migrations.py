@@ -108,6 +108,8 @@ def _legacy_project(
         gate.symlink_to(external_gate)
     elif gate_mode == "missing":
         gate.unlink()
+    elif gate_mode == "missing-directory":
+        shutil.rmtree(gate.parent)
     elif gate_mode == "custom-file":
         gate.write_text("#!/bin/sh\necho custom\n", encoding="utf-8")
         lock_path = project / "copilot.lock.json"
@@ -253,6 +255,64 @@ def test_apply_migrates_both_components_preserves_content_and_verifies(
     )
     after = _workspace(project, claude_root, codex_root, tmp_path)
     assert after["classification"] == "ready"
+
+
+def test_apply_creates_the_gate_directory_when_the_project_has_none(
+    tmp_path: Path,
+) -> None:
+    project, claude_root, codex_root = _legacy_project(
+        tmp_path, gate_mode="missing-directory"
+    )
+    assert not (project / "scripts").exists()
+    candidate = build_migration_candidate(
+        project,
+        _workspace(project, claude_root, codex_root, tmp_path),
+        claude_root=claude_root,
+        codex_root=codex_root,
+    )
+
+    ledger = apply_migration_action(
+        project,
+        candidate["action"]["id"],
+        claude_root=claude_root,
+        codex_root=codex_root,
+    )
+
+    assert ledger["status"] == "applied"
+    assert ledger["verification"] == "ready"
+    gate = project / "scripts/copilot-gate.sh"
+    assert gate.is_file()
+    assert gate.read_bytes() == (codex_root / "scripts/copilot-gate.sh").read_bytes()
+    assert "install-project-local-gate" in {
+        item["operation"] for item in ledger["completed_actions"]
+    }
+
+
+def test_rollback_removes_only_the_directories_the_migration_created(
+    tmp_path: Path,
+) -> None:
+    project, claude_root, codex_root = _legacy_project(
+        tmp_path, gate_mode="missing-directory"
+    )
+    candidate = build_migration_candidate(
+        project,
+        _workspace(project, claude_root, codex_root, tmp_path),
+        claude_root=claude_root,
+        codex_root=codex_root,
+    )
+    before_status = _git(project, "status", "--porcelain=v1").stdout
+
+    ledger = apply_migration_action(
+        project,
+        candidate["action"]["id"],
+        claude_root=claude_root,
+        codex_root=codex_root,
+        fail_after=4,
+    )
+
+    assert ledger["status"] == "rolled-back"
+    assert not (project / "scripts").exists()
+    assert _git(project, "status", "--porcelain=v1").stdout == before_status
 
 
 def test_stale_action_refuses_and_injected_failure_restores_exact_state(
