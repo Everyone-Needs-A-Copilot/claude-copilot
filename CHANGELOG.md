@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Fetched Foundation snapshot proof (`cc` 2.10.2):** the freshness checker
+  now carries forward `git ls-remote` evidence that the declared remote ref is
+  an annotated tag. After setup fetches the peeled snapshot commit, `doctor`
+  can prove its parentless shape and identical tree without requiring the tag
+  name itself to have been installed as a local ref. If a local ref does exist,
+  it must still be an annotated tag peeling to the exact remote commit. A
+  missing snapshot object, ordinary branch/tag, different tree, or mismatched
+  local ref remains a warning.
+
 - **Foundation release freshness (`cc` 2.10.1):** `cc doctor` now peels
   annotated Git tags before comparing their targets and recognizes the
   signed, parentless Foundation snapshot format when the visible authoring
