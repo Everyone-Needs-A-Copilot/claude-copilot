@@ -1,0 +1,8 @@
+interface:
+  display_name: "Skills Approve"
+  short_description: "Review skills"
+  default_prompt: "Use $skills-approve to review available skills and recommend which are appropriate for this task."
+
+policy:
+  allow_implicit_invocation: false
+

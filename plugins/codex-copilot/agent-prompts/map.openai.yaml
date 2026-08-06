@@ -1,0 +1,8 @@
+interface:
+  display_name: "Map"
+  short_description: "Map a codebase"
+  default_prompt: "Use $map to summarize the project structure and key files for specialist navigation."
+
+policy:
+  allow_implicit_invocation: false
+
