@@ -4,6 +4,7 @@
   "title": "cc reconcile report",
   "oneOf": [
     { "$ref": "#/$defs/assessReport" },
+    { "$ref": "#/$defs/prepareReport" },
     { "$ref": "#/$defs/assistantPrepareReport" },
     { "$ref": "#/$defs/assistantRunReport" },
     { "$ref": "#/$defs/assistantStatusReport" },
@@ -685,6 +686,65 @@
           }
         }
       ]
+    },
+    "prepareReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "phase", "result", "run_id", "generated_at",
+        "completed_actions", "project_checkpoints", "ecosystem_refresh",
+        "authority", "holds", "assessment", "summary", "next_actions"
+      ],
+      "properties": {
+        "schema_version": { "const": "2.0" },
+        "phase": { "const": "prepare" },
+        "result": { "enum": ["ready", "applied", "partial"] },
+        "run_id": { "$ref": "#/$defs/opaqueRunId" },
+        "generated_at": { "type": "string", "format": "date-time" },
+        "completed_actions": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+        "project_checkpoints": {
+          "type": "object", "additionalProperties": false,
+          "required": ["checkpointed", "became_current", "held", "pushed"],
+          "properties": {
+            "checkpointed": { "type": "integer", "minimum": 0 },
+            "became_current": { "type": "integer", "minimum": 0 },
+            "held": { "type": "integer", "minimum": 0 },
+            "pushed": { "const": 0 }
+          }
+        },
+        "ecosystem_refresh": {
+          "type": "object", "additionalProperties": false,
+          "required": ["mode", "checked", "updated", "current", "held"],
+          "properties": {
+            "mode": { "const": "download-only" },
+            "checked": { "type": "integer", "minimum": 0 },
+            "updated": { "type": "integer", "minimum": 0 },
+            "current": { "type": "integer", "minimum": 0 },
+            "held": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "authority": {
+          "type": "object", "additionalProperties": false,
+          "required": ["setup_access", "author_capable", "read_only", "unknown"],
+          "properties": {
+            "setup_access": { "const": "download-only" },
+            "author_capable": { "type": "integer", "minimum": 0 },
+            "read_only": { "type": "integer", "minimum": 0 },
+            "unknown": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "holds": { "type": "array", "items": { "type": "object", "additionalProperties": true, "required": ["code", "detail"] } },
+        "assessment": { "$ref": "#/$defs/assessReport" },
+        "summary": {
+          "type": "object", "additionalProperties": false,
+          "required": ["headline", "detail"],
+          "properties": {
+            "headline": { "type": "string", "minLength": 1 },
+            "detail": { "type": "string", "minLength": 1 }
+          }
+        },
+        "next_actions": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
     },
     "assistantPrepareReport": {
       "type": "object",

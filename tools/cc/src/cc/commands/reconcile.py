@@ -98,6 +98,18 @@ def assess(
     _run_report(assess_reconciliation, output_json=output_json)
 
 
+@reconcile_app.command("prepare")
+def prepare(
+    output_json: bool = typer.Option(
+        False, "--json", help="Emit the active setup preparation report."
+    ),
+) -> None:
+    """Checkpoint Product work and download safe shared updates before setup."""
+    from cc.core.ecosystem.setup_preflight import build_setup_prepare_report
+
+    _run_report(build_setup_prepare_report, output_json=output_json)
+
+
 @reconcile_app.command("plan")
 def plan(
     request: Optional[Path] = typer.Option(

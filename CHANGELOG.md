@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Active setup preparation (`cc` 2.10.0):** `cc reconcile prepare --json`
+  now performs the routine beginning-of-setup work before returning a fresh
+  project assessment. Eligible dirty Product projects receive an ordinary
+  local Git checkpoint containing tracked and untracked work; repository hooks
+  and filesystem-monitor hooks are disabled for this unattended operation,
+  Git identity remains in force, a failed commit restores the exact prior index,
+  and no checkpoint is pushed. Foundation, Organization/Internal, and
+  Department Copilot repositories are never checkpointed. Their visible clean
+  checkouts may only be downloaded or fast-forwarded to the live handoff's
+  expected revision; dirty, ahead, divergent, wrong-origin, missing-authority,
+  and unreadable states remain held. Repository hooks and filesystem-monitor
+  hooks are disabled for these unattended Git operations too. Setup is always download-only even when
+  GitHub reports `WRITE`, `MAINTAIN`, or `ADMIN`; those grants are exposed only
+  as evidence for a separate explicit authoring workflow. `READ`, `TRIAGE`,
+  and unknown permission fail closed as read-only. The additive schema-2.0
+  report includes completed actions, checkpoint and refresh counts, authority
+  evidence, holds, and the post-action assessment.
+
 - **One-conversation guided project setup (`cc` 2.9.0):** reconciliation can
   now write one private, immutable instruction package for an exact assessed
   batch and drive one root-level Codex or Claude Code conversation through

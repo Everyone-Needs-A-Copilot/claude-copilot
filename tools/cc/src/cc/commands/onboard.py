@@ -968,19 +968,56 @@ def _classify_repository_history(
     )
 
 
-def _remote_repository_state(owner: str, name: str, *, run: Run) -> tuple[str, str | None]:
+def _repository_permission(payload: dict[str, Any]) -> str:
+    """Return GitHub's highest proven repository permission, fail-closed.
+
+    GitHub's REST repository payload exposes calculated permission booleans.
+    Setup uses this only as evidence for whether a future, separately gated
+    authoring workflow could publish.  It never upgrades this setup workflow
+    beyond download-only access.
+    """
+    permissions = payload.get("permissions")
+    if not isinstance(permissions, dict):
+        return "unknown"
+    for key, label in (
+        ("admin", "admin"),
+        ("maintain", "maintain"),
+        ("push", "write"),
+        ("triage", "triage"),
+        ("pull", "read"),
+    ):
+        if permissions.get(key) is True:
+            return label
+    return "unknown"
+
+
+def _remote_repository_state(
+    owner: str, name: str, *, run: Run
+) -> tuple[str, str | None, str, bool]:
     result = run(("gh", "api", f"repos/{owner}/{name}"))
     if result.returncode != 0:
-        return ("missing", None) if _is_404(result) else ("unknown", None)
+        return (
+            ("missing", None, "unknown", False)
+            if _is_404(result)
+            else ("unknown", None, "unknown", False)
+        )
     try:
         payload = json.loads(result.stdout)
     except json.JSONDecodeError:
-        return "unknown", None
+        return "unknown", None, "unknown", False
+    if not isinstance(payload, dict):
+        return "unknown", None, "unknown", False
     visibility = "private" if payload.get("private") is True else "public"
+    permission = _repository_permission(payload)
+    author_capable = permission in {"write", "maintain", "admin"}
     contents = run(("gh", "api", f"repos/{owner}/{name}/contents"))
     if _is_404(contents):
-        return "empty", visibility
-    return ("ready", visibility) if contents.returncode == 0 else ("unknown", visibility)
+        return "empty", visibility, permission, author_capable
+    return (
+        ("ready", visibility, permission, author_capable)
+        if contents.returncode == 0
+        else ("unknown", visibility, permission, author_capable)
+    )
 
 
 def _topology_report_layers(
@@ -994,14 +1031,32 @@ def _topology_report_layers(
         local_raw = source.get("path")
         local = Path(local_raw).expanduser() if isinstance(local_raw, str) else None
         if local is None:
-            remote_state, visibility = "not-checked", None
+            remote_state, visibility, permission, author_capable = (
+                "not-checked",
+                None,
+                "unknown",
+                False,
+            )
             owner, name = identity or ("", "")
         elif identity is None:
-            remote_state, visibility = "unknown", None
+            remote_state, visibility, permission, author_capable = (
+                "unknown",
+                None,
+                "unknown",
+                False,
+            )
             owner, name = "", ""
         else:
             owner, name = identity
-            remote_state, visibility = _remote_repository_state(owner, name, run=run)
+            remote = _remote_repository_state(owner, name, run=run)
+            # Keep the long-standing two-field monkeypatch seam accepted by
+            # contract/security tests while the production probe now returns
+            # the additive authority evidence.
+            if len(remote) == 2:
+                remote_state, visibility = remote
+                permission, author_capable = "unknown", False
+            else:
+                remote_state, visibility, permission, author_capable = remote
 
         local_state = "location-required" if local is None else "missing"
         sync_state = "not-checked"
@@ -1046,6 +1101,9 @@ def _topology_report_layers(
                 "repository_owner": owner,
                 "repository_name": name,
                 "repository_visibility": visibility,
+                "repository_permission": permission,
+                "author_capable": author_capable,
+                "setup_access": "download-only",
                 "remote_state": remote_state,
                 "local_path": str(local) if local else None,
                 "local_state": local_state,
@@ -1228,6 +1286,158 @@ def _apply_visible_topology(
         if entries:
             row["_ledger_entries"] = entries
     return True, None
+
+
+def build_shared_repository_refresh_report(
+    *,
+    org: str = "auto",
+    products: Sequence[str] = COMPONENTS,
+    run: Run | None = None,
+    repository_root: Path | str | None = None,
+) -> dict[str, Any]:
+    """Fast-forward only shared visible Copilot repositories.
+
+    This is intentionally narrower than ecosystem onboarding.  It never
+    creates or writes GitHub repository content, provisions SSH, changes the
+    layer manifest, materializes consumers, or touches Personal repositories.
+    Every shared checkout remains a download-only setup target even when the
+    current GitHub account has author permission; that permission is reported
+    solely as evidence for a separate explicit publishing workflow.
+    """
+    base_run = run or _run
+
+    def setup_run(command: Sequence[str]) -> subprocess.CompletedProcess[str]:
+        """Run setup Git without repository hooks or filesystem monitors.
+
+        A downloaded checkout is untrusted input during setup.  In particular,
+        ``git merge --ff-only`` would ordinarily run a repository-provided
+        ``post-merge`` hook.  Setup needs Git's normal credential and signing
+        configuration, but it must not execute code discovered inside a shared
+        repository while performing its download-only refresh.
+        """
+        if command and command[0] == "git":
+            command = (
+                "git",
+                "-c",
+                "core.hooksPath=/dev/null",
+                "-c",
+                "core.fsmonitor=false",
+                *command[1:],
+            )
+        return base_run(tuple(command))
+
+    run = setup_run
+    normalized = tuple(dict.fromkeys(value.strip().lower() for value in products))
+    if not normalized or any(value not in COMPONENTS for value in normalized):
+        raise ValueError("Supported shared components are required.")
+    resolved_org = _discover_org(normalized, run=run) if org.casefold() == "auto" else org
+    owner = _owner(run=run)
+    handoff = _load_handoff(resolved_org, normalized, run=run)
+    departments = _eligible_department_units(handoff, resolved_org, owner, run=run)
+    visible_root = (
+        Path(repository_root).expanduser()
+        if repository_root is not None
+        else _infer_repository_root(departments)
+    )
+    if visible_root is None:
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "result": "blocked",
+            "org": resolved_org,
+            "mode": "download-only",
+            "completed_actions": [],
+            "layers": [],
+            "summary": {"checked": 0, "updated": 0, "current": 0, "held": 1},
+            "holds": [
+                {
+                    "code": "repository-root-unavailable",
+                    "detail": "The visible Copilot repository folder could not be confirmed.",
+                }
+            ],
+        }
+
+    manifest = _layer_manifest(
+        resolved_org,
+        owner,
+        normalized,
+        handoff,
+        run=run,
+        department_units=departments,
+        repository_root=visible_root,
+    )
+    rows = [
+        row
+        for row in _topology_report_layers(manifest, run=run)
+        if row["role"] in {"foundation", "organization", "department"}
+    ]
+    layers_by_id = {layer["id"]: layer for layer in manifest["layers"]}
+    completed_actions: list[dict[str, Any]] = []
+    holds: list[dict[str, Any]] = []
+    current = 0
+
+    for row in rows:
+        action = row["action"]
+        # Shared setup is pull-only. In particular, an empty Department repo
+        # is never seeded here, even when GitHub reports WRITE or stronger.
+        if action not in {"reuse", "repair", "download"}:
+            holds.append(
+                {
+                    "code": "shared-repository-review-required",
+                    "layer_id": row["id"],
+                    "repository": f"{row['repository_owner']}/{row['repository_name']}",
+                    "detail": row["detail"],
+                }
+            )
+            continue
+        if action == "reuse":
+            current += 1
+            continue
+        one_layer_manifest = {
+            "version": manifest["version"],
+            "org": manifest["org"],
+            "layers": [layers_by_id[row["id"]]],
+        }
+        ok, detail = _apply_visible_topology(one_layer_manifest, [row], run=run)
+        entries = row.pop("_ledger_entries", None)
+        if entries:
+            completed_actions.extend(entries)
+        if not ok:
+            holds.append(
+                {
+                    "code": "shared-repository-refresh-failed",
+                    "layer_id": row["id"],
+                    "repository": f"{row['repository_owner']}/{row['repository_name']}",
+                    "detail": detail or row["detail"],
+                }
+            )
+
+    updated = sum(
+        entry.get("action") in {"repair", "download"}
+        and entry.get("outcome") == "completed"
+        for entry in completed_actions
+    )
+    result = "partial" if holds and completed_actions else "blocked" if holds else "applied" if updated else "ready"
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "result": result,
+        "org": resolved_org,
+        "mode": "download-only",
+        "completed_actions": completed_actions,
+        "layers": rows,
+        "authority": {
+            "setup_access": "download-only",
+            "author_capable": sum(bool(row["author_capable"]) for row in rows),
+            "read_only": sum(not bool(row["author_capable"]) for row in rows),
+            "unknown": sum(row["repository_permission"] == "unknown" for row in rows),
+        },
+        "summary": {
+            "checked": len(rows),
+            "updated": updated,
+            "current": current,
+            "held": len(holds),
+        },
+        "holds": holds,
+    }
 
 
 def _quarantine_legacy_personal_mirrors(
@@ -2518,6 +2728,9 @@ def _ecosystem_result(
         "repository_owner",
         "repository_name",
         "repository_visibility",
+        "repository_permission",
+        "author_capable",
+        "setup_access",
         "remote_state",
         "local_path",
         "local_state",
