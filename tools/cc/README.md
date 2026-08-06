@@ -1,0 +1,766 @@
+# cc — Claude Copilot CLI
+
+Unified CLI that replaces the `copilot-memory` and `skills-copilot` MCP servers with a single installable tool and an optional MCP shim.
+
+## What Is `cc`?
+
+`cc` is a Python/Typer CLI that consolidates persistent memory and skill management into one tool. It writes memory entries as plain markdown files (one file per entry), uses SQLite FTS for fast search, and reads skills from local `SKILL.md` files. A two-layer config system separates machine-wide settings from per-project overrides.
+
+Benefits over the MCP servers:
+- No Node.js runtime required for memory or skills
+- Memory entries are git-trackable markdown files
+- Works in headless/agent contexts via `eval "$(cc env)"`
+- Optional `cc mcp serve` shim keeps MCP compatibility
+
+---
+
+## Install
+
+```bash
+bash tools/cc/install.sh
+```
+
+This creates a virtual environment at `tools/cc/.venv`, installs `cc` in editable mode, and places a shim at `~/.local/bin/cc`.
+
+Make sure `~/.local/bin` is in your `PATH`:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Add that line to `~/.zshrc` or `~/.bashrc` to persist it.
+
+**Uninstall:**
+
+```bash
+bash tools/cc/uninstall.sh
+```
+
+---
+
+## Command Reference
+
+### Memory
+
+Store and retrieve persistent memory entries as UUID-named markdown files.
+
+```bash
+# Store a new entry
+cc memory store --type decision --tags auth,security "Use JWT with 1h expiry"
+cc memory store --type context "Working on the checkout refactor"
+cc memory store --type lesson --scope global "Always add --dry-run to migration scripts"
+cc memory store --type reference "See RFC-001 for API conventions"
+
+# Retrieve by UUID (full or prefix)
+cc memory get fee71a3e
+cc memory get fee71a3e-ce23-4ba9-a3a2-60ee3b7973e1
+
+# List entries with optional filters
+cc memory list
+cc memory list --type decision
+cc memory list --tags auth
+cc memory list --scope global
+
+# Search (FTS index when available, file-scan fallback)
+cc memory search "JWT authentication"
+
+# Delete
+cc memory delete fee71a3e          # prompts for confirmation
+cc memory delete fee71a3e --yes    # skip prompt
+
+# Manage the FTS index
+cc memory index --rebuild          # rebuild from files
+cc memory index --status           # check sync state
+
+# Export memory entries to a portable Markdown or JSON bundle
+cc memory export                            # all entries as Markdown (stdout)
+cc memory export --json                     # all entries as JSON array (stdout)
+cc memory export auth --type decision       # keyword-filtered, type-filtered, Markdown
+cc memory export --all --out dump.md        # write to file
+
+# Migrate from legacy copilot-memory SQLite databases
+cc memory migrate --from-global             # interactive — choose which DB
+cc memory migrate --from-global --all       # migrate all without prompting
+cc memory migrate --from-global --dry-run   # preview without writing
+cc memory migrate --status                  # show source DB counts vs files
+
+# Check memory entries for drift (token-free deterministic checks)
+cc memory check                             # human-readable report
+cc memory check --json                      # machine-readable JSON report
+cc memory check --scope global              # check global memory entries
+cc memory check --staleness-days 60         # custom staleness threshold (default: 90)
+cc memory check --no-paths                  # skip path-existence checks
+cc memory check --no-commands               # skip command-resolves checks
+cc memory check --no-stale                  # skip staleness checks
+```
+
+`cc memory check` checkers (all token-free, pure Python):
+
+| Checker | Severity | Description |
+|---------|----------|-------------|
+| `path-exists` | fail/warn | Referenced filesystem paths exist on disk |
+| `command-resolves` | warn | Binaries or npm scripts are available on PATH |
+| `version-conflict` | warn | Same package has conflicting versions across entries |
+| `staleness` | warn | Entry not updated within the staleness threshold |
+
+**Negation-aware:** paths under `not yet built`, `removed`, `deprecated`, `NOT`, `no longer` sections are not flagged. URL routes (`/api/x`), HTTP verbs (`GET /api/items`), and `<placeholder>` / `{{template}}` tokens are skipped.
+
+**Scoring:** `100 − (fail×10 + warn×3 + info×1)`, floored at 0. A clean repo scores 100.
+
+Exit code 1 if any `fail`-severity checks are found; exit code 0 otherwise.
+
+Entry types: `decision` | `context` | `lesson` | `reference` | `person`
+
+Scope defaults to `project` when inside a git repo, otherwise `global`.
+
+---
+
+### Skills
+
+Discover and inspect `SKILL.md` files from project and machine skill directories.
+
+```bash
+# List all available skills
+cc skill list
+cc skill list --scope project     # only .claude/skills/ in current repo
+cc skill list --scope machine     # only ~/.claude/skills/
+
+# Search skills by keyword
+cc skill search "security"
+cc skill search "testing patterns"
+
+# Print full SKILL.md content (pipeable)
+cc skill get stride-dread
+cc skill get python-idioms
+
+# Print absolute path to SKILL.md (pipeable to @include)
+cc skill path stride-dread
+# → /path/to/.claude/skills/security/stride-dread/SKILL.md
+
+# Search for skills relevant to a topic (keyword match on name, description, tags)
+cc skill search "security"
+cc skill search "testing python"
+```
+
+---
+
+### Config
+
+Two-layer configuration: machine config (`~/.claude/cc/config.json`) is the base; project config (`.claude/cc/config.json` in git root) overrides specific keys. Use the `@machine` sentinel in project config to inherit the machine value explicitly.
+
+Config keys live under two namespaces:
+- **`paths.*`** — well-known directory paths (`memory`, `shared_docs`, `knowledge_repo`)
+- **`refs.*`** — arbitrary named references surfaced to the main session at turn 1 (via the `user-prompt-submit` hook). Use this to register project boards, design system URLs, or any stable reference you want available every session without manual retrieval.
+
+```bash
+# Read a value (effective = project overrides machine)
+cc config get paths.memory
+cc config get paths.shared_docs
+
+# Write a value
+cc config set paths.knowledge_repo /path/to/repo        # machine (default)
+cc config set --project paths.shared_docs /team/docs    # project layer
+
+# Register named references (surfaced to main session at turn 1)
+cc config set refs.project_board https://linear.app/...
+cc config set refs.design_system /path/to/tokens
+
+# List all keys with source annotation
+cc config list
+cc config list --scope machine
+cc config list --scope project
+
+# Show which layer provides a key
+cc config where paths.shared_docs
+
+# Add / remove a value from a list-valued key, idempotently
+cc config add paths.knowledge_repo /path/to/shared-kc
+cc config add paths.knowledge_repo /path/to/personal-kc
+cc config remove paths.knowledge_repo /path/to/personal-kc
+
+# Remove a key entirely
+cc config unset paths.shared_docs
+cc config unset --project paths.shared_docs
+
+# Create default config templates
+cc config init                    # machine config template
+cc config init --project          # project config template
+
+# Validate config files
+cc config validate
+
+# Open in $EDITOR
+cc config edit
+cc config edit --project
+
+# Export effective config
+cc config export
+cc config export --json
+cc config export --machine
+cc config export --mask-secrets
+
+# Health check
+cc config doctor
+```
+
+**`paths.knowledge_repo` — layered (ordered list) support:**
+
+`paths.knowledge_repo` accepts three shapes, in order to stay back-compatible with existing single-repo setups while supporting multiple active repos (e.g. a shared team repo plus a personal one):
+
+| Shape | Example | Resolves to |
+|-------|---------|-------------|
+| Legacy string | `"/vol/shared-kc"` | `["/vol/shared-kc"]` (1-element list) |
+| JSON list | `["/vol/shared-kc", "/vol/personal-kc"]` | Same list, in order |
+| Absent / `null` | — | `[]` |
+
+Order matters — index 0 is consulted first. Layer precedence for *which* value wins is unchanged (env > project > machine > default); the winning layer supplies the **whole** list — layers are never concatenated across sources. To combine a shared and a personal repo, put both paths in one list at the layer you control:
+
+```bash
+# Machine config ends up with an ordered 2-repo list
+cc config add paths.knowledge_repo /vol/shared-kc
+cc config add paths.knowledge_repo /vol/personal-kc
+
+# Or set both at once (comma-separated values parse into a list for this key)
+cc config set paths.knowledge_repo /vol/shared-kc,/vol/personal-kc
+```
+
+The `CC_PATHS_KNOWLEDGE_REPO` env var override also accepts a comma-separated list (`export CC_PATHS_KNOWLEDGE_REPO="/vol/shared-kc,/vol/personal-kc"`). `cc env` emits it as a comma-joined string, plus the back-compat `CC_KNOWLEDGE_REPO` alias carrying only the **first** element (for agents/hooks reading a single value).
+
+**`@machine` sentinel example** — in `.claude/cc/config.json`:
+
+```json
+{
+  "$schema": "cc-config-v1",
+  "version": 1,
+  "paths": {
+    "shared_docs": "@machine",
+    "knowledge_repo": "@machine"
+  }
+}
+```
+
+Keys set to `"@machine"` fall through to the machine config value, letting project config declare intent without hardcoding a path.
+
+---
+
+### Ecosystem Reconciliation
+
+`cc reconcile` is the Python-owned safety boundary for assessing and updating
+the selected Copilot ecosystem. `assess` is read-only. `plan`, `apply`, and
+`verify` all consume the same explicit request file; `apply` additionally
+requires the fresh opaque plan identifier returned by `plan`. `recover` takes
+no caller-authored mutation input: it resolves interrupted private transaction
+state before another apply can begin. For a large mixed fleet, the guided
+lifecycle writes one immutable work order and one short `start_prompt` under an
+approved projects root. A person opens a normal Terminal at the returned root,
+starts Codex or Claude Code themselves, and pastes the prompt. The helper does
+not own or observe the assistant process. The assistant can inspect and correct
+the exact selected projects, but only Python's fresh verifier can mark them
+ready. Ecosystem repositories and projects held by safety policy never enter
+the work order. The earlier bounded assistant recipe selector remains available
+for deployments that do not allow an assistant to inspect project paths or
+content.
+
+```bash
+# Complete read-only machine and project census under configured approved roots
+cc reconcile assess --json
+
+# Write one root-level instruction package and copy prompt for the exact
+# assessed selection. The person starts Codex or Claude Code themselves.
+cc reconcile guide-prepare --request /private/path/reconcile-request.json --json
+# Optional lifecycle marker retained for non-Control-Tower clients.
+cc reconcile guide-start --guide-id guide_0123456789abcdef0123456789abcdef --assistant codex --json
+cc reconcile guide-check --guide-id guide_0123456789abcdef0123456789abcdef --project /absolute/project/path --json
+cc reconcile guide-status --guide-id guide_0123456789abcdef0123456789abcdef --json
+cc reconcile guide-finalize --guide-id guide_0123456789abcdef0123456789abcdef --json
+
+# Optional bounded recipe-selection lifecycle with no project access
+cc reconcile assistant-prepare --request /private/path/reconcile-request.json --json
+cc reconcile assistant-run --session-id session_0123456789abcdef0123456789abcdef --json
+cc reconcile assistant-status --session-id session_0123456789abcdef0123456789abcdef --json
+
+# Freeze explicit user intent in a private file, then review the exact plan
+cc reconcile plan --request /private/path/reconcile-request.json --json
+
+# Apply only that freshly reviewed capability
+cc reconcile apply \
+  --request /private/path/reconcile-request.json \
+  --plan-id plan_0123456789abcdef0123456789abcdef \
+  --json
+
+# Finalize interrupted runs from their private, durable recovery authority
+cc reconcile recover --json
+
+# Independently inspect the same selected components again
+cc reconcile verify --request /private/path/reconcile-request.json --json
+```
+
+Request schema 1.0 is deliberately small and closed:
+
+```json
+{
+  "schema_version": "1.0",
+  "roots": ["/Volumes/Dev/Sites"],
+  "projects": [
+    {
+      "path": "/Volumes/Dev/Sites/example",
+      "components": ["claude", "codex"],
+      "recipe_ids": {
+        "claude": "claude.customized-preserve-entry.v1"
+      }
+    }
+  ]
+}
+```
+
+Every project keeps independent Claude and Codex states plus one primary
+route. Python authors the counts, explanations, recommendations, operations,
+preservation boundary, verification result, next actions, rollback outcomes,
+diagnostic reference, and any component-scoped `recipe_options`. The request
+may only echo a recipe identifier that Python issued for that component; plan
+revalidates its eligibility against a fresh dossier. A dirty, detached,
+excluded, ambiguous, or unverifiable project is reported without mutation.
+Customized projects accept only registered, typed, fully covering reviewed
+recipes. Plugin, gate, framework, lock, unreadable-config, and other ownership
+conflicts remain owner decisions with no mutation. Arbitrary shell or patch
+execution is not supported.
+
+`plan` capabilities expire and are single-use. `apply` repeats the assessment,
+claims the exact request/plan binding, re-inspects each project while holding
+its canonical lock, snapshots every bounded target, verifies selected
+components, and restores transaction-owned outputs on failure. Private
+redacted diagnostics live below the machine diagnostics root with directory
+mode `0700`, file mode `0600`, and a default retention of 20 records. A pending
+run blocks every new apply until `recover` either completes rollback and binds
+the final diagnostic or safely abandons a proven pre-claim intent. Repeating
+`recover` after finalization is a zero-op.
+
+JSON exit codes are part of the contract: `0` means the phase completed without
+a blocking outcome, `1` carries a valid structured `blocked` or `partial`
+report, and `2` carries a closed `phase: "error"` request/environment report.
+The frozen schemas are under `tests/fixtures/schemas/reconcile*.schema.json`.
+
+---
+
+### Docs (Live Docs)
+
+Fetch version-exact documentation for installed packages so agents code against the real API, not stale training-data memory.
+
+**Source model — two ordered backends:**
+
+| Backend | When it runs | Network required |
+|---------|--------------|-----------------|
+| `local` | Always (default first) | No — reads files the package ships on disk |
+| `fetch` | Fallback (or explicit `--source fetch`) | Yes — requires `cc[fetch]` extra |
+
+`auto` mode (the default) tries `local` first. If local docs are absent, it falls back to `fetch` — but only when `httpx` is installed. A core `cc` install never makes network calls.
+
+**Install the fetch extra (optional):**
+
+```bash
+pip install 'cc[fetch]'    # enables network fallback
+```
+
+**Commands:**
+
+```bash
+# Detect installed/declared version of a package
+cc docs resolve requests
+cc docs resolve react --lang js
+cc docs resolve requests --json
+
+# Fetch documentation (main verb)
+cc docs get requests
+cc docs get requests --topic authentication
+cc docs get react --lang js --topic hooks
+cc docs get requests --source local       # force local only (offline-safe)
+cc docs get requests --source fetch       # force network fetch
+cc docs get requests --refresh            # bypass cache, fetch fresh
+cc docs get requests --json               # machine-readable output
+
+# Search documentation for a topic (returns a snippet)
+cc docs search requests "session cookies"
+cc docs search react "useState" --lang js --json
+
+# List registered backends and whether each is available
+cc docs sources
+cc docs sources --json
+
+# Inspect or clear the docs cache
+cc docs cache --status
+cc docs cache --clear
+```
+
+**How version detection works:**
+
+`cc docs` resolves the installed version before fetching so docs match your exact dependency.
+
+- Python priority: `importlib.metadata` (installed env) → `uv.lock` → `poetry.lock` → `pyproject.toml` constraint → `requirements*.txt`
+- npm priority: `package-lock.json` → `yarn.lock` → `pnpm-lock.yaml` → `node_modules/<pkg>/package.json` → `package.json` declared range
+
+When only a range is detected, the resolved version is marked `exact: false`.
+
+**Caching:**
+
+Results are cached locally at `~/.claude/cache/docs/` in a gitignored SQLite file. Default TTL is 168 hours (one week). Use `--refresh` to bypass cache for a single call.
+
+**Limitations:**
+
+- `local` docs are only as good as what a package ships on disk. Not all packages include full docs in their distribution.
+- `fetch` requires the `cc[fetch]` extra and an active network connection. The fetch backend tries `llms.txt` → GitHub raw at the detected version tag → the package's docs site.
+- **Context7 is not included at this release.** The `SourceBackend` seam accepts a Context7 backend as a future drop-in via `cc.core.docs_resolver.register_backend`. The config key `docs.context7_endpoint` is reserved but unused.
+
+**Config keys:**
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `docs.source_order` | `local,fetch` | Comma-separated backend order |
+| `docs.cache_ttl_hours` | `168` | Cache TTL in hours |
+| `docs.cache_dir` | `~/.claude/cache/docs` | Override cache directory |
+| `docs.context7_endpoint` | *(reserved)* | Future Context7 backend endpoint |
+
+```bash
+# Override source order (local only — fully offline)
+cc config set docs.source_order local
+
+# Shorten TTL to 24 hours
+cc config set docs.cache_ttl_hours 24
+```
+
+**Agent usage pattern:**
+
+```bash
+# Get docs before writing code against an API
+cc docs get pydantic --topic validators --json
+cc docs search fastapi "dependency injection" --json
+```
+
+---
+
+### Usage / Quota
+
+`cc usage` queries Claude session quota state — the authoritative server-side
+counters from `anthropic-ratelimit-unified-*` response headers.
+
+**Producer/consumer split (ADR-003 correctness contract):**
+- `cc usage` is the **producer** — it writes `~/.claude/session-usage.json`.
+- The session-start hook and `/memory` dashboard are **consumers** — they read
+  the cache file without ever making a network probe.
+
+This prevents a probe from opening a fresh 5-hour window, which would corrupt
+the utilization number it is trying to report.
+
+**Idle gate:** `cc usage` only probes when Claude Code is actively in use
+(a transcript file changed within the last ~12 min). When idle, it returns
+the existing cache or falls back to transcript reconstruction.
+
+```bash
+cc usage                     # show quota (human-readable)
+cc usage --json              # machine-readable JSON cache
+cc usage --refresh           # force probe even when idle gate fires
+cc usage --no-probe          # read cache only, never probe
+
+# The session-start hook surfaces quota automatically when cache exists:
+# ~/.claude/session-usage.json → read at SessionStart, emitted in systemMessage
+```
+
+**Platform notes:**
+- **macOS:** pulls the Claude Code OAuth token from Keychain
+  (`security find-generic-password -s "Claude Code-credentials"`), makes a
+  1-token `claude-haiku-4-5` probe, reads response headers.
+- **Non-macOS / no network:** transcript reconstruction — counts messages in
+  `~/.claude/projects/**/*.jsonl` grouped into rolling 5-hour blocks.
+  Unit is messages, not tokens; accuracy is lower but no network required.
+
+**Headers captured (verified 2026-06-17, R1 note):**
+
+| Header suffix | Meaning |
+|---------------|---------|
+| `5h-status` | `allowed` / `rate_limited` |
+| `5h-utilization` | 0.0 – 1.0 fraction of 5h window used |
+| `5h-reset` | Unix epoch when 5h window resets |
+| `7d-status` | same for 7-day window |
+| `7d-utilization` | fraction of 7d window used |
+| `7d-reset` | epoch when 7d window resets |
+| `overage-status` | overage bucket status |
+| `representative-claim` | `five_hour` / `seven_day` — which limit applies |
+| `fallback-percentage` | float, purpose: fallback rate |
+
+Header names are NOT hardcoded as required — all `anthropic-ratelimit-unified-*`
+headers are captured verbatim in `raw_headers` for forward-compatibility (R1).
+
+**Cache shape (`~/.claude/session-usage.json`):**
+
+```json
+{
+  "probed_at": 1781703743.8,
+  "source": "probe",
+  "idle_gated": false,
+  "probe_error": null,
+  "five_h_status": "allowed",
+  "five_h_utilization": 0.08,
+  "five_h_reset_epoch": 1781717400,
+  "seven_d_status": "allowed",
+  "seven_d_utilization": 0.14,
+  "seven_d_reset_epoch": 1781751600,
+  "overage_status": "allowed",
+  "overage_utilization": 0.0,
+  "representative_claim": "five_hour",
+  "fallback_percentage": 0.5,
+  "raw_headers": { "...all response headers..." }
+}
+```
+
+---
+
+### Eval
+
+`cc eval` is a cross-version regression harness for framework agents. It runs golden-case suites, scores results, and persists scores to `cc memory` so regressions are caught before a component version bump ships.
+
+**Diátaxis mode:** How-to + Reference
+
+#### Golden-case format
+
+Golden cases live in `.claude/evals/<agent>/` as `.yaml` files. Each file describes one case:
+
+```yaml
+# .claude/evals/me/basic-task.yaml
+id: me-basic-task-001
+agent: me
+description: "Implements a simple utility function when given a task"
+input:
+  prompt: "Implement a Python function that returns the factorial of n"
+  task_context: "TASK-001: Factorial utility"
+expected:
+  contains:
+    - "def factorial"
+    - "return"
+  not_contains:
+    - "import math"   # should compute, not delegate
+  score_threshold: 0.8
+```
+
+Fields:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `id` | Yes | Unique case identifier (slug format) |
+| `agent` | Yes | Target agent name (matches `.claude/agents/<name>.md`) |
+| `description` | Yes | Human-readable intent of the case |
+| `input.prompt` | Yes | The prompt fed to the agent |
+| `input.task_context` | No | Optional task metadata to seed the run |
+| `expected.contains` | No | Strings that must appear in agent output |
+| `expected.not_contains` | No | Strings that must NOT appear in agent output |
+| `expected.score_threshold` | No | Minimum pass score (0.0–1.0, default 0.7) |
+
+#### Commands
+
+```bash
+# Run all eval cases
+cc eval run
+
+# Run cases for a specific agent
+cc eval run --agent me
+cc eval run --agent qa
+
+# Run a specific case file
+cc eval run --case .claude/evals/me/basic-task.yaml
+
+# List all registered cases
+cc eval list
+cc eval list --agent ta
+
+# Show a specific case with its last-run score
+cc eval show me-basic-task-001
+
+# Register a new golden case interactively
+cc eval add --agent me
+```
+
+#### Score persistence
+
+After each run, `cc eval` stores a `decision`-type memory entry recording the agent name, case ID, score, and pass/fail verdict:
+
+```
+cc memory store --type decision "eval run: agent=me case=me-basic-task-001 score=0.92 verdict=pass"
+```
+
+This lets `cc memory search "eval run agent=me"` retrieve the longitudinal score history without a separate database.
+
+#### CI gate pattern
+
+Add an eval run to your CI pipeline on any `cc` or `tc` version bump in `VERSION.json`:
+
+```bash
+# .github/workflows/eval-gate.yml (excerpt)
+- name: Run agent evals
+  run: cc eval run
+  # Exits 1 if any case scores below its threshold
+```
+
+`cc eval run` exits 1 if any case fails its `score_threshold`; exits 0 on all-pass.
+
+#### Pluggable runner
+
+The eval runner is pure Python with no external dependencies. To swap in a different execution backend (e.g. a local model instead of Claude API), implement `cc.core.eval_runner.EvalRunner` and register it:
+
+```python
+from cc.core.eval_runner import register_runner
+register_runner("local-llm", MyLocalRunner)
+```
+
+The default runner (`"claude"`) is selected by `cc config set eval.runner claude`.
+
+---
+
+### `cc env` — Agent Shell Hydration
+
+Exports effective config as `CC_*` environment variables, suitable for `eval` in agent preambles:
+
+```bash
+eval "$(cc env)"           # hydrate CC_* exports into current shell
+cc env --json              # JSON dict for programmatic use
+cc env --include-secrets   # also emit values from secrets.env
+```
+
+Agents that need config values should add `eval "$(cc env)"` as their first shell step. This avoids hardcoded paths and works across machines.
+
+---
+
+### MCP Shim
+
+`cc mcp serve` starts an MCP-compatible server over stdio that delegates to the same underlying CLI commands. Use this for projects that still rely on MCP tool calls.
+
+```bash
+cc mcp serve          # start MCP server on stdio
+cc mcp config         # print .mcp.json snippet to register cc
+```
+
+To register `cc` as an MCP server, run `cc mcp config` and paste the output into your project's `.mcp.json`:
+
+```bash
+cc mcp config >> .mcp.json   # or paste manually
+```
+
+The MCP shim requires the `cc[mcp]` extra:
+
+```bash
+pip install 'cc[mcp]'
+```
+
+---
+
+### Diagnostics
+
+```bash
+cc doctor        # run all health checks (config paths, gitignore, permissions)
+cc --version     # print installed version
+```
+
+---
+
+## Code-Execution Path (Programmatic API)
+
+For agents performing 3+ related memory operations, import `cc.api` in a single `python3` Bash block instead of multiple CLI calls. Each CLI call echoes a full JSON payload back into context; a python3 block returns only what you `print()`.
+
+**Import surface:** `from cc.api import memory_store, memory_get, memory_list, memory_delete, memory_search, skill_get, skill_search`
+
+**Worked example — store 5 decisions and search in one Bash call:**
+
+```bash
+python3 - << 'PY'
+from cc.api import memory_store, memory_search
+
+entries = [
+    ("decision", "Use WAL mode for all SQLite connections"),
+    ("lesson",   "Always add --dry-run to migration scripts"),
+    ("decision", "JWT expiry set to 1h; refresh token 30 days"),
+    ("context",  "Checkout v2 uses server-side cart"),
+    ("lesson",   "Monkeypatch _git_root in tests for isolation"),
+]
+ids = []
+for t, c in entries:
+    ids.append(memory_store(entry_type=t, content=c)["id"][:8])
+results = memory_search("SQLite WAL")
+print(f"stored {len(ids)}: {ids}; search returned {len(results)} hits")
+PY
+```
+
+Returns to context: one line (~25 tokens) instead of 5 CLI calls (~250-600 tokens each).
+
+**Rules:**
+- PREFER code-execution for >=3 related cc ops (batch stores, search-then-act, list-then-filter).
+- KEEP CLI for single one-shot ops: `cc memory search "topic"`, `cc memory store --type decision "..."`.
+- CRITICAL: cc and tc are in separate environments. Keep each block to ONE tool (cc-only OR tc-only).
+- Typed exceptions: `EntryNotFound`, `EntryValidationError`, `SkillNotFound` — wrap in try/except and print a compact error line.
+
+**Typed exceptions:**
+```python
+from cc.api import memory_get, EntryNotFound
+try:
+    entry = memory_get("abc123")
+except EntryNotFound as e:
+    print(f"ERROR: {e}")
+```
+
+---
+
+## Two-Layer Config
+
+| Layer | File | Purpose |
+|-------|------|---------|
+| Machine | `~/.claude/cc/config.json` | Defaults for all projects on this machine |
+| Project | `.claude/cc/config.json` (git root) | Per-project overrides |
+
+Resolution order: project → machine → built-in defaults.
+
+A project key set to `"@machine"` explicitly inherits the machine value (useful for documentation and clarity). A missing project key also falls through to machine.
+
+---
+
+## Development
+
+```bash
+# Set up dev environment (venv + dev deps, no shim)
+cd tools/cc && make dev
+
+# Run tests
+cd tools/cc && make test
+
+# Install shim system-wide
+cd tools/cc && make install
+
+# Remove shim
+cd tools/cc && make uninstall
+```
+
+---
+
+## Layout
+
+```
+tools/cc/
+  pyproject.toml          # package metadata and entry point
+  src/cc/
+    __init__.py           # version string
+    main.py               # Typer app + subgroup registration
+    commands/             # one module per subcommand group
+      memory.py           # store, get, list, delete, search, index, migrate, export
+      skill.py            # list, search, get, path
+      config.py           # get, set, unset, list, where, validate, edit, init, export, doctor
+      env.py              # cc env (shell hydration)
+      docs.py             # resolve, get, search, sources, cache (Live Docs)
+      eval.py             # run, list, add, show (Eval harness)
+      mcp.py              # serve, config
+      doctor.py           # cc doctor (standalone health check)
+    api.py                # flat importable facade for code-execution use (memory_store/get/list/search, skill_get/search)
+    core/                 # entry_store, entry_format, memory_index, skill_store, config, config_paths
+      docs_resolver.py    # version detection + SourceBackend seam + layered lookup
+      docs_cache.py       # SQLite cache (TTL-based, gitignored)
+      docs_paths.py       # cache path helpers and config key resolution
+      docs_backends/      # local.py (offline), fetch.py (httpx, optional)
+    utils/                # output helpers
+  tests/
+    conftest.py
+    test_main.py
+```
