@@ -103,6 +103,32 @@ def test_probe_remote_ref_distinguishes_found_missing_and_unreachable(tmp_path):
     assert unreachable == mirror.RemoteRefProbe(reachable=False, sha=None)
 
 
+def test_probe_remote_ref_peels_annotated_tag(tmp_path):
+    repo = _make_content_repo(tmp_path, {"release.txt": "v1"})
+    commit_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    subprocess.run(
+        ["git", "tag", "-a", "v1.0.0", "-m", "release"], cwd=repo, check=True
+    )
+    tag_object_sha = subprocess.run(
+        ["git", "rev-parse", "v1.0.0"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    result = mirror.probe_remote_ref(str(repo), "v1.0.0")
+
+    assert tag_object_sha != commit_sha
+    assert result == mirror.RemoteRefProbe(reachable=True, sha=commit_sha)
+
+
 def test_latest_lock_sha_reads_published_ref(tmp_path):
     repo, blob_sha = _make_fixture_repo(
         tmp_path,

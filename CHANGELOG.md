@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Foundation release freshness (`cc` 2.10.1):** `cc doctor` now peels
+  annotated Git tags before comparing their targets and recognizes the
+  signed, parentless Foundation snapshot format when the visible authoring
+  checkout has the exact released tree. This prevents healthy Knowledge,
+  CLI, Claude, and Codex Foundation checkouts from being reported as behind
+  merely because a tag object or disconnected snapshot commit has a different
+  identity. The exception remains fail-closed: it requires the declared local
+  annotated tag, the exact remotely advertised peeled commit, a parentless
+  snapshot, and an identical tree; ordinary branches and history tags still
+  require exact commit identity. `doctor` remains read-only, and update
+  materialization and GitHub authority protections are unchanged.
+
 ### Added
 
 - **Active setup preparation (`cc` 2.10.0):** `cc reconcile prepare --json`

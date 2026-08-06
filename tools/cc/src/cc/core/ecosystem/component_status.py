@@ -185,6 +185,57 @@ def _visible_checkout_head_sha(layer: dict[str, Any]) -> Optional[str]:
     return sha or None
 
 
+def _matches_foundation_release_snapshot(
+    layer: dict[str, Any], *, local_sha: Optional[str], remote_sha: str
+) -> bool:
+    """Prove a visible checkout matches a disconnected Foundation snapshot.
+
+    Foundation releases are published as annotated tags whose peeled commit is
+    a parentless, immutable snapshot. The authoring checkout can therefore have
+    a different commit identity while carrying the exact released tree. Keep
+    this exception deliberately narrow: no other role, lightweight/ordinary
+    tag, branch, missing local ref, or tree mismatch can pass through it.
+    """
+    if layer.get("role") != "foundation" or not local_sha:
+        return False
+
+    source = layer.get("source") or {}
+    configured = source.get("path")
+    declared_ref = source.get("ref")
+    if not configured or not declared_ref:
+        return False
+    root = Path(str(configured)).expanduser()
+    if not root.is_dir():
+        return False
+
+    object_type = _run_git(["cat-file", "-t", str(declared_ref)], cwd=root)
+    peeled = _run_git(["rev-parse", f"{declared_ref}^{{}}"], cwd=root)
+    parents = _run_git(
+        ["rev-list", "--parents", "-n", "1", f"{declared_ref}^{{}}"], cwd=root
+    )
+    head_tree = _run_git(["rev-parse", f"{local_sha}^{{tree}}"], cwd=root)
+    snapshot_tree = _run_git(
+        ["rev-parse", f"{declared_ref}^{{tree}}"], cwd=root
+    )
+    results = (object_type, peeled, parents, head_tree, snapshot_tree)
+    if any(result is None or result.returncode != 0 for result in results):
+        return False
+
+    assert object_type is not None
+    assert peeled is not None
+    assert parents is not None
+    assert head_tree is not None
+    assert snapshot_tree is not None
+    parent_fields = parents.stdout.strip().split()
+    return (
+        object_type.stdout.strip() == "tag"
+        and peeled.stdout.strip() == remote_sha
+        and len(parent_fields) == 1
+        and parent_fields[0] == remote_sha
+        and head_tree.stdout.strip() == snapshot_tree.stdout.strip()
+    )
+
+
 def _normalize_probe(result: LatestShaResult) -> mirror.RemoteRefProbe:
     """Accept the historical Optional[str] test seam and the richer probe."""
     if isinstance(result, mirror.RemoteRefProbe):
@@ -321,6 +372,24 @@ def compute_component_checkers(
                     layer_role=layer_role,
                     product=product,
                     detail=f"{product}/{layer_id}: tip matches remote",
+                    local_sha=local_sha,
+                    remote_sha=remote_sha,
+                )
+            )
+        elif comparison_kind == "source" and _matches_foundation_release_snapshot(
+            layer, local_sha=local_sha, remote_sha=remote_sha
+        ):
+            checkers.append(
+                Checker(
+                    id=checker_id,
+                    severity="pass",
+                    layer=layer_id,
+                    layer_role=layer_role,
+                    product=product,
+                    detail=(
+                        f"{product}/{layer_id}: checkout content matches remote "
+                        "Foundation release snapshot"
+                    ),
                     local_sha=local_sha,
                     remote_sha=remote_sha,
                 )

@@ -183,8 +183,13 @@ def probe_remote_ref(
 ) -> RemoteRefProbe:
     """
     Cheap, read-only check of one remote ref: a
-    single `git ls-remote <source> <ref>` -- no clone, no fetch, no
+    single `git ls-remote <source> <ref> <ref>^{}` -- no clone, no fetch, no
     working tree.
+
+    Annotated tags advertise both the tag object and their peeled target.
+    Prefer the peeled target so callers compare the released commit/content,
+    not the metadata object that carries the tag annotation. Branches,
+    lightweight tags, and non-commit refs continue to return their direct SHA.
 
     Never raises. A successful invocation with empty stdout proves the
     repository answered but the requested ref is absent. A non-zero result or
@@ -192,7 +197,7 @@ def probe_remote_ref(
     """
     try:
         result = subprocess.run(
-            ["git", "ls-remote", source, ref],
+            ["git", "ls-remote", source, ref, f"{ref}^{{}}"],
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -208,9 +213,16 @@ def probe_remote_ref(
     if not stdout:
         return RemoteRefProbe(reachable=True, sha=None)
 
-    first_line = stdout.splitlines()[0]
-    sha, _, _ref_name = first_line.partition("\t")
-    sha = sha.strip()
+    direct_sha: Optional[str] = None
+    peeled_sha: Optional[str] = None
+    for line in stdout.splitlines():
+        sha, separator, ref_name = line.partition("\t")
+        if separator and sha.strip() and ref_name.strip():
+            if ref_name.strip().endswith("^{}"):
+                peeled_sha = sha.strip()
+            elif direct_sha is None:
+                direct_sha = sha.strip()
+    sha = peeled_sha or direct_sha
     return RemoteRefProbe(reachable=True, sha=sha or None)
 
 
