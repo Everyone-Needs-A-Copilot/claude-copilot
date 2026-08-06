@@ -1,0 +1,73 @@
+{
+  "framework": "5.13.3",
+  "lastUpdated": "2026-08-05T00:00:00.000Z",
+  "components": {
+    "cc": {
+      "version": "2.9.2",
+      "path": "tools/cc",
+      "installScript": "tools/cc/install.sh",
+      "provides": ["cc memory", "cc memory check", "cc skill", "cc config", "cc env", "cc docs", "cc usage", "cc eval", "cc reconcile"]
+    },
+    "tc": {
+      "version": "1.3.0",
+      "path": "tools/tc",
+      "installCommand": "pip install -e ~/.claude/copilot/tools/tc"
+    },
+    "agents": {
+      "version": "5.6.0",
+      "path": ".claude/agents",
+      "count": 16,
+      "_countNote": "16 total manifest entries: 15 framework agents + 1 setup-only (kc). See frameworkAgents for the authoritative list.",
+      "frameworkAgents": [
+        "cco", "cpa", "cs", "cw", "do", "doc", "ind",
+        "me", "qa", "sd", "sec", "ta", "uid", "uids", "uxd"
+      ],
+      "designChain": ["sd", "uxd", "uids", "uid", "ta", "me"],
+      "requiredSections": [
+        "Core Behaviors",
+        "Route To Other Agent"
+      ],
+      "retired": ["design"]
+    },
+    "commands": {
+      "version": "5.3.2",
+      "path": ".claude/commands",
+      "projectCommands": [
+        "protocol.md",
+        "continue.md",
+        "pause.md",
+        "map.md",
+        "memory.md",
+        "extensions.md",
+        "orchestrate.md"
+      ],
+      "machineCommands": [
+        "setup.md",
+        "setup-project.md",
+        "update-project.md",
+        "update-copilot.md",
+        "setup-copilot.md",
+        "knowledge-copilot.md"
+      ]
+    },
+    "skills": {
+      "version": "3.3.0",
+      "path": ".claude/skills",
+      "categories": [
+        "code",
+        "design",
+        "devops",
+        "documentation",
+        "security",
+        "testing"
+      ]
+    }
+  },
+  "globalPaths": {
+    "skills": "~/.claude/skills",
+    "knowledge": "~/.claude/knowledge",
+    "memory": "~/.claude/memory/entries",
+    "tasks": "~/.claude/tasks",
+    "ccConfig": "~/.claude/cc/config.json"
+  }
+}
