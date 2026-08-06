@@ -1,0 +1,84 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.sublime-*
+.obsidian/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Node
+node_modules/
+
+# Build output (PyInstaller-built cc binaries, etc.)
+dist/
+
+# MCP server builds
+mcp-servers/*/dist/
+mcp-servers/*/*.db
+mcp-servers/*/*.db-*
+
+# Python (if scripts use Python)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Security - Never commit these
+.mcp.json
+migrate.sh
+*.pem
+*.key
+*credentials*
+*secret*
+.env*
+!.env.example
+
+# Task Copilot CLI database (project-local)
+.copilot/
+copilot.db
+
+# Git worktrees for parallel streams
+.claude/worktrees/
+
+# Auto-generated files
+CHANGELOG-SUMMARY.json
+PROJECT_MAP.md
+*.pid
+
+# Hook state files (ephemeral, session-local)
+.claude/hooks/state/*.json
+.claude/hooks/state/*.lock
+.claude/hooks/state/*.tmp.*
+.claude/hooks/state/.freeze
+
+# Local/generated artifacts
+coverage.xml
+.coverage
+*.egg-info/
+
+# Framework dev-repo only: this repo is PUBLIC. The maintainer's private
+# machine state and proprietary docs live in the sibling claude-copilot-private
+# repo and are symlinked in via its bootstrap.sh. These must never be committed.
+.claude/memory/entries
+.claude/settings.local.json
+.mcp.json
+/docs/70-reference/ai-ecosystem-*.md

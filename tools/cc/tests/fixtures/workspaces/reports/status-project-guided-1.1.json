@@ -1,0 +1,212 @@
+{
+  "schema_version": "1.1",
+  "mode": "status",
+  "result": "blocked",
+  "workspaces": [
+    {
+      "path": "/fixture/deep-specialization",
+      "name": "deep-specialization",
+      "project_id": null,
+      "state": "blocked",
+      "detail": "Project-authored routing and capabilities need guided integration.",
+      "declared_components": [],
+      "installed_components": [],
+      "recommended_components": [
+        "claude",
+        "codex"
+      ],
+      "personal_profile": {
+        "state": "local-only",
+        "project_id": null
+      },
+      "setup_policy": "not-offered",
+      "policy_detail": "Automatic setup cannot safely integrate this project-owned model.",
+      "can_apply_now": false,
+      "apply_blocked_detail": "A project author must perform the guided integration.",
+      "undo": {
+        "available": false,
+        "detail": "There is no CLI-authored change to undo."
+      },
+      "classification": "guided-integration",
+      "responsible_actor": "project-author",
+      "inspection": {
+        "id": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        "contract_id": "project-integration",
+        "contract_version": "1",
+        "scope": "detail",
+        "complete": true
+      },
+      "components": [
+        {
+          "component": "claude",
+          "expected": true,
+          "expected_contract": {
+            "id": "project-integration",
+            "version": "1"
+          },
+          "classification": "guided-integration",
+          "recognized_setup": null,
+          "missing_requirements": [
+            {
+              "id": "compatible-entry",
+              "detail": "Claude routing is project-authored and does not expose the versioned integration contract."
+            }
+          ],
+          "responsible_actor": "project-author",
+          "safe_action": null,
+          "verification": {
+            "command": [
+              "cc",
+              "workspace",
+              "verify",
+              "--project",
+              "/fixture/deep-specialization",
+              "--json"
+            ],
+            "expected": "Claude classifies ready only after the project-authored integration is complete.",
+            "stop_conditions": [
+              "Stop if project-owned routing would be replaced."
+            ]
+          }
+        },
+        {
+          "component": "codex",
+          "expected": true,
+          "expected_contract": {
+            "id": "project-integration",
+            "version": "1"
+          },
+          "classification": "guided-integration",
+          "recognized_setup": null,
+          "missing_requirements": [
+            {
+              "id": "compatible-entry",
+              "detail": "Codex routing is project-authored and does not expose the versioned integration contract."
+            }
+          ],
+          "responsible_actor": "project-author",
+          "safe_action": null,
+          "verification": {
+            "command": [
+              "cc",
+              "workspace",
+              "verify",
+              "--project",
+              "/fixture/deep-specialization",
+              "--json"
+            ],
+            "expected": "Codex classifies ready only after the project-authored integration is complete.",
+            "stop_conditions": [
+              "Stop if project-owned routing would be replaced."
+            ]
+          }
+        }
+      ],
+      "capabilities": {
+        "instructions": 2,
+        "agents": 24,
+        "skills": 8,
+        "commands": 7,
+        "plugins": 0,
+        "integration_paths": [
+          ".claude/agents",
+          ".claude/skills",
+          ".agents/skills"
+        ]
+      },
+      "preservation": {
+        "must_preserve": [
+          {
+            "kind": "instruction",
+            "path": "CLAUDE.md",
+            "detail": "Preserve project-authored routing."
+          },
+          {
+            "kind": "instruction",
+            "path": "AGENTS.md",
+            "detail": "Preserve project-authored routing."
+          },
+          {
+            "kind": "agent",
+            "path": ".claude/agents",
+            "detail": "Preserve the project's agent model."
+          },
+          {
+            "kind": "skill",
+            "path": ".agents/skills",
+            "detail": "Preserve project-owned skills."
+          }
+        ],
+        "prohibited_actions": [
+          "overwrite-project-instructions",
+          "delete-project-capabilities",
+          "rename-project-capabilities",
+          "flatten-project-model",
+          "skip-verification"
+        ]
+      },
+      "safe_action": null,
+      "plan_available": true,
+      "integration_plan": {
+        "id": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "inspection_id": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        "responsible_actor": "project-author",
+        "detected": [
+          "Project-authored Claude and Codex routing is present.",
+          "The project has agent, skill, and command capability trees."
+        ],
+        "missing": [
+          "Neither component exposes the complete project-integration contract version 1.",
+          "No authoritative verification record covers the project-authored routing."
+        ],
+        "preserve": [
+          "Preserve CLAUDE.md and AGENTS.md.",
+          "Preserve .claude/agents, .claude/skills, and .agents/skills in place."
+        ],
+        "prohibited": [
+          "Do not flatten, rename, or delete project-owned capability trees.",
+          "Do not report readiness from assistant self-report; run the authoritative verifier."
+        ],
+        "prompt": {
+          "version": "1",
+          "text": "Integrate project-integration contract version 1 into this repository. Preserve every project-owned instruction, agent, skill, and command path listed in the plan. Add only compatible routing or metadata needed for Claude and Codex to expose the contract. Stop if any existing capability would be overwritten, renamed, deleted, or flattened. When finished, run the exact verification command and report its machine verdict."
+        },
+        "owner_handoff": null,
+        "verification": {
+          "command": [
+            "cc",
+            "workspace",
+            "verify",
+            "--project",
+            "/fixture/deep-specialization",
+            "--json"
+          ],
+          "expected": "Both component assessments and the project classification are ready.",
+          "stop_conditions": [
+            "Stop if any required evidence remains missing, mismatched, or unreadable.",
+            "Stop if the verification inspection id does not match the completed integration."
+          ]
+        },
+        "stop_conditions": [
+          "Stop before changing any project-owned capability path.",
+          "Stop and return to the project owner if the requested routing conflicts with project instructions."
+        ]
+      }
+    }
+  ],
+  "summary": {
+    "ready": 0,
+    "setup-available": 0,
+    "activation-required": 0,
+    "blocked": 1,
+    "total": 1
+  },
+  "classification_summary": {
+    "ready": 0,
+    "safe-finish": 0,
+    "guided-integration": 1,
+    "owner-decision": 0,
+    "could-not-verify": 0,
+    "total": 1
+  }
+}
