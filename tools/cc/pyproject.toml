@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "claude-cli"
+version = "2.10.2"
+description = "Unified CLI replacing copilot-memory and skills-copilot MCP servers"
+requires-python = ">=3.10"
+dependencies = [
+    "certifi>=2024.8.30",
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+mcp = [
+    "mcp>=1.0.0",
+]
+embeddings = [
+    "sentence-transformers>=2.2.0",
+    "numpy>=1.24.0",
+]
+fetch = [
+    "httpx>=0.27.0",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "jsonschema>=4.18.0",
+]
+
+[project.scripts]
+cc = "cc.main:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cc"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-q", "--tb=short", "--color=yes"]
+
+[tool.coverage.run]
+source = ["src/cc"]
+
+[tool.coverage.report]
+show_missing = true

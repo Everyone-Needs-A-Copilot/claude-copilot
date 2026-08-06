@@ -1,0 +1,8 @@
+interface:
+  display_name: "Continue"
+  short_description: "Resume prior work"
+  default_prompt: "Use $continue to resume paused or previous Codex Copilot work from tc and memory."
+
+policy:
+  allow_implicit_invocation: false
+
