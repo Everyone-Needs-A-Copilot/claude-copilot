@@ -1,0 +1,14 @@
+{
+  "hookType": "session-start",
+  "version": "1.0.0",
+  "description": "Inject protocol guardrails at session start to ensure compliance",
+  "enabled": true,
+  "priority": 100,
+  "injectionFile": ".claude/hooks/protocol-injection.md",
+  "metadata": {
+    "enforcementMode": "strict",
+    "trackViolations": true,
+    "warnOnViolation": true,
+    "blockOnCritical": false
+  }
+}
