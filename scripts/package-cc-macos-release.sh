@@ -52,6 +52,18 @@ require_cmd() {
     command -v "$1" >/dev/null 2>&1 || die "$1 is required but was not found"
 }
 
+run_notarytool() {
+    if [[ -n "${CT_NOTARY_KEYCHAIN_PROFILE:-}" ]]; then
+        "${SCRIPT_DIR}/notarytool-profile-retry.sh" \
+            --profile "${CT_NOTARY_KEYCHAIN_PROFILE}" -- "$@"
+    else
+        xcrun notarytool "$@" \
+            --key "${CT_NOTARY_KEY_PATH}" \
+            --key-id "${CT_NOTARY_KEY_ID}" \
+            --issuer "${CT_NOTARY_KEY_ISSUER}"
+    fi
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --source-ref)
@@ -110,9 +122,15 @@ remote_url="$(git -C "${REPO_ROOT}" remote get-url origin)"
 release_tool_commit="$(git -C "${REPO_ROOT}" rev-parse HEAD)"
 git -C "${REPO_ROOT}" diff --quiet HEAD -- \
     scripts/package-cc-macos-release.sh \
+    scripts/notarytool-profile-retry.sh \
     scripts/verify-foundation-release.sh \
     tools/cc/scripts/cc_frozen_entry.py ||
     die "release packaging files must be committed before building"
+
+if [[ -n "${CT_NOTARY_KEYCHAIN_PROFILE:-}" ]]; then
+    echo "cc release: checking notarization profile before the build"
+    run_notarytool history --output-format json --no-progress >/dev/null
+fi
 remote_commit="$(
     git ls-remote --exit-code "${remote_url}" \
         "refs/tags/${SOURCE_REF}^{}" "refs/tags/${SOURCE_REF}" \
@@ -1337,21 +1355,10 @@ PY
 
 archive="${scratch}/cc-macos-universal.zip"
 ditto -c -k --keepParent "${artifact}" "${archive}"
-notary_args=()
-if [[ -n "${CT_NOTARY_KEYCHAIN_PROFILE:-}" ]]; then
-    notary_args=(--keychain-profile "${CT_NOTARY_KEYCHAIN_PROFILE}")
-else
-    notary_args=(
-        --key "${CT_NOTARY_KEY_PATH}"
-        --key-id "${CT_NOTARY_KEY_ID}"
-        --issuer "${CT_NOTARY_KEY_ISSUER}"
-    )
-fi
 
 echo "cc release: submitting helper to Apple notarization"
 notary_result="${scratch}/notary-result.json"
-xcrun notarytool submit "${archive}" \
-    "${notary_args[@]}" \
+run_notarytool submit "${archive}" \
     --wait \
     --output-format json > "${notary_result}"
 notary_status="$(
@@ -1367,7 +1374,7 @@ notary_id="$(
         "${notary_result}"
 )"
 notary_log="${scratch}/notary-log.json"
-xcrun notarytool log "${notary_id}" "${notary_log}" "${notary_args[@]}"
+run_notarytool log "${notary_id}" "${notary_log}"
 /usr/bin/python3 - "${notary_log}" <<'PY'
 import json
 import sys
