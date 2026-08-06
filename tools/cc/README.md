@@ -251,22 +251,24 @@ the selected Copilot ecosystem. `assess` is read-only. `plan`, `apply`, and
 requires the fresh opaque plan identifier returned by `plan`. `recover` takes
 no caller-authored mutation input: it resolves interrupted private transaction
 state before another apply can begin. For a large mixed fleet, the guided
-lifecycle writes one immutable work order under an approved projects root,
-opens one user-selected Codex or Claude Code conversation at that root, and
-keeps per-project progress in private Python state. The assistant can inspect
-and correct the exact selected projects, but only Python's fresh verifier can
-mark them ready. Ecosystem repositories and projects held by safety policy
-never enter the work order. The earlier bounded assistant recipe selector
-remains available for deployments that do not allow an assistant to inspect
-project paths or content.
+lifecycle writes one immutable work order and one short `start_prompt` under an
+approved projects root. A person opens a normal Terminal at the returned root,
+starts Codex or Claude Code themselves, and pastes the prompt. The helper does
+not own or observe the assistant process. The assistant can inspect and correct
+the exact selected projects, but only Python's fresh verifier can mark them
+ready. Ecosystem repositories and projects held by safety policy never enter
+the work order. The earlier bounded assistant recipe selector remains available
+for deployments that do not allow an assistant to inspect project paths or
+content.
 
 ```bash
 # Complete read-only machine and project census under configured approved roots
 cc reconcile assess --json
 
-# Write one root-level instruction package for the exact assessed selection.
-# Start, check projects from, and finalize one visible Codex/Claude session.
+# Write one root-level instruction package and copy prompt for the exact
+# assessed selection. The person starts Codex or Claude Code themselves.
 cc reconcile guide-prepare --request /private/path/reconcile-request.json --json
+# Optional lifecycle marker retained for non-Control-Tower clients.
 cc reconcile guide-start --guide-id guide_0123456789abcdef0123456789abcdef --assistant codex --json
 cc reconcile guide-check --guide-id guide_0123456789abcdef0123456789abcdef --project /absolute/project/path --json
 cc reconcile guide-status --guide-id guide_0123456789abcdef0123456789abcdef --json

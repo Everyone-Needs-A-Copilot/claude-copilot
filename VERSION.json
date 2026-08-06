@@ -3,7 +3,7 @@
   "lastUpdated": "2026-08-05T00:00:00.000Z",
   "components": {
     "cc": {
-      "version": "2.9.0",
+      "version": "2.9.1",
       "path": "tools/cc",
       "installScript": "tools/cc/install.sh",
       "provides": ["cc memory", "cc memory check", "cc skill", "cc config", "cc env", "cc docs", "cc usage", "cc eval", "cc reconcile"]

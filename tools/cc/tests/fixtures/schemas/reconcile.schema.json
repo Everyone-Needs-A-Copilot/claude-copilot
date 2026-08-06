@@ -779,7 +779,7 @@
       "additionalProperties": false,
       "required": [
         "schema_version", "phase", "result", "run_id", "generated_at",
-        "guide_id", "workspace_root", "workspace_roots", "instructions_path", "projects_path",
+        "guide_id", "workspace_root", "workspace_roots", "instructions_path", "start_prompt", "projects_path",
         "selected_projects", "project_status", "progress", "detail", "next_actions"
       ],
       "properties": {
@@ -800,6 +800,7 @@
           "items": { "type": "string", "minLength": 1 }
         },
         "instructions_path": { "type": "string", "minLength": 1 },
+        "start_prompt": { "type": "string", "minLength": 1 },
         "projects_path": { "type": "string", "minLength": 1 },
         "selected_projects": {
           "type": "array", "minItems": 1, "uniqueItems": true,

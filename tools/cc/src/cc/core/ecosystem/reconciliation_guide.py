@@ -14,6 +14,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import stat
 from datetime import datetime, timezone
 from pathlib import Path
@@ -611,7 +612,7 @@ def _instructions(
     work_items: list[dict[str, Any]],
 ) -> str:
     lines = [
-        "# Copilot Control Tower — guided project setup",
+        "# Copilot Control Tower — project setup work order",
         "",
         f"Run: `{guide_id}`",
         f"Starting folder: `{_markdown_inline(workspace_root)}`",
@@ -619,6 +620,10 @@ def _instructions(
         + ", ".join(f"`{_markdown_inline(root)}`" for root in workspace_roots),
         "",
         "## Your job",
+        "",
+        "The user opened this normal Claude Code or Codex conversation themselves "
+        "from the starting folder above. They control this session. Do not send "
+        "them to a separate project or ask them to start another conversation.",
         "",
         "Work through every project in `PROJECTS.json` in this one conversation. "
         "Inspect each project locally, preserve its existing project-specific setup, "
@@ -641,8 +646,12 @@ def _instructions(
         "",
         "## Helper",
         "",
-        "The launched session exports `COPILOT_SETUP_HELPER` to the exact bundled helper. "
-        f"For a manually opened session, use `{_markdown_inline(helper_path)}`.",
+        "Use the exact verified helper below for every project check and the final "
+        "check. Do not substitute a bare `cc` command from the shell path:",
+        "",
+        "```text",
+        _markdown_inline(helper_path),
+        "```",
         "",
         "## Loop for every project",
         "",
@@ -653,7 +662,7 @@ def _instructions(
         "5. Run:",
         "",
         "```bash",
-        f'"$COPILOT_SETUP_HELPER" reconcile guide-check --guide-id {guide_id} --project "/absolute/project/path" --json',
+        f"{shlex.quote(helper_path)} reconcile guide-check --guide-id {guide_id} --project \"/absolute/project/path\" --json",
         "```",
         "",
         "6. If the result is `action-required`, use its current reasons, inspect again, and correct the project. Ask the user only when the choice belongs to them.",
@@ -662,7 +671,7 @@ def _instructions(
         "After the complete list, run:",
         "",
         "```bash",
-        f'"$COPILOT_SETUP_HELPER" reconcile guide-finalize --guide-id {guide_id} --json',
+        f"{shlex.quote(helper_path)} reconcile guide-finalize --guide-id {guide_id} --json",
         "```",
         "",
         "Do not stop merely because some projects remain. Use the final report's exact "
@@ -697,6 +706,19 @@ def _instructions(
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _start_prompt(instructions_path: str) -> str:
+    """Return the short, Python-authored prompt the person pastes themselves."""
+    return (
+        "Read and follow every instruction in `"
+        + _markdown_inline(instructions_path)
+        + "` before doing anything. Work through every project listed there in "
+        "this one conversation. Use the exact verification commands in that file, "
+        "preserve existing work, ask me questions whenever a decision is mine, and "
+        "continue until every feasible project passes Python verification or I "
+        "explicitly defer it."
+    )
+
+
 def _new_guide_id(root: Optional[Path], workspace_root: str) -> str:
     state_base = _state_root(root)
     package_base = Path(workspace_root) / ".copilot-control-tower" / "reconciliation"
@@ -719,8 +741,8 @@ def _progress(state: Mapping[str, Any]) -> dict[str, Any]:
     checked = [item for item in statuses if item["checked_at"] is not None]
     guide_state = str(state["state"])
     detail = {
-        "prepared": "The instruction package is ready to open in one guided Terminal session.",
-        "running": "The guided session is open. Python counts a project only after a fresh check passes.",
+        "prepared": "The instruction files and copy prompt are ready.",
+        "running": "Project work has begun. Python counts a project only after a fresh check passes.",
         "ready": "Every selected project passed a fresh Python check.",
         "action-required": "Some selected projects still need the guided conversation.",
         "blocked": "The guided session cannot continue from its current trusted state.",
@@ -767,6 +789,7 @@ def _report(
         "workspace_root": state["workspace_root"],
         "workspace_roots": state["workspace_roots"],
         "instructions_path": state["instructions_path"],
+        "start_prompt": _start_prompt(str(state["instructions_path"])),
         "projects_path": state["projects_path"],
         "selected_projects": state["selected_projects"],
         "project_status": [dict(item) for item in state["project_status"]],

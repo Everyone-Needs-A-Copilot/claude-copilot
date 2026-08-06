@@ -205,7 +205,7 @@ def test_prepare_writes_one_private_immutable_root_package(tmp_path: Path) -> No
         "remaining_project_count": 2,
         "needs_conversation_count": 0,
         "last_checked_project": None,
-        "detail": "The instruction package is ready to open in one guided Terminal session.",
+        "detail": "The instruction files and copy prompt are ready.",
     }
     instructions = Path(report["instructions_path"])
     projects = Path(report["projects_path"])
@@ -215,9 +215,22 @@ def test_prepare_writes_one_private_immutable_root_package(tmp_path: Path) -> No
     assert stat.S_IMODE(instructions.stat().st_mode) == 0o400
     assert stat.S_IMODE(projects.stat().st_mode) == 0o400
     assert "Work through every project" in instructions.read_text(encoding="utf-8")
+    assert "normal Claude Code or Codex conversation" in instructions.read_text(
+        encoding="utf-8"
+    )
     assert "Do not commit, push, reset, clean, stash" in instructions.read_text(
         encoding="utf-8"
     )
+    assert "COPILOT_SETUP_HELPER" not in instructions.read_text(encoding="utf-8")
+    assert (
+        instructions.read_text(encoding="utf-8").count(
+            "/Applications/Copilot Control Tower.app/Contents/Resources/cc"
+        )
+        >= 3
+    )
+    assert report["instructions_path"] in report["start_prompt"]
+    assert "this one conversation" in report["start_prompt"]
+    assert "before doing anything" in report["start_prompt"]
     payload = json.loads(projects.read_text(encoding="utf-8"))
     assert [item["path"] for item in payload["projects"]] == [
         str(root / "alpha"),

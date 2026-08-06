@@ -42,6 +42,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **User-controlled Sites-root project handoff (`cc` 2.9.1):**
+  `guide-prepare` now returns one short `start_prompt` that points to the
+  private instruction file, and that instruction file uses exact helper paths
+  for every Python verification command. Control Tower can therefore prepare
+  the batch without starting or supervising an assistant: the person opens
+  Claude Code or Codex from the projects root, pastes the prompt, asks
+  questions in that one conversation, and explicitly returns for final Python
+  verification. The response schema remains `2.0`; `start_prompt` is required
+  on guide reports so clients cannot fabricate or lose the handoff.
+
 - **Foundation authoring checkouts no longer report false history divergence (`cc` 2.7.3):** the closed `cc onboard` history classifier previously compared an entire visible repository with a parentless Foundation snapshot even when the layer declared a narrower active `source.subpath`. A clean Claude Copilot checkout on `main` could therefore match the released `.claude` content byte-for-byte yet remain permanently blocked because unrelated release tooling or metadata outside `.claude` had changed. Parentless snapshot equivalence now compares the configured active subpath when the full trees differ. The exception remains deliberately narrow: correct origin, clean tree, parentless target, and matching active content are all required; changes inside the active content, missing content, dirty trees, wrong origins, unreadable repositories, and ordinary non-parentless divergence still fail closed for review.
 
 - **Bounded Claude Code executable resolution restores PATH as a last resort (`cc` 2.7.2):** the 2.7.1 Finding B fix disabled PATH consultation entirely for the bounded assistant's `claude` resolution, which made resolution depend solely on the closed registry's HOME-relative entries (`core/executables.py`); any real install outside that closed list, including one reachable only under a non-default `$HOME`, silently lost the "Resolve with Claude Code" workflow with a clean but wrong `claude-code-unavailable` result. Resolution now checks the `CC_ASSISTANT_CLAUDE_PATH` operator override first, then the closed registry, and only when both yield nothing falls back to the ambient PATH as a last resort. The security property Finding B actually required is ordering, not PATH's total absence: a registry hit can never be preempted by PATH, so a hostile binary earlier in PATH cannot steer resolution away from a legitimate, already-known install location. Every candidate, from any source including the PATH fallback, still passes through the unchanged post-resolution ownership/permission checks (owned by root or the current user, no group/other write bits) before it may be executed.
