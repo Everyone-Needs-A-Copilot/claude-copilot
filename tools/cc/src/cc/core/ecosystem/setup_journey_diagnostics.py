@@ -38,10 +38,39 @@ def _safe_phase(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, Mapping):
         return None
     safe: dict[str, Any] = {}
-    for key in ("phase", "result", "run_id", "plan_id"):
+    for key in (
+        "phase",
+        "result",
+        "run_id",
+        "plan_id",
+        "detail",
+        "organization",
+        "scope",
+    ):
         item = _bounded_text(value.get(key), limit=160)
         if item is not None:
             safe[key] = item
+    checks = value.get("checks")
+    if isinstance(checks, Mapping):
+        safe_checks = {
+            key: checks.get(key) is True
+            for key in ("policy_valid", "positive_read", "negative_denied", "read_only")
+            if isinstance(checks.get(key), bool)
+        }
+        if safe_checks:
+            safe["checks"] = safe_checks
+    evidence = value.get("evidence")
+    if isinstance(evidence, Mapping):
+        safe_evidence: dict[str, Any] = {}
+        auth_mode = _bounded_text(evidence.get("auth_mode"), limit=80)
+        if auth_mode is not None:
+            safe_evidence["auth_mode"] = auth_mode
+        for key in ("secret_count", "exit_code"):
+            item = evidence.get(key)
+            if isinstance(item, int) and not isinstance(item, bool):
+                safe_evidence[key] = item
+        if safe_evidence:
+            safe["evidence"] = safe_evidence
     error = value.get("error")
     if isinstance(error, Mapping):
         code = _bounded_text(error.get("code"), limit=160)
@@ -68,6 +97,7 @@ def _safe_action(value: Any) -> dict[str, Any] | None:
         "action",
         "kind",
         "status",
+        "outcome",
         "component",
         "repository",
         "path",
@@ -75,6 +105,18 @@ def _safe_action(value: Any) -> dict[str, Any] | None:
     ):
         item = _bounded_text(value.get(key), limit=4096 if key == "path" else 240)
         if item is not None:
+            safe[key] = item
+    if "path" not in safe:
+        target = _bounded_text(value.get("target"), limit=4096)
+        if target is not None:
+            safe["path"] = target
+    if "commit" not in safe:
+        commit = _bounded_text(value.get("to_sha"), limit=80)
+        if commit is not None:
+            safe["commit"] = commit
+    for key in ("pushed", "residual_work"):
+        item = value.get(key)
+        if isinstance(item, bool):
             safe[key] = item
     return safe or None
 
@@ -133,6 +175,23 @@ def _safe_blockers(assessment: Mapping[str, Any]) -> list[dict[str, Any]]:
             item = _bounded_text(value.get(source))
             if item is not None:
                 safe[target] = item
+        evidence = value.get("evidence")
+        if isinstance(evidence, Sequence) and not isinstance(evidence, (str, bytes)):
+            safe_evidence: list[dict[str, str]] = []
+            for item in evidence[:100]:
+                if not isinstance(item, Mapping):
+                    continue
+                identifier = _bounded_text(item.get("id"), limit=160)
+                state = _bounded_text(item.get("state"), limit=80)
+                row = {
+                    key: candidate
+                    for key, candidate in (("id", identifier), ("state", state))
+                    if candidate is not None
+                }
+                if row:
+                    safe_evidence.append(row)
+            if safe_evidence:
+                safe["evidence"] = safe_evidence
         if safe:
             blockers.append(safe)
     return blockers

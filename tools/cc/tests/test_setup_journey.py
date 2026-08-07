@@ -14,6 +14,10 @@ def _ready_assessment() -> dict:
     }
 
 
+def _ready_store() -> dict:
+    return {"result": "ready", "checks": {"read_only": True}}
+
+
 def test_journey_claims_operational_only_after_every_phase_is_ready(
     monkeypatch,
 ) -> None:
@@ -32,6 +36,7 @@ def test_journey_claims_operational_only_after_every_phase_is_ready(
             "result": "ready",
             "completed_actions": [],
         },
+        store_builder=_ready_store,
         assess_builder=_ready_assessment,
         diagnostics_writer=lambda report: {"state": "available", "path": "/report"},
     )
@@ -75,6 +80,7 @@ def test_journey_applies_safe_defaults_then_reassesses_and_checkpoints(
             "result": "ready",
             "completed_actions": [],
         },
+        store_builder=_ready_store,
         assess_builder=lambda: next(assessments),
         plan_builder=lambda request: {
             "phase": "plan",
@@ -111,6 +117,7 @@ def test_journey_never_claims_operational_when_external_phase_is_held(
             "result": "ready",
             "completed_actions": [],
         },
+        store_builder=_ready_store,
         assess_builder=_ready_assessment,
         diagnostics_writer=lambda report: {"state": "available", "path": "/report"},
     )
@@ -147,6 +154,7 @@ def test_journey_does_not_treat_successful_prepare_with_machine_action_as_a_hold
             "result": "ready",
             "completed_actions": [],
         },
+        store_builder=_ready_store,
         assess_builder=lambda: action_required,
         diagnostics_writer=lambda report: {"state": "available", "path": "/report"},
     )
@@ -190,6 +198,7 @@ def test_journey_result_survives_diagnostic_writer_failure(monkeypatch) -> None:
             "result": "ready",
             "completed_actions": [],
         },
+        store_builder=_ready_store,
         assess_builder=_ready_assessment,
         diagnostics_writer=fail_diagnostic,
     )
@@ -197,3 +206,34 @@ def test_journey_result_survives_diagnostic_writer_failure(monkeypatch) -> None:
     assert report["operational"] is True
     assert report["diagnostics"]["state"] == "unavailable"
     assert "do-not-return-this" not in str(report)
+
+
+def test_journey_never_claims_operational_without_live_read_only_store_proof(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "cc.core.ecosystem.setup_journey.resolve_key",
+        lambda key: "Example-Org" if key == "github_app.org" else "/repos",
+    )
+    report = build_setup_journey_report(
+        recover_builder=lambda: {"phase": "recover", "result": "ready"},
+        prepare_builder=lambda: {
+            "phase": "prepare",
+            "result": "ready",
+            "completed_actions": [],
+        },
+        ecosystem_builder=lambda **kwargs: {
+            "result": "ready",
+            "completed_actions": [],
+        },
+        store_builder=lambda: {
+            "result": "unsafe",
+            "checks": {"positive_read": True, "negative_denied": False},
+        },
+        assess_builder=_ready_assessment,
+        diagnostics_writer=lambda report: {"state": "available", "path": "/report"},
+    )
+
+    assert report["operational"] is False
+    assert report["confidence"] == 0.0
+    assert any(hold.get("phase") == "store" for hold in report["holds"])

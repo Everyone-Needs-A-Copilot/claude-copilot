@@ -27,12 +27,36 @@ def _report() -> dict:
                     "state": "available",
                     "path": "/private/nested-report.json",
                 },
-            }
+            },
+            {
+                "phase": "store",
+                "result": "unavailable",
+                "detail": "The live read-only store proof did not pass.",
+                "organization": "Example-Org",
+                "scope": "shared",
+                "checks": {
+                    "policy_valid": True,
+                    "positive_read": False,
+                    "negative_denied": False,
+                    "read_only": False,
+                    "untrusted": "must-not-survive",
+                },
+                "evidence": {
+                    "auth_mode": "github-broker",
+                    "secret_count": 0,
+                    "exit_code": 1,
+                    "token": "must-not-survive",
+                },
+            },
         ],
         "completed_actions": [
             {
-                "action": "checkpoint",
-                "path": "/projects/example",
+                "kind": "project-checkpoint",
+                "target": "/projects/example",
+                "outcome": "completed",
+                "to_sha": "a" * 40,
+                "pushed": False,
+                "residual_work": False,
                 "detail": "password=must-not-survive",
             }
         ],
@@ -45,7 +69,13 @@ def _report() -> dict:
                         "code": "connection-identity-invalid",
                         "responsible_actor": "ecosystem-owner",
                         "next_action": "Restore the machine identity.",
-                        "evidence": [{"detail": "token=must-not-survive"}],
+                        "evidence": [
+                            {
+                                "id": "shared-store-auth",
+                                "state": "blocked",
+                                "detail": "token=must-not-survive",
+                            }
+                        ],
                     }
                 ],
             },
@@ -84,13 +114,35 @@ def test_safe_record_is_useful_and_strictly_allowlisted() -> None:
     rendered = json.dumps(record)
 
     assert record["machine"]["blockers"][0]["code"] == "connection-identity-invalid"
+    assert record["machine"]["blockers"][0]["evidence"] == [
+        {"id": "shared-store-auth", "state": "blocked"}
+    ]
+    assert record["completed_actions"] == [
+        {
+            "kind": "project-checkpoint",
+            "outcome": "completed",
+            "path": "/projects/example",
+            "commit": "a" * 40,
+            "pushed": False,
+            "residual_work": False,
+        }
+    ]
     assert record["projects"]["scope_counts"]["product_projects"] == 47
     assert record["projects"]["holds"][0]["path"] == "/projects/held"
     assert len(record["projects"]["holds"]) == 1
     assert record["nested_diagnostics"][0]["path"] == "/private/nested-report.json"
+    store = record["phases"][1]
+    assert store["detail"] == "The live read-only store proof did not pass."
+    assert store["checks"]["read_only"] is False
+    assert store["evidence"] == {
+        "auth_mode": "github-broker",
+        "secret_count": 0,
+        "exit_code": 1,
+    }
     assert "must-not-survive" not in rendered
     assert '"secret"' not in rendered
-    assert '"evidence"' not in rendered
+    assert '"token"' not in rendered
+    assert '"untrusted"' not in rendered
 
 
 def test_writer_saves_private_report_and_prunes_owned_records(tmp_path: Path) -> None:

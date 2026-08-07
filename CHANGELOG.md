@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **GitHub-authorized read-only store verification (`cc` 2.12.0):** `cc store
+  verify --json` validates the protected ecosystem scope and delegates live
+  positive-read and negative-denial checks to CLI Copilot without returning
+  secret names or values. The Python-owned setup journey now requires this
+  store proof before it can report `operational: true` at `confidence: 0.95`.
+  `cc support latest --json` also returns the newest private, redacted setup
+  report in a paste-ready envelope after verifying its type, owner, mode, and
+  schema.
+
 - **Python-owned end-to-end setup (`cc` 2.11.0):** `cc reconcile run --json`
   now owns the complete machine-to-project journey: recover interrupted work,
   checkpoint dirty Product projects locally without pushing, refresh shared

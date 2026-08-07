@@ -38,7 +38,9 @@ Severity fold (never fabricated):
   - the repository answered but neither the pointer nor declared source ref
     exists -> `warn` without an offline signal.
   - `local_sha == remote_sha` -> `pass`.
-  - otherwise -> `warn` ("behind"), with a `repair: "cc update"` hint.
+  - otherwise -> `warn`, distinguishing a checkout that is behind, ahead with
+    authored commits, diverged, or not comparable. Only a proven behind state
+    is described as behind.
 
 This module never emits `severity: "fail"` -- a sync gap is a `warn`
 ("update-available"-flavored), not a hard failure; `doctor.py`'s status
@@ -185,6 +187,41 @@ def _visible_checkout_head_sha(layer: dict[str, Any]) -> Optional[str]:
     return sha or None
 
 
+def _visible_checkout_relation(
+    layer: dict[str, Any], *, local_sha: Optional[str], remote_sha: str
+) -> Optional[str]:
+    """Classify two locally present commit objects without fetching or writing."""
+    if not local_sha:
+        return None
+    source = layer.get("source") or {}
+    configured = source.get("path")
+    if not configured:
+        return None
+    root = Path(str(configured)).expanduser()
+    if not root.is_dir():
+        return None
+
+    for sha in (local_sha, remote_sha):
+        present = _run_git(["cat-file", "-e", f"{sha}^{{commit}}"], cwd=root)
+        if present is None or present.returncode != 0:
+            return None
+
+    remote_is_ancestor = _run_git(
+        ["merge-base", "--is-ancestor", remote_sha, local_sha], cwd=root
+    )
+    if remote_is_ancestor is None or remote_is_ancestor.returncode not in {0, 1}:
+        return None
+    if remote_is_ancestor.returncode == 0:
+        return "ahead"
+
+    local_is_ancestor = _run_git(
+        ["merge-base", "--is-ancestor", local_sha, remote_sha], cwd=root
+    )
+    if local_is_ancestor is None or local_is_ancestor.returncode not in {0, 1}:
+        return None
+    return "behind" if local_is_ancestor.returncode == 0 else "diverged"
+
+
 def _matches_foundation_release_snapshot(
     layer: dict[str, Any],
     *,
@@ -237,9 +274,7 @@ def _matches_foundation_release_snapshot(
             return False
 
     remote_type = _run_git(["cat-file", "-t", remote_sha], cwd=root)
-    parents = _run_git(
-        ["rev-list", "--parents", "-n", "1", remote_sha], cwd=root
-    )
+    parents = _run_git(["rev-list", "--parents", "-n", "1", remote_sha], cwd=root)
     head_tree = _run_git(["rev-parse", f"{local_sha}^{{tree}}"], cwd=root)
     snapshot_tree = _run_git(["rev-parse", f"{remote_sha}^{{tree}}"], cwd=root)
     results = (remote_type, parents, head_tree, snapshot_tree)
@@ -422,6 +457,37 @@ def compute_component_checkers(
                 )
             )
         else:
+            relation = (
+                _visible_checkout_relation(
+                    layer, local_sha=local_sha, remote_sha=remote_sha
+                )
+                if comparison_kind in {"source", "source-tag"}
+                else None
+            )
+            if relation == "ahead":
+                detail = (
+                    f"{product}/{layer_id}: local checkout contains the managed "
+                    "remote revision plus authored commits"
+                )
+                repair = "finish or preserve the authored work, then run cc update"
+            elif relation == "diverged":
+                detail = (
+                    f"{product}/{layer_id}: local checkout and managed remote "
+                    "have diverged"
+                )
+                repair = "review and preserve the authored work before updating"
+            elif relation == "behind":
+                detail = (
+                    f"{product}/{layer_id}: local {local_sha or 'none'} "
+                    f"behind remote {remote_sha}"
+                )
+                repair = "cc update"
+            else:
+                detail = (
+                    f"{product}/{layer_id}: local {local_sha or 'none'} does not "
+                    f"match remote {remote_sha}"
+                )
+                repair = "cc update"
             checkers.append(
                 Checker(
                     id=checker_id,
@@ -429,11 +495,8 @@ def compute_component_checkers(
                     layer=layer_id,
                     layer_role=layer_role,
                     product=product,
-                    detail=(
-                        f"{product}/{layer_id}: local {local_sha or 'none'} "
-                        f"behind remote {remote_sha}"
-                    ),
-                    repair="cc update",
+                    detail=detail,
+                    repair=repair,
                     local_sha=local_sha,
                     remote_sha=remote_sha,
                 )

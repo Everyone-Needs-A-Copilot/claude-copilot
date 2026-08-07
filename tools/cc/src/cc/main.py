@@ -15,6 +15,8 @@ from cc.commands.memory import memory_app
 from cc.commands.onboard import onboard_cmd
 from cc.commands.reconcile import reconcile_app
 from cc.commands.skill import skill_app
+from cc.commands.store import store_app
+from cc.commands.support import support_app
 from cc.commands.usage import usage_app
 from cc.commands.workspaces import workspaces_app
 from cc.core.config import resolve_key
@@ -37,6 +39,8 @@ app.add_typer(auth_app, name="auth")
 app.add_typer(layers_app, name="layers")
 app.add_typer(workspaces_app, name="workspace")
 app.add_typer(reconcile_app, name="reconcile")
+app.add_typer(store_app, name="store")
+app.add_typer(support_app, name="support")
 app.command("onboard")(onboard_cmd)
 
 
@@ -94,7 +98,9 @@ def resolve_cmd(
         ),
     ),
     output_json: bool = typer.Option(
-        False, "--json", help="Output JSON (the WS-A resolve contract, in --explain mode)."
+        False,
+        "--json",
+        help="Output JSON (the WS-A resolve contract, in --explain mode).",
     ),
 ) -> None:
     """Print the resolved value of a single config key, OR (with `--explain`
@@ -659,9 +665,7 @@ def deprovision_cmd(
     soft: bool = typer.Option(
         False, "--soft", help="Shorthand for --mode soft (the default)."
     ),
-    hard: bool = typer.Option(
-        False, "--hard", help="Shorthand for --mode hard."
-    ),
+    hard: bool = typer.Option(False, "--hard", help="Shorthand for --mode hard."),
 ) -> None:
     """Wipe the disposable ecosystem trees (WS-A `deprovision --json`
     contract) -- MUTATING: acquires the copilot lock, then removes every

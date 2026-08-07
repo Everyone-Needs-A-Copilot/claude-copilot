@@ -10,6 +10,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from cc.commands.onboard import build_ecosystem_onboard_report
+from cc.commands.store import build_store_verify_report
 from cc.core.config import resolve_key
 from cc.core.ecosystem.reconciliation import (
     assess_reconciliation,
@@ -80,6 +81,7 @@ def build_setup_journey_report(
     recover_builder: ReportBuilder = build_recover_report,
     prepare_builder: ReportBuilder = build_setup_prepare_report,
     ecosystem_builder: Callable[..., dict[str, Any]] = build_ecosystem_onboard_report,
+    store_builder: ReportBuilder = build_store_verify_report,
     assess_builder: ReportBuilder = assess_reconciliation,
     plan_builder: Callable[..., dict[str, Any]] = build_plan_report,
     apply_builder: Callable[..., dict[str, Any]] = build_apply_report,
@@ -135,6 +137,12 @@ def build_setup_journey_report(
             ecosystem = _failure("ecosystem", exc)
     phases.append(ecosystem)
     actions.extend(ecosystem.get("completed_actions", []))
+
+    try:
+        store = {"phase": "store", **store_builder()}
+    except Exception as exc:
+        store = _failure("store", exc)
+    phases.append(store)
 
     assessment: dict[str, Any] | None = None
     for _pass in range(max_project_passes):
@@ -196,7 +204,7 @@ def _result(
     latest_required: dict[str, dict[str, Any]] = {}
     for phase in phases:
         name = phase.get("phase")
-        if name in {"recover", "prepare", "ecosystem"}:
+        if name in {"recover", "prepare", "ecosystem", "store"}:
             latest_required[str(name)] = phase
     phase_holds = [
         phase
