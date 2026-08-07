@@ -1284,15 +1284,35 @@ if error.get("code") != "claude-code-unavailable":
 PY
 
 # Exercise the frozen helper's new one-conversation guided lifecycle against
-# the same clean disposable project. Python must write a private immutable work
-# order, expose progress, and retain sole authority for final verification.
+# its own clean disposable project. Keeping this probe independent from the
+# preceding assistant lifecycle prevents session/plan evidence from making a
+# later selection stale while still proving the exact frozen helper. Python
+# must write a private immutable work order, expose progress, and retain sole
+# authority for final verification.
+guide_project="${assistant_root}/guided-project"
+guide_request="${scratch}/guide-request.json"
+mkdir -p \
+    "${guide_project}/.claude/agents" \
+    "${guide_project}/.claude/commands"
+printf '%s\n' '# Project-owned Claude instructions' > "${guide_project}/CLAUDE.md"
+printf '%s\n' 'project-owned agent' > "${guide_project}/.claude/agents/me.md"
+printf '%s\n' 'project-owned command' > "${guide_project}/.claude/commands/project.md"
+git -C "${guide_project}" init -q
+git -C "${guide_project}" config user.email release-probe@example.invalid
+git -C "${guide_project}" config user.name 'Release Probe'
+git -C "${guide_project}" add -A
+git -C "${guide_project}" commit -qm 'guided release fixture'
+write_assistant_config_and_request \
+    "${assistant_machine_root}/config.json" \
+    "${guide_request}" \
+    "${guide_project}"
 guide_prepare_probe="${scratch}/guide-prepare-probe.json"
 guide_start_probe="${scratch}/guide-start-probe.json"
 guide_status_probe="${scratch}/guide-status-probe.json"
 guide_finalize_probe="${scratch}/guide-finalize-probe.json"
 env "${assistant_env[@]}" \
     "${artifact}" reconcile guide-prepare \
-    --request "${assistant_request}" --json > "${guide_prepare_probe}" ||
+    --request "${guide_request}" --json > "${guide_prepare_probe}" ||
     die "frozen helper guide-prepare probe failed: $(<"${guide_prepare_probe}")"
 guide_id="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["guide_id"])' "${guide_prepare_probe}")"
 env "${assistant_env[@]}" \
@@ -1312,7 +1332,7 @@ env "${assistant_env[@]}" \
     "${guide_start_probe}" \
     "${guide_status_probe}" \
     "${guide_finalize_probe}" \
-    "${assistant_project}" <<'PY'
+    "${guide_project}" <<'PY'
 import json
 import os
 import pathlib
