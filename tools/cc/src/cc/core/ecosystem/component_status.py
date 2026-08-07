@@ -461,7 +461,7 @@ def compute_component_checkers(
                 _visible_checkout_relation(
                     layer, local_sha=local_sha, remote_sha=remote_sha
                 )
-                if comparison_kind == "source"
+                if comparison_kind in {"source", "source-tag"}
                 else None
             )
             if relation == "ahead":

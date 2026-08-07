@@ -415,7 +415,8 @@ def test_foundation_parentless_release_snapshot_with_different_tree_warns(tmp_pa
     checker = checkers[0]
     assert checker.remote_sha == snapshot
     assert checker.severity == "warn"
-    assert checker.repair == "cc update"
+    assert "diverged" in checker.detail
+    assert "preserve" in checker.repair
 
 
 def test_foundation_ordinary_history_tag_with_same_tree_still_warns(tmp_path):
@@ -435,6 +436,8 @@ def test_foundation_ordinary_history_tag_with_same_tree_still_warns(tmp_path):
     assert checker.remote_sha == tagged_commit
     assert checker.local_sha != checker.remote_sha
     assert checker.severity == "warn"
+    assert "authored commits" in checker.detail
+    assert "behind" not in checker.detail
 
 
 def test_falls_back_to_mirror_clone_head_when_lock_pointer_unknown(tmp_path):
