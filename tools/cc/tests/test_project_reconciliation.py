@@ -365,6 +365,46 @@ def test_unstable_projects_are_held_with_exact_reason(
     }
 
 
+def test_dirty_product_work_does_not_invalidate_ready_integrations(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stable_environment: Path,
+) -> None:
+    del stable_environment
+    project = _project(tmp_path)
+    _write(
+        project / "copilot.lock.json",
+        json.dumps(
+            {
+                "schema_version": "1.0",
+                "components": [
+                    {"component": "claude", "files": [], "managed_outputs": []},
+                    {"component": "codex", "files": [], "managed_outputs": []},
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+    )
+    _write(project / "product-work.txt", "base\n")
+    _git(project, "add", "copilot.lock.json", "product-work.txt")
+    _git(project, "commit", "-qm", "base")
+    _write(project / "product-work.txt", "active work\n")
+    monkeypatch.setattr(
+        reconciliation,
+        "inspect_project_integration",
+        lambda path, detail: _report("ready", "ready"),
+    )
+
+    assessment = assess_project(project, approved_root=tmp_path)
+
+    assert assessment["route"] == "ready"
+    assert assessment["blockers"] == []
+    assert {item["state"] for item in assessment["components"]} == {"ready"}
+    assert assessment["dossier"]["current_evidence"][0]["state"] == "dirty"
+
+
 def test_exclusion_is_primary_and_content_is_unchanged(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

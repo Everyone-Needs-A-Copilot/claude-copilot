@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-08-07 — cc 2.12.6
+
+- Read-only verification no longer treats unrelated, active Product work as an
+  integration failure when every locked Claude and Codex component still
+  matches its verified fingerprint. Dirty projects that need any setup or
+  update remain held and are never mutated without a safe checkpoint.
+
 ## 2026-08-07 — cc 2.12.5
 
 - Final machine verification now retries a bounded local checkpoint when its
