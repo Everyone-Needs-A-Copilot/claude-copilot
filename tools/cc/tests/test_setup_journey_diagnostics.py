@@ -47,7 +47,7 @@ def _report() -> dict:
                     "exit_code": 1,
                     "token": "must-not-survive",
                 },
-            }
+            },
         ],
         "completed_actions": [
             {
@@ -65,7 +65,13 @@ def _report() -> dict:
                         "code": "connection-identity-invalid",
                         "responsible_actor": "ecosystem-owner",
                         "next_action": "Restore the machine identity.",
-                        "evidence": [{"detail": "token=must-not-survive"}],
+                        "evidence": [
+                            {
+                                "id": "shared-store-auth",
+                                "state": "blocked",
+                                "detail": "token=must-not-survive",
+                            }
+                        ],
                     }
                 ],
             },
@@ -104,6 +110,9 @@ def test_safe_record_is_useful_and_strictly_allowlisted() -> None:
     rendered = json.dumps(record)
 
     assert record["machine"]["blockers"][0]["code"] == "connection-identity-invalid"
+    assert record["machine"]["blockers"][0]["evidence"] == [
+        {"id": "shared-store-auth", "state": "blocked"}
+    ]
     assert record["projects"]["scope_counts"]["product_projects"] == 47
     assert record["projects"]["holds"][0]["path"] == "/projects/held"
     assert len(record["projects"]["holds"]) == 1

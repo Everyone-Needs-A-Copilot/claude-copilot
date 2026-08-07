@@ -38,7 +38,15 @@ def _safe_phase(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, Mapping):
         return None
     safe: dict[str, Any] = {}
-    for key in ("phase", "result", "run_id", "plan_id", "detail", "organization", "scope"):
+    for key in (
+        "phase",
+        "result",
+        "run_id",
+        "plan_id",
+        "detail",
+        "organization",
+        "scope",
+    ):
         item = _bounded_text(value.get(key), limit=160)
         if item is not None:
             safe[key] = item
@@ -154,6 +162,23 @@ def _safe_blockers(assessment: Mapping[str, Any]) -> list[dict[str, Any]]:
             item = _bounded_text(value.get(source))
             if item is not None:
                 safe[target] = item
+        evidence = value.get("evidence")
+        if isinstance(evidence, Sequence) and not isinstance(evidence, (str, bytes)):
+            safe_evidence: list[dict[str, str]] = []
+            for item in evidence[:100]:
+                if not isinstance(item, Mapping):
+                    continue
+                identifier = _bounded_text(item.get("id"), limit=160)
+                state = _bounded_text(item.get("state"), limit=80)
+                row = {
+                    key: candidate
+                    for key, candidate in (("id", identifier), ("state", state))
+                    if candidate is not None
+                }
+                if row:
+                    safe_evidence.append(row)
+            if safe_evidence:
+                safe["evidence"] = safe_evidence
         if safe:
             blockers.append(safe)
     return blockers
