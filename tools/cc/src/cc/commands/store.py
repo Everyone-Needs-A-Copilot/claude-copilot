@@ -101,6 +101,7 @@ def _policy_scope(
         return None, f"The organization does not declare exactly one '{scope}' scope."
     row = matched[0]
     path = row.get("secret_path")
+    verification_path = store.get("verification_path")
     access = row.get("access")
     identity_id = row.get("identity_id")
     workspace = row.get("workspace_id", store.get("workspace_id"))
@@ -117,12 +118,18 @@ def _policy_scope(
         or not workspace
         or not isinstance(environment, str)
         or not environment
+        or not isinstance(verification_path, str)
+        or not verification_path.startswith("/")
+        or verification_path.rstrip("/") in {"", "/"}
+        or any(mark in verification_path for mark in "*?[]{}")
+        or verification_path.rstrip("/") == path.rstrip("/")
+        or verification_path.rstrip("/").startswith(f"{path.rstrip('/')}/")
     ):
         return (
             None,
             f"The organization's '{scope}' scope is not a bounded read-only scope.",
         )
-    return row, None
+    return {**row, "verification_path": verification_path.rstrip("/")}, None
 
 
 def build_store_verify_report(
@@ -168,7 +175,7 @@ def build_store_verify_report(
             "--path",
             path,
             "--negative-path",
-            "/__control_tower_denied__",
+            row["verification_path"],
             "--scope",
             scope,
         )
@@ -200,7 +207,8 @@ def build_store_verify_report(
     reported_result = payload.get("result")
     safe_result = (
         reported_result
-        if reported_result in {"not-configured", "unavailable", "unsafe", "invalid-config"}
+        if reported_result
+        in {"not-configured", "unavailable", "unsafe", "invalid-config"}
         else "unavailable"
     )
     return _report(

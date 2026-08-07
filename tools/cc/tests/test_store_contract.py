@@ -16,6 +16,7 @@ def _config():
             "workspace_id": "workspace-1",
             "environment": "prod",
             "secret_path": "/shared",
+            "verification_path": "/canary",
             "broker_url": "https://access.example.test",
             "broker_issuer": "https://access.example.test",
             "broker_audience": "https://secrets.example.test",
@@ -68,6 +69,7 @@ def test_store_verify_requires_positive_and_negative_live_evidence():
     command = observed[0]
     assert command[:5] == ("copilot", "infisical", "--json", "access", "verify")
     assert "--negative-path" in command
+    assert command[command.index("--negative-path") + 1] == "/canary"
     assert "--scope" in command
 
 
@@ -100,6 +102,19 @@ def test_store_verify_fails_closed_when_negative_scope_is_readable():
 def test_store_verify_never_runs_with_unbounded_or_writable_policy():
     cfg = _config()
     cfg["store"]["team_scopes"][0]["access"] = "write"
+
+    def run(_args):
+        raise AssertionError("verification must not run")
+
+    report = build_store_verify_report(run=run, ecosystem_cfg=cfg)
+
+    assert report["result"] == "not-configured"
+    assert report["checks"]["policy_valid"] is False
+
+
+def test_store_verify_requires_a_bounded_out_of_scope_canary():
+    cfg = _config()
+    cfg["store"].pop("verification_path")
 
     def run(_args):
         raise AssertionError("verification must not run")

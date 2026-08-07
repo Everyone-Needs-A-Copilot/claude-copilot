@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-08-07 — cc 2.12.1
+
+- `cc store verify` now consumes the organization-published, known-nonempty
+  out-of-scope canary path instead of testing an arbitrary nonexistent folder.
+- The store policy fails closed when that verification path is missing,
+  unbounded, or nested inside the authorized scope.
+
 All notable changes to Claude Copilot will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
