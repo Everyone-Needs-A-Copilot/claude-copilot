@@ -1,0 +1,8 @@
+interface:
+  display_name: "Setup Knowledge Sync"
+  short_description: "Wire knowledge sync"
+  default_prompt: "Use $setup-knowledge-sync to configure knowledge repositories, shared docs, known references, and optional pack activation."
+
+policy:
+  allow_implicit_invocation: false
+
