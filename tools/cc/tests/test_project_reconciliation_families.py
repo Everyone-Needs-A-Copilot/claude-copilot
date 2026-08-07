@@ -955,10 +955,12 @@ def test_custom_family_apply_verifies_and_repeats_without_work(
     )
     assert declaration["projectOwnedSetting"] == "preserve-me"
     if case in {"claude-entry", "claude-content-with-codex-bridge"}:
-        assert "# Project-owned Claude routing" in (project / "CLAUDE.md").read_text(
-            encoding="utf-8"
-        )
+        claude_text = (project / "CLAUDE.md").read_text(encoding="utf-8")
+        assert "# Project-owned Claude routing" in claude_text
         if case == "claude-content-with-codex-bridge":
+            assert claude_text.count(
+                "<!-- cc:project-integration:claude:v1:start -->"
+            ) == 1
             assert (
                 project / ".claude/skills/codex-copilot"
             ).readlink().as_posix() == "../../plugins/codex-copilot/skills"
