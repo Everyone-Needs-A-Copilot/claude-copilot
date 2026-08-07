@@ -38,10 +38,31 @@ def _safe_phase(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, Mapping):
         return None
     safe: dict[str, Any] = {}
-    for key in ("phase", "result", "run_id", "plan_id"):
+    for key in ("phase", "result", "run_id", "plan_id", "detail", "organization", "scope"):
         item = _bounded_text(value.get(key), limit=160)
         if item is not None:
             safe[key] = item
+    checks = value.get("checks")
+    if isinstance(checks, Mapping):
+        safe_checks = {
+            key: checks.get(key) is True
+            for key in ("policy_valid", "positive_read", "negative_denied", "read_only")
+            if isinstance(checks.get(key), bool)
+        }
+        if safe_checks:
+            safe["checks"] = safe_checks
+    evidence = value.get("evidence")
+    if isinstance(evidence, Mapping):
+        safe_evidence: dict[str, Any] = {}
+        auth_mode = _bounded_text(evidence.get("auth_mode"), limit=80)
+        if auth_mode is not None:
+            safe_evidence["auth_mode"] = auth_mode
+        for key in ("secret_count", "exit_code"):
+            item = evidence.get(key)
+            if isinstance(item, int) and not isinstance(item, bool):
+                safe_evidence[key] = item
+        if safe_evidence:
+            safe["evidence"] = safe_evidence
     error = value.get("error")
     if isinstance(error, Mapping):
         code = _bounded_text(error.get("code"), limit=160)
