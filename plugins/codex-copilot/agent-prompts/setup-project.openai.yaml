@@ -1,0 +1,7 @@
+interface:
+  display_name: "Setup Project"
+  short_description: "Wire a project"
+  default_prompt: "Use $setup-project to wire a target repository to the shared Codex Copilot framework."
+
+policy:
+  allow_implicit_invocation: false

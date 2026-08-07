@@ -1,0 +1,189 @@
+{
+  "schema_version": "1.1",
+  "mode": "status",
+  "result": "blocked",
+  "workspaces": [
+    {
+      "path": "/fixture/owner-governed",
+      "name": "owner-governed",
+      "project_id": null,
+      "state": "blocked",
+      "detail": "The project ownership declaration requires an owner decision.",
+      "declared_components": [],
+      "installed_components": [],
+      "recommended_components": [
+        "claude",
+        "codex"
+      ],
+      "personal_profile": {
+        "state": "local-only",
+        "project_id": null
+      },
+      "setup_policy": "not-offered",
+      "policy_detail": "Only the named project owner can choose the integration direction.",
+      "can_apply_now": false,
+      "apply_blocked_detail": "An owner decision is required.",
+      "undo": {
+        "available": false,
+        "detail": "There is no CLI-authored change to undo."
+      },
+      "classification": "owner-decision",
+      "responsible_actor": "project-owner",
+      "inspection": {
+        "id": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+        "contract_id": "project-integration",
+        "contract_version": "1",
+        "scope": "detail",
+        "complete": true
+      },
+      "components": [
+        {
+          "component": "claude",
+          "expected": true,
+          "expected_contract": {
+            "id": "project-integration",
+            "version": "1"
+          },
+          "classification": "owner-decision",
+          "recognized_setup": null,
+          "missing_requirements": [
+            {
+              "id": "owner-direction",
+              "detail": "The owner has not chosen a Claude integration direction."
+            }
+          ],
+          "responsible_actor": "project-owner",
+          "safe_action": null,
+          "verification": {
+            "command": [
+              "cc",
+              "workspace",
+              "verify",
+              "--project",
+              "/fixture/owner-governed",
+              "--json"
+            ],
+            "expected": "Claude remains blocked until owner direction is recorded.",
+            "stop_conditions": [
+              "Stop until the project owner decides."
+            ]
+          }
+        },
+        {
+          "component": "codex",
+          "expected": true,
+          "expected_contract": {
+            "id": "project-integration",
+            "version": "1"
+          },
+          "classification": "owner-decision",
+          "recognized_setup": null,
+          "missing_requirements": [
+            {
+              "id": "owner-direction",
+              "detail": "The owner has not chosen a Codex integration direction."
+            }
+          ],
+          "responsible_actor": "project-owner",
+          "safe_action": null,
+          "verification": {
+            "command": [
+              "cc",
+              "workspace",
+              "verify",
+              "--project",
+              "/fixture/owner-governed",
+              "--json"
+            ],
+            "expected": "Codex remains blocked until owner direction is recorded.",
+            "stop_conditions": [
+              "Stop until the project owner decides."
+            ]
+          }
+        }
+      ],
+      "capabilities": {
+        "instructions": 2,
+        "agents": 0,
+        "skills": 1,
+        "commands": 0,
+        "plugins": 0,
+        "integration_paths": [
+          ".copilot/project-owner.json"
+        ]
+      },
+      "preservation": {
+        "must_preserve": [
+          {
+            "kind": "config",
+            "path": ".copilot/project-owner.json",
+            "detail": "Preserve the project ownership declaration."
+          }
+        ],
+        "prohibited_actions": [
+          "overwrite-project-instructions",
+          "trust-assistant-self-report",
+          "skip-verification"
+        ]
+      },
+      "safe_action": null,
+      "plan_available": true,
+      "integration_plan": {
+        "id": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "inspection_id": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+        "responsible_actor": "project-owner",
+        "detected": [
+          "A project ownership declaration governs Copilot integration."
+        ],
+        "missing": [
+          "The owner has not selected an integration direction for Claude or Codex."
+        ],
+        "preserve": [
+          "Preserve the ownership declaration and all project instructions."
+        ],
+        "prohibited": [
+          "Do not perform integration work before the owner decides.",
+          "Do not treat assistant self-report as authoritative verification."
+        ],
+        "prompt": null,
+        "owner_handoff": {
+          "version": "1",
+          "text": "Please choose how Claude and Codex should integrate with this project's existing instructions. The CLI found an ownership declaration and will not write or rewrite project files without your direction. After the decision is implemented, run the listed verification command; only its machine verdict can mark the project ready."
+        },
+        "verification": {
+          "command": [
+            "cc",
+            "workspace",
+            "verify",
+            "--project",
+            "/fixture/owner-governed",
+            "--json"
+          ],
+          "expected": "Both component assessments and the project classification are ready.",
+          "stop_conditions": [
+            "Stop while owner direction is missing.",
+            "Stop if any preserved project file would be overwritten."
+          ]
+        },
+        "stop_conditions": [
+          "Stop until the named owner provides direction."
+        ]
+      }
+    }
+  ],
+  "summary": {
+    "ready": 0,
+    "setup-available": 0,
+    "activation-required": 0,
+    "blocked": 1,
+    "total": 1
+  },
+  "classification_summary": {
+    "ready": 0,
+    "safe-finish": 0,
+    "guided-integration": 0,
+    "owner-decision": 1,
+    "could-not-verify": 0,
+    "total": 1
+  }
+}
