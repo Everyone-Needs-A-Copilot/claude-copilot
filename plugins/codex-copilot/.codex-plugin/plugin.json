@@ -1,0 +1,39 @@
+{
+  "name": "codex-copilot",
+  "version": "0.6.1",
+  "description": "Codex-native software specialist framework with tc-backed workflow discipline and Claude Copilot parity contracts.",
+  "author": {
+    "name": "Everyone Needs A Copilot",
+    "url": "https://ineedacopilot.com"
+  },
+  "homepage": "https://ineedacopilot.com",
+  "repository": "https://github.com/Everyone-Needs-A-Copilot/codex-copilot",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "agents",
+    "task-copilot",
+    "workflow"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Codex Copilot",
+    "shortDescription": "Specialist playbooks and tc discipline for Codex.",
+    "longDescription": "Ports the Claude Copilot workflow into Codex-native instructions, skills, scripts, and plugin packaging while keeping tc as the execution record. The global plugin focuses on software creation specialists; optional domain capabilities live in dormant packs activated by projects.",
+    "developerName": "Everyone Needs A Copilot",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "websiteURL": "https://ineedacopilot.com",
+    "privacyPolicyURL": "https://ineedacopilot.com",
+    "termsOfServiceURL": "https://ineedacopilot.com",
+    "defaultPrompt": [
+      "Route this request through the codex-copilot protocol.",
+      "Use $ta, $me, and $qa with tc to ship this task.",
+      "Use $sd, $uxd, $uids, and $uid for product experience work."
+    ],
+    "brandColor": "#1F6FEB"
+  }
+}

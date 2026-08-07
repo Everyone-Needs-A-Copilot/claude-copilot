@@ -1,0 +1,44 @@
+{
+  "cases": [
+    {
+      "id": "no-copilot-unselected",
+      "claude": "safe-finish",
+      "codex": "safe-finish",
+      "selected": [],
+      "route": "copilot-not-present",
+      "presence": "none"
+    },
+    {
+      "id": "no-copilot-selected",
+      "claude": "safe-finish",
+      "codex": "safe-finish",
+      "selected": ["claude", "codex"],
+      "route": "safe-setup-available",
+      "presence": "none"
+    },
+    {
+      "id": "mixed-custom-ready",
+      "claude": "guided-integration",
+      "codex": "ready",
+      "selected": [],
+      "route": "customized-guided-route",
+      "presence": "both"
+    },
+    {
+      "id": "owner-decision",
+      "claude": "owner-decision",
+      "codex": "safe-finish",
+      "selected": [],
+      "route": "owner-decision",
+      "presence": "unknown"
+    },
+    {
+      "id": "unsafe-unverifiable",
+      "claude": "could-not-verify",
+      "codex": "safe-finish",
+      "selected": [],
+      "route": "could-not-verify",
+      "presence": "unknown"
+    }
+  ]
+}
