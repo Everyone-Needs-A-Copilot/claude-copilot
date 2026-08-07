@@ -1,0 +1,81 @@
+name: cc Onboard Contract
+
+on:
+  pull_request:
+    branches:
+      - main
+      - feat/adopt-and-project-setup
+    paths:
+      - ".github/workflows/cc-onboard-contract.yml"
+      - "scripts/package-cc-macos-release.sh"
+      - "tools/cc/**"
+      - "tools/tc/**"
+  push:
+    branches:
+      - main
+      - feat/adopt-and-project-setup
+    paths:
+      - ".github/workflows/cc-onboard-contract.yml"
+      - "scripts/package-cc-macos-release.sh"
+      - "tools/cc/**"
+      - "tools/tc/**"
+
+jobs:
+  onboard-contract:
+    runs-on: macos-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            tools/cc/pyproject.toml
+            tools/tc/pyproject.toml
+
+      - name: Install contract dependencies
+        run: |
+          python -m pip install --disable-pip-version-check \
+            -e "./tools/tc" \
+            -e "./tools/cc[dev]"
+
+      - name: Validate release gate syntax
+        run: bash -n scripts/package-cc-macos-release.sh
+
+      - name: Test GUI-safe onboarding contracts
+        working-directory: tools/cc
+        run: |
+          python -m pytest \
+            tests/test_executables.py \
+            tests/test_onboard_contract.py \
+            tests/test_workspaces_contract.py::test_recommendations_use_gui_safe_executable_resolver
+
+      - name: Test Python-owned ecosystem reconciliation
+        working-directory: tools/cc
+        run: |
+          python -m pytest \
+            tests/test_machine_assessment.py \
+            tests/test_project_reconciliation.py \
+            tests/test_project_reconciliation_families.py \
+            tests/test_reconciliation_recipes.py \
+            tests/test_reconciliation_apply.py \
+            tests/test_reconciliation_assistant_fake.py \
+            tests/test_reconciliation_assistant_product.py \
+            tests/test_reconciliation_assistant_security.py \
+            tests/test_reconciliation_assistant_store_security.py \
+            tests/test_reconciliation_contract.py \
+            tests/test_reconciliation_coordinator.py \
+            tests/test_reconciliation_recovery.py \
+            tests/test_reconcile_command.py \
+            tests/test_reconciliation_transaction_diagnostics.py \
+            tests/test_workspace_plan_store.py \
+            tests/test_workspace_snapshots.py \
+            tests/test_workspace_transaction_containment.py \
+            tests/test_workspace_transaction_faults.py \
+            tests/test_workspace_transaction_locking.py \
+            tests/test_workspace_transaction_recovery.py
