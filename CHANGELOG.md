@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   It reports `operational: true` with `confidence: 0.95` only when every final
   machine, hierarchy, and Product-project check is ready. Swift may invoke and
   render this contract, but does not own any setup or verification decision.
+  Every run also returns one private, redacted support-report path with the
+  final verdict, machine blocker codes, project counts and holds, completed
+  action summaries, and links to lower-level diagnostics.
 
 ### Fixed
 

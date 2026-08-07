@@ -18,18 +18,22 @@ from cc.core.ecosystem.reconciliation import (
     build_recover_report,
 )
 from cc.core.ecosystem.reconciliation_types import parse_reconciliation_request
+from cc.core.ecosystem.setup_journey_diagnostics import (
+    write_setup_journey_diagnostic,
+)
 from cc.core.ecosystem.setup_preflight import build_setup_prepare_report
 
 ReportBuilder = Callable[[], dict[str, Any]]
 
 
 def _failure(phase: str, error: Exception) -> dict[str, Any]:
+    del error
     return {
         "phase": phase,
         "result": "blocked",
         "error": {
             "code": f"{phase}-unavailable",
-            "detail": str(error)[:1000] or type(error).__name__,
+            "detail": "This setup phase could not complete safely.",
         },
     }
 
@@ -79,6 +83,9 @@ def build_setup_journey_report(
     assess_builder: ReportBuilder = assess_reconciliation,
     plan_builder: Callable[..., dict[str, Any]] = build_plan_report,
     apply_builder: Callable[..., dict[str, Any]] = build_apply_report,
+    diagnostics_writer: Callable[[Mapping[str, Any]], dict[str, Any]] = (
+        write_setup_journey_diagnostic
+    ),
     max_project_passes: int = 4,
 ) -> dict[str, Any]:
     """Recover, prepare, update, apply safe work, and verify the whole scope."""
@@ -91,7 +98,7 @@ def build_setup_journey_report(
         recovery = _failure("recover", exc)
     phases.append(recovery)
     if recovery.get("result") not in {"ready", "applied"}:
-        return _result(phases, actions, None)
+        return _result(phases, actions, None, diagnostics_writer)
 
     try:
         preparation = prepare_builder()
@@ -135,7 +142,7 @@ def build_setup_journey_report(
             assessment = assess_builder()
         except Exception as exc:
             phases.append(_failure("assess", exc))
-            return _result(phases, actions, None)
+            return _result(phases, actions, None, diagnostics_writer)
         request_payload = _default_request(assessment)
         if request_payload is None:
             break
@@ -175,15 +182,16 @@ def build_setup_journey_report(
         final_assessment = assess_builder()
     except Exception as exc:
         phases.append(_failure("verify", exc))
-        return _result(phases, actions, None)
+        return _result(phases, actions, None, diagnostics_writer)
     phases.append({**final_assessment, "phase": "verify-all"})
-    return _result(phases, actions, final_assessment)
+    return _result(phases, actions, final_assessment, diagnostics_writer)
 
 
 def _result(
     phases: list[dict[str, Any]],
     actions: list[dict[str, Any]],
     assessment: dict[str, Any] | None,
+    diagnostics_writer: Callable[[Mapping[str, Any]], dict[str, Any]],
 ) -> dict[str, Any]:
     latest_required: dict[str, dict[str, Any]] = {}
     for phase in phases:
@@ -208,14 +216,16 @@ def _result(
                     else {"title": "Final verification did not complete."}
                 ),
                 "next_actions": (
-                    assessment.get("next_actions", [])
-                    if assessment is not None
-                    else []
+                    assessment.get("next_actions", []) if assessment is not None else []
                 ),
             }
         )
-    ready = assessment is not None and assessment.get("result") == "ready" and not phase_holds
-    return {
+    ready = (
+        assessment is not None
+        and assessment.get("result") == "ready"
+        and not phase_holds
+    )
+    report = {
         "schema_version": "1.0",
         "phase": "setup-journey",
         "result": "ready" if ready else "action-required",
@@ -238,6 +248,19 @@ def _result(
             ),
         },
     }
+    try:
+        report["diagnostics"] = diagnostics_writer(report)
+    except Exception:
+        report["diagnostics"] = {
+            "schema_version": "1.0",
+            "state": "unavailable",
+            "path": None,
+            "detail": (
+                "The setup result is available, but its support report "
+                "could not be saved."
+            ),
+        }
+    return report
 
 
 __all__ = ["build_setup_journey_report"]

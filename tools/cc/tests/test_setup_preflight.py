@@ -45,30 +45,35 @@ def _isolated_lock(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(setup_preflight, "project_lock", locked)
 
 
-def test_checkpoint_commits_all_current_product_work_locally(tmp_path, monkeypatch) -> None:
+def test_checkpoint_commits_all_current_product_work_locally(
+    tmp_path, monkeypatch
+) -> None:
     repo = _repo(tmp_path)
     _isolated_lock(monkeypatch, tmp_path)
     (repo / "tracked.txt").write_text("changed\n", encoding="utf-8")
     (repo / "new.txt").write_text("new\n", encoding="utf-8")
 
-    outcome = setup_preflight._checkpoint_project(
-        _project(repo), "run_" + ("a" * 32)
-    )
+    outcome = setup_preflight._checkpoint_project(_project(repo), "run_" + ("a" * 32))
 
     assert outcome["status"] == "checkpointed"
     assert outcome["action"]["pushed"] is False
     assert outcome["action"]["residual_work"] is False
     assert _run(repo, "status", "--porcelain").stdout == ""
-    assert "chore: save work before Copilot setup" in _run(
-        repo, "log", "-1", "--pretty=%B"
-    ).stdout
-    assert set(_run(repo, "show", "--pretty=", "--name-only", "HEAD").stdout.split()) == {
+    assert (
+        "chore: save work before Copilot setup"
+        in _run(repo, "log", "-1", "--pretty=%B").stdout
+    )
+    assert set(
+        _run(repo, "show", "--pretty=", "--name-only", "HEAD").stdout.split()
+    ) == {
         "new.txt",
         "tracked.txt",
     }
 
 
-def test_failed_commit_restores_exact_index_and_preserves_work(tmp_path, monkeypatch) -> None:
+def test_failed_commit_restores_exact_index_and_preserves_work(
+    tmp_path, monkeypatch
+) -> None:
     repo = _repo(tmp_path)
     _isolated_lock(monkeypatch, tmp_path)
     (repo / "tracked.txt").write_text("staged\n", encoding="utf-8")
@@ -87,9 +92,7 @@ def test_failed_commit_restores_exact_index_and_preserves_work(tmp_path, monkeyp
 
     monkeypatch.setattr(setup_preflight, "_git", fail_commit)
 
-    outcome = setup_preflight._checkpoint_project(
-        _project(repo), "run_" + ("b" * 32)
-    )
+    outcome = setup_preflight._checkpoint_project(_project(repo), "run_" + ("b" * 32))
 
     assert outcome["status"] == "held"
     assert outcome["hold"]["code"] == "git-commit-failed"
@@ -107,9 +110,7 @@ def test_checkpoint_does_not_execute_repository_hooks(tmp_path, monkeypatch) -> 
     hook.write_text(f"#!/bin/sh\ntouch '{marker}'\nexit 1\n", encoding="utf-8")
     hook.chmod(0o755)
 
-    outcome = setup_preflight._checkpoint_project(
-        _project(repo), "run_" + ("e" * 32)
-    )
+    outcome = setup_preflight._checkpoint_project(_project(repo), "run_" + ("e" * 32))
 
     assert outcome["status"] == "checkpointed"
     assert not marker.exists()
@@ -151,7 +152,12 @@ def test_prepare_never_checkpoints_ecosystem_repositories(monkeypatch) -> None:
             "completed_actions": [],
             "holds": [],
             "summary": {"checked": 0, "updated": 0, "current": 0, "held": 0},
-            "authority": {"setup_access": "download-only", "author_capable": 0, "read_only": 0, "unknown": 0},
+            "authority": {
+                "setup_access": "download-only",
+                "author_capable": 0,
+                "read_only": 0,
+                "unknown": 0,
+            },
         },
     )
 
@@ -218,14 +224,18 @@ def test_prepare_refreshes_configured_org_without_discovery(monkeypatch) -> None
             },
         }
 
-    monkeypatch.setattr(setup_preflight, "build_shared_repository_refresh_report", refresh)
+    monkeypatch.setattr(
+        setup_preflight, "build_shared_repository_refresh_report", refresh
+    )
 
     setup_preflight.build_setup_prepare_report(assess_builder=lambda: assessment)
 
     assert seen == {"org": "Example-Org"}
 
 
-def test_prepare_preserves_shared_refresh_diagnostic(monkeypatch) -> None:
+def test_prepare_closes_shared_refresh_exception_without_returning_raw_text(
+    monkeypatch,
+) -> None:
     assessment = {
         "run_id": "run_" + ("1" * 32),
         "generated_at": "2026-08-07T12:00:00Z",
@@ -245,20 +255,31 @@ def test_prepare_preserves_shared_refresh_diagnostic(monkeypatch) -> None:
     assert report["holds"][0] == {
         "code": "shared-refresh-unavailable",
         "detail": "Shared Copilot repositories could not be refreshed safely.",
-        "diagnostic": "configured organization handoff is unavailable",
+        "diagnostic": "Shared repository refresh did not complete safely.",
     }
+    assert "configured organization" not in str(report)
 
 
 def test_repository_permission_is_fail_closed_and_matches_github_grants() -> None:
     assert _repository_permission({}) == "unknown"
     assert _repository_permission({"permissions": {"pull": True}}) == "read"
-    assert _repository_permission({"permissions": {"triage": True, "pull": True}}) == "triage"
-    assert _repository_permission({"permissions": {"push": True, "pull": True}}) == "write"
-    assert _repository_permission({"permissions": {"maintain": True, "push": True}}) == "maintain"
+    assert (
+        _repository_permission({"permissions": {"triage": True, "pull": True}})
+        == "triage"
+    )
+    assert (
+        _repository_permission({"permissions": {"push": True, "pull": True}}) == "write"
+    )
+    assert (
+        _repository_permission({"permissions": {"maintain": True, "push": True}})
+        == "maintain"
+    )
     assert _repository_permission({"permissions": {"admin": True}}) == "admin"
 
 
-def test_shared_refresh_disables_repository_hooks_for_git(monkeypatch, tmp_path) -> None:
+def test_shared_refresh_disables_repository_hooks_for_git(
+    monkeypatch, tmp_path
+) -> None:
     row = {
         "id": "foundation-claude",
         "role": "foundation",
@@ -273,13 +294,23 @@ def test_shared_refresh_disables_repository_hooks_for_git(monkeypatch, tmp_path)
         "id": row["id"],
         "rank": 10,
         "product": "claude",
-        "source": {"path": str(tmp_path / "foundation"), "repo": "git@example.invalid:foundation.git", "ref": "main"},
+        "source": {
+            "path": str(tmp_path / "foundation"),
+            "repo": "git@example.invalid:foundation.git",
+            "ref": "main",
+        },
     }
     monkeypatch.setattr(onboard, "_discover_org", lambda products, run: "example")
     monkeypatch.setattr(onboard, "_owner", lambda run: "person")
     monkeypatch.setattr(onboard, "_load_handoff", lambda org, products, run: {})
-    monkeypatch.setattr(onboard, "_eligible_department_units", lambda handoff, org, owner, run: [])
-    monkeypatch.setattr(onboard, "_layer_manifest", lambda *args, **kwargs: {"version": "1.0", "org": "example", "layers": [layer]})
+    monkeypatch.setattr(
+        onboard, "_eligible_department_units", lambda handoff, org, owner, run: []
+    )
+    monkeypatch.setattr(
+        onboard,
+        "_layer_manifest",
+        lambda *args, **kwargs: {"version": "1.0", "org": "example", "layers": [layer]},
+    )
     monkeypatch.setattr(onboard, "_topology_report_layers", lambda manifest, run: [row])
     commands: list[tuple[str, ...]] = []
 
@@ -301,13 +332,21 @@ def test_shared_refresh_disables_repository_hooks_for_git(monkeypatch, tmp_path)
 
     assert report["mode"] == "download-only"
     assert commands[0] == (
-        "git", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
-        "merge", "--ff-only", "FETCH_HEAD",
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        "core.fsmonitor=false",
+        "merge",
+        "--ff-only",
+        "FETCH_HEAD",
     )
     assert commands[1] == ("gh", "api", "user")
 
 
-def test_shared_refresh_defaults_to_enabled_harness_products(monkeypatch, tmp_path) -> None:
+def test_shared_refresh_defaults_to_enabled_harness_products(
+    monkeypatch, tmp_path
+) -> None:
     seen: dict[str, tuple[str, ...]] = {}
 
     def discover(products, run):
@@ -317,8 +356,12 @@ def test_shared_refresh_defaults_to_enabled_harness_products(monkeypatch, tmp_pa
     monkeypatch.setattr(onboard, "_discover_org", discover)
     monkeypatch.setattr(onboard, "_owner", lambda run: "person")
     monkeypatch.setattr(onboard, "_load_handoff", lambda org, products, run: {})
-    monkeypatch.setattr(onboard, "_eligible_department_units", lambda *args, **kwargs: [])
-    monkeypatch.setattr(onboard, "_layer_manifest", lambda *args, **kwargs: {"layers": []})
+    monkeypatch.setattr(
+        onboard, "_eligible_department_units", lambda *args, **kwargs: []
+    )
+    monkeypatch.setattr(
+        onboard, "_layer_manifest", lambda *args, **kwargs: {"layers": []}
+    )
     monkeypatch.setattr(onboard, "_topology_report_layers", lambda manifest, run: [])
 
     report = onboard.build_shared_repository_refresh_report(
@@ -333,7 +376,12 @@ def test_shared_refresh_defaults_to_enabled_harness_products(monkeypatch, tmp_pa
 def test_prepare_report_validates_against_reconciliation_schema() -> None:
     machine = {
         "state": "ready",
-        "helper": {"state": "ready", "version": "2.10.0", "path": "/cc", "detail": "ready"},
+        "helper": {
+            "state": "ready",
+            "version": "2.10.0",
+            "path": "/cc",
+            "detail": "ready",
+        },
         "frameworks": [
             {
                 "component": component,
@@ -344,8 +392,17 @@ def test_prepare_report_validates_against_reconciliation_schema() -> None:
             }
             for component in ("claude", "codex")
         ],
-        "configuration": {"state": "ready", "path": "/config", "approved_roots": [], "detail": "ready"},
-        "authentication": {"state": "signed-in", "credential_state": "present", "detail": "ready"},
+        "configuration": {
+            "state": "ready",
+            "path": "/config",
+            "approved_roots": [],
+            "detail": "ready",
+        },
+        "authentication": {
+            "state": "signed-in",
+            "credential_state": "present",
+            "detail": "ready",
+        },
         "connectivity": {"state": "online", "detail": "ready"},
         "layers": {"state": "ready", "ready": 0, "total": 0, "detail": "ready"},
         "dependencies": [],
@@ -364,11 +421,18 @@ def test_prepare_report_validates_against_reconciliation_schema() -> None:
             "completed_actions": [],
             "holds": [],
             "summary": {"checked": 12, "updated": 0, "current": 12, "held": 0},
-            "authority": {"setup_access": "download-only", "author_capable": 4, "read_only": 7, "unknown": 1},
+            "authority": {
+                "setup_access": "download-only",
+                "author_capable": 4,
+                "read_only": 7,
+                "unknown": 1,
+            },
         },
     )
     schema = json.loads(
-        (Path(__file__).parent / "fixtures" / "schemas" / "reconcile.schema.json").read_text(encoding="utf-8")
+        (
+            Path(__file__).parent / "fixtures" / "schemas" / "reconcile.schema.json"
+        ).read_text(encoding="utf-8")
     )
 
     assert not list(Draft202012Validator(schema).iter_errors(report))

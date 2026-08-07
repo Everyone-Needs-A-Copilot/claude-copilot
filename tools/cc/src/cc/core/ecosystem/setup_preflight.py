@@ -85,47 +85,115 @@ def _restore_index(index_path: Path, payload: bytes | None, mode: int | None) ->
 def _checkpoint_project(project: Mapping[str, Any], run_id: str) -> dict[str, Any]:
     raw_path = project.get("path")
     if not isinstance(raw_path, str) or not raw_path:
-        return {"status": "held", "hold": _hold("unknown", "invalid-project-path", "The project path was not valid.")}
+        return {
+            "status": "held",
+            "hold": _hold(
+                "unknown", "invalid-project-path", "The project path was not valid."
+            ),
+        }
     root = Path(raw_path)
     try:
         with project_lock(root):
             branch = _git(root, "symbolic-ref", "--quiet", "--short", "HEAD")
             if branch.returncode != 0:
-                return {"status": "held", "hold": _hold(raw_path, "detached-head", "Attach the project to its intended branch before setup saves it.")}
+                return {
+                    "status": "held",
+                    "hold": _hold(
+                        raw_path,
+                        "detached-head",
+                        "Attach the project to its intended branch before setup saves it.",
+                    ),
+                }
 
             conflicts = _git(root, "diff", "--name-only", "--diff-filter=U", "-z")
             if conflicts.returncode != 0 or conflicts.stdout:
-                return {"status": "held", "hold": _hold(raw_path, "unmerged-work", "Resolve the project's merge conflicts before setup saves it.")}
+                return {
+                    "status": "held",
+                    "hold": _hold(
+                        raw_path,
+                        "unmerged-work",
+                        "Resolve the project's merge conflicts before setup saves it.",
+                    ),
+                }
 
             for marker in _IN_PROGRESS_MARKERS:
                 marker_result = _git(root, "rev-parse", "--git-path", marker)
                 if marker_result.returncode != 0:
-                    return {"status": "held", "hold": _hold(raw_path, "git-state-unreadable", "Git's current operation state could not be verified.")}
+                    return {
+                        "status": "held",
+                        "hold": _hold(
+                            raw_path,
+                            "git-state-unreadable",
+                            "Git's current operation state could not be verified.",
+                        ),
+                    }
                 marker_path = Path(_output(marker_result))
                 if not marker_path.is_absolute():
                     marker_path = root / marker_path
                 if marker_path.exists():
-                    return {"status": "held", "hold": _hold(raw_path, "git-operation-in-progress", "Finish the project's current Git operation before setup saves it.")}
+                    return {
+                        "status": "held",
+                        "hold": _hold(
+                            raw_path,
+                            "git-operation-in-progress",
+                            "Finish the project's current Git operation before setup saves it.",
+                        ),
+                    }
 
-            status = _git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+            status = _git(
+                root, "status", "--porcelain=v1", "-z", "--untracked-files=all"
+            )
             if status.returncode != 0:
-                return {"status": "held", "hold": _hold(raw_path, "git-status-unreadable", "The project's current work could not be inspected safely.")}
+                return {
+                    "status": "held",
+                    "hold": _hold(
+                        raw_path,
+                        "git-status-unreadable",
+                        "The project's current work could not be inspected safely.",
+                    ),
+                }
             if not status.stdout:
                 return {"status": "current"}
 
             name = _git(root, "config", "user.name")
             email = _git(root, "config", "user.email")
-            if name.returncode != 0 or email.returncode != 0 or not _output(name) or not _output(email):
-                return {"status": "held", "hold": _hold(raw_path, "git-identity-missing", "Set this project's Git user name and email before setup saves it.")}
+            if (
+                name.returncode != 0
+                or email.returncode != 0
+                or not _output(name)
+                or not _output(email)
+            ):
+                return {
+                    "status": "held",
+                    "hold": _hold(
+                        raw_path,
+                        "git-identity-missing",
+                        "Set this project's Git user name and email before setup saves it.",
+                    ),
+                }
 
             old_head = _git(root, "rev-parse", "HEAD")
             if old_head.returncode != 0:
-                return {"status": "held", "hold": _hold(raw_path, "git-head-unreadable", "The project's current revision could not be confirmed.")}
+                return {
+                    "status": "held",
+                    "hold": _hold(
+                        raw_path,
+                        "git-head-unreadable",
+                        "The project's current revision could not be confirmed.",
+                    ),
+                }
             before_sha = _output(old_head)
 
             index_result = _git(root, "rev-parse", "--git-path", "index")
             if index_result.returncode != 0:
-                return {"status": "held", "hold": _hold(raw_path, "git-index-unreadable", "The project's Git index could not be located.")}
+                return {
+                    "status": "held",
+                    "hold": _hold(
+                        raw_path,
+                        "git-index-unreadable",
+                        "The project's Git index could not be located.",
+                    ),
+                }
             index_path = Path(_output(index_result))
             if not index_path.is_absolute():
                 index_path = root / index_path
@@ -136,12 +204,26 @@ def _checkpoint_project(project: Mapping[str, Any], run_id: str) -> dict[str, An
                 index_payload = None
                 index_mode = None
             except OSError:
-                return {"status": "held", "hold": _hold(raw_path, "git-index-unreadable", "The project's Git index could not be backed up safely.")}
+                return {
+                    "status": "held",
+                    "hold": _hold(
+                        raw_path,
+                        "git-index-unreadable",
+                        "The project's Git index could not be backed up safely.",
+                    ),
+                }
 
             staged = _git(root, "add", "-A", "--", ".")
             if staged.returncode != 0:
                 _restore_index(index_path, index_payload, index_mode)
-                return {"status": "held", "hold": _hold(raw_path, "git-stage-failed", "Git could not prepare all current project work for a local checkpoint.")}
+                return {
+                    "status": "held",
+                    "hold": _hold(
+                        raw_path,
+                        "git-stage-failed",
+                        "Git could not prepare all current project work for a local checkpoint.",
+                    ),
+                }
 
             commit = _git(
                 root,
@@ -153,13 +235,29 @@ def _checkpoint_project(project: Mapping[str, Any], run_id: str) -> dict[str, An
             )
             if commit.returncode != 0:
                 _restore_index(index_path, index_payload, index_mode)
-                return {"status": "held", "hold": _hold(raw_path, "git-commit-failed", "Git did not accept the local checkpoint. Existing work and the prior index were preserved.")}
+                return {
+                    "status": "held",
+                    "hold": _hold(
+                        raw_path,
+                        "git-commit-failed",
+                        "Git did not accept the local checkpoint. Existing work and the prior index were preserved.",
+                    ),
+                }
 
             new_head = _git(root, "rev-parse", "HEAD")
             if new_head.returncode != 0 or _output(new_head) == before_sha:
-                return {"status": "held", "hold": _hold(raw_path, "git-commit-unverified", "Git returned from the checkpoint without a verifiable new revision.")}
+                return {
+                    "status": "held",
+                    "hold": _hold(
+                        raw_path,
+                        "git-commit-unverified",
+                        "Git returned from the checkpoint without a verifiable new revision.",
+                    ),
+                }
             after_sha = _output(new_head)
-            after_status = _git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+            after_status = _git(
+                root, "status", "--porcelain=v1", "-z", "--untracked-files=all"
+            )
             residual = after_status.returncode != 0 or bool(after_status.stdout)
             return {
                 "status": "checkpointed",
@@ -175,13 +273,24 @@ def _checkpoint_project(project: Mapping[str, Any], run_id: str) -> dict[str, An
                     "residual_work": residual,
                 },
                 "hold": (
-                    _hold(raw_path, "work-remains-after-checkpoint", "Another process created additional work during the checkpoint; that work was left in place.")
+                    _hold(
+                        raw_path,
+                        "work-remains-after-checkpoint",
+                        "Another process created additional work during the checkpoint; that work was left in place.",
+                    )
                     if residual
                     else None
                 ),
             }
     except (OSError, subprocess.SubprocessError, ProjectLockError):
-        return {"status": "held", "hold": _hold(raw_path, "project-checkpoint-unavailable", "The project changed or could not be locked safely, so setup left it alone.")}
+        return {
+            "status": "held",
+            "hold": _hold(
+                raw_path,
+                "project-checkpoint-unavailable",
+                "The project changed or could not be locked safely, so setup left it alone.",
+            ),
+        }
 
 
 def build_setup_prepare_report(
@@ -246,20 +355,24 @@ def build_setup_prepare_report(
                     else "auto"
                 )
             )
-    except Exception as exc:
+    except Exception:
         refresh = {
             "result": "blocked",
             "mode": "download-only",
             "completed_actions": [],
             "layers": [],
-            "authority": {"setup_access": "download-only", "author_capable": 0, "read_only": 0, "unknown": 0},
+            "authority": {
+                "setup_access": "download-only",
+                "author_capable": 0,
+                "read_only": 0,
+                "unknown": 0,
+            },
             "summary": {"checked": 0, "updated": 0, "current": 0, "held": 1},
             "holds": [
                 {
                     "code": "shared-refresh-unavailable",
                     "detail": "Shared Copilot repositories could not be refreshed safely.",
-                    "diagnostic": str(exc)[:1000]
-                    or type(exc).__name__,
+                    "diagnostic": "Shared repository refresh did not complete safely.",
                 }
             ],
         }
@@ -269,7 +382,13 @@ def build_setup_prepare_report(
 
     refresh_summary = refresh.get("summary", {})
     updated = int(refresh_summary.get("updated", 0))
-    result = "partial" if holds or assessment.get("result") != "ready" else "applied" if actions else "ready"
+    result = (
+        "partial"
+        if holds or assessment.get("result") != "ready"
+        else "applied"
+        if actions
+        else "ready"
+    )
     return {
         "schema_version": RECONCILIATION_SCHEMA_VERSION,
         "phase": "prepare",
@@ -289,12 +408,19 @@ def build_setup_prepare_report(
         },
         "authority": refresh.get(
             "authority",
-            {"setup_access": "download-only", "author_capable": 0, "read_only": 0, "unknown": 0},
+            {
+                "setup_access": "download-only",
+                "author_capable": 0,
+                "read_only": 0,
+                "unknown": 0,
+            },
         ),
         "holds": holds,
         "assessment": assessment,
         "summary": {
-            "headline": "The routine work is done." if actions else "Your projects are checked.",
+            "headline": "The routine work is done."
+            if actions
+            else "Your projects are checked.",
             "detail": f"I saved work in {checkpointed} project(s) and downloaded {updated} shared Copilot update(s). Nothing was pushed.",
         },
         "next_actions": assessment.get("next_actions", []),
