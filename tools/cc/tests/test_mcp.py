@@ -10,13 +10,11 @@ from __future__ import annotations
 
 import json
 import sys
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from typer.testing import CliRunner
-
 from cc.main import app
+from typer.testing import CliRunner
 
 
 @pytest.fixture
@@ -93,9 +91,6 @@ class TestMcpServeGracefulDegradation:
         # We simulate ImportError by replacing the module with None in sys.modules
         # and then un-importing so the `from cc.commands.mcp_serve import run_server`
         # line inside mcp_serve.py raises ImportError.
-        import importlib
-        import cc.commands.mcp as mcp_cmd
-
         # Temporarily shadow cc.commands.mcp_serve in sys.modules with None
         # so that `from cc.commands.mcp_serve import run_server` raises ImportError.
         saved = sys.modules.get("cc.commands.mcp_serve", _SENTINEL)
@@ -144,28 +139,20 @@ class TestMcpToolSchemas:
             pytest.skip("mcp package not installed — schema tests skipped")
 
         import asyncio
+
         from cc.commands.mcp_serve import build_server
 
         server = build_server()
 
         async def _get_tools():
-            # Access the registered handler directly
-            handler = server._tool_handlers.get("list_tools") or server.list_tools
-            if callable(handler):
-                return await handler()
-            return []
+            from mcp.types import ListToolsRequest
 
-        # Fallback: call list_tools handler via the registered hooks
-        try:
-            tools = asyncio.run(_get_tools())
-        except Exception:
-            # Alternate introspection path
-            from cc.commands.mcp_serve import build_server as bs
-            import inspect
+            handler = server.request_handlers[ListToolsRequest]
+            response = await handler(ListToolsRequest(method="tools/list"))
+            result = getattr(response, "root", response)
+            return result.tools
 
-            srv = bs()
-            # The server exposes _list_tools_handler
-            tools = asyncio.run(srv._list_tools_handler())
+        tools = asyncio.run(_get_tools())
 
         return tools
 

@@ -653,6 +653,53 @@ def test_assessment_authors_component_scoped_safe_default_batch_and_exact_counts
     }
 
 
+def test_safe_component_is_selected_when_sibling_requires_owner_decision() -> None:
+    baseline = _project(path="/projects/mixed", route="owner-decision")
+    baseline.update({"presence": "both", "selected_components": []})
+    baseline["components"][0].update(
+        {
+            "state": "safe-update-available",
+            "selected": False,
+            "recommended": True,
+        }
+    )
+    baseline["components"][1].update(
+        {
+            "state": "owner-decision",
+            "selected": False,
+            "recommended": False,
+        }
+    )
+
+    selected = deepcopy(baseline)
+    selected.update(
+        {"route": "safe-update-available", "selected_components": ["claude"]}
+    )
+    selected["components"][0].update(
+        {
+            "state": "safe-update-available",
+            "selected": True,
+            "recommended": True,
+            "recipe_options": [],
+        }
+    )
+
+    report = assess_reconciliation(
+        machine_builder=_machine,
+        census_builder=lambda **kwargs: [
+            deepcopy(selected if kwargs.get("selections") else baseline)
+        ],
+    )
+
+    assert report["default_selection"] == [
+        {
+            "path": "/projects/mixed",
+            "components": ["claude"],
+            "category": "correction",
+        }
+    ]
+
+
 def test_ecosystem_repositories_are_counted_but_never_enter_project_batch() -> None:
     product = _project(path="/projects/product")
     product.update(

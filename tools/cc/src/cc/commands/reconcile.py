@@ -64,7 +64,9 @@ def _load_request(path: Optional[Path]) -> ReconciliationRequest:
     return parse_reconciliation_request(payload)
 
 
-def _run_report(builder: Callable[[], dict[str, Any]], *, output_json: bool) -> None:
+def _run_report(
+    builder: Callable[[], dict[str, Any]], *, output_json: bool
+) -> dict[str, Any]:
     try:
         report = builder()
     except RequestValidationError as exc:
@@ -86,6 +88,7 @@ def _run_report(builder: Callable[[], dict[str, Any]], *, output_json: bool) -> 
     _emit(report, output_json=output_json)
     if report["result"] in {"blocked", "partial"}:
         raise typer.Exit(1)
+    return report
 
 
 @reconcile_app.command("assess")
@@ -108,6 +111,20 @@ def prepare(
     from cc.core.ecosystem.setup_preflight import build_setup_prepare_report
 
     _run_report(build_setup_prepare_report, output_json=output_json)
+
+
+@reconcile_app.command("run")
+def run_setup_journey(
+    output_json: bool = typer.Option(
+        False, "--json", help="Emit the complete Python-owned setup journey."
+    ),
+) -> None:
+    """Prepare, update, integrate, and verify this Mac and all projects."""
+    from cc.core.ecosystem.setup_journey import build_setup_journey_report
+
+    report = _run_report(build_setup_journey_report, output_json=output_json)
+    if report["result"] != "ready":
+        raise typer.Exit(1)
 
 
 @reconcile_app.command("plan")

@@ -92,7 +92,9 @@ _PAYLOAD_KEYS: Mapping[RecipeOperationKind, frozenset[str]] = MappingProxyType(
         RecipeOperationKind.CREATE_INTERNAL_RELATIVE_SYMLINK: frozenset(
             {"link_target"}
         ),
-        RecipeOperationKind.UPSERT_LOCK_COMPONENT: frozenset({"component_entry"}),
+        RecipeOperationKind.UPSERT_LOCK_COMPONENT: frozenset(
+            {"component_entry", "replace_ecosystem_lock"}
+        ),
         RecipeOperationKind.WRITE_PROJECT_DECLARATION: frozenset({"document"}),
         RecipeOperationKind.ASSOCIATE_PERSONAL_PROJECT: frozenset({"document"}),
     }
@@ -135,6 +137,23 @@ _CODEX_BLOCK = (
     "capabilities.\n"
     "<!-- cc:project-integration:codex:v1:end -->\n"
 )
+
+_LEGACY_CODEX_GATE_WRAPPER = b'''#!/usr/bin/env bash
+
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PLUGIN_DIR="$(cd "${ROOT_DIR}/plugins/codex-copilot" && pwd -P)"
+FRAMEWORK_ROOT="$(cd "${PLUGIN_DIR}/../.." && pwd -P)"
+SHARED_GATE="${FRAMEWORK_ROOT}/scripts/copilot-gate.sh"
+
+if [[ ! -f "${SHARED_GATE}" ]]; then
+  echo "copilot-gate: shared gate not found at ${SHARED_GATE}" >&2
+  exit 2
+fi
+
+exec bash "${SHARED_GATE}" "$@"
+'''
 
 
 def _canonical_hash(payload: Any) -> str:
@@ -239,7 +258,7 @@ def _validate_payload(kind: RecipeOperationKind, payload: Mapping[str, Any]) -> 
             "Recipe payloads must contain only JSON-compatible typed values."
         ) from exc
     keys = frozenset(payload)
-    required = allowed - {"mode"}
+    required = allowed - {"mode", "replace_ecosystem_lock"}
     if not required <= keys or not keys <= allowed:
         raise RecipeValidationError(
             f"{kind.value} uses missing or unsupported payload keys."
@@ -250,6 +269,10 @@ def _validate_payload(kind: RecipeOperationKind, payload: Mapping[str, Any]) -> 
         or payload["mode"] > 0o777
     ):
         raise RecipeValidationError("Recipe file mode must be a bounded integer.")
+    if "replace_ecosystem_lock" in payload and payload["replace_ecosystem_lock"] is not True:
+        raise RecipeValidationError(
+            "The ecosystem-lock replacement marker must be exactly true."
+        )
     if "source_path" in payload:
         source = payload["source_path"]
         if not isinstance(source, str) or not Path(source).is_absolute():
@@ -764,7 +787,41 @@ def _lock_entry(source: Path, component: str) -> dict[str, Any]:
     }
 
 
-def _claude_customized_lock_entry(source: Path) -> dict[str, Any]:
+def _ecosystem_lock_collision(root: Path) -> bool:
+    try:
+        raw = json.loads((root / "copilot.lock.json").read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    if not isinstance(raw, dict) or not raw or "components" in raw:
+        return False
+    metadata = [
+        value.get("_meta")
+        for value in raw.values()
+        if isinstance(value, dict) and isinstance(value.get("_meta"), dict)
+    ]
+    return len(metadata) == len(raw) and all(
+        item.get("product") in {"knowledge", "cli", "claude", "codex"}
+        and isinstance(item.get("role"), str)
+        and item.get("tier") in {"personal", "department", "organization", "foundation"}
+        and (
+            item.get("source_sha") is None
+            or (
+                isinstance(item.get("source_sha"), str)
+                and len(item["source_sha"]) == 40
+            )
+        )
+        for item in metadata
+    )
+
+
+def _lock_payload(root: Path, entry: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {"component_entry": entry}
+    if _ecosystem_lock_collision(root):
+        payload["replace_ecosystem_lock"] = True
+    return payload
+
+
+def _claude_customized_lock_entry(source: Path, root: Path) -> dict[str, Any]:
     entry = _lock_entry(source, "claude")
     owned_paths = {
         ".claude/commands/protocol.md",
@@ -775,7 +832,47 @@ def _claude_customized_lock_entry(source: Path) -> dict[str, Any]:
         **entry,
         "ownership_mode": "customized-preserve",
         "files": [
-            item for item in entry["files"] if item.get("path") in owned_paths
+            item
+            for item in entry["files"]
+            if item.get("path") in owned_paths
+            and (
+                _target_missing(root, str(item["path"]))
+                or (
+                    _safe_target_kind(root, str(item["path"])) == "regular"
+                    and _bytes_hash((root / str(item["path"])).read_bytes())
+                    == item.get("checksum")
+                )
+            )
+        ],
+    }
+
+
+def _codex_customized_lock_entry(source: Path, root: Path) -> dict[str, Any]:
+    entry = _lock_entry(source, "codex")
+    plugin_missing = _target_missing(root, "plugins/codex-copilot")
+    return {
+        **entry,
+        "ownership_mode": "customized-preserve",
+        "files": [
+            item
+            for item in entry["files"]
+            if (
+                str(item["path"]).startswith("plugins/codex-copilot/")
+                and plugin_missing
+            )
+            or (
+                item.get("path") == "scripts/copilot-gate.sh"
+                and (
+                    _target_missing(root, "scripts/copilot-gate.sh")
+                    or _legacy_codex_gate_wrapper(root)
+                )
+            )
+            or (
+                (root / str(item["path"])).is_file()
+                and not (root / str(item["path"])).is_symlink()
+                and _bytes_hash((root / str(item["path"])).read_bytes())
+                == item.get("checksum")
+            )
         ],
     }
 
@@ -818,6 +915,34 @@ def _target_missing(root: Path, target: str) -> bool:
     except OSError:
         return False
     return False
+
+
+def _legacy_codex_gate_wrapper(root: Path) -> bool:
+    target = root / "scripts/copilot-gate.sh"
+    try:
+        return (
+            target.is_file()
+            and not target.is_symlink()
+            and target.read_bytes() == _LEGACY_CODEX_GATE_WRAPPER
+        )
+    except OSError:
+        return False
+
+
+def _contained_missing_codex_bridge(root: Path) -> bool:
+    bridge = root / ".claude/skills/codex-copilot"
+    try:
+        for ancestor in (root / ".claude", root / ".claude/skills"):
+            metadata = ancestor.lstat()
+            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+                return False
+        return (
+            bridge.is_symlink()
+            and str(bridge.readlink()) == "../../plugins/codex-copilot/skills"
+            and not (root / "plugins/codex-copilot/skills").exists()
+        )
+    except OSError:
+        return False
 
 
 def _project_declaration_components(
@@ -875,6 +1000,7 @@ def _project_declaration_components(
 def _claude_setup(root: Path, component: str) -> tuple[RecipeOperation, ...]:
     source = _source_root(component)
     operations: list[RecipeOperation] = []
+    agents_missing = _target_missing(root, ".claude/agents")
     if _target_missing(root, "CLAUDE.md"):
         operations.append(
             _operation(
@@ -917,7 +1043,7 @@ def _claude_setup(root: Path, component: str) -> tuple[RecipeOperation, ...]:
                     },
                 )
             )
-    if _target_missing(root, ".claude/agents"):
+    if agents_missing:
         operations.append(
             _operation(
                 root=root,
@@ -929,6 +1055,22 @@ def _claude_setup(root: Path, component: str) -> tuple[RecipeOperation, ...]:
                 payload={"source_path": str(source / ".claude/agents")},
             )
         )
+    lock_entry = _lock_entry(source, component)
+    if not agents_missing:
+        lock_entry = {
+            **lock_entry,
+            "files": [
+                item
+                for item in lock_entry["files"]
+                if not str(item.get("path", "")).startswith(".claude/agents/")
+                or (
+                    (root / str(item["path"])).is_file()
+                    and not (root / str(item["path"])).is_symlink()
+                    and _bytes_hash((root / str(item["path"])).read_bytes())
+                    == item.get("checksum")
+                )
+            ],
+        }
     operations.append(
         _operation(
             root=root,
@@ -936,7 +1078,7 @@ def _claude_setup(root: Path, component: str) -> tuple[RecipeOperation, ...]:
             kind=RecipeOperationKind.UPSERT_LOCK_COMPONENT,
             target="copilot.lock.json",
             description="Record exact Claude framework-owned checksums.",
-            payload={"component_entry": _lock_entry(source, component)},
+            payload=_lock_payload(root, lock_entry),
         )
     )
     return tuple(operations)
@@ -959,7 +1101,7 @@ def _claude_legacy(root: Path, component: str) -> tuple[RecipeOperation, ...]:
             kind=RecipeOperationKind.UPSERT_LOCK_COMPONENT,
             target="copilot.lock.json",
             description="Refresh only the Claude lock component after verification.",
-            payload={"component_entry": _lock_entry(source, component)},
+            payload=_lock_payload(root, _lock_entry(source, component)),
         ),
     )
 
@@ -991,7 +1133,12 @@ def _codex_setup(root: Path, component: str) -> tuple[RecipeOperation, ...]:
                 payload={"source_path": str(plugin_source)},
             )
         )
-    if _target_missing(root, ".claude/skills/codex-copilot"):
+    if not _recognized_read_only_knowledge_link(
+        root, ".claude/skills"
+    ) and (
+        _target_missing(root, ".claude/skills/codex-copilot")
+        or _contained_missing_codex_bridge(root)
+    ):
         operations.append(
             _operation(
                 root=root,
@@ -1038,7 +1185,7 @@ def _codex_setup(root: Path, component: str) -> tuple[RecipeOperation, ...]:
             kind=RecipeOperationKind.UPSERT_LOCK_COMPONENT,
             target="copilot.lock.json",
             description="Record exact Codex framework-owned checksums.",
-            payload={"component_entry": _lock_entry(source, component)},
+            payload=_lock_payload(root, _lock_entry(source, component)),
         )
     )
     return tuple(operations)
@@ -1070,6 +1217,7 @@ def _codex_legacy(root: Path, component: str) -> tuple[RecipeOperation, ...]:
     if (
         _target_missing(root, "scripts/copilot-gate.sh")
         or (root / "scripts/copilot-gate.sh").is_symlink()
+        or _legacy_codex_gate_wrapper(root)
     ):
         operations.append(
             _operation(
@@ -1103,7 +1251,7 @@ def _codex_legacy(root: Path, component: str) -> tuple[RecipeOperation, ...]:
                 kind=RecipeOperationKind.UPSERT_LOCK_COMPONENT,
                 target="copilot.lock.json",
                 description="Refresh only the Codex lock component after verification.",
-                payload={"component_entry": _lock_entry(source, component)},
+                payload=_lock_payload(root, _lock_entry(source, component)),
             ),
         ]
     )
@@ -1195,12 +1343,12 @@ def _safe_json_object(root: Path, target: str) -> bool:
 
 
 def _safe_claude_project_tree(root: Path) -> bool:
-    """Reject Claude project trees containing any symlink or special file.
+    """Reject unsafe Claude mutation targets and unrecognized shared links.
 
     Preservation recipes deliberately leave project-authored files in place.
-    They must therefore prove that every existing entry below ``.claude`` is
-    an ordinary directory or regular file before offering a bounded repair.
-    This check never follows a project-controlled symlink.
+    The only external links admitted here are exact, read-only links into a
+    configured Knowledge ecosystem repository. Recipe operations never target
+    those links or their descendants.
     """
     for target in ("CLAUDE.md", ".mcp.json"):
         if _safe_target_kind(root, target) == "unsafe":
@@ -1214,10 +1362,13 @@ def _safe_claude_project_tree(root: Path) -> bool:
     for target in (
         ".claude/agents",
         ".claude/commands",
+        ".claude/skills",
         ".claude/cc",
         ".claude/memory",
     ):
         kind = _safe_target_kind(root, target)
+        if kind == "unsafe" and _recognized_read_only_knowledge_link(root, target):
+            continue
         if kind == "unsafe" or kind == "regular":
             return False
         if kind == "directory":
@@ -1241,6 +1392,26 @@ def _safe_claude_project_tree(root: Path) -> bool:
             except OSError:
                 return False
     return True
+
+
+def _recognized_read_only_knowledge_link(root: Path, target: str) -> bool:
+    link = root / target
+    try:
+        metadata = link.lstat()
+        if not stat.S_ISLNK(metadata.st_mode):
+            return False
+        configured = resolve_key("paths.knowledge_repo")
+        values = configured if isinstance(configured, list) else [configured]
+        leaf = PurePosixPath(target).name
+        resolved = link.resolve(strict=True)
+        expected = {
+            (Path(value).expanduser() / ".claude" / leaf).resolve(strict=True)
+            for value in values
+            if isinstance(value, str) and value
+        }
+    except (OSError, RecipeValidationError):
+        return False
+    return resolved in expected
 
 
 def _claude_preserve_entry_eligible(
@@ -1290,6 +1461,35 @@ def _claude_assistant_preserve_entry_eligible(
     return True
 
 
+def _claude_legacy_knowledge_links_eligible(
+    root: Path, assessment: Mapping[str, Any], dossier: Mapping[str, Any]
+) -> bool:
+    """Preserve a verified read-only Knowledge hierarchy without writing through it."""
+    del dossier
+    if not _safe_claude_project_tree(root) or not any(
+        _recognized_read_only_knowledge_link(root, target)
+        for target in (
+            ".claude/agents",
+            ".claude/commands",
+            ".claude/skills",
+        )
+    ):
+        return False
+    requirements = _requirement_ids(assessment)
+    if not requirements or not requirements <= {
+        "compatible-claude-entry",
+        "valid-mcp-marker",
+        "project-owned-component-content",
+    }:
+        return False
+    if _safe_target_kind(root, "CLAUDE.md") not in {"missing", "regular"}:
+        return False
+    return (
+        "valid-mcp-marker" not in requirements
+        or _safe_target_kind(root, ".mcp.json") == "missing"
+    )
+
+
 def _codex_preserve_entry_eligible(
     root: Path, assessment: Mapping[str, Any], dossier: Mapping[str, Any]
 ) -> bool:
@@ -1299,8 +1499,14 @@ def _codex_preserve_entry_eligible(
         "valid-codex-config",
         "valid-plugin-manifest",
         "internal-skill-link",
+        "project-owned-component-content",
     }
     if not requirements or not requirements <= covered:
+        return False
+    if (
+        "project-owned-component-content" in requirements
+        and not _valid_existing_codex_custom_topology(root)
+    ):
         return False
     preserved = _preserved_paths(dossier)
     if "compatible-codex-entry" in requirements and _safe_target_kind(
@@ -1315,11 +1521,46 @@ def _codex_preserve_entry_eligible(
     for requirement, target in missing_targets.items():
         if requirement not in requirements:
             continue
-        if _safe_target_kind(root, target) != "missing":
+        safe_missing = _safe_target_kind(root, target) == "missing"
+        if requirement == "internal-skill-link":
+            safe_missing = safe_missing or _contained_missing_codex_bridge(root)
+        if not safe_missing:
             return False
         if any(path == target or path.startswith(f"{target}/") for path in preserved):
             return False
     return True
+
+
+def _valid_existing_codex_custom_topology(root: Path) -> bool:
+    config_path = root / ".codex-copilot.json"
+    manifest_path = root / "plugins/codex-copilot/.codex-plugin/plugin.json"
+    bridge = root / ".claude/skills/codex-copilot"
+    gate = root / "scripts/copilot-gate.sh"
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        bridge_ok = (
+            bridge.is_symlink()
+            and str(bridge.readlink()) == "../../plugins/codex-copilot/skills"
+            and (root / "plugins/codex-copilot/skills").is_dir()
+        )
+        gate_ok = _target_missing(root, "scripts/copilot-gate.sh") or (
+            gate.is_file()
+            and not gate.is_symlink()
+            and gate.read_bytes()
+            == (_source_root("codex") / "scripts/copilot-gate.sh").read_bytes()
+        )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecipeValidationError):
+        return False
+    return (
+        isinstance(config, dict)
+        and config.get("installType") == "copy"
+        and config.get("pluginPath") == "./plugins/codex-copilot"
+        and isinstance(manifest, dict)
+        and manifest.get("name") == "codex-copilot"
+        and bridge_ok
+        and gate_ok
+    )
 
 
 def _codex_config_merge_eligible(
@@ -1361,9 +1602,9 @@ def _claude_assistant_preserve_entry(
                     kind=RecipeOperationKind.UPSERT_LOCK_COMPONENT,
                     target="copilot.lock.json",
                     description="Record only the bounded Claude support files installed by this customized-preservation route.",
-                    payload={
-                        "component_entry": _claude_customized_lock_entry(source)
-                    },
+                    payload=_lock_payload(
+                        root, _claude_customized_lock_entry(source, root)
+                    ),
                 )
             )
             continue
@@ -1374,12 +1615,28 @@ def _claude_assistant_preserve_entry(
 def _codex_customized_preserve_entry(
     root: Path, component: str
 ) -> tuple[RecipeOperation, ...]:
-    return _replace_entry_operation(
+    source = _source_root(component)
+    operations = _replace_entry_operation(
         _codex_setup(root, component),
         root=root,
         component=component,
         target="AGENTS.md",
         block=_CODEX_BLOCK,
+    )
+    return tuple(
+        _operation(
+            root=root,
+            component=component,
+            kind=RecipeOperationKind.UPSERT_LOCK_COMPONENT,
+            target="copilot.lock.json",
+            description="Record only verified bounded Codex outputs while preserving customized plugin content.",
+            payload=_lock_payload(
+                root, _codex_customized_lock_entry(source, root)
+            ),
+        )
+        if operation.kind == RecipeOperationKind.UPSERT_LOCK_COMPONENT
+        else operation
+        for operation in operations
     )
 
 
@@ -1407,7 +1664,7 @@ def _codex_customized_merge_config(
             kind=RecipeOperationKind.UPSERT_LOCK_COMPONENT,
             target="copilot.lock.json",
             description="Record exact Codex framework-owned checksums after the bounded config merge.",
-            payload={"component_entry": _lock_entry(source, component)},
+            payload=_lock_payload(root, _lock_entry(source, component)),
         ),
     )
 
@@ -1482,6 +1739,14 @@ DEFAULT_RECIPE_REGISTRY = RecipeRegistry(
             "Preserve customized Claude content while adding only the canonical framework entry and missing framework-owned support files.",
             eligibility=_claude_assistant_preserve_entry_eligible,
             assistant_only=True,
+        ),
+        RecipeDefinition(
+            "claude.legacy-knowledge-links-preserve.v1",
+            "claude",
+            frozenset({ComponentRoute.CUSTOMIZED_GUIDED_ROUTE}),
+            _claude_assistant_preserve_entry,
+            "Preserve verified read-only Knowledge hierarchy links while adding only local Claude entry, marker, and lock evidence.",
+            eligibility=_claude_legacy_knowledge_links_eligible,
         ),
         RecipeDefinition(
             "codex.customized-preserve-entry.v1",
@@ -1722,7 +1987,9 @@ def _coalesce_lock_operations(
         kind=RecipeOperationKind.UPSERT_LOCK_COMPONENT,
         target="copilot.lock.json",
         description="Atomically refresh the selected Claude and Codex lock components.",
-        payload={"component_entry": entries[0] if len(entries) == 1 else entries},
+        payload=_lock_payload(
+            root, entries[0] if len(entries) == 1 else entries
+        ),
     )
     result: list[RecipeOperation] = []
     inserted = False

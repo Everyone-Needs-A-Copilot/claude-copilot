@@ -10,6 +10,7 @@ from cc.core.ecosystem.project_locking import inspect_project_identity, project_
 from cc.core.ecosystem.project_reconciliation import assess_project
 from cc.core.ecosystem.reconciliation_transaction import (
     DurableReceiptUnavailable,
+    ProjectPreflightSpec,
     ProjectTransactionPlan,
     ReconciliationTransactionError,
     TransactionOperation,
@@ -17,6 +18,8 @@ from cc.core.ecosystem.reconciliation_transaction import (
     fingerprint_recipe_source,
     transaction_plan_from_recipe,
 )
+
+from cc.core.ecosystem import project_reconciliation
 
 
 def _repo(path: Path) -> Path:
@@ -74,6 +77,54 @@ def test_success_requires_typed_output_and_fresh_verification(tmp_path) -> None:
     assert ledger[0]["status"] == "applied"
     assert ledger[0]["verification"] == "ready"
     assert "cc:managed" in (project / "CLAUDE.md").read_text(encoding="utf-8")
+
+
+def test_preflight_allows_safe_selected_component_with_owner_decision_sibling(
+    tmp_path, monkeypatch
+) -> None:
+    project = _repo(tmp_path / "project")
+    plan = _plan(project, tmp_path)
+    inspection_id = "sha256:" + "c" * 64
+    plan = ProjectTransactionPlan(
+        **{
+            **plan.__dict__,
+            "preflight": ProjectPreflightSpec(
+                inspection_id=inspection_id,
+                selected_components=("claude",),
+            ),
+        }
+    )
+    monkeypatch.setattr(
+        project_reconciliation,
+        "assess_project",
+        lambda *args, **kwargs: {
+            "inspection_id": inspection_id,
+            "route": "owner-decision",
+            "selected_components": ["claude"],
+            "components": [
+                {
+                    "component": "claude",
+                    "state": "safe-update-available",
+                    "selected": True,
+                    "recommended": True,
+                },
+                {
+                    "component": "codex",
+                    "state": "owner-decision",
+                    "selected": False,
+                    "recommended": False,
+                },
+            ],
+        },
+    )
+
+    ledger = execute_reconciliation(
+        [plan],
+        run_id="run_" + "9" * 32,
+        root=tmp_path / "state",
+    )
+
+    assert ledger[0]["status"] == "applied"
 
 
 @pytest.mark.parametrize(

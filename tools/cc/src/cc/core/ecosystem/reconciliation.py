@@ -310,7 +310,7 @@ def _validate_plans(
         )
     execution_by_path = dict(zip(execution_paths, execution_plans, strict=True))
 
-    routes = {str(project["path"]): str(project["route"]) for project in projects}
+    projects_by_path = {str(project["path"]): project for project in projects}
     unsafe_routes = {
         ProjectRoute.HELD.value,
         ProjectRoute.OWNER_DECISION.value,
@@ -328,7 +328,22 @@ def _validate_plans(
                 "A reviewed project plan has an unsupported operation list.",
                 exit_code=2,
             )
-        if routes[path] in unsafe_routes and operations:
+        project = projects_by_path[path]
+        selected_components = {
+            str(item.get("component")): item
+            for item in project.get("components", [])
+            if isinstance(item, Mapping) and item.get("selected") is True
+        }
+        selected_are_actionable = bool(selected_components) and all(
+            item.get("state") in _DEFAULT_ACTIONABLE_COMPONENT_ROUTES
+            and item.get("recommended") is True
+            for item in selected_components.values()
+        )
+        if (
+            str(project.get("route")) in unsafe_routes
+            and not selected_are_actionable
+            and operations
+        ):
             raise ReconciliationError(
                 "unsafe-plan",
                 "A held, excluded, ambiguous, or unverifiable project cannot contain operations.",
@@ -388,6 +403,11 @@ _DEFAULT_ACTIONABLE_COMPONENT_ROUTES = {
     "safe-update-available",
     "customized-guided-route",
 }
+_DEFAULT_CANDIDATE_COMPONENT_ROUTES = {
+    ComponentRoute.NOT_PRESENT.value,
+    ComponentRoute.NOT_SELECTED.value,
+    *_DEFAULT_ACTIONABLE_COMPONENT_ROUTES,
+}
 
 
 def _machine_summary(machine: Mapping[str, Any]) -> dict[str, str]:
@@ -420,8 +440,6 @@ def _machine_summary(machine: Mapping[str, Any]) -> dict[str, str]:
 def _default_selection_for(
     project: Mapping[str, Any], *, category: str
 ) -> dict[str, Any] | None:
-    if project.get("route") not in _DEFAULT_ACTIONABLE_ROUTES:
-        return None
     selected_components = project.get("selected_components")
     if (
         not isinstance(selected_components, list)
@@ -449,7 +467,7 @@ def _default_selection_for(
             return None
         observed.append(str(component))
         if component not in selected:
-            if route != ComponentRoute.READY.value or raw.get("selected") is not False:
+            if raw.get("selected") is not False:
                 return None
             continue
         if (
@@ -504,6 +522,7 @@ def _default_batch(
     from cc.core.ecosystem.reconciliation_assistant import _eligible_recipe_ids
 
     baseline = _validated_projects(projects)
+    attention_paths: set[str] = set()
     candidate_components: dict[str, list[str]] = {}
     for project in baseline:
         if project.get("scope", {}).get("kind") == "ecosystem-repository":
@@ -513,11 +532,19 @@ def _default_batch(
             for item in project.get("components", [])
             if isinstance(item, Mapping)
         }
-        components = [
+        non_ready = [
             component
             for component in SUPPORTED_COMPONENTS
             if assessments.get(component, {}).get("state")
             not in {ComponentRoute.READY.value, ComponentRoute.NOT_APPLICABLE.value}
+        ]
+        if non_ready:
+            attention_paths.add(str(project["path"]))
+        components = [
+            component
+            for component in non_ready
+            if assessments.get(component, {}).get("state")
+            in _DEFAULT_CANDIDATE_COMPONENT_ROUTES
         ]
         if components:
             candidate_components[str(project["path"])] = components
@@ -574,8 +601,12 @@ def _default_batch(
         if project.get("scope", {}).get("kind") == "ecosystem-repository":
             rendered.append(project)
             continue
-        if path not in candidate_paths:
+        if path not in attention_paths:
             counts["ready"] += 1
+            rendered.append(project)
+            continue
+        if path not in candidate_paths:
+            counts["needs_review"] += 1
             rendered.append(project)
             continue
         category = "new-setup" if project.get("presence") == "none" else "correction"
@@ -656,10 +687,11 @@ def _default_batch(
         "source_unavailable": 0,
         "other": 0,
     }
+    baseline_by_path = {str(project["path"]): project for project in baseline}
     for path in sorted(
-        candidate_paths - assisted_paths - {item["path"] for item in selections}
+        attention_paths - assisted_paths - {item["path"] for item in selections}
     ):
-        route = str(trial_by_path[path].get("route"))
+        route = str(trial_by_path.get(path, baseline_by_path[path]).get("route"))
         disposition = {
             ProjectRoute.HELD.value: "held",
             ProjectRoute.OWNER_DECISION.value: "owner_decision",

@@ -61,6 +61,14 @@ _CODEX_REQUIRED_LOCK_PATHS = (
     "scripts/copilot-gate.sh",
 )
 
+
+def _customized_framework_path_allowed(component: str, relative: str) -> bool:
+    if component == "claude":
+        return relative in _CLAUDE_REQUIRED_LOCK_PATHS
+    return relative == "scripts/copilot-gate.sh" or relative.startswith(
+        "plugins/codex-copilot/"
+    )
+
 _MANAGED_OUTPUT_TARGET_KINDS = {
     "claude": {
         "CLAUDE.md": "managed-text",
@@ -322,6 +330,8 @@ def _lock_state(root: Path) -> tuple[str, dict[str, dict[str, Any]], list[Any]]:
         or raw.get("schema_version") != "1.0"
         or not isinstance(raw.get("components"), list)
     ):
+        if _looks_like_ecosystem_lock(raw):
+            return "ecosystem-collision", {}, ["lock", "ecosystem-collision"]
         return "unreadable", {}, ["lock", "unsupported"]
     entries: dict[str, dict[str, Any]] = {}
     for entry in raw["components"]:
@@ -332,6 +342,30 @@ def _lock_state(root: Path) -> tuple[str, dict[str, dict[str, Any]], list[Any]]:
             return "unreadable", {}, ["lock", "duplicate-or-unknown-component"]
         entries[component] = entry
     return "verified", entries, ["lock", sorted(entries)]
+
+
+def _looks_like_ecosystem_lock(raw: Any) -> bool:
+    """Recognize the old cwd-dependent machine-lock collision exactly."""
+    if not isinstance(raw, dict) or not raw or "components" in raw:
+        return False
+    metadata = [
+        value.get("_meta")
+        for value in raw.values()
+        if isinstance(value, dict) and isinstance(value.get("_meta"), dict)
+    ]
+    return len(metadata) == len(raw) and all(
+        item.get("product") in {"knowledge", "cli", "claude", "codex"}
+        and isinstance(item.get("role"), str)
+        and item.get("tier") in {"personal", "department", "organization", "foundation"}
+        and (
+            item.get("source_sha") is None
+            or (
+                isinstance(item.get("source_sha"), str)
+                and len(item["source_sha"]) == 40
+            )
+        )
+        for item in metadata
+    )
 
 
 def _verify_lock_entry(
@@ -357,9 +391,8 @@ def _verify_lock_entry(
     if (
         not isinstance(entry.get("version"), str)
         or not isinstance(files, list)
-        or not files
+        or (not files and ownership_mode != "customized-preserve")
         or ownership_mode not in {"full", "customized-preserve"}
-        or (ownership_mode == "customized-preserve" and component != "claude")
     ):
         missing.append(
             {
@@ -481,7 +514,11 @@ def _verify_lock_entry(
         if component == "claude"
         else _CODEX_REQUIRED_LOCK_PATHS
     )
-    absent_required = [path for path in required if path not in recorded]
+    absent_required = (
+        []
+        if ownership_mode == "customized-preserve"
+        else [path for path in required if path not in recorded]
+    )
     if (
         component == "claude"
         and ownership_mode == "full"
@@ -490,13 +527,25 @@ def _verify_lock_entry(
         )
     ):
         absent_required.append(".claude/agents/<framework-agent>.md")
-    if ownership_mode == "customized-preserve" and recorded != set(
-        _CLAUDE_REQUIRED_LOCK_PATHS
+    if ownership_mode == "customized-preserve" and not all(
+        _customized_framework_path_allowed(component, path) for path in recorded
     ):
         missing.append(
             {
                 "id": "valid-lock-entry",
-                "detail": "The customized Claude lock must record exactly the bounded support-file subset.",
+                "detail": f"The customized {component.title()} lock contains a path outside the bounded support-file subset.",
+            }
+        )
+    if (
+        ownership_mode == "customized-preserve"
+        and not recorded
+        and ("CLAUDE.md" if component == "claude" else "AGENTS.md")
+        not in managed_paths
+    ):
+        missing.append(
+            {
+                "id": "valid-lock-entry",
+                "detail": f"The customized {component.title()} lock has no verified bounded output.",
             }
         )
     for path in absent_required:
@@ -565,8 +614,27 @@ def _verify_claude_entry(
 
 
 def _verify_internal_skill_link(root: Path) -> tuple[bool, str, list[Any]]:
-    link = root / ".claude/skills/codex-copilot"
-    expected = (root / "plugins/codex-copilot/skills").resolve()
+    external_skills = _configured_external_claude_skills_root(root)
+    if external_skills is not None:
+        return (
+            True,
+            "The project uses a verified read-only Knowledge skill hierarchy; the local Codex plugin remains project-contained.",
+            ["skill-link", "external-knowledge-hierarchy", str(external_skills)],
+        )
+    link, link_error = _safe_relative_target(
+        root, ".claude/skills/codex-copilot"
+    )
+    expected_target, expected_error = _safe_relative_target(
+        root, "plugins/codex-copilot/skills"
+    )
+    if link is None or expected_target is None:
+        detail = link_error or expected_error
+        return (
+            False,
+            "The Codex skill bridge could not be proven contained in this project.",
+            ["skill-link", "unsafe-path", detail],
+        )
+    expected = expected_target.resolve()
     try:
         if not link.is_symlink():
             return (
@@ -576,6 +644,13 @@ def _verify_internal_skill_link(root: Path) -> tuple[bool, str, list[Any]]:
                     "skill-link",
                     "missing",
                 ],
+            )
+        raw_target = str(link.readlink())
+        if raw_target == "../../plugins/codex-copilot/skills" and not expected.exists():
+            return (
+                False,
+                "The contained Codex skill bridge target is not installed yet.",
+                ["skill-link", raw_target, "contained-target-missing"],
             )
         resolved = link.resolve(strict=True)
         if resolved != expected or (resolved != root and root not in resolved.parents):
@@ -605,6 +680,25 @@ def _verify_internal_skill_link(root: Path) -> tuple[bool, str, list[Any]]:
                 "unreadable",
             ],
         )
+
+
+def _configured_external_claude_skills_root(root: Path) -> Optional[Path]:
+    link = root / ".claude/skills"
+    try:
+        metadata = link.lstat()
+        if not stat.S_ISLNK(metadata.st_mode):
+            return None
+        configured = resolve_key("paths.knowledge_repo")
+        values = configured if isinstance(configured, list) else [configured]
+        resolved = link.resolve(strict=True)
+        expected = {
+            (Path(value).expanduser() / ".claude/skills").resolve(strict=True)
+            for value in values
+            if isinstance(value, str) and value
+        }
+    except OSError:
+        return None
+    return resolved if resolved in expected else None
 
 
 def _verify_legacy_linked_codex_setup(
@@ -1077,7 +1171,10 @@ def _known_untracked_component(
     unsafe_link = any(
         item["kind"] == "link"
         and item["state"] != "verified"
-        and ("outside" in item["detail"] or "resolved safely" in item["detail"])
+        and any(
+            marker in item["detail"]
+            for marker in ("outside", "could not be proven contained", "resolved safely")
+        )
         for item in entry_evidence
     )
     if unreadable or unsafe_link:
@@ -1277,17 +1374,35 @@ def _component_draft(
             and item["detail"].endswith(".claude/fitness-check.sh.")
             for item in lock_missing
         )
+        repairable_claude_lock = (
+            bool(lock_missing)
+            and lock_requirement_ids
+            <= {"verified-framework-file", "required-lock-path"}
+            and all(
+                item.get("state") not in {"mismatch", "unreadable"}
+                for item in lock_evidence
+            )
+            and entry_requirement_ids <= {"valid-mcp-marker"}
+            and all(
+                item.get("state") != "unreadable" for item in entry_evidence
+            )
+        )
         if (
             component == "claude"
-            and (lock_ok or legacy_claude_lock)
+            and (lock_ok or legacy_claude_lock or repairable_claude_lock)
             and entry_requirement_ids <= {"compatible-claude-entry"}
+            | ({"valid-mcp-marker"} if repairable_claude_lock else set())
             and all(item["state"] != "unreadable" for item in entry_evidence)
             and (lock_missing or entry_missing)
         ):
             guided_variant = (
                 "claude-legacy-lock-v1"
                 if legacy_claude_lock
-                else "claude-legacy-entry-v1"
+                else (
+                    "claude-missing-framework-files-v1"
+                    if repairable_claude_lock
+                    else "claude-legacy-entry-v1"
+                )
             )
         elif component == "codex":
             legacy_linked, legacy_evidence, legacy_fingerprint = (

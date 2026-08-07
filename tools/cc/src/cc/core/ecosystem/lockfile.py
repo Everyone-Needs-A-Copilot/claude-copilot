@@ -54,10 +54,11 @@ def default_lockfile_path() -> Optional[Path]:
     """
     Deterministic default location for the ecosystem lockfile.
 
-    Project-scoped CLI use keeps the established
-    `<repo root>/copilot.lock.json` target. Machine-scoped callers such as
-    Control Tower are normally launched outside a Git repository, so they
-    fall back to cc's machine-state directory beside `config.json`.
+    The ecosystem lockfile is machine state and always lives beside cc's
+    machine config.  Project integration has a different, project-local
+    component lock with the same filename; allowing the current working
+    directory to choose between those schemas made machine truth depend on
+    where the process happened to launch.
 
     The fallback deliberately goes through `machine_config_path()` rather
     than `Path.home()` directly. That keeps GUI/Finder launches independent
@@ -75,49 +76,11 @@ def default_lockfile_path() -> Optional[Path]:
     tests/test_doctor_contract.py's
     `test_status_healthy_via_mirror_fallback_with_meta_source_sha`).
 
-    The live "local none" is this function's own already-documented
-    project-vs-machine duality colliding with a DIFFERENT, pre-existing
-    file of the identical name: `core/ecosystem/projects.py`'s
-    `PROJECT_LOCK_FILENAME` (also `copilot.lock.json`, but a per-project
-    Component-Sync file-checksum manifest -- `{components: [...],
-    schema_version: ...}` -- utterly different shape). That module's own
-    docstring already flags this as a "NAMING COLLISION -- deliberately
-    not hidden" and explicitly leaves unresolved "the one edge case where
-    a single repo could be BOTH a framework checkout (writing this
-    module's shape via `cc update`) AND a Component-Sync-tracked project
-    (writing that module's shape)". `claude-copilot` (the `cc` framework's
-    OWN dev checkout) is a concrete instance of exactly that edge case: it
-    already has framework components installed (`.claude/commands/
-    protocol.md` etc.), so its repo root already carries a
-    `copilot.lock.json` in `projects.py`'s shape. Any `cc doctor`/`cc
-    update` invoked from INSIDE that repo (rather than from `$HOME` or
-    another non-repo directory) hits `repo_root() is not None` above,
-    reads that wrong-shaped file, and `read_lockfile()` accepts it (it
-    only checks `isinstance(data, dict)` -- see this module's own
-    docstring's "missing/corrupt degrades to empty" contract) -- so every
-    layer lookup comes back empty, which is the SAME safe "nothing
-    materialized here yet" degrade `read_lockfile()` already produces for
-    a genuinely-missing file, just triggered by the wrong file rather than
-    no file. Verified live: `cc doctor` run from `$HOME` (machine-scoped
-    fallback, no collision) reports all 8 sync checkers `pass`; the SAME
-    command run from inside `claude-copilot` reports all 8 as "local
-    none".
-
-    This is a deferred, already-known design tension (Component Sync's
-    own Phase 1 scope per `projects.py`'s docstring), not a hidden defect
-    in doctor's or update's pin-reading logic -- no code change was made
-    here for P5.2. Workaround until Component Sync's Phase 1 reconciles
-    the two schemas under one filename: invoke `cc doctor`/`cc update`
-    from outside any git repository that itself embeds framework
-    components (the documented machine-scoped calling convention every
-    other WS-A verb already assumes -- see this function's own docstring
-    above).
+    Project commands resolve their component lock explicitly from the
+    project root and do not call this function.
     """
-    from cc.core.config_paths import machine_config_path, repo_root
+    from cc.core.config_paths import machine_config_path
 
-    root = repo_root()
-    if root is not None:
-        return root / "copilot.lock.json"
     return machine_config_path().parent / "copilot.lock.json"
 
 

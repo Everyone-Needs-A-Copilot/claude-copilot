@@ -7,7 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Python-owned end-to-end setup (`cc` 2.11.0):** `cc reconcile run --json`
+  now owns the complete machine-to-project journey: recover interrupted work,
+  checkpoint dirty Product projects locally without pushing, refresh shared
+  Foundation/Internal/Department repositories in download-only mode, apply
+  every independently safe component recipe, checkpoint the resulting project
+  changes, and independently verify the complete machine and project scope.
+  It reports `operational: true` with `confidence: 0.95` only when every final
+  machine, hierarchy, and Product-project check is ready. Swift may invoke and
+  render this contract, but does not own any setup or verification decision.
+
 ### Fixed
+
+- **Complete project reconciliation (`cc` 2.11.0):** component-safe work is no
+  longer suppressed by an unrelated peer component; missing Claude support
+  files and portable Codex gates are repaired transactionally; legacy
+  machine-lock collisions at project roots are replaced only when their exact
+  old shape is proven; customized Claude/Codex entries preserve project-owned
+  content while recording only verified framework outputs; and recognized
+  read-only Knowledge hierarchy links can coexist with project-local Claude
+  and Codex integration without writing through a shared repository symlink.
+  Every guarded apply stores a private redacted diagnostic path suitable for
+  support conversations.
+
+- **Machine setup truth and safety (`cc` 2.11.0):** the ecosystem lock always
+  lives under machine configuration rather than the caller's working
+  directory; shared refresh uses the configured GitHub organization and the
+  actual Claude/Codex product set; Product projects are checkpointed whenever
+  they are dirty, including repeat-safe generated setup work; and ecosystem
+  repositories remain download-only even when GitHub reports author-level
+  permission.
 
 - **Fetched Foundation snapshot proof (`cc` 2.10.2):** the freshness checker
   now carries forward `git ls-remote` evidence that the declared remote ref is

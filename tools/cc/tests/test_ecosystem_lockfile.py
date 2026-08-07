@@ -64,12 +64,14 @@ def test_read_lockfile_never_writes(tmp_path):
     assert not missing.exists()
 
 
-def test_default_lockfile_path_stays_repo_local(monkeypatch, tmp_path):
+def test_default_lockfile_path_uses_machine_root_even_inside_repo(monkeypatch, tmp_path):
     repo = tmp_path / "project"
     repo.mkdir()
     monkeypatch.setattr("cc.core.config_paths.repo_root", lambda: repo)
+    machine_root = tmp_path / "machine"
+    monkeypatch.setenv("CC_MACHINE_ROOT", str(machine_root))
 
-    assert default_lockfile_path() == repo / "copilot.lock.json"
+    assert default_lockfile_path() == machine_root / "copilot.lock.json"
 
 
 def test_default_lockfile_path_uses_isolated_machine_root_outside_repo(

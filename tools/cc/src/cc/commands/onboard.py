@@ -1291,7 +1291,7 @@ def _apply_visible_topology(
 def build_shared_repository_refresh_report(
     *,
     org: str = "auto",
-    products: Sequence[str] = COMPONENTS,
+    products: Sequence[str] = PRODUCTS,
     run: Run | None = None,
     repository_root: Path | str | None = None,
 ) -> dict[str, Any]:

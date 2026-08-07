@@ -488,7 +488,10 @@ def _closed_payload(operation: TransactionOperation) -> dict[str, Any]:
     elif kind == RecipeOperationKind.CREATE_INTERNAL_RELATIVE_SYMLINK.value:
         required, allowed = {"link_target"}, {"link_target"}
     elif kind == RecipeOperationKind.UPSERT_LOCK_COMPONENT.value:
-        required, allowed = {"component_entry"}, {"component_entry"}
+        required, allowed = {"component_entry"}, {
+            "component_entry",
+            "replace_ecosystem_lock",
+        }
     elif kind in {
         RecipeOperationKind.WRITE_PROJECT_DECLARATION.value,
         RecipeOperationKind.ASSOCIATE_PERSONAL_PROJECT.value,
@@ -514,6 +517,29 @@ def _canonical_document(value: Any) -> bytes:
     if not isinstance(value, Mapping):
         raise ReconciliationTransactionError("A typed JSON document must be an object.")
     return (json.dumps(dict(value), indent=2, sort_keys=True) + "\n").encode("utf-8")
+
+
+def _looks_like_ecosystem_lock(raw: Any) -> bool:
+    if not isinstance(raw, dict) or not raw or "components" in raw:
+        return False
+    metadata = [
+        value.get("_meta")
+        for value in raw.values()
+        if isinstance(value, dict) and isinstance(value.get("_meta"), dict)
+    ]
+    return len(metadata) == len(raw) and all(
+        item.get("product") in {"knowledge", "cli", "claude", "codex"}
+        and isinstance(item.get("role"), str)
+        and item.get("tier") in {"personal", "department", "organization", "foundation"}
+        and (
+            item.get("source_sha") is None
+            or (
+                isinstance(item.get("source_sha"), str)
+                and len(item["source_sha"]) == 40
+            )
+        )
+        for item in metadata
+    )
 
 
 @dataclass(frozen=True)
@@ -625,12 +651,13 @@ def _prepare_mutation(
             raise ReconciliationTransactionError(
                 "The project lock is unreadable."
             ) from exc
-        if not isinstance(document, dict) or not isinstance(
-            document.get("components"), list
-        ):
-            raise ReconciliationTransactionError(
-                "The project lock has an unsupported shape."
-            )
+        if not isinstance(document, dict) or not isinstance(document.get("components"), list):
+            if payload.get("replace_ecosystem_lock") is True and _looks_like_ecosystem_lock(document):
+                document = {"schema_version": "1.0", "components": []}
+            else:
+                raise ReconciliationTransactionError(
+                    "The project lock has an unsupported shape."
+                )
         components = {str(entry["component"]) for entry in entries}
         document["components"] = [
             item
@@ -988,11 +1015,25 @@ def _verify_closed_preflight(
         "safe-setup-available",
         "safe-update-available",
     }
+    components = {
+        str(item.get("component")): item
+        for item in assessment.get("components", [])
+        if isinstance(item, Mapping)
+    }
+    selected_are_actionable = bool(spec.selected_components) and all(
+        components.get(component, {}).get("selected") is True
+        and components.get(component, {}).get("recommended") is True
+        and components.get(component, {}).get("state") in allowed_routes
+        for component in spec.selected_components
+    )
     if (
         assessment.get("inspection_id") != spec.inspection_id
         or not isinstance(selected, list)
         or tuple(selected) != spec.selected_components
-        or assessment.get("route") not in allowed_routes
+        or (
+            assessment.get("route") not in allowed_routes
+            and not selected_are_actionable
+        )
     ):
         raise ReconciliationTransactionError(
             "Fresh project preflight no longer matches the reviewed plan."

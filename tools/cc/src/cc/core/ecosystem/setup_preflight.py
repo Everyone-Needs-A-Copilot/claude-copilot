@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from cc.commands.onboard import build_shared_repository_refresh_report
+from cc.core.config import resolve_key
 from cc.core.ecosystem.project_locking import (
     ProjectLockError,
     project_lock,
@@ -186,7 +187,7 @@ def _checkpoint_project(project: Mapping[str, Any], run_id: str) -> dict[str, An
 def build_setup_prepare_report(
     *,
     assess_builder: AssessBuilder = assess_reconciliation,
-    refresh_builder: RefreshBuilder = build_shared_repository_refresh_report,
+    refresh_builder: RefreshBuilder | None = None,
 ) -> dict[str, Any]:
     """Save eligible Product work, refresh shared sources, then reassess."""
     initial = assess_builder()
@@ -202,10 +203,27 @@ def build_setup_prepare_report(
         if project.get("scope", {}).get("kind") != "product-project":
             continue
         blockers = project.get("blockers", [])
-        if not any(
+        reported_dirty = any(
             isinstance(blocker, Mapping) and blocker.get("code") == "dirty-working-tree"
             for blocker in blockers
-        ):
+        )
+        raw_path = project.get("path")
+        observed_dirty = False
+        if isinstance(raw_path, str) and raw_path:
+            try:
+                status = _git(
+                    Path(raw_path),
+                    "status",
+                    "--porcelain=v1",
+                    "-z",
+                    "--untracked-files=all",
+                )
+            except (OSError, subprocess.SubprocessError):
+                status = None
+            observed_dirty = (
+                status is not None and status.returncode == 0 and bool(status.stdout)
+            )
+        if not reported_dirty and not observed_dirty:
             continue
         outcome = _checkpoint_project(project, run_id)
         if outcome["status"] == "checkpointed":
@@ -217,8 +235,18 @@ def build_setup_prepare_report(
             holds.append(outcome["hold"])
 
     try:
-        refresh = refresh_builder()
-    except Exception:
+        if refresh_builder is not None:
+            refresh = refresh_builder()
+        else:
+            configured_org = resolve_key("github_app.org")
+            refresh = build_shared_repository_refresh_report(
+                org=(
+                    configured_org
+                    if isinstance(configured_org, str) and configured_org.strip()
+                    else "auto"
+                )
+            )
+    except Exception as exc:
         refresh = {
             "result": "blocked",
             "mode": "download-only",
@@ -226,7 +254,14 @@ def build_setup_prepare_report(
             "layers": [],
             "authority": {"setup_access": "download-only", "author_capable": 0, "read_only": 0, "unknown": 0},
             "summary": {"checked": 0, "updated": 0, "current": 0, "held": 1},
-            "holds": [{"code": "shared-refresh-unavailable", "detail": "Shared Copilot repositories could not be refreshed safely."}],
+            "holds": [
+                {
+                    "code": "shared-refresh-unavailable",
+                    "detail": "Shared Copilot repositories could not be refreshed safely.",
+                    "diagnostic": str(exc)[:1000]
+                    or type(exc).__name__,
+                }
+            ],
         }
     actions.extend(refresh.get("completed_actions", []))
     holds.extend(refresh.get("holds", []))

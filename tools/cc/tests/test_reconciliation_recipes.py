@@ -203,6 +203,31 @@ def test_both_component_plan_is_closed_unique_and_schema_valid(
     )
 
 
+def test_claude_repair_records_only_matching_existing_agent_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = _project(tmp_path)
+    claude, codex = _framework_sources(tmp_path)
+    _configure_sources(monkeypatch, claude, codex)
+    _write(project / ".claude/agents/me.md", "me\n")
+
+    operations = recipes._claude_setup(project, "claude")
+    lock_operation = next(
+        operation
+        for operation in operations
+        if operation.kind == RecipeOperationKind.UPSERT_LOCK_COMPONENT
+    )
+    recorded = {
+        item["path"] for item in lock_operation.payload["component_entry"]["files"]
+    }
+
+    assert ".claude/agents/me.md" in recorded
+    assert ".claude/agents/kc.md" not in recorded
+    assert not any(
+        operation.target == ".claude/agents/kc.md" for operation in operations
+    )
+
+
 @pytest.mark.parametrize(
     "route",
     [

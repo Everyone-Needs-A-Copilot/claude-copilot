@@ -295,6 +295,15 @@ def _build_artifact_case(
         bridge = project / ".claude/skills/codex-copilot"
         bridge.parent.mkdir(parents=True)
         bridge.symlink_to(outside)
+    elif case == "skill-bridge-parent":
+        outside = tmp_path / "shared-skills"
+        outside.mkdir()
+        (outside / "codex-copilot").symlink_to(
+            "../../plugins/codex-copilot/skills"
+        )
+        skills = project / ".claude/skills"
+        skills.parent.mkdir(parents=True)
+        skills.symlink_to(outside, target_is_directory=True)
     elif case == "plugin":
         _install_current(project, claude_source, codex_source, ("codex",))
         (project / "copilot.lock.json").unlink()
@@ -358,12 +367,13 @@ def _build_artifact_case(
             "claude.customized-preserve-entry.v1",
         ),
         ("skill-bridge", "codex", "could-not-verify", "person", None),
+        ("skill-bridge-parent", "codex", "could-not-verify", "person", None),
         (
             "plugin",
             "codex",
-            "owner-decision",
-            "project-owner",
-            None,
+            "customized-guided-route",
+            "project-author",
+            "codex.customized-preserve-entry.v1",
         ),
         (
             "gate",
@@ -441,6 +451,15 @@ def test_artifact_family_routes_and_plans_are_authoritative_and_read_only(
                 "internal-skill-link",
             ),
         ),
+        "skill-bridge-parent": (
+            "could-not-verify",
+            (
+                "compatible-codex-entry",
+                "valid-codex-config",
+                "valid-plugin-manifest",
+                "internal-skill-link",
+            ),
+        ),
         "plugin": (
             "guided-integration",
             ("project-owned-component-content",),
@@ -459,6 +478,7 @@ def test_artifact_family_routes_and_plans_are_authoritative_and_read_only(
         "codex-entry": "AGENTS.md",
         "mcp-config": ".mcp.json",
         "skill-bridge": ".claude/skills",
+        "skill-bridge-parent": ".claude/skills",
         "plugin": "plugins",
         "gate": "scripts/copilot-gate.sh",
         "config": ".codex-copilot.json",
@@ -711,6 +731,120 @@ def test_current_legacy_and_mixed_families_use_real_project_evidence(
     assert _git(project, "status", "--porcelain=v1") == ""
 
 
+def test_missing_tracked_claude_files_are_repaired_without_overwriting_project_work(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    claude_source, codex_source = _framework_sources(tmp_path)
+    _configure_sources(monkeypatch, claude_source, codex_source)
+    project = _project(tmp_path, "missing-tracked-claude-files")
+    _install_current(project, claude_source, codex_source, ("claude",))
+    (project / ".claude/commands/protocol.md").unlink()
+    (project / ".claude/commands/continue.md").unlink()
+    (project / ".claude/fitness-check.sh").unlink()
+    (project / ".mcp.json").unlink()
+    _commit(project)
+
+    assessment = assess_project(
+        project,
+        approved_root=tmp_path,
+        selected_components=("claude",),
+    )
+
+    assert _component(assessment, "claude")["state"] == "safe-update-available"
+    _, plans = build_project_plans(
+        [assessment],
+        {str(project): ("claude",)},
+    )
+    receipts = execute_reconciliation(
+        [plans[0].transaction_plan()],
+        run_id="run_" + "e" * 32,
+        root=tmp_path / "transaction-state",
+    )
+
+    assert receipts[0]["status"] == "applied"
+    verified = integration.inspect_project_integration(project, detail=True)
+    assert _component(verified, "claude")["classification"] == "ready"
+
+
+def test_machine_lock_collision_is_replaced_by_bounded_project_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    claude_source, codex_source = _framework_sources(tmp_path)
+    _configure_sources(monkeypatch, claude_source, codex_source)
+    project = _project(tmp_path, "machine-lock-collision")
+    _install_current(project, claude_source, codex_source, ("claude", "codex"))
+    _write(
+        project / "copilot.lock.json",
+        json.dumps(
+            {
+                "claude-foundation": {
+                    "_meta": {
+                        "product": "claude",
+                        "role": "foundation",
+                        "tier": "foundation",
+                        "source_sha": "a" * 40,
+                    },
+                    "skills": {"me": "b" * 40},
+                }
+            }
+        ),
+    )
+    _commit(project)
+
+    assessment = assess_project(
+        project,
+        approved_root=tmp_path,
+        selected_components=("claude", "codex"),
+    )
+
+    assert assessment["route"] == "safe-update-available"
+    _, plans = build_project_plans(
+        [assessment], {str(project): ("claude", "codex")}
+    )
+    receipts = execute_reconciliation(
+        [plans[0].transaction_plan()],
+        run_id="run_" + "f" * 32,
+        root=tmp_path / "transaction-state",
+    )
+
+    assert receipts[0]["status"] == "applied"
+    lock = json.loads((project / "copilot.lock.json").read_text(encoding="utf-8"))
+    assert lock["schema_version"] == "1.0"
+    assert {item["component"] for item in lock["components"]} == {
+        "claude",
+        "codex",
+    }
+
+
+def test_legacy_codex_gate_wrapper_is_replaced_during_portable_migration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    claude_source, codex_source = _framework_sources(tmp_path)
+    _configure_sources(monkeypatch, claude_source, codex_source)
+    project = _project(tmp_path, "legacy-gate-wrapper")
+    _install_legacy_codex(project, codex_source)
+    gate = project / "scripts/copilot-gate.sh"
+    gate.parent.mkdir(parents=True)
+    gate.write_bytes(recipes._LEGACY_CODEX_GATE_WRAPPER)
+    gate.chmod(0o755)
+    _commit(project)
+
+    assessment = assess_project(
+        project,
+        approved_root=tmp_path,
+        selected_components=("codex",),
+    )
+    _, plans = build_project_plans([assessment], {str(project): ("codex",)})
+    receipts = execute_reconciliation(
+        [plans[0].transaction_plan()],
+        run_id="run_" + "1" * 32,
+        root=tmp_path / "transaction-state",
+    )
+
+    assert receipts[0]["status"] == "applied"
+    assert gate.read_bytes() == (codex_source / "scripts/copilot-gate.sh").read_bytes()
+
+
 @pytest.mark.parametrize(
     ("case", "component_name", "recipe_id", "managed_path"),
     [
@@ -728,6 +862,12 @@ def test_current_legacy_and_mixed_families_use_real_project_evidence(
         ),
         (
             "codex-entry",
+            "codex",
+            "codex.customized-preserve-entry.v1",
+            "AGENTS.md",
+        ),
+        (
+            "plugin",
             "codex",
             "codex.customized-preserve-entry.v1",
             "AGENTS.md",
@@ -796,12 +936,16 @@ def test_custom_family_apply_verifies_and_repeats_without_work(
         assert "# Project-owned Codex routing" in (project / "AGENTS.md").read_text(
             encoding="utf-8"
         )
-    else:
+    elif case == "config":
         config = json.loads(
             (project / ".codex-copilot.json").read_text(encoding="utf-8")
         )
         assert config["projectSetting"] == "preserve-me"
         assert config["installType"] == "copy"
+    else:
+        assert (
+            project / "plugins/codex-copilot/project-owned.md"
+        ).read_text(encoding="utf-8") == "custom plugin\n"
 
     lock = json.loads((project / "copilot.lock.json").read_text(encoding="utf-8"))
     entry = next(
@@ -816,7 +960,7 @@ def test_custom_family_apply_verifies_and_repeats_without_work(
         approved_root=tmp_path,
         selected_components=(component_name,),
     )
-    assert repeat["route"] == "ready"
+    assert repeat["route"] == "ready", repeat
     assert _component(repeat, component_name)["state"] == "ready"
     public, repeat_plans = build_project_plans(
         [repeat], {str(project): (component_name,)}
@@ -824,6 +968,82 @@ def test_custom_family_apply_verifies_and_repeats_without_work(
     assert public[0]["operations"] == []
     assert repeat_plans[0].operations == ()
     assert _git(project, "status", "--porcelain=v1")
+
+
+def test_verified_read_only_knowledge_links_allow_local_dual_integration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    claude_source, codex_source = _framework_sources(tmp_path)
+    knowledge = tmp_path / "knowledge-copilot"
+    _write(knowledge / ".claude/agents/project.md", "shared agent\n")
+    _write(knowledge / ".claude/commands/protocol.md", "shared protocol\n")
+    _write(knowledge / ".claude/commands/continue.md", "shared continue\n")
+    _write(knowledge / ".claude/skills/shared/SKILL.md", "shared skill\n")
+
+    def resolve(key: str) -> Any:
+        return {
+            "paths.claude_copilot_root": str(claude_source),
+            "paths.codex_copilot_root": str(codex_source),
+            "paths.knowledge_repo": [str(knowledge)],
+        }.get(key)
+
+    monkeypatch.setattr(integration, "resolve_key", resolve)
+    monkeypatch.setattr(reconciliation, "resolve_key", resolve)
+    monkeypatch.setattr(recipes, "resolve_key", resolve)
+    monkeypatch.setattr(reconciliation, "is_project_excluded", lambda path: False)
+
+    project = _project(tmp_path, "legacy-knowledge-links")
+    _write(project / "CLAUDE.md", "# Project-owned Claude instructions\n")
+    _write(project / "AGENTS.md", "# Project-owned Codex instructions\n")
+    for leaf in ("agents", "commands", "skills"):
+        link = project / ".claude" / leaf
+        link.parent.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(f"../../knowledge-copilot/.claude/{leaf}")
+    _commit(project)
+    knowledge_before = _tree_manifest(knowledge)
+
+    assessment = assess_project(
+        project,
+        approved_root=tmp_path,
+        selected_components=("claude", "codex"),
+    )
+    options = {
+        component["component"]: [
+            option["recipe_id"] for option in component["recipe_options"]
+        ]
+        for component in assessment["components"]
+    }
+    assert options == {
+        "claude": ["claude.legacy-knowledge-links-preserve.v1"],
+        "codex": ["codex.customized-preserve-entry.v1"],
+    }
+    _, plans = build_project_plans(
+        [assessment],
+        {str(project): ("claude", "codex")},
+        {
+            str(project): {
+                "claude": "claude.legacy-knowledge-links-preserve.v1",
+                "codex": "codex.customized-preserve-entry.v1",
+            }
+        },
+    )
+    assert ".claude/skills/codex-copilot" not in {
+        operation.target for operation in plans[0].operations
+    }
+
+    receipts = execute_reconciliation(
+        [plans[0].transaction_plan()],
+        run_id="run_" + "7" * 32,
+        root=tmp_path / "transaction-state",
+    )
+
+    assert receipts[0]["status"] == "applied"
+    verified = integration.inspect_project_integration(project, detail=True)
+    assert {
+        component["component"]: component["classification"]
+        for component in verified["components"]
+    } == {"claude": "ready", "codex": "ready"}
+    assert _tree_manifest(knowledge) == knowledge_before
 
 
 def test_claude_setup_records_every_file_copied_from_agent_tree(

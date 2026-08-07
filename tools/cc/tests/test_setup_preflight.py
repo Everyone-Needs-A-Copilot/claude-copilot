@@ -158,6 +158,97 @@ def test_prepare_never_checkpoints_ecosystem_repositories(monkeypatch) -> None:
     assert seen == ["/projects/product"]
 
 
+def test_prepare_checkpoints_repeat_safe_setup_outputs_even_without_blocker(
+    tmp_path, monkeypatch
+) -> None:
+    repo = _repo(tmp_path)
+    _isolated_lock(monkeypatch, tmp_path)
+    (repo / "copilot.lock.json").write_text("{}\n", encoding="utf-8")
+    assessment = {
+        "run_id": "run_" + ("7" * 32),
+        "generated_at": "2026-08-07T12:00:00Z",
+        "result": "action-required",
+        "projects": [{**_project(repo), "blockers": []}],
+        "next_actions": [],
+    }
+
+    report = setup_preflight.build_setup_prepare_report(
+        assess_builder=lambda: assessment,
+        refresh_builder=lambda: {
+            "result": "ready",
+            "completed_actions": [],
+            "holds": [],
+            "summary": {"checked": 0, "updated": 0, "current": 0, "held": 0},
+            "authority": {
+                "setup_access": "download-only",
+                "author_capable": 0,
+                "read_only": 0,
+                "unknown": 0,
+            },
+        },
+    )
+
+    assert report["project_checkpoints"]["checkpointed"] == 1
+    assert _run(repo, "status", "--porcelain").stdout == ""
+
+
+def test_prepare_refreshes_configured_org_without_discovery(monkeypatch) -> None:
+    assessment = {
+        "run_id": "run_" + ("f" * 32),
+        "generated_at": "2026-08-07T12:00:00Z",
+        "result": "ready",
+        "projects": [],
+        "next_actions": [],
+    }
+    seen: dict[str, str] = {}
+    monkeypatch.setattr(setup_preflight, "resolve_key", lambda key: "Example-Org")
+
+    def refresh(**kwargs):
+        seen.update(kwargs)
+        return {
+            "result": "ready",
+            "completed_actions": [],
+            "holds": [],
+            "summary": {"checked": 2, "updated": 0, "current": 2, "held": 0},
+            "authority": {
+                "setup_access": "download-only",
+                "author_capable": 1,
+                "read_only": 1,
+                "unknown": 0,
+            },
+        }
+
+    monkeypatch.setattr(setup_preflight, "build_shared_repository_refresh_report", refresh)
+
+    setup_preflight.build_setup_prepare_report(assess_builder=lambda: assessment)
+
+    assert seen == {"org": "Example-Org"}
+
+
+def test_prepare_preserves_shared_refresh_diagnostic(monkeypatch) -> None:
+    assessment = {
+        "run_id": "run_" + ("1" * 32),
+        "generated_at": "2026-08-07T12:00:00Z",
+        "result": "ready",
+        "projects": [],
+        "next_actions": [],
+    }
+
+    def fail_refresh():
+        raise RuntimeError("configured organization handoff is unavailable")
+
+    report = setup_preflight.build_setup_prepare_report(
+        assess_builder=lambda: assessment,
+        refresh_builder=fail_refresh,
+    )
+
+    assert report["holds"][0] == {
+        "code": "shared-refresh-unavailable",
+        "detail": "Shared Copilot repositories could not be refreshed safely.",
+        "diagnostic": "configured organization handoff is unavailable",
+    }
+
+
 def test_repository_permission_is_fail_closed_and_matches_github_grants() -> None:
     assert _repository_permission({}) == "unknown"
     assert _repository_permission({"permissions": {"pull": True}}) == "read"
@@ -214,6 +305,29 @@ def test_shared_refresh_disables_repository_hooks_for_git(monkeypatch, tmp_path)
         "merge", "--ff-only", "FETCH_HEAD",
     )
     assert commands[1] == ("gh", "api", "user")
+
+
+def test_shared_refresh_defaults_to_enabled_harness_products(monkeypatch, tmp_path) -> None:
+    seen: dict[str, tuple[str, ...]] = {}
+
+    def discover(products, run):
+        seen["products"] = tuple(products)
+        return "example"
+
+    monkeypatch.setattr(onboard, "_discover_org", discover)
+    monkeypatch.setattr(onboard, "_owner", lambda run: "person")
+    monkeypatch.setattr(onboard, "_load_handoff", lambda org, products, run: {})
+    monkeypatch.setattr(onboard, "_eligible_department_units", lambda *args, **kwargs: [])
+    monkeypatch.setattr(onboard, "_layer_manifest", lambda *args, **kwargs: {"layers": []})
+    monkeypatch.setattr(onboard, "_topology_report_layers", lambda manifest, run: [])
+
+    report = onboard.build_shared_repository_refresh_report(
+        run=lambda command: subprocess.CompletedProcess(command, 0, "", ""),
+        repository_root=tmp_path,
+    )
+
+    assert seen["products"] == ("claude", "codex")
+    assert report["summary"]["checked"] == 0
 
 
 def test_prepare_report_validates_against_reconciliation_schema() -> None:
