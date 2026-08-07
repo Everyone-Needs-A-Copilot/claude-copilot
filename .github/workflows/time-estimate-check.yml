@@ -1,0 +1,116 @@
+name: Time Estimate Language Check
+
+on:
+  pull_request:
+    paths:
+      - '.claude/agents/**/*.md'
+      - '.claude/commands/**/*.md'
+      - 'templates/**/*.md'
+  push:
+    branches:
+      - main
+    paths:
+      - '.claude/agents/**/*.md'
+      - '.claude/commands/**/*.md'
+      - 'templates/**/*.md'
+
+jobs:
+  check-time-language:
+    runs-on: ubuntu-latest
+    name: Check for time estimate violations
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Scan agent files for time estimates
+        run: |
+          echo "Scanning agent templates for time estimate language..."
+
+          VIOLATIONS_FOUND=0
+
+          # Function to check files
+          check_pattern() {
+            local pattern="$1"
+            local description="$2"
+            local exclude="${3:-^$}"
+
+            echo ""
+            echo "Checking for: $description"
+
+            if find .claude/agents .claude/commands templates -type f -name "*.md" 2>/dev/null \
+               | grep -v '/_archive/' \
+               | xargs grep -nE "$pattern" 2>/dev/null \
+               | grep -vE "$exclude"; then
+              echo "❌ VIOLATION: $description found"
+              VIOLATIONS_FOUND=1
+              return 1
+            else
+              echo "✓ No violations found"
+              return 0
+            fi
+          }
+
+          # Run all checks
+          check_pattern '\b(hours?|days?|weeks?|months?|years?)\b' \
+            'Direct time units' \
+            'TTL|cache|testing|fast|slow|millisecond|performance|NEVER include|tax year|fiscal year|prior year|last year|this year|day forecast|day projections|ten years|long-lasting'
+
+          check_pattern '\b(timeline|schedule|deadline|due\s+date|ETA|delivery\s+date)\b' \
+            'Time-based planning language' \
+            'tax|fiscal|quarterly|calendar|CPA|deadline risk|deadline alert'
+
+          check_pattern 'Phase\s+\d+.*\((Week|Month|Q\d)' \
+            'Time-based phase descriptions'
+
+          check_pattern '(Response\s+Time|Completion\s+Time|Timeframe)\s*\|' \
+            'Tables with time commitments'
+
+          # Exit if violations found
+          if [ $VIOLATIONS_FOUND -eq 1 ]; then
+            echo ""
+            echo "========================================="
+            echo "CHECK FAILED: Time estimate violations"
+            echo "========================================="
+            echo ""
+            echo "Agent files should not contain time estimates."
+            echo ""
+            echo "Common fixes:"
+            echo "  • Replace 'timeline' → 'sequence' or 'dependencies'"
+            echo "  • Replace 'Response Time' → 'Priority Level'"
+            echo "  • Remove time durations from phases"
+            echo ""
+            echo "See: docs/qa/time-estimate-audit-report.md"
+            exit 1
+          fi
+
+          echo ""
+          echo "✅ All checks passed - no time estimate violations"
+
+      - name: Comment on PR (if violations found)
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## ⚠️ Time Estimate Language Detected
+
+            This PR contains time-based language in agent templates, which violates our design principle of avoiding time estimates.
+
+            **Common violations:**
+            - Direct time units: hours, days, weeks, months
+            - Planning language: timeline, schedule, deadline, ETA
+            - Time-based phases: "Phase 1 (Week 1)"
+            - Time commitment tables: "Response Time" columns
+
+            **How to fix:**
+            - Replace with dependency-based language
+            - Use priority/severity instead of time
+            - Describe sequence, not duration
+
+            **Reference:** See \`docs/qa/time-estimate-audit-report.md\` for detailed patterns and examples.
+            `
+            })

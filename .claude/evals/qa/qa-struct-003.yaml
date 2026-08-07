@@ -1,0 +1,18 @@
+id: qa-struct-003
+name: "QA agent has QA Gate Contract section"
+priority: P0
+description: |
+  The QA agent definition must include a QA Gate Contract section that documents
+  the required format for verdicts. This is the contract that the hook infrastructure
+  (subagent-stop.sh) parses.
+type: structural
+source:
+  type: file
+  path: ".claude/agents/qa.md"
+assertions:
+  - type: file-contains
+    value: "QA Gate Contract"
+    description: "qa.md must include the QA Gate Contract section"
+  - type: file-contains
+    value: "subagent-stop.sh"
+    description: "qa.md must reference the subagent-stop.sh hook that parses verdicts"
