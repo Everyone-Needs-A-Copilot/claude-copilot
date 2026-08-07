@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-08-07 — cc 2.12.2
+
+- `tools/cc/install.sh` now bootstraps `pip` inside an existing uv-created
+  virtual environment instead of failing during an otherwise valid upgrade.
+
 ## 2026-08-07 — cc 2.12.1
 
 - `cc store verify` now consumes the organization-published, known-nonempty
