@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://everyoneneedsacopilot.com/schemas/copilot-control-tower/deprovision.schema.json",
+  "$comment": "VENDORED COPY for the WS-A contract test in claude-copilot/tools/cc. Source of truth is copilot-control-tower/docs/01-architecture/schemas/deprovision.schema.json — update this copy from there, not the reverse.",
+  "title": "copilot deprovision <org> --json",
+  "description": "Result of removing an org's materialized tree and read-only clones. `secrets_touched` MUST be 0 (no secret ever lived in a layer). Dirty trees are retained, never destroyed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "result",
+    "removed",
+    "retained_dirty",
+    "secrets_touched"
+  ],
+  "properties": {
+    "schema_version": {
+      "$ref": "_envelope.schema.json#/$defs/schema_version"
+    },
+    "result": {
+      "type": "string",
+      "enum": [
+        "wiped",
+        "partial",
+        "noop"
+      ],
+      "description": "Overall deprovision outcome.",
+      "$comment": "CORRECTED 2026-07-07: the upstream design gives an explicit enum (design-control-tower-integration.md §1.4): `{ result: \"wiped\"|\"partial\"|\"noop\", ... }`. The prior draft left this as an unconstrained non-empty string."
+    },
+    "removed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "materialized",
+        "clones"
+      ],
+      "properties": {
+        "materialized": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of materialized items removed.",
+          "$comment": "CORRECTED 2026-07-07: the upstream design's example (design-control-tower-integration.md §1.4) is `removed: { materialized: N, clones: [layer…] }` -- `N` is a count, not a boolean. The prior draft encoded this as a boolean ('was the tree removed'); changed to a non-negative integer to match. `deprovision.removed.materialized`'s exact semantics (count of what -- files? dimensions?) remain genuinely unspecified even in the upstream design; this is an open field to be defined at freeze, per the CLI owner."
+        },
+        "clones": {
+          "type": "array",
+          "description": "Read-only mirror clones removed.",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "retained_dirty": {
+      "type": "array",
+      "description": "Dirty/human-owned working trees that were preserved, never destroyed (invariant #3).",
+      "items": {
+        "type": "string"
+      }
+    },
+    "secrets_touched": {
+      "type": "integer",
+      "const": 0,
+      "description": "Count of secrets touched. MUST be 0.",
+      "$comment": "cli-contract.md states secrets_touched MUST be 0 (no secret ever lived in a layer). Encoded as const:0 so any nonzero value is a hard schema violation caught by the CI contract test."
+    }
+  }
+}
