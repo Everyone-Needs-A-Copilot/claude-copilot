@@ -289,6 +289,14 @@ def _build_artifact_case(
             project / ".mcp.json",
             json.dumps({"mcpServers": {"project-tool": {"command": "project-tool"}}}),
         )
+    elif case == "claude-content-with-codex-bridge":
+        _install_current(project, claude_source, codex_source, ("codex",))
+        _write(
+            project / "CLAUDE.md",
+            "# Project-owned Claude routing\n\n## Claude Copilot\n",
+        )
+        _write(project / ".mcp.json", '{"mcpServers": {}}\n')
+        _write(project / ".claude/agents/project-owned.md", "custom agent\n")
     elif case == "skill-bridge":
         outside = tmp_path / "outside-skills"
         outside.mkdir()
@@ -366,6 +374,13 @@ def _build_artifact_case(
             "project-author",
             "claude.customized-preserve-entry.v1",
         ),
+        (
+            "claude-content-with-codex-bridge",
+            "claude",
+            "customized-guided-route",
+            "project-author",
+            "claude.assistant-preserve-entry.v1",
+        ),
         ("skill-bridge", "codex", "could-not-verify", "person", None),
         ("skill-bridge-parent", "codex", "could-not-verify", "person", None),
         (
@@ -442,6 +457,10 @@ def test_artifact_family_routes_and_plans_are_authoritative_and_read_only(
             ),
         ),
         "mcp-config": ("guided-integration", ("compatible-claude-entry",)),
+        "claude-content-with-codex-bridge": (
+            "guided-integration",
+            ("project-owned-component-content",),
+        ),
         "skill-bridge": (
             "could-not-verify",
             (
@@ -477,6 +496,7 @@ def test_artifact_family_routes_and_plans_are_authoritative_and_read_only(
         "claude-entry": "CLAUDE.md",
         "codex-entry": "AGENTS.md",
         "mcp-config": ".mcp.json",
+        "claude-content-with-codex-bridge": ".claude/agents",
         "skill-bridge": ".claude/skills",
         "skill-bridge-parent": ".claude/skills",
         "plugin": "plugins",
@@ -855,6 +875,12 @@ def test_legacy_codex_gate_wrapper_is_replaced_during_portable_migration(
             "CLAUDE.md",
         ),
         (
+            "claude-content-with-codex-bridge",
+            "claude",
+            "claude.assistant-preserve-entry.v1",
+            "CLAUDE.md",
+        ),
+        (
             "config",
             "codex",
             "codex.customized-merge-config.v1",
@@ -928,10 +954,17 @@ def test_custom_family_apply_verifies_and_repeats_without_work(
         (project / "copilot.project.json").read_text(encoding="utf-8")
     )
     assert declaration["projectOwnedSetting"] == "preserve-me"
-    if case == "claude-entry":
+    if case in {"claude-entry", "claude-content-with-codex-bridge"}:
         assert "# Project-owned Claude routing" in (project / "CLAUDE.md").read_text(
             encoding="utf-8"
         )
+        if case == "claude-content-with-codex-bridge":
+            assert (
+                project / ".claude/skills/codex-copilot"
+            ).readlink().as_posix() == "../../plugins/codex-copilot/skills"
+            assert (
+                project / ".claude/agents/project-owned.md"
+            ).read_text(encoding="utf-8") == "custom agent\n"
     elif case == "codex-entry":
         assert "# Project-owned Codex routing" in (project / "AGENTS.md").read_text(
             encoding="utf-8"

@@ -2418,6 +2418,71 @@ def test_identity_list_failure_defers_without_ever_calling_create():
     assert calls == [("copilot", "infisical", "--json", "identity", "list")]
 
 
+def test_github_broker_store_verification_precedes_legacy_machine_identity():
+    store = {
+        "status": "connected",
+        "type": "infisical",
+        "endpoint": "https://secrets.example.test",
+        "workspace_id": "workspace-1",
+        "environment": "prod",
+        "secret_path": "/shared",
+        "verification_path": "/known-nonempty-denied",
+        "broker_url": "https://access.example.test",
+        "broker_issuer": "https://access.example.test",
+        "broker_audience": "https://secrets.example.test",
+        "team_scopes": [
+            {
+                "team": "everyone",
+                "scope": "shared",
+                "environment": "prod",
+                "secret_path": "/shared",
+                "access": "read",
+                "identity_id": "identity-1",
+            }
+        ],
+    }
+    calls: list[tuple[str, ...]] = []
+
+    def run(args: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+        calls.append(tuple(args))
+        return subprocess.CompletedProcess(
+            args,
+            0,
+            json.dumps(
+                {
+                    "result": "ready",
+                    "positive_read": True,
+                    "negative_denied": True,
+                    "read_only": True,
+                    "auth_mode": "github-broker",
+                    "secret_count": "[REDACTED]",
+                }
+            ),
+            "",
+        )
+
+    report = onboard_module._provision_store(store, apply=True, run=run)
+
+    assert report == {
+        "result": "ready",
+        "type": "infisical",
+        "scope": "prod:/shared:read",
+        "detail": (
+            "The shared credential store is connected through GitHub and "
+            "verified read-only."
+        ),
+    }
+    assert len(calls) == 1
+    assert calls[0][:5] == (
+        "copilot",
+        "infisical",
+        "--json",
+        "access",
+        "verify",
+    )
+    assert "identity" not in calls[0]
+
+
 def test_existing_identity_reads_ready_without_ever_calling_create():
     """The common, live-verified case (task 221): this Mac's own Infisical
     credentials already authenticate as an existing org identity --
