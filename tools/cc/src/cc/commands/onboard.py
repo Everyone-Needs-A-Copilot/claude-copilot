@@ -22,6 +22,7 @@ import yaml
 
 from cc.commands.doctor import build_doctor_report
 from cc.commands.resolve import build_resolve_report
+from cc.commands.store import build_store_verify_report
 from cc.commands.update import execute_update
 from cc.core import authstore, keychain
 from cc.core.config import load_machine_config, resolve_key
@@ -2334,6 +2335,34 @@ def _provision_store(store: dict[str, Any], *, apply: bool, run: Run) -> dict[st
     # The onboarding contract deliberately exposes only a non-secret summary
     # string; its schema does not accept arbitrary nested policy.
     scope = f"{store['environment']}:{store['secret_path']}:read"
+
+    # Current organizations authorize interactive store access through the
+    # GitHub broker published in the signed ecosystem config.  Verify that
+    # path before consulting the retired per-Mac Universal Auth identity
+    # surface.  This keeps onboarding and `cc store verify` on one proof:
+    # positive read, known non-empty negative denial, and read-only policy.
+    if all(
+        isinstance(store.get(key), str) and store.get(key)
+        for key in (
+            "endpoint",
+            "broker_url",
+            "broker_issuer",
+            "broker_audience",
+            "verification_path",
+        )
+    ) and isinstance(store.get("team_scopes"), list):
+        broker_report = build_store_verify_report(
+            scope="shared",
+            run=run,
+            ecosystem_cfg={"store": store},
+        )
+        if broker_report.get("result") == "ready":
+            return {
+                "result": "ready",
+                "type": "infisical",
+                "scope": scope,
+            }
+
     unreachable = {
         "result": "deferred",
         "type": "infisical",

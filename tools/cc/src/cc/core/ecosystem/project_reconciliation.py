@@ -1064,14 +1064,24 @@ def assess_project(
                 dossier=eligibility_dossier,
             )
             if eligible:
+                directly_selectable = [
+                    definition
+                    for definition in eligible
+                    if not definition.assistant_only
+                ]
+                # An assistant cannot add judgment when exactly one bounded
+                # Python recipe is compatible with the inspected evidence.
+                # Expose that single recipe directly; preserve assistant-only
+                # filtering when multiple safe interpretations exist.
+                if not directly_selectable and len(eligible) == 1:
+                    directly_selectable = list(eligible)
                 component_assessment["recipe_options"] = [
                     {
                         "recipe_id": definition.recipe_id,
                         "component": definition.component,
                         "summary": definition.summary,
                     }
-                    for definition in eligible
-                    if not definition.assistant_only
+                    for definition in directly_selectable
                 ]
             else:
                 route = ComponentRoute.OWNER_DECISION

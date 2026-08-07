@@ -1384,6 +1384,10 @@ def _safe_claude_project_tree(root: Path) -> bool:
         for entry in entries:
             try:
                 if entry.is_symlink():
+                    if _recognized_internal_codex_skill_bridge(
+                        root, Path(entry.path)
+                    ):
+                        continue
                     return False
                 if entry.is_dir(follow_symlinks=False):
                     pending.append(Path(entry.path))
@@ -1392,6 +1396,25 @@ def _safe_claude_project_tree(root: Path) -> bool:
             except OSError:
                 return False
     return True
+
+
+def _recognized_internal_codex_skill_bridge(root: Path, path: Path) -> bool:
+    """Admit only Codex's exact project-contained skill bridge.
+
+    Claude preservation recipes never write through this link.  The target is
+    the portable Codex plugin already contained by the same project, so this
+    does not grant access to an external shared checkout or broaden the recipe
+    mutation boundary.
+    """
+    try:
+        if path.relative_to(root).as_posix() != ".claude/skills/codex-copilot":
+            return False
+        if path.readlink().as_posix() != "../../plugins/codex-copilot/skills":
+            return False
+        expected = (root / "plugins/codex-copilot/skills").resolve(strict=True)
+        return path.resolve(strict=True) == expected and expected.is_dir()
+    except (OSError, ValueError):
+        return False
 
 
 def _recognized_read_only_knowledge_link(root: Path, target: str) -> bool:

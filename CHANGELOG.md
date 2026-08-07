@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-08-07 — cc 2.12.3
+
+- Ecosystem onboarding now verifies the GitHub-authorized, read-only Infisical
+  broker path before consulting retired per-Mac Universal Auth identities, so
+  a working shared store is reported ready in the onboarding ledger.
+- Customized Claude projects may retain the exact project-contained Codex
+  skill bridge, and the single bounded preservation recipe is now eligible for
+  deterministic Python selection without an unnecessary assistant round trip.
+
 ## 2026-08-07 — cc 2.12.2
 
 - `tools/cc/install.sh` now bootstraps `pip` inside an existing uv-created
