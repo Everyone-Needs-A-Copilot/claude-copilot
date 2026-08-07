@@ -2467,6 +2467,10 @@ def test_github_broker_store_verification_precedes_legacy_machine_identity():
         "result": "ready",
         "type": "infisical",
         "scope": "prod:/shared:read",
+        "detail": (
+            "The shared credential store is connected through GitHub and "
+            "verified read-only."
+        ),
     }
     assert len(calls) == 1
     assert calls[0][:5] == (

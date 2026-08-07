@@ -2361,6 +2361,10 @@ def _provision_store(store: dict[str, Any], *, apply: bool, run: Run) -> dict[st
                 "result": "ready",
                 "type": "infisical",
                 "scope": scope,
+                "detail": (
+                    "The shared credential store is connected through GitHub "
+                    "and verified read-only."
+                ),
             }
 
     unreachable = {
