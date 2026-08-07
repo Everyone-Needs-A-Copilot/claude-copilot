@@ -1,0 +1,8 @@
+interface:
+  display_name: "Update Project"
+  short_description: "Refresh project wiring"
+  default_prompt: "Use $update-project to inspect and safely refresh a project-local Codex Copilot setup."
+
+policy:
+  allow_implicit_invocation: false
+

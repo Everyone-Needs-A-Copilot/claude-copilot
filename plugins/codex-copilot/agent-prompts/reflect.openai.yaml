@@ -1,0 +1,8 @@
+interface:
+  display_name: "Reflect"
+  short_description: "Capture lessons"
+  default_prompt: "Use $reflect to capture decisions, lessons, and improvement notes after a work session."
+
+policy:
+  allow_implicit_invocation: false
+

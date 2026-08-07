@@ -1,0 +1,8 @@
+interface:
+  display_name: "Orchestrate"
+  short_description: "Plan parallel streams"
+  default_prompt: "Use $orchestrate to plan stream-based work and explicit user-approved Codex subagent execution."
+
+policy:
+  allow_implicit_invocation: false
+

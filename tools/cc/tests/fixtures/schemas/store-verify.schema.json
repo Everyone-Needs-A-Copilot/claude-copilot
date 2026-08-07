@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-tower.example/schemas/store-verify.schema.json",
+  "title": "Shared-store operational verification",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "result", "detail", "organization", "scope", "checks", "evidence"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "result": { "enum": ["ready", "not-configured", "unavailable", "unsafe", "invalid-config"] },
+    "detail": { "type": "string", "minLength": 1 },
+    "organization": { "type": ["string", "null"] },
+    "scope": { "type": ["string", "null"] },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy_valid", "positive_read", "negative_denied", "read_only"],
+      "properties": {
+        "policy_valid": { "type": "boolean" },
+        "positive_read": { "type": "boolean" },
+        "negative_denied": { "type": "boolean" },
+        "read_only": { "type": "boolean" }
+      }
+    },
+    "evidence": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["auth_mode", "secret_count", "exit_code"],
+      "properties": {
+        "auth_mode": { "type": ["string", "null"] },
+        "secret_count": { "type": ["integer", "null"], "minimum": 0 },
+        "exit_code": { "type": "integer" }
+      }
+    }
+  }
+}

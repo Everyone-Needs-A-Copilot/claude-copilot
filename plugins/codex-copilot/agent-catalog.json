@@ -1,0 +1,162 @@
+{
+  "schemaVersion": "1.0.0",
+  "version": "0.6.1",
+  "updatedAt": "2026-07-11T00:00:00Z",
+  "$schema": "./agent-catalog.schema.json",
+  "_comment": "Codex-native source of truth for active specialists, optional pack specialists, design chain, and routing workflows. Claude runtime lifecycle hooks are not represented here; this catalog drives skills, docs, tests, and explicit tc/script gates.",
+  "entrypoints": {
+    "primary": "protocol",
+    "launcher": "launcher"
+  },
+  "designChain": ["sd", "uxd", "uids", "uid", "ta", "me", "qa"],
+  "agents": [
+    {
+      "id": "sd",
+      "skill": "sd",
+      "role": "default",
+      "model": null,
+      "methodology": "Service blueprinting / jobs-to-be-done / forces thinking",
+      "purpose": "Service design and end-to-end journey framing"
+    },
+    {
+      "id": "uxd",
+      "skill": "uxd",
+      "role": "default",
+      "model": null,
+      "methodology": "Nielsen heuristics / task analysis / recognition over recall",
+      "purpose": "Interaction design and usability"
+    },
+    {
+      "id": "uids",
+      "skill": "uids",
+      "role": "default",
+      "model": null,
+      "methodology": "Design systems / Rams-style reduction / accessible contrast",
+      "purpose": "Visual design and design-system direction"
+    },
+    {
+      "id": "uid",
+      "skill": "uid",
+      "role": "worker",
+      "model": null,
+      "methodology": "Component implementation / responsive accessibility",
+      "purpose": "UI implementation and component construction"
+    },
+    {
+      "id": "ta",
+      "skill": "ta",
+      "role": "explorer",
+      "model": null,
+      "methodology": "ADR / fitness functions",
+      "purpose": "Architecture, decomposition, and technical trade-offs"
+    },
+    {
+      "id": "me",
+      "skill": "me",
+      "role": "worker",
+      "model": null,
+      "methodology": "Kent Beck simple design",
+      "purpose": "Implementation and code changes"
+    },
+    {
+      "id": "qa",
+      "skill": "qa",
+      "role": "explorer",
+      "model": null,
+      "methodology": "Behavior-first testing / Meszaros test doubles",
+      "purpose": "Reproduction, verification, design-fidelity evidence, and test strategy"
+    },
+    {
+      "id": "ind",
+      "skill": "ind",
+      "role": "default",
+      "model": null,
+      "methodology": "Dieter Rams / Jony Ive product essentialism",
+      "purpose": "Industrial design for physical and physical-digital products"
+    },
+    {
+      "id": "sec",
+      "skill": "sec",
+      "role": "explorer",
+      "model": null,
+      "methodology": "STRIDE / practical threat modeling",
+      "purpose": "Security review and threat analysis"
+    },
+    {
+      "id": "doc",
+      "skill": "doc",
+      "role": "default",
+      "model": null,
+      "methodology": "Diataxis",
+      "purpose": "Documentation and durable explanations"
+    },
+    {
+      "id": "do",
+      "skill": "do",
+      "role": "worker",
+      "model": null,
+      "methodology": "12-factor / SRE",
+      "purpose": "Deployment, CI, and infrastructure work"
+    }
+  ],
+  "optionalAgents": [
+    {
+      "id": "kc",
+      "pack": "business-creative",
+      "skill": "kc",
+      "role": "setup-only",
+      "purpose": "Knowledge repository setup and onboarding"
+    },
+    {
+      "id": "cco",
+      "pack": "business-creative",
+      "skill": "cco",
+      "role": "optional",
+      "purpose": "Creative direction and brand strategy"
+    },
+    {
+      "id": "cw",
+      "pack": "business-creative",
+      "skill": "cw",
+      "role": "optional",
+      "purpose": "Copywriting, messaging, and microcopy"
+    },
+    {
+      "id": "cs",
+      "pack": "business-creative",
+      "skill": "cs",
+      "role": "optional",
+      "purpose": "Customer success and retention advisory"
+    },
+    {
+      "id": "cpa",
+      "pack": "business-creative",
+      "skill": "cpa",
+      "role": "optional",
+      "purpose": "Financial and tax advisory for founder/agency operations"
+    }
+  ],
+  "routingEdges": [
+    { "from": "any", "to": "ta", "when": "Architecture decisions, decomposition, migration, or non-trivial technical planning is needed" },
+    { "from": "any", "to": "me", "when": "Implementation is ready after framing" },
+    { "from": "any", "to": "qa", "when": "Verification, tests, regression analysis, or design-fidelity evidence is needed" },
+    { "from": "any", "to": "doc", "when": "Durable documentation is needed" },
+    { "from": "any", "to": "sec", "when": "Auth, permissions, secrets, unsafe input, PII, or trust boundaries are in scope" },
+    { "from": "ind", "to": "sd", "when": "Physical-digital product direction needs service journey framing" },
+    { "from": "sd", "to": "uxd", "when": "Service concept is ready for task flow and interaction design" },
+    { "from": "uxd", "to": "uids", "when": "Task flow, states, and product language need visual hierarchy" },
+    { "from": "uids", "to": "uid", "when": "Visual system and state styling are clear enough to implement" },
+    { "from": "uid", "to": "ta", "when": "UI implementation boundaries need technical decomposition or integration planning" },
+    { "from": "ta", "to": "me", "when": "Implementation boundaries and test expectations are ready" },
+    { "from": "me", "to": "qa", "when": "Implementation work is complete and needs verification" }
+  ],
+  "workflows": {
+    "bug": ["qa", "me", "qa"],
+    "technical_feature": ["ta", "me", "qa"],
+    "experience_feature": ["sd", "uxd", "uids", "uid", "ta", "me", "qa"],
+    "physical_digital_feature": ["ind", "sd", "uxd", "uids", "uid", "ta", "me", "qa"],
+    "ui_polish": ["uids", "uid", "qa"],
+    "security_sensitive": ["ta", "sec", "me", "qa"],
+    "infrastructure": ["do", "me", "qa"]
+  }
+}

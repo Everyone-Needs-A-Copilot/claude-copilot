@@ -1,0 +1,8 @@
+interface:
+  display_name: "Extensions"
+  short_description: "Inspect extensions"
+  default_prompt: "Use $extensions to inspect knowledge repositories, active skills, and extension resolution."
+
+policy:
+  allow_implicit_invocation: false
+
