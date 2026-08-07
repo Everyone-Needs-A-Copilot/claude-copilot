@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-08-07 — cc 2.12.7
+
+- The committed `uv.lock` now matches the released package version, restoring
+  the immutable macOS helper build's `uv export --locked` gate. Release
+  packaging still refuses to regenerate dependencies or bypass the lock.
+
 ## 2026-08-07 — cc 2.12.6
 
 - Read-only verification no longer treats unrelated, active Product work as an
