@@ -1,0 +1,27 @@
+id: qa-behav-003
+name: "APPROVED-WITH-MINOR-FIXES verdict passes assertions"
+priority: P1
+description: |
+  A well-formed QA verdict with VERDICT: APPROVED-WITH-MINOR-FIXES and an ARTIFACT
+  must pass structural assertions. This is the conditional approval path.
+type: behavioral
+source:
+  type: inline
+  content: |
+    Task: TASK-88 | WP: WP-112
+    Test Coverage:
+    - Unit: 8 test cases (all passing)
+    Summary: Core logic correct; one variable name is misleading (non-blocking).
+    Coverage Gaps: None critical.
+    VERDICT: APPROVED-WITH-MINOR-FIXES
+    ARTIFACT: test-run|pytest tests/ exit=0 "8 passed, 0 failed"
+assertions:
+  - type: contains
+    value: "VERDICT: APPROVED-WITH-MINOR-FIXES"
+    description: "Conditional verdict token must be present"
+  - type: contains
+    value: "ARTIFACT:"
+    description: "ARTIFACT marker must be present"
+  - type: regex
+    pattern: "VERDICT: (APPROVED|REJECTED|APPROVED-WITH-MINOR-FIXES)"
+    description: "VERDICT must be one of the three valid tokens"

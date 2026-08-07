@@ -1,0 +1,86 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://codex-copilot/agent-catalog.schema.json",
+  "title": "Codex Copilot Agent Catalog",
+  "description": "Schema for the Codex-native source of truth for specialists, routing, and design chain.",
+  "type": "object",
+  "required": ["schemaVersion", "version", "entrypoints", "designChain", "agents", "optionalAgents", "routingEdges", "workflows"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "_comment": { "type": "string" },
+    "schemaVersion": { "type": "string" },
+    "version": { "type": "string" },
+    "updatedAt": { "type": "string" },
+    "entrypoints": {
+      "type": "object",
+      "required": ["primary", "launcher"],
+      "additionalProperties": false,
+      "properties": {
+        "primary": { "type": "string" },
+        "launcher": { "type": "string" }
+      }
+    },
+    "designChain": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "agents": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/Agent" }
+    },
+    "optionalAgents": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/OptionalAgent" }
+    },
+    "routingEdges": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/RoutingEdge" }
+    },
+    "workflows": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    }
+  },
+  "definitions": {
+    "Agent": {
+      "type": "object",
+      "required": ["id", "skill", "role", "model", "methodology", "purpose"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "skill": { "type": "string" },
+        "role": { "type": "string", "enum": ["default", "worker", "explorer"] },
+        "model": { "type": ["string", "null"] },
+        "methodology": { "type": ["string", "null"] },
+        "purpose": { "type": "string" }
+      }
+    },
+    "OptionalAgent": {
+      "type": "object",
+      "required": ["id", "pack", "skill", "role", "purpose"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "pack": { "type": "string" },
+        "skill": { "type": "string" },
+        "role": { "type": "string", "enum": ["optional", "setup-only"] },
+        "purpose": { "type": "string" }
+      }
+    },
+    "RoutingEdge": {
+      "type": "object",
+      "required": ["from", "to", "when"],
+      "additionalProperties": false,
+      "properties": {
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "when": { "type": "string" }
+      }
+    }
+  }
+}
