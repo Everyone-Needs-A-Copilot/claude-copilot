@@ -1291,6 +1291,7 @@ PY
 # authority for final verification.
 guide_project="${assistant_root}/guided-project"
 guide_request="${scratch}/guide-request.json"
+guide_assess_probe="${scratch}/guide-assess-probe.json"
 mkdir -p \
     "${guide_project}/.claude/agents" \
     "${guide_project}/.claude/commands"
@@ -1306,6 +1307,54 @@ write_assistant_config_and_request \
     "${assistant_machine_root}/config.json" \
     "${guide_request}" \
     "${guide_project}"
+set +e
+env "${assistant_env[@]}" \
+    "${artifact}" reconcile assess --json > "${guide_assess_probe}"
+guide_assess_exit=$?
+set -e
+[[ "${guide_assess_exit}" -eq 0 || "${guide_assess_exit}" -eq 1 ]] ||
+    die "frozen helper guide assessment probe exited ${guide_assess_exit}"
+/usr/bin/python3 - \
+    "${guide_assess_probe}" \
+    "${guide_request}" \
+    "${guide_project}" \
+    "${assistant_root}" <<'PY'
+import json
+import pathlib
+import sys
+
+assessment_path, request_path, project_path, root_path = sys.argv[1:]
+assessment = json.load(open(assessment_path, encoding="utf-8"))
+selection = next(
+    (
+        item
+        for key in ("default_selection", "assistant_selection")
+        for item in assessment.get(key, [])
+        if item.get("path") == project_path
+    ),
+    None,
+)
+if selection is None:
+    raise SystemExit("frozen helper did not assess the guided fixture as selectable")
+project = {
+    "path": selection["path"],
+    "components": selection["components"],
+}
+if selection.get("recipe_ids"):
+    project["recipe_ids"] = selection["recipe_ids"]
+pathlib.Path(request_path).write_text(
+    json.dumps(
+        {
+            "schema_version": "1.0",
+            "roots": [root_path],
+            "projects": [project],
+        },
+        sort_keys=True,
+    ),
+    encoding="utf-8",
+)
+PY
+chmod 600 "${guide_request}"
 guide_prepare_probe="${scratch}/guide-prepare-probe.json"
 guide_start_probe="${scratch}/guide-start-probe.json"
 guide_status_probe="${scratch}/guide-status-probe.json"
