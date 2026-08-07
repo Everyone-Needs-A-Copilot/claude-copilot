@@ -97,6 +97,7 @@ def _safe_action(value: Any) -> dict[str, Any] | None:
         "action",
         "kind",
         "status",
+        "outcome",
         "component",
         "repository",
         "path",
@@ -104,6 +105,18 @@ def _safe_action(value: Any) -> dict[str, Any] | None:
     ):
         item = _bounded_text(value.get(key), limit=4096 if key == "path" else 240)
         if item is not None:
+            safe[key] = item
+    if "path" not in safe:
+        target = _bounded_text(value.get("target"), limit=4096)
+        if target is not None:
+            safe["path"] = target
+    if "commit" not in safe:
+        commit = _bounded_text(value.get("to_sha"), limit=80)
+        if commit is not None:
+            safe["commit"] = commit
+    for key in ("pushed", "residual_work"):
+        item = value.get(key)
+        if isinstance(item, bool):
             safe[key] = item
     return safe or None
 

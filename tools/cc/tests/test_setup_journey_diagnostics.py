@@ -51,8 +51,12 @@ def _report() -> dict:
         ],
         "completed_actions": [
             {
-                "action": "checkpoint",
-                "path": "/projects/example",
+                "kind": "project-checkpoint",
+                "target": "/projects/example",
+                "outcome": "completed",
+                "to_sha": "a" * 40,
+                "pushed": False,
+                "residual_work": False,
                 "detail": "password=must-not-survive",
             }
         ],
@@ -112,6 +116,16 @@ def test_safe_record_is_useful_and_strictly_allowlisted() -> None:
     assert record["machine"]["blockers"][0]["code"] == "connection-identity-invalid"
     assert record["machine"]["blockers"][0]["evidence"] == [
         {"id": "shared-store-auth", "state": "blocked"}
+    ]
+    assert record["completed_actions"] == [
+        {
+            "kind": "project-checkpoint",
+            "outcome": "completed",
+            "path": "/projects/example",
+            "commit": "a" * 40,
+            "pushed": False,
+            "residual_work": False,
+        }
     ]
     assert record["projects"]["scope_counts"]["product_projects"] == 47
     assert record["projects"]["holds"][0]["path"] == "/projects/held"
