@@ -1844,12 +1844,16 @@ def _managed_output_for_operation(
             current = path.read_bytes()
         except FileNotFoundError:
             current = b""
-        separator = (
-            b""
-            if not current or current.endswith(b"\n\n")
-            else (b"\n" if current.endswith(b"\n") else b"\n\n")
-        )
-        content = current + separator + str(operation.payload["block"]).encode("utf-8")
+        block_bytes = str(operation.payload["block"]).encode("utf-8")
+        if block_bytes in current:
+            content = current
+        else:
+            separator = (
+                b""
+                if not current or current.endswith(b"\n\n")
+                else (b"\n" if current.endswith(b"\n") else b"\n\n")
+            )
+            content = current + separator + block_bytes
         mode = int(
             operation.payload.get(
                 "mode",

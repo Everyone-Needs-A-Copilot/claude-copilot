@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-08-07 — cc 2.12.4
+
+- Managed project-integration blocks are now repeat-safe: an exact existing
+  block is fingerprinted in place instead of being appended a second time.
+
 ## 2026-08-07 — cc 2.12.3
 
 - Ecosystem onboarding now verifies the GitHub-authorized, read-only Infisical

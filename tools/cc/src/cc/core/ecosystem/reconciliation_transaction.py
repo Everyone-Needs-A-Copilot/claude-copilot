@@ -601,12 +601,16 @@ def _prepare_mutation(
             current = project.read_bytes(target)
         except FileNotFoundError:
             current = b""
-        separator = (
-            b""
-            if not current or current.endswith(b"\n\n")
-            else (b"\n" if current.endswith(b"\n") else b"\n\n")
-        )
-        content = current + separator + block.encode("utf-8")
+        block_bytes = block.encode("utf-8")
+        if block_bytes in current:
+            content = current
+        else:
+            separator = (
+                b""
+                if not current or current.endswith(b"\n\n")
+                else (b"\n" if current.endswith(b"\n") else b"\n\n")
+            )
+            content = current + separator + block_bytes
         mode = int(payload.get("mode", _existing_mode(project, target, 0o644)))
         return _PreparedMutation(
             fingerprint_file_payload(content, mode=mode),
