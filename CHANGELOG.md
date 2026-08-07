@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-08-07 — cc 2.12.5
+
+- Final machine verification now retries a bounded local checkpoint when its
+  scan races legitimate Product-project edits. The retry applies only to
+  dirty-working-tree holds, remains fail-closed for every other condition,
+  never pushes Product work, and keeps shared setup access download-only.
+
 ## 2026-08-07 — cc 2.12.4
 
 - Managed project-integration blocks are now repeat-safe: an exact existing

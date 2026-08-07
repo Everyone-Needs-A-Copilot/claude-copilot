@@ -99,6 +99,93 @@ def test_journey_applies_safe_defaults_then_reassesses_and_checkpoints(
     assert report["operational"] is True
 
 
+def test_journey_retries_when_final_verification_races_product_edits(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "cc.core.ecosystem.setup_journey.resolve_key",
+        lambda key: "Example-Org" if key == "github_app.org" else "/repos",
+    )
+    dirty = {
+        "phase": "assess",
+        "result": "action-required",
+        "machine": {"state": "ready", "blockers": []},
+        "projects": [
+            {
+                "path": "/projects/one",
+                "scope": {"kind": "product-project"},
+                "route": "held",
+                "blockers": [{"code": "dirty-working-tree"}],
+            }
+        ],
+        "default_selection": [],
+    }
+    assessments = iter((deepcopy(dirty), deepcopy(dirty), _ready_assessment()))
+    preparations: list[int] = []
+
+    def prepare():
+        preparations.append(1)
+        return {"phase": "prepare", "result": "ready", "completed_actions": []}
+
+    report = build_setup_journey_report(
+        recover_builder=lambda: {"phase": "recover", "result": "ready"},
+        prepare_builder=prepare,
+        ecosystem_builder=lambda **kwargs: {
+            "result": "ready",
+            "completed_actions": [],
+        },
+        store_builder=_ready_store,
+        assess_builder=lambda: next(assessments),
+        diagnostics_writer=lambda report: {"state": "available", "path": "/report"},
+    )
+
+    assert len(preparations) == 3
+    assert report["operational"] is True
+
+
+def test_journey_caps_final_dirty_project_stabilization(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "cc.core.ecosystem.setup_journey.resolve_key",
+        lambda key: "Example-Org" if key == "github_app.org" else "/repos",
+    )
+    dirty = {
+        "phase": "assess",
+        "result": "action-required",
+        "machine": {"state": "ready", "blockers": []},
+        "projects": [
+            {
+                "path": "/projects/one",
+                "scope": {"kind": "product-project"},
+                "route": "held",
+                "blockers": [{"code": "dirty-working-tree"}],
+            }
+        ],
+        "default_selection": [],
+    }
+    preparations: list[int] = []
+
+    def prepare():
+        preparations.append(1)
+        return {"phase": "prepare", "result": "ready", "completed_actions": []}
+
+    report = build_setup_journey_report(
+        recover_builder=lambda: {"phase": "recover", "result": "ready"},
+        prepare_builder=prepare,
+        ecosystem_builder=lambda **kwargs: {
+            "result": "ready",
+            "completed_actions": [],
+        },
+        store_builder=_ready_store,
+        assess_builder=lambda: deepcopy(dirty),
+        diagnostics_writer=lambda report: {"state": "available", "path": "/report"},
+        max_final_stabilization_passes=2,
+    )
+
+    assert len(preparations) == 3
+    assert report["operational"] is False
+    assert report["confidence"] == 0.0
+
+
 def test_journey_never_claims_operational_when_external_phase_is_held(
     monkeypatch,
 ) -> None:

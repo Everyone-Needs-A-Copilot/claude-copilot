@@ -76,6 +76,37 @@ def _default_request(assessment: Mapping[str, Any]) -> dict[str, Any] | None:
     return {"schema_version": "1.0", "roots": roots, "projects": projects}
 
 
+def _has_only_dirty_product_holds(assessment: Mapping[str, Any]) -> bool:
+    """Return whether another local checkpoint can resolve every remaining hold."""
+    machine = assessment.get("machine")
+    if not isinstance(machine, Mapping) or machine.get("state") != "ready":
+        return False
+    if machine.get("blockers"):
+        return False
+
+    found_dirty_hold = False
+    for project in assessment.get("projects", []):
+        if not isinstance(project, Mapping):
+            continue
+        scope = project.get("scope")
+        if not isinstance(scope, Mapping) or scope.get("kind") != "product-project":
+            continue
+        route = project.get("route")
+        if route == "ready":
+            continue
+        blockers = project.get("blockers")
+        if route != "held" or not isinstance(blockers, list) or not blockers:
+            return False
+        if any(
+            not isinstance(blocker, Mapping)
+            or blocker.get("code") != "dirty-working-tree"
+            for blocker in blockers
+        ):
+            return False
+        found_dirty_hold = True
+    return found_dirty_hold
+
+
 def build_setup_journey_report(
     *,
     recover_builder: ReportBuilder = build_recover_report,
@@ -89,6 +120,7 @@ def build_setup_journey_report(
         write_setup_journey_diagnostic
     ),
     max_project_passes: int = 4,
+    max_final_stabilization_passes: int = 3,
 ) -> dict[str, Any]:
     """Recover, prepare, update, apply safe work, and verify the whole scope."""
     phases: list[dict[str, Any]] = []
@@ -177,20 +209,29 @@ def build_setup_journey_report(
         actions.extend(checkpoint.get("completed_actions", []))
 
     # A project may become dirty while the longer machine scan is running.
-    # Make the last action before verification another Product-only checkpoint
-    # and shared-repository refresh, then assess that resulting state.
-    try:
-        final_preparation = prepare_builder()
-    except Exception as exc:
-        final_preparation = _failure("prepare", exc)
-    phases.append(final_preparation)
-    actions.extend(final_preparation.get("completed_actions", []))
+    # Stabilize again immediately before verification. If that verification
+    # races another legitimate Product edit, retry only that bounded, safe
+    # checkpoint path. Every other failure remains fail-closed.
+    final_assessment: dict[str, Any] | None = None
+    for _pass in range(max(1, max_final_stabilization_passes)):
+        try:
+            final_preparation = prepare_builder()
+        except Exception as exc:
+            final_preparation = _failure("prepare", exc)
+        phases.append(final_preparation)
+        actions.extend(final_preparation.get("completed_actions", []))
 
-    try:
-        final_assessment = assess_builder()
-    except Exception as exc:
-        phases.append(_failure("verify", exc))
-        return _result(phases, actions, None, diagnostics_writer)
+        try:
+            final_assessment = assess_builder()
+        except Exception as exc:
+            phases.append(_failure("verify", exc))
+            return _result(phases, actions, None, diagnostics_writer)
+        if final_assessment.get("result") == "ready":
+            break
+        if not _has_only_dirty_product_holds(final_assessment):
+            break
+
+    assert final_assessment is not None
     phases.append({**final_assessment, "phase": "verify-all"})
     return _result(phases, actions, final_assessment, diagnostics_writer)
 
