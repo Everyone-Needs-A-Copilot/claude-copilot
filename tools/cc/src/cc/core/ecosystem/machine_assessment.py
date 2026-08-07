@@ -815,14 +815,14 @@ def _layer_assessment(
         for item in non_ready
     ]
     detail = f"{len(non_ready)} of {total} ecosystem layer(s) need attention."
-    item_label = "item that is" if len(non_ready) == 1 else "items that are"
+    item_label = "item" if len(non_ready) == 1 else "items"
     blocker: Blocker = {
         "code": "layers-not-ready",
         "responsible_actor": "ecosystem-owner",
         "evidence": evidence,
         "next_action": (
-            f"Update the {len(non_ready)} Copilot setup {item_label} behind, "
-            "then check again."
+            f"Resolve the {len(non_ready)} Copilot setup {item_label} needing "
+            "attention, then check again."
         ),
     }
     return (

@@ -110,7 +110,7 @@ def test_warn_behind_when_shas_differ():
     assert checker.severity == "warn"
     assert checker.remote_sha == "def5678def5678def5678def5678def5678123"
     assert checker.repair == "cc update"
-    assert "behind remote" in checker.detail
+    assert "does not match remote" in checker.detail
     assert offline is False
 
 
@@ -209,6 +209,7 @@ def test_reachable_repo_without_lock_pointer_reports_source_checkout_behind(tmp_
     (source / "agents" / "sec.md").write_text("v2", encoding="utf-8")
     subprocess.run(["git", "add", "-A"], cwd=source, check=True)
     subprocess.run(["git", "commit", "-q", "-m", "v2"], cwd=source, check=True)
+    subprocess.run(["git", "fetch", "-q", "origin", "main"], cwd=checkout, check=True)
 
     layer = _layer(
         id="personal",
@@ -223,6 +224,42 @@ def test_reachable_repo_without_lock_pointer_reports_source_checkout_behind(tmp_
     assert checker.local_sha != checker.remote_sha
     assert checker.severity == "warn"
     assert checker.repair == "cc update"
+    assert "behind remote" in checker.detail
+    assert offline is False
+
+
+def test_source_checkout_with_authored_commits_is_not_called_behind(tmp_path):
+    source = _make_content_repo(tmp_path, {"agents/sec.md": "v1"})
+    managed_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=source,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    (source / "agents" / "sec.md").write_text("authored", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=source, check=True)
+    _commit(source, "authored work")
+
+    def latest_sha(_repo, ref):
+        if ref == mirror.DEFAULT_LOCK_POINTER_REF:
+            return mirror.RemoteRefProbe(reachable=True, sha=None)
+        return mirror.RemoteRefProbe(reachable=True, sha=managed_sha)
+
+    layer = _layer(
+        id="foundation",
+        role="foundation",
+        source={"repo": str(source), "ref": "main", "path": str(source)},
+    )
+    checkers, offline = compute_component_checkers(
+        [layer], lockfile={}, latest_sha_fn=latest_sha, mirror_root=None
+    )
+
+    checker = checkers[0]
+    assert checker.severity == "warn"
+    assert "authored commits" in checker.detail
+    assert "behind" not in checker.detail
+    assert "preserve" in checker.repair
     assert offline is False
 
 
@@ -329,9 +366,7 @@ def _tag_parentless_snapshot(repo: Path, tag: str = "v1.0.0") -> str:
 def test_foundation_parentless_release_snapshot_with_same_tree_passes(tmp_path):
     source = _make_content_repo(tmp_path, {"agents/sec.md": "v1"})
     snapshot = _tag_parentless_snapshot(source)
-    layer = _layer(
-        source={"repo": str(source), "ref": "v1.0.0", "path": str(source)}
-    )
+    layer = _layer(source={"repo": str(source), "ref": "v1.0.0", "path": str(source)})
 
     checkers, offline = compute_component_checkers(
         [layer], lockfile={}, latest_sha_fn=mirror.probe_remote_ref
@@ -351,9 +386,7 @@ def test_foundation_snapshot_without_local_tag_ref_still_passes(tmp_path):
     checkout = tmp_path / "visible-checkout"
     subprocess.run(["git", "clone", "-q", str(source), str(checkout)], check=True)
     subprocess.run(["git", "tag", "-d", "v1.0.0"], cwd=checkout, check=True)
-    layer = _layer(
-        source={"repo": str(source), "ref": "v1.0.0", "path": str(checkout)}
-    )
+    layer = _layer(source={"repo": str(source), "ref": "v1.0.0", "path": str(checkout)})
 
     checkers, offline = compute_component_checkers(
         [layer], lockfile={}, latest_sha_fn=mirror.probe_remote_ref
@@ -373,9 +406,7 @@ def test_foundation_parentless_release_snapshot_with_different_tree_warns(tmp_pa
     (source / "agents" / "sec.md").write_text("local divergence", encoding="utf-8")
     subprocess.run(["git", "add", "-A"], cwd=source, check=True)
     _commit(source, "diverge")
-    layer = _layer(
-        source={"repo": str(source), "ref": "v1.0.0", "path": str(source)}
-    )
+    layer = _layer(source={"repo": str(source), "ref": "v1.0.0", "path": str(source)})
 
     checkers, _ = compute_component_checkers(
         [layer], lockfile={}, latest_sha_fn=mirror.probe_remote_ref
@@ -394,9 +425,7 @@ def test_foundation_ordinary_history_tag_with_same_tree_still_warns(tmp_path):
         ["git", "tag", "-a", "v1.0.0", "-m", "release"], cwd=source, check=True
     )
     _commit(source, "later", allow_empty=True)
-    layer = _layer(
-        source={"repo": str(source), "ref": "v1.0.0", "path": str(source)}
-    )
+    layer = _layer(source={"repo": str(source), "ref": "v1.0.0", "path": str(source)})
 
     checkers, _ = compute_component_checkers(
         [layer], lockfile={}, latest_sha_fn=mirror.probe_remote_ref
