@@ -384,7 +384,9 @@ def build_setup_prepare_report(
     updated = int(refresh_summary.get("updated", 0))
     result = (
         "partial"
-        if holds or assessment.get("result") != "ready"
+        if holds
+        else "action-required"
+        if assessment.get("result") != "ready"
         else "applied"
         if actions
         else "ready"

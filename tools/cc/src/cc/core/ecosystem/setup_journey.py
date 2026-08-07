@@ -202,6 +202,11 @@ def _result(
         phase
         for phase in latest_required.values()
         if phase.get("result") not in {"ready", "applied"}
+        and not (
+            phase.get("phase") == "prepare"
+            and phase.get("result") == "action-required"
+            and not phase.get("holds")
+        )
     ]
     if assessment is None or assessment.get("result") != "ready":
         phase_holds.append(

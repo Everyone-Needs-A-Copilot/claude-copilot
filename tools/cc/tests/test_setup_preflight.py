@@ -195,6 +195,7 @@ def test_prepare_checkpoints_repeat_safe_setup_outputs_even_without_blocker(
     )
 
     assert report["project_checkpoints"]["checkpointed"] == 1
+    assert report["result"] == "action-required"
     assert _run(repo, "status", "--porcelain").stdout == ""
 
 

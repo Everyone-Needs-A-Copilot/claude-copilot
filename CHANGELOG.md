@@ -24,6 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Accurate setup support status (`cc` 2.11.1):** a successful preparation
+  phase that discovers a separate machine blocker is reported as
+  `action-required`, not as a partially failed preparation. Foundation,
+  Internal, and Department repositories correctly managed outside the Product
+  project workflow are counted as managed repositories and are no longer
+  mislabeled as project holds in the private support report.
+
 - **Complete project reconciliation (`cc` 2.11.0):** component-safe work is no
   longer suppressed by an unrelated peer component; missing Claude support
   files and portable Codex gates are repaired transactionally; legacy

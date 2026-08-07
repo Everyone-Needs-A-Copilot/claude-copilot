@@ -144,7 +144,12 @@ def _safe_project_holds(assessment: Mapping[str, Any]) -> list[dict[str, Any]]:
         return []
     holds: list[dict[str, Any]] = []
     for value in raw[:1000]:
-        if not isinstance(value, Mapping) or value.get("route") == "ready":
+        if not isinstance(value, Mapping) or value.get("route") not in {
+            "held",
+            "owner-decision",
+            "could-not-verify",
+            "source-unavailable",
+        }:
             continue
         safe: dict[str, Any] = {}
         for key in ("path", "route", "next_action"):

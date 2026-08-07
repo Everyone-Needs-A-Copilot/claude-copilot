@@ -65,7 +65,13 @@ def _report() -> dict:
                     "components": [
                         {"component": "claude", "state": "held", "secret": "no"}
                     ],
-                }
+                },
+                {
+                    "path": "/ecosystem/managed",
+                    "route": "ecosystem-managed",
+                    "next_action": "Keep this managed separately.",
+                    "components": [],
+                },
             ],
         },
     }
@@ -80,6 +86,7 @@ def test_safe_record_is_useful_and_strictly_allowlisted() -> None:
     assert record["machine"]["blockers"][0]["code"] == "connection-identity-invalid"
     assert record["projects"]["scope_counts"]["product_projects"] == 47
     assert record["projects"]["holds"][0]["path"] == "/projects/held"
+    assert len(record["projects"]["holds"]) == 1
     assert record["nested_diagnostics"][0]["path"] == "/private/nested-report.json"
     assert "must-not-survive" not in rendered
     assert '"secret"' not in rendered
