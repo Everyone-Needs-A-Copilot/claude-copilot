@@ -22,10 +22,22 @@ else
     echo "==> Virtual environment already exists at $VENV_DIR"
 fi
 
+# uv creates valid virtual environments without seeding pip by default. An
+# existing cc development venv may therefore have Python but no pip entry
+# point; bootstrap it in place instead of treating the venv as corrupt.
+if [ ! -x "$VENV_DIR/bin/python" ]; then
+    echo "ERROR: Existing cc virtual environment has no Python interpreter" >&2
+    exit 1
+fi
+if ! "$VENV_DIR/bin/python" -m pip --version >/dev/null 2>&1; then
+    echo "==> Bootstrapping pip in the existing virtual environment"
+    "$VENV_DIR/bin/python" -m ensurepip --upgrade >/dev/null
+fi
+
 # Step 2: Install/upgrade pip and install cc in editable mode
 echo "==> Installing cc in editable mode"
-"$VENV_DIR/bin/pip" install --quiet --upgrade pip
-"$VENV_DIR/bin/pip" install --quiet -e "$SCRIPT_DIR"
+"$VENV_DIR/bin/python" -m pip install --quiet --upgrade pip
+"$VENV_DIR/bin/python" -m pip install --quiet -e "$SCRIPT_DIR"
 
 # Step 3: Ensure shim directory exists
 mkdir -p "$SHIM_DIR"
