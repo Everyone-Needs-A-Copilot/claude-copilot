@@ -1165,7 +1165,7 @@ def test_stale_custom_recipe_ids_are_rejected_against_current_targets(
         )
 
 
-def test_ready_project_with_unrelated_dirty_path_is_held(
+def test_ready_project_with_unrelated_dirty_path_remains_verified(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     claude_source, codex_source = _framework_sources(tmp_path)
@@ -1178,8 +1178,9 @@ def test_ready_project_with_unrelated_dirty_path_is_held(
     assessment = assess_project(
         project, approved_root=tmp_path, selected_components=("claude",)
     )
-    assert assessment["route"] == "held"
-    assert _component(assessment, "claude")["state"] == "held"
+    assert assessment["route"] == "ready"
+    assert _component(assessment, "claude")["state"] == "ready"
+    assert assessment["blockers"] == []
     _, plans = build_project_plans([assessment], {str(project): ("claude",)})
     assert plans[0].operations == ()
 
@@ -1216,7 +1217,7 @@ def test_modified_managed_entry_is_held(
     assert _component(assessment, "claude")["recipe_options"] == []
 
 
-def test_ready_project_with_renamed_unrelated_path_is_held(
+def test_ready_project_with_renamed_unrelated_path_remains_verified(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     claude_source, codex_source = _framework_sources(tmp_path)
@@ -1230,8 +1231,9 @@ def test_ready_project_with_renamed_unrelated_path_is_held(
     assessment = assess_project(
         project, approved_root=tmp_path, selected_components=("claude",)
     )
-    assert assessment["route"] == "held"
-    assert _component(assessment, "claude")["state"] == "held"
+    assert assessment["route"] == "ready"
+    assert _component(assessment, "claude")["state"] == "ready"
+    assert assessment["blockers"] == []
 
 
 def test_detached_ready_project_is_held(

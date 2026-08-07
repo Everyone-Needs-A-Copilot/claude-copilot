@@ -460,7 +460,6 @@ def _dirty_paths_are_repeat_safe(
     ):
         return False
 
-    allowed: set[str] = set()
     recorded: set[str] = set()
     seen_components: set[str] = set()
     for entry in lock["components"]:
@@ -495,7 +494,6 @@ def _dirty_paths_are_repeat_safe(
             ):
                 return False
             recorded.add(str(relative))
-            allowed.add(relative)
         target_kinds = _MANAGED_OUTPUT_TARGET_KINDS[str(component)]
         for output in managed_outputs:
             if not isinstance(output, Mapping) or set(output) != {
@@ -521,16 +519,12 @@ def _dirty_paths_are_repeat_safe(
             ):
                 return False
             recorded.add(str(relative))
-            allowed.add(relative)
 
-    if "codex" in ready:
-        bridge = ".claude/skills/codex-copilot"
-        if _path_fingerprint(project, bridge) == fingerprint_symlink(
-            "../../plugins/codex-copilot/skills"
-        ):
-            allowed.add(bridge)
-    allowed.add("copilot.lock.json")
-    return set(dirty_paths) <= allowed
+    # Dirty Product-owned files do not invalidate an already complete
+    # integration. The locked framework files above still have to match their
+    # fingerprints exactly, so this permits read-only verification while work
+    # continues without permitting any reconciliation mutation.
+    return True
 
 
 def _component_presence(component: Mapping[str, Any]) -> bool | None:
