@@ -69,6 +69,7 @@ class RecipeOperationKind(StrEnum):
     UPSERT_LOCK_COMPONENT = "upsert-lock-component"
     WRITE_PROJECT_DECLARATION = "write-project-declaration"
     ASSOCIATE_PERSONAL_PROJECT = "associate-personal-project"
+    REGISTER_SETTINGS_HOOKS = "register-settings-hooks"
 
 
 class Evidence(TypedDict):

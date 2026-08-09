@@ -63,7 +63,7 @@ trap 'echo "[pretool-check] SIGPIPE at line $LINENO — stdout pipe broken, fail
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)" \
   || { echo "[pretool-check] could not resolve SCRIPT_DIR" >&2; exit 0; }
-STATE_DIR="${SCRIPT_DIR}/state"
+STATE_DIR="${COPILOT_HOOK_STATE_DIR:-${SCRIPT_DIR}/state}"
 MANIFEST_FILE="${SCRIPT_DIR}/../agents/manifest.json"
 SECURITY_RULES_FILE="${SCRIPT_DIR}/security-rules.json"
 FREEZE_STATE_FILE="${STATE_DIR}/.freeze"
@@ -104,6 +104,35 @@ _format_agent_list() {
 }
 VALID_AGENT_LIST="$(_format_agent_list)"
 
+# Claude Code's own built-in generic subagent types. protocol-injection.md
+# Rule 4 and commands/protocol.md explicitly document these three as real,
+# reachable subagent_type values that Claude Code itself can dispatch (the
+# framework tells the model not to prefer them, but does not — and cannot,
+# from inside a hook — prevent the harness from actually running one). A
+# subagent running under one of these still needs the same livelock
+# exemption as a named framework agent: it has no Agent/Task tool of its
+# own either, so denying its Read/Edit/Bash calls is equally unsatisfiable.
+BUILTIN_AGENT_TYPES="general-purpose Explore Plan"
+
+# Validate a candidate agent_type against the known-good set: MANIFEST_AGENTS
+# (this framework's own named agents) plus BUILTIN_AGENT_TYPES (Claude
+# Code's generic subagent types). An unrecognized non-empty value — anything
+# outside both sets — must NOT be granted the subagent exemption (that would
+# be an unconditional enforcement bypass — any caller could set agent_type to
+# arbitrary text and escape both rule_force_delegate and rule_qa_gate). The
+# safe direction on an unknown value is "not exempt", i.e. treat the call as
+# main-session.
+_is_known_agent() {
+  local candidate="$1"
+  local _a
+  for _a in $MANIFEST_AGENTS $BUILTIN_AGENT_TYPES; do
+    if [[ "$candidate" == "$_a" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 # ---------------------------------------------------------------------------
 # Read hook payload from stdin
 # ---------------------------------------------------------------------------
@@ -117,6 +146,19 @@ SESSION_ID="$("$JQ" -r '.session_id // ""' <<< "$PAYLOAD" 2>/dev/null)" \
   || { echo "[pretool-check] jq parse failed reading session_id" >&2; exit 0; }
 TOOL_NAME="$("$JQ" -r '.tool_name // ""' <<< "$PAYLOAD" 2>/dev/null)" \
   || { echo "[pretool-check] jq parse failed reading tool_name" >&2; exit 0; }
+# AGENT_TYPE non-empty means this PreToolUse call originated inside a
+# subagent (sidechain), even though it shares SESSION_ID with the main
+# session that spawned it. Claude Code reuses the same session_id for a main
+# session and any subagent it spawns via the Agent tool — sidechain tool
+# calls are NOT a distinct session, distinguished only by agent_type/agent_id
+# being non-empty. Without this, a subagent's own Read/Edit/Write/Bash calls
+# would silently trip (and be denied by) the parent session's force-delegate
+# streak or QA-gate state, with no escape — framework agents don't carry the
+# Agent/Task tool, so "delegate to a framework agent instead" is
+# unsatisfiable from inside a subagent. See rule_force_delegate and
+# rule_qa_gate below for where this is consumed.
+AGENT_TYPE="$("$JQ" -r '.agent_type // ""' <<< "$PAYLOAD" 2>/dev/null)" \
+  || AGENT_TYPE=""
 
 if [[ -z "$SESSION_ID" || -z "$TOOL_NAME" ]]; then
   # Malformed payload — allow and let Claude handle it
@@ -248,9 +290,45 @@ rule_force_delegate() {
     return 0
   fi
 
-  # Only track Bash, Read, Edit — not Agent or other tools
+  # Subagent/sidechain tool calls are exempt — they ARE the delegation this
+  # rule exists to force. Claude Code shares SESSION_ID between a main
+  # session and its subagents, so without this check a subagent's own
+  # Read/Edit/Bash calls would silently continue (and trip) the main
+  # session's streak counter. Denying them is a livelock: framework agents
+  # do not carry the Agent/Task tool, so "delegate to a framework agent
+  # instead" has no satisfiable next step from inside a subagent. This must
+  # come before the tool-name case below so it also exempts subagent Bash
+  # calls, not just Read/Edit.
+  #
+  # The exemption only applies to a RECOGNIZED agent_type (validated against
+  # MANIFEST_AGENTS). An unrecognized non-empty value is surfaced to stderr
+  # and falls through to normal main-session handling rather than being
+  # silently granted the exemption — see _is_known_agent above.
+  if [[ -n "$AGENT_TYPE" ]]; then
+    if _is_known_agent "$AGENT_TYPE"; then
+      return 0
+    fi
+    echo "[pretool-check] unrecognized agent_type '${AGENT_TYPE}' (not in MANIFEST_AGENTS) — not exempting from force-delegate" >&2
+  fi
+
+  # Only track Bash, Read, Edit — not Agent or other tools. A main-session
+  # Agent dispatch (reached here only because AGENT_TYPE was empty, i.e. this
+  # IS the main session delegating, not a subagent's own call) is the exact
+  # corrective action this rule exists to force, so it must reset any
+  # pre-delegation streak. Otherwise stale streak state survives untouched
+  # through the whole subagent invocation (subagent calls are exempt above
+  # and never write to it) and the main session's first tool call after a
+  # LEGITIMATE delegation gets falsely denied against the old count.
   case "$TOOL_NAME" in
     Bash|Read|Edit) ;;
+    Agent)
+      acquire_lock
+      trap 'release_lock' EXIT
+      write_streak "" 0
+      release_lock
+      trap - EXIT
+      return 0
+      ;;
     *) return 0 ;;
   esac
 
@@ -377,6 +455,27 @@ rule_qa_gate() {
   blocking_ids="$("$JQ" -r 'join(", ")' <<< "$pending_json" 2>/dev/null)" \
     || blocking_ids="unknown"
   blocking_ids="${blocking_ids:-unknown}"
+
+  # Once a subagent is running (agent_type non-empty), its own
+  # Bash/Read/Edit/Write calls are exempt from the gate. The gate's job is to
+  # stop the MAIN session from moving past pending QA work; it is not meant
+  # to block the @agent-qa subagent's own investigation once dispatch has
+  # already been allowed below. Without this, @agent-qa could Read/Edit its
+  # way into the same "deny with no satisfiable next step" livelock that
+  # rule_force_delegate has. TOOL_NAME=="Agent" is deliberately excluded so
+  # that Agent-tool dispatch — by anyone, main session or a nested subagent
+  # attempting to delegate further — stays fully subject to the allow/deny
+  # logic below.
+  #
+  # As with rule_force_delegate, the exemption only applies to a RECOGNIZED
+  # agent_type (validated against MANIFEST_AGENTS). An unrecognized value is
+  # surfaced to stderr and falls through to the gate's normal deny logic.
+  if [[ -n "$AGENT_TYPE" && "$TOOL_NAME" != "Agent" ]]; then
+    if _is_known_agent "$AGENT_TYPE"; then
+      return 0
+    fi
+    echo "[pretool-check] unrecognized agent_type '${AGENT_TYPE}' (not in MANIFEST_AGENTS) — not exempting from qa-gate" >&2
+  fi
 
   # Allow: Agent tool with subagent_type == "qa"
   if [[ "$TOOL_NAME" == "Agent" ]]; then

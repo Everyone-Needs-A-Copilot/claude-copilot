@@ -36,7 +36,7 @@ set -uo pipefail
 # Paths
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-STATE_DIR="${SCRIPT_DIR}/state"
+STATE_DIR="${COPILOT_HOOK_STATE_DIR:-${SCRIPT_DIR}/state}"
 STATE_FILE="${STATE_DIR}/session-turns.json"
 LOCK_FILE="${STATE_DIR}/session-turns.lock"
 JQ="/usr/bin/jq"

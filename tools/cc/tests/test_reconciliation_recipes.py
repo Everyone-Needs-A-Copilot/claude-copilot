@@ -73,6 +73,7 @@ def _framework_sources(tmp_path: Path) -> tuple[Path, Path]:
     _write(claude / ".claude/commands/protocol.md", "protocol\n")
     _write(claude / ".claude/commands/continue.md", "continue\n")
     _write(claude / ".claude/fitness-check.sh", "#!/bin/sh\nexit 0\n", 0o755)
+    _write(claude / ".claude/hooks/copilot-hook.sh", "#!/bin/sh\nexit 0\n", 0o755)
     _write(claude / ".claude/agents/me.md", "me\n")
     _write(claude / ".claude/agents/kc.md", "kc\n")
 

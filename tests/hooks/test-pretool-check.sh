@@ -712,6 +712,423 @@ test_git_push_no_crash() {
   fi
 }
 
+# ===========================================================================
+# Test 15 — behavioral fail-open regression for the literal 4.0.1 deadlock
+# (Hypothesis A, confirmed root cause): "a crashing hook blocked the tools
+# needed to fix it" — specifically Read and Edit, which the 4.0.1 matcher
+# narrowing excluded as an emergency workaround. Now that the matcher is
+# widened again (TASK-106/C-6 + Write), the ERR/PIPE fail-open traps are the
+# ONLY thing standing between a script crash and a hard block on Read/Edit.
+# This injects a synthetic mid-script failure into a throwaway copy of the
+# real hook (traps intact, unmodified logic otherwise) and asserts Read and
+# Edit payloads still exit 0. A future refactor that reintroduces a bare
+# `set -euo pipefail` or drops the ERR/PIPE traps will fail this test: the
+# same injected failure becomes fail-CLOSED once errexit is active without a
+# trap to catch it (verified manually while building this test).
+# ===========================================================================
+test_crash_fails_open_for_read_and_edit() {
+  local crash_hook
+  crash_hook="$(mktemp -d)/pretool-check-crash-copy.sh"
+  # Inject a deliberate failing command right after the PIPE trap is
+  # installed (i.e. after fail-open infrastructure is set up, before any
+  # tool-specific logic runs) — simulating "the hook crashed partway
+  # through". Static text match, not tied to a fixed line number, so it
+  # tolerates reasonable reformatting of the hook script.
+  awk '
+    { print }
+    /^trap .* PIPE$/ && !injected {
+      print "false  # TEST-INJECTED crash (test_crash_fails_open_for_read_and_edit)"
+      injected = 1
+    }
+  ' "$HOOK" > "$crash_hook"
+
+  if ! grep -q "TEST-INJECTED crash" "$crash_hook"; then
+    fail "crash-injection setup failed: could not locate the PIPE trap line in $HOOK to inject after (test infrastructure bug, not the hook)"
+    rm -f "$crash_hook"
+    return
+  fi
+  chmod +x "$crash_hook"
+
+  local all_passed=true
+  local tool payload exit_code
+  for tool in Read Edit; do
+    payload="$(printf '{"session_id":"%s","tool_name":"%s","tool_input":{"file_path":"/tmp/x"}}' "$TEST_SESSION" "$tool")"
+    exit_code=0
+    bash "$crash_hook" <<< "$payload" > /dev/null 2>&1 || exit_code=$?
+    if [[ "$exit_code" -ne 0 ]]; then
+      all_passed=false
+      fail "crash-injected hook with tool_name=$tool should fail open (exit 0), got exit $exit_code"
+    fi
+  done
+  if $all_passed; then
+    ok "crash-injected hook fails open (exit 0) for both Read and Edit — 4.0.1 deadlock cannot recur"
+  fi
+
+  rm -rf "$(dirname "$crash_hook")"
+}
+
+# ===========================================================================
+# TASK-106 / C-6 — subagent-livelock replay tests (ported from the orphaned
+# branch docs/40-initiatives-migration, commit 77f5cdb).
+#
+# Root cause: Claude Code shares session_id between a main session and any
+# subagent it spawns via the Agent tool. Before the AGENT_TYPE exemption in
+# rule_force_delegate/rule_qa_gate, a subagent's Read/Edit/Bash calls shared
+# (and could trip) the parent's force-delegate streak and the qa-gate's
+# deny-everything-except-Agent(qa) rule — with no escape, since framework
+# agents do not carry the Agent/Task tool in their `tools:` allow-list.
+# ===========================================================================
+
+# Invoke hook with an arbitrary raw payload string (for agent_type fixtures
+# the other helpers above don't support).
+invoke_hook_raw() {
+  local payload="$1"
+  local extra_env="${2:-}"
+  local exit_code=0
+  local output
+  if [[ -n "$extra_env" ]]; then
+    output="$(eval "env $extra_env bash '$HOOK'" <<< "$payload" 2>/dev/null)" || exit_code=$?
+  else
+    output="$(bash "$HOOK" <<< "$payload" 2>/dev/null)" || exit_code=$?
+  fi
+  printf '%d|%s' "$exit_code" "$output"
+}
+
+# Build a Read payload, optionally tagged with a subagent's agent_type/agent_id
+# (empty agent_type == a call made directly by the main session).
+subagent_read_payload() {
+  local session="$1" agent_type="$2"
+  if [[ -z "$agent_type" ]]; then
+    printf '{"session_id":"%s","tool_name":"Read","tool_input":{"file_path":"/tmp/x"}}' "$session"
+  else
+    printf '{"session_id":"%s","agent_type":"%s","agent_id":"task-1","tool_name":"Read","tool_input":{"file_path":"/tmp/x"}}' \
+      "$session" "$agent_type"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Replay 1: main session Read streak at 4, then TWO subagent Read calls
+# (same session_id, agent_type set) → both allowed, streak untouched. Then a
+# 5th MAIN-session Read (agent_type empty) is still denied — proves the
+# subagent calls neither get blocked NOR pollute/reset the parent streak.
+# ---------------------------------------------------------------------------
+test_subagent_read_exempt_from_force_delegate() {
+  clean_state
+  local result exit_code
+
+  # 4 consecutive main-session Reads (streak=4, not yet denied)
+  local i
+  for i in 1 2 3 4; do
+    result="$(invoke_hook_raw "$(subagent_read_payload "$TEST_SESSION" "")")"
+    exit_code="$(get_exit_code "$result")"
+    if [[ "$exit_code" -ne 0 ]]; then
+      fail "replay: main-session Read $i/4 should be allowed, got exit $exit_code"
+      return
+    fi
+  done
+
+  # Subagent's first Read on the SAME session_id: this is the exact call that
+  # used to be denied (the livelock) before the agent_type exemption.
+  result="$(invoke_hook_raw "$(subagent_read_payload "$TEST_SESSION" "general-purpose")")"
+  exit_code="$(get_exit_code "$result")"
+  if [[ "$exit_code" -eq 0 ]]; then
+    ok "replay: subagent's 1st Read (5th same-tool call overall) allowed — no livelock"
+  else
+    fail "replay: subagent's 1st Read should be allowed (agent_type exempt), got exit $exit_code"
+  fi
+
+  # Subagent's second Read: still allowed — subagent calls are exempt, not
+  # just spared once.
+  result="$(invoke_hook_raw "$(subagent_read_payload "$TEST_SESSION" "general-purpose")")"
+  exit_code="$(get_exit_code "$result")"
+  if [[ "$exit_code" -eq 0 ]]; then
+    ok "replay: subagent's 2nd Read also allowed (exempt, not one-time)"
+  else
+    fail "replay: subagent's 2nd Read should be allowed, got exit $exit_code"
+  fi
+
+  # Back to the main session: the parent's streak was NOT advanced or reset
+  # by the subagent's calls, so its next Read is the 5th consecutive
+  # main-session Read and is still denied as designed.
+  result="$(invoke_hook_raw "$(subagent_read_payload "$TEST_SESSION" "")")"
+  exit_code="$(get_exit_code "$result")"
+  if [[ "$exit_code" -eq 2 ]]; then
+    ok "replay: main session's 5th Read still denied — subagent calls did not pollute parent streak"
+  else
+    fail "replay: main session's 5th Read should still be denied, got exit $exit_code"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Replay 2: a subagent working alone (fresh session_id it happens to share
+# with a parent that never called Read) issues 6+ consecutive Read calls —
+# never denied, at any streak length.
+# ---------------------------------------------------------------------------
+test_subagent_alone_never_denied() {
+  local sess="test-subagent-alone-$$"
+  rm -f "${STATE_DIR}/streak-${sess}.json" "${STATE_DIR}/streak-${sess}.lock" 2>/dev/null || true
+
+  local all_passed=true
+  local i result exit_code
+  for i in 1 2 3 4 5 6; do
+    result="$(invoke_hook_raw "$(subagent_read_payload "$sess" "qa")")"
+    exit_code="$(get_exit_code "$result")"
+    if [[ "$exit_code" -ne 0 ]]; then
+      all_passed=false
+      fail "replay: subagent Read $i/6 (agent_type=qa) should be allowed, got exit $exit_code"
+    fi
+  done
+  if $all_passed; then
+    ok "replay: subagent alone — 6 consecutive Read calls all allowed (fully exempt)"
+  fi
+
+  rm -f "${STATE_DIR}/streak-${sess}.json" "${STATE_DIR}/streak-${sess}.lock" 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
+# Replay 3: QA gate active (TASK-77 pending) + @agent-qa subagent's OWN
+# Read/Edit calls (agent_type=qa, same session_id as the gated main session)
+# → allowed. Before this fix, rule_qa_gate's "deny everything else" branch
+# caught these too, since it only special-cased TOOL_NAME=="Agent" and safe
+# `tc` Bash prefixes — meaning @agent-qa could be dispatched but then
+# couldn't Read the code it was asked to verify.
+# ---------------------------------------------------------------------------
+test_qa_gate_subagent_read_edit_exempt() {
+  clean_state
+  clean_gate_state
+  write_gate_pending '["TASK-77"]'
+
+  local result exit_code
+  result="$(invoke_hook_raw "$(subagent_read_payload "$TEST_SESSION" "qa")")"
+  exit_code="$(get_exit_code "$result")"
+  if [[ "$exit_code" -eq 0 ]]; then
+    ok "replay: QA gate active + qa subagent's own Read call allowed"
+  else
+    fail "replay: QA gate active + qa subagent Read should be allowed, got exit $exit_code"
+  fi
+
+  local edit_payload
+  edit_payload="$(printf '{"session_id":"%s","agent_type":"qa","agent_id":"task-1","tool_name":"Edit","tool_input":{"file_path":"/tmp/x"}}' "$TEST_SESSION")"
+  result="$(invoke_hook_raw "$edit_payload")"
+  exit_code="$(get_exit_code "$result")"
+  if [[ "$exit_code" -eq 0 ]]; then
+    ok "replay: QA gate active + qa subagent's own Edit call allowed"
+  else
+    fail "replay: QA gate active + qa subagent Edit should be allowed, got exit $exit_code"
+  fi
+
+  # Control: the MAIN session (agent_type empty) is still gated — this proves
+  # the exemption is scoped to subagent calls, not a blanket gate bypass.
+  result="$(invoke_hook_raw "$(subagent_read_payload "$TEST_SESSION" "")")"
+  exit_code="$(get_exit_code "$result")"
+  if [[ "$exit_code" -eq 2 ]]; then
+    ok "replay: QA gate control — main session's own Read is still denied"
+  else
+    fail "replay: main session Read should still be denied while gate active, got exit $exit_code"
+  fi
+
+  clean_gate_state
+}
+
+# ---------------------------------------------------------------------------
+# Replay 4: QA gate active + an Agent-tool dispatch call that happens to
+# carry a non-empty agent_type (a subagent nesting a further delegation) is
+# STILL gated by the Agent-specific allow/deny logic — the subagent exemption
+# explicitly excludes TOOL_NAME=="Agent" so this main mechanism isn't
+# silently weakened.
+# ---------------------------------------------------------------------------
+test_qa_gate_nested_agent_dispatch_still_gated() {
+  clean_state
+  clean_gate_state
+  write_gate_pending '["TASK-77"]'
+
+  local payload result exit_code
+  payload="$(printf '{"session_id":"%s","agent_type":"me","agent_id":"task-1","tool_name":"Agent","tool_input":{"subagent_type":"ta"}}' "$TEST_SESSION")"
+  result="$(invoke_hook_raw "$payload")"
+  exit_code="$(get_exit_code "$result")"
+  if [[ "$exit_code" -eq 2 ]]; then
+    ok "replay: QA gate active — nested Agent(ta) dispatch still denied (Agent gating not weakened)"
+  else
+    fail "replay: nested Agent(ta) dispatch should still be denied, got exit $exit_code"
+  fi
+
+  clean_gate_state
+}
+
+# ===========================================================================
+# Replay 5 — VERIFY-B Defect 1: rule_force_delegate must reset the streak on
+# a main-session Agent dispatch. Before the fix, TOOL_NAME=="Agent" fell into
+# the `*) return 0 ;;` branch without ever calling write_streak, so a stale
+# pre-delegation streak survived untouched through the whole subagent
+# invocation (subagent calls are exempt above and never write to state). The
+# main session's FIRST tool call after a legitimate delegation would then be
+# falsely denied against the old count.
+# ===========================================================================
+test_streak_resets_on_agent_dispatch() {
+  clean_state
+  local result exit_code
+
+  # Build a 4-Read streak on the main session (agent_type empty) — under the
+  # deny threshold, not yet denied.
+  local i
+  for i in 1 2 3 4; do
+    result="$(invoke_hook_raw "$(subagent_read_payload "$TEST_SESSION" "")")"
+    exit_code="$(get_exit_code "$result")"
+    if [[ "$exit_code" -ne 0 ]]; then
+      fail "streak-reset: main-session Read $i/4 should be allowed, got exit $exit_code"
+      return
+    fi
+  done
+
+  # Main session delegates — Agent dispatch, agent_type empty (this IS the
+  # main session issuing the Agent tool call).
+  local agent_payload
+  agent_payload="$(printf '{"session_id":"%s","tool_name":"Agent","tool_input":{"subagent_type":"qa"}}' "$TEST_SESSION")"
+  result="$(invoke_hook_raw "$agent_payload")"
+  exit_code="$(get_exit_code "$result")"
+  if [[ "$exit_code" -ne 0 ]]; then
+    fail "streak-reset: Agent dispatch itself should always be allowed, got exit $exit_code"
+    return
+  fi
+
+  # The subagent does its own work (agent_type=qa, same session_id) — exempt,
+  # never touches the parent's streak state either way.
+  for i in 1 2 3; do
+    invoke_hook_raw "$(subagent_read_payload "$TEST_SESSION" "qa")" >/dev/null
+  done
+
+  # Main session's FIRST tool call after the delegation returns. Pre-fix:
+  # the stale streak=4/lastTool=Read survives, this Read becomes the 5th
+  # consecutive Read overall and is falsely denied. Post-fix: the Agent
+  # dispatch reset the streak, so this is treated as call #1 and is allowed.
+  result="$(invoke_hook_raw "$(subagent_read_payload "$TEST_SESSION" "")")"
+  exit_code="$(get_exit_code "$result")"
+  if [[ "$exit_code" -eq 0 ]]; then
+    ok "streak-reset: main session's first Read after legitimate delegation is allowed (streak reset on Agent dispatch)"
+  else
+    fail "streak-reset: main session's first Read after delegation should be allowed (streak must reset on Agent dispatch), got exit $exit_code"
+  fi
+
+  clean_state
+}
+
+# ===========================================================================
+# Replay 6 — VERIFY-B Defect 2: an unrecognized agent_type must NOT be
+# granted the subagent exemption. Before the fix, ANY non-empty agent_type
+# unconditionally exempted the call from rule_force_delegate and
+# rule_qa_gate — an unvalidated field fully bypassing both guards.
+# ===========================================================================
+test_unknown_agent_type_not_exempt_force_delegate() {
+  clean_state
+  local sess="test-unknown-agent-fd-$$"
+  rm -f "${STATE_DIR}/streak-${sess}.json" "${STATE_DIR}/streak-${sess}.lock" 2>/dev/null || true
+
+  local i result exit_code all_passed=true
+  for i in 1 2 3 4; do
+    result="$(invoke_hook_raw "$(subagent_read_payload "$sess" "bogus-nonexistent-agent")")"
+    exit_code="$(get_exit_code "$result")"
+    if [[ "$exit_code" -ne 0 ]]; then
+      all_passed=false
+      fail "unknown-agent-type: call $i/4 (agent_type=bogus-nonexistent-agent) should be allowed under threshold, got exit $exit_code"
+    fi
+  done
+
+  result="$(invoke_hook_raw "$(subagent_read_payload "$sess" "bogus-nonexistent-agent")")"
+  exit_code="$(get_exit_code "$result")"
+  if [[ "$exit_code" -eq 2 ]]; then
+    ok "unknown-agent-type: 5th consecutive Read with unrecognized agent_type is denied (not granted subagent exemption)"
+  else
+    fail "unknown-agent-type: 5th consecutive Read with unrecognized agent_type should be denied (bypass), got exit $exit_code"
+  fi
+
+  if $all_passed; then :; fi
+  rm -f "${STATE_DIR}/streak-${sess}.json" "${STATE_DIR}/streak-${sess}.lock" 2>/dev/null || true
+}
+
+test_unknown_agent_type_not_exempt_qa_gate() {
+  clean_state
+  clean_gate_state
+  write_gate_pending '["TASK-88"]'
+
+  local payload result exit_code
+  payload="$(printf '{"session_id":"%s","agent_type":"bogus-nonexistent-agent","agent_id":"x","tool_name":"Read","tool_input":{"file_path":"/tmp/x"}}' "$TEST_SESSION")"
+  result="$(invoke_hook_raw "$payload")"
+  exit_code="$(get_exit_code "$result")"
+  if [[ "$exit_code" -eq 2 ]]; then
+    ok "unknown-agent-type: QA gate active + Read with unrecognized agent_type is denied (not granted subagent exemption)"
+  else
+    fail "unknown-agent-type: QA gate active + Read with unrecognized agent_type should be denied, got exit $exit_code"
+  fi
+
+  clean_gate_state
+}
+
+# ===========================================================================
+# Test 16 — /freeze (rule_path_scope) Write regression. Neither `main` nor
+# the orphaned docs/40-initiatives-migration branch ever exercised a Write
+# tool call against rule_path_scope, because neither branch's matcher ever
+# included Write. This is new coverage for the matcher gap the investigation
+# found in 77f5cdb's own fix (Bash|Read|Edit|Agent — no Write).
+#
+# rule_path_scope deliberately does NOT get a subagent exemption (unlike
+# force-delegate/qa-gate): /freeze's purpose is to lock file mutation to a
+# directory regardless of who is mutating, so a subagent Write outside the
+# freeze dir must still deny — that's a control proving the no-exemption
+# decision is actually enforced, not just documented.
+# ===========================================================================
+FREEZE_FILE="${STATE_DIR}/.freeze"
+
+write_freeze_state() {
+  local dir="$1"
+  printf '%s\n' "$dir" > "$FREEZE_FILE"
+}
+
+clean_freeze_state() {
+  rm -f "$FREEZE_FILE" 2>/dev/null || true
+}
+
+test_freeze_write_regression() {
+  clean_state
+  clean_freeze_state
+  local freeze_dir="/tmp/freeze-test-dir-$$"
+  write_freeze_state "$freeze_dir"
+
+  local payload result exit_code
+
+  # Write outside the freeze dir (main session) → denied
+  payload="$(printf '{"session_id":"%s","tool_name":"Write","tool_input":{"file_path":"/Volumes/Dev/Sites/COPILOT/some-other-file.py"}}' "$TEST_SESSION")"
+  result="$(invoke_hook_raw "$payload")"
+  exit_code="$(get_exit_code "$result")"
+  if [[ "$exit_code" -eq 2 ]]; then
+    ok "/freeze: Write outside freeze dir denied"
+  else
+    fail "/freeze: Write outside freeze dir should be denied, got exit $exit_code"
+  fi
+
+  # Write inside the freeze dir (main session) → allowed
+  payload="$(printf '{"session_id":"%s","tool_name":"Write","tool_input":{"file_path":"%s/inside.py"}}' "$TEST_SESSION" "$freeze_dir")"
+  result="$(invoke_hook_raw "$payload")"
+  exit_code="$(get_exit_code "$result")"
+  if [[ "$exit_code" -eq 0 ]]; then
+    ok "/freeze: Write inside freeze dir allowed"
+  else
+    fail "/freeze: Write inside freeze dir should be allowed, got exit $exit_code"
+  fi
+
+  # Write outside the freeze dir from a SUBAGENT (agent_type set) → still
+  # denied. rule_path_scope gets no subagent exemption, by design.
+  payload="$(printf '{"session_id":"%s","agent_type":"qa","agent_id":"task-1","tool_name":"Write","tool_input":{"file_path":"/Volumes/Dev/Sites/COPILOT/some-other-file.py"}}' "$TEST_SESSION")"
+  result="$(invoke_hook_raw "$payload")"
+  exit_code="$(get_exit_code "$result")"
+  if [[ "$exit_code" -eq 2 ]]; then
+    ok "/freeze: subagent Write outside freeze dir still denied (no subagent exemption, by design)"
+  else
+    fail "/freeze: subagent Write outside freeze dir should still be denied, got exit $exit_code"
+  fi
+
+  clean_freeze_state
+}
+
 # ---------------------------------------------------------------------------
 # Run all tests
 # ---------------------------------------------------------------------------
@@ -768,9 +1185,36 @@ test_command_string_escape_hatch
 echo "--- Test 14: crash fix — git push exits 0 (no hook crash)"
 test_git_push_no_crash
 
+echo ""
+echo "--- Test 15: crash-injected hook fails open for Read/Edit (Hypothesis A / 4.0.1 deadlock regression)"
+test_crash_fails_open_for_read_and_edit
+
+echo ""
+echo "--- Replay 1: subagent Read exempt from force-delegate streak (does not pollute parent streak)"
+test_subagent_read_exempt_from_force_delegate
+echo "--- Replay 2: subagent alone — never denied at any streak length"
+test_subagent_alone_never_denied
+echo "--- Replay 3: QA gate + qa subagent's own Read/Edit exempt"
+test_qa_gate_subagent_read_edit_exempt
+echo "--- Replay 4: QA gate + nested Agent dispatch still gated"
+test_qa_gate_nested_agent_dispatch_still_gated
+
+echo ""
+echo "--- Test 16: /freeze — Write outside freeze dir denied, inside allowed, subagent Write still denied"
+test_freeze_write_regression
+
+echo ""
+echo "--- Replay 5: VERIFY-B Defect 1 — streak resets on main-session Agent dispatch"
+test_streak_resets_on_agent_dispatch
+echo "--- Replay 6a: VERIFY-B Defect 2 — unrecognized agent_type not exempt from force-delegate"
+test_unknown_agent_type_not_exempt_force_delegate
+echo "--- Replay 6b: VERIFY-B Defect 2 — unrecognized agent_type not exempt from qa-gate"
+test_unknown_agent_type_not_exempt_qa_gate
+
 # Clean up test session state
 clean_state
 clean_gate_state
+clean_freeze_state
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

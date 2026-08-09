@@ -67,6 +67,7 @@ def _claude_source(tmp_path: Path) -> Path:
     _write(source / ".claude/commands/protocol.md", "protocol\n")
     _write(source / ".claude/commands/continue.md", "continue\n")
     _write(source / ".claude/fitness-check.sh", "#!/bin/sh\nexit 0\n", 0o755)
+    _write(source / ".claude/hooks/copilot-hook.sh", "#!/bin/sh\nexit 0\n", 0o755)
     _write(source / ".claude/agents/me.md", "me\n")
     _write(source / ".claude/agents/kc.md", "kc\n")
     return source

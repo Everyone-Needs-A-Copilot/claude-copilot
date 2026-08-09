@@ -43,11 +43,19 @@ def build_frontmatter(
     scope: str,
     created: str | None = None,
     updated: str | None = None,
+    guard: str | None = None,
 ) -> dict[str, Any]:
-    """Build a validated frontmatter dict for a new or updated entry."""
+    """Build a validated frontmatter dict for a new or updated entry.
+
+    `guard` is the content-guard summary token (see `core/content_guard.py`):
+    "clean", "modified:<pattern-id>[,<pattern-id>...]", or "scan_error".
+    Omitted (None) for callers that don't run content through the guard
+    (e.g. the legacy SQLite migration path), so old and guard-less entries
+    keep validating without it.
+    """
     validate_entry_type(entry_type)
     now = _now_iso()
-    return {
+    fm: dict[str, Any] = {
         "id": entry_id,
         "type": entry_type,
         "tags": tags,
@@ -55,13 +63,31 @@ def build_frontmatter(
         "updated": updated or now,
         "scope": scope,
     }
+    if guard is not None:
+        fm["guard"] = guard
+    return fm
+
+
+# Keys with a fixed, always-present position in the frontmatter block.
+# `serialize_frontmatter` writes these first, in this order, then appends
+# any OTHER key present in the dict (e.g. `guard`) so a field introduced
+# after this tuple was written is never silently dropped on write.
+_CORE_KEYS = ("id", "type", "tags", "created", "updated", "scope")
 
 
 def serialize_frontmatter(fm: dict[str, Any]) -> str:
     """Render frontmatter dict to YAML block (no external dependency)."""
     lines = ["---"]
-    for key in ("id", "type", "tags", "created", "updated", "scope"):
+    for key in _CORE_KEYS:
         value = fm.get(key)
+        if isinstance(value, list):
+            items = ", ".join(str(v) for v in value)
+            lines.append(f"{key}: [{items}]")
+        else:
+            lines.append(f"{key}: {value}")
+    for key, value in fm.items():
+        if key in _CORE_KEYS or value is None:
+            continue
         if isinstance(value, list):
             items = ", ".join(str(v) for v in value)
             lines.append(f"{key}: [{items}]")

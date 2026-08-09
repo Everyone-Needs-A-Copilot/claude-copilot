@@ -53,7 +53,7 @@ set -uo pipefail
 # Paths
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-STATE_DIR="${SCRIPT_DIR}/state"
+STATE_DIR="${COPILOT_HOOK_STATE_DIR:-${SCRIPT_DIR}/state}"
 GATE_FILE="${STATE_DIR}/qa-gate.json"
 LOCK_FILE="${STATE_DIR}/qa-gate.lock"
 LOG_FILE="${STATE_DIR}/qa-gate.log"

@@ -919,6 +919,7 @@ def _claude_plan(project: Path, source: Path) -> tuple[list[tuple[Path, Path]], 
         (source / ".claude/commands/protocol.md", project / ".claude/commands/protocol.md"),
         (source / ".claude/commands/continue.md", project / ".claude/commands/continue.md"),
         (source / ".claude/fitness-check.sh", project / ".claude/fitness-check.sh"),
+        (source / ".claude/hooks/copilot-hook.sh", project / ".claude/hooks/copilot-hook.sh"),
     ]
     copies.extend(
         (source / f".claude/agents/{agent}.md", project / f".claude/agents/{agent}.md")
@@ -1300,6 +1301,7 @@ def _installed_framework_files(project: Path, component: str) -> list[dict[str, 
             project / ".claude/commands/protocol.md",
             project / ".claude/commands/continue.md",
             project / ".claude/fitness-check.sh",
+            project / ".claude/hooks/copilot-hook.sh",
             *sorted((project / ".claude/agents").glob("*.md")),
         ]
     else:

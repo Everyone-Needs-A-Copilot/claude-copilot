@@ -7,10 +7,16 @@ This module has ZERO import-time side effects.
 from __future__ import annotations
 
 import sqlite3
+import sys
 from pathlib import Path
 from typing import Any, Optional
 
 from tc.db.exceptions import PrdNotFound, ValidationError
+from tc.services.content_guard import (
+    combine_field_summary,
+    combine_field_warnings,
+    scan_and_neutralize,
+)
 
 _VALID_STATUSES = {"active", "completed", "archived"}
 
@@ -56,13 +62,29 @@ def create_prd(
         db_path:     Explicit DB path; if None, walks up from cwd.
 
     Returns:
-        Dict matching ``tc prd create --json`` output shape.
+        Dict matching ``tc prd create --json`` output shape, plus a
+        ``guard`` field (see `services/content_guard.py`).
 
     Raises:
         ValidationError: if title is empty.
     """
     if not title or not title.strip():
         raise ValidationError("title must not be empty")
+
+    guard_title = scan_and_neutralize(title)
+    guard_description = scan_and_neutralize(description) if description is not None else None
+    guard_content = scan_and_neutralize(content) if content is not None else None
+    guard_fields = {"title": guard_title}
+    if guard_description is not None:
+        guard_fields["description"] = guard_description
+    if guard_content is not None:
+        guard_fields["content"] = guard_content
+    for line in combine_field_warnings(guard_fields):
+        print(line, file=sys.stderr)
+    guard_summary = combine_field_summary(guard_fields)
+    title = guard_title.text
+    description = guard_description.text if guard_description is not None else None
+    content = guard_content.text if guard_content is not None else None
 
     owns_conn = conn is None
     if owns_conn:
@@ -71,8 +93,8 @@ def create_prd(
 
     try:
         cursor = conn.execute(
-            "INSERT INTO prds (title, description, content) VALUES (?, ?, ?)",
-            (title, description, content),
+            "INSERT INTO prds (title, description, content, guard) VALUES (?, ?, ?, ?)",
+            (title, description, content, guard_summary),
         )
         prd_id = cursor.lastrowid
 

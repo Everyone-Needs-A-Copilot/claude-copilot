@@ -54,6 +54,7 @@ _CLAUDE_REQUIRED_LOCK_PATHS = (
     ".claude/commands/protocol.md",
     ".claude/commands/continue.md",
     ".claude/fitness-check.sh",
+    ".claude/hooks/copilot-hook.sh",
 )
 
 _CODEX_REQUIRED_LOCK_PATHS = (
@@ -89,6 +90,7 @@ _CLAUDE_RELEVANT_PATHS = (
     ".claude/commands/protocol.md",
     ".claude/commands/continue.md",
     ".claude/fitness-check.sh",
+    ".claude/hooks/copilot-hook.sh",
     ".claude/agents",
 )
 
@@ -107,6 +109,7 @@ _CLAUDE_ACTION_TARGETS = (
     ".claude/commands/protocol.md",
     ".claude/commands/continue.md",
     ".claude/fitness-check.sh",
+    ".claude/hooks/copilot-hook.sh",
     ".claude/agents",
     ".claude/cc/config.json",
     ".claude/memory/entries/.gitkeep",
@@ -276,6 +279,7 @@ def _claude_source_files(source: Path) -> Optional[dict[str, Path]]:
         ".claude/commands/protocol.md": source / ".claude/commands/protocol.md",
         ".claude/commands/continue.md": source / ".claude/commands/continue.md",
         ".claude/fitness-check.sh": source / ".claude/fitness-check.sh",
+        ".claude/hooks/copilot-hook.sh": source / ".claude/hooks/copilot-hook.sh",
     }
     files.update(
         {

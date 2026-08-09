@@ -130,6 +130,20 @@ def read_project_lock(path: Optional[Path | str]) -> dict[str, Any]:
     return data
 
 
+def serialize_project_lock(manifest: dict[str, Any]) -> bytes:
+    """
+    The one canonical byte encoding of a per-project lock manifest --
+    sort_keys, indent=2, trailing newline, UTF-8 -- shared by every writer
+    so the file never diffs on formatting alone. `write_project_lock()`
+    (below) uses this for its own plain, unlocked write; `mutations.py`'s
+    ledger writer uses it too, inside an `AnchoredProject.atomic_write()`
+    call under `project_lock()`, so a lock-manifest write that must be
+    fsynced/atomic/identity-bound produces byte-identical output to one
+    that does not need to be.
+    """
+    return (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode("utf-8")
+
+
 def write_project_lock(path: Path | str, manifest: dict[str, Any]) -> None:
     """
     Write a per-project lock manifest as canonical (sort_keys, indent=2)
@@ -143,9 +157,7 @@ def write_project_lock(path: Path | str, manifest: dict[str, Any]) -> None:
     """
     target = Path(path).expanduser()
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(
-        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    target.write_bytes(serialize_project_lock(manifest))
 
 
 def framework_owned_paths(entry: dict[str, Any]) -> list[str]:

@@ -7,11 +7,13 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
 
+from cc.core.content_guard import scan_and_neutralize
 from cc.core.entry_format import (
     EntryValidationError,
     build_frontmatter,
@@ -134,11 +136,28 @@ def store_entry(
     """
     Write a new memory entry to disk.
 
-    Returns {"id": <uuid>, "path": <str>}.
+    `content` is passed through `core.content_guard.scan_and_neutralize()`
+    first: injection-shaped markup is defanged in place and secrets are
+    redacted, never silently dropped. The write always proceeds -- on a
+    scanner error the ORIGINAL content is stored unscanned rather than lost,
+    and the frontmatter `guard` field plus a stderr warning record what
+    happened either way. Applied here (not in `commands/memory.py`) so every
+    caller reaching this function -- the CLI, `cc mcp-serve`'s memory_store
+    tool, and `cc.api` -- is covered, not just the CLI argument path.
+
+    Returns {"id": <uuid>, "path": <str>, "guard": <summary token>}. `guard`
+    is "clean", "modified:<pattern-id>[,...]", or "scan_error" -- surfaced
+    directly to the caller, not only to a later reader of the file, so a
+    programmatic caller can react to it without re-reading and re-parsing
+    the entry it just wrote.
     """
     resolved_scope = scope or default_scope()
     validate_entry_type(entry_type)
     tag_list = parse_tags(tags or [])
+
+    guard_result = scan_and_neutralize(content)
+    for line in guard_result.warning_lines("content"):
+        print(line, file=sys.stderr)
 
     entry_id = str(uuid.uuid4())
     memory_root = resolve_memory_root(resolved_scope)
@@ -149,12 +168,17 @@ def store_entry(
         entry_type=entry_type,
         tags=tag_list,
         scope=resolved_scope,
+        guard=guard_result.summary_token(),
     )
-    file_text = render_entry(fm, content)
+    file_text = render_entry(fm, guard_result.text)
     entry_path = e_dir / f"{entry_id}.md"
     _atomic_write(entry_path, file_text)
 
-    return {"id": entry_id, "path": str(entry_path)}
+    return {
+        "id": entry_id,
+        "path": str(entry_path),
+        "guard": guard_result.summary_token(),
+    }
 
 
 def _find_entry_path(memory_root: Path, entry_id: str) -> Path | None:

@@ -96,6 +96,8 @@ _TARGETS = {
     ".claude/commands/continue.md",
     ".claude/commands/protocol.md",
     ".claude/fitness-check.sh",
+    ".claude/hooks/copilot-hook.sh",
+    ".claude/settings.json",
     ".claude/memory/.gitignore",
     ".claude/memory/entries/.gitkeep",
     ".claude/skills/codex-copilot",
@@ -123,6 +125,7 @@ _OPERATION_KINDS = {
     "upsert-lock-component",
     "write-project-declaration",
     "associate-personal-project",
+    "register-settings-hooks",
 }
 _EXCEPTION_TYPES = {
     "KeyboardInterrupt",
