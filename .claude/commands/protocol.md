@@ -229,13 +229,7 @@ Options:
 [Wait for explicit user response]
 ```
 
-**Verbosity Levels:**
-
-| Flag | Tokens | Content |
-|------|--------|---------|
-| Default | ~100 | Balanced summary + key decisions |
-| `--verbose` | ~200 | Detailed summary + reasoning |
-| `--minimal` | ~50 | Concise summary + binary y/n |
+**Verbosity Levels:** Default checkpoint length follows the Output Contract's `$CC_OUTPUT_VERBOSITY` (concise by default). `--verbose` and `--minimal` override it for this invocation only, mapping to `detailed` and a binary-only trim of `concise`, respectively — same content requirements, different length.
 
 ### Handling User Responses
 
@@ -894,12 +888,7 @@ Main session must track:
 - Write code (delegate to @agent-me)
 - Duplicate agent summaries (agents return ~100 tokens, main session adds ~50 tokens max)
 
-**Main session response budget:**
-- Protocol declaration: ~30 tokens
-- Agent invocation notice: ~20 tokens
-- Checkpoint presentation: ~150 tokens (agent summary + options)
-- User guidance: ~30 tokens
-- Total per interaction: ~230 tokens average
+**Main session response length:** governed by the Output Contract's verbosity knob (see `## Output Contract` below), same as checkpoint presentations — no separate budget to track here.
 
 ---
 
@@ -954,6 +943,30 @@ Ready for your request.
 Offer when relevant. Never block work.
 
 ---
+
+## Output Contract
+
+BLUF: lead with the answer or finding. Bullets over paragraphs. Plain English. Depth only on request. Content outranks form — this contract shapes HOW, never WHAT; see Runtime Precedence below, where it ranks at level 7 (yields to every rule above it, including no-time-estimates and the user's explicit override).
+
+**Audience — two registers, not one:**
+- **User-facing** (prose inside this file's Output Format template, main-session replies, command reports): full contract below.
+- **Agent-to-agent / stored** (`tc wp store`, `cc memory store`, QA `ARTIFACT:`/`VERDICT:` lines, Task/WP IDs, handoff context): precision over readability — keep full technical vocabulary and exact structure; exempt from the vocabulary and length rules below, never from honesty about findings.
+
+**Rules for the user-facing register:**
+1. Name the reader. Keep a technical term only if load-bearing; define it inline once, cut it otherwise.
+2. Lead with the finding or answer; context after, only if needed.
+3. Bullets for anything with 2+ items.
+4. Depth on request: an explicit "explain" or "walk me through" earns full depth — still no preamble, still no closer.
+
+**Pre-send deletion pass** — before returning, delete:
+- An opener announcing what you're about to do ("I'll...", "Let me...").
+- A closer asking "anything else?" or recapping what just happened.
+- Self-narration about your own process or reasoning.
+- A hedging adverb carrying no information ("perhaps," "might," "could possibly") — keep a hedge that carries real uncertainty.
+
+**Verify before sending:** read only the first line and the last line. Do they name the finding/answer and what changed? If either is missing, revise before sending.
+
+**Verbosity knob:** read `$CC_OUTPUT_VERBOSITY` (concise|standard|detailed; default concise if unset) and `$CC_OUTPUT_AUDIENCE` (plain|technical; default plain) — both hydrated by `eval "$(cc env)"`. `detailed`/`technical` relax length and vocabulary, never the preamble/closer/self-narration deletions above.
 
 ## Acknowledge
 

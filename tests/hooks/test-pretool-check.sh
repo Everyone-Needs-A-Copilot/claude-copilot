@@ -356,29 +356,42 @@ test_streak_reset_after_deny() {
 # Test 11: Performance — hook completes in <50ms
 # ---------------------------------------------------------------------------
 test_performance() {
-  clean_state
-  local start_ms end_ms elapsed_ms
+  # EPOCHREALTIME is a bash builtin (seconds.microseconds, zero subprocess
+  # cost) — it avoids polluting the measurement with an external timer's own
+  # fork/exec overhead. This previously bracketed the invocation with two
+  # separate `python3 -c 'import time; ...'` calls on Darwin; each one costs
+  # ~19-22ms of its own interpreter startup on typical hardware (measured),
+  # comparable to the entire 50ms budget under test, so "elapsed_ms" was
+  # largely measurement noise rather than hook time — this made the test
+  # flaky (borderline pass/fail on scheduler jitter alone) once the hook
+  # itself was made fast. See pretool-check.sh's PERFORMANCE NOTE comments
+  # for the corresponding hook-side fix (jq call consolidation, lazy
+  # manifest loading, builtin strftime instead of `date`).
+  #
+  # Five samples, reporting the median, is robust to a single scheduler
+  # hiccup (GC pause, disk cache miss, etc.) without hiding a genuine
+  # regression the way averaging or "best of N" would.
+  local samples=5
+  local -a runs=()
+  local i start_s start_us end_s end_us elapsed_ms
+  for ((i = 0; i < samples; i++)); do
+    clean_state
+    IFS=. read -r start_s start_us <<< "$EPOCHREALTIME"
+    invoke_hook "Bash" > /dev/null 2>&1
+    IFS=. read -r end_s end_us <<< "$EPOCHREALTIME"
+    elapsed_ms=$(( (end_s - start_s) * 1000 + (10#$end_us - 10#$start_us) / 1000 ))
+    runs+=("$elapsed_ms")
+  done
 
-  if [[ "$(uname)" == "Darwin" ]]; then
-    start_ms="$(python3 -c 'import time; print(int(time.time() * 1000))')"
+  local -a sorted=()
+  IFS=$'\n' sorted=($(printf '%s\n' "${runs[@]}" | sort -n))
+  unset IFS
+  local median_ms="${sorted[$((samples / 2))]}"
+
+  if [[ "$median_ms" -lt 50 ]]; then
+    ok "hook performance: median ${median_ms}ms over ${samples} runs (target <50ms; samples: ${runs[*]}ms)"
   else
-    start_ms="$(date +%s%3N)"
-  fi
-
-  invoke_hook "Bash" > /dev/null 2>&1
-
-  if [[ "$(uname)" == "Darwin" ]]; then
-    end_ms="$(python3 -c 'import time; print(int(time.time() * 1000))')"
-  else
-    end_ms="$(date +%s%3N)"
-  fi
-
-  elapsed_ms=$((end_ms - start_ms))
-
-  if [[ "$elapsed_ms" -lt 50 ]]; then
-    ok "hook performance: completed in ${elapsed_ms}ms (target <50ms)"
-  else
-    fail "hook performance: ${elapsed_ms}ms exceeds 50ms target"
+    fail "hook performance: median ${median_ms}ms over ${samples} runs exceeds 50ms target (samples: ${runs[*]}ms)"
   fi
 }
 

@@ -295,6 +295,8 @@ Read the template from `~/.claude/copilot/templates/CLAUDE.template.md` and crea
 - TECH_STACK = user's answer
 - KNOWLEDGE_STATUS = detected status
 - KNOWLEDGE_NAME = if available
+- OUTPUT_VERBOSITY = `cc config get output.verbosity --raw` (falls back to `concise` if unset)
+- OUTPUT_AUDIENCE = `cc config get output.audience --raw` (falls back to `plain` if unset)
 
 ---
 
@@ -355,6 +357,7 @@ If `FITNESS_RESULT` is non-zero (check failed), print the failures and tell the 
 **Configuration:**
 - Memory: `.claude/memory/entries/` (committed files)
 - Skills: Local (`.claude/skills/`)
+- Output: verbosity `{{OUTPUT_VERBOSITY}}`, audience `{{OUTPUT_AUDIENCE}}` (machine default — override here with `cc config set output.verbosity <level> --project`)
 {{IF GLOBAL_KNOWLEDGE_EXISTS}}
 - Knowledge: `{{KNOWLEDGE_NAME}}` (global)
 {{ELSE}}

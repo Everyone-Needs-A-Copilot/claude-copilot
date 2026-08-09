@@ -78,6 +78,12 @@ JQ="/usr/bin/jq"
 # Now uses jq (already required, 3-4ms). This is the primary fix for the
 # intermittent "No stderr output" hook error caused by the hook exceeding
 # the harness timeout when python3 is cold-cached.
+#
+# LAZY LOADING: this jq call (plus the @agent-X list formatting) only runs
+# on invocations that actually need it — a subagent's own tool call (any
+# non-empty agent_type, to validate the exemption) or a deny message that
+# lists valid agents. The common case (main-session call, nothing denied)
+# never touches the manifest at all. See _ensure_manifest_loaded below.
 # ---------------------------------------------------------------------------
 _load_manifest_agents() {
   if [[ -f "$MANIFEST_FILE" ]]; then
@@ -85,14 +91,6 @@ _load_manifest_agents() {
       "$MANIFEST_FILE" 2>/dev/null
   fi
 }
-
-# MANIFEST_AGENTS is a space-separated list of framework agent names from the manifest.
-export MANIFEST_FILE
-MANIFEST_AGENTS="$(_load_manifest_agents 2>/dev/null || echo "")"
-# Fallback when manifest unavailable
-if [[ -z "$MANIFEST_AGENTS" ]]; then
-  MANIFEST_AGENTS="cco cpa cs cw do doc ind me qa sd sec ta uid uids uxd"
-fi
 
 # Format agents as @agent-X list for deny messages
 _format_agent_list() {
@@ -102,7 +100,24 @@ _format_agent_list() {
   done
   echo "${result%, }"
 }
-VALID_AGENT_LIST="$(_format_agent_list)"
+
+# MANIFEST_AGENTS is a space-separated list of framework agent names from the
+# manifest. Populated on first use by _ensure_manifest_loaded (idempotent —
+# safe to call from multiple sites).
+export MANIFEST_FILE
+MANIFEST_AGENTS=""
+VALID_AGENT_LIST=""
+_MANIFEST_LOADED=0
+_ensure_manifest_loaded() {
+  [[ "$_MANIFEST_LOADED" -eq 1 ]] && return 0
+  _MANIFEST_LOADED=1
+  MANIFEST_AGENTS="$(_load_manifest_agents 2>/dev/null || echo "")"
+  # Fallback when manifest unavailable
+  if [[ -z "$MANIFEST_AGENTS" ]]; then
+    MANIFEST_AGENTS="cco cpa cs cw do doc ind me qa sd sec ta uid uids uxd"
+  fi
+  VALID_AGENT_LIST="$(_format_agent_list)"
+}
 
 # Claude Code's own built-in generic subagent types. protocol-injection.md
 # Rule 4 and commands/protocol.md explicitly document these three as real,
@@ -123,6 +138,7 @@ BUILTIN_AGENT_TYPES="general-purpose Explore Plan"
 # safe direction on an unknown value is "not exempt", i.e. treat the call as
 # main-session.
 _is_known_agent() {
+  _ensure_manifest_loaded
   local candidate="$1"
   local _a
   for _a in $MANIFEST_AGENTS $BUILTIN_AGENT_TYPES; do
@@ -142,10 +158,13 @@ if [[ -z "$PAYLOAD" ]]; then
   exit 0
 fi
 
-SESSION_ID="$("$JQ" -r '.session_id // ""' <<< "$PAYLOAD" 2>/dev/null)" \
-  || { echo "[pretool-check] jq parse failed reading session_id" >&2; exit 0; }
-TOOL_NAME="$("$JQ" -r '.tool_name // ""' <<< "$PAYLOAD" 2>/dev/null)" \
-  || { echo "[pretool-check] jq parse failed reading tool_name" >&2; exit 0; }
+# Single jq call extracts the three top-level identifier fields together.
+# Each separate jq invocation costs ~2-3ms of fork/exec overhead; parsing
+# the same PAYLOAD three times used to dominate the hook's <50ms performance
+# budget. session_id/tool_name/agent_type are harness-generated tokens (never
+# free-form text), so @tsv's escaping of tabs/newlines/backslashes is a safe
+# no-op for them.
+#
 # AGENT_TYPE non-empty means this PreToolUse call originated inside a
 # subagent (sidechain), even though it shares SESSION_ID with the main
 # session that spawned it. Claude Code reuses the same session_id for a main
@@ -157,12 +176,27 @@ TOOL_NAME="$("$JQ" -r '.tool_name // ""' <<< "$PAYLOAD" 2>/dev/null)" \
 # Agent/Task tool, so "delegate to a framework agent instead" is
 # unsatisfiable from inside a subagent. See rule_force_delegate and
 # rule_qa_gate below for where this is consumed.
-AGENT_TYPE="$("$JQ" -r '.agent_type // ""' <<< "$PAYLOAD" 2>/dev/null)" \
-  || AGENT_TYPE=""
+_PAYLOAD_FIELDS="$("$JQ" -r \
+  '[.session_id // "", .tool_name // "", .agent_type // ""] | @tsv' \
+  <<< "$PAYLOAD" 2>/dev/null)" \
+  || { echo "[pretool-check] jq parse failed reading payload fields" >&2; exit 0; }
+IFS=$'\t' read -r SESSION_ID TOOL_NAME AGENT_TYPE <<< "$_PAYLOAD_FIELDS"
 
 if [[ -z "$SESSION_ID" || -z "$TOOL_NAME" ]]; then
   # Malformed payload — allow and let Claude handle it
   exit 0
+fi
+
+# TOOL_COMMAND (.tool_input.command) is arbitrary free-form shell text — NOT
+# run through @tsv (which would mangle embedded backslashes/tabs/newlines) —
+# extracted once here with plain -r raw output and shared by
+# rule_force_delegate, rule_destructive_command, and rule_path_scope below,
+# which previously each parsed it independently. Only Bash tool calls carry
+# .tool_input.command, so this is skipped entirely for Read/Edit/Agent/etc.
+TOOL_COMMAND=""
+if [[ "$TOOL_NAME" == "Bash" ]]; then
+  TOOL_COMMAND="$("$JQ" -r '.tool_input.command // ""' <<< "$PAYLOAD" 2>/dev/null)" \
+    || TOOL_COMMAND=""
 fi
 
 # ---------------------------------------------------------------------------
@@ -190,18 +224,28 @@ release_lock() {
   rmdir "$LOCK_FILE" 2>/dev/null || true
 }
 
+# Sets globals _STREAK_LAST_TOOL and _STREAK_COUNT rather than echoing JSON
+# for the caller to re-parse. When STATE_FILE doesn't exist (the common case
+# — first call of a session, or right after a streak reset) this makes zero
+# subprocess calls at all; when it does exist, one jq call reads updatedAt,
+# lastTool, and streak together instead of the state file being parsed
+# multiple times (once for staleness, again per field).
 read_streak() {
+  _STREAK_LAST_TOOL=""
+  _STREAK_COUNT=0
   if [[ ! -f "$STATE_FILE" ]]; then
-    echo '{"lastTool":"","streak":0}'
     return
   fi
-  local updated_at
-  updated_at="$("$JQ" -r '.updatedAt // ""' "$STATE_FILE" 2>/dev/null)" \
-    || { echo "[pretool-check] jq parse failed reading updatedAt from $STATE_FILE" >&2
-         echo '{"lastTool":"","streak":0}'; return; }
+  local raw updated_at
+  raw="$("$JQ" -r '[.updatedAt // "", .lastTool // "", (.streak // 0 | tostring)] | @tsv' \
+    "$STATE_FILE" 2>/dev/null)" \
+    || { echo "[pretool-check] jq parse failed reading streak state from $STATE_FILE" >&2; return; }
+  IFS=$'\t' read -r updated_at _STREAK_LAST_TOOL _STREAK_COUNT <<< "$raw"
+  _STREAK_COUNT="${_STREAK_COUNT:-0}"
+
   if [[ -n "$updated_at" ]]; then
     local now_epoch file_epoch
-    now_epoch="$(date -u +%s)"
+    printf -v now_epoch '%(%s)T' -1
     # date -j -f "%Y-%m-%dT%H:%M:%SZ" on macOS; fallback on Linux
     if [[ "$(uname)" == "Darwin" ]]; then
       file_epoch="$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "${updated_at}" +%s 2>/dev/null || echo 0)"
@@ -211,22 +255,20 @@ read_streak() {
     local age=$(( now_epoch - file_epoch ))
     if [[ "$age" -gt "$STALENESS_SECONDS" ]]; then
       # Stale — treat as fresh
-      echo '{"lastTool":"","streak":0}'
-      return
+      _STREAK_LAST_TOOL=""
+      _STREAK_COUNT=0
     fi
   fi
-  local result
-  result="$("$JQ" '{lastTool: .lastTool, streak: .streak}' "$STATE_FILE" 2>/dev/null)" \
-    || { echo "[pretool-check] jq parse failed reading streak from $STATE_FILE" >&2
-         echo '{"lastTool":"","streak":0}'; return; }
-  echo "$result"
 }
 
 write_streak() {
   local last_tool="$1"
   local streak="$2"
   local now
-  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  # Bash builtin strftime — no subprocess (was: date -u +%Y-%m-%dT%H:%M:%SZ).
+  # TZ=UTC0 is required: bash's %()T uses the local zone by default, which
+  # would silently mislabel a local-time value with the "Z" (UTC) suffix.
+  TZ=UTC0 printf -v now '%(%Y-%m-%dT%H:%M:%SZ)T' -1
   local tmp="${STATE_FILE}.tmp.$$"
   printf '{"session_id":"%s","lastTool":"%s","streak":%d,"updatedAt":"%s"}\n' \
     "$SESSION_ID" "$last_tool" "$streak" "$now" > "$tmp"
@@ -332,11 +374,11 @@ rule_force_delegate() {
     *) return 0 ;;
   esac
 
-  # For Bash calls: check command-string escape hatch and safe-prefix allowlist
+  # For Bash calls: check command-string escape hatch and safe-prefix allowlist.
+  # TOOL_COMMAND was parsed once at the top of the script (shared with
+  # rule_destructive_command and rule_path_scope below).
   if [[ "$TOOL_NAME" == "Bash" ]]; then
-    local cmd
-    cmd="$("$JQ" -r '.tool_input.command // ""' <<< "$PAYLOAD" 2>/dev/null)" \
-      || { echo "[pretool-check] jq parse failed reading command in force-delegate" >&2; return 0; }
+    local cmd="$TOOL_COMMAND"
 
     # Command-string escape hatch: COPILOT_FORCE_DELEGATE=off as command prefix
     if [[ "$cmd" == COPILOT_FORCE_DELEGATE=off* ]]; then
@@ -352,15 +394,8 @@ rule_force_delegate() {
   acquire_lock
   trap 'release_lock' EXIT
 
-  local state
-  state="$(read_streak)"
   local last_tool streak
-  last_tool="$("$JQ" -r '.lastTool // ""' <<< "$state" 2>/dev/null)" \
-    || { echo "[pretool-check] jq parse failed reading lastTool from streak state" >&2
-         release_lock; trap - EXIT; return 0; }
-  streak="$("$JQ" -r '.streak // 0' <<< "$state" 2>/dev/null)" \
-    || { echo "[pretool-check] jq parse failed reading streak from streak state" >&2
-         release_lock; trap - EXIT; return 0; }
+  read_streak; last_tool="$_STREAK_LAST_TOOL"; streak="$_STREAK_COUNT"
 
   if [[ "$TOOL_NAME" == "$last_tool" ]]; then
     streak=$((streak + 1))
@@ -373,6 +408,7 @@ rule_force_delegate() {
     write_streak "$TOOL_NAME" 0
     release_lock
     trap - EXIT
+    _ensure_manifest_loaded
     deny "Main session has issued 5+ consecutive ${TOOL_NAME} calls. Delegate to a framework agent instead. Valid agents: ${VALID_AGENT_LIST}. This preserves context budget and matches the framework's core purpose."
   fi
 
@@ -486,6 +522,7 @@ rule_qa_gate() {
       return 0
     fi
     # Warn if subagent_type is not a known manifest agent
+    _ensure_manifest_loaded
     local is_known=0
     for _a in $MANIFEST_AGENTS; do
       if [[ "$subagent_type" == "$_a" ]]; then
@@ -534,9 +571,7 @@ rule_destructive_command() {
     return 0
   fi
 
-  local cmd
-  cmd="$("$JQ" -r '.tool_input.command // ""' <<< "$PAYLOAD" 2>/dev/null)" \
-    || { echo "[pretool-check] jq parse failed reading command in rule_destructive_command" >&2; return 0; }
+  local cmd="$TOOL_COMMAND"
   [[ -z "$cmd" ]] && return 0
 
   [[ ! -f "$SECURITY_RULES_FILE" ]] && return 0
@@ -626,9 +661,7 @@ rule_path_scope() {
       fi
       ;;
     Bash)
-      local cmd
-      cmd="$("$JQ" -r '.tool_input.command // ""' <<< "$PAYLOAD" 2>/dev/null)" \
-        || { echo "[pretool-check] jq parse failed reading command in rule_path_scope" >&2; return 0; }
+      local cmd="$TOOL_COMMAND"
       [[ -z "$cmd" ]] && return 0
 
       # Extract redirect targets (> path and >> path) from the command.

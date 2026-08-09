@@ -130,10 +130,28 @@ test_new_session() {
   local sid="${TEST_SESSION}-new"
   clean_session "$sid"
 
+  # This test is about the session-cap advisory (turns/warned/warnedStrong),
+  # not the unrelated "Known references" feature the hook also emits on turn
+  # 1 (via `cc config get paths.shared_docs/knowledge_repo` and `cc config
+  # export | grep refs.*`). That feature reads this machine's REAL cc config
+  # — on any machine with shared_docs/knowledge_repo/refs configured (this
+  # repo's own .claude/cc/config.json declares paths.shared_docs and
+  # paths.knowledge_repo as "@machine", so any ecosystem-configured dev
+  # machine resolves them), a brand-new session legitimately produces a
+  # systemMessage, which isn't what this assertion is testing. Point
+  # CC_MACHINE_ROOT (the isolation seam tools/cc/tests/conftest.py's
+  # `_isolate_machine_config` fixture also uses) at an empty tmp dir so `cc
+  # config get`/`cc config export` resolve nothing, making the known-
+  # references block a no-op regardless of the host machine's real config.
+  local isolated_cc_root
+  isolated_cc_root="$(mktemp -d)"
+
   local result output exit_code
-  result="$(invoke_hook "$sid")"
+  result="$(invoke_hook "$sid" "CC_MACHINE_ROOT=$isolated_cc_root")"
   exit_code="$(get_exit_code "$result")"
   output="$(get_output "$result")"
+
+  rm -rf "$isolated_cc_root"
 
   if [[ "$exit_code" -eq 0 ]]; then
     ok "new session exits 0"

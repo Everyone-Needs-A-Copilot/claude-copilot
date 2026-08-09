@@ -36,6 +36,23 @@ jobs:
           # crash regression coverage.
           ./tests/hooks/test-pretool-check.sh
 
+      - name: Run remaining hook suites
+        run: |
+          chmod +x ./tests/hooks/test-shim-e2e.sh ./tests/hooks/test-qa-gate-integration.sh \
+            ./tests/hooks/test-subagent-stop.sh ./tests/hooks/test-user-prompt-submit.sh
+          # End-to-end proof that a project vendored with ONLY the shim (no
+          # rule scripts) still gets enforcement, by delegating to the real
+          # global hook install.
+          ./tests/hooks/test-shim-e2e.sh
+          # SubagentStop → qa-gate state → PreToolUse deny/allow round trip.
+          ./tests/hooks/test-qa-gate-integration.sh
+          # QA verdict parsing (VERDICT/ARTIFACT precedence), retry counting,
+          # auto-unblock advisory, and me/qa pending_tasks bookkeeping.
+          ./tests/hooks/test-subagent-stop.sh
+          # Session-turn-cap advisory thresholds, staleness pruning, and
+          # concurrent-write safety.
+          ./tests/hooks/test-user-prompt-submit.sh
+
       - name: Run fitness functions (FF1-FF9)
         run: |
           chmod +x ./.claude/fitness-check.sh

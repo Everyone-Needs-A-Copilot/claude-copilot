@@ -2,7 +2,7 @@
 # fitness-check.sh — Claude Copilot Framework Fitness Functions
 #
 # Validates that a project's agents and commands are healthy after setup or update.
-# Runs 9 fitness functions (FF1–FF9) and reports pass/fail per check.
+# Runs 10 fitness functions (FF1–FF10) and reports pass/fail per check.
 #
 # Usage:
 #   bash .claude/fitness-check.sh [--agents-dir DIR] [--commands-dir DIR] [--copilot-path PATH]
@@ -844,6 +844,78 @@ evaluate_ceiling(
 )
 PYEOF
 )
+
+# ---------------------------------------------------------------------------
+# FF10: Output Contract block -- present exactly once, byte-identical to the
+#      canonical `_shared/output-contract.md`, and anchored immediately
+#      before `## Runtime Precedence` in every agent file (same anti-drift
+#      mechanism as FF8, one link earlier in the chain: Output Contract ->
+#      Runtime Precedence -> Output Format). Also required, byte-identical,
+#      in `.claude/commands/protocol.md` -- the one command file explicitly
+#      carrying the full block, since it is the primary session entry point;
+#      the other command files inherit the contract via CLAUDE.md instead of
+#      duplicating it (see CLAUDE.md's Output Contract note), so they are not
+#      checked here.
+# ---------------------------------------------------------------------------
+section "FF10: Output Contract Block (present, unique, byte-identical, anchored)"
+
+CONTRACT_SRC="${AGENTS_DIR}/_shared/output-contract.md"
+if [ ! -f "$CONTRACT_SRC" ]; then
+  fail "canonical output-contract block missing at ${CONTRACT_SRC}"
+else
+  CONTRACT_CONTENT=$(cat "$CONTRACT_SRC")
+
+  for agent_file in "${AGENTS_DIR}"/*.md; do
+    [ -f "$agent_file" ] || continue
+    agent_name=$(basename "$agent_file" .md)
+
+    occ=$(grep -c '^## Output Contract$' "$agent_file" 2>/dev/null || true)
+    occ=${occ:-0}
+    if [ "$occ" -ne 1 ]; then
+      fail "${agent_name}.md: '## Output Contract' heading appears ${occ} time(s) (expected exactly 1)"
+      continue
+    fi
+
+    block=$(awk '/^## Output Contract$/{flag=1; print; next} /^## /{if (flag) exit} flag' "$agent_file")
+    if [ "$block" != "$CONTRACT_CONTENT" ]; then
+      fail "${agent_name}.md: Output Contract block differs from canonical ${CONTRACT_SRC}"
+    else
+      pass "${agent_name}.md: Output Contract block byte-identical to canonical source"
+    fi
+
+    contract_line=$(grep -n '^## Output Contract$' "$agent_file" | head -1 | cut -d: -f1)
+    prec_line=$(grep -n '^## Runtime Precedence$' "$agent_file" | head -1 | cut -d: -f1)
+    if [ -z "$prec_line" ]; then
+      fail "${agent_name}.md: no '## Runtime Precedence' section to anchor Output Contract against"
+    else
+      between=$(sed -n "$((contract_line + 1)),$((prec_line - 1))p" "$agent_file" | grep -c '^## ' || true)
+      between=${between:-0}
+      if [ "$between" -ne 0 ]; then
+        fail "${agent_name}.md: another '##' section sits between Output Contract and Runtime Precedence"
+      else
+        pass "${agent_name}.md: Output Contract anchored immediately before Runtime Precedence"
+      fi
+    fi
+  done
+
+  PROTOCOL_MD="${COMMANDS_DIR}/protocol.md"
+  if [ ! -f "$PROTOCOL_MD" ]; then
+    fail "protocol.md not found at ${PROTOCOL_MD} -- cannot verify Output Contract block"
+  else
+    occ=$(grep -c '^## Output Contract$' "$PROTOCOL_MD" 2>/dev/null || true)
+    occ=${occ:-0}
+    if [ "$occ" -ne 1 ]; then
+      fail "protocol.md: '## Output Contract' heading appears ${occ} time(s) (expected exactly 1)"
+    else
+      block=$(awk '/^## Output Contract$/{flag=1; print; next} /^## /{if (flag) exit} flag' "$PROTOCOL_MD")
+      if [ "$block" != "$CONTRACT_CONTENT" ]; then
+        fail "protocol.md: Output Contract block differs from canonical ${CONTRACT_SRC}"
+      else
+        pass "protocol.md: Output Contract block byte-identical to canonical source"
+      fi
+    fi
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Summary

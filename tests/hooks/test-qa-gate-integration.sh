@@ -150,7 +150,7 @@ fi
 # --- Step 5: SubagentStop(qa, APPROVED) → gate should clear ---
 echo ""
 echo "Step 5: SubagentStop(qa, 'TASK-99 VERDICT: APPROVED') → expect gate clear"
-send_stop "qa" "Task: TASK-99 | WP: WP-51\nAll tests pass.\nVERDICT: APPROVED"
+send_stop "qa" "Task: TASK-99 | WP: WP-51\nAll tests pass.\nVERDICT: APPROVED\nARTIFACT: test-run|pytest tests/test_foo.py exit=0 5 passed"
 
 PENDING="$("$JQ" -r --arg sid "$TEST_SESSION" \
   '.[$sid].pending_tasks // [] | @json' "$GATE_FILE" 2>/dev/null || echo "[]")"

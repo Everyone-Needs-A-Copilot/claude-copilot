@@ -163,6 +163,39 @@ Then verify:
 cc config doctor
 ```
 
+### Step 7D: Configure the Output Contract
+
+Tell user:
+
+---
+
+**Output style.** Every agent and `/protocol` now follows a canonical Output Contract: lead with the answer, bullets over paragraphs, plain language, no preamble or closing filler — full depth only when you ask for it. Findings, risks, and caveats are never cut to hit this shape; only the wording is. You can adjust it now or anytime with `cc config set output.verbosity <level> --project`.
+
+---
+
+Use AskUserQuestion:
+
+**Question 1:** "How verbose should responses be by default?"
+- Header: "Verbosity"
+- Options:
+  1. **"Concise (recommended)"** — BLUF + bullets, depth only on request
+  2. **"Standard"** — concise plus brief rationale
+  3. **"Detailed"** — full reasoning by default, still no preamble/closer
+
+**Question 2:** "Default vocabulary register?"
+- Header: "Audience"
+- Options:
+  1. **"Plain (recommended)"** — define technical terms inline, cut jargon that isn't load-bearing
+  2. **"Technical"** — keep full technical vocabulary by default
+
+Map answers to `concise|standard|detailed` and `plain|technical`, then run:
+```bash
+cc config set output.verbosity <answer1>
+cc config set output.audience <answer2>
+```
+
+Tell user: "Set machine-wide. Override per project anytime with `cc config set output.verbosity <level> --project` (or `output.audience`)."
+
 ---
 
 ## Step 8: Check for Global Knowledge
@@ -187,6 +220,7 @@ Claude Copilot is installed at `~/.claude/copilot`
 - tc CLI - Manages PRDs, tasks, and work products
 - cc CLI - Unified memory and skills manager (replaces MCP servers)
 - 16 Specialist Agents - Expert guidance for any task
+- Output Contract - verbosity `{{OUTPUT_VERBOSITY}}`, audience `{{OUTPUT_AUDIENCE}}` (change: `cc config set output.verbosity <level>`)
 
 **Global commands installed:**
 | Command | Purpose |

@@ -62,6 +62,7 @@ This project uses [Claude Copilot](https://github.com/Everyone-Needs-A-Copilot/c
 | Memory | Workspace: `{{WORKSPACE_ID}}` |
 | Knowledge | {{KNOWLEDGE_STATUS}} |
 | Skills | Local: `.claude/skills/` {{EXTERNAL_SKILLS_STATUS}} |
+| Output | Verbosity `{{OUTPUT_VERBOSITY}}`, audience `{{OUTPUT_AUDIENCE}}` — see `.claude/agents/_shared/output-contract.md`; change with `cc config set output.verbosity <concise\|standard\|detailed> --project` |
 
 ---
 
