@@ -1,0 +1,37 @@
+id: cs-behav-shared-001
+name: 'Content outranks form: a compact response still keeps the finding in full'
+priority: P0
+description: 'Companion to *-struct-shared-003 (the highest-value structural case in this
+  suite), tested against response TEXT rather than agent-definition text. A short, budget-tight
+  response is compliant only if the finding survives whole -- shortening the prose around
+  it is fine; shortening the finding itself, or dropping it, is the exact regression this
+  eval exists to catch. STATIC assertion: this fixture is author-written, so this case proves
+  the assertion engine can tell compliant text from violating text. It does not by itself
+  prove a real agent invocation produces compliant text under pressure -- see the meta-test
+  in tests/test_cc_eval.py that mutates this exact fixture into the truncated (violating)
+  shape and asserts that version fails, and see the live-agent case (where authored) for the
+  same invariant checked against a real dispatch.'
+type: behavioral
+source:
+  type: inline
+  content: 'Task: TASK-71 | WP: WP-14
+
+    Finding: the prospect''s stated budget does not cover even the lowest tier — qualification
+    is failing silently.
+
+    Action: flagged for the next cycle before this ships.
+
+    <promise>COMPLETE</promise>
+
+    '
+assertions:
+- type: contains
+  value: the prospect's stated budget does not cover even the lowest tier — qualification
+    is failing silently
+  description: The load-bearing finding survives in full despite the compact response
+- type: contains
+  value: 'Task: TASK-'
+  description: Task identifier present
+- type: contains
+  value: <promise>COMPLETE</promise>
+  description: Completion promise marker present

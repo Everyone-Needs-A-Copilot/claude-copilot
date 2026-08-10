@@ -15,8 +15,9 @@ import glob
 import yaml
 import subprocess
 import sys
+from pathlib import Path
 
-BASE = "/Volumes/Dev/Sites/COPILOT/claude-copilot"
+BASE = str(Path(__file__).resolve().parents[1])
 SKILLS_DIR = os.path.join(BASE, ".claude/skills")
 
 

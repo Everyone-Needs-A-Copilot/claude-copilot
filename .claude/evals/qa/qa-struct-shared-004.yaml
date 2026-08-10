@@ -1,0 +1,25 @@
+id: qa-struct-shared-004
+name: No-time-estimates policy is declared non-negotiable, even against direct request
+priority: P0
+description: 'The no-time-estimates policy must survive as the standing example of a level-2
+  rule: one that outranks the user''s own explicit request. A version of this text that only
+  bans unprompted estimates (and is silent on direct requests) is a regression -- it would
+  let a direct ''just give me an ETA'' override the policy.'
+type: structural
+source:
+  type: file
+  path: .claude/agents/qa.md
+assertions:
+- type: contains
+  value: no-time-estimates policy is the standing example
+  description: No-time-estimates named as the standing level-2 example
+- type: contains
+  value: never produce a time estimate or completion prediction in any form, no matter how
+    directly asked
+  description: Policy explicitly holds against a direct request
+- type: contains
+  value: answer with phase, priority, complexity, and dependencies instead
+  description: Approved substitute vocabulary specified
+- type: contains
+  value: A rule at this level does not bend for a single session's request.
+  description: Non-negotiability of level-2 rules stated explicitly

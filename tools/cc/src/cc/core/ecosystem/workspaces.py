@@ -928,6 +928,17 @@ def _claude_plan(project: Path, source: Path) -> tuple[list[tuple[Path, Path]], 
     for src, _dst in copies:
         if not src.is_file():
             raise ActivationError("The Claude Copilot installer is incomplete.")
+    # Eval cases travel with the framework like every other owned dimension.
+    # Mirrors project_integration.py's _claude_source_files: globbed rather
+    # than required, since a framework build predating evals (or a fresh
+    # checkout with none yet authored) is not an installer defect.
+    evals_dir = source / ".claude/evals"
+    if evals_dir.is_dir():
+        copies.extend(
+            (path, project / path.relative_to(source))
+            for path in sorted(evals_dir.rglob("*"))
+            if path.is_file()
+        )
     template = source / "templates/CLAUDE.template.md"
     if not template.is_file():
         raise ActivationError("The Claude Copilot project template is missing.")

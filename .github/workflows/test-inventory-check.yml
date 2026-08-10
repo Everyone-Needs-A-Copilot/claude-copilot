@@ -1,0 +1,25 @@
+name: Test Inventory Check
+
+# Anti-rot invariant (see scripts/check-test-wiring.sh): fails the build if
+# a test file exists in the repo but no workflow actually runs it. This is
+# the guard against the exact class of drift that left 76 of 99
+# tools/cc/tests files, all of tools/tc/tests, and all of root tests/
+# unreferenced by any CI workflow.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check-test-wiring:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Every test file must be run by some workflow
+        run: |
+          chmod +x ./scripts/check-test-wiring.sh
+          ./scripts/check-test-wiring.sh

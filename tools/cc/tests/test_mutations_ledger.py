@@ -50,7 +50,7 @@ def test_merge_preserves_sibling_keys_and_foreign_hook_groups_convoco_shape():
                 {
                     "hooks": [
                         {
-                            "command": "/Volumes/Dev/Sites/COPILOT/convoco/.claude/hooks/discord-stop.sh",
+                            "command": "/repos/convoco/.claude/hooks/discord-stop.sh",
                             "timeout": 604800,
                             "type": "command",
                         }
@@ -61,7 +61,7 @@ def test_merge_preserves_sibling_keys_and_foreign_hook_groups_convoco_shape():
                 {
                     "hooks": [
                         {
-                            "command": "/Volumes/Dev/Sites/COPILOT/convoco/.claude/hooks/discord-user-prompt-submit.sh",
+                            "command": "/repos/convoco/.claude/hooks/discord-user-prompt-submit.sh",
                             "timeout": 30,
                             "type": "command",
                         }

@@ -13,8 +13,9 @@ import os
 import subprocess
 import sys
 import importlib.util
+from pathlib import Path
 
-BASE = "/Volumes/Dev/Sites/COPILOT/claude-copilot"
+BASE = str(Path(__file__).resolve().parents[1])
 AGENTS_DIR = os.path.join(BASE, ".claude/agents")
 MANIFEST_PATH = os.path.join(AGENTS_DIR, "manifest.json")
 SCHEMA_PATH = os.path.join(AGENTS_DIR, "manifest.schema.json")

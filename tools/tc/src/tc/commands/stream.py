@@ -81,3 +81,33 @@ def stream_get(
     else:
         for k, v in d.items():
             print(f"{k}: {v}")
+
+
+@stream_app.command("conflicts")
+def stream_conflicts(
+    json: bool = typer.Option(False, "--json", help="Output as JSON."),
+) -> None:
+    """Find files claimed by more than one active/paused stream's tasks.
+
+    Reads each stream's tasks' `metadata.files` (written by `/orchestrate
+    generate`) and reports any file more than one stream claims. Exits
+    non-zero when a conflict is found so `/orchestrate start` can use this as
+    a hard precondition before creating worktrees for parallel streams.
+    """
+    from tc.services.streams import find_conflicts as _find_conflicts
+
+    db_path = require_db()
+    conflicts = _find_conflicts(db_path=db_path)
+
+    if json:
+        output_json(conflicts)
+    else:
+        if not conflicts:
+            print("No file conflicts between streams.")
+        else:
+            for c in conflicts:
+                names = ", ".join(f"{s['name']} (#{s['id']})" for s in c["streams"])
+                print(f"CONFLICT: {c['file']} claimed by {names}")
+
+    if conflicts:
+        raise typer.Exit(1)

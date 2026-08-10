@@ -1,0 +1,22 @@
+{
+  "version": "1.0",
+  "name": "pablo-personal-voice",
+  "description": "TODO(pablo): one-line description of this personal knowledge/extension layer. This is the `knowledge` product's personal tier (copilot.layers.yml: role personal, rank 10) -- it is consulted directly via $CC_PERSONAL_KNOWLEDGE_REPO (exported by `cc env` since cc 2.0.3) with personal-over-org precedence for the same agent id, alongside knowledge-copilot-internal's org-tier manifest. See personal/ for the instantiated personal-context templates (how-i-communicate.md, how-i-decide.md, etc.) and .claude/extensions/ for agent voice bindings.",
+  "framework": {
+    "name": "claude-copilot",
+    "minVersion": "5.13.26"
+  },
+  "extensions": [
+    {
+      "agent": "cw",
+      "type": "extension",
+      "file": ".claude/extensions/cw.extension.md",
+      "description": "TODO(pablo): one-line description of your personal writing voice -- distinct from the company's cw.extension.md in knowledge-copilot-internal. This binding is what makes \"write as me\" an explicit, selectable option instead of an inference.",
+      "requiredSkills": [],
+      "fallbackBehavior": "use_base"
+    }
+  ],
+  "skills": {
+    "local": []
+  }
+}

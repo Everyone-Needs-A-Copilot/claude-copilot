@@ -1,0 +1,144 @@
+name: Pytest Suites
+
+# Wires every pytest suite in the repo into CI as a whole-directory run
+# (never an enumerated file list -- a per-file allowlist in
+# cc-onboard-contract.yml is how 76 of 99 tools/cc/tests files went
+# uncovered for an extended period). Each job below owns one
+# pytest root and runs `pytest <dir>/`, so any new test file dropped into
+# an already-covered directory is picked up automatically with zero
+# workflow changes.
+#
+# tools/cc's macOS-specific onboarding/reconciliation contract subset
+# still runs separately in cc-onboard-contract.yml; the cc-tests job here
+# is the superset that guarantees the other ~76 files execute too.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: pytest-suites-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  root-tests:
+    name: Root tests/ suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            tools/cc/pyproject.toml
+            tools/tc/pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --disable-pip-version-check pytest pyyaml jsonschema
+          # Root tests import cc/tc modules directly (not via pip install);
+          # installing both packages editable keeps import paths real.
+          python -m pip install --disable-pip-version-check -e "./tools/cc[dev]" -e "./tools/tc"
+
+      - name: Run root pytest suite
+        run: |
+          # Canonical "run all copilot tests" command per pytest.ini's own
+          # header comment -- excludes tests/tui (vendored claude_monitor
+          # project with its own coverage-gated pytest config).
+          python -m pytest tests/ --ignore=tests/tui -p no:cov
+
+  tc-tests:
+    name: tools/tc/tests full suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tools/tc/pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --disable-pip-version-check pytest
+          python -m pip install --disable-pip-version-check -e "./tools/tc"
+
+      - name: Run tc pytest suite
+        working-directory: tools/tc
+        run: python -m pytest tests/
+
+  cc-tests:
+    name: tools/cc/tests full suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tools/cc/pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --disable-pip-version-check -e "./tools/cc[dev]" -e "./tools/tc"
+
+      - name: Run full cc pytest suite
+        working-directory: tools/cc
+        run: python -m pytest tests/
+
+  skill-test-scripts:
+    name: Skill script self-tests (.claude/skills/**/scripts/test_*.py)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check pytest
+
+      - name: Run all skill script tests
+        run: python -m pytest .claude/skills -q
+
+  vendored-monitor-tests:
+    name: tests/tui suite (vendored claude_monitor package)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check -e ".[test]"
+
+      - name: Run tests/tui suite
+        run: |
+          # This repo's root conftest.py deliberately sets
+          # collect_ignore_glob = ["tests/tui/*", ...] so a bare
+          # `pytest tests/` run (the "copilot's own tests" sweep above)
+          # does not pull in this vendored third-party package's tests.
+          # That glob-ignore only applies to *directory* collection, not
+          # to explicitly named files, so passing the discovered file
+          # list directly still runs the suite while leaving the
+          # copilot-tests sweep undisturbed.
+          files=$(find tests/tui -maxdepth 1 -type f -name 'test_*.py' | sort)
+          echo "$files"
+          python -m pytest $files

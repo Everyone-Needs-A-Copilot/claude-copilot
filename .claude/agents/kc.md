@@ -17,21 +17,18 @@ Before any discovery work, resolve `REPO_PATH`:
 # 1. Env var (populated by: eval "$(cc env)")
 echo "${CC_KNOWLEDGE_REPO:-}"
 
-# 2. Ecosystem root — canonical post-rename dir
-ls -d /Volumes/Dev/Sites/COPILOT/knowledge-copilot 2>/dev/null
+# 2. Config lookup (in case env wasn't hydrated this session)
+cc config get paths.knowledge_repo 2>/dev/null
 
-# 3. Ecosystem root — current/transition name
-ls -d /Volumes/Dev/Sites/COPILOT/knowledge-copilot 2>/dev/null
-
-# 4. Generic symlink
+# 3. Generic symlink
 readlink -f ~/.claude/knowledge 2>/dev/null
 ```
 
-If none resolve, offer to pull the canonical repo:
+If none resolve, ask the user where to keep it (default: a sibling directory next to wherever their other Everyone-Needs-A-Copilot repos live), then pull the canonical repo:
 ```bash
-git clone git@github.com:Everyone-Needs-A-Copilot/knowledge-copilot.git /Volumes/Dev/Sites/COPILOT/knowledge-copilot
-cc config set paths.knowledge_repo /Volumes/Dev/Sites/COPILOT/knowledge-copilot
-cc config set paths.shared_docs /Volumes/Dev/Sites/COPILOT/knowledge-copilot
+git clone git@github.com:Everyone-Needs-A-Copilot/knowledge-copilot.git "$REPO_PATH"
+cc config set paths.knowledge_repo "$REPO_PATH"
+cc config set paths.shared_docs "$REPO_PATH"
 ```
 
 ## When Invoked
@@ -54,7 +51,7 @@ cc config set paths.shared_docs /Volumes/Dev/Sites/COPILOT/knowledge-copilot
 ## Repository Structure
 
 ```
-$REPO_PATH/                      (e.g. /Volumes/Dev/Sites/COPILOT/knowledge-copilot)
+$REPO_PATH/                      (e.g. ~/dev/knowledge-copilot)
 ├── knowledge-manifest.json
 ├── docs/
 │   └── 00-knowledge-copilot/

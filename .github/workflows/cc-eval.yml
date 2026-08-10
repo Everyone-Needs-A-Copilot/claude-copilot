@@ -1,0 +1,110 @@
+name: cc eval
+
+# Runs the golden eval sets under .claude/evals/<agent>/*.yaml (154 cases
+# across 16 agents as of this writing) through `cc eval`.
+#
+# Gating (see docs/qa audit + tools/cc/src/cc/core/eval_runner.py):
+#   - static job: --runner local (default) is a pure-Python assertion
+#     engine, zero LLM calls, zero spend. Runs on every push/PR.
+#   - live job: --runner live dispatches real `claude --print --agent`
+#     sessions and costs real API spend (LiveClaudeRunner, gated behind
+#     CC_EVAL_LIVE=1 at the pytest layer). It NEVER runs on push/PR --
+#     workflow_dispatch only, with an explicit per-dispatch budget cap.
+#
+# Agents are discovered from the .claude/evals/ directory listing, not a
+# hardcoded name list, so a newly added agent's eval dir is covered
+# automatically.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      max_budget_usd:
+        description: "Per-dispatch spend cap for the live runner"
+        required: false
+        default: "0.50"
+
+concurrency:
+  group: cc-eval-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cc-eval-static:
+    name: cc eval (local runner, no LLM calls)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tools/cc/pyproject.toml
+
+      - name: Install cc
+        run: python -m pip install --disable-pip-version-check -e "./tools/cc[dev]"
+
+      - name: Run cc eval for every agent with cases (default local runner)
+        run: |
+          set -e
+          FAILED=0
+          for dir in .claude/evals/*/; do
+            agent="$(basename "$dir")"
+            echo "::group::cc eval --agent $agent"
+            # No --runner flag: defaults to 'local', never dispatches a
+            # live model call. Live evals are a separate, manually
+            # triggered job (see cc-eval-live below) -- this job must
+            # never cost API spend.
+            if ! cc eval --agent "$agent" --json; then
+              FAILED=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $FAILED
+
+  cc-eval-live:
+    name: cc eval (live runner, manual opt-in, billed)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CC_EVAL_LIVE: "1"
+      MAX_BUDGET_USD: ${{ github.event.inputs.max_budget_usd || '0.50' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tools/cc/pyproject.toml
+
+      - name: Install cc
+        run: python -m pip install --disable-pip-version-check -e "./tools/cc[dev]"
+
+      - name: Run the gated live-dispatch regression test
+        run: |
+          # The one pytest case that exercises LiveClaudeRunner's real
+          # `claude --print` dispatch; skipped everywhere else via the
+          # CC_EVAL_LIVE=1 marker (see tests/test_cc_eval.py).
+          python -m pytest tests/test_cc_eval.py -k real -p no:cov
+
+      - name: Run cc eval --runner live for any agent with live-agent cases
+        run: |
+          set -e
+          FAILED=0
+          for dir in .claude/evals/*/; do
+            agent="$(basename "$dir")"
+            if grep -rl "type: *live-agent" "$dir" >/dev/null 2>&1; then
+              echo "::group::cc eval --agent $agent --runner live"
+              if ! cc eval --agent "$agent" --runner live --max-budget-usd "$MAX_BUDGET_USD" --json; then
+                FAILED=1
+              fi
+              echo "::endgroup::"
+            fi
+          done
+          exit $FAILED

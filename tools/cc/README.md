@@ -300,10 +300,10 @@ Request schema 1.0 is deliberately small and closed:
 ```json
 {
   "schema_version": "1.0",
-  "roots": ["/Volumes/Dev/Sites"],
+  "roots": ["/path/to/projects"],
   "projects": [
     {
-      "path": "/Volumes/Dev/Sites/example",
+      "path": "/path/to/projects/example",
       "components": ["claude", "codex"],
       "recipe_ids": {
         "claude": "claude.customized-preserve-entry.v1"

@@ -1,16 +1,28 @@
 #!/usr/bin/env bash
-# discord-dispatch.sh — Discord-based non-interactive Claude dispatch with budget plumbing
+# discord-dispatch.sh — dispatches a task via `tc worker` (a real,
+# budget-enforced subprocess) and reports the outcome to a Discord thread.
 #
-# Wraps `copilot discord handoff` and plumbs the `--max-budget-usd` flag through
-# to the `claude --print` harness when set.
-#
-# FLAG PLUMBING ONLY (P0): the flag is passed through; enforcement hook is P1.
+# Why this shape: `copilot discord handoff --harness` is a free-text
+# thread-routing LABEL, not a command spec (verified live: `copilot discord
+# handoff --help` -> "--harness TEXT codex, claude, or another label.").
+# Nothing in `copilot`'s Discord surface parses or executes a `--harness`
+# value. An earlier version of this script built a `claude --print
+# --max-budget-usd $N` string and passed it as `--harness`, which stored the
+# string as a thread label and ran nothing -- no process was spawned and no
+# budget cap was ever enforced. The actual dispatch, and the actual
+# --max-budget-usd enforcement, now happen via `tc worker`, which wraps
+# `claude --print --max-budget-usd <n>` (a real, harness-enforced flag; see
+# tools/tc/src/tc/commands/worker.py and
+# tools/tc/tests/test_claude_flag_existence.py). `copilot discord handoff` is
+# used only for what it actually does: posting the dispatch outcome to a new
+# Discord thread, with `--harness` passed as a genuine label value.
 #
 # Usage:
 #   .claude/bin/discord-dispatch.sh --task <id> [--max-budget-usd <float>] [--title "..."]
 #
 # Environment:
-#   COPILOT_ENV_FILE   Path to cli-copilot .env (default from cc config)
+#   COPILOT_BIN   Path to the copilot binary (default: /opt/homebrew/bin/copilot, else PATH)
+#   TC_BIN        Path to the tc binary (default: PATH, else the repo's tools/tc/.venv)
 #
 # Grep proof for AC (Task 143):
 #   grep --max-budget-usd .claude/bin/discord-dispatch.sh  # finds this comment + usage
@@ -31,7 +43,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --max-budget-usd)
-      # Plumb --max-budget-usd through to the claude --print harness
+      # Plumb --max-budget-usd through to the real `tc worker` dispatch.
       MAX_BUDGET_USD="$2"
       shift 2
       ;;
@@ -52,25 +64,52 @@ if [[ -z "$TASK_ID" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Build harness command
+# Locate the tc binary
 # ---------------------------------------------------------------------------
-# The harness is the `claude --print` invocation that the Discord runner will
-# execute.  When --max-budget-usd is set, it is passed through to claude --print.
-HARNESS_CMD="claude --print"
+TC_BIN_RESOLVED="${TC_BIN:-tc}"
 
-if [[ -n "$MAX_BUDGET_USD" ]]; then
-  # --max-budget-usd plumbed through to non-interactive claude dispatch
-  HARNESS_CMD="$HARNESS_CMD --max-budget-usd $MAX_BUDGET_USD"
+if ! command -v "$TC_BIN_RESOLVED" >/dev/null 2>&1; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  if [[ -x "$REPO_ROOT/tools/tc/.venv/bin/tc" ]]; then
+    TC_BIN_RESOLVED="$REPO_ROOT/tools/tc/.venv/bin/tc"
+  fi
+fi
+
+if ! command -v "$TC_BIN_RESOLVED" >/dev/null 2>&1; then
+  echo "tc CLI not found. Set TC_BIN or ensure 'tc' is on PATH." >&2
+  exit 1
 fi
 
 # ---------------------------------------------------------------------------
-# Dispatch via copilot discord handoff
+# Dispatch the task via `tc worker` — the real, budget-enforced execution.
+# ---------------------------------------------------------------------------
+DISPATCH_CMD=("$TC_BIN_RESOLVED" worker "$TASK_ID")
+if [[ -n "$MAX_BUDGET_USD" ]]; then
+  # --max-budget-usd plumbed through to tc worker's `claude --print` dispatch
+  DISPATCH_CMD+=(--max-budget-usd "$MAX_BUDGET_USD")
+fi
+DISPATCH_CMD+=(--json)
+
+set +e
+DISPATCH_OUTPUT="$("${DISPATCH_CMD[@]}" 2>&1)"
+DISPATCH_EXIT=$?
+set -e
+
+if [[ "$DISPATCH_EXIT" -eq 0 ]]; then
+  MESSAGE="Task $TASK_ID dispatched via tc worker (exit 0). $DISPATCH_OUTPUT"
+else
+  MESSAGE="Task $TASK_ID dispatch FAILED via tc worker (exit $DISPATCH_EXIT). $DISPATCH_OUTPUT"
+fi
+
+# ---------------------------------------------------------------------------
+# Report the outcome via `copilot discord handoff`
 # ---------------------------------------------------------------------------
 COPILOT_BIN="${COPILOT_BIN:-/opt/homebrew/bin/copilot}"
 
 if ! command -v "$COPILOT_BIN" >/dev/null 2>&1 && ! command -v copilot >/dev/null 2>&1; then
   echo "copilot CLI not found. Set COPILOT_BIN or ensure 'copilot' is on PATH." >&2
-  exit 1
+  exit "$DISPATCH_EXIT"
 fi
 
 DISCORD_CMD="${COPILOT_BIN}"
@@ -78,7 +117,11 @@ if ! command -v "$DISCORD_CMD" >/dev/null 2>&1; then
   DISCORD_CMD="copilot"
 fi
 
+# --harness is a free-text thread-routing label (never executed) — "claude"
+# is the real harness that ran the dispatch above, not a fabricated command.
 "$DISCORD_CMD" discord handoff \
-  "Dispatching task $TASK_ID via non-interactive mode." \
+  "$MESSAGE" \
   --title "$TITLE" \
-  --harness "$HARNESS_CMD"
+  --harness claude
+
+exit "$DISPATCH_EXIT"

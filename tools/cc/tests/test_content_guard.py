@@ -241,7 +241,7 @@ _BENIGN_SAMPLES = [
     "### Instructions for reviewers: read the whole PR before commenting.",
     "We parsed tool_use blocks and counted the name field across transcripts.",
     "function hello() { return 1; }",
-    "/Users/pabs/.claude/memory/entries/abc.md",
+    "/Users/example/.claude/memory/entries/abc.md",
     "Set DATABASE_URL in your .env file before running migrations.",
     "The password field on the login form needs better validation.",
     "See RFC 2119 for the meaning of MUST and SHOULD in this document.",

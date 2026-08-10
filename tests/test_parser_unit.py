@@ -5,13 +5,14 @@ complete quickly and verify the parser directly.
 """
 
 import sys
-
-sys.path.insert(0, "/Volumes/Dev/Sites/COPILOT/claude-copilot/tools/cc/src")
-
-from cc.core.skill_store import _parse_skill_frontmatter, search_skills, SkillMeta
 from pathlib import Path
 
-STRIDE_PATH = "/Volumes/Dev/Sites/COPILOT/claude-copilot/.claude/skills/security/stride-dread/SKILL.md"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT / "tools/cc/src"))
+
+from cc.core.skill_store import _parse_skill_frontmatter, search_skills, SkillMeta
+
+STRIDE_PATH = str(REPO_ROOT / ".claude/skills/security/stride-dread/SKILL.md")
 
 
 class TestParserBlockScalar:

@@ -24,8 +24,9 @@ import sys
 import importlib.util
 import tempfile
 import shutil
+from pathlib import Path
 
-BASE = "/Volumes/Dev/Sites/COPILOT/claude-copilot"
+BASE = str(Path(__file__).resolve().parents[1])
 AGENTS_DIR = os.path.join(BASE, ".claude/agents")
 HOOKS_DIR = os.path.join(BASE, ".claude/hooks")
 QA_AGENT = os.path.join(AGENTS_DIR, "qa.md")
@@ -72,30 +73,28 @@ def _parse_verdict_from_subagent_stop(last_message: str, session_id: str, agent_
     Run subagent-stop.sh and return the resulting gate state for the session.
 
     We use a dedicated temp state directory to avoid touching the real gate file.
+
+    Isolation is via COPILOT_HOOK_STATE_DIR, the env-var override
+    subagent-stop.sh itself reads (STATE_DIR="${COPILOT_HOOK_STATE_DIR:-...}"),
+    the same seam tests/hooks/test-shim-e2e.sh and .claude/hooks/copilot-hook.sh
+    use. This previously ran a *copy* of the script with the literal string
+    'STATE_DIR="${SCRIPT_DIR}/state"' patched to the temp dir — that string
+    stopped matching the source once COPILOT_HOOK_STATE_DIR was introduced, so
+    the patch silently became a no-op: the script fell through to its default
+    STATE_DIR resolution, which pointed at a nonexistent "<tmp>/state"
+    subdirectory (not the "<tmp>/qa-gate.json" path this helper actually wrote
+    the fixture to and read the result from). The script's own reads/writes
+    against that nonexistent path failed harmlessly (jq/mv errors swallowed),
+    so the gate file this helper inspected was left exactly as seeded —
+    making every assertion here compare the initial fixture against itself.
     """
     tmp_state_dir = tempfile.mkdtemp(prefix="ws1-test-state-")
     gate_path = os.path.join(tmp_state_dir, "qa-gate.json")
-    lock_path = os.path.join(tmp_state_dir, "qa-gate.lock")
 
     # Write initial gate state if provided
     if initial_gate is not None:
         with open(gate_path, "w") as f:
             json.dump(initial_gate, f)
-
-    # Patch SCRIPT_DIR in the environment — we can't easily do this for bash scripts,
-    # so we use a wrapper approach: write a tiny wrapper that overrides STATE_DIR.
-    wrapper = os.path.join(tmp_state_dir, "run_hook.sh")
-    with open(wrapper, "w") as f:
-        f.write("#!/usr/bin/env bash\n")
-        f.write(f"export SCRIPT_DIR_OVERRIDE={tmp_state_dir!r}\n")
-        # We override the STATE_DIR by patching the script inline via sed
-        f.write(f'exec /bin/bash -c \''
-                f'source_file={SUBAGENT_STOP!r}; '
-                f'content=$(cat "$source_file"); '
-                f'content="${{content/STATE_DIR=\\"${{SCRIPT_DIR}}/state\\"/STATE_DIR={tmp_state_dir!r}}}"; '
-                f'eval "$content"\' -- "$@"\n')
-
-    os.chmod(wrapper, 0o755)
 
     payload = {
         "session_id": session_id,
@@ -104,22 +103,10 @@ def _parse_verdict_from_subagent_stop(last_message: str, session_id: str, agent_
     }
 
     env = os.environ.copy()
-    # Use a patched version of the script with our temp state dir
-    # We write a modified copy of the script with STATE_DIR replaced
-    patched_script = os.path.join(tmp_state_dir, "subagent-stop.sh")
-    with open(SUBAGENT_STOP) as f:
-        content = f.read()
-    # Replace the STATE_DIR assignment to point to our temp dir
-    content = content.replace(
-        'STATE_DIR="${SCRIPT_DIR}/state"',
-        f'STATE_DIR={tmp_state_dir!r}'
-    )
-    with open(patched_script, "w") as f:
-        f.write(content)
-    os.chmod(patched_script, 0o755)
+    env["COPILOT_HOOK_STATE_DIR"] = tmp_state_dir
 
     result = subprocess.run(
-        ["/bin/bash", patched_script],
+        ["/bin/bash", SUBAGENT_STOP],
         input=json.dumps(payload),
         capture_output=True,
         text=True,
@@ -428,27 +415,21 @@ class TestGateHookIntegration:
 
         # Even a bare pass should not cause state changes when escape hatch is on,
         # because the script exits 0 immediately.
+        # Isolation via COPILOT_HOOK_STATE_DIR (see _parse_verdict_from_subagent_stop
+        # docstring) — the previous literal-string script patch silently stopped
+        # matching the source and left this test only checking the exit code,
+        # never actually verifying the gate was untouched.
         tmp_state_dir = tempfile.mkdtemp(prefix="ws1-escape-test-")
         gate_path = os.path.join(tmp_state_dir, "qa-gate.json")
         with open(gate_path, "w") as f:
             json.dump(initial, f)
 
-        patched_script = os.path.join(tmp_state_dir, "subagent-stop.sh")
-        with open(SUBAGENT_STOP) as f:
-            content = f.read()
-        content = content.replace(
-            'STATE_DIR="${SCRIPT_DIR}/state"',
-            f'STATE_DIR={tmp_state_dir!r}'
-        )
-        with open(patched_script, "w") as f:
-            f.write(content)
-        os.chmod(patched_script, 0o755)
-
         env = os.environ.copy()
         env["COPILOT_QA_GATE"] = "off"
+        env["COPILOT_HOOK_STATE_DIR"] = tmp_state_dir
 
         result = subprocess.run(
-            ["/bin/bash", patched_script],
+            ["/bin/bash", SUBAGENT_STOP],
             input=json.dumps({
                 "session_id": self.SESSION,
                 "agent_type": "qa",
@@ -461,10 +442,17 @@ class TestGateHookIntegration:
             timeout=10,
         )
 
+        with open(gate_path) as f:
+            gate_after = json.load(f)
+
         shutil.rmtree(tmp_state_dir, ignore_errors=True)
 
         # Script should exit 0 and not modify the gate when COPILOT_QA_GATE=off
         assert result.returncode == 0, f"Script should exit 0 with escape hatch; got {result.returncode}"
+        assert gate_after == initial, (
+            f"COPILOT_QA_GATE=off must bypass all state management; "
+            f"gate file was modified: {gate_after} != {initial}"
+        )
 
     def test_three_fail_auto_unblock_fires(self):
         """(d) After 3 consecutive QA failures, gate auto-unblocks (MAX_RETRIES=3)."""

@@ -256,6 +256,7 @@ def update_task(
     priority: Optional[int] = None,
     title: Optional[str] = None,
     metadata: Optional[dict | str] = None,
+    clear_claim: bool = False,
     conn: Optional[sqlite3.Connection] = None,
     db_path: Optional[Path] = None,
 ) -> dict[str, Any]:
@@ -270,6 +271,11 @@ def update_task(
         title:       New title (must be non-empty if provided).
         metadata:    JSON-serialisable dict or pre-serialised string to *merge*
                      into existing metadata (not replace).
+        clear_claim: When True, clears claimed_by/claimed_at (releases the
+                     task so a different agent can claim it). Used when a
+                     dispatch is killed for exceeding its budget cap and the
+                     task must not be left silently stuck in_progress under
+                     the dead run's claim.
         conn:        Existing connection for batching; if None, opens own.
         db_path:     Explicit DB path; if None, walks up from cwd.
 
@@ -333,6 +339,10 @@ def update_task(
             merged = {**existing, **new_metadata}
             updates.append("metadata = ?")
             params.append(json.dumps(merged))
+
+        if clear_claim:
+            updates.append("claimed_by = NULL")
+            updates.append("claimed_at = NULL")
 
         if not updates:
             return _row_to_dict(row)

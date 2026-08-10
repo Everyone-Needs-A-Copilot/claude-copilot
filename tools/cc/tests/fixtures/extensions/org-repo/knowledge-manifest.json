@@ -1,0 +1,2439 @@
+{
+  "version": "1.4.0",
+  "name": "everyone-needs-a-copilot",
+  "description": "Proprietary methodologies, skills, and agent extensions for Everyone Needs a Copilot",
+  "framework": {
+    "name": "claude-copilot",
+    "minVersion": "1.0.0"
+  },
+  "extensions": [
+    {
+      "agent": "sd",
+      "type": "override",
+      "file": ".claude/extensions/sd.override.md",
+      "description": "Moments Framework methodology for experience transformation",
+      "requiredSkills": [
+        "moments-mapping",
+        "cocreate-sprint"
+      ],
+      "fallbackBehavior": "use_base_with_warning"
+    },
+    {
+      "agent": "uxd",
+      "type": "extension",
+      "file": ".claude/extensions/uxd.extension.md",
+      "description": "Force-based interaction design and company design system integration",
+      "requiredSkills": [
+        "moments-mapping"
+      ],
+      "fallbackBehavior": "use_base_with_warning"
+    },
+    {
+      "agent": "cw",
+      "type": "extension",
+      "file": ".claude/extensions/cw.extension.md",
+      "description": "Authentic Provocateur voice and company tone guidelines",
+      "fallbackBehavior": "use_base"
+    },
+    {
+      "agent": "do",
+      "type": "extension",
+      "file": ".claude/extensions/do.extension.md",
+      "description": "Hetzner Cloud and Mac Mini infrastructure patterns",
+      "fallbackBehavior": "use_base"
+    },
+    {
+      "agent": "ind",
+      "type": "extension",
+      "file": ".claude/extensions/ind.extension.md",
+      "description": "Dieter Rams and Jony Ive industrial design philosophy",
+      "requiredSkills": [
+        "functional-necessity-audit",
+        "design-honesty-evaluation",
+        "longevity-assessment",
+        "product-family-audit",
+        "material-intention",
+        "graceful-aging-design",
+        "tactile-design",
+        "sonic-design",
+        "first-moment-design",
+        "form-derivation",
+        "reduction-methodology",
+        "product-ecosystem-design",
+        "physical-digital-integration",
+        "lifecycle-design",
+        "modularity-design",
+        "digital-material-audit",
+        "digital-longevity-assessment",
+        "interaction-feedback-design",
+        "digital-aging-patterns",
+        "digital-reduction-audit",
+        "resource-honesty-patterns"
+      ],
+      "fallbackBehavior": "use_base_with_warning"
+    }
+  ],
+  "skills": {
+    "local": [
+      {
+        "name": "forces-analysis",
+        "path": "03-ai-enabling/01-skills/01-analysis/01-forces-analysis/SKILL.md",
+        "description": "Four Forces Framework diagnostic for organizational transformation",
+        "keywords": [
+          "forces",
+          "tensions",
+          "unspoken truths",
+          "transformation",
+          "diagnosis"
+        ]
+      },
+      {
+        "name": "moments-mapping",
+        "path": "03-ai-enabling/01-skills/01-analysis/02-moments-mapping/SKILL.md",
+        "description": "JTBD + Four Forces of Progress for experience mapping",
+        "keywords": [
+          "moments",
+          "jobs-to-be-done",
+          "push",
+          "pull",
+          "anxiety",
+          "habit"
+        ]
+      },
+      {
+        "name": "interview-guide-design",
+        "path": "03-ai-enabling/01-skills/01-analysis/03-interview-guide-design/SKILL.md",
+        "description": "Interview Guide Design patterns and best practices",
+        "keywords": [
+          "interview",
+          "guide",
+          "design"
+        ]
+      },
+      {
+        "name": "interview-synthesis",
+        "path": "03-ai-enabling/01-skills/01-analysis/04-interview-synthesis/SKILL.md",
+        "description": "Interview Synthesis patterns and best practices",
+        "keywords": [
+          "interview",
+          "synthesis"
+        ]
+      },
+      {
+        "name": "pattern-recognition",
+        "path": "03-ai-enabling/01-skills/01-analysis/05-pattern-recognition/SKILL.md",
+        "description": "Pattern Recognition patterns and best practices",
+        "keywords": [
+          "pattern",
+          "recognition"
+        ]
+      },
+      {
+        "name": "statistical-analysis",
+        "path": "03-ai-enabling/01-skills/01-analysis/06-statistical-analysis/SKILL.md",
+        "description": "Statistical Analysis patterns and best practices",
+        "keywords": [
+          "statistical",
+          "analysis"
+        ]
+      },
+      {
+        "name": "research-ethics",
+        "path": "03-ai-enabling/01-skills/01-analysis/07-research-ethics/SKILL.md",
+        "description": "Research Ethics patterns and best practices",
+        "keywords": [
+          "research",
+          "ethics"
+        ]
+      },
+      {
+        "name": "journey-synthesis",
+        "path": "03-ai-enabling/01-skills/01-analysis/08-journey-synthesis/SKILL.md",
+        "description": "Journey Synthesis patterns and best practices",
+        "keywords": [
+          "journey",
+          "synthesis"
+        ]
+      },
+      {
+        "name": "affinity-mapping",
+        "path": "03-ai-enabling/01-skills/01-analysis/affinity-mapping/SKILL.md",
+        "description": "Bottom-up clustering of qualitative data into hierarchical themes for pattern discovery",
+        "keywords": [
+          "affinity diagram",
+          "affinity mapping",
+          "clustering",
+          "synthesis",
+          "bottom-up",
+          "research synthesis"
+        ]
+      },
+      {
+        "name": "competitive-analysis",
+        "path": "03-ai-enabling/01-skills/01-analysis/competitive-analysis/SKILL.md",
+        "description": "Competitive Analysis patterns and best practices",
+        "keywords": [
+          "competitive",
+          "analysis"
+        ]
+      },
+      {
+        "name": "contextual-inquiry",
+        "path": "03-ai-enabling/01-skills/01-analysis/contextual-inquiry/SKILL.md",
+        "description": "Field research methodology - observe users in natural environments to understand real behaviors and workflows",
+        "keywords": [
+          "contextual inquiry",
+          "field research",
+          "observation",
+          "user research",
+          "ethnography",
+          "AEIOU",
+          "workflow"
+        ]
+      },
+      {
+        "name": "data-visualization",
+        "path": "03-ai-enabling/01-skills/01-analysis/data-visualization/SKILL.md",
+        "description": "Data Visualization patterns and best practices",
+        "keywords": [
+          "data",
+          "visualization"
+        ]
+      },
+      {
+        "name": "research-storytelling",
+        "path": "03-ai-enabling/01-skills/01-analysis/research-storytelling/SKILL.md",
+        "description": "Transform research findings into compelling narratives that drive stakeholder action",
+        "keywords": [
+          "research storytelling",
+          "presentation",
+          "narrative",
+          "stakeholder",
+          "insight communication",
+          "findings"
+        ]
+      },
+      {
+        "name": "thematic-analysis",
+        "path": "03-ai-enabling/01-skills/01-analysis/thematic-analysis/SKILL.md",
+        "description": "Systematic identification of patterns across qualitative data through coding and theme development",
+        "keywords": [
+          "thematic analysis",
+          "coding",
+          "theme",
+          "qualitative",
+          "pattern",
+          "insight",
+          "interview synthesis"
+        ]
+      },
+      {
+        "name": "python-idioms",
+        "path": "03-ai-enabling/01-skills/01-code-patterns/01-python-idioms/SKILL.md",
+        "description": "Python best practices, FastAPI patterns, Pydantic models, SQLAlchemy ORM",
+        "keywords": [
+          "python",
+          "list comprehension",
+          "generator",
+          "decorator",
+          "context manager",
+          "async/await",
+          "type hint",
+          "pydantic",
+          "fastapi",
+          "sqlalchemy"
+        ]
+      },
+      {
+        "name": "javascript-patterns",
+        "path": "03-ai-enabling/01-skills/01-code-patterns/02-javascript-patterns/SKILL.md",
+        "description": "Modern JavaScript patterns - async/await, closures, destructuring, ES modules",
+        "keywords": [
+          "javascript",
+          "promise",
+          "async",
+          "await",
+          "closure",
+          "destructuring",
+          "spread",
+          "module",
+          "callback",
+          "event loop"
+        ]
+      },
+      {
+        "name": "react-patterns",
+        "path": "03-ai-enabling/01-skills/01-code-patterns/03-react-patterns/SKILL.md",
+        "description": "Modern React patterns with hooks, composition, and state management",
+        "keywords": [
+          "react",
+          "hook",
+          "useState",
+          "useEffect",
+          "useContext",
+          "useMemo",
+          "useCallback",
+          "memo",
+          "composition",
+          "custom hook"
+        ]
+      },
+      {
+        "name": "typescript-patterns",
+        "path": "03-ai-enabling/01-skills/01-code-patterns/04-typescript-patterns/SKILL.md",
+        "description": "TypeScript type safety - generics, utility types, type guards, inference",
+        "keywords": [
+          "typescript",
+          "generic",
+          "type guard",
+          "utility type",
+          "interface",
+          "type inference",
+          "discriminated union",
+          "mapped type",
+          "conditional type"
+        ]
+      },
+      {
+        "name": "nextjs-patterns",
+        "path": "03-ai-enabling/01-skills/01-code-patterns/05-nextjs-patterns/SKILL.md",
+        "description": "Next.js App Router - Server Components, data fetching, caching, middleware",
+        "keywords": [
+          "nextjs",
+          "server component",
+          "client component",
+          "SSR",
+          "ISR",
+          "route handler",
+          "server action",
+          "metadata"
+        ]
+      },
+      {
+        "name": "sql-patterns",
+        "path": "03-ai-enabling/01-skills/01-code-patterns/06-sql-patterns/SKILL.md",
+        "description": "SQL optimization - query performance, indexing, migrations, transactions",
+        "keywords": [
+          "SQL",
+          "query",
+          "index",
+          "join",
+          "transaction",
+          "migration",
+          "database",
+          "PostgreSQL",
+          "normalize"
+        ]
+      },
+      {
+        "name": "fastapi-patterns",
+        "path": "03-ai-enabling/01-skills/01-code-patterns/07-fastapi-patterns/SKILL.md",
+        "description": "FastAPI patterns - dependency injection, Pydantic models, async endpoints",
+        "keywords": [
+          "fastapi",
+          "pydantic",
+          "dependency injection",
+          "Depends",
+          "APIRouter",
+          "HTTPException",
+          "BackgroundTasks",
+          "middleware"
+        ]
+      },
+      {
+        "name": "django-patterns",
+        "path": "03-ai-enabling/01-skills/01-code-patterns/08-django-patterns/SKILL.md",
+        "description": "Django patterns - ORM, views, middleware, signals, admin",
+        "keywords": [
+          "django",
+          "ORM",
+          "queryset",
+          "middleware",
+          "signal",
+          "admin",
+          "template",
+          "form",
+          "CBV",
+          "DRF"
+        ]
+      },
+      {
+        "name": "clean-code-principles",
+        "path": "03-ai-enabling/01-skills/01-code-patterns/clean-code-principles/SKILL.md",
+        "description": "Clean Code Principles patterns and best practices",
+        "keywords": [
+          "clean",
+          "code",
+          "principles"
+        ]
+      },
+      {
+        "name": "database-query-optimization",
+        "path": "03-ai-enabling/01-skills/01-code-patterns/database-query-optimization/SKILL.md",
+        "description": "Database Query Optimization patterns and best practices",
+        "keywords": [
+          "database",
+          "query",
+          "optimization"
+        ]
+      },
+      {
+        "name": "error-handling-patterns",
+        "path": "03-ai-enabling/01-skills/01-code-patterns/error-handling-patterns/SKILL.md",
+        "description": "Error Handling Patterns patterns and best practices",
+        "keywords": [
+          "error",
+          "handling",
+          "patterns"
+        ]
+      },
+      {
+        "name": "logging-best-practices",
+        "path": "03-ai-enabling/01-skills/01-code-patterns/logging-best-practices/SKILL.md",
+        "description": "Logging Best Practices patterns and best practices",
+        "keywords": [
+          "logging",
+          "best",
+          "practices"
+        ]
+      },
+      {
+        "name": "rest-api-design",
+        "path": "03-ai-enabling/01-skills/01-code-patterns/rest-api-design/SKILL.md",
+        "description": "Rest Api Design patterns and best practices",
+        "keywords": [
+          "rest",
+          "api",
+          "design"
+        ]
+      },
+      {
+        "name": "colab-facilitation",
+        "path": "03-ai-enabling/01-skills/02-facilitation/01-colab/SKILL.md",
+        "description": "1-2 day leadership alignment producing decisions with owners and dates",
+        "keywords": [
+          "colab",
+          "alignment",
+          "leadership",
+          "facilitation",
+          "decisions"
+        ]
+      },
+      {
+        "name": "colab",
+        "path": "03-ai-enabling/01-skills/02-facilitation/01-colab/SKILL.md",
+        "description": "Colab patterns and best practices",
+        "keywords": [
+          "colab"
+        ]
+      },
+      {
+        "name": "cocreate-sprint",
+        "path": "03-ai-enabling/01-skills/02-facilitation/02-cocreate/SKILL.md",
+        "description": "5-day design sprint with real user validation",
+        "keywords": [
+          "cocreate",
+          "sprint",
+          "prototype",
+          "validation",
+          "design"
+        ]
+      },
+      {
+        "name": "cocreate",
+        "path": "03-ai-enabling/01-skills/02-facilitation/02-cocreate/SKILL.md",
+        "description": "Cocreate patterns and best practices",
+        "keywords": [
+          "cocreate"
+        ]
+      },
+      {
+        "name": "jest-patterns",
+        "path": "03-ai-enabling/01-skills/02-testing/01-jest-patterns/SKILL.md",
+        "description": "Jest testing - mocking, snapshots, async testing, coverage",
+        "keywords": [
+          "jest",
+          "describe",
+          "it",
+          "expect",
+          "mock",
+          "spy",
+          "snapshot",
+          "beforeEach",
+          "afterEach"
+        ]
+      },
+      {
+        "name": "pytest-patterns",
+        "path": "03-ai-enabling/01-skills/02-testing/02-pytest-patterns/SKILL.md",
+        "description": "Python testing with pytest - fixtures, parametrization, mocking, async testing",
+        "keywords": [
+          "pytest",
+          "fixture",
+          "parametrize",
+          "mark",
+          "conftest",
+          "monkeypatch",
+          "mock",
+          "pytest-asyncio",
+          "coverage"
+        ]
+      },
+      {
+        "name": "testing-patterns",
+        "path": "03-ai-enabling/01-skills/02-testing/03-testing-patterns/SKILL.md",
+        "description": "Testing philosophy, strategy, and patterns - test pyramid, TDD, test design",
+        "keywords": [
+          "unit test",
+          "integration test",
+          "E2E",
+          "test pyramid",
+          "TDD",
+          "coverage",
+          "flaky test",
+          "mock",
+          "test strategy"
+        ]
+      },
+      {
+        "name": "e2e-patterns",
+        "path": "03-ai-enabling/01-skills/02-testing/04-e2e-patterns/SKILL.md",
+        "description": "E2E testing - Playwright, test design, page objects, visual regression",
+        "keywords": [
+          "playwright",
+          "cypress",
+          "e2e",
+          "end-to-end",
+          "browser automation",
+          "page object",
+          "visual regression"
+        ]
+      },
+      {
+        "name": "boundary-value-testing",
+        "path": "03-ai-enabling/01-skills/02-testing/boundary-value-testing/SKILL.md",
+        "description": "Boundary Value Testing patterns and best practices",
+        "keywords": [
+          "boundary",
+          "value",
+          "testing"
+        ]
+      },
+      {
+        "name": "equivalence-partitioning",
+        "path": "03-ai-enabling/01-skills/02-testing/equivalence-partitioning/SKILL.md",
+        "description": "Equivalence Partitioning patterns and best practices",
+        "keywords": [
+          "equivalence",
+          "partitioning"
+        ]
+      },
+      {
+        "name": "exploratory-testing",
+        "path": "03-ai-enabling/01-skills/02-testing/exploratory-testing/SKILL.md",
+        "description": "Exploratory Testing patterns and best practices",
+        "keywords": [
+          "exploratory",
+          "testing"
+        ]
+      },
+      {
+        "name": "performance-testing",
+        "path": "03-ai-enabling/01-skills/02-testing/performance-testing/SKILL.md",
+        "description": "Performance Testing patterns and best practices",
+        "keywords": [
+          "performance",
+          "testing"
+        ]
+      },
+      {
+        "name": "regression-strategy",
+        "path": "03-ai-enabling/01-skills/02-testing/regression-strategy/SKILL.md",
+        "description": "Regression Strategy patterns and best practices",
+        "keywords": [
+          "regression",
+          "strategy"
+        ]
+      },
+      {
+        "name": "security-testing",
+        "path": "03-ai-enabling/01-skills/02-testing/security-testing/SKILL.md",
+        "description": "Security Testing patterns and best practices",
+        "keywords": [
+          "security",
+          "testing"
+        ]
+      },
+      {
+        "name": "state-transition-testing",
+        "path": "03-ai-enabling/01-skills/02-testing/state-transition-testing/SKILL.md",
+        "description": "State Transition Testing patterns and best practices",
+        "keywords": [
+          "state",
+          "transition",
+          "testing"
+        ]
+      },
+      {
+        "name": "test-coverage-analysis",
+        "path": "03-ai-enabling/01-skills/02-testing/test-coverage-analysis/SKILL.md",
+        "description": "Test Coverage Analysis patterns and best practices",
+        "keywords": [
+          "test",
+          "coverage",
+          "analysis"
+        ]
+      },
+      {
+        "name": "test-data-management",
+        "path": "03-ai-enabling/01-skills/02-testing/test-data-management/SKILL.md",
+        "description": "Test Data Management patterns and best practices",
+        "keywords": [
+          "test",
+          "data",
+          "management"
+        ]
+      },
+      {
+        "name": "test-pyramid-strategy",
+        "path": "03-ai-enabling/01-skills/02-testing/test-pyramid-strategy/SKILL.md",
+        "description": "Test Pyramid Strategy patterns and best practices",
+        "keywords": [
+          "test",
+          "pyramid",
+          "strategy"
+        ]
+      },
+      {
+        "name": "frontend-design",
+        "path": "03-ai-enabling/01-skills/03-design/01-frontend-design/SKILL.md",
+        "description": "Create distinctive, production-grade frontend interfaces with high design quality",
+        "keywords": [
+          "frontend",
+          "UI",
+          "interface",
+          "component",
+          "design",
+          "aesthetic",
+          "web design",
+          "visual"
+        ]
+      },
+      {
+        "name": "design-tokens",
+        "path": "03-ai-enabling/01-skills/03-design/02-design-tokens/SKILL.md",
+        "description": "Design system foundations - tokens, CSS variables, theming, scales",
+        "keywords": [
+          "design token",
+          "CSS variable",
+          "theme",
+          "design system",
+          "spacing scale",
+          "typography scale",
+          "color token"
+        ]
+      },
+      {
+        "name": "color-systems",
+        "path": "03-ai-enabling/01-skills/03-design/03-color-systems/SKILL.md",
+        "description": "Color theory and accessibility - palettes, contrast, color blindness, semantic colors",
+        "keywords": [
+          "color palette",
+          "contrast ratio",
+          "color theory",
+          "accessibility",
+          "color blindness",
+          "WCAG",
+          "semantic color",
+          "HSL"
+        ]
+      },
+      {
+        "name": "interaction-patterns",
+        "path": "03-ai-enabling/01-skills/03-design/04-interaction-patterns/SKILL.md",
+        "description": "Micro-interactions and motion - animations, transitions, feedback, loading states",
+        "keywords": [
+          "animation",
+          "transition",
+          "micro-interaction",
+          "hover",
+          "loading",
+          "skeleton",
+          "feedback",
+          "motion",
+          "easing"
+        ]
+      },
+      {
+        "name": "user-flows",
+        "path": "03-ai-enabling/01-skills/03-design/05-user-flows/SKILL.md",
+        "description": "Task analysis and information architecture - wireframes, user journeys, navigation",
+        "keywords": [
+          "user flow",
+          "wireframe",
+          "information architecture",
+          "navigation",
+          "task flow",
+          "user journey",
+          "sitemap",
+          "IA"
+        ]
+      },
+      {
+        "name": "accessibility-patterns",
+        "path": "03-ai-enabling/01-skills/03-design/06-accessibility-patterns/SKILL.md",
+        "description": "WCAG 2.1 AA compliance - ARIA, keyboard navigation, screen readers, focus management",
+        "keywords": [
+          "accessibility",
+          "a11y",
+          "WCAG",
+          "ARIA",
+          "screen reader",
+          "keyboard",
+          "focus",
+          "alt text",
+          "semantic HTML"
+        ]
+      },
+      {
+        "name": "responsive-patterns",
+        "path": "03-ai-enabling/01-skills/03-design/07-responsive-patterns/SKILL.md",
+        "description": "Mobile-first responsive design - breakpoints, fluid layouts, container queries",
+        "keywords": [
+          "responsive",
+          "breakpoint",
+          "mobile-first",
+          "media query",
+          "fluid",
+          "container query",
+          "viewport",
+          "grid",
+          "flexbox"
+        ]
+      },
+      {
+        "name": "anti-pattern-recognition",
+        "path": "03-ai-enabling/01-skills/03-design/anti-pattern-recognition/SKILL.md",
+        "description": "Anti Pattern Recognition patterns and best practices",
+        "keywords": [
+          "anti",
+          "pattern",
+          "recognition"
+        ]
+      },
+      {
+        "name": "brand-visual-application",
+        "path": "03-ai-enabling/01-skills/03-design/brand-visual-application/SKILL.md",
+        "description": "Brand Visual Application patterns and best practices",
+        "keywords": [
+          "brand",
+          "visual",
+          "application"
+        ]
+      },
+      {
+        "name": "color-theory-application",
+        "path": "03-ai-enabling/01-skills/03-design/color-theory-application/SKILL.md",
+        "description": "Color Theory Application patterns and best practices",
+        "keywords": [
+          "color",
+          "theory",
+          "application"
+        ]
+      },
+      {
+        "name": "dark-pattern-avoidance",
+        "path": "03-ai-enabling/01-skills/03-design/dark-pattern-avoidance/SKILL.md",
+        "description": "Dark Pattern Avoidance patterns and best practices",
+        "keywords": [
+          "dark",
+          "pattern",
+          "avoidance"
+        ]
+      },
+      {
+        "name": "data-visualization-design",
+        "path": "03-ai-enabling/01-skills/03-design/data-visualization-design/SKILL.md",
+        "description": "Data Visualization Design patterns and best practices",
+        "keywords": [
+          "data",
+          "visualization",
+          "design"
+        ]
+      },
+      {
+        "name": "design-critique",
+        "path": "03-ai-enabling/01-skills/03-design/design-critique/SKILL.md",
+        "description": "Design Critique patterns and best practices",
+        "keywords": [
+          "design",
+          "critique"
+        ]
+      },
+      {
+        "name": "gestalt-principles",
+        "path": "03-ai-enabling/01-skills/03-design/gestalt-principles/SKILL.md",
+        "description": "Gestalt Principles patterns and best practices",
+        "keywords": [
+          "gestalt",
+          "principles"
+        ]
+      },
+      {
+        "name": "typography-systems",
+        "path": "03-ai-enabling/01-skills/03-design/typography-systems/SKILL.md",
+        "description": "Typography Systems patterns and best practices",
+        "keywords": [
+          "typography",
+          "systems"
+        ]
+      },
+      {
+        "name": "ui-pattern-library",
+        "path": "03-ai-enabling/01-skills/03-design/ui-pattern-library/SKILL.md",
+        "description": "Ui Pattern Library patterns and best practices",
+        "keywords": [
+          "ui",
+          "pattern",
+          "library"
+        ]
+      },
+      {
+        "name": "visual-hierarchy-design",
+        "path": "03-ai-enabling/01-skills/03-design/visual-hierarchy-design/SKILL.md",
+        "description": "Visual Hierarchy Design patterns and best practices",
+        "keywords": [
+          "visual",
+          "hierarchy",
+          "design"
+        ]
+      },
+      {
+        "name": "web-security",
+        "path": "03-ai-enabling/01-skills/04-security/01-web-security/SKILL.md",
+        "description": "OWASP Top 10, XSS, CSRF, injection attacks, security headers",
+        "keywords": [
+          "XSS",
+          "CSRF",
+          "SQL injection",
+          "OWASP",
+          "security",
+          "vulnerability",
+          "CSP",
+          "sanitize",
+          "escape"
+        ]
+      },
+      {
+        "name": "crypto-patterns",
+        "path": "03-ai-enabling/01-skills/04-security/02-crypto-patterns/SKILL.md",
+        "description": "Cryptography patterns - hashing, encryption, key management, TLS",
+        "keywords": [
+          "encryption",
+          "hashing",
+          "bcrypt",
+          "AES",
+          "RSA",
+          "salt",
+          "key management",
+          "TLS",
+          "HMAC"
+        ]
+      },
+      {
+        "name": "auth-patterns",
+        "path": "03-ai-enabling/01-skills/04-security/03-auth-patterns/SKILL.md",
+        "description": "Authentication patterns - JWT, OAuth 2.0, session management, MFA",
+        "keywords": [
+          "JWT",
+          "OAuth",
+          "session",
+          "authentication",
+          "authorization",
+          "token",
+          "refresh token",
+          "MFA",
+          "SSO",
+          "OIDC"
+        ]
+      },
+      {
+        "name": "owasp-top-10-assessment",
+        "path": "03-ai-enabling/01-skills/04-security/04-owasp-top-10-assessment/SKILL.md",
+        "description": "Owasp Top 10 Assessment patterns and best practices",
+        "keywords": [
+          "owasp",
+          "top",
+          "10",
+          "assessment"
+        ]
+      },
+      {
+        "name": "security-code-review",
+        "path": "03-ai-enabling/01-skills/04-security/05-security-code-review/SKILL.md",
+        "description": "Security Code Review patterns and best practices",
+        "keywords": [
+          "security",
+          "code",
+          "review"
+        ]
+      },
+      {
+        "name": "input-validation-security",
+        "path": "03-ai-enabling/01-skills/04-security/06-input-validation-security/SKILL.md",
+        "description": "Input Validation Security patterns and best practices",
+        "keywords": [
+          "input",
+          "validation",
+          "security"
+        ]
+      },
+      {
+        "name": "dependency-vulnerability-scanning",
+        "path": "03-ai-enabling/01-skills/04-security/07-dependency-vulnerability-scanning/SKILL.md",
+        "description": "Dependency Vulnerability Scanning patterns and best practices",
+        "keywords": [
+          "dependency",
+          "vulnerability",
+          "scanning"
+        ]
+      },
+      {
+        "name": "authorization-patterns",
+        "path": "03-ai-enabling/01-skills/04-security/authorization-patterns/SKILL.md",
+        "description": "Authorization Patterns patterns and best practices",
+        "keywords": [
+          "authorization",
+          "patterns"
+        ]
+      },
+      {
+        "name": "data-protection",
+        "path": "03-ai-enabling/01-skills/04-security/data-protection/SKILL.md",
+        "description": "Data Protection patterns and best practices",
+        "keywords": [
+          "data",
+          "protection"
+        ]
+      },
+      {
+        "name": "secrets-management",
+        "path": "03-ai-enabling/01-skills/04-security/secrets-management/SKILL.md",
+        "description": "Secrets Management patterns and best practices",
+        "keywords": [
+          "secrets",
+          "management"
+        ]
+      },
+      {
+        "name": "security-headers",
+        "path": "03-ai-enabling/01-skills/04-security/security-headers/SKILL.md",
+        "description": "Security Headers patterns and best practices",
+        "keywords": [
+          "security",
+          "headers"
+        ]
+      },
+      {
+        "name": "threat-modeling",
+        "path": "03-ai-enabling/01-skills/04-security/threat-modeling/SKILL.md",
+        "description": "Threat Modeling patterns and best practices",
+        "keywords": [
+          "threat",
+          "modeling"
+        ]
+      },
+      {
+        "name": "vulnerability-assessment",
+        "path": "03-ai-enabling/01-skills/04-security/vulnerability-assessment/SKILL.md",
+        "description": "Vulnerability Assessment patterns and best practices",
+        "keywords": [
+          "vulnerability",
+          "assessment"
+        ]
+      },
+      {
+        "name": "docker-patterns",
+        "path": "03-ai-enabling/01-skills/05-infrastructure/01-docker-patterns/SKILL.md",
+        "description": "Container best practices, multi-stage builds, Docker Compose, image optimization",
+        "keywords": [
+          "docker",
+          "container",
+          "image",
+          "Dockerfile",
+          "docker-compose",
+          "multi-stage",
+          "layer",
+          "volume",
+          "build"
+        ]
+      },
+      {
+        "name": "ci-cd-patterns",
+        "path": "03-ai-enabling/01-skills/05-infrastructure/02-ci-cd-patterns/SKILL.md",
+        "description": "CI/CD pipelines - GitHub Actions, deployment strategies, artifact management",
+        "keywords": [
+          "CI/CD",
+          "pipeline",
+          "GitHub Actions",
+          "deployment",
+          "workflow",
+          "artifact",
+          "release",
+          "continuous integration"
+        ]
+      },
+      {
+        "name": "infrastructure-patterns",
+        "path": "03-ai-enabling/01-skills/05-infrastructure/03-infrastructure-patterns/SKILL.md",
+        "description": "Infrastructure as Code - Terraform, scaling, monitoring, cloud patterns",
+        "keywords": [
+          "terraform",
+          "infrastructure as code",
+          "IaC",
+          "scaling",
+          "monitoring",
+          "cloud",
+          "AWS",
+          "GCP",
+          "load balancer"
+        ]
+      },
+      {
+        "name": "kubernetes-patterns",
+        "path": "03-ai-enabling/01-skills/05-infrastructure/04-kubernetes-patterns/SKILL.md",
+        "description": "Kubernetes patterns - deployments, services, ingress, helm charts",
+        "keywords": [
+          "kubernetes",
+          "k8s",
+          "deployment",
+          "service",
+          "ingress",
+          "pod",
+          "helm",
+          "kubectl",
+          "container orchestration"
+        ]
+      },
+      {
+        "name": "terraform-best-practices",
+        "path": "03-ai-enabling/01-skills/05-infrastructure/05-terraform-best-practices/SKILL.md",
+        "description": "Terraform Best Practices patterns and best practices",
+        "keywords": [
+          "terraform",
+          "best",
+          "practices"
+        ]
+      },
+      {
+        "name": "deployment-strategies",
+        "path": "03-ai-enabling/01-skills/05-infrastructure/06-deployment-strategies/SKILL.md",
+        "description": "Deployment Strategies patterns and best practices",
+        "keywords": [
+          "deployment",
+          "strategies"
+        ]
+      },
+      {
+        "name": "logging-infrastructure",
+        "path": "03-ai-enabling/01-skills/05-infrastructure/07-logging-infrastructure/SKILL.md",
+        "description": "Logging Infrastructure patterns and best practices",
+        "keywords": [
+          "logging",
+          "infrastructure"
+        ]
+      },
+      {
+        "name": "secrets-management",
+        "path": "03-ai-enabling/01-skills/05-infrastructure/08-secrets-management/SKILL.md",
+        "description": "Secrets Management patterns and best practices",
+        "keywords": [
+          "secrets",
+          "management"
+        ]
+      },
+      {
+        "name": "ci-cd-pipeline-design",
+        "path": "03-ai-enabling/01-skills/05-infrastructure/ci-cd-pipeline-design/SKILL.md",
+        "description": "Ci Cd Pipeline Design patterns and best practices",
+        "keywords": [
+          "ci",
+          "cd",
+          "pipeline",
+          "design"
+        ]
+      },
+      {
+        "name": "container-orchestration",
+        "path": "03-ai-enabling/01-skills/05-infrastructure/container-orchestration/SKILL.md",
+        "description": "Container Orchestration patterns and best practices",
+        "keywords": [
+          "container",
+          "orchestration"
+        ]
+      },
+      {
+        "name": "cost-optimization",
+        "path": "03-ai-enabling/01-skills/05-infrastructure/cost-optimization/SKILL.md",
+        "description": "Cost Optimization patterns and best practices",
+        "keywords": [
+          "cost",
+          "optimization"
+        ]
+      },
+      {
+        "name": "disaster-recovery",
+        "path": "03-ai-enabling/01-skills/05-infrastructure/disaster-recovery/SKILL.md",
+        "description": "Disaster Recovery patterns and best practices",
+        "keywords": [
+          "disaster",
+          "recovery"
+        ]
+      },
+      {
+        "name": "infrastructure-security",
+        "path": "03-ai-enabling/01-skills/05-infrastructure/infrastructure-security/SKILL.md",
+        "description": "Infrastructure Security patterns and best practices",
+        "keywords": [
+          "infrastructure",
+          "security"
+        ]
+      },
+      {
+        "name": "log-aggregation",
+        "path": "03-ai-enabling/01-skills/05-infrastructure/log-aggregation/SKILL.md",
+        "description": "Log Aggregation patterns and best practices",
+        "keywords": [
+          "log",
+          "aggregation"
+        ]
+      },
+      {
+        "name": "monitoring-alerting",
+        "path": "03-ai-enabling/01-skills/05-infrastructure/monitoring-alerting/SKILL.md",
+        "description": "Monitoring Alerting patterns and best practices",
+        "keywords": [
+          "monitoring",
+          "alerting"
+        ]
+      },
+      {
+        "name": "system-design",
+        "path": "03-ai-enabling/01-skills/06-architecture/01-system-design/SKILL.md",
+        "description": "Architecture patterns, scalability, distributed systems, trade-off analysis",
+        "keywords": [
+          "architecture",
+          "scalability",
+          "distributed system",
+          "microservices",
+          "monolith",
+          "CAP theorem",
+          "circuit breaker",
+          "caching"
+        ]
+      },
+      {
+        "name": "api-design",
+        "path": "03-ai-enabling/01-skills/06-architecture/02-api-design/SKILL.md",
+        "description": "REST API design, GraphQL patterns, versioning, documentation",
+        "keywords": [
+          "REST",
+          "GraphQL",
+          "endpoint",
+          "API versioning",
+          "OpenAPI",
+          "HTTP method",
+          "status code",
+          "pagination"
+        ]
+      },
+      {
+        "name": "technical-writing",
+        "path": "03-ai-enabling/01-skills/06-architecture/03-technical-writing/SKILL.md",
+        "description": "Technical documentation - API docs, READMEs, ADRs, developer guides",
+        "keywords": [
+          "documentation",
+          "README",
+          "API docs",
+          "ADR",
+          "changelog",
+          "technical writing",
+          "developer guide"
+        ]
+      },
+      {
+        "name": "architecture-decision-records",
+        "path": "03-ai-enabling/01-skills/06-architecture/04-architecture-decision-records/SKILL.md",
+        "description": "Architecture Decision Records patterns and best practices",
+        "keywords": [
+          "architecture",
+          "decision",
+          "records"
+        ]
+      },
+      {
+        "name": "trade-off-analysis",
+        "path": "03-ai-enabling/01-skills/06-architecture/05-trade-off-analysis/SKILL.md",
+        "description": "Trade Off Analysis patterns and best practices",
+        "keywords": [
+          "trade",
+          "off",
+          "analysis"
+        ]
+      },
+      {
+        "name": "technology-selection",
+        "path": "03-ai-enabling/01-skills/06-architecture/06-technology-selection/SKILL.md",
+        "description": "Technology Selection patterns and best practices",
+        "keywords": [
+          "technology",
+          "selection"
+        ]
+      },
+      {
+        "name": "threat-modeling",
+        "path": "03-ai-enabling/01-skills/06-architecture/07-threat-modeling/SKILL.md",
+        "description": "Threat Modeling patterns and best practices",
+        "keywords": [
+          "threat",
+          "modeling"
+        ]
+      },
+      {
+        "name": "caching-strategies",
+        "path": "03-ai-enabling/01-skills/06-architecture/caching-strategies/SKILL.md",
+        "description": "Caching Strategies patterns and best practices",
+        "keywords": [
+          "caching",
+          "strategies"
+        ]
+      },
+      {
+        "name": "database-design-patterns",
+        "path": "03-ai-enabling/01-skills/06-architecture/database-design-patterns/SKILL.md",
+        "description": "Database Design Patterns patterns and best practices",
+        "keywords": [
+          "database",
+          "design",
+          "patterns"
+        ]
+      },
+      {
+        "name": "domain-driven-design",
+        "path": "03-ai-enabling/01-skills/06-architecture/domain-driven-design/SKILL.md",
+        "description": "Domain Driven Design patterns and best practices",
+        "keywords": [
+          "domain",
+          "driven",
+          "design"
+        ]
+      },
+      {
+        "name": "event-driven-architecture",
+        "path": "03-ai-enabling/01-skills/06-architecture/event-driven-architecture/SKILL.md",
+        "description": "Event Driven Architecture patterns and best practices",
+        "keywords": [
+          "event",
+          "driven",
+          "architecture"
+        ]
+      },
+      {
+        "name": "integration-patterns",
+        "path": "03-ai-enabling/01-skills/06-architecture/integration-patterns/SKILL.md",
+        "description": "Integration Patterns patterns and best practices",
+        "keywords": [
+          "integration",
+          "patterns"
+        ]
+      },
+      {
+        "name": "microservices-patterns",
+        "path": "03-ai-enabling/01-skills/06-architecture/microservices-patterns/SKILL.md",
+        "description": "Microservices Patterns patterns and best practices",
+        "keywords": [
+          "microservices",
+          "patterns"
+        ]
+      },
+      {
+        "name": "resilience-patterns",
+        "path": "03-ai-enabling/01-skills/06-architecture/resilience-patterns/SKILL.md",
+        "description": "Resilience Patterns patterns and best practices",
+        "keywords": [
+          "resilience",
+          "patterns"
+        ]
+      },
+      {
+        "name": "scalability-patterns",
+        "path": "03-ai-enabling/01-skills/06-architecture/scalability-patterns/SKILL.md",
+        "description": "Scalability Patterns patterns and best practices",
+        "keywords": [
+          "scalability",
+          "patterns"
+        ]
+      },
+      {
+        "name": "forces-quick",
+        "path": "03-ai-enabling/01-skills/06-strategy/01-forces-quick/SKILL.md",
+        "description": "5-minute forces scan for immediate decision support",
+        "keywords": [
+          "forces",
+          "quick",
+          "scan",
+          "assessment"
+        ]
+      },
+      {
+        "name": "mental-models",
+        "path": "03-ai-enabling/01-skills/06-strategy/02-mental-models/SKILL.md",
+        "description": "Mental Models patterns and best practices",
+        "keywords": [
+          "mental",
+          "models"
+        ]
+      },
+      {
+        "name": "research-design",
+        "path": "03-ai-enabling/01-skills/06-strategy/03-research-design/SKILL.md",
+        "description": "Research Design patterns and best practices",
+        "keywords": [
+          "research",
+          "design"
+        ]
+      },
+      {
+        "name": "microcopy-writing",
+        "path": "03-ai-enabling/01-skills/07-copywriting/01-microcopy-writing/SKILL.md",
+        "description": "Microcopy Writing patterns and best practices",
+        "keywords": [
+          "microcopy",
+          "writing"
+        ]
+      },
+      {
+        "name": "error-message-writing",
+        "path": "03-ai-enabling/01-skills/07-copywriting/02-error-message-writing/SKILL.md",
+        "description": "Error Message Writing patterns and best practices",
+        "keywords": [
+          "error",
+          "message",
+          "writing"
+        ]
+      },
+      {
+        "name": "brand-voice-application",
+        "path": "03-ai-enabling/01-skills/07-copywriting/03-brand-voice-application/SKILL.md",
+        "description": "Brand Voice Application patterns and best practices",
+        "keywords": [
+          "brand",
+          "voice",
+          "application"
+        ]
+      },
+      {
+        "name": "authentic-provocateur-voice",
+        "path": "03-ai-enabling/01-skills/07-copywriting/04-authentic-provocateur-voice/SKILL.md",
+        "description": "Authentic Provocateur Voice patterns and best practices",
+        "keywords": [
+          "authentic",
+          "provocateur",
+          "voice"
+        ]
+      },
+      {
+        "name": "accessibility-copy",
+        "path": "03-ai-enabling/01-skills/07-copywriting/accessibility-copy/SKILL.md",
+        "description": "Accessibility Copy patterns and best practices",
+        "keywords": [
+          "accessibility",
+          "copy"
+        ]
+      },
+      {
+        "name": "cta-optimization",
+        "path": "03-ai-enabling/01-skills/07-copywriting/cta-optimization/SKILL.md",
+        "description": "Cta Optimization patterns and best practices",
+        "keywords": [
+          "cta",
+          "optimization"
+        ]
+      },
+      {
+        "name": "help-documentation",
+        "path": "03-ai-enabling/01-skills/07-copywriting/help-documentation/SKILL.md",
+        "description": "Help Documentation patterns and best practices",
+        "keywords": [
+          "help",
+          "documentation"
+        ]
+      },
+      {
+        "name": "localization-ready-copy",
+        "path": "03-ai-enabling/01-skills/07-copywriting/localization-ready-copy/SKILL.md",
+        "description": "Localization Ready Copy patterns and best practices",
+        "keywords": [
+          "localization",
+          "ready",
+          "copy"
+        ]
+      },
+      {
+        "name": "onboarding-copy",
+        "path": "03-ai-enabling/01-skills/07-copywriting/onboarding-copy/SKILL.md",
+        "description": "Onboarding Copy patterns and best practices",
+        "keywords": [
+          "onboarding",
+          "copy"
+        ]
+      },
+      {
+        "name": "release-notes-writing",
+        "path": "03-ai-enabling/01-skills/07-copywriting/release-notes-writing/SKILL.md",
+        "description": "Release Notes Writing patterns and best practices",
+        "keywords": [
+          "release",
+          "notes",
+          "writing"
+        ]
+      },
+      {
+        "name": "tone-voice-consistency",
+        "path": "03-ai-enabling/01-skills/07-copywriting/tone-voice-consistency/SKILL.md",
+        "description": "Tone Voice Consistency patterns and best practices",
+        "keywords": [
+          "tone",
+          "voice",
+          "consistency"
+        ]
+      },
+      {
+        "name": "ux-microcopy",
+        "path": "03-ai-enabling/01-skills/07-copywriting/ux-microcopy/SKILL.md",
+        "description": "Ux Microcopy patterns and best practices",
+        "keywords": [
+          "ux",
+          "microcopy"
+        ]
+      },
+      {
+        "name": "customer-journey-mapping",
+        "path": "03-ai-enabling/01-skills/07-service-design/customer-journey-mapping/SKILL.md",
+        "description": "Customer Journey Mapping patterns and best practices",
+        "keywords": [
+          "customer",
+          "journey",
+          "mapping"
+        ]
+      },
+      {
+        "name": "ecosystem-mapping",
+        "path": "03-ai-enabling/01-skills/07-service-design/ecosystem-mapping/SKILL.md",
+        "description": "Ecosystem Mapping patterns and best practices",
+        "keywords": [
+          "ecosystem",
+          "mapping"
+        ]
+      },
+      {
+        "name": "forces-of-progress-mapping",
+        "path": "03-ai-enabling/01-skills/07-service-design/forces-of-progress-mapping/SKILL.md",
+        "description": "Forces Of Progress Mapping patterns and best practices",
+        "keywords": [
+          "forces",
+          "of",
+          "progress",
+          "mapping"
+        ]
+      },
+      {
+        "name": "jtbd-statement-creation",
+        "path": "03-ai-enabling/01-skills/07-service-design/jtbd-statement-creation/SKILL.md",
+        "description": "Jtbd Statement Creation patterns and best practices",
+        "keywords": [
+          "jtbd",
+          "statement",
+          "creation"
+        ]
+      },
+      {
+        "name": "service-blueprint-design",
+        "path": "03-ai-enabling/01-skills/07-service-design/service-blueprint-design/SKILL.md",
+        "description": "Service Blueprint Design patterns and best practices",
+        "keywords": [
+          "service",
+          "blueprint",
+          "design"
+        ]
+      },
+      {
+        "name": "service-design-workshop-facilitation",
+        "path": "03-ai-enabling/01-skills/07-service-design/service-design-workshop-facilitation/SKILL.md",
+        "description": "Service Design Workshop Facilitation patterns and best practices",
+        "keywords": [
+          "service",
+          "design",
+          "workshop",
+          "facilitation"
+        ]
+      },
+      {
+        "name": "stakeholder-mapping",
+        "path": "03-ai-enabling/01-skills/07-service-design/stakeholder-mapping/SKILL.md",
+        "description": "Stakeholder Mapping patterns and best practices",
+        "keywords": [
+          "stakeholder",
+          "mapping"
+        ]
+      },
+      {
+        "name": "systems-thinking",
+        "path": "03-ai-enabling/01-skills/07-service-design/systems-thinking/SKILL.md",
+        "description": "Systems Thinking patterns and best practices",
+        "keywords": [
+          "systems",
+          "thinking"
+        ]
+      },
+      {
+        "name": "touchpoint-analysis",
+        "path": "03-ai-enabling/01-skills/07-service-design/touchpoint-analysis/SKILL.md",
+        "description": "Touchpoint Analysis patterns and best practices",
+        "keywords": [
+          "touchpoint",
+          "analysis"
+        ]
+      },
+      {
+        "name": "value-stream-mapping",
+        "path": "03-ai-enabling/01-skills/07-service-design/value-stream-mapping/SKILL.md",
+        "description": "Value Stream Mapping patterns and best practices",
+        "keywords": [
+          "value",
+          "stream",
+          "mapping"
+        ]
+      },
+      {
+        "name": "accessibility-first-design",
+        "path": "03-ai-enabling/01-skills/08-ux-design/accessibility-first-design/SKILL.md",
+        "description": "Accessibility First Design patterns and best practices",
+        "keywords": [
+          "accessibility",
+          "first",
+          "design"
+        ]
+      },
+      {
+        "name": "cognitive-load-management",
+        "path": "03-ai-enabling/01-skills/08-ux-design/cognitive-load-management/SKILL.md",
+        "description": "Cognitive Load Management patterns and best practices",
+        "keywords": [
+          "cognitive",
+          "load",
+          "management"
+        ]
+      },
+      {
+        "name": "error-recovery-patterns",
+        "path": "03-ai-enabling/01-skills/08-ux-design/error-recovery-patterns/SKILL.md",
+        "description": "Error Recovery Patterns patterns and best practices",
+        "keywords": [
+          "error",
+          "recovery",
+          "patterns"
+        ]
+      },
+      {
+        "name": "feedback-loop-design",
+        "path": "03-ai-enabling/01-skills/08-ux-design/feedback-loop-design/SKILL.md",
+        "description": "Feedback Loop Design patterns and best practices",
+        "keywords": [
+          "feedback",
+          "loop",
+          "design"
+        ]
+      },
+      {
+        "name": "heuristic-evaluation",
+        "path": "03-ai-enabling/01-skills/08-ux-design/heuristic-evaluation/SKILL.md",
+        "description": "Heuristic Evaluation patterns and best practices",
+        "keywords": [
+          "heuristic",
+          "evaluation"
+        ]
+      },
+      {
+        "name": "ia-structure-design",
+        "path": "03-ai-enabling/01-skills/08-ux-design/ia-structure-design/SKILL.md",
+        "description": "Ia Structure Design patterns and best practices",
+        "keywords": [
+          "ia",
+          "structure",
+          "design"
+        ]
+      },
+      {
+        "name": "interaction-state-design",
+        "path": "03-ai-enabling/01-skills/08-ux-design/interaction-state-design/SKILL.md",
+        "description": "Interaction State Design patterns and best practices",
+        "keywords": [
+          "interaction",
+          "state",
+          "design"
+        ]
+      },
+      {
+        "name": "interface-hierarchy",
+        "path": "03-ai-enabling/01-skills/08-ux-design/interface-hierarchy/SKILL.md",
+        "description": "Interface Hierarchy patterns and best practices",
+        "keywords": [
+          "interface",
+          "hierarchy"
+        ]
+      },
+      {
+        "name": "keyboard-navigation-design",
+        "path": "03-ai-enabling/01-skills/08-ux-design/keyboard-navigation-design/SKILL.md",
+        "description": "Keyboard Navigation Design patterns and best practices",
+        "keywords": [
+          "keyboard",
+          "navigation",
+          "design"
+        ]
+      },
+      {
+        "name": "mental-models-ui",
+        "path": "03-ai-enabling/01-skills/08-ux-design/mental-models-ui/SKILL.md",
+        "description": "Mental Models Ui patterns and best practices",
+        "keywords": [
+          "mental",
+          "models",
+          "ui"
+        ]
+      },
+      {
+        "name": "micro-interaction-design",
+        "path": "03-ai-enabling/01-skills/08-ux-design/micro-interaction-design/SKILL.md",
+        "description": "Micro Interaction Design patterns and best practices",
+        "keywords": [
+          "micro",
+          "interaction",
+          "design"
+        ]
+      },
+      {
+        "name": "multi-device-experience",
+        "path": "03-ai-enabling/01-skills/08-ux-design/multi-device-experience/SKILL.md",
+        "description": "Multi Device Experience patterns and best practices",
+        "keywords": [
+          "multi",
+          "device",
+          "experience"
+        ]
+      },
+      {
+        "name": "navigation-design",
+        "path": "03-ai-enabling/01-skills/08-ux-design/navigation-design/SKILL.md",
+        "description": "Navigation Design patterns and best practices",
+        "keywords": [
+          "navigation",
+          "design"
+        ]
+      },
+      {
+        "name": "progressive-disclosure",
+        "path": "03-ai-enabling/01-skills/08-ux-design/progressive-disclosure/SKILL.md",
+        "description": "Progressive Disclosure patterns and best practices",
+        "keywords": [
+          "progressive",
+          "disclosure"
+        ]
+      },
+      {
+        "name": "task-flow-optimization",
+        "path": "03-ai-enabling/01-skills/08-ux-design/task-flow-optimization/SKILL.md",
+        "description": "Task Flow Optimization patterns and best practices",
+        "keywords": [
+          "task",
+          "flow",
+          "optimization"
+        ]
+      },
+      {
+        "name": "usability-test-design",
+        "path": "03-ai-enabling/01-skills/08-ux-design/usability-test-design/SKILL.md",
+        "description": "Usability Test Design patterns and best practices",
+        "keywords": [
+          "usability",
+          "test",
+          "design"
+        ]
+      },
+      {
+        "name": "usability-test-facilitation",
+        "path": "03-ai-enabling/01-skills/08-ux-design/usability-test-facilitation/SKILL.md",
+        "description": "Usability Test Facilitation patterns and best practices",
+        "keywords": [
+          "usability",
+          "test",
+          "facilitation"
+        ]
+      },
+      {
+        "name": "color-theory-application",
+        "path": "03-ai-enabling/01-skills/09-design-systems/color-theory-application/SKILL.md",
+        "description": "Color Theory Application patterns and best practices",
+        "keywords": [
+          "color",
+          "theory",
+          "application"
+        ]
+      },
+      {
+        "name": "component-anatomy",
+        "path": "03-ai-enabling/01-skills/09-design-systems/component-anatomy/SKILL.md",
+        "description": "Component Anatomy patterns and best practices",
+        "keywords": [
+          "component",
+          "anatomy"
+        ]
+      },
+      {
+        "name": "design-token-architecture",
+        "path": "03-ai-enabling/01-skills/09-design-systems/design-token-architecture/SKILL.md",
+        "description": "Design Token Architecture patterns and best practices",
+        "keywords": [
+          "design",
+          "token",
+          "architecture"
+        ]
+      },
+      {
+        "name": "gestalt-principles",
+        "path": "03-ai-enabling/01-skills/09-design-systems/gestalt-principles/SKILL.md",
+        "description": "Gestalt Principles patterns and best practices",
+        "keywords": [
+          "gestalt",
+          "principles"
+        ]
+      },
+      {
+        "name": "iconography-systems",
+        "path": "03-ai-enabling/01-skills/09-design-systems/iconography-systems/SKILL.md",
+        "description": "Iconography Systems patterns and best practices",
+        "keywords": [
+          "iconography",
+          "systems"
+        ]
+      },
+      {
+        "name": "layout-grid-systems",
+        "path": "03-ai-enabling/01-skills/09-design-systems/layout-grid-systems/SKILL.md",
+        "description": "Layout Grid Systems patterns and best practices",
+        "keywords": [
+          "layout",
+          "grid",
+          "systems"
+        ]
+      },
+      {
+        "name": "motion-design-principles",
+        "path": "03-ai-enabling/01-skills/09-design-systems/motion-design-principles/SKILL.md",
+        "description": "Motion Design Principles patterns and best practices",
+        "keywords": [
+          "motion",
+          "design",
+          "principles"
+        ]
+      },
+      {
+        "name": "typography-systems",
+        "path": "03-ai-enabling/01-skills/09-design-systems/typography-systems/SKILL.md",
+        "description": "Typography Systems patterns and best practices",
+        "keywords": [
+          "typography",
+          "systems"
+        ]
+      },
+      {
+        "name": "visual-rhythm",
+        "path": "03-ai-enabling/01-skills/09-design-systems/visual-rhythm/SKILL.md",
+        "description": "Visual Rhythm patterns and best practices",
+        "keywords": [
+          "visual",
+          "rhythm"
+        ]
+      },
+      {
+        "name": "whitespace-mastery",
+        "path": "03-ai-enabling/01-skills/09-design-systems/whitespace-mastery/SKILL.md",
+        "description": "Whitespace Mastery patterns and best practices",
+        "keywords": [
+          "whitespace",
+          "mastery"
+        ]
+      },
+      {
+        "name": "animation-performance",
+        "path": "03-ai-enabling/01-skills/09-ui-development/animation-performance/SKILL.md",
+        "description": "Animation Performance patterns and best practices",
+        "keywords": [
+          "animation",
+          "performance"
+        ]
+      },
+      {
+        "name": "aria-implementation",
+        "path": "03-ai-enabling/01-skills/09-ui-development/aria-implementation/SKILL.md",
+        "description": "Aria Implementation patterns and best practices",
+        "keywords": [
+          "aria",
+          "implementation"
+        ]
+      },
+      {
+        "name": "browser-compatibility",
+        "path": "03-ai-enabling/01-skills/09-ui-development/browser-compatibility/SKILL.md",
+        "description": "Browser Compatibility patterns and best practices",
+        "keywords": [
+          "browser",
+          "compatibility"
+        ]
+      },
+      {
+        "name": "component-api-design",
+        "path": "03-ai-enabling/01-skills/09-ui-development/component-api-design/SKILL.md",
+        "description": "Component Api Design patterns and best practices",
+        "keywords": [
+          "component",
+          "api",
+          "design"
+        ]
+      },
+      {
+        "name": "css-architecture",
+        "path": "03-ai-enabling/01-skills/09-ui-development/css-architecture/SKILL.md",
+        "description": "Css Architecture patterns and best practices",
+        "keywords": [
+          "css",
+          "architecture"
+        ]
+      },
+      {
+        "name": "css-custom-properties",
+        "path": "03-ai-enabling/01-skills/09-ui-development/css-custom-properties/SKILL.md",
+        "description": "Css Custom Properties patterns and best practices",
+        "keywords": [
+          "css",
+          "custom",
+          "properties"
+        ]
+      },
+      {
+        "name": "css-flexbox-mastery",
+        "path": "03-ai-enabling/01-skills/09-ui-development/css-flexbox-mastery/SKILL.md",
+        "description": "Css Flexbox Mastery patterns and best practices",
+        "keywords": [
+          "css",
+          "flexbox",
+          "mastery"
+        ]
+      },
+      {
+        "name": "css-grid-mastery",
+        "path": "03-ai-enabling/01-skills/09-ui-development/css-grid-mastery/SKILL.md",
+        "description": "Css Grid Mastery patterns and best practices",
+        "keywords": [
+          "css",
+          "grid",
+          "mastery"
+        ]
+      },
+      {
+        "name": "flexbox-patterns",
+        "path": "03-ai-enabling/01-skills/09-ui-development/flexbox-patterns/SKILL.md",
+        "description": "Flexbox Patterns patterns and best practices",
+        "keywords": [
+          "flexbox",
+          "patterns"
+        ]
+      },
+      {
+        "name": "form-handling-implementation",
+        "path": "03-ai-enabling/01-skills/09-ui-development/form-handling-implementation/SKILL.md",
+        "description": "Form Handling Implementation patterns and best practices",
+        "keywords": [
+          "form",
+          "handling",
+          "implementation"
+        ]
+      },
+      {
+        "name": "keyboard-accessibility-implementation",
+        "path": "03-ai-enabling/01-skills/09-ui-development/keyboard-accessibility-implementation/SKILL.md",
+        "description": "Keyboard Accessibility Implementation patterns and best practices",
+        "keywords": [
+          "keyboard",
+          "accessibility",
+          "implementation"
+        ]
+      },
+      {
+        "name": "performance-css",
+        "path": "03-ai-enabling/01-skills/09-ui-development/performance-css/SKILL.md",
+        "description": "Performance Css patterns and best practices",
+        "keywords": [
+          "performance",
+          "css"
+        ]
+      },
+      {
+        "name": "responsive-typography",
+        "path": "03-ai-enabling/01-skills/09-ui-development/responsive-typography/SKILL.md",
+        "description": "Responsive Typography patterns and best practices",
+        "keywords": [
+          "responsive",
+          "typography"
+        ]
+      },
+      {
+        "name": "semantic-html-mastery",
+        "path": "03-ai-enabling/01-skills/09-ui-development/semantic-html-mastery/SKILL.md",
+        "description": "Semantic Html Mastery patterns and best practices",
+        "keywords": [
+          "semantic",
+          "html",
+          "mastery"
+        ]
+      },
+      {
+        "name": "wcag-implementation",
+        "path": "03-ai-enabling/01-skills/09-ui-development/wcag-implementation/SKILL.md",
+        "description": "Wcag Implementation patterns and best practices",
+        "keywords": [
+          "wcag",
+          "implementation"
+        ]
+      },
+      {
+        "name": "api-documentation-writing",
+        "path": "03-ai-enabling/01-skills/10-documentation/api-documentation-writing/SKILL.md",
+        "description": "Api Documentation Writing patterns and best practices",
+        "keywords": [
+          "api",
+          "documentation",
+          "writing"
+        ]
+      },
+      {
+        "name": "architecture-documentation",
+        "path": "03-ai-enabling/01-skills/10-documentation/architecture-documentation/SKILL.md",
+        "description": "Architecture Documentation patterns and best practices",
+        "keywords": [
+          "architecture",
+          "documentation"
+        ]
+      },
+      {
+        "name": "changelog-management",
+        "path": "03-ai-enabling/01-skills/10-documentation/changelog-management/SKILL.md",
+        "description": "Changelog Management patterns and best practices",
+        "keywords": [
+          "changelog",
+          "management"
+        ]
+      },
+      {
+        "name": "code-commenting-strategy",
+        "path": "03-ai-enabling/01-skills/10-documentation/code-commenting-strategy/SKILL.md",
+        "description": "Code Commenting Strategy patterns and best practices",
+        "keywords": [
+          "code",
+          "commenting",
+          "strategy"
+        ]
+      },
+      {
+        "name": "diagram-creation",
+        "path": "03-ai-enabling/01-skills/10-documentation/diagram-creation/SKILL.md",
+        "description": "Diagram Creation patterns and best practices",
+        "keywords": [
+          "diagram",
+          "creation"
+        ]
+      },
+      {
+        "name": "example-driven-documentation",
+        "path": "03-ai-enabling/01-skills/10-documentation/example-driven-documentation/SKILL.md",
+        "description": "Example Driven Documentation patterns and best practices",
+        "keywords": [
+          "example",
+          "driven",
+          "documentation"
+        ]
+      },
+      {
+        "name": "knowledge-base-structure",
+        "path": "03-ai-enabling/01-skills/10-documentation/knowledge-base-structure/SKILL.md",
+        "description": "Knowledge Base Structure patterns and best practices",
+        "keywords": [
+          "knowledge",
+          "base",
+          "structure"
+        ]
+      },
+      {
+        "name": "readme-excellence",
+        "path": "03-ai-enabling/01-skills/10-documentation/readme-excellence/SKILL.md",
+        "description": "Readme Excellence patterns and best practices",
+        "keywords": [
+          "readme",
+          "excellence"
+        ]
+      },
+      {
+        "name": "runbook-creation",
+        "path": "03-ai-enabling/01-skills/10-documentation/runbook-creation/SKILL.md",
+        "description": "Runbook Creation patterns and best practices",
+        "keywords": [
+          "runbook",
+          "creation"
+        ]
+      },
+      {
+        "name": "technical-writing-clarity",
+        "path": "03-ai-enabling/01-skills/10-documentation/technical-writing-clarity/SKILL.md",
+        "description": "Technical Writing Clarity patterns and best practices",
+        "keywords": [
+          "technical",
+          "writing",
+          "clarity"
+        ]
+      },
+      {
+        "name": "tutorial-writing",
+        "path": "03-ai-enabling/01-skills/10-documentation/tutorial-writing/SKILL.md",
+        "description": "Tutorial Writing patterns and best practices",
+        "keywords": [
+          "tutorial",
+          "writing"
+        ]
+      },
+      {
+        "name": "clean-code-principles",
+        "path": "03-ai-enabling/01-skills/11-engineering/clean-code-principles/SKILL.md",
+        "description": "Clean Code Principles patterns and best practices",
+        "keywords": [
+          "clean",
+          "code",
+          "principles"
+        ]
+      },
+      {
+        "name": "code-review-excellence",
+        "path": "03-ai-enabling/01-skills/11-engineering/code-review-excellence/SKILL.md",
+        "description": "Code Review Excellence patterns and best practices",
+        "keywords": [
+          "code",
+          "review",
+          "excellence"
+        ]
+      },
+      {
+        "name": "concurrency-patterns",
+        "path": "03-ai-enabling/01-skills/11-engineering/concurrency-patterns/SKILL.md",
+        "description": "Concurrency Patterns patterns and best practices",
+        "keywords": [
+          "concurrency",
+          "patterns"
+        ]
+      },
+      {
+        "name": "debugging-strategies",
+        "path": "03-ai-enabling/01-skills/11-engineering/debugging-strategies/SKILL.md",
+        "description": "Debugging Strategies patterns and best practices",
+        "keywords": [
+          "debugging",
+          "strategies"
+        ]
+      },
+      {
+        "name": "error-handling-strategies",
+        "path": "03-ai-enabling/01-skills/11-engineering/error-handling-strategies/SKILL.md",
+        "description": "Error Handling Strategies patterns and best practices",
+        "keywords": [
+          "error",
+          "handling",
+          "strategies"
+        ]
+      },
+      {
+        "name": "logging-observability",
+        "path": "03-ai-enabling/01-skills/11-engineering/logging-observability/SKILL.md",
+        "description": "Logging Observability patterns and best practices",
+        "keywords": [
+          "logging",
+          "observability"
+        ]
+      },
+      {
+        "name": "memory-management",
+        "path": "03-ai-enabling/01-skills/11-engineering/memory-management/SKILL.md",
+        "description": "Memory Management patterns and best practices",
+        "keywords": [
+          "memory",
+          "management"
+        ]
+      },
+      {
+        "name": "performance-profiling",
+        "path": "03-ai-enabling/01-skills/11-engineering/performance-profiling/SKILL.md",
+        "description": "Performance Profiling patterns and best practices",
+        "keywords": [
+          "performance",
+          "profiling"
+        ]
+      },
+      {
+        "name": "refactoring-patterns",
+        "path": "03-ai-enabling/01-skills/11-engineering/refactoring-patterns/SKILL.md",
+        "description": "Refactoring Patterns patterns and best practices",
+        "keywords": [
+          "refactoring",
+          "patterns"
+        ]
+      },
+      {
+        "name": "technical-debt-management",
+        "path": "03-ai-enabling/01-skills/11-engineering/technical-debt-management/SKILL.md",
+        "description": "Technical Debt Management patterns and best practices",
+        "keywords": [
+          "technical",
+          "debt",
+          "management"
+        ]
+      },
+      {
+        "name": "functional-necessity-audit",
+        "path": "03-ai-enabling/01-skills/12-industrial-design/01-functional-necessity-audit/SKILL.md",
+        "description": "Systematic removal test to identify essential vs decorative elements",
+        "keywords": [
+          "minimalism",
+          "function",
+          "necessity",
+          "essential design",
+          "Dieter Rams",
+          "reduction",
+          "simplification"
+        ]
+      },
+      {
+        "name": "design-honesty-evaluation",
+        "path": "03-ai-enabling/01-skills/12-industrial-design/02-design-honesty-evaluation/SKILL.md",
+        "description": "Authenticity assessment of materials and form - no faking",
+        "keywords": [
+          "honesty",
+          "authenticity",
+          "materials",
+          "skeuomorphism",
+          "fake finishes",
+          "design integrity"
+        ]
+      },
+      {
+        "name": "longevity-assessment",
+        "path": "03-ai-enabling/01-skills/12-industrial-design/03-longevity-assessment/SKILL.md",
+        "description": "Temporal durability test - design for decades not fashion cycles",
+        "keywords": [
+          "longevity",
+          "timeless",
+          "durability",
+          "aging",
+          "obsolescence",
+          "fashion"
+        ]
+      },
+      {
+        "name": "product-family-audit",
+        "path": "03-ai-enabling/01-skills/12-industrial-design/04-product-family-audit/SKILL.md",
+        "description": "Design language consistency across product line",
+        "keywords": [
+          "product family",
+          "consistency",
+          "design language",
+          "visual coherence",
+          "brand"
+        ]
+      },
+      {
+        "name": "material-intention",
+        "path": "03-ai-enabling/01-skills/12-industrial-design/05-material-intention/SKILL.md",
+        "description": "Material selection methodology treating choice as communication",
+        "keywords": [
+          "material selection",
+          "CMF",
+          "tactile",
+          "sustainability",
+          "patina",
+          "honesty"
+        ]
+      },
+      {
+        "name": "graceful-aging-design",
+        "path": "03-ai-enabling/01-skills/12-industrial-design/06-graceful-aging-design/SKILL.md",
+        "description": "Degradation planning and patina design",
+        "keywords": [
+          "aging",
+          "patina",
+          "wear",
+          "degradation",
+          "longevity",
+          "materials"
+        ]
+      },
+      {
+        "name": "tactile-design",
+        "path": "03-ai-enabling/01-skills/12-industrial-design/07-tactile-design/SKILL.md",
+        "description": "Touch, weight, thermal design - how product feels in hand",
+        "keywords": [
+          "tactile",
+          "touch",
+          "haptic",
+          "weight",
+          "thermal",
+          "ergonomics"
+        ]
+      },
+      {
+        "name": "sonic-design",
+        "path": "03-ai-enabling/01-skills/12-industrial-design/08-sonic-design/SKILL.md",
+        "description": "Interaction sounds and acoustic signature design",
+        "keywords": [
+          "sound",
+          "acoustic",
+          "sonic",
+          "audio feedback",
+          "click",
+          "signature"
+        ]
+      },
+      {
+        "name": "first-moment-design",
+        "path": "03-ai-enabling/01-skills/12-industrial-design/09-first-moment-design/SKILL.md",
+        "description": "Unboxing and discovery experience design",
+        "keywords": [
+          "unboxing",
+          "first impression",
+          "discovery",
+          "packaging",
+          "reveal"
+        ]
+      },
+      {
+        "name": "form-derivation",
+        "path": "03-ai-enabling/01-skills/12-industrial-design/10-form-derivation/SKILL.md",
+        "description": "Function to form methodology - form follows function",
+        "keywords": [
+          "form",
+          "function",
+          "shape",
+          "geometry",
+          "purpose",
+          "derivation"
+        ]
+      },
+      {
+        "name": "reduction-methodology",
+        "path": "03-ai-enabling/01-skills/12-industrial-design/11-reduction-methodology/SKILL.md",
+        "description": "Subtraction process - remove until it breaks, add one back",
+        "keywords": [
+          "less but better",
+          "simplification",
+          "reduction",
+          "minimal",
+          "essential",
+          "subtract"
+        ]
+      },
+      {
+        "name": "product-ecosystem-design",
+        "path": "03-ai-enabling/01-skills/12-industrial-design/12-product-ecosystem-design/SKILL.md",
+        "description": "Family coherence and system thinking for product lines",
+        "keywords": [
+          "product family",
+          "ecosystem",
+          "product line",
+          "visual language",
+          "coherence",
+          "platform"
+        ]
+      },
+      {
+        "name": "physical-digital-integration",
+        "path": "03-ai-enabling/01-skills/12-industrial-design/13-physical-digital-integration/SKILL.md",
+        "description": "Connected product design - seamless hardware/software intersection",
+        "keywords": [
+          "connected products",
+          "IoT",
+          "hardware software",
+          "integration",
+          "physical digital"
+        ]
+      },
+      {
+        "name": "lifecycle-design",
+        "path": "03-ai-enabling/01-skills/12-industrial-design/14-lifecycle-design/SKILL.md",
+        "description": "Environmental full-cycle planning from materials to end-of-life",
+        "keywords": [
+          "lifecycle",
+          "sustainability",
+          "circular design",
+          "environmental",
+          "recyclable",
+          "disposal"
+        ]
+      },
+      {
+        "name": "modularity-design",
+        "path": "03-ai-enabling/01-skills/12-industrial-design/15-modularity-design/SKILL.md",
+        "description": "Repair and upgrade paths through modular design",
+        "keywords": [
+          "modularity",
+          "repair",
+          "upgrade",
+          "maintenance",
+          "right to repair",
+          "longevity"
+        ]
+      },
+      {
+        "name": "digital-material-audit",
+        "path": "03-ai-enabling/01-skills/12-industrial-design/16-digital-material-audit/SKILL.md",
+        "description": "Evaluate performance budgets, latency, system resources as honest digital materials",
+        "keywords": [
+          "performance budget",
+          "latency",
+          "bundle size",
+          "system resources",
+          "digital materials",
+          "honesty"
+        ]
+      },
+      {
+        "name": "digital-longevity-assessment",
+        "path": "03-ai-enabling/01-skills/12-industrial-design/16-digital-longevity-assessment/SKILL.md",
+        "description": "API stability, semantic versioning, backwards compatibility for digital longevity",
+        "keywords": [
+          "API stability",
+          "backwards compatibility",
+          "semantic versioning",
+          "deprecation",
+          "digital longevity"
+        ]
+      },
+      {
+        "name": "interaction-feedback-design",
+        "path": "03-ai-enabling/01-skills/12-industrial-design/16-interaction-feedback-design/SKILL.md",
+        "description": "State changes, optimistic UI, micro-interactions as digital tactile feedback",
+        "keywords": [
+          "state changes",
+          "optimistic UI",
+          "feedback",
+          "micro-interaction",
+          "digital tactile"
+        ]
+      },
+      {
+        "name": "digital-aging-patterns",
+        "path": "03-ai-enabling/01-skills/12-industrial-design/16-digital-aging-patterns/SKILL.md",
+        "description": "Data enrichment, learned preferences, usage patina for graceful digital aging",
+        "keywords": [
+          "data enrichment",
+          "personalization",
+          "usage patterns",
+          "digital patina",
+          "graceful aging"
+        ]
+      },
+      {
+        "name": "digital-reduction-audit",
+        "path": "03-ai-enabling/01-skills/12-industrial-design/16-digital-reduction-audit/SKILL.md",
+        "description": "Feature necessity test, UI element audit - subtract until function breaks",
+        "keywords": [
+          "feature audit",
+          "UI reduction",
+          "minimalism",
+          "essential features",
+          "digital simplification"
+        ]
+      },
+      {
+        "name": "resource-honesty-patterns",
+        "path": "03-ai-enabling/01-skills/12-industrial-design/16-resource-honesty-patterns/SKILL.md",
+        "description": "No fake spinners, honest loading states, true progress indicators",
+        "keywords": [
+          "loading states",
+          "progress indicators",
+          "spinners",
+          "honesty",
+          "resource truth"
+        ]
+      },
+      {
+        "name": "completion-report",
+        "path": "03-ai-enabling/01-skills/17-software-factory/completion-report/SKILL.md",
+        "description": "Structured completion reports ensuring evidence artifacts before NEEDS_REVIEW transition",
+        "keywords": ["completion", "report", "review", "evidence", "needs_review"]
+      },
+      {
+        "name": "factory-demo-conventions",
+        "path": "03-ai-enabling/01-skills/17-software-factory/factory-demo-conventions/SKILL.md",
+        "description": "CV task naming, PROTOTYPE_SPEC blocks, and demo route conventions",
+        "keywords": ["demo", "convention", "cv", "prototype", "spec", "naming"]
+      },
+      {
+        "name": "cross-repo-targeting",
+        "path": "03-ai-enabling/01-skills/17-software-factory/cross-repo-targeting/SKILL.md",
+        "description": "Ensuring execution agents target the correct repository for cross-repo tasks",
+        "keywords": ["cross-repo", "targeting", "repository", "destination", "wrong-repo"]
+      },
+      {
+        "name": "prototype-ui-requirements",
+        "path": "03-ai-enabling/01-skills/17-software-factory/prototype-ui-requirements/SKILL.md",
+        "description": "UI requirements for prototype and rationale demo pages",
+        "keywords": ["prototype", "ui", "requirements", "rationale", "cta", "demo"]
+      },
+      {
+        "name": "factory-lane-outputs",
+        "path": "03-ai-enabling/01-skills/17-software-factory/factory-lane-outputs/SKILL.md",
+        "description": "Expected outputs per lane (CDO, CTO, CMO) and artifact chaining rules",
+        "keywords": ["lane", "outputs", "artifacts", "pipeline", "cdo", "cto"]
+      },
+      {
+        "name": "wilson-operating-model",
+        "path": "03-ai-enabling/01-skills/17-software-factory/wilson-operating-model/SKILL.md",
+        "description": "Wilson's orchestration loop, sweep cadence, escalation triggers, decision authority",
+        "keywords": ["wilson", "operating", "model", "orchestration", "sweep", "chief of staff"]
+      },
+      {
+        "name": "factory-governance",
+        "path": "03-ai-enabling/01-skills/17-software-factory/factory-governance/SKILL.md",
+        "description": "RACI matrix, escalation paths, SLA definitions for the software factory",
+        "keywords": ["governance", "raci", "escalation", "sla", "rules", "authority"]
+      },
+      {
+        "name": "factory-release-runbook",
+        "path": "03-ai-enabling/01-skills/17-software-factory/factory-release-runbook/SKILL.md",
+        "description": "Release and rollback procedures for demo deployments",
+        "keywords": ["release", "runbook", "rollback", "deployment", "deploy"]
+      }
+    ]
+  },
+  "glossary": "03-ai-enabling/03-operations/04-shared-glossary.md",
+  "config": {
+    "preferProprietarySkills": true,
+    "strictMode": false
+  }
+}

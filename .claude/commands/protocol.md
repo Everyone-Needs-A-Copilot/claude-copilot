@@ -540,46 +540,58 @@ cc memory store --type lesson "<key learning>"           # repeat for each key l
 
 ## Extension Resolution
 
-Before invoking any agent, check for knowledge repository extensions from **two declared sources**, never just one:
+Before invoking any agent, resolve its extension by running ONE command -- never hand-execute manifest lookups, precedence comparisons, or skills checks yourself:
 
-1. **Personal** -- `$CC_PERSONAL_KNOWLEDGE_REPO/knowledge-manifest.json` (`CC_PERSONAL_KNOWLEDGE_REPO` is exported by `cc env` since cc 2.0.3; if it is unset, no personal knowledge repo is configured -- skip this source entirely, never guess a path).
-2. **Company/org** -- `~/.claude/knowledge/knowledge-manifest.json`.
+```bash
+cc extensions resolve --agent <id> --json
+```
 
-**"Write as me" vs "write as the company" is an explicit selection, never an inference:**
+This walks the REAL configured knowledge repos (`CC_KNOWLEDGE_REPOS`, exported by `cc env` -- personal-over-org precedence falls out of that list's order, not a separate rank comparison), matches `extensions[]` entries by agent ID, verifies `requiredSkills` against `cc skill get`, and applies `fallbackBehavior`. A missing or malformed manifest is skipped silently by the command itself -- it never blocks the invocation and never raises.
 
-1. **Read both manifests** (a manifest that doesn't exist or fails to parse is skipped, silently -- never block an agent invocation on a missing or malformed personal or org manifest).
-2. **Look for an `extensions[]` entry matching the invoked agent's ID** in each manifest.
-3. **If both declare an extension for this agent, personal wins** (personal-over-org precedence, same tier ordering the layer manifest uses elsewhere: personal rank 10 nearer than organization rank 30). This is "write as me."
-4. **If only one source declares an extension**, use it -- this is "write as the company" when only the org manifest matches, or "write as me" when only the personal manifest matches.
-5. **Apply the selected extension based on its type:**
-   - `override`: Use extension content AS the agent instructions (ignore base agent)
-   - `extension`: Merge extension with base agent (extension sections override base)
-6. **If neither source declares an extension:** Use base agent unchanged
+**The JSON response is the ONLY source of truth for what to do next.** Read `action`:
 
-Always name which source won in the protocol declaration (see "Extension Status in Protocol Declaration" below) -- the choice must be visible, not silent.
+| `action` | Meaning | What to do |
+|---|---|---|
+| `no_extension` | No repo declares an entry for this agent | Use the base agent, unchanged. |
+| `apply` | Matched, `requiredSkills` satisfied | Read `file` and compose per `type` (below). |
+| `fallback_use_base` | Matched, skills missing, `fallbackBehavior: use_base` | Use the base agent. No warning. |
+| `fallback_use_base_with_warning` | Matched, skills missing, `fallbackBehavior: use_base_with_warning` | Use the base agent. Surface `warning` to the user. |
+| `fallback_fail` | Matched, skills missing, `fallbackBehavior: fail` | Do NOT proceed with either base or extension. Explain `warning` (the missing skills) to the user and stop. |
 
-### Required Skills Check
+**Composition, by `type` (when `action == apply`):**
+- `override`: read `file` and use its content AS the agent instructions in full, in place of the base agent file. This is a pure substitution -- no merge, no ambiguity.
+- `extension`: read the base agent file AND `file`; APPEND the extension content after the base content. This is a deterministic append, not a section-level merge -- the framework does not attempt to algorithmically decide which of two overlapping prose sections "wins" (that judgment call is what earlier docs called "aspirational" when they claimed a merge). Label the appended block explicitly (e.g. "Extension (type: extension, source: <source_repo>) -- appended, not merged") and apply the agent's own Runtime Precedence "content outranks form" clause to resolve any conflict between the two bodies of text.
+- `skills`: no content changes to the base agent -- this type only asserts the declared skills should be available.
 
-If the extension has `requiredSkills`:
-1. Verify each skill is available via `cc skill get <name>`
-2. If skills unavailable, apply `fallbackBehavior`:
-   - `use_base`: Use base agent silently
-   - `use_base_with_warning`: Use base agent, warn user that proprietary features unavailable
-   - `fail`: Don't proceed, explain missing skills
+`cc.core.extensions_resolver.compose_agent_content()` implements this composition mechanically if you are scripting it; when reading manually, follow the same three rules above.
 
 ### Extension Status in Protocol Declaration
 
-When an extension is active, update the protocol declaration and name its source:
+**Populate the parenthetical ONLY from the JSON response you just received -- never from memory, inference, or what a manifest "should" contain.** If `cc extensions resolve` was not run this turn, the declaration must not name an extension source at all.
+
+`action: apply`, `type: override`:
 ```
-[PROTOCOL: EXPERIENCE | Agent: @agent-sd (Moments Framework override, company) | Action: INVOKING]
-```
-```
-[PROTOCOL: EXPERIENCE | Agent: @agent-cw (personal voice) | Action: INVOKING]
+[PROTOCOL: EXPERIENCE | Agent: @agent-sd (override, source: <source_repo from JSON>) | Action: INVOKING]
 ```
 
-When falling back to base with warning:
+`action: apply`, `type: extension`:
+```
+[PROTOCOL: EXPERIENCE | Agent: @agent-cw (extension, source: <source_repo from JSON>) | Action: INVOKING]
+```
+
+`action: no_extension`:
+```
+[PROTOCOL: EXPERIENCE | Agent: @agent-ta | Action: INVOKING]
+```
+
+`action: fallback_use_base` or `fallback_use_base_with_warning`:
 ```
 [PROTOCOL: EXPERIENCE | Agent: @agent-sd (base - extension unavailable) | Action: INVOKING]
+```
+
+`action: fallback_fail` -- do not invoke the agent; state the blocker instead:
+```
+[PROTOCOL: EXPERIENCE | Agent: @agent-sd (BLOCKED - required skills unavailable, fallbackBehavior: fail) | Action: ASKING]
 ```
 
 ---
@@ -898,8 +910,11 @@ Before presenting the protocol acknowledgment, check knowledge status:
 
 ### Check Knowledge Configuration
 
+Check the REAL configured knowledge repos (`CC_KNOWLEDGE_REPOS`, exported by `cc env`) -- never the machine template path (`~/.claude/knowledge/`), which is not a member of that list on a correctly onboarded machine and reports a false negative for anyone whose knowledge repos live elsewhere (the normal case):
+
 ```bash
-ls ~/.claude/knowledge/knowledge-manifest.json 2>/dev/null && echo "KNOWLEDGE_CONFIGURED" || echo "NO_KNOWLEDGE"
+eval "$(cc env)"
+if [ -n "$CC_KNOWLEDGE_REPOS" ]; then echo "KNOWLEDGE_CONFIGURED"; else echo "NO_KNOWLEDGE"; fi
 ```
 
 **Decision Matrix:**

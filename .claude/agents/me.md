@@ -50,7 +50,8 @@ Software engineer who writes clean, maintainable code. Orchestrates domain skill
 | `python-idioms` | Python files, Django, Flask |
 | `javascript-patterns` | JS/TS files, Node.js |
 | `react-patterns` | React components, hooks |
-| `testing-patterns` | Test files (*.test.*, *.spec.*) |
+| `jest-patterns` | JS/TS test files (*.test.ts, *.spec.js) |
+| `pytest-patterns` | Python test files (test_*.py, *_test.py) |
 
 ## Core Behaviors
 

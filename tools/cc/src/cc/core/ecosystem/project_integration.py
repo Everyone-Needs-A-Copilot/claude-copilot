@@ -92,6 +92,7 @@ _CLAUDE_RELEVANT_PATHS = (
     ".claude/fitness-check.sh",
     ".claude/hooks/copilot-hook.sh",
     ".claude/agents",
+    ".claude/evals",
 )
 
 _CODEX_RELEVANT_PATHS = (
@@ -111,6 +112,7 @@ _CLAUDE_ACTION_TARGETS = (
     ".claude/fitness-check.sh",
     ".claude/hooks/copilot-hook.sh",
     ".claude/agents",
+    ".claude/evals",
     ".claude/cc/config.json",
     ".claude/memory/entries/.gitkeep",
     ".claude/memory/.gitignore",
@@ -287,6 +289,22 @@ def _claude_source_files(source: Path) -> Optional[dict[str, Path]]:
             for agent in roster
         }
     )
+    # Eval cases travel with the framework like every other owned dimension
+    # (agents, commands, hooks). Globbed rather than roster-driven because
+    # the case set per agent is not fixed cardinality the way the agent
+    # roster is; an absent `.claude/evals` in the source (a framework build
+    # that predates evals) is not an error -- it is simply nothing to add.
+    evals_dir = source / ".claude/evals"
+    if evals_dir.is_dir():
+        try:
+            eval_files = {
+                path.relative_to(source).as_posix(): path
+                for path in sorted(evals_dir.rglob("*"))
+                if path.is_file()
+            }
+        except OSError:
+            return None
+        files.update(eval_files)
     if any(not path.is_file() for path in files.values()):
         return None
     return files
@@ -1053,6 +1071,15 @@ def _missing_action_targets(
             and ".claude/agents" not in missing
         ):
             missing.append(".claude/agents")
+        if (
+            any(
+                rel_path.startswith(".claude/evals/")
+                and not (root / rel_path).exists()
+                for rel_path in source_files
+            )
+            and ".claude/evals" not in missing
+        ):
+            missing.append(".claude/evals")
     elif (
         any(
             rel_path.startswith("plugins/codex-copilot/")
@@ -1566,6 +1593,8 @@ def _artifact_kind(path: str) -> str:
         return "manifest"
     if "agents" in PurePosixPath(path).parts:
         return "agent"
+    if "evals" in PurePosixPath(path).parts:
+        return "eval"
     if "skills" in PurePosixPath(path).parts:
         return "skill"
     if "commands" in PurePosixPath(path).parts:

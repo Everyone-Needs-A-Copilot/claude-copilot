@@ -2,7 +2,7 @@
 # fitness-check.sh — Claude Copilot Framework Fitness Functions
 #
 # Validates that a project's agents and commands are healthy after setup or update.
-# Runs 10 fitness functions (FF1–FF10) and reports pass/fail per check.
+# Runs 11 fitness functions (FF1–FF11) and reports pass/fail per check.
 #
 # Usage:
 #   bash .claude/fitness-check.sh [--agents-dir DIR] [--commands-dir DIR] [--copilot-path PATH]
@@ -916,6 +916,147 @@ else
     fi
   fi
 fi
+
+# ---------------------------------------------------------------------------
+# FF11: No dead skill references -- every skill an agent definition points
+#      at must actually resolve, checked two ways since agents reference
+#      skills two ways:
+#        1. Explicit `@include .claude/skills/<path>/SKILL.md` paths --
+#           checked directly against the filesystem (repo-relative, no
+#           external dependency, always runs).
+#        2. Backtick-quoted skill NAMES in an '## Available Skills' table
+#           row (e.g. `` `terraform-patterns` ``) -- checked against a
+#           SINGLE `cc skill list --scope all --json` call (multi-scope:
+#           project / machine / shared knowledge, the same lookup agents
+#           perform at runtime), not one `cc skill get` subprocess per
+#           name -- with ~20 table rows across the roster, per-name
+#           subprocesses measured ~75s for one fitness-check.sh run (each
+#           `cc` invocation pays its own interpreter + CLI startup cost),
+#           which multiplies out badly in test files that run
+#           fitness-check.sh repeatedly (e.g. tests/test_ff6_negative.py).
+#           One `cc skill list` call is ~6s regardless of table size. A
+#           skill that only lives in the shared knowledge repo is still
+#           correctly recognized as real, not flagged for not sitting
+#           under .claude/skills/ locally. If `cc` is not on PATH, or the
+#           list call fails, this half is skipped (PASS, noted) rather
+#           than failed -- an environment limitation, not a project
+#           defect.
+#      Exists to catch exactly the class of drift found 2026-08-09 in
+#      do.md: a renamed/typo'd skill name (`terraform-patterns` instead of
+#      `terraform-best-practices`) sitting in an agent's Available Skills
+#      table, unenforced, pointing at nothing.
+# ---------------------------------------------------------------------------
+section "FF11: No Dead Skill References"
+
+while IFS= read -r ff11_line; do
+  [ -z "$ff11_line" ] && continue
+  case "$ff11_line" in
+    "PASS "*) pass "${ff11_line#PASS }" ;;
+    "FAIL "*) fail "${ff11_line#FAIL }" ;;
+    *) fail "FF11 checker produced unparseable output: $ff11_line" ;;
+  esac
+done < <(python3 - "$AGENTS_DIR" <<'PYEOF'
+import json
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+agents_dir = Path(sys.argv[1])
+
+
+def fail(msg):
+    print(f"FAIL {msg}")
+
+
+def ok(msg):
+    print(f"PASS {msg}")
+
+
+def info(msg):
+    print(msg, file=sys.stderr)
+
+
+INCLUDE_RE = re.compile(r"\.claude/skills/[A-Za-z0-9_\-./]+/SKILL\.md")
+TABLE_ROW_RE = re.compile(r"^\|\s*`([A-Za-z0-9_\-]+)`\s*\|")
+
+repo_root = agents_dir.resolve().parents[1]
+agent_files = sorted(p for p in agents_dir.glob("*.md") if p.is_file())
+
+if not agent_files:
+    fail(f"no agent .md files found under {agents_dir}")
+    sys.exit(0)
+
+# 1. Explicit @include .claude/skills/.../SKILL.md paths.
+found_any_path_ref = False
+for agent_file in agent_files:
+    agent_name = agent_file.stem
+    text = agent_file.read_text(encoding="utf-8")
+    for match in sorted(set(INCLUDE_RE.findall(text))):
+        found_any_path_ref = True
+        target = repo_root / match
+        if target.is_file():
+            ok(f"{agent_name}.md: referenced skill file exists ({match})")
+        else:
+            fail(f"{agent_name}.md: references nonexistent skill file {match}")
+if not found_any_path_ref:
+    info("FF11: no @include .claude/skills/*/SKILL.md path references found")
+
+# 2. Backtick skill names in '## Available Skills' tables -- resolved
+#    against ONE `cc skill list` call (see comment above on why not one
+#    subprocess per name).
+cc_bin = shutil.which("cc")
+known_skill_names = None
+if cc_bin is not None:
+    try:
+        listing = subprocess.run(
+            [cc_bin, "skill", "list", "--scope", "all", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if listing.returncode == 0 and listing.stdout.strip():
+            known_skill_names = {
+                entry["name"] for entry in json.loads(listing.stdout) if "name" in entry
+            }
+    except Exception as exc:
+        info(f"FF11: `cc skill list` errored, skipping name-based lookup: {exc}")
+
+if cc_bin is None:
+    ok("Available Skills table entries: `cc` not on PATH -- skipping name-based lookup")
+elif known_skill_names is None:
+    ok("Available Skills table entries: `cc skill list` unavailable -- skipping name-based lookup")
+else:
+    found_any_name_ref = False
+    for agent_file in agent_files:
+        agent_name = agent_file.stem
+        in_table = False
+        for line in agent_file.read_text(encoding="utf-8").splitlines():
+            if line.strip() == "## Available Skills":
+                in_table = True
+                continue
+            if in_table and line.startswith("## "):
+                in_table = False
+                continue
+            if not in_table:
+                continue
+            m = TABLE_ROW_RE.match(line)
+            if not m:
+                continue
+            name = m.group(1)
+            found_any_name_ref = True
+            if name in known_skill_names:
+                ok(f"{agent_name}.md: skill `{name}` resolves via `cc skill list`")
+            else:
+                fail(
+                    f"{agent_name}.md: skill `{name}` listed in Available Skills "
+                    f"but not found by `cc skill list --scope all`"
+                )
+    if not found_any_name_ref:
+        info("FF11: no '## Available Skills' table rows found")
+PYEOF
+)
 
 # ---------------------------------------------------------------------------
 # Summary

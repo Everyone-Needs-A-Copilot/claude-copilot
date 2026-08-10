@@ -9,6 +9,7 @@ from cc.commands.auth import auth_app
 from cc.commands.config import config_app
 from cc.commands.docs import docs_app
 from cc.commands.eval import eval_app
+from cc.commands.extensions import extensions_app
 from cc.commands.layers import layers_app
 from cc.commands.mcp import mcp_app
 from cc.commands.memory import memory_app
@@ -36,6 +37,7 @@ app.add_typer(mcp_app, name="mcp")
 app.add_typer(docs_app, name="docs")
 app.add_typer(usage_app, name="usage")
 app.add_typer(eval_app, name="eval")
+app.add_typer(extensions_app, name="extensions")
 app.add_typer(auth_app, name="auth")
 app.add_typer(layers_app, name="layers")
 app.add_typer(workspaces_app, name="workspace")

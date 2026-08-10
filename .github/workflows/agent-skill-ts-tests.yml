@@ -1,0 +1,47 @@
+name: Agent/Skill TS Test Suite
+
+# tests/**/*.test.ts and tests/claude-launcher.test.sh had no CI runner at
+# all (no jest/vitest config, no npm test script). They're self-contained
+# node:test-based specs executed directly via `npx tsx`, exactly as
+# tests/README.md documents. Discovered by glob, not enumerated, so a new
+# *.test.ts file anywhere under tests/ is picked up automatically.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ts-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ts-suite:
+    name: TypeScript + shell test suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Run every tests/**/*.test.ts via npx tsx
+        run: |
+          set -e
+          FAILED=0
+          while IFS= read -r -d '' f; do
+            echo "::group::$f"
+            if ! npx --yes tsx "$f"; then
+              FAILED=1
+            fi
+            echo "::endgroup::"
+          done < <(find tests -type f -name '*.test.ts' -print0 | sort -z)
+          exit $FAILED
+
+      - name: Run claude-launcher smoke test
+        run: |
+          chmod +x ./tests/claude-launcher.test.sh
+          ./tests/claude-launcher.test.sh

@@ -26,7 +26,6 @@ handles all deterministic assertions.
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 from typing import Optional
 
@@ -85,8 +84,9 @@ def _load_threshold(repo_root: Path) -> float:
 def _persist_scores(result_dict: dict) -> None:
     """Store eval scores to cc memory (best-effort, never raises)."""
     try:
-        from cc.core.entry_store import store_entry, default_scope
         import datetime
+
+        from cc.core.entry_store import default_scope, store_entry
 
         agent = result_dict.get("agent", "unknown")
         pass_rate = result_dict.get("pass_rate", 0.0)
@@ -122,18 +122,41 @@ def _persist_scores(result_dict: dict) -> None:
         pass  # score persistence is best-effort
 
 
+_RUNNERS = ("local", "live")
+
+
+def _build_runner(runner_name: str, max_budget_usd: Optional[float]):
+    """Resolve --runner to a Runner instance. Defaults to LocalPythonRunner."""
+    from cc.core.eval_runner import LiveClaudeRunner, LocalPythonRunner
+
+    if runner_name == "live":
+        kwargs = {}
+        if max_budget_usd is not None:
+            kwargs["max_budget_usd"] = max_budget_usd
+        return LiveClaudeRunner(**kwargs)
+    return LocalPythonRunner()
+
+
 def _run_eval_impl(
     agent: str,
     threshold: Optional[float] = None,
     output_json: bool = False,
     evals_dir_override: Optional[str] = None,
     repo_root_override: Optional[str] = None,
+    runner_name: str = "local",
+    max_budget_usd: Optional[float] = None,
 ) -> None:
     """Shared implementation called from both eval_run and eval_default.
 
     Raises typer.Exit with the appropriate exit code.
     """
-    from cc.core.eval_runner import run_eval, LocalPythonRunner
+    from cc.core.eval_runner import run_eval
+
+    if runner_name not in _RUNNERS:
+        err_console.print(
+            f"[red]Error:[/red] --runner must be one of {_RUNNERS}, got {runner_name!r}"
+        )
+        raise typer.Exit(_EXIT_FAIL)
 
     repo_root = (
         Path(repo_root_override)
@@ -152,7 +175,7 @@ def _run_eval_impl(
             agent,
             evals_dir=evals_path,
             repo_root=repo_root,
-            runner=LocalPythonRunner(),
+            runner=_build_runner(runner_name, max_budget_usd),
         )
     except FileNotFoundError as exc:
         err_console.print(f"[red]Error:[/red] {exc}")
@@ -261,6 +284,21 @@ def eval_run(
         help="Override repo root (default: auto-detected git root).",
         hidden=True,
     ),
+    runner_name: str = typer.Option(
+        "local",
+        "--runner",
+        help=(
+            "'local' (default): static assertion engine, no LLM calls. "
+            "'live': dispatches source.type=live-agent cases through a real "
+            "headless `claude --print --agent` session and asserts against "
+            "the model's actual output; costs real API spend."
+        ),
+    ),
+    max_budget_usd: Optional[float] = typer.Option(
+        None,
+        "--max-budget-usd",
+        help="Per-dispatch spend cap for --runner live (default: 0.50).",
+    ),
 ) -> None:
     """Run the golden eval set for an agent and exit non-zero on regression.
 
@@ -274,6 +312,8 @@ def eval_run(
         output_json=output_json,
         evals_dir_override=evals_dir_override,
         repo_root_override=repo_root_override,
+        runner_name=runner_name,
+        max_budget_usd=max_budget_usd,
     )
 
 
@@ -290,12 +330,23 @@ def eval_default(
     list_agents: bool = typer.Option(
         False, "--list-agents", help="List agents that have eval cases."
     ),
+    runner_name: str = typer.Option(
+        "local",
+        "--runner",
+        help="'local' (default, static) or 'live' (real headless dispatch; costs API spend).",
+    ),
+    max_budget_usd: Optional[float] = typer.Option(
+        None,
+        "--max-budget-usd",
+        help="Per-dispatch spend cap for --runner live (default: 0.50).",
+    ),
 ) -> None:
     """Run regression evals against agent contracts.
 
     Examples:
       cc eval --agent qa
       cc eval --agent qa --json
+      cc eval --agent me --runner live --max-budget-usd 0.25
       cc eval --list-agents
     """
     if ctx.invoked_subcommand is not None:
@@ -326,6 +377,8 @@ def eval_default(
             agent=agent,
             threshold=threshold,
             output_json=output_json,
+            runner_name=runner_name,
+            max_budget_usd=max_budget_usd,
         )
         return
 

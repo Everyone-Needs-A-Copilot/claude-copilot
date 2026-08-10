@@ -1109,7 +1109,7 @@ test_freeze_write_regression() {
   local payload result exit_code
 
   # Write outside the freeze dir (main session) → denied
-  payload="$(printf '{"session_id":"%s","tool_name":"Write","tool_input":{"file_path":"/Volumes/Dev/Sites/COPILOT/some-other-file.py"}}' "$TEST_SESSION")"
+  payload="$(printf '{"session_id":"%s","tool_name":"Write","tool_input":{"file_path":"/tmp/some-other-file.py"}}' "$TEST_SESSION")"
   result="$(invoke_hook_raw "$payload")"
   exit_code="$(get_exit_code "$result")"
   if [[ "$exit_code" -eq 2 ]]; then
@@ -1130,7 +1130,7 @@ test_freeze_write_regression() {
 
   # Write outside the freeze dir from a SUBAGENT (agent_type set) → still
   # denied. rule_path_scope gets no subagent exemption, by design.
-  payload="$(printf '{"session_id":"%s","agent_type":"qa","agent_id":"task-1","tool_name":"Write","tool_input":{"file_path":"/Volumes/Dev/Sites/COPILOT/some-other-file.py"}}' "$TEST_SESSION")"
+  payload="$(printf '{"session_id":"%s","agent_type":"qa","agent_id":"task-1","tool_name":"Write","tool_input":{"file_path":"/tmp/some-other-file.py"}}' "$TEST_SESSION")"
   result="$(invoke_hook_raw "$payload")"
   exit_code="$(get_exit_code "$result")"
   if [[ "$exit_code" -eq 2 ]]; then
