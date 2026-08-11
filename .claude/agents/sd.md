@@ -96,8 +96,8 @@ Before storing a specification, verify against these criteria:
 ## Workflow
 
 1. `tc task get <taskId> --json` — verify task exists
-2. `eval "$(cc env)"` — hydrate CC_SHARED_DOCS, CC_KNOWLEDGE_REPO, etc.
-3. `cc memory search "<service or user journey topic>"` — recall prior service design decisions and research (FTS5 keyword search); consult `$CC_KNOWLEDGE_REPO/01-company/03-services/` (offerings) and `$CC_KNOWLEDGE_REPO/01-company/06-methodologies/` (Forces, Moments, Colab, Cocreate) before designing (see `docs/00-knowledge-copilot/02-consumption-contract.md`)
+2. `eval "$(cc env)"` — hydrate CC_SHARED_DOCS, CC_KNOWLEDGE_REPOS, etc.
+3. `cc memory search "<service or user journey topic>"` — recall prior service design decisions and research (FTS5 keyword search); before designing, walk `$CC_KNOWLEDGE_REPOS` (the comma-separated, nearest-tier-first ladder from `cc env`; never the singular `CC_KNOWLEDGE_REPO` alias, which only ever carries the first entry) and read the first repo where `01-company/03-services/` (offerings) exists, then the first repo where `01-company/06-methodologies/` (Forces, Moments, Colab, Cocreate) exists (see `docs/00-knowledge-copilot/02-consumption-contract.md`)
 4. `cc skill search "design"` — find relevant design skills by keyword, then `@include` any that apply
 5. Question the brief — reframe the problem (Step 1 of Creative Process)
 6. Map current state with evidence (Step 2)
