@@ -86,6 +86,43 @@ def _managed_output(root: Path, relative: str) -> dict[str, str]:
     return {"path": relative, "kind": "managed-text", "fingerprint": fingerprint}
 
 
+def _write_full_codex_install(root: Path) -> dict[str, Any]:
+    """Codex counterpart of `_write_full_claude_install`: a real,
+    checksummable install of the two `_CODEX_REQUIRED_LOCK_PATHS`, so a
+    codex component entry is structurally valid (files[] verifies clean)
+    and any FAIL reached is isolated to what the test itself overrides
+    (typically `managed_outputs`) -- mirrors the claude helper's own
+    "prove the isolation" property."""
+
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "plugins" / "codex-copilot" / ".codex-plugin").mkdir(
+        parents=True, exist_ok=True
+    )
+    (root / "plugins" / "codex-copilot" / ".codex-plugin" / "plugin.json").write_text(
+        json.dumps({"name": "codex-copilot"}), encoding="utf-8"
+    )
+    (root / "scripts").mkdir(parents=True, exist_ok=True)
+    (root / "scripts" / "copilot-gate.sh").write_text(
+        "#!/bin/sh\necho gate\n", encoding="utf-8"
+    )
+    (root / "AGENTS.md").write_text("## Codex Copilot\n\nProject entry.\n", encoding="utf-8")
+
+    relative_paths = [
+        "plugins/codex-copilot/.codex-plugin/plugin.json",
+        "scripts/copilot-gate.sh",
+    ]
+    files = [
+        {"path": rel, "ownership": "framework", "checksum": _sha256_of(root / rel)}
+        for rel in relative_paths
+    ]
+    return {
+        "component": "codex",
+        "version": "1.0.0",
+        "files": files,
+        "managed_outputs": [_managed_output(root, "AGENTS.md")],
+    }
+
+
 def _write_full_claude_install(root: Path, *, include_hook: bool = True) -> dict[str, Any]:
     """Write a real, checksummable claude install (the four required paths
     plus one agent, `HARNESS-DESIGN.md`'s own required-path list) and
@@ -303,6 +340,40 @@ class TestChecksumTruth:
         assert result.verdict is Verdict.FAIL
         assert any(
             e.kind == "invalid-managed-output" and "claude" in e.detail
+            for e in result.evidence
+        )
+
+    def test_codex_managed_output_missing_fingerprint_fails_not_could_not_run(
+        self, tmp_path
+    ):
+        """Codex counterpart of `test_a_managed_output_missing_fingerprint_
+        fails_not_could_not_run` immediately above -- same writer-defect
+        shape (`{"path", "kind"}`, no `fingerprint`), same required FAIL,
+        just for a `codex` component instead of `claude`.
+
+        This fixture is what now keeps LI-2's ability to detect this exact
+        stale/malformed-managed-output shape proven, after `TestMachine
+        TruthChecksumAndOwnership.test_li2_reproduces_claude_copilot_own_
+        stale_checksums` stopped being able to reproduce it live:
+        sproutworks's own codex managed_outputs briefly had this shape and
+        now carry real `sha256:` fingerprints (the writer defect was fixed
+        upstream), so that machine test now correctly asserts PASS for
+        sproutworks. A live repo getting fixed must never silently drop
+        the harness's proof that it can still catch the bug -- hence a
+        fixture, independent of any one repo's current state."""
+
+        repo = tmp_path / "repo"
+        entry = _write_full_codex_install(repo)
+        entry["managed_outputs"] = [
+            {"path": "AGENTS.md", "kind": "managed-text"}  # no fingerprint
+        ]
+        _write_lock(repo, [entry])
+
+        results = lock.check_lock_records_match_disk([repo])
+        result = _one(results, str(repo))
+        assert result.verdict is Verdict.FAIL
+        assert any(
+            e.kind == "invalid-managed-output" and "codex" in e.detail
             for e in result.evidence
         )
 
@@ -825,17 +896,26 @@ class TestMachineTruthUniqueness:
 @pytest.mark.machine
 class TestMachineTruthChecksumAndOwnership:
     def test_li2_reproduces_claude_copilot_own_stale_checksums(self, machine_readonly_guard):
-        """`sproutworks`'s own expectation was PASS before, when its lock
-        had no `codex` component at all. Re-verified live 2026-08-11: the
-        codex fan-out has since added one, and (LI-2's own newly-fixed
-        bug -- see `TestChecksumTruth.test_a_managed_output_missing_
-        fingerprint_fails_not_could_not_run`) it writes the same `{"path",
-        "kind"}`-no-`fingerprint` shape `codex-copilot/scripts/update-
-        project.sh` writes everywhere: a genuinely invalid managed-output
-        record, now correctly surfaced as FAIL instead of silently
-        downgraded to COULD_NOT_RUN. This is a real, currently-open writer
-        defect (the codex side of the same bug this harness's lock.py half
-        just fixed), not a harness regression."""
+        """`claude-copilot`'s own claude component still carries stale
+        framework-file checksums live on this machine -- that half of the
+        original bug this test documents is unchanged.
+
+        `sproutworks`'s half is NOT: when this test was first written its
+        codex component had no managed_outputs at all, then (once the codex
+        fan-out added one) it briefly reproduced the exact `{"path",
+        "kind"}`-no-`fingerprint` writer shape `codex-copilot/scripts/
+        update-project.sh` used to write everywhere (see
+        `TestChecksumTruth.test_a_managed_output_missing_fingerprint_fails_
+        not_could_not_run`). Re-verified live 2026-08-11: that writer
+        defect is now fixed and sproutworks's codex managed_outputs carry
+        real `sha256:` fingerprints, so `check_lock_records_match_disk`
+        correctly PASSES it -- asserting FAIL here would pin a bug that no
+        longer exists. `test_codex_managed_output_missing_fingerprint_
+        fails_not_could_not_run` below keeps a fixture (not a live repo)
+        proving this check still detects that exact stale/malformed-
+        managed-output shape for a `codex` component, so this update
+        narrows the live claim without weakening what is actually
+        verified."""
 
         claude_copilot = _require_real_repo(_REAL_COPILOT_ROOT / "claude-copilot")
         sproutworks = _require_real_repo(_REAL_PERSONAL_ROOT / "sproutworks")
@@ -854,11 +934,8 @@ class TestMachineTruthChecksumAndOwnership:
         assert all(e.kind == "framework-file" for e in claude_result.evidence)
 
         sprout_result = _one(results, str(sproutworks))
-        assert sprout_result.verdict is Verdict.FAIL
-        assert any(
-            e.kind == "invalid-managed-output" and "codex" in e.detail
-            for e in sprout_result.evidence
-        )
+        assert sprout_result.verdict is Verdict.PASS
+        assert sprout_result.evidence == ()
 
     def test_li3_sproutworks_ownership_contradiction_is_corrected(
         self, machine_readonly_guard
