@@ -1,0 +1,268 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://everyoneneedsacopilot.com/schemas/claude-copilot/conformance.schema.json",
+  "$comment": "SOURCE OF TRUTH for `cc conformance check|report --json` (WP-1 of the ecosystem conformance harness) -- this contract originates in claude-copilot (mirrors workspaces.schema.json's `claude-copilot`-namespaced $id, not the copilot-control-tower-originated schemas' namespace). References `_envelope.schema.json` by its own real, absolute $id rather than a bare relative filename, since a relative ref would resolve against THIS schema's own (different) directory instead.",
+  "title": "cc conformance --json report",
+  "description": "The ecosystem conformance harness's envelope: one CheckResult per (check id, subject) pair, plus severity/layer roll-up counts that are NEVER averaged into a single score, and an optional baseline comparison. Deliberately has no 'score'/'percentage' property anywhere in this schema -- HARNESS-DESIGN.md section 3.2 rule 4.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract_id",
+    "contract_version",
+    "generated_at",
+    "host",
+    "mode",
+    "result",
+    "checks",
+    "summary"
+  ],
+  "properties": {
+    "schema_version": { "$ref": "https://everyoneneedsacopilot.com/schemas/copilot-control-tower/_envelope.schema.json#/$defs/schema_version" },
+    "contract_id": { "const": "ecosystem-conformance" },
+    "contract_version": { "const": "1" },
+    "generated_at": { "$ref": "https://everyoneneedsacopilot.com/schemas/copilot-control-tower/_envelope.schema.json#/$defs/timestamp" },
+    "host": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mode": {
+      "enum": ["fast", "full"]
+    },
+    "result": {
+      "enum": ["pass", "fail"],
+      "description": "A simple boolean-shaped headline, never a percentage. The severity-scoped, per-check detail lives in `checks[]` and `summary`."
+    },
+    "checks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/checkResult" }
+    },
+    "repos": {
+      "type": "array",
+      "description": "OPTIONAL, additive: one row per Layer-3-swept directory (HARNESS-DESIGN.md section 4 Layer 3's output table). Not populated by report.py's own to_envelope() -- assembled by whichever layer/CLI code groups per-repo CheckResults by subject.",
+      "items": { "$ref": "#/$defs/repoRow" }
+    },
+    "summary": { "$ref": "#/$defs/summary" },
+    "baseline": { "$ref": "#/$defs/baseline" }
+  },
+  "$defs": {
+    "severity": {
+      "enum": ["S0", "S1", "S2", "S3"],
+      "description": "RUBRIC.md section 4. S0 = systemic, no repair path. S1 = fan-out, O(repos) manual. S2 = correctness, bounded. S3 = cosmetic."
+    },
+    "layer": {
+      "enum": ["tier", "stack", "repo", "lock", "roundtrip", "regression"]
+    },
+    "scope": {
+      "enum": ["global", "per-tier", "per-repo", "per-cell"]
+    },
+    "verdict": {
+      "enum": ["pass", "fail", "skip", "could-not-run"],
+      "description": "Four verdicts, never three (HARNESS-DESIGN.md section 3.2 rule 5). 'could-not-run' is the harness's own honest 'I don't know' and must never be coerced into 'pass' -- see the top-level `result` field, which can only be 'pass' when no check is 'could-not-run'."
+    },
+    "expectedToday": {
+      "enum": ["pass", "fail"]
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path", "expected", "actual", "detail"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A concrete, specific path (repo-relative or repo-identifying). A FAIL verdict's evidence must never omit this -- HARNESS-DESIGN.md section 3.2 rule 3."
+        },
+        "expected": { "type": "string" },
+        "actual": { "type": "string" },
+        "detail": { "type": "string" },
+        "command": {
+          "type": "string",
+          "description": "The literal command run to produce this evidence (e.g. a git plumbing invocation), when applicable."
+        },
+        "output": {
+          "type": "string",
+          "description": "The captured output of `command`, when applicable."
+        }
+      }
+    },
+    "checkResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "layer",
+        "severity",
+        "scope",
+        "subject",
+        "assertion",
+        "verdict",
+        "expected_today",
+        "evidence",
+        "detail",
+        "remediation"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+          "description": "Stable, greppable, quotable in a remediation ticket -- <layer>.<area>.<name> (HARNESS-DESIGN.md section 3.3)."
+        },
+        "layer": { "$ref": "#/$defs/layer" },
+        "severity": { "$ref": "#/$defs/severity" },
+        "scope": { "$ref": "#/$defs/scope" },
+        "subject": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What this result is a claim about (a repo path, a tier id, an agent name, or the manifest itself for a global-scope check)."
+        },
+        "assertion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verdict": { "$ref": "#/$defs/verdict" },
+        "expected_today": { "$ref": "#/$defs/expectedToday" },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidence" }
+        },
+        "detail": { "type": "string" },
+        "remediation": { "type": "string" },
+        "root_cause": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The RC id (rc.rc1..rc.rc7) this failure maps to, when applicable -- lets the report group by cause instead of by repo."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "verdict": { "const": "fail" } },
+            "required": ["verdict"]
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "$ref": "#/$defs/evidence" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "dimensionVerdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verdict"],
+      "properties": {
+        "verdict": { "$ref": "#/$defs/verdict" },
+        "detail": { "type": "string" }
+      }
+    },
+    "repoRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "class",
+        "git",
+        "scanner_reachable",
+        "dimensions",
+        "cc_classification",
+        "classification_disagreement",
+        "max_severity"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "class": {
+          "enum": ["A", "B", "C", "D", "E"]
+        },
+        "git": { "type": "boolean" },
+        "scanner_reachable": { "type": "boolean" },
+        "dimensions": {
+          "type": "object",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^D([1-9]|1[0-3])$": { "$ref": "#/$defs/dimensionVerdict" }
+          }
+        },
+        "cc_classification": {
+          "type": ["string", "null"],
+          "description": "Captured verbatim from `cc workspace verify` -- never resolved in favor of either side when it disagrees with the dimension vector (see `classification_disagreement`)."
+        },
+        "classification_disagreement": {
+          "type": ["string", "null"],
+          "description": "A note, never a resolution, when cc_classification disagrees with the dimension vector."
+        },
+        "max_severity": {
+          "oneOf": [{ "$ref": "#/$defs/severity" }, { "type": "null" }]
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "severityCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["S0", "S1", "S2", "S3"],
+      "properties": {
+        "S0": { "type": "integer", "minimum": 0 },
+        "S1": { "type": "integer", "minimum": 0 },
+        "S2": { "type": "integer", "minimum": 0 },
+        "S3": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "layerCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pass", "fail", "skip", "could_not_run"],
+      "properties": {
+        "pass": { "type": "integer", "minimum": 0 },
+        "fail": { "type": "integer", "minimum": 0 },
+        "skip": { "type": "integer", "minimum": 0 },
+        "could_not_run": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["by_severity", "by_layer", "could_not_run_total", "note"],
+      "properties": {
+        "by_severity": { "$ref": "#/$defs/severityCounts" },
+        "by_layer": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/layerCounts" }
+        },
+        "could_not_run_total": { "type": "integer", "minimum": 0 },
+        "note": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "fixed", "still_failing", "regressed", "new_failures"],
+      "properties": {
+        "file": { "type": "string" },
+        "fixed": { "type": "integer", "minimum": 0 },
+        "still_failing": { "type": "integer", "minimum": 0 },
+        "regressed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of checks that PASSED in the baseline and now FAIL -- the sole trigger for process exit code 3."
+        },
+        "new_failures": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

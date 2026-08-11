@@ -7,6 +7,7 @@ import typer
 from cc import __version__
 from cc.commands.auth import auth_app
 from cc.commands.config import config_app
+from cc.commands.conformance import conformance_app
 from cc.commands.docs import docs_app
 from cc.commands.eval import eval_app
 from cc.commands.extensions import extensions_app
@@ -45,6 +46,7 @@ app.add_typer(reconcile_app, name="reconcile")
 app.add_typer(store_app, name="store")
 app.add_typer(support_app, name="support")
 app.add_typer(settings_hook_app, name="settings-hook")
+app.add_typer(conformance_app, name="conformance")
 app.command("onboard")(onboard_cmd)
 
 
