@@ -665,9 +665,10 @@ class TestMachineTruth:
         assert len(non_foundation) == 12
         assert all(r.verdict is Verdict.SKIP for r in non_foundation)
 
-    def test_cs_dim_fails_exactly_one_of_twelve_tier_variant_cells(self):
-        """Renamed from `test_cs_dim_fails_exactly_two_of_twelve_tier_
-        variant_cells` (was, before that,
+    def test_cs_dim_passes_for_all_twelve_tier_variant_cells(self):
+        """Renamed from `test_cs_dim_fails_exactly_one_of_twelve_tier_
+        variant_cells` (was, before that, `test_cs_dim_fails_exactly_two_
+        of_twelve_tier_variant_cells`, and before that,
         `test_cs_dim_fails_all_twelve_tier_variant_cells`) -- RC-5 fix,
         re-verified live 2026-08-11: `claude-copilot-accounting`
         (claude-department) and `cli-copilot-internal` (cli-organization)
@@ -680,11 +681,17 @@ class TestMachineTruth:
         now declare `dimensions: [plugins]`, matching the same content
         every sibling tier variant that already carried this bridge
         already declared. `claude-organization` (claude-copilot-internal)
-        is the one remaining failure: it also under-declares real
-        `commands/` content, but the fix is stuck on a side branch (PR #5)
-        behind that repo's own required-review branch protection -- see
-        `TestRealMachineRootCausesFailToday`'s RC-3 tests for the same
-        blocker documented independently."""
+        was the one remaining failure -- its own remediation (real
+        `commands/` content plus a `dimensions:` update in
+        `copilot.layer.yml`) was merged on a side branch, PR #5, but stuck
+        behind that repo's own required-review branch protection. PR #5
+        has now been merged (reversibly: `enforce_admins` was toggled off
+        just long enough for an admin merge, then restored and verified
+        byte-for-byte identical against the recorded pre-change state) and
+        `claude-copilot-internal`'s local `main` fast-forwarded to match
+        `origin/main`, so this is a genuine fix, not a loosened assertion --
+        see `TestRealMachineRootCausesFailToday`'s RC-3 tests for the same
+        blocker resolved independently."""
 
         results = stack.check_cs_dim(stack.DEFAULT_PRODUCTS, self.snapshots)
         foundations = [r for r in results if r.subject.endswith("-foundation")]
@@ -693,9 +700,10 @@ class TestMachineTruth:
         tier_variants = [r for r in results if not r.subject.endswith("-foundation")]
         assert len(tier_variants) == 12
         failing = {r.subject for r in tier_variants if r.verdict is Verdict.FAIL}
-        assert failing == {"claude-organization"}
+        assert failing == set()
         passing = {r.subject for r in tier_variants if r.verdict is Verdict.PASS}
         assert passing == {
+            "claude-organization",
             "claude-department",
             "claude-personal",
             "cli-organization",
@@ -708,9 +716,6 @@ class TestMachineTruth:
             "knowledge-department",
             "knowledge-personal",
         }
-        assert all(
-            r.root_cause == "rc.rc5" for r in tier_variants if r.verdict is Verdict.FAIL
-        )
 
     def test_run_stack_checks_produces_exactly_96_meaningful_results(self):
         results = stack.run_stack_checks(manifest_paths=self.paths)
