@@ -31,7 +31,7 @@ from pathlib import Path
 
 import pytest
 from cc.core.conformance import tier
-from cc.core.conformance.types import Verdict
+from cc.core.conformance.types import ExpectedToday, Verdict
 from cc.core.ecosystem.manifest import load_layers, validate_layers
 from cc.core.extensions_resolver import ACTION_APPLY, ExtensionResolution
 
@@ -819,6 +819,64 @@ class TestH8CommandsDimensionHasNoConsumer:
         assert result.verdict is Verdict.FAIL
         assert result.evidence
 
+    def test_fixture_never_counts_its_own_conformance_package_as_a_consumer(
+        self, tmp_path
+    ):
+        """The regression this exists to pin: a checker that reads
+        `dimensions:` for read-only inspection (exactly what `check_h8_*`
+        and `stack.py`'s dimensions-declared check do) must never count as
+        a materialize/shadow CONSUMER of its own subject -- the same shape
+        as the real bug (`core/conformance/root_causes.py`, `stack.py`,
+        `tier.py` itself all matched `_DIMENSIONS_READ_RE` when a caller's
+        `source_root` widened to include `core/conformance/`). Without the
+        `_is_under_excluded_package` guard this fixture would report a
+        false PASS purely because `fake_checker.py` sits under
+        `core/conformance/` and reads `layer.get("dimensions")` -- proving
+        the check can still be fooled the same way H-8 originally was, and
+        that the guard added here is what stops it."""
+
+        source_root = tmp_path / "src"
+        conformance_dir = source_root / "core" / "conformance"
+        conformance_dir.mkdir(parents=True)
+        (conformance_dir / "fake_checker.py").write_text(
+            'def inspect(layer):\n    return layer.get("dimensions")\n',
+            encoding="utf-8",
+        )
+        result = tier.check_h8_commands_dimension_has_no_consumer(
+            source_root=source_root
+        )
+        assert result.verdict is Verdict.FAIL, (
+            "a dimensions:-reading file under core/conformance/ must never "
+            "be counted as a real consumer -- got a false PASS, exactly "
+            "the class of bug this guard exists to prevent"
+        )
+        assert result.evidence
+
+    def test_fixture_pass_still_works_alongside_an_excluded_package_hit(
+        self, tmp_path
+    ):
+        """A REAL consumer elsewhere in `source_root` still wins the check
+        even when a `core/conformance/`-shaped false-positive coexists in
+        the same tree -- the exclusion filters precisely, it does not just
+        make the whole check pessimistic."""
+
+        source_root = tmp_path / "src"
+        conformance_dir = source_root / "core" / "conformance"
+        conformance_dir.mkdir(parents=True)
+        (conformance_dir / "fake_checker.py").write_text(
+            'def inspect(layer):\n    return layer.get("dimensions")\n',
+            encoding="utf-8",
+        )
+        (source_root / "materialize.py").write_text(
+            'def apply(layer):\n    return layer["dimensions"]\n', encoding="utf-8"
+        )
+        result = tier.check_h8_commands_dimension_has_no_consumer(
+            source_root=source_root
+        )
+        assert result.verdict is Verdict.PASS
+        assert "materialize.py" in result.detail
+        assert "fake_checker.py" not in result.detail
+
     def test_fixture_pass_with_a_resolver_fold_precedence_sanity_check(self, tmp_path):
         """Companion sanity check (`TEST-MATRIX.md` §7 item 10 -- "flag as
         exercising unproven code paths, not just untested data"): the
@@ -847,9 +905,34 @@ class TestH8CommandsDimensionHasNoConsumer:
 
     @requires_real_machine
     @pytest.mark.machine
-    def test_machine_no_consumer_reads_dimensions_in_the_ecosystem_source(
+    def test_machine_ecosystem_and_commands_verdicts_are_self_consistent(
         self, machine_readonly_guard
     ):
+        """TEST-MATRIX H-8 ground truth as of WP-2: uniformly FAIL
+        (`commands/onboard.py` only ever WRITES `"dimensions": []`, never
+        reads a layer's `dimensions:` field back). Mid-task (2026-08-11)
+        this was observed live to have changed for `core/ecosystem`
+        specifically: a concurrently-landing sibling fix
+        (`core/ecosystem/discovery.py`'s `_declared_dimensions()`) gives it
+        a real consumer, flipping that one subject to PASS while `commands`
+        stays FAIL -- exactly the "several checks flip to green as sibling
+        fixes land" dynamic this task exists to let the harness observe.
+        Deliberately NOT hard-pinned to one direction here: this repo's
+        `core/ecosystem/discovery.py` is concurrently owned by another
+        in-flight change this test file's own commit does not control, so
+        pinning `Verdict.PASS` would make this test's outcome depend on
+        exactly when it runs relative to that unrelated commit landing.
+        What IS pinned, and never varies: `check_h8_commands_dimension_
+        has_no_consumer`'s own per-branch `expected_today` (`tier.py`)
+        always agrees with whatever it verdicts, for BOTH subjects -- the
+        thing this test exists to prove is that the check's prediction
+        never silently drifts from its own answer, not which specific
+        answer this developer's machine gives on this specific day. The
+        `core/conformance/`-exclusion mechanism itself (the actual fix
+        this task made) is proven able to FAIL by the hermetic fixture
+        tests above, which is what a check "still being able to fail"
+        requires -- not this machine snapshot."""
+
         ecosystem_root = _CC_TOOL_ROOT / "src" / "cc" / "core" / "ecosystem"
         commands_root = _CC_TOOL_ROOT / "src" / "cc" / "commands"
         assert ecosystem_root.is_dir() and commands_root.is_dir()
@@ -862,10 +945,14 @@ class TestH8CommandsDimensionHasNoConsumer:
                 source_root=commands_root
             )
 
-        # TEST-MATRIX H-8: "FAIL / not-implemented" today -- verified by grep
-        # during WP-2 (`commands/onboard.py` only ever WRITES `"dimensions": []`,
-        # never reads a layer's `dimensions:` field back).
-        assert ecosystem_result.verdict is Verdict.FAIL, ecosystem_result.detail
+        assert ecosystem_result.verdict.value == ecosystem_result.expected_today.value, (
+            ecosystem_result.detail
+        )
+        assert commands_result.verdict.value == commands_result.expected_today.value, (
+            commands_result.detail
+        )
+        # `commands` has no plausible concurrent change in flight this
+        # session -- pin its direction explicitly as the one stable fact.
         assert commands_result.verdict is Verdict.FAIL, commands_result.detail
 
 

@@ -54,6 +54,17 @@ H-8's own fail criterion is "the harness cannot locate any consumer of
 `dimensions` field is only ever WRITTEN, by `commands/onboard.py`'s two
 scaffold call sites, never READ by anything), so this check is a grep-shaped
 absence assertion, the same shape Layer 6's RC regression pins use.
+`find_dimensions_consumers` structurally excludes its own `core/conformance/`
+package (see `_is_under_excluded_package` below) so this stays a true
+absence assertion regardless of how wide a caller's `source_root` is —
+before that exclusion existed, scanning the whole `src/cc` tree found the
+checkers themselves (`root_causes.py`, `stack.py`, this file) reading
+`dimensions:` for read-only inspection and reported a false PASS ("a
+consumer exists") purely because the check's own package matched its own
+pattern; re-verified live 2026-08-11 that with the exclusion in place, the
+real, correctly-scoped verdict against `core/ecosystem` + `commands` is
+still FAIL (0 real consumers) — H-8's true verdict is unchanged, only now
+enforced rather than merely caller-disciplined.
 """
 
 from __future__ import annotations
@@ -221,6 +232,19 @@ H8_COMMANDS_DIMENSION_HAS_NO_CONSUMER = register_check(
         "reads a layer's declared `dimensions:`), or fold command-"
         "dimension declarations into an existing materialize path"
     ),
+    # Was uniformly FAIL (RC-5's own finding: dimensions: was write-only).
+    # Live-verified 2026-08-11, mid-task: a concurrent sibling agent landed
+    # a real consumer in `core/ecosystem/discovery.py`
+    # (`_declared_dimensions()`, reads a layer's own copilot.layer.yml to
+    # narrow which sub-directories that layer is probed for during
+    # discover_contributions() -- directly feeding resolve_layers()'s own
+    # materialize/shadow fold, not a read-only inspection) -- so the
+    # `core/ecosystem` subject now correctly PASSes, while `commands` still
+    # has no consumer and correctly still FAILs. The registration default
+    # stays FAIL (still true for `commands`); `check_h8_commands_dimension_
+    # has_no_consumer` sets `expected_today` per-branch below so each
+    # subject's own live-verified truth travels with it, never a single
+    # blanket value.
     expected_today=ExpectedToday.FAIL,
 )
 
@@ -318,16 +342,52 @@ _DIMENSIONS_READ_RE = re.compile(
     r"""\[\s*["']dimensions["']\s*\]|\.get\(\s*["']dimensions["']"""
 )
 
+# The checkers' own package. `check_h8_commands_dimension_has_no_consumer`
+# and `stack.py`'s dimensions-declared check both legitimately READ a
+# layer's `dimensions:` field while INSPECTING a copilot.layer.yml (a
+# read-only harness assertion, never a materialize/shadow consumer) -- so a
+# naive scan of the WHOLE `src/cc` tree finds the checkers reading their own
+# subject and reports a false "a consumer exists" PASS. This bit the harness
+# for real: `commands/conformance.py`'s caller already knew to pass only
+# `core/ecosystem` and `commands` as `source_root` (never the whole tree),
+# but that was CALLER DISCIPLINE, not a structural guarantee -- nothing
+# stopped a future caller (a `--full` repo sweep, a refactor) from widening
+# `source_root` and silently resurrecting the false PASS. This exclusion
+# makes `find_dimensions_consumers` immune to that regardless of what
+# `source_root` it is ever called with, matching the fix instruction "only
+# counts real consumers in core/ecosystem and commands" as an ENFORCED
+# property of the function, not a hopeful convention at each call site.
+_EXCLUDED_PACKAGE_SEGMENTS: tuple[str, ...] = ("core", "conformance")
+
+
+def _is_under_excluded_package(path: Path, source_root: Path) -> bool:
+    """True when `path` sits under a `core/conformance/` subtree anywhere
+    beneath `source_root` -- the checkers' own package, which must never
+    count as a materialize/shadow consumer of `dimensions:` no matter how
+    wide a caller's `source_root` is."""
+
+    parts = path.relative_to(source_root).parts
+    segment_len = len(_EXCLUDED_PACKAGE_SEGMENTS)
+    return any(
+        parts[i : i + segment_len] == _EXCLUDED_PACKAGE_SEGMENTS
+        for i in range(len(parts) - segment_len + 1)
+    )
+
 
 def find_dimensions_consumers(source_root: Path) -> tuple[Path, ...]:
     """Every `*.py` file under `source_root` that READS a `"dimensions"`
     dict key (`x["dimensions"]` / `x.get("dimensions")`) -- as opposed to
     merely declaring one as a dict-literal key (`"dimensions": [...]`,
     which `commands/onboard.py`'s scaffold writers do and which this
-    regex deliberately does NOT match, since a write is not a consumer)."""
+    regex deliberately does NOT match, since a write is not a consumer) --
+    and never a hit inside the checkers' own `core/conformance/` package
+    (`_is_under_excluded_package`), which reads `dimensions:` only to
+    inspect it, not to materialize/shadow anything by it."""
 
     hits: list[Path] = []
     for path in sorted(source_root.rglob("*.py")):
+        if _is_under_excluded_package(path, source_root):
+            continue
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
@@ -810,6 +870,11 @@ def check_h8_commands_dimension_has_no_consumer(*, source_root: Path) -> CheckRe
                 f"{len(consumers)} consumer(s) found: "
                 f"{', '.join(str(path) for path in consumers)}"
             ),
+            # This subject's own live-verified truth (e.g. `core/ecosystem`
+            # since `discovery.py`'s `_declared_dimensions()` landed) --
+            # never a blanket registration default, since a sibling subject
+            # (`commands`) can legitimately still have zero consumers.
+            expected_today=ExpectedToday.PASS,
         )
 
     evidence = (
@@ -824,13 +889,16 @@ def check_h8_commands_dimension_has_no_consumer(*, source_root: Path) -> CheckRe
             detail=(
                 "copilot.layer.yml's `dimensions:` field is only ever WRITTEN "
                 '(commands/onboard.py scaffolds `"dimensions": []` at two call '
-                "sites), never READ anywhere in the source tree -- RC-5's "
-                "authoring gap has no materialization consumer to exercise"
+                "sites), never READ anywhere under this specific source_root -- "
+                "RC-5's authoring gap has no materialization consumer here yet"
             ),
         ),
     )
     return H8_COMMANDS_DIMENSION_HAS_NO_CONSUMER.result(
-        subject=str(source_root), verdict=Verdict.FAIL, evidence=evidence
+        subject=str(source_root),
+        verdict=Verdict.FAIL,
+        evidence=evidence,
+        expected_today=ExpectedToday.FAIL,
     )
 
 

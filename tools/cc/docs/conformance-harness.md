@@ -90,14 +90,31 @@ The generator runs against the real machine — Layer 1 (tier resolution) agains
 
 | Layer | What it proves | Registered checks (measured) | Severities |
 |---|---|---|---|
-| 1 — tier (`tier.*`) | Foundation → org → dept → personal resolves correctly; a nearer tier's *empty* declaration never silently shadows real upstream content | 9 | 2×S0, 6×S1, 1×S2 |
+| 1 — tier (`tier.*` + `tier.effectiveness.*`) | Foundation → org → dept → personal resolves correctly; a nearer tier's *empty* declaration never silently shadows real upstream content; AND (the `effectiveness.*` sub-module) that resolved content is INSTALLED, WIRED, and EFFECTIVE, not merely computable — see "Installed vs wired vs effective" below | 15 | 5×S0, 8×S1, 2×S2 |
 | 2 — stack (`stack.*`) | Every product × tier cell declares itself, resolves, pins to a real ref, and that ref is a genuine ancestor of its branch | 7 | 3×S0, 4×S1 |
 | 3 — repo / the 13 rubric dimensions (`repo.*`) | D1–D13 as executable, per-repo assertions with concrete evidence — the machine-readable successor to the original audit | 29 | 1×S0, 16×S1, 9×S2, 3×S3 |
 | 4 — lock (`lock.*`) | `copilot.lock.json` reflects the actual install, `ready` cannot be produced by a waiver over missing required paths | 5 | 3×S0, 2×S1 |
 | 5 — round-trip (`roundtrip.*`) | The real installer produces the reference install and the real updater is idempotent and destroys nothing project-owned | 8 | 5×S0, 3×S1 |
 | 6 — root-cause regression pins (`rc.*`) | One named, `expected_today=FAIL` test per systemic root cause (RC-1..RC-5) | 5 | 5×S0 |
 
-63 checks registered in total as of this writing (`registry.DEFAULT_REGISTRY`), the large majority `fast` mode (local filesystem and local git only, no network); `roundtrip.*` and a handful of `repo.d01`/`stack` checks are `full`-only (they shell out to `fitness-check.sh` or read a mirror/remote).
+69 checks registered in total as of this writing (`registry.DEFAULT_REGISTRY`), the large majority `fast` mode (local filesystem and local git only, no network); `roundtrip.*` and a handful of `repo.d01`/`stack` checks are `full`-only (they shell out to `fitness-check.sh` or read a mirror/remote).
+
+### Installed vs wired vs effective
+
+Every check above `tier.effectiveness.*` was added to close one specific blind spot: everything else in this harness measures whether a project's install **matches a reference** (INSTALLED) — none of it measured whether the tier hierarchy **delivers anything** (WIRED: a real consumer reads the resolved content; EFFECTIVE: it changes what an agent actually does). A harness that only checks the first property can report green while the second is broken end to end, which is exactly what this machine's installer (`setup-project.md`'s literal `~/.claude/copilot`-only "Copy Agents" step) was doing before these checks existed — a project's `.claude/agents/*.md` matched the reference install shape while `copilot.layers.yml` had never been consulted at all.
+
+Six checks, `core/conformance/effectiveness.py`:
+
+| id | proves | fixture that proves it can still FAIL |
+|---|---|---|
+| `tier.effectiveness.org_content_reaches_project` (E-1, S0) | A nearer tier's content reaches a project's INSTALLED file, verified by running the real `setup-project.md` bash steps against a scratch project and reading the result off disk — never by inspecting config | today's single-source installer never wires a synthetic org-tier marker in |
+| `tier.effectiveness.nearest_wins_preserves_siblings` (E-2, S1) | Overriding one artifact never costs the project every artifact it did not override | a fixture "naive wholesale switch" installer that drops every non-overridden roster item |
+| `tier.effectiveness.draft_placeholder_never_shadows_resolver_wide` (E-3, S0) | Generalizes H-3/Q25's shadow-substance guard from agent extensions to `resolve_layers()`'s own fold (every override-semantics dimension) — nothing checked this before | a TODO-marked/empty fixture winner shadowing real content via `resolve_layers` |
+| `tier.effectiveness.resolve_attribution_matches_lock` (E-4, S0) | Every item's `winning_layer` is backed by a REAL recorded materialization in `copilot.lock.json`, never a `_meta`-only entry | a fixture winner whose lock entry carries only `_meta` |
+| `tier.effectiveness.knowledge_ladder_actually_consumed` (E-5, S1) | An agent that hydrates `$CC_KNOWLEDGE_REPOS` also walks and reads it — hydrate-then-never-read is installed but not effective | a fixture agent text that hydrates `cc env` and reads nothing |
+| `tier.effectiveness.extension_resolution_wired_beyond_prose` (E-6, S2) | `cc extensions resolve` is invoked by an executable hook/script, not merely described in `.md` prose | a fixture `.sh` file with only a commented-out invocation |
+
+`tests/conformance/test_layer1_effectiveness.py` carries the PASS-shape and FAIL-shape fixture for each, plus one `@pytest.mark.machine` test per check recording this machine's live verdict as of 2026-08-11 — several came back FAIL (E-1, E-4, E-6, and E-3's one live instance), matching the corresponding underlying defects three concurrently-landing fixes (a tier-aware install plan, `cc update --fanout`, and the design agents' ladder reads) are expected to turn green over time; `expected_today` is set per result to match, never weakened to make a number look better.
 
 The 13 rubric dimensions (D1–D13), each implemented as its own `dimensions/dNN_*.py` module:
 

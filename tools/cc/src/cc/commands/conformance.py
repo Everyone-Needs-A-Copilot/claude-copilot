@@ -87,7 +87,16 @@ import typer
 
 from cc.core.config import resolve_key, resolve_knowledge_repos
 from cc.core.conformance import classes as classes_mod
-from cc.core.conformance import lock, report, root_causes, roundtrip, stack, sweep, tier
+from cc.core.conformance import (
+    effectiveness,
+    lock,
+    report,
+    root_causes,
+    roundtrip,
+    stack,
+    sweep,
+    tier,
+)
 from cc.core.conformance.dimensions import discover_dimension_modules
 from cc.core.conformance.registry import DEFAULT_REGISTRY, REPO_CLASSES
 from cc.core.conformance.types import (
@@ -100,7 +109,10 @@ from cc.core.conformance.types import (
     Severity,
     Verdict,
 )
+from cc.core.ecosystem.discovery import discover_contributions
+from cc.core.ecosystem.lockfile import default_lockfile_path, read_lockfile
 from cc.core.ecosystem.manifest import ManifestError, load_layers, validate_layers
+from cc.core.ecosystem.resolver import resolve_layers
 
 conformance_app = typer.Typer(
     help=(
@@ -264,11 +276,240 @@ def _run_tier_layer_machine() -> tuple[CheckResult, ...]:
                     tier.check_h8_commands_dimension_has_no_consumer(source_root=candidate)
                 )
 
+        # E-5: every framework agent whose instructions claim to consult the
+        # knowledge ladder, not just the three H-5 already reads for the
+        # singular-alias check -- ground truth (TEST-MATRIX-adjacent, this
+        # task): cw/sd/ta already walk+read CC_KNOWLEDGE_REPOS; ind/uxd/
+        # uids/cco were found hydrating `cc env` and then reading nothing.
+        ladder_agent_files = {
+            name: (agents_dir / name).read_text(encoding="utf-8")
+            for name in (
+                "cw.md",
+                "sd.md",
+                "ta.md",
+                "ind.md",
+                "uxd.md",
+                "uids.md",
+                "cco.md",
+            )
+            if (agents_dir / name).is_file()
+        }
+        if ladder_agent_files:
+            results.extend(
+                effectiveness.check_e5_knowledge_ladder_actually_consumed(
+                    agent_files=ladder_agent_files
+                )
+            )
+
+        # E-6: `cc extensions resolve` must fire from an executable
+        # consumer (a hook/script), not merely be described in markdown
+        # prose -- scoped to the framework's real executable surface
+        # (`.claude`, `plugins`, `scripts`), deliberately never `tools/cc`
+        # itself (the CLI's own implementation/tests always mention the
+        # command they implement, the same H-8-shaped trap `tier.py`'s
+        # `_is_under_excluded_package` guards against).
+        for relative in (".claude", "plugins", "scripts"):
+            candidate = framework_root / relative
+            if candidate.is_dir():
+                results.append(
+                    effectiveness.check_e6_extension_resolution_wired_beyond_prose(
+                        source_root=candidate
+                    )
+                )
+
     tier_repos = {f"rank-{index}": repo for index, repo in enumerate(ladder)}
     results.extend(tier.check_h6_declared_skill_paths_exist(tier_repos=tier_repos))
     results.append(tier.check_h7_no_hollow_rung(tier_repos=tier_repos))
 
     # H-9 deliberately NOT invoked here -- see module docstring point 2.
+    results.extend(_run_resolver_effectiveness_machine())
+    results.extend(_run_installer_effectiveness_machine())
+    return tuple(results)
+
+
+# ---------------------------------------------------------------------------
+# Real-machine input gathering -- tier EFFECTIVENESS, E-1..E-4
+# ---------------------------------------------------------------------------
+
+
+def _resolver_effectiveness_inputs() -> Optional[
+    tuple[tuple[dict[str, Any], ...], dict[str, Any], dict[str, Any]]
+]:
+    """`(effective_layers, contributions, lockfile)` for E-3/E-4 -- the
+    identical assembly `cc.commands.resolve.build_resolve_report` performs
+    (manifest -> mirror-synthesized effective layers -> local discovery ->
+    lockfile), reused directly rather than re-derived, so these checks can
+    never silently disagree with what `cc resolve --explain` itself
+    reports. `None` when there is no manifest to resolve against at all."""
+
+    manifest_path = _real_manifest_path()
+    if manifest_path is None:
+        return None
+    try:
+        raw_layers = validate_layers(load_layers(manifest_path))
+    except ManifestError:
+        return None
+    if not raw_layers:
+        return None
+
+    from cc.commands.resolve import _synthesize_effective_layers
+
+    mirror_root_raw = resolve_key("paths.mirrors_root")
+    mirror_root_base = (
+        Path(str(mirror_root_raw)).expanduser()
+        if mirror_root_raw
+        else Path("~/.copilot/mirrors").expanduser()
+    )
+    effective_layers = _synthesize_effective_layers(
+        raw_layers, mirror_root_base=mirror_root_base
+    )
+    contributions = discover_contributions(effective_layers)
+    lockfile = read_lockfile(default_lockfile_path())
+    return tuple(effective_layers), contributions, lockfile
+
+
+def _run_resolver_effectiveness_machine() -> tuple[CheckResult, ...]:
+    """E-3/E-4: no subprocess, no mutation -- a pure read+fold over the
+    real manifest/lockfile, exactly like H-1..H-4 above."""
+
+    inputs = _resolver_effectiveness_inputs()
+    if inputs is None:
+        return ()
+    effective_layers, contributions, lockfile = inputs
+    results: list[CheckResult] = list(
+        effectiveness.check_e3_draft_placeholder_never_shadows(
+            layers=effective_layers, contributions=contributions, lockfile=lockfile
+        )
+    )
+    results.extend(
+        effectiveness.check_e4_resolve_attribution_matches_lock(
+            layers=effective_layers, contributions=contributions, lockfile=lockfile
+        )
+    )
+    return tuple(results)
+
+
+def _run_installer_effectiveness_machine() -> tuple[CheckResult, ...]:
+    """E-1/E-2: drives the REAL installer (`setup-project.md`'s literal
+    "Copy Agents" bash step, via `roundtrip.py` -- the module that already
+    established "the real installer" means those literal bash blocks, run
+    verbatim, never a Python reimplementation) against a disposable scratch
+    project + scratch `$HOME`, cross-checked against a small SYNTHETIC
+    two-tier fixture (never the real ladder) built only to compute what an
+    organization-tier override SHOULD produce. Every write happens inside a
+    fresh `tempfile.TemporaryDirectory()`; no real project or real tier repo
+    is ever touched, matching `HARNESS-DESIGN.md` §5.3's rule for any check
+    that needs a mutable target."""
+
+    try:
+        framework_root = roundtrip.discover_framework_repo_root()
+    except roundtrip.InstallerScriptError:
+        return ()
+    try:
+        cc_bin = roundtrip.discover_cc_bin(framework_root)
+    except roundtrip.CcBinaryNotFoundError:
+        return ()
+
+    version_path = framework_root / "VERSION.json"
+    setup_project_path = framework_root / ".claude" / "commands" / "setup-project.md"
+    if not version_path.is_file() or not setup_project_path.is_file():
+        return ()
+    try:
+        version = _json.loads(version_path.read_text(encoding="utf-8"))
+        roster = list(version["components"]["agents"]["frameworkAgents"])
+    except (OSError, _json.JSONDecodeError, KeyError, TypeError):
+        return ()
+    if not roster:
+        return ()
+    probe_agent = roster[0]
+
+    with tempfile.TemporaryDirectory(prefix="cc-conformance-effectiveness-") as raw_tmp:
+        tmp_path = Path(raw_tmp)
+        home = tmp_path / "home"
+        project = tmp_path / "project"
+        project.mkdir(parents=True, exist_ok=True)
+        (project / ".claude" / "agents").mkdir(parents=True, exist_ok=True)
+
+        roundtrip.materialize_framework_source(
+            home / ".claude" / "copilot", framework_root
+        )
+        env = roundtrip.build_scratch_env(home=home, cc_bin=cc_bin)
+
+        markdown = setup_project_path.read_text(encoding="utf-8")
+        try:
+            blocks = roundtrip.extract_bash_steps(
+                markdown, [("## Step 6: Copy Agents", "## Step 7: Create .mcp.json")]
+            )
+        except roundtrip.InstallerScriptError:
+            return ()
+        roundtrip.run_bash_steps(blocks, cwd=project, env=env)
+
+        installed_content: dict[str, Optional[str]] = {}
+        for agent in roster:
+            agent_path = project / ".claude" / "agents" / f"{agent}.md"
+            installed_content[agent] = (
+                agent_path.read_text(encoding="utf-8") if agent_path.is_file() else None
+            )
+
+        # A marker ONLY this synthetic org-tier fixture file carries -- the
+        # real foundation content cannot contain it by coincidence, so a
+        # match in `installed_content` can only mean the org tier's content
+        # actually reached the project.
+        marker = "EFFECTIVENESS-PROBE-ORG-MARKER-38fbe4a1"
+        org_dir = tmp_path / "org-tier"
+        (org_dir / "agents").mkdir(parents=True, exist_ok=True)
+        (org_dir / "agents" / f"{probe_agent}.md").write_text(
+            f"---\nstatus: active\n---\n{marker}\n", encoding="utf-8"
+        )
+        foundation_dir = home / ".claude" / "copilot" / ".claude"
+
+        # `validate_layers` requires ascending-rank order per product --
+        # nearest (lowest rank number, highest precedence) first.
+        probe_layers: list[dict[str, Any]] = [
+            {
+                "id": "probe-organization",
+                "role": "organization",
+                "rank": 30,
+                "product": "effectiveness-probe",
+                "source": {"repo": f"file://{org_dir}", "path": str(org_dir)},
+                "auth": "anon",
+                "activation": "always",
+            },
+            {
+                "id": "probe-foundation",
+                "role": "foundation",
+                "rank": 40,
+                "product": "effectiveness-probe",
+                "source": {"repo": f"file://{foundation_dir}", "path": str(foundation_dir)},
+                "auth": "anon",
+                "activation": "always",
+            },
+        ]
+        probe_contributions = discover_contributions(probe_layers, dimensions=("agents",))
+        probe_items = {
+            item["item"]: item
+            for item in resolve_layers(probe_layers, probe_contributions)
+            if item["dimension"] == "agents"
+        }
+
+    results: list[CheckResult] = []
+    winner = probe_items.get(probe_agent)
+    if winner is not None:
+        results.append(
+            effectiveness.check_e1_org_content_reaches_project(
+                probe_item=probe_agent,
+                winning_layer=winner["winning_layer"],
+                expected_marker=marker,
+                installed_text=installed_content.get(probe_agent),
+            )
+        )
+    results.append(
+        effectiveness.check_e2_nearest_wins_preserves_siblings(
+            overridden_item=probe_agent,
+            roster=roster,
+            installed_content=installed_content,
+        )
+    )
     return tuple(results)
 
 
