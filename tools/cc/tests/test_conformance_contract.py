@@ -583,11 +583,45 @@ def test_machine_check_stack_layer_json_validates_and_reflects_the_real_manifest
 
 @requires_real_machine
 @pytest.mark.machine
-def test_machine_check_human_output_reproduces_known_findings(real_machine_root):
+def test_machine_check_human_output_reflects_the_real_regression_layer_state(
+    real_machine_root,
+):
+    """Renamed from `test_machine_check_human_output_reproduces_known_
+    findings` -- that version pinned to `rc.rc1.enforcement_hook_is_
+    installed_by_something` appearing in the human-rendered FAIL section,
+    which was a genuine, real finding at the time it was written. RC-1's
+    fleet half (and RC-5's last real miss) are now genuinely fixed on this
+    machine (see `TestRealMachineRootCausesFailToday` in `tests/
+    conformance/test_rc_regressions.py`), so `render_human` -- which by
+    design (`report.py`) only ever lists FAIL-verdict check ids, never
+    passing ones -- correctly no longer prints it. Re-verify the render
+    pipeline against the real machine's CURRENT state instead of a
+    hardcoded-to-fail id: cross-check human output against the same run's
+    `--json` payload, which lists every check regardless of verdict."""
+
     result = runner.invoke(app, ["conformance", "check", "--layer", "regression"])
     assert result.exit_code in (0, 1, 2, 3), result.output
     _assert_no_output_rule_violations(result.output)
-    assert "rc.rc1.enforcement_hook_is_installed_by_something" in result.output
+    assert "LAYER  regression" in result.output
+
+    json_result = runner.invoke(
+        app, ["conformance", "check", "--layer", "regression", "--json"]
+    )
+    assert json_result.exit_code in (0, 1, 2, 3), json_result.output
+    payload = json.loads(json_result.output)
+    ids = {c["id"] for c in payload["checks"]}
+    assert "rc.rc1.enforcement_hook_is_installed_by_something" in ids
+    assert "rc.rc5.tier_variants_declare_dimensions" in ids
+
+    # A check id only ever appears in the human FAIL listing when it
+    # actually failed -- assert the two outputs agree, rather than
+    # asserting either shape outright.
+    failing_ids = {c["id"] for c in payload["checks"] if c["verdict"] == "fail"}
+    for check_id in ids:
+        if check_id in failing_ids:
+            assert check_id in result.output
+    if "rc.rc1.enforcement_hook_is_installed_by_something" not in failing_ids:
+        assert "rc.rc1.enforcement_hook_is_installed_by_something" not in result.output
 
 
 @requires_real_machine
