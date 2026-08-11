@@ -787,6 +787,10 @@ def _lock_entry(source: Path, component: str) -> dict[str, Any]:
         "component": component,
         "version": version,
         "release_tag": f"v{version}",
+        # Explicit, never left for a reader's implicit "absent means full"
+        # default (RC-4 fix #4) -- every entry this recipe pipeline writes
+        # names its own mode.
+        "ownership_mode": "full",
         "files": _framework_files(source, component),
     }
 

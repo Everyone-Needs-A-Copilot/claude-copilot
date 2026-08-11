@@ -117,17 +117,23 @@ Store:
 mkdir -p .claude/commands
 mkdir -p .claude/agents
 mkdir -p .claude/skills
+mkdir -p .claude/hooks
 ```
 
 ---
 
 ## Step 5: Copy Project Commands
 
-Only copy commands that belong at project level (protocol and continue):
+Copy every project-level command (VERSION.json's `components.commands.projectCommands`: protocol, continue, pause, map, memory, extensions, orchestrate). A fresh project gets the full command set immediately — it does not have to wait for `/update-project` to close the gap.
 
 ```bash
 cp ~/.claude/copilot/.claude/commands/protocol.md .claude/commands/
 cp ~/.claude/copilot/.claude/commands/continue.md .claude/commands/
+cp ~/.claude/copilot/.claude/commands/pause.md .claude/commands/
+cp ~/.claude/copilot/.claude/commands/map.md .claude/commands/
+cp ~/.claude/copilot/.claude/commands/memory.md .claude/commands/
+cp ~/.claude/copilot/.claude/commands/extensions.md .claude/commands/
+cp ~/.claude/copilot/.claude/commands/orchestrate.md .claude/commands/
 ```
 
 **Verify:**
@@ -135,7 +141,7 @@ cp ~/.claude/copilot/.claude/commands/continue.md .claude/commands/
 ls .claude/commands/
 ```
 
-Should show: `continue.md` and `protocol.md`
+Should show all 7 project commands: `continue.md`, `extensions.md`, `map.md`, `memory.md`, `orchestrate.md`, `pause.md`, `protocol.md`
 
 ---
 
@@ -144,17 +150,29 @@ Should show: `continue.md` and `protocol.md`
 Copy only framework-owned agents (from the roster manifest in VERSION.json). This preserves any project-specific agents that may already exist.
 
 ```bash
-# Read framework agent roster from VERSION.json
+# Read framework agent roster from VERSION.json. One agent id PER LINE --
+# never space-joined -- so the loop below reads it with `while read`
+# instead of relying on word-splitting an unquoted scalar. bash splits an
+# unquoted `$ROSTER` on IFS whitespace by default; zsh does NOT, so
+# `for agent in $ROSTER` silently ran ONCE with the entire roster as a
+# single value under zsh (this machine's login shell) -- every agent copy
+# below was a silent no-op, while the step still reported success with
+# its own freshly-computed counts. Verified live under both shells.
 COPILOT_PATH=~/.claude/copilot
 ROSTER=$(python3 -c "
 import json, sys
 with open('$COPILOT_PATH/VERSION.json') as f:
     v = json.load(f)
-agents = v['components']['agents']['frameworkAgents']
-print(' '.join(agents))
-" 2>/dev/null || echo "cco cpa cs cw do doc ind kc me qa sd sec ta uid uids uxd")
+agents = list(v['components']['agents']['frameworkAgents'])
+agents.append('kc')  # setup-only agent; VERSION.json's frameworkAgents deliberately excludes it
+print('\n'.join(agents))
+" 2>/dev/null || printf '%s\n' cco cpa cs cw do doc ind kc me qa sd sec ta uid uids uxd)
 
-for agent in $ROSTER; do
+# `while read` off a herestring (not a pipe) runs in THIS shell, not a
+# subshell, and is correct under both bash and zsh regardless of
+# word-splitting settings, since it never relies on unquoted splitting.
+while IFS= read -r agent; do
+  [ -z "$agent" ] && continue
   if [ -f "$COPILOT_PATH/.claude/agents/${agent}.md" ]; then
     existing=".claude/agents/${agent}.md"
     if [ -f "$existing" ] && grep -q '^owner: project' "$existing" 2>/dev/null; then
@@ -163,7 +181,7 @@ for agent in $ROSTER; do
       cp "$COPILOT_PATH/.claude/agents/${agent}.md" .claude/agents/
     fi
   fi
-done
+done <<< "$ROSTER"
 ```
 
 **Verify:**
@@ -171,7 +189,100 @@ done
 ls .claude/agents/ | wc -l
 ```
 
-Should show 16 agent files (15 framework + kc setup-only).
+Should show one file per `$ROSTER` entry — the full specialist roster (every framework agent plus kc).
+
+---
+
+## Step 6B: Install Enforcement Hook
+
+Vendor the framework's enforcement hook shim into the project and register it in `.claude/settings.json`. This is the ONLY hook file ever copied into a project — it carries no rule content of its own and delegates every rule to the global framework install (see the shim's own header comment for its resolution order and fail-open/fail-closed policy). Registration is a non-destructive structural merge via `cc settings-hook add`: it never touches hooks a human already added, and running it again later (e.g. via `/update-project`) is a no-op if nothing changed.
+
+```bash
+mkdir -p .claude/hooks
+cp ~/.claude/copilot/.claude/hooks/copilot-hook.sh .claude/hooks/copilot-hook.sh
+chmod +x .claude/hooks/copilot-hook.sh
+
+cc settings-hook add
+```
+
+**Verify:**
+```bash
+ls -la .claude/hooks/copilot-hook.sh
+```
+
+Should be present and executable.
+
+---
+
+## Step 6C: Generate Project Lock (claude component)
+
+Generate `copilot.lock.json`'s `claude` component entry from what is genuinely on disk in THIS project -- real per-path sha256 checksums computed here, never a value copied from the framework source or another project's lock (RC-4: `projects.generate_component_lock_entry()`). A candidate path whose own frontmatter declares `owner: project` is never recorded as framework-owned -- that exclusion lives inside the generator itself, so a hand-authored agent stays out of the lock's `files[]` automatically. This step reads back any existing `copilot.lock.json` first (e.g. the `mutations[]` ledger `cc settings-hook add` just wrote in Step 6B, and any `codex` component entry) and only replaces the `claude` entry -- everything else in the file is preserved untouched.
+
+This step is self-contained (recomputes the agent roster from `VERSION.json` itself rather than reusing Step 6's `$ROSTER`): each fenced command block in this file may run as its own shell invocation, so nothing here depends on shell state set by an earlier step.
+
+```bash
+COPILOT_PATH=~/.claude/copilot
+python3 -c "
+import json
+from pathlib import Path
+from cc.core.ecosystem.projects import (
+    generate_component_lock_entry,
+    read_project_lock,
+    write_project_lock,
+    PROJECT_LOCK_FILENAME,
+)
+
+copilot_path = Path('$COPILOT_PATH').expanduser()
+with open(copilot_path / 'VERSION.json') as f:
+    v = json.load(f)
+roster = list(v['components']['agents']['frameworkAgents'])
+roster.append('kc')  # setup-only agent; VERSION.json's frameworkAgents deliberately excludes it
+version = v.get('framework', 'unknown')
+release_tag = ('v' + version) if version != 'unknown' else 'unknown'
+
+candidate_paths = [
+    '.claude/commands/protocol.md', '.claude/commands/continue.md',
+    '.claude/commands/pause.md', '.claude/commands/map.md',
+    '.claude/commands/memory.md', '.claude/commands/extensions.md',
+    '.claude/commands/orchestrate.md',
+    '.claude/fitness-check.sh', '.claude/hooks/copilot-hook.sh',
+] + [f'.claude/agents/{agent}.md' for agent in roster]
+
+root = Path('.').resolve()
+entry = generate_component_lock_entry(
+    root, 'claude',
+    version=version, release_tag=release_tag, ownership_mode='full',
+    candidate_paths=candidate_paths,
+)
+
+lock_path = root / PROJECT_LOCK_FILENAME
+manifest = read_project_lock(lock_path)
+if not isinstance(manifest, dict):
+    manifest = {}
+manifest.setdefault('schema_version', '1.0')
+existing = manifest.get('components')
+components = (
+    [c for c in existing if isinstance(c, dict) and c.get('component') != 'claude']
+    if isinstance(existing, list) else []
+)
+components.append(entry)
+components.sort(key=lambda c: str(c.get('component', '')))
+manifest['components'] = components
+write_project_lock(lock_path, manifest)
+print(f'copilot.lock.json: claude component generated ({len(entry[\"files\"])} files, version {version})')
+" 2>&1 || echo "WARN: could not generate copilot.lock.json's claude component (is the cc package importable from python3?). The project is still usable; re-run /setup-project or /update-project later to retry."
+```
+
+**Verify:**
+```bash
+python3 -c "
+import json
+d = json.load(open('copilot.lock.json'))
+c = [x for x in d.get('components', []) if x.get('component') == 'claude']
+print('claude component present:', bool(c))
+print('files recorded:', len(c[0]['files']) if c else 0)
+" 2>/dev/null || echo "copilot.lock.json missing or unreadable"
+```
 
 ---
 
@@ -307,9 +418,19 @@ ls -la .mcp.json
 ls -la CLAUDE.md
 ls .claude/commands/
 ls .claude/agents/ | head -5
+ls -la .claude/hooks/copilot-hook.sh
+
+AGENT_COUNT=$(ls .claude/agents/*.md 2>/dev/null | wc -l | tr -d ' ')
+COMMAND_COUNT=$(ls .claude/commands/*.md 2>/dev/null | wc -l | tr -d ' ')
+echo "AGENT_COUNT=$AGENT_COUNT"
+echo "COMMAND_COUNT=$COMMAND_COUNT"
 ```
 
 All must exist.
+
+Store:
+- `AGENT_COUNT` = measured count of `.claude/agents/*.md` (used in the Step 12 report — never hardcoded)
+- `COMMAND_COUNT` = measured count of `.claude/commands/*.md` (used in the Step 12 report — never hardcoded)
 
 ---
 
@@ -348,11 +469,13 @@ If `FITNESS_RESULT` is non-zero (check failed), print the failures and tell the 
 **Created:**
 - `.mcp.json` - Project marker (empty MCP config; add third-party servers here as needed)
 - `CLAUDE.md` - Project instructions
-- `.claude/commands/` - Protocol commands (/protocol, /continue)
-- `.claude/agents/` - 16 agent files: 15 framework agents + kc (setup-only, full specialist roster)
+- `.claude/commands/` - {{COMMAND_COUNT}} project commands (protocol, continue, pause, map, memory, extensions, orchestrate)
+- `.claude/agents/` - {{AGENT_COUNT}} agent files: framework agents + kc (setup-only, full specialist roster)
+- `.claude/hooks/copilot-hook.sh` - Enforcement hook shim, registered in `.claude/settings.json`
 - `.claude/skills/` - For project-specific skills
 - `.claude/memory/entries/` - Project memory (committed to git)
 - `.claude/cc/config.json` - cc CLI project config
+- `copilot.lock.json` - Per-project component lock, generated from what's actually installed (not a copied template)
 
 **Configuration:**
 - Memory: `.claude/memory/entries/` (committed files)
@@ -363,6 +486,9 @@ If `FITNESS_RESULT` is non-zero (check failed), print the failures and tell the 
 {{ELSE}}
 - Knowledge: Not configured
 {{END IF}}
+
+**Codex Copilot (separate, optional step):**
+This command sets up Claude Code only — it never touches `plugins/codex-copilot/`. If this project also uses Codex, install the Codex half separately by running `codex-copilot`'s own installer (`scripts/setup-project.sh` in the `codex-copilot` repo). This project is not Codex-enabled until that step is run.
 
 **Next steps:**
 

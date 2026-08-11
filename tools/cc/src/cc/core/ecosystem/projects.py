@@ -65,6 +65,7 @@ from typing import Any, Iterable, Optional, TypedDict
 from cc.core.config import resolve_key
 from cc.core.ecosystem.freshness import compute_freshness
 from cc.core.ecosystem.materialize import guard_personal
+from cc.core.entry_format import EntryValidationError, parse_frontmatter
 
 # Sentinel distinguishing "no override passed" from an explicit None argument.
 _UNSET: Any = object()
@@ -158,6 +159,120 @@ def write_project_lock(path: Path | str, manifest: dict[str, Any]) -> None:
     target = Path(path).expanduser()
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(serialize_project_lock(manifest))
+
+
+# ---------------------------------------------------------------------------
+# Per-project lock manifest GENERATION -- real disk truth, never a template
+# (RC-4: "copilot.lock.json is a copied template rather than a generated
+# record of the actual install").
+# ---------------------------------------------------------------------------
+
+
+def _frontmatter_owner(text: str) -> Optional[str]:
+    """
+    The file's own declared `owner:` frontmatter value, or `None` if the
+    text has no frontmatter block at all, or the frontmatter has no
+    `owner` key. A file with no ownership opinion of its own is not a
+    contradiction -- it is simply eligible to be recorded framework-owned.
+    """
+    try:
+        frontmatter, _body = parse_frontmatter(text)
+    except EntryValidationError:
+        return None
+    owner = frontmatter.get("owner")
+    return owner if isinstance(owner, str) else None
+
+
+def _generated_file_checksum(path: Path) -> str:
+    if path.is_symlink():
+        payload = ("symlink:" + str(path.readlink())).encode("utf-8")
+    else:
+        payload = path.read_bytes()
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def generate_component_lock_entry(
+    root: Path,
+    component: str,
+    *,
+    version: str,
+    release_tag: str,
+    ownership_mode: str,
+    candidate_paths: Iterable[str],
+) -> dict[str, Any]:
+    """
+    Build one component's lock manifest entry from the ACTUAL project on
+    disk at `root` -- real per-path sha256 checksums of what is genuinely
+    installed there, never a value copied from a framework template or
+    another project's lock (RC-4). Two projects with different installs
+    cannot produce the same `files[]` from this function, because every
+    checksum is read from `root` itself.
+
+    `candidate_paths` is the caller-supplied roster of paths eligible for
+    this component's tracked `files[]` (the fixed required-path set plus
+    whatever this project's own `.claude/agents/*.md` roster -- or codex
+    plugin tree -- turns out to be). Discovering that roster is the
+    caller's job: it differs by component, and by whether the caller is
+    generating a fresh install's roster or re-deriving an existing one, so
+    this function stays a pure "given these candidates, what does the disk
+    actually say" reducer (Kent Beck's "fewest elements" -- it does not
+    duplicate the roster-discovery logic `project_integration.py` and
+    `reconciliation_recipes.py` already own).
+
+    A candidate path whose OWN frontmatter declares `owner: project` is
+    NEVER added to `files[]` -- the file's own declaration is authoritative
+    over any prior lock claim (Q21 answer A), so it can never again
+    disagree with what the lock records the way `sproutworks`'s five
+    hand-authored agents did. `framework_owned_paths()` already keeps
+    `ownership: project` files out of any write path built on this
+    module's manifests; this generator keeps them out of the RECORD in the
+    first place, which is what makes that preservation durable.
+
+    `ownership_mode` is a required keyword, never defaulted -- every entry
+    this function returns names its own mode explicitly, so a lock this
+    function writes never depends on a reader's implicit `"full"` fallback.
+
+    A candidate path absent from disk, unreadable, or a directory is
+    silently skipped -- this function only ever records evidence for a
+    file that is genuinely there.
+    """
+    if ownership_mode not in {"full", "customized-preserve"}:
+        raise ValueError(f"unsupported ownership_mode: {ownership_mode!r}")
+
+    files: list[dict[str, str]] = []
+    for relative in candidate_paths:
+        target = root / relative
+        try:
+            is_symlink = target.is_symlink()
+            if not is_symlink and not target.is_file():
+                continue
+        except OSError:
+            continue
+
+        if not is_symlink:
+            try:
+                text = target.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                text = None
+            if text is not None and _frontmatter_owner(text) == "project":
+                # The file's own frontmatter is authoritative: never
+                # recorded as framework-owned, matching the file's own
+                # claim about itself instead of contradicting it.
+                continue
+
+        try:
+            checksum = _generated_file_checksum(target)
+        except OSError:
+            continue
+        files.append({"path": relative, "ownership": "framework", "checksum": checksum})
+
+    return {
+        "component": component,
+        "version": version,
+        "release_tag": release_tag,
+        "ownership_mode": ownership_mode,
+        "files": files,
+    }
 
 
 def framework_owned_paths(entry: dict[str, Any]) -> list[str]:
