@@ -88,6 +88,65 @@ def test_discover_contributions_hash_changes_when_content_changes(tmp_path):
     assert first != second
 
 
+def test_discover_contributions_honors_declared_dimensions(tmp_path):
+    """A layer whose own `copilot.layer.yml` declares `dimensions:
+    [commands]` is never probed for `agents`, even though it has a
+    perfectly real `agents/` directory on disk and the caller's default
+    probe table includes `agents` — RC-5's `dimensions:` field is now a
+    real, consumed restriction, not write-only metadata."""
+    layer_root = tmp_path / "organization"
+    (layer_root / "commands").mkdir(parents=True)
+    (layer_root / "commands" / "protocol.md").write_text("org protocol")
+    (layer_root / "agents").mkdir()
+    (layer_root / "agents" / "qa.md").write_text("stray, undeclared agent file")
+    (layer_root / "copilot.layer.yml").write_text(
+        "schema_version: '1.0'\n"
+        "package:\n  role: organization\n  rank: 30\n  product: claude\n"
+        "dimensions:\n  - commands\n"
+    )
+
+    layers = [_layer("organization", 30, local_path=layer_root)]
+    contributions = discover_contributions(layers)
+
+    assert set(contributions["organization"]) == {"commands"}
+    assert set(contributions["organization"]["commands"]) == {"protocol"}
+
+
+def test_discover_contributions_no_declaration_file_falls_back_to_full_table(tmp_path):
+    """A layer with no `copilot.layer.yml` at all keeps today's behavior:
+    every caller-supplied dimension is probed, unchanged."""
+    layer_root = tmp_path / "foundation"
+    (layer_root / "agents").mkdir(parents=True)
+    (layer_root / "agents" / "qa.md").write_text("agent body")
+    (layer_root / "commands").mkdir()
+    (layer_root / "commands" / "protocol.md").write_text("foundation protocol")
+
+    layers = [_layer("foundation", 40, local_path=layer_root)]
+    contributions = discover_contributions(layers)
+
+    assert set(contributions["foundation"]) == {"agents", "commands"}
+
+
+def test_discover_contributions_empty_declared_dimensions_falls_back(tmp_path):
+    """A `copilot.layer.yml` with an empty (or absent) `dimensions:` list is
+    treated the same as no declaration at all -- never a false claim that
+    this layer contributes nothing."""
+    layer_root = tmp_path / "department"
+    (layer_root / "plugins").mkdir(parents=True)
+    (layer_root / "plugins" / "codex-copilot.json").write_text("{}")
+    (layer_root / "copilot.layer.yml").write_text(
+        "schema_version: '1.0'\npackage:\n  role: department\n  rank: 20\n  product: claude\n"
+        "dimensions: []\n"
+    )
+
+    layers = [_layer("department", 20, local_path=layer_root)]
+    contributions = discover_contributions(
+        layers, dimensions=("plugins",)
+    )
+
+    assert set(contributions["department"]) == {"plugins"}
+
+
 def test_discover_contributions_layer_missing_id_is_skipped_not_raised(tmp_path):
     layer_root = tmp_path / "no-id"
     (layer_root / "agents").mkdir(parents=True)

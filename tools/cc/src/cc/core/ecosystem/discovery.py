@@ -20,15 +20,63 @@ blob sha. Computing a true git object identity needs a git-aware
 materialize step this slice does not build; this is a provisional stand-in
 surfaced honestly (see cc/commands/resolve.py's fail-closed security
 fields), not a claim of git identity or authenticity.
+
+Per-layer dimension scoping (RC-5, core/conformance/root_causes.py): a
+layer's own `copilot.layer.yml` `dimensions:` field, when present and
+non-empty, is READ (`_declared_dimensions()`) and narrows which
+sub-directories THIS layer is probed for, rather than blindly probing
+every dimension name the caller passed. Before this, `dimensions:` was a
+write-only field (`commands/onboard.py` scaffolds it) with no consumer
+anywhere in the source tree; a layer with no declaration file at all falls
+back to the caller-supplied `dimensions` tuple below, unchanged from
+before this existed.
 """
 
 from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
+
+import yaml
 
 from cc.core.ecosystem.dimensions import DIMENSION_SEMANTICS
+
+# A layer's own self-declaration of what it carries (RC-5,
+# core/conformance/root_causes.py) -- lives at the layer's repo root,
+# alongside the content directories this module scans. `commands/onboard.py`
+# scaffolds this file's `dimensions:` field; `_declared_dimensions()` below
+# is its first real reader (previously WRITE-only -- see this module's own
+# docstring update).
+_LAYER_DECLARATION_FILENAME = "copilot.layer.yml"
+
+
+def _declared_dimensions(layer_root: Path) -> Optional[tuple[str, ...]]:
+    """A layer's own `<layer_root>/copilot.layer.yml` `dimensions:` list,
+    when present and non-empty -- "what this tier actually carries",
+    narrower than blindly probing every known dimension name.
+
+    Returns `None` (never an empty tuple) when the declaration file is
+    absent, unparseable, or names nothing, so `discover_contributions()`
+    can tell "this layer declared nothing" apart from "this layer declared
+    it carries nothing" and fall back to ITS OWN caller-supplied probe set
+    for that layer -- best-effort, like every other read in this module:
+    one layer's missing/broken declaration must never block discovery for
+    any other layer."""
+    declaration = layer_root / _LAYER_DECLARATION_FILENAME
+    try:
+        if not declaration.is_file():
+            return None
+        raw = yaml.safe_load(declaration.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+    declared = raw.get("dimensions")
+    if not isinstance(declared, list):
+        return None
+    names = tuple(name for name in declared if isinstance(name, str) and name)
+    return names or None
 
 
 def _hash_file(path: Path) -> str:
@@ -59,6 +107,15 @@ def discover_contributions(
     Returns `{}` (or partial results) for layers/dimensions with nothing
     local — never raises on an individual layer's I/O failure, since a
     single unreadable layer should not prevent resolving the others.
+
+    Per layer, the dimensions actually probed are `dimensions` (this
+    parameter, the caller's upper bound) INTERSECTED with that layer's own
+    `copilot.layer.yml` `dimensions:` declaration when one exists
+    (`_declared_dimensions()`) — a layer that declares e.g. `[commands,
+    plugins]` is never probed for `agents` even if the caller's default
+    table includes it. A layer with no declaration file (or an empty one)
+    is probed against the full caller-supplied `dimensions` tuple,
+    unchanged from before this scoping existed.
     """
     contributions: dict[str, dict[str, dict[str, str]]] = {}
 
@@ -78,8 +135,15 @@ def discover_contributions(
         except (OSError, ValueError):
             continue
 
+        declared = _declared_dimensions(root)
+        layer_dimensions = (
+            tuple(dimension for dimension in dimensions if dimension in declared)
+            if declared
+            else dimensions
+        )
+
         layer_contrib: dict[str, dict[str, str]] = {}
-        for dimension in dimensions:
+        for dimension in layer_dimensions:
             dim_dir = root / dimension
             try:
                 if not dim_dir.is_dir():

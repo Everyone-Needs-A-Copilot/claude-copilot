@@ -16,4 +16,16 @@ Modules:
   discovery.py   best-effort local-only scan that builds the `contributions`
                  input the pure resolver folds over (NOT the materialize
                  engine — that is a later, engine-blocked slice)
+  mirror.py      read-only mirror-root resolution + effective-layer path
+                 synthesis (subpath/mirror-checkout join, shared by `cc
+                 resolve --explain` and project-install resolution)
+  substance.py   the "is this real content or an inert scaffold" heuristic
+                 (draft/TODO/undersized), shared by the conformance
+                 harness's shadow-substance check and project-install
+                 resolution
+  project_sources.py  resolves each project-install item (the `claude`
+                 product's protocol/commands + agents) through the tier
+                 ladder, nearest SUBSTANTIVE tier wins — the wiring
+                 `core/ecosystem/workspaces.py`'s `_claude_plan()` was
+                 missing
 """

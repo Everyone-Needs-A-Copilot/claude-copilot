@@ -83,6 +83,7 @@ from typing import Any, Callable, Iterable, Optional, Sequence
 
 from cc.core.config import resolve_key
 from cc.core.ecosystem.project_integration import inspect_project_integration
+from cc.core.ecosystem.project_sources import resolve_claude_content
 from cc.core.ecosystem.projects import (
     PROJECT_LOCK_FILENAME,
     _read_registry,
@@ -915,14 +916,26 @@ def _claude_plan(project: Path, source: Path) -> tuple[list[tuple[Path, Path]], 
     except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError):
         raise ActivationError("The Claude Copilot installer is incomplete.")
     roster.append("kc")
+
+    # Ladder resolution (four-tier-topology.md): the protocol and every
+    # roster agent resolve nearest-SUBSTANTIVE-tier-wins across personal ->
+    # department -> organization -> foundation, per (dimension, item) --
+    # never from `source` alone. `source` (the foundation checkout) is
+    # still the fallback AND still the sole origin of everything that has
+    # no ladder concept: fitness-check.sh, the hook, evals, and the project
+    # template are framework scaffolding, not a tiered dimension.
+    ladder_items = resolve_claude_content(
+        foundation_root=source,
+        items={"commands": ("protocol", "continue"), "agents": tuple(roster)},
+    )
     copies = [
-        (source / ".claude/commands/protocol.md", project / ".claude/commands/protocol.md"),
-        (source / ".claude/commands/continue.md", project / ".claude/commands/continue.md"),
+        (ladder_items[("commands", "protocol")].path, project / ".claude/commands/protocol.md"),
+        (ladder_items[("commands", "continue")].path, project / ".claude/commands/continue.md"),
         (source / ".claude/fitness-check.sh", project / ".claude/fitness-check.sh"),
         (source / ".claude/hooks/copilot-hook.sh", project / ".claude/hooks/copilot-hook.sh"),
     ]
     copies.extend(
-        (source / f".claude/agents/{agent}.md", project / f".claude/agents/{agent}.md")
+        (ladder_items[("agents", agent)].path, project / f".claude/agents/{agent}.md")
         for agent in roster
     )
     for src, _dst in copies:

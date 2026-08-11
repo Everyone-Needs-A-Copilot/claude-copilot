@@ -409,6 +409,150 @@ def test_activation_installs_both_products_and_only_then_becomes_ready(tmp_path)
     )
 
 
+def test_activation_resolves_claude_content_through_the_tier_ladder(tmp_path, monkeypatch):
+    """`activate_components` no longer copies the `claude` product's
+    protocol/agents from a single root -- when a layer manifest is
+    configured, an organization tier's real (substantive) override wins
+    for the ONE item it declares, and every other item still resolves to
+    the foundation's real content, per (dimension, item) -- never per
+    root. This is the keystone-defect fix: `workspaces.py`'s `_claude_plan()`
+    now consults `copilot.layers.yml` instead of a single
+    `paths.claude_copilot_root`."""
+    project = tmp_path / "project"
+    _git_init(project, "git@github.com:Example/Ladder.git")
+    claude_root, _codex_root = _repo_roots()
+
+    org_root = tmp_path / "org-tier"
+    (org_root / "commands").mkdir(parents=True)
+    # A real override that fully replaces protocol.md (OVERRIDE semantics
+    # replace, never merge) is realistically close in size to what it
+    # shadows -- long enough here to clear the substance gate's size-ratio
+    # check (core/ecosystem/substance.py) just like genuine company content
+    # would, rather than reading as an inert, disproportionately-smaller
+    # stub.
+    org_override = "# ENAC protocol override\n\n" + (
+        "Real, substantive, company-specific instruction content. " * 400
+    )
+    (org_root / "commands" / "protocol.md").write_text(org_override, encoding="utf-8")
+
+    manifest_path = tmp_path / "copilot.layers.yml"
+    manifest_path.write_text(
+        "version: 1\n"
+        "layers:\n"
+        "  - id: claude-organization\n"
+        "    role: organization\n"
+        "    rank: 30\n"
+        "    product: claude\n"
+        "    source:\n"
+        "      repo: https://example.invalid/org.git\n"
+        f"      path: {org_root}\n"
+        "    auth: anon\n"
+        "    activation: always\n"
+        "  - id: claude-foundation\n"
+        "    role: foundation\n"
+        "    rank: 40\n"
+        "    product: claude\n"
+        "    source:\n"
+        "      repo: https://example.invalid/foundation.git\n"
+        f"      path: {claude_root}\n"
+        "      subpath: .claude\n"
+        "    auth: anon\n"
+        "    activation: always\n",
+        encoding="utf-8",
+    )
+
+    def _fake_resolve_key(key, **_kwargs):
+        if key == "layers.manifest":
+            return str(manifest_path)
+        if key == "paths.mirrors_root":
+            return str(tmp_path / "mirrors")
+        return None
+
+    monkeypatch.setattr(
+        "cc.core.ecosystem.project_sources.resolve_key", _fake_resolve_key
+    )
+
+    activate_components(project, ("claude",), claude_root=claude_root)
+
+    # The organization's real override wins for the one item it declares.
+    assert (project / ".claude/commands/protocol.md").read_text(encoding="utf-8") == org_override
+    # Everything the organization does NOT declare still resolves through
+    # the ladder to the foundation's real content -- per-artifact, not
+    # per-root: the org's one override does not shrink the install to just
+    # what the org contributed.
+    assert (project / ".claude/commands/continue.md").read_text(encoding="utf-8") == (
+        claude_root / ".claude/commands/continue.md"
+    ).read_text(encoding="utf-8")
+    assert (project / ".claude/agents/qa.md").read_text(encoding="utf-8") == (
+        claude_root / ".claude/agents/qa.md"
+    ).read_text(encoding="utf-8")
+
+
+def test_activation_placeholder_override_does_not_shadow_real_foundation_content(
+    tmp_path, monkeypatch
+):
+    """The trap this fix must not reintroduce: an org-tier `TODO(`
+    placeholder scaffold must never win over the foundation's real protocol
+    merely by being the nearer tier."""
+    project = tmp_path / "project"
+    _git_init(project, "git@github.com:Example/Placeholder.git")
+    claude_root, _codex_root = _repo_roots()
+
+    org_root = tmp_path / "org-tier"
+    (org_root / "commands").mkdir(parents=True)
+    real_foundation_protocol = (claude_root / ".claude/commands/protocol.md").read_text(
+        encoding="utf-8"
+    )
+    (org_root / "commands" / "protocol.md").write_text(
+        "TODO(pablo): this section is currently a no-op placeholder with zero "
+        "invented company content.\n\n" + real_foundation_protocol,
+        encoding="utf-8",
+    )
+
+    manifest_path = tmp_path / "copilot.layers.yml"
+    manifest_path.write_text(
+        "version: 1\n"
+        "layers:\n"
+        "  - id: claude-organization\n"
+        "    role: organization\n"
+        "    rank: 30\n"
+        "    product: claude\n"
+        "    source:\n"
+        "      repo: https://example.invalid/org.git\n"
+        f"      path: {org_root}\n"
+        "    auth: anon\n"
+        "    activation: always\n"
+        "  - id: claude-foundation\n"
+        "    role: foundation\n"
+        "    rank: 40\n"
+        "    product: claude\n"
+        "    source:\n"
+        "      repo: https://example.invalid/foundation.git\n"
+        f"      path: {claude_root}\n"
+        "      subpath: .claude\n"
+        "    auth: anon\n"
+        "    activation: always\n",
+        encoding="utf-8",
+    )
+
+    def _fake_resolve_key(key, **_kwargs):
+        if key == "layers.manifest":
+            return str(manifest_path)
+        if key == "paths.mirrors_root":
+            return str(tmp_path / "mirrors")
+        return None
+
+    monkeypatch.setattr(
+        "cc.core.ecosystem.project_sources.resolve_key", _fake_resolve_key
+    )
+
+    activate_components(project, ("claude",), claude_root=claude_root)
+
+    assert (
+        project / ".claude/commands/protocol.md"
+    ).read_text(encoding="utf-8") == real_foundation_protocol
+
+
 def test_empty_project_is_safe_finish_with_closed_component_assessments(tmp_path):
     project = tmp_path / "empty"
     _git_init(project)

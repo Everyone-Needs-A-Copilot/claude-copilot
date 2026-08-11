@@ -176,6 +176,58 @@ def synthesize_source_path(
     return content_root / relative
 
 
+def synthesize_effective_layers(
+    layers: list[dict[str, Any]], *, mirror_root_base: Path | str
+) -> list[dict[str, Any]]:
+    """
+    Return `layers` with each `source.path` resolved to where its content
+    ACTUALLY lives on disk right now: `synthesize_source_path()`'s computed
+    mirror location for a remote-sourced layer, or (WP-372, the
+    protocol-override live-verify fix) an explicit local `source.path` with
+    `source.subpath` joined on top for a "visible checkout" layer that also
+    declares one (the live manifest's `claude-foundation` entry: `path:
+    .../claude-copilot`, `subpath: .claude`) -- without this join, a
+    visible-checkout layer's real content (which lives under the subpath)
+    is never discoverable and can never appear in another layer's
+    `shadowed[]`.
+
+    READ-ONLY: pure path arithmetic, never clones/fetches/writes anything,
+    and never requires the computed path to already exist -- callers
+    (`core/ecosystem/discovery.py`'s best-effort scan) degrade honestly
+    when it doesn't.
+
+    SINGLE SOURCE OF TRUTH shared by every READ-ONLY resolution caller --
+    `commands/resolve.py` (`cc resolve --explain`) and
+    `core/ecosystem/project_sources.py` (project-install ladder
+    resolution) both call this directly so neither can ever compute a
+    layer's effective content root differently than the other.
+    `commands/update.py` is NOT a caller: it MUTATES (clones/updates the
+    mirror first) before it has a source path to synthesize from, so it
+    keeps its own inline equivalent -- see that module's own comment.
+    """
+    base = Path(mirror_root_base).expanduser()
+    effective: list[dict[str, Any]] = []
+    for layer in layers:
+        layer_copy = dict(layer)
+        source = dict(layer.get("source") or {})
+        local_path = source.get("path")
+        subpath = source.get("subpath")
+        synthesized = synthesize_source_path(layer, mirror_root_base=base)
+        if synthesized is not None:
+            source["path"] = str(synthesized)
+            layer_copy["source"] = source
+        elif local_path and subpath:
+            relative = Path(str(subpath))
+            if relative.is_absolute() or ".." in relative.parts:
+                raise ManifestError(
+                    f"Layer {layer['id']!r} source.subpath must stay inside its checkout."
+                )
+            source["path"] = str(Path(str(local_path)).expanduser() / relative)
+            layer_copy["source"] = source
+        effective.append(layer_copy)
+    return effective
+
+
 def probe_remote_ref(
     source: str,
     ref: str = DEFAULT_LOCK_POINTER_REF,
