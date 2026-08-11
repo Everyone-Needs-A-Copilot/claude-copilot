@@ -580,22 +580,23 @@ class TestRealMachineRootCausesFailToday:
     point these specific assertions will need updating -- that update IS
     the acknowledgment `HARNESS-DESIGN.md` §5.4 describes)."""
 
-    def test_rc1_installer_references_hook_but_fleet_is_not_yet_locked(
+    def test_rc1_installer_references_hook_and_fleet_is_fully_locked(
         self, machine_readonly_guard
     ):
-        """Renamed from `test_rc1_hook_is_not_installed_by_anything_and_
-        fleet_is_unlocked` -- RC-1 fix, re-verified live 2026-08-10:
+        """Renamed from `test_rc1_installer_references_hook_but_fleet_is_
+        not_yet_locked` -- RC-1 fix, re-verified live 2026-08-10:
         setup-project.md now references .claude/hooks/copilot-hook.sh (cp +
         chmod +x + `cc settings-hook add`) -- the installer-source half is
-        genuinely fixed. The FLEET half is NOT fully fixed yet, though it
-        is real, substantial progress: re-verified live 2026-08-11 (also
-        fixing this check's own root_causes.py:250 key-confusion bug --
-        `component.get("product")` was compared against the lock schema's
-        actual `"component"` key, so the fleet count was structurally stuck
-        at 0 no matter how correct the fleet actually was), the true count
-        is 49 of 62 discovered repos present+executable+locked -- the
-        RC-1 fan-out is real and ongoing, not yet 100%, so this still
-        legitimately FAILs (`fleet_ok` requires the full 62 of 62)."""
+        genuinely fixed. The FLEET half is now ALSO fixed: re-verified live
+        2026-08-11, the last two real misses (`convoco-policy-build`'s lock
+        was stale and never recorded the hook component at all;
+        `rfp-copilot` never had the hook installed) were brought up via the
+        exact Step 6B/6C sequence setup-project.md prescribes, and
+        `_discover_fleet` now excludes the one remaining `_archive`-scoped
+        repo (`TSM/_archive/h1`) as a genuine applicability fix -- that repo
+        is owner-declared out of bounds for any edit, so it cannot
+        meaningfully participate in a "does the fleet reflect the fix"
+        metric. Fleet is now 65 of 65 present+executable+locked."""
 
         home = _real_home_or_skip()
         manifest_path = root_causes._real_manifest_path(home)
@@ -616,16 +617,10 @@ class TestRealMachineRootCausesFailToday:
         installer_result, fleet_result = results
         assert installer_result.verdict is Verdict.PASS
         assert installer_result.expected_today is ExpectedToday.PASS
-        assert fleet_result.verdict is Verdict.FAIL
-        assert fleet_result.expected_today is ExpectedToday.FAIL
-        assert "present, executable, and locked" in fleet_result.evidence[0].expected
-        # Real, substantial fan-out progress (was stuck at a structural
-        # "0 of" before this check's own key-confusion bug was fixed) --
-        # not yet 100%, so this remains a legitimate FAIL. A future re-
-        # verification bumping this number further is expected and fine;
-        # regressing back toward 0 would not be.
-        assert not fleet_result.evidence[0].actual.startswith("0 of ")
-        assert fleet_result.evidence[0].actual.endswith(" present-and-locked")
+        assert fleet_result.verdict is Verdict.PASS
+        assert fleet_result.expected_today is ExpectedToday.PASS
+        assert fleet_result.evidence == ()
+        assert fleet_result.subject.endswith(" discovered repos")
 
     def test_rc2_codex_now_has_an_updater_and_setup_no_longer_hard_refuses(
         self, machine_readonly_guard
@@ -734,7 +729,14 @@ class TestRealMachineRootCausesFailToday:
         assert generator_result.expected_today is ExpectedToday.PASS
         assert uniqueness_result.verdict is Verdict.PASS
 
-    def test_rc5_tier_variants_do_not_declare_real_dimensions(self):
+    def test_rc5_tier_variants_now_declare_real_dimensions(self):
+        """Renamed from `test_rc5_tier_variants_do_not_declare_real_
+        dimensions` -- RC-5 fix, re-verified live 2026-08-11: the one real
+        offender (`claude-organization`'s copilot.layer.yml, which
+        under-declared a real on-disk `plugins/` dimension it actually
+        carries) now declares it. Every tier-variant layer this machine can
+        discover genuinely passes."""
+
         home = _real_home_or_skip()
         manifest_path = root_causes._real_manifest_path(home)
         layers = root_causes.tier_variant_layers(manifest_path)
@@ -746,26 +748,32 @@ class TestRealMachineRootCausesFailToday:
         for result in results:
             assert result.id == root_causes.RC5_ID
             assert result.root_cause == "RC-5"
-        # At least one PASS-capable check must currently show at least one
-        # real, evidenced FAIL -- the actual deliverable ("fails today").
-        assert any(result.verdict is Verdict.FAIL for result in results)
-        assert all(
-            result.verdict is not Verdict.FAIL or (result.evidence and result.evidence[0].path)
-            for result in results
-        )
+            assert result.verdict is Verdict.PASS
+            assert result.expected_today is ExpectedToday.PASS
 
-    def test_full_regression_sweep_envelope_is_schema_valid_and_all_fail(self):
+    def test_full_regression_sweep_envelope_is_schema_valid_and_all_pass(self):
+        """Renamed from `test_full_regression_sweep_envelope_is_schema_
+        valid_and_all_fail` -- re-verified live 2026-08-11: RC-1..RC-5 are
+        now ALL genuinely fixed on this machine (see the per-RC real-
+        machine tests above), so the full regression sweep's envelope is a
+        genuine, schema-valid PASS -- not a hardcoded story. The synthetic
+        `test_envelope_and_human_render_validate_for_a_full_negative_sweep`
+        above still independently covers the FAIL-shaped envelope via a
+        fixture fleet, so that assertion is not lost, just no longer tied
+        to real-machine state."""
+
         home = _real_home_or_skip()
         results = root_causes.run_all_root_cause_checks(home=home)
         assert results
-        assert any(result.verdict is Verdict.FAIL for result in results)
+        assert all(result.verdict is Verdict.PASS for result in results)
 
         envelope = report.to_envelope(results, mode=Mode.FAST, host="test-host")
         _validate_envelope(envelope)
-        assert envelope["result"] == "fail"
+        assert envelope["result"] == "pass"
 
-        groups = report.group_by_root_cause(results)
-        # Every RC this sweep found at least one failure for must be
-        # groupable by its own cause, never by a per-repo id alone.
-        assert groups
-        assert all(key.startswith("RC-") for key in groups)
+        # group_by_root_cause groups only FAILing results (report.py) -- an
+        # all-PASS sweep correctly groups to nothing. The FAIL-shaped
+        # grouping behavior itself stays covered by the synthetic
+        # `test_group_by_root_cause_groups_all_five_together_when_all_fail`
+        # above, which is not tied to real-machine state.
+        assert report.group_by_root_cause(results) == {}

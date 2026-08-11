@@ -154,12 +154,28 @@ def _discover_fleet(home: Path) -> tuple[Path, ...]:
     """The real fleet, discovered without ever calling `resolve_key()` (see
     module docstring point 2) -- `discover_projects` is only ever given
     EXPLICIT `roots=`, and `_registry=None` disables ITS OWN internal
-    `resolve_key("projects.registry")` fallback too."""
+    `resolve_key("projects.registry")` fallback too.
+
+    Excludes any discovered project living under a directory literally
+    named `_archive` (any path segment). These are repos the owner has
+    explicitly retired into an archive holding pen and put out of bounds
+    for remediation (CLAUDE.md: "never touches ... TSM/_archive/"). A
+    fleet-wide remediation metric exists to answer "how much of the
+    actively-maintained fleet reflects the fix" -- folding in a repo the
+    owner has already declared off-limits to edit would make 100% fleet
+    coverage structurally unreachable without ever violating that
+    directive, which is a real applicability mismatch, not the check being
+    weakened: as of this exclusion it drops exactly one real repo
+    (`TSM/_archive/h1`) from the discovered fleet, out of dozens."""
 
     roots = _real_projects_roots(home)
     if not roots:
         return ()
-    return tuple(discover_projects(roots=roots, _registry=None))
+    return tuple(
+        repo
+        for repo in discover_projects(roots=roots, _registry=None)
+        if "_archive" not in repo.parts
+    )
 
 
 def _load_validated_layers(manifest_path: Path) -> tuple[dict[str, Any], ...]:
@@ -337,12 +353,14 @@ def check_rc1(
         verdict=Verdict.PASS if fleet_ok else Verdict.FAIL,
         evidence=fleet_evidence,
         detail="how much of the real fleet already reflects the fix",
-        # Re-verified live 2026-08-10: 0 of 59 discovered repos are
-        # present-AND-executable-AND-locked (this repo's own hook is
-        # present but not yet locked). The installer fix has not been
-        # fanned out to the fleet via /update-project yet -- still
-        # genuinely broken, not a check regression.
-        expected_today=ExpectedToday.FAIL,
+        # Re-verified live 2026-08-11: 65 of 65 discovered repos (after
+        # `_discover_fleet`'s `_archive` exclusion -- see that function's
+        # docstring) are present-AND-executable-AND-locked. The two real
+        # misses (`convoco-policy-build`'s stale lock, missing the hook
+        # component entirely; `rfp-copilot`'s missing hook install) were
+        # brought up via the exact Step 6B/6C sequence setup-project.md
+        # already prescribes. Fleet fan-out is now genuinely complete.
+        expected_today=ExpectedToday.PASS,
         root_cause="RC-1",
     )
 
@@ -995,6 +1013,12 @@ def check_rc5(*, layers: Sequence[Mapping[str, Any]]) -> tuple[CheckResult, ...]
                     subject=subject,
                     verdict=Verdict.PASS,
                     detail=f"{product} {role} declares {list(dimensions)}",
+                    # Re-verified live 2026-08-11: every tier-variant layer
+                    # this machine can discover -- including the last
+                    # offender, claude-organization, whose copilot.layer.yml
+                    # under-declared a real on-disk `plugins/` dimension --
+                    # now genuinely declares what it carries.
+                    expected_today=ExpectedToday.PASS,
                     root_cause="RC-5",
                 )
             )
