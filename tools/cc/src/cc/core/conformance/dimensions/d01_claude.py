@@ -707,11 +707,15 @@ _D01_DOCUMENTED_COMMANDS_REGISTRATION = register_check(
     severity=Severity.S2,
     scope=Scope.PER_REPO,
     summary=(
-        "Every `` `/command` `` reference in CLAUDE.md names a command "
-        "that actually exists in `.claude/commands/`. Named failure: "
-        "`research-copilot` documents 4 that do not exist."
+        "Every `` `/command` `` reference in CLAUDE.md resolves as EITHER "
+        "a project command in `.claude/commands/` OR a machine command on "
+        "VERSION.json's `machineCommands` roster (the global "
+        "`~/.claude/commands/` search path -- e.g. `/setup-project`, "
+        "`/knowledge-copilot`, documented as 'work anywhere' in "
+        "docs/01-getting-started/01-user-journey.md). A reference "
+        "resolving in NEITHER location still fails."
     ),
-    remediation="Remove or correct the stale command reference(s) in CLAUDE.md, or restore the missing command file(s) via `/update-project`.",
+    remediation="Remove or correct the stale command reference(s) in CLAUDE.md, restore the missing project command via `/update-project`, or confirm the referenced name is a real VERSION.json `machineCommands` entry (not a typo or retired command).",
     mode=Mode.FAST,
     applies_to_classes=_APPLIES_TO,
     expected_today=ExpectedToday.PASS,
@@ -721,11 +725,13 @@ _D01_DOCUMENTED_COMMANDS_REGISTRATION = register_check(
 def check_d01_documented_commands_exist(
     repo: Path,
     *,
+    claude_root: Path | str | None = None,
     subject: str | None = None,
     expected_today: ExpectedToday | None = None,
 ) -> CheckResult:
     repo = Path(repo)
     subject_name = subject if subject is not None else str(repo)
+    registration = _D01_DOCUMENTED_COMMANDS_REGISTRATION
     path = repo / CLAUDE_MD_RELATIVE_PATH
     try:
         text = path.read_text(encoding="utf-8")
@@ -733,7 +739,7 @@ def check_d01_documented_commands_exist(
         text = None
 
     if not text:
-        return _D01_DOCUMENTED_COMMANDS_REGISTRATION.result(
+        return registration.result(
             subject=subject_name,
             verdict=Verdict.SKIP,
             detail="no CLAUDE.md to check",
@@ -742,7 +748,7 @@ def check_d01_documented_commands_exist(
 
     named = sorted({match.group(1) for match in _COMMAND_REFERENCE.finditer(text)})
     if not named:
-        return _D01_DOCUMENTED_COMMANDS_REGISTRATION.result(
+        return registration.result(
             subject=subject_name,
             verdict=Verdict.SKIP,
             detail="no `` `/command` `` references found in CLAUDE.md",
@@ -750,12 +756,40 @@ def check_d01_documented_commands_exist(
         )
 
     commands_dir = repo / COMMANDS_RELATIVE_DIR
-    missing = [name for name in named if not (commands_dir / f"{name}.md").is_file()]
+    unresolved = [name for name in named if not (commands_dir / f"{name}.md").is_file()]
+
+    # Real command resolution has two rungs: a project command in THIS
+    # repo's .claude/commands/, or a machine command on the global search
+    # path (~/.claude/commands/ -- never copied into a project, per
+    # docs/01-getting-started/01-user-journey.md's "work anywhere" table).
+    # The framework manifest is consulted only when at least one reference
+    # is unresolved locally -- most CLAUDE.md files reference only project
+    # commands, so the common case never needs a framework root at all.
+    machine: frozenset[str] | None = frozenset()
+    if unresolved:
+        framework_root = _framework_root("claude", claude_root)
+        if framework_root is None:
+            return _missing_framework_root_result(registration, subject_name, expected_today)
+        manifest = _load_version_manifest(framework_root)
+        if manifest is None:
+            return _unreadable_manifest_result(
+                registration, subject_name, framework_root, expected_today
+            )
+        machine = _machine_commands(manifest)
+        if machine is None:
+            return _unreadable_manifest_result(
+                registration, subject_name, framework_root, expected_today
+            )
+
+    missing = [name for name in unresolved if f"{name}.md" not in machine]
     if not missing:
-        return _D01_DOCUMENTED_COMMANDS_REGISTRATION.result(
+        return registration.result(
             subject=subject_name,
             verdict=Verdict.PASS,
-            detail=f"all {len(named)} documented command(s) exist on disk",
+            detail=(
+                f"all {len(named)} documented command(s) resolve as a "
+                "project command or a VERSION.json machineCommands entry"
+            ),
             expected_today=expected_today,
         )
 
@@ -763,16 +797,22 @@ def check_d01_documented_commands_exist(
         Evidence(
             kind="documented-command-missing",
             path=f"{COMMANDS_RELATIVE_DIR}/{name}.md",
-            expected="present (referenced by CLAUDE.md)",
-            actual="missing",
+            expected=(
+                "present in .claude/commands/ OR named in VERSION.json's "
+                "machineCommands (global ~/.claude/commands/)"
+            ),
+            actual="missing from both",
         )
         for name in missing
     )
-    return _D01_DOCUMENTED_COMMANDS_REGISTRATION.result(
+    return registration.result(
         subject=subject_name,
         verdict=Verdict.FAIL,
         evidence=evidence,
-        detail=f"CLAUDE.md references {len(missing)} command(s) that do not exist: {missing}.",
+        detail=(
+            f"CLAUDE.md references {len(missing)} command(s) that resolve "
+            f"as neither a project command nor a machine command: {missing}."
+        ),
         expected_today=expected_today,
     )
 

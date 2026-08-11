@@ -286,6 +286,51 @@ print('files recorded:', len(c[0]['files']) if c else 0)
 
 ---
 
+## Step 6D: Write Project Declaration
+
+Write `copilot.project.json` -- the small, portable, committed declaration of which host frameworks this project expects (`RUBRIC.md` D9 / `repo.d09.portable_declaration`; `cc.core.ecosystem.workspaces` module docstring: "a small, portable, shared declaration ... says which host frameworks the project expects and never contains repository URLs, organization topology, credentials, ranks, or machine paths"). This is a real, consumed artifact -- `cc workspace status` reads it back (`workspaces.read_declaration`) and the reconciliation recipe engine preserves it across repair runs -- not a copied template: it is `{"schema_version": "1.0", "components": [...]}`, nothing else, generated from what this run actually put on disk.
+
+Preserve, never clobber: if `copilot.project.json` already exists (e.g. a prior `codex-copilot` install already declared `"codex"`), this step reads it back first and only ADDS `"claude"` to whatever is already declared -- exactly like Step 6C's lock generation reads back any existing `codex` component before writing the `claude` one. `"codex"` is added only if `plugins/codex-copilot/` is genuinely present on disk (this command never installs Codex itself -- see Step 12's Codex note) or was already declared, so the declaration never claims a component that is not, in fact, installed (`workspaces.py`: "declaration is explicitly not proof of installation" -- this step still keeps it honest by construction). Re-running this step (e.g. a later `/update-project`) with nothing changed produces byte-identical output.
+
+```bash
+python3 -c "
+import json
+from pathlib import Path
+
+target = Path('copilot.project.json')
+existing_components = []
+if target.is_file():
+    try:
+        raw = json.loads(target.read_text(encoding='utf-8'))
+        if isinstance(raw, dict) and raw.get('schema_version') == '1.0' and isinstance(raw.get('components'), list):
+            existing_components = [c for c in raw['components'] if isinstance(c, str)]
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        existing_components = []
+
+declared = set(existing_components)
+declared.add('claude')
+if Path('plugins/codex-copilot').is_dir():
+    declared.add('codex')
+
+components = [c for c in ('claude', 'codex') if c in declared]
+payload = {'schema_version': '1.0', 'components': components}
+target.write_text(json.dumps(payload, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+print(f'copilot.project.json: components={components}')
+" 2>&1 || echo "WARN: could not write copilot.project.json. The project is still usable; re-run /setup-project or /update-project later to retry."
+```
+
+**Verify:**
+```bash
+python3 -c "
+import json
+d = json.load(open('copilot.project.json'))
+print('schema_version:', d.get('schema_version'))
+print('components:', d.get('components'))
+" 2>/dev/null || echo "copilot.project.json missing or unreadable"
+```
+
+---
+
 ## Step 7: Create .mcp.json
 
 Claude Copilot no longer ships MCP servers. The `.mcp.json` file is still created as a marker that this project is set up, and to allow adding third-party MCP servers later.
@@ -476,6 +521,7 @@ If `FITNESS_RESULT` is non-zero (check failed), print the failures and tell the 
 - `.claude/memory/entries/` - Project memory (committed to git)
 - `.claude/cc/config.json` - cc CLI project config
 - `copilot.lock.json` - Per-project component lock, generated from what's actually installed (not a copied template)
+- `copilot.project.json` - Portable declaration of which Copilot frameworks this project expects (currently `["claude"]`; shareable via git)
 
 **Configuration:**
 - Memory: `.claude/memory/entries/` (committed files)

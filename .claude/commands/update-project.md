@@ -149,6 +149,7 @@ This will refresh:
 - `.claude/agents/` (the full framework agent roster from VERSION.json, plus kc setup-only — roster-aware: preserves project-specific agents, removes retired agents)
 - `.claude/hooks/copilot-hook.sh` (the enforcement hook shim, re-vendored and re-registered)
 - `copilot.lock.json` (the `claude` component entry, regenerated from what's actually installed — never a copied template; other components and any mutation ledger are preserved)
+- `copilot.project.json` (adds `"claude"` to the declared components, preserving any other component already declared — e.g. `"codex"`)
 - `.claude/orchestrator/` (if present — retired Python scripts will be removed)
 
 This will NOT touch:
@@ -375,6 +376,51 @@ c = [x for x in d.get('components', []) if x.get('component') == 'claude']
 print('claude component present:', bool(c))
 print('files recorded:', len(c[0]['files']) if c else 0)
 " 2>/dev/null || echo "copilot.lock.json missing or unreadable"
+```
+
+---
+
+## Step 7D: Update Project Declaration
+
+Write or update `copilot.project.json` -- the small, portable, committed declaration of which host frameworks this project expects (`RUBRIC.md` D9 / `repo.d09.portable_declaration`; `cc.core.ecosystem.workspaces` module docstring). This closes the same gap as Step 7C for `copilot.lock.json`: a project last set up before this step existed would otherwise never gain a declaration except through a full `/setup-project` re-run.
+
+Preserve, never clobber: this step reads back any existing `copilot.project.json` first and only ADDS `"claude"` to whatever is already declared (e.g. a prior `codex-copilot` install's `"codex"` entry is left alone). `"codex"` is added only if `plugins/codex-copilot/` is genuinely present on disk or was already declared -- the declaration never claims a component that is not, in fact, installed. Running this step again with nothing changed produces byte-identical output (idempotent, same as every other step in this section).
+
+```bash
+python3 -c "
+import json
+from pathlib import Path
+
+target = Path('copilot.project.json')
+existing_components = []
+if target.is_file():
+    try:
+        raw = json.loads(target.read_text(encoding='utf-8'))
+        if isinstance(raw, dict) and raw.get('schema_version') == '1.0' and isinstance(raw.get('components'), list):
+            existing_components = [c for c in raw['components'] if isinstance(c, str)]
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        existing_components = []
+
+declared = set(existing_components)
+declared.add('claude')
+if Path('plugins/codex-copilot').is_dir():
+    declared.add('codex')
+
+components = [c for c in ('claude', 'codex') if c in declared]
+payload = {'schema_version': '1.0', 'components': components}
+target.write_text(json.dumps(payload, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+print(f'copilot.project.json: components={components}')
+" 2>&1 || echo "WARN: could not write copilot.project.json. The project is still updated; re-run /update-project later to retry."
+```
+
+**Verify:**
+```bash
+python3 -c "
+import json
+d = json.load(open('copilot.project.json'))
+print('schema_version:', d.get('schema_version'))
+print('components:', d.get('components'))
+" 2>/dev/null || echo "copilot.project.json missing or unreadable"
 ```
 
 ---
@@ -612,6 +658,7 @@ Tell user:
 - `.claude/agents/` ({{AGENT_COUNT}} agent files: framework agents + kc setup-only, roster-aware sync)
 - `.claude/hooks/copilot-hook.sh` (enforcement hook shim, re-vendored and re-registered)
 - `copilot.lock.json` (`claude` component regenerated from what's actually installed; other components and any mutation ledger preserved)
+- `copilot.project.json` (`"claude"` declared; any other already-declared component, e.g. `"codex"`, preserved)
 {{IF_ORCHESTRATOR_REMOVED}}
 - `.claude/orchestrator/` (retired Python orchestrator removed)
 {{END_IF}}

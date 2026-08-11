@@ -150,6 +150,10 @@ def _build_synthetic_reference_project(project: Path, reference: Mapping) -> Non
     memory_dir.mkdir(parents=True)
     (memory_dir / ".gitkeep").write_text("", encoding="utf-8")
     (project / "copilot.lock.json").write_text("{}", encoding="utf-8")
+    (project / "copilot.project.json").write_text(
+        json.dumps({"schema_version": "1.0", "components": ["claude"]}),
+        encoding="utf-8",
+    )
 
     plugin_dir = project / "plugins" / "codex-copilot"
     plugin_dir.mkdir(parents=True)
@@ -191,9 +195,12 @@ def test_rt1_setup_project_produces_reference_install(scratch, reference):
     # enforcement hook, AND a genuinely generated copilot.lock.json -- the
     # `cc settings-hook add` call Step 6 already runs (added for RC-1)
     # itself writes a real mutation-ledger lock via
-    # core/ecosystem/mutations.py, not a copied template. Four facets that
-    # used to be known-today FAILs have moved into this "must stay PASS"
-    # group.
+    # core/ecosystem/mutations.py, not a copied template. `declaration`
+    # joined the same "must stay PASS" group when Step 6D was added:
+    # copilot.project.json is now written/merged from what this run
+    # genuinely installed (repo.d09.portable_declaration's own fix, same
+    # shape as RC-1/RC-4). Five facets total have moved out of "known
+    # today FAIL" into this group.
     for facet in (
         "mcp_json",
         "cc_config",
@@ -204,6 +211,7 @@ def test_rt1_setup_project_produces_reference_install(scratch, reference):
         "commands",
         "hook",
         "lock",
+        "declaration",
     ):
         assert by_facet[facet].verdict is Verdict.PASS, (
             f"{facet} regressed: {by_facet[facet].detail} "
