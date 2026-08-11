@@ -4,7 +4,13 @@
 # PURPOSE:
 #   Manages QA-gate state in .claude/hooks/state/qa-gate.json.
 #
-#   When @agent-me completes: adds task_id to pending_tasks[session_id].
+#   When @agent-me completes: extracts a task_id from the agent's structured
+#     "Task: TASK-N" header (see extract_task_id below), VALIDATES it against
+#     THIS project's tc database (see task_id_valid_in_project), and only
+#     then adds it to pending_tasks[session_id]. An ID that doesn't parse or
+#     doesn't resolve locally never arms the gate (see fail-safe note in
+#     handle_me_completion) — this is the RC-2 fix: a gate must never arm
+#     against a task ID that only exists in a DIFFERENT project's database.
 #   When @agent-qa completes: parses verdict, removes task from pending_tasks
 #     on pass, increments retry counter on fail. After 3 failures, auto-unblocks
 #     and emits an advisory systemMessage.
@@ -15,6 +21,15 @@
 #     agent_type          — subagent type (e.g. "me", "qa", "ta")
 #     last_assistant_message — the subagent's final output text
 #   (other fields ignored)
+#
+# TASK ID SOURCE OF TRUST (RC-2):
+#   Task IDs are read from the agent's structured "Task: TASK-N | WP: WP-N"
+#   header line (a contract-mandated field, not narrative prose — see
+#   .claude/agents/_shared/output-contract.md and each agent's Output Format
+#   section), then validated against the CURRENT project's tc database
+#   (`tc task get <N> --json`, resolved via $CLAUDE_PROJECT_DIR). Both steps
+#   are required: anchoring alone cannot rule out a well-formed header that
+#   references the wrong project's task graph. See task_id_valid_in_project().
 #
 # OUTPUT:
 #   Exit 0 always (this hook is non-blocking for SubagentStop).
@@ -171,17 +186,50 @@ get_session() {
 
 # ---------------------------------------------------------------------------
 # Task ID extraction
-# Extract first TASK-N reference from a message string.
-# Returns empty string if none found.
+#
+# RC-2 (the false-gate incident this fix closes): the previous implementation
+# was `grep -oE 'TASK-[0-9]+' | head -1` over the ENTIRE raw message -- a
+# scan of free narrative prose, not a structured field. It scraped a stray
+# "TASK-612" mentioned somewhere in an agent's summary (a reference in
+# passing, not the agent's own task) and armed a QA gate against it, even
+# though TASK-612 does not exist in this project's tc database at all -- it
+# exists only in a DIFFERENT project's (convoco's) database.
+#
+# Fix: anchor extraction to the structured "Task: TASK-N | WP: WP-N" header
+# line that @agent-me's and @agent-qa's Output Format contracts REQUIRE as
+# their first reported line (see .claude/agents/me.md, .claude/agents/qa.md,
+# .claude/agents/_shared/output-contract.md's agent-to-agent register --
+# "Task/WP IDs" are called out there as structured, precision-over-prose
+# fields, not narrative). A bare "TASK-N" appearing mid-sentence anywhere
+# else in the message body no longer matches.
+#
+# This narrows the surface but is not sufficient alone -- a well-formed
+# "Task:" header can still reference the wrong project's task graph (stale
+# context, a copy-pasted example, cross-session bleed). See
+# task_id_valid_in_project() below, which is the hard boundary: extraction
+# picks a CANDIDATE, validation is what decides whether it may arm a gate.
+#
+# Returns empty string if no structured Task: header line is found.
 # ---------------------------------------------------------------------------
 extract_task_id() {
   local msg="$1"
-  # Look for TASK-N (digits only) pattern
-  printf '%s' "$msg" | grep -oE 'TASK-[0-9]+' | head -1 || echo ""
+  local line
+  line="$(printf '%s\n' "$msg" | grep -oE '^[[:space:]]*Task:[[:space:]]*TASK-[0-9]+' | head -1 2>/dev/null)" || line=""
+  printf '%s' "$line" | grep -oE 'TASK-[0-9]+' 2>/dev/null || echo ""
 }
 
 # Extract ALL TASK-N references from a message string.
 # Returns a JSON array of unique task IDs, e.g. '["TASK-5","TASK-12"]'
+#
+# NOTE (sibling audit, see JOB-1 item 5): this one intentionally still scans
+# the whole message body rather than anchoring to the "Task:" header, because
+# it feeds ONLY the qa-pass CLEAR path (handle_qa_completion's targeted vs.
+# full-clear decision) -- never the arm path. A stray extra ID here can at
+# most cause a targeted-clear to also happen to match, or fall through to
+# the already-safe full-clear fallback; it can never arm a gate against an
+# unvalidated task. That asymmetry (arm must be conservative, clear may be
+# generous -- see fail-safe note in handle_me_completion) is why this
+# function was left unanchored rather than changed to match extract_task_id.
 extract_all_task_ids() {
   local msg="$1"
   local ids_raw
@@ -192,6 +240,42 @@ extract_all_task_ids() {
   fi
   # Build a JSON array
   printf '%s\n' "$ids_raw" | "$JQ" -R . | "$JQ" -sc . 2>/dev/null || echo '[]'
+}
+
+# ---------------------------------------------------------------------------
+# Task ID validation — confirm a task ID actually exists in THIS project's
+# tc (Task Copilot) database before it is trusted to arm a gate.
+#
+# This is the sharp edge RC-2 exposed: a QA gate in one project (here,
+# copilot-control-tower) was armed against a task ID that resolves only in
+# a DIFFERENT project's database (convoco's). Anchored extraction (above)
+# narrows *where* a candidate ID can come from; it cannot rule out a
+# well-formed header pointing at the wrong project. Validation against the
+# LOCAL tc database is the one channel that is actual ground truth rather
+# than another heuristic: tc task IDs are project-scoped integers backed by
+# a per-project SQLite file, and `tc task get <N> --json` resolves that file
+# by walking up from cwd to the nearest `.copilot/tasks.db` -- so "does this
+# ID exist in the project we are actually running in" is a real check, not
+# a guess.
+#
+# Returns 0 (valid, arm-eligible) only when `tc task get <N> --json`
+# succeeds against the project rooted at $CLAUDE_PROJECT_DIR (the env var
+# Claude Code sets for hook invocations; falls back to $PWD, which is what
+# the harness uses as cwd for hooks anyway). Any other outcome — malformed
+# ID, tc not on PATH, no tasks.db for this project, or a well-formed ID tc
+# reports as not found — returns non-zero. There is deliberately no
+# "unknown, assume valid" branch: see the fail-safe note at the call site
+# for why "cannot validate" and "invalid" get the identical response.
+# ---------------------------------------------------------------------------
+task_id_valid_in_project() {
+  local task_id="$1"
+  local num="${task_id#TASK-}"
+  [[ "$num" =~ ^[0-9]+$ ]] || return 1
+
+  command -v tc &>/dev/null || return 1
+
+  local project_dir="${CLAUDE_PROJECT_DIR:-$PWD}"
+  ( cd "$project_dir" 2>/dev/null && tc task get "$num" --json >/dev/null 2>&1 )
 }
 
 # ---------------------------------------------------------------------------
@@ -298,6 +382,26 @@ handle_me_completion() {
 
   if [[ -z "$task_id" ]]; then
     log_warn "agent-me completed but no TASK-N found in last_assistant_message (session: ${SESSION_ID})"
+    exit 0
+  fi
+
+  if ! task_id_valid_in_project "$task_id"; then
+    # FAIL-SAFE DIRECTION: do NOT arm on an ID that doesn't validate.
+    #
+    # A gate that fails to arm degrades to the pre-hook status quo for this
+    # one completion — QA review is still the mandatory *social* contract in
+    # every agent's Route-To table, only the mechanical backstop is missing,
+    # and that gap is visible (this WARN) and recoverable by a human or a
+    # later pass.
+    #
+    # A gate that arms on a bad ID is NOT self-healing: it denies every
+    # Bash/Agent tool call in the session except Agent(qa) and a short tc
+    # allowlist, and its only exit is 3 consecutive QA failure cycles
+    # against a task QA can never find in this project's database (RC-2
+    # burned exactly one such cycle before this fix landed). Under-enforcing
+    # once is far cheaper than a session-wide false block, so validation
+    # failure fails OPEN on the gate (skip arming), never closed.
+    log_warn "agent-me completed with ${task_id} but it does not resolve in this project's tc database (cross-project or stale ID) — NOT arming QA gate (session: ${SESSION_ID})"
     exit 0
   fi
 
