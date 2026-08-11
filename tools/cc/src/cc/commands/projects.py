@@ -51,11 +51,31 @@ itself last recorded is held with reason `"locally-modified"` regardless
 of git status, so a customization the project owner COMMITTED (tree
 clean, `guard_personal()` alone sees nothing to hold) is never silently
 overwritten by a later fanout.
+
+PER-ARTIFACT TIER RESOLUTION (component-sync fan-out reconnection): the
+`claude` component's `commands`/`agents` dimensions no longer materialize
+from ONE ROOT PER PRODUCT. `build_materialize_project_report()` resolves
+each tracked `.claude/{commands,agents}/<item>.md` path individually
+through `core/ecosystem/project_sources.py`'s `resolve_claude_content()`
+-- the SAME nearest-SUBSTANTIVE-tier-wins resolver `workspaces.py`'s
+`_claude_plan()` already consumes for the initial single-project install
+-- so fan-out and single-project install can never disagree about which
+tier is "current". This is the ONLY tier-resolution implementation
+either path calls; nothing here re-derives nearest-wins a second way.
+`source_root`/`source_roots["claude"]` (from `resolve_fanout_sources()`)
+remains the FOUNDATION root: it is `resolve_claude_content()`'s own
+`foundation_root` argument, its degrade target when no manifest is
+configured, and the sole source for every framework-owned path that has
+no ladder concept at all (`fitness-check.sh`, the enforcement hook,
+evals, the project template -- see `project_sources.py`'s
+`INSTALL_DIMENSIONS`). `codex` has no ladder concept yet and always
+takes the single-root path unchanged.
 """
 
 from __future__ import annotations
 
 import hashlib
+import re
 import socket
 import stat
 from datetime import datetime, timezone
@@ -65,6 +85,7 @@ from typing import Any, Iterable, Optional
 from cc.commands.update import compute_exit_code
 from cc.core.ecosystem.freshness import compute_freshness, lock_fingerprint
 from cc.core.ecosystem.materialize import guard_personal
+from cc.core.ecosystem.project_sources import INSTALL_DIMENSIONS, ResolvedItem, resolve_claude_content
 from cc.core.ecosystem.projects import (
     GLOBAL_ONCE_PRODUCTS,
     PROJECT_LOCK_FILENAME,
@@ -77,6 +98,25 @@ from cc.core.ecosystem.projects import (
     write_project_lock,
 )
 from cc.core.locking import LockContentionError, copilot_lock, lock_path
+
+# `.claude/commands/<item>.md` / `.claude/agents/<item>.md` -- the only
+# `claude` framework-owned paths with a ladder concept (`INSTALL_DIMENSIONS`).
+# Every other framework-owned path (fitness-check.sh, the hook, evals, ...)
+# never matches this and stays foundation-sourced.
+_CLAUDE_LADDER_PATH_RE = re.compile(r"^\.claude/(commands|agents)/([^/]+)\.md$")
+
+
+def _claude_ladder_dimension_item(rel_path: str) -> Optional[tuple[str, str]]:
+    """`(dimension, item)` for a `claude` component's ladder-eligible
+    tracked path, or `None` for a path `resolve_claude_content()` has no
+    opinion about (module docstring's PER-ARTIFACT TIER RESOLUTION note)."""
+    match = _CLAUDE_LADDER_PATH_RE.match(rel_path)
+    if match is None:
+        return None
+    dimension, item = match.group(1), match.group(2)
+    if dimension not in INSTALL_DIMENSIONS:
+        return None
+    return dimension, item
 
 SCHEMA_VERSION = "1.0"
 
@@ -218,6 +258,7 @@ def build_materialize_project_report(
     _manifest: Optional[dict[str, Any]] = None,
     _lock_manifest_path: Any = _UNSET,
     _personal_roots: Iterable[Path | str] = (),
+    _claude_layers: Optional[list[dict[str, Any]]] = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """
@@ -266,7 +307,16 @@ def build_materialize_project_report(
         `materialize.py`'s own `dry_run`), the manifest entry's `version`/
         `release_tag`/per-file `checksum`s are updated, and (unless
         `dry_run`) the manifest is rewritten via `write_project_lock()`.
-        Project-owned files are never read, hashed, or written.
+        Project-owned files are never read, hashed, or written. For
+        `component == "claude"`, each ladder-eligible file (`.claude/
+        {commands,agents}/<item>.md`) is written from wherever
+        `resolve_claude_content()` resolves it (nearest substantive tier),
+        not necessarily `source_root` -- `changed[].layer` records the
+        REAL winning tier id for that file (e.g. `"claude-organization"`),
+        never just the component name, so a materialize's own report is
+        the attribution proof. Every other framework-owned path (no ladder
+        concept) still comes from `source_root` and reports `layer ==
+        component`, unchanged from before.
 
     `lock_before`/`lock_after` reuse `core/ecosystem/freshness.py`'s
     `lock_fingerprint()` (the same canonical-JSON git-blob-sha1 scheme
@@ -277,6 +327,12 @@ def build_materialize_project_report(
     Does NOT acquire `copilot_lock()` -- see module docstring (that is
     `execute_materialize_project()`'s job, and `build_fanout_report()`
     calls this function directly for the same reason).
+
+    `_claude_layers` is test-only (same convention as `_manifest`/
+    `_personal_roots` above): forwarded verbatim as `resolve_claude_
+    content()`'s own `_layers` override. `None` (the default) means "not
+    overridden" -- `resolve_claude_content()` auto-resolves the real
+    `layers.manifest` config key, exactly like production callers.
     """
     project = Path(project_path).expanduser()
     manifest = (
@@ -397,7 +453,39 @@ def build_materialize_project_report(
     if source_base is None or not source_base.is_dir():
         return _report(result="offline")
 
-    missing = [rel_path for rel_path in rel_paths if not (source_base / rel_path).is_file()]
+    # PER-ARTIFACT TIER RESOLUTION (module docstring): for `claude`, every
+    # ladder-eligible tracked path resolves individually through
+    # `resolve_claude_content()` -- nearest-SUBSTANTIVE-tier-wins, exactly
+    # like `_claude_plan()`'s single-project install -- rather than always
+    # copying from `source_base`. A path this resolves nothing for (not a
+    # `commands`/`agents` item, or `component != "claude"`) keeps the prior
+    # single-root behavior unchanged.
+    ladder_by_relpath: dict[str, ResolvedItem] = {}
+    if component == "claude":
+        ladder_items: dict[str, list[str]] = {}
+        for rel_path in rel_paths:
+            parsed = _claude_ladder_dimension_item(rel_path)
+            if parsed is None:
+                continue
+            dimension, item = parsed
+            ladder_items.setdefault(dimension, []).append(item)
+        if ladder_items:
+            resolved_map = resolve_claude_content(
+                foundation_root=source_base, items=ladder_items, _layers=_claude_layers
+            )
+            for rel_path in rel_paths:
+                parsed = _claude_ladder_dimension_item(rel_path)
+                if parsed is None:
+                    continue
+                resolved = resolved_map.get(parsed)
+                if resolved is not None:
+                    ladder_by_relpath[rel_path] = resolved
+
+    def _source_for(rel_path: str) -> Path:
+        resolved = ladder_by_relpath.get(rel_path)
+        return resolved.path if resolved is not None else source_base / rel_path
+
+    missing = [rel_path for rel_path in rel_paths if not _source_for(rel_path).is_file()]
     if missing:
         return _report(
             result="blocked",
@@ -410,7 +498,7 @@ def build_materialize_project_report(
     changed: list[dict[str, Any]] = []
 
     for rel_path in rel_paths:
-        src = source_base / rel_path
+        src = _source_for(rel_path)
         dest = project / rel_path
         src_bytes = src.read_bytes()
         to_sha = _sha256_hex(src_bytes)
@@ -435,10 +523,17 @@ def build_materialize_project_report(
             dest.chmod(src_mode)
 
         op = "unchanged" if content_matches else ("updated" if existed else "added")
+        resolved_item = ladder_by_relpath.get(rel_path)
         changed.append(
             {
                 "dimension": component,
-                "layer": component,
+                # Real attribution: the actual tier that supplied this file
+                # (e.g. "claude-organization"), not just the product name --
+                # `resolved_item` is only set for `claude`'s ladder-eligible
+                # paths (module docstring); every other path (`codex`, or a
+                # `claude` scaffold path with no ladder concept) keeps the
+                # prior `component`-name convention unchanged.
+                "layer": resolved_item.layer if resolved_item is not None else component,
                 "item": rel_path,
                 "op": op,
                 "from": from_sha,
@@ -522,16 +617,22 @@ def resolve_fanout_sources() -> tuple[
     `cc workspace configure`'s single-project install path already
     considers current.
 
-    COORDINATION NOTE: a concurrent change is rewiring `_claude_plan()` (in
-    the same module) to resolve the `claude` source through the full tier
-    ladder (foundation -> org -> department -> personal) instead of the
-    single `paths.claude_copilot_root` config key. This function
-    deliberately stays on the CURRENT single-root resolution for now --
-    once that lands, `claude`'s entry here should be reconnected to
-    whatever it exposes (rather than re-deriving tier resolution a second
-    time in this module), so fan-out and single-project install can never
-    disagree about which tier is "latest". `codex` is unaffected (still
-    single-rooted through `paths.codex_copilot_root`).
+    RECONNECTED (component-sync fan-out): this function itself still
+    resolves ONE root per product -- that root is now what makes it
+    reconnected, not a stale artifact of it. For `codex` (no ladder
+    concept) that root is materialized verbatim, unchanged. For `claude`,
+    `source_roots["claude"]` is consumed as `resolve_claude_content()`'s
+    `foundation_root` argument by `build_materialize_project_report()` (the
+    function `build_fanout_report()` calls directly for every project) --
+    that call site, not this one, is where each tracked `.claude/{commands,
+    agents}/<item>.md` path resolves individually through the full tier
+    ladder (foundation -> org -> department -> personal), exactly like
+    `_claude_plan()`'s single-project install (commit 49d7fee). Freshness
+    (`latest_by_product["claude"]`) still folds on the FOUNDATION version
+    only -- per-artifact resolution changes WHICH TIER'S COPY of an item
+    applies, never what "latest" means for staleness comparison -- so
+    fan-out and single-project install can never disagree about which
+    tier is current.
 
     A product whose configured root is unset/unreadable, or whose version
     file can't be read, resolves to `latest = None` / `release_tag = None`
@@ -581,6 +682,7 @@ def build_fanout_report(
     _excluded_registry: Optional[Path | str] = None,
     triggered_by: str = "manual",
     _personal_roots: Iterable[Path | str] = (),
+    _claude_layers: Optional[list[dict[str, Any]]] = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """
@@ -639,6 +741,13 @@ def build_fanout_report(
     Fail-open per project AND per component: an unreadable project
     manifest, or an unexpected error materializing one component, is
     recorded as a `failed` result and never aborts the rest of the sweep.
+
+    `_claude_layers` is test-only, forwarded verbatim to every
+    `build_materialize_project_report()` call this sweep makes (its own
+    `resolve_claude_content()` `_layers` override) -- `None` (the default,
+    and production's only value) means every project's `claude` files
+    resolve through the REAL configured tier ladder, identically to how
+    single-project install already does.
     """
     latest_by_product = _latest_by_product or {}
     release_tags = _release_tags or {}
@@ -738,6 +847,7 @@ def build_fanout_report(
                     source_root=source_roots.get(product, _UNSET),
                     _manifest=manifest,
                     _personal_roots=_personal_roots,
+                    _claude_layers=_claude_layers,
                     dry_run=dry_run,
                 )
             except Exception as exc:

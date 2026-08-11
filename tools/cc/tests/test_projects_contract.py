@@ -29,6 +29,7 @@ from cc.commands.projects import (
     execute_materialize_project,
     resolve_fanout_sources,
 )
+from cc.core.ecosystem.project_sources import resolve_claude_content
 from cc.core.ecosystem.projects import (
     discover_projects,
     project_freshness,
@@ -507,6 +508,265 @@ def test_materialize_project_applied_in_clean_project(tmp_path):
     assert changed_item["item"] == ".claude/commands/x.md"
     assert changed_item["op"] == "updated"
     assert changed_item["signed"] is True
+
+
+# ---------------------------------------------------------------------------
+# claude PER-ARTIFACT TIER RESOLUTION (component-sync fan-out reconnection):
+# `build_materialize_project_report()` resolves `.claude/{commands,agents}/
+# <item>.md` through `resolve_claude_content()` -- the SAME resolver
+# `_claude_plan()`'s single-project install already consumes -- instead of
+# always copying from `source_root`. `_claude_layers` is the test-only
+# passthrough to `resolve_claude_content()`'s own `_layers` override (see
+# `test_ecosystem_project_sources.py` for the resolver's own unit tests;
+# these prove the WIRING, not the fold itself).
+# ---------------------------------------------------------------------------
+
+
+def _claude_layer(
+    layer_id: str, *, role: str, rank: int, path: Path, subpath: str | None = None
+) -> dict:
+    """Mirrors the REAL live manifest's shape: a dedicated org/dept/personal
+    authoring repo declares `commands/`/`agents/` at ITS OWN root (no
+    `subpath`), while the foundation entry's `path` is the whole framework
+    checkout with `subpath: .claude` joined on top (`synthesize_effective_
+    layers()`) -- see `~/.config/copilot/copilot.layers.yml`'s real
+    `claude-organization` (bare `path`) vs. `claude-foundation` (`path` +
+    `subpath: .claude`) entries."""
+    source = {"repo": f"https://example.invalid/{layer_id}.git", "path": str(path)}
+    if subpath is not None:
+        source["subpath"] = subpath
+    return {
+        "id": layer_id,
+        "role": role,
+        "rank": rank,
+        "product": "claude",
+        "source": source,
+        "auth": "anon",
+        "activation": "always",
+    }
+
+
+def test_materialize_project_claude_ladder_prefers_nearer_substantive_tier(tmp_path):
+    """An organization-tier override for ONE agent reaches the project --
+    not the foundation's copy of that same item -- and the report's
+    `changed[].layer` names the REAL winning tier, not just `"claude"`."""
+    project = tmp_path / "ladder-project"
+    _git_init(project)
+    _write_files(
+        project,
+        {
+            ".claude/agents/cw.md": "old cw",
+            ".claude/agents/qa.md": "old qa",
+        },
+    )
+    _write_manifest(
+        project,
+        [
+            _component(
+                "claude",
+                "1.0.0",
+                files=[
+                    _framework_file(".claude/agents/cw.md", content="old cw"),
+                    _framework_file(".claude/agents/qa.md", content="old qa"),
+                ],
+            )
+        ],
+    )
+    _git_commit_all(project)
+
+    foundation_root = _make_source_repo(
+        tmp_path,
+        {
+            ".claude/agents/cw.md": "foundation cw, real and substantive",
+            ".claude/agents/qa.md": "foundation qa, real and substantive",
+        },
+        name="foundation-checkout",
+    )
+    org_root = tmp_path / "org-checkout"
+    _write_files(org_root, {"agents/cw.md": "organization's OWN cw override, real content"})
+
+    layers = [
+        _claude_layer("claude-organization", role="organization", rank=30, path=org_root),
+        _claude_layer(
+            "claude-foundation", role="foundation", rank=40, path=foundation_root, subpath=".claude"
+        ),
+    ]
+
+    report = build_materialize_project_report(
+        project,
+        component="claude",
+        target_version="2.0.0",
+        release_tag="claude@2.0.0",
+        source_root=foundation_root,
+        _claude_layers=layers,
+    )
+
+    _validate(report, "update.schema.json")
+    assert report["result"] == "applied"
+    # The organization's override reached the project -- never the
+    # foundation's copy of the same item (E-1: org content reaches project).
+    assert (
+        project / ".claude" / "agents" / "cw.md"
+    ).read_text() == "organization's OWN cw override, real content"
+    # The sibling, non-overridden item is still installed from the
+    # foundation -- overriding one artifact never costs another (E-2:
+    # nearest-wins preserves siblings).
+    assert (
+        project / ".claude" / "agents" / "qa.md"
+    ).read_text() == "foundation qa, real and substantive"
+
+    by_item = {c["item"]: c for c in report["changed"]}
+    assert by_item[".claude/agents/cw.md"]["layer"] == "claude-organization"
+    assert by_item[".claude/agents/qa.md"]["layer"] == "claude-foundation"
+
+
+def test_materialize_project_claude_draft_placeholder_never_shadows(tmp_path):
+    """A `status: draft` organization override never wins over the
+    foundation's real content, even though it is nearer (E-3)."""
+    project = tmp_path / "draft-shadow-project"
+    _git_init(project)
+    _write_files(project, {".claude/commands/protocol.md": "old"})
+    _write_manifest(
+        project,
+        [
+            _component(
+                "claude",
+                "1.0.0",
+                files=[_framework_file(".claude/commands/protocol.md", content="old")],
+            )
+        ],
+    )
+    _git_commit_all(project)
+
+    foundation_root = _make_source_repo(
+        tmp_path,
+        {".claude/commands/protocol.md": "---\nstatus: active\n---\nreal foundation protocol, long enough to be substantive on its own"},
+        name="foundation-checkout-draft",
+    )
+    org_root = tmp_path / "org-checkout-draft"
+    _write_files(org_root, {"commands/protocol.md": "---\nstatus: draft\n---\nTODO(pablo): placeholder"})
+
+    layers = [
+        _claude_layer("claude-organization", role="organization", rank=30, path=org_root),
+        _claude_layer(
+            "claude-foundation", role="foundation", rank=40, path=foundation_root, subpath=".claude"
+        ),
+    ]
+
+    report = build_materialize_project_report(
+        project,
+        component="claude",
+        target_version="2.0.0",
+        release_tag="claude@2.0.0",
+        source_root=foundation_root,
+        _claude_layers=layers,
+    )
+
+    assert report["result"] == "applied"
+    assert (project / ".claude" / "commands" / "protocol.md").read_text().startswith(
+        "---\nstatus: active\n---\nreal foundation protocol"
+    )
+    assert report["changed"][0]["layer"] == "claude-foundation"
+
+
+def test_materialize_project_claude_non_ladder_paths_stay_single_root(tmp_path):
+    """`fitness-check.sh` (no ladder concept -- `INSTALL_DIMENSIONS` is only
+    `commands`/`agents`) is unaffected: it still comes from `source_root`
+    verbatim and still reports `layer == component`."""
+    project = tmp_path / "scaffold-project"
+    _git_init(project)
+    _write_files(project, {".claude/fitness-check.sh": "old"})
+    _write_manifest(
+        project,
+        [
+            _component(
+                "claude",
+                "1.0.0",
+                files=[_framework_file(".claude/fitness-check.sh", content="old")],
+            )
+        ],
+    )
+    _git_commit_all(project)
+
+    foundation_root = _make_source_repo(
+        tmp_path, {".claude/fitness-check.sh": "new fitness check"}, name="foundation-scaffold"
+    )
+    org_root = tmp_path / "org-scaffold"  # declares nothing for fitness-check.sh -- no ladder concept
+
+    layers = [
+        _claude_layer("claude-organization", role="organization", rank=30, path=org_root),
+        _claude_layer("claude-foundation", role="foundation", rank=40, path=foundation_root),
+    ]
+
+    report = build_materialize_project_report(
+        project,
+        component="claude",
+        target_version="2.0.0",
+        release_tag="claude@2.0.0",
+        source_root=foundation_root,
+        _claude_layers=layers,
+    )
+
+    assert report["result"] == "applied"
+    assert (project / ".claude" / "fitness-check.sh").read_text() == "new fitness check"
+    assert report["changed"][0]["layer"] == "claude"
+
+
+def test_fanout_claude_ladder_matches_direct_materialize_no_second_implementation(tmp_path):
+    """`build_fanout_report()`'s per-project materialize and a direct
+    `build_materialize_project_report()` call resolve the SAME winning tier
+    for the same item -- proving fan-out and single-project resolution can
+    never drift apart (there is exactly one `resolve_claude_content()`
+    consumer, not two competing folds)."""
+    project = tmp_path / "fanout-ladder-project"
+    _git_init(project)
+    _write_files(project, {".claude/agents/cw.md": "old cw"})
+    _write_manifest(
+        project,
+        [
+            _component(
+                "claude",
+                "1.0.0",
+                files=[_framework_file(".claude/agents/cw.md", content="old cw")],
+            )
+        ],
+    )
+    _git_commit_all(project)
+
+    foundation_root = _make_source_repo(
+        tmp_path, {".claude/agents/cw.md": "foundation cw, real content"}, name="fanout-foundation"
+    )
+    org_root = tmp_path / "fanout-org"
+    _write_files(org_root, {"agents/cw.md": "organization cw override, real content"})
+
+    layers = [
+        _claude_layer("claude-organization", role="organization", rank=30, path=org_root),
+        _claude_layer(
+            "claude-foundation", role="foundation", rank=40, path=foundation_root, subpath=".claude"
+        ),
+    ]
+
+    report = build_fanout_report(
+        _projects=[project],
+        _latest_by_product={"claude": "2.0.0"},
+        _release_tags={"claude": "claude@2.0.0"},
+        _source_roots={"claude": foundation_root},
+        _claude_layers=layers,
+    )
+
+    assert report["summary"]["updated"] == 1
+    fanout_report = report["results"][0]["report"]
+    assert fanout_report["changed"][0]["layer"] == "claude-organization"
+    assert (project / ".claude" / "agents" / "cw.md").read_text() == "organization cw override, real content"
+
+    # Same inputs fed straight to the resolver fan-out itself consumes --
+    # identical winning tier, never a second, possibly-disagreeing
+    # resolution (there is exactly one `resolve_claude_content()` caller
+    # for this dimension/item across both single-project and fan-out).
+    direct = resolve_claude_content(
+        foundation_root=foundation_root, items={"agents": ("cw",)}, _layers=layers
+    )
+    assert direct[("agents", "cw")].layer == fanout_report["changed"][0]["layer"]
 
 
 def test_materialize_project_blocked_when_unverified_no_release_tag(tmp_path):
