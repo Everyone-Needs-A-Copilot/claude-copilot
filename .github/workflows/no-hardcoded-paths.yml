@@ -32,7 +32,7 @@ jobs:
             | grep -v '^templates/' \
             | grep -v '^scripts/pre-commit-no-hardcoded-paths' \
             | grep -v '^.github/workflows/no-hardcoded-paths.yml' \
-            | xargs grep -rn --include='*' -E '/Users/[^/[:space:]"'"'"']+|/home/[^/[:space:]"'"'"']+' 2>/dev/null \
+            | xargs grep -rn --include='*' -E '/Users/[^/[:space:]"'"'"']+|/home/[^/[:space:]"'"'"']+|/Volumes/[^/[:space:]"'"'"']+' 2>/dev/null \
             | grep -vE "$PLACEHOLDER_PATTERN" \
             || true)
 

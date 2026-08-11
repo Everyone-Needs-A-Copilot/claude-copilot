@@ -6,7 +6,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Mapping, Optional
 
 import typer
 
@@ -307,6 +307,63 @@ def guide_finalize(
     )
 
 
+def _adopt_settings_hook_ledger_rows(
+    loaded_request: ReconciliationRequest, report: dict[str, Any]
+) -> None:
+    """Best-effort follow-up: append the `mutations[]` ledger row for any
+    project whose `.claude/settings.json` the guarded transaction above
+    just merged via the `register-settings-hooks` operation.
+
+    Deliberately OUTSIDE the audited claim/execute/finalize contract this
+    function's caller drives: `mutations.apply_settings_hook()` acquires
+    its OWN `project_lock()` per project (safe here -- `execute_reconciliation()`
+    already released every per-project lock it held before returning the
+    report this function reads) and is independently transactional
+    (snapshot, atomic write, ledger row). Called AFTER the transaction
+    already wrote the merged settings content, so this call's own
+    `merge_hook_entries()` recomputation finds identical bytes already in
+    place and takes the existing `"adopted"` branch -- ledger-row-only,
+    never a second settings write (see that function's and
+    `reconciliation_recipes.py::_claude_setup()`'s docstrings). Failures
+    here are surfaced on stderr but NEVER raise past this point and NEVER
+    change `apply`'s own exit code or JSON report -- the settings file
+    itself is already durably correct regardless; a project missing only
+    its ledger row is `"orphaned"`, not unenforced, and `cc settings-hook
+    list-sources` / a fresh `cc reconcile apply` (or `cc settings-hook
+    add`) can adopt it later.
+    """
+    claude_paths = {
+        project.path for project in loaded_request.projects if "claude" in project.components
+    }
+    if not claude_paths:
+        return
+    applied_paths = {
+        str(item.get("path"))
+        for item in report.get("ledger", [])
+        if isinstance(item, Mapping) and item.get("status") in {"applied", "unchanged"}
+    }
+    targets = claude_paths & applied_paths
+    if not targets:
+        return
+    from cc.core.ecosystem.mutations import DEFAULT_HOOK_ENTRIES, apply_settings_hook
+
+    for project_path in sorted(targets):
+        try:
+            apply_settings_hook(
+                project_path,
+                entries=DEFAULT_HOOK_ENTRIES,
+                source="claude-copilot",
+                component="claude",
+                scope="project",
+                applied_by="cc reconcile apply",
+            )
+        except Exception as exc:  # pragma: no cover - best-effort, never fatal
+            typer.echo(
+                f"reconcile apply: settings-hook ledger row not recorded for {project_path}: {exc}",
+                err=True,
+            )
+
+
 @reconcile_app.command("apply")
 def apply(
     request: Optional[Path] = typer.Option(
@@ -320,18 +377,27 @@ def apply(
     ),
 ) -> None:
     """Apply one claimed plan through the guarded Python transaction."""
+    # Loaded inside build() (not before _run_report()) so a bad --request
+    # file still goes through _run_report()'s existing RequestValidationError
+    # handling unchanged; captured into this outer slot purely so the
+    # best-effort follow-up below can reuse it without a second parse.
+    loaded_request_slot: dict[str, ReconciliationRequest] = {}
 
     def build() -> dict[str, Any]:
         if plan_id is None or not _PLAN_ID.fullmatch(plan_id):
             raise RequestValidationError("Provide the exact reviewed plan identifier.")
         from cc.core.ecosystem.reconciliation import build_apply_report
 
-        return build_apply_report(_load_request(request), plan_id)
+        loaded_request_slot["value"] = _load_request(request)
+        return build_apply_report(loaded_request_slot["value"], plan_id)
 
-    _run_report(
+    report = _run_report(
         build,
         output_json=output_json,
     )
+    loaded_request = loaded_request_slot.get("value")
+    if loaded_request is not None:
+        _adopt_settings_hook_ledger_rows(loaded_request, report)
 
 
 @reconcile_app.command("verify")

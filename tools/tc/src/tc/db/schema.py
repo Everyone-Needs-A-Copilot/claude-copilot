@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS prds (
     description TEXT,
     content TEXT,
     status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'completed', 'archived')),
+    guard TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -54,6 +55,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     priority INTEGER NOT NULL DEFAULT 2 CHECK(priority BETWEEN 0 AND 3),
     parent_task_id INTEGER REFERENCES tasks(id),
     metadata TEXT,
+    guard TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -73,6 +75,7 @@ CREATE TABLE IF NOT EXISTS work_products (
     content TEXT,
     file_path TEXT,
     agent TEXT,
+    guard TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

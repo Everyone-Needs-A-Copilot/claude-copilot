@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -27,7 +26,7 @@ import pytest
 # Paths
 # ---------------------------------------------------------------------------
 
-REPO_ROOT = Path("/Volumes/Dev/Sites/COPILOT/claude-copilot")
+REPO_ROOT = Path(__file__).resolve().parents[1]
 EVALS_DIR = REPO_ROOT / ".claude" / "evals"
 QA_AGENT = REPO_ROOT / ".claude" / "agents" / "qa.md"
 
@@ -201,7 +200,6 @@ class TestEvalResultAggregation:
 
     def _run(self, cases_data, inline_contents):
         from cc.core.eval_runner import LocalPythonRunner
-        import tempfile
 
         with tempfile.TemporaryDirectory() as td:
             repo_root = Path(td)
@@ -343,7 +341,7 @@ class TestQaGoldenSet:
 
         This is the NORMAL (green) run — all cases should pass.
         """
-        from cc.core.eval_runner import run_eval, LocalPythonRunner
+        from cc.core.eval_runner import LocalPythonRunner, run_eval
 
         result = run_eval(
             "qa",
@@ -375,7 +373,7 @@ class TestQaGoldenSet:
 
         This proves the eval harness actually bites — it's not a no-op check.
         """
-        from cc.core.eval_runner import run_eval, LocalPythonRunner
+        from cc.core.eval_runner import LocalPythonRunner, run_eval
 
         # Create a modified qa.md that strips all "ARTIFACT" mentions
         original_qa = QA_AGENT.read_text(encoding="utf-8")
@@ -488,3 +486,372 @@ class TestCcEvalCLI:
         )
         assert result.returncode == 0
         assert "qa" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Whole-roster coverage — Task: `cc eval` covers the whole agent roster
+# ---------------------------------------------------------------------------
+
+# The 15 framework agents (VERSION.json components.agents.frameworkAgents)
+# plus kc, which materialize.py / project_integration.py append separately
+# because it is setup-only (see kc.md: no `iteration:` frontmatter block).
+FRAMEWORK_AGENTS = [
+    "cco", "cpa", "cs", "cw", "do", "doc", "ind", "kc", "me", "qa",
+    "sd", "sec", "ta", "uid", "uids", "uxd",
+]
+
+
+class TestFullRosterCoverage:
+    """Every agent in the roster has real eval cases, not just qa."""
+
+    def test_every_framework_agent_has_an_eval_directory(self):
+        for agent in FRAMEWORK_AGENTS:
+            agent_dir = EVALS_DIR / agent
+            assert agent_dir.is_dir(), f"No .claude/evals/{agent}/ directory"
+            cases = list(agent_dir.glob("*.yaml"))
+            assert len(cases) >= 9, (
+                f"{agent} has only {len(cases)} eval cases; expected the shared "
+                "7 structural + 2 behavioral template at minimum"
+            )
+
+    def test_cc_eval_list_agents_shows_all_sixteen(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "cc.main", "eval", "--list-agents"],
+            capture_output=True,
+            text=True,
+            cwd=str(REPO_ROOT),
+            env={**os.environ},
+        )
+        assert result.returncode == 0
+        for agent in FRAMEWORK_AGENTS:
+            assert agent in result.stdout, f"{agent} missing from --list-agents output"
+
+    @pytest.mark.parametrize("agent", FRAMEWORK_AGENTS)
+    def test_agent_golden_set_passes_normally(self, agent):
+        """Every agent's golden set is green under LocalPythonRunner (P0 gate)."""
+        from cc.core.eval_runner import LocalPythonRunner, run_eval
+
+        result = run_eval(
+            agent, evals_dir=EVALS_DIR, repo_root=REPO_ROOT, runner=LocalPythonRunner()
+        )
+        failures = [c for c in result.cases if not c.passed]
+        if failures:
+            msgs = [f"  FAIL: {c.case_id} — {c.name}" for c in failures]
+            pytest.fail(f"{agent} golden set has failures:\n" + "\n".join(msgs))
+        assert not result.p0_regression
+
+    def test_shared_output_contract_and_precedence_block_are_byte_identical_across_roster(self):
+        """The branch that added these blocks promised they are shared verbatim.
+
+        This is the fast, structural half of that promise: if a future edit
+        silently forks the Runtime Precedence or Output Contract text in one
+        agent, this test — not just the per-agent eval cases — catches it.
+        """
+        import hashlib
+
+        def _block_hash(text: str, start: str, end: str) -> str:
+            start_idx = text.index(start)
+            end_idx = text.index(end, start_idx)
+            return hashlib.sha256(text[start_idx:end_idx].encode("utf-8")).hexdigest()
+
+        hashes: dict[str, tuple[str, str]] = {}
+        for agent in FRAMEWORK_AGENTS:
+            text = (REPO_ROOT / ".claude/agents" / f"{agent}.md").read_text(encoding="utf-8")
+            hashes[agent] = (
+                _block_hash(text, "## Output Contract", "## Runtime Precedence"),
+                _block_hash(text, "## Runtime Precedence", "## Output Format"),
+            )
+        distinct = set(hashes.values())
+        assert len(distinct) == 1, (
+            f"Output Contract / Runtime Precedence text has diverged across "
+            f"the roster: {hashes}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Meta-tests: the highest-value case in the suite (content outranks form)
+# and the no-time-estimates-under-request case, proven to FAIL when broken.
+#
+# Same discipline as test_meta_test_removing_artifact_makes_eval_fail above:
+# a case that cannot fail is worse than no case. These mutate the exact
+# shared fixtures shipped in .claude/evals/<agent>/*-behav-shared-*.yaml
+# (loaded from disk, not hand-duplicated) into the regression shape the
+# case exists to catch, and assert the SAME assertions then fail.
+# ---------------------------------------------------------------------------
+
+
+def _load_case(agent: str, case_id: str) -> dict:
+    import yaml as _yaml
+
+    path = EVALS_DIR / agent / f"{case_id}.yaml"
+    with open(path, encoding="utf-8") as fh:
+        return _yaml.safe_load(fh)
+
+
+class TestSharedBehavioralMetaTests:
+    """Prove the two highest-priority shared behavioral cases actually bite."""
+
+    @pytest.mark.parametrize("agent", FRAMEWORK_AGENTS)
+    def test_content_survives_case_fails_when_finding_is_dropped(self, agent):
+        """Simulate the exact regression: token-budget pressure drops the
+        finding but keeps the Task line and promise marker. The case's own
+        assertions (loaded from the real fixture, not re-typed here) must
+        then report FAIL — proving this eval would catch that regression in
+        real agent output, not just in a hand-written positive fixture.
+        """
+        from cc.core.eval_runner import LocalPythonRunner
+
+        case = _load_case(agent, f"{agent}-behav-shared-001")
+        original_content = case["source"]["content"]
+        finding_line = next(
+            line for line in original_content.splitlines() if line.startswith("Finding:")
+        )
+        # Drop the finding line entirely (shorten to fit an imagined token
+        # budget) while keeping the Task line and promise marker — the exact
+        # shape content-outranks-form forbids.
+        truncated = "\n".join(
+            line for line in original_content.splitlines() if line != finding_line
+        )
+        runner = LocalPythonRunner()
+        assertion_results = [
+            runner._run_assertion(truncated, a) for a in case["assertions"]
+        ]
+        assert not all(r.passed for r in assertion_results), (
+            f"{agent}-behav-shared-001 did not fail when its finding was "
+            "dropped — the case cannot detect the regression it exists for."
+        )
+
+    @pytest.mark.parametrize("agent", FRAMEWORK_AGENTS)
+    def test_no_time_estimate_case_fails_when_duration_is_given(self, agent):
+        """Simulate the regression: the agent caves to 'ballpark is fine'
+        and names a duration. The case must then fail.
+        """
+        from cc.core.eval_runner import LocalPythonRunner
+
+        case = _load_case(agent, f"{agent}-behav-shared-002")
+        original_content = case["source"]["content"]
+        caved = original_content.replace(
+            "No date or duration to offer", "About 3 days, give or take"
+        )
+        assert caved != original_content, "fixture text drifted; substring not found"
+        runner = LocalPythonRunner()
+        assertion_results = [
+            runner._run_assertion(caved, a) for a in case["assertions"]
+        ]
+        assert not all(r.passed for r in assertion_results), (
+            f"{agent}-behav-shared-002 did not fail when the agent caved and "
+            "gave a duration — the case cannot detect the regression it "
+            "exists for."
+        )
+
+
+class TestSharedStructuralMetaTests:
+    """Same discipline, applied to the two P0 structural cases singled out
+    by name as highest-value: content-outranks-form (*-003) and
+    no-time-estimates-under-request (*-004). Parametrized across a
+    representative subset (not all 16) to keep this fast; the byte-identity
+    test above already proves the text is identical across the full roster,
+    so a regression caught in one agent's copy is a regression in all of
+    them.
+    """
+
+    REPRESENTATIVE_AGENTS = ["me", "sec", "ta"]
+
+    @pytest.mark.parametrize("agent", REPRESENTATIVE_AGENTS)
+    def test_struct_shared_003_fails_when_exception_list_is_stripped(self, agent, tmp_path):
+        from cc.core.eval_runner import LocalPythonRunner, run_eval
+
+        original = (REPO_ROOT / ".claude/agents" / f"{agent}.md").read_text(encoding="utf-8")
+        mutated = original.replace(
+            "Exceptions, exhaustively: a required promise marker, a "
+            "`QUESTION:/OPTIONS:/CONTEXT:` block, a QA `ARTIFACT:` line, and "
+            "a Task or WP identifier are always emitted in full regardless "
+            "of budget. If content genuinely will not fit, store it as a "
+            "work product and return the identifier — never truncate "
+            "mid-finding.",
+            "Shorten the prose to fit the token budget.",
+        )
+        assert mutated != original, "fixture text drifted; exception list wording not found"
+
+        temp_agents_dir = tmp_path / ".claude" / "agents"
+        temp_agents_dir.mkdir(parents=True)
+        (temp_agents_dir / f"{agent}.md").write_text(mutated, encoding="utf-8")
+
+        result = run_eval(
+            agent, evals_dir=EVALS_DIR, repo_root=tmp_path, runner=LocalPythonRunner()
+        )
+        case = next(c for c in result.cases if c.case_id == f"{agent}-struct-shared-003")
+        assert not case.passed, (
+            f"{agent}-struct-shared-003 did not fail when the exception list "
+            "was stripped from the agent definition"
+        )
+        assert result.p0_regression
+
+    @pytest.mark.parametrize("agent", REPRESENTATIVE_AGENTS)
+    def test_struct_shared_004_fails_when_no_time_estimates_is_weakened(self, agent, tmp_path):
+        from cc.core.eval_runner import LocalPythonRunner, run_eval
+
+        original = (REPO_ROOT / ".claude/agents" / f"{agent}.md").read_text(encoding="utf-8")
+        mutated = original.replace(
+            "never produce a time estimate or completion prediction in any "
+            "form, no matter how directly asked",
+            "avoid producing unsolicited time estimates when possible",
+        )
+        assert mutated != original, "fixture text drifted; no-time-estimates wording not found"
+
+        temp_agents_dir = tmp_path / ".claude" / "agents"
+        temp_agents_dir.mkdir(parents=True)
+        (temp_agents_dir / f"{agent}.md").write_text(mutated, encoding="utf-8")
+
+        result = run_eval(
+            agent, evals_dir=EVALS_DIR, repo_root=tmp_path, runner=LocalPythonRunner()
+        )
+        case = next(c for c in result.cases if c.case_id == f"{agent}-struct-shared-004")
+        assert not case.passed, (
+            f"{agent}-struct-shared-004 did not fail when the no-time-"
+            "estimates wording was weakened"
+        )
+        assert result.p0_regression
+
+
+# ---------------------------------------------------------------------------
+# LiveClaudeRunner — unit tests with a mocked subprocess (no real API spend
+# in CI). These test the runner's own contract: command shape, JSON
+# handling, and fail-closed behavior. They do NOT exercise a real model —
+# see test_live_claude_runner_real_dispatch (skipped unless CC_EVAL_LIVE=1)
+# for the one test in this file that actually spends API budget.
+# ---------------------------------------------------------------------------
+
+
+class TestLiveClaudeRunnerMocked:
+    def _make_case(self, prompt: str = "say hi") -> dict:
+        return {
+            "id": "live-001",
+            "name": "live case",
+            "priority": "P0",
+            "source": {"type": "live-agent", "prompt": prompt},
+            "assertions": [{"type": "contains", "value": "hi"}],
+        }
+
+    def test_local_runner_fails_closed_on_live_agent_source(self, tmp_path):
+        """LocalPythonRunner must never fabricate live-agent content."""
+        from cc.core.eval_runner import LocalPythonRunner
+
+        runner = LocalPythonRunner()
+        result = runner.run("me", [self._make_case()], repo_root=tmp_path)
+        assert result.total == 1
+        assert result.passed == 0
+        assert "live runner" in result.cases[0].error
+
+    def test_live_runner_dispatch_command_shape(self):
+        from cc.core.eval_runner import LiveClaudeRunner
+
+        runner = LiveClaudeRunner(claude_path="claude", max_budget_usd=0.25)
+        with patch("cc.core.eval_runner.subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess(
+                args=[], returncode=0, stdout=json.dumps({"result": "hi there"}), stderr=""
+            )
+            content = runner._invoke_agent("me", "say hi")
+        assert content == "hi there"
+        called_command = mock_run.call_args.args[0]
+        assert called_command[0] == "claude"
+        assert "--agent" in called_command and "me" in called_command
+        assert "--print" in called_command
+        assert "--max-budget-usd" in called_command
+        budget_index = called_command.index("--max-budget-usd")
+        assert called_command[budget_index + 1] == "0.25"
+        assert mock_run.call_args.kwargs["input"] == "say hi"
+
+    def test_live_runner_raises_on_nonzero_exit(self):
+        from cc.core.eval_runner import LiveAgentDispatchError, LiveClaudeRunner
+
+        runner = LiveClaudeRunner()
+        with patch("cc.core.eval_runner.subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess(
+                args=[], returncode=1, stdout="", stderr="budget exhausted"
+            )
+            with pytest.raises(LiveAgentDispatchError, match="exited 1"):
+                runner._invoke_agent("me", "say hi")
+
+    def test_live_runner_raises_on_non_json_stdout(self):
+        from cc.core.eval_runner import LiveAgentDispatchError, LiveClaudeRunner
+
+        runner = LiveClaudeRunner()
+        with patch("cc.core.eval_runner.subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess(
+                args=[], returncode=0, stdout="not json", stderr=""
+            )
+            with pytest.raises(LiveAgentDispatchError, match="non-JSON"):
+                runner._invoke_agent("me", "say hi")
+
+    def test_live_runner_raises_on_missing_result_field(self):
+        from cc.core.eval_runner import LiveAgentDispatchError, LiveClaudeRunner
+
+        runner = LiveClaudeRunner()
+        with patch("cc.core.eval_runner.subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess(
+                args=[], returncode=0, stdout=json.dumps({"other": "field"}), stderr=""
+            )
+            with pytest.raises(LiveAgentDispatchError, match="missing a non-empty 'result'"):
+                runner._invoke_agent("me", "say hi")
+
+    def test_live_runner_case_reports_failure_not_exception_on_dispatch_error(self, tmp_path):
+        """A dispatch failure must surface as a failed CaseResult, never an
+        uncaught exception that would crash the whole suite run."""
+        from cc.core.eval_runner import LiveClaudeRunner
+
+        runner = LiveClaudeRunner()
+        with patch("cc.core.eval_runner.subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.TimeoutExpired(cmd="claude", timeout=120)
+            result = runner.run("me", [self._make_case()], repo_root=tmp_path)
+        assert result.total == 1
+        assert result.passed == 0
+        assert "Live dispatch failed" in result.cases[0].error
+
+    def test_live_runner_mixes_static_and_live_cases(self, tmp_path):
+        """LiveClaudeRunner is a strict superset: static file/inline cases in
+        the same case list still run through the exact same logic
+        LocalPythonRunner uses, unmodified."""
+        from cc.core.eval_runner import LiveClaudeRunner
+
+        static_case = {
+            "id": "static-001",
+            "name": "static case",
+            "priority": "P1",
+            "source": {"type": "inline", "content": "hello world"},
+            "assertions": [{"type": "contains", "value": "hello"}],
+        }
+        live_case = self._make_case()
+        runner = LiveClaudeRunner()
+        with patch("cc.core.eval_runner.subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess(
+                args=[], returncode=0, stdout=json.dumps({"result": "hi there"}), stderr=""
+            )
+            result = runner.run("me", [static_case, live_case], repo_root=tmp_path)
+        assert result.total == 2
+        assert result.passed == 2
+
+
+@pytest.mark.skipif(
+    os.environ.get("CC_EVAL_LIVE") != "1",
+    reason="Real headless dispatch costs API spend; opt in with CC_EVAL_LIVE=1",
+)
+class TestLiveClaudeRunnerRealDispatch:
+    """The one test in this file that actually spends API budget and checks
+    real model behavior. Skipped by default (including in CI) — run
+    explicitly with CC_EVAL_LIVE=1 pytest tests/test_cc_eval.py -k real.
+    """
+
+    def test_real_dispatch_returns_parseable_result(self):
+        from cc.core.eval_runner import LiveClaudeRunner
+
+        # 0.05 is too tight in practice: a single dispatch's cost is
+        # dominated by system-prompt cache creation for the `me` agent
+        # (~13k tokens, ~$0.08 observed), not by the one-word reply itself.
+        # 0.20 leaves headroom without being a meaningful spend.
+        runner = LiveClaudeRunner(max_budget_usd=0.20, timeout_seconds=60)
+        content = runner._invoke_agent(
+            "me", "Reply with exactly the single word: PONG"
+        )
+        assert isinstance(content, str)
+        assert len(content) > 0

@@ -1,0 +1,76 @@
+name: Conformance Harness
+
+# Unconditional trigger -- no opt-in variable gate. This is a direct
+# reaction to the audit finding this repo's own release gate is guarded by
+# `if: vars.RELEASE_CI_ENABLED == 'true'` and has skipped every tagged
+# release in 1 second (copilot-control-tower's release.yml,
+# EXISTING-VERIFICATION.md row 24): the conformance harness's own CI job
+# must never be one flipped variable away from silently never running.
+#
+# WHAT THIS PROVES (and genuinely fails the build on): the harness's own
+# correctness. Every check registered under `core/conformance/` has a
+# fixture-proven positive AND negative case against the synthetic World-A
+# fleet (`HARNESS-DESIGN.md` section 5.1's "two-world rule"), the committed
+# baseline (`tests/conformance/baselines/2026-08-10-known-bad.json`)
+# captures every required root cause (RC-1..RC-5) and meets the
+# TEST-MATRIX.md section 8 floor, and the exit-code regression path
+# (`report.compute_exit_code` returning 3 on a baseline regression) is
+# exercised for real against that committed file
+# (`tests/conformance/baselines/test_baseline_file.py`). This is genuinely
+# portable CI: it reads no real machine state at all.
+#
+# WHAT THIS DOES NOT, AND STRUCTURALLY CANNOT, PROVE: the World-B
+# (`@pytest.mark.machine`) checks against a real developer's own ecosystem
+# state (`~/.claude/cc/config.json`, `~/.config/copilot/copilot.layers.yml`,
+# the ~75 repos under a real `projects.roots`). This job runs with
+# `-m "not machine"`, EXPLICITLY, rather than relying on every individual
+# test file's own skip discipline: verified directly (by emptying `$HOME`
+# to simulate a runner with no ecosystem installed) that `test_layer1_tier.py`
+# and `test_rc_regressions.py` skip cleanly on their own via a
+# `requires_real_machine` skipif, but `test_layer2_stack.py`'s
+# `TestMachineTruth` and `test_layer3_dimensions.py`'s
+# `TestRealFleetDiscovery` -- both correctly marked `@pytest.mark.machine`,
+# neither guarded by a matching skipif -- ERROR/FAIL instead of skipping
+# under the same conditions. `-m "not machine"` sidesteps that gap
+# structurally (it deselects by marker, not by each file's own discipline)
+# and is also the exact mechanism `HARNESS-DESIGN.md` section 6.5
+# documents for this purpose ("`pytest -m "not machine"` gives a hermetic
+# run on any machine, including a CI box with no ecosystem installed").
+# There is no portable substitute for actually exercising World-B;
+# TEST-MATRIX.md section 7 item 6 reaches the same conclusion for the
+# adjacent `cc workspace verify` sweep: "a separate, explicitly-labeled
+# local-only machine-sweep integration test ... never in shared CI."
+# Regenerating or checking the baseline against a real machine is
+# documented as a LOCAL operation in docs/conformance-harness.md, not
+# something this workflow attempts to fake.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: conformance-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  conformance-suite:
+    name: Conformance harness (World-A fixtures + committed baseline)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tools/cc/pyproject.toml
+
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check -e "./tools/cc[dev]"
+
+      - name: Run the conformance harness's own test suite (World A + baseline)
+        working-directory: tools/cc
+        run: python -m pytest tests/conformance/ -m "not machine" -v

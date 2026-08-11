@@ -1,0 +1,20 @@
+id: uxd-struct-shared-007
+name: Debug-spiral circuit breaker is present
+priority: P1
+description: After three consecutive unsuccessful fix attempts, the agent must stop iterating
+  and ask a diagnostic question rather than keep guessing. This is a runaway-loop guard shared
+  across the roster.
+type: structural
+source:
+  type: file
+  path: .claude/agents/uxd.md
+assertions:
+- type: contains
+  value: Debug-spiral circuit breaker.
+  description: Debug-spiral breaker named
+- type: contains
+  value: After three consecutive unsuccessful fix attempts on the same problem, stop iterating.
+  description: Three-attempt stop condition present
+- type: contains
+  value: Name the assumption that may be wrong, and ask one diagnostic question.
+  description: Required diagnostic-question follow-up present

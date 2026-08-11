@@ -44,7 +44,7 @@
           "agent": {
             "type": "string",
             "description": "Agent ID to extend",
-            "enum": ["me", "ta", "qa", "sec", "doc", "do", "sd", "uxd", "uids", "uid", "cw"]
+            "enum": ["cco", "cpa", "cs", "cw", "do", "doc", "ind", "kc", "me", "qa", "sd", "sec", "ta", "uid", "uids", "uxd"]
           },
           "type": {
             "type": "string",

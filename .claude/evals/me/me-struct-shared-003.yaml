@@ -1,0 +1,30 @@
+id: me-struct-shared-003
+name: Content-outranks-form clause and its exhaustive exception list are intact
+priority: P0
+description: HIGHEST-VALUE structural case in this template. The Output Format token budget
+  must never justify dropping a finding, blocker, or required marker -- only shortening the
+  prose around it. If this clause or its exhaustive exception list (promise marker, QUESTION/OPTIONS/CONTEXT
+  block, QA ARTIFACT line, Task/WP identifier) is weakened or removed, an agent under length
+  pressure has no textual guarantee against silently dropping a real finding to hit a token
+  budget -- which is a regression this eval must catch, not one this eval can only structurally
+  gesture at (see the paired behavioral live-agent case for the same invariant tested against
+  real model output).
+type: structural
+source:
+  type: file
+  path: .claude/agents/me.md
+assertions:
+- type: contains
+  value: Within whichever level governs, content outranks form.
+  description: Content-outranks-form clause present
+- type: contains
+  value: The shape yields, the constraint holds.
+  description: Shape-yields-constraint-holds framing present
+- type: contains
+  value: 'Exceptions, exhaustively: a required promise marker, a `QUESTION:/OPTIONS:/CONTEXT:`
+    block, a QA `ARTIFACT:` line, and a Task or WP identifier are always emitted in full regardless
+    of budget.'
+  description: Exhaustive exception list is intact and unmodified
+- type: contains
+  value: never truncate mid-finding
+  description: Explicit never-truncate-mid-finding instruction present

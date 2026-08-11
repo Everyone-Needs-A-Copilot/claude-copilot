@@ -508,7 +508,7 @@
             "append-managed-block", "merge-json-keys",
             "replace-recognized-symlink-with-copy", "create-internal-relative-symlink",
             "upsert-lock-component", "write-project-declaration",
-            "associate-personal-project"
+            "associate-personal-project", "register-settings-hooks"
           ]
         },
         "component": { "enum": ["claude", "codex"] },

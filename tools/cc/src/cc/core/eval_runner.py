@@ -4,21 +4,44 @@ Architecture
 ------------
 - Runner is a Protocol (structural typing).
 - LocalPythonRunner: deterministic assertion engine. No LLM calls. No Node dep.
+  Every source type it handles is STATIC: a case's content is either
+  authored fixture text (`inline`) or a file already on disk (`file`).
+  A LocalPythonRunner case proves the assertion engine and the fixture agree
+  with each other -- it does not prove a real agent invocation would produce
+  that fixture. That distinction matters most for `behavioral` cases: an
+  agent that carries a contract and silently ignores it emits output no
+  author-written fixture will ever contain, and only a case actually
+  dispatched through the model can catch that.
+- LiveClaudeRunner: same assertion engine, but for any case whose
+  `source.type` is `live-agent`, the "content" is not read from disk or the
+  YAML -- it is the real text returned by a headless `claude --print
+  --agent <agent>` session given the case's `prompt`. This is the only
+  runner in this module that checks real model behavior; every other source
+  type it also handles (`file`, `inline`) is still static, delegated
+  unchanged to the same logic LocalPythonRunner uses. A suite that only
+  ever exercises `file`/`inline` cases proves the contract exists in the
+  agent file, never that the agent obeys it under pressure -- run those
+  cases through `--runner live` (with a `live-agent` prompt) to prove the
+  second half.
 - Pluggable: a promptfoo adapter can be added later by implementing the same
   Runner protocol and passing it to run_eval().
 
-Assertion types (LocalPythonRunner)
+Assertion types (all runners)
 ------------------------------------
   contains       — source content includes the value string (case-sensitive)
   not-contains   — source content does NOT include the value string
   regex          — source content matches the regex pattern
+  regex-not      — source content does NOT match the regex pattern
   file-contains  — alias for contains (explicit intent marker for structural cases)
   file-regex     — alias for regex   (explicit intent marker for structural cases)
 
 Source types
 ------------
-  inline         — content is embedded in the case YAML
-  file           — content is read from the given path (relative to repo_root)
+  inline         — content is embedded in the case YAML (static)
+  file           — content is read from the given path, relative to repo_root (static)
+  live-agent     — content is the real output of a headless agent dispatch, given
+                   the case's `prompt` (LiveClaudeRunner only; LocalPythonRunner
+                   fails this source type closed rather than fabricate content)
 
 YAML case format
 ----------------
@@ -29,10 +52,12 @@ YAML case format
     ...
   type:        structural             # structural | behavioral (informational only)
   source:
-    type:      file                   # file | inline
+    type:      file                   # file | inline | live-agent
     path:      ".claude/agents/qa.md" # only for type: file (relative to repo_root)
     content:   |                      # only for type: inline
       ...
+    prompt:    |                      # only for type: live-agent — sent verbatim on
+      ...                             # stdin to `claude --print --agent <agent>`
   assertions:
     - type:        contains
       value:       "ARTIFACT:"
@@ -43,11 +68,13 @@ YAML case format
 
 from __future__ import annotations
 
+import json
 import re
+import shutil
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
-
+from typing import Any, Optional, Protocol, runtime_checkable
 
 # ---------------------------------------------------------------------------
 # Result types
@@ -211,9 +238,23 @@ class LocalPythonRunner:
         elif source_type == "inline":
             return source.get("content", "")
 
+        elif source_type == "live-agent":
+            # Fail closed: LocalPythonRunner never fabricates a live agent's
+            # output. A live-agent case run under LocalPythonRunner (e.g. the
+            # default `cc eval`, or CI without `--runner live`) must show up
+            # as a failure, not a silent pass on empty content -- otherwise
+            # a case authored to prove live behavior would report green
+            # while checking nothing.
+            raise ValueError(
+                "source.type=live-agent requires the live runner "
+                "(cc eval --runner live). LocalPythonRunner cannot dispatch "
+                "a real agent session and will not fabricate its output."
+            )
+
         else:
             raise ValueError(
-                f"Unknown source type {source_type!r}. Must be 'file' or 'inline'."
+                f"Unknown source type {source_type!r}. Must be 'file', 'inline', "
+                "or 'live-agent'."
             )
 
     def _run_assertion(
@@ -331,6 +372,198 @@ class LocalPythonRunner:
 
         all_passed = all(r.passed for r in assertion_results) if assertion_results else True
 
+        return CaseResult(
+            case_id=case_id,
+            name=name,
+            priority=priority,
+            passed=all_passed,
+            assertions=assertion_results,
+        )
+
+
+# ---------------------------------------------------------------------------
+# LiveClaudeRunner — dispatches live-agent cases through a real headless
+# Claude Code session; everything else it delegates unchanged to the same
+# static logic LocalPythonRunner uses. This is the only runner in this
+# module whose assertions check real model behavior rather than an
+# author-written fixture.
+# ---------------------------------------------------------------------------
+
+
+class LiveAgentDispatchError(RuntimeError):
+    """A live-agent case could not be dispatched or its output could not be
+    trusted. Always surfaces as a failed case -- never a silent pass."""
+
+
+class LiveClaudeRunner:
+    """Runner that dispatches ``source.type: live-agent`` cases through
+    ``claude --print --agent <agent>`` and asserts against the real
+    response text. Every other source type (``file``, ``inline``) is
+    handled by composing ``LocalPythonRunner`` rather than reimplementing
+    it, so a suite can mix static structural cases with live behavioral
+    cases in the same agent directory and run them all under one runner.
+
+    Cost control: every dispatch passes ``--max-budget-usd`` (the harness's
+    own hard cap at the API boundary -- see reconciliation_assistant.py's
+    ``_invoke_claude`` for the same posture) and a wall-clock timeout. A
+    dispatch that exceeds either fails the case; it never blocks the suite
+    or spends unbounded budget.
+    """
+
+    def __init__(
+        self,
+        *,
+        claude_path: Optional[str] = None,
+        timeout_seconds: int = 120,
+        max_budget_usd: float = 0.50,
+    ) -> None:
+        self._claude_path = claude_path or shutil.which("claude") or "claude"
+        self._timeout_seconds = timeout_seconds
+        self._max_budget_usd = max_budget_usd
+        self._local = LocalPythonRunner()
+
+    # --- public API -----------------------------------------------------
+
+    def run(
+        self,
+        agent: str,
+        cases: list[dict[str, Any]],
+        *,
+        repo_root: Path,
+    ) -> EvalResult:
+        case_results: list[CaseResult] = []
+        for case in cases:
+            source = case.get("source", {})
+            if isinstance(source, dict) and source.get("type") == "live-agent":
+                result = self._run_live_case(agent, case)
+            else:
+                result = self._local._run_case(case, repo_root=repo_root)
+            case_results.append(result)
+
+        total = len(case_results)
+        passed_count = sum(1 for c in case_results if c.passed)
+        failed_count = total - passed_count
+        pass_rate = passed_count / total if total > 0 else 1.0
+        p0_regression = any(
+            not c.passed and c.priority.upper() == "P0" for c in case_results
+        )
+        return EvalResult(
+            agent=agent,
+            total=total,
+            passed=passed_count,
+            failed=failed_count,
+            pass_rate=pass_rate,
+            p0_regression=p0_regression,
+            cases=case_results,
+        )
+
+    # --- private helpers --------------------------------------------------
+
+    def _invoke_agent(self, agent: str, prompt: str) -> str:
+        """Dispatch one headless session and return the agent's final text.
+
+        Mirrors the hardened invocation shape already proven in this
+        codebase (reconciliation_assistant.py `_invoke_claude`): stdin PIPE
+        for the prompt (never `--message` -- that flag does not exist on
+        this harness), `--output-format json` for a parseable result, and a
+        wall-clock timeout enforced independently of `--max-budget-usd`
+        (the budget cap bounds spend; the timeout bounds wall time -- a
+        hung or slow-looping session can exhaust neither on its own).
+        """
+        command = [
+            self._claude_path,
+            "--print",
+            "--agent",
+            agent,
+            "--input-format",
+            "text",
+            "--output-format",
+            "json",
+            "--no-session-persistence",
+            "--max-budget-usd",
+            str(self._max_budget_usd),
+        ]
+        try:
+            completed = subprocess.run(
+                command,
+                input=prompt,
+                capture_output=True,
+                text=True,
+                timeout=self._timeout_seconds,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise LiveAgentDispatchError(f"dispatch failed to start: {exc}") from exc
+
+        # Parse best-effort before branching on exit code: a hard cap breach
+        # (e.g. --max-budget-usd exhausted mid-turn) exits non-zero with an
+        # empty stderr but a fully-formed, diagnosable JSON body on stdout
+        # (terminal_reason/subtype/errors) -- confirmed by live dispatch
+        # during this runner's own build. Discarding stdout on a bare
+        # `returncode != 0` check would turn that into an opaque failure.
+        payload: Optional[dict[str, Any]] = None
+        if completed.stdout:
+            try:
+                parsed = json.loads(completed.stdout)
+                if isinstance(parsed, dict):
+                    payload = parsed
+            except json.JSONDecodeError:
+                payload = None
+
+        if completed.returncode != 0:
+            if payload is not None:
+                reason = payload.get("terminal_reason") or payload.get("subtype") or "unknown"
+                errors = payload.get("errors")
+                detail = f"terminal_reason={reason!r}"
+                if errors:
+                    detail += f" errors={errors!r}"
+                raise LiveAgentDispatchError(
+                    f"dispatch exited {completed.returncode} ({detail})"
+                )
+            raise LiveAgentDispatchError(
+                f"dispatch exited {completed.returncode}: "
+                f"{completed.stderr.strip()[:500]}"
+            )
+        if payload is None:
+            raise LiveAgentDispatchError("dispatch returned non-JSON output")
+        result = payload.get("result")
+        if not isinstance(result, str) or not result:
+            raise LiveAgentDispatchError(
+                "dispatch JSON payload is missing a non-empty 'result' string "
+                f"(terminal_reason={payload.get('terminal_reason')!r})"
+            )
+        return result
+
+    def _run_live_case(self, agent: str, case: dict[str, Any]) -> CaseResult:
+        case_id = str(case.get("id", "unknown"))
+        name = str(case.get("name", case_id))
+        priority = str(case.get("priority", "P1")).upper()
+        prompt = case.get("source", {}).get("prompt")
+        if not prompt:
+            return CaseResult(
+                case_id=case_id,
+                name=name,
+                priority=priority,
+                passed=False,
+                error="source.type=live-agent requires a non-empty 'prompt' key",
+            )
+        try:
+            content = self._invoke_agent(agent, str(prompt))
+        except LiveAgentDispatchError as exc:
+            return CaseResult(
+                case_id=case_id,
+                name=name,
+                priority=priority,
+                passed=False,
+                error=f"Live dispatch failed: {exc}",
+            )
+        assertion_results = [
+            self._local._run_assertion(content, assertion)
+            for assertion in case.get("assertions", [])
+        ]
+        all_passed = (
+            all(r.passed for r in assertion_results) if assertion_results else True
+        )
         return CaseResult(
             case_id=case_id,
             name=name,

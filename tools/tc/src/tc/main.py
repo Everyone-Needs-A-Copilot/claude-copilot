@@ -1,7 +1,6 @@
 """Task Copilot CLI - Main entry point."""
 
 import json as _json
-import subprocess as _subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -268,8 +267,10 @@ def worker_cmd(
         None,
         "--max-budget-usd",
         help=(
-            "Per-run spending cap in USD passed to 'claude --print --max-budget-usd'. "
-            "FLAG PLUMBING ONLY (P0) — enforcement hook is P1."
+            "Per-run spending cap in USD, passed to 'claude --print --max-budget-usd' "
+            "and enforced by the harness at the API boundary. tc records the "
+            "resulting spend to agent_log and releases the task if the run is "
+            "killed for exceeding it."
         ),
     ),
     model: Optional[str] = typer.Option(
@@ -295,8 +296,15 @@ def worker_cmd(
 ) -> None:
     """Dispatch a Claude agent to work on a task in non-interactive mode.
 
-    Wraps ``claude --print`` with the ``--max-budget-usd`` flag plumbed through
-    when set.  In dry-run mode, prints the command that would be executed.
+    Wraps ``claude --print --output-format json`` with the ``--max-budget-usd``
+    flag plumbed through when set.  The spending cap itself is enforced by the
+    harness at the API boundary; tc's job is measurement and breach handling:
+    the run's cost/turn data is recorded to ``agent_log``, and if the run is
+    killed for exceeding its cap, the task is released back to ``pending``
+    (claim cleared) instead of being left silently stuck ``in_progress``.
+
+    In dry-run mode, prints the command that would be executed and exits
+    without touching the database or spending anything.
 
     This is the canonical tc-side dispatch path for non-interactive (headless)
     agent runs.  The orchestrate and Discord dispatch paths mirror this flag set.
@@ -308,7 +316,8 @@ def worker_cmd(
         tc worker 42 --max-budget-usd 2.50 --dry-run
         tc worker 42 --max-budget-usd 2.50 --dry-run --json
     """
-    from tc.commands.worker import _build_dispatch_cmd
+    from tc.commands.worker import _build_dispatch_cmd, dispatch
+    from tc.utils.errors import require_db
 
     cmd = _build_dispatch_cmd(
         task_id,
@@ -324,8 +333,19 @@ def worker_cmd(
             typer.echo("Would run: " + " ".join(cmd))
         raise typer.Exit(0)
 
-    result = _subprocess.run(cmd)
-    raise typer.Exit(result.returncode)
+    db_path = require_db()
+    outcome = dispatch(task_id, cmd=cmd, agent=agent, db_path=db_path)
+
+    if output_json:
+        typer.echo(_json.dumps(outcome))
+    elif outcome["breached"]:
+        spent = outcome["spend"].get("total_cost_usd", "?")
+        typer.echo(
+            f"Task #{task_id} released: budget exhausted (spent ${spent})",
+            err=True,
+        )
+
+    raise typer.Exit(outcome["returncode"])
 
 
 if __name__ == "__main__":

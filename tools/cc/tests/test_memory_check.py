@@ -110,7 +110,7 @@ class TestPathExistsChecker:
 ## Planned features
 
 These are not yet built and will be added later:
-- `/Volumes/NonExistent/future_module.py`
+- `/nonexistent/future_module.py`
 """
         claims = _extract_path_claims("entry-005", body)
         # Either no claims extracted from negated section, or all are negated
@@ -155,7 +155,7 @@ class TestNegationAwareness:
         body = """
 ## Removed
 
-The old path `/Volumes/OldProject/legacy.py` was deleted.
+The old path `/nonexistent/legacy.py` was deleted.
 """
         claims = _extract_path_claims("entry-013", body)
         for c in claims:

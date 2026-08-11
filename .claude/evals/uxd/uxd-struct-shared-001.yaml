@@ -1,0 +1,27 @@
+id: uxd-struct-shared-001
+name: Shared Output Contract section is present and intact
+priority: P0
+description: Every framework agent carries the shared .claude/agents/_shared/output-contract.md
+  content verbatim. This case proves it survived in this agent's file -- a merge or hand-edit
+  that silently drops the block from one agent among sixteen is exactly the regression class
+  this eval exists to catch.
+type: structural
+source:
+  type: file
+  path: .claude/agents/uxd.md
+assertions:
+- type: contains
+  value: '## Output Contract'
+  description: Output Contract heading present
+- type: contains
+  value: 'BLUF: lead with the answer or finding.'
+  description: BLUF ordering rule present
+- type: contains
+  value: Content outranks form — this contract shapes HOW, never WHAT
+  description: Content-outranks-form framing present in the contract itself
+- type: contains
+  value: Pre-send deletion pass
+  description: Pre-send deletion pass (no preamble/no closer) present
+- type: contains
+  value: 'Verify before sending:'
+  description: Verify-before-sending predicate present

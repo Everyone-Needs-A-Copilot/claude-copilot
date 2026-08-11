@@ -262,10 +262,18 @@ Manages QA-gate state in response to `@agent-me` and `@agent-qa` subagent comple
 |-------|--------|
 | `agent_type == "me"` with `<promise>BLOCKED</promise>` | Skip gate — blocker surfaces to user, no `pending_tasks` entry |
 | `agent_type == "me"` with `<promise>CONFUSED</promise>` | Skip gate — decision fork surfaces to user, no `pending_tasks` entry |
-| `agent_type == "me"` (normal completion) | Extract `TASK-N` from final message, add to `pending_tasks` |
+| `agent_type == "me"` (normal completion) | Extract `TASK-N` from the structured `Task:` header, validate it against THIS project's tc database, add to `pending_tasks` only if both succeed |
 | `agent_type == "qa"` with pass verdict | Remove task from `pending_tasks`, clear retry counter |
 | `agent_type == "qa"` with fail verdict | Increment retry counter; after 3 failures, auto-unblock + advisory |
 | Any other agent type | No action |
+
+### Task ID Extraction + Validation (RC-2)
+
+`extract_task_id` no longer scans the whole message for any `TASK-N` substring. It is anchored to the structured `Task: TASK-N | WP: WP-N` header line that `@agent-me` and `@agent-qa`'s Output Format contracts require as their first reported line — a stray `TASK-N` mentioned in passing elsewhere in the message no longer matches.
+
+Anchoring alone isn't sufficient: a well-formed header can still name a task from a different project. Before arming the gate, `task_id_valid_in_project` runs `tc task get <N> --json` against the project rooted at `$CLAUDE_PROJECT_DIR` and only arms the gate when that lookup succeeds. If the ID doesn't parse, `tc` isn't available, or the ID isn't found in THIS project's `tc` database, the gate is **not armed** — a WARN is logged instead (fail-open on the arm path: a missed arm is a recoverable gap; a false arm blocks every `Bash`/`Agent` call in the session until 3 QA-failure cycles against a task QA can never find).
+
+This closes the incident where a stray `TASK-612` mentioned in an agent's summary (a task that exists only in a different project's `tc` database) armed a QA gate in a project whose own database has no such task.
 
 ### Verdict Parsing
 

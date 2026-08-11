@@ -1,0 +1,38 @@
+{
+  "_comment": "Named, real-world-observed degradation shapes for Layer 5's degraded-install detection check (HARNESS-DESIGN.md section 5.2: 'Named degradations, not ad-hoc edits. Each degraded project reproduces a shape actually observed in the audit and carries the citing repo in a docstring, so a fixture cannot drift into testing an imaginary failure.'). Applied via roundtrip.apply_degradation() against an already-set-up reference-shaped project (never against a real product repo). SCOPE NOTE: RC-4's lock-template-collision shape (LI-1: a sha256-identical lock shared by 8 repos) is deliberately NOT included here -- byte-identity across repos is a cross-repo, fleet-wide fact a single project's round-trip cannot observe by definition (one project has no sibling repos to compare against). That check belongs to Layer 4 (lock.template.uniqueness, WP-5's lock.py), not Layer 5.",
+  "shapes": [
+    {
+      "name": "missing-hook",
+      "description": "The enforcement hook is entirely absent -- the universal, machine-wide shape (0 of 58 tabulated repos pass IC-D4-HOOK on this machine).",
+      "citing_evidence": "TEST-MATRIX.md IC-D4-HOOK: FAIL 0/58; EXISTING-VERIFICATION.md doctor probe: hooks-registered-in-project=fail, hooks-enforcement-live=fail",
+      "remove": [".claude/hooks/copilot-hook.sh"]
+    },
+    {
+      "name": "half-commands",
+      "description": "Only 2 of 7 project commands present -- the dominant 'never updated' bimodal shape (~30 repos stuck at 2/7 on this machine).",
+      "citing_evidence": "TEST-MATRIX.md IC-D1-COMMANDS: bimodal 2-command vs 17-command distribution; RT-1 expected-fail-today",
+      "remove": [
+        ".claude/commands/pause.md",
+        ".claude/commands/map.md",
+        ".claude/commands/memory.md",
+        ".claude/commands/extensions.md",
+        ".claude/commands/orchestrate.md"
+      ]
+    },
+    {
+      "name": "dropped-agents",
+      "description": "Two framework agents missing from the roster -- the shape TSM/h3 shows (2 missing: cpa, ind).",
+      "citing_evidence": "TEST-MATRIX.md IC-D1-AGENTS named case: TSM/h3 (2 missing -- cpa, ind -- + 3 unowned foreign extras)",
+      "remove": [
+        ".claude/agents/cpa.md",
+        ".claude/agents/ind.md"
+      ]
+    },
+    {
+      "name": "missing-mcp-marker",
+      "description": ".mcp.json entirely absent -- the shape observed in 4 component repos (cli-copilot, codex-copilot, cli-copilot-internal, research-copilot all lack the file outright).",
+      "citing_evidence": "TEST-MATRIX.md IC-D1-MCP: ABSENT in cli-copilot, codex-copilot, cli-copilot-internal, research-copilot",
+      "remove": [".mcp.json"]
+    }
+  ]
+}

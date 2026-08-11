@@ -40,17 +40,21 @@ make_payload() {
 }
 
 # Invoke hook once and return "exit_code|stdout"
+# Optional $3 overrides the invocation's cwd (default: this test script's own
+# cwd, i.e. PROJECT_ROOT under normal CI/local runs). Needed by
+# test_new_session to escape this repo's git root — see its comment.
 invoke_hook() {
   local session_id="$1"
   local extra_env="${2:-}"
+  local cwd_dir="${3:-$PWD}"
   local payload
   payload="$(make_payload "$session_id")"
   local exit_code=0
   local output
   if [[ -n "$extra_env" ]]; then
-    output="$(eval "env $extra_env bash '$HOOK'" <<< "$payload" 2>/dev/null)" || exit_code=$?
+    output="$(cd "$cwd_dir" && eval "env $extra_env bash '$HOOK'" <<< "$payload" 2>/dev/null)" || exit_code=$?
   else
-    output="$(bash "$HOOK" <<< "$payload" 2>/dev/null)" || exit_code=$?
+    output="$(cd "$cwd_dir" && bash "$HOOK" <<< "$payload" 2>/dev/null)" || exit_code=$?
   fi
   printf '%d|%s' "$exit_code" "$output"
 }
@@ -130,10 +134,44 @@ test_new_session() {
   local sid="${TEST_SESSION}-new"
   clean_session "$sid"
 
+  # This test is about the session-cap advisory (turns/warned/warnedStrong),
+  # not the unrelated "Known references" feature the hook also emits on turn
+  # 1 (via `cc config get paths.shared_docs/knowledge_repo`, `cc config
+  # export | grep refs.*`, and `cc memory list --type reference`). The
+  # config half reads this machine's REAL cc config — on any machine with
+  # shared_docs/knowledge_repo/refs configured (this repo's own
+  # .claude/cc/config.json declares paths.shared_docs and
+  # paths.knowledge_repo as "@machine", so any ecosystem-configured dev
+  # machine resolves them), a brand-new session legitimately produces a
+  # systemMessage, which isn't what this assertion is testing. Point
+  # CC_MACHINE_ROOT (the isolation seam tools/cc/tests/conftest.py's
+  # `_isolate_machine_config` fixture also uses) at an empty tmp dir so `cc
+  # config get`/`cc config export` resolve nothing.
+  #
+  # The memory half is NOT covered by CC_MACHINE_ROOT: `cc memory list
+  # --type reference` defaults to scope="project", which
+  # core/entry_store.py's resolve_memory_root() always resolves via `git
+  # rev-parse --show-toplevel` from the invoking process's cwd — there is no
+  # env-var override for project scope (unlike global scope's
+  # CC_GLOBAL_MEMORY_ROOT; see entry_store.py's module comment). Run from
+  # inside this repo, that reads THIS repo's real .claude/memory/, which
+  # legitimately accumulates reference-typed entries (e.g. eval-run records)
+  # from ordinary use — a false failure unrelated to the session-cap logic
+  # this test exists to check. So: invoke from a fresh non-git tmp cwd
+  # (default_scope() falls back to "global" when `git rev-parse` fails) and
+  # point CC_GLOBAL_MEMORY_ROOT at an empty tmp dir too, isolating both
+  # halves of the known-references block regardless of the host machine's
+  # or repo's real state.
+  local isolated_cc_root isolated_cwd
+  isolated_cc_root="$(mktemp -d)"
+  isolated_cwd="$(mktemp -d)"
+
   local result output exit_code
-  result="$(invoke_hook "$sid")"
+  result="$(invoke_hook "$sid" "CC_MACHINE_ROOT=$isolated_cc_root CC_GLOBAL_MEMORY_ROOT=$isolated_cc_root" "$isolated_cwd")"
   exit_code="$(get_exit_code "$result")"
   output="$(get_output "$result")"
+
+  rm -rf "$isolated_cc_root" "$isolated_cwd"
 
   if [[ "$exit_code" -eq 0 ]]; then
     ok "new session exits 0"

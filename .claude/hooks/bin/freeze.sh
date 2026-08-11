@@ -20,7 +20,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)" \
   || { echo "[freeze] could not resolve SCRIPT_DIR" >&2; exit 1; }
-STATE_DIR="$(dirname "$SCRIPT_DIR")/state"
+STATE_DIR="${COPILOT_HOOK_STATE_DIR:-$(dirname "$SCRIPT_DIR")/state}"
 FREEZE_FILE="${STATE_DIR}/.freeze"
 
 case "${1:-}" in

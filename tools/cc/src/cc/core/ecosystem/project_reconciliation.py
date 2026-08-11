@@ -397,6 +397,7 @@ def _framework_path_allowed(component: str, relative: str) -> bool:
             ".claude/commands/protocol.md",
             ".claude/commands/continue.md",
             ".claude/fitness-check.sh",
+            ".claude/hooks/copilot-hook.sh",
         } or relative.startswith(".claude/agents/")
     return relative == "scripts/copilot-gate.sh" or relative.startswith(
         "plugins/codex-copilot/"

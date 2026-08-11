@@ -55,6 +55,8 @@ _COMPONENT_TARGETS: Mapping[str, tuple[str, ...]] = MappingProxyType(
             ".claude/commands/protocol.md",
             ".claude/commands/continue.md",
             ".claude/fitness-check.sh",
+            ".claude/hooks/copilot-hook.sh",
+            ".claude/settings.json",
             ".claude/agents",
             ".claude/cc/config.json",
             ".claude/memory/entries/.gitkeep",
@@ -97,6 +99,7 @@ _PAYLOAD_KEYS: Mapping[RecipeOperationKind, frozenset[str]] = MappingProxyType(
         ),
         RecipeOperationKind.WRITE_PROJECT_DECLARATION: frozenset({"document"}),
         RecipeOperationKind.ASSOCIATE_PERSONAL_PROJECT: frozenset({"document"}),
+        RecipeOperationKind.REGISTER_SETTINGS_HOOKS: frozenset({"entries", "source"}),
     }
 )
 
@@ -738,6 +741,7 @@ def _framework_files(source: Path, component: str) -> list[dict[str, str]]:
             ".claude/commands/protocol.md",
             ".claude/commands/continue.md",
             ".claude/fitness-check.sh",
+            ".claude/hooks/copilot-hook.sh",
             *(candidate.relative_to(source).as_posix() for candidate in agent_files),
         ]
     else:
@@ -783,6 +787,10 @@ def _lock_entry(source: Path, component: str) -> dict[str, Any]:
         "component": component,
         "version": version,
         "release_tag": f"v{version}",
+        # Explicit, never left for a reader's implicit "absent means full"
+        # default (RC-4 fix #4) -- every entry this recipe pipeline writes
+        # names its own mode.
+        "ownership_mode": "full",
         "files": _framework_files(source, component),
     }
 
@@ -827,6 +835,7 @@ def _claude_customized_lock_entry(source: Path, root: Path) -> dict[str, Any]:
         ".claude/commands/protocol.md",
         ".claude/commands/continue.md",
         ".claude/fitness-check.sh",
+        ".claude/hooks/copilot-hook.sh",
     }
     return {
         **entry,
@@ -1040,6 +1049,115 @@ def _claude_setup(root: Path, component: str) -> tuple[RecipeOperation, ...]:
                     payload={
                         "source_path": str(source / target),
                         "mode": 0o755 if target.endswith(".sh") else 0o644,
+                    },
+                )
+            )
+    # Sticky opt-out: ".claude/copilot-hooks-disabled" (mutations.py's
+    # DISABLED_MARKER) means a human explicitly ran `cc settings-hook
+    # remove --disable` -- this scopes ONLY the hook-enforcement piece
+    # (the shim copy below and the settings registration further down);
+    # every OTHER framework-owned file above is unaffected, since opting
+    # out of enforcement is not the same decision as opting out of the
+    # framework. "Removal must survive re-running setup": without this
+    # check, THIS function re-copying a missing shim on every subsequent
+    # `cc reconcile apply` would silently resurrect what was deliberately
+    # removed.
+    hooks_disabled = not _target_missing(root, ".claude/copilot-hooks-disabled")
+    if component == "claude" and not hooks_disabled and _target_missing(
+        root, ".claude/hooks/copilot-hook.sh"
+    ):
+        operations.append(
+            _operation(
+                root=root,
+                component=component,
+                kind=RecipeOperationKind.COPY_FILE_FROM_SOURCE,
+                target=".claude/hooks/copilot-hook.sh",
+                description="Install the missing framework-owned .claude/hooks/copilot-hook.sh file.",
+                source=source / ".claude/hooks/copilot-hook.sh",
+                payload={
+                    "source_path": str(source / ".claude/hooks/copilot-hook.sh"),
+                    "mode": 0o755,
+                },
+            )
+        )
+    if component == "claude" and not hooks_disabled:
+        # "Vendor a shim, rules stay global" (item 1's resolution of the
+        # item-1-vs-Decision-1 fork -- see this repo's IMPL-plan.md
+        # "Items where the plan cannot work exactly as written" #1): the
+        # shim copy above is the ONLY vendored rule-adjacent file; this
+        # operation is the settings REGISTRATION half, and it runs
+        # UNCONDITIONALLY (never gated on `_target_missing`) because,
+        # unlike the create-if-absent files above, `.claude/settings.json`
+        # commonly already exists with a human's OWN hooks in it -- the
+        # entire point of item 2's `merge_hook_entries()` is a non-
+        # destructive structural merge into whatever is already there, and
+        # it is idempotent by construction (re-running finds every entry's
+        # `spec_fingerprint` already present and changes nothing).
+        # `.claude/settings.json` is intentionally NOT part of
+        # `_framework_files()`'s checksummed roster below (it is not, and
+        # structurally cannot be, `ownership: framework` -- see
+        # `project_integration.py`'s `_verify_lock_entry()`); its own
+        # audit trail is the `mutations[]` ledger row, appended by a
+        # follow-up call to `apply_settings_hook()` (see
+        # `commands/reconcile.py`'s `apply()` and this operation's own
+        # `_prepare_mutation` branch in reconciliation_transaction.py for
+        # why the ledger row is deliberately NOT written by this op).
+        from cc.core.ecosystem.mutations import (
+            DEFAULT_HOOK_ENTRIES,
+            canonical_settings_bytes,
+            merge_hook_entries,
+        )
+
+        # Only emit the operation when the merge would actually change the
+        # file -- mirrors the `_target_missing()` gates above in spirit
+        # (never plan a no-op write) even though this target is not
+        # missing/present-gated the same way. A project already fully
+        # registered (every DEFAULT_HOOK_ENTRIES fingerprint present) plans
+        # zero bytes of difference, so it is not carried into `operations`
+        # at all -- keeps a `"ready"` project's plan exactly `()` and keeps
+        # `SAFE_UPDATE_AVAILABLE` repairs scoped to what is actually stale.
+        settings_target = root / ".claude/settings.json"
+        try:
+            current_settings = (
+                json.loads(settings_target.read_text(encoding="utf-8"))
+                if settings_target.is_file() and not settings_target.is_symlink()
+                else {}
+            )
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            current_settings = None
+        if isinstance(current_settings, dict):
+            merged, _actions = merge_hook_entries(
+                current_settings, DEFAULT_HOOK_ENTRIES, source="claude-copilot"
+            )
+            needs_registration = canonical_settings_bytes(merged) != (
+                settings_target.read_bytes() if settings_target.is_file() else b""
+            )
+        else:
+            # Present but unparseable JSON, or valid JSON that is not an
+            # object -- plan the operation anyway and let the
+            # transaction's own read/merge/refuse-on-corrupt path (the
+            # SAME `_prepare_mutation` branch, re-read at execute time) be
+            # the single source of truth that actually refuses the write,
+            # rather than silently skipping a corrupt file here.
+            needs_registration = True
+        if needs_registration:
+            operations.append(
+                _operation(
+                    root=root,
+                    component=component,
+                    kind=RecipeOperationKind.REGISTER_SETTINGS_HOOKS,
+                    target=".claude/settings.json",
+                    description="Register framework hooks in .claude/settings.json (non-destructive merge).",
+                    payload={
+                        "entries": [
+                            {
+                                "event": entry.event,
+                                "matcher": entry.matcher,
+                                "command": entry.command,
+                            }
+                            for entry in DEFAULT_HOOK_ENTRIES
+                        ],
+                        "source": "claude-copilot",
                     },
                 )
             )

@@ -1,0 +1,77 @@
+{
+  "$comment": "Committed baseline for FF9 (context-budget fitness function) in .claude/fitness-check.sh. Captured by reading the working tree directly (wc -c on every agent .md, every command .md, CLAUDE.md, and .claude/hooks/protocol-injection.md), AFTER the runtime-precedence pass (item 6, 2,673 bytes x 16 files) and the frontmatter-conformance pass (item 4) had already landed in all 16 agent files. A re-baseline is a new file with an incremented framework version in its name (see VERSION.json .framework) so drift is a reviewable diff, never a silent edit of this one.",
+  "framework_version": "5.13.3",
+  "captured_at": "2026-08-08T16:54:30Z",
+  "byte_to_token_ratio": 4.0,
+  "byte_to_token_basis": "~4 characters per token for English/markdown text -- OpenAI's widely-published tokenizer heuristic (platform.openai.com/tokenizer: 'a helpful rule of thumb is that one token generally corresponds to ~4 characters of text'). No tokenizer dependency is added; this is a documented approximation, applied identically to every artifact so ratios between artifacts stay comparable even though the absolute token count is approximate.",
+  "thresholds": {
+    "growth_ratio": 1.10,
+    "growth_ratio_basis": "Matches IMPL-plan item 5's starting point: tight enough to catch a real content-bloat edit, loose enough for normal edits (a new table row, a paragraph) not to trip it. Applies uniformly to every tracked artifact (agents, commands, CLAUDE.md, the SessionStart injection file, and the frontmatter-description catalog).",
+    "shrink_floor_ratio": 0.70,
+    "shrink_floor_basis": "A single edit legitimately removing under 30% of a file (trimming a stale section) is normal; losing more than 30% in one change is the signature of an accidental body-strip or truncated write, which a growth-only budget cannot see.",
+    "corpus_ceiling_ratio": 1.10,
+    "corpus_ceiling_basis": "Same 10% headroom as the per-file ratio, applied to the SUM of all 16 agent files, so many small under-ratio additions across different files (each individually compliant) still can't add up to unbounded corpus growth.",
+    "always_loaded_growth_ratio": 1.08,
+    "always_loaded_growth_ratio_basis": "Deliberately tighter than every other ratio in this file (8% vs 10%) because this is the one number that taxes literally every session with zero user action -- CLAUDE.md and the SessionStart injection are read whether or not the session ever touches an agent or a command. 8% of the current 25,102-byte total is ~2,008 bytes (~500 tokens) of headroom: enough for a handful of ordinary edits, tight enough that a new guardrails paragraph gets caught before it ships."
+  },
+  "agents": {
+    "cco.md": 7038,
+    "cpa.md": 9197,
+    "cs.md": 7590,
+    "cw.md": 7319,
+    "do.md": 7847,
+    "doc.md": 6161,
+    "ind.md": 12426,
+    "kc.md": 6647,
+    "me.md": 7661,
+    "qa.md": 11162,
+    "sd.md": 13030,
+    "sec.md": 8226,
+    "ta.md": 10874,
+    "uid.md": 6587,
+    "uids.md": 22643,
+    "uxd.md": 18879
+  },
+  "agent_corpus_total_bytes": 163287,
+  "agent_corpus_note": "Post-precedence-pass measured total. The pre-pass total was 119,630 bytes (see baseline-our-framework.md); the concurrent runtime-precedence work (item 6) added a 2,673-byte block to all 16 files (+42,768 bytes, ~36%) before this baseline was captured, so this file baselines against the number actually on disk, not the pre-pass figure.",
+  "commands": {
+    "config.md": 8735,
+    "continue.md": 14169,
+    "extensions.md": 6862,
+    "knowledge-copilot.md": 2837,
+    "map.md": 3894,
+    "memory.md": 4881,
+    "orchestrate.md": 4654,
+    "pause.md": 4639,
+    "protocol.md": 34568,
+    "reflect.md": 4335,
+    "setup-copilot.md": 1320,
+    "setup-knowledge-sync.md": 6174,
+    "setup-project.md": 12965,
+    "setup.md": 5180,
+    "skills-approve.md": 2394,
+    "update-copilot.md": 3498,
+    "update-project.md": 14080
+  },
+  "always_loaded": {
+    "claude_md_bytes": 19365,
+    "claude_md_note": "Repo-root CLAUDE.md. Claude Code auto-loads a project's CLAUDE.md into every session unconditionally -- this is documented default behavior and was independently confirmed by inspecting this very session's own injected context.",
+    "session_start_injection_bytes": 3445,
+    "session_start_injection_note": "`.claude/hooks/protocol-injection.md`, emitted verbatim as the SessionStart hook's `systemMessage` on every session (session-start.sh), gated only by the `COPILOT_SESSION_START=off` escape hatch. The hook also appends a variable-length 'Known References' block (from `cc config`/`cc memory`, empty on a fresh install) and a 'Session Quota' block (from a usage cache) -- both runtime-computed and excluded here because they are not committed, reviewable file content and can't be measured as a static byte budget the way the rest of this manifest is.",
+    "frontmatter_catalog_bytes": 2292,
+    "frontmatter_catalog_note": "Sum of the frontmatter `description:` field bytes across all 16 agent .md files -- the name+description catalog Claude Code loads into the system prompt every session so it knows when to route to a subagent, independent of whether any agent is actually invoked.",
+    "total_bytes": 25102
+  },
+  "excluded_from_always_loaded": {
+    "protocol.md": {
+      "bytes": 34568,
+      "reason": "Loads only on an explicit `/protocol` invocation (a slash command that requires the user or the session's own convention to type it), not injected unconditionally by a hook or an auto-loaded-file convention the way CLAUDE.md and the SessionStart injection are. It is the single largest command and the framework's own documented default way most sessions begin, so it is still tracked -- under the ordinary per-artifact growth-ratio and shrink-floor invariants in `commands` above, same as every other command -- just not summed into the hard always-loaded ceiling.",
+      "verification": "No PreToolUse/SessionStart/UserPromptSubmit hook reads or emits protocol.md's content; grep across .claude/hooks/*.sh for 'protocol.md' returns no reference. It is read only when the user's harness resolves an explicit /protocol slash-command invocation."
+    },
+    "AGENTS.md": {
+      "bytes": 5840,
+      "reason": "Codex-layer file (per its own header: 'This project uses the shared codex-copilot framework through the project-local plugin link'). Not referenced via an `@path` import in CLAUDE.md (verified: `grep -n '^@' CLAUDE.md` and `grep -n AGENTS.md CLAUDE.md` both return nothing) and not read by any Claude Code hook under `.claude/hooks/`. Excluded because it is not, in fact, loaded into a Claude Code session at all -- it is Codex's equivalent of CLAUDE.md, consumed by a different harness."
+    }
+  },
+  "override_log": ".claude/context-budget-overrides.jsonl"
+}

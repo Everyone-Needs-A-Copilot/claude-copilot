@@ -22,13 +22,10 @@ Resolve `REPO_PATH` by checking these sources in order; stop at the first hit:
 # 1. Canonical env var (set via cc env)
 echo "${CC_KNOWLEDGE_REPO:-}"
 
-# 2. Ecosystem root — post-rename canonical dir
-ls -d /Volumes/Dev/Sites/COPILOT/knowledge-copilot 2>/dev/null && echo "FOUND_CANONICAL"
+# 2. Config lookup (in case env wasn't hydrated this session)
+cc config get paths.knowledge_repo 2>/dev/null && echo "FOUND_CONFIGURED"
 
-# 3. Ecosystem root — current/transition dir name
-ls -d /Volumes/Dev/Sites/COPILOT/knowledge-copilot 2>/dev/null && echo "FOUND_SHARED_DOCS"
-
-# 4. Generic install location (symlink at ~/.claude/knowledge)
+# 3. Generic install location (symlink at ~/.claude/knowledge)
 readlink -f ~/.claude/knowledge 2>/dev/null
 ```
 
@@ -47,7 +44,7 @@ Ask the user (use AskUserQuestion):
 **Question:** "No Knowledge Copilot repo found on this machine. What would you like to do?"
 **Header:** "Setup"
 **Options:**
-1. **"Clone the canonical repo"** — `git clone git@github.com:Everyone-Needs-A-Copilot/knowledge-copilot.git /Volumes/Dev/Sites/COPILOT/knowledge-copilot`
+1. **"Clone the canonical repo"** — ask where to put it (default: a sibling directory next to this project), then `git clone git@github.com:Everyone-Needs-A-Copilot/knowledge-copilot.git "$REPO_PATH"`
 2. **"Create a new knowledge repo"** — start fresh with guided discovery
 3. **"Link an existing local repo"** — provide a path
 

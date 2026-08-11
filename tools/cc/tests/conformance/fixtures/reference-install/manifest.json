@@ -1,0 +1,79 @@
+{
+  "_comment": "Golden-tree description for Layer 5's round-trip (and, per HARNESS-DESIGN.md section 5.2, reusable by Layer 3). Every field here was verified directly against VERSION.json and, where noted, a read-only inspection of the reference install on this machine -- never assumed from RUBRIC.md, which has two confirmed errors recorded below. See TEST-MATRIX.md section 5 'Ground truth constants'.",
+  "generated_at": "2026-08-10",
+  "verified_against": {
+    "version_json": "VERSION.json (framework 5.13.3, agents 5.6.0, commands 5.3.2)",
+    "reference_install": "/Volumes/Dev/Sites/TSM/hermes (read-only inspection; no single repo is a complete reference -- hermes itself fails D3/D4/D7/D11/D12 per TEST-MATRIX.md)",
+    "codex_plugin_source": "/Volumes/Dev/Sites/COPILOT/codex-copilot/plugins/codex-copilot (read-only file count)"
+  },
+  "rubric_corrections": [
+    {
+      "claim": "RUBRIC.md section D1 states machineCommands is 9",
+      "measured": "VERSION.json components.commands.machineCommands has exactly 6 entries: setup.md, setup-project.md, update-project.md, update-copilot.md, setup-copilot.md, knowledge-copilot.md",
+      "note": "config.md, reflect.md, skills-approve.md exist on disk in .claude/commands/ but are in NEITHER projectCommands NOR machineCommands in VERSION.json -- they are unmanifested, not merely uncounted."
+    },
+    {
+      "claim": "codex plugin tree is '62 files per project'",
+      "measured": "61 files under plugins/codex-copilot/ + scripts/copilot-gate.sh outside plugins/ = 62 total locked paths, not 62 files inside plugins/ alone."
+    }
+  ],
+  "claude": {
+    "agents": {
+      "count": 16,
+      "names": [
+        "cco", "cpa", "cs", "cw", "do", "doc", "ind", "kc",
+        "me", "qa", "sd", "sec", "ta", "uid", "uids", "uxd"
+      ],
+      "note": "15 frameworkAgents from VERSION.json plus 'kc', appended only by project_integration.py's _claude_source_files() (line 279) -- NOT by setup-project.md's own bash ROSTER loop, which reads frameworkAgents verbatim and never appends kc on its primary (python3-present) code path."
+    },
+    "commands": {
+      "count": 7,
+      "names": [
+        "protocol", "continue", "pause", "map", "memory", "extensions", "orchestrate"
+      ],
+      "setup_stage_names": ["protocol", "continue"],
+      "note": "setup-project.md Step 5 copies only protocol+continue; the remaining 5 arrive via update-project.md Step 6."
+    },
+    "hook": {
+      "path": ".claude/hooks/copilot-hook.sh",
+      "executable": true,
+      "locked": true,
+      "note": "Exists in the framework source (claude-copilot's own .claude/hooks/copilot-hook.sh); no documented setup-project.md/update-project.md step ever copies it (RC-1)."
+    },
+    "fitness_check": {
+      "path": ".claude/fitness-check.sh",
+      "executable": true
+    },
+    "mcp_json": {"mcpServers": {}},
+    "cc_config": {
+      "path": ".claude/cc/config.json",
+      "schema": "cc-config-v1",
+      "version": 1,
+      "sentinel_paths": ["shared_docs", "knowledge_repo"],
+      "sentinel_value": "@machine"
+    },
+    "claude_md_heading": "## Claude Copilot",
+    "memory_gitkeep": ".claude/memory/entries/.gitkeep",
+    "lock": {
+      "path": "copilot.lock.json",
+      "generated_by_installer": false,
+      "note": "RC-4: grep -rl copilot.lock.json over setup-project.md/update-project.md/codex-copilot/scripts returns nothing. No installer path calls the real generator (core/ecosystem/projects.py::write_project_lock)."
+    }
+  },
+  "codex": {
+    "plugin_file_count": 61,
+    "gate_script": "scripts/copilot-gate.sh",
+    "locked_path_count": 62,
+    "skill_bridge_relative": ".claude/skills/codex-copilot",
+    "skill_bridge_target": "../../plugins/codex-copilot/skills",
+    "installed_by_claude_setup_project_md": false,
+    "note": "setup-project.md never references plugins/codex-copilot at all. The codex half of a reference install is installed entirely by codex-copilot/scripts/setup-project.sh, a separate installer in a separate repo. /setup-project (claude-copilot) alone can never reproduce the reference install's codex component -- a structural gap distinct from RC-1/RC-2/RC-4."
+  },
+  "machine_commands_ground_truth": {
+    "count": 6,
+    "names": [
+      "setup.md", "setup-project.md", "update-project.md",
+      "update-copilot.md", "setup-copilot.md", "knowledge-copilot.md"
+    ]
+  }
+}

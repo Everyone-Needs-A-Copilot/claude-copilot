@@ -1,0 +1,7 @@
+# Layer 1 (tier resolution) fixtures
+
+These are static, hand-written fixtures for `test_layer1_tier.py`'s hermetic (World A) tests — the ones that must not depend on this machine's real `.claude/agents/*.md` content, so a positive/negative proof of `check_h5_singular_alias_paths_exist`'s extraction-and-existence logic keeps working even if the real `cw.md`/`sd.md`/`ta.md` are edited or the real bug (Q24) is ever fixed.
+
+`agents/sample-agent.md` is a synthetic agent-instruction file, shaped like a real one but with invented sub-paths (`reference/glossary.md`, `reference/style/`) under the `$CC_KNOWLEDGE_REPO` singular alias — the same dereference pattern the real `cw`/`sd`/`ta` agents use. The test builds two fixture "knowledge repo" directories with a synthetic `FleetFactory` tier: one where both referenced sub-paths exist (the PASS case) and one where they don't (the FAIL/negative case, reproducing the Q24 shape on data the test owns outright).
+
+Most of this package's other fixtures (the tier ladder itself, `knowledge-manifest.json` scaffolds, the H-3 shadow-substance draft/real content pair) are built inline through `conftest.py`'s `FleetFactory` rather than checked in as static files here, per `HARNESS-DESIGN.md` §5.2's builder API — a fixture that is a few `.contributes(...)`/`.write(...)` calls in the test itself is easier to read as the scenario it encodes than an equivalent static file tree would be. This directory holds only the one fixture that is genuinely clearer as checked-in prose: realistic agent-instruction text.

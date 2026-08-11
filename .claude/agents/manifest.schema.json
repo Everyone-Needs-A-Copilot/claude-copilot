@@ -66,6 +66,42 @@
         "methodology": {
           "type": ["string", "null"],
           "description": "Named industry methodology embedded in this agent"
+        },
+        "iteration": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The agent's iteration contract: how it behaves across re-invocation -- the checkpoint 'request changes' loop (.claude/commands/protocol.md, section 'Iteration Handling (Change Requests)'), premature-stop continuation (same file, 'Continuation Detection'), and the gate it must clear before emitting a completion promise. Optional on AgentDescriptor because role=setup-only agents (e.g. kc) run a linear discovery flow with no re-invocation loop and legitimately carry none. Required for every role=framework agent -- enforced by the frontmatter conformance check (FF7 in fitness-check.sh), not by this schema alone, since that is a cross-field rule (depends on `role`) that JSON Schema draft-07 expresses badly. This same subschema also governs each agent .md's YAML frontmatter `iteration:` block, so the two representations cannot drift apart.",
+          "required": ["enabled", "maxIterations", "completionPromises", "validationRules"],
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Whether this agent participates in the re-invocation/iteration loop at all"
+            },
+            "maxIterations": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20,
+              "description": "Ceiling on re-invocations for one task before the loop must stop and escalate to the user; the framework's own runaway protection blocks at >10 continuations, so this is a per-agent budget under that ceiling"
+            },
+            "completionPromises": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "pattern": "^<promise>[A-Z]+</promise>$"
+              },
+              "description": "The exact promise markers this agent may end a turn with; protocol.md's Continuation Detection auto-resumes the agent when a turn ends without one of these"
+            },
+            "validationRules": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]*$"
+              },
+              "description": "Named predicates that must hold before this agent may emit <promise>COMPLETE</promise> -- the acceptance gate for its own iteration loop"
+            }
+          }
         }
       }
     },

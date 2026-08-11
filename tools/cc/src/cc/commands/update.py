@@ -269,8 +269,10 @@ def build_update_report(
     # G-9 (task 215 blocker fix): each layer's actually-resolved/pinned
     # `source.ref` (e.g. a signed foundation snapshot tag), threaded to the
     # policy gate -- see materialize()'s own `layer_source_refs` docstring
-    # for why blind-HEAD signature verification is not always the same
-    # question as "does this content match what the manifest pinned".
+    # and `verify_git_item()`'s docstring: the pinned tag is now REQUIRED
+    # for `verify_git_item()` to verify anything at all (security review
+    # blocker 2, 2026-08-10), so an item whose layer has no resolved ref
+    # here blocks rather than falling back to any other check.
     layer_source_refs = {
         layer["id"]: (layer.get("source") or {}).get("ref")
         for layer in effective_layers

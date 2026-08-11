@@ -5,18 +5,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Volumes/Dev/Sites/COPILOT/claude-copilot/.claude/hooks/session-start.sh"
+            "command": "bash \"$(git rev-parse --show-toplevel)/.claude/hooks/session-start.sh\""
           }
         ]
       }
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|Read|Edit|Write|Agent",
         "hooks": [
           {
             "type": "command",
-            "command": "/Volumes/Dev/Sites/COPILOT/claude-copilot/.claude/hooks/pretool-check.sh"
+            "command": "bash \"$(git rev-parse --show-toplevel)/.claude/hooks/pretool-check.sh\""
           }
         ]
       }
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Volumes/Dev/Sites/COPILOT/claude-copilot/.claude/hooks/subagent-stop.sh"
+            "command": "bash \"$(git rev-parse --show-toplevel)/.claude/hooks/subagent-stop.sh\""
           }
         ]
       }
@@ -37,7 +37,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Volumes/Dev/Sites/COPILOT/claude-copilot/.claude/hooks/user-prompt-submit.sh"
+            "command": "bash \"$(git rev-parse --show-toplevel)/.claude/hooks/user-prompt-submit.sh\""
           }
         ]
       }

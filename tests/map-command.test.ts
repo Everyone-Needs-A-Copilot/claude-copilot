@@ -11,7 +11,7 @@
  * Run with: node --test tests/map-command.test.ts
  */
 
-import { describe, it, before, after } from 'node:test';
+import { describe, it, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { tmpdir } from 'os';
@@ -33,6 +33,14 @@ describe('Codebase Mapping Feature', () => {
 
   describe('Tech Stack Detection', () => {
     describe('Node.js/TypeScript Projects', () => {
+      // Each test asserts on the freshest lockfile only; without a reset, an
+      // earlier test's yarn.lock/pnpm-lock.yaml survives into later tests
+      // and is detected first, making package-manager detection order-dependent.
+      beforeEach(() => {
+        rmSync(testProjectDir, { recursive: true, force: true });
+        mkdirSync(testProjectDir, { recursive: true });
+      });
+
       it('should detect Node.js with npm', () => {
         const packageJson = {
           name: 'test-project',
@@ -185,6 +193,13 @@ describe('Codebase Mapping Feature', () => {
     });
 
     describe('Python Projects', () => {
+      // Same rationale as the Node.js/TypeScript reset above: an earlier
+      // test's poetry.lock/Pipfile otherwise survives and wins detection.
+      beforeEach(() => {
+        rmSync(testProjectDir, { recursive: true, force: true });
+        mkdirSync(testProjectDir, { recursive: true });
+      });
+
       it('should detect Python with pip (requirements.txt)', () => {
         writeFileSync(join(testProjectDir, 'requirements.txt'), 'requests==2.28.0');
 
@@ -350,9 +365,12 @@ describe('Codebase Mapping Feature', () => {
     it('should identify configuration files', () => {
       const keyFiles = identifyKeyFiles(testProjectDir);
 
-      assert.ok(keyFiles.config.includes('package.json'));
-      assert.ok(keyFiles.config.includes('tsconfig.json'));
-      assert.ok(keyFiles.config.includes('vite.config.ts'));
+      // identifyKeyFiles returns find(1) output (e.g. "./package.json"), so
+      // membership needs a substring match, not exact array equality -- same
+      // style already used by the docs/entryPoints assertions below.
+      assert.ok(keyFiles.config.some(f => f.includes('package.json')));
+      assert.ok(keyFiles.config.some(f => f.includes('tsconfig.json')));
+      assert.ok(keyFiles.config.some(f => f.includes('vite.config.ts')));
     });
 
     it('should identify documentation files', () => {
@@ -386,14 +404,23 @@ describe('Codebase Mapping Feature', () => {
     });
 
     it('should limit number of files per category', () => {
-      // Create many config files
-      for (let i = 0; i < 20; i++) {
-        writeFileSync(join(testProjectDir, `config${i}.json`), '{}');
+      // Use an isolated directory: writing 20 files into the shared
+      // testProjectDir would leak into later tests in this describe (e.g.
+      // "should recognize various config file patterns" sorts after these
+      // config0..19.json names and its own head -15 would truncate them out).
+      const manyConfigsDir = mkdtempSync(join(tmpdir(), 'many-configs-'));
+
+      try {
+        for (let i = 0; i < 20; i++) {
+          writeFileSync(join(manyConfigsDir, `config${i}.json`), '{}');
+        }
+
+        const keyFiles = identifyKeyFiles(manyConfigsDir, { limitPerCategory: 10 });
+
+        assert.ok(keyFiles.config.length <= 10);
+      } finally {
+        rmSync(manyConfigsDir, { recursive: true, force: true });
       }
-
-      const keyFiles = identifyKeyFiles(testProjectDir, { limitPerCategory: 10 });
-
-      assert.ok(keyFiles.config.length <= 10);
     });
 
     it('should handle projects with no config files', () => {
@@ -635,16 +662,21 @@ describe('Codebase Mapping Feature', () => {
     });
 
     it('should update timestamp on refresh', () => {
-      const firstMap = generateProjectMap(testProjectDir);
-      const firstTimestamp = extractTimestamp(firstMap);
+      // The previous version of this test scheduled its assertion in a
+      // setTimeout without returning a promise or awaiting it: the `it()`
+      // callback returned (and node:test marked the test passed) before the
+      // timeout fired, so the assertion ran after the test had already
+      // ended, surfacing as an uncaught exception that failed the whole
+      // suite run regardless of the assertion's outcome. It was also
+      // asserting something day-granularity timestamps can't prove 100ms
+      // apart (`extractTimestamp` returns YYYY-MM-DD, not a precise instant).
+      // Assert freshness/format synchronously instead: refresh regenerates a
+      // well-formed, current "Last updated" date every time it's called.
+      const map = generateProjectMap(testProjectDir);
+      const timestamp = extractTimestamp(map);
 
-      // Wait a moment
-      setTimeout(() => {
-        const secondMap = generateProjectMap(testProjectDir);
-        const secondTimestamp = extractTimestamp(secondMap);
-
-        assert.notStrictEqual(firstTimestamp, secondTimestamp);
-      }, 100);
+      assert.match(timestamp, /^\d{4}-\d{2}-\d{2}$/);
+      assert.strictEqual(timestamp, new Date().toISOString().split('T')[0]);
     });
   });
 
@@ -783,7 +815,12 @@ coverage/
       try {
         writeFileSync(join(specialDir, 'file with spaces.md'), '# Test');
         writeFileSync(join(specialDir, 'file-with-dashes.json'), '{}');
-        writeFileSync(join(specialDir, 'file_with_underscores.ts'), 'export {}');
+        // Must match one of identifyKeyFiles' category patterns (config:
+        // *.json/*.yaml/*.toml/*.config.*; docs: README*/CLAUDE*/*.md;
+        // entryPoints: main.*/index.*/app.*/cli.*) -- a plain "*.ts" file
+        // with an arbitrary name matches none of them, so this exercises
+        // underscores via the config category instead.
+        writeFileSync(join(specialDir, 'file_with_underscores.json'), '{}');
 
         const keyFiles = identifyKeyFiles(specialDir);
         const allFiles = [
@@ -794,7 +831,7 @@ coverage/
 
         assert.ok(allFiles.includes('file with spaces.md'));
         assert.ok(allFiles.includes('file-with-dashes.json'));
-        assert.ok(allFiles.includes('file_with_underscores.ts'));
+        assert.ok(allFiles.includes('file_with_underscores.json'));
       } finally {
         rmSync(specialDir, { recursive: true, force: true });
       }
@@ -963,7 +1000,7 @@ function generateDirectoryTree(
   if (!options.useFind) {
     try {
       const tree = execSync(
-        `tree -L ${maxDepth} -I 'node_modules|dist|build|.git|__pycache__|.venv|target|vendor' --dirsfirst`,
+        `tree -L ${maxDepth} -I 'node_modules|dist|build|.git|__pycache__|.venv|target|vendor|coverage' --dirsfirst`,
         { cwd: projectPath, encoding: 'utf-8' }
       );
       return tree;
@@ -984,6 +1021,7 @@ function generateDirectoryTree(
       `-not -path './.venv/*' ` +
       `-not -path './target/*' ` +
       `-not -path './vendor/*' ` +
+      `-not -path './coverage/*' ` +
       `| sort`,
       { cwd: projectPath, encoding: 'utf-8' }
     );
@@ -1058,11 +1096,23 @@ function identifyKeyFiles(
   return result;
 }
 
+function readPackageName(projectPath: string): string | null {
+  try {
+    const pkg = JSON.parse(readFileSync(join(projectPath, 'package.json'), 'utf-8'));
+    return typeof pkg.name === 'string' && pkg.name.length > 0 ? pkg.name : null;
+  } catch {
+    return null;
+  }
+}
+
 function generateProjectMap(
   projectPath: string,
   options: { preserveNotes?: string } = {}
 ): string {
-  const projectName = projectPath.split('/').pop() || 'Unknown';
+  // Prefer package.json's "name" (the project's own declared identity) over
+  // the containing directory name, which for a temp checkout or worktree is
+  // often an unrelated random/generated path segment.
+  const projectName = readPackageName(projectPath) || projectPath.split('/').pop() || 'Unknown';
   const timestamp = new Date().toISOString().split('T')[0];
 
   const techStack = detectTechStack(projectPath);

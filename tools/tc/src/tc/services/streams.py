@@ -6,6 +6,7 @@ This module has ZERO import-time side effects.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 from typing import Any, Optional
@@ -172,6 +173,91 @@ def get_stream(
             raise StreamNotFound(f"stream '{name_or_id}' not found")
 
         return _row_to_dict(row)
+    finally:
+        if owns_conn:
+            conn.close()
+
+
+def find_conflicts(
+    *,
+    statuses: Optional[list[str]] = None,
+    conn: Optional[sqlite3.Connection] = None,
+    db_path: Optional[Path] = None,
+) -> list[dict[str, Any]]:
+    """Find files referenced by more than one stream's task metadata.
+
+    The ``streams`` table itself has no ``files`` column -- file ownership is
+    declared per-task in ``tasks.metadata.files`` (a list of paths), which is
+    exactly what ``/orchestrate generate`` already writes when it creates each
+    stream's tasks. This aggregates that existing data rather than requiring a
+    schema migration.
+
+    Args:
+        statuses: Stream statuses to include (default: ``["active", "paused"]``
+                   -- completed/archived streams are no longer running in
+                   parallel with anything, so their file claims cannot
+                   collide with a stream that is about to start).
+        conn:     Existing connection for batching; if None, opens own.
+        db_path:  Explicit DB path; if None, walks up from cwd.
+
+    Returns:
+        A list of ``{"file": str, "streams": [{"id": int, "name": str}, ...]}``
+        dicts, one per file claimed by more than one stream. Empty when there
+        are no conflicts.
+    """
+    if statuses is None:
+        statuses = ["active", "paused"]
+
+    owns_conn = conn is None
+    if owns_conn:
+        resolved = _require_db_path(db_path)
+        conn = _open_conn(resolved)
+
+    try:
+        if not statuses:
+            return []
+
+        placeholders = ", ".join("?" for _ in statuses)
+        stream_rows = conn.execute(
+            f"SELECT id, name FROM streams WHERE status IN ({placeholders})",
+            statuses,
+        ).fetchall()
+
+        file_to_streams: dict[str, dict[int, str]] = {}
+        for stream_row in stream_rows:
+            stream_id = stream_row["id"]
+            stream_name = stream_row["name"]
+            task_rows = conn.execute(
+                "SELECT metadata FROM tasks WHERE stream_id = ?", (stream_id,)
+            ).fetchall()
+            for task_row in task_rows:
+                raw = task_row["metadata"]
+                if not raw:
+                    continue
+                try:
+                    meta = json.loads(raw)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                files = meta.get("files") if isinstance(meta, dict) else None
+                if not isinstance(files, list):
+                    continue
+                for f in files:
+                    if isinstance(f, str):
+                        file_to_streams.setdefault(f, {})[stream_id] = stream_name
+
+        conflicts = []
+        for f, streams_map in sorted(file_to_streams.items()):
+            if len(streams_map) > 1:
+                conflicts.append(
+                    {
+                        "file": f,
+                        "streams": [
+                            {"id": sid, "name": streams_map[sid]}
+                            for sid in sorted(streams_map)
+                        ],
+                    }
+                )
+        return conflicts
     finally:
         if owns_conn:
             conn.close()

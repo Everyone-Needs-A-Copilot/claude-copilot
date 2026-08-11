@@ -180,32 +180,20 @@ tc log --task <id> [--limit 20]
 
 ### `tc worker`
 
-`tc worker` is the agent-dispatch surface for budget-bounded task execution.
-
-**`--max-budget-usd <float>`** — per-task cost cap. Set it on `tc task create` or `tc task claim` to annotate the maximum USD the dispatched agent is permitted to spend on that task.
+`tc worker <task_id>` is the non-interactive dispatch path: it runs `claude --print --output-format json --agent <agent> [--max-budget-usd <float>] [--model <model>] <prompt>` for the given task.
 
 ```bash
-# Create a task with a $0.50 cost cap
-tc task create --title "Generate unit tests" --prd 1 --agent qa --max-budget-usd 0.50
-
-# Claim a task and declare a cap at claim time
-tc task claim 42 --agent me --max-budget-usd 1.00
+tc worker 42                             # dispatch task 42 with no cap
+tc worker 42 --max-budget-usd 2.50       # cap at $2.50
+tc worker 42 --max-budget-usd 2.50 --model claude-opus-4-5
+tc worker 42 --dry-run --json            # print the command as JSON, don't run it
 ```
 
-The flag is stored in task metadata (`metadata.max_budget_usd`). You can retrieve it:
+**`--max-budget-usd <float>`** is a native, harness-enforced spending cap — passed straight through to `claude --print --max-budget-usd`, which kills the run at the API boundary once the cap is hit. There is no separate enforcement layer to wait on; passing the flag *is* enforcement.
 
-```bash
-tc task get 42 --json | python3 -c "import sys,json; t=json.load(sys.stdin); print(t.get('metadata',{}).get('max_budget_usd','unset'))"
-```
+What `tc worker` adds on top of that: every dispatch's `total_cost_usd` / `num_turns` / `stop_reason` / `terminal_reason` is recorded to `agent_log` (`tc log --task <id>`), and if the harness kills the run for exceeding its cap, the task is released back to `pending` with its claim cleared instead of being left stuck `in_progress` under a dead run's claim.
 
-**Current status — flag plumbing only (tc 1.3.0):** The value is stored and retrievable. Runtime enforcement — rejecting or halting a dispatch that would exceed the cap — is a **roadmap P1** item. Setting the flag now future-proofs your task graph for when enforcement ships.
-
-**`tc worker` subcommand (dispatch surface):**
-
-```bash
-tc worker run   <task_id>   # dispatch task to its assigned agent (respects max_budget_usd when enforcement lands)
-tc worker status <task_id>  # show dispatch state and budget annotation
-```
+There is no `tc worker run` / `tc worker status` subcommand and no `--max-budget-usd` flag on `tc task create` / `tc task claim` — `tc worker <task_id> --max-budget-usd <float>` is the only surface for this.
 
 ---
 

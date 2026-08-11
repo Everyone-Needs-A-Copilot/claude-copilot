@@ -7,12 +7,18 @@ This module has ZERO import-time side effects.
 from __future__ import annotations
 
 import sqlite3
+import sys
 from pathlib import Path
 from typing import Any, Optional
 
 from tc.db.exceptions import TaskNotFound, ValidationError
 from tc.db.fts5_core import fts_match
 from tc.db.schema import WP_FTS_COLUMNS, WP_FTS_TABLE
+from tc.services.content_guard import (
+    combine_field_summary,
+    combine_field_warnings,
+    scan_and_neutralize,
+)
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
@@ -69,7 +75,8 @@ def store_wp(
         db_path: Explicit DB path; if None, walks up from cwd.
 
     Returns:
-        Dict matching ``tc wp store --json`` output shape.
+        Dict matching ``tc wp store --json`` output shape, plus a ``guard``
+        field (see `services/content_guard.py`).
 
     Raises:
         ValidationError: if title is empty or type_ is empty.
@@ -79,6 +86,20 @@ def store_wp(
         raise ValidationError("title must not be empty")
     if not type_ or not type_.strip():
         raise ValidationError("type must not be empty")
+
+    # Content guard runs before the hybrid-storage branch below, on both
+    # fields, so the size-threshold check and the file-vs-inline decision
+    # both act on what will actually be written, not on the raw input.
+    guard_title = scan_and_neutralize(title)
+    guard_content = scan_and_neutralize(content) if content is not None else None
+    guard_fields = {"title": guard_title}
+    if guard_content is not None:
+        guard_fields["content"] = guard_content
+    for line in combine_field_warnings(guard_fields):
+        print(line, file=sys.stderr)
+    guard_summary = combine_field_summary(guard_fields)
+    title = guard_title.text
+    content = guard_content.text if guard_content is not None else None
 
     from tc import WP_CONTENT_SIZE_THRESHOLD
 
@@ -136,9 +157,9 @@ def store_wp(
 
                 # File is safely on disk — now insert the DB row
                 cursor = conn.execute(
-                    "INSERT INTO work_products (task_id, type, title, content, file_path, agent)"
-                    " VALUES (?, ?, ?, ?, ?, ?)",
-                    (task_id, type_, title, None, None, agent),
+                    "INSERT INTO work_products (task_id, type, title, content, file_path, agent, guard)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (task_id, type_, title, None, None, agent, guard_summary),
                 )
                 wp_id = cursor.lastrowid
 
@@ -157,9 +178,9 @@ def store_wp(
                 # No resolved_db — fall back to inline storage (shouldn't happen
                 # in normal usage but keeps the branch safe)
                 cursor = conn.execute(
-                    "INSERT INTO work_products (task_id, type, title, content, file_path, agent)"
-                    " VALUES (?, ?, ?, ?, ?, ?)",
-                    (task_id, type_, title, content, None, agent),
+                    "INSERT INTO work_products (task_id, type, title, content, file_path, agent, guard)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (task_id, type_, title, content, None, agent, guard_summary),
                 )
                 wp_id = cursor.lastrowid
                 if owns_conn:
@@ -171,9 +192,9 @@ def store_wp(
         else:
             # Normal inline storage
             cursor = conn.execute(
-                "INSERT INTO work_products (task_id, type, title, content, file_path, agent)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
-                (task_id, type_, title, content, None, agent),
+                "INSERT INTO work_products (task_id, type, title, content, file_path, agent, guard)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (task_id, type_, title, content, None, agent, guard_summary),
             )
             wp_id = cursor.lastrowid
             row = conn.execute(

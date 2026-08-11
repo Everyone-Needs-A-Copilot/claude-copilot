@@ -71,3 +71,22 @@ def test_release_preflight_rejects_signed_tag_over_unsigned_snapshot(tmp_path: P
     assert result.returncode != 0
     assert "commit" in result.stderr
     assert "valid foundation release signature" in result.stderr
+
+
+def test_release_preflight_accepts_signed_tag_over_signed_non_root_commit(tmp_path: Path) -> None:
+    """The inverse proof at the realistic RC-3 shape: a signed tag placed
+    on a real, NON-root branch commit (not a fabricated snapshot) whose
+    commit is itself also properly signed must still be accepted -- this
+    fix must not have simply made the script reject everything."""
+    repo, _key, env = _repo_and_key(tmp_path)
+    subprocess.run(["git", "commit", "-qS", "-m", "initial"], cwd=repo, check=True)
+    (repo / "content.txt").write_text("release v2\n", encoding="utf-8")
+    subprocess.run(["git", "add", "content.txt"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qS", "-m", "second, real branch commit"], cwd=repo, check=True)
+    commit = _run("git", "rev-parse", "HEAD", cwd=repo).stdout.strip()
+    subprocess.run(["git", "tag", "-s", "v1.2.4", "-m", "release"], cwd=repo, check=True)
+
+    result = _run(str(SCRIPT), str(repo), "v1.2.4", commit, cwd=repo, env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert "foundation release signatures: verified" in result.stdout

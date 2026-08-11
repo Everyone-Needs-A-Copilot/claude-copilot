@@ -919,6 +919,7 @@ def _claude_plan(project: Path, source: Path) -> tuple[list[tuple[Path, Path]], 
         (source / ".claude/commands/protocol.md", project / ".claude/commands/protocol.md"),
         (source / ".claude/commands/continue.md", project / ".claude/commands/continue.md"),
         (source / ".claude/fitness-check.sh", project / ".claude/fitness-check.sh"),
+        (source / ".claude/hooks/copilot-hook.sh", project / ".claude/hooks/copilot-hook.sh"),
     ]
     copies.extend(
         (source / f".claude/agents/{agent}.md", project / f".claude/agents/{agent}.md")
@@ -927,6 +928,17 @@ def _claude_plan(project: Path, source: Path) -> tuple[list[tuple[Path, Path]], 
     for src, _dst in copies:
         if not src.is_file():
             raise ActivationError("The Claude Copilot installer is incomplete.")
+    # Eval cases travel with the framework like every other owned dimension.
+    # Mirrors project_integration.py's _claude_source_files: globbed rather
+    # than required, since a framework build predating evals (or a fresh
+    # checkout with none yet authored) is not an installer defect.
+    evals_dir = source / ".claude/evals"
+    if evals_dir.is_dir():
+        copies.extend(
+            (path, project / path.relative_to(source))
+            for path in sorted(evals_dir.rglob("*"))
+            if path.is_file()
+        )
     template = source / "templates/CLAUDE.template.md"
     if not template.is_file():
         raise ActivationError("The Claude Copilot project template is missing.")
@@ -1300,6 +1312,7 @@ def _installed_framework_files(project: Path, component: str) -> list[dict[str, 
             project / ".claude/commands/protocol.md",
             project / ".claude/commands/continue.md",
             project / ".claude/fitness-check.sh",
+            project / ".claude/hooks/copilot-hook.sh",
             *sorted((project / ".claude/agents").glob("*.md")),
         ]
     else:

@@ -54,6 +54,7 @@ _CLAUDE_REQUIRED_LOCK_PATHS = (
     ".claude/commands/protocol.md",
     ".claude/commands/continue.md",
     ".claude/fitness-check.sh",
+    ".claude/hooks/copilot-hook.sh",
 )
 
 _CODEX_REQUIRED_LOCK_PATHS = (
@@ -89,7 +90,9 @@ _CLAUDE_RELEVANT_PATHS = (
     ".claude/commands/protocol.md",
     ".claude/commands/continue.md",
     ".claude/fitness-check.sh",
+    ".claude/hooks/copilot-hook.sh",
     ".claude/agents",
+    ".claude/evals",
 )
 
 _CODEX_RELEVANT_PATHS = (
@@ -107,7 +110,9 @@ _CLAUDE_ACTION_TARGETS = (
     ".claude/commands/protocol.md",
     ".claude/commands/continue.md",
     ".claude/fitness-check.sh",
+    ".claude/hooks/copilot-hook.sh",
     ".claude/agents",
+    ".claude/evals",
     ".claude/cc/config.json",
     ".claude/memory/entries/.gitkeep",
     ".claude/memory/.gitignore",
@@ -218,6 +223,77 @@ def _safe_relative_target(root: Path, raw_path: Any) -> tuple[Optional[Path], st
     return target, ""
 
 
+# The read-only Knowledge-hierarchy symlink family the `legacy-knowledge-links`
+# recipes sanction (`reconciliation_recipes._claude_legacy_knowledge_links_eligible`
+# / `_recognized_read_only_knowledge_link`). Nothing else -- in particular
+# `.claude` itself -- is ever a recognized ancestor-symlink target.
+_KNOWLEDGE_LINK_LEAVES = (".claude/agents", ".claude/commands", ".claude/skills")
+
+
+def _recognized_read_only_knowledge_link(root: Path, target: str) -> bool:
+    """Mirrors `reconciliation_recipes._recognized_read_only_knowledge_link`
+    exactly, so verification can never recognize a link the writer would not
+    also have sanctioned. `target` must be one of `_KNOWLEDGE_LINK_LEAVES`; it
+    is a recognized link only if it is a symlink whose strict resolution lands
+    inside a configured `paths.knowledge_repo` entry's matching
+    `.claude/<leaf>` directory."""
+    if target not in _KNOWLEDGE_LINK_LEAVES:
+        return False
+    link = root / target
+    try:
+        metadata = link.lstat()
+        if not stat.S_ISLNK(metadata.st_mode):
+            return False
+        configured = resolve_key("paths.knowledge_repo")
+        values = configured if isinstance(configured, list) else [configured]
+        leaf = PurePosixPath(target).name
+        resolved = link.resolve(strict=True)
+        expected = {
+            (Path(value).expanduser() / ".claude" / leaf).resolve(strict=True)
+            for value in values
+            if isinstance(value, str) and value
+        }
+    except OSError:
+        return False
+    return resolved in expected
+
+
+def _required_path_exists_through_recognized_knowledge_link(
+    root: Path, path: str
+) -> bool:
+    """Called only when `_safe_relative_target` returned `None` for a
+    required lock path because some ancestor is a symlink. Recognizes
+    exactly one shape: the FIRST symlink ancestor encountered is itself one
+    of `_KNOWLEDGE_LINK_LEAVES` and passes `_recognized_read_only_knowledge_link`.
+    If so, this still proves EXISTENCE (not mere inconclusiveness) by
+    checking the leaf through the now-validated link; it never widens which
+    symlinks are trusted. Any other ancestor -- including `.claude` itself
+    being a symlink, or a symlink that merely happens to sit at one of the
+    three leaf path strings but resolves somewhere unrecognized -- returns
+    `False`, and the caller counts the path absent."""
+    parts = PurePosixPath(path).parts
+    target = root
+    for index, part in enumerate(parts):
+        target = target / part
+        if index == len(parts) - 1:
+            return False
+        try:
+            metadata = target.lstat()
+        except OSError:
+            return False
+        if stat.S_ISLNK(metadata.st_mode):
+            ancestor = "/".join(parts[: index + 1])
+            if not _recognized_read_only_knowledge_link(root, ancestor):
+                return False
+            try:
+                return (root / path).is_file()
+            except OSError:
+                return False
+        if not stat.S_ISDIR(metadata.st_mode):
+            return False
+    return False
+
+
 def _read_json_object(path: Path) -> tuple[str, Optional[dict[str, Any]]]:
     try:
         if not path.exists():
@@ -276,6 +352,7 @@ def _claude_source_files(source: Path) -> Optional[dict[str, Path]]:
         ".claude/commands/protocol.md": source / ".claude/commands/protocol.md",
         ".claude/commands/continue.md": source / ".claude/commands/continue.md",
         ".claude/fitness-check.sh": source / ".claude/fitness-check.sh",
+        ".claude/hooks/copilot-hook.sh": source / ".claude/hooks/copilot-hook.sh",
     }
     files.update(
         {
@@ -283,6 +360,22 @@ def _claude_source_files(source: Path) -> Optional[dict[str, Path]]:
             for agent in roster
         }
     )
+    # Eval cases travel with the framework like every other owned dimension
+    # (agents, commands, hooks). Globbed rather than roster-driven because
+    # the case set per agent is not fixed cardinality the way the agent
+    # roster is; an absent `.claude/evals` in the source (a framework build
+    # that predates evals) is not an error -- it is simply nothing to add.
+    evals_dir = source / ".claude/evals"
+    if evals_dir.is_dir():
+        try:
+            eval_files = {
+                path.relative_to(source).as_posix(): path
+                for path in sorted(evals_dir.rglob("*"))
+                if path.is_file()
+            }
+        except OSError:
+            return None
+        files.update(eval_files)
     if any(not path.is_file() for path in files.values()):
         return None
     return files
@@ -514,11 +607,74 @@ def _verify_lock_entry(
         if component == "claude"
         else _CODEX_REQUIRED_LOCK_PATHS
     )
-    absent_required = (
-        []
-        if ownership_mode == "customized-preserve"
-        else [path for path in required if path not in recorded]
-    )
+    if ownership_mode == "customized-preserve":
+        # RC-4 waiver hole (closed): `customized-preserve` waives matching a
+        # required path's CHECKSUM against the framework's canonical bytes
+        # -- that is the whole point of preserving a project's local edits
+        # to it -- but it must never also waive that path's very EXISTENCE.
+        # Preserving customized content and asserting a required path
+        # exists are different concerns; conflating them let the lock be
+        # simultaneously the claim and the yardstick it was supposed to be
+        # checked against (`EXISTING-VERIFICATION.md` section 2). A path
+        # this entry never recorded (typically because it was locally
+        # edited, so its checksum would not match) is only genuinely
+        # "absent" if it is ALSO not actually present on disk.
+        #
+        # RC-4 follow-up (this fix, security-review reproduced): a prior
+        # version of this loop treated `_safe_relative_target()` returning
+        # `None` as merely inconclusive and skipped the path rather than
+        # flagging it, reasoning that `None` could mean a verified
+        # read-only Knowledge-hierarchy symlink. That carve-out was a
+        # blanket "any `None` might be legitimate" rule with no check of
+        # WHICH ancestor was actually a symlink or where it actually
+        # pointed -- so making `.claude` itself a symlink (to any target,
+        # even an empty directory) was enough to waive every required
+        # path's existence, not just the sanctioned one's.
+        #
+        # There are exactly two ancestor-symlink patterns this codebase
+        # sanctions, and both are recognized here BY NAME, never by a
+        # `None` side effect:
+        #   1. `.claude/skills` -> the external Knowledge hierarchy for the
+        #      Codex skill bridge (`_verify_internal_skill_link` /
+        #      `_configured_external_claude_skills_root` below). It never
+        #      nests a required path -- `.claude/skills/...` is not a
+        #      prefix of anything in `_CLAUDE_REQUIRED_LOCK_PATHS` or
+        #      `_CODEX_REQUIRED_LOCK_PATHS` -- so it is irrelevant here.
+        #   2. `.claude/agents`, `.claude/commands`, and `.claude/skills`
+        #      each pointing at a configured `paths.knowledge_repo` entry's
+        #      matching `.claude/<leaf>` (the `legacy-knowledge-links`
+        #      recipe family: `reconciliation_recipes
+        #      ._claude_legacy_knowledge_links_eligible` /
+        #      `_recognized_read_only_knowledge_link`). This ONE genuinely
+        #      nests two required paths -- `.claude/commands/protocol.md`
+        #      and `.claude/commands/continue.md` -- via the
+        #      `.claude/commands` leaf, so it cannot be dismissed the way
+        #      the Codex skill bridge can. `_required_path_exists_through_
+        #      recognized_knowledge_link` recognizes exactly this shape by
+        #      name and verifies through it (still proving EXISTENCE, only
+        #      skipping the checksum comparison this branch already skips
+        #      for every other customized path).
+        # Any `None` that is neither of those two named patterns -- in
+        # particular `.claude` itself being a symlink, or a symlink at one
+        # of the leaf names that resolves somewhere unrecognized -- fails
+        # closed as absent, exactly like a normal missing path. An
+        # unverifiable required path is never evidence of readiness.
+        absent_required = []
+        for path in required:
+            if path in recorded:
+                continue
+            target, _path_error = _safe_relative_target(root, path)
+            if target is None:
+                if not _required_path_exists_through_recognized_knowledge_link(
+                    root, path
+                ):
+                    absent_required.append(path)
+                continue
+            exists, readable = _path_exists(target)
+            if not (exists and readable):
+                absent_required.append(path)
+    else:
+        absent_required = [path for path in required if path not in recorded]
     if (
         component == "claude"
         and ownership_mode == "full"
@@ -1049,6 +1205,15 @@ def _missing_action_targets(
             and ".claude/agents" not in missing
         ):
             missing.append(".claude/agents")
+        if (
+            any(
+                rel_path.startswith(".claude/evals/")
+                and not (root / rel_path).exists()
+                for rel_path in source_files
+            )
+            and ".claude/evals" not in missing
+        ):
+            missing.append(".claude/evals")
     elif (
         any(
             rel_path.startswith("plugins/codex-copilot/")
@@ -1562,6 +1727,8 @@ def _artifact_kind(path: str) -> str:
         return "manifest"
     if "agents" in PurePosixPath(path).parts:
         return "agent"
+    if "evals" in PurePosixPath(path).parts:
+        return "eval"
     if "skills" in PurePosixPath(path).parts:
         return "skill"
     if "commands" in PurePosixPath(path).parts:

@@ -5,6 +5,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator, Optional
 
+from tc import DEFAULT_DB_DIR, DEFAULT_DB_NAME
+
 from .fts5_core import create_content_triggers, create_fts
 from .schema import (
     SCHEMA_SQL,
@@ -13,7 +15,30 @@ from .schema import (
     WP_FTS_COLUMNS,
     WP_FTS_TABLE,
 )
-from tc import DEFAULT_DB_DIR, DEFAULT_DB_NAME
+
+# Tables + column added by the content guard (item 3): the content-guard
+# summary token ("clean" | "modified:<pattern-id>[,...]" | "scan_error") for
+# whatever guarded text that row carries. There is no migration framework in
+# this codebase (schema_version exists but nothing walks it), so this is a
+# minimal, idempotent self-healing step run on every connection open rather
+# than a one-shot migration: cheap (`PRAGMA table_info` + a guarded `ALTER
+# TABLE`), and it means an already-`tc init`'d database from before this
+# change gains the column the next time anything opens it, with no separate
+# "run this migration" step for the 46 existing projects to remember.
+_GUARD_COLUMN_TABLES = ("tasks", "prds", "work_products")
+
+
+def _ensure_guard_columns(conn: sqlite3.Connection) -> None:
+    for table in _GUARD_COLUMN_TABLES:
+        try:
+            columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        except sqlite3.OperationalError:
+            # Table doesn't exist yet (e.g. called before executescript on a
+            # brand-new file) -- SCHEMA_SQL already defines the column for
+            # tables it creates, so there's nothing to backfill here.
+            continue
+        if columns and "guard" not in columns:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN guard TEXT")
 
 
 def find_db_path() -> Optional[Path]:
@@ -52,6 +77,8 @@ def get_db(path: Optional[Path] = None) -> sqlite3.Connection:
     conn.execute("PRAGMA busy_timeout = 5000")
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA synchronous = NORMAL")
+    _ensure_guard_columns(conn)
+    conn.commit()
     return conn
 
 

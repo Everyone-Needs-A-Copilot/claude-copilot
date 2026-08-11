@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import sys
 from pathlib import Path
 from typing import Any, Optional
 
@@ -19,6 +20,11 @@ from tc.db.exceptions import (
     ConflictError,
     TaskNotFound,
     ValidationError,
+)
+from tc.services.content_guard import (
+    combine_field_summary,
+    combine_field_warnings,
+    scan_and_neutralize,
 )
 
 _VALID_STATUSES = {"pending", "in_progress", "completed", "blocked", "cancelled"}
@@ -76,7 +82,8 @@ def create_task(
         db_path:     Explicit DB path; if None, walks up from cwd.
 
     Returns:
-        Dict matching ``tc task create --json`` output shape.
+        Dict matching ``tc task create --json`` output shape, plus a
+        ``guard`` field (see `services/content_guard.py`).
 
     Raises:
         ValidationError: on bad priority, empty title, or invalid metadata.
@@ -85,6 +92,17 @@ def create_task(
         raise ValidationError("title must not be empty")
     if priority < 0 or priority > 3:
         raise ValidationError("priority must be between 0 and 3")
+
+    guard_title = scan_and_neutralize(title)
+    guard_description = scan_and_neutralize(description) if description is not None else None
+    guard_fields = {"title": guard_title}
+    if guard_description is not None:
+        guard_fields["description"] = guard_description
+    for line in combine_field_warnings(guard_fields):
+        print(line, file=sys.stderr)
+    guard_summary = combine_field_summary(guard_fields)
+    title = guard_title.text
+    description = guard_description.text if guard_description is not None else None
 
     # Normalise metadata to a JSON string or None
     metadata_str: Optional[str]
@@ -110,9 +128,9 @@ def create_task(
     try:
         cursor = conn.execute(
             """INSERT INTO tasks (prd_id, stream_id, title, description, agent,
-                                  priority, parent_task_id, metadata)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (prd, stream, title, description, agent, priority, parent, metadata_str),
+                                  priority, parent_task_id, metadata, guard)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (prd, stream, title, description, agent, priority, parent, metadata_str, guard_summary),
         )
         task_id = cursor.lastrowid
 
@@ -238,6 +256,7 @@ def update_task(
     priority: Optional[int] = None,
     title: Optional[str] = None,
     metadata: Optional[dict | str] = None,
+    clear_claim: bool = False,
     conn: Optional[sqlite3.Connection] = None,
     db_path: Optional[Path] = None,
 ) -> dict[str, Any]:
@@ -252,6 +271,11 @@ def update_task(
         title:       New title (must be non-empty if provided).
         metadata:    JSON-serialisable dict or pre-serialised string to *merge*
                      into existing metadata (not replace).
+        clear_claim: When True, clears claimed_by/claimed_at (releases the
+                     task so a different agent can claim it). Used when a
+                     dispatch is killed for exceeding its budget cap and the
+                     task must not be left silently stuck in_progress under
+                     the dead run's claim.
         conn:        Existing connection for batching; if None, opens own.
         db_path:     Explicit DB path; if None, walks up from cwd.
 
@@ -315,6 +339,10 @@ def update_task(
             merged = {**existing, **new_metadata}
             updates.append("metadata = ?")
             params.append(json.dumps(merged))
+
+        if clear_claim:
+            updates.append("claimed_by = NULL")
+            updates.append("claimed_at = NULL")
 
         if not updates:
             return _row_to_dict(row)

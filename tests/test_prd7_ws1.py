@@ -24,8 +24,9 @@ import sys
 import importlib.util
 import tempfile
 import shutil
+from pathlib import Path
 
-BASE = "/Volumes/Dev/Sites/COPILOT/claude-copilot"
+BASE = str(Path(__file__).resolve().parents[1])
 AGENTS_DIR = os.path.join(BASE, ".claude/agents")
 HOOKS_DIR = os.path.join(BASE, ".claude/hooks")
 QA_AGENT = os.path.join(AGENTS_DIR, "qa.md")
@@ -72,30 +73,28 @@ def _parse_verdict_from_subagent_stop(last_message: str, session_id: str, agent_
     Run subagent-stop.sh and return the resulting gate state for the session.
 
     We use a dedicated temp state directory to avoid touching the real gate file.
+
+    Isolation is via COPILOT_HOOK_STATE_DIR, the env-var override
+    subagent-stop.sh itself reads (STATE_DIR="${COPILOT_HOOK_STATE_DIR:-...}"),
+    the same seam tests/hooks/test-shim-e2e.sh and .claude/hooks/copilot-hook.sh
+    use. This previously ran a *copy* of the script with the literal string
+    'STATE_DIR="${SCRIPT_DIR}/state"' patched to the temp dir — that string
+    stopped matching the source once COPILOT_HOOK_STATE_DIR was introduced, so
+    the patch silently became a no-op: the script fell through to its default
+    STATE_DIR resolution, which pointed at a nonexistent "<tmp>/state"
+    subdirectory (not the "<tmp>/qa-gate.json" path this helper actually wrote
+    the fixture to and read the result from). The script's own reads/writes
+    against that nonexistent path failed harmlessly (jq/mv errors swallowed),
+    so the gate file this helper inspected was left exactly as seeded —
+    making every assertion here compare the initial fixture against itself.
     """
     tmp_state_dir = tempfile.mkdtemp(prefix="ws1-test-state-")
     gate_path = os.path.join(tmp_state_dir, "qa-gate.json")
-    lock_path = os.path.join(tmp_state_dir, "qa-gate.lock")
 
     # Write initial gate state if provided
     if initial_gate is not None:
         with open(gate_path, "w") as f:
             json.dump(initial_gate, f)
-
-    # Patch SCRIPT_DIR in the environment — we can't easily do this for bash scripts,
-    # so we use a wrapper approach: write a tiny wrapper that overrides STATE_DIR.
-    wrapper = os.path.join(tmp_state_dir, "run_hook.sh")
-    with open(wrapper, "w") as f:
-        f.write("#!/usr/bin/env bash\n")
-        f.write(f"export SCRIPT_DIR_OVERRIDE={tmp_state_dir!r}\n")
-        # We override the STATE_DIR by patching the script inline via sed
-        f.write(f'exec /bin/bash -c \''
-                f'source_file={SUBAGENT_STOP!r}; '
-                f'content=$(cat "$source_file"); '
-                f'content="${{content/STATE_DIR=\\"${{SCRIPT_DIR}}/state\\"/STATE_DIR={tmp_state_dir!r}}}"; '
-                f'eval "$content"\' -- "$@"\n')
-
-    os.chmod(wrapper, 0o755)
 
     payload = {
         "session_id": session_id,
@@ -104,22 +103,10 @@ def _parse_verdict_from_subagent_stop(last_message: str, session_id: str, agent_
     }
 
     env = os.environ.copy()
-    # Use a patched version of the script with our temp state dir
-    # We write a modified copy of the script with STATE_DIR replaced
-    patched_script = os.path.join(tmp_state_dir, "subagent-stop.sh")
-    with open(SUBAGENT_STOP) as f:
-        content = f.read()
-    # Replace the STATE_DIR assignment to point to our temp dir
-    content = content.replace(
-        'STATE_DIR="${SCRIPT_DIR}/state"',
-        f'STATE_DIR={tmp_state_dir!r}'
-    )
-    with open(patched_script, "w") as f:
-        f.write(content)
-    os.chmod(patched_script, 0o755)
+    env["COPILOT_HOOK_STATE_DIR"] = tmp_state_dir
 
     result = subprocess.run(
-        ["/bin/bash", patched_script],
+        ["/bin/bash", SUBAGENT_STOP],
         input=json.dumps(payload),
         capture_output=True,
         text=True,
@@ -428,27 +415,21 @@ class TestGateHookIntegration:
 
         # Even a bare pass should not cause state changes when escape hatch is on,
         # because the script exits 0 immediately.
+        # Isolation via COPILOT_HOOK_STATE_DIR (see _parse_verdict_from_subagent_stop
+        # docstring) — the previous literal-string script patch silently stopped
+        # matching the source and left this test only checking the exit code,
+        # never actually verifying the gate was untouched.
         tmp_state_dir = tempfile.mkdtemp(prefix="ws1-escape-test-")
         gate_path = os.path.join(tmp_state_dir, "qa-gate.json")
         with open(gate_path, "w") as f:
             json.dump(initial, f)
 
-        patched_script = os.path.join(tmp_state_dir, "subagent-stop.sh")
-        with open(SUBAGENT_STOP) as f:
-            content = f.read()
-        content = content.replace(
-            'STATE_DIR="${SCRIPT_DIR}/state"',
-            f'STATE_DIR={tmp_state_dir!r}'
-        )
-        with open(patched_script, "w") as f:
-            f.write(content)
-        os.chmod(patched_script, 0o755)
-
         env = os.environ.copy()
         env["COPILOT_QA_GATE"] = "off"
+        env["COPILOT_HOOK_STATE_DIR"] = tmp_state_dir
 
         result = subprocess.run(
-            ["/bin/bash", patched_script],
+            ["/bin/bash", SUBAGENT_STOP],
             input=json.dumps({
                 "session_id": self.SESSION,
                 "agent_type": "qa",
@@ -461,10 +442,17 @@ class TestGateHookIntegration:
             timeout=10,
         )
 
+        with open(gate_path) as f:
+            gate_after = json.load(f)
+
         shutil.rmtree(tmp_state_dir, ignore_errors=True)
 
         # Script should exit 0 and not modify the gate when COPILOT_QA_GATE=off
         assert result.returncode == 0, f"Script should exit 0 with escape hatch; got {result.returncode}"
+        assert gate_after == initial, (
+            f"COPILOT_QA_GATE=off must bypass all state management; "
+            f"gate file was modified: {gate_after} != {initial}"
+        )
 
     def test_three_fail_auto_unblock_fires(self):
         """(d) After 3 consecutive QA failures, gate auto-unblocks (MAX_RETRIES=3)."""
@@ -702,6 +690,169 @@ class TestSubagentStopHookHardening:
         assert "MAX_RETRIES=3" in content or "MAX_RETRIES = 3" in content, (
             "subagent-stop.sh must preserve MAX_RETRIES=3 for auto-unblock"
         )
+
+
+# ---------------------------------------------------------------------------
+# RC-2 regression: task ID must come from the structured "Task:" header AND
+# validate against the CURRENT project's tc database before a gate arms.
+#
+# Incident this closes: `grep -oE 'TASK-[0-9]+' | head -1` over the whole
+# raw message scraped a stray "TASK-612" mentioned in an agent's summary and
+# armed a QA gate against it in a project whose own tc database has no such
+# task — TASK-612 existed only in a different project's database. Both
+# defenses are exercised here:
+#   1. extraction is anchored to the "Task: TASK-N" header (a stray mention
+#      elsewhere in the message must not be picked up at all);
+#   2. even a well-formed header is validated against THIS project's tc
+#      database (`tc task get <N> --json`) before it may arm anything.
+# A real, locally-valid task must still arm a gate normally — the fix must
+# not turn the gate into enforcement theatre.
+# ---------------------------------------------------------------------------
+
+class TestTaskIdExtractionAndValidation:
+    """me-completion arm path: anchored extraction + local-DB validation."""
+
+    SESSION_PROSE = "test-rc2-prose-session"
+    SESSION_CROSS = "test-rc2-cross-project-session"
+    SESSION_REAL = "test-rc2-real-task-session"
+
+    @staticmethod
+    def _tc_project(tmp_path, name, task_titles):
+        """`tc init` a fresh scratch project and create tasks in it.
+
+        Returns (project_dir: str, task_ids: list[int]) — task_ids are in
+        creation order, so task_ids[0] is TASK-<task_ids[0]>, etc.
+        """
+        proj = tmp_path / name
+        proj.mkdir()
+        subprocess.run(
+            ["tc", "init", "--json"], cwd=str(proj),
+            check=True, capture_output=True, text=True,
+        )
+        task_ids = []
+        for title in task_titles:
+            result = subprocess.run(
+                ["tc", "task", "create", "--title", title, "--json"],
+                cwd=str(proj), check=True, capture_output=True, text=True,
+            )
+            task_ids.append(json.loads(result.stdout)["id"])
+        return str(proj), task_ids
+
+    def _run_me_completion(self, message: str, session_id: str, project_dir: str,
+                            initial_gate: dict = None) -> dict:
+        """Run subagent-stop.sh as an @agent-me completion with
+        CLAUDE_PROJECT_DIR pinned to project_dir (the seam
+        task_id_valid_in_project() reads), and a hermetic gate/state dir."""
+        tmp_state_dir = tempfile.mkdtemp(prefix="rc2-test-state-")
+        gate_path = os.path.join(tmp_state_dir, "qa-gate.json")
+        if initial_gate is not None:
+            with open(gate_path, "w") as f:
+                json.dump(initial_gate, f)
+
+        env = os.environ.copy()
+        env["COPILOT_HOOK_STATE_DIR"] = tmp_state_dir
+        env["CLAUDE_PROJECT_DIR"] = project_dir
+
+        result = subprocess.run(
+            ["/bin/bash", SUBAGENT_STOP],
+            input=json.dumps({
+                "session_id": session_id,
+                "agent_type": "me",
+                "last_assistant_message": message,
+            }),
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=project_dir,
+            timeout=10,
+        )
+
+        gate_state = {}
+        if os.path.isfile(gate_path):
+            with open(gate_path) as f:
+                gate_state = json.load(f)
+        shutil.rmtree(tmp_state_dir, ignore_errors=True)
+
+        return {
+            "returncode": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "gate_state": gate_state,
+        }
+
+    def test_stray_task_id_in_prose_does_not_arm_gate(self, tmp_path):
+        """(1) A TASK-N mentioned in passing (not the structured header) must
+        NOT arm the gate — even when that ID is real in the local DB."""
+        project_dir, task_ids = self._tc_project(
+            tmp_path, "prose-project", ["decoy task"]
+        )
+        decoy_id = task_ids[0]
+        # No "Task: TASK-N" header at all — just a narrative mention.
+        msg = (
+            f"Implementation notes: this mirrors the approach used for "
+            f"TASK-{decoy_id} in a related effort. All good here.\n"
+            "<promise>COMPLETE</promise>"
+        )
+        result = self._run_me_completion(msg, self.SESSION_PROSE, project_dir)
+
+        assert result["returncode"] == 0
+        session = result["gate_state"].get(self.SESSION_PROSE, {})
+        pending = session.get("pending_tasks", [])
+        assert pending == [], (
+            f"A TASK-N mentioned only in prose (no structured header) must "
+            f"not arm the gate; pending_tasks={pending}"
+        )
+
+    def test_task_id_valid_only_in_other_project_does_not_arm_gate_here(self, tmp_path):
+        """(2) The sharpest edge of RC-2: a well-formed 'Task: TASK-N' header
+        whose ID only resolves in a DIFFERENT project's tc database must NOT
+        arm a gate in the CURRENT project."""
+        # "Other" project: has TASK-1.
+        _other_dir, other_ids = self._tc_project(
+            tmp_path, "other-project", ["task that only exists over there"]
+        )
+        other_task_id = other_ids[0]
+        # "Here": a distinct project with its own (empty) tc database — the
+        # other project's task ID does not exist in it.
+        here_dir, _here_ids = self._tc_project(tmp_path, "here-project", [])
+
+        msg = f"Task: TASK-{other_task_id} | WP: WP-1\nSummary: done.\n<promise>COMPLETE</promise>"
+        result = self._run_me_completion(msg, self.SESSION_CROSS, here_dir)
+
+        assert result["returncode"] == 0
+        session = result["gate_state"].get(self.SESSION_CROSS, {})
+        pending = session.get("pending_tasks", [])
+        assert pending == [], (
+            f"A task ID valid only in a DIFFERENT project's tc database must "
+            f"not arm a gate in this project; pending_tasks={pending}"
+        )
+        # And the log must say so, distinguishably from "no TASK-N found".
+        state_dir_msg = result["stderr"] + result["stdout"]
+        # (log goes to qa-gate.log inside the (now-deleted) temp state dir;
+        # assert on stdout/stderr being clean instead — the hook is
+        # non-blocking and silent on stdout/stderr for this path)
+        assert state_dir_msg == "" or "deny" not in state_dir_msg.lower()
+
+    def test_real_local_task_still_arms_gate(self, tmp_path):
+        """(3) A real task that legitimately requires QA MUST still arm a
+        gate — the fix must not turn the gate into enforcement theatre."""
+        project_dir, task_ids = self._tc_project(
+            tmp_path, "real-project", ["a real task needing QA"]
+        )
+        real_id = task_ids[0]
+
+        msg = f"Task: TASK-{real_id} | WP: WP-1\nFiles Modified:\n- src/foo.py: fix\nSummary: done.\n<promise>COMPLETE</promise>"
+        result = self._run_me_completion(msg, self.SESSION_REAL, project_dir)
+
+        assert result["returncode"] == 0
+        session = result["gate_state"].get(self.SESSION_REAL, {})
+        pending = session.get("pending_tasks", [])
+        assert f"TASK-{real_id}" in pending, (
+            f"A real, locally-valid task must still arm the gate; "
+            f"pending_tasks={pending}"
+        )
+        history = session.get("history", [])
+        assert any(h.get("event") == "me_completed" for h in history)
 
 
 # ---------------------------------------------------------------------------

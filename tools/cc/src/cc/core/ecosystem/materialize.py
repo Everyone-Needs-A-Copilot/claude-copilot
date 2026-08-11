@@ -540,15 +540,18 @@ def materialize(
     disposable, engine-managed mirror clone from the clean-tracked-repo
     check should a target ever legitimately resolve into one.
 
-    `layer_source_refs` (task 215 blocker fix, G-9; optional): each layer's
-    actually-resolved/pinned `source.ref` (e.g. a signed foundation
-    snapshot tag), threaded through to `policy.evaluate()`/`verify_git_item()`
-    so a checkout that reached `reuse` via `parentless-snapshot-match`
-    (content-identical to the pin but on an unrelated branch history) is
-    verified against the commit that was actually pinned, not whatever the
-    working tree's arbitrary HEAD happens to be. Omitted or missing for a
-    given layer, this is simply `None` and `verify_git_item()` falls back
-    to its prior blind-HEAD check -- never a new failure mode.
+    `layer_source_refs` (task 215 blocker fix, G-9; optional at this call
+    boundary, but REQUIRED for `verify_git_item()` to ever verify anything
+    -- security review blocker 2, 2026-08-10): each layer's actually-
+    resolved/pinned `source.ref` (e.g. a signed foundation snapshot tag),
+    threaded through to `policy.evaluate()`/`verify_git_item()`, which now
+    verifies the SIGNED TAG's tree directly (`git verify-tag` +
+    `git cat-file -e <commit>:<path>`) rather than walking `git log` history
+    -- the tag's signature is the only fact that matters, not which commit
+    last touched the path, and not the working tree's arbitrary HEAD.
+    Omitted or missing for a given layer, this is simply `None` and
+    `verify_git_item()` blocks (fails closed) -- there is no fallback
+    verification technique left to run without a pinned tag to check.
     """
     gate = policy or _default_policy
     if materialize_roots is None and materialize_root is None:

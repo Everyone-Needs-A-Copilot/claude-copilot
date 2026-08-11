@@ -1,0 +1,462 @@
+
+# Ecosystem repo classification -- the taxonomy `cc.core.conformance.classes`
+# reads to decide which rubric dimensions apply to which directory under
+# `projects.roots` (currently `/Volumes/Dev/Sites`).
+#
+# THIS FILE IS DATA. A class call is a classification.toml edit, never a
+# code change (HARNESS-DESIGN.md Layer 3: "encoded as a committed
+# classification.toml override table with a one-line rationale per entry").
+#
+# Provenance: seeded verbatim from CLASSIFICATION.md's 2026-08-10 audit (76
+# scanned directories; `COPILOT/shared-docs` is a symlink to
+# `knowledge-copilot-internal`, not a distinct directory, so it carries no
+# row here -- 75 real directories are classified below), then corrected by
+# the owner's ratified answers in
+# `copilot-control-tower/docs/ecosystem-audit-open-questions.md`:
+#   - Q9  (answer B): `copilot-control-tower` reclassified COMPONENT -> PRODUCT
+#     (renders/supervises the CLI but is not one of the four synced
+#     framework families -- a consumer, rubric class C, not a tier member).
+#   - Q27 (11 ambiguous directories): each row below whose rationale cites
+#     "Q27" carries the owner's literal answer from that table. The owner's
+#     shorthand answer "Content" (given for both `the-collective` and
+#     `small-business-copilot`) is read as SITE-CONTENT, matching
+#     CLASSIFICATION.md's own class name for that category.
+#   - Q2/Q20: PERSONAL is confirmed in scope and maintained (not archived),
+#     including the four dormant repos Q20 asks about
+#     (`financial-tracker`, `investr-app`, `revenue-projections`,
+#     `investr-api` all answered B, "keep receiving framework fan-out and
+#     maintenance like an active repo") -- no class change, but they are
+#     NOT excluded from the sweep.
+#
+# `class` is one of: COMPONENT, PRODUCT, SITE-CONTENT, DOCS-KNOWLEDGE,
+# SCRATCH-ARCHIVE (`classes.RepoClass`).
+#
+# `role` is set ONLY for `class = "COMPONENT"` entries that are one of the
+# four synced framework families' tier rungs (`foundation` / `organization`
+# / `department` / `personal`) -- it is what lets `classes.py` tell a
+# tier-A (foundation) repo from a tier-B (org/dept/personal) repo for the
+# rubric's A/B split, without re-parsing `copilot.layers.yml` here.
+# `product-creation-copilot` is `class = "COMPONENT"` with NO `role` (Q27:
+# the owner calls it a component/foundational tool, but it is not one of
+# the four synced families and has no manifest layer entry -- see its own
+# rationale below) -- `classes.py` treats a role-less COMPONENT as rubric
+# class C, the same "renders/supervises but does not participate in the
+# inheritance ladder" reasoning as Q9's `copilot-control-tower` call.
+#
+# `path` is `<group>/<name>` relative to the scanned root (e.g.
+# `/Volumes/Dev/Sites`) -- the same two-level grouping CLASSIFICATION.md
+# itself uses (`COPILOT`, `PERSONAL`, `TSM`).
+
+schema_version = 1
+
+# ---------------------------------------------------------------------------
+# COMPONENT -- the four synced framework families' tier rungs, plus the one
+# Q27-reclassified foundational tool without a tier of its own.
+# ---------------------------------------------------------------------------
+
+[[repos]]
+path = "COPILOT/claude-copilot"
+class = "COMPONENT"
+role = "foundation"
+rationale = "CLASSIFICATION.md #1: public foundation tier of the instruction layer."
+
+[[repos]]
+path = "COPILOT/claude-copilot-accounting"
+class = "COMPONENT"
+role = "department"
+rationale = "CLASSIFICATION.md #2: department tier (accounting)."
+
+[[repos]]
+path = "COPILOT/claude-copilot-internal"
+class = "COMPONENT"
+role = "organization"
+rationale = "CLASSIFICATION.md #3: org tier, the mature Claude Copilot overlay."
+
+[[repos]]
+path = "COPILOT/claude-copilot-private"
+class = "COMPONENT"
+role = "personal"
+rationale = "CLASSIFICATION.md #4: personal tier."
+
+[[repos]]
+path = "COPILOT/cli-copilot"
+class = "COMPONENT"
+role = "foundation"
+rationale = "CLASSIFICATION.md #5: public foundation of the `copilot` integration CLI."
+
+[[repos]]
+path = "COPILOT/cli-copilot-accounting"
+class = "COMPONENT"
+role = "department"
+rationale = "CLASSIFICATION.md #6: department tier."
+
+[[repos]]
+path = "COPILOT/cli-copilot-internal"
+class = "COMPONENT"
+role = "organization"
+rationale = "CLASSIFICATION.md #7: org tier -- the live `copilot` binary's mature path."
+
+[[repos]]
+path = "COPILOT/cli-copilot-private"
+class = "COMPONENT"
+role = "personal"
+rationale = "CLASSIFICATION.md #8: personal tier."
+
+[[repos]]
+path = "COPILOT/codex-copilot"
+class = "COMPONENT"
+role = "foundation"
+rationale = "CLASSIFICATION.md #9: codex-native operating layer, foundation tier."
+
+[[repos]]
+path = "COPILOT/codex-copilot-accounting"
+class = "COMPONENT"
+role = "department"
+rationale = "CLASSIFICATION.md #10: department tier."
+
+[[repos]]
+path = "COPILOT/codex-copilot-internal"
+class = "COMPONENT"
+role = "organization"
+rationale = "CLASSIFICATION.md #11: org tier."
+
+[[repos]]
+path = "COPILOT/codex-copilot-private"
+class = "COMPONENT"
+role = "personal"
+rationale = "CLASSIFICATION.md #12: personal tier."
+
+[[repos]]
+path = "COPILOT/knowledge-copilot"
+class = "COMPONENT"
+role = "foundation"
+rationale = "CLASSIFICATION.md #14: public knowledge foundation, foundation tier."
+
+[[repos]]
+path = "COPILOT/knowledge-copilot-accounting"
+class = "COMPONENT"
+role = "department"
+rationale = "CLASSIFICATION.md #15: department tier."
+
+[[repos]]
+path = "COPILOT/knowledge-copilot-internal"
+class = "COMPONENT"
+role = "organization"
+rationale = "CLASSIFICATION.md #16: org knowledge tier (also the `shared-docs` symlink target)."
+
+[[repos]]
+path = "COPILOT/knowledge-copilot-private"
+class = "COMPONENT"
+role = "personal"
+rationale = "CLASSIFICATION.md #17: personal tier."
+
+[[repos]]
+path = "COPILOT/product-creation-copilot"
+class = "COMPONENT"
+rationale = "Q27 owner answer 'component': a Layer-1 foundational tool, but it is not one of the four synced families and has no copilot.layers.yml entry -- no `role` set, so classes.py treats it as rubric class C (renders/supervises like Q9's copilot-control-tower, does not participate in the inheritance ladder)."
+
+# ---------------------------------------------------------------------------
+# PRODUCT
+# ---------------------------------------------------------------------------
+
+[[repos]]
+path = "COPILOT/admin-server"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #18: Docker/homelab infrastructure, real framework-installed consumer."
+
+[[repos]]
+path = "COPILOT/convoco"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #20: flagship AI relationship-intelligence platform."
+
+[[repos]]
+path = "COPILOT/copilot-news"
+class = "PRODUCT"
+rationale = "Q27 owner answer 'product' (confirmed CLASSIFICATION.md #21's PRODUCT assignment over the competing SCRATCH/ARCHIVE reading)."
+
+[[repos]]
+path = "COPILOT/crm-automation-copilot"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #22: live at crm.ineedacopilot.com, real operations system."
+
+[[repos]]
+path = "COPILOT/flow"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #23: actively-developed constraint-visualisation lead-gen game."
+
+[[repos]]
+path = "COPILOT/force-readiness-assessment"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #24: registered as forces-assessment; directory/repo name differs (Q7)."
+
+[[repos]]
+path = "COPILOT/insights-copilot"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #25: AI synthesis engine."
+
+[[repos]]
+path = "COPILOT/method-copilot"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #26: methodology intelligence engine."
+
+[[repos]]
+path = "COPILOT/n8n-copilot"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #27: n8n automation workspace."
+
+[[repos]]
+path = "COPILOT/pipeline-copilot"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #28: BD content workbench, provides pcopilot."
+
+[[repos]]
+path = "COPILOT/preflight-copilot"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #29: meeting-prep app; registry marks sunset planned."
+
+[[repos]]
+path = "COPILOT/project-copilot"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #31: workflow engine (Next.js + FastAPI + Postgres)."
+
+[[repos]]
+path = "COPILOT/research-copilot"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #32: interviews -> strategic insights."
+
+[[repos]]
+path = "COPILOT/saas-financial-model"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #33: Convoco SaaS financial-modelling app."
+
+[[repos]]
+path = "COPILOT/transformation"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #36: WebGL change-diffusion simulator; registry name is pluralised (Q7)."
+
+[[repos]]
+path = "COPILOT/voice-copilot"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #37: Obsidian-native writing studio, heaviest framework install in the scan."
+
+[[repos]]
+path = "COPILOT/copilot-control-tower"
+class = "PRODUCT"
+rationale = "Q9 answer B: reclassified from COMPONENT -- renders/supervises the CLI (invariant #1, 'parse, never compute') but is not one of the four synced framework families and carries no copilot.layers.yml source.path entry. Rubric class C, a consumer."
+
+[[repos]]
+path = "COPILOT/workflow-copilot"
+class = "PRODUCT"
+rationale = "Q27 owner answer 'product' (overrides CLASSIFICATION.md #72's SCRATCH/ARCHIVE assignment; still carries a 2026-08-06 commit and a full framework install -- see also Q14, archival recommended separately)."
+
+[[repos]]
+path = "COPILOT/nocodb-crm-setup"
+class = "PRODUCT"
+rationale = "Q27 owner answer 'product' (overrides CLASSIFICATION.md #66's SCRATCH/ARCHIVE assignment; see also Q18, tokens rotated)."
+
+[[repos]]
+path = "PERSONAL/financial-tracker"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #38. Q20 answer B: kept maintained like an active repo, not archived/excluded."
+
+[[repos]]
+path = "PERSONAL/investr-api"
+class = "PRODUCT"
+rationale = "Q27 owner answer 'product' (confirmed CLASSIFICATION.md #39's PRODUCT assignment over the competing SCRATCH/ARCHIVE reading). Not a git root today -- see sweep.py's discovery notes. Q20 answer B: kept maintained."
+
+[[repos]]
+path = "PERSONAL/investr-app"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #40. Q20 answer B: kept maintained like an active repo, not archived/excluded."
+
+[[repos]]
+path = "PERSONAL/job-finder"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #41: personal app, real remote."
+
+[[repos]]
+path = "PERSONAL/revenue-projections"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #42. Q20 answer B: kept maintained like an active repo, not archived/excluded."
+
+[[repos]]
+path = "PERSONAL/runway"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #43: real CLI tool, statements -> SQLite -> runway/austerity analysis."
+
+[[repos]]
+path = "PERSONAL/spanish-copilot"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #44: iOS Spanish-learning app."
+
+[[repos]]
+path = "PERSONAL/sproutworks"
+class = "PRODUCT"
+rationale = "Q27 owner answer 'product' (confirmed CLASSIFICATION.md #45's PRODUCT assignment over the competing DOCS/KNOWLEDGE reading -- a hardware build, but still the project, not a knowledge store)."
+
+[[repos]]
+path = "PERSONAL/tigers-toads-fl-weekend"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #46: fully-specified voting PWA, deployed to Vercel."
+
+[[repos]]
+path = "PERSONAL/tigers-toads-weekend-2026"
+class = "PRODUCT"
+rationale = "Q27 owner answer 'product' (confirmed CLASSIFICATION.md #47's PRODUCT assignment over the competing SCRATCH/ARCHIVE reading)."
+
+[[repos]]
+path = "PERSONAL/tracker"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #48: native iOS PerformanceTracker; directory/repo name differ (performance-tracker)."
+
+[[repos]]
+path = "TSM/clio"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #49: Laravel legal-notice generation system, v0.9.1."
+
+[[repos]]
+path = "TSM/Delphi"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #50: Laravel document service for process servers; Q3 answer A adds it to the TSM exclusion bullet in ECOSYSTEM.md, not a class change."
+
+[[repos]]
+path = "TSM/h2"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #51: Hermes 2.0, the only Bitbucket remote on the machine; Q1 answer says move to GitHub, standard ecosystem components only, no dedicated department tier."
+
+[[repos]]
+path = "TSM/h3"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #52: Hermes-3, Laravel 11 + Filament legal batch-filing system."
+
+[[repos]]
+path = "TSM/hermes"
+class = "PRODUCT"
+rationale = "CLASSIFICATION.md #53: Laravel 5.3 court e-filing system for THS Law Firm; the reference roster/command install."
+
+# ---------------------------------------------------------------------------
+# SITE-CONTENT
+# ---------------------------------------------------------------------------
+
+[[repos]]
+path = "COPILOT/convoco-site"
+class = "SITE-CONTENT"
+rationale = "CLASSIFICATION.md #54: Convoco marketing/demo site."
+
+[[repos]]
+path = "COPILOT/drip-copilot"
+class = "SITE-CONTENT"
+rationale = "CLASSIFICATION.md #55: Brevo drip-campaign email content for the Forces Assessment funnel."
+
+[[repos]]
+path = "COPILOT/ineedacopilot-site"
+class = "SITE-CONTENT"
+rationale = "CLASSIFICATION.md #56: company marketing site, migrating off Webflow."
+
+[[repos]]
+path = "COPILOT/lars-website"
+class = "SITE-CONTENT"
+rationale = "CLASSIFICATION.md #57: client marketing website (Next.js + Storybook)."
+
+[[repos]]
+path = "COPILOT/the-collective"
+class = "SITE-CONTENT"
+rationale = "Q27 owner answer 'Content' (read as SITE-CONTENT): its own registry description is 'Next.js site for a closed email list, referral program' -- functionally a marketing site, overrides CLASSIFICATION.md #35's PRODUCT assignment."
+
+[[repos]]
+path = "COPILOT/thought-leadership"
+class = "SITE-CONTENT"
+rationale = "CLASSIFICATION.md #58: AI-powered thought-leadership content platform, absent from ECOSYSTEM.md (Q5)."
+
+[[repos]]
+path = "COPILOT/small-business-copilot"
+class = "SITE-CONTENT"
+rationale = "Q27 owner answer 'Content' (read as SITE-CONTENT): overrides CLASSIFICATION.md #34's PRODUCT assignment -- CLAUDE.md is still the untouched 'Stack: Unknown' scaffold (see also Q5/Q27)."
+
+[[repos]]
+path = "PERSONAL/thoughts"
+class = "SITE-CONTENT"
+rationale = "CLASSIFICATION.md #59: personal writing/reflection collection -- content, not an application."
+
+# ---------------------------------------------------------------------------
+# DOCS-KNOWLEDGE
+# ---------------------------------------------------------------------------
+
+[[repos]]
+path = "COPILOT/BM"
+class = "DOCS-KNOWLEDGE"
+rationale = "Q27 owner answer 'Knowledge': repo (beacon-mobility-data) contains only research artifacts (prompts/outputs/analysis/interviews, decks), no application code -- overrides CLASSIFICATION.md #19's PRODUCT assignment. Q14 answer B: archive/exclude from fan-out once class settled."
+
+# ---------------------------------------------------------------------------
+# SCRATCH-ARCHIVE
+# ---------------------------------------------------------------------------
+
+[[repos]]
+path = "COPILOT/_archive"
+class = "SCRATCH-ARCHIVE"
+rationale = "CLASSIFICATION.md #62: referenced by the registry as the archive location; empty on disk (only .DS_Store), no git."
+
+[[repos]]
+path = "COPILOT/conversations-copilot"
+class = "SCRATCH-ARCHIVE"
+rationale = "CLASSIFICATION.md #63: only .next/ and logs/ build leftovers remain, no git, no source."
+
+[[repos]]
+path = "COPILOT/convoco-policy-build"
+class = "SCRATCH-ARCHIVE"
+rationale = "CLASSIFICATION.md #64: a stale git worktree of convoco, not an independent project. Q15 answer A: remove the worktree registration."
+
+[[repos]]
+path = "COPILOT/docs"
+class = "SCRATCH-ARCHIVE"
+rationale = "Q27 owner answer 'archive': a lone orphan file in a non-git directory, no consumer -- overrides CLASSIFICATION.md #60's DOCS/KNOWLEDGE assignment. Matches Q17 answer B (retire the file)."
+
+[[repos]]
+path = "COPILOT/MBS"
+class = "SCRATCH-ARCHIVE"
+rationale = "CLASSIFICATION.md #65: client analysis data dump, no git, no framework."
+
+[[repos]]
+path = "COPILOT/playground"
+class = "SCRATCH-ARCHIVE"
+rationale = "CLASSIFICATION.md #67: self-described general-purpose sandbox, no git. Q16 answer A: git-init it so it becomes maintainable and reachable (not yet done as of this audit -- still not a git root today)."
+
+[[repos]]
+path = "COPILOT/rfp-copilot"
+class = "SCRATCH-ARCHIVE"
+rationale = "CLASSIFICATION.md #68: registry says archived, but still at the COPILOT root taking framework fan-out commits. Q14 answer B: archive it for real."
+
+[[repos]]
+path = "COPILOT/taguette_data"
+class = "SCRATCH-ARCHIVE"
+rationale = "CLASSIFICATION.md #69: empty data directory, no git."
+
+[[repos]]
+path = "COPILOT/test"
+class = "SCRATCH-ARCHIVE"
+rationale = "CLASSIFICATION.md #70: a copy of the Forces Assessment app, no git. Q18 answer A: tokens rotated."
+
+[[repos]]
+path = "COPILOT/test-pilot"
+class = "SCRATCH-ARCHIVE"
+rationale = "CLASSIFICATION.md #71: a test clone of research-copilot pushed to a personal fork, not a project."
+
+[[repos]]
+path = "PERSONAL/audible-goodreads-main"
+class = "SCRATCH-ARCHIVE"
+rationale = "CLASSIFICATION.md #73: loose conversion scripts, no git, no framework. Q19 answer A: revoke the exposed key, leave as inert scratch."
+
+[[repos]]
+path = "PERSONAL/movies"
+class = "SCRATCH-ARCHIVE"
+rationale = "CLASSIFICATION.md #74: single loose script, no git."
+
+[[repos]]
+path = "PERSONAL/stocks"
+class = "SCRATCH-ARCHIVE"
+rationale = "CLASSIFICATION.md #75: two loose calculator scripts, no git."
+
+[[repos]]
+path = "TSM/_archive"
+class = "SCRATCH-ARCHIVE"
+rationale = "CLASSIFICATION.md #76: Hermes-1 archives (h1, h1-old, .zips), no git of its own. Q10/Q11 answers (disregard / leave as-is) apply to the live git root nested inside it, not to this container."

@@ -1,0 +1,77 @@
+{
+  "$comment": "Committed baseline for FF9 (context-budget fitness function) in .claude/fitness-check.sh. Re-baselined deliberately after the Output Contract pass (canonical `.claude/agents/_shared/output-contract.md`, 2,042 bytes, embedded byte-for-byte in all 16 agent .md files and in `.claude/commands/protocol.md`, checked by FF10). Agent corpus grew from 163,287 to 195,975 bytes (+32,688 bytes, +20.0%) -- 16 files x ~2,043 bytes (block + one blank line) each. `protocol.md` grew from 34,568 to 36,624 bytes (+2,056 bytes: +2,042-byte block, minus ~450 bytes of consolidated Verbosity Levels / Main-session-response-budget prose now pointing at the contract instead of repeating it, plus new headings/dividers). `setup.md` grew from 5,180 to 6,658 bytes (+1,478 bytes: Step 7D machine-level Output Contract configuration prompt). `setup-project.md` grew from 12,965 to 13,318 bytes (+353 bytes: Output row in Step 10/12). Root `CLAUDE.md` grew from 19,365 to 20,531 bytes (+1,166 bytes: new Output Contract section) -- always-loaded total moved from 25,102 to 26,268 bytes (+1,166, ratio 1.046), still within the unchanged 1.08x always-loaded ceiling, so that threshold did not need to move. All other commands are unchanged from v5.13.3 and are carried forward unmodified. A re-baseline is a new file with an incremented framework version in its name (see VERSION.json .framework) so drift is a reviewable diff, never a silent edit of the prior one.",
+  "framework_version": "5.13.4",
+  "captured_at": "2026-08-09T15:17:06Z",
+  "byte_to_token_ratio": 4.0,
+  "byte_to_token_basis": "~4 characters per token for English/markdown text -- OpenAI's widely-published tokenizer heuristic (platform.openai.com/tokenizer: 'a helpful rule of thumb is that one token generally corresponds to ~4 characters of text'). No tokenizer dependency is added; this is a documented approximation, applied identically to every artifact so ratios between artifacts stay comparable even though the absolute token count is approximate.",
+  "thresholds": {
+    "growth_ratio": 1.10,
+    "growth_ratio_basis": "Matches IMPL-plan item 5's starting point: tight enough to catch a real content-bloat edit, loose enough for normal edits (a new table row, a paragraph) not to trip it. Applies uniformly to every tracked artifact (agents, commands, CLAUDE.md, the SessionStart injection file, and the frontmatter-description catalog). Unchanged from v5.13.3 -- this re-baseline resets the captured byte counts, not the policy.",
+    "shrink_floor_ratio": 0.70,
+    "shrink_floor_basis": "A single edit legitimately removing under 30% of a file (trimming a stale section) is normal; losing more than 30% in one change is the signature of an accidental body-strip or truncated write, which a growth-only budget cannot see. Unchanged from v5.13.3.",
+    "corpus_ceiling_ratio": 1.10,
+    "corpus_ceiling_basis": "Same 10% headroom as the per-file ratio, applied to the SUM of all 16 agent files, so many small under-ratio additions across different files (each individually compliant) still can't add up to unbounded corpus growth. Unchanged from v5.13.3.",
+    "always_loaded_growth_ratio": 1.08,
+    "always_loaded_growth_ratio_basis": "Deliberately tighter than every other ratio in this file (8% vs 10%) because this is the one number that taxes literally every session with zero user action -- CLAUDE.md and the SessionStart injection are read whether or not the session ever touches an agent or a command. Unchanged from v5.13.3; the Output Contract pass's +1,166-byte CLAUDE.md addition (ratio 1.046 against this re-baseline) still fits inside it without needing to loosen it."
+  },
+  "agents": {
+    "cco.md": 9081,
+    "cpa.md": 11240,
+    "cs.md": 9633,
+    "cw.md": 9362,
+    "do.md": 9890,
+    "doc.md": 8204,
+    "ind.md": 14469,
+    "kc.md": 8690,
+    "me.md": 9704,
+    "qa.md": 13205,
+    "sd.md": 15073,
+    "sec.md": 10269,
+    "ta.md": 12917,
+    "uid.md": 8630,
+    "uids.md": 24686,
+    "uxd.md": 20922
+  },
+  "agent_corpus_total_bytes": 195975,
+  "agent_corpus_note": "Post-Output-Contract-pass measured total. The pre-pass total (v5.13.3 baseline) was 163,287 bytes; this pass added the 2,042-byte canonical output-contract.md block, byte-for-byte, to all 16 agent files (+32,688 bytes, +20.0%), anchored immediately before '## Runtime Precedence' in each file and verified by FF10.",
+  "commands": {
+    "config.md": 8735,
+    "continue.md": 14169,
+    "extensions.md": 6862,
+    "knowledge-copilot.md": 2837,
+    "map.md": 3894,
+    "memory.md": 4881,
+    "orchestrate.md": 4654,
+    "pause.md": 4639,
+    "protocol.md": 36624,
+    "reflect.md": 4335,
+    "setup-copilot.md": 1320,
+    "setup-knowledge-sync.md": 6174,
+    "setup-project.md": 13318,
+    "setup.md": 6658,
+    "skills-approve.md": 2394,
+    "update-copilot.md": 3498,
+    "update-project.md": 14080
+  },
+  "always_loaded": {
+    "claude_md_bytes": 20531,
+    "claude_md_note": "Repo-root CLAUDE.md. Claude Code auto-loads a project's CLAUDE.md into every session unconditionally -- this is documented default behavior and was independently confirmed by inspecting this very session's own injected context. Grew by 1,166 bytes in this pass: a new '## Output Contract' section naming the canonical source, the two-register split, and the `output.verbosity`/`output.audience` config knobs.",
+    "session_start_injection_bytes": 3445,
+    "session_start_injection_note": "`.claude/hooks/protocol-injection.md`, emitted verbatim as the SessionStart hook's `systemMessage` on every session (session-start.sh), gated only by the `COPILOT_SESSION_START=off` escape hatch. The hook also appends a variable-length 'Known References' block (from `cc config`/`cc memory`, empty on a fresh install) and a 'Session Quota' block (from a usage cache) -- both runtime-computed and excluded here because they are not committed, reviewable file content and can't be measured as a static byte budget the way the rest of this manifest is. Unchanged in this pass.",
+    "frontmatter_catalog_bytes": 2292,
+    "frontmatter_catalog_note": "Sum of the frontmatter `description:` field bytes across all 16 agent .md files -- the name+description catalog Claude Code loads into the system prompt every session so it knows when to route to a subagent, independent of whether any agent is actually invoked. Unchanged in this pass -- the Output Contract pass touched agent bodies, not frontmatter.",
+    "total_bytes": 26268
+  },
+  "excluded_from_always_loaded": {
+    "protocol.md": {
+      "bytes": 36624,
+      "reason": "Loads only on an explicit `/protocol` invocation (a slash command that requires the user or the session's own convention to type it), not injected unconditionally by a hook or an auto-loaded-file convention the way CLAUDE.md and the SessionStart injection are. It is the single largest command and the framework's own documented default way most sessions begin, so it is still tracked -- under the ordinary per-artifact growth-ratio and shrink-floor invariants in `commands` above, same as every other command -- just not summed into the hard always-loaded ceiling. This pass added the full 2,042-byte Output Contract block (anchored immediately before '## Acknowledge', verified by FF10) and consolidated two duplicate verbosity/token-budget passages into one-line pointers at the contract, netting +2,056 bytes.",
+      "verification": "No PreToolUse/SessionStart/UserPromptSubmit hook reads or emits protocol.md's content; grep across .claude/hooks/*.sh for 'protocol.md' returns no reference. It is read only when the user's harness resolves an explicit /protocol slash-command invocation."
+    },
+    "AGENTS.md": {
+      "bytes": 5840,
+      "reason": "Codex-layer file (per its own header: 'This project uses the shared codex-copilot framework through the project-local plugin link'). Not referenced via an `@path` import in CLAUDE.md (verified: `grep -n '^@' CLAUDE.md` and `grep -n AGENTS.md CLAUDE.md` both return nothing) and not read by any Claude Code hook under `.claude/hooks/`. Excluded because it is not, in fact, loaded into a Claude Code session at all -- it is Codex's equivalent of CLAUDE.md, consumed by a different harness. Unchanged in this pass -- the Output Contract work was scoped to Claude-side agents/commands only (see repo-root CLAUDE.md's Output Contract section); Codex-side mirrors under plugins/codex-copilot/ were intentionally left untouched, consistent with this branch's recent removal of cross-product Codex plugin contribution."
+    }
+  },
+  "override_log": ".claude/context-budget-overrides.jsonl"
+}

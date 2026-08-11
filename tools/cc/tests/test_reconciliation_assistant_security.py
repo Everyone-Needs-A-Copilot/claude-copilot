@@ -56,6 +56,7 @@ def _claude_source(tmp_path: Path) -> Path:
     _write(source / ".claude/commands/protocol.md", "framework protocol\n")
     _write(source / ".claude/commands/continue.md", "framework continue\n")
     _write(source / ".claude/fitness-check.sh", "#!/bin/sh\nexit 0\n", mode=0o755)
+    _write(source / ".claude/hooks/copilot-hook.sh", "#!/bin/sh\nexit 0\n", mode=0o755)
     _write(source / ".claude/agents/me.md", "framework me\n")
     _write(source / ".claude/agents/kc.md", "framework kc\n")
     return source
@@ -221,6 +222,7 @@ def test_assistant_claude_recipe_preserves_custom_files_and_records_only_owned_s
         ".claude/commands/protocol.md",
         ".claude/commands/continue.md",
         ".claude/fitness-check.sh",
+        ".claude/hooks/copilot-hook.sh",
     }
     assert ".claude/agents/me.md" not in recorded
 

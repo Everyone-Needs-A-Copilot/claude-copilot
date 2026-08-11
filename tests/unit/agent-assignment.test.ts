@@ -440,41 +440,29 @@ async function testAgentFileStructure() {
 
   const projectRoot = join(__dirname, '../..');
   const agentsDir = join(projectRoot, '.claude/agents');
+  const leanAgents = ['me', 'qa', 'sec', 'doc', 'do', 'sd', 'uxd', 'uids', 'uid', 'cw'];
 
-  await runTest('All agents have skill_evaluate tool', () => {
-    const leanAgents = ['me', 'qa', 'sec', 'doc', 'do', 'sd', 'uxd', 'uids', 'uid', 'cw'];
-
+  // skill_evaluate and preflight_check were dead MCP tool names that never
+  // resolved to a real, invokable tool -- deliberately purged from every
+  // agent's `tools:` frontmatter by commit a978c8d ("reduce framework
+  // context footprint") and finished by commit 209ad7c ("purge retired-MCP
+  // refs"). Agents now do this work through real tools (Bash invoking the
+  // `cc`/`tc` CLIs). Assert the retirement holds instead of asserting the
+  // retired capability still exists.
+  await runTest('No agent tools frontmatter references skill_evaluate (retired MCP tool)', () => {
     for (const agent of leanAgents) {
       const agentPath = join(agentsDir, `${agent}.md`);
       const content = readFileSync(agentPath, 'utf-8');
 
-      // Check tools frontmatter
       const toolsMatch = content.match(/tools:\s*(.+)/);
       assert(toolsMatch !== null, `Agent ${agent} missing tools frontmatter`);
 
       const tools = toolsMatch[1];
-      assertContains(tools, 'skill_evaluate', `Agent ${agent} missing skill_evaluate tool`);
+      assert(!tools.includes('skill_evaluate'), `Agent ${agent} tools frontmatter still references retired skill_evaluate`);
     }
   });
 
-  await runTest('All agents have Skill Loading Protocol section', () => {
-    const leanAgents = ['me', 'qa', 'sec', 'doc', 'do', 'sd', 'uxd', 'uids', 'uid', 'cw'];
-
-    for (const agent of leanAgents) {
-      const agentPath = join(agentsDir, `${agent}.md`);
-      const content = readFileSync(agentPath, 'utf-8');
-
-      assertContains(
-        content,
-        '## Skill Loading Protocol',
-        `Agent ${agent} missing Skill Loading Protocol section`
-      );
-    }
-  });
-
-  await runTest('All agents include preflight_check tool', () => {
-    const leanAgents = ['me', 'qa', 'sec', 'doc', 'do', 'sd', 'uxd', 'uids', 'uid', 'cw'];
-
+  await runTest('No agent tools frontmatter references preflight_check (retired MCP tool)', () => {
     for (const agent of leanAgents) {
       const agentPath = join(agentsDir, `${agent}.md`);
       const content = readFileSync(agentPath, 'utf-8');
@@ -483,7 +471,27 @@ async function testAgentFileStructure() {
       assert(toolsMatch !== null, `Agent ${agent} missing tools`);
 
       const tools = toolsMatch[1];
-      assertContains(tools, 'preflight_check', `Agent ${agent} missing preflight_check tool`);
+      assert(!tools.includes('preflight_check'), `Agent ${agent} tools frontmatter still references retired preflight_check`);
+    }
+  });
+
+  // The old '## Skill Loading Protocol' section (a fictional skill_evaluate()
+  // JS snippet) was removed in the same pass. Skill discovery is now real:
+  // either `cc skill search` (fallback keyword search) or a mandatory
+  // `@include .claude/skills/...` for a domain-required skill (e.g. sec's
+  // STRIDE+DREAD). Not every agent uses the same wording or a dedicated
+  // heading, so assert the mechanism is documented somewhere in the body.
+  await runTest('All agents document a real skill-discovery mechanism', () => {
+    for (const agent of leanAgents) {
+      const agentPath = join(agentsDir, `${agent}.md`);
+      const content = readFileSync(agentPath, 'utf-8');
+
+      const hasSkillDiscovery =
+        content.includes('cc skill search') || content.includes('@include .claude/skills/');
+      assert(
+        hasSkillDiscovery,
+        `Agent ${agent} missing a real skill-discovery mechanism (cc skill search or @include .claude/skills/)`
+      );
     }
   });
 }

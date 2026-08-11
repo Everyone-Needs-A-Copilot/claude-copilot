@@ -1,0 +1,43 @@
+id: do-struct-shared-002
+name: Runtime Precedence block declares all 7 levels in order
+priority: P0
+description: The 7-level precedence ladder (safety > non-negotiable framework rules > harness
+  > user's explicit instruction > Constitution > CLAUDE.md > this file) must be complete and
+  in order. A dropped or reordered level changes what the agent is allowed to yield to.
+type: structural
+source:
+  type: file
+  path: .claude/agents/do.md
+assertions:
+- type: contains
+  value: '## Runtime Precedence'
+  description: Runtime Precedence heading present
+- type: contains
+  value: 1. **Safety outranks everything.**
+  description: Level 1 (safety) present
+- type: contains
+  value: 2. **Framework standing rules marked non-negotiable outrank even the user's own explicit
+    request.**
+  description: Level 2 (non-negotiable framework rules) present
+- type: contains
+  value: 3. **The harness system prompt outranks this agent definition and the user's phrasing
+    of a request**
+  description: Level 3 (harness) present
+- type: contains
+  value: 4. **The user's explicit current instruction outranks the Constitution, CLAUDE.md,
+    and this file**
+  description: Level 4 (user's explicit instruction) present
+- type: contains
+  value: 5. **The project Constitution (`CONSTITUTION.md`), when loaded, outranks CLAUDE.md
+    and this file**
+  description: Level 5 (Constitution) present
+- type: contains
+  value: 6. **The project's CLAUDE.md standing rules outrank this file.**
+  description: Level 6 (CLAUDE.md) present
+- type: contains
+  value: 7. **This file's own contract — including its Output Format section — governs whatever
+    the levels above haven't already decided.**
+  description: Level 7 (this file) present
+- type: regex
+  pattern: 1\. \*\*Safety outranks everything.*?7\. \*\*This file's own contract
+  description: Levels 1 through 7 appear in ascending order, not just present

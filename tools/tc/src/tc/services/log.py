@@ -30,6 +30,53 @@ def _require_db_path(db_path: Optional[Path]) -> Path:
     return found
 
 
+def record_log(
+    *,
+    agent: str,
+    action: str,
+    stream: Optional[int] = None,
+    task: Optional[int] = None,
+    details: Optional[str] = None,
+    conn: Optional[sqlite3.Connection] = None,
+    db_path: Optional[Path] = None,
+) -> dict[str, Any]:
+    """Insert an agent activity log entry and return the inserted row.
+
+    Args:
+        agent:   Agent slug the entry is attributed to.
+        action:  Short action label (e.g. "worker_dispatch", "budget_exhausted").
+        stream:  Optional stream_id to associate.
+        task:    Optional task_id to associate.
+        details: Optional free-form text (JSON-serialised caller data, etc.).
+        conn:    Existing connection for batching; if None, opens own.
+        db_path: Explicit DB path; if None, walks up from cwd.
+
+    Returns:
+        The inserted agent_log row as a dict.
+    """
+    owns_conn = conn is None
+    if owns_conn:
+        resolved = _require_db_path(db_path)
+        conn = _open_conn(resolved)
+
+    try:
+        cursor = conn.execute(
+            "INSERT INTO agent_log (agent, stream_id, task_id, action, details)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (agent, stream, task, action, details),
+        )
+        log_id = cursor.lastrowid
+
+        if owns_conn:
+            conn.commit()
+
+        row = conn.execute("SELECT * FROM agent_log WHERE id = ?", (log_id,)).fetchone()
+        return dict(row)
+    finally:
+        if owns_conn:
+            conn.close()
+
+
 def list_log(
     *,
     agent: Optional[str] = None,

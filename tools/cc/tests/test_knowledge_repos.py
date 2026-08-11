@@ -325,24 +325,24 @@ def test_env_empty_list_is_skipped(monkeypatch):
 
 def test_is_personal_knowledge_path_matches_ancestor_segment():
     assert _is_personal_knowledge_path(
-        "/Volumes/Dev/Sites/COPILOT/claude-copilot-private/knowledge"
+        "/repos/COPILOT/claude-copilot-private/knowledge"
     )
 
 
 def test_is_personal_knowledge_path_matches_leaf_segment():
-    assert _is_personal_knowledge_path("/Volumes/Dev/Sites/COPILOT/codex-copilot-private")
+    assert _is_personal_knowledge_path("/repos/COPILOT/codex-copilot-private")
 
 
 def test_is_personal_knowledge_path_false_for_org_repo():
     assert not _is_personal_knowledge_path(
-        "/Volumes/Dev/Sites/COPILOT/knowledge-copilot-internal"
+        "/repos/COPILOT/knowledge-copilot-internal"
     )
 
 
 def test_is_personal_knowledge_path_false_for_org_private_naming():
     """`<org>-org-private` is a DIFFERENT (org-tier) naming convention --
     must not false-positive as personal."""
-    assert not _is_personal_knowledge_path("/Volumes/Dev/Sites/COPILOT/enac-org-private")
+    assert not _is_personal_knowledge_path("/repos/COPILOT/enac-org-private")
 
 
 # ---------------------------------------------------------------------------
@@ -356,8 +356,8 @@ def test_env_emits_full_ordered_list_under_short_form_knowledge_repos(monkeypatc
         "cc.commands.env.get_resolved_config",
         lambda **_: {
             "paths.knowledge_repo": [
-                "/Volumes/Dev/Sites/COPILOT/knowledge-copilot-internal",
-                "/Volumes/Dev/Sites/COPILOT/claude-copilot-private/knowledge",
+                "/repos/COPILOT/knowledge-copilot-internal",
+                "/repos/COPILOT/claude-copilot-private/knowledge",
             ]
         },
     )
@@ -366,12 +366,12 @@ def test_env_emits_full_ordered_list_under_short_form_knowledge_repos(monkeypatc
     assert result.exit_code == 0
     assert (
         'export CC_KNOWLEDGE_REPOS='
-        '"/Volumes/Dev/Sites/COPILOT/knowledge-copilot-internal,'
-        '/Volumes/Dev/Sites/COPILOT/claude-copilot-private/knowledge"' in result.output
+        '"/repos/COPILOT/knowledge-copilot-internal,'
+        '/repos/COPILOT/claude-copilot-private/knowledge"' in result.output
     )
     # CC_KNOWLEDGE_REPO is UNCHANGED -- still first-element only.
     assert (
-        'export CC_KNOWLEDGE_REPO="/Volumes/Dev/Sites/COPILOT/knowledge-copilot-internal"'
+        'export CC_KNOWLEDGE_REPO="/repos/COPILOT/knowledge-copilot-internal"'
         in result.output
     )
 
@@ -381,8 +381,8 @@ def test_env_emits_personal_knowledge_repo_when_a_private_entry_is_present(monke
         "cc.commands.env.get_resolved_config",
         lambda **_: {
             "paths.knowledge_repo": [
-                "/Volumes/Dev/Sites/COPILOT/knowledge-copilot-internal",
-                "/Volumes/Dev/Sites/COPILOT/claude-copilot-private/knowledge",
+                "/repos/COPILOT/knowledge-copilot-internal",
+                "/repos/COPILOT/claude-copilot-private/knowledge",
             ]
         },
     )
@@ -391,7 +391,7 @@ def test_env_emits_personal_knowledge_repo_when_a_private_entry_is_present(monke
     assert result.exit_code == 0
     assert (
         'export CC_PERSONAL_KNOWLEDGE_REPO='
-        '"/Volumes/Dev/Sites/COPILOT/claude-copilot-private/knowledge"' in result.output
+        '"/repos/COPILOT/claude-copilot-private/knowledge"' in result.output
     )
 
 
@@ -403,7 +403,7 @@ def test_env_personal_knowledge_repo_absent_when_no_private_entry_matches(monkey
         "cc.commands.env.get_resolved_config",
         lambda **_: {
             "paths.knowledge_repo": [
-                "/Volumes/Dev/Sites/COPILOT/knowledge-copilot-internal",
+                "/repos/COPILOT/knowledge-copilot-internal",
             ]
         },
     )
@@ -431,7 +431,7 @@ def test_env_personal_knowledge_repo_works_for_single_string_value(monkeypatch):
     monkeypatch.setattr(
         "cc.commands.env.get_resolved_config",
         lambda **_: {
-            "paths.knowledge_repo": "/Volumes/Dev/Sites/COPILOT/claude-copilot-private/knowledge"
+            "paths.knowledge_repo": "/repos/COPILOT/claude-copilot-private/knowledge"
         },
     )
 
@@ -439,11 +439,11 @@ def test_env_personal_knowledge_repo_works_for_single_string_value(monkeypatch):
     assert result.exit_code == 0
     assert (
         'export CC_PERSONAL_KNOWLEDGE_REPO='
-        '"/Volumes/Dev/Sites/COPILOT/claude-copilot-private/knowledge"' in result.output
+        '"/repos/COPILOT/claude-copilot-private/knowledge"' in result.output
     )
     assert (
         'export CC_KNOWLEDGE_REPOS='
-        '"/Volumes/Dev/Sites/COPILOT/claude-copilot-private/knowledge"' in result.output
+        '"/repos/COPILOT/claude-copilot-private/knowledge"' in result.output
     )
 
 
@@ -467,14 +467,14 @@ def test_personal_roots_includes_every_projects_root_entry(monkeypatch):
     monkeypatch.setattr("cc.core.config.resolve_knowledge_repos", lambda: [])
     monkeypatch.setattr(
         "cc.core.config.resolve_key",
-        lambda key, **_: ["/Users/example/projects", "/Volumes/Dev/Sites"]
+        lambda key, **_: ["/Users/example/projects", "/repos"]
         if key == "projects.roots"
         else None,
     )
 
     assert personal_roots_from_config() == [
         "/Users/example/projects",
-        "/Volumes/Dev/Sites",
+        "/repos",
     ]
 
 
@@ -485,20 +485,20 @@ def test_personal_roots_concatenates_knowledge_repos_and_projects_roots(monkeypa
     )
     monkeypatch.setattr(
         "cc.core.config.resolve_key",
-        lambda key, **_: ["/Volumes/Dev/Sites"] if key == "projects.roots" else None,
+        lambda key, **_: ["/repos"] if key == "projects.roots" else None,
     )
 
-    assert personal_roots_from_config() == ["/shared/kc", "/Volumes/Dev/Sites"]
+    assert personal_roots_from_config() == ["/shared/kc", "/repos"]
 
 
 def test_personal_roots_projects_roots_legacy_string_becomes_one_element(monkeypatch):
     monkeypatch.setattr("cc.core.config.resolve_knowledge_repos", lambda: [])
     monkeypatch.setattr(
         "cc.core.config.resolve_key",
-        lambda key, **_: "/Volumes/Dev/Sites" if key == "projects.roots" else None,
+        lambda key, **_: "/repos" if key == "projects.roots" else None,
     )
 
-    assert personal_roots_from_config() == ["/Volumes/Dev/Sites"]
+    assert personal_roots_from_config() == ["/repos"]
 
 
 def test_personal_roots_empty_when_nothing_configured(monkeypatch):

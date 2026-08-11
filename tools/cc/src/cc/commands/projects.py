@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import hashlib
 import socket
+import stat
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
@@ -413,14 +414,25 @@ def build_materialize_project_report(
         dest = project / rel_path
         src_bytes = src.read_bytes()
         to_sha = _sha256_hex(src_bytes)
+        # task-372 sibling defect (item-1 note 9): a bare write_bytes() never
+        # sets a mode, so a materialized `.sh` (fitness-check.sh, and now the
+        # copilot-hook.sh shim) landed non-executable -- a silent fail-open
+        # that looks fine (`op: "added"`/"updated"`, checksum matches) while
+        # actually doing nothing when the harness tries to exec it. Carry the
+        # SOURCE file's mode through unconditionally, matching how the recipe
+        # engine's COPY_FILE_FROM_SOURCE already does this (`_prepare_mutation`
+        # in reconciliation_transaction.py).
+        src_mode = stat.S_IMODE(src.stat().st_mode)
 
         existed = dest.is_file()
         from_sha = _sha256_hex(dest.read_bytes()) if existed else None
         content_matches = existed and dest.read_bytes() == src_bytes
+        mode_matches = existed and stat.S_IMODE(dest.stat().st_mode) == src_mode
 
-        if not content_matches and not dry_run:
+        if not dry_run and (not content_matches or not mode_matches):
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(src_bytes)
+            dest.chmod(src_mode)
 
         op = "unchanged" if content_matches else ("updated" if existed else "added")
         changed.append(

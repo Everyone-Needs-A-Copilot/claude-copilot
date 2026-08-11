@@ -1,0 +1,26 @@
+id: doc-struct-shared-005
+name: Declared iteration contract (promise markers, maxIterations) matches spec
+priority: P1
+description: 'This agent''s frontmatter iteration contract (maxIterations: 10, promises: COMPLETE,
+  BLOCKED) is agent-specific by design -- this case pins the exact declared values so a copy-paste
+  drift from another agent''s block is caught.'
+type: structural
+source:
+  type: file
+  path: .claude/agents/doc.md
+assertions:
+- type: contains
+  value: 'iteration:'
+  description: Frontmatter declares an iteration contract
+- type: regex
+  pattern: maxIterations:\s*10\b
+  description: maxIterations is declared as 10
+- type: contains
+  value: '"<promise>COMPLETE</promise>"'
+  description: COMPLETE is a declared completion promise
+- type: contains
+  value: '"<promise>BLOCKED</promise>"'
+  description: BLOCKED is a declared completion promise
+- type: not-contains
+  value: '"<promise>CONFUSED</promise>"'
+  description: CONFUSED is deliberately NOT a declared completion promise for this agent

@@ -7,13 +7,16 @@ import typer
 from cc import __version__
 from cc.commands.auth import auth_app
 from cc.commands.config import config_app
+from cc.commands.conformance import conformance_app
 from cc.commands.docs import docs_app
 from cc.commands.eval import eval_app
+from cc.commands.extensions import extensions_app
 from cc.commands.layers import layers_app
 from cc.commands.mcp import mcp_app
 from cc.commands.memory import memory_app
 from cc.commands.onboard import onboard_cmd
 from cc.commands.reconcile import reconcile_app
+from cc.commands.settings_hook import settings_hook_app
 from cc.commands.skill import skill_app
 from cc.commands.store import store_app
 from cc.commands.support import support_app
@@ -35,12 +38,15 @@ app.add_typer(mcp_app, name="mcp")
 app.add_typer(docs_app, name="docs")
 app.add_typer(usage_app, name="usage")
 app.add_typer(eval_app, name="eval")
+app.add_typer(extensions_app, name="extensions")
 app.add_typer(auth_app, name="auth")
 app.add_typer(layers_app, name="layers")
 app.add_typer(workspaces_app, name="workspace")
 app.add_typer(reconcile_app, name="reconcile")
 app.add_typer(store_app, name="store")
 app.add_typer(support_app, name="support")
+app.add_typer(settings_hook_app, name="settings-hook")
+app.add_typer(conformance_app, name="conformance")
 app.command("onboard")(onboard_cmd)
 
 

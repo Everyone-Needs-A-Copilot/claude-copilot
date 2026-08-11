@@ -20,6 +20,51 @@ jobs:
           chmod +x ./scripts/smoke-test.sh
           ./scripts/smoke-test.sh
 
+      - name: Run PreToolUse hook tests
+        run: |
+          chmod +x ./tests/hooks/test-hook-wiring.sh ./tests/hooks/test-pretool-check.sh
+          # Static wiring-contract check first: asserts .claude/settings.json's
+          # PreToolUse matcher is a superset of every tool name
+          # pretool-check.sh branches on. This is the guard against the
+          # matcher/branch mismatch (349+ payload-level assertions passed
+          # while Read/Edit/Agent/Write branches were unreachable in
+          # production because the matcher never admitted those tool
+          # calls) — see docs/10-architecture for the root-cause writeup.
+          ./tests/hooks/test-hook-wiring.sh
+          # Payload-level behavioral tests: force-delegate, qa-gate,
+          # /careful, /freeze, subagent-livelock replay, and fail-open
+          # crash regression coverage.
+          ./tests/hooks/test-pretool-check.sh
+
+      - name: Run remaining hook suites
+        run: |
+          chmod +x ./tests/hooks/test-shim-e2e.sh ./tests/hooks/test-qa-gate-integration.sh \
+            ./tests/hooks/test-subagent-stop.sh ./tests/hooks/test-user-prompt-submit.sh
+          # End-to-end proof that a project vendored with ONLY the shim (no
+          # rule scripts) still gets enforcement, by delegating to the real
+          # global hook install.
+          ./tests/hooks/test-shim-e2e.sh
+          # SubagentStop → qa-gate state → PreToolUse deny/allow round trip.
+          ./tests/hooks/test-qa-gate-integration.sh
+          # QA verdict parsing (VERDICT/ARTIFACT precedence), retry counting,
+          # auto-unblock advisory, and me/qa pending_tasks bookkeeping.
+          ./tests/hooks/test-subagent-stop.sh
+          # Session-turn-cap advisory thresholds, staleness pruning, and
+          # concurrent-write safety.
+          ./tests/hooks/test-user-prompt-submit.sh
+
+      - name: Run fitness functions (FF1-FF9)
+        run: |
+          chmod +x ./.claude/fitness-check.sh
+          # Runs all nine fitness functions in one script, including FF9
+          # (context budget): per-artifact growth ratio, corpus ceiling,
+          # shrink floor, and the always-loaded ceiling against the
+          # committed baseline in .claude/context-budget-baseline-v*.json.
+          # This is the CI gate for the anti-context-bloat budget -- see
+          # .claude/context-budget-baseline-v5.13.3.json and the FF9
+          # section of fitness-check.sh for the invariants and overrides.
+          ./.claude/fitness-check.sh
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v7

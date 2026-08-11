@@ -80,9 +80,23 @@ Then STOP.
 **CRITICAL:** Regular `ls` passes for broken symlinks. Must check if target exists.
 
 ```bash
+# `2>/dev/null` inside a `for ... in LIST` word list is a hard parse error
+# in BOTH bash and zsh -- redirection is not valid mid-list there --
+# verified live; this block never actually ran under either shell as
+# originally written. Fixed by dropping it and instead making an empty
+# glob expand to zero words (nullglob) rather than the unmatched
+# pattern's literal text (bash's default) or a hard abort (zsh's default
+# -- verified live: an unmatched glob here made zsh exit the whole script
+# with "no matches found").
+if [ -n "${ZSH_VERSION:-}" ]; then
+  setopt NULL_GLOB
+elif [ -n "${BASH_VERSION:-}" ]; then
+  shopt -s nullglob
+fi
+
 echo "=== Checking commands for broken symlinks ==="
 BROKEN_FOUND=0
-for f in .claude/commands/*.md 2>/dev/null; do
+for f in .claude/commands/*.md; do
   if [ -L "$f" ] && [ ! -e "$f" ]; then
     echo "BROKEN_SYMLINK: $f"
     BROKEN_FOUND=1
@@ -90,7 +104,7 @@ for f in .claude/commands/*.md 2>/dev/null; do
 done
 
 echo "=== Checking agents for broken symlinks ==="
-for f in .claude/agents/*.md 2>/dev/null; do
+for f in .claude/agents/*.md; do
   if [ -L "$f" ] && [ ! -e "$f" ]; then
     echo "BROKEN_SYMLINK: $f"
     BROKEN_FOUND=1
@@ -131,8 +145,11 @@ Tell the user:
 **Ready to update project**
 
 This will refresh:
-- `.claude/commands/` (7 project commands)
-- `.claude/agents/` (16 agent files: 15 framework agents + kc setup-only — roster-aware: preserves project-specific agents, removes retired agents)
+- `.claude/commands/` (the full project-command set: protocol, continue, pause, map, memory, extensions, orchestrate)
+- `.claude/agents/` (the full framework agent roster from VERSION.json, plus kc setup-only — roster-aware: preserves project-specific agents, removes retired agents)
+- `.claude/hooks/copilot-hook.sh` (the enforcement hook shim, re-vendored and re-registered)
+- `copilot.lock.json` (the `claude` component entry, regenerated from what's actually installed — never a copied template; other components and any mutation ledger are preserved)
+- `copilot.project.json` (adds `"claude"` to the declared components, preserving any other component already declared — e.g. `"codex"`)
 - `.claude/orchestrator/` (if present — retired Python scripts will be removed)
 
 This will NOT touch:
@@ -178,7 +195,7 @@ cp ~/.claude/copilot/.claude/commands/memory.md .claude/commands/
 cp ~/.claude/copilot/.claude/commands/extensions.md .claude/commands/
 cp ~/.claude/copilot/.claude/commands/orchestrate.md .claude/commands/
 
-echo "Commands updated (7 project commands)"
+echo "Commands updated ($(ls .claude/commands/*.md 2>/dev/null | wc -l | tr -d ' ') project commands)"
 ```
 
 ---
@@ -192,14 +209,23 @@ Refresh only framework-owned agents; preserve any project-specific agents.
 ```bash
 COPILOT_PATH=~/.claude/copilot
 
-# Read framework agent roster from VERSION.json
+# Read framework agent roster from VERSION.json. One agent id PER LINE --
+# never space-joined -- so every loop below reads it with `while read`
+# instead of relying on word-splitting an unquoted scalar. bash splits an
+# unquoted `$ROSTER`/`$RETIRED` on IFS whitespace by default; zsh does
+# NOT, so `for agent in $ROSTER` (and the `$RETIRED` loop, and the nested
+# `for a in $ROSTER` below) each silently ran ONCE with the entire list
+# as a single value under zsh (this machine's login shell) -- every agent
+# copy/removal was a silent no-op, while this step still reported success
+# with its own freshly-computed counts. Verified live under both shells.
 ROSTER=$(python3 -c "
 import json, sys
 with open('$COPILOT_PATH/VERSION.json') as f:
     v = json.load(f)
-agents = v['components']['agents']['frameworkAgents']
-print(' '.join(agents))
-" 2>/dev/null || echo "cco cpa cs cw do doc ind kc me qa sd sec ta uid uids uxd")
+agents = list(v['components']['agents']['frameworkAgents'])
+agents.append('kc')  # setup-only agent; VERSION.json's frameworkAgents deliberately excludes it
+print('\n'.join(agents))
+" 2>/dev/null || printf '%s\n' cco cpa cs cw do doc ind kc me qa sd sec ta uid uids uxd)
 
 # Also read retired agents list to remove any stale copies
 RETIRED=$(python3 -c "
@@ -207,12 +233,16 @@ import json, sys
 with open('$COPILOT_PATH/VERSION.json') as f:
     v = json.load(f)
 retired = v['components']['agents'].get('retired', [])
-print(' '.join(retired))
-" 2>/dev/null || echo "design")
+print('\n'.join(retired))
+" 2>/dev/null || printf '%s\n' design)
 
 # Remove retired agents from project (they should not remain)
 # Exception: never remove an agent marked owner: project
-for agent in $RETIRED; do
+# `while read` off a herestring (not a pipe) runs in THIS shell, not a
+# subshell, and is correct under both bash and zsh regardless of
+# word-splitting settings, since it never relies on unquoted splitting.
+while IFS= read -r agent; do
+  [ -z "$agent" ] && continue
   if [ -f ".claude/agents/${agent}.md" ]; then
     if grep -q '^owner: project' ".claude/agents/${agent}.md" 2>/dev/null; then
       echo "preserved project-owned agent: ${agent} (skipping retired-agent removal)"
@@ -221,13 +251,14 @@ for agent in $RETIRED; do
       echo "Removed retired agent: ${agent}.md"
     fi
   fi
-done
+done <<< "$RETIRED"
 
 # Refresh framework-owned agents only (preserve project-specific agents)
 # Convention: if an existing agent file has frontmatter "owner: project", skip it
 UPDATED=0
 PROJECT_OWNED_SKIPPED=""
-for agent in $ROSTER; do
+while IFS= read -r agent; do
+  [ -z "$agent" ] && continue
   if [ -f "$COPILOT_PATH/.claude/agents/${agent}.md" ]; then
     existing=".claude/agents/${agent}.md"
     if [ -f "$existing" ] && grep -q '^owner: project' "$existing" 2>/dev/null; then
@@ -238,20 +269,158 @@ for agent in $ROSTER; do
       UPDATED=$((UPDATED + 1))
     fi
   fi
-done
+done <<< "$ROSTER"
 
 # Report any project-specific agents that were preserved
 echo "Framework agents refreshed: $UPDATED"
 [ -n "$PROJECT_OWNED_SKIPPED" ] && echo "Project-owned agents preserved (owner: project):$PROJECT_OWNED_SKIPPED"
-PRESERVED=$(ls .claude/agents/*.md 2>/dev/null | while read f; do
+PRESERVED=$(ls .claude/agents/*.md 2>/dev/null | while IFS= read -r f; do
   name=$(basename "$f" .md)
   is_framework=0
-  for a in $ROSTER; do [ "$a" = "$name" ] && is_framework=1 && break; done
+  while IFS= read -r a; do
+    [ "$a" = "$name" ] && is_framework=1 && break
+  done <<< "$ROSTER"
   [ $is_framework -eq 0 ] && echo "$name"
 done | tr '\n' ' ')
 [ -n "$PRESERVED" ] && echo "Project-specific agents preserved: $PRESERVED"
 
 echo "Agents updated (roster-aware)"
+```
+
+---
+
+## Step 7B: Refresh Enforcement Hook
+
+Re-vendor the enforcement hook shim and re-register it in `.claude/settings.json`. Safe to run every time this command runs: the copy is byte-identical when the framework source hasn't changed, and `cc settings-hook add` is idempotent (a matching registration reports "unchanged" and writes nothing).
+
+```bash
+mkdir -p .claude/hooks
+cp ~/.claude/copilot/.claude/hooks/copilot-hook.sh .claude/hooks/copilot-hook.sh
+chmod +x .claude/hooks/copilot-hook.sh
+
+cc settings-hook add
+```
+
+**Verify:**
+```bash
+ls -la .claude/hooks/copilot-hook.sh
+```
+
+---
+
+## Step 7C: Regenerate Project Lock (claude component)
+
+Regenerate `copilot.lock.json`'s `claude` component entry from what this update just put on disk -- real per-path sha256 checksums computed here, never a value copied from the framework source or another project's lock (RC-4: `projects.generate_component_lock_entry()`). A repo whose agents/commands/hook were just refreshed above but whose lock was never regenerated would still carry a stale or templated lock -- this closes that gap on every `/update-project` run, not just at initial setup. A candidate path whose own frontmatter declares `owner: project` is never recorded as framework-owned -- that exclusion lives inside the generator itself, so `preflight-copilot`/`voice-copilot`/`spanish-copilot`/`sproutworks`/`TSM/h3`-style hand-authored agents stay out of the lock's `files[]` automatically, exactly like Step 7's copy/remove loops above already leave the files themselves untouched. This step reads back any existing `copilot.lock.json` first (any `mutations[]` ledger, any `codex` component entry) and only replaces the `claude` entry -- everything else in the file is preserved untouched.
+
+This step is self-contained (recomputes the agent roster from `VERSION.json` itself rather than reusing Step 7's `$ROSTER`): each fenced command block in this file may run as its own shell invocation, so nothing here depends on shell state set by an earlier step.
+
+```bash
+COPILOT_PATH=~/.claude/copilot
+python3 -c "
+import json
+from pathlib import Path
+from cc.core.ecosystem.projects import (
+    generate_component_lock_entry,
+    read_project_lock,
+    write_project_lock,
+    PROJECT_LOCK_FILENAME,
+)
+
+copilot_path = Path('$COPILOT_PATH').expanduser()
+with open(copilot_path / 'VERSION.json') as f:
+    v = json.load(f)
+roster = list(v['components']['agents']['frameworkAgents'])
+roster.append('kc')  # setup-only agent; VERSION.json's frameworkAgents deliberately excludes it
+version = v.get('framework', 'unknown')
+release_tag = ('v' + version) if version != 'unknown' else 'unknown'
+
+candidate_paths = [
+    '.claude/commands/protocol.md', '.claude/commands/continue.md',
+    '.claude/commands/pause.md', '.claude/commands/map.md',
+    '.claude/commands/memory.md', '.claude/commands/extensions.md',
+    '.claude/commands/orchestrate.md',
+    '.claude/fitness-check.sh', '.claude/hooks/copilot-hook.sh',
+] + [f'.claude/agents/{agent}.md' for agent in roster]
+
+root = Path('.').resolve()
+entry = generate_component_lock_entry(
+    root, 'claude',
+    version=version, release_tag=release_tag, ownership_mode='full',
+    candidate_paths=candidate_paths,
+)
+
+lock_path = root / PROJECT_LOCK_FILENAME
+manifest = read_project_lock(lock_path)
+if not isinstance(manifest, dict):
+    manifest = {}
+manifest.setdefault('schema_version', '1.0')
+existing = manifest.get('components')
+components = (
+    [c for c in existing if isinstance(c, dict) and c.get('component') != 'claude']
+    if isinstance(existing, list) else []
+)
+components.append(entry)
+components.sort(key=lambda c: str(c.get('component', '')))
+manifest['components'] = components
+write_project_lock(lock_path, manifest)
+print(f'copilot.lock.json: claude component regenerated ({len(entry[\"files\"])} files, version {version})')
+" 2>&1 || echo "WARN: could not regenerate copilot.lock.json's claude component (is the cc package importable from python3?). The project is still updated; re-run /update-project later to retry."
+```
+
+**Verify:**
+```bash
+python3 -c "
+import json
+d = json.load(open('copilot.lock.json'))
+c = [x for x in d.get('components', []) if x.get('component') == 'claude']
+print('claude component present:', bool(c))
+print('files recorded:', len(c[0]['files']) if c else 0)
+" 2>/dev/null || echo "copilot.lock.json missing or unreadable"
+```
+
+---
+
+## Step 7D: Update Project Declaration
+
+Write or update `copilot.project.json` -- the small, portable, committed declaration of which host frameworks this project expects (`RUBRIC.md` D9 / `repo.d09.portable_declaration`; `cc.core.ecosystem.workspaces` module docstring). This closes the same gap as Step 7C for `copilot.lock.json`: a project last set up before this step existed would otherwise never gain a declaration except through a full `/setup-project` re-run.
+
+Preserve, never clobber: this step reads back any existing `copilot.project.json` first and only ADDS `"claude"` to whatever is already declared (e.g. a prior `codex-copilot` install's `"codex"` entry is left alone). `"codex"` is added only if `plugins/codex-copilot/` is genuinely present on disk or was already declared -- the declaration never claims a component that is not, in fact, installed. Running this step again with nothing changed produces byte-identical output (idempotent, same as every other step in this section).
+
+```bash
+python3 -c "
+import json
+from pathlib import Path
+
+target = Path('copilot.project.json')
+existing_components = []
+if target.is_file():
+    try:
+        raw = json.loads(target.read_text(encoding='utf-8'))
+        if isinstance(raw, dict) and raw.get('schema_version') == '1.0' and isinstance(raw.get('components'), list):
+            existing_components = [c for c in raw['components'] if isinstance(c, str)]
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        existing_components = []
+
+declared = set(existing_components)
+declared.add('claude')
+if Path('plugins/codex-copilot').is_dir():
+    declared.add('codex')
+
+components = [c for c in ('claude', 'codex') if c in declared]
+payload = {'schema_version': '1.0', 'components': components}
+target.write_text(json.dumps(payload, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+print(f'copilot.project.json: components={components}')
+" 2>&1 || echo "WARN: could not write copilot.project.json. The project is still updated; re-run /update-project later to retry."
+```
+
+**Verify:**
+```bash
+python3 -c "
+import json
+d = json.load(open('copilot.project.json'))
+print('schema_version:', d.get('schema_version'))
+print('components:', d.get('components'))
+" 2>/dev/null || echo "copilot.project.json missing or unreadable"
 ```
 
 ---
@@ -371,6 +540,14 @@ echo "=== Updated Agents ==="
 ls .claude/agents/*.md | wc -l
 echo "agent files"
 
+echo "=== Enforcement Hook ==="
+ls -la .claude/hooks/copilot-hook.sh 2>/dev/null || echo "MISSING: .claude/hooks/copilot-hook.sh"
+
+AGENT_COUNT=$(ls .claude/agents/*.md 2>/dev/null | wc -l | tr -d ' ')
+COMMAND_COUNT=$(ls .claude/commands/*.md 2>/dev/null | wc -l | tr -d ' ')
+echo "AGENT_COUNT=$AGENT_COUNT"
+echo "COMMAND_COUNT=$COMMAND_COUNT"
+
 echo "=== Verification ==="
 # Check commands are regular files (not symlinks)
 for f in .claude/commands/*.md; do
@@ -434,7 +611,7 @@ The project is updated but the fitness check should be resolved before using pro
 
 ---
 
-Store `FITNESS_RESULT` to include in Step 11 report.
+Store `FITNESS_RESULT`, `AGENT_COUNT`, and `COMMAND_COUNT` (from Step 10) to include in Step 11 report.
 
 ---
 
@@ -477,8 +654,11 @@ Tell user:
 **Project Updated!**
 
 **Refreshed:**
-- `.claude/commands/` (7 project commands: protocol, continue, pause, map, memory, extensions, orchestrate)
-- `.claude/agents/` (16 agent files: 15 framework agents + kc setup-only, roster-aware sync)
+- `.claude/commands/` ({{COMMAND_COUNT}} project commands: protocol, continue, pause, map, memory, extensions, orchestrate)
+- `.claude/agents/` ({{AGENT_COUNT}} agent files: framework agents + kc setup-only, roster-aware sync)
+- `.claude/hooks/copilot-hook.sh` (enforcement hook shim, re-vendored and re-registered)
+- `copilot.lock.json` (`claude` component regenerated from what's actually installed; other components and any mutation ledger preserved)
+- `copilot.project.json` (`"claude"` declared; any other already-declared component, e.g. `"codex"`, preserved)
 {{IF_ORCHESTRATOR_REMOVED}}
 - `.claude/orchestrator/` (retired Python orchestrator removed)
 {{END_IF}}

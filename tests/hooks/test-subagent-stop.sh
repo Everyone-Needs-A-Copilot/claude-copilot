@@ -183,7 +183,7 @@ test_qa_approved_clears_pending() {
 
   # Now qa approves
   local payload_qa
-  payload_qa="$(make_payload "qa" "Task: TASK-5 | WP: WP-20\nVERDICT: APPROVED")"
+  payload_qa="$(make_payload "qa" "Task: TASK-5 | WP: WP-20\nVERDICT: APPROVED\nARTIFACT: test-run|pytest tests/test_foo.py exit=0 5 passed")"
   local result
   result="$(invoke_hook "$payload_qa")"
   local exit_code
@@ -223,7 +223,7 @@ test_qa_approved_minor_fixes_clears_pending() {
   bash "$HOOK" <<< "$payload_me" > /dev/null 2>&1 || true
 
   local payload_qa
-  payload_qa="$(make_payload "qa" "Task: TASK-7\nVERDICT: APPROVED-WITH-MINOR-FIXES")"
+  payload_qa="$(make_payload "qa" "Task: TASK-7\nVERDICT: APPROVED-WITH-MINOR-FIXES\nARTIFACT: test-run|pytest tests/test_foo.py exit=0 5 passed")"
   invoke_hook "$payload_qa" > /dev/null 2>&1 || true
 
   local pending
@@ -362,7 +362,7 @@ test_qa_implicit_pass() {
 
   # qa message uses COMPLETE promise but no explicit VERDICT token
   local payload_qa
-  payload_qa="$(make_payload "qa" "Task: TASK-8 | WP: WP-22\nAll tests pass.\n<promise>COMPLETE</promise>")"
+  payload_qa="$(make_payload "qa" "Task: TASK-8 | WP: WP-22\nAll tests pass.\nARTIFACT: test-run|pytest tests/test_foo.py exit=0 5 passed\n<promise>COMPLETE</promise>")"
   invoke_hook "$payload_qa" > /dev/null 2>&1 || true
 
   local pending
@@ -474,7 +474,7 @@ test_me_multiple_tasks_same_session() {
 
   # qa approves TASK-3 only
   local p3
-  p3="$(make_payload "qa" "Task: TASK-3\nVERDICT: APPROVED")"
+  p3="$(make_payload "qa" "Task: TASK-3\nVERDICT: APPROVED\nARTIFACT: test-run|pytest tests/test_foo.py exit=0 5 passed")"
   bash "$HOOK" <<< "$p3" > /dev/null 2>&1 || true
 
   pending="$(read_pending)"

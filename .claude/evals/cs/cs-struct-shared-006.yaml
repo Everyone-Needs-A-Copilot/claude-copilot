@@ -1,0 +1,19 @@
+id: cs-struct-shared-006
+name: Output Format and Route To Other Agent sections are present
+priority: P1
+description: Every agent must declare its Output Format token budget and have a Route To Other
+  Agent section so handoffs stay resolvable across the roster.
+type: structural
+source:
+  type: file
+  path: .claude/agents/cs.md
+assertions:
+- type: contains
+  value: '## Output Format'
+  description: Output Format heading present
+- type: contains
+  value: Return ONLY (~100 tokens)
+  description: ~100 token output budget declared
+- type: contains
+  value: '## Route To Other Agent'
+  description: Route To Other Agent heading present

@@ -14,7 +14,7 @@
  */
 
 import { readFileSync, readdirSync, existsSync, statSync } from 'fs';
-import { join, basename } from 'path';
+import { join, basename, relative } from 'path';
 
 // ============================================================================
 // TEST FRAMEWORK
@@ -93,6 +93,25 @@ const LEGACY_AGENTS = ['cco', 'kc'];
 // Skill categories
 const SKILL_CATEGORIES = ['code', 'testing', 'security', 'documentation', 'devops'];
 
+// The skill system expanded beyond code-pattern skills (commit 7facb21 "add
+// sales role skills") to role-workflow and creative-reference domains that
+// don't fit a code GOOD/BAD-example shape. Derive a skill's top-level
+// category from its path (skill files no longer carry a skill_category:
+// frontmatter field -- see the frontmatter test below) so the code-pattern
+// quality checks can be scoped to the domains they actually apply to.
+function skillCategoryOf(skillFile: string): string {
+  const relative = skillFile.slice(skillsDir.length + 1);
+  return relative.split('/')[0];
+}
+
+// Pure role-workflow skills (sales playbooks): no code, no GOOD/BAD or
+// Pattern/Anti-Pattern content by design -- they're process guides.
+const PROCESS_SKILL_CATEGORIES = ['sales'];
+
+// Visual/creative reference skills (named palettes, curated pairings,
+// evaluation rubrics): no code examples by design.
+const REFERENCE_ONLY_SKILL_CATEGORIES = ['design'];
+
 // ============================================================================
 // AGENT STRUCTURE TESTS
 // ============================================================================
@@ -109,15 +128,20 @@ async function testAgentStructure() {
   });
 
   // Test: Lean agents are within line limit
-  // Note: Domain agents (sd, uxd, uids, cw) have specification workflow sections (~50 lines each)
+  // Note: Domain agents (sd, uxd, uids, cw) have specification workflow sections
+  // (~50 lines each). The 250-line cap also predates two later, framework-wide,
+  // FF8/FF10-enforced additions to every agent file: the canonical Output
+  // Contract block (.claude/agents/_shared/output-contract.md) and Runtime
+  // Precedence block (.claude/agents/_shared/precedence.md). Current largest
+  // lean agent (uids.md, richest domain content) is 360 lines; 400 keeps the
+  // same "cap = current max + headroom" spirit as the old 250 did for its era.
   await runTest('Lean agents are within line limit', () => {
     for (const agent of LEAN_AGENTS) {
       const agentPath = join(agentsDir, `${agent}.md`);
       const content = readFileSync(agentPath, 'utf-8');
       const lineCount = content.split('\n').length;
 
-      // Allow 40-250 lines: base ~100 lines + specification sections (~50 lines) + headroom
-      assertInRange(lineCount, 40, 250, `Agent ${agent}.md has ${lineCount} lines`);
+      assertInRange(lineCount, 40, 400, `Agent ${agent}.md has ${lineCount} lines`);
     }
   });
 
@@ -143,28 +167,40 @@ async function testAgentStructure() {
     }
   });
 
-  // Test: Agents include skill_evaluate in tools
-  await runTest('Agents include skill_evaluate tool', () => {
+  // Test: skill_evaluate was a dead MCP tool name that never resolved to a
+  // real, invokable tool -- deliberately purged from every agent's `tools:`
+  // frontmatter (commit a978c8d "reduce framework context footprint", finished
+  // by 209ad7c "purge retired-MCP refs"). Assert the retirement holds.
+  await runTest('No agent tools frontmatter references skill_evaluate (retired MCP tool)', () => {
     for (const agent of LEAN_AGENTS) {
       const agentPath = join(agentsDir, `${agent}.md`);
       const content = readFileSync(agentPath, 'utf-8');
 
-      // Extract tools line
       const toolsMatch = content.match(/tools:\s*(.+)/);
       assert(toolsMatch !== null, `Agent ${agent} missing tools`);
 
       const tools = toolsMatch[1];
-      assertContains(tools, 'skill_evaluate', `Agent ${agent} missing skill_evaluate tool`);
+      assert(!tools.includes('skill_evaluate'), `Agent ${agent} tools frontmatter still references retired skill_evaluate`);
     }
   });
 
-  // Test: Agents have Skill Loading Protocol section
-  await runTest('Agents have Skill Loading Protocol section', () => {
+  // Test: the old '## Skill Loading Protocol' section (a fictional
+  // skill_evaluate() JS snippet) was removed in the same pass. Skill
+  // discovery is now real: `cc skill search` (fallback keyword search) or a
+  // mandatory `@include .claude/skills/...` for a domain-required skill
+  // (e.g. sec's STRIDE+DREAD). Not every agent uses the same wording or a
+  // dedicated heading, so assert the mechanism is documented in the body.
+  await runTest('All agents document a real skill-discovery mechanism', () => {
     for (const agent of LEAN_AGENTS) {
       const agentPath = join(agentsDir, `${agent}.md`);
       const content = readFileSync(agentPath, 'utf-8');
 
-      assertContains(content, '## Skill Loading Protocol', `Agent ${agent} missing Skill Loading Protocol section`);
+      const hasSkillDiscovery =
+        content.includes('cc skill search') || content.includes('@include .claude/skills/');
+      assert(
+        hasSkillDiscovery,
+        `Agent ${agent} missing a real skill-discovery mechanism (cc skill search or @include .claude/skills/)`
+      );
     }
   });
 
@@ -200,28 +236,39 @@ async function testAgentStructure() {
     }
   });
 
-  // Test: Agents use sonnet model (for cost efficiency)
-  await runTest('Agents use sonnet model', () => {
+  // Test: Agents declare their known model tier.
+  // v4.0.0 ("model-tier inversion") deliberately split lean agents by role:
+  // strategy/creative agents (sd, uxd, uids, cw) run Opus; execution agents
+  // (me, qa, sec, doc, do, uid) run Sonnet for cost efficiency. A blanket
+  // "every lean agent is sonnet" assumption is stale post-inversion -- assert
+  // the known-correct per-agent tier instead so a real drift (e.g. me
+  // silently switching to opus) still fails this test.
+  const EXPECTED_MODEL: Record<string, 'sonnet' | 'opus'> = {
+    me: 'sonnet', qa: 'sonnet', sec: 'sonnet', doc: 'sonnet', do: 'sonnet', uid: 'sonnet',
+    sd: 'opus', uxd: 'opus', uids: 'opus', cw: 'opus'
+  };
+
+  await runTest('Agents use their assigned model tier', () => {
     for (const agent of LEAN_AGENTS) {
       const agentPath = join(agentsDir, `${agent}.md`);
       const content = readFileSync(agentPath, 'utf-8');
+      const expected = EXPECTED_MODEL[agent];
 
-      assertContains(content, 'model: sonnet', `Agent ${agent} should use sonnet model`);
+      assertContains(content, `model: ${expected}`, `Agent ${agent} should use ${expected} model`);
     }
   });
 
-  // Test: Agents include preflight_check tool
-  await runTest('Agents include preflight_check tool', () => {
+  // Test: preflight_check was retired alongside skill_evaluate (same commits).
+  await runTest('No agent tools frontmatter references preflight_check (retired MCP tool)', () => {
     for (const agent of LEAN_AGENTS) {
       const agentPath = join(agentsDir, `${agent}.md`);
       const content = readFileSync(agentPath, 'utf-8');
 
-      // Extract tools line
       const toolsMatch = content.match(/tools:\s*(.+)/);
       assert(toolsMatch !== null, `Agent ${agent} missing tools`);
 
       const tools = toolsMatch[1];
-      assertContains(tools, 'preflight_check', `Agent ${agent} missing preflight_check tool`);
+      assert(!tools.includes('preflight_check'), `Agent ${agent} tools frontmatter still references retired preflight_check`);
     }
   });
 }
@@ -246,37 +293,52 @@ async function testSkillStructure() {
     }
   });
 
-  // Test: Skills have required frontmatter
+  // Test: Skills have required frontmatter.
+  // Commit 7facb21 ("auto-firing frontmatter migration") replaced the old
+  // custom schema (skill_name/skill_category/trigger_files/trigger_keywords)
+  // with the native Claude Code shape Claude Code itself reads to decide
+  // when to auto-fire a skill: name + a trigger-rich description. See
+  // templates/skills/SKILL-TEMPLATE.md's own header comment ("Canonical
+  // frontmatter shape: name + trigger-rich description"). Verified: all 37
+  // current SKILL.md files carry name: and description:; none carry the old
+  // fields any more.
   await runTest('Skills have required frontmatter', () => {
     const skillFiles = findSkillFiles(skillsDir);
 
     for (const skillFile of skillFiles) {
       const content = readFileSync(skillFile, 'utf-8');
+      const label = relative(skillsDir, skillFile);
 
       // Check frontmatter markers
-      assert(content.startsWith('---'), `Skill ${skillFile} missing opening frontmatter`);
+      assert(content.startsWith('---'), `Skill ${label} missing opening frontmatter`);
       const secondDash = content.indexOf('---', 3);
-      assert(secondDash > 0, `Skill ${skillFile} missing closing frontmatter`);
+      assert(secondDash > 0, `Skill ${label} missing closing frontmatter`);
 
       // Extract frontmatter
       const frontmatter = content.slice(3, secondDash);
 
       // Check required fields
-      assertContains(frontmatter, 'skill_name:', `Skill ${basename(skillFile)} missing skill_name`);
-      assertContains(frontmatter, 'skill_category:', `Skill ${basename(skillFile)} missing skill_category`);
-      assertContains(frontmatter, 'description:', `Skill ${basename(skillFile)} missing description`);
-      assertContains(frontmatter, 'trigger_files:', `Skill ${basename(skillFile)} missing trigger_files`);
-      assertContains(frontmatter, 'trigger_keywords:', `Skill ${basename(skillFile)} missing trigger_keywords`);
+      assertContains(frontmatter, 'name:', `Skill ${label} missing name`);
+      assertContains(frontmatter, 'description:', `Skill ${label} missing description`);
     }
   });
 
-  // Test: Skills have quality sections (patterns and anti-patterns)
+  // Test: Skills have quality sections (patterns and anti-patterns).
+  // The skill system now spans role-workflow skills (sales) alongside
+  // code-pattern skills, so this is scoped off PROCESS_SKILL_CATEGORIES.
+  // Quality-anchor vocabulary is broadened beyond generic Pattern/GOOD/BAD
+  // wording to the domain-appropriate headings skill authors actually use
+  // (Anti-Generic Rules/Bans, Anti-Slop Detector, Validation/Quality
+  // Checklist) -- these are real, verified section headings in the current
+  // skill corpus, not a loosened "always true" fallback.
   await runTest('Skills have quality sections', () => {
     const skillFiles = findSkillFiles(skillsDir);
 
     for (const skillFile of skillFiles) {
+      if (PROCESS_SKILL_CATEGORIES.includes(skillCategoryOf(skillFile))) continue;
+
       const content = readFileSync(skillFile, 'utf-8');
-      const name = basename(skillFile);
+      const label = relative(skillsDir, skillFile);
 
       // Check for pattern-related content
       const hasPatterns = content.includes('## Pattern') ||
@@ -285,24 +347,35 @@ async function testSkillStructure() {
                           content.includes('# GOOD');
 
       const hasAntiPatterns = content.includes('Anti-Pattern') ||
+                               content.includes('Anti-Generic') ||
+                               content.includes('Anti-Slop') ||
                                content.includes('BAD:') ||
                                content.includes('# BAD');
 
-      assert(hasPatterns || hasAntiPatterns, `Skill ${name} missing pattern/anti-pattern content`);
+      const hasChecklist = content.includes('Validation Checklist') ||
+                            content.includes('Quality Checklist');
+
+      assert(hasPatterns || hasAntiPatterns || hasChecklist, `Skill ${label} missing pattern/anti-pattern/checklist content`);
     }
   });
 
-  // Test: Skills have code examples
+  // Test: Skills have code examples.
+  // Scoped off REFERENCE_ONLY_SKILL_CATEGORIES and PROCESS_SKILL_CATEGORIES:
+  // design reference skills (named palettes, curated pairings, evaluation
+  // rubrics) and sales playbooks are legitimately code-free by design.
   await runTest('Skills have code examples', () => {
     const skillFiles = findSkillFiles(skillsDir);
 
     for (const skillFile of skillFiles) {
+      const category = skillCategoryOf(skillFile);
+      if (REFERENCE_ONLY_SKILL_CATEGORIES.includes(category) || PROCESS_SKILL_CATEGORIES.includes(category)) continue;
+
       const content = readFileSync(skillFile, 'utf-8');
-      const name = basename(skillFile);
+      const label = relative(skillsDir, skillFile);
 
       // Check for code blocks
       const codeBlockCount = (content.match(/```/g) || []).length;
-      assert(codeBlockCount >= 2, `Skill ${name} should have at least one code example (found ${codeBlockCount / 2} blocks)`);
+      assert(codeBlockCount >= 2, `Skill ${label} should have at least one code example (found ${codeBlockCount / 2} blocks)`);
     }
   });
 
@@ -312,7 +385,7 @@ async function testSkillStructure() {
 
     for (const skillFile of skillFiles) {
       const content = readFileSync(skillFile, 'utf-8');
-      const name = basename(skillFile);
+      const name = relative(skillsDir, skillFile);
 
       const tokenMatch = content.match(/token_estimate:\s*(\d+)/);
       if (tokenMatch) {
@@ -338,25 +411,31 @@ async function testSkillTemplate() {
     assert(existsSync(templatePath), 'SKILL-TEMPLATE.md not found');
   });
 
-  // Test: Template has required structure
+  // Test: Template has required structure.
+  // skill_name/skill_category/trigger_files/trigger_keywords were replaced
+  // by the native Claude Code frontmatter shape (name + description) in the
+  // same 7facb21 migration -- see the template's own header comment. The
+  // body sections (Core Patterns/Anti-Patterns/Validation Checklist) are
+  // unchanged and still present.
   await runTest('Template has required structure', () => {
     const content = readFileSync(templatePath, 'utf-8');
 
-    assertContains(content, 'skill_name:', 'Template missing skill_name field');
-    assertContains(content, 'skill_category:', 'Template missing skill_category field');
-    assertContains(content, 'trigger_files:', 'Template missing trigger_files field');
-    assertContains(content, 'trigger_keywords:', 'Template missing trigger_keywords field');
+    assertContains(content, 'name:', 'Template missing name field');
+    assertContains(content, 'description:', 'Template missing description field');
     assertContains(content, '## Core Patterns', 'Template missing Core Patterns section');
     assertContains(content, '## Anti-Patterns', 'Template missing Anti-Patterns section');
     assertContains(content, '## Validation Checklist', 'Template missing Validation Checklist section');
   });
 
-  // Test: Template has quality detection metadata
-  await runTest('Template has quality detection metadata', () => {
+  // Test: Template documents native auto-firing discoverability.
+  // quality_keywords:/tags: (old FTS5-index-era fields) are gone; discovery
+  // now runs on name + a "trigger-rich" description (native auto-firing) with
+  // allowed-tools: as the other real, current frontmatter field.
+  await runTest('Template documents native auto-firing discoverability', () => {
     const content = readFileSync(templatePath, 'utf-8');
 
-    assertContains(content, 'quality_keywords:', 'Template missing quality_keywords field');
-    assertContains(content, 'tags:', 'Template missing tags field');
+    assertContains(content, 'allowed-tools:', 'Template missing allowed-tools field');
+    assertContains(content, 'trigger-rich', 'Template missing trigger-rich description guidance');
   });
 }
 
@@ -393,35 +472,47 @@ async function testReferenceModule() {
 async function testSkillEvaluateIntegration() {
   console.log('\n🔍 Testing skill_evaluate Integration...\n');
 
-  // Test: Skills have consistent trigger patterns
-  await runTest('Skills have consistent trigger patterns', () => {
+  // Test: Skills have trigger-rich descriptions.
+  // This used to check the trigger_files:/trigger_keywords: array fields,
+  // both retired by the 7facb21 migration -- since no current SKILL.md
+  // carries either field, both `if (match)` guards were permanently false
+  // and the test passed vacuously (zero assertions ever ran). Triggering now
+  // runs on name + description (native auto-firing reads only those two
+  // fields), so assert the description is long enough to actually be
+  // "trigger-rich" per the template's own guidance, instead of silently
+  // testing nothing.
+  await runTest('Skills have trigger-rich descriptions', () => {
     const skillFiles = findSkillFiles(skillsDir);
+    const MIN_DESCRIPTION_CHARS = 150;
 
     for (const skillFile of skillFiles) {
       const content = readFileSync(skillFile, 'utf-8');
-      const name = basename(skillFile);
+      const label = relative(skillsDir, skillFile);
 
-      // Extract trigger_files
-      const filesMatch = content.match(/trigger_files:\s*\[([^\]]+)\]/);
-      if (filesMatch) {
-        const patterns = filesMatch[1];
-        // Should contain glob patterns
-        assert(
-          patterns.includes('*') || patterns.includes('.'),
-          `Skill ${name} trigger_files should contain file patterns`
-        );
-      }
+      const secondDash = content.indexOf('---', 3);
+      const frontmatter = content.slice(3, secondDash);
+      const descStart = frontmatter.indexOf('description:');
+      assert(descStart >= 0, `Skill ${label} missing description in frontmatter`);
 
-      // Extract trigger_keywords
-      const keywordsMatch = content.match(/trigger_keywords:\s*\[([^\]]+)\]/);
-      if (keywordsMatch) {
-        const keywords = keywordsMatch[1].split(',').map(k => k.trim());
-        assert(keywords.length >= 2, `Skill ${name} should have at least 2 trigger keywords`);
-      }
+      // description's value runs until the next top-level (unindented) key
+      const afterDesc = frontmatter.slice(descStart + 'description:'.length);
+      const nextKeyMatch = afterDesc.match(/\n[a-zA-Z_-]+:/);
+      const descriptionValue = (nextKeyMatch ? afterDesc.slice(0, nextKeyMatch.index) : afterDesc).trim();
+
+      assert(
+        descriptionValue.length >= MIN_DESCRIPTION_CHARS,
+        `Skill ${label} description is only ${descriptionValue.length} chars (want >= ${MIN_DESCRIPTION_CHARS} to be trigger-rich)`
+      );
     }
   });
 
-  // Test: Agent skill references match available skills
+  // Test: Agent skill references match available skills.
+  // Previously vacuous in two independent ways: the heading regex looked for
+  // inline text "Available <word> skills:" that never occurs (the real
+  // markup is a "## Available Skills" heading), and even when matched, the
+  // inner loop never called assert() at all -- just a comment saying "we're
+  // lenient here". Rewritten to actually catch a real regression: a typo'd
+  // or stale skill name in an agent's Available Skills table.
   await runTest('Agent skill references match available skills', () => {
     const availableSkills = findSkillNames(skillsDir);
 
@@ -429,19 +520,16 @@ async function testSkillEvaluateIntegration() {
       const agentPath = join(agentsDir, `${agent}.md`);
       const content = readFileSync(agentPath, 'utf-8');
 
-      // Find skill table references
-      const skillTableMatch = content.match(/Available \w+ skills:[\s\S]*?\|[\s\S]*?\|/g);
-      if (skillTableMatch) {
-        // Extract skill names from table (format: | `skill-name` |)
-        const skillRefs = content.match(/`([a-z-]+)`/g) || [];
-        for (const ref of skillRefs) {
-          const skillName = ref.replace(/`/g, '');
-          // Skip non-skill references like 'skill_evaluate'
-          if (skillName.includes('-') && !skillName.includes('_')) {
-            // This is a skill name - it should exist or be in a predictable location
-            // Note: We're lenient here as some skills may be in different categories
-          }
-        }
+      const skillsSection = content.match(/## Available Skills\n([\s\S]*?)(\n## |$)/);
+      if (!skillsSection) continue; // not every agent has a dedicated table -- see skill-discovery mechanism test
+
+      const skillRefs = skillsSection[1].match(/`([a-z][a-z0-9-]*)`/g) || [];
+      for (const ref of skillRefs) {
+        const skillName = ref.replace(/`/g, '');
+        assert(
+          availableSkills.has(skillName),
+          `Agent ${agent} references skill \`${skillName}\` in its Available Skills table, but no skill named "${skillName}" exists under .claude/skills`
+        );
       }
     }
   });
@@ -463,8 +551,18 @@ function findSkillFiles(dir: string): string[] {
       const stat = statSync(fullPath);
 
       if (stat.isDirectory()) {
+        // codex-copilot/ is Codex's own mirror namespace (its equivalent of
+        // Claude Code's agents+commands, using the same SKILL.md filename
+        // convention) -- not a Claude Code skill and not subject to this
+        // corpus's quality contract. Same exclusion CLAUDE.md documents for
+        // AGENTS.md ("consumed by a different harness").
+        if (entry === 'codex-copilot') continue;
         walk(fullPath);
-      } else if (entry.endsWith('.md') && entry !== 'README.md') {
+      } else if (entry === 'SKILL.md') {
+        // Only actual skill definitions -- a skill directory can also carry
+        // auxiliary docs (e.g. sales/create-an-asset/QUICKREF.md,
+        // security/stride-dread/templates/threat-model.md) that have no
+        // skill frontmatter at all and aren't themselves loadable skills.
         files.push(fullPath);
       }
     }
@@ -480,7 +578,9 @@ function findSkillNames(dir: string): Set<string> {
 
   for (const file of files) {
     const content = readFileSync(file, 'utf-8');
-    const nameMatch = content.match(/skill_name:\s*([a-z-]+)/);
+    // skill_name: was retired by the 7facb21 migration -- name: is the
+    // current, native Claude Code field.
+    const nameMatch = content.match(/^name:\s*([a-z0-9-]+)/m);
     if (nameMatch) {
       names.add(nameMatch[1]);
     }

@@ -326,6 +326,7 @@
           "enum": [
             "instruction",
             "agent",
+            "eval",
             "skill",
             "command",
             "plugin",

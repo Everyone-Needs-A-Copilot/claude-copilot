@@ -497,6 +497,8 @@ def _closed_payload(operation: TransactionOperation) -> dict[str, Any]:
         RecipeOperationKind.ASSOCIATE_PERSONAL_PROJECT.value,
     }:
         required, allowed = {"document"}, {"document"}
+    elif kind == RecipeOperationKind.REGISTER_SETTINGS_HOOKS.value:
+        required, allowed = {"entries", "source"}, {"entries", "source"}
     else:
         raise ReconciliationTransactionError("A typed recipe operation is unsupported.")
     if set(payload) != allowed.intersection(payload) or not required <= set(payload):
@@ -680,6 +682,64 @@ def _prepare_mutation(
         RecipeOperationKind.ASSOCIATE_PERSONAL_PROJECT.value,
     }:
         content = _canonical_document(payload["document"])
+        mode = int(payload.get("mode", _existing_mode(project, target, 0o644)))
+        return _PreparedMutation(
+            fingerprint_file_payload(content, mode=mode),
+            lambda: project.atomic_write(target, content, mode=mode),
+        )
+    if kind == RecipeOperationKind.REGISTER_SETTINGS_HOOKS.value:
+        # Delegates structural merge to item-2's PURE function
+        # (`mutations.merge_hook_entries`) rather than reimplementing it --
+        # a settings file is NOT a framework-owned path (see this module's
+        # own header on why `.claude/settings.json` structurally cannot be
+        # a `files[]`/`ownership: framework` lock entry), so it gets the
+        # SAME atomic-write/snapshot/rollback guarantee every other
+        # operation in this engine gets, without a second, weaker merge
+        # path. This operation writes ONLY the settings file -- the
+        # `mutations[]` ledger row is intentionally NOT written here (an
+        # engine invariant enforced by `execute_reconciliation()`: one
+        # operation per target, and `copilot.lock.json` already has its
+        # own `UPSERT_LOCK_COMPONENT` operation in the same plan). The
+        # ledger row is appended by a follow-up, lock-free call to
+        # `apply_settings_hook(..., dry_run=False)` made AFTER this whole
+        # transaction commits (see `commands/reconcile.py`'s `apply()`) --
+        # it will find the file already in its post-merge state and take
+        # the existing `"adopted"` branch (ledger-only write, matching the
+        # crash-window semantics `apply_settings_hook()` already documents
+        # for exactly this "content written, ledger row still needed"
+        # state), never a second settings write.
+        from cc.core.ecosystem.mutations import (
+            HookEntrySpec,
+            canonical_settings_bytes,
+            merge_hook_entries,
+        )
+
+        raw_entries = payload["entries"]
+        if not isinstance(raw_entries, Sequence) or isinstance(raw_entries, (str, bytes)):
+            raise ReconciliationTransactionError(
+                "register-settings-hooks entries must be a list."
+            )
+        entries = tuple(
+            HookEntrySpec(
+                str(item["event"]), str(item["matcher"]), str(item["command"])
+            )
+            for item in raw_entries
+        )
+        source = str(payload["source"])
+        try:
+            current_settings = json.loads(project.read_bytes(target).decode("utf-8"))
+        except FileNotFoundError:
+            current_settings = {}
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise ReconciliationTransactionError(
+                "The settings target is not valid JSON."
+            ) from exc
+        if not isinstance(current_settings, dict):
+            raise ReconciliationTransactionError(
+                "The settings target does not contain a JSON object."
+            )
+        merged, _actions = merge_hook_entries(current_settings, entries, source=source)
+        content = canonical_settings_bytes(merged)
         mode = int(payload.get("mode", _existing_mode(project, target, 0o644)))
         return _PreparedMutation(
             fingerprint_file_payload(content, mode=mode),
