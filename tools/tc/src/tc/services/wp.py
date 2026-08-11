@@ -20,6 +20,99 @@ from tc.services.content_guard import (
     scan_and_neutralize,
 )
 
+# Work product types accepted by `store_wp`. Derived from evidence, not
+# assumption — see docs/70-reference/06-wp-type-allowlist.md for full
+# provenance. In short, this is the union of every distinct, non-junk
+# `type` value found across every `tasks.db` reachable on the machine this
+# allowlist was derived on, plus every type referenced in framework docs and
+# agent definitions. It intentionally keeps hyphen/underscore/synonym
+# variants (e.g. both `test-plan` and `test_plan`) as independently valid
+# rather than silently coercing one into the other — coercion was explicitly
+# out of scope for this fix.
+#
+# Excluded as junk/probe artifacts, not organic type usage: `bogus`,
+# `badtype`, `ZZZ`, `INVALID`. These showed up (in research-copilot,
+# convoco, and copilot-control-tower) as literal probe words from agents
+# testing CLI syntax, not as intentional categorisation.
+#
+# This list only gates new writes (`store_wp`). Existing rows with a type
+# outside this set — including these four excluded words, still present in
+# other projects' databases — continue to read, list, and search normally;
+# nothing here touches the read path.
+WP_VALID_TYPES = frozenset(
+    {
+        "analysis",
+        "architecture",
+        "audit",
+        "bugfix",
+        "code",
+        "decision",
+        "deliverable",
+        "deploy",
+        "deploy_report",
+        "deployment",
+        "deployment-report",
+        "design",
+        "doc",
+        "document",
+        "documentation",
+        "evidence",
+        "findings",
+        "handoff",
+        "implementation",
+        "implementation_log",
+        "implementation_notes",
+        "implementation_plan",
+        "implementation_summary",
+        "implementation-evidence",
+        "implementation-note",
+        "implementation-notes",
+        "implementation-record",
+        "implementation-summary",
+        "infrastructure",
+        "investigation",
+        "log",
+        "memory_seed",
+        "note",
+        "notes",
+        "operations",
+        "ops",
+        "plan",
+        "prd",
+        "qa",
+        "qa_findings",
+        "qa_report",
+        "qa-findings",
+        "qa-report",
+        "qa-verification",
+        "reference",
+        "release",
+        "report",
+        "research",
+        "review",
+        "review-response",
+        "security",
+        "security_review",
+        "security-review",
+        "service-design",
+        "specification",
+        "status",
+        "summary",
+        "technical_design",
+        "technical-design",
+        "test",
+        "test_plan",
+        "test-plan",
+        "test-report",
+        "test-results",
+        "triage",
+        "ui-design",
+        "ux-design",
+        "verification",
+        "verification-report",
+    }
+)
+
 
 def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     return dict(row)
@@ -79,13 +172,19 @@ def store_wp(
         field (see `services/content_guard.py`).
 
     Raises:
-        ValidationError: if title is empty or type_ is empty.
+        ValidationError: if title is empty, type_ is empty, or type_ is not
+            one of WP_VALID_TYPES.
         TaskNotFound:    if task_id does not exist.
     """
     if not title or not title.strip():
         raise ValidationError("title must not be empty")
     if not type_ or not type_.strip():
         raise ValidationError("type must not be empty")
+    if type_ not in WP_VALID_TYPES:
+        raise ValidationError(
+            f"invalid type '{type_}'. Must be one of: "
+            f"{', '.join(sorted(WP_VALID_TYPES))}"
+        )
 
     # Content guard runs before the hybrid-storage branch below, on both
     # fields, so the size-threshold check and the file-vs-inline decision

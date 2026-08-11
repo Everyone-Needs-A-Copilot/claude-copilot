@@ -317,6 +317,44 @@ def test_store_wp_empty_type_raises(db_path):
         store_wp(task_id=task["id"], type_="", title="Valid title", db_path=db_path)
 
 
+def test_store_wp_invalid_type_raises(db_path):
+    """An unrecognised --type is rejected, not silently accepted."""
+    from tc.db.exceptions import ValidationError
+    from tc.services.tasks import create_task
+    from tc.services.wp import store_wp
+
+    task = create_task(title="WP task", db_path=db_path)
+    with pytest.raises(ValidationError, match="badtype"):
+        store_wp(task_id=task["id"], type_="badtype", title="Probe", db_path=db_path)
+
+
+def test_store_wp_invalid_type_error_lists_valid_types(db_path):
+    """The rejection message names every valid type, not just the bad one."""
+    from tc.db.exceptions import ValidationError
+    from tc.services.tasks import create_task
+    from tc.services.wp import WP_VALID_TYPES, store_wp
+
+    task = create_task(title="WP task", db_path=db_path)
+    try:
+        store_wp(task_id=task["id"], type_="bogus", title="Probe", db_path=db_path)
+        pytest.fail("expected ValidationError")
+    except ValidationError as exc:
+        for valid_type in WP_VALID_TYPES:
+            assert valid_type in str(exc)
+
+
+def test_store_wp_valid_type_succeeds(db_path):
+    """A type drawn from the allowlist is accepted (not just the common ones)."""
+    from tc.services.tasks import create_task
+    from tc.services.wp import store_wp
+
+    task = create_task(title="WP task", db_path=db_path)
+    wp = store_wp(
+        task_id=task["id"], type_="security-review", title="Findings", db_path=db_path
+    )
+    assert wp["type"] == "security-review"
+
+
 # ---------------------------------------------------------------------------
 # Batch transaction: create_prd + N tasks + wire deps in one transaction
 # ---------------------------------------------------------------------------

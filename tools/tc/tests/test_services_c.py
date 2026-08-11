@@ -922,7 +922,7 @@ def test_large_wp_file_exists_after_store(db_path):
     large = "y" * (WP_CONTENT_SIZE_THRESHOLD + 100)
     wp = store_wp(
         task_id=task["id"],
-        type_="impl",
+        type_="implementation",
         title="Order test",
         content=large,
         db_path=db_path,

@@ -53,7 +53,7 @@ class TestWpStore:
                 "--task",
                 str(task_id),
                 "--type",
-                "spec",
+                "specification",
                 "--title",
                 "HR WP",
                 "--content",
@@ -103,6 +103,30 @@ class TestWpStore:
             ]
         )
         assert result.exit_code == 4  # EXIT_VALIDATION
+
+    def test_store_invalid_type_rejected(self, cli):
+        """An unrecognised --type fails closed with a helpful message."""
+        task_id = _setup_task(cli)
+        result = cli(
+            [
+                "wp",
+                "store",
+                "--task",
+                str(task_id),
+                "--type",
+                "badtype",
+                "--title",
+                "Probe",
+                "--content",
+                "x",
+            ]
+        )
+        assert result.exit_code == 4  # EXIT_VALIDATION
+        assert "badtype" in result.output
+        # A representative sample of valid types must be named so the agent
+        # can self-correct without re-reading source.
+        assert "implementation" in result.output
+        assert "architecture" in result.output
 
     def test_store_nonexistent_task(self, cli):
         result = cli(
@@ -295,6 +319,28 @@ class TestWpGet:
     def test_get_nonexistent(self, cli):
         result = cli(["wp", "get", "999", "--json"])
         assert result.exit_code == 2  # EXIT_NOT_FOUND
+
+    def test_get_legacy_invalid_type_still_readable(self, cli, db_conn):
+        """A pre-existing row with a type outside the allowlist (written before
+        validation existed, or by direct DB access) must keep reading normally.
+        Validation only gates new writes via `store_wp`."""
+        task_id = _setup_task(cli)
+        db_conn.execute(
+            "INSERT INTO work_products (task_id, type, title, content) "
+            "VALUES (?, ?, ?, ?)",
+            (task_id, "badtype", "Legacy Row", "legacy content"),
+        )
+        db_conn.commit()
+        result = cli(["wp", "get", "1", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["type"] == "badtype"
+        assert data["content"] == "legacy content"
+
+        list_result = cli(["wp", "list", "--json"])
+        assert list_result.exit_code == 0
+        listed = json.loads(list_result.output)
+        assert any(wp["type"] == "badtype" for wp in listed)
 
     def test_get_human_readable_truncates(self, cli):
         task_id = _setup_task(cli)
