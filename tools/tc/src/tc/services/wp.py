@@ -30,10 +30,32 @@ from tc.services.content_guard import (
 # rather than silently coercing one into the other — coercion was explicitly
 # out of scope for this fix.
 #
+# The allowlist's first pass (dedf5d4) missed `other`, instructed at
+# docs/50-features/04-goal-driven-agents.md:315 for every agent's BLOCKED
+# recovery workflow, because that pass drew from tasks.db contents and
+# .claude/agents/*.md but never grepped the framework's own feature docs
+# (docs/50-features/**) or skills (SKILL.md). A wider sweep across every
+# repo under /Volumes/Dev/Sites/COPILOT/ plus ~/.claude/ (documentation,
+# agent definitions, skills, commands, hooks, READMEs) closed that source
+# gap and surfaced three more literal, currently-live instructed values this
+# allowlist was missing: `artifact-review` and `validation-review`
+# (small-business-copilot's project-specific `aqa`/`red` agents) and
+# `discovery` (still literally instructed by `tc wp store --type discovery`
+# in several projects' un-updated copies of `kc.md` — convoco and its
+# worktrees, convoco-google-verification, convoco-policy-build,
+# preflight-copilot, rfp-copilot — even though the current framework's own
+# `kc.md` moved this to `cc memory store --type discovery`, a different tool
+# with its own, separate validation domain that this allowlist does not
+# gate). See docs/70-reference/06-wp-type-allowlist.md for the full
+# per-value evidence trail.
+#
 # Excluded as junk/probe artifacts, not organic type usage: `bogus`,
 # `badtype`, `ZZZ`, `INVALID`. These showed up (in research-copilot,
 # convoco, and copilot-control-tower) as literal probe words from agents
-# testing CLI syntax, not as intentional categorisation.
+# testing CLI syntax, not as intentional categorisation. Re-checked against
+# the wider sweep above: they appear only in prose describing them as probe
+# artifacts (this comment, the allowlist doc, cleanup handoffs), never as a
+# literal instructed `--type <value>` anywhere on the machine.
 #
 # This list only gates new writes (`store_wp`). Existing rows with a type
 # outside this set — including these four excluded words, still present in
@@ -43,6 +65,7 @@ WP_VALID_TYPES = frozenset(
     {
         "analysis",
         "architecture",
+        "artifact-review",
         "audit",
         "bugfix",
         "code",
@@ -53,6 +76,7 @@ WP_VALID_TYPES = frozenset(
         "deployment",
         "deployment-report",
         "design",
+        "discovery",
         "doc",
         "document",
         "documentation",
@@ -77,6 +101,7 @@ WP_VALID_TYPES = frozenset(
         "notes",
         "operations",
         "ops",
+        "other",
         "plan",
         "prd",
         "qa",
@@ -108,6 +133,7 @@ WP_VALID_TYPES = frozenset(
         "triage",
         "ui-design",
         "ux-design",
+        "validation-review",
         "verification",
         "verification-report",
     }
@@ -183,7 +209,14 @@ def store_wp(
     if type_ not in WP_VALID_TYPES:
         raise ValidationError(
             f"invalid type '{type_}'. Must be one of: "
-            f"{', '.join(sorted(WP_VALID_TYPES))}"
+            f"{', '.join(sorted(WP_VALID_TYPES))}. "
+            "If this is a genuine new type (a real framework doc, agent "
+            "definition, or skill instructs it — not a CLI-syntax probe), "
+            "add it to WP_VALID_TYPES in "
+            "tools/tc/src/tc/services/wp.py and record the evidence in "
+            "docs/70-reference/06-wp-type-allowlist.md; this error does not "
+            "coerce or default, so a rejected type must be added, not "
+            "guessed around."
         )
 
     # Content guard runs before the hybrid-storage branch below, on both
