@@ -7,15 +7,21 @@ Install automated knowledge updates when products evolve via git release tags.
 Knowledge Sync automatically:
 1. **Detects** when you create a release tag (e.g., `git tag v2.4.0`)
 2. **Extracts** changes from commits between tags
-3. **Updates** `~/.claude/knowledge/03-products/<product>.md`
-4. **Commits** changes to knowledge repository
+3. **Updates** `<knowledge repo>/03-products/<product>.md` (the nearest configured tier -- see Prerequisites)
+4. **Commits** changes to that knowledge repository
 
 ## Prerequisites
 
-Check if knowledge repository exists:
+`~/.claude/knowledge/knowledge-manifest.json` is NOT the machine's real configured knowledge source -- it is not among `paths.knowledge_repo` unless a machine explicitly configured it there. Resolve the real, nearest configured tier instead (the `sync-knowledge.sh`/`update-product-knowledge.sh` scripts this command installs only target a single repo, so a release commit always lands on the nearest tier -- personal, if one is configured, otherwise the next tier down):
 
 ```bash
-ls ~/.claude/knowledge/knowledge-manifest.json
+eval "$(cc env)"
+KNOWLEDGE_REPO_PATH="${CC_KNOWLEDGE_REPOS%%,*}"
+if [[ -n "$KNOWLEDGE_REPO_PATH" && -f "$KNOWLEDGE_REPO_PATH/knowledge-manifest.json" ]]; then
+  echo "FOUND: $KNOWLEDGE_REPO_PATH"
+else
+  echo "MISSING"
+fi
 ```
 
 **If missing:**
@@ -120,6 +126,14 @@ cp ~/.claude/copilot/scripts/knowledge-sync/update-product-knowledge.sh "$PROJEC
 # Copy post-tag hook
 cp ~/.claude/copilot/templates/hooks/post-tag "$PROJECT_ROOT/.git/hooks/"
 
+# Bake the resolved knowledge repo path into the installed hook -- a git hook
+# runs outside any `cc env`-hydrated shell (plain `git tag` invocation), so it
+# cannot re-resolve CC_KNOWLEDGE_REPOS at trigger time. Without this, the hook
+# would silently fall back to sync-knowledge.sh's own default (~/.claude/
+# knowledge), which is not this machine's real configured tier.
+sed -i.bak "s|--tag \"\$TAG\"|--tag \"\$TAG\" --knowledge-repo \"$KNOWLEDGE_REPO_PATH\"|" "$PROJECT_ROOT/.git/hooks/post-tag"
+rm -f "$PROJECT_ROOT/.git/hooks/post-tag.bak"
+
 # Make executable
 chmod +x "$PROJECT_ROOT/.git/hooks/post-tag"
 chmod +x "$PROJECT_ROOT/.git/hooks/sync-knowledge.sh"
@@ -161,7 +175,7 @@ Use AskUserQuestion:
 If "Yes":
 
 ```bash
-"$PROJECT_ROOT/.git/hooks/sync-knowledge.sh" --dry-run
+"$PROJECT_ROOT/.git/hooks/sync-knowledge.sh" --dry-run --knowledge-repo "$KNOWLEDGE_REPO_PATH"
 ```
 
 Show the output and explain what would be updated.
@@ -190,13 +204,12 @@ Show the output and explain what would be updated.
 
 2. **Hook automatically:**
    - Extracts changes between previous tag and new tag
-   - Updates `~/.claude/knowledge/03-products/{{PROJECT_NAME}}.md`
-   - Commits to knowledge repository
+   - Updates `{{KNOWLEDGE_REPO_PATH}}/03-products/{{PROJECT_NAME}}.md` (the repo resolved in Prerequisites, baked into the installed hook -- NOT `~/.claude/knowledge` unless that happened to be the resolved tier)
+   - Commits to that knowledge repository
 
 3. **Knowledge becomes available:**
-   - In all Claude Copilot projects
-   - Via `knowledge_search("{{PROJECT_NAME}}")`
-   - Via `knowledge_get("03-products/{{PROJECT_NAME}}.md")`
+   - In every project whose `paths.knowledge_repo` ladder includes `{{KNOWLEDGE_REPO_PATH}}`
+   - Via `cc extensions resolve --agent <id> --json` (extensions) or a direct read of `{{KNOWLEDGE_REPO_PATH}}/03-products/{{PROJECT_NAME}}.md` (product knowledge)
 
 **Manual sync:**
 
@@ -204,13 +217,13 @@ You can also run sync manually:
 
 ```bash
 # Sync latest tag
-.git/hooks/sync-knowledge.sh
+.git/hooks/sync-knowledge.sh --knowledge-repo "{{KNOWLEDGE_REPO_PATH}}"
 
 # Sync specific tag
-.git/hooks/sync-knowledge.sh --tag v2.4.0
+.git/hooks/sync-knowledge.sh --tag v2.4.0 --knowledge-repo "{{KNOWLEDGE_REPO_PATH}}"
 
 # Dry run (preview changes)
-.git/hooks/sync-knowledge.sh --tag v2.4.0 --dry-run
+.git/hooks/sync-knowledge.sh --tag v2.4.0 --dry-run --knowledge-repo "{{KNOWLEDGE_REPO_PATH}}"
 ```
 
 **Tag Format:**
@@ -251,16 +264,16 @@ rm "$PROJECT_ROOT/.git/hooks/update-product-knowledge.sh"
 
 **Hook not running:**
 - Verify hook is executable: `ls -la .git/hooks/post-tag`
-- Test manually: `.git/hooks/sync-knowledge.sh --dry-run`
+- Test manually: `.git/hooks/sync-knowledge.sh --dry-run --knowledge-repo "{{KNOWLEDGE_REPO_PATH}}"`
 
 **Knowledge repo not found:**
-- Run `/knowledge-copilot` to create it
-- Or verify symlink: `ls -la ~/.claude/knowledge`
+- Run `/knowledge-copilot` to create/link one, then re-run `/setup-knowledge-sync` so it re-resolves `$CC_KNOWLEDGE_REPOS`
+- Verify the real ladder: `eval "$(cc env)"; echo "$CC_KNOWLEDGE_REPOS"` (do NOT check `~/.claude/knowledge` -- it is not necessarily a configured tier on this machine)
 
 **Changes not appearing:**
 - Check commits follow conventional format: `feat:`, `fix:`, etc.
-- View extracted changes: `.git/hooks/sync-knowledge.sh --dry-run`
-- Check knowledge file: `cat ~/.claude/knowledge/03-products/{{PROJECT_NAME}}.md`
+- View extracted changes: `.git/hooks/sync-knowledge.sh --dry-run --knowledge-repo "{{KNOWLEDGE_REPO_PATH}}"`
+- Check knowledge file: `cat "{{KNOWLEDGE_REPO_PATH}}/03-products/{{PROJECT_NAME}}.md"`
 
 ---
 
@@ -278,6 +291,6 @@ rm "$PROJECT_ROOT/.git/hooks/update-product-knowledge.sh"
 
 - Knowledge is versioned via git - you can see history:
   ```bash
-  cd ~/.claude/knowledge
+  cd "{{KNOWLEDGE_REPO_PATH}}"
   git log -- 03-products/{{PROJECT_NAME}}.md
   ```

@@ -376,16 +376,32 @@ touch .claude/memory/entries/.gitkeep
 
 ## Step 8: Detect Knowledge
 
-### 8.1: Check Global Knowledge
+### 8.1: Check Configured Knowledge
+
+`~/.claude/knowledge/knowledge-manifest.json` is not the machine's real configured knowledge source (`extensions_resolver.py`'s own docs call it out explicitly as not among `CC_KNOWLEDGE_REPOS`). Walk the real `paths.knowledge_repo` ladder instead:
 
 ```bash
-ls ~/.claude/knowledge/knowledge-manifest.json 2>/dev/null && echo "GLOBAL_KNOWLEDGE_EXISTS" || echo "NO_GLOBAL_KNOWLEDGE"
-cat ~/.claude/knowledge/knowledge-manifest.json 2>/dev/null | grep '"name"' | head -1
+eval "$(cc env)"
+if [[ -n "${CC_KNOWLEDGE_REPOS:-}" ]]; then
+  echo "GLOBAL_KNOWLEDGE_EXISTS"
+  # Portable across bash and zsh (this framework's Bash tool may run either):
+  # avoid `read -ra` array syntax (`-a` is bash-only; zsh needs `-A`) --
+  # split on newlines via `tr` and read one line at a time instead, the same
+  # idiom already used elsewhere in this file and in update-project.md.
+  echo "$CC_KNOWLEDGE_REPOS" | tr ',' '\n' | while IFS= read -r repo; do
+    [[ -z "$repo" ]] && continue
+    if [[ -f "$repo/knowledge-manifest.json" ]]; then
+      python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('name','?'))" "$repo/knowledge-manifest.json" 2>/dev/null
+    fi
+  done
+else
+  echo "NO_GLOBAL_KNOWLEDGE"
+fi
 ```
 
 Store:
-- `GLOBAL_KNOWLEDGE_EXISTS` = true/false
-- `KNOWLEDGE_NAME` = from manifest (if exists)
+- `GLOBAL_KNOWLEDGE_EXISTS` = true/false (based on `$CC_KNOWLEDGE_REPOS` being non-empty)
+- `KNOWLEDGE_NAME` = first manifest name found (if any)
 
 ### 8.2: Check Project Expectation
 
@@ -395,13 +411,22 @@ Look for signals that this project expects knowledge:
 # Check if CLAUDE.md references knowledge tools
 grep -q "knowledge_search\|knowledge_get" CLAUDE.md 2>/dev/null && echo "PROJECT_EXPECTS_KNOWLEDGE" || echo "NO_EXPECTATION"
 
-# Check for team repo URL in existing manifest (if any)
-cat ~/.claude/knowledge/knowledge-manifest.json 2>/dev/null | grep '"repository"' -A2 | grep '"url"'
+# Check for a team repo URL in any tier's manifest (nearest tier first).
+# Re-resolves the ladder rather than reusing 8.1's list -- each fenced code
+# block here may run as its own Bash tool invocation, and this framework's
+# Bash tool does not guarantee shell state (variables) persists across
+# separate invocations, only the working directory does.
+eval "$(cc env)"
+echo "${CC_KNOWLEDGE_REPOS:-}" | tr ',' '\n' | while IFS= read -r repo; do
+  [[ -z "$repo" ]] && continue
+  url="$(cat "$repo/knowledge-manifest.json" 2>/dev/null | grep '"repository"' -A2 | grep '"url"')"
+  [[ -n "$url" ]] && { echo "$url"; break; }
+done
 ```
 
 Store:
 - `PROJECT_EXPECTS_KNOWLEDGE` = true/false
-- `TEAM_REPO_URL` = if found in manifest
+- `TEAM_REPO_URL` = if found in any tier's manifest
 
 ### 8.3: Decision Matrix
 

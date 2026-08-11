@@ -29,7 +29,7 @@
           "path": ".claude/commands/memory.md"
         },
         {
-          "checksum": "sha256:371decd75a7ba143930e4703e19956a667f505a9b26a455c364797868c827521",
+          "checksum": "sha256:d1229d6d89845d8682c1aebffbe5253e1e4a63f861bd40b35ab869c3e6903e24",
           "ownership": "framework",
           "path": ".claude/commands/extensions.md"
         },
@@ -49,7 +49,7 @@
           "path": ".claude/hooks/copilot-hook.sh"
         },
         {
-          "checksum": "sha256:6d949599b2b8837e6f9f208b2cf1df9ad51fe30b03cffc206b60fafe0d5dcf9b",
+          "checksum": "sha256:c400c420edd4fdf1c22c34696095f285c3b7304bfdc82c0f7fc3c6f95051968f",
           "ownership": "framework",
           "path": ".claude/agents/cco.md"
         },
@@ -64,12 +64,12 @@
           "path": ".claude/agents/cs.md"
         },
         {
-          "checksum": "sha256:2adf20b971da822a4764510c4c2d8b58681adf0bcf8c6e211631a5c72d71b317",
+          "checksum": "sha256:317957db1f00d79498ca678b4fca910ae34e300f3fd5bea37b178466e4d478ae",
           "ownership": "framework",
           "path": ".claude/agents/cw.md"
         },
         {
-          "checksum": "sha256:b493250aa9cd5358d061b833f136e2cc425b4ea0c579edf857ea2db46406bc6a",
+          "checksum": "sha256:133d6670e9e60134a1207499aba4fe250c9cf9bdb4f75935cd5f65d538f384a1",
           "ownership": "framework",
           "path": ".claude/agents/do.md"
         },
@@ -79,7 +79,7 @@
           "path": ".claude/agents/doc.md"
         },
         {
-          "checksum": "sha256:27addd190639e3f0af9978d10cfa1cd256089bf901ac329f6c1f0f31c5cdfaa1",
+          "checksum": "sha256:1e4c00ab099962fe870f38db96250da32d6e883fe74f4fc995942655d35421dd",
           "ownership": "framework",
           "path": ".claude/agents/ind.md"
         },
@@ -94,7 +94,7 @@
           "path": ".claude/agents/qa.md"
         },
         {
-          "checksum": "sha256:9bcdd5cab2a2e702091b99905983ca9eb6f66c26f25e2811644c4ba74719ec24",
+          "checksum": "sha256:b541be30613176bb218ffb4135443f6cc89e9f05651acbca587bd4e505cf2883",
           "ownership": "framework",
           "path": ".claude/agents/sd.md"
         },
@@ -114,12 +114,12 @@
           "path": ".claude/agents/uid.md"
         },
         {
-          "checksum": "sha256:1bc98cdb9521cc81577a4ff103fe39de98c3f858a25d1d6b25fb73c4eeada404",
+          "checksum": "sha256:8570c17885b779cf47df2bff067c204df10a2d2f8533ba0551e582feb0bb636b",
           "ownership": "framework",
           "path": ".claude/agents/uids.md"
         },
         {
-          "checksum": "sha256:fddbd45bb7c5580fca0bc6c37c63bf46ec520e2abcf06a4a7793667a908ebbeb",
+          "checksum": "sha256:493db1481473e4207f4134d76f3423c16380fe4e6eccdc7509518df1c01be8c7",
           "ownership": "framework",
           "path": ".claude/agents/uxd.md"
         },

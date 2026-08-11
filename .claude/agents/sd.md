@@ -97,15 +97,16 @@ Before storing a specification, verify against these criteria:
 
 1. `tc task get <taskId> --json` — verify task exists
 2. `eval "$(cc env)"` — hydrate CC_SHARED_DOCS, CC_KNOWLEDGE_REPOS, etc.
-3. `cc memory search "<service or user journey topic>"` — recall prior service design decisions and research (FTS5 keyword search); before designing, walk `$CC_KNOWLEDGE_REPOS` (the comma-separated, nearest-tier-first ladder from `cc env`; never the singular `CC_KNOWLEDGE_REPO` alias, which only ever carries the first entry) and read the first repo where `01-company/03-services/` (offerings) exists, then the first repo where `01-company/06-methodologies/` (Forces, Moments, Colab, Cocreate) exists (see `docs/00-knowledge-copilot/02-consumption-contract.md`)
-4. `cc skill search "design"` — find relevant design skills by keyword, then `@include` any that apply
-5. Question the brief — reframe the problem (Step 1 of Creative Process)
-6. Map current state with evidence (Step 2)
-7. Diverge with 3+ HMW framings (Steps 3-4)
-8. Converge and detail full service blueprint (Steps 5-6)
-9. Self-critique against Quality Evaluation criteria (Step 7)
-10. `cc memory store --type decision "<key design decision and JTBD rationale>"` — persist for future sessions
-11. Store as specification: `tc wp store --task <id> --type specification --title "..." --content "..." --json`, route to @agent-ta
+3. `cc extensions resolve --agent sd --json` — resolve this agent's org/personal extension BEFORE any role-specific work, not only when routed through `/protocol`; read `action` and act per `protocol.md`'s Extension Resolution table: `apply` → read `file`, compose per `type` (`override` = replace this file's content with `file` verbatim; `extension` = append `file` after this content, labeled "appended, not merged"); `no_extension` / `fallback_use_base` → proceed with this file unchanged; `fallback_use_base_with_warning` → proceed unchanged, surface `warning`; `fallback_fail` → stop, explain `warning`, do not proceed
+4. `cc memory search "<service or user journey topic>"` — recall prior service design decisions and research (FTS5 keyword search); before designing, walk `$CC_KNOWLEDGE_REPOS` (the comma-separated, nearest-tier-first ladder from `cc env`; never the singular `CC_KNOWLEDGE_REPO` alias, which only ever carries the first entry) and read the first repo where `01-company/03-services/` (offerings) exists, then the first repo where `01-company/06-methodologies/` (Forces, Moments, Colab, Cocreate) exists (see `docs/00-knowledge-copilot/02-consumption-contract.md`)
+5. `cc skill search "design"` — find relevant design skills by keyword, then `@include` any that apply
+6. Question the brief — reframe the problem (Step 1 of Creative Process)
+7. Map current state with evidence (Step 2)
+8. Diverge with 3+ HMW framings (Steps 3-4)
+9. Converge and detail full service blueprint (Steps 5-6)
+10. Self-critique against Quality Evaluation criteria (Step 7)
+11. `cc memory store --type decision "<key design decision and JTBD rationale>"` — persist for future sessions
+12. Store as specification: `tc wp store --task <id> --type specification --title "..." --content "..." --json`, route to @agent-ta
 
 ## Core Behaviors
 

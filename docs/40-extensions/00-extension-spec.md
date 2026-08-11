@@ -2,41 +2,50 @@
 
 This document defines how knowledge repositories extend Claude-Copilot framework agents.
 
-> **Implementation status (read this first):** `cc` deterministically resolves
-> `paths.knowledge_repo` / `paths.shared_docs` as **config values** — including,
-> since the layered-knowledge-repos feature, an **ordered list** of repo paths
-> (see [Layered Knowledge Repos](#layered-knowledge-repos-ordered-list) below)
-> — and exports them as `CC_*` environment variables via `cc env`. That is the
-> full extent of what `cc` parses and merges automatically today.
+> **Implementation status (read this first, updated):** as of `cc.core.
+> extensions_resolver` (the `cc extensions resolve --agent <id> [--json]`
+> command), `cc` deterministically resolves `paths.knowledge_repo` as an
+> **ordered list** of repo paths (see [Layered Knowledge Repos](#layered-knowledge-repos-ordered-list)
+> below), exported as `CC_KNOWLEDGE_REPOS` by `cc env`, AND walks that same
+> ladder to parse each tier's `knowledge-manifest.json`, match `extensions[]`
+> entries by agent id (first tier in the ladder that declares one wins —
+> personal-over-org precedence falls out of list order, not a separate rank
+> comparison), verify `requiredSkills` against `cc skill get`, and apply
+> `fallbackBehavior`. This is now real, tested `cc` behavior, not an
+> agent-read convention.
 >
-> The richer per-agent model described later in this document — `.override.md` /
-> `.extension.md` / `.skills.json` files, `knowledge-manifest.json` parsing,
-> section-level merging, and `requiredSkills` validation — is **not**
-> implemented by `cc`. It is documented here as an **agent-read convention**:
-> an agent invocation may choose to look inside the resolved knowledge-repo
-> path(s) for these files and interpret them itself, but no `cc` command
-> parses a manifest, merges an `.extension.md` into a base agent, or validates
-> `requiredSkills`. Treat every example below that references manifests,
-> overrides, or skills injection as a **convention for agents to follow**, not
-> a `cc`-resolved behavior, unless explicitly marked otherwise.
+> The one thing still NOT done in code, by design: `type: "extension"`
+> composition is a deterministic **append** (`cc.core.extensions_resolver.
+> compose_agent_content()`), never a section-level merge — deciding which of
+> two overlapping prose sections "wins" is a semantic judgment, not a
+> mechanical one, so the resolver guarantees both bodies of text reach the
+> agent, in a fixed, labeled order, and leaves conflict resolution to the
+> agent's own Runtime Precedence "content outranks form" convention. `type:
+> "override"` remains a pure substitution (no ambiguity to resolve).
+>
+> This now fires on every agent invocation, not only through `/protocol`:
+> every wired agent's own `.claude/agents/<id>.md` Workflow calls `cc
+> extensions resolve --agent <id> --json` as an early step, so the same
+> resolution the model used to be asked to hand-execute (and could skip) now
+> runs whenever that agent is dispatched directly.
 
 ## Overview
 
 Claude-Copilot provides **base agents** with generic, industry-standard methodologies. Knowledge repositories can **extend** these agents with company-specific methodologies, skills, and practices.
 
-The system supports **two-tier resolution**: a global knowledge repository shared across all projects, and optional project-specific overrides. Since the layered-knowledge-repos feature, the value that wins at each tier may itself be an **ordered list of repo paths** rather than a single path — see [Layered Knowledge Repos](#layered-knowledge-repos-ordered-list).
+The system resolves extensions by walking the **`CC_KNOWLEDGE_REPOS` ladder** (nearest tier first — personal → department → org → foundation on a fully-configured machine): the first tier whose manifest declares an entry for an agent wins outright; if none do, the base agent runs unchanged. `paths.knowledge_repo` is the config key behind that ladder, and it is itself an **ordered list of repo paths** — see [Layered Knowledge Repos](#layered-knowledge-repos-ordered-list). The two-tier "project overrides global" diagram below is the historical (pre-ladder) special case of this — a 2-entry list — kept for readers coming from that mental model; the general case is N tiers, not 2.
 
 ```
 ┌─────────────────────────────────────┐
-│  Project Knowledge Repo (optional)  │
-│  Path: $KNOWLEDGE_REPO_PATH         │
+│  Nearest configured tier (personal) │
+│  Path: CC_KNOWLEDGE_REPOS[0]        │
 │  Priority: HIGHEST                  │
 └─────────────────────────────────────┘
               ↓ fallback
 ┌─────────────────────────────────────┐
-│  Global Knowledge Repo (shared)     │
-│  Path: ~/.claude/knowledge          │
-│  Priority: MEDIUM (auto-detected)   │
+│  Next tier(s) (department/org/...)  │
+│  Path: CC_KNOWLEDGE_REPOS[1..]      │
+│  Priority: in ladder order          │
 └─────────────────────────────────────┘
               ↓ fallback
 ┌─────────────────────────────────────┐

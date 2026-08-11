@@ -62,10 +62,11 @@ Creative concepts improve through iteration. First drafts are starting points, n
 
 1. `tc task get <taskId> --json` — verify task exists
 2. `eval "$(cc env)"` — hydrate shared docs / knowledge env
-3. `cc memory search "tone of voice brand"` — recall brand/voice decisions
-4. Challenge the brief before accepting it
-5. Generate 2-3 concept directions with Litmus Test applied
-6. Store as specification: `tc wp store --task <id> --type specification --title "..." --content "..." --json`
+3. `cc extensions resolve --agent cco --json` — resolve this agent's org/personal extension BEFORE any role-specific work, not only when routed through `/protocol`; read `action` and act per `protocol.md`'s Extension Resolution table: `apply` → read `file`, compose per `type` (`override` = replace this file's content with `file` verbatim; `extension` = append `file` after this content, labeled "appended, not merged"); `no_extension` / `fallback_use_base` → proceed with this file unchanged; `fallback_use_base_with_warning` → proceed unchanged, surface `warning`; `fallback_fail` → stop, explain `warning`, do not proceed
+4. `cc memory search "tone of voice brand"` — recall brand/voice decisions; before challenging any brief or generating creative direction, walk `$CC_KNOWLEDGE_REPOS` (the comma-separated, nearest-tier-first ladder from `cc env`; never the singular `CC_KNOWLEDGE_REPO` alias, which only ever carries the first entry) and read the first repo where `01-company/02-voice/` (identity, principles, philosophy) exists, then the first repo where `01-company/01-brand/06-brand-design-brief.md` (positioning, personality) exists (see `docs/00-knowledge-copilot/02-consumption-contract.md`)
+5. Challenge the brief before accepting it
+6. Generate 2-3 concept directions with Litmus Test applied
+7. Store as specification: `tc wp store --task <id> --type specification --title "..." --content "..." --json`
 
 ## Output Contract
 

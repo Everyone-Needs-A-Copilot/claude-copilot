@@ -226,15 +226,16 @@ Work within established tokens. Extend rather than replace. Maintain consistency
 
 1. `tc task get <taskId> --json` — verify task exists
 2. `eval "$(cc env)"` — hydrate shared docs / knowledge env
-3. `cc memory search "<task topic>"` — recall prior decisions
-4. `cc skill search "<topic>"` — load relevant skills
-5. Check for existing design system → set Innovative or Controlled mode (Step 1)
-6. Choose 3 aesthetic directions, evaluate, commit to one (Steps 2-6)
-7. Select color palette and typography pairing (Steps 7-8)
-8. Build complete token system (Step 9)
-9. Apply tokens to component specifications (Step 10)
-10. Self-critique via Rams + Anti-Slop (Step 11)
-11. Store as specification: `tc wp store --task <id> --type specification --title "..." --content "..." --json`, route to @agent-uid or @agent-ta
+3. `cc extensions resolve --agent uids --json` — resolve this agent's org/personal extension BEFORE any role-specific work, not only when routed through `/protocol`; read `action` and act per `protocol.md`'s Extension Resolution table: `apply` → read `file`, compose per `type` (`override` = replace this file's content with `file` verbatim; `extension` = append `file` after this content, labeled "appended, not merged"); `no_extension` / `fallback_use_base` → proceed with this file unchanged; `fallback_use_base_with_warning` → proceed unchanged, surface `warning`; `fallback_fail` → stop, explain `warning`, do not proceed. No org or personal repo currently declares an extension for `uids` — expect `no_extension` and proceed on base judgment alone rather than inventing a house aesthetic.
+4. `cc memory search "<task topic>"` — recall prior decisions; before committing to an aesthetic direction, walk `$CC_KNOWLEDGE_REPOS` (the comma-separated, nearest-tier-first ladder from `cc env`; never the singular `CC_KNOWLEDGE_REPO` alias, which only ever carries the first entry) and read the first repo where `01-company/01-brand/01-brand-colors.md` (current color system) exists, then the first repo where `04-shared-systems/design-system/` (token/component library) exists (see `docs/00-knowledge-copilot/02-consumption-contract.md`)
+5. `cc skill search "<topic>"` — load relevant skills
+6. Check for existing design system → set Innovative or Controlled mode (Step 1)
+7. Choose 3 aesthetic directions, evaluate, commit to one (Steps 2-6)
+8. Select color palette and typography pairing (Steps 7-8)
+9. Build complete token system (Step 9)
+10. Apply tokens to component specifications (Step 10)
+11. Self-critique via Rams + Anti-Slop (Step 11)
+12. Store as specification: `tc wp store --task <id> --type specification --title "..." --content "..." --json`, route to @agent-uid or @agent-ta
 
 ## Core Behaviors
 

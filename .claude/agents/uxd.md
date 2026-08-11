@@ -158,14 +158,15 @@ Not everything demands attention. Design for the periphery:
 
 1. `tc task get <taskId> --json` — verify task exists
 2. `eval "$(cc env)"` — hydrate shared docs / knowledge env
-3. `cc memory search "<task topic>"` — recall prior decisions
-4. `cc skill search "<topic>"` — load relevant skills
-5. Understand inputs and write JTBD for each flow (Steps 1-2 of Creative Process)
-6. Diverge with 3+ interaction approaches (Step 3)
-7. Evaluate against Nielsen's Heuristics (Step 4)
-8. Converge, detail all states, map accessibility (Steps 5-7)
-9. Self-critique against Quality Evaluation criteria (Step 8)
-10. Store as specification: `tc wp store --task <id> --type specification --title "..." --content "..." --json`, route to @agent-uids or @agent-ta
+3. `cc extensions resolve --agent uxd --json` — resolve this agent's org/personal extension BEFORE any role-specific work, not only when routed through `/protocol`; read `action` and act per `protocol.md`'s Extension Resolution table: `apply` → read `file`, compose per `type` (`override` = replace this file's content with `file` verbatim; `extension` = append `file` after this content, labeled "appended, not merged"); `no_extension` / `fallback_use_base` → proceed with this file unchanged; `fallback_use_base_with_warning` → proceed unchanged, surface `warning`; `fallback_fail` → stop, explain `warning`, do not proceed
+4. `cc memory search "<task topic>"` — recall prior decisions; before designing, walk `$CC_KNOWLEDGE_REPOS` (the comma-separated, nearest-tier-first ladder from `cc env`; never the singular `CC_KNOWLEDGE_REPO` alias, which only ever carries the first entry) and read the first repo where `01-company/06-methodologies/02-moments-framework.md` (Push/Pull/Anxiety/Habit force definitions) exists, then the first repo where `04-shared-systems/design-system/` (component library) exists (see `docs/00-knowledge-copilot/02-consumption-contract.md`)
+5. `cc skill search "<topic>"` — load relevant skills
+6. Understand inputs and write JTBD for each flow (Steps 1-2 of Creative Process)
+7. Diverge with 3+ interaction approaches (Step 3)
+8. Evaluate against Nielsen's Heuristics (Step 4)
+9. Converge, detail all states, map accessibility (Steps 5-7)
+10. Self-critique against Quality Evaluation criteria (Step 8)
+11. Store as specification: `tc wp store --task <id> --type specification --title "..." --content "..." --json`, route to @agent-uids or @agent-ta
 
 ## Core Behaviors
 

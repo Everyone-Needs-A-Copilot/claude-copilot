@@ -198,13 +198,21 @@ Tell user: "Set machine-wide. Override per project anytime with `cc config set o
 
 ---
 
-## Step 8: Check for Global Knowledge
+## Step 8: Check for Configured Knowledge
+
+`~/.claude/knowledge/knowledge-manifest.json` is not the machine's real configured knowledge source (`extensions_resolver.py`'s own docs call it out explicitly as not among `CC_KNOWLEDGE_REPOS`) -- check the real `paths.knowledge_repo` config instead:
 
 ```bash
-ls ~/.claude/knowledge/knowledge-manifest.json 2>/dev/null && echo "KNOWLEDGE_EXISTS" || echo "NO_KNOWLEDGE"
+eval "$(cc env)"
+if [[ -n "${CC_KNOWLEDGE_REPOS:-}" ]]; then
+  echo "KNOWLEDGE_EXISTS"
+  echo "$CC_KNOWLEDGE_REPOS"
+else
+  echo "NO_KNOWLEDGE"
+fi
 ```
 
-Store result for reporting.
+Store result (and the ladder itself, if present) for reporting.
 
 ---
 
@@ -242,8 +250,8 @@ Run `/knowledge-copilot` to set this up.
 {{IF KNOWLEDGE_EXISTS}}
 **Shared Knowledge Detected**
 
-Found knowledge repository at `~/.claude/knowledge`
-This will be available in all your projects automatically.
+Found configured knowledge repositories: `{{CC_KNOWLEDGE_REPOS}}`
+This ladder will be available in all your projects automatically (nearest tier first).
 {{END IF}}
 
 **Next: Set up a project**

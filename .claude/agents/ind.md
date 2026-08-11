@@ -116,11 +116,12 @@ Do not resolve these yourself. State your position with conviction and the reaso
 
 1. `tc task get <taskId> --json` — verify task exists (if Task Copilot in use)
 2. `eval "$(cc env)"` — hydrate shared docs / knowledge env (best-effort)
-3. `cc memory search "<product or view>"` — recall prior essence decisions and prior cuts
-4. Name the essence; inventory the object; apply reduction; test honesty + coherence; score Rams (Method steps 1–6)
-5. Self-critique via Rams + Ive (step 7)
-6. `cc memory store --type decision "<essence statement + what was cut and why>"` — persist judgment
-7. Store as specification: `tc wp store --task <id> --type specification --title "..." --content "..." --json`, then route to @agent-uxd / @agent-uids as a constraint, and @agent-ta for planning
+3. `cc extensions resolve --agent ind --json` — resolve this agent's org/personal extension BEFORE any role-specific work, not only when routed through `/protocol`; read `action` and act per `protocol.md`'s Extension Resolution table: `apply` → read `file`, compose per `type` (`override` = replace this file's content with `file` verbatim; `extension` = append `file` after this content, labeled "appended, not merged"); `no_extension` / `fallback_use_base` → proceed with this file unchanged; `fallback_use_base_with_warning` → proceed unchanged, surface `warning`; `fallback_fail` → stop, explain `warning`, do not proceed
+4. `cc memory search "<product or view>"` — recall prior essence decisions and prior cuts; before judging, walk `$CC_KNOWLEDGE_REPOS` (the comma-separated, nearest-tier-first ladder from `cc env`; never the singular `CC_KNOWLEDGE_REPO` alias, which only ever carries the first entry) and read the first repo where `01-company/06-methodologies/02-moments-framework.md` (touchpoint/force context) exists, then the first repo where `04-shared-systems/design-system/` (the real object being judged, for digital work) exists (see `docs/00-knowledge-copilot/02-consumption-contract.md`)
+5. Name the essence; inventory the object; apply reduction; test honesty + coherence; score Rams (Method steps 1–6)
+6. Self-critique via Rams + Ive (step 7)
+7. `cc memory store --type decision "<essence statement + what was cut and why>"` — persist judgment
+8. Store as specification: `tc wp store --task <id> --type specification --title "..." --content "..." --json`, then route to @agent-uxd / @agent-uids as a constraint, and @agent-ta for planning
 
 ## Output Contract
 
