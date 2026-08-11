@@ -78,7 +78,7 @@ def _hook_lock_json(content: bytes) -> str:
             "schema_version": "1.0",
             "components": [
                 {
-                    "product": "claude",
+                    "component": "claude",
                     "files": [
                         {"path": root_causes.HOOK_RELATIVE_PATH, "checksum": checksum}
                     ],
@@ -587,9 +587,15 @@ class TestRealMachineRootCausesFailToday:
         fleet_is_unlocked` -- RC-1 fix, re-verified live 2026-08-10:
         setup-project.md now references .claude/hooks/copilot-hook.sh (cp +
         chmod +x + `cc settings-hook add`) -- the installer-source half is
-        genuinely fixed. The FLEET half is NOT: 0 of the discovered repos
-        are present+executable+locked yet (the fix has not been fanned out
-        via /update-project across the real fleet) -- partial, not fixed."""
+        genuinely fixed. The FLEET half is NOT fully fixed yet, though it
+        is real, substantial progress: re-verified live 2026-08-11 (also
+        fixing this check's own root_causes.py:250 key-confusion bug --
+        `component.get("product")` was compared against the lock schema's
+        actual `"component"` key, so the fleet count was structurally stuck
+        at 0 no matter how correct the fleet actually was), the true count
+        is 49 of 62 discovered repos present+executable+locked -- the
+        RC-1 fan-out is real and ongoing, not yet 100%, so this still
+        legitimately FAILs (`fleet_ok` requires the full 62 of 62)."""
 
         home = _real_home_or_skip()
         manifest_path = root_causes._real_manifest_path(home)
@@ -613,7 +619,13 @@ class TestRealMachineRootCausesFailToday:
         assert fleet_result.verdict is Verdict.FAIL
         assert fleet_result.expected_today is ExpectedToday.FAIL
         assert "present, executable, and locked" in fleet_result.evidence[0].expected
-        assert fleet_result.evidence[0].actual.startswith("0 of ")
+        # Real, substantial fan-out progress (was stuck at a structural
+        # "0 of" before this check's own key-confusion bug was fixed) --
+        # not yet 100%, so this remains a legitimate FAIL. A future re-
+        # verification bumping this number further is expected and fine;
+        # regressing back toward 0 would not be.
+        assert not fleet_result.evidence[0].actual.startswith("0 of ")
+        assert fleet_result.evidence[0].actual.endswith(" present-and-locked")
 
     def test_rc2_codex_now_has_an_updater_and_setup_no_longer_hard_refuses(
         self, machine_readonly_guard

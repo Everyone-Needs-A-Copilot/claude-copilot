@@ -85,14 +85,28 @@ _REQUIRED_PATHS_BY_COMPONENT: Mapping[str, tuple[str, ...]] = {
 # fabricated PASS -- `inv.no_fabricated_healthy`); everything else that
 # survives structurally is either a checksum match or a genuine mismatch,
 # which the returned `evidence[]` already carries by `kind`.
+#
+# `valid-managed-output` is deliberately NOT in this set. Unlike the other
+# three ids (which mean the LOCK ITSELF is too malformed to compare
+# anything against disk at all -- no version string, no files list, an
+# unsafe/duplicate path), a malformed `managed_outputs[]` record (wrong key
+# set, unknown path/kind pairing, or a `fingerprint` that is missing or not
+# a well-formed `sha256:<64 hex>` -- `project_integration._verify_lock_
+# entry`'s own schema, mirrored by `project_reconciliation.py`) is a
+# genuinely bad RECORD the installer wrote, not a schema this harness fails
+# to understand. `codex-copilot/scripts/update-project.sh` writes exactly
+# this shape today (`{"path", "kind"}`, no `fingerprint`) -- real, writer-
+# side data this check must FAIL on, never downgrade to COULD_NOT_RUN
+# (`inv.no_fabricated_healthy` cuts both ways: a real defect silently
+# filed as "could not verify" is as dishonest as a fabricated PASS).
 _STRUCTURAL_MISSING_IDS = frozenset(
     {
         "valid-lock-entry",
         "valid-framework-record",
         "safe-recorded-path",
-        "valid-managed-output",
     }
 )
+_INVALID_MANAGED_OUTPUT_ID = "valid-managed-output"
 _CHECKSUM_EVIDENCE_KINDS = frozenset({"framework-file", "managed-output"})
 
 
@@ -360,6 +374,26 @@ def check_lock_records_match_disk(
                         expected="checksum recorded in copilot.lock.json matches disk",
                         actual=item.get("state", "mismatch"),
                         detail=f"{component}: {item.get('detail', '')}",
+                    )
+                )
+            if _INVALID_MANAGED_OUTPUT_ID in missing_ids:
+                invalid_details = [
+                    item["detail"]
+                    for item in missing
+                    if item.get("id") == _INVALID_MANAGED_OUTPUT_ID
+                ]
+                evidence.append(
+                    Evidence(
+                        kind="invalid-managed-output",
+                        path=str(root / PROJECT_LOCK_FILENAME),
+                        expected=(
+                            "every managed_outputs[] record has exactly "
+                            "path/kind/fingerprint, kind matching the "
+                            "component's allowed managed-output kinds, and "
+                            "fingerprint a well-formed sha256:<64 hex> hash"
+                        ),
+                        actual="malformed managed-output record",
+                        detail=f"{component}: " + "; ".join(invalid_details),
                     )
                 )
 

@@ -278,6 +278,59 @@ class TestChecksumTruth:
         results = lock.check_lock_records_match_disk([repo])
         assert _one(results, str(repo)).verdict is Verdict.SKIP
 
+    def test_a_managed_output_missing_fingerprint_fails_not_could_not_run(
+        self, tmp_path
+    ):
+        """Reproduces the exact shape `codex-copilot/scripts/update-project.
+        sh` writes today: a `managed_outputs[]` record with only `path` and
+        `kind`, no `fingerprint`. `_verify_lock_entry`'s schema requires
+        `{"path", "kind", "fingerprint"}` exactly (mirrored by
+        `project_reconciliation.py`), so this record is genuinely invalid --
+        a real writer defect, not a shape this harness fails to understand.
+        Before the fix this silently downgraded to COULD_NOT_RUN, hiding a
+        real defect (and masking any framework-file evidence already
+        found); it must FAIL with concrete evidence instead."""
+
+        repo = tmp_path / "repo"
+        entry = _write_full_claude_install(repo)
+        entry["managed_outputs"] = [
+            {"path": "CLAUDE.md", "kind": "managed-text"}  # no fingerprint
+        ]
+        _write_lock(repo, [entry])
+
+        results = lock.check_lock_records_match_disk([repo])
+        result = _one(results, str(repo))
+        assert result.verdict is Verdict.FAIL
+        assert any(
+            e.kind == "invalid-managed-output" and "claude" in e.detail
+            for e in result.evidence
+        )
+
+    def test_a_managed_output_missing_fingerprint_does_not_hide_a_real_file_mismatch(
+        self, tmp_path
+    ):
+        """A genuinely invalid managed-output record must not swallow
+        evidence for an already-detected framework-file checksum mismatch
+        on the SAME component -- both are real defects and both must
+        surface."""
+
+        repo = tmp_path / "repo"
+        entry = _write_full_claude_install(repo)
+        (repo / ".claude" / "commands" / "protocol.md").write_text(
+            "protocol -- edited after the lock was written\n", encoding="utf-8"
+        )
+        entry["managed_outputs"] = [{"path": "CLAUDE.md", "kind": "managed-text"}]
+        _write_lock(repo, [entry])
+
+        results = lock.check_lock_records_match_disk([repo])
+        result = _one(results, str(repo))
+        assert result.verdict is Verdict.FAIL
+        assert any(e.kind == "invalid-managed-output" for e in result.evidence)
+        assert any(
+            e.kind == "framework-file" and e.path == ".claude/commands/protocol.md"
+            for e in result.evidence
+        )
+
 
 # ---------------------------------------------------------------------------
 # LI-3 -- lock.ownership.frontmatter_agrees
@@ -707,33 +760,28 @@ class TestRunLockChecks:
 
 @pytest.mark.machine
 class TestMachineTruthUniqueness:
-    def test_li1_reproduces_the_two_real_hash_clusters(self, machine_readonly_guard):
-        """`control` was originally `sproutworks` (`/Volumes/Dev/Sites/
-        PERSONAL/sproutworks`). Investigated 2026-08-10: sproutworks has an
-        UNCOMMITTED, in-progress edit to its own `copilot.lock.json` (the
-        Q21 LI-3 ownership-contradiction fix -- see `TestMachineTruthChecksum
-        AndOwnership.test_li3_sproutworks_ownership_contradiction_is_
-        corrected` -- surgically removes the five agent entries that were
-        wrongly tagged `ownership: framework`). That correct, targeted edit
-        has a real side effect this specific machine's RC-4 (still-open,
-        `expected_today=FAIL` at the check's own registration) reasserts on:
-        with those five project-specific entries gone, sproutworks's
-        remaining `claude` file list is now byte-identical to the vanilla
-        template cluster_b already shares, so its lock collides too (4, not
-        3) -- but only in its own CURRENT, UNCOMMITTED working-tree state.
-        Pinning a machine test in THIS repo against another repo's dirty,
-        personal, not-yet-committed file would make this test flaky against
-        Pablo's own future commit/revert of that file, and CLAUDE.md's own
-        invariant #3 treats a personal working tree as something this
-        ecosystem's tooling must never treat as stable ground truth. `control`
-        is therefore now `copilot-control-tower` (this very repo's own
-        sibling in the fleet) -- a real, currently unique, and CLEANLY
-        COMMITTED lock (verified via `git status --short`), so this test
-        keeps proving the check can discriminate a genuinely-unique lock
-        from a copied one without depending on someone else's in-flight
-        edit."""
+    def test_li1_reproduces_the_remaining_real_hash_cluster(self, machine_readonly_guard):
+        """Was `test_li1_reproduces_the_two_real_hash_clusters`. Re-verified
+        live 2026-08-11: the RC-1 fan-out (`copilot-hook.sh` now installed
+        and locked across ~42 repos) had a real side effect on RC-4 too --
+        the fan-out's per-repo lock regeneration made the former nine-repo
+        `cluster_a` AND `claude-copilot-private` (formerly in the three-repo
+        `cluster_b`) each diverge to a byte-unique lock, since the hook's
+        checksum and each repo's own file roster now vary repo-to-repo
+        instead of being copied boilerplate. All ten are verified cleanly
+        COMMITTED (`git status --short copilot.lock.json`, empty for every
+        one), so this is real fleet progress, not someone's dirty working
+        tree.
 
-        cluster_a = [
+        Only `claude-copilot` and `knowledge-copilot` -- two of the four
+        foundation repos, neither of which regenerates its OWN lock on
+        install (`root_causes.py`'s RC-4 generator-half stays FAIL for
+        claude's installer TEXT; see its own live comment) -- still share a
+        byte-identical two-repo cluster. `still_unique` below is the same
+        ten-repo set the original `cluster_a`/`cluster_b` split covered,
+        kept together since they now all resolve the same way."""
+
+        now_unique = [
             _require_real_repo(_REAL_COPILOT_ROOT / name)
             for name in (
                 "claude-copilot-accounting",
@@ -745,30 +793,31 @@ class TestMachineTruthUniqueness:
                 "codex-copilot-private",
                 "knowledge-copilot-accounting",
                 "knowledge-copilot-private",
+                "claude-copilot-private",
             )
         ]
-        cluster_b = [
+        still_shared = [
             _require_real_repo(_REAL_COPILOT_ROOT / name)
-            for name in ("claude-copilot", "claude-copilot-private", "knowledge-copilot")
+            for name in ("claude-copilot", "knowledge-copilot")
         ]
         control = _require_real_repo(_REAL_COPILOT_ROOT / "copilot-control-tower")
 
-        extra_paths = [repo / "copilot.lock.json" for repo in (*cluster_a, *cluster_b, control)]
+        extra_paths = [
+            repo / "copilot.lock.json" for repo in (*now_unique, *still_shared, control)
+        ]
         with machine_readonly_guard(extra_paths=extra_paths):
             results = lock.check_lock_template_uniqueness(
-                [*cluster_a, *cluster_b, control]
+                [*now_unique, *still_shared, control]
             )
 
-        for repo in cluster_a:
+        for repo in now_unique:
+            assert _one(results, str(repo)).verdict is Verdict.PASS, repo
+
+        for repo in still_shared:
             result = _one(results, str(repo))
             assert result.verdict is Verdict.FAIL, repo
             assert result.root_cause == "rc.rc4"
-            assert "shared by 9 repos" in result.evidence[0].actual
-
-        for repo in cluster_b:
-            result = _one(results, str(repo))
-            assert result.verdict is Verdict.FAIL, repo
-            assert "shared by 3 repos" in result.evidence[0].actual
+            assert "shared by 2 repos" in result.evidence[0].actual
 
         assert _one(results, str(control)).verdict is Verdict.PASS
 
@@ -776,6 +825,18 @@ class TestMachineTruthUniqueness:
 @pytest.mark.machine
 class TestMachineTruthChecksumAndOwnership:
     def test_li2_reproduces_claude_copilot_own_stale_checksums(self, machine_readonly_guard):
+        """`sproutworks`'s own expectation was PASS before, when its lock
+        had no `codex` component at all. Re-verified live 2026-08-11: the
+        codex fan-out has since added one, and (LI-2's own newly-fixed
+        bug -- see `TestChecksumTruth.test_a_managed_output_missing_
+        fingerprint_fails_not_could_not_run`) it writes the same `{"path",
+        "kind"}`-no-`fingerprint` shape `codex-copilot/scripts/update-
+        project.sh` writes everywhere: a genuinely invalid managed-output
+        record, now correctly surfaced as FAIL instead of silently
+        downgraded to COULD_NOT_RUN. This is a real, currently-open writer
+        defect (the codex side of the same bug this harness's lock.py half
+        just fixed), not a harness regression."""
+
         claude_copilot = _require_real_repo(_REAL_COPILOT_ROOT / "claude-copilot")
         sproutworks = _require_real_repo(_REAL_PERSONAL_ROOT / "sproutworks")
 
@@ -793,7 +854,11 @@ class TestMachineTruthChecksumAndOwnership:
         assert all(e.kind == "framework-file" for e in claude_result.evidence)
 
         sprout_result = _one(results, str(sproutworks))
-        assert sprout_result.verdict is Verdict.PASS
+        assert sprout_result.verdict is Verdict.FAIL
+        assert any(
+            e.kind == "invalid-managed-output" and "codex" in e.detail
+            for e in sprout_result.evidence
+        )
 
     def test_li3_sproutworks_ownership_contradiction_is_corrected(
         self, machine_readonly_guard
@@ -874,7 +939,20 @@ class TestMachineTruthWaiverAndRequiredPaths:
         hermes_result = _one(results, str(hermes))
         assert hermes_result.verdict is not Verdict.FAIL
 
-    def test_li5_reproduces_the_universal_missing_hook_on_claude(self, machine_readonly_guard):
+    def test_li5_reproduces_the_remaining_missing_hook_on_claude_copilot_itself(
+        self, machine_readonly_guard
+    ):
+        """Was `test_li5_reproduces_the_universal_missing_hook_on_claude`.
+        Re-verified live 2026-08-11: `hermes` is no longer part of this
+        failure -- the RC-1 fan-out has updated its lock, and its `claude`
+        component's `files[]` now records `.claude/hooks/copilot-hook.sh`
+        (`ownership_mode: full`), so LI-5 now PASSes for it. `claude-
+        copilot` (this framework's own foundation repo) is the one
+        confirmed holdout: its own `copilot.lock.json` still does not
+        record the hook it already ships (matches `root_causes.py`'s own
+        live RC-1 fleet-result comment: "this repo's own hook is present
+        but not yet locked")."""
+
         claude_copilot = _require_real_repo(_REAL_COPILOT_ROOT / "claude-copilot")
         hermes = _require_real_repo(_REAL_TSM_ROOT / "hermes")
         insights = _require_real_repo(_REAL_COPILOT_ROOT / "insights-copilot")
@@ -890,12 +968,17 @@ class TestMachineTruthWaiverAndRequiredPaths:
                 [claude_copilot, hermes, insights]
             )
 
-        for repo in (claude_copilot, hermes):
-            result = _one(results, str(repo))
-            assert result.verdict is Verdict.FAIL, repo
-            assert result.root_cause == "rc.rc1"
-            assert any(e.path == ".claude/hooks/copilot-hook.sh" for e in result.evidence)
+        claude_result = _one(results, str(claude_copilot))
+        assert claude_result.verdict is Verdict.FAIL
+        assert claude_result.root_cause == "rc.rc1"
+        assert any(
+            e.path == ".claude/hooks/copilot-hook.sh" for e in claude_result.evidence
+        )
 
-        # insights-copilot's claude entry is customized-preserve (out of
-        # this check's scope); its codex entry is full-mode and complete.
+        # hermes now records the hook (RC-1 fan-out reached it) --
+        # full-mode and complete.
+        assert _one(results, str(hermes)).verdict is Verdict.PASS
+
+        # insights-copilot's claude entry is full-mode and already records
+        # the hook; its codex entry is full-mode and complete too.
         assert _one(results, str(insights)).verdict is Verdict.PASS

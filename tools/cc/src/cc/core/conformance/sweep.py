@@ -268,11 +268,25 @@ class SweepOptions:
     forces the cache off (`HARNESS-DESIGN.md` section 7.2: "`--full`" is
     the cache-bypass, not a separate flag) -- pass `use_cache=False`
     explicitly for a fast-mode run that should still skip the cache (the
-    CLI's own `--no-cache`)."""
+    CLI's own `--no-cache`).
+
+    `classes` and `repo_classes` are two DIFFERENT, ANDed vocabularies, on
+    purpose. `classes` is the rubric letter (`registry.REPO_CLASSES`,
+    "A".."E") a registered check's own `applies_to_classes` is defined in
+    terms of -- unchanged, so nothing already passing rubric letters here
+    (`Registry.select(classes=...)`'s own contract) is affected. `repo_
+    classes` is the human-facing `classes.RepoClass` taxonomy name
+    (`COMPONENT`/`PRODUCT`/`SITE-CONTENT`/`DOCS-KNOWLEDGE`/`SCRATCH-
+    ARCHIVE`, exact `ClassificationEntry.repo_class.value` match) -- added
+    because PRODUCT and SITE-CONTENT both collapse to rubric letter "C"
+    (`classes.py`'s own module docstring), so a rubric-letter-only filter
+    cannot express "PRODUCT repos only, not SITE-CONTENT" even though an
+    operator reading `classification.toml` reasonably expects to."""
 
     roots: tuple[Path, ...] | None = None
     repos: tuple[str, ...] = ()
     classes: tuple[str, ...] = ()
+    repo_classes: tuple[str, ...] = ()
     check_ids: tuple[str, ...] = ()
     mode: Mode = Mode.FAST
     jobs: int | None = None
@@ -368,6 +382,8 @@ def run_sweep(options: SweepOptions | None = None) -> SweepResult:
     for repo in selected:
         entry = _classify_repo(repo, table)
         if opts.classes and entry.rubric_letter not in opts.classes:
+            continue
+        if opts.repo_classes and entry.repo_class.value not in opts.repo_classes:
             continue
         classified.append((repo, entry))
 

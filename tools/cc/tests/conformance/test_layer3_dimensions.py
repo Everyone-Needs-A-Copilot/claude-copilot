@@ -921,14 +921,26 @@ class TestRealFleetDiscovery:
             "match) or discover_repos()'s walk regressed."
         )
 
-    def test_playground_and_investr_api_are_discovered_as_non_git_roots(
-        self, real_roots
-    ):
+    def test_archive_and_movies_are_discovered_as_non_git_roots(self, real_roots):
+        # Was `test_playground_and_investr_api_are_discovered_as_non_git_
+        # roots`. Re-verified live 2026-08-11: both `playground` and
+        # `investr-api` were git-initialized on this machine (unrelated to
+        # RC-1/RC-4 fan-out -- both now have a real `.git/`), so they no
+        # longer illustrate this capability. Swapped to two directories
+        # that are currently non-git on this machine and are not part of
+        # any sanctioned installer's write surface, following the same
+        # "the precedent moved, swap it and say why" pattern
+        # `TestMachineTruthUniqueness.test_li1_reproduces_the_two_real_hash_
+        # clusters` used for sproutworks -> copilot-control-tower. The
+        # underlying capability (discover a directory with no `.git` at
+        # all, never silently skip it) stays independently, deterministically
+        # proven by the synthetic `TestDiscoverRepos.test_includes_non_git_
+        # directories` above, which this real-machine test only corroborates.
         discovered = {str(repo.path): repo for repo in discover_repos(real_roots)}
-        playground = discovered.get("/Volumes/Dev/Sites/COPILOT/playground")
-        investr_api = discovered.get("/Volumes/Dev/Sites/PERSONAL/investr-api")
-        assert playground is not None and playground.is_git_root is False
-        assert investr_api is not None and investr_api.is_git_root is False
+        archive = discovered.get("/Volumes/Dev/Sites/COPILOT/_archive")
+        movies = discovered.get("/Volumes/Dev/Sites/PERSONAL/movies")
+        assert archive is not None and archive.is_git_root is False
+        assert movies is not None and movies.is_git_root is False
 
     def test_shared_docs_dedupes_into_knowledge_copilot_internal(self, real_roots):
         discovered = {str(repo.path): repo for repo in discover_repos(real_roots)}

@@ -89,7 +89,7 @@ from cc.core.config import resolve_key, resolve_knowledge_repos
 from cc.core.conformance import classes as classes_mod
 from cc.core.conformance import lock, report, root_causes, roundtrip, stack, sweep, tier
 from cc.core.conformance.dimensions import discover_dimension_modules
-from cc.core.conformance.registry import DEFAULT_REGISTRY
+from cc.core.conformance.registry import DEFAULT_REGISTRY, REPO_CLASSES
 from cc.core.conformance.types import (
     CheckResult,
     Evidence,
@@ -122,6 +122,15 @@ DEFAULT_JOBS = 8  # HARNESS-DESIGN.md section 7.1: 4.6s cold / 2.0s warm at jobs
 DEFAULT_CHECK_LAYERS: tuple[str, ...] = ("tier", "stack", "repo", "lock", "regression")
 ALL_LAYER_CHOICES: tuple[str, ...] = (*DEFAULT_CHECK_LAYERS, "roundtrip")
 SEVERITY_CHOICES: tuple[str, ...] = tuple(s.value for s in Severity)
+
+# `--class` accepts two vocabularies (see `_resolve_class_filters`): the
+# rubric letters `Registry.select(classes=...)` filters on, and the
+# `classification.toml` taxonomy names operators actually read
+# (`classes.RepoClass`). Both are spelled out here so an unknown value's
+# error message can show the operator every value that actually works,
+# never just the half they didn't try.
+RUBRIC_CLASS_CHOICES: tuple[str, ...] = tuple(sorted(REPO_CLASSES))
+CLASSIFICATION_NAME_CHOICES: tuple[str, ...] = tuple(c.value for c in classes_mod.RepoClass)
 
 _ROUNDTRIP_MUTATION_NOTICE = (
     "conformance check --layer roundtrip: mutating a disposable scratch "
@@ -285,6 +294,7 @@ def _run_repo_layer(
     mode: Mode,
     repos: Sequence[str],
     classes: Sequence[str],
+    repo_classes: Sequence[str],
     check_ids: Sequence[str],
     jobs: int,
     use_cache: bool,
@@ -292,6 +302,7 @@ def _run_repo_layer(
     options = sweep.SweepOptions(
         repos=tuple(repos),
         classes=tuple(classes),
+        repo_classes=tuple(repo_classes),
         check_ids=tuple(check_ids),
         mode=mode,
         jobs=jobs,
@@ -317,20 +328,35 @@ def _repo_selected(path: Path, wanted: Sequence[str]) -> bool:
 
 
 def _run_lock_layer(
-    *, repos: Sequence[str] = (), classes: Sequence[str] = ()
+    *,
+    repos: Sequence[str] = (),
+    classes: Sequence[str] = (),
+    repo_classes: Sequence[str] = (),
 ) -> tuple[CheckResult, ...]:
     discovered = [entry for entry in sweep.discover_repos() if entry.is_git_root]
     discovered = [entry for entry in discovered if _repo_selected(entry.path, repos)]
-    if classes:
+    if classes or repo_classes:
         table = classes_mod.load_classification_table()
-        discovered = [
-            entry
+        classified = [
+            (
+                entry,
+                classes_mod.classify(
+                    entry.path, root=entry.root, table=table, is_git_root=entry.is_git_root
+                ),
+            )
             for entry in discovered
-            if classes_mod.classify(
-                entry.path, root=entry.root, table=table, is_git_root=entry.is_git_root
-            ).rubric_letter
-            in classes
         ]
+        if classes:
+            classified = [
+                (entry, cls) for entry, cls in classified if cls.rubric_letter in classes
+            ]
+        if repo_classes:
+            classified = [
+                (entry, cls)
+                for entry, cls in classified
+                if cls.repo_class.value in repo_classes
+            ]
+        discovered = [entry for entry, _cls in classified]
     repo_roots = tuple(entry.path for entry in discovered)
     if not repo_roots:
         return ()
@@ -548,6 +574,7 @@ def _collect_results(
     mode: Mode,
     repos: Sequence[str] = (),
     classes: Sequence[str] = (),
+    repo_classes: Sequence[str] = (),
     check_ids: Sequence[str] = (),
     jobs: int = DEFAULT_JOBS,
     use_cache: bool = True,
@@ -579,6 +606,7 @@ def _collect_results(
                     mode=mode,
                     repos=repos,
                     classes=classes,
+                    repo_classes=repo_classes,
                     check_ids=check_ids,
                     jobs=jobs,
                     use_cache=use_cache,
@@ -590,7 +618,9 @@ def _collect_results(
             _safe_run(
                 Layer.LOCK,
                 "lock layer (real machine)",
-                lambda: _run_lock_layer(repos=repos, classes=classes),
+                lambda: _run_lock_layer(
+                    repos=repos, classes=classes, repo_classes=repo_classes
+                ),
             )
         )
     if "regression" in layers:
@@ -651,6 +681,53 @@ def _resolve_layers(
         )
         raise typer.Exit(2)
     return deduped
+
+
+def _resolve_class_filters(
+    raw: Optional[Sequence[str]], *, command: str, output_json: bool
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """`--class` accepts EITHER a rubric letter (`A`..`E`, case-insensitive
+    -- `Registry.select(classes=...)`'s own vocabulary, unchanged) OR a
+    `classification.toml` taxonomy name (`COMPONENT`/`PRODUCT`/`SITE-
+    CONTENT`/`DOCS-KNOWLEDGE`/`SCRATCH-ARCHIVE`, case-insensitive, `_`/`-`
+    interchangeable) -- never both meanings silently collapsed into one.
+    Returns `(rubric_letters, classification_names)`, each ready to hand
+    straight to `sweep.SweepOptions(classes=..., repo_classes=...)` /
+    `_run_lock_layer`'s matching filter, which AND the two together exactly
+    like `--repo` already ANDs with `--class`.
+
+    A value that matches NEITHER vocabulary is a loud, exit-2 argument
+    error naming every value that DOES work -- silently matching zero repos
+    (the bug this replaces: `--class PRODUCT` compared literally against
+    single-letter rubric codes and always came back empty) is never an
+    acceptable outcome for an unrecognized filter value."""
+
+    if not raw:
+        return (), ()
+    letters: list[str] = []
+    names: list[str] = []
+    unknown: list[str] = []
+    for value in raw:
+        upper = value.strip().upper()
+        if upper in REPO_CLASSES:
+            letters.append(upper)
+            continue
+        normalized = upper.replace("_", "-")
+        try:
+            names.append(classes_mod.RepoClass(normalized).value)
+            continue
+        except ValueError:
+            pass
+        unknown.append(value)
+    if unknown:
+        _emit_argument_error(
+            f"conformance {command}: unknown --class value(s) {unknown!r}; "
+            f"choose a rubric letter from {list(RUBRIC_CLASS_CHOICES)!r} or "
+            f"a classification.toml class from {list(CLASSIFICATION_NAME_CHOICES)!r}",
+            output_json,
+        )
+        raise typer.Exit(2)
+    return tuple(dict.fromkeys(letters)), tuple(dict.fromkeys(names))
 
 
 def _parse_severity(value: str, *, command: str, output_json: bool) -> Severity:
@@ -765,7 +842,13 @@ def check_cmd(
         None, "--repo", help="Restrict to one or more repos (path or path-suffix match)."
     ),
     repo_class: Optional[List[str]] = typer.Option(
-        None, "--class", help="Restrict to one or more rubric classes (A|B|C|D|E)."
+        None,
+        "--class",
+        help=(
+            "Restrict to one or more rubric classes (A|B|C|D|E) or "
+            "classification.toml classes "
+            f"({'|'.join(CLASSIFICATION_NAME_CHOICES)})."
+        ),
     ),
     check_id: Optional[List[str]] = typer.Option(
         None, "--check", help="Restrict to one or more specific check ids."
@@ -810,6 +893,9 @@ def check_cmd(
     mode = Mode.FULL if full else Mode.FAST
     layers = _resolve_layers(layer, command="check", output_json=output_json)
     fail_on_severity = _parse_severity(fail_on, command="check", output_json=output_json)
+    rubric_classes, classification_names = _resolve_class_filters(
+        repo_class, command="check", output_json=output_json
+    )
 
     baseline_entries: tuple[report.BaselineEntry, ...] = ()
     if baseline is not None:
@@ -825,7 +911,8 @@ def check_cmd(
             layers=layers,
             mode=mode,
             repos=repo or (),
-            classes=repo_class or (),
+            classes=rubric_classes,
+            repo_classes=classification_names,
             check_ids=check_id or (),
             jobs=jobs,
             use_cache=not no_cache,
@@ -880,7 +967,13 @@ def report_cmd(
         None, "--repo", help="Restrict to one or more repos (path or path-suffix match)."
     ),
     repo_class: Optional[List[str]] = typer.Option(
-        None, "--class", help="Restrict to one or more rubric classes (A|B|C|D|E)."
+        None,
+        "--class",
+        help=(
+            "Restrict to one or more rubric classes (A|B|C|D|E) or "
+            "classification.toml classes "
+            f"({'|'.join(CLASSIFICATION_NAME_CHOICES)})."
+        ),
     ),
     check_id: Optional[List[str]] = typer.Option(
         None, "--check", help="Restrict to one or more specific check ids."
@@ -913,6 +1006,9 @@ def report_cmd(
 
     mode = Mode.FULL if full else Mode.FAST
     layers = _resolve_layers(layer, command="report", output_json=output_json)
+    rubric_classes, classification_names = _resolve_class_filters(
+        repo_class, command="report", output_json=output_json
+    )
 
     baseline_entries: tuple[report.BaselineEntry, ...] = ()
     if baseline is not None:
@@ -928,7 +1024,8 @@ def report_cmd(
             layers=layers,
             mode=mode,
             repos=repo or (),
-            classes=repo_class or (),
+            classes=rubric_classes,
+            repo_classes=classification_names,
             check_ids=check_id or (),
             jobs=jobs,
             use_cache=not no_cache,

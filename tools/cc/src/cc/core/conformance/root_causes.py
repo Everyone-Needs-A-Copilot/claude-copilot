@@ -247,7 +247,7 @@ def _hook_state(repo: Path) -> tuple[bool, bool, bool]:
         file_entry.get("path") == HOOK_RELATIVE_PATH
         and file_entry.get("checksum") == checksum_actual
         for component in (lock.get("components") or [])
-        if isinstance(component, dict) and component.get("product") == "claude"
+        if isinstance(component, dict) and component.get("component") == "claude"
         for file_entry in (component.get("files") or [])
         if isinstance(file_entry, dict)
     )
