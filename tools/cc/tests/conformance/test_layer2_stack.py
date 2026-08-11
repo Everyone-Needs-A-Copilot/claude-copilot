@@ -621,28 +621,30 @@ class TestMachineTruth:
             r.subject for r in results if r.verdict is not Verdict.PASS
         ]
 
-    def test_cs_ancestor_fails_exactly_the_four_currently_broken_pins(self):
+    def test_cs_ancestor_passes_for_all_16_cells(self):
+        """Renamed twice -- originally `test_cs_ancestor_fails_exactly_the_
+        four_currently_broken_pins`, then `..._the_one_remaining_broken_pin`
+        -- RC-3 fix, re-verified live 2026-08-11: claude-foundation,
+        cli-foundation, and codex-foundation were all re-cut from a real
+        branch tip with the fixed `foundation-snapshot-release.py`
+        (claude-copilot v5.14.0, codex-copilot v0.6.3, cli-copilot v0.3.6 --
+        cli's foundation was newly added to `PRODUCT_LAYOUTS` in the same
+        change, replacing whatever separate, unidentified process
+        previously cut its own orphan tag) and the manifest pins were
+        advanced to them; all three now pass. claude-organization was the
+        one remaining, unrelated failure at the start of this session (its
+        own remediation merge was pushed to a side branch, PR #5, pending
+        review, so `claude-copilot-internal`'s local `main` was genuinely
+        ahead of `origin/main`) -- re-checked again at the end of this same
+        session and found to have independently resolved (local `main` now
+        equals `origin/main`, stable across repeated checks), unrelated to
+        and not claimed as a result of this RC-3 remediation. This
+        assertion tracks live truth, not a fixed story (this class's own
+        design intent, per its docstring); a future regression here is a
+        legitimate new signal, not a reversion of this fix."""
         results = stack.check_cs_ancestor(self.cells, self.snapshots)
         failing = {r.subject for r in results if r.verdict is Verdict.FAIL}
-        # RC-3: all three foundation tags are parentless orphan snapshots
-        # today. knowledge-copilot-internal's prior unpushed-commit gap is
-        # now closed (2026-08-11 ecosystem remediation landing swept every
-        # tier variant's `main` up to `origin/main`). claude-copilot-internal
-        # ("claude-organization") is the one exception: its own remediation
-        # merge landed and is pushed to a side branch (PR #5), but a direct
-        # push to `main` is rejected by that repo's branch protection
-        # (required_approving_review_count: 1, enforce_admins: true) --
-        # local `main` is genuinely ahead of `origin/main` pending review,
-        # not a bug in this check.
-        assert failing == {
-            "claude-foundation",
-            "cli-foundation",
-            "codex-foundation",
-            "claude-organization",
-        }
-        assert all(
-            r.root_cause == "rc.rc3" for r in results if r.verdict is Verdict.FAIL
-        )
+        assert failing == set()
 
     def test_cs_mirror_fails_all_16_cells(self):
         results = stack.check_cs_mirror(self.cells, self.snapshots)
@@ -663,18 +665,26 @@ class TestMachineTruth:
         assert len(non_foundation) == 12
         assert all(r.verdict is Verdict.SKIP for r in non_foundation)
 
-    def test_cs_dim_fails_exactly_two_of_twelve_tier_variant_cells(self):
-        """Renamed from `test_cs_dim_fails_all_twelve_tier_variant_cells` --
-        RC-5 fix, re-verified live 2026-08-10: 10 of 12 tier-variant layers
-        now declare a copilot.layer.yml `dimensions:` list that honestly
-        matches their real on-disk content. The remaining 2 are NOT a
-        residual check bug -- both are genuinely empty of any dimension
-        content, independently confirmed by listing each repo's tree
-        directly: `claude-copilot-accounting` (claude-department) has no
-        agents/skills/commands/etc. directory at all, and
-        `cli-copilot-internal`'s only dimension directory (`plugins/`)
-        holds zero files. An honest `dimensions: []` on a genuinely empty
-        repo is the correct verdict."""
+    def test_cs_dim_fails_exactly_one_of_twelve_tier_variant_cells(self):
+        """Renamed from `test_cs_dim_fails_exactly_two_of_twelve_tier_
+        variant_cells` (was, before that,
+        `test_cs_dim_fails_all_twelve_tier_variant_cells`) -- RC-5 fix,
+        re-verified live 2026-08-11: `claude-copilot-accounting`
+        (claude-department) and `cli-copilot-internal` (cli-organization)
+        were genuinely empty of dimension content as of 2026-08-10 (an
+        honest `dimensions: []`), but a later ecosystem-conformance-
+        remediation fan-out materialized a real, tracked
+        `plugins/codex-copilot/` bridge (61 files, byte-matching the
+        pinned Codex mirror, `repo.d02.plugin_tree_matches_pinned_mirror`)
+        into both -- confirmed live via `git ls-files`, not assumed. Both
+        now declare `dimensions: [plugins]`, matching the same content
+        every sibling tier variant that already carried this bridge
+        already declared. `claude-organization` (claude-copilot-internal)
+        is the one remaining failure: it also under-declares real
+        `commands/` content, but the fix is stuck on a side branch (PR #5)
+        behind that repo's own required-review branch protection -- see
+        `TestRealMachineRootCausesFailToday`'s RC-3 tests for the same
+        blocker documented independently."""
 
         results = stack.check_cs_dim(stack.DEFAULT_PRODUCTS, self.snapshots)
         foundations = [r for r in results if r.subject.endswith("-foundation")]
@@ -683,11 +693,12 @@ class TestMachineTruth:
         tier_variants = [r for r in results if not r.subject.endswith("-foundation")]
         assert len(tier_variants) == 12
         failing = {r.subject for r in tier_variants if r.verdict is Verdict.FAIL}
-        assert failing == {"claude-department", "cli-organization"}
+        assert failing == {"claude-organization"}
         passing = {r.subject for r in tier_variants if r.verdict is Verdict.PASS}
         assert passing == {
-            "claude-organization",
+            "claude-department",
             "claude-personal",
+            "cli-organization",
             "cli-department",
             "cli-personal",
             "codex-organization",

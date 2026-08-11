@@ -327,6 +327,37 @@ def _repo_selected(path: Path, wanted: Sequence[str]) -> bool:
     return any(text == want or text.endswith(f"/{Path(want).name}") for want in wanted)
 
 
+def _out_of_scope_lock_subjects(
+    discovered: Sequence["sweep.DiscoveredRepo"],
+) -> dict[str, str]:
+    """`{subject: reason}` for every discovered repo whose classification
+    resolves to rubric letter "E" (SCRATCH-ARCHIVE) -- the same
+    class-E-is-out-of-scope convention every `repo.d0*` dimension already
+    applies via its own `applies_to_classes=("A","B","C","D")`
+    (`dimensions/d01_claude.py`, `d04_hook.py`, etc.), which `lock.py`'s
+    Layer-4 checks have no `RepoContext` of their own to consult. Computed
+    unconditionally (not only when `--class`/`--repo-class` is passed) so
+    the default `cc conformance check` run never grades an owner-excluded
+    repo's lock as a live S0 -- `check_lock_full_mode_records_required_paths`
+    (LI-5)'s own docstring has the full rationale and two confirmed live
+    cases (`convoco-policy-build`, a git worktree of `convoco`, and
+    `rfp-copilot`, ratified for archival)."""
+
+    table = classes_mod.load_classification_table()
+    out_of_scope: dict[str, str] = {}
+    for entry in discovered:
+        cls = classes_mod.classify(
+            entry.path, root=entry.root, table=table, is_git_root=entry.is_git_root
+        )
+        if cls.rubric_letter == "E":
+            out_of_scope[str(entry.path)] = (
+                f"{cls.repo_class.value} (rubric E): {cls.rationale}"
+                if cls.rationale
+                else cls.repo_class.value
+            )
+    return out_of_scope
+
+
 def _run_lock_layer(
     *,
     repos: Sequence[str] = (),
@@ -335,6 +366,7 @@ def _run_lock_layer(
 ) -> tuple[CheckResult, ...]:
     discovered = [entry for entry in sweep.discover_repos() if entry.is_git_root]
     discovered = [entry for entry in discovered if _repo_selected(entry.path, repos)]
+    out_of_scope = _out_of_scope_lock_subjects(discovered)
     if classes or repo_classes:
         table = classes_mod.load_classification_table()
         classified = [
@@ -360,7 +392,7 @@ def _run_lock_layer(
     repo_roots = tuple(entry.path for entry in discovered)
     if not repo_roots:
         return ()
-    return lock.run_lock_checks(repo_roots)
+    return lock.run_lock_checks(repo_roots, out_of_scope=out_of_scope)
 
 
 # ---------------------------------------------------------------------------

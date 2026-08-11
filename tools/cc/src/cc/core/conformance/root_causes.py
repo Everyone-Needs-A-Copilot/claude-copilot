@@ -793,12 +793,13 @@ def check_rc4(
         verdict=Verdict.FAIL if duplicate_clusters else Verdict.PASS,
         evidence=uniqueness_evidence,
         detail="whether any two independently-installed repos share a byte-identical lock",
-        # Re-verified live 2026-08-10: 6 duplicate clusters across 42 of 59
-        # real locks -- the generator fix above has not propagated across
-        # the fleet (most repos have not had the new codex updater run
-        # against them yet, and claude's own installer never regenerates a
-        # lock at all). Still genuinely broken -- partial, not fixed.
-        expected_today=ExpectedToday.FAIL,
+        # Re-verified live 2026-08-11: the last duplicate cluster (`claude-
+        # copilot` and `knowledge-copilot` -- the two foundation repos
+        # whose own installer never regenerated their own lock) is closed;
+        # `expected_today` now tracks the verdict rather than a hardcoded
+        # FAIL, so a future regression here is reported as a genuine
+        # surprise instead of a permanently-expected one.
+        expected_today=ExpectedToday.FAIL if duplicate_clusters else ExpectedToday.PASS,
         root_cause="RC-4",
     )
 

@@ -657,7 +657,21 @@ class TestRealMachineRootCausesFailToday:
         assert updater_result.verdict is Verdict.PASS
         assert setup_result.verdict is Verdict.PASS
 
-    def test_rc3_claude_and_codex_foundation_tags_are_orphan_snapshots(self):
+    def test_rc3_claude_codex_and_cli_foundation_tags_are_now_real_ancestors(self):
+        """Renamed from `test_rc3_claude_and_codex_foundation_tags_are_
+        orphan_snapshots` -- RC-3 fix, re-verified live 2026-08-11: all
+        three previously-orphan foundation pins were re-cut from a real
+        branch tip with the fixed `foundation-snapshot-release.py`
+        (claude-copilot v5.14.0, codex-copilot v0.6.3, cli-copilot v0.3.6),
+        and the manifest pins were advanced to them. `_RC3_KNOWN_BROKEN_
+        PRODUCTS` is intentionally left unchanged by this fix -- it is also
+        reused by purely-synthetic `FleetFactory` fixtures elsewhere in
+        this module that assert `expected_today` for a literal
+        "claude"/"codex"/"cli" product label unrelated to this machine's
+        real git state, so `expected_today` for these subjects still
+        reads FAIL (a documented, legitimate live-mismatch signal, not a
+        harness bug -- see `_rc3_expected_today`'s docstring); only the
+        live `verdict` assertions below change, from FAIL to PASS."""
         home = _real_home_or_skip()
         manifest_path = root_causes._real_manifest_path(home)
         layers = root_causes.foundation_layers(manifest_path)
@@ -668,39 +682,37 @@ class TestRealMachineRootCausesFailToday:
         by_subject = {result.subject.split(" ", 1)[0]: result for result in results}
 
         assert "claude-foundation" in by_subject
-        assert by_subject["claude-foundation"].verdict is Verdict.FAIL
-        assert by_subject["claude-foundation"].expected_today is ExpectedToday.FAIL
-        assert by_subject["claude-foundation"].evidence[0].actual.startswith("1 ")
+        assert by_subject["claude-foundation"].verdict is Verdict.PASS
+        assert "ancestor" in by_subject["claude-foundation"].detail
 
         assert "codex-foundation" in by_subject
-        assert by_subject["codex-foundation"].verdict is Verdict.FAIL
-        assert by_subject["codex-foundation"].expected_today is ExpectedToday.FAIL
-        assert by_subject["codex-foundation"].evidence[0].actual.startswith("1 ")
+        assert by_subject["codex-foundation"].verdict is Verdict.PASS
+        assert "ancestor" in by_subject["codex-foundation"].detail
 
-        # cli-copilot's foundation pin (v0.3.5) is the identical defect --
-        # an earlier pass wrongly assumed it was a clean control case (see
-        # `_RC3_KNOWN_BROKEN_PRODUCTS`'s docstring); re-verified live and
-        # corrected here rather than left unchecked.
+        # cli-copilot's foundation pin was the identical defect -- an
+        # earlier pass wrongly assumed it was a clean control case (see
+        # `_RC3_KNOWN_BROKEN_PRODUCTS`'s docstring); re-verified live,
+        # fixed, and corrected here rather than left unchecked.
         if "cli-foundation" in by_subject:
-            assert by_subject["cli-foundation"].verdict is Verdict.FAIL
-            assert by_subject["cli-foundation"].expected_today is ExpectedToday.FAIL
-            assert by_subject["cli-foundation"].evidence[0].actual.startswith("1 ")
+            assert by_subject["cli-foundation"].verdict is Verdict.PASS
+            assert "ancestor" in by_subject["cli-foundation"].detail
 
-    def test_rc4_generator_now_referenced_but_fleet_locks_still_duplicate(
+    def test_rc4_generator_referenced_and_fleet_locks_now_unique(
         self, machine_readonly_guard
     ):
-        """Renamed from `test_rc4_no_generator_reference_and_fleet_has_
-        duplicate_locks` -- RC-4 fix, re-verified live 2026-08-10:
-        codex-copilot/scripts/update-project.sh (RC-2's new updater) now
-        computes real per-file sha256 checksums and writes a genuinely
-        generated copilot.lock.json component -- the generator half is
-        genuinely fixed (if narrowly: claude's own installer text still
-        never mentions a generator by name, though `cc settings-hook add`
-        -- a step it already runs -- independently produces a real lock
-        too; see roundtrip.setup.produces_reference_install's "lock"
-        facet). The FLEET UNIQUENESS half is NOT fixed: 6 duplicate
-        clusters remain across 42 of 59 real locks -- the fix has not
-        propagated fleet-wide yet. Partial, not fixed."""
+        """Renamed from `test_rc4_generator_now_referenced_but_fleet_locks_
+        still_duplicate` (was, before that,
+        `test_rc4_no_generator_reference_and_fleet_has_duplicate_locks`) --
+        RC-4 fix, re-verified live 2026-08-11: the generator half was
+        already fixed (`codex-copilot/scripts/update-project.sh` computes
+        real per-file sha256 checksums). The FLEET UNIQUENESS half is now
+        fixed too: the last remaining duplicate cluster (`claude-copilot`
+        and `knowledge-copilot` -- the two foundation repos whose own
+        installer never regenerates their own lock) had both locks'
+        `claude` component regenerated directly
+        (`cc.core.ecosystem.projects.generate_component_lock_entry`, the
+        same per-project generator every other repo's installer already
+        uses). Zero duplicate clusters remain across the real fleet."""
 
         home = _real_home_or_skip()
         manifest_path = root_causes._real_manifest_path(home)
@@ -720,9 +732,7 @@ class TestRealMachineRootCausesFailToday:
         generator_result, uniqueness_result = results
         assert generator_result.verdict is Verdict.PASS
         assert generator_result.expected_today is ExpectedToday.PASS
-        assert uniqueness_result.verdict is Verdict.FAIL
-        assert uniqueness_result.expected_today is ExpectedToday.FAIL
-        assert "duplicate cluster" in uniqueness_result.evidence[0].actual
+        assert uniqueness_result.verdict is Verdict.PASS
 
     def test_rc5_tier_variants_do_not_declare_real_dimensions(self):
         home = _real_home_or_skip()

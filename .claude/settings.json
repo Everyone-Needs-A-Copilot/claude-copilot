@@ -8,6 +8,16 @@
             "command": "bash \"$(git rev-parse --show-toplevel)/.claude/hooks/session-start.sh\""
           }
         ]
+      },
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/copilot-hook.sh\" session-start",
+            "_copilot_source": "claude-copilot"
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -17,6 +27,16 @@
           {
             "type": "command",
             "command": "bash \"$(git rev-parse --show-toplevel)/.claude/hooks/pretool-check.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Read|Edit|Write|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/copilot-hook.sh\" pretool-check",
+            "_copilot_source": "claude-copilot"
           }
         ]
       }
@@ -30,6 +50,16 @@
             "command": "bash \"$(git rev-parse --show-toplevel)/.claude/hooks/subagent-stop.sh\""
           }
         ]
+      },
+      {
+        "matcher": "me|qa",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/copilot-hook.sh\" subagent-stop",
+            "_copilot_source": "claude-copilot"
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
@@ -38,6 +68,15 @@
           {
             "type": "command",
             "command": "bash \"$(git rev-parse --show-toplevel)/.claude/hooks/user-prompt-submit.sh\""
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/copilot-hook.sh\" user-prompt-submit",
+            "_copilot_source": "claude-copilot"
           }
         ]
       }

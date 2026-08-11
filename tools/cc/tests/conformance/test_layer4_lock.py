@@ -783,6 +783,37 @@ class TestFullModeRequiredPaths:
         results = lock.check_lock_full_mode_records_required_paths([repo])
         assert _one(results, str(repo)).verdict is Verdict.SKIP
 
+    def test_out_of_scope_subject_skips_before_reading_the_lock_at_all(self, tmp_path):
+        """The class-E-is-out-of-scope gate every `repo.d0*` dimension
+        already applies via `applies_to_classes` (RUBRIC.md: "A, B, C, D",
+        not E) -- confirmed live against a git *worktree* of another repo
+        (`convoco-policy-build`, "not an independent project") and a repo
+        the owner ratified for archival (`rfp-copilot`). A subject present
+        in `out_of_scope` short-circuits to SKIP even though its lock
+        would otherwise genuinely FAIL (missing the hook path, exactly
+        like `test_full_mode_missing_the_hook_fails_and_tags_rc1` above)."""
+
+        repo = tmp_path / "repo"
+        entry = _write_full_claude_install(repo, include_hook=False)
+        _write_lock(repo, [entry])
+
+        results = lock.check_lock_full_mode_records_required_paths(
+            [repo], out_of_scope={str(repo): "SCRATCH-ARCHIVE (rubric E): archived"}
+        )
+        result = _one(results, str(repo))
+        assert result.verdict is Verdict.SKIP
+        assert "SCRATCH-ARCHIVE" in result.detail
+
+    def test_subject_not_in_out_of_scope_is_graded_normally(self, tmp_path):
+        repo = tmp_path / "repo"
+        entry = _write_full_claude_install(repo, include_hook=False)
+        _write_lock(repo, [entry])
+
+        results = lock.check_lock_full_mode_records_required_paths(
+            [repo], out_of_scope={"/some/other/repo": "irrelevant"}
+        )
+        assert _one(results, str(repo)).verdict is Verdict.FAIL
+
 
 # ---------------------------------------------------------------------------
 # run_lock_checks -- the one-call convenience seam
@@ -805,6 +836,22 @@ class TestRunLockChecks:
             "lock.required_paths.full_mode_complete",
         }
         assert all(r.subject == str(repo) for r in results)
+
+    def test_out_of_scope_is_forwarded_only_to_li5(self, tmp_path):
+        """`out_of_scope` must SKIP LI-5 for this repo while LI-1..LI-4
+        keep grading it exactly as if the parameter had never been
+        passed (`run_lock_checks`'s own docstring)."""
+
+        repo = tmp_path / "repo"
+        entry = _write_full_claude_install(repo, include_hook=False)
+        _write_lock(repo, [entry])
+
+        results = lock.run_lock_checks(
+            [repo], out_of_scope={str(repo): "SCRATCH-ARCHIVE (rubric E): archived"}
+        )
+        by_id = {r.id: r for r in results}
+        assert by_id["lock.required_paths.full_mode_complete"].verdict is Verdict.SKIP
+        assert by_id["lock.template.uniqueness"].verdict is Verdict.PASS
 
     def test_fleet_factory_project_is_a_legal_input(self, tmp_path):
         """`lock.py`'s functions accept any `Path`, including a project
@@ -831,26 +878,18 @@ class TestRunLockChecks:
 
 @pytest.mark.machine
 class TestMachineTruthUniqueness:
-    def test_li1_reproduces_the_remaining_real_hash_cluster(self, machine_readonly_guard):
-        """Was `test_li1_reproduces_the_two_real_hash_clusters`. Re-verified
-        live 2026-08-11: the RC-1 fan-out (`copilot-hook.sh` now installed
-        and locked across ~42 repos) had a real side effect on RC-4 too --
-        the fan-out's per-repo lock regeneration made the former nine-repo
-        `cluster_a` AND `claude-copilot-private` (formerly in the three-repo
-        `cluster_b`) each diverge to a byte-unique lock, since the hook's
-        checksum and each repo's own file roster now vary repo-to-repo
-        instead of being copied boilerplate. All ten are verified cleanly
-        COMMITTED (`git status --short copilot.lock.json`, empty for every
-        one), so this is real fleet progress, not someone's dirty working
-        tree.
-
-        Only `claude-copilot` and `knowledge-copilot` -- two of the four
-        foundation repos, neither of which regenerates its OWN lock on
-        install (`root_causes.py`'s RC-4 generator-half stays FAIL for
-        claude's installer TEXT; see its own live comment) -- still share a
-        byte-identical two-repo cluster. `still_unique` below is the same
-        ten-repo set the original `cluster_a`/`cluster_b` split covered,
-        kept together since they now all resolve the same way."""
+    def test_li1_no_real_lock_cluster_remains(self, machine_readonly_guard):
+        """Was `test_li1_reproduces_the_remaining_real_hash_cluster`.
+        Re-verified live 2026-08-11: `claude-copilot` and `knowledge-
+        copilot` -- the last two-repo byte-identical cluster (neither
+        foundation regenerates its OWN lock on install) -- each had their
+        `claude` component lock entry regenerated directly
+        (`cc.core.ecosystem.projects.generate_component_lock_entry`, the
+        same per-project generator every other repo's installer already
+        uses), closing the gap `root_causes.py`'s RC-4 generator-half
+        comment used to document. Both are verified cleanly COMMITTED
+        (`git status --short copilot.lock.json`, empty for both). No
+        cluster of any size remains among these twelve real repos."""
 
         now_unique = [
             _require_real_repo(_REAL_COPILOT_ROOT / name)
@@ -865,55 +904,41 @@ class TestMachineTruthUniqueness:
                 "knowledge-copilot-accounting",
                 "knowledge-copilot-private",
                 "claude-copilot-private",
+                "claude-copilot",
+                "knowledge-copilot",
             )
-        ]
-        still_shared = [
-            _require_real_repo(_REAL_COPILOT_ROOT / name)
-            for name in ("claude-copilot", "knowledge-copilot")
         ]
         control = _require_real_repo(_REAL_COPILOT_ROOT / "copilot-control-tower")
 
-        extra_paths = [
-            repo / "copilot.lock.json" for repo in (*now_unique, *still_shared, control)
-        ]
+        extra_paths = [repo / "copilot.lock.json" for repo in (*now_unique, control)]
         with machine_readonly_guard(extra_paths=extra_paths):
-            results = lock.check_lock_template_uniqueness(
-                [*now_unique, *still_shared, control]
-            )
+            results = lock.check_lock_template_uniqueness([*now_unique, control])
 
         for repo in now_unique:
             assert _one(results, str(repo)).verdict is Verdict.PASS, repo
-
-        for repo in still_shared:
-            result = _one(results, str(repo))
-            assert result.verdict is Verdict.FAIL, repo
-            assert result.root_cause == "rc.rc4"
-            assert "shared by 2 repos" in result.evidence[0].actual
 
         assert _one(results, str(control)).verdict is Verdict.PASS
 
 
 @pytest.mark.machine
 class TestMachineTruthChecksumAndOwnership:
-    def test_li2_reproduces_claude_copilot_own_stale_checksums(self, machine_readonly_guard):
-        """`claude-copilot`'s own claude component still carries stale
-        framework-file checksums live on this machine -- that half of the
-        original bug this test documents is unchanged.
+    def test_li2_claude_copilot_own_stale_checksums_are_fixed(self, machine_readonly_guard):
+        """Was `test_li2_reproduces_claude_copilot_own_stale_checksums`.
+        `claude-copilot`'s own claude component used to carry stale
+        framework-file checksums (18 of 19) because its installer never
+        regenerated its own lock. Re-verified live 2026-08-11: its `claude`
+        component lock entry was regenerated directly
+        (`cc.core.ecosystem.projects.generate_component_lock_entry`, the
+        same per-project generator every other repo's installer already
+        uses), which recomputes every recorded checksum fresh from disk --
+        this check now correctly PASSES it.
 
-        `sproutworks`'s half is NOT: when this test was first written its
-        codex component had no managed_outputs at all, then (once the codex
-        fan-out added one) it briefly reproduced the exact `{"path",
-        "kind"}`-no-`fingerprint` writer shape `codex-copilot/scripts/
-        update-project.sh` used to write everywhere (see
-        `TestChecksumTruth.test_a_managed_output_missing_fingerprint_fails_
-        not_could_not_run`). Re-verified live 2026-08-11: that writer
-        defect is now fixed and sproutworks's codex managed_outputs carry
-        real `sha256:` fingerprints, so `check_lock_records_match_disk`
-        correctly PASSES it -- asserting FAIL here would pin a bug that no
-        longer exists. `test_codex_managed_output_missing_fingerprint_
-        fails_not_could_not_run` below keeps a fixture (not a live repo)
-        proving this check still detects that exact stale/malformed-
-        managed-output shape for a `codex` component, so this update
+        `sproutworks`'s half was already fixed in an earlier pass (its
+        codex managed_outputs now carry real `sha256:` fingerprints, see
+        the prior revision of this docstring); both repos now PASS.
+        `test_codex_managed_output_missing_fingerprint_fails_not_could_
+        not_run` below keeps a fixture (not a live repo) proving this
+        check still detects a stale/malformed checksum, so this update
         narrows the live claim without weakening what is actually
         verified."""
 
@@ -929,9 +954,8 @@ class TestMachineTruthChecksumAndOwnership:
             results = lock.check_lock_records_match_disk([claude_copilot, sproutworks])
 
         claude_result = _one(results, str(claude_copilot))
-        assert claude_result.verdict is Verdict.FAIL
-        assert len(claude_result.evidence) >= 15  # measured: 18 of 19 stale
-        assert all(e.kind == "framework-file" for e in claude_result.evidence)
+        assert claude_result.verdict is Verdict.PASS
+        assert claude_result.evidence == ()
 
         sprout_result = _one(results, str(sproutworks))
         assert sprout_result.verdict is Verdict.PASS
@@ -1016,19 +1040,18 @@ class TestMachineTruthWaiverAndRequiredPaths:
         hermes_result = _one(results, str(hermes))
         assert hermes_result.verdict is not Verdict.FAIL
 
-    def test_li5_reproduces_the_remaining_missing_hook_on_claude_copilot_itself(
-        self, machine_readonly_guard
-    ):
-        """Was `test_li5_reproduces_the_universal_missing_hook_on_claude`.
-        Re-verified live 2026-08-11: `hermes` is no longer part of this
-        failure -- the RC-1 fan-out has updated its lock, and its `claude`
-        component's `files[]` now records `.claude/hooks/copilot-hook.sh`
-        (`ownership_mode: full`), so LI-5 now PASSes for it. `claude-
-        copilot` (this framework's own foundation repo) is the one
-        confirmed holdout: its own `copilot.lock.json` still does not
-        record the hook it already ships (matches `root_causes.py`'s own
-        live RC-1 fleet-result comment: "this repo's own hook is present
-        but not yet locked")."""
+    def test_li5_claude_copilot_now_records_its_own_hook(self, machine_readonly_guard):
+        """Was `test_li5_reproduces_the_remaining_missing_hook_on_claude_
+        copilot_itself` (was, before that,
+        `test_li5_reproduces_the_universal_missing_hook_on_claude`).
+        Re-verified live 2026-08-11: `claude-copilot` (this framework's
+        own foundation repo) had its `claude` component lock entry
+        regenerated directly
+        (`cc.core.ecosystem.projects.generate_component_lock_entry`, the
+        same per-project generator every other repo's installer already
+        uses) -- `.claude/hooks/copilot-hook.sh` (a file it already
+        shipped, executable, just never locked) is now recorded, closing
+        the last confirmed holdout this test documented."""
 
         claude_copilot = _require_real_repo(_REAL_COPILOT_ROOT / "claude-copilot")
         hermes = _require_real_repo(_REAL_TSM_ROOT / "hermes")
@@ -1046,10 +1069,16 @@ class TestMachineTruthWaiverAndRequiredPaths:
             )
 
         claude_result = _one(results, str(claude_copilot))
-        assert claude_result.verdict is Verdict.FAIL
-        assert claude_result.root_cause == "rc.rc1"
+        assert claude_result.verdict is Verdict.PASS
+        lock_data = json.loads(
+            (claude_copilot / "copilot.lock.json").read_text(encoding="utf-8")
+        )
+        claude_component = next(
+            c for c in lock_data["components"] if c["component"] == "claude"
+        )
         assert any(
-            e.path == ".claude/hooks/copilot-hook.sh" for e in claude_result.evidence
+            f["path"] == ".claude/hooks/copilot-hook.sh"
+            for f in claude_component["files"]
         )
 
         # hermes now records the hook (RC-1 fan-out reached it) --

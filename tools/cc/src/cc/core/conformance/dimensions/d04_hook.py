@@ -14,19 +14,25 @@ the audit output":
   ABSENT — neither.
 
 Ground truth, verified directly on this machine (2026-08-10), not assumed:
-`claude-copilot`'s own `.claude/hooks/copilot-hook.sh` exists and is
-executable, but its own `copilot.lock.json` claude entry records 19 files
-and none of them is `.claude/hooks/copilot-hook.sh` — so even the ONE repo
-on the machine with the file present still fails the compound requirement.
-This is RC-1 (`grep -c copilot-hook setup-project.md update-project.md`
-returns 0 in both files — no sanctioned command installs the file at all)
-and it MUST fail everywhere today: measured **0 of 76** directories
-machine-wide satisfy the compound PRESENT test, confirmed live against
-`claude-copilot` and `copilot-control-tower` while writing this module.
-This check's `expected_today` is therefore `ExpectedToday.FAIL`
-unconditionally — weakening it to PASS anywhere would be reporting a
-known-broken ecosystem as healthy (`WP1-INTERFACES.md`: "a harness that
-passes on a known-broken ecosystem is worthless").
+at the time this module was written, `claude-copilot`'s own
+`.claude/hooks/copilot-hook.sh` existed and was executable, but its own
+`copilot.lock.json` claude entry recorded 19 files and none of them was
+`.claude/hooks/copilot-hook.sh` — so even the ONE repo on the machine with
+the file present still failed the compound requirement. That was RC-1
+(`grep -c copilot-hook setup-project.md update-project.md` returned 0 in
+both files — no sanctioned command installed the file at all), measured at
+**0 of 76** directories machine-wide satisfying the compound PRESENT test.
+RC-1 has since been fixed upstream (`setup-project.md` Step 6B /
+`update-project.md` Step 7B now vendor and lock the hook on every install
+or update) — re-verify live counts with `cc conformance check --json
+--full` rather than trusting the 0/76 figure above, which is a
+point-in-time fact about this module's own authoring, not a standing
+invariant. This check's registration `expected_today=ExpectedToday.FAIL`
+default is deliberately NOT relaxed just because most repos now pass it
+live — weakening the registered default to PASS would misreport a repo
+that genuinely still fails (never re-installed since RC-1 landed) as
+"expected", which is the same "known-broken ecosystem reported healthy"
+failure mode in reverse (`WP1-INTERFACES.md`).
 
 The lock lookup reuses `project_integration._lock_state` and `._checksum`
 directly (wrapped, never re-implemented — `HARNESS-DESIGN.md` §3.2 rule 1)
@@ -61,6 +67,8 @@ if TYPE_CHECKING:
     from cc.core.conformance.dimensions import RepoContext
 
 HOOK_RELATIVE_PATH = ".claude/hooks/copilot-hook.sh"
+CLAUDE_MD_RELATIVE_PATH = "CLAUDE.md"
+AGENTS_MD_RELATIVE_PATH = "AGENTS.md"
 
 _APPLIES_TO = ("A", "B", "C", "D")
 _ROOT_CAUSE = "RC-1"
@@ -184,7 +192,28 @@ def check_d04_hook_present_and_locked(
 def run(context: "RepoContext") -> Iterable[CheckResult]:
     """The `dimensions/__init__.py` module contract's required entry
     point: one `CheckResult` for `repo.d04.hook_present_and_locked`, for
-    every repo -- a `Verdict.SKIP` for class E (D4 applies to A/B/C/D)."""
+    every repo -- a `Verdict.SKIP` for class E (D4 applies to A/B/C/D), and
+    a second, narrower `Verdict.SKIP` for a repo that is genuinely not a
+    Claude Copilot project at all.
+
+    D4 checks a Claude Code-specific artifact (`.claude/hooks/`), so
+    `applies_to_classes` alone is not a sufficient applicability gate: a
+    rubric-A/B/C/D directory can still be a member of the CODEX ladder
+    rather than the CLAUDE one (`classes.py`'s own docstring: "one of the
+    four synced framework families' tier ladder" -- the Codex family and
+    the Claude family are different ladders sharing the same rubric
+    letters). `codex-copilot` is the confirmed live case: a `COMPONENT`/
+    `foundation` (rubric A) directory with `AGENTS.md` and no `CLAUDE.md`
+    at all -- verified against every other `codex-*` tier variant on this
+    machine, which DO carry both files (they consume both frameworks) and
+    are correctly still graded here. This is evidence-based, never a
+    hardcoded repo name (`classes.py`'s own warning against the
+    "`-internal`/`test-pilot` trap"): any directory with `AGENTS.md` and
+    no `CLAUDE.md` reads the same way, because a directory that has never
+    declared itself a Claude Code project cannot be missing a Claude Code
+    artifact -- there is nothing to be ABSENT or PARTIAL about. A directory
+    that DOES carry `CLAUDE.md` (even alongside `AGENTS.md`, i.e. a
+    dual-stack project) is unaffected and keeps being graded as before."""
 
     if context.rubric_class not in _APPLIES_TO:
         return (
@@ -194,6 +223,20 @@ def run(context: "RepoContext") -> Iterable[CheckResult]:
                 detail=(
                     f"N/A for class {context.rubric_class} -- D4 applies "
                     "to classes A/B/C/D, not E."
+                ),
+            ),
+        )
+    has_claude_md = (context.path / CLAUDE_MD_RELATIVE_PATH).is_file()
+    has_agents_md = (context.path / AGENTS_MD_RELATIVE_PATH).is_file()
+    if not has_claude_md and has_agents_md:
+        return (
+            _D04_HOOK_REGISTRATION.result(
+                subject=context.subject,
+                verdict=Verdict.SKIP,
+                detail=(
+                    "N/A -- Codex-native (AGENTS.md present, no CLAUDE.md): "
+                    "not a Claude Copilot project, so the Claude Code "
+                    "enforcement hook this check grades does not apply."
                 ),
             ),
         )

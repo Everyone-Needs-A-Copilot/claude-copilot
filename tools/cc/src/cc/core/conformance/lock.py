@@ -704,20 +704,60 @@ def check_lock_full_mode_records_required_paths(
     repo_roots: Iterable[Path | str],
     *,
     expected_today: Mapping[str, ExpectedToday] | None = None,
+    out_of_scope: Mapping[str, str] | None = None,
 ) -> tuple[CheckResult, ...]:
     """LI-5. `ownership_mode` is absent from 12 of 13 real locks measured
     for this work package and defaults to `"full"` per
     `_verify_lock_entry`'s own `entry.get("ownership_mode", "full")` --
     handled explicitly here via `_ownership_mode`, never assumed present.
     A `customized-preserve` entry's bounded subset is a distinct, narrower
-    contract (LI-4) and is out of this check's scope."""
+    contract (LI-4) and is out of this check's scope.
+
+    `out_of_scope` (subject -> human-readable reason) is the same
+    class-E-is-out-of-scope convention every `repo.d0*` dimension already
+    enforces via its own `applies_to_classes` ("A", "B", "C", "D" --
+    RUBRIC.md excludes E, SCRATCH-ARCHIVE, everywhere else in the harness).
+    Layer 4's lock checks have no `RepoContext`/rubric-class of their own
+    (`lock.py`'s module docstring: "a pure function of `(repo_roots, ...)`"
+    -- they take bare paths, not a classification), so a caller that HAS
+    already computed classification for these roots (`_run_lock_layer`)
+    passes the class-E subset in here rather than this module re-deriving
+    it from `classification.toml` itself. A subject present in this
+    mapping short-circuits straight to an explicit `Verdict.SKIP` --
+    never a silent omission (`HARNESS-DESIGN.md`: "NA is emitted
+    explicitly, never silently") -- with the caller's reason as the
+    `detail`, before this repo's lock is read at all. Confirmed live: two
+    S0 fails this check produced were a `SCRATCH-ARCHIVE`-classified git
+    *worktree* of another repo (`convoco-policy-build`, sharing
+    `convoco`'s `.git`, "not an independent project") and a repo the
+    owner ratified for archival (`rfp-copilot`, "archive it for real") --
+    both still carrying a leftover `ownership_mode: full` lock entry from
+    before that decision. Every other Layer-4 check (LI-1..LI-4) is
+    unaffected by this parameter and keeps grading class-E repos exactly
+    as before; only LI-5 needed this gate today."""
 
     overrides = expected_today or {}
+    excluded = out_of_scope or {}
     results: list[CheckResult] = []
 
     for raw_root in repo_roots:
         root = Path(raw_root)
         subject = str(root)
+        if subject in excluded:
+            results.append(
+                _FULL_MODE_REQUIRED_PATHS.result(
+                    subject=subject,
+                    verdict=Verdict.SKIP,
+                    detail=(
+                        f"out of scope: {excluded[subject]} -- same "
+                        "class-E-is-out-of-scope convention every "
+                        "repo.d0* dimension already applies (RUBRIC.md: "
+                        "\"A, B, C, D\", not E)"
+                    ),
+                    expected_today=_resolve_expected(subject, Verdict.SKIP, overrides),
+                )
+            )
+            continue
         entries = _component_entries(root)
         if not entries:
             results.append(
@@ -805,16 +845,28 @@ def run_lock_checks(
     repo_roots: Iterable[Path | str],
     *,
     expected_today: Mapping[str, ExpectedToday] | None = None,
+    out_of_scope: Mapping[str, str] | None = None,
 ) -> tuple[CheckResult, ...]:
     """Run all five Layer-4 checks against the same repo set and
     concatenate their results -- the one-call seam a fleet sweep (Layer 3's
     orchestration) or the `cc conformance` CLI surface can use without
-    knowing the individual check ids."""
+    knowing the individual check ids.
+
+    `out_of_scope` is forwarded only to
+    `check_lock_full_mode_records_required_paths` (LI-5) -- the only
+    Layer-4 check that needed a class-E gate today (see that function's
+    own docstring). LI-1..LI-4 do not accept the parameter and keep
+    grading every repo they are handed exactly as before."""
 
     roots = list(repo_roots)
     results: list[CheckResult] = []
     for check in LOCK_CHECKS:
-        results.extend(check(roots, expected_today=expected_today))
+        if check is check_lock_full_mode_records_required_paths and out_of_scope:
+            results.extend(
+                check(roots, expected_today=expected_today, out_of_scope=out_of_scope)
+            )
+        else:
+            results.extend(check(roots, expected_today=expected_today))
     return tuple(results)
 
 
