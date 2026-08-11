@@ -85,6 +85,7 @@ from cc.core.conformance.types import (
     Verdict,
 )
 from cc.core.ecosystem.lockfile import LAYER_META_KEY
+from cc.core.ecosystem.policy import EXECUTABLE_DIMENSIONS
 from cc.core.ecosystem.resolver import resolve_layers
 
 # ---------------------------------------------------------------------------
@@ -175,14 +176,34 @@ E4_ATTRIBUTION_MATCHES_LOCK = register_check(
         "run `cc update` for the winning layer so its lock entry records "
         "real dimension/item shas, or surface winning_sha=None + "
         "_meta-only as 'never actually materialized' rather than silently "
-        "trusting the live-checkout-only winner"
+        "trusting the live-checkout-only winner. If the layer's own "
+        "manifest entry declares `policy.allowed_signers: []` for an "
+        "executable dimension, this is not a bug to chase -- it is the "
+        "fail-closed policy gate (core/ecosystem/policy.py) working as "
+        "designed, and the remediation is either configuring a real "
+        "signer for that layer or accepting it will never win materialize "
+        "under its own layer id."
     ),
     # Registration default is the common case (`claude-foundation`'s lock
     # entry carries real pins for every foundation-won item, the large
-    # majority); the known live exceptions (`claude-organization`,
-    # `knowledge-personal`, `cli-personal`, `codex-personal` -- every one
-    # `_meta`-only) get `expected_today=FAIL` per-result, same pattern as
-    # E-3 above and H-6's hollow-rung branch.
+    # majority). Per-result `expected_today` is now COMPUTED, never a
+    # hardcoded subject list: `check_e4_resolve_attribution_matches_lock`
+    # inspects the winning layer's own `policy.allowed_signers` for the
+    # resolved item's dimension and only marks a lock-empty FAIL as
+    # `expected_today=FAIL` when that layer is genuinely policy-blocked by
+    # its own manifest (empty allowed-signers list on an executable
+    # dimension -- `core/ecosystem/policy.py`'s `EXECUTABLE_DIMENSIONS`,
+    # the SAME signer requirement `materialize()` enforces, reused rather
+    # than re-derived). A lock-empty winner that is NOT policy-blocked
+    # (real signers configured, `cc update` simply never ran, or some
+    # other unexplained gap) gets `expected_today=PASS` instead -- an
+    # honest "this looks like a real problem" signal a baseline diff would
+    # surface as a regression, never silently absorbed into "known
+    # exception." Live-verified 2026-08-11: `claude-organization`,
+    # `knowledge-personal`, `cli-personal`, `codex-personal` are today's
+    # policy-blocked instances (every one declares `allowed_signers: []`
+    # in `copilot.layers.yml`), but this check no longer depends on that
+    # specific list staying fixed -- it re-derives the reason every run.
     expected_today=ExpectedToday.PASS,
 )
 
@@ -497,6 +518,39 @@ def check_e3_draft_placeholder_never_shadows(
 # ---------------------------------------------------------------------------
 
 
+def _policy_blocked_reason(
+    layer: Mapping[str, Any] | None, dimension: str
+) -> str | None:
+    """`None` when `layer`/`dimension` gives no reason to expect a
+    policy-block; otherwise a human-readable reason string.
+
+    Reuses `core/ecosystem/policy.py`'s `EXECUTABLE_DIMENSIONS` and its
+    `verify_git_item` short-circuit (`if not allowed: return False, None`)
+    rather than re-deriving the signer requirement: a layer whose manifest
+    entry declares `policy.allowed_signers: []` (or omits `policy`
+    entirely) can NEVER pass verification for an executable dimension, so
+    `materialize()` fail-closed-blocks every item of that shape and
+    substitutes a verified shadow layer instead (`materialize.py`'s
+    `blocked_winner`/`reason` op fields) -- the winning layer's own lock
+    entry legitimately stays `_meta`-only forever, by design, not because
+    `cc update` hasn't run yet."""
+
+    if layer is None or dimension not in EXECUTABLE_DIMENSIONS:
+        return None
+    allowed_signers = (layer.get("policy") or {}).get("allowed_signers") or []
+    if allowed_signers:
+        return None
+    return (
+        f"{layer.get('id', '<unknown>')!r} declares no allowed_signers for "
+        f"the executable dimension {dimension!r} -- the fail-closed policy "
+        "gate (core/ecosystem/policy.py's verify_git_item) can never "
+        "verify this layer's own content for this dimension, so "
+        "materialize() always substitutes a verified shadow layer instead "
+        "(policy-blocked by manifest configuration, not by absence of a "
+        "`cc update` run)"
+    )
+
+
 def check_e4_resolve_attribution_matches_lock(
     *,
     layers: Sequence[Mapping[str, Any]],
@@ -509,9 +563,24 @@ def check_e4_resolve_attribution_matches_lock(
     `winning_layer` claims a layer whose lock entry carries no real
     dimension pin at all -- only `_meta` (or nothing), meaning the
     resolver is trusting the live checkout while nothing ever recorded
-    that layer as actually materialized."""
+    that layer as actually materialized.
+
+    Two sources of truth (the resolver's `winning_layer` and the lock's
+    recorded pins) must genuinely agree; where they cannot, this function
+    tells the two apart rather than flattening them into one verdict:
+    a lock-empty winner whose OWN manifest entry is policy-blocked
+    (`_policy_blocked_reason`) is a legitimate, by-design outcome -- still
+    reported `verdict=FAIL` (the disagreement is real: `cc resolve
+    --explain` still names a layer the lock never actually backed), but
+    `expected_today=FAIL` because it is an already-understood, structural
+    fact, not a regression. A lock-empty winner with NO policy-blocked
+    reason gets `expected_today=PASS` instead -- an honest "this needs
+    investigation" signal, never silently absorbed into the same bucket as
+    the explained case. This is what keeps the check from being weakened
+    into always agreeing with whatever the lock happens to say."""
 
     items = resolve_layers(list(layers), dict(contributions), lockfile=dict(lockfile))
+    layer_by_id = {layer["id"]: layer for layer in layers}
     results: list[CheckResult] = []
 
     for item in items:
@@ -535,22 +604,42 @@ def check_e4_resolve_attribution_matches_lock(
             continue
 
         meta = entry.get(LAYER_META_KEY, {})
+        blocked_reason = _policy_blocked_reason(
+            layer_by_id.get(winning_layer), item["dimension"]
+        )
+        base_detail = (
+            f"resolve_layers claims winning_layer={winning_layer!r} for "
+            f"{item['dimension']}/{item['item']} (winning_sha={item['winning_sha']!r}) "
+            f"but the lock has never recorded a real materialization for this "
+            f"layer -- only {LAYER_META_KEY!r}={meta!r}. The resolver reads the "
+            "live checkout; the lock still reflects whatever (if anything) `cc "
+            "update` last pinned, which can silently disagree."
+        )
         evidence = (
             Evidence(
                 kind="lock-attribution",
                 path=winning_layer,
                 expected=(
                     "lock entry carries at least one real dimension pin "
-                    "(something was actually materialized for this layer)"
+                    "(something was actually materialized for this layer), "
+                    "OR the winning layer is policy-blocked by its own "
+                    "manifest for this dimension (a legitimate reason to "
+                    "carry no real pin)"
                 ),
                 actual=f"lock entry keys={sorted(entry) or ['<absent from lockfile>']}",
                 detail=(
-                    f"resolve_layers claims winning_layer={winning_layer!r} for "
-                    f"{item['dimension']}/{item['item']} (winning_sha={item['winning_sha']!r}) "
-                    f"but the lock has never recorded a real materialization for this "
-                    f"layer -- only {LAYER_META_KEY!r}={meta!r}. The resolver reads the "
-                    "live checkout; the lock still reflects whatever (if anything) `cc "
-                    "update` last pinned, which can silently disagree."
+                    f"{base_detail} POLICY-BLOCKED (by design): {blocked_reason}."
+                    if blocked_reason
+                    else (
+                        f"{base_detail} NOT POLICY-BLOCKED -- no policy-blocked "
+                        "reason found for this layer/dimension (its manifest "
+                        "entry declares a real allowed_signers list, or the "
+                        "dimension isn't execution-gated at all) -- this looks "
+                        "like a genuine gap: either `cc update` has never run "
+                        "for this layer, or something else is silently "
+                        "preventing materialization. Investigate rather than "
+                        "assume."
+                    )
                 ),
             ),
         )
@@ -559,14 +648,14 @@ def check_e4_resolve_attribution_matches_lock(
                 subject=subject,
                 verdict=Verdict.FAIL,
                 evidence=evidence,
-                # Live-verified 2026-08-11: exactly `claude-organization`,
-                # `knowledge-personal`, `cli-personal`, `codex-personal` are
-                # `_meta`-only today (the task's own named live discrepancy
-                # is the `claude-organization`/`commands/protocol` one) --
-                # FAIL is the honest, already-confirmed prediction for
-                # whichever winning layer lands in this branch, not a
-                # blind mirror of this run's own computed verdict.
-                expected_today=ExpectedToday.FAIL,
+                # Computed, not hardcoded: FAIL is only "expected" here when
+                # `blocked_reason` names a real, manifest-backed policy
+                # block (see this function's own docstring and
+                # `_policy_blocked_reason`). Anything else is surfaced as
+                # an unexpected FAIL a baseline diff would flag.
+                expected_today=(
+                    ExpectedToday.FAIL if blocked_reason else ExpectedToday.PASS
+                ),
             )
         )
     return tuple(results)

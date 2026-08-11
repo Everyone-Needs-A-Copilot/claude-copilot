@@ -106,11 +106,16 @@ class TestE1OrgContentReachesProject:
         results = conformance_cmd._run_installer_effectiveness_machine()
         e1_results = [r for r in results if r.id == eff.E1_ORG_CONTENT_REACHES_PROJECT.id]
         assert e1_results, "installer effectiveness probe produced no E-1 result"
-        assert e1_results[0].verdict is Verdict.FAIL, (
-            "TASK-live-2026-08-11: setup-project.md's Copy Agents step is "
-            "still hardcoded to a single ~/.claude/copilot source and never "
-            "consults copilot.layers.yml -- this is expected to flip to "
-            "PASS once the tier-aware install plan lands"
+        assert e1_results[0].verdict is Verdict.PASS, (
+            "TASK-live-2026-08-11, re-verified 2026-08-11: setup-project.md's "
+            "Copy Agents step now resolves each agent through "
+            "resolve_claude_content() (core/ecosystem/project_sources.py) "
+            "instead of a single hardcoded ~/.claude/copilot source, and "
+            "this harness's own fixture is wired into the scratch $HOME's "
+            "layers.manifest BEFORE the bash runs (previously built "
+            "afterward, so no installer could ever have seen it) -- both "
+            "were required for the org tier's content to actually reach "
+            "the installed file"
         )
 
 
@@ -164,10 +169,12 @@ class TestE2NearestWinsPreservesSiblings:
         ]
         assert e2_results, "installer effectiveness probe produced no E-2 result"
         assert e2_results[0].verdict is Verdict.PASS, (
-            "today's single-source installer copies the whole roster "
-            "unconditionally, so nothing is ever lost -- this is a "
-            "regression guard for the future tier-aware installer, not "
-            "evidence today's installer is tier-aware"
+            "re-verified 2026-08-11 against the now-tier-aware installer: "
+            "resolve_claude_content() resolves PER agent, not per root, so "
+            "one agent (cco) winning from the organization tier costs the "
+            "project none of the other roster agents, which still resolve "
+            "from the foundation -- nearest-wins stays per-item even now "
+            "that the installer actually consults the ladder"
         )
 
 
@@ -249,12 +256,21 @@ class TestE3DraftPlaceholderNeverShadowsResolverWide:
 
     @requires_real_machine
     @pytest.mark.machine
-    def test_machine_org_protocol_override_is_a_live_known_placeholder(self):
-        """TASK-live-2026-08-11: `claude-copilot-internal`'s own
-        `commands/protocol.md` opens "TODO(pablo): this section is
-        currently a no-op placeholder ... byte-for-byte" reproduction of
-        the foundation copy -- a real, live instance of exactly the
-        shadow-substance bug this check generalizes H-3/Q25 to catch."""
+    def test_machine_org_protocol_placeholder_was_removed_not_papered_over(self):
+        """TASK-live-2026-08-11, re-verified 2026-08-11: `claude-copilot-
+        internal`'s `commands/protocol.md` used to open "TODO(pablo): this
+        section is currently a no-op placeholder ... byte-for-byte"
+        reproduction of the foundation copy -- a real, live instance of
+        exactly the shadow-substance bug this check generalizes H-3/Q25 to
+        catch. Per the task's own instruction not to author the owner's
+        company protocol content, the fix was to DELETE the empty, stale
+        fork (982 lines vs. foundation's 994, carrying an outdated
+        extension-resolution algorithm) rather than launder it by
+        rebasing -- so the organization tier now declares nothing for
+        `commands/protocol` and resolution honestly falls through to the
+        foundation's real, current content. This test asserts the
+        substance guard is no longer even reached for this item (nothing
+        to guard against), never that the guard was relaxed."""
 
         from cc.commands import conformance as conformance_cmd
 
@@ -263,13 +279,12 @@ class TestE3DraftPlaceholderNeverShadowsResolverWide:
         e3_results = [
             r for r in results if r.id == eff.E3_DRAFT_PLACEHOLDER_NEVER_SHADOWS.id
         ]
-        assert e3_results, "resolver effectiveness probe produced no E-3 result"
-        fails = [r for r in e3_results if r.verdict is Verdict.FAIL]
-        assert fails, (
-            "expected at least the known claude/commands/protocol placeholder "
-            "to still be flagged"
+        protocol_results = [r for r in e3_results if "protocol" in r.subject]
+        assert protocol_results == [], (
+            "claude/commands/protocol should no longer appear in E-3 results "
+            "at all -- the organization tier declares nothing for it now, so "
+            "there is nothing shadowed to evaluate substance against"
         )
-        assert any("protocol" in r.subject for r in fails)
 
 
 # ---------------------------------------------------------------------------
@@ -337,13 +352,17 @@ class TestE4AttributionMatchesLock:
 
     @requires_real_machine
     @pytest.mark.machine
-    def test_machine_claude_organization_is_a_live_meta_only_entry(self):
-        """TASK-live-2026-08-11 ground truth: `cc resolve --explain`
-        reports `winning_layer: claude-organization` for `commands/
-        protocol`, while `~/.claude/cc/copilot.lock.json`'s
-        `claude-organization` entry carries only `_meta` -- the resolver
-        reads the live checkout, the lock still reflects a July mirror pin
-        with no `commands/` ever recorded."""
+    def test_machine_claude_organization_no_longer_wins_anything(self):
+        """TASK-live-2026-08-11 ground truth (superseded, re-verified
+        2026-08-11): `cc resolve --explain` used to report `winning_layer:
+        claude-organization` for `commands/protocol`, while `~/.claude/cc/
+        copilot.lock.json`'s `claude-organization` entry carried only
+        `_meta`. That specific discrepancy is now closed at the source: the
+        stale, empty `commands/protocol.md` placeholder in
+        `claude-copilot-internal` was deleted (E-3's fix, this same task),
+        so `claude-organization` no longer declares anything and cannot
+        win any item at all -- it simply never appears as a `winning_layer`
+        in E-4's results any more, not because the check stopped looking."""
 
         from cc.commands import conformance as conformance_cmd
 
@@ -353,15 +372,91 @@ class TestE4AttributionMatchesLock:
             r for r in results if r.id == eff.E4_ATTRIBUTION_MATCHES_LOCK.id
         ]
         assert e4_results, "resolver effectiveness probe produced no E-4 result"
-        org_fails = [
-            r
-            for r in e4_results
-            if r.verdict is Verdict.FAIL and "claude-organization" in r.subject
-        ]
-        assert org_fails, (
-            "expected the known claude-organization/_meta-only discrepancy "
-            "to still be flagged"
+        org_results = [r for r in e4_results if "claude-organization" in r.subject]
+        assert org_results == [], (
+            "claude-organization should not win any item now that its only "
+            "declared content (commands/protocol.md) has been removed"
         )
+
+    # NOTE: deliberately NOT a `@pytest.mark.machine` test. `tests/conftest.py`'s
+    # autouse `_isolate_machine_config` fixture redirects `CC_MACHINE_ROOT`
+    # for EVERY test with no exemption for `machine`-marked ones, so
+    # `read_lockfile(default_lockfile_path())` is ALWAYS `{}` inside pytest
+    # regardless of the real machine's actual lockfile content -- a
+    # "machine" test asserting on `expected_today` here would trivially
+    # pass no matter what the real lockfile says (every winner would look
+    # lock-empty), proving nothing. These two fixture tests exercise the
+    # SAME dynamic logic (`_policy_blocked_reason`) deterministically
+    # instead, matching this file's own two-fixture-rule discipline.
+    _POLICY_BLOCKED_LAYERS = [
+        {
+            "id": "org",
+            "role": "organization",
+            "rank": 30,
+            "product": "claude",
+            "source": {"repo": "file:///org", "path": "/org"},
+            "auth": "anon",
+            "activation": "always",
+            "policy": {"allowed_signers": []},
+        },
+        {
+            "id": "foundation",
+            "role": "foundation",
+            "rank": 40,
+            "product": "claude",
+            "source": {"repo": "file:///foundation", "path": "/foundation"},
+            "auth": "anon",
+            "activation": "always",
+            "policy": {"allowed_signers": ["SHA256:deadbeef"]},
+        },
+    ]
+
+    def test_fixture_fail_policy_blocked_winner_is_expected(self):
+        """`org` declares `allowed_signers: []` for `commands` (an
+        executable dimension per `core/ecosystem/policy.py`'s
+        `EXECUTABLE_DIMENSIONS`) -- the exact live shape of
+        `knowledge-personal`/`cli-personal`/`codex-personal`/(the now-
+        removed) `claude-organization` in `copilot.layers.yml` today.
+        `verdict` stays FAIL (the resolver still names a layer the lock
+        never backed -- that disagreement is real), but `expected_today`
+        must be FAIL too: this is a legitimate, already-understood,
+        by-design outcome, not a regression."""
+
+        lockfile = {"org": {LAYER_META_KEY: {"product": "claude"}}}
+        results = eff.check_e4_resolve_attribution_matches_lock(
+            layers=self._POLICY_BLOCKED_LAYERS,
+            contributions=self._CONTRIBUTIONS,
+            lockfile=lockfile,
+        )
+        assert len(results) == 1
+        assert results[0].verdict is Verdict.FAIL
+        assert results[0].expected_today is eff.ExpectedToday.FAIL
+        assert "POLICY-BLOCKED" in results[0].evidence[0].detail
+
+    def test_fixture_fail_non_policy_blocked_winner_is_unexpected(self):
+        """Same shape, but the WINNER (`foundation`) declares a real
+        signer -- there is no policy-blocked reason for its lock entry to
+        be empty, so this must surface as `expected_today=PASS` (an
+        honest "investigate this" signal a baseline diff would flag as a
+        regression), never silently absorbed into the same "known
+        exception" bucket as a genuinely policy-blocked winner. This is
+        the check refusing to be weakened into always agreeing with
+        whatever the lock happens to say."""
+
+        contributions = {
+            "org": {},
+            "foundation": {"commands": {"protocol": "sha-foundation-1"}},
+        }
+        lockfile = {"foundation": {LAYER_META_KEY: {"product": "claude"}}}
+        results = eff.check_e4_resolve_attribution_matches_lock(
+            layers=self._POLICY_BLOCKED_LAYERS,
+            contributions=contributions,
+            lockfile=lockfile,
+        )
+        assert len(results) == 1
+        assert results[0].verdict is Verdict.FAIL
+        assert results[0].expected_today is eff.ExpectedToday.PASS
+        assert "NOT POLICY-BLOCKED" in results[0].evidence[0].detail
 
 
 # ---------------------------------------------------------------------------
@@ -486,13 +581,23 @@ class TestE6ExtensionResolutionWiredBeyondProse:
 
     @requires_real_machine
     @pytest.mark.machine
-    def test_machine_no_hook_or_script_invokes_it_today(self, machine_readonly_guard):
-        """TASK-live-2026-08-11: grepping the framework's real executable
-        surface (`.claude`, `plugins`, `scripts`) for a non-comment `cc
-        extensions resolve` invocation finds 0 -- every occurrence is
-        inside agent/command markdown prose. Reads `_CLAUDE_COPILOT_ROOT`
-        directly, same isolation-avoidance reason as the E-5 machine test
-        above."""
+    def test_machine_pretool_check_hook_now_invokes_it_for_real(self, machine_readonly_guard):
+        """TASK-live-2026-08-11, re-verified 2026-08-11: `.claude` now
+        PASSES -- `.claude/hooks/pretool-check.sh` gained a real
+        `rule_extension_resolution` that calls `cc extensions resolve
+        --agent <id> --json` on a direct main-session @agent-X dispatch
+        (scoped to the small named roster of agents a real org/personal
+        knowledge-manifest.json plausibly declares an extension for --
+        never every agent, which would tax the framework's single most
+        frequent operation for the ~half of the roster that can only ever
+        resolve to `no_extension`) and denies on `fallback_fail`, the one
+        outcome every wired agent's own file already documented as a hard
+        stop but had no enforced consumer for. `plugins`/`scripts`
+        correctly stay FAIL -- neither has any reason to invoke extension
+        resolution, and wiring it there anyway would be exactly the
+        cargo-culting this check exists to catch, not a fix. Reads
+        `_CLAUDE_COPILOT_ROOT` directly, same isolation-avoidance reason as
+        the E-5 machine test above."""
 
         candidates = [
             _CLAUDE_COPILOT_ROOT / relative
@@ -507,6 +612,11 @@ class TestE6ExtensionResolutionWiredBeyondProse:
                 for path in candidates
             ]
 
-        assert all(r.verdict is Verdict.FAIL for r in results), [
-            (r.subject, r.detail) for r in results if r.verdict is not Verdict.FAIL
-        ]
+        by_name = {Path(r.subject).name: r for r in results}
+        assert by_name[".claude"].verdict is Verdict.PASS, by_name[".claude"].detail
+        for name in ("plugins", "scripts"):
+            if name in by_name:
+                assert by_name[name].verdict is Verdict.FAIL, (
+                    f"{name}: expected still-FAIL (nothing there legitimately "
+                    "invokes extension resolution)"
+                )

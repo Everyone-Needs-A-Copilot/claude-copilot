@@ -84,6 +84,7 @@ from pathlib import Path
 from typing import Any, Callable, List, Optional, Sequence
 
 import typer
+import yaml as _yaml
 
 from cc.core.config import resolve_key, resolve_knowledge_repos
 from cc.core.conformance import classes as classes_mod
@@ -399,7 +400,19 @@ def _run_installer_effectiveness_machine() -> tuple[CheckResult, ...]:
     organization-tier override SHOULD produce. Every write happens inside a
     fresh `tempfile.TemporaryDirectory()`; no real project or real tier repo
     is ever touched, matching `HARNESS-DESIGN.md` §5.3's rule for any check
-    that needs a mutable target."""
+    that needs a mutable target.
+
+    The synthetic org-tier fixture is built and wired into the scratch
+    `$HOME`'s OWN `layers.manifest` config BEFORE `run_bash_steps` below --
+    a prior version of this function built the fixture AFTER the real bash
+    already ran, so no implementation of Step 6 could ever have discovered
+    it (the fixture and the bash execution were two disconnected
+    computations that happened to be compared afterward). It also uses
+    `product: "claude"`, matching `resolve_claude_content()`'s own
+    `layer.get("product") == "claude"` filter -- the prior
+    `"effectiveness-probe"` product could never be picked up by the real
+    per-product resolver either. Both were live bugs in THIS harness
+    function, not in the installer it drives."""
 
     try:
         framework_root = roundtrip.discover_framework_repo_root()
@@ -435,6 +448,72 @@ def _run_installer_effectiveness_machine() -> tuple[CheckResult, ...]:
         )
         env = roundtrip.build_scratch_env(home=home, cc_bin=cc_bin)
 
+        # A marker ONLY this synthetic org-tier fixture file carries -- the
+        # real foundation content cannot contain it by coincidence, so a
+        # match in `installed_content` can only mean the org tier's content
+        # actually reached the project. The foundation's own real content
+        # for `probe_agent` is prefixed with the marker (rather than the
+        # marker standing alone) so the fixture is trivially
+        # substance-gate-safe (core/ecosystem/substance.py's size-ratio
+        # heuristic: a real override must be >= half the size of what it
+        # shadows) -- a tiny marker-only stub would be, correctly, REJECTED
+        # by the same guard E-3 exists to prove works, which would make
+        # this probe fail for the wrong reason entirely.
+        marker = "EFFECTIVENESS-PROBE-ORG-MARKER-38fbe4a1"
+        foundation_dir = home / ".claude" / "copilot" / ".claude"
+        foundation_agent_path = foundation_dir / "agents" / f"{probe_agent}.md"
+        foundation_agent_text = (
+            foundation_agent_path.read_text(encoding="utf-8")
+            if foundation_agent_path.is_file()
+            else ""
+        )
+        org_dir = tmp_path / "org-tier"
+        (org_dir / "agents").mkdir(parents=True, exist_ok=True)
+        (org_dir / "agents" / f"{probe_agent}.md").write_text(
+            f"---\nstatus: active\n---\n{marker}\n\n{foundation_agent_text}",
+            encoding="utf-8",
+        )
+
+        # `validate_layers` requires ascending-rank order per product --
+        # nearest (lowest rank number, highest precedence) first.
+        probe_layers: list[dict[str, Any]] = [
+            {
+                "id": "probe-organization",
+                "role": "organization",
+                "rank": 30,
+                "product": "claude",
+                "source": {"repo": f"file://{org_dir}", "path": str(org_dir)},
+                "auth": "anon",
+                "activation": "always",
+            },
+            {
+                "id": "probe-foundation",
+                "role": "foundation",
+                "rank": 40,
+                "product": "claude",
+                "source": {"repo": f"file://{foundation_dir}", "path": str(foundation_dir)},
+                "auth": "anon",
+                "activation": "always",
+            },
+        ]
+
+        # Wire the fixture into the scratch $HOME's OWN machine config --
+        # the SAME `layers.manifest` key `resolve_key("layers.manifest")`
+        # (config_paths.py, honoring `CC_MACHINE_ROOT` -- already set to
+        # `home/.claude/cc` by `build_scratch_env`) reads -- so the bash
+        # steps about to run (a genuinely tier-aware Step 6) discover this
+        # fixture exactly as they would a real `copilot.layers.yml`.
+        manifest_path = tmp_path / "copilot.layers.yml"
+        manifest_path.write_text(
+            _yaml.safe_dump({"version": 1, "layers": probe_layers}, sort_keys=False),
+            encoding="utf-8",
+        )
+        machine_config_dir = home / ".claude" / "cc"
+        machine_config_dir.mkdir(parents=True, exist_ok=True)
+        (machine_config_dir / "config.json").write_text(
+            _json.dumps({"layers": {"manifest": str(manifest_path)}}), encoding="utf-8"
+        )
+
         markdown = setup_project_path.read_text(encoding="utf-8")
         try:
             blocks = roundtrip.extract_bash_steps(
@@ -451,40 +530,6 @@ def _run_installer_effectiveness_machine() -> tuple[CheckResult, ...]:
                 agent_path.read_text(encoding="utf-8") if agent_path.is_file() else None
             )
 
-        # A marker ONLY this synthetic org-tier fixture file carries -- the
-        # real foundation content cannot contain it by coincidence, so a
-        # match in `installed_content` can only mean the org tier's content
-        # actually reached the project.
-        marker = "EFFECTIVENESS-PROBE-ORG-MARKER-38fbe4a1"
-        org_dir = tmp_path / "org-tier"
-        (org_dir / "agents").mkdir(parents=True, exist_ok=True)
-        (org_dir / "agents" / f"{probe_agent}.md").write_text(
-            f"---\nstatus: active\n---\n{marker}\n", encoding="utf-8"
-        )
-        foundation_dir = home / ".claude" / "copilot" / ".claude"
-
-        # `validate_layers` requires ascending-rank order per product --
-        # nearest (lowest rank number, highest precedence) first.
-        probe_layers: list[dict[str, Any]] = [
-            {
-                "id": "probe-organization",
-                "role": "organization",
-                "rank": 30,
-                "product": "effectiveness-probe",
-                "source": {"repo": f"file://{org_dir}", "path": str(org_dir)},
-                "auth": "anon",
-                "activation": "always",
-            },
-            {
-                "id": "probe-foundation",
-                "role": "foundation",
-                "rank": 40,
-                "product": "effectiveness-probe",
-                "source": {"repo": f"file://{foundation_dir}", "path": str(foundation_dir)},
-                "auth": "anon",
-                "activation": "always",
-            },
-        ]
         probe_contributions = discover_contributions(probe_layers, dimensions=("agents",))
         probe_items = {
             item["item"]: item

@@ -147,41 +147,64 @@ Should show all 7 project commands: `continue.md`, `extensions.md`, `map.md`, `m
 
 ## Step 6: Copy Agents
 
-Copy only framework-owned agents (from the roster manifest in VERSION.json). This preserves any project-specific agents that may already exist.
+Copy only framework-owned agents (from the roster manifest in VERSION.json), resolved through the tier ladder so a nearer tier's (personal/department/organization) real content wins over the foundation's, per-agent -- never always from one hardcoded root (EFFECTIVENESS E-1). This preserves any project-specific agents that may already exist.
 
 ```bash
-# Read framework agent roster from VERSION.json. One agent id PER LINE --
-# never space-joined -- so the loop below reads it with `while read`
-# instead of relying on word-splitting an unquoted scalar. bash splits an
-# unquoted `$ROSTER` on IFS whitespace by default; zsh does NOT, so
-# `for agent in $ROSTER` silently ran ONCE with the entire roster as a
-# single value under zsh (this machine's login shell) -- every agent copy
-# below was a silent no-op, while the step still reported success with
-# its own freshly-computed counts. Verified live under both shells.
+# `resolve_claude_content()` (core/ecosystem/project_sources.py) is the
+# SAME per-item nearest-SUBSTANTIVE-tier-wins fold `cc resolve --explain`
+# and `cc update --fanout` already use -- reused here, never re-derived,
+# so a project's first install can never disagree with what those report.
+# It degrades byte-for-byte to today's single-root behavior whenever no
+# `layers.manifest` is configured (the common case for a solo machine with
+# no organization tier), so this is a strict superset of the old `cp`
+# loop, not a behavior change for a project with no ladder.
+#
+# One python3 process does BOTH the resolution AND the copy: if the `cc`
+# package import itself fails (not "no manifest configured", which
+# `resolve_claude_content` already handles honestly -- an actual import
+# failure), `resolved` stays empty and the per-agent fallback below reads
+# straight from `$COPILOT_PATH/.claude/agents/<agent>.md`, so a broken `cc`
+# install still yields today's foundation-only result rather than an
+# empty `.claude/agents/`.
 COPILOT_PATH=~/.claude/copilot
-ROSTER=$(python3 -c "
-import json, sys
-with open('$COPILOT_PATH/VERSION.json') as f:
-    v = json.load(f)
-agents = list(v['components']['agents']['frameworkAgents'])
-agents.append('kc')  # setup-only agent; VERSION.json's frameworkAgents deliberately excludes it
-print('\n'.join(agents))
-" 2>/dev/null || printf '%s\n' cco cpa cs cw do doc ind kc me qa sd sec ta uid uids uxd)
+mkdir -p .claude/agents
 
-# `while read` off a herestring (not a pipe) runs in THIS shell, not a
-# subshell, and is correct under both bash and zsh regardless of
-# word-splitting settings, since it never relies on unquoted splitting.
-while IFS= read -r agent; do
-  [ -z "$agent" ] && continue
-  if [ -f "$COPILOT_PATH/.claude/agents/${agent}.md" ]; then
-    existing=".claude/agents/${agent}.md"
-    if [ -f "$existing" ] && grep -q '^owner: project' "$existing" 2>/dev/null; then
-      echo "preserved project-owned agent: ${agent}"
-    else
-      cp "$COPILOT_PATH/.claude/agents/${agent}.md" .claude/agents/
-    fi
-  fi
-done <<< "$ROSTER"
+python3 -c "
+import json
+import shutil
+from pathlib import Path
+
+copilot_path = Path('$COPILOT_PATH').expanduser()
+with open(copilot_path / 'VERSION.json') as f:
+    v = json.load(f)
+roster = list(v['components']['agents']['frameworkAgents'])
+roster.append('kc')  # setup-only agent; VERSION.json's frameworkAgents deliberately excludes it
+
+try:
+    from cc.core.ecosystem.project_sources import resolve_claude_content
+    resolved = resolve_claude_content(foundation_root=copilot_path, items={'agents': roster})
+except Exception:
+    resolved = {}
+
+project_agents_dir = Path('.claude/agents')
+for agent in roster:
+    entry = resolved.get(('agents', agent))
+    src = entry.path if entry is not None else (copilot_path / '.claude' / 'agents' / f'{agent}.md')
+    if not src.is_file():
+        continue
+    dest = project_agents_dir / f'{agent}.md'
+    if dest.is_file():
+        try:
+            head_lines = dest.read_text(encoding='utf-8').splitlines()[:20]
+        except OSError:
+            head_lines = []
+        if any(line.strip() == 'owner: project' for line in head_lines):
+            print(f'preserved project-owned agent: {agent}')
+            continue
+    shutil.copyfile(src, dest)
+    layer = entry.layer if (entry is not None and entry.ladder_resolved) else 'foundation'
+    print(f'installed {agent} <- {layer}')
+"
 ```
 
 **Verify:**

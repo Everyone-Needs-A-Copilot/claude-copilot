@@ -12,6 +12,7 @@
 # ESCAPE HATCH:
 #   Set COPILOT_FORCE_DELEGATE=off to bypass all force-delegate checks.
 #   Set COPILOT_QA_GATE=off to bypass all QA gate checks.
+#   Set COPILOT_EXTENSIONS_GATE=off to bypass the extension-resolution gate.
 #
 # INPUT (stdin):
 #   JSON object with fields:
@@ -41,6 +42,14 @@
 #   2. qa-gate — deny all tool calls except Agent(qa) and safe tc Bash calls
 #      while any task is in pending-qa state for this session.
 #      Task: 16 (P4.1). Bypass: COPILOT_QA_GATE=off
+#   3. extension-resolution — on a direct @agent-X dispatch (Agent tool,
+#      main session, no /protocol in between), actually run `cc extensions
+#      resolve --agent <id> --json` and deny if it comes back
+#      `fallback_fail` (required skills missing, fallbackBehavior: fail) —
+#      the one outcome every wired agent's own instructions already
+#      document as a hard stop but had no enforced consumer for
+#      (EFFECTIVENESS E-6: a mention in agent/command markdown is not a
+#      consumer). Bypass: COPILOT_EXTENSIONS_GATE=off
 
 set -uEo pipefail
 # -u  : nounset — error on unbound variables
@@ -553,6 +562,74 @@ rule_qa_gate() {
 }
 
 # ---------------------------------------------------------------------------
+# Rule: extension-resolution
+# On a direct main-session @agent-X dispatch, run `cc extensions resolve
+# --agent <id> --json` for real and deny only on `fallback_fail` — every
+# wired agent's own file already documents this as "stop, explain warning,
+# do not proceed", but that was prose an LLM could choose not to follow
+# (EFFECTIVENESS E-6). Every other action (no_extension / apply /
+# fallback_use_base / fallback_use_base_with_warning) is a pass-through:
+# resolving here only ENFORCES the one failure mode; composing the
+# extension into the agent's own instructions is still each wired agent's
+# own Workflow step (a PreToolUse hook has no channel to rewrite the
+# subagent's system prompt, only to allow/deny the dispatch).
+#
+# EXTENSION_GATE_AGENTS is deliberately a small, named roster — the exact
+# agents a real org/personal knowledge-manifest.json declares (or could
+# plausibly declare) an extension for today (sd/cw/do/ind/uxd, plus
+# uids/cco which are wired even with no current declaration — see their
+# own agent files), never "every framework agent". `cc extensions
+# resolve` is a real subprocess (this hook's own PERFORMANCE TARGET is
+# <50ms; a cold Python start is 100-300ms per this file's own
+# _load_manifest_agents comment) — paying that cost on EVERY @agent-X
+# dispatch, including the ~half of the roster (me/qa/ta/doc/sec/cs/cpa/
+# uid) that will only ever resolve to `no_extension`, would tax the
+# framework's single most frequent operation for zero behavioral value.
+# Bypass: COPILOT_EXTENSIONS_GATE=off
+# ---------------------------------------------------------------------------
+EXTENSION_GATE_AGENTS="sd cw do ind uxd uids cco"
+
+rule_extension_resolution() {
+  if [[ "${COPILOT_EXTENSIONS_GATE:-}" == "off" ]]; then
+    return 0
+  fi
+
+  [[ "$TOOL_NAME" != "Agent" ]] && return 0
+  # A subagent's OWN nested Agent call (non-empty AGENT_TYPE) is not this
+  # rule's concern — only the main session's direct dispatch is what
+  # /protocol's algorithm and each wired agent's own Workflow step 3
+  # otherwise resolve for themselves with no enforced consumer.
+  [[ -n "$AGENT_TYPE" ]] && return 0
+  command -v cc &>/dev/null || return 0
+
+  local subagent_type
+  subagent_type="$("$JQ" -r '.tool_input.subagent_type // ""' <<< "$PAYLOAD" 2>/dev/null)" \
+    || return 0
+  [[ -z "$subagent_type" ]] && return 0
+
+  local candidate matched=0
+  for candidate in $EXTENSION_GATE_AGENTS; do
+    if [[ "$candidate" == "$subagent_type" ]]; then
+      matched=1
+      break
+    fi
+  done
+  [[ "$matched" -eq 0 ]] && return 0
+
+  local resolution action warning
+  resolution="$(cc extensions resolve --agent "$subagent_type" --json 2>/dev/null)" || return 0
+  [[ -z "$resolution" ]] && return 0
+  action="$("$JQ" -r '.action // ""' <<< "$resolution" 2>/dev/null)" || return 0
+
+  if [[ "$action" == "fallback_fail" ]]; then
+    warning="$("$JQ" -r '.warning // "required skills unavailable"' <<< "$resolution" 2>/dev/null)"
+    deny "Extension resolution for @agent-${subagent_type}: ${warning:-required skills unavailable} — fallbackBehavior is 'fail', so neither the base agent nor its extension may proceed. Resolve the missing skill(s), or have the declaring manifest set a different fallbackBehavior. Bypass: COPILOT_EXTENSIONS_GATE=off"
+  fi
+
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # Rule: destructive-command (/careful)
 # Reads enabled rules from security-rules.json and tests the Bash command
 # string against each rule's patterns (case-insensitive).
@@ -688,6 +765,7 @@ rule_path_scope() {
 # ---------------------------------------------------------------------------
 rule_force_delegate
 rule_qa_gate
+rule_extension_resolution
 rule_destructive_command
 rule_path_scope
 
