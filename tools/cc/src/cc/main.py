@@ -583,10 +583,25 @@ def update_cmd(
         raise typer.Exit(exit_code)
 
     if fanout:
-        from cc.commands.projects import execute_fanout, render_fanout_report_rich
+        from cc.commands.projects import (
+            execute_fanout,
+            render_fanout_report_rich,
+            resolve_fanout_sources,
+        )
+        from cc.core.ecosystem.workspaces import default_excluded_registry
 
         try:
-            report, exit_code = execute_fanout(dry_run=dry_run)
+            # Real production wiring: without these, every project folds to
+            # "latest unknown" and the sweep silently finds nothing (`total:
+            # 0`) -- see `resolve_fanout_sources()`'s own docstring.
+            source_roots, latest_by_product, release_tags = resolve_fanout_sources()
+            report, exit_code = execute_fanout(
+                dry_run=dry_run,
+                _source_roots=source_roots,
+                _latest_by_product=latest_by_product,
+                _release_tags=release_tags,
+                _excluded_registry=default_excluded_registry(),
+            )
         except Exception as exc:  # environment/unexpected error -> exit 2
             if output_json:
                 typer.echo(

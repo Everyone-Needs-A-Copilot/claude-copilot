@@ -96,18 +96,19 @@
         "summary": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["updated", "held", "up_to_date", "failed", "total"],
+          "required": ["updated", "held", "up_to_date", "failed", "excluded", "total"],
           "properties": {
             "updated": { "type": "integer", "minimum": 0, "description": "Count of (project, component) pairs materialized (`result: applied`) this run -- powers the 'across N of your projects' line." },
             "held": { "type": "integer", "minimum": 0, "description": "Count held for dirty WIP (`result: held`) -- 'waiting on your unsaved changes'." },
             "up_to_date": { "type": "integer", "minimum": 0 },
-            "failed": { "type": "integer", "minimum": 0, "description": "Count that neither applied nor held -- folds in both `blocked` (e.g. unverified target) and `offline` (unreachable source content) outcomes; each result item's own `result`/`report.result` field still distinguishes which." },
+            "failed": { "type": "integer", "minimum": 0, "description": "Count that neither applied nor held -- folds in both `blocked` (e.g. unverified target, unreadable manifest, or unknown latest version) and `offline` (unreachable source content) outcomes; each result item's own `result`/`report.result` field still distinguishes which, and `reason` explains why." },
+            "excluded": { "type": "integer", "minimum": 0, "description": "Count of projects on the machine-local excluded-projects registry (`cc workspace revert` / an owner decision) -- present on disk, deliberately never fanned out to. Not a failure: never folded into `failed`, never affects the run's exit code." },
             "total": { "type": "integer", "minimum": 0 }
           }
         },
         "results": {
           "type": "array",
-          "description": "Per-(project, component) outcome. A project-level read failure (manifest unreadable) has `component: null` and no `report`; every successful attempt carries the full per-project materialize `report` (update.schema.json shape + `path`).",
+          "description": "Per-(project, component) outcome. A project-level read failure or exclusion (manifest unreadable, or excluded) has `component: null` and no `report`; every attempted materialize carries the full per-project `report` (update.schema.json shape + `path`). No pair is ever silently dropped from this array -- a skipped pair always carries a `result` + `reason` instead of vanishing.",
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -117,10 +118,10 @@
               "component": { "type": ["string", "null"], "enum": ["claude", "codex", null] },
               "result": {
                 "type": "string",
-                "enum": ["up-to-date", "blocked"],
-                "description": "Present ONLY for the two outcomes reported without a full per-project report: an honest up-to-date skip (nothing stale), or a project-level manifest-read failure."
+                "enum": ["up-to-date", "blocked", "excluded"],
+                "description": "Present ONLY for the outcomes reported without a full per-project report: an honest up-to-date skip (nothing stale), a project-level manifest-read failure, an unknown-latest skip, or an owner-excluded project."
               },
-              "reason": { "type": "string", "description": "Present alongside `result: blocked` for a project-level read failure or an unexpected per-component error." },
+              "reason": { "type": "string", "description": "Present alongside `result: blocked` or `result: excluded` -- WHY this pair was not materialized." },
               "report": {
                 "$ref": "update.schema.json",
                 "description": "Present for every attempted materialize (applied/held/blocked/offline outcomes) -- the SAME per-project report `cc materialize --project` returns standalone."

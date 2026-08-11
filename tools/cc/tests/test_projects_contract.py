@@ -27,12 +27,14 @@ from cc.commands.projects import (
     build_materialize_project_report,
     execute_fanout,
     execute_materialize_project,
+    resolve_fanout_sources,
 )
 from cc.core.ecosystem.projects import (
     discover_projects,
     project_freshness,
     read_project_lock,
 )
+from cc.core.ecosystem.workspaces import mark_project_excluded
 from cc.core.locking import copilot_lock
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
@@ -772,3 +774,198 @@ def test_execute_fanout_exit_code_reflects_held_and_failed(tmp_path):
 
     assert report["summary"]["held"] == 1
     assert exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# task-fanout-total-zero fix: unknown-latest is reported, never vanished
+# ---------------------------------------------------------------------------
+
+
+def test_fanout_unknown_latest_is_reported_not_silently_dropped(tmp_path):
+    """The exact defect this fixes: with no `_latest_by_product` entry for a
+    tracked component (the pre-fix `cc update --fanout` call site's actual
+    bug -- main.py wired neither `_source_roots` nor `_latest_by_product`),
+    the pair must still show up in `results[]`/`total` with an honest
+    `reason` -- never a bare `continue` that drops it from the count."""
+    project = tmp_path / "proj"
+    _git_init(project)
+    _write_files(project, {".claude/commands/x.md": "v1"})
+    _write_manifest(
+        project,
+        [_component("claude", "1.0.0", files=[_framework_file(".claude/commands/x.md", content="v1")])],
+    )
+    _git_commit_all(project)
+
+    report = build_fanout_report(_projects=[project])  # no _latest_by_product at all
+
+    _validate(report, "projects.schema.json")
+    assert report["summary"]["total"] == 1
+    assert report["summary"]["failed"] == 1
+    assert report["summary"]["updated"] == 0
+    assert report["summary"]["held"] == 0
+    assert report["results"][0]["path"] == str(project)
+    assert report["results"][0]["component"] == "claude"
+    assert report["results"][0]["result"] == "blocked"
+    assert "unknown" in report["results"][0]["reason"]
+
+
+def test_fanout_global_once_component_still_silently_excluded_by_design(tmp_path):
+    """Unlike the unknown-latest fix above, a `GLOBAL_ONCE_PRODUCTS`
+    component (out of `build_fanout_report()`'s scope by architecture, not
+    by accident) stays uncounted -- this is the existing, correct,
+    already-tested behavior (`test_fanout_never_applies_global_once_
+    products` above); re-asserted here alongside the fix so the
+    distinction between "legitimate scope exclusion" and "silent bug" is
+    pinned down in one place."""
+    project = tmp_path / "proj"
+    _git_init(project)
+    _write_manifest(
+        project, [_component("knowledge", "1.0.0", files=[_framework_file(".claude/knowledge/a.md")])]
+    )
+    _git_commit_all(project)
+
+    report = build_fanout_report(_projects=[project], _latest_by_product={"knowledge": "2.0.0"})
+
+    assert report["results"] == []
+    assert report["summary"]["total"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Q14 exclusions: excluded, but never invisible
+# ---------------------------------------------------------------------------
+
+
+def test_fanout_excludes_registered_project_without_touching_it(tmp_path):
+    excluded_project = _stale_project(tmp_path, "excluded-project", current="1.0.0")
+    kept_project = _stale_project(tmp_path, "kept-project", current="1.0.0")
+    source_root = _make_source_repo(tmp_path, {".claude/commands/x.md": "v2"}, name="source-v2")
+
+    registry_path = tmp_path / "excluded-projects.json"
+    mark_project_excluded(excluded_project, registry=registry_path)
+
+    before_checksum = hashlib.sha256((excluded_project / ".claude/commands/x.md").read_bytes()).hexdigest()
+
+    report = build_fanout_report(
+        _projects=[excluded_project, kept_project],
+        _latest_by_product={"claude": "2.0.0"},
+        _release_tags={"claude": "claude@2.0.0"},
+        _source_roots={"claude": source_root},
+        _excluded_registry=registry_path,
+    )
+
+    _validate(report, "projects.schema.json")
+    summary = report["summary"]
+    assert summary["excluded"] == 1
+    assert summary["updated"] == 1
+    assert summary["failed"] == 0
+    assert summary["total"] == 2
+
+    by_path = {r["path"]: r for r in report["results"]}
+    excluded_entry = by_path[str(excluded_project)]
+    assert excluded_entry["result"] == "excluded"
+    assert excluded_entry["component"] is None
+    assert "reason" in excluded_entry
+    assert by_path[str(kept_project)]["report"]["result"] == "applied"
+
+    # Never touched: on-disk content is bit-for-bit unchanged.
+    after_checksum = hashlib.sha256((excluded_project / ".claude/commands/x.md").read_bytes()).hexdigest()
+    assert after_checksum == before_checksum
+
+
+def test_fanout_excluded_project_never_flips_exit_code(tmp_path):
+    """An owner's opt-out is not a failure -- `excluded` must never make an
+    otherwise-clean run report `exit_code == 1`."""
+    excluded_project = _stale_project(tmp_path, "excluded-project", current="1.0.0")
+    registry_path = tmp_path / "excluded-projects.json"
+    mark_project_excluded(excluded_project, registry=registry_path)
+
+    lock_mutex_path = tmp_path / "copilot.lock"
+    report, exit_code = execute_fanout(
+        _projects=[excluded_project],
+        _latest_by_product={"claude": "2.0.0"},
+        _excluded_registry=registry_path,
+        _lock_path=lock_mutex_path,
+    )
+
+    assert report["summary"]["excluded"] == 1
+    assert exit_code == 0
+
+
+def test_fanout_second_run_after_exclusion_is_still_a_no_op(tmp_path):
+    """Idempotency: running the sweep again against the same excluded
+    project changes nothing and reports the same outcome."""
+    excluded_project = _stale_project(tmp_path, "excluded-project", current="1.0.0")
+    registry_path = tmp_path / "excluded-projects.json"
+    mark_project_excluded(excluded_project, registry=registry_path)
+
+    kwargs = dict(
+        _projects=[excluded_project],
+        _latest_by_product={"claude": "2.0.0"},
+        _excluded_registry=registry_path,
+    )
+    first = build_fanout_report(**kwargs)
+    second = build_fanout_report(**kwargs)
+
+    assert first["summary"]["excluded"] == second["summary"]["excluded"] == 1
+    assert first["results"] == second["results"]
+
+
+def test_fanout_no_excluded_registry_supplied_never_touches_real_home(tmp_path):
+    """Default (`_excluded_registry=None`) must be fully inert -- no
+    exclusion check at all, no filesystem/config read outside what the
+    caller injected. Regression guard for the `_UNSET`-vs-`None` sentinel
+    choice: an unsupplied `_excluded_registry` must NEVER resolve to
+    `default_excluded_registry()`'s real machine path."""
+    project = _stale_project(tmp_path, "proj", current="1.0.0")
+
+    report = build_fanout_report(
+        _projects=[project],
+        _latest_by_product={"claude": "1.0.0"},
+    )
+
+    assert report["summary"]["excluded"] == 0
+
+
+# ---------------------------------------------------------------------------
+# resolve_fanout_sources() -- the real `cc/main.py` `--fanout` wiring
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_fanout_sources_reads_real_version_files(tmp_path, monkeypatch):
+    claude_root = tmp_path / "claude-src"
+    claude_root.mkdir()
+    (claude_root / "VERSION.json").write_text(json.dumps({"framework": "9.9.9"}), encoding="utf-8")
+
+    codex_root = tmp_path / "codex-src"
+    plugin_dir = codex_root / "plugins" / "codex-copilot" / ".codex-plugin"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "plugin.json").write_text(json.dumps({"version": "1.2.3"}), encoding="utf-8")
+
+    monkeypatch.setenv("CC_PATHS_CLAUDE_COPILOT_ROOT", str(claude_root))
+    monkeypatch.setenv("CC_PATHS_CODEX_COPILOT_ROOT", str(codex_root))
+
+    source_roots, latest_by_product, release_tags = resolve_fanout_sources()
+
+    assert source_roots["claude"] == str(claude_root)
+    assert latest_by_product["claude"] == "9.9.9"
+    assert release_tags["claude"] == "v9.9.9"
+    assert source_roots["codex"] == str(codex_root)
+    assert latest_by_product["codex"] == "1.2.3"
+    assert release_tags["codex"] == "v1.2.3"
+
+
+def test_resolve_fanout_sources_unknown_version_degrades_honestly(tmp_path, monkeypatch):
+    """A root that resolves but has no readable version file folds to
+    `None`, never a fabricated/guessed version (matches
+    `compute_freshness()`'s own honesty rule) -- and is left OUT of
+    `source_roots` so a materialize attempt can never be pointed at it."""
+    empty_root = tmp_path / "empty"
+    empty_root.mkdir()
+    monkeypatch.setenv("CC_PATHS_CLAUDE_COPILOT_ROOT", str(empty_root))
+    monkeypatch.setenv("CC_PATHS_CODEX_COPILOT_ROOT", str(empty_root))
+
+    source_roots, latest_by_product, release_tags = resolve_fanout_sources()
+
+    assert source_roots == {}
+    assert latest_by_product == {"claude": None, "codex": None}
+    assert release_tags == {"claude": None, "codex": None}

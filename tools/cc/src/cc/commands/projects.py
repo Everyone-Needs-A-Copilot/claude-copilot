@@ -501,6 +501,75 @@ def execute_materialize_project(
 # ---------------------------------------------------------------------------
 
 
+def resolve_fanout_sources() -> tuple[
+    dict[str, str], dict[str, Optional[str]], dict[str, Optional[str]]
+]:
+    """
+    Resolve the real `(source_roots, latest_by_product, release_tags)` triple
+    `cc/main.py`'s `update --fanout` call site wires into `execute_fanout()`
+    -- the piece that was simply never wired (main.py used to call
+    `execute_fanout(dry_run=dry_run)` with NEITHER argument, so every
+    project folded to `latest = None` -> `stale: None` -> silently never
+    counted; see `build_fanout_report()`'s own note on that below).
+
+    Reuses `core/ecosystem/workspaces.py`'s OWN single-project-install
+    resolution -- `_resolved_framework_root()` (the `paths.claude_copilot_
+    root` / `paths.codex_copilot_root` config keys) and `_source_version()`
+    (VERSION.json / plugin.json reading, `f"v{version}"` release-tag
+    convention) -- rather than re-deriving "where does this product's
+    current content live" a second way. This is deliberate: the fan-out's
+    idea of "what's current" must never be able to disagree with what
+    `cc workspace configure`'s single-project install path already
+    considers current.
+
+    COORDINATION NOTE: a concurrent change is rewiring `_claude_plan()` (in
+    the same module) to resolve the `claude` source through the full tier
+    ladder (foundation -> org -> department -> personal) instead of the
+    single `paths.claude_copilot_root` config key. This function
+    deliberately stays on the CURRENT single-root resolution for now --
+    once that lands, `claude`'s entry here should be reconnected to
+    whatever it exposes (rather than re-deriving tier resolution a second
+    time in this module), so fan-out and single-project install can never
+    disagree about which tier is "latest". `codex` is unaffected (still
+    single-rooted through `paths.codex_copilot_root`).
+
+    A product whose configured root is unset/unreadable, or whose version
+    file can't be read, resolves to `latest = None` / `release_tag = None`
+    and is left OUT of `source_roots` -- the honest "unknown" state
+    (`compute_freshness()`'s own rule: never fabricate a version), not a
+    crash and not a guess.
+    """
+    from cc.core.ecosystem.workspaces import (
+        ActivationError,
+        _resolved_framework_root,
+        _source_version,
+    )
+
+    source_roots: dict[str, str] = {}
+    latest_by_product: dict[str, Optional[str]] = {}
+    release_tags: dict[str, Optional[str]] = {}
+
+    for product in sorted(PROJECT_SCOPED_PRODUCTS):
+        try:
+            source = _resolved_framework_root(f"paths.{product}_copilot_root", None)
+        except ActivationError:
+            latest_by_product[product] = None
+            release_tags[product] = None
+            continue
+
+        version = _source_version(source, product)
+        if version == "unknown":
+            latest_by_product[product] = None
+            release_tags[product] = None
+            continue
+
+        source_roots[product] = str(source)
+        latest_by_product[product] = version
+        release_tags[product] = f"v{version}"
+
+    return source_roots, latest_by_product, release_tags
+
+
 def build_fanout_report(
     *,
     _projects: Optional[list[Path]] = None,
@@ -509,6 +578,7 @@ def build_fanout_report(
     _latest_by_product: Optional[dict[str, Optional[str]]] = None,
     _release_tags: Optional[dict[str, Optional[str]]] = None,
     _source_roots: Optional[dict[str, Any]] = None,
+    _excluded_registry: Optional[Path | str] = None,
     triggered_by: str = "manual",
     _personal_roots: Iterable[Path | str] = (),
     dry_run: bool = False,
@@ -540,6 +610,32 @@ def build_fanout_report(
     (`"offline"` is never misreported as `"blocked"` or vice versa at the
     per-item level, only at the aggregate count level).
 
+    OBSERVABILITY (task-fanout-total-zero fix): every (project, component)
+    pair this sweep looks at lands in `results[]` with a reason -- none is
+    ever a bare `continue` that drops it from the count. Two skip reasons
+    that used to vanish silently now show up explicitly:
+      - the project is on the machine-local excluded-projects registry
+        (`_excluded_registry`, defaulting to NONE here -- see below) --
+        `result: "excluded"`, not counted in `updated`/`held`/`up_to_date`/
+        `failed` (an owner decision to leave a project alone is not a
+        failure and must never make a routine run look broken), tallied in
+        its own `summary.excluded` instead.
+      - `_latest_by_product` has no known version for this product (e.g.
+        its source root could not be resolved/read -- see
+        `resolve_fanout_sources()`) -- `result: "blocked"`, `reason`
+        explains why, folded into `summary.failed` like every other
+        did-not-apply outcome. A fan-out that returns `total: 0` while
+        finding nothing reads as "nothing to do"; an honest, reasoned skip
+        is the whole point of this sweep existing.
+
+    `_excluded_registry` defaults to `None` (no exclusion check at all) --
+    deliberately NOT `default_excluded_registry()` here, so this function
+    never touches the real machine's `~/.copilot/excluded-projects.json`
+    unless a caller (the real one: `cc/main.py`'s `--fanout` wiring)
+    explicitly supplies it. Same posture as `_roots`/`_registry` above:
+    `build_*` functions stay inert by default, `execute_fanout()`'s real
+    caller is the one production wiring point.
+
     Fail-open per project AND per component: an unreadable project
     manifest, or an unexpected error materializing one component, is
     recorded as a `failed` result and never aborts the rest of the sweep.
@@ -559,9 +655,27 @@ def build_fanout_report(
         projects = discover_projects(**discover_kwargs)
 
     results: list[dict[str, Any]] = []
-    updated = held = up_to_date = failed = 0
+    updated = held = up_to_date = failed = excluded = 0
 
     for project in projects:
+        if _excluded_registry is not None:
+            from cc.core.ecosystem.workspaces import is_project_excluded
+
+            if is_project_excluded(project, registry=_excluded_registry):
+                excluded += 1
+                results.append(
+                    {
+                        "path": str(project),
+                        "component": None,
+                        "result": "excluded",
+                        "reason": (
+                            "excluded from fan-out (cc workspace revert / owner "
+                            "decision) -- stays on disk, never synced"
+                        ),
+                    }
+                )
+                continue
+
         try:
             manifest = read_project_lock(Path(project) / PROJECT_LOCK_FILENAME)
         except Exception:
@@ -594,8 +708,25 @@ def build_fanout_report(
                     results.append(
                         {"path": str(project), "component": product, "result": "up-to-date"}
                     )
-                # stale is None (unknown latest) -- honestly nothing to fan
-                # out yet; not counted at all (never guessed as up-to-date).
+                else:
+                    # stale is None (unknown latest) -- WHY this pair was
+                    # skipped is now always visible, never a silent vanish
+                    # from `results`/`total` (module docstring's
+                    # OBSERVABILITY note). Folded into `failed` like every
+                    # other did-not-apply outcome, since it genuinely
+                    # neither applied nor held.
+                    failed += 1
+                    results.append(
+                        {
+                            "path": str(project),
+                            "component": product,
+                            "result": "blocked",
+                            "reason": (
+                                f"latest version for {product!r} is unknown "
+                                "(no source root resolved) -- nothing to fan out yet"
+                            ),
+                        }
+                    )
                 continue
 
             try:
@@ -642,6 +773,7 @@ def build_fanout_report(
             "held": held,
             "up_to_date": up_to_date,
             "failed": failed,
+            "excluded": excluded,
             "total": len(results),
         },
         "results": results,
@@ -689,9 +821,26 @@ def render_fanout_report_rich(report: dict[str, Any], *, console: Any = None) ->
     con.print(
         f"[bold]fan-out[/bold]: updated={summary.get('updated', 0)} "
         f"held={summary.get('held', 0)} up-to-date={summary.get('up_to_date', 0)} "
-        f"failed={summary.get('failed', 0)} (of {summary.get('total', 0)})"
+        f"failed={summary.get('failed', 0)} excluded={summary.get('excluded', 0)} "
+        f"(of {summary.get('total', 0)})"
     )
     for r in report.get("results", []):
-        result = r.get("report", {}).get("result", r.get("result", "unknown"))
-        color = {"applied": "green", "up-to-date": "green", "held": "yellow"}.get(result, "red")
-        con.print(f"  [{color}]{result}[/{color}] {r.get('path')} ({r.get('component')})")
+        sub_report = r.get("report", {})
+        result = sub_report.get("result", r.get("result", "unknown"))
+        color = {
+            "applied": "green",
+            "up-to-date": "green",
+            "held": "yellow",
+            "excluded": "dim",
+        }.get(result, "red")
+        # `reason` lives at the top level for a fan-out-level skip (excluded,
+        # unknown-latest, unreadable manifest) or nested inside the first
+        # held/blocked entry for a real per-project materialize attempt --
+        # either way, WHY is always surfaced here, never just the verdict.
+        reason = r.get("reason")
+        if reason is None:
+            nested = sub_report.get("held_for_approval") or sub_report.get("blocked") or []
+            if nested and isinstance(nested[0], dict):
+                reason = nested[0].get("reason")
+        suffix = f" -- {reason}" if reason and result not in ("applied", "up-to-date") else ""
+        con.print(f"  [{color}]{result}[/{color}] {r.get('path')} ({r.get('component')}){suffix}")
