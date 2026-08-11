@@ -625,13 +625,20 @@ class TestMachineTruth:
         results = stack.check_cs_ancestor(self.cells, self.snapshots)
         failing = {r.subject for r in results if r.verdict is Verdict.FAIL}
         # RC-3: all three foundation tags are parentless orphan snapshots
-        # today, plus knowledge-copilot-internal's local `main` sits one
-        # unpushed commit ahead of `origin/main`.
+        # today. knowledge-copilot-internal's prior unpushed-commit gap is
+        # now closed (2026-08-11 ecosystem remediation landing swept every
+        # tier variant's `main` up to `origin/main`). claude-copilot-internal
+        # ("claude-organization") is the one exception: its own remediation
+        # merge landed and is pushed to a side branch (PR #5), but a direct
+        # push to `main` is rejected by that repo's branch protection
+        # (required_approving_review_count: 1, enforce_admins: true) --
+        # local `main` is genuinely ahead of `origin/main` pending review,
+        # not a bug in this check.
         assert failing == {
             "claude-foundation",
             "cli-foundation",
             "codex-foundation",
-            "knowledge-organization",
+            "claude-organization",
         }
         assert all(
             r.root_cause == "rc.rc3" for r in results if r.verdict is Verdict.FAIL
