@@ -1,22 +1,23 @@
 id: kc-struct-shared-005
 name: Declared iteration contract (promise markers, maxIterations) matches spec
 priority: P1
-description: kc is the one agent in the roster without an iteration contract (setup-only,
-  invoked via /knowledge-copilot, not the iterating task loop). This case pins that as an
-  intentional, checkable fact rather than an unexamined gap -- if a future edit adds an iteration
-  block to kc, this case fails and forces the change to be a deliberate decision, not an accidental
-  copy-paste.
+description: 'Knowledge discovery is progressive and may span sessions. kc therefore uses the
+  shared bounded iteration contract (maxIterations: 10, COMPLETE/BLOCKED/CONFUSED promises) with
+  Knowledge-specific validation rules.'
 type: structural
 source:
   type: file
   path: .claude/agents/kc.md
 assertions:
-- type: not-contains
-  value: 'iteration:'
-  description: kc is setup-only and declares no iteration contract
-- type: not-contains
-  value: 'completionPromises:'
-  description: kc declares no completion promises
-- type: not-contains
-  value: 'maxIterations:'
-  description: kc declares no maxIterations cap
+- type: regex
+  pattern: maxIterations:\s*10\b
+  description: maxIterations is declared as 10
+- type: contains
+  value: '"<promise>COMPLETE</promise>"'
+  description: COMPLETE promise marker is declared
+- type: contains
+  value: '"<promise>BLOCKED</promise>"'
+  description: BLOCKED promise marker is declared
+- type: contains
+  value: '"<promise>CONFUSED</promise>"'
+  description: CONFUSED promise marker is declared

@@ -102,10 +102,8 @@ Every implementation task MUST include explicit test requirements in description
 
 | Skill | When to Use |
 |-------|-------------|
-| constraint-identification | Identifying system bottlenecks, capacity planning |
-| critical-chain | Project scheduling, buffer management, resource contention |
-| prerequisite-tree | Implementation planning by obstacles and dependencies |
-| technology-constraint | Evaluating technology investments, build vs buy analysis |
+| system-design-patterns | System boundaries, integration, and architecture patterns |
+| threat-modeling | Security trust boundaries and abuse cases |
 
 For security-critical architecture (auth, crypto, PII handling, trust boundaries):
 `@include .claude/skills/security/stride-dread/SKILL.md`

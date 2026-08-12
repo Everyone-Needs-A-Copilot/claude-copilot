@@ -1,18 +1,10 @@
 # Setup Knowledge Sync
 
-Install automated knowledge updates when products evolve via git release tags.
+Install a project Git hook that updates product Knowledge after release tags.
 
-## What This Does
+## 1. Resolve prerequisites
 
-Knowledge Sync automatically:
-1. **Detects** when you create a release tag (e.g., `git tag v2.4.0`)
-2. **Extracts** changes from commits between tags
-3. **Updates** `<knowledge repo>/03-products/<product>.md` (the nearest configured tier -- see Prerequisites)
-4. **Commits** changes to that knowledge repository
-
-## Prerequisites
-
-`~/.claude/knowledge/knowledge-manifest.json` is NOT the machine's real configured knowledge source -- it is not among `paths.knowledge_repo` unless a machine explicitly configured it there. Resolve the real, nearest configured tier instead (the `sync-knowledge.sh`/`update-product-knowledge.sh` scripts this command installs only target a single repo, so a release commit always lands on the nearest tier -- personal, if one is configured, otherwise the next tier down):
+Use the nearest configured Knowledge tier; do not assume `~/.claude/knowledge` is configured.
 
 ```bash
 eval "$(cc env)"
@@ -22,275 +14,97 @@ if [[ -n "$KNOWLEDGE_REPO_PATH" && -f "$KNOWLEDGE_REPO_PATH/knowledge-manifest.j
 else
   echo "MISSING"
 fi
-```
-
-**If missing:**
-
-Tell user:
-
----
-
-**Knowledge repository not found.**
-
-Please set up a knowledge repository first:
-
-```
-/knowledge-copilot
-```
-
-Then return here and run `/setup-knowledge-sync` again.
-
----
-
-Then STOP.
-
----
-
-## Step 1: Verify Git Repository
-
-```bash
 git rev-parse --is-inside-work-tree 2>/dev/null && echo "GIT_OK" || echo "NOT_GIT"
 ```
 
-**If NOT_GIT:**
+- On `MISSING`, tell the user to run `/knowledge-copilot`, then stop.
+- On `NOT_GIT`, explain that tag-based sync requires a Git repository, then stop.
 
-Tell user:
-
----
-
-**This must be run in a git repository.**
-
-Knowledge sync tracks product changes via git tags, so it requires a git repository.
-
-Navigate to your product's repository and run this command again.
-
----
-
-Then STOP.
-
----
-
-## Step 2: Get Project Info
+Resolve project identity:
 
 ```bash
-git rev-parse --show-toplevel
-basename $(git rev-parse --show-toplevel)
+PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+PROJECT_NAME="$(basename "$PROJECT_ROOT")"
 ```
 
-Store:
-- `PROJECT_ROOT` = result of show-toplevel
-- `PROJECT_NAME` = result of basename
-
----
-
-## Step 3: Check Existing Installation
+## 2. Check for an existing install
 
 ```bash
-ls "$PROJECT_ROOT/.git/hooks/post-tag" 2>/dev/null && echo "HOOK_EXISTS" || echo "HOOK_MISSING"
-ls "$PROJECT_ROOT/.git/hooks/sync-knowledge.sh" 2>/dev/null && echo "SCRIPT_EXISTS" || echo "SCRIPT_MISSING"
+test -f "$PROJECT_ROOT/.git/hooks/post-tag" && echo HOOK_EXISTS || echo HOOK_MISSING
+test -f "$PROJECT_ROOT/.git/hooks/sync-knowledge.sh" && echo SCRIPT_EXISTS || echo SCRIPT_MISSING
 ```
 
-If both exist:
+If both exist, ask whether to Reinstall, Test, or Cancel. Cancel stops. Test runs the dry-run command in step 4 without copying files.
 
-Use AskUserQuestion:
-
-**Question:** "Knowledge sync is already installed. What would you like to do?"
-**Header:** "Action"
-**Options:**
-1. **"Reinstall"** - Overwrite with latest version
-2. **"Test"** - Test with current tag
-3. **"Cancel"** - Exit
-
-Handle based on selection.
-
----
-
-## Step 4: Ensure Hooks Directory
+## 3. Install
 
 ```bash
 mkdir -p "$PROJECT_ROOT/.git/hooks"
-```
-
----
-
-## Step 5: Copy Scripts
-
-```bash
-# Copy main sync script to git hooks (where it will be called)
 cp ~/.claude/copilot/scripts/knowledge-sync/sync-knowledge.sh "$PROJECT_ROOT/.git/hooks/"
-
-# Copy helper scripts (they reference each other)
 cp ~/.claude/copilot/scripts/knowledge-sync/extract-release-changes.sh "$PROJECT_ROOT/.git/hooks/"
 cp ~/.claude/copilot/scripts/knowledge-sync/update-product-knowledge.sh "$PROJECT_ROOT/.git/hooks/"
-
-# Copy post-tag hook
 cp ~/.claude/copilot/templates/hooks/post-tag "$PROJECT_ROOT/.git/hooks/"
 
-# Bake the resolved knowledge repo path into the installed hook -- a git hook
-# runs outside any `cc env`-hydrated shell (plain `git tag` invocation), so it
-# cannot re-resolve CC_KNOWLEDGE_REPOS at trigger time. Without this, the hook
-# would silently fall back to sync-knowledge.sh's own default (~/.claude/
-# knowledge), which is not this machine's real configured tier.
+# Git hooks run outside an env-hydrated shell. Bake in the tier selected above.
 sed -i.bak "s|--tag \"\$TAG\"|--tag \"\$TAG\" --knowledge-repo \"$KNOWLEDGE_REPO_PATH\"|" "$PROJECT_ROOT/.git/hooks/post-tag"
 rm -f "$PROJECT_ROOT/.git/hooks/post-tag.bak"
-
-# Make executable
-chmod +x "$PROJECT_ROOT/.git/hooks/post-tag"
-chmod +x "$PROJECT_ROOT/.git/hooks/sync-knowledge.sh"
-chmod +x "$PROJECT_ROOT/.git/hooks/extract-release-changes.sh"
-chmod +x "$PROJECT_ROOT/.git/hooks/update-product-knowledge.sh"
+chmod +x "$PROJECT_ROOT/.git/hooks/post-tag" \
+  "$PROJECT_ROOT/.git/hooks/sync-knowledge.sh" \
+  "$PROJECT_ROOT/.git/hooks/extract-release-changes.sh" \
+  "$PROJECT_ROOT/.git/hooks/update-product-knowledge.sh"
 ```
 
-**Verify:**
+Verify that all four files exist and are executable. A missing or non-executable file means installation failed; do not report success.
+
+## 4. Offer a dry run
 
 ```bash
-ls -la "$PROJECT_ROOT/.git/hooks/post-tag"
-ls -la "$PROJECT_ROOT/.git/hooks/sync-knowledge.sh"
-ls -la "$PROJECT_ROOT/.git/hooks/extract-release-changes.sh"
-ls -la "$PROJECT_ROOT/.git/hooks/update-product-knowledge.sh"
+git describe --tags --abbrev=0 2>/dev/null || echo NO_TAGS
 ```
 
-All should be executable.
-
----
-
-## Step 6: Test Installation
-
-Check if there are any tags:
-
-```bash
-git describe --tags --abbrev=0 2>/dev/null || echo "NO_TAGS"
-```
-
-If tags exist, offer to test:
-
-Use AskUserQuestion:
-
-**Question:** "Would you like to test knowledge sync with the latest tag?"
-**Header:** "Test"
-**Options:**
-1. **"Yes, test now"** - Run sync on latest tag
-2. **"No, skip test"** - Installation only
-
-If "Yes":
+If a tag exists, ask whether to test. On Yes:
 
 ```bash
 "$PROJECT_ROOT/.git/hooks/sync-knowledge.sh" --dry-run --knowledge-repo "$KNOWLEDGE_REPO_PATH"
 ```
 
-Show the output and explain what would be updated.
+Show what would change; a dry run must not write or commit Knowledge.
 
----
+## 5. Report
 
-## Step 7: Report Success
+State the resolved Knowledge tier and installed files:
 
----
+- `.git/hooks/post-tag`: release-tag trigger
+- `.git/hooks/sync-knowledge.sh`: orchestrator
+- `.git/hooks/extract-release-changes.sh`: changes between tags
+- `.git/hooks/update-product-knowledge.sh`: product Knowledge writer
 
-**Knowledge Sync Installed!**
+Explain that a matching `v*.*.*` tag extracts changes, updates `$KNOWLEDGE_REPO_PATH/03-products/$PROJECT_NAME.md`, and commits in that Knowledge repository. It becomes available to projects whose `paths.knowledge_repo` ladder includes that tier.
 
-**What was installed:**
-- `.git/hooks/post-tag` - Git hook triggered on tag creation
-- `.git/hooks/sync-knowledge.sh` - Main sync orchestrator
-- `.git/hooks/extract-release-changes.sh` - Extract commits between tags
-- `.git/hooks/update-product-knowledge.sh` - Update knowledge file
+The installed hook captures the selected repository path at install time because ordinary `git tag` does not run in a shell hydrated by `cc env`. If the configured ladder changes, reinstall before the next release. Do not silently redirect an existing hook to another tier.
 
-**How it works:**
-
-1. **Create a release tag:**
-   ```bash
-   git tag v1.0.0
-   git push --tags
-   ```
-
-2. **Hook automatically:**
-   - Extracts changes between previous tag and new tag
-   - Updates `{{KNOWLEDGE_REPO_PATH}}/03-products/{{PROJECT_NAME}}.md` (the repo resolved in Prerequisites, baked into the installed hook -- NOT `~/.claude/knowledge` unless that happened to be the resolved tier)
-   - Commits to that knowledge repository
-
-3. **Knowledge becomes available:**
-   - In every project whose `paths.knowledge_repo` ladder includes `{{KNOWLEDGE_REPO_PATH}}`
-   - Via `cc extensions resolve --agent <id> --json` (extensions) or a direct read of `{{KNOWLEDGE_REPO_PATH}}/03-products/{{PROJECT_NAME}}.md` (product knowledge)
-
-**Manual sync:**
-
-You can also run sync manually:
+Manual commands:
 
 ```bash
-# Sync latest tag
-.git/hooks/sync-knowledge.sh --knowledge-repo "{{KNOWLEDGE_REPO_PATH}}"
-
-# Sync specific tag
-.git/hooks/sync-knowledge.sh --tag v2.4.0 --knowledge-repo "{{KNOWLEDGE_REPO_PATH}}"
-
-# Dry run (preview changes)
-.git/hooks/sync-knowledge.sh --tag v2.4.0 --dry-run --knowledge-repo "{{KNOWLEDGE_REPO_PATH}}"
+.git/hooks/sync-knowledge.sh --knowledge-repo "$KNOWLEDGE_REPO_PATH"
+.git/hooks/sync-knowledge.sh --tag v2.4.0 --knowledge-repo "$KNOWLEDGE_REPO_PATH"
+.git/hooks/sync-knowledge.sh --tag v2.4.0 --dry-run --knowledge-repo "$KNOWLEDGE_REPO_PATH"
 ```
 
-**Tag Format:**
+## Troubleshooting and uninstall
 
-The hook processes release tags matching: `v*.*.*`
+- Hook not running: verify executable bits and run the dry-run command.
+- Repository not found: run `/knowledge-copilot`, inspect `eval "$(cc env)"; echo "$CC_KNOWLEDGE_REPOS"`, then reinstall so the hook receives the new path.
+- Changes absent: use conventional `feat:`, `fix:`, `docs:`, or `chore:` commits and inspect the dry-run output.
+- History: `git -C "$KNOWLEDGE_REPO_PATH" log -- "03-products/$PROJECT_NAME.md"`.
 
-Examples:
-- ✅ `v1.0.0`, `v2.4.0`, `v1.0.0-beta.1`
-- ❌ `draft`, `test`, `feature/xyz` (ignored)
+Release tags follow `v*.*.*`; examples include `v1.0.0`, `v2.4.0`, and prerelease variants. Other tag names are ignored. Conventional commit prefixes improve categorization, and `feat!:` or a `BREAKING CHANGE:` footer marks a breaking change.
 
-**Next Release:**
-
-On your next release:
+Uninstall only these installed hook files:
 
 ```bash
-git tag v{{NEXT_VERSION}}
-git push --tags
+rm "$PROJECT_ROOT/.git/hooks/post-tag" \
+  "$PROJECT_ROOT/.git/hooks/sync-knowledge.sh" \
+  "$PROJECT_ROOT/.git/hooks/extract-release-changes.sh" \
+  "$PROJECT_ROOT/.git/hooks/update-product-knowledge.sh"
 ```
-
-Knowledge will be automatically updated!
-
----
-
-## Optional: Uninstall
-
-To remove knowledge sync:
-
-```bash
-rm "$PROJECT_ROOT/.git/hooks/post-tag"
-rm "$PROJECT_ROOT/.git/hooks/sync-knowledge.sh"
-rm "$PROJECT_ROOT/.git/hooks/extract-release-changes.sh"
-rm "$PROJECT_ROOT/.git/hooks/update-product-knowledge.sh"
-```
-
----
-
-## Troubleshooting
-
-**Hook not running:**
-- Verify hook is executable: `ls -la .git/hooks/post-tag`
-- Test manually: `.git/hooks/sync-knowledge.sh --dry-run --knowledge-repo "{{KNOWLEDGE_REPO_PATH}}"`
-
-**Knowledge repo not found:**
-- Run `/knowledge-copilot` to create/link one, then re-run `/setup-knowledge-sync` so it re-resolves `$CC_KNOWLEDGE_REPOS`
-- Verify the real ladder: `eval "$(cc env)"; echo "$CC_KNOWLEDGE_REPOS"` (do NOT check `~/.claude/knowledge` -- it is not necessarily a configured tier on this machine)
-
-**Changes not appearing:**
-- Check commits follow conventional format: `feat:`, `fix:`, etc.
-- View extracted changes: `.git/hooks/sync-knowledge.sh --dry-run --knowledge-repo "{{KNOWLEDGE_REPO_PATH}}"`
-- Check knowledge file: `cat "{{KNOWLEDGE_REPO_PATH}}/03-products/{{PROJECT_NAME}}.md"`
-
----
-
-## Tips
-
-- Use conventional commits for better categorization:
-  - `feat: Add new feature`
-  - `fix: Fix bug`
-  - `docs: Update documentation`
-  - `chore: Update dependencies`
-
-- Breaking changes are highlighted with:
-  - `feat!: Breaking change` (exclamation mark)
-  - Or `BREAKING CHANGE:` in commit body
-
-- Knowledge is versioned via git - you can see history:
-  ```bash
-  cd "{{KNOWLEDGE_REPO_PATH}}"
-  git log -- 03-products/{{PROJECT_NAME}}.md
-  ```
