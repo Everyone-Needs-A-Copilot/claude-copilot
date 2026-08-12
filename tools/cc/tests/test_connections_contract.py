@@ -338,6 +338,8 @@ class TestInfisicalBootstrapCredsRouteToKeychain:
 
         calls: list[Sequence[str]] = []
 
+        monkeypatch.setattr("cc.commands.connections.sys.platform", "darwin")
+
         def fake_subprocess_run(args, **kwargs):
             calls.append(args)
             assert "-w" not in args

@@ -35,7 +35,7 @@ from tc.services.content_guard import (
 # recovery workflow, because that pass drew from tasks.db contents and
 # .claude/agents/*.md but never grepped the framework's own feature docs
 # (docs/50-features/**) or skills (SKILL.md). A wider sweep across every
-# repo under /Volumes/Dev/Sites/COPILOT/ plus ~/.claude/ (documentation,
+# repository checkout plus ~/.claude/ (documentation,
 # agent definitions, skills, commands, hooks, READMEs) closed that source
 # gap and surfaced three more literal, currently-live instructed values this
 # allowlist was missing: `artifact-review` and `validation-review`

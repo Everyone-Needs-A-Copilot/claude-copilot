@@ -54,7 +54,7 @@ THE CONTRACT a dimension module MUST satisfy
 `fsguard.run_git_readonly` for any git plumbing (never a bare
 `subprocess.run(["git", ...])`). `sweep.py` runs Layer 3 against BOTH the
 synthetic `FleetFactory` fixture (World A) and, when invoked against the
-real machine, the real `/Volumes/Dev/Sites` fleet (World B) under the
+real machine, the configured fleet (World B) under the
 `machine_readonly` tripwire -- a module that writes anywhere fails that
 tripwire loudly regardless of which world it runs in.
 

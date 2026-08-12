@@ -87,15 +87,6 @@ _APPLIES_TO = ("A", "B", "C")  # RUBRIC.md D11: "Applies to: A, B, C (products).
 
 _ECOSYSTEM_MD_ENV = "CC_CONFORMANCE_ECOSYSTEM_MD"
 
-# The two known-in-use local roots (RUBRIC.md section 0's own canonical-
-# sources table: "/Volumes/Dev/Sites/COPILOT" on the primary docked machine,
-# "/Users/pabs/Sites/COPILOT" where that volume isn't mounted).
-_CANDIDATE_LOCAL_ROOTS: tuple[str, ...] = (
-    "/Volumes/Dev/Sites/COPILOT",
-    "/Users/pabs/Sites/COPILOT",
-)
-
-
 class RegistryDisposition(StrEnum):
     """How a ratified-target subject is expected to appear in
     `ECOSYSTEM.md`."""
@@ -267,8 +258,20 @@ def _default_ecosystem_md_candidates() -> tuple[Path, ...]:
     configured = resolve_key("paths.shared_docs")
     if isinstance(configured, str) and configured and configured != "@machine":
         candidates.append(Path(configured).expanduser() / "ECOSYSTEM.md")
-    for root in _CANDIDATE_LOCAL_ROOTS:
-        candidates.append(Path(root) / "shared-docs" / "ECOSYSTEM.md")
+    roots = resolve_key("projects.roots") or []
+    if isinstance(roots, str):
+        roots = [roots]
+    for raw_root in roots:
+        root = Path(str(raw_root)).expanduser()
+        candidates.extend(
+            (
+                root / "shared-docs" / "ECOSYSTEM.md",
+                root / "COPILOT" / "shared-docs" / "ECOSYSTEM.md",
+            )
+        )
+    # Conventional undocked layout, expressed relative to the current
+    # account rather than one developer's literal home directory.
+    candidates.append(Path.home() / "Sites" / "COPILOT" / "shared-docs" / "ECOSYSTEM.md")
     return tuple(candidates)
 
 

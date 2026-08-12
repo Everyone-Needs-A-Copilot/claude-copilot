@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 from cc.commands import workspaces as workspaces_command
+from cc.core.ecosystem import project_integration as integration_core
+from cc.core.ecosystem import workspaces as core_workspaces
 from cc.core.ecosystem.workspaces import (
     RECENTLY_SET_UP_WINDOW_HOURS,
     ActivationError,
@@ -34,9 +36,6 @@ from cc.core.ecosystem.workspaces import (
     write_install_lock,
 )
 from jsonschema import Draft202012Validator
-
-from cc.core.ecosystem import project_integration as integration_core
-from cc.core.ecosystem import workspaces as core_workspaces
 
 _WORKSPACE_FIXTURES = Path(__file__).parent / "fixtures" / "workspaces"
 _WORKSPACE_REPORT_FIXTURES = _WORKSPACE_FIXTURES / "reports"
@@ -2035,8 +2034,10 @@ def test_revert_command_plan_then_apply_shapes(monkeypatch, capsys, tmp_path):
 
 
 def _repo_roots():
-    repo_parent = Path(__file__).resolve().parents[4]
-    return repo_parent / "claude-copilot", repo_parent / "codex-copilot"
+    return (
+        Path(__file__).resolve().parents[3],
+        Path(__file__).parent / "fixtures" / "codex-installer",
+    )
 
 
 def test_project_present_at_grant_time_is_always_ask(tmp_path):

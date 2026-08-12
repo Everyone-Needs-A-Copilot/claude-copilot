@@ -1,7 +1,7 @@
 
 # Ecosystem repo classification -- the taxonomy `cc.core.conformance.classes`
 # reads to decide which rubric dimensions apply to which directory under
-# `projects.roots` (currently `/Volumes/Dev/Sites`).
+# the configured `projects.roots` fleet.
 #
 # THIS FILE IS DATA. A class call is a classification.toml edit, never a
 # code change (HARNESS-DESIGN.md Layer 3: "encoded as a committed
@@ -44,7 +44,7 @@
 # inheritance ladder" reasoning as Q9's `copilot-control-tower` call.
 #
 # `path` is `<group>/<name>` relative to the scanned root (e.g.
-# `/Volumes/Dev/Sites`) -- the same two-level grouping CLASSIFICATION.md
+# the configured fleet root) -- the same two-level grouping CLASSIFICATION.md
 # itself uses (`COPILOT`, `PERSONAL`, `TSM`).
 
 schema_version = 1

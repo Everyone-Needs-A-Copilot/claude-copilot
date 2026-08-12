@@ -10,9 +10,9 @@ the cache). This module does not know what "D1" or "D4" mean -- it only
 knows how to find repos, classify them, and hand each one to
 `dimensions.run_dimension_modules()`.
 
-Discovery, precisely (measured on this machine, `EXISTING-VERIFICATION.md`
-/ `CLASSIFICATION.md`): `projects.roots` resolves to a single root,
-`/Volumes/Dev/Sites`. Under it, three non-dot directories (`COPILOT`,
+Discovery, precisely (measured on the audit machine, `EXISTING-VERIFICATION.md`
+/ `CLASSIFICATION.md`): `projects.roots` resolves to a single fleet root.
+Under it, three non-dot directories (`COPILOT`,
 `PERSONAL`, `TSM`) each hold no `.git` of their own and each contain the
 real, audited repos as their own immediate children -- 55 + 15 + 6 = 76
 raw candidates, one of which (`COPILOT/shared-docs`) is a symlink to

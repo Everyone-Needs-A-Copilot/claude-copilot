@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 from cc.commands.support import build_support_latest_report
 
@@ -22,8 +23,9 @@ def test_support_latest_returns_newest_private_redacted_record(tmp_path):
     newer.write_text(json.dumps(_record("newer")))
     older.chmod(0o600)
     newer.chmod(0o600)
-    older.touch()
-    newer.touch()
+    # Do not rely on filesystem timestamp granularity or scheduler ordering.
+    os.utime(older, ns=(1_000_000_000, 1_000_000_000))
+    os.utime(newer, ns=(2_000_000_000, 2_000_000_000))
 
     report = build_support_latest_report(root=tmp_path)
 

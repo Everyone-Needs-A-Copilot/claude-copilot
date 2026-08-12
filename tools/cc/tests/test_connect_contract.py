@@ -737,6 +737,11 @@ class TestFakeSecurityBinaryEndToEnd:
     """
 
     def _install_fake_security(self, tmp_path: Path, monkeypatch) -> tuple[Path, Path]:
+        # The production Keychain boundary is intentionally Darwin-only.
+        # This fixture supplies a real subprocess fake, so make the platform
+        # precondition explicit instead of depending on the host running the
+        # test suite.
+        monkeypatch.setattr("cc.core.keychain.sys.platform", "darwin")
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir()
         fake_security = bin_dir / "security"

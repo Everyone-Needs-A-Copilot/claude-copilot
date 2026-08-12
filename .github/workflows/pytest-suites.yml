@@ -93,7 +93,12 @@ jobs:
 
       - name: Run full cc pytest suite
         working-directory: tools/cc
-        run: python -m pytest tests/
+        run: |
+          # World-B tests intentionally require the developer's configured
+          # fleet. The conformance workflow runs the complete portable
+          # World-A contract and committed baseline; shared CI must not
+          # fabricate a machine fleet for tests marked `machine`.
+          python -m pytest tests/ -m "not machine"
 
   skill-test-scripts:
     name: Skill script self-tests (.claude/skills/**/scripts/test_*.py)

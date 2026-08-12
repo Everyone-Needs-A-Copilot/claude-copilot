@@ -333,6 +333,27 @@ class TestD07Knowledge:
         assert len(hardcode_evidence) == 1
         assert hardcode_evidence[0].path.endswith("CLAUDE.md:2")
 
+    def test_fail_on_linux_home_path_without_known_username(self, tmp_path):
+        repo = tmp_path / "repo"
+        _write(
+            repo,
+            ".claude/cc/config.json",
+            json.dumps({"paths": {"knowledge_repo": "@machine"}}),
+        )
+        _write(
+            repo,
+            "CLAUDE.md",
+            "Shared Docs | `/home/ci-user/work/shared-docs`\n",
+        )
+
+        result = check_d07_knowledge_wiring_resolves(repo)
+
+        assert result.verdict is Verdict.FAIL
+        assert any(
+            entry.kind == "knowledge-claude-md-hardcoded-path"
+            for entry in result.evidence
+        )
+
     def test_pass_reproduces_org_manifest_healthy_baseline(self, tmp_path):
         """Mirrors `knowledge-copilot-internal`'s live shape: 2 extensions,
         each requiredSkills entry resolves against skills.local, 0 broken
