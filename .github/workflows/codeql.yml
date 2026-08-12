@@ -10,7 +10,9 @@ on:
 
 jobs:
   analyze:
-    name: Analyze
+    # Branch protection requires this exact context. A generic matrix-derived
+    # "Analyze (javascript-typescript)" result does not satisfy that rule.
+    name: CodeQL
     runs-on: ubuntu-latest
     permissions:
       actions: read

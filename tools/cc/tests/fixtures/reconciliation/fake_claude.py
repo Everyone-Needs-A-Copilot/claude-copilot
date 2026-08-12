@@ -36,7 +36,6 @@ import sys
 from pathlib import Path
 from typing import NoReturn
 
-
 _CAPTURE_VERSION = "fake-claude.capture.v1"
 _HOSTILE_OUTPUTS = {
     "empty": b"",
@@ -148,12 +147,6 @@ def main() -> int:
     mode = os.environ.get("FAKE_CLAUDE_MODE", "exact")
 
     if mode == "wait":
-        ready = os.environ.get("FAKE_CLAUDE_READY_FILE")
-        if ready:
-            ready_path = Path(ready)
-            ready_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            ready_path.write_text("ready\n", encoding="utf-8")
-            ready_path.chmod(0o600)
         for handled in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
             signal.signal(
                 handled,
@@ -163,6 +156,15 @@ def main() -> int:
         assert isinstance(events, list)
         events.append("waiting")
         _atomic_json(capture_path, record)
+        # The sentinel promises that cancellation handling is ready, not only
+        # that the child started. Publishing it earlier races callers into the
+        # interpreter's default SIGTERM behavior.
+        ready = os.environ.get("FAKE_CLAUDE_READY_FILE")
+        if ready:
+            ready_path = Path(ready)
+            ready_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            ready_path.write_text("ready\n", encoding="utf-8")
+            ready_path.chmod(0o600)
         while True:
             signal.pause()
 
