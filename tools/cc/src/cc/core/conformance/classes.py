@@ -6,7 +6,7 @@ to a given directory.
 Two distinct vocabularies live here, on purpose:
 
   - `RepoClass` -- the five-value taxonomy `CLASSIFICATION.md`'s 2026-08-10
-    audit assigned to every directory under `/Volumes/Dev/Sites`. Editable,
+    audit assigned to every directory under the configured fleet root. Editable,
     human-facing, carried straight through into `cc conformance`'s per-repo
     report rows.
   - the rubric letter (a bare `str`, one of `registry.REPO_CLASSES` --
@@ -63,7 +63,7 @@ _PACKAGE_TO_TOOLS_CC_DEPTH = 4
 
 class RepoClass(StrEnum):
     """The five-value taxonomy `CLASSIFICATION.md` assigned to every
-    directory under `/Volumes/Dev/Sites` -- literal string values match
+    directory under the configured fleet root -- literal string values match
     the audit's own class names exactly, including the hyphenated ones."""
 
     COMPONENT = "COMPONENT"
@@ -112,7 +112,7 @@ class ClassificationEntry:
     `key` is the portable, machine-independent lookup key
     (`"<group>/<name>"`, e.g. `"TSM/h3"`) -- never an absolute path, so the
     same `classification.toml` works whether the fleet root is mounted at
-    `/Volumes/Dev/Sites` or its `/Users/pabs/Sites` symlink alias.
+    any configured fleet root or its symlink alias.
 
     `source` is `"override"` for a `classification.toml` row and
     `"computed-default"` for a directory the table has no row for
@@ -246,7 +246,7 @@ def load_classification_table(
 
 def repo_key(path: Path, root: Path) -> str:
     """The portable `"<group>/<name>"` lookup key for `path`, relative to
-    `root` (`sweep.py`'s discovery root, e.g. `/Volumes/Dev/Sites`). Falls
+    `root` (`sweep.py`'s configured discovery root). Falls
     back to the full relative-to-root path (POSIX-joined) for anything
     deeper than two levels -- `classification.toml` only ever seeds
     two-level entries today (`CLASSIFICATION.md`'s own scan depth), but a

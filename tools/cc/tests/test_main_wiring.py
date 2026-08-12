@@ -349,6 +349,16 @@ def test_onboard_ecosystem_resolves_collaborators_at_call_time(cli, monkeypatch)
     )
     monkeypatch.setattr(onboard_module, "ensure_machine_ssh_identity", fake_ssh)
     monkeypatch.setattr(onboard_module, "_install_codex_plugin", _fake_onboard_codex)
+    monkeypatch.setattr(
+        onboard_module,
+        "_validate_manifest_candidate",
+        lambda *_args, **_kwargs: {"result": "ready", "detail": "fixture"},
+    )
+    monkeypatch.setattr(
+        onboard_module,
+        "_provision_store",
+        lambda *_args, **_kwargs: {"result": "ready", "detail": "fixture"},
+    )
 
     real_ssh_config = Path.home() / ".ssh" / "config"
     real_ssh_config_before = (

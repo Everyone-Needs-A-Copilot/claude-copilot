@@ -44,6 +44,7 @@ filesystem reads of `.claude/cc/config.json`, `CLAUDE.md`, and
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable
 
@@ -69,9 +70,12 @@ KNOWLEDGE_MANIFEST_RELATIVE_PATH = "knowledge-manifest.json"
 # RUBRIC.md D7: "Applies to: A, B, C, D." -- not E.
 _APPLIES_TO = ("A", "B", "C", "D")
 
-# Both mount conventions this machine's repos are cited under
-# (`TEST-MATRIX.md` IC-D7-HARDCODE: "grep -n '/Volumes/Dev/Sites\\|/Users/pabs/Sites'").
-_HARDCODED_PATH_MARKERS: tuple[str, ...] = ("/Volumes/Dev/Sites", "/Users/pabs/Sites")
+# Absolute user-home and mounted-volume paths are machine-specific regardless
+# of which account or volume happened to appear in the original audit.
+_HARDCODED_PATH_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"/(?:Users|home)/[^/\s`\"']+(?:/[^\s`\"']*)?"),
+    re.compile(r"/Volumes/[^/\s`\"']+(?:/[^\s`\"']*)?"),
+)
 
 _D07_REGISTRATION = register_check(
     id="repo.d07.knowledge_wiring_resolves",
@@ -88,8 +92,8 @@ _D07_REGISTRATION = register_check(
     ),
     remediation=(
         "Run `cc config init --project` (or set `paths.knowledge_repo`); "
-        "replace any hardcoded `/Volumes/Dev/Sites`/`/Users/pabs/Sites` "
-        "reference in `CLAUDE.md` with `$CC_KNOWLEDGE_REPO`/"
+        "replace any hardcoded absolute machine path reference in `CLAUDE.md` "
+        "with `$CC_KNOWLEDGE_REPO`/"
         "`$CC_SHARED_DOCS`; and fix any broken `extensions[].file` or "
         "`skills.local[].path` entry (or unresolved `requiredSkills` name) "
         "in `knowledge-manifest.json`."
@@ -132,9 +136,10 @@ def _find_hardcoded_paths(claude_md: Path) -> list[tuple[int, str, str]]:
     except (OSError, UnicodeDecodeError):
         return hits
     for line_number, line in enumerate(lines, start=1):
-        for marker in _HARDCODED_PATH_MARKERS:
-            if marker in line:
-                hits.append((line_number, marker, line.strip()))
+        for pattern in _HARDCODED_PATH_PATTERNS:
+            match = pattern.search(line)
+            if match:
+                hits.append((line_number, match.group(0), line.strip()))
                 break
     return hits
 

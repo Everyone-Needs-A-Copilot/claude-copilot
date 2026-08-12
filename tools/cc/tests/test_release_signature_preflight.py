@@ -4,7 +4,6 @@ import os
 import subprocess
 from pathlib import Path
 
-
 SCRIPT = Path(__file__).parents[3] / "scripts" / "verify-foundation-release.sh"
 
 
@@ -36,7 +35,7 @@ def _repo_and_key(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
         }
     )
     for command in (
-        ("git", "init", "-q"),
+        ("git", "init", "-q", "-b", "main"),
         ("git", "config", "user.name", "Release Test"),
         ("git", "config", "user.email", "release@example.invalid"),
         ("git", "config", "gpg.format", "ssh"),
@@ -54,7 +53,7 @@ def test_release_preflight_accepts_signed_tag_over_signed_root_snapshot(tmp_path
     commit = _run("git", "rev-parse", "HEAD", cwd=repo).stdout.strip()
     subprocess.run(["git", "tag", "-s", "v1.2.3", "-m", "release"], cwd=repo, check=True)
 
-    result = _run(str(SCRIPT), str(repo), "v1.2.3", commit, cwd=repo, env=env)
+    result = _run(str(SCRIPT), str(repo), "v1.2.3", commit, "main", cwd=repo, env=env)
 
     assert result.returncode == 0, result.stderr
     assert "foundation release signatures: verified" in result.stdout
@@ -66,7 +65,7 @@ def test_release_preflight_rejects_signed_tag_over_unsigned_snapshot(tmp_path: P
     commit = _run("git", "rev-parse", "HEAD", cwd=repo).stdout.strip()
     subprocess.run(["git", "tag", "-s", "v1.2.3", "-m", "release"], cwd=repo, check=True)
 
-    result = _run(str(SCRIPT), str(repo), "v1.2.3", commit, cwd=repo, env=env)
+    result = _run(str(SCRIPT), str(repo), "v1.2.3", commit, "main", cwd=repo, env=env)
 
     assert result.returncode != 0
     assert "commit" in result.stderr
@@ -86,7 +85,7 @@ def test_release_preflight_accepts_signed_tag_over_signed_non_root_commit(tmp_pa
     commit = _run("git", "rev-parse", "HEAD", cwd=repo).stdout.strip()
     subprocess.run(["git", "tag", "-s", "v1.2.4", "-m", "release"], cwd=repo, check=True)
 
-    result = _run(str(SCRIPT), str(repo), "v1.2.4", commit, cwd=repo, env=env)
+    result = _run(str(SCRIPT), str(repo), "v1.2.4", commit, "main", cwd=repo, env=env)
 
     assert result.returncode == 0, result.stderr
     assert "foundation release signatures: verified" in result.stdout

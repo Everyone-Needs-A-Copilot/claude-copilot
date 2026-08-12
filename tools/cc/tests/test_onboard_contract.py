@@ -3081,6 +3081,15 @@ def _set_fake_origin(path: Path, owner: str, name: str) -> None:
 
 def _clone_with_fake_origin(remote: Path, local: Path, owner: str, name: str) -> None:
     subprocess.run(["git", "clone", "-q", str(remote), str(local)], check=True)
+    # A clone does not inherit repository-local identity. Keep later fixture
+    # commits hermetic when CI has no global Git user configured.
+    subprocess.run(
+        ["git", "-C", str(local), "config", "user.email", "test@example.invalid"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(local), "config", "user.name", "Test"], check=True
+    )
     subprocess.run(["git", "-C", str(local), "remote", "remove", "origin"], check=True)
     _set_fake_origin(local, owner, name)
 

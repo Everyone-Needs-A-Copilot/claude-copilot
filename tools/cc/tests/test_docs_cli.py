@@ -15,16 +15,10 @@ Covers:
 from __future__ import annotations
 
 import json
-import importlib.util
-from pathlib import Path
-from typing import Optional
-from unittest.mock import MagicMock, patch
 
 import pytest
-from typer.testing import CliRunner
-
 from cc.main import app
-
+from typer.testing import CliRunner
 
 # ---------------------------------------------------------------------------
 # Registry isolation + fake backend fixture
@@ -47,7 +41,9 @@ def runner() -> CliRunner:
 
 
 def _invoke(runner: CliRunner, args: list[str]):
-    return runner.invoke(app, args)
+    # Rich collapses option columns when the detected terminal is narrow.
+    # Help-contract assertions must be independent of CI runner width.
+    return runner.invoke(app, args, terminal_width=160)
 
 
 class _FakeBackend:
@@ -111,11 +107,6 @@ class TestDocsResolve:
 
     def test_resolve_with_lang_js(self, runner, tmp_path):
         """Fake a JS project with a package-lock.json."""
-        import os
-        lock = json.dumps({
-            "lockfileVersion": 2,
-            "packages": {"node_modules/react": {"version": "18.2.0"}},
-        })
         # We can't easily control cwd in CliRunner, so just verify it doesn't crash
         result = _invoke(runner, ["docs", "resolve", "react", "--lang", "js"])
         # May exit 1 (not installed) or 0 — just must not crash

@@ -12,7 +12,6 @@ from cc.core.ecosystem.project_migrations import (
     build_migration_candidate,
     build_migration_report,
 )
-from cc.core.config import resolve_key
 from cc.core.ecosystem.workspaces import (
     activate_components,
     workspace_status,
@@ -22,31 +21,15 @@ from jsonschema import Draft202012Validator
 
 
 def _repo_roots() -> tuple[Path, Path]:
-    """Locate this checkout's own root plus the machine's configured
-    codex-copilot install.
+    """Return only installer sources committed with this checkout.
 
-    `claude_root` is derived from `__file__` itself (this test's own
-    containing repo) rather than reconstructed by guessing a sibling
-    directory *named* "claude-copilot" -- that guess breaks under a git
-    worktree, where the checkout directory is named after the worktree,
-    not the repo (e.g. `/private/tmp/some-worktree/...`), so
-    `parents[4] / "claude-copilot"` silently resolves to an unrelated (or
-    nonexistent) directory instead of this checkout.
-
-    `codex_root` has no `__file__`-relative anchor -- it's a different
-    repo entirely -- so it uses the same machine-level config lookup
-    (`paths.codex_copilot_root`) that `activate_components` itself falls
-    back to when no override is supplied, keeping this test aligned with
-    the code under test instead of re-guessing a directory layout.
+    Workspace tests exercise the cc-owned integration contract. They must
+    not require a sibling Codex checkout or machine-level cc configuration.
     """
-    claude_root = Path(__file__).resolve().parents[3]
-    codex_root = resolve_key("paths.codex_copilot_root")
-    if not codex_root:
-        raise RuntimeError(
-            "paths.codex_copilot_root is not configured on this machine "
-            "(cc config set paths.codex_copilot_root /path/to/codex-copilot)"
-        )
-    return claude_root, Path(str(codex_root)).expanduser()
+    return (
+        Path(__file__).resolve().parents[3],
+        Path(__file__).parent / "fixtures" / "codex-installer",
+    )
 
 
 def _git(project: Path, *args: str) -> subprocess.CompletedProcess[str]:
