@@ -72,6 +72,17 @@ def _load_all_skills(scope: str = "all"):
     return discover_skills_with_sources(pairs, cache_dir=_resolve_skill_cache_dir())
 
 
+def _load_trusted_skills(scope: str = "all"):
+    """Map fail-closed Knowledge verification to a concise CLI error."""
+    from cc.core.ecosystem.knowledge_skill_source import KnowledgeSkillSourceError
+
+    try:
+        return _load_all_skills(scope)
+    except KnowledgeSkillSourceError as exc:
+        err_console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+
 def _skill_to_dict(s: Any, *, include_path: bool = True) -> dict[str, Any]:
     """Shared `--json` serialization for a `SkillMeta` (WP-372 P2.2): every
     frontmatter fact beyond the canonical named fields -- `triggers`
@@ -110,7 +121,7 @@ def skill_list(
         )
         raise typer.Exit(1)
 
-    skills = _load_all_skills(scope)
+    skills = _load_trusted_skills(scope)
 
     if output_json:
         data = [_skill_to_dict(s) for s in skills]
@@ -157,7 +168,7 @@ def skill_search(
         )
         raise typer.Exit(1)
 
-    all_skills = _load_all_skills(scope)
+    all_skills = _load_trusted_skills(scope)
     results = search_skills(query, all_skills)
 
     if output_json:
@@ -199,7 +210,7 @@ def skill_get(
     """
     from cc.core.skill_store import find_skill_by_name, get_skill_content
 
-    skills = _load_all_skills(scope)
+    skills = _load_trusted_skills(scope)
     skill = find_skill_by_name(name, skills)
 
     if skill is None:
@@ -228,14 +239,16 @@ def skill_path(
         # → /path/to/.claude/skills/security/stride-dread/SKILL.md
         @include $(cc skill path stride-dread)
     """
-    from cc.core.skill_store import find_skill_by_name
+    from cc.core.skill_store import find_skill_by_name, revalidate_skill_path
 
-    skills = _load_all_skills(scope)
+    skills = _load_trusted_skills(scope)
     skill = find_skill_by_name(name, skills)
 
     if skill is None:
         err_console.print(f"[red]Skill not found:[/red] {name!r}")
         raise typer.Exit(2)
+
+    revalidate_skill_path(skill)
 
     # Plain text — deliberately no newline decoration so output is pipeable
     typer.echo(str(skill.path))
