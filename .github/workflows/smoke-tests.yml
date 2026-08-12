@@ -15,6 +15,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tools/tc/pyproject.toml
+
+      - name: Install QA-gate task fixture dependency
+        run: python -m pip install --disable-pip-version-check -e "./tools/tc"
+
       - name: Run smoke tests
         run: |
           chmod +x ./scripts/smoke-test.sh

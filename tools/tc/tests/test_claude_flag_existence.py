@@ -44,7 +44,7 @@ from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path("/Volumes/Dev/Sites/COPILOT/claude-copilot")
+REPO_ROOT = Path(__file__).resolve().parents[3]
 ORCHESTRATE_MD = REPO_ROOT / ".claude/commands/orchestrate.md"
 DISCORD_DISPATCH_SH = REPO_ROOT / ".claude/bin/discord-dispatch.sh"
 
@@ -204,9 +204,8 @@ class TestDiscordDispatchDelegatesToTcWorker:
         )
 
     def test_dispatch_cmd_flags_exist_in_tc_worker_help(self):
-        from typer.testing import CliRunner
-
         from tc.main import app
+        from typer.testing import CliRunner
 
         result = CliRunner().invoke(app, ["worker", "--help"])
         valid = set(_LONG_FLAG_RE.findall(result.stdout))

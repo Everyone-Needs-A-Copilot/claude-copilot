@@ -16,8 +16,8 @@ every doc this repo ships (docs/**, .claude/agents/**, .claude/commands/**,
 .claude/skills/**, README.md, CLAUDE.md) for literal `tc wp store ...
 --type <value>` occurrences and asserts each one is accepted by store_wp.
 
-It is deliberately scoped to this repo's own tree, not sibling repos under
-/Volumes/Dev/Sites/COPILOT/ — a hermetic, CI-portable check can only see
+It is deliberately scoped to this repo's own tree, not sibling repos — a
+hermetic, CI-portable check can only see
 what ships with the framework itself. Values sourced from other repos
 (e.g. a downstream project's custom agent) are added by hand, with their
 evidence recorded in docs/70-reference/06-wp-type-allowlist.md, the same way
@@ -33,7 +33,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-REPO_ROOT = Path("/Volumes/Dev/Sites/COPILOT/claude-copilot")
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 # Directories (repo-relative) that ship instructions to agents, and
 # therefore gate what this test checks. `.claude/agents/_archive` and
