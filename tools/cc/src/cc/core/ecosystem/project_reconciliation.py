@@ -19,6 +19,10 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Mapping, Sequence
 
 from cc.core.config import resolve_key
+from cc.core.ecosystem.codex_plugin_source import (
+    CodexPluginSourceError,
+    resolve_codex_plugin_source,
+)
 from cc.core.ecosystem.project_integration import inspect_project_integration
 from cc.core.ecosystem.project_locking import (
     ProjectIdentity,
@@ -112,6 +116,10 @@ _MANAGED_OUTPUT_TARGET_KINDS = {
     "claude": {
         "CLAUDE.md": "managed-text",
         ".mcp.json": "merged-json",
+        ".claude/settings.json": "merged-json",
+        ".claude/cc/config.json": "merged-json",
+        ".claude/memory/entries/.gitkeep": "managed-text",
+        ".claude/memory/.gitignore": "managed-text",
         "copilot.project.json": "merged-json",
     },
     "codex": {
@@ -393,12 +401,20 @@ def _sha256_fingerprint(value: Any) -> bool:
 
 def _framework_path_allowed(component: str, relative: str) -> bool:
     if component == "claude":
-        return relative in {
-            ".claude/commands/protocol.md",
-            ".claude/commands/continue.md",
-            ".claude/fitness-check.sh",
-            ".claude/hooks/copilot-hook.sh",
-        } or relative.startswith(".claude/agents/")
+        pure = PurePosixPath(relative)
+        return (
+            relative
+            in {
+                ".claude/fitness-check.sh",
+                ".claude/hooks/copilot-hook.sh",
+            }
+            or (pure.parts[:2] == (".claude", "agents") and len(pure.parts) >= 3)
+            or (
+                len(pure.parts) == 3
+                and pure.parts[:2] == (".claude", "commands")
+                and pure.suffix == ".md"
+            )
+        )
     return relative == "scripts/copilot-gate.sh" or relative.startswith(
         "plugins/codex-copilot/"
     )
@@ -644,6 +660,34 @@ def _component_missing(component: Mapping[str, Any]) -> list[Evidence]:
 def _source_available(component: str) -> bool:
     configured = resolve_key(f"paths.{component}_copilot_root")
     return authoritative_source_available(component, configured)
+
+
+def _provenance_source_unavailable(project: Path, component: str) -> bool:
+    if component != "codex":
+        return False
+    try:
+        raw = json.loads((project / "copilot.lock.json").read_text(encoding="utf-8"))
+        entry = next(
+            item
+            for item in raw["components"]
+            if isinstance(item, Mapping) and item.get("component") == "codex"
+        )
+        provenance = entry.get("provenance")
+    except (
+        FileNotFoundError,
+        OSError,
+        KeyError,
+        StopIteration,
+        TypeError,
+        json.JSONDecodeError,
+    ):
+        return False
+    if not isinstance(provenance, Mapping):
+        return False
+    try:
+        return resolve_codex_plugin_source() is None
+    except CodexPluginSourceError:
+        return True
 
 
 def _recommendation(
@@ -1022,6 +1066,12 @@ def assess_project(
         )
         if _requires_owner_for_unreadable_config(path, component, draft, route):
             route = ComponentRoute.OWNER_DECISION
+        if route in {
+            ComponentRoute.SAFE_SETUP_AVAILABLE,
+            ComponentRoute.SAFE_UPDATE_AVAILABLE,
+            ComponentRoute.CUSTOMIZED_GUIDED_ROUTE,
+        } and _provenance_source_unavailable(path, component):
+            route = ComponentRoute.SOURCE_UNAVAILABLE
         recommended, reason = _recommendation(
             component,
             route,

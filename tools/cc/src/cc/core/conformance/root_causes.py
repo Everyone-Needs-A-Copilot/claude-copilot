@@ -2,9 +2,10 @@
 
 One named, self-contained check per systemic root cause the ecosystem audit
 found (`HARNESS-DESIGN.md` §4 "Layer 6", `TEST-MATRIX.md` §6, IDs used
-verbatim). Each check MUST fail today against the real machine and pass only
-when the underlying cause is actually fixed -- not when a single repo is
-patched around it. Scope is deliberately limited to the five root causes the
+verbatim). Each check fails on the original defect shape and passes only when
+the underlying cause is actually fixed -- not when a single repo is patched
+around it. Current live verdicts may therefore become PASS after reviewed
+remediation. Scope is deliberately limited to the five root causes the
 task specifies (RC-1..RC-5); RC-6/RC-7 and the `inv.*` invariants named
 elsewhere in the design are out of this package's file ownership.
 
@@ -67,6 +68,7 @@ running code/state on this machine (`EXISTING-VERIFICATION.md`,
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import re
@@ -229,19 +231,81 @@ _RC1 = register_check(
     scope=Scope.GLOBAL,
     summary=(
         "the framework enforcement hook (.claude/hooks/copilot-hook.sh) is "
-        "referenced by a sanctioned installer command, and is already "
+        "declared by the canonical Claude reconciliation recipe, and is already "
         "present, executable, and locked across the real fleet"
     ),
     remediation=(
-        "wire .claude/hooks/copilot-hook.sh into setup-project.md's and "
-        "update-project.md's copy/lock steps, then re-run /update-project "
+        "wire .claude/hooks/copilot-hook.sh into the canonical Claude "
+        "reconciliation recipe, then run the reviewed transaction "
         "fleet-wide so every repo's lock records it with a matching checksum"
     ),
     mode=Mode.FAST,
     expected_today=ExpectedToday.FAIL,
 )
 
-_HOOK_REFERENCE_PATTERN = re.compile(r"copilot-hook|\.claude/hooks/")
+_CANONICAL_RECIPE_RELATIVE_PATH = Path(
+    "tools/cc/src/cc/core/ecosystem/reconciliation_recipes.py"
+)
+
+
+def _canonical_hook_recipe_state(
+    claude_foundation_path: Path,
+) -> tuple[Path, int, str | None]:
+    """Inspect the authoritative recipe AST without executing a mutation.
+
+    Adapter markdown is intentionally irrelevant.  The contract is a bounded
+    ``_operation`` inside ``_claude_setup`` that copies the required hook from
+    the source and marks it executable.  AST inspection keeps this regression
+    pin read-only while still failing if the canonical operation is removed,
+    retargeted, or loses its executable mode.
+    """
+
+    recipe_path = claude_foundation_path / _CANONICAL_RECIPE_RELATIVE_PATH
+    try:
+        tree = ast.parse(recipe_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, SyntaxError) as exc:
+        return recipe_path, 0, f"{type(exc).__name__}: {exc}"
+
+    setup = next(
+        (
+            node
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "_claude_setup"
+        ),
+        None,
+    )
+    if setup is None:
+        return recipe_path, 0, "_claude_setup is absent"
+
+    matches = 0
+    for node in ast.walk(setup):
+        if not isinstance(node, ast.Call) or not (
+            isinstance(node.func, ast.Name) and node.func.id == "_operation"
+        ):
+            continue
+        keywords = {item.arg: item.value for item in node.keywords if item.arg}
+        target = keywords.get("target")
+        kind = keywords.get("kind")
+        payload = keywords.get("payload")
+        target_ok = isinstance(target, ast.Constant) and target.value == HOOK_RELATIVE_PATH
+        kind_ok = (
+            isinstance(kind, ast.Attribute)
+            and kind.attr == "COPY_FILE_FROM_SOURCE"
+        )
+        mode_ok = False
+        if isinstance(payload, ast.Dict):
+            for key, value in zip(payload.keys, payload.values, strict=True):
+                if (
+                    isinstance(key, ast.Constant)
+                    and key.value == "mode"
+                    and isinstance(value, ast.Constant)
+                    and value.value == 0o755
+                ):
+                    mode_ok = True
+        if target_ok and kind_ok and mode_ok:
+            matches += 1
+    return recipe_path, matches, None
 
 
 def _hook_state(repo: Path) -> tuple[bool, bool, bool]:
@@ -275,47 +339,38 @@ def check_rc1(
 ) -> tuple[CheckResult, ...]:
     """RC-1: two independent, self-contained assertions.
 
-    1. installer-source contract -- does `setup-project.md` or
-       `update-project.md` reference the hook at all?
+    1. canonical-recipe contract -- does the authoritative Claude setup recipe
+       declare an executable copy of the hook?
     2. fleet state -- of the repos this machine can discover, how many have
        the hook PRESENT, EXECUTABLE, and LOCKED with a matching checksum
        (the compound definition `project_integration.py` itself uses, not
        mere file existence)?
     """
 
-    setup_md = claude_foundation_path / ".claude" / "commands" / "setup-project.md"
-    update_md = claude_foundation_path / ".claude" / "commands" / "update-project.md"
-
-    hits: dict[str, int] = {}
-    for md in (setup_md, update_md):
-        text = md.read_text(encoding="utf-8") if md.is_file() else ""
-        hits[md.name] = len(_HOOK_REFERENCE_PATTERN.findall(text))
-    installer_ok = sum(hits.values()) > 0
+    recipe_path, operation_count, recipe_error = _canonical_hook_recipe_state(
+        claude_foundation_path
+    )
+    installer_ok = operation_count == 1
 
     installer_evidence: tuple[Evidence, ...] = ()
     if not installer_ok:
         installer_evidence = (
             Evidence(
-                kind="installer-source",
-                path=str(setup_md),
-                expected=f"a reference to {HOOK_RELATIVE_PATH} in a sanctioned installer",
-                actual="0 references",
-                detail=(
-                    f"{setup_md.name}: {hits.get(setup_md.name, 0)} reference(s); "
-                    f"{update_md.name}: {hits.get(update_md.name, 0)} reference(s)"
+                kind="canonical-recipe-source",
+                path=str(recipe_path),
+                expected=(
+                    f"exactly one executable COPY_FILE_FROM_SOURCE operation for "
+                    f"{HOOK_RELATIVE_PATH} inside _claude_setup"
                 ),
-                command=f"grep -n copilot-hook {setup_md} {update_md}",
+                actual=f"{operation_count} matching operation(s)",
+                detail=recipe_error or "canonical recipe operation is absent or malformed",
             ),
         )
     installer_result = _RC1.result(
-        subject=str(setup_md),
+        subject=str(recipe_path),
         verdict=Verdict.PASS if installer_ok else Verdict.FAIL,
         evidence=installer_evidence,
-        detail="whether any sanctioned command installs the enforcement hook",
-        # Re-verified live 2026-08-10: setup-project.md now references
-        # .claude/hooks/copilot-hook.sh (cp + chmod +x + `cc settings-hook
-        # add`) -- the installer-source half of RC-1 is genuinely fixed.
-        # The fleet half below is NOT -- see its own expected_today.
+        detail="whether the authoritative canonical recipe installs the enforcement hook",
         expected_today=ExpectedToday.PASS,
         root_cause="RC-1",
     )

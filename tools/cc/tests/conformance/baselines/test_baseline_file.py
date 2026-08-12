@@ -27,6 +27,7 @@ a CI box with no ecosystem installed at all.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -41,20 +42,43 @@ from cc.core.conformance.types import (
     Verdict,
 )
 
-BASELINE_PATH = Path(__file__).parent / "2026-08-10-known-bad.json"
+BASELINE_PATH = Path(__file__).parent / "2026-08-12-reviewed-current.json"
 
-# TEST-MATRIX.md section 8's own floor: "If the harness's first run against
-# this machine reports FEWER failures than this list, the harness is
-# under-detecting." The committed baseline covers a much finer grain than
-# TEST-MATRIX.md's 54 distinct test IDs (per-repo, per-subject entries, not
-# per-test-id), so the meaningful floor here is DISTINCT CHECK IDS with at
-# least one FAIL entry, compared against TEST-MATRIX.md's ~36. Measured at
-# generation time (2026-08-10, full mode, all six layers): 48 distinct
-# check ids carry at least one FAIL -- MORE than 36, which is the expected
-# direction (TEST-MATRIX.md's number is a floor, not a ceiling, and full
-# mode plus this harness's finer per-check granularity than the design
-# doc's hand-tabulated estimate surfaces more, not fewer).
-MINIMUM_DISTINCT_FAILING_CHECK_IDS = 36
+# TASK-281's reviewed current failure taxonomy.  An exact set is stricter and
+# more honest than the obsolete 2026-08-10 numeric floor: many originally
+# predicted failures have been verified fixed, while newly implemented checks
+# now expose different current failures.  Any addition or removal requires an
+# explicit baseline review rather than quietly satisfying a loose count.
+REVIEWED_CURRENT_FAILING_CHECK_IDS = {
+    "repo.d01.agent_roster_exact",
+    "repo.d01.claude_md_agent_count_accurate",
+    "repo.d01.claude_md_entry_heading",
+    "repo.d01.command_set_exact",
+    "repo.d01.documented_commands_exist",
+    "repo.d01.fitness_check_passes",
+    "repo.d01.fitness_check_present_executable",
+    "repo.d01.mcp_json_is_object",
+    "repo.d02.codex_entry_contract",
+    "repo.d02.declared_version_matches_lock",
+    "repo.d02.plugin_tree_matches_pinned_mirror",
+    "repo.d02.skill_bridge_internal_symlink",
+    "repo.d03.all_installed_components_locked",
+    "repo.d03.lock_schema_and_checksums",
+    "repo.d05.cc_config_machine_sentinel",
+    "repo.d06.memory_entries_committed_db_ignored",
+    "repo.d07.knowledge_wiring_resolves",
+    "repo.d08.tier_participation",
+    "repo.d09.portable_declaration",
+    "repo.d10.mcp_json_is_committable",
+    "repo.d10.mcp_object_no_retired_servers",
+    "repo.d11.registry_entry",
+    "repo.d12.initiatives_scaffold",
+    "repo.d13.scanner_reachable",
+    "repo.gitignore.no_self_exclusion",
+    "stack.cs_signers",
+    "tier.effectiveness.extension_resolution_wired_beyond_prose",
+    "tier.precedence.commands_dimension_has_no_consumer",
+}
 
 # The 5 required root-cause regression pins (HARNESS-DESIGN.md section 4
 # Layer 6 / TEST-MATRIX.md section 6) -- rc.rc6/rc.rc7 are documented bonus
@@ -79,38 +103,47 @@ def test_baseline_file_exists_and_is_non_empty(baseline_entries):
 
 
 def test_baseline_captures_every_known_root_cause(baseline_entries):
-    """`HARNESS-DESIGN.md` section 5.4: "the baseline contains a FAIL for
-    each of RC-1..RC-6 plus Q24/Q25. If the harness ever stops detecting a
-    known-bad condition, this goes red." (RC-6/Q24/Q25 are covered by
-    Layer 1's H-3/H-5 and Layer 6's bonus pins in the design, but only
-    RC-1..RC-5 are the REQUIRED set per HARNESS-DESIGN.md section 4 Layer 6
-    -- root_causes.py, WP-7, implements exactly that required set today.)"""
+    """Every named regression pin remains represented even after a root cause
+    is fixed. Synthetic negative fixtures prove detection; the live baseline
+    records current truth instead of requiring resolved defects to stay red."""
 
-    failing_ids = {entry.id for entry in baseline_entries if entry.verdict is Verdict.FAIL}
+    recorded_ids = {entry.id for entry in baseline_entries}
     for prefix in REQUIRED_ROOT_CAUSE_ID_PREFIXES:
-        matching = [check_id for check_id in failing_ids if check_id.startswith(prefix)]
+        matching = [check_id for check_id in recorded_ids if check_id.startswith(prefix)]
         assert matching, (
-            f"expected at least one FAIL entry for a check id starting with "
-            f"{prefix!r} -- the baseline no longer proves the harness detects "
-            "this root cause"
+            f"expected an entry for a check id starting with {prefix!r} -- "
+            "the live baseline silently dropped this regression pin"
         )
 
 
-def test_baseline_meets_the_expected_fail_today_floor(baseline_entries):
-    """A harness that reports FEWER failures than TEST-MATRIX.md section 8
-    predicts is under-detecting, not "improved" -- investigate the harness
-    before trusting a cleaner-than-expected result (TEST-MATRIX.md
-    section 8's own instruction, applied here as a standing floor rather
-    than a one-time comparison)."""
+def test_baseline_matches_the_reviewed_current_failure_taxonomy(baseline_entries):
+    """No current failing check category appears or disappears silently."""
 
     failing_ids = {entry.id for entry in baseline_entries if entry.verdict is Verdict.FAIL}
-    assert len(failing_ids) >= MINIMUM_DISTINCT_FAILING_CHECK_IDS, (
-        f"only {len(failing_ids)} distinct check id(s) carry a FAIL in the "
-        f"committed baseline; TEST-MATRIX.md section 8 predicts at least "
-        f"{MINIMUM_DISTINCT_FAILING_CHECK_IDS}. Fewer failures than the matrix "
-        "predicts means the harness stopped detecting something, not that the "
-        "ecosystem got healthier -- verify before regenerating."
-    )
+    assert failing_ids == REVIEWED_CURRENT_FAILING_CHECK_IDS
+
+
+def test_baseline_change_review_has_zero_unreviewed_pass_to_fail():
+    payload = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+    review = payload["change_review"]
+    assert review["zero_unreviewed_pass_to_fail"] is True
+    changes = review["changes"]
+    assert changes
+    pass_to_fail = [
+        row
+        for row in changes
+        if row.get("previous") == "pass" and row.get("current") == "fail"
+    ]
+    assert pass_to_fail
+    for row in pass_to_fail:
+        assert row["classification"].startswith("reviewed-open-")
+        assert row["rationale"]
+        assert row["owner"]
+    acknowledged = {
+        (row["id"], row["subject"])
+        for row in payload["acknowledged_regressions"]
+    }
+    assert acknowledged == {(row["id"], row["subject"]) for row in pass_to_fail}
 
 
 def test_baseline_entries_are_well_formed(baseline_entries):

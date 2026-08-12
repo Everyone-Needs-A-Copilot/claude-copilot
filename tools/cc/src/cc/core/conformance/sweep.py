@@ -471,6 +471,15 @@ def run_sweep(options: SweepOptions | None = None) -> SweepResult:
         )
     )
 
+    # A dimension module runs once per repository, including modules that
+    # also expose a machine-wide assertion.  Collapse those GLOBAL results
+    # here so cache hits, serial execution, and parallel execution all share
+    # one output contract.  A disagreement becomes one COULD_NOT_RUN rather
+    # than an arbitrary winner.
+    from cc.core.conformance.report import deduplicate_global_results
+
+    all_results = deduplicate_global_results(all_results)
+
     return SweepResult(
         results=all_results,
         repos_discovered=len(discovered),

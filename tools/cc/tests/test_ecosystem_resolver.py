@@ -25,7 +25,9 @@ def _no_real_home(monkeypatch):
     monkeypatch.setattr(Path, "home", staticmethod(_boom))
 
 
-def _layer(layer_id: str, rank: int, role: str = "org", product: str = "claude", **extra) -> dict:
+def _layer(
+    layer_id: str, rank: int, role: str = "org", product: str = "claude", **extra
+) -> dict:
     layer = {
         "id": layer_id,
         "role": role,
@@ -41,7 +43,9 @@ def _layer(layer_id: str, rank: int, role: str = "org", product: str = "claude",
 
 FOUR_TIER_LAYERS = [
     _layer("personal-pablo", 10, role="personal", product="claude"),
-    _layer("dept-engineering", 20, role="department", product="claude", unit="engineering"),
+    _layer(
+        "dept-engineering", 20, role="department", product="claude", unit="engineering"
+    ),
     _layer("org-acme", 30, role="org", product="claude"),
     _layer("foundation", 40, role="foundation", product="claude"),
 ]
@@ -111,6 +115,138 @@ def test_override_item_only_in_one_layer_has_no_shadow():
     assert env["shadowed"] == []
 
 
+def test_executable_override_skips_explicitly_unsigned_personal_layer():
+    """Resolution and materialization must name the same effective winner.
+
+    An explicit empty signer list is a fail-closed policy decision, not a
+    materializable override.  The verified foundation therefore wins while
+    the blocked personal contribution remains visible in the shadow chain.
+    """
+    signer = "SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo"
+    layers = [
+        _layer(
+            "codex-personal",
+            10,
+            role="personal",
+            product="codex",
+            policy={"allowed_signers": []},
+        ),
+        _layer(
+            "codex-foundation",
+            40,
+            role="foundation",
+            product="codex",
+            policy={"allowed_signers": [signer]},
+        ),
+    ]
+    contributions = {
+        "codex-personal": {"plugins": {"codex-copilot": "sha-personal"}},
+        "codex-foundation": {"plugins": {"codex-copilot": "sha-foundation"}},
+    }
+    lockfile = {
+        "codex-personal": {"_meta": {"role": "personal"}},
+        "codex-foundation": {"plugins": {"codex-copilot": "sha-foundation"}},
+    }
+
+    plugin = _by_item(
+        resolve_layers(layers, contributions, lockfile=lockfile),
+        "codex-copilot",
+        "plugins",
+        "codex",
+    )
+
+    assert plugin["winning_layer"] == "codex-foundation"
+    assert plugin["winning_sha"] == "sha-foundation"
+    assert [item["layer"] for item in plugin["shadowed"]] == ["codex-personal"]
+
+
+def test_authorized_executable_winner_still_requires_lock_materialization():
+    """Eligibility never fabricates the proof E-4 is designed to require."""
+    signer = "SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo"
+    layers = [
+        _layer(
+            "codex-organization",
+            30,
+            role="organization",
+            product="codex",
+            policy={"allowed_signers": [signer]},
+        ),
+        _layer(
+            "codex-foundation",
+            40,
+            role="foundation",
+            product="codex",
+            policy={"allowed_signers": [signer]},
+        ),
+    ]
+    contributions = {
+        "codex-organization": {"plugins": {"codex-copilot": "sha-org"}},
+        "codex-foundation": {"plugins": {"codex-copilot": "sha-foundation"}},
+    }
+
+    plugin = _by_item(
+        resolve_layers(layers, contributions, lockfile={}),
+        "codex-copilot",
+        "plugins",
+        "codex",
+    )
+
+    assert plugin["winning_layer"] == "codex-organization"
+    assert plugin["winning_sha"] is None
+    assert [item["layer"] for item in plugin["shadowed"]] == ["codex-foundation"]
+
+
+def test_non_executable_content_keeps_unsigned_personal_precedence():
+    layers = [
+        _layer(
+            "personal-pablo",
+            10,
+            role="personal",
+            policy={"allowed_signers": []},
+        ),
+        _layer(
+            "foundation",
+            40,
+            role="foundation",
+            policy={"allowed_signers": ["trusted"]},
+        ),
+    ]
+    contributions = {
+        "personal-pablo": {"knowledge": {"preferences": "sha-personal"}},
+        "foundation": {"knowledge": {"handbook": "sha-foundation"}},
+    }
+
+    items = resolve_layers(layers, contributions)
+
+    assert [item["winning_layer"] for item in items] == [
+        "personal-pablo",
+        "foundation",
+    ]
+
+
+def test_all_policy_blocked_candidates_have_no_effective_winner():
+    layers = [
+        _layer(
+            "personal-pablo",
+            10,
+            role="personal",
+            policy={"allowed_signers": []},
+        ),
+        _layer(
+            "foundation",
+            40,
+            role="foundation",
+            policy={"allowed_signers": []},
+        ),
+    ]
+    contributions = {
+        "personal-pablo": {"agents": {"qa": "sha-personal"}},
+        "foundation": {"agents": {"qa": "sha-foundation"}},
+    }
+
+    assert resolve_layers(layers, contributions) == []
+
+
 # ---------------------------------------------------------------------------
 # product isolation: resolution identity is (product, dimension, item)
 # ---------------------------------------------------------------------------
@@ -131,8 +267,7 @@ def test_same_named_override_items_coexist_across_products():
     }
     items = resolve_layers(layers, contributions)
     qa_items = [
-        item for item in items
-        if item["item"] == "qa" and item["dimension"] == "skills"
+        item for item in items if item["item"] == "qa" and item["dimension"] == "skills"
     ]
     assert [(item["product"], item["winning_layer"]) for item in qa_items] == [
         ("claude", "claude-personal"),

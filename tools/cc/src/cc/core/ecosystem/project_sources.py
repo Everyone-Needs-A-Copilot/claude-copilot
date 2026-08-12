@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any, Mapping, NamedTuple, Optional, Sequence
 
 from cc.core.config import resolve_key
+from cc.core.ecosystem import entitlement
 from cc.core.ecosystem.discovery import discover_contributions
 from cc.core.ecosystem.manifest import ManifestError, load_layers, validate_layers
 from cc.core.ecosystem.mirror import synthesize_effective_layers
@@ -90,7 +91,10 @@ def _chain_for(entry: dict[str, Any]) -> list[str]:
     """Nearest-first layer ids for one resolved item: the winner, then
     every shadowed layer in the resolver's own nearest-shadowed-first
     order (`resolver.py`'s `_resolve_override()`)."""
-    return [entry["winning_layer"], *(shadow["layer"] for shadow in entry.get("shadowed") or ())]
+    return [
+        entry["winning_layer"],
+        *(shadow["layer"] for shadow in entry.get("shadowed") or ()),
+    ]
 
 
 def _select_substantive(
@@ -145,6 +149,9 @@ def resolve_all_claude_items(
     manifest_path: Any = _UNSET,
     mirror_root_base: Any = _UNSET,
     _layers: Optional[list[dict[str, Any]]] = None,
+    entitlement_state_path: Path | str | None = None,
+    entitlement_login: str | None = None,
+    entitlement_now: Any = None,
 ) -> dict[tuple[str, str], ResolvedItem]:
     """
     Resolve EVERY `(dimension, item)` pair discoverable across the
@@ -180,7 +187,11 @@ def resolve_all_claude_items(
     if _layers is not None:
         layers = _layers
     else:
-        path = manifest_path if manifest_path is not _UNSET else resolve_key("layers.manifest")
+        path = (
+            manifest_path
+            if manifest_path is not _UNSET
+            else resolve_key("layers.manifest")
+        )
         if not path:
             return {}
         try:
@@ -188,7 +199,15 @@ def resolve_all_claude_items(
         except ManifestError:
             return {}
 
-    claude_layers = [layer for layer in layers if layer.get("product") == "claude"]
+    eligible_layers, _decisions = entitlement.filter_eligible_layers(
+        layers,
+        state_path=entitlement_state_path,
+        login=entitlement_login,
+        now=entitlement_now,
+    )
+    claude_layers = [
+        layer for layer in eligible_layers if layer.get("product") == "claude"
+    ]
     if not claude_layers:
         return {}
 
@@ -199,7 +218,9 @@ def resolve_all_claude_items(
             if mirror_root_base is not _UNSET
             else Path(str(resolve_key("paths.mirrors_root"))).expanduser()
         )
-        effective_layers = synthesize_effective_layers(claude_layers, mirror_root_base=base)
+        effective_layers = synthesize_effective_layers(
+            claude_layers, mirror_root_base=base
+        )
     except ManifestError:
         return {}
 
@@ -209,7 +230,9 @@ def resolve_all_claude_items(
         if raw_path:
             source_roots[layer["id"]] = Path(str(raw_path)).expanduser()
 
-    contributions = discover_contributions(effective_layers, dimensions=INSTALL_DIMENSIONS)
+    contributions = discover_contributions(
+        effective_layers, dimensions=INSTALL_DIMENSIONS
+    )
     try:
         resolved_set = resolve_layers(effective_layers, contributions)
     except ManifestError:
@@ -259,7 +282,9 @@ def claude_resolution_checksums(
         cached = checksum_by_path.get(resolved.path)
         if cached is None:
             try:
-                cached = "sha256:" + hashlib.sha256(resolved.path.read_bytes()).hexdigest()
+                cached = (
+                    "sha256:" + hashlib.sha256(resolved.path.read_bytes()).hexdigest()
+                )
             except OSError:
                 continue
             checksum_by_path[resolved.path] = cached
@@ -275,6 +300,9 @@ def resolve_claude_content(
     mirror_root_base: Any = _UNSET,
     _layers: Optional[list[dict[str, Any]]] = None,
     _resolution_cache: Optional[Mapping[tuple[str, str], ResolvedItem]] = None,
+    entitlement_state_path: Path | str | None = None,
+    entitlement_login: str | None = None,
+    entitlement_now: Any = None,
 ) -> dict[tuple[str, str], ResolvedItem]:
     """
     Resolve one source `Path` per requested `(dimension, item)` pair for
@@ -345,7 +373,12 @@ def resolve_claude_content(
         _resolution_cache
         if _resolution_cache is not None
         else resolve_all_claude_items(
-            manifest_path=manifest_path, mirror_root_base=mirror_root_base, _layers=_layers
+            manifest_path=manifest_path,
+            mirror_root_base=mirror_root_base,
+            _layers=_layers,
+            entitlement_state_path=entitlement_state_path,
+            entitlement_login=entitlement_login,
+            entitlement_now=entitlement_now,
         )
     )
 

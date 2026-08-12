@@ -3,24 +3,12 @@
 Proves the real installer produces the reference install, and the real
 updater is idempotent and destroys nothing project-owned.
 
-**Why this module runs bash, not just Python.** `/setup-project` and
-`/update-project` are not Python functions anywhere in this codebase — they
-are ```bash fenced code blocks embedded in `.claude/commands/setup-project.md`
-/ `update-project.md` that a coding agent reads and executes step by step.
-There is no `cc` verb and no library function that performs the mutating
-install (`cc.core.ecosystem.project_integration` is exhaustively read-only —
-see its own module docstring: "Inspection is read-only"). So "run the real
-installer, not a reimplementation" means exactly one thing here: extract the
-identical fenced blocks the command file ships and execute them verbatim via
-`bash -c`, the same way a coding agent would, with no LLM in the loop. This
-is how the design's own root-cause findings were made — "`setup-project.md`
-Step 5 copies only 2 files (`setup-project.md` Step 5 is two literal `cp`
-lines)" is a fact about the file's *literal bash text*, not an inference —
-and it is why `extract_bash_steps`/`run_setup_project`/`run_update_project`
-below are marker-based *extraction*, never a rewrite of the steps' logic.
-`InstallerScriptError` fires loudly if a heading marker goes missing, exactly
-so a future edit to the command files cannot silently stop this module from
-testing the real thing.
+The ordinary CLI path exercises the canonical Python transaction: request,
+reviewed plan, guarded apply, and independent verify. Human-facing
+`setup-project.md` and `update-project.md` are adapters only and are not an
+installer contract. The older markdown extraction helpers remain in this
+module solely for the historical negative fixtures that prove the defects in
+that retired path; production conformance does not parse adapter prose.
 
 **What IS new code here** (deliberately — `HARNESS-DESIGN.md` §2.4 lists
 "Round-trip (L5)" among the six things nothing verifies today: "nothing
@@ -41,6 +29,7 @@ outside it) = 62 locked paths total, not "62 files per project").
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -57,6 +46,7 @@ from cc.core.conformance.types import (
     Mode,
     Scope,
     Severity,
+    Verdict,
 )
 
 # ---------------------------------------------------------------------------
@@ -428,26 +418,15 @@ def run_setup_project(
     cc_bin: Path,
     run_fitness_check: bool = True,
 ) -> InstallRun:
-    """Run the literal, filesystem-effecting bash steps of
-    `setup-project.md` against `project` (a fresh, empty git repo), plus
-    Step 10's CLAUDE.md template substitution. Returns every step's outcome
-    so a caller can build FAIL evidence with the exact command that ran."""
+    """Compatibility test seam over the canonical project transaction.
 
-    markdown = (
-        framework_repo_root / ".claude" / "commands" / "setup-project.md"
-    ).read_text(encoding="utf-8")
-    env = build_scratch_env(home=home, cc_bin=cc_bin)
+    The historical name is retained for downstream fixtures. Adapter
+    markdown is deliberately not parsed. ``run_fitness_check`` and ``cc_bin``
+    are accepted for source compatibility; plan/apply/verify is authoritative.
+    """
 
-    blocks = list(extract_bash_steps(markdown, SETUP_PROJECT_SECTIONS))
-    if run_fitness_check:
-        blocks.extend(extract_bash_steps(markdown, SETUP_PROJECT_FITNESS_SECTION))
-    steps = list(run_bash_steps(blocks, cwd=project, env=env))
-
-    template_path = home / ".claude" / "copilot" / "templates" / "CLAUDE.template.md"
-    claude_md = render_claude_md(template_path, project_name=project.name)
-    (project / "CLAUDE.md").write_text(claude_md, encoding="utf-8")
-
-    return InstallRun(project=project, steps=tuple(steps))
+    del run_fitness_check, cc_bin
+    return _run_canonical_transaction(project, framework_repo_root, home)
 
 
 def run_update_project(
@@ -458,19 +437,129 @@ def run_update_project(
     cc_bin: Path,
     run_fitness_check: bool = True,
 ) -> InstallRun:
-    """Run the literal, filesystem-effecting bash steps of
-    `update-project.md` against an already-set-up `project`."""
+    """Compatibility test seam for a repeat canonical transaction."""
 
-    markdown = (
-        framework_repo_root / ".claude" / "commands" / "update-project.md"
-    ).read_text(encoding="utf-8")
-    env = build_scratch_env(home=home, cc_bin=cc_bin)
+    del run_fitness_check, cc_bin
+    return _run_canonical_transaction(project, framework_repo_root, home)
 
-    blocks = list(extract_bash_steps(markdown, UPDATE_PROJECT_SECTIONS))
-    if run_fitness_check:
-        blocks.extend(extract_bash_steps(markdown, UPDATE_PROJECT_FITNESS_SECTION))
-    steps = run_bash_steps(blocks, cwd=project, env=env)
-    return InstallRun(project=project, steps=steps)
+
+def _run_canonical_transaction(
+    project: Path, framework_repo_root: Path, home: Path
+) -> InstallRun:
+    from cc.core.ecosystem.canonical_transaction import build_canonical_project_request
+    from cc.core.ecosystem.project_plan_store import issue_plan
+    from cc.core.ecosystem.project_reconciliation import assess_project
+    from cc.core.ecosystem.reconciliation import (
+        build_apply_report,
+        build_plan_report,
+        build_verify_report,
+    )
+
+    request = build_canonical_project_request(
+        project, components=("claude", "codex"), approved_roots=(project.parent,)
+    )
+    authority_root = Path(request.roots[0])
+    canonical_project = Path(request.projects[0].path)
+    state_root = home / ".claude" / "cc" / "conformance-transaction"
+
+    def machine_builder() -> dict[str, Any]:
+        return {
+            "state": "ready",
+            "helper": {
+                "state": "ready",
+                "version": "2.9.0",
+                "path": "cc",
+                "detail": "isolated",
+            },
+            "frameworks": [
+                {
+                    "component": component,
+                    "state": "ready",
+                    "path": str(framework_repo_root),
+                    "version": "source-bound",
+                    "detail": "isolated",
+                }
+                for component in ("claude", "codex")
+            ],
+            "configuration": {
+                "state": "ready",
+                "path": str(state_root),
+                "approved_roots": [str(authority_root)],
+                "detail": "isolated",
+            },
+            "authentication": {
+                "state": "signed-in",
+                "credential_state": "present",
+                "detail": "not required",
+            },
+            "connectivity": {"state": "online", "detail": "not required"},
+            "layers": {
+                "state": "ready",
+                "ready": 2,
+                "total": 2,
+                "detail": "source-bound",
+            },
+            "dependencies": [],
+            "blockers": [],
+            "next_action": "Run the transaction.",
+        }
+
+    def census_builder(**kwargs: Any) -> list[dict[str, Any]]:
+        selections = kwargs.get("selections") or {}
+        return [
+            assess_project(
+                canonical_project,
+                approved_root=authority_root,
+                selected_components=tuple(selections.get(str(canonical_project), ())),
+            )
+        ]
+
+    source_env = {
+        "CC_PATHS_CLAUDE_COPILOT_ROOT": str(framework_repo_root),
+        "CC_PATHS_CODEX_COPILOT_ROOT": str(framework_repo_root),
+    }
+    previous = {key: os.environ.get(key) for key in source_env}
+    os.environ.update(source_env)
+    try:
+        plan = build_plan_report(
+            request,
+            machine_builder=machine_builder,
+            census_builder=census_builder,
+            plan_issuer=lambda **kwargs: issue_plan(**kwargs, root=state_root),
+        )
+        applied = build_apply_report(
+            request,
+            str(plan["plan_id"]),
+            machine_builder=machine_builder,
+            census_builder=census_builder,
+            state_root=state_root,
+        )
+        verified = build_verify_report(
+            request,
+            machine_builder=machine_builder,
+            census_builder=census_builder,
+        )
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+    succeeded = applied.get("result") == "applied" and verified.get("result") == "ready"
+    step = StepRun(
+        command="canonical request -> plan -> apply -> verify",
+        returncode=0 if succeeded or plan.get("result") == "blocked" else 1,
+        stdout=json.dumps(
+            {
+                "plan": plan.get("result"),
+                "apply": applied.get("result"),
+                "verify": verified.get("result"),
+            }
+        ),
+        stderr="",
+    )
+    return InstallRun(project=canonical_project, steps=(step,))
 
 
 def seed_project_owned_agent(
@@ -788,6 +877,110 @@ _DEGRADED_DETECTED = register_check(
     mode=Mode.FULL,
     expected_today=ExpectedToday.PASS,
 )
+
+_CANONICAL_TRANSACTION = register_check(
+    id="roundtrip.transaction.plan_apply_verify",
+    layer=Layer.ROUNDTRIP,
+    severity=Severity.S0,
+    scope=Scope.GLOBAL,
+    summary=(
+        "The canonical project request completes reviewed plan, guarded apply, "
+        "fresh verify, and a zero-work repeat inside the scratch boundary"
+    ),
+    remediation=(
+        "Repair the canonical reconciliation request/plan/apply/verify pipeline; "
+        "do not restore markdown parsing or bypass the reviewed plan capability."
+    ),
+    expected_today=ExpectedToday.PASS,
+    mode=Mode.FULL,
+)
+
+
+def check_canonical_transaction(
+    *,
+    subject: str,
+    plan_report: Mapping[str, Any],
+    apply_report: Mapping[str, Any],
+    verify_report: Mapping[str, Any],
+    repeat_plan_report: Mapping[str, Any],
+    repeat_apply_report: Mapping[str, Any],
+) -> CheckResult:
+    """Judge the real canonical transaction reports without inferring health.
+
+    This deliberately asserts component-level installation only. It does not
+    claim Claude/Codex organization-content parity; source provenance and the
+    exact installed files remain visible in the plan, lock, and reference
+    facets.
+    """
+
+    plans = plan_report.get("plans") or ()
+    repeat_plans = repeat_plan_report.get("plans") or ()
+    ledger = apply_report.get("ledger") or ()
+    repeat_ledger = repeat_apply_report.get("ledger") or ()
+    observations = {
+        "plan.result": plan_report.get("result"),
+        "plan.operations": (
+            len(plans[0].get("operations") or ())
+            if plans and isinstance(plans[0], Mapping)
+            else None
+        ),
+        "apply.result": apply_report.get("result"),
+        "apply.status": (
+            ledger[0].get("status")
+            if ledger and isinstance(ledger[0], Mapping)
+            else None
+        ),
+        "verify.result": verify_report.get("result"),
+        "repeat_plan.result": repeat_plan_report.get("result"),
+        "repeat_plan.operations": (
+            len(repeat_plans[0].get("operations") or ())
+            if repeat_plans and isinstance(repeat_plans[0], Mapping)
+            else None
+        ),
+        "repeat_apply.result": repeat_apply_report.get("result"),
+        "repeat_apply.status": (
+            repeat_ledger[0].get("status")
+            if repeat_ledger and isinstance(repeat_ledger[0], Mapping)
+            else None
+        ),
+    }
+    passed = (
+        observations["plan.result"] == "action-required"
+        and isinstance(observations["plan.operations"], int)
+        and observations["plan.operations"] > 0
+        and observations["apply.result"] == "applied"
+        and observations["apply.status"] == "applied"
+        and observations["verify.result"] == "ready"
+        and observations["repeat_plan.result"] == "ready"
+        and observations["repeat_plan.operations"] == 0
+        and observations["repeat_apply.result"] == "applied"
+        and observations["repeat_apply.status"] == "unchanged"
+    )
+    if passed:
+        return _CANONICAL_TRANSACTION.result(
+            subject=subject,
+            verdict=Verdict.PASS,
+            detail=(
+                "Canonical request/plan/apply/verify installed both selected "
+                "components and the repeated transaction performed zero work."
+            ),
+        )
+    return _CANONICAL_TRANSACTION.result(
+        subject=subject,
+        verdict=Verdict.FAIL,
+        evidence=[
+            Evidence(
+                kind="canonical-transaction-reports",
+                path=subject,
+                expected=(
+                    "action-required plan with operations; applied ledger; "
+                    "ready verify; ready zero-operation repeat; unchanged ledger"
+                ),
+                actual=json.dumps(observations, sort_keys=True),
+            )
+        ],
+        detail="The canonical transaction completed but did not reach its required phase outcomes.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1403,6 +1596,7 @@ __all__ = [
     "UPDATE_PROJECT_SECTIONS",
     "apply_degradation",
     "build_scratch_env",
+    "check_canonical_transaction",
     "check_closes_command_gap",
     "check_degraded_install_detected",
     "check_does_not_touch_mcp_json",

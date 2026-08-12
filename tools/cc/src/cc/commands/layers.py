@@ -47,6 +47,7 @@ from __future__ import annotations
 import json as _json
 import logging
 import socket
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -187,7 +188,9 @@ def _local_layers(
         return _layers
 
     manifest_path = (
-        _manifest_path if _manifest_path is not _UNSET else resolve_key("layers.manifest")
+        _manifest_path
+        if _manifest_path is not _UNSET
+        else resolve_key("layers.manifest")
     )
     if not manifest_path:
         return []
@@ -266,9 +269,7 @@ def build_layers_report(
     local_layers = _local_layers(
         _layers=_layers, _manifest_path=_manifest_path, swallow_errors=True
     )
-    joined_ids = {
-        str(layer["id"]) for layer in local_layers if layer.get("id")
-    }
+    joined_ids = {str(layer["id"]) for layer in local_layers if layer.get("id")}
 
     layers_out: list[dict[str, Any]] = []
     for dept in catalog:
@@ -287,7 +288,8 @@ def build_layers_report(
             # reconciliation.
             _log.warning(
                 "layers catalog entry missing {id, repo} -- skipping "
-                "malformed entry: %r", dept,
+                "malformed entry: %r",
+                dept,
             )
             continue
 
@@ -326,7 +328,9 @@ def render_layers_report_rich(report: dict[str, Any], *, console: Any = None) ->
 
     for layer in layers:
         entitled = layer.get("entitled")
-        entitled_color = "green" if entitled else ("yellow" if entitled is None else "red")
+        entitled_color = (
+            "green" if entitled else ("yellow" if entitled is None else "red")
+        )
         entitled_label = "unknown" if entitled is None else str(bool(entitled)).lower()
         joined_label = "joined" if layer.get("joined") else "not joined"
         reason = f" ({layer['reason']})" if layer.get("reason") else ""
@@ -364,7 +368,9 @@ def _next_rank(layers: list[dict[str, Any]]) -> int:
     return (max(ranks) + 10) if ranks else 100
 
 
-def _new_manifest_layer(dept: dict[str, Any], *, source_path: Optional[str]) -> dict[str, Any]:
+def _new_manifest_layer(
+    dept: dict[str, Any], *, source_path: Optional[str]
+) -> dict[str, Any]:
     """
     Build the `copilot.layers.yml` layer entry a join writes.
 
@@ -388,12 +394,13 @@ def _new_manifest_layer(dept: dict[str, Any], *, source_path: Optional[str]) -> 
     source: dict[str, Any] = {"repo": str(dept["repo"]), "ref": dept.get("ref", "main")}
     if source_path:
         source["path"] = source_path
+    default_auth = "work" if entitlement.github_repo_slug(dept.get("repo")) else "anon"
     return {
         "id": str(dept["id"]),
         "role": dept.get("role", "department"),
         "product": dept.get("product", "cli"),
         "source": source,
-        "auth": dept.get("auth", "anon"),
+        "auth": dept.get("auth", default_auth),
         "activation": dept.get("activation", "always"),
     }
 
@@ -406,8 +413,14 @@ def _write_manifest(path: Path, layers: list[dict[str, Any]]) -> None:
     )
 
 
-def _join_result(result: str, *, tier: str, layer_id: str, reason: Optional[str] = None,
-                  synced_lock_sha: Optional[str] = None) -> dict[str, Any]:
+def _join_result(
+    result: str,
+    *,
+    tier: str,
+    layer_id: str,
+    reason: Optional[str] = None,
+    synced_lock_sha: Optional[str] = None,
+) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "result": result,
@@ -440,6 +453,8 @@ def build_layers_join_report(
     _mirror_root: Any = _UNSET,
     _materialize_root: Any = _UNSET,
     _policy: Any = None,
+    _entitlement_state_path: Any = _UNSET,
+    _entitlement_now: datetime | None = None,
 ) -> dict[str, Any]:
     """
     Build the WS-A `layers join <id> --json` contract object AND (when the
@@ -475,8 +490,60 @@ def build_layers_join_report(
     dept = _find_layer(catalog, layer_id)
     if dept is None:
         return _join_result(
-            "error", tier="department", layer_id=layer_id,
+            "error",
+            tier="department",
+            layer_id=layer_id,
             reason=f"unknown layer id: {layer_id!r}",
+        )
+
+    entitlement_layer = _new_manifest_layer(dept, source_path=None) | {
+        "rank": int(dept.get("rank", 100)),
+        "role": str(dept.get("role", "department")),
+        # A legacy local-path fixture remains anonymous; a GitHub catalog row
+        # is protected even when an older hand-authored row omitted `auth`.
+        "auth": str(
+            dept.get(
+                "auth",
+                "work" if entitlement.github_repo_slug(dept.get("repo")) else "anon",
+            )
+        ),
+    }
+    entitlement_state = (
+        _entitlement_state_path
+        if _entitlement_state_path is not _UNSET
+        else (
+            Path(_manifest_path).expanduser().parent / "entitlements.json"
+            if _manifest_path is not _UNSET and _manifest_path is not None
+            else None
+        )
+    )
+    decision = entitlement.observe_layer(
+        entitlement_layer,
+        login=login,
+        token=token,
+        get_json=_get_json,
+        state_path=entitlement_state,
+        now=_entitlement_now,
+    )
+    if not decision.eligible and decision.state in {"unentitled", "revoked"}:
+        return _join_result(
+            "not-entitled",
+            tier="department",
+            layer_id=layer_id,
+            reason=(
+                f"{decision.state}; responsible actor: "
+                f"{decision.responsible_actor}; {decision.recovery}"
+            ),
+        )
+    if not decision.eligible:
+        return _join_result(
+            "offline",
+            tier="department",
+            layer_id=layer_id,
+            reason=(
+                f"{decision.state}; responsible actor: "
+                f"{decision.responsible_actor}; {decision.recovery}"
+            ),
         )
 
     local_layers = _local_layers(
@@ -485,24 +552,17 @@ def build_layers_join_report(
     if any(str(layer.get("id")) == layer_id for layer in local_layers):
         return _join_result("already-joined", tier="department", layer_id=layer_id)
 
-    repo = dept.get("repo")
-    entitled, reason = _entitlement_for(
-        repo, login=login, token=token, _get_json=_get_json
-    )
-    if entitled is None:
-        return _join_result(
-            "offline", tier="department", layer_id=layer_id, reason=reason
-        )
-    if entitled is False:
-        return _join_result("not-entitled", tier="department", layer_id=layer_id)
-
     # --- Entitled + not-yet-joined: sync the mirror, then join. ---
     mirror_root_base = (
         Path(_mirror_root).expanduser()
         if _mirror_root is not _UNSET
         else Path(str(resolve_key("paths.mirrors_root"))).expanduser()
     )
-    transport = mirror.resolve_transport(str(repo), dept.get("auth", "anon"))
+    repo = dept.get("repo")
+    transport = mirror.resolve_transport(
+        str(repo),
+        dept.get("auth", "work" if entitlement.github_repo_slug(repo) else "anon"),
+    )
     sync = mirror.clone_or_update_mirror(
         layer_id, transport, dept.get("ref", "main"), mirror_root=mirror_root_base
     )
@@ -519,7 +579,11 @@ def build_layers_join_report(
         _manifest_write_path
         if _manifest_write_path is not _UNSET
         else (
-            (_manifest_path if _manifest_path is not _UNSET else resolve_key("layers.manifest"))
+            (
+                _manifest_path
+                if _manifest_path is not _UNSET
+                else resolve_key("layers.manifest")
+            )
             or _default_manifest_write_path()
         )
     )
@@ -570,6 +634,11 @@ def build_layers_join_report(
         _materialize_root=materialize_root,
         _lock_write_path=lock_write_path,
         _policy=_policy,
+        _entitlement_login=login,
+        _entitlement_token=token,
+        _entitlement_get_json=_get_json,
+        _entitlement_state_path=entitlement_state,
+        _entitlement_now=_entitlement_now,
     )
 
     return _join_result(
@@ -645,7 +714,9 @@ def execute_layers_join(
     return report, compute_layers_join_exit_code(report)
 
 
-def render_layers_join_report_rich(report: dict[str, Any], *, console: Any = None) -> None:
+def render_layers_join_report_rich(
+    report: dict[str, Any], *, console: Any = None
+) -> None:
     """Human-readable (Rich) rendering of a `build_layers_join_report()` /
     `execute_layers_join()` payload."""
     from rich.console import Console
@@ -740,7 +811,9 @@ def list_cmd(
 
 @layers_app.command("join")
 def join_cmd(
-    layer_id: str = typer.Argument(..., help="The layer id to join (from `cc layers list`)."),
+    layer_id: str = typer.Argument(
+        ..., help="The layer id to join (from `cc layers list`)."
+    ),
     output_json: bool = typer.Option(
         False, "--json", help="Output the WS-A layers-join contract as JSON."
     ),

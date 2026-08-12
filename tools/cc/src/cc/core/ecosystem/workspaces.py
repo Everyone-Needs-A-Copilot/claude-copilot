@@ -82,6 +82,12 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Optional, Sequence
 
 from cc.core.config import resolve_key
+from cc.core.ecosystem.canonical_transaction import claude_reference_roster
+from cc.core.ecosystem.mutations import (
+    DEFAULT_HOOK_ENTRIES,
+    canonical_settings_bytes,
+    merge_hook_entries,
+)
 from cc.core.ecosystem.project_integration import inspect_project_integration
 from cc.core.ecosystem.project_sources import resolve_claude_content
 from cc.core.ecosystem.projects import (
@@ -911,11 +917,11 @@ def _resolved_framework_root(config_key: str, supplied: Optional[Path | str]) ->
 def _claude_plan(project: Path, source: Path) -> tuple[list[tuple[Path, Path]], list[Path]]:
     version_path = source / "VERSION.json"
     try:
-        version = json.loads(version_path.read_text(encoding="utf-8"))
-        roster = list(version["components"]["agents"]["frameworkAgents"])
-    except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError):
+        json.loads(version_path.read_text(encoding="utf-8"))
+        commands, roster_values = claude_reference_roster(source)
+        roster = list(roster_values)
+    except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError, ValueError):
         raise ActivationError("The Claude Copilot installer is incomplete.")
-    roster.append("kc")
 
     # Ladder resolution (four-tier-topology.md): the protocol and every
     # roster agent resolve nearest-SUBSTANTIVE-tier-wins across personal ->
@@ -926,11 +932,19 @@ def _claude_plan(project: Path, source: Path) -> tuple[list[tuple[Path, Path]], 
     # template are framework scaffolding, not a tiered dimension.
     ladder_items = resolve_claude_content(
         foundation_root=source,
-        items={"commands": ("protocol", "continue"), "agents": tuple(roster)},
+        items={
+            "commands": tuple(command.removesuffix(".md") for command in commands),
+            "agents": tuple(roster),
+        },
     )
     copies = [
-        (ladder_items[("commands", "protocol")].path, project / ".claude/commands/protocol.md"),
-        (ladder_items[("commands", "continue")].path, project / ".claude/commands/continue.md"),
+        *(
+            (
+                ladder_items[("commands", command.removesuffix(".md"))].path,
+                project / ".claude/commands" / command,
+            )
+            for command in commands
+        ),
         (source / ".claude/fitness-check.sh", project / ".claude/fitness-check.sh"),
         (source / ".claude/hooks/copilot-hook.sh", project / ".claude/hooks/copilot-hook.sh"),
     ]
@@ -1063,7 +1077,14 @@ def _activate_claude(project: Path, source: Path) -> None:
         config.parent.mkdir(parents=True, exist_ok=True)
         config.write_text(
             json.dumps(
-                {"$schema": "cc-config-v1", "version": 1, "paths": {"knowledge_repo": "@machine"}},
+                {
+                    "$schema": "cc-config-v1",
+                    "version": 1,
+                    "paths": {
+                        "shared_docs": "@machine",
+                        "knowledge_repo": "@machine",
+                    },
+                },
                 indent=2,
             )
             + "\n",
@@ -1075,6 +1096,25 @@ def _activate_claude(project: Path, source: Path) -> None:
     memory_ignore = project / ".claude/memory/.gitignore"
     if not memory_ignore.exists():
         memory_ignore.write_text("memory.db\nmemory.db-shm\nmemory.db-wal\n", encoding="utf-8")
+    settings_path = project / ".claude/settings.json"
+    if settings_path.exists():
+        try:
+            settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
+            raise ActivationError(
+                "The existing Claude settings are unreadable. Nothing was changed."
+            ) from exc
+        if not isinstance(settings, dict):
+            raise ActivationError(
+                "The existing Claude settings are not a JSON object. Nothing was changed."
+            )
+    else:
+        settings = {}
+    merged_settings, _actions = merge_hook_entries(
+        settings, DEFAULT_HOOK_ENTRIES, source="claude-copilot"
+    )
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_bytes(canonical_settings_bytes(merged_settings))
 
 
 def activate_components(
@@ -1322,11 +1362,14 @@ def _source_version(source: Path, component: str) -> str:
 def _installed_framework_files(project: Path, component: str) -> list[dict[str, str]]:
     if component == "claude":
         candidates = [
-            project / ".claude/commands/protocol.md",
-            project / ".claude/commands/continue.md",
+            *sorted((project / ".claude/commands").glob("*.md")),
             project / ".claude/fitness-check.sh",
             project / ".claude/hooks/copilot-hook.sh",
-            *sorted((project / ".claude/agents").glob("*.md")),
+            *sorted(
+                path
+                for path in (project / ".claude/agents").rglob("*")
+                if path.is_file() and not path.is_symlink()
+            ),
         ]
     else:
         plugin = project / "plugins/codex-copilot"

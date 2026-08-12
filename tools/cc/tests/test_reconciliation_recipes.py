@@ -7,6 +7,9 @@ from typing import Any
 
 import jsonschema
 import pytest
+from cc.core.ecosystem import project_integration as integration_module
+from cc.core.ecosystem import project_reconciliation as project_module
+from cc.core.ecosystem import reconciliation_recipes as recipes
 from cc.core.ecosystem.project_locking import fingerprint_missing
 from cc.core.ecosystem.project_reconciliation import assess_project, build_project_plans
 from cc.core.ecosystem.reconciliation_recipes import (
@@ -24,10 +27,6 @@ from cc.core.ecosystem.reconciliation_transaction import (
     transaction_plan_from_recipe,
 )
 from cc.core.ecosystem.reconciliation_types import ComponentRoute, RecipeOperationKind
-
-from cc.core.ecosystem import project_integration as integration_module
-from cc.core.ecosystem import project_reconciliation as project_module
-from cc.core.ecosystem import reconciliation_recipes as recipes
 
 SCHEMA = Path(__file__).parent / "fixtures/schemas/reconcile.schema.json"
 
@@ -204,7 +203,7 @@ def test_both_component_plan_is_closed_unique_and_schema_valid(
     )
 
 
-def test_claude_repair_records_only_matching_existing_agent_files(
+def test_claude_repair_restores_and_records_missing_manifest_agent_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project = _project(tmp_path)
@@ -223,10 +222,8 @@ def test_claude_repair_records_only_matching_existing_agent_files(
     }
 
     assert ".claude/agents/me.md" in recorded
-    assert ".claude/agents/kc.md" not in recorded
-    assert not any(
-        operation.target == ".claude/agents/kc.md" for operation in operations
-    )
+    assert ".claude/agents/kc.md" in recorded
+    assert any(operation.target == ".claude/agents/kc.md" for operation in operations)
 
 
 @pytest.mark.parametrize(

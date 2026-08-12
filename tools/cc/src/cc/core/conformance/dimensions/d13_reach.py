@@ -15,14 +15,13 @@ A meta-dimension: it decides whether any of D1-D12 can ever be
     exclusion. The owner has ratified `git init` for both
     (`docs/ecosystem-audit-open-questions.md` Q16-A, Q20-B).
 
-  - `repo.d13.registries_are_empty` -- one GLOBAL assertion, not per-repo:
-    confirms `~/.copilot/{projects,excluded-projects,
-    project-integration-holds}.json` do not exist today. Verified live,
-    2026-08-10, via `ls ~/.copilot/*.json` -- none of the three is present
-    (only `known-projects.json` and `personal-projects.json` exist, and
-    neither hides a project from the scanner). This is a regression pin: if
-    any of the three is ever created, this check goes red, drawing
-    attention to what got silently excluded/held and why.
+  - `repo.d13.registries_are_empty` -- retained as a stable compatibility
+    id, but now asserts the durable intent behind its original name: a
+    machine registry is absent OR every exclusion it carries is attributable
+    to structured review evidence.  Ratified exclusions emit one explicit
+    global SKIP plus a per-path SKIP; an unreviewed path still fails.  This
+    avoids treating owner-approved Q14 decisions as silent defects without
+    turning an opaque registry into a pass.
 
 `shared-docs` is a real, live complication: it is a symlink to
 `knowledge-copilot-internal` (`readlink` confirmed, identical inode,
@@ -52,10 +51,16 @@ under the contract is only to never silently omit a registered id.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterable, Sequence
 
 from cc.core.config import resolve_key
+from cc.core.conformance.exclusions import (
+    DEFAULT_REVIEWED_EXCLUSIONS,
+    ReviewedExclusion,
+    find_reviewed_exclusion,
+)
 from cc.core.conformance.registry import register_check
 from cc.core.conformance.types import (
     CheckResult,
@@ -115,13 +120,14 @@ _REGISTRIES_EMPTY_CHECK = register_check(
     severity=Severity.S1,
     scope=Scope.GLOBAL,
     summary=(
-        "~/.copilot/{projects,excluded-projects,project-integration-holds}"
-        ".json do not exist -- nothing is silently hidden from the scanner."
+        "Machine-local project exclusion/hold registries are absent, or "
+        "every excluded path carries an attributable reviewed disposition."
     ),
     remediation=(
-        "If one of these registries now exists, that is not necessarily "
-        "wrong -- review what it excludes/holds and why; an undocumented "
-        "exclusion is a scanner-reachability regression."
+        "Remove empty/obsolete registry files, or add a bounded reviewed "
+        "exclusion record carrying path, reason, authority, review evidence, "
+        "and review date. Never accept an opaque path merely because it is "
+        "already in excluded-projects.json."
     ),
     mode=Mode.FAST,
     applies_to_classes=(),
@@ -185,6 +191,7 @@ def check_scanner_reachable(
     configured_roots: Sequence[Path] | None = None,
     excluded_registry: Path | None = None,
     holds_registry: Path | None = None,
+    reviewed_exclusions: Sequence[ReviewedExclusion] = DEFAULT_REVIEWED_EXCLUSIONS,
     subject: str | None = None,
     expected_today: ExpectedToday | None = None,
 ) -> CheckResult:
@@ -271,6 +278,19 @@ def check_scanner_reachable(
         else default_excluded_registry()
     )
     if is_project_excluded(repo, registry=excluded_path):
+        reviewed = find_reviewed_exclusion(repo, reviewed=reviewed_exclusions)
+        if reviewed is not None:
+            return _SCANNER_REACHABLE_CHECK.result(
+                subject=name,
+                verdict=Verdict.SKIP,
+                expected_today=expected,
+                evidence=(reviewed.evidence(repo),),
+                detail=(
+                    "Intentionally excluded from fan-out by a reviewed owner "
+                    "decision; the repository is reachable but is not an "
+                    "eligible maintenance target."
+                ),
+            )
         return _SCANNER_REACHABLE_CHECK.result(
             subject=name,
             verdict=Verdict.FAIL,
@@ -317,9 +337,15 @@ def check_registries_are_empty(
     excluded_registry: Path | None = None,
     holds_registry: Path | None = None,
     subject: str = "machine",
+    reviewed_exclusions: Sequence[ReviewedExclusion] = DEFAULT_REVIEWED_EXCLUSIONS,
 ) -> CheckResult:
-    """`repo.d13.registries_are_empty` -- one global assertion, never
-    per-repo."""
+    """One global registry-disposition assertion, never per repo.
+
+    The check id is intentionally stable for baseline compatibility.  An
+    absent registry passes.  A registry containing only attributable reviewed
+    exclusions skips with one evidence record per path.  Empty, malformed,
+    opaque, or unmatched registries fail.
+    """
 
     default_projects = Path(str(resolve_key("projects.registry"))).expanduser()
     candidates = {
@@ -331,22 +357,149 @@ def check_registries_are_empty(
     }
 
     present = {name: path for name, path in candidates.items() if path.is_file()}
-    if present:
+    if not present:
+        return _REGISTRIES_EMPTY_CHECK.result(subject=subject, verdict=Verdict.PASS)
+
+    failures: list[Evidence] = []
+    reviewed_evidence: list[Evidence] = []
+
+    # projects.json adds discovery candidates rather than excluding them, but
+    # the legacy global check intentionally treats a newly-created registry
+    # as review-worthy until a dedicated structured contract exists.
+    projects_path = present.get("projects.json")
+    if projects_path is not None:
+        failures.append(
+            Evidence(
+                kind="unreviewed-registry-file",
+                path=str(projects_path),
+                expected="absent or covered by a dedicated reviewed registry contract",
+                actual="exists",
+                detail="owning_actor=ecosystem operator",
+            )
+        )
+
+    excluded_path = present.get("excluded-projects.json")
+    if excluded_path is not None:
+        try:
+            payload = json.loads(excluded_path.read_text(encoding="utf-8"))
+            excluded_paths = payload.get("paths") if isinstance(payload, dict) else None
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            excluded_paths = None
+        if not isinstance(excluded_paths, list) or not excluded_paths:
+            failures.append(
+                Evidence(
+                    kind="unreviewed-exclusion-registry",
+                    path=str(excluded_path),
+                    expected="a non-empty schema-1.0 paths list with one reviewed record per path",
+                    actual="empty, malformed, or unreadable registry",
+                    detail="owning_actor=ecosystem operator",
+                )
+            )
+        else:
+            for raw_path in excluded_paths:
+                if not isinstance(raw_path, str) or not raw_path:
+                    failures.append(
+                        Evidence(
+                            kind="unreviewed-exclusion",
+                            path=str(excluded_path),
+                            expected="a non-empty path string with reviewed metadata",
+                            actual=repr(raw_path),
+                            detail="owning_actor=ecosystem operator",
+                        )
+                    )
+                    continue
+                reviewed = find_reviewed_exclusion(
+                    raw_path, reviewed=reviewed_exclusions
+                )
+                if reviewed is None:
+                    failures.append(
+                        Evidence(
+                            kind="unreviewed-exclusion",
+                            path=raw_path,
+                            expected=(
+                                "a reviewed exclusion with reason, authority, "
+                                "review evidence, and review date"
+                            ),
+                            actual="no matching reviewed exclusion",
+                            detail=f"registry={excluded_path}; owning_actor=ecosystem operator",
+                        )
+                    )
+                else:
+                    reviewed_evidence.append(reviewed.evidence(raw_path))
+
+    holds_path = present.get("project-integration-holds.json")
+    if holds_path is not None:
+        try:
+            payload = json.loads(holds_path.read_text(encoding="utf-8"))
+            holds = payload.get("holds") if isinstance(payload, dict) else None
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            holds = None
+        if not isinstance(holds, dict) or not holds:
+            failures.append(
+                Evidence(
+                    kind="unreviewed-hold-registry",
+                    path=str(holds_path),
+                    expected="non-empty owner-decision holds with inspection_id and plan_id",
+                    actual="empty, malformed, or unreadable registry",
+                    detail="owning_actor=project integration owner",
+                )
+            )
+        else:
+            for key, hold in holds.items():
+                reviewed = (
+                    isinstance(key, str)
+                    and key.startswith("sha256:")
+                    and isinstance(hold, dict)
+                    and hold.get("classification") == "owner-decision"
+                    and isinstance(hold.get("inspection_id"), str)
+                    and bool(hold.get("inspection_id"))
+                    and isinstance(hold.get("plan_id"), str)
+                    and bool(hold.get("plan_id"))
+                )
+                if not reviewed:
+                    failures.append(
+                        Evidence(
+                            kind="unreviewed-integration-hold",
+                            path=str(holds_path),
+                            expected="opaque key plus owner-decision, inspection_id, and plan_id",
+                            actual=f"invalid hold entry {key!r}",
+                            detail="owning_actor=project integration owner",
+                        )
+                    )
+                else:
+                    reviewed_evidence.append(
+                        Evidence(
+                            kind="reviewed-integration-hold",
+                            path=str(holds_path),
+                            expected="temporary owner-reviewed hold",
+                            actual="authority=owner-decision",
+                            detail=(
+                                f"review_evidence=inspection:{hold['inspection_id']};"
+                                f"plan:{hold['plan_id']}"
+                            ),
+                        )
+                    )
+
+    if failures:
         return _REGISTRIES_EMPTY_CHECK.result(
             subject=subject,
             verdict=Verdict.FAIL,
-            evidence=tuple(
-                Evidence(
-                    kind="registry-file",
-                    path=str(path),
-                    expected="does not exist",
-                    actual="exists",
-                )
-                for path in present.values()
+            evidence=tuple(failures),
+            detail=(
+                f"{len(failures)} registry entry or file condition(s) lack "
+                "attributable review evidence"
             ),
         )
 
-    return _REGISTRIES_EMPTY_CHECK.result(subject=subject, verdict=Verdict.PASS)
+    return _REGISTRIES_EMPTY_CHECK.result(
+        subject=subject,
+        verdict=Verdict.SKIP,
+        evidence=tuple(reviewed_evidence),
+        detail=(
+            f"{len(reviewed_evidence)} intentional exclusion/hold disposition(s) "
+            "are attributable; emitted as reviewed exceptions, never as PASS"
+        ),
+    )
 
 
 def run(context: "RepoContext") -> Iterable[CheckResult]:

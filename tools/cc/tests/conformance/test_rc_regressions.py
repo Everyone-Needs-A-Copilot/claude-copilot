@@ -88,6 +88,25 @@ def _hook_lock_json(content: bytes) -> str:
     )
 
 
+def _write_canonical_hook_recipe(claude, *, include_hook: bool = True) -> None:
+    target = (
+        'target=".claude/hooks/copilot-hook.sh",\n'
+        '        kind=RecipeOperationKind.COPY_FILE_FROM_SOURCE,\n'
+        '        payload={"mode": 0o755},\n'
+        if include_hook
+        else 'target=".claude/fitness-check.sh",\n'
+        '        kind=RecipeOperationKind.COPY_FILE_FROM_SOURCE,\n'
+        '        payload={"mode": 0o755},\n'
+    )
+    claude.write(
+        "tools/cc/src/cc/core/ecosystem/reconciliation_recipes.py",
+        "def _claude_setup(root, component):\n"
+        "    return _operation(\n"
+        f"        {target}"
+        "    )\n",
+    )
+
+
 def _foundation_layers_from(handle) -> list[dict]:
     layers = validate_layers(load_layers(handle.manifest_path))
     return [layer for layer in layers if layer["role"] == "foundation"]
@@ -137,6 +156,7 @@ class TestRC1:
             ".claude/commands/update-project.md",
             "re-copy .claude/hooks/copilot-hook.sh and re-lock it.\n",
         )
+        _write_canonical_hook_recipe(claude)
 
         hook_content = b"#!/bin/sh\necho ok\n"
         good = fleet.project("good-repo")
@@ -167,6 +187,7 @@ class TestRC1:
         claude.write(
             ".claude/commands/update-project.md", "re-copy the 7 project commands.\n"
         )
+        _write_canonical_hook_recipe(claude, include_hook=False)
 
         broken = fleet.project("broken-repo")
         broken.write("README.md", "no hook here\n")
@@ -194,6 +215,7 @@ class TestRC1:
         claude.write(
             ".claude/commands/setup-project.md", "installs copilot-hook\n"
         )
+        _write_canonical_hook_recipe(claude)
 
         hook_content = b"#!/bin/sh\necho ok\n"
         good = fleet.project("good-repo")
@@ -604,10 +626,9 @@ class TestRealMachineRootCausesFailToday:
         claude_path = root_causes._foundation_source_path(layers, "claude")
         if claude_path is None:
             pytest.skip("no claude foundation layer in the real manifest")
-        setup_md = claude_path / ".claude" / "commands" / "setup-project.md"
-        update_md = claude_path / ".claude" / "commands" / "update-project.md"
+        recipe_path = claude_path / root_causes._CANONICAL_RECIPE_RELATIVE_PATH
 
-        with machine_readonly_guard(extra_paths=[setup_md, update_md]):
+        with machine_readonly_guard(extra_paths=[recipe_path]):
             results = root_causes.run_rc1(home=home)
 
         assert len(results) == 2

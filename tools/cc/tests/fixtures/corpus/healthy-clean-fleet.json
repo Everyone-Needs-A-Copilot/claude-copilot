@@ -21,7 +21,8 @@
     { "id": "codex-foundation-config", "severity": "pass", "destructive": false, "layer": "foundation", "layer_role": "foundation", "product": "codex", "detail": "AGENTS.md materialized" },
     { "id": "codex-org-config", "severity": "pass", "destructive": false, "layer": "org", "layer_role": "organization", "product": "codex", "detail": "org AGENTS.md overrides applied" },
     { "id": "codex-dept-config", "severity": "pass", "destructive": false, "layer": "dept", "layer_role": "department", "product": "codex", "detail": "dept-finance AGENTS.md overrides applied" },
-    { "id": "codex-personal-config", "severity": "pass", "destructive": false, "layer": "personal", "layer_role": "personal", "product": "codex", "detail": "personal AGENTS.md overrides applied" }
+    { "id": "codex-personal-config", "severity": "pass", "destructive": false, "layer": "personal", "layer_role": "personal", "product": "codex", "detail": "personal AGENTS.md overrides applied" },
+    { "id": "hooks-registered-in-project", "severity": "pass", "destructive": false, "product": "claude", "path": "/Users/example/project/.claude/hooks/copilot-hook.sh", "detail": "framework hooks registered" }
   ],
   "auth": []
 }

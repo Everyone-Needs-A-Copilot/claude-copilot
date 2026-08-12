@@ -1469,6 +1469,19 @@ def prepare_reconciliation(
             "machine": machine,
             "projects": selected_projects,
             "plans": public_plans,
+            # Private execution authority is hash-bound to the capability but
+            # never serialized in the public plan/report or project lock.
+            "entitlement_bindings": [
+                [
+                    dict(binding) if isinstance(binding, Mapping) else binding.as_dict()
+                    for binding in (
+                        plan.get("entitlement_bindings", ())
+                        if isinstance(plan, Mapping)
+                        else getattr(plan, "entitlement_bindings", ())
+                    )
+                ]
+                for plan in execution_plans
+            ],
         }
     )
     return PreparedReconciliation(

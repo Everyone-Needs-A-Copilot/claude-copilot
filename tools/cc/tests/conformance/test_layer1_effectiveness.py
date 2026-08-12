@@ -15,7 +15,6 @@ per-check `expected_today` overrides.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -35,7 +34,15 @@ _REAL_MANIFEST_PATH = _REAL_HOME / ".config" / "copilot" / "copilot.layers.yml"
 # This file lives at <claude-copilot>/tools/cc/tests/conformance/test_layer1_effectiveness.py
 # -- same depth as test_layer1_tier.py, same derivation.
 _CLAUDE_COPILOT_ROOT = Path(__file__).resolve().parents[4]
-_LADDER_AGENT_FILES = ("cw.md", "sd.md", "ta.md", "ind.md", "uxd.md", "uids.md", "cco.md")
+_LADDER_AGENT_FILES = (
+    "cw.md",
+    "sd.md",
+    "ta.md",
+    "ind.md",
+    "uxd.md",
+    "uids.md",
+    "cco.md",
+)
 
 
 def _real_machine_available() -> bool:
@@ -89,34 +96,18 @@ class TestE1OrgContentReachesProject:
 
     @requires_real_machine
     @pytest.mark.machine
-    def test_machine_real_installer_never_wires_org_tier_content_in(self):
-        """Drives the real setup-project.md bash steps (via `roundtrip.py`,
-        the module that already established what "the real installer"
-        means) against a scratch project + scratch $HOME, cross-checked
-        against a synthetic org-tier fixture — the same assembly
-        `commands/conformance.py::_run_installer_effectiveness_machine`
-        performs for the live report. Every write lands inside a fresh
-        tmp dir; no real project or tier repo is ever touched, so this
-        does not need `machine_readonly_guard` the way a real-repo-reading
-        H-check does."""
+    def test_machine_canonical_transaction_does_not_fabricate_org_parity(self):
+        """A component transaction is not evidence of org-tier parity."""
 
         from cc.commands import conformance as conformance_cmd
 
         conformance_cmd._ensure_registry_loaded()
-        results = conformance_cmd._run_installer_effectiveness_machine()
-        e1_results = [r for r in results if r.id == eff.E1_ORG_CONTENT_REACHES_PROJECT.id]
-        assert e1_results, "installer effectiveness probe produced no E-1 result"
-        assert e1_results[0].verdict is Verdict.PASS, (
-            "TASK-live-2026-08-11, re-verified 2026-08-11: setup-project.md's "
-            "Copy Agents step now resolves each agent through "
-            "resolve_claude_content() (core/ecosystem/project_sources.py) "
-            "instead of a single hardcoded ~/.claude/copilot source, and "
-            "this harness's own fixture is wired into the scratch $HOME's "
-            "layers.manifest BEFORE the bash runs (previously built "
-            "afterward, so no installer could ever have seen it) -- both "
-            "were required for the org tier's content to actually reach "
-            "the installed file"
-        )
+        results = conformance_cmd._run_roundtrip_layer()
+        e1_results = [
+            r for r in results if r.id == eff.E1_ORG_CONTENT_REACHES_PROJECT.id
+        ]
+        assert e1_results == []
+        assert any(r.id == "roundtrip.transaction.plan_apply_verify" for r in results)
 
 
 # ---------------------------------------------------------------------------
@@ -159,23 +150,14 @@ class TestE2NearestWinsPreservesSiblings:
 
     @requires_real_machine
     @pytest.mark.machine
-    def test_machine_real_installer_copies_the_full_roster_regardless(self):
+    def test_machine_canonical_transaction_proves_repeat_idempotence(self):
         from cc.commands import conformance as conformance_cmd
 
         conformance_cmd._ensure_registry_loaded()
-        results = conformance_cmd._run_installer_effectiveness_machine()
-        e2_results = [
-            r for r in results if r.id == eff.E2_NEAREST_WINS_PRESERVES_SIBLINGS.id
-        ]
-        assert e2_results, "installer effectiveness probe produced no E-2 result"
-        assert e2_results[0].verdict is Verdict.PASS, (
-            "re-verified 2026-08-11 against the now-tier-aware installer: "
-            "resolve_claude_content() resolves PER agent, not per root, so "
-            "one agent (cco) winning from the organization tier costs the "
-            "project none of the other roster agents, which still resolve "
-            "from the foundation -- nearest-wins stays per-item even now "
-            "that the installer actually consults the ladder"
-        )
+        results = conformance_cmd._run_roundtrip_layer()
+        idempotence = [r for r in results if r.id == "roundtrip.update.is_idempotent"]
+        assert len(idempotence) == 1
+        assert idempotence[0].verdict is Verdict.PASS
 
 
 # ---------------------------------------------------------------------------
@@ -368,9 +350,7 @@ class TestE4AttributionMatchesLock:
 
         conformance_cmd._ensure_registry_loaded()
         results = conformance_cmd._run_resolver_effectiveness_machine()
-        e4_results = [
-            r for r in results if r.id == eff.E4_ATTRIBUTION_MATCHES_LOCK.id
-        ]
+        e4_results = [r for r in results if r.id == eff.E4_ATTRIBUTION_MATCHES_LOCK.id]
         assert e4_results, "resolver effectiveness probe produced no E-4 result"
         org_results = [r for r in e4_results if "claude-organization" in r.subject]
         assert org_results == [], (
@@ -411,16 +391,15 @@ class TestE4AttributionMatchesLock:
         },
     ]
 
-    def test_fixture_fail_policy_blocked_winner_is_expected(self):
-        """`org` declares `allowed_signers: []` for `commands` (an
-        executable dimension per `core/ecosystem/policy.py`'s
-        `EXECUTABLE_DIMENSIONS`) -- the exact live shape of
-        `knowledge-personal`/`cli-personal`/`codex-personal`/(the now-
-        removed) `claude-organization` in `copilot.layers.yml` today.
-        `verdict` stays FAIL (the resolver still names a layer the lock
-        never backed -- that disagreement is real), but `expected_today`
-        must be FAIL too: this is a legitimate, already-understood,
-        by-design outcome, not a regression."""
+    def test_fixture_unsigned_nominal_contributor_does_not_excuse_effective_winner(
+        self,
+    ):
+        """The unsigned org contribution is visible but cannot win.
+
+        Foundation becomes the effective winner. Because the fixture omits
+        foundation's real lock pin, E-4 must stay red and name the missing
+        effective materialization; policy can never waive that evidence.
+        """
 
         lockfile = {"org": {LAYER_META_KEY: {"product": "claude"}}}
         results = eff.check_e4_resolve_attribution_matches_lock(
@@ -430,8 +409,26 @@ class TestE4AttributionMatchesLock:
         )
         assert len(results) == 1
         assert results[0].verdict is Verdict.FAIL
-        assert results[0].expected_today is eff.ExpectedToday.FAIL
-        assert "POLICY-BLOCKED" in results[0].evidence[0].detail
+        assert results[0].expected_today is eff.ExpectedToday.PASS
+        assert results[0].subject.endswith("-> foundation")
+        assert "policy-ineligible" in results[0].evidence[0].detail
+
+    def test_fixture_unsigned_nominal_contributor_with_locked_effective_winner_passes(
+        self,
+    ):
+        lockfile = {
+            "org": {LAYER_META_KEY: {"product": "claude"}},
+            "foundation": {"commands": {"protocol": "sha-foundation-1"}},
+        }
+        results = eff.check_e4_resolve_attribution_matches_lock(
+            layers=self._POLICY_BLOCKED_LAYERS,
+            contributions=self._CONTRIBUTIONS,
+            lockfile=lockfile,
+        )
+        assert len(results) == 1
+        assert results[0].verdict is Verdict.PASS
+        assert results[0].subject.endswith("-> foundation")
+        assert "policy-ineligible" in results[0].detail
 
     def test_fixture_fail_non_policy_blocked_winner_is_unexpected(self):
         """Same shape, but the WINNER (`foundation`) declares a real
@@ -456,7 +453,7 @@ class TestE4AttributionMatchesLock:
         assert len(results) == 1
         assert results[0].verdict is Verdict.FAIL
         assert results[0].expected_today is eff.ExpectedToday.PASS
-        assert "NOT POLICY-BLOCKED" in results[0].evidence[0].detail
+        assert "not policy-blocked" in results[0].evidence[0].detail
 
 
 # ---------------------------------------------------------------------------
@@ -485,7 +482,7 @@ class TestE5KnowledgeLadderActuallyConsumed:
 
         text = (
             '2. `eval "$(cc env)"` -- hydrate shared docs / knowledge env\n'
-            "3. `cc memory search \"<task topic>\"` -- recall prior decisions\n"
+            '3. `cc memory search "<task topic>"` -- recall prior decisions\n'
         )
         results = eff.check_e5_knowledge_ladder_actually_consumed(
             agent_files={"ind.md": text}
@@ -559,7 +556,7 @@ class TestE6ExtensionResolutionWiredBeyondProse:
     def test_fixture_fail_commented_out_line_does_not_count(self, tmp_path):
         (tmp_path / "hooks").mkdir()
         (tmp_path / "hooks" / "copilot-hook.sh").write_text(
-            "#!/bin/bash\n# TODO: call cc extensions resolve --agent \"$AGENT\" --json\n",
+            '#!/bin/bash\n# TODO: call cc extensions resolve --agent "$AGENT" --json\n',
             encoding="utf-8",
         )
         result = eff.check_e6_extension_resolution_wired_beyond_prose(
@@ -581,7 +578,9 @@ class TestE6ExtensionResolutionWiredBeyondProse:
 
     @requires_real_machine
     @pytest.mark.machine
-    def test_machine_pretool_check_hook_now_invokes_it_for_real(self, machine_readonly_guard):
+    def test_machine_pretool_check_hook_now_invokes_it_for_real(
+        self, machine_readonly_guard
+    ):
         """TASK-live-2026-08-11, re-verified 2026-08-11: `.claude` now
         PASSES -- `.claude/hooks/pretool-check.sh` gained a real
         `rule_extension_resolution` that calls `cc extensions resolve

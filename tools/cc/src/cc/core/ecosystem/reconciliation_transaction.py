@@ -24,6 +24,10 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Sequence
 
 from cc.core.config_paths import machine_diagnostics_root
+from cc.core.ecosystem.policy import (
+    read_git_tree_snapshot,
+    revalidate_git_item_provenance,
+)
 from cc.core.ecosystem.project_locking import (
     AnchoredProject,
     BoundaryObserver,
@@ -94,6 +98,7 @@ class ProjectTransactionPlan:
     inspection_id: Optional[str] = None
     preflight: Optional[ProjectPreflightSpec] = None
     sources: tuple[dict[str, str], ...] = ()
+    entitlement_bindings: tuple[Any, ...] = ()
 
 
 def _value(source: Any, name: str, default: Any = None) -> Any:
@@ -295,6 +300,26 @@ def transaction_plan_from_recipe(
         inspection_id=inspection_id,
         selected_components=tuple(str(component) for component in raw_selected),
     )
+    from cc.core.ecosystem.entitlement import EntitlementBinding
+
+    raw_bindings = _value(recipe_plan, "entitlement_bindings", ())
+    if not isinstance(raw_bindings, Sequence) or isinstance(
+        raw_bindings, (str, bytes)
+    ):
+        raise ReconciliationTransactionError(
+            "A recipe plan has invalid entitlement bindings."
+        )
+    try:
+        entitlement_bindings = tuple(
+            EntitlementBinding.from_value(dict(binding))
+            if isinstance(binding, Mapping)
+            else EntitlementBinding.from_value(binding)
+            for binding in raw_bindings
+        )
+    except (TypeError, ValueError) as exc:
+        raise ReconciliationTransactionError(
+            "A recipe plan has invalid entitlement bindings."
+        ) from exc
 
     return ProjectTransactionPlan(
         path=path,
@@ -304,6 +329,7 @@ def transaction_plan_from_recipe(
         inspection_id=inspection_id,
         preflight=preflight,
         sources=tuple(sources),
+        entitlement_bindings=entitlement_bindings,
     )
 
 
@@ -466,6 +492,36 @@ def _stage_tree_source(source: Path, destination: Path, *, mode: int) -> str:
     return _tree_fingerprint(manifest, mode=mode)
 
 
+def _stage_verified_git_tree(
+    repository_root: Path, tree: str, destination: Path, *, mode: int
+) -> str:
+    """Build private staging only from authenticated content-addressed blobs."""
+    snapshot = read_git_tree_snapshot(repository_root, tree)
+    if snapshot is None:
+        raise ReconciliationTransactionError(
+            "The authenticated Git tree object could not be captured."
+        )
+    ensure_private_directory(destination, boundary=destination.parent)
+    directories: set[Path] = {destination}
+    for item in snapshot.files:
+        target = destination / item.path
+        parent = target.parent
+        missing: list[Path] = []
+        while parent != destination and not parent.exists():
+            missing.append(parent)
+            parent = parent.parent
+        for directory in reversed(missing):
+            directory.mkdir(mode=0o755)
+            directory.chmod(0o755)
+            directories.add(directory)
+        _write_staged_file(target, item.content, item.mode)
+    for directory in sorted(
+        directories, key=lambda path: len(path.parts), reverse=True
+    ):
+        fsync_directory(directory)
+    return snapshot.fingerprint(mode=mode)
+
+
 def _closed_payload(operation: TransactionOperation) -> dict[str, Any]:
     payload = dict(operation.payload)
     kind = operation.kind
@@ -480,7 +536,15 @@ def _closed_payload(operation: TransactionOperation) -> dict[str, Any]:
         RecipeOperationKind.COPY_TREE_FROM_SOURCE.value,
         RecipeOperationKind.REPLACE_RECOGNIZED_SYMLINK_WITH_COPY.value,
     }:
-        required, allowed = {"source_path"}, {"source_path"}
+        required, allowed = (
+            {"source_path"},
+            {
+                "source_path",
+                "source_provenance",
+                "source_repository_root",
+                "source_relative_path",
+            },
+        )
     elif kind == RecipeOperationKind.APPEND_MANAGED_BLOCK.value:
         required, allowed = {"block"}, {"block", "mode"}
     elif kind == RecipeOperationKind.MERGE_JSON_KEYS.value:
@@ -488,10 +552,13 @@ def _closed_payload(operation: TransactionOperation) -> dict[str, Any]:
     elif kind == RecipeOperationKind.CREATE_INTERNAL_RELATIVE_SYMLINK.value:
         required, allowed = {"link_target"}, {"link_target"}
     elif kind == RecipeOperationKind.UPSERT_LOCK_COMPONENT.value:
-        required, allowed = {"component_entry"}, {
-            "component_entry",
-            "replace_ecosystem_lock",
-        }
+        required, allowed = (
+            {"component_entry"},
+            {
+                "component_entry",
+                "replace_ecosystem_lock",
+            },
+        )
     elif kind in {
         RecipeOperationKind.WRITE_PROJECT_DECLARATION.value,
         RecipeOperationKind.ASSOCIATE_PERSONAL_PROJECT.value,
@@ -504,6 +571,16 @@ def _closed_payload(operation: TransactionOperation) -> dict[str, Any]:
     if set(payload) != allowed.intersection(payload) or not required <= set(payload):
         raise ReconciliationTransactionError(
             "A typed recipe payload has unsupported fields."
+        )
+    provenance_keys = {
+        "source_provenance",
+        "source_repository_root",
+        "source_relative_path",
+    }
+    present_provenance_keys = provenance_keys.intersection(payload)
+    if present_provenance_keys and present_provenance_keys != provenance_keys:
+        raise ReconciliationTransactionError(
+            "A signed recipe source lacks its nominal Git item identity."
         )
     return payload
 
@@ -583,8 +660,31 @@ def _prepare_mutation(
     }:
         source = Path(str(payload["source_path"])).expanduser()
         mode = int(payload.get("mode", 0o755))
+        provenance = payload.get("source_provenance")
         staged = staging_root / operation.id
-        expected = _stage_tree_source(source, staged, mode=mode)
+        if provenance is not None:
+            if (
+                not isinstance(provenance, dict)
+                or not isinstance(payload.get("source_repository_root"), str)
+                or not isinstance(payload.get("source_relative_path"), str)
+                or not revalidate_git_item_provenance(
+                    source,
+                    provenance,
+                    repository_root=payload["source_repository_root"],
+                    relative_path=payload["source_relative_path"],
+                )
+            ):
+                raise ReconciliationTransactionError(
+                    "A signed recipe tree source no longer matches its reviewed provenance."
+                )
+            expected = _stage_verified_git_tree(
+                Path(payload["source_repository_root"]),
+                str(provenance["tree"]),
+                staged,
+                mode=mode,
+            )
+        else:
+            expected = _stage_tree_source(source, staged, mode=mode)
         if expected != operation.source_fingerprint:
             raise ReconciliationTransactionError(
                 "A recipe tree source changed after review."
@@ -657,8 +757,12 @@ def _prepare_mutation(
             raise ReconciliationTransactionError(
                 "The project lock is unreadable."
             ) from exc
-        if not isinstance(document, dict) or not isinstance(document.get("components"), list):
-            if payload.get("replace_ecosystem_lock") is True and _looks_like_ecosystem_lock(document):
+        if not isinstance(document, dict) or not isinstance(
+            document.get("components"), list
+        ):
+            if payload.get(
+                "replace_ecosystem_lock"
+            ) is True and _looks_like_ecosystem_lock(document):
                 document = {"schema_version": "1.0", "components": []}
             else:
                 raise ReconciliationTransactionError(
@@ -715,7 +819,9 @@ def _prepare_mutation(
         )
 
         raw_entries = payload["entries"]
-        if not isinstance(raw_entries, Sequence) or isinstance(raw_entries, (str, bytes)):
+        if not isinstance(raw_entries, Sequence) or isinstance(
+            raw_entries, (str, bytes)
+        ):
             raise ReconciliationTransactionError(
                 "register-settings-hooks entries must be a list."
             )
@@ -1314,7 +1420,6 @@ def execute_reconciliation(
     state_root = _state_root(root)
     boundary = state_root if root is not None else machine_diagnostics_root()
     ensure_private_directory(state_root, boundary=boundary)
-    ledger: list[dict[str, Any]] = []
     for plan in plans:
         if not isinstance(plan, ProjectTransactionPlan):
             raise ReconciliationTransactionError(
@@ -1333,15 +1438,28 @@ def execute_reconciliation(
             raise ReconciliationTransactionError(
                 "A transaction plan repeats a mutation target."
             )
-        ledger.append(
+    from cc.core.ecosystem.entitlement import run_under_binding_leases
+
+    def execute_all() -> list[dict[str, Any]]:
+        return [
             _execute_project(
                 plan,
                 run_id=run_id,
                 state_root=state_root,
                 observer=observer,
             )
-        )
-    return ledger
+            for plan in plans
+        ]
+
+    bindings = tuple(
+        binding for plan in plans for binding in plan.entitlement_bindings
+    )
+    valid, executed = run_under_binding_leases(bindings, execute_all)
+    if not valid or executed is None:
+        return [
+            _receipt(plan.path, "blocked", [], "not-run", []) for plan in plans
+        ]
+    return executed
 
 
 def _plain_persisted_receipt(value: Mapping[str, Any]) -> dict[str, Any]:

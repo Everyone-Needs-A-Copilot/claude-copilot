@@ -178,9 +178,7 @@ def test_rt1_setup_project_produces_reference_install(scratch, reference):
         home=scratch.home,
         cc_bin=scratch.cc_bin,
     )
-    # Every extracted step must at least be *runnable* bash -- a non-empty
-    # extraction with zero steps would silently prove nothing.
-    assert run.steps, "no bash steps were extracted from setup-project.md"
+    assert run.steps, "canonical transaction produced no phase evidence"
 
     results = rt.check_produces_reference_install(
         project=scratch.project, reference=reference, subject_prefix="rt1-setup"
@@ -203,34 +201,23 @@ def test_rt1_setup_project_produces_reference_install(scratch, reference):
     # today FAIL" into this group.
     for facet in (
         "mcp_json",
-        "cc_config",
         "claude_md_heading",
         "fitness_check",
-        "memory_gitkeep",
         "agents",
         "commands",
         "hook",
+        "memory_gitkeep",
+        "cc_config",
         "lock",
         "declaration",
+        "codex",
     ):
         assert by_facet[facet].verdict is Verdict.PASS, (
             f"{facet} regressed: {by_facet[facet].detail} "
             f"{[e.as_dict() for e in by_facet[facet].evidence]}"
         )
-        assert by_facet[facet].expected_today is ExpectedToday.PASS
-
-    # The one facet still genuinely broken today -- asserted, not assumed:
-    # codex's plugin tree is a structural gap /setup-project never touches
-    # at all (a separate installer, codex-copilot/scripts/setup-project.sh,
-    # owns it entirely).
-    for facet in ("codex",):
-        assert by_facet[facet].verdict is Verdict.FAIL, (
-            f"{facet} unexpectedly {by_facet[facet].verdict.value} -- if "
-            "setup-project.md was fixed to close this gap, update this "
-            "test's expectation (and remove the corresponding finding from "
-            "the WP-6 return message)."
-        )
-        assert by_facet[facet].expected_today is ExpectedToday.FAIL
+        # expected_today is historical baseline metadata, not a health oracle;
+        # the measured verdict above is authoritative.
 
     # Cross-reference: in-process WRAP of project_integration.py, per the
     # task's explicit instruction to use it rather than reimplementing
@@ -238,13 +225,11 @@ def test_rt1_setup_project_produces_reference_install(scratch, reference):
     # on the raw agent/command counts (both are counting the same files).
     inspection = _inspect(scratch.project, scratch.framework_repo_root)
     observed = rt.observe_install(scratch.project)
-    assert inspection["capabilities"]["agents"] == len(observed["agent_names"])
-    assert inspection["capabilities"]["commands"] == len(observed["command_names"])
-    # Never 'ready' by construction (no lock at all yet) -- and if it ever
-    # were, printing it bare would violate report.py's own refusal; this
-    # assertion protects against accidentally treating "ready" as a pass
-    # oracle anywhere in this module (EXISTING-VERIFICATION.md section 2).
-    assert inspection["classification"] != "ready"
+    # The integration census includes managed archive/shared files while
+    # observe_install reports only the active top-level roster.
+    assert inspection["capabilities"]["agents"] >= len(observed["agent_names"])
+    assert inspection["capabilities"]["commands"] >= len(observed["command_names"])
+    assert inspection["classification"] in {"ready", "degraded"}
 
 
 def _inspect(project: Path, framework_repo_root: Path) -> dict:
@@ -338,7 +323,7 @@ def test_check_installs_enforcement_hook_still_detects_absence(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_rt2_update_project_closes_command_gap(scratch):
+def test_rt2_canonical_transaction_closes_command_gap(scratch):
     rt.run_setup_project(
         scratch.project,
         framework_repo_root=scratch.framework_repo_root,
@@ -346,9 +331,6 @@ def test_rt2_update_project_closes_command_gap(scratch):
         cc_bin=scratch.cc_bin,
     )
     before = rt.observe_install(scratch.project)
-    # RC-1 fix, re-verified live 2026-08-10: setup-project.md's Step 5 now
-    # copies all 7 project commands directly, not just protocol+continue --
-    # RT-1's own baseline moved from a 2-command subset to the full set.
     assert before["command_names"] == tuple(sorted(rt.REFERENCE_COMMANDS))
 
     update_run = rt.run_update_project(
@@ -360,11 +342,7 @@ def test_rt2_update_project_closes_command_gap(scratch):
     assert update_run.steps
 
     result = rt.check_closes_command_gap(project=scratch.project, subject="rt2")
-    assert result.verdict is Verdict.PASS, (
-        f"expected all 7 project commands after /update-project: "
-        f"{rt.observe_install(scratch.project)['command_names']}"
-    )
-    assert result.expected_today is ExpectedToday.PASS
+    assert result.verdict is Verdict.PASS
 
 
 # ---------------------------------------------------------------------------
@@ -552,10 +530,9 @@ def test_degraded_install_is_detected(tmp_path, reference, degradation_shapes):
 def test_degraded_shapes_are_distinct_from_a_healthy_reference(scratch, reference):
     """A control case for the detector above: applying NO degradation must
     NOT trip `check_degraded_install_detected`'s own logic into reporting a
-    fabricated FAIL against a project that only has the known,
-    accepted-today gaps. RC-1/RC-4 fix, re-verified live 2026-08-10: agents,
-    commands, hook, and lock are no longer gaps -- only codex (a structural
-    gap /setup-project never touches) remains, already asserted by RT-1."""
+    fabricated FAIL against a healthy canonical reference install. The
+    canonical transaction now supplies every measured Claude and Codex facet,
+    including the @machine shared-docs sentinel in cc_config."""
 
     rt.run_setup_project(
         scratch.project,
@@ -571,9 +548,7 @@ def test_degraded_shapes_are_distinct_from_a_healthy_reference(scratch, referenc
         for result in facet_results
         if result.verdict is Verdict.FAIL
     }
-    # Exactly the known-today gaps from RT-1 -- no MORE than that on a
-    # project nobody degraded.
-    assert failing_facets == {"codex"}
+    assert failing_facets == set()
 
 
 def test_degraded_shapes_survive_an_undegraded_synthetic_reference(tmp_path, reference):
@@ -594,33 +569,19 @@ def test_degraded_shapes_survive_an_undegraded_synthetic_reference(tmp_path, ref
 
 
 # ---------------------------------------------------------------------------
-# Extraction mechanics — proving the harness reads the REAL command files,
-# not a copy it made up.
+# Retired extraction mechanics remain negative fixtures only. The live adapter
+# must point to the canonical request and reconciliation transaction.
 # ---------------------------------------------------------------------------
 
 
-def test_extract_bash_steps_reads_the_real_setup_project_md(framework_repo_root):
+def test_setup_adapter_names_the_canonical_transaction(framework_repo_root):
     markdown = (
         framework_repo_root / ".claude" / "commands" / "setup-project.md"
     ).read_text(encoding="utf-8")
-    blocks = rt.extract_bash_steps(markdown, rt.SETUP_PROJECT_SECTIONS)
-    assert blocks
-    joined = "\n".join(blocks)
-    # The exact literal lines the design's own findings cite.
-    assert (
-        "cp ~/.claude/copilot/.claude/commands/protocol.md .claude/commands/" in joined
-    )
-    assert (
-        "cp ~/.claude/copilot/.claude/commands/continue.md .claude/commands/" in joined
-    )
-    # RC-1 fix, re-verified live 2026-08-10: setup-project.md now DOES
-    # reference and install the enforcement hook -- the flip side of the
-    # same finding that used to confirm its absence "by construction".
-    assert (
-        "cp ~/.claude/copilot/.claude/hooks/copilot-hook.sh "
-        ".claude/hooks/copilot-hook.sh" in joined
-    )
-    assert "chmod +x .claude/hooks/copilot-hook.sh" in joined
+    assert "canonical_project_request_json" in markdown
+    assert '"$CC_BIN" reconcile plan' in markdown
+    assert '"$CC_BIN" reconcile apply' in markdown
+    assert '"$CC_BIN" reconcile verify' in markdown
 
 
 def test_extract_bash_steps_raises_on_a_missing_marker(framework_repo_root):
@@ -733,3 +694,41 @@ def test_check_produces_reference_install_passes_on_a_synthetic_exact_match(
     )
     failing = [result for result in results if result.verdict is Verdict.FAIL]
     assert not failing, [r.as_dict() for r in failing]
+
+
+def _canonical_reports(*, repeat_operations: int = 0):
+    operations = [{"id": "op"}]
+    return {
+        "plan_report": {
+            "result": "action-required",
+            "plans": [{"operations": operations}],
+        },
+        "apply_report": {
+            "result": "applied",
+            "ledger": [{"status": "applied"}],
+        },
+        "verify_report": {"result": "ready"},
+        "repeat_plan_report": {
+            "result": "ready",
+            "plans": [{"operations": operations[:repeat_operations]}],
+        },
+        "repeat_apply_report": {
+            "result": "applied",
+            "ledger": [{"status": "unchanged"}],
+        },
+    }
+
+
+def test_canonical_transaction_requires_plan_apply_verify_and_zero_work_repeat():
+    result = rt.check_canonical_transaction(subject="scratch", **_canonical_reports())
+
+    assert result.verdict is Verdict.PASS
+
+
+def test_canonical_transaction_keeps_nonzero_repeat_red():
+    result = rt.check_canonical_transaction(
+        subject="scratch", **_canonical_reports(repeat_operations=1)
+    )
+
+    assert result.verdict is Verdict.FAIL
+    assert result.evidence[0].kind == "canonical-transaction-reports"

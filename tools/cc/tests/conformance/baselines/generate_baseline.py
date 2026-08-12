@@ -29,10 +29,9 @@ Layer 5's isolated scratch clones -- HARNESS-DESIGN.md section 5.3):
   Layer 3 (repo sweep)  -- sweep.run_sweep(mode=FULL) over every repo under
                           projects.roots (13 dimensions x ~75 repos).
   Layer 4 (lock)        -- lock.run_lock_checks over the same repo set.
-  Layer 5 (round-trip)  -- the REAL setup-project.md / update-project.md
-                          bash steps, executed against disposable scratch
-                          clones (never a real product repo -- see
-                          `_run_layer5_roundtrip`). Mutates only a
+  Layer 5 (round-trip)  -- the canonical request / reviewed plan / guarded
+                          apply / fresh verify transaction, executed against
+                          one disposable scratch project. Mutates only a
                           `tempfile.TemporaryDirectory()`.
   Layer 6 (regression)  -- root_causes.run_all_root_cause_checks (RC-1..5).
 
@@ -55,7 +54,10 @@ already exists at the target path, writing a new one additionally requires:
      regressed pairs are written into the file's own `"acknowledged_
      regressions"` metadata list, so the fact that a regression was
      knowingly baked into a new baseline is itself part of the permanent,
-     reviewable record -- never silent.
+     reviewable record -- never silent. `--review-file` must additionally
+     match every such delta exactly and provide classification, rationale,
+     and owner. Every other added, removed, or changed identity is classified
+     automatically in `change_review.changes`.
 
 USAGE
 -----
@@ -75,6 +77,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import hashlib
 import json
 import subprocess
 import sys
@@ -113,7 +116,7 @@ from cc.core.conformance.sweep import (  # noqa: E402
 from cc.core.conformance.types import CheckResult, ExpectedToday, Mode  # noqa: E402
 from cc.core.ecosystem.manifest import load_layers, validate_layers  # noqa: E402
 
-DEFAULT_BASELINE_PATH = _BASELINES_DIR / "2026-08-10-known-bad.json"
+DEFAULT_BASELINE_PATH = _BASELINES_DIR / "2026-08-12-reviewed-current.json"
 
 _REAL_HOME = Path.home()
 _REAL_MACHINE_CONFIG_PATH = _REAL_HOME / ".claude" / "cc" / "config.json"
@@ -469,30 +472,27 @@ def collect_layer6_regression() -> list[CheckResult]:
 
 
 def collect_all(*, sweep_mode: Mode, include_roundtrip: bool) -> list[CheckResult]:
-    results: list[CheckResult] = []
+    # The baseline must freeze the exact ordinary CLI collector, not a second
+    # orchestration implementation that can drift (the former Layer-5 helper
+    # still exercised markdown compatibility seams after the CLI had moved to
+    # the canonical transaction).  Import lazily to keep this standalone
+    # script's module import cheap and hermetic for unit tests.
+    from cc.commands import conformance as conformance_cmd
 
-    print("  [layer1] tier / hierarchy resolution ...", file=sys.stderr)
-    results += collect_layer1_tier()
-
-    print("  [layer2] component stack ...", file=sys.stderr)
-    results += collect_layer2_stack()
-
-    print(f"  [layer3] install conformance sweep (mode={sweep_mode.value}) ...", file=sys.stderr)
-    results += collect_layer3_repo(mode=sweep_mode)
-
-    print("  [layer4] lock integrity ...", file=sys.stderr)
-    results += collect_layer4_lock()
-
-    if include_roundtrip:
-        print("  [layer5] round-trip (real installer bash, scratch clones) ...", file=sys.stderr)
-        results += collect_layer5_roundtrip()
-    else:
-        print("  [layer5] skipped (--no-roundtrip)", file=sys.stderr)
-
-    print("  [layer6] root-cause regression pins ...", file=sys.stderr)
-    results += collect_layer6_regression()
-
-    return results
+    layers = (
+        conformance_cmd.FULL_CHECK_LAYERS
+        if include_roundtrip
+        else conformance_cmd.DEFAULT_CHECK_LAYERS
+    )
+    return list(
+        conformance_cmd._collect_results(
+            layers=layers,
+            mode=sweep_mode,
+            jobs=conformance_cmd.DEFAULT_JOBS,
+            use_cache=False,
+            announce=lambda text: print(f"  {text}", file=sys.stderr),
+        )
+    )
 
 
 def _entries_from_results(results: list[CheckResult]) -> list[dict[str, str]]:
@@ -502,7 +502,13 @@ def _entries_from_results(results: list[CheckResult]) -> list[dict[str, str]]:
     # extra call site should not silently double an entry in the baseline).
     seen: dict[tuple[str, str], str] = {}
     for result in results:
-        key = (result.id, result.subject)
+        key = (result.id, report.baseline_subject(result.id, result.subject))
+        prior = seen.get(key)
+        if prior is not None and prior != result.verdict.value:
+            raise RuntimeError(
+                f"conflicting verdicts for baseline identity {key!r}: "
+                f"{prior!r} and {result.verdict.value!r}"
+            )
         seen[key] = result.verdict.value
     return [
         {"id": key[0], "subject": key[1], "verdict": verdict}
@@ -535,6 +541,128 @@ def _git_identity() -> str:
     return getpass.getuser()
 
 
+def _change_classification(previous: str | None, current: str | None) -> str:
+    if previous == "fail" and current == "pass":
+        return "verified-remediation"
+    if previous == "could-not-run" and current == "pass":
+        return "newly-runnable"
+    if previous == "skip" and current == "pass":
+        return "newly-applicable"
+    if previous == "fail" and current == "skip":
+        return "reviewed-nonapplicability"
+    if previous == "could-not-run" and current == "fail":
+        return "newly-measurable-failure"
+    if previous == "pass" and current == "skip":
+        return "reviewed-nonapplicability"
+    if previous == "pass" and current == "fail":
+        return "review-required-pass-to-fail"
+    if previous is None:
+        return "new-check-or-subject"
+    if current is None:
+        return "superseded-or-no-longer-applicable-subject"
+    return "other-reviewed-transition"
+
+
+def _load_pass_to_fail_reviews(path: Path | None) -> tuple[dict[str, str], ...]:
+    if path is None:
+        return ()
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    rows = raw.get("pass_to_fail") if isinstance(raw, dict) else None
+    if not isinstance(rows, list):
+        raise ValueError("review file must contain a pass_to_fail array")
+    required = {"id", "subject", "classification", "rationale", "owner"}
+    reviewed: list[dict[str, str]] = []
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict) or not required <= set(row):
+            raise ValueError(
+                f"review pass_to_fail[{index}] must contain {sorted(required)}"
+            )
+        normalized = {key: str(row[key]).strip() for key in required}
+        if any(not value for value in normalized.values()):
+            raise ValueError(f"review pass_to_fail[{index}] contains an empty field")
+        normalized["subject"] = report.baseline_subject(
+            normalized["id"], normalized["subject"]
+        )
+        reviewed.append(normalized)
+    return tuple(reviewed)
+
+
+def _reviewed_change_set(
+    *,
+    old_path: Path,
+    new_entries: list[dict[str, str]],
+    pass_to_fail_reviews: tuple[dict[str, str], ...],
+) -> dict[str, object]:
+    raw_old = json.loads(old_path.read_text(encoding="utf-8"))
+    raw_old_entries = raw_old.get("entries", [])
+    old: dict[tuple[str, str], str] = {}
+    duplicate_count = 0
+    for entry in raw_old_entries:
+        key = (
+            str(entry["id"]),
+            report.baseline_subject(str(entry["id"]), str(entry["subject"])),
+        )
+        if key in old:
+            duplicate_count += 1
+        old[key] = str(entry["verdict"])
+    new = {
+        (str(entry["id"]), str(entry["subject"])): str(entry["verdict"])
+        for entry in new_entries
+    }
+    review_by_key = {
+        (row["id"], row["subject"]): row for row in pass_to_fail_reviews
+    }
+    changes: list[dict[str, object]] = []
+    required_reviews: set[tuple[str, str]] = set()
+    for key in sorted(set(old) | set(new)):
+        previous = old.get(key)
+        current = new.get(key)
+        if previous == current:
+            continue
+        classification = _change_classification(previous, current)
+        row: dict[str, object] = {
+            "id": key[0],
+            "subject": key[1],
+            "previous": previous,
+            "current": current,
+            "classification": classification,
+        }
+        if previous == "pass" and current == "fail":
+            required_reviews.add(key)
+            review = review_by_key.get(key)
+            if review is not None:
+                row.update(
+                    {
+                        "classification": review["classification"],
+                        "rationale": review["rationale"],
+                        "owner": review["owner"],
+                    }
+                )
+        changes.append(row)
+    supplied_reviews = set(review_by_key)
+    missing = required_reviews - supplied_reviews
+    extra = supplied_reviews - required_reviews
+    if missing or extra:
+        formatted_missing = [f"{item[0]} | {item[1]}" for item in sorted(missing)]
+        formatted_extra = [f"{item[0]} | {item[1]}" for item in sorted(extra)]
+        raise ValueError(
+            "pass-to-fail review set does not match live deltas; "
+            f"missing={formatted_missing}, extra={formatted_extra}"
+        )
+    counts: dict[str, int] = {}
+    for change in changes:
+        label = str(change["classification"])
+        counts[label] = counts.get(label, 0) + 1
+    return {
+        "source_baseline": str(old_path),
+        "source_sha256": hashlib.sha256(old_path.read_bytes()).hexdigest(),
+        "source_duplicate_entries_collapsed": duplicate_count,
+        "classification_counts": counts,
+        "zero_unreviewed_pass_to_fail": not missing,
+        "changes": changes,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -564,6 +692,14 @@ def main() -> int:
             "required in addition to --reason if the fresh run would encode "
             "a PASS-to-FAIL flip (vs. the EXISTING file at --out) as part of "
             "the new baseline -- see this file's module docstring"
+        ),
+    )
+    parser.add_argument(
+        "--review-file",
+        type=Path,
+        help=(
+            "JSON review whose pass_to_fail array exactly matches every live "
+            "PASS-to-FAIL delta and attributes classification, rationale, and owner"
         ),
     )
     parser.add_argument(
@@ -631,10 +767,25 @@ def main() -> int:
                     file=sys.stderr,
                 )
                 return 3
-            payload["acknowledged_regressions"] = [
-                {"id": result.id, "subject": result.subject}
-                for result in comparison.regressed
-            ]
+        try:
+            pass_to_fail_reviews = _load_pass_to_fail_reviews(args.review_file)
+            change_review = _reviewed_change_set(
+                old_path=args.out,
+                new_entries=entries,
+                pass_to_fail_reviews=pass_to_fail_reviews,
+            )
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+            print(f"\nREFUSED: invalid or incomplete delta review: {exc}", file=sys.stderr)
+            return 4
+        if comparison.regressed and args.review_file is None:
+            print(
+                "\nREFUSED: --acknowledge-regression also requires --review-file "
+                "with an exact attributed review for every PASS-to-FAIL delta.",
+                file=sys.stderr,
+            )
+            return 4
+        payload["change_review"] = change_review
+        payload["acknowledged_regressions"] = list(pass_to_fail_reviews)
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(payload, indent=2, sort_keys=False) + "\n", encoding="utf-8")

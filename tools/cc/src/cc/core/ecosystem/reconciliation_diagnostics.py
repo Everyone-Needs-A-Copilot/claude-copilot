@@ -94,6 +94,11 @@ _TARGETS = {
     ".claude/agents",
     ".claude/cc/config.json",
     ".claude/commands/continue.md",
+    ".claude/commands/extensions.md",
+    ".claude/commands/map.md",
+    ".claude/commands/memory.md",
+    ".claude/commands/orchestrate.md",
+    ".claude/commands/pause.md",
     ".claude/commands/protocol.md",
     ".claude/fitness-check.sh",
     ".claude/hooks/copilot-hook.sh",
@@ -113,6 +118,25 @@ _TARGETS = {
     "plugins/codex-copilot",
     "scripts/copilot-gate.sh",
 }
+
+
+def _allowed_target(value: Any) -> bool:
+    """Accept the closed target set plus one manifest-roster agent leaf."""
+
+    if not isinstance(value, str):
+        return False
+    if value in _TARGETS:
+        return True
+    pure = Path(value)
+    return (
+        not pure.is_absolute()
+        and ".." not in pure.parts
+        and len(pure.parts) >= 3
+        and pure.parts[:2] == (".claude", "agents")
+        and pure.name not in {"", ".", ".."}
+    )
+
+
 _TARGET_KINDS = {"directory", "file", "missing", "symlink", "uninspected"}
 _OPERATION_KINDS = {
     "create-file-from-source",
@@ -311,9 +335,7 @@ def _safe_rollback(value: Any) -> list[dict[str, str]]:
             continue
         target = raw.get("target")
         status = raw.get("status")
-        if not _allowed_string(target, _TARGETS) or not _allowed_string(
-            status, _ROLLBACK
-        ):
+        if not _allowed_target(target) or not _allowed_string(status, _ROLLBACK):
             continue
         safe.append(
             {
@@ -420,9 +442,7 @@ def _safe_project_evidence(value: Any) -> dict[str, Any]:
             continue
         target = item.get("target")
         kind = item.get("kind")
-        if not _allowed_string(target, _TARGETS) or not _allowed_string(
-            kind, _TARGET_KINDS
-        ):
+        if not _allowed_target(target) or not _allowed_string(kind, _TARGET_KINDS):
             continue
         safe_targets.append(
             {
@@ -785,7 +805,7 @@ def _safe_reviewed_plans(
                 or operation_id in operation_ids
                 or operation.get("kind") not in _OPERATION_KINDS
                 or operation.get("component") not in recipe_components
-                or target not in _TARGETS
+                or not _allowed_target(target)
                 or target in operation_targets
                 or not isinstance(before, str)
                 or not _FINGERPRINT.fullmatch(before)

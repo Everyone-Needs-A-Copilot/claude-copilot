@@ -12,7 +12,7 @@ The harness deliberately does **not** compute a health score. `RUBRIC.md` §4 st
 
 ## Command surface
 
-**Today**, before the `cc conformance` CLI verb (WP-8) lands, every check is reachable as a pytest suite:
+Every check is reachable from both the operator CLI and pytest:
 
 ```
 cd tools/cc
@@ -23,7 +23,9 @@ cd tools/cc
 
 `-m "not machine"` selects only the synthetic-fleet (World A) tests — see "The two worlds" below — and is the invocation that runs anywhere, including a CI runner with no ecosystem installed at all. Every check's positive case (a fixture where it passes) and negative case (a fixture where it fails) live there; a check that has never been proven to fail is not a check, and this is enforced as its own fitness function.
 
-**Once WP-8 lands**, the same checks are reachable as `cc conformance check|report|baseline|explain|list`, with `--layer`, `--fast`/`--full`, `--repo`, `--class`, `--check`, `--fail-on`, `--baseline`, and `--json` — see `HARNESS-DESIGN.md` §6 for the full CLI contract. Nothing in this package depends on that CLI existing; every check, the baseline mechanism, and the CI wiring documented here work against the pytest face directly.
+Use `cc conformance check|report|baseline|explain|list`, with `--layer`, `--fast`/`--full`, `--repo`, `--class`, `--check`, `--fail-on`, `--baseline`, and `--json`. Default/`--fast` is read-only and runs five layers. Ordinary `--full` adds Layer 5 automatically; it announces the scratch mutation on stderr and writes only inside a disposable temporary directory. An explicit `--layer roundtrip` remains available for isolation.
+
+Global results are emitted once even when a sweep visits many repositories. `--repo` retains those global claims because they still apply to the filtered run. If two producers disagree about the same global `(id, subject)`, the report returns one `could-not-run` result with conflict evidence instead of choosing whichever happened to run last. Every `could-not-run` result names the missing prerequisite and responsible actor at the CLI boundary.
 
 ## The two worlds
 
@@ -63,11 +65,11 @@ Precedence when more than one applies: a baseline regression (3) is checked firs
 
 The harness runs against an ecosystem that is known, today, to have five systemic root causes and a large number of per-repo dimension failures. A conformance run that reports "36% pass" on that ecosystem is not informative on its own — what matters is whether a specific check, on a specific subject, changes from passing to failing. That is what the baseline captures.
 
-**The file.** `tests/conformance/baselines/2026-08-10-known-bad.json` freezes every `(check id, subject)` pair's verdict as measured on this machine, generated from a live run — never written or edited by hand. `report.load_baseline` reads its `entries` array; every other top-level key (`reason`, `generated_by`, `generated_at`, `mode`, `counts`) is this script's own audit trail, ignored by every consumer, kept so the file's own history explains itself.
+**The file.** `tests/conformance/baselines/2026-08-12-reviewed-current.json` freezes every stable `(check id, subject)` pair measured by the same ordinary full collector operators run — never written or edited by hand. Random round-trip scratch-directory names normalize to one stable subject while facet suffixes remain exact. `report.load_baseline` reads its `entries` array; audit keys such as `reason`, `generated_by`, `generated_at`, `mode`, `counts`, and `change_review` explain every transition from the prior baseline. `change_review.zero_unreviewed_pass_to_fail` may be true only when every PASS→FAIL has an exact classification, rationale, and owner supplied through the reviewed input file.
 
 **The comparison.** `report.compare_to_baseline` buckets every fresh result against the baseline by `(id, subject)`: `fixed` (baseline FAIL, now PASS), `still_failing` (FAIL both times), `regressed` (baseline PASS, now FAIL — the sole trigger for exit code 3), and `new_failures` (no baseline entry at all, now FAIL — reported, but not itself a regression, since there was nothing to regress from).
 
-**Regenerating it is deliberately not trivial.** The generator (`tests/conformance/baselines/generate_baseline.py`) is a dry run by default — it always computes and prints a summary, and writes nothing unless `--write` is passed. Writing additionally requires a non-empty `--reason` (why is this being regenerated), and if a baseline already exists at the target path, the generator refuses to overwrite it when the fresh run would silently bake in a regression — something PASS in the old file, FAIL in the new one — unless `--acknowledge-regression` is also passed, in which case every acknowledged pair is written into the file's own `acknowledged_regressions` list rather than disappearing. This is the mechanism that stops "the check broke, so someone refreshed the baseline instead of fixing it" from ever being silent.
+**Regenerating it is deliberately not trivial.** The generator (`tests/conformance/baselines/generate_baseline.py`) is a dry run by default — it always computes and prints a summary, and writes nothing unless `--write` is passed. Writing additionally requires a non-empty `--reason` (why is this being regenerated). If the fresh run contains a PASS→FAIL, `--acknowledge-regression` and `--review-file` are both required; the review must match every regression exactly and name its classification, rationale, and owner. The generator refuses missing or extra review rows, then writes all reviewed pairs and a classification for every other changed identity into the baseline itself. This is the mechanism that stops "the check broke, so someone refreshed the baseline instead of fixing it" from ever being silent.
 
 ```
 # Dry run — prints the summary, writes nothing:
@@ -75,16 +77,18 @@ tools/cc/.venv/bin/python tools/cc/tests/conformance/baselines/generate_baseline
 
 # Regenerate for real:
 tools/cc/.venv/bin/python tools/cc/tests/conformance/baselines/generate_baseline.py \
-    --write --reason "describe why this baseline needed a fresh capture"
+    --write --reason "describe why this baseline needed a fresh capture" \
+    --acknowledge-regression \
+    --review-file tools/cc/tests/conformance/baselines/<review>.json
 
 # Faster, partial regeneration (fast-mode sweep, skip the round-trip layer):
 tools/cc/.venv/bin/python tools/cc/tests/conformance/baselines/generate_baseline.py \
     --fast --no-roundtrip --write --reason "..."
 ```
 
-The generator runs against the real machine — Layer 1 (tier resolution) against the real manifest, config, and framework agents; Layer 2 (component stack) against every real `copilot.layers.yml`; Layer 3 (the 13-dimension sweep) in full mode over every repo under `projects.roots`; Layer 4 (lock integrity) over the same repo set; Layer 5 (round-trip) by running the real `setup-project.md` / `update-project.md` bash steps against disposable `tempfile.TemporaryDirectory()` scratch clones, never a real product repo; and Layer 6 (the five root-cause regression pins) via `root_causes.run_all_root_cause_checks`. It never depends on the `cc conformance` CLI existing.
+The generator runs against the real machine — Layer 1 (tier resolution) against the real manifest, config, and framework agents; Layer 2 (component stack) against every real `copilot.layers.yml`; Layer 3 (the 13-dimension sweep) in full mode over every repo under `projects.roots`; Layer 4 (lock integrity) over the same repo set; Layer 5 (round-trip) through the canonical `build_canonical_project_request` → reviewed `build_plan_report` → guarded `build_apply_report` → fresh `build_verify_report` transaction inside `tempfile.TemporaryDirectory()`, never a real product repo; and Layer 6 (the five root-cause regression pins) via `root_causes.run_all_root_cause_checks`. Human-facing setup/update markdown is an adapter, not parsed installer logic.
 
-**What it validates on its own.** `tests/conformance/baselines/test_baseline_file.py` is a hermetic, always-on test module — no real machine access required — that asserts the committed baseline is non-empty, well-formed, free of duplicate `(id, subject)` keys, contains at least one FAIL for each of RC-1 through RC-5 (`test_baseline_captures_every_known_root_cause` — the fitness function `HARNESS-DESIGN.md` §5.4/§13 names), and meets `TEST-MATRIX.md` §8's own floor ("if the harness's first run reports fewer failures than this list, the harness is under-detecting"). It also replays the committed baseline through `report.compute_exit_code` unchanged (proving an honest, non-regressed run never fabricates a `pass` while real `could-not-run` entries exist) and with one synthetic PASS→FAIL flip (proving exit code 3 fires), so the regression path is a standing, automated test rather than a one-off demonstration.
+**What it validates on its own.** `tests/conformance/baselines/test_baseline_file.py` is a hermetic, always-on test module — no real machine access required — that asserts the committed baseline is non-empty, well-formed, free of duplicate stable keys, still represents every RC-1..RC-5 regression pin, exactly matches the reviewed current failing-check taxonomy, and has zero unreviewed PASS→FAIL changes. Resolved root causes may be green in live truth; paired negative fixtures prove their detectors still fail on the defect shape. The suite also replays the baseline unchanged and with one synthetic PASS→FAIL flip, proving exit code 3 remains a standing automated regression gate.
 
 ## Layer and dimension map
 
@@ -94,10 +98,18 @@ The generator runs against the real machine — Layer 1 (tier resolution) agains
 | 2 — stack (`stack.*`) | Every product × tier cell declares itself, resolves, pins to a real ref, and that ref is a genuine ancestor of its branch | 7 | 3×S0, 4×S1 |
 | 3 — repo / the 13 rubric dimensions (`repo.*`) | D1–D13 as executable, per-repo assertions with concrete evidence — the machine-readable successor to the original audit | 29 | 1×S0, 16×S1, 9×S2, 3×S3 |
 | 4 — lock (`lock.*`) | `copilot.lock.json` reflects the actual install, `ready` cannot be produced by a waiver over missing required paths | 5 | 3×S0, 2×S1 |
-| 5 — round-trip (`roundtrip.*`) | The real installer produces the reference install and the real updater is idempotent and destroys nothing project-owned | 8 | 5×S0, 3×S1 |
-| 6 — root-cause regression pins (`rc.*`) | One named, `expected_today=FAIL` test per systemic root cause (RC-1..RC-5) | 5 | 5×S0 |
+| 5 — round-trip (`roundtrip.*`) | The canonical reviewed transaction produces the reference install, verifies disk truth, repeats with zero work, and destroys nothing project-owned | 9 | 6×S0, 3×S1 |
+| 6 — root-cause regression pins (`rc.*`) | One named detector per systemic root cause (RC-1..RC-5), with paired positive/negative fixtures and current live verdicts | 5 | 5×S0 |
 
-69 checks registered in total as of this writing (`registry.DEFAULT_REGISTRY`), the large majority `fast` mode (local filesystem and local git only, no network); `roundtrip.*` and a handful of `repo.d01`/`stack` checks are `full`-only (they shell out to `fitness-check.sh` or read a mirror/remote).
+The large majority of checks are `fast` mode (local filesystem and local git only, no network); `roundtrip.*` and a handful of `repo.d01`/`stack` checks are `full`-only. Use `cc conformance list --json` for the authoritative live count rather than copying a count into automation.
+
+### Reviewed exclusions and authoring checkouts
+
+An intentional scanner exclusion is never inferred from an ignored path alone. The harness requires structured review attribution: a portable path suffix, reason, approving authority, durable review evidence, and review date. The current Q14 owner-approved exclusions are represented that way and return `skip` with `reviewed-exclusion` evidence. An empty, malformed, duplicated, or unreviewed registry entry stays red; it is not converted to a pass.
+
+Component sources have two legitimate modes. A checkout under `paths.mirrors_root` is managed and must be clean and unaliased. A source outside that root is an accepted authoring checkout only when committed `classification.toml` data identifies the same component product and tier role. Accepted authoring produces an attributable `skip`, not a pass. Unknown outside-root paths and dirty or aliased managed mirrors remain failures.
+
+Layer 5 proves that the selected Claude and Codex component recipes complete a bound transaction. It does not claim that both consumers materialize identical organization/department/personal content. Organization-content parity is a separate claim and remains unknown until the relevant resolver, recipe source binding, lock, and on-disk consumer path prove it.
 
 ### Installed vs wired vs effective
 
@@ -130,15 +142,9 @@ The 13 rubric dimensions (D1–D13), each implemented as its own `dimensions/dNN
 
 Repo classification (A = foundation, B = tier variant, C = product/site, D = markdown-knowledge, E = not a git root / archive / scratch) is data, not code — `classification.toml`, with a one-line rationale per override entry, per the ratified Q9/Q27 decisions.
 
-## Known gaps outside this package's ownership
+## Known boundary
 
-Recorded here for operator honesty, not fixed by this package (this package owns the baseline, CI wiring, and documentation — not `tier.py`, `stack.py`, `sweep.py`, `lock.py`, `roundtrip.py`, `root_causes.py`, or `dimensions/*`):
-
-- **`dimensions/dx_gitignore.py` does not exist yet.** `repo.gitignore.no_self_exclusion` (the check that generalizes the Q23 batch — "no repo's own `.gitignore` excludes a path its own lock records as framework-owned" — into one structural rule) is referenced by `HARNESS-DESIGN.md`'s file layout but the module itself has not landed. `sweep.run_sweep` reports this honestly as one `repo.dx_gitignore.module_unavailable` `could-not-run` result per sweep, never as a fabricated pass, which is why a full sweep's exit code is 2 until it lands.
-- **The three invariants lifted from the retired Rust fitness functions are not yet registered.** `inv.no_bare_cli_name`, `inv.no_fabricated_healthy`, and `inv.registry_completeness` are named in `HARNESS-DESIGN.md` §13's fitness-function table as Layer 6 additions but do not currently exist in `registry.DEFAULT_REGISTRY`.
-- **`test_layer2_stack.py` / `test_layer3_dimensions.py`'s machine-marked classes lack a clean skipif** — see "The two worlds" above.
-
-None of these block the CI wiring or the baseline documented here — `-m "not machine"` sidesteps the skipif gap, the baseline test suite treats `could-not-run` honestly rather than masking it, and the missing `inv.*` checks are additive (their absence does not make anything already registered less true).
+The harness reports what the installed consumer paths prove. It must not translate a successful component transaction into a Claude/Codex tier-content parity claim. In particular, a Codex recipe sourced from a configured foundation plugin proves that plugin's installed bytes and lock binding; it does not prove organization-layer skills were selected or materialized. Treat missing consumer evidence as unknown or failing under the relevant check, never as implied conformance.
 
 ## What was retired
 

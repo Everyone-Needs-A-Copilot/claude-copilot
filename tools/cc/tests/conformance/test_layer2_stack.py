@@ -27,6 +27,7 @@ from pathlib import Path
 
 import pytest
 from cc.core.conformance import stack
+from cc.core.conformance.classes import ClassificationEntry, RepoClass
 from cc.core.conformance.registry import DEFAULT_REGISTRY
 from cc.core.conformance.types import ExpectedToday, Mode, Severity, Verdict
 
@@ -400,6 +401,71 @@ class TestCsMirror:
         assert result.verdict is Verdict.FAIL
         assert "not under the configured mirrors root" in result.detail
 
+    def test_skip_with_evidence_for_explicit_audited_authoring_checkout(
+        self, tmp_path, monkeypatch
+    ):
+        repo = tmp_path / "Sites" / "COPILOT" / "claude-copilot-internal"
+        init_git_repo(repo)
+        git_commit_all(repo, "initial")
+        monkeypatch.setattr(stack, "_mirrors_root", lambda: tmp_path / "mirrors")
+        monkeypatch.setattr(stack, "_resolve_live_authoring_alias", lambda: None)
+        monkeypatch.setattr(
+            stack,
+            "load_classification_table",
+            lambda: {
+                "COPILOT/claude-copilot-internal": ClassificationEntry(
+                    key="COPILOT/claude-copilot-internal",
+                    repo_class=RepoClass.COMPONENT,
+                    rationale="reviewed authoring checkout",
+                    role="organization",
+                    source="override",
+                )
+            },
+        )
+
+        layers = [_layer(product="claude", role="organization", rank=30, path=repo)]
+        result = _one(
+            stack.check_cs_mirror(
+                [("claude", "organization")],
+                [_snapshot(tmp_path / "copilot.layers.yml", layers)],
+            )
+        )
+        assert result.verdict is Verdict.SKIP
+        assert result.evidence[0].kind == "accepted-authoring-checkout"
+        assert "never safe to delete" in result.evidence[0].detail
+
+    def test_wrong_product_classification_does_not_excuse_mirror_misconfiguration(
+        self, tmp_path, monkeypatch
+    ):
+        repo = tmp_path / "Sites" / "COPILOT" / "codex-copilot-internal"
+        init_git_repo(repo)
+        git_commit_all(repo, "initial")
+        monkeypatch.setattr(stack, "_mirrors_root", lambda: tmp_path / "mirrors")
+        monkeypatch.setattr(stack, "_resolve_live_authoring_alias", lambda: None)
+        monkeypatch.setattr(
+            stack,
+            "load_classification_table",
+            lambda: {
+                "COPILOT/codex-copilot-internal": ClassificationEntry(
+                    key="COPILOT/codex-copilot-internal",
+                    repo_class=RepoClass.COMPONENT,
+                    rationale="different product",
+                    role="organization",
+                    source="override",
+                )
+            },
+        )
+
+        layers = [_layer(product="claude", role="organization", rank=30, path=repo)]
+        result = _one(
+            stack.check_cs_mirror(
+                [("claude", "organization")],
+                [_snapshot(tmp_path / "copilot.layers.yml", layers)],
+            )
+        )
+        assert result.verdict is Verdict.FAIL
+        assert "not under the configured mirrors root" in result.detail
+
     def test_fail_when_dirty_even_under_mirrors_root(self, tmp_path, monkeypatch):
         mirror_home = tmp_path / "mirrors-root"
         repo = mirror_home / "claude-foundation"
@@ -646,11 +712,12 @@ class TestMachineTruth:
         failing = {r.subject for r in results if r.verdict is Verdict.FAIL}
         assert failing == set()
 
-    def test_cs_mirror_fails_all_16_cells(self):
+    def test_cs_mirror_attributes_all_16_reviewed_authoring_cells(self):
         results = stack.check_cs_mirror(self.cells, self.snapshots)
-        assert all(r.verdict is Verdict.FAIL for r in results), [
-            r.subject for r in results if r.verdict is not Verdict.FAIL
+        assert all(r.verdict is Verdict.SKIP for r in results), [
+            r.subject for r in results if r.verdict is not Verdict.SKIP
         ]
+        assert all(r.evidence[0].kind == "accepted-authoring-checkout" for r in results)
 
     def test_cs_signers_fails_exactly_two_of_four_foundations(self):
         results = stack.check_cs_signers(stack.DEFAULT_PRODUCTS, self.snapshots)
@@ -725,4 +792,6 @@ class TestMachineTruth:
         # TEST-MATRIX.md §2's own "16x5 + 4 + 12" = 96.
         assert len(results) == 112
         meaningful = [r for r in results if r.verdict is not Verdict.SKIP]
-        assert len(meaningful) == 96
+        # The 16 CS-MIRROR authoring checkouts are now explicit attributable
+        # SKIPs, leaving 80 measured PASS/FAIL instances.
+        assert len(meaningful) == 80

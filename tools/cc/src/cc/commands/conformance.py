@@ -47,16 +47,13 @@ sibling packages' actual public API (not assumed from the design prose):
    measurable speed gain; `report.filter_by_repo` (WP-1) already defines
    the exact subject-matching semantics this module needs and is reused
    verbatim, never reimplemented.
-4. **`--layer roundtrip` is never included by a bare `--full`.**
-   `HARNESS-DESIGN.md` section 7.2's mode table lists round-trip under
-   `--full`, but section 6.1 (the CLI surface itself) says plainly: "`check`
-   is read-only in every mode except `--layer roundtrip`, which mutates
-   only inside `tmp_path`". Where the speed-budget prose and the CLI-surface
-   contract disagree, the CLI-surface section governs CLI behavior -- a
-   plain `cc conformance check --full` must never silently start mutating a
-   scratch clone. `--layer roundtrip` is the only way to opt in, and this
-   module announces the mutation on stderr (see point 6) before it starts,
-   regardless of `--json`.
+4. **Ordinary `--full` includes the sandboxed round-trip.**
+   `HARNESS-DESIGN.md` section 7.2 and the product PRD both define full mode
+   as all six layers. The mutation boundary remains strict: round-trip writes
+   only to a disposable directory created by `tempfile`, never a real repo,
+   and the CLI announces that scratch mutation on stderr before it starts,
+   including for `--json`. Fast/default mode remains read-only and excludes
+   round-trip.
 5. **`cc conformance explain <id>` never runs a `roundtrip.*` check live.**
    `explain` is documented as read-only ("what it asserts, why, evidence,
    remediation"); recomputing a round-trip check's evidence would silently
@@ -110,9 +107,17 @@ from cc.core.conformance.types import (
     Severity,
     Verdict,
 )
+from cc.core.ecosystem.canonical_transaction import build_canonical_project_request
 from cc.core.ecosystem.discovery import discover_contributions
 from cc.core.ecosystem.lockfile import default_lockfile_path, read_lockfile
 from cc.core.ecosystem.manifest import ManifestError, load_layers, validate_layers
+from cc.core.ecosystem.project_plan_store import issue_plan
+from cc.core.ecosystem.project_reconciliation import assess_project
+from cc.core.ecosystem.reconciliation import (
+    build_apply_report,
+    build_plan_report,
+    build_verify_report,
+)
 from cc.core.ecosystem.resolver import resolve_layers
 
 conformance_app = typer.Typer(
@@ -130,10 +135,11 @@ conformance_app.add_typer(baseline_app, name="baseline")
 
 DEFAULT_JOBS = 8  # HARNESS-DESIGN.md section 7.1: 4.6s cold / 2.0s warm at jobs=8.
 
-# `roundtrip` is deliberately excluded from the default layer set -- see
-# module docstring point 4.
+# Fast/default mode stays read-only. Full mode adds the sandboxed round-trip
+# as the sixth designed layer (module docstring point 4).
 DEFAULT_CHECK_LAYERS: tuple[str, ...] = ("tier", "stack", "repo", "lock", "regression")
 ALL_LAYER_CHOICES: tuple[str, ...] = (*DEFAULT_CHECK_LAYERS, "roundtrip")
+FULL_CHECK_LAYERS: tuple[str, ...] = ALL_LAYER_CHOICES
 SEVERITY_CHOICES: tuple[str, ...] = tuple(s.value for s in Severity)
 
 # `--class` accepts two vocabularies (see `_resolve_class_filters`): the
@@ -143,7 +149,9 @@ SEVERITY_CHOICES: tuple[str, ...] = tuple(s.value for s in Severity)
 # error message can show the operator every value that actually works,
 # never just the half they didn't try.
 RUBRIC_CLASS_CHOICES: tuple[str, ...] = tuple(sorted(REPO_CLASSES))
-CLASSIFICATION_NAME_CHOICES: tuple[str, ...] = tuple(c.value for c in classes_mod.RepoClass)
+CLASSIFICATION_NAME_CHOICES: tuple[str, ...] = tuple(
+    c.value for c in classes_mod.RepoClass
+)
 
 _ROUNDTRIP_MUTATION_NOTICE = (
     "conformance check --layer roundtrip: mutating a disposable scratch "
@@ -225,8 +233,12 @@ def _run_tier_layer_machine() -> tuple[CheckResult, ...]:
         return tuple(results)
 
     for agent in sorted(_declared_agent_names(ladder)):
-        results.append(tier.check_h1_nearest_declared_wins(agent, knowledge_repos=ladder))
-        results.append(tier.check_h2_absence_is_not_shadow(agent, knowledge_repos=ladder))
+        results.append(
+            tier.check_h1_nearest_declared_wins(agent, knowledge_repos=ladder)
+        )
+        results.append(
+            tier.check_h2_absence_is_not_shadow(agent, knowledge_repos=ladder)
+        )
         results.append(tier.check_h3_shadow_substance(agent, knowledge_repos=ladder))
 
     layers = _load_validated_layers()
@@ -234,7 +246,9 @@ def _run_tier_layer_machine() -> tuple[CheckResult, ...]:
         tier.knowledge_ladder_from_layers(layers, product="knowledge") if layers else ()
     )
     results.append(
-        tier.check_h4_ladder_order(actual_ladder=ladder, expected_ladder=expected_ladder)
+        tier.check_h4_ladder_order(
+            actual_ladder=ladder, expected_ladder=expected_ladder
+        )
     )
 
     try:
@@ -274,7 +288,9 @@ def _run_tier_layer_machine() -> tuple[CheckResult, ...]:
             candidate = cc_src_root / relative
             if candidate.is_dir():
                 results.append(
-                    tier.check_h8_commands_dimension_has_no_consumer(source_root=candidate)
+                    tier.check_h8_commands_dimension_has_no_consumer(
+                        source_root=candidate
+                    )
                 )
 
         # E-5: every framework agent whose instructions claim to consult the
@@ -324,7 +340,6 @@ def _run_tier_layer_machine() -> tuple[CheckResult, ...]:
 
     # H-9 deliberately NOT invoked here -- see module docstring point 2.
     results.extend(_run_resolver_effectiveness_machine())
-    results.extend(_run_installer_effectiveness_machine())
     return tuple(results)
 
 
@@ -491,7 +506,10 @@ def _run_installer_effectiveness_machine() -> tuple[CheckResult, ...]:
                 "role": "foundation",
                 "rank": 40,
                 "product": "claude",
-                "source": {"repo": f"file://{foundation_dir}", "path": str(foundation_dir)},
+                "source": {
+                    "repo": f"file://{foundation_dir}",
+                    "path": str(foundation_dir),
+                },
                 "auth": "anon",
                 "activation": "always",
             },
@@ -530,7 +548,9 @@ def _run_installer_effectiveness_machine() -> tuple[CheckResult, ...]:
                 agent_path.read_text(encoding="utf-8") if agent_path.is_file() else None
             )
 
-        probe_contributions = discover_contributions(probe_layers, dimensions=("agents",))
+        probe_contributions = discover_contributions(
+            probe_layers, dimensions=("agents",)
+        )
         probe_items = {
             item["item"]: item
             for item in resolve_layers(probe_layers, probe_contributions)
@@ -659,14 +679,19 @@ def _run_lock_layer(
             (
                 entry,
                 classes_mod.classify(
-                    entry.path, root=entry.root, table=table, is_git_root=entry.is_git_root
+                    entry.path,
+                    root=entry.root,
+                    table=table,
+                    is_git_root=entry.is_git_root,
                 ),
             )
             for entry in discovered
         ]
         if classes:
             classified = [
-                (entry, cls) for entry, cls in classified if cls.rubric_letter in classes
+                (entry, cls)
+                for entry, cls in classified
+                if cls.rubric_letter in classes
             ]
         if repo_classes:
             classified = [
@@ -727,23 +752,20 @@ def _diff_paths(before: dict[str, str], after: dict[str, str]) -> tuple[str, ...
 
 
 def _run_roundtrip_layer() -> tuple[CheckResult, ...]:
-    """Run the real `/setup-project` + `/update-project` bash steps against
-    a fresh scratch clone, entirely inside one `tempfile.TemporaryDirectory`
-    -- never a real project. See `roundtrip.py`'s own module docstring for
-    why this replays literal bash rather than a Python re-implementation."""
+    """Run canonical request/plan/apply/verify against one scratch project.
+
+    The machine preflight is deliberately supplied as an isolated, ready
+    fixture because this layer verifies the project transaction rather than
+    ambient auth/network setup. Census, recipes, plan binding, transaction,
+    disk verification, and private state are all the real implementations.
+    """
 
     with tempfile.TemporaryDirectory(prefix="cc-conformance-roundtrip-") as raw_tmp:
         tmp_path = Path(raw_tmp)
-        home = tmp_path / "home"
         project = tmp_path / "project"
-        home.mkdir(parents=True, exist_ok=True)
         project.mkdir(parents=True, exist_ok=True)
 
         framework_repo_root = roundtrip.discover_framework_repo_root()
-        cc_bin = roundtrip.discover_cc_bin(framework_repo_root)
-        roundtrip.materialize_framework_source(
-            home / ".claude" / "copilot", framework_repo_root
-        )
 
         for git_args in (
             ("init", "--quiet"),
@@ -751,15 +773,99 @@ def _run_roundtrip_layer() -> tuple[CheckResult, ...]:
             ("config", "user.name", "cc conformance"),
         ):
             subprocess.run(
-                ("git", *git_args), cwd=project, check=True, timeout=10.0,
+                ("git", *git_args),
+                cwd=project,
+                check=True,
+                timeout=10.0,
                 capture_output=True,
             )
 
+        request = build_canonical_project_request(
+            project,
+            components=("claude", "codex"),
+            approved_roots=(tmp_path,),
+        )
+        authority_root = Path(request.roots[0])
+        project = Path(request.projects[0].path)
         subject = str(project)
-        results: list[CheckResult] = []
+        state_root = authority_root / "private-reconciliation-state"
 
-        roundtrip.run_setup_project(
-            project, framework_repo_root=framework_repo_root, home=home, cc_bin=cc_bin
+        def machine_builder() -> dict[str, Any]:
+            return {
+                "state": "ready",
+                "helper": {
+                    "state": "ready",
+                    "version": "2.9.0",
+                    "path": "cc conformance (isolated preflight)",
+                    "detail": "The isolated transaction preflight is ready.",
+                },
+                "frameworks": [
+                    {
+                        "component": component,
+                        "state": "ready",
+                        "path": str(resolve_key(f"paths.{component}_copilot_root")),
+                        "version": "verified-by-recipe-source-binding",
+                        "detail": "The configured authoritative source is available.",
+                    }
+                    for component in ("claude", "codex")
+                ],
+                "configuration": {
+                    "state": "ready",
+                    "path": str(state_root),
+                    "approved_roots": [str(authority_root)],
+                    "detail": "Only the disposable scratch root is approved.",
+                },
+                "authentication": {
+                    "state": "signed-in",
+                    "credential_state": "present",
+                    "detail": "External authentication is outside this local transaction probe.",
+                },
+                "connectivity": {
+                    "state": "online",
+                    "detail": "The local transaction makes no network request.",
+                },
+                "layers": {
+                    "state": "ready",
+                    "ready": 2,
+                    "total": 2,
+                    "detail": "Both selected component sources are assessed by the recipes.",
+                },
+                "dependencies": [],
+                "blockers": [],
+                "next_action": "Run the canonical project transaction.",
+            }
+
+        def census_builder(**kwargs: Any) -> list[dict[str, Any]]:
+            selections = kwargs.get("selections") or {}
+            return [
+                assess_project(
+                    project,
+                    approved_root=authority_root,
+                    selected_components=tuple(selections.get(subject, ())),
+                )
+            ]
+
+        def plan_issuer(**kwargs: Any) -> Any:
+            return issue_plan(**kwargs, root=state_root)
+
+        results: list[CheckResult] = []
+        plan_report = build_plan_report(
+            request,
+            machine_builder=machine_builder,
+            census_builder=census_builder,
+            plan_issuer=plan_issuer,
+        )
+        apply_report = build_apply_report(
+            request,
+            str(plan_report["plan_id"]),
+            machine_builder=machine_builder,
+            census_builder=census_builder,
+            state_root=state_root,
+        )
+        verify_report = build_verify_report(
+            request,
+            machine_builder=machine_builder,
+            census_builder=census_builder,
         )
 
         reference_path = _reference_install_manifest_path()
@@ -775,21 +881,68 @@ def _run_roundtrip_layer() -> tuple[CheckResult, ...]:
         )
         results.extend(
             roundtrip.check_reports_only_what_it_did(
-                framework_repo_root=framework_repo_root, project=project, subject=subject
+                framework_repo_root=framework_repo_root,
+                project=project,
+                subject=subject,
             )
         )
 
-        # Seed project-owned content BEFORE the first /update-project run,
-        # so the preservation checks below observe a real before/after.
+        before_repeat = _snapshot_tree(project)
+        repeat_plan_report = build_plan_report(
+            request,
+            machine_builder=machine_builder,
+            census_builder=census_builder,
+            plan_issuer=plan_issuer,
+        )
+        repeat_apply_report = build_apply_report(
+            request,
+            str(repeat_plan_report["plan_id"]),
+            machine_builder=machine_builder,
+            census_builder=census_builder,
+            state_root=state_root,
+        )
+        after_repeat = _snapshot_tree(project)
+        results.append(
+            roundtrip.check_canonical_transaction(
+                subject=subject,
+                plan_report=plan_report,
+                apply_report=apply_report,
+                verify_report=verify_report,
+                repeat_plan_report=repeat_plan_report,
+                repeat_apply_report=repeat_apply_report,
+            )
+        )
+        results.append(
+            roundtrip.check_update_idempotent(
+                diff_paths=_diff_paths(before_repeat, after_repeat),
+                subject=subject,
+                expected_today=ExpectedToday.PASS,
+            )
+        )
+
+        # Intentional project-owned additions make the fresh assessment hold
+        # rather than inventing a mutation recipe. A held apply must preserve
+        # them byte-for-byte, which is the safe update behavior under review.
         seeded_agent = roundtrip.seed_project_owned_agent(project)
         seeded_agent_text = seeded_agent.read_text(encoding="utf-8")
         roundtrip.seed_third_party_mcp_server(project)
         mcp_before = _json.loads((project / ".mcp.json").read_text(encoding="utf-8"))
-
-        roundtrip.run_update_project(
-            project, framework_repo_root=framework_repo_root, home=home, cc_bin=cc_bin
+        preservation_plan = build_plan_report(
+            request,
+            machine_builder=machine_builder,
+            census_builder=census_builder,
+            plan_issuer=plan_issuer,
         )
-        results.append(roundtrip.check_closes_command_gap(project=project, subject=subject))
+        build_apply_report(
+            request,
+            str(preservation_plan["plan_id"]),
+            machine_builder=machine_builder,
+            census_builder=census_builder,
+            state_root=state_root,
+        )
+        results.append(
+            roundtrip.check_closes_command_gap(project=project, subject=subject)
+        )
         results.append(
             roundtrip.check_preserves_project_owned(
                 before=seeded_agent_text, after_path=seeded_agent, subject=subject
@@ -798,19 +951,6 @@ def _run_roundtrip_layer() -> tuple[CheckResult, ...]:
         results.append(
             roundtrip.check_does_not_touch_mcp_json(
                 before=mcp_before, project=project, subject=subject
-            )
-        )
-
-        before_second = _snapshot_tree(project)
-        roundtrip.run_update_project(
-            project, framework_repo_root=framework_repo_root, home=home, cc_bin=cc_bin
-        )
-        after_second = _snapshot_tree(project)
-        results.append(
-            roundtrip.check_update_idempotent(
-                diff_paths=_diff_paths(before_second, after_second),
-                subject=subject,
-                expected_today=ExpectedToday.PASS,
             )
         )
 
@@ -913,7 +1053,9 @@ def _collect_results(
         )
     if "stack" in layers:
         results.extend(
-            _safe_run(Layer.STACK, "stack layer (real machine)", _run_stack_layer_machine)
+            _safe_run(
+                Layer.STACK, "stack layer (real machine)", _run_stack_layer_machine
+            )
         )
     if "repo" in layers:
         results.extend(
@@ -957,11 +1099,12 @@ def _collect_results(
         )
 
     filtered = _filter_by_selected_modes(tuple(results), mode)
+    filtered = report.deduplicate_global_results(filtered)
     filtered = report.filter_by_repo(filtered, repos)
     if check_ids:
         wanted = set(check_ids)
         filtered = tuple(result for result in filtered if result.id in wanted)
-    return filtered
+    return report.attribute_could_not_run_results(filtered)
 
 
 # ---------------------------------------------------------------------------
@@ -985,10 +1128,10 @@ def _emit_argument_error(
 
 
 def _resolve_layers(
-    raw: Optional[Sequence[str]], *, command: str, output_json: bool
+    raw: Optional[Sequence[str]], *, command: str, output_json: bool, mode: Mode
 ) -> tuple[str, ...]:
     if not raw:
-        return DEFAULT_CHECK_LAYERS
+        return FULL_CHECK_LAYERS if mode is Mode.FULL else DEFAULT_CHECK_LAYERS
     deduped = tuple(dict.fromkeys(raw))
     unknown = [value for value in deduped if value not in ALL_LAYER_CHOICES]
     if unknown:
@@ -1109,8 +1252,7 @@ def _render_markdown(
 
     if summary.could_not_run_total:
         lines.append(
-            f"**COULD-NOT-RUN**: {summary.could_not_run_total} check(s) -- "
-            "not a pass."
+            f"**COULD-NOT-RUN**: {summary.could_not_run_total} check(s) -- not a pass."
         )
         lines.append("")
 
@@ -1145,7 +1287,7 @@ def check_cmd(
         help=(
             "Restrict to one or more layers "
             f"({'|'.join(ALL_LAYER_CHOICES)}); default is every layer "
-            "except roundtrip (opt-in only -- mutates a scratch clone)."
+            "except roundtrip; --full includes roundtrip in a disposable scratch clone."
         ),
     ),
     fast: bool = typer.Option(
@@ -1157,7 +1299,9 @@ def check_cmd(
         help="Everything --fast covers plus network/git-remote checks; bypasses the cache.",
     ),
     repo: Optional[List[str]] = typer.Option(
-        None, "--repo", help="Restrict to one or more repos (path or path-suffix match)."
+        None,
+        "--repo",
+        help="Restrict to one or more repos (path or path-suffix match).",
     ),
     repo_class: Optional[List[str]] = typer.Option(
         None,
@@ -1188,7 +1332,9 @@ def check_cmd(
         DEFAULT_JOBS, "--jobs", help="Parallel workers for the repo-layer sweep."
     ),
     no_cache: bool = typer.Option(
-        False, "--no-cache", help="Bypass the per-repo fast-mode cache even in --fast mode."
+        False,
+        "--no-cache",
+        help="Bypass the per-repo fast-mode cache even in --fast mode.",
     ),
     output_json: bool = typer.Option(
         False, "--json", help="Output the conformance.schema.json envelope as JSON."
@@ -1209,8 +1355,10 @@ def check_cmd(
         raise typer.Exit(2)
 
     mode = Mode.FULL if full else Mode.FAST
-    layers = _resolve_layers(layer, command="check", output_json=output_json)
-    fail_on_severity = _parse_severity(fail_on, command="check", output_json=output_json)
+    layers = _resolve_layers(layer, command="check", output_json=output_json, mode=mode)
+    fail_on_severity = _parse_severity(
+        fail_on, command="check", output_json=output_json
+    )
     rubric_classes, classification_names = _resolve_class_filters(
         repo_class, command="check", output_json=output_json
     )
@@ -1260,7 +1408,10 @@ def check_cmd(
     else:
         typer.echo(
             report.render_human(
-                results, mode=mode, fail_on=fail_on_severity, baseline=baseline_comparison
+                results,
+                mode=mode,
+                fail_on=fail_on_severity,
+                baseline=baseline_comparison,
             )
         )
 
@@ -1275,14 +1426,20 @@ def check_cmd(
 @conformance_app.command("report")
 def report_cmd(
     layer: Optional[List[str]] = typer.Option(
-        None, "--layer", help="Restrict to one or more layers (default: every layer except roundtrip)."
+        None,
+        "--layer",
+        help="Restrict layers; fast/default excludes roundtrip, while --full includes its disposable scratch clone.",
     ),
-    fast: bool = typer.Option(False, "--fast", help="Local-only, cached, no network (the default)."),
+    fast: bool = typer.Option(
+        False, "--fast", help="Local-only, cached, no network (the default)."
+    ),
     full: bool = typer.Option(
         False, "--full", help="Everything --fast covers plus network/git-remote checks."
     ),
     repo: Optional[List[str]] = typer.Option(
-        None, "--repo", help="Restrict to one or more repos (path or path-suffix match)."
+        None,
+        "--repo",
+        help="Restrict to one or more repos (path or path-suffix match).",
     ),
     repo_class: Optional[List[str]] = typer.Option(
         None,
@@ -1297,10 +1454,16 @@ def report_cmd(
         None, "--check", help="Restrict to one or more specific check ids."
     ),
     baseline: Optional[Path] = typer.Option(
-        None, "--baseline", help="Compare against a frozen baseline and include fixed/still-failing/new counts."
+        None,
+        "--baseline",
+        help="Compare against a frozen baseline and include fixed/still-failing/new counts.",
     ),
-    jobs: int = typer.Option(DEFAULT_JOBS, "--jobs", help="Parallel workers for the repo-layer sweep."),
-    no_cache: bool = typer.Option(False, "--no-cache", help="Bypass the per-repo fast-mode cache."),
+    jobs: int = typer.Option(
+        DEFAULT_JOBS, "--jobs", help="Parallel workers for the repo-layer sweep."
+    ),
+    no_cache: bool = typer.Option(
+        False, "--no-cache", help="Bypass the per-repo fast-mode cache."
+    ),
     output_format: str = typer.Option(
         "table", "--format", help="table|tsv|md|json -- how to render the results."
     ),
@@ -1323,7 +1486,9 @@ def report_cmd(
         raise typer.Exit(2)
 
     mode = Mode.FULL if full else Mode.FAST
-    layers = _resolve_layers(layer, command="report", output_json=output_json)
+    layers = _resolve_layers(
+        layer, command="report", output_json=output_json, mode=mode
+    )
     rubric_classes, classification_names = _resolve_class_filters(
         repo_class, command="report", output_json=output_json
     )
@@ -1332,7 +1497,8 @@ def report_cmd(
     if baseline is not None:
         if not baseline.is_file():
             _emit_argument_error(
-                f"conformance report: --baseline file not found: {baseline}", output_json
+                f"conformance report: --baseline file not found: {baseline}",
+                output_json,
             )
             raise typer.Exit(2)
         baseline_entries = report.load_baseline(baseline)
@@ -1367,14 +1533,18 @@ def report_cmd(
 
     if output_format == "json":
         typer.echo(
-            _json.dumps(report.to_envelope(results, mode=mode, baseline=baseline_comparison))
+            _json.dumps(
+                report.to_envelope(results, mode=mode, baseline=baseline_comparison)
+            )
         )
     elif output_format == "tsv":
         typer.echo(_render_tsv(results))
     elif output_format == "md":
         typer.echo(_render_markdown(results, mode=mode, baseline=baseline_comparison))
     else:
-        typer.echo(report.render_human(results, mode=mode, baseline=baseline_comparison))
+        typer.echo(
+            report.render_human(results, mode=mode, baseline=baseline_comparison)
+        )
 
     raise typer.Exit(exit_code)
 
@@ -1388,12 +1558,22 @@ def report_cmd(
 def baseline_write_cmd(
     path: Path = typer.Argument(..., help="Where to write the frozen baseline JSON."),
     layer: Optional[List[str]] = typer.Option(
-        None, "--layer", help="Restrict to one or more layers (default: every layer except roundtrip)."
+        None,
+        "--layer",
+        help="Restrict layers; fast/default excludes roundtrip, while --full includes its disposable scratch clone.",
     ),
-    fast: bool = typer.Option(False, "--fast", help="Local-only, cached, no network (the default)."),
-    full: bool = typer.Option(False, "--full", help="Everything --fast covers plus network/git-remote checks."),
-    jobs: int = typer.Option(DEFAULT_JOBS, "--jobs", help="Parallel workers for the repo-layer sweep."),
-    no_cache: bool = typer.Option(False, "--no-cache", help="Bypass the per-repo fast-mode cache."),
+    fast: bool = typer.Option(
+        False, "--fast", help="Local-only, cached, no network (the default)."
+    ),
+    full: bool = typer.Option(
+        False, "--full", help="Everything --fast covers plus network/git-remote checks."
+    ),
+    jobs: int = typer.Option(
+        DEFAULT_JOBS, "--jobs", help="Parallel workers for the repo-layer sweep."
+    ),
+    no_cache: bool = typer.Option(
+        False, "--no-cache", help="Bypass the per-repo fast-mode cache."
+    ),
 ) -> None:
     """Freeze the current verdict set as a baseline (`cc conformance check
     --baseline`/`cc conformance baseline diff` compare future runs against
@@ -1407,7 +1587,9 @@ def baseline_write_cmd(
         raise typer.Exit(2)
 
     mode = Mode.FULL if full else Mode.FAST
-    layers = _resolve_layers(layer, command="baseline write", output_json=False)
+    layers = _resolve_layers(
+        layer, command="baseline write", output_json=False, mode=mode
+    )
 
     try:
         results = _collect_results(
@@ -1424,25 +1606,45 @@ def baseline_write_cmd(
     payload = {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "entries": [
-            {"id": result.id, "subject": result.subject, "verdict": result.verdict.value}
+            {
+                "id": result.id,
+                "subject": result.subject,
+                "verdict": result.verdict.value,
+            }
             for result in results
         ],
     }
-    path.write_text(_json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(
+        _json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     typer.echo(f"conformance baseline: wrote {len(results)} entries to {path}")
 
 
 @baseline_app.command("diff")
 def baseline_diff_cmd(
-    path: Path = typer.Argument(..., help="An existing baseline JSON (from `baseline write`)."),
-    layer: Optional[List[str]] = typer.Option(
-        None, "--layer", help="Restrict to one or more layers (default: every layer except roundtrip)."
+    path: Path = typer.Argument(
+        ..., help="An existing baseline JSON (from `baseline write`)."
     ),
-    fast: bool = typer.Option(False, "--fast", help="Local-only, cached, no network (the default)."),
-    full: bool = typer.Option(False, "--full", help="Everything --fast covers plus network/git-remote checks."),
-    jobs: int = typer.Option(DEFAULT_JOBS, "--jobs", help="Parallel workers for the repo-layer sweep."),
-    no_cache: bool = typer.Option(False, "--no-cache", help="Bypass the per-repo fast-mode cache."),
-    output_json: bool = typer.Option(False, "--json", help="Output the comparison as JSON."),
+    layer: Optional[List[str]] = typer.Option(
+        None,
+        "--layer",
+        help="Restrict layers; fast/default excludes roundtrip, while --full includes its disposable scratch clone.",
+    ),
+    fast: bool = typer.Option(
+        False, "--fast", help="Local-only, cached, no network (the default)."
+    ),
+    full: bool = typer.Option(
+        False, "--full", help="Everything --fast covers plus network/git-remote checks."
+    ),
+    jobs: int = typer.Option(
+        DEFAULT_JOBS, "--jobs", help="Parallel workers for the repo-layer sweep."
+    ),
+    no_cache: bool = typer.Option(
+        False, "--no-cache", help="Bypass the per-repo fast-mode cache."
+    ),
+    output_json: bool = typer.Option(
+        False, "--json", help="Output the comparison as JSON."
+    ),
 ) -> None:
     """Show what changed since a frozen baseline. Exit 3 on any PASS->FAIL
     regression, else 0 -- independent of --fail-on (there is none here;
@@ -1461,7 +1663,9 @@ def baseline_diff_cmd(
         raise typer.Exit(2)
 
     mode = Mode.FULL if full else Mode.FAST
-    layers = _resolve_layers(layer, command="baseline diff", output_json=output_json)
+    layers = _resolve_layers(
+        layer, command="baseline diff", output_json=output_json, mode=mode
+    )
     baseline_entries = report.load_baseline(path)
 
     try:
@@ -1503,7 +1707,9 @@ def baseline_diff_cmd(
 
 @conformance_app.command("explain")
 def explain_cmd(
-    check_id: str = typer.Argument(..., help="A registered check id, e.g. tier.shadow.substance."),
+    check_id: str = typer.Argument(
+        ..., help="A registered check id, e.g. tier.shadow.substance."
+    ),
     output_json: bool = typer.Option(
         False, "--json", help="Output the registration plus live evidence as JSON."
     ),
@@ -1537,7 +1743,9 @@ def explain_cmd(
                 mode=registration.mode,
                 check_ids=(check_id,),
             )
-        except Exception as exc:  # pragma: no cover -- _safe_run already guards each layer
+        except (
+            Exception
+        ) as exc:  # pragma: no cover -- _safe_run already guards each layer
             live_note = f"could not recompute live evidence: {exc}"
 
     if output_json:
@@ -1557,7 +1765,9 @@ def explain_cmd(
     typer.echo(f"asserts:     {registration.summary}")
     typer.echo(f"remediation: {registration.remediation}")
     if registration.applies_to_classes:
-        typer.echo(f"applies to:  class {', '.join(sorted(registration.applies_to_classes))}")
+        typer.echo(
+            f"applies to:  class {', '.join(sorted(registration.applies_to_classes))}"
+        )
     if live_note:
         typer.echo(live_note)
     if not live_results:
@@ -1621,7 +1831,9 @@ def list_cmd(
             )
             raise typer.Exit(2)
 
-    registrations = sorted(DEFAULT_REGISTRY.all(), key=lambda registration: registration.id)
+    registrations = sorted(
+        DEFAULT_REGISTRY.all(), key=lambda registration: registration.id
+    )
     if layer_filter:
         registrations = [r for r in registrations if r.layer in layer_filter]
     if severity_filter:

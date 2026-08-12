@@ -15,7 +15,7 @@ mnemonic verbatim-legible as the id's second segment:
     CS-PATH         ->  stack.cs_path       ->  source.path exists and is a git root
     CS-REF-VALID    ->  stack.cs_ref_valid  ->  source.ref resolves to a real git object
     CS-ANCESTOR     ->  stack.cs_ancestor   ->  the pinned ref is an ancestor of origin/main (RC-3)
-    CS-MIRROR       ->  stack.cs_mirror     ->  the checkout is a disposable mirror, not live-authoring
+    CS-MIRROR       ->  stack.cs_mirror     ->  managed sources are disposable mirrors; explicit audited authoring checkouts are attributable
     CS-SIGNERS      ->  stack.cs_signers    ->  foundation layers carry a non-empty allowed_signers
     CS-DIM          ->  stack.cs_dim        ->  tier-variant copilot.layer.yml declares non-empty dimensions (RC-5)
 
@@ -72,25 +72,15 @@ contract, not the producer doc that described it days earlier):
     `claude-foundation` and `codex-foundation` now each carry one
     `SHA256:...` entry (non-empty) and PASS; `cli-foundation` and
     `knowledge-foundation` are still `[]` and FAIL. 2/4, not 0/4.
-  - CS-MIRROR's own literal command (`git status --porcelain` empty AND
-    not aliased) is confirmed but INSUFFICIENT to reproduce the audit's
-    "0/16 PASS": run literally, only `claude-foundation` (dirty + aliased)
-    fails today -- 15 of the 16 real checkouts happen to be git-clean *right
-    now*, which the audit's own "every checkout is a live working tree"
-    reasoning was never actually claiming to depend on. The durable,
-    non-flaky signal for "is this a disposable mirror" is structural, not
-    momentary: `cc.core.ecosystem.mirror.mirror_root()` (WRAPPED here, not
-    re-derived -- design rule 1) defines the ONE place a disposable mirror
-    is allowed to live (`paths.mirrors_root`, default `~/.copilot/mirrors`)
-    and explicitly documents that location as "NEVER `~/.claude/` ... and
-    NEVER an authoring vault". None of the 16 real `source.path` values are
-    anywhere under that root -- every one of them points straight at the
-    author's primary `/Volumes/Dev/Sites/COPILOT/<repo>` checkout. So
-    CS-MIRROR here fails a cell when EITHER that structural condition holds
-    (source.path is not under the configured mirrors root -- the condition
-    that alone reproduces 0/16 on this machine) OR the literal command's
-    two signals do (dirty working tree / known live-authoring alias),
-    keeping both real defects independently detectable.
+  - CS-MIRROR distinguishes two intentionally different source modes.
+    Anything under `paths.mirrors_root` is managed and must be clean and
+    unaliased. A path outside that root is accepted as an authoring checkout
+    only when the committed `classification.toml` explicitly identifies the
+    same product family and tier role as a COMPONENT. That result is SKIP
+    with authoring evidence, never PASS. An unknown path outside the mirror
+    root, a dirty managed mirror, or an aliased managed mirror still FAILS.
+    This keeps real mirror misconfiguration red while avoiding sixteen false
+    claims that the owner's audited authoring repositories are disposable.
 
 Given this drift, `expected_today` on every result this module produces
 mirrors that result's own freshly-computed verdict (PASS/SKIP ->
@@ -113,6 +103,7 @@ from typing import Any, Iterable, Mapping, Sequence
 import yaml
 
 from cc.core.config import resolve_key
+from cc.core.conformance.classes import RepoClass, load_classification_table
 from cc.core.conformance.fsguard import (
     default_guarded_machine_paths,
     run_git_readonly,
@@ -235,15 +226,16 @@ _CS_MIRROR = register_check(
     severity=Severity.S1,
     scope=Scope.PER_CELL,
     summary=(
-        "CS-MIRROR: the layer's checkout is a disposable mirror (clean "
-        "working tree, not a live-authoring alias target) -- safe to "
-        "rm -rf and re-clone"
+        "CS-MIRROR: a managed layer checkout is a clean, unaliased "
+        "disposable mirror; an audited authoring checkout is identified "
+        "explicitly and is never treated as disposable"
     ),
     remediation=(
-        "Materialize this layer into a dedicated, disposable mirror "
-        "location instead of pointing source.path at a live-authoring "
-        "working tree; commit or stash any pending changes; and remove "
-        "any alias (e.g. ~/.claude/copilot) that resolves onto it."
+        "For managed sources, materialize the layer under paths.mirrors_root, "
+        "commit or stash pending mirror changes, and remove live-authoring "
+        "aliases. For an intentional authoring source, add the exact product "
+        "and role to the reviewed classification table rather than relying "
+        "on its path alone."
     ),
     expected_today=ExpectedToday.FAIL,
 )
@@ -798,6 +790,35 @@ def _resolve_live_authoring_alias() -> Path | None:
         return None
 
 
+def _accepted_authoring_classification(
+    path: Path, *, product: str, role: str
+) -> str | None:
+    """Return the committed classification key for an accepted authoring tree.
+
+    A mere path outside ``mirrors_root`` is never enough.  The table entry
+    must be an audited COMPONENT, carry the same role as the manifest cell,
+    and name the same product family.  Unknown/out-of-tree locations remain
+    mirror failures.
+    """
+
+    normalized = path.resolve().as_posix().rstrip("/")
+    expected_prefix = f"{product}-copilot"
+    for key, entry in load_classification_table().items():
+        if not normalized.endswith(f"/{key.strip('/')}"):
+            continue
+        repo_name = Path(key).name
+        if (
+            entry.repo_class is RepoClass.COMPONENT
+            and entry.role == role
+            and (
+                repo_name == expected_prefix
+                or repo_name.startswith(f"{expected_prefix}-")
+            )
+        ):
+            return key
+    return None
+
+
 def check_cs_mirror(
     cells: Sequence[tuple[str, str]], snapshots: Sequence[ManifestSnapshot]
 ) -> list[CheckResult]:
@@ -840,6 +861,42 @@ def check_cs_mirror(
         status = run_git_readonly(("status", "--porcelain"), cwd=path)
         dirty = bool(status.stdout.strip())
         aliased = alias_target is not None and resolved == alias_target
+
+        authoring_key = (
+            _accepted_authoring_classification(path, product=product, role=role)
+            if not_a_mirror
+            else None
+        )
+        if authoring_key is not None:
+            state = "dirty" if dirty else "clean"
+            alias_note = "; live authoring alias present" if aliased else ""
+            results.append(
+                _CS_MIRROR.result(
+                    subject=subject,
+                    verdict=Verdict.SKIP,
+                    expected_today=ExpectedToday.PASS,
+                    evidence=(
+                        Evidence(
+                            kind="accepted-authoring-checkout",
+                            path=str(path),
+                            expected=(
+                                f"reviewed COMPONENT classification for "
+                                f"product={product}, role={role}"
+                            ),
+                            actual=f"classification.toml:{authoring_key}; {state}{alias_note}",
+                            detail=(
+                                "Human-owned authoring tree; never safe to delete "
+                                "or re-clone as a managed mirror."
+                            ),
+                        ),
+                    ),
+                    detail=(
+                        f"accepted authoring checkout ({authoring_key}); mirror "
+                        f"cleanliness/disposability rules do not apply ({state}{alias_note})"
+                    ),
+                )
+            )
+            continue
 
         if not_a_mirror or dirty or aliased:
             reasons = []

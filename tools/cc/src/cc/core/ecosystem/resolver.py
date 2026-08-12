@@ -23,6 +23,7 @@ from cc.core.ecosystem.dimensions import (
     semantics_for,
 )
 from cc.core.ecosystem.manifest import validate_layers
+from cc.core.ecosystem.policy import EXECUTABLE_DIMENSIONS
 
 Layer = dict[str, Any]
 # layer_id -> dimension -> item name -> live/current content sha (or None)
@@ -88,6 +89,28 @@ def _contributing_layers(
     ]
 
 
+def _eligible_for_resolution(layer: Layer, dimension: str) -> bool:
+    """Return whether a layer can truthfully win this dimension.
+
+    Executable material is fail-closed in ``materialize.py``: a layer with
+    no declared signer can never place its own bytes on disk.  Naming that
+    layer as the winner made ``resolve --explain`` disagree with both the
+    materializer and the lock (the personal-plugin S0 incident).  Apply the
+    same manifest-level prerequisite here so resolution describes the first
+    layer that is eligible to materialize.  Signature verification still
+    happens in the materializer against the pinned ref; this pure fold only
+    rejects the statically impossible ``allowed_signers: []`` case.
+
+    Non-executable content is unchanged, as is legacy/injected test data that
+    omits ``policy`` entirely.  Only an explicit policy with an empty signer
+    list is treated as an intentional fail-closed declaration.
+    """
+    if dimension not in EXECUTABLE_DIMENSIONS or "policy" not in layer:
+        return True
+    policy = layer.get("policy")
+    return bool(isinstance(policy, dict) and policy.get("allowed_signers"))
+
+
 def _resolve_accumulate(
     dimension: str,
     ranked: list[Layer],
@@ -147,9 +170,20 @@ def _resolve_override(
             for layer in contributing
             if item in contributions[layer["id"]][dimension]
         ]
-        winner, *shadow_layers = (
-            chain  # `contributing` is ranked ascending -> first = nearest = winner
-        )
+        eligible = [
+            layer for layer in chain if _eligible_for_resolution(layer, dimension)
+        ]
+        # No explicitly unsigned executable candidate can truthfully be an
+        # effective winner. If every contributor is ineligible, emit no
+        # resolved item: policy/conformance surfaces still report the layer
+        # configuration, while resolve/lock truth no longer claims content
+        # that can never materialize. Previously pinned content is handled by
+        # materialize()'s ordinary orphan/prune path and its never-destroy
+        # guard.
+        if not eligible:
+            continue
+        winner = eligible[0]
+        shadow_layers = [layer for layer in chain if layer is not winner]
 
         shadowed: list[dict[str, Any]] = []
         for shadow in shadow_layers:

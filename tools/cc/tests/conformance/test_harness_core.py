@@ -199,6 +199,55 @@ class TestTypes:
         assert with_cause.as_dict()["root_cause"] == "rc.rc1"
 
 
+class TestGlobalResultSemantics:
+    def _global_result(
+        self, *, verdict: Verdict = Verdict.PASS, detail: str = "stable"
+    ) -> CheckResult:
+        return CheckResult(
+            id="repo.d13.registries_are_empty",
+            layer=Layer.REPO,
+            severity=Severity.S1,
+            scope=Scope.GLOBAL,
+            subject="machine",
+            assertion="registry dispositions are attributable",
+            verdict=verdict,
+            expected_today=ExpectedToday.PASS,
+            detail=detail,
+            evidence=(Evidence(kind="fixture", path="machine", actual=detail),)
+            if verdict is Verdict.FAIL
+            else (),
+        )
+
+    def test_equivalent_global_results_emit_once(self):
+        result = self._global_result()
+        assert report.deduplicate_global_results([result, result, result]) == (result,)
+
+    def test_conflicting_global_results_become_one_attributed_unknown(self):
+        passing = self._global_result()
+        failing = self._global_result(verdict=Verdict.FAIL, detail="changed")
+        deduped = report.deduplicate_global_results([passing, failing])
+        assert len(deduped) == 1
+        assert deduped[0].verdict is Verdict.COULD_NOT_RUN
+        assert deduped[0].evidence[0].kind == "global-result-conflict"
+        assert "Owning actor" in deduped[0].detail
+
+    def test_repo_filter_keeps_global_context_once(self):
+        global_result = self._global_result()
+        per_repo = _pass_result(subject="/projects/selected")
+        other = _pass_result(subject="/projects/other")
+        assert report.filter_by_repo(
+            [global_result, per_repo, other], ["selected"]
+        ) == (global_result, per_repo)
+
+    def test_could_not_run_gets_prerequisite_and_owner_without_becoming_pass(self):
+        unknown = self._global_result(verdict=Verdict.COULD_NOT_RUN, detail="boom")
+        attributed = report.attribute_could_not_run_results([unknown])[0]
+        assert attributed.verdict is Verdict.COULD_NOT_RUN
+        assert attributed.evidence[-1].kind == "could-not-run-attribution"
+        assert "Missing prerequisite" in attributed.detail
+        assert "Owning actor" in attributed.detail
+
+
 # ---------------------------------------------------------------------------
 # registry.py
 # ---------------------------------------------------------------------------
@@ -368,9 +417,9 @@ class TestRegistry:
         assert {r.id for r in registry.select(modes=[Mode.FULL])} == {
             "repo.d01.agent_roster_exact"
         }
-        assert {r.id for r in registry.select(check_ids=["repo.d01.agent_roster_exact"])} == {
-            "repo.d01.agent_roster_exact"
-        }
+        assert {
+            r.id for r in registry.select(check_ids=["repo.d01.agent_roster_exact"])
+        } == {"repo.d01.agent_roster_exact"}
         # tier.precedence.nearest_wins declares no applies_to_classes at all
         # (it is not repo-class-scoped), so it survives every --class
         # filter alongside whichever class-scoped check(s) also match.
@@ -394,7 +443,9 @@ class TestRegistry:
             expected_today=ExpectedToday.FAIL,
             registry=registry,
         )
-        evidence = (Evidence(kind="git", path="claude-copilot", detail="rev-list --count=1"),)
+        evidence = (
+            Evidence(kind="git", path="claude-copilot", detail="rev-list --count=1"),
+        )
         result = registration.result(
             subject="claude-copilot", verdict=Verdict.FAIL, evidence=evidence
         )
@@ -419,6 +470,20 @@ class TestRegistry:
 
 
 class TestReport:
+    def test_roundtrip_baseline_subject_ignores_only_random_scratch_directory(self):
+        first = report.baseline_subject(
+            "roundtrip.setup.produces_reference_install",
+            "/tmp/cc-conformance-roundtrip-abc123/project::agents",
+        )
+        second = report.baseline_subject(
+            "roundtrip.setup.produces_reference_install",
+            "/private/tmp/cc-conformance-roundtrip-def456/project::agents",
+        )
+        assert first == second == "roundtrip:canonical-scratch-project::agents"
+        assert report.baseline_subject("repo.d01.agent_roster_exact", "/tmp/project") == (
+            "/tmp/project"
+        )
+
     def test_assert_no_bare_ready_raises_on_bare_word(self):
         with pytest.raises(report.BareReadyError):
             report.assert_no_bare_ready("this repo is ready")
@@ -543,15 +608,24 @@ class TestReport:
 
     def test_compute_exit_code_three_when_baseline_regressed_takes_precedence(self):
         regressed = report.BaselineComparison(
-            file="baselines/x.json", fixed=(), still_failing=(), regressed=(_fail_result(),), new_failures=()
+            file="baselines/x.json",
+            fixed=(),
+            still_failing=(),
+            regressed=(_fail_result(),),
+            new_failures=(),
         )
         # Even a clean run (no FAIL/COULD_NOT_RUN passed in) is code 3 if
         # the baseline says something regressed.
-        code = report.compute_exit_code([_pass_result()], fail_on=Severity.S3, baseline=regressed)
+        code = report.compute_exit_code(
+            [_pass_result()], fail_on=Severity.S3, baseline=regressed
+        )
         assert code == 3
 
     def test_filter_by_severity_threshold(self):
-        results = [_fail_result(severity=Severity.S0), _fail_result(severity=Severity.S3)]
+        results = [
+            _fail_result(severity=Severity.S0),
+            _fail_result(severity=Severity.S3),
+        ]
         filtered = report.filter_by_severity_threshold(results, Severity.S1)
         assert len(filtered) == 1
         assert filtered[0].severity is Severity.S0
@@ -572,7 +646,9 @@ class TestReport:
             assertion="x",
             verdict=Verdict.FAIL,
             expected_today=ExpectedToday.FAIL,
-            evidence=(Evidence(kind="framework-file", path=".claude/hooks/copilot-hook.sh"),),
+            evidence=(
+                Evidence(kind="framework-file", path=".claude/hooks/copilot-hook.sh"),
+            ),
             root_cause="rc.rc1",
         )
         second = CheckResult(
@@ -584,7 +660,9 @@ class TestReport:
             assertion="x",
             verdict=Verdict.FAIL,
             expected_today=ExpectedToday.FAIL,
-            evidence=(Evidence(kind="framework-file", path=".claude/hooks/copilot-hook.sh"),),
+            evidence=(
+                Evidence(kind="framework-file", path=".claude/hooks/copilot-hook.sh"),
+            ),
             root_cause="rc.rc1",
         )
         groups = report.group_by_root_cause([first, second, _pass_result()])
@@ -598,13 +676,23 @@ class TestReport:
     def test_compare_to_baseline_classifies_every_bucket(self):
         baseline = (
             report.BaselineEntry(id="a", subject="s", verdict=Verdict.FAIL),  # -> fixed
-            report.BaselineEntry(id="b", subject="s", verdict=Verdict.FAIL),  # -> still_failing
-            report.BaselineEntry(id="c", subject="s", verdict=Verdict.PASS),  # -> regressed
+            report.BaselineEntry(
+                id="b", subject="s", verdict=Verdict.FAIL
+            ),  # -> still_failing
+            report.BaselineEntry(
+                id="c", subject="s", verdict=Verdict.PASS
+            ),  # -> regressed
         )
         results = [
             CheckResult(
-                id="a", layer=Layer.REPO, severity=Severity.S1, scope=Scope.PER_REPO,
-                subject="s", assertion="x", verdict=Verdict.PASS, expected_today=ExpectedToday.PASS,
+                id="a",
+                layer=Layer.REPO,
+                severity=Severity.S1,
+                scope=Scope.PER_REPO,
+                subject="s",
+                assertion="x",
+                verdict=Verdict.PASS,
+                expected_today=ExpectedToday.PASS,
             ),
             _mk_fail("b", "s"),
             _mk_fail("c", "s"),
@@ -654,7 +742,9 @@ class TestFsguard:
     def test_guard_trips_on_file_creation(self, tmp_path):
         newly_created = tmp_path / "copilot.layers.yml"
         with pytest.raises(fsguard.MachineMutationError):
-            with fsguard.MachineReadOnlyGuard([newly_created], include_core_paths=False):
+            with fsguard.MachineReadOnlyGuard(
+                [newly_created], include_core_paths=False
+            ):
                 newly_created.write_text("layers: []\n", encoding="utf-8")
 
     def test_guard_trips_on_file_deletion(self, tmp_path):
@@ -670,7 +760,9 @@ class TestFsguard:
         (entries_dir / "one.md").write_text("first entry", encoding="utf-8")
         with pytest.raises(fsguard.MachineMutationError):
             with fsguard.MachineReadOnlyGuard([entries_dir], include_core_paths=False):
-                (entries_dir / "two.md").write_text("a new entry snuck in", encoding="utf-8")
+                (entries_dir / "two.md").write_text(
+                    "a new entry snuck in", encoding="utf-8"
+                )
 
     def test_guard_does_not_trip_on_unrelated_paths(self, tmp_path):
         guarded = tmp_path / "config.json"
@@ -686,10 +778,14 @@ class TestFsguard:
 
     def test_run_git_readonly_allows_rev_parse(self, tmp_path):
         subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
-        result = fsguard.run_git_readonly(("rev-parse", "--is-inside-work-tree"), cwd=tmp_path)
+        result = fsguard.run_git_readonly(
+            ("rev-parse", "--is-inside-work-tree"), cwd=tmp_path
+        )
         assert result.returncode == 0
 
-    @pytest.mark.parametrize("forbidden", ["fetch", "checkout", "worktree", "gc", "push", "clone"])
+    @pytest.mark.parametrize(
+        "forbidden", ["fetch", "checkout", "worktree", "gc", "push", "clone"]
+    )
     def test_run_git_readonly_rejects_mutating_subcommands(self, tmp_path, forbidden):
         with pytest.raises(fsguard.GitCommandNotAllowed):
             fsguard.run_git_readonly((forbidden,), cwd=tmp_path)
@@ -744,7 +840,9 @@ class TestCache:
 
     def test_fingerprint_reflects_missing_path(self, tmp_path):
         subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
-        fingerprint = cache_mod.compute_repo_fingerprint(tmp_path, ["does/not/exist.md"])
+        fingerprint = cache_mod.compute_repo_fingerprint(
+            tmp_path, ["does/not/exist.md"]
+        )
         assert fingerprint.paths == (("does/not/exist.md", -1, -1),)
 
     def test_cache_put_get_roundtrip(self, tmp_path):
@@ -803,7 +901,9 @@ class TestCache:
         cache = cache_mod.ConformanceCache(cache_path)  # must not raise
         assert len(cache) == 0
 
-    def test_default_cache_path_lives_beside_machine_config(self, monkeypatch, tmp_path):
+    def test_default_cache_path_lives_beside_machine_config(
+        self, monkeypatch, tmp_path
+    ):
         monkeypatch.setenv("CC_MACHINE_ROOT", str(tmp_path / "machine-root"))
         path = cache_mod.default_cache_path()
         assert path == tmp_path / "machine-root" / "conformance-cache.json"
@@ -909,7 +1009,9 @@ class TestFleetFactory:
 
     def test_empty_shadow_case_content_is_an_empty_file(self, tmp_path):
         fleet = FleetFactory(tmp_path)
-        fleet.product("claude").tier("personal", rank=10).contributes("agents", {"cw": ""})
+        fleet.product("claude").tier("personal", rank=10).contributes(
+            "agents", {"cw": ""}
+        )
         handle = fleet.build()
         tier_path = handle.tiers[("claude", "personal")]
         assert (tier_path / "agents" / "cw.md").read_text(encoding="utf-8") == ""
@@ -934,7 +1036,9 @@ class TestFleetFactory:
         fleet = FleetFactory(tmp_path)
         fleet.project("scratch").install(_seed)
         handle = fleet.build()
-        assert (handle.projects["scratch"] / "seeded.txt").read_text() == "from callable"
+        assert (
+            handle.projects["scratch"] / "seeded.txt"
+        ).read_text() == "from callable"
 
     def test_git_clone_local_produces_an_independent_mutable_clone(self, tmp_path):
         fleet = FleetFactory(tmp_path)
@@ -945,9 +1049,13 @@ class TestFleetFactory:
 
         clone_dest = tmp_path / "clone-target"
         clone = git_clone_local(source, clone_dest)
-        (clone / "CLAUDE.md").write_text("mutated in the clone only\n", encoding="utf-8")
+        (clone / "CLAUDE.md").write_text(
+            "mutated in the clone only\n", encoding="utf-8"
+        )
 
-        assert (source / "CLAUDE.md").read_text(encoding="utf-8") == "## Claude Copilot\n"
+        assert (source / "CLAUDE.md").read_text(
+            encoding="utf-8"
+        ) == "## Claude Copilot\n"
         assert "mutated" in (clone / "CLAUDE.md").read_text(encoding="utf-8")
 
     def test_build_env_points_at_the_synthetic_home(self, tmp_path):

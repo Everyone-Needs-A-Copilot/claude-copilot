@@ -30,11 +30,12 @@ nothing here is ever exercised against a real machine.
 from __future__ import annotations
 
 import socket
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
 from cc.core.config import personal_roots_from_config, resolve_key
-from cc.core.ecosystem import mirror
+from cc.core.ecosystem import entitlement, mirror
 from cc.core.ecosystem.freshness import lock_fingerprint
 from cc.core.ecosystem.lockfile import (
     default_lockfile_path,
@@ -96,6 +97,11 @@ def build_update_report(
     _policy: Optional[PolicyFn] = None,
     _personal_roots: Any = _UNSET,
     _dry_run: bool = False,
+    _entitlement_login: Any = _UNSET,
+    _entitlement_token: Any = _UNSET,
+    _entitlement_get_json: entitlement.GetJsonFn | None = None,
+    _entitlement_state_path: Any = _UNSET,
+    _entitlement_now: datetime | None = None,
 ) -> dict[str, Any]:
     """
     Build the WS-A `update --json` contract object AND (unless
@@ -129,7 +135,9 @@ def build_update_report(
         layers = _layers
     else:
         manifest_path = (
-            _manifest_path if _manifest_path is not _UNSET else resolve_key("layers.manifest")
+            _manifest_path
+            if _manifest_path is not _UNSET
+            else resolve_key("layers.manifest")
         )
         if not manifest_path:
             empty_sha = lock_fingerprint({})
@@ -137,6 +145,53 @@ def build_update_report(
         layers = load_layers(manifest_path)
 
     validate_layers(layers)
+
+    # Public foundation and personal-only updates stay account-free: do not
+    # consult identity/keychain state unless this manifest actually declares a
+    # protected organization/department layer.
+    has_protected_layers = any(
+        entitlement.is_protected_layer(layer) for layer in layers
+    )
+    login = (
+        entitlement.current_login()
+        if has_protected_layers and _entitlement_login is _UNSET
+        else None
+        if _entitlement_login is _UNSET
+        else _entitlement_login
+    )
+    token = (
+        mirror.resolve_token()
+        if has_protected_layers and _entitlement_token is _UNSET
+        else None
+        if _entitlement_token is _UNSET
+        else _entitlement_token
+    )
+    state_path = (
+        entitlement.entitlement_state_path()
+        if has_protected_layers and _entitlement_state_path is _UNSET
+        else None
+        if _entitlement_state_path is _UNSET
+        else _entitlement_state_path
+    )
+    declared_layers = layers
+    eligible_layers: list[dict[str, Any]] = []
+    entitlement_holds: list[entitlement.EntitlementDecision] = []
+    entitlement_decisions: list[entitlement.EntitlementDecision] = []
+    for layer in layers:
+        decision = entitlement.observe_layer(
+            layer,
+            login=login,
+            token=token,
+            get_json=_entitlement_get_json,
+            state_path=state_path,
+            now=_entitlement_now,
+        )
+        entitlement_decisions.append(decision)
+        if decision.eligible:
+            eligible_layers.append(layer)
+        else:
+            entitlement_holds.append(decision)
+    layers = eligible_layers
 
     if _previous_lock is not None:
         previous_lock = _previous_lock
@@ -157,7 +212,8 @@ def build_update_report(
     materialize_roots: Optional[dict[str, Path]] = None
     if _materialize_roots is not _UNSET:
         materialize_roots = {
-            product: Path(path).expanduser() for product, path in _materialize_roots.items()
+            product: Path(path).expanduser()
+            for product, path in _materialize_roots.items()
         }
     elif _materialize_root is not _UNSET:
         # Backward-compatible injected single-root path used by existing
@@ -169,7 +225,9 @@ def build_update_report(
         codex_root = resolve_key("paths.codex_materialize_root")
         materialize_roots = {
             "claude": Path(str(claude_root)).expanduser() if claude_root else generic,
-            "codex": Path(str(codex_root)).expanduser() if codex_root else generic / "codex",
+            "codex": Path(str(codex_root)).expanduser()
+            if codex_root
+            else generic / "codex",
         }
 
     # --- Mirror sync: clone/fetch+reset each remote-sourced layer, confined
@@ -196,7 +254,9 @@ def build_update_report(
                 else mirror_root_base
             )
             sync = mirror.clone_or_update_mirror(
-                layer["id"], transport, source.get("ref", "main"),
+                layer["id"],
+                transport,
+                source.get("ref", "main"),
                 mirror_root=product_root,
             )
             mirror_path = Path(sync["path"])
@@ -283,76 +343,109 @@ def build_update_report(
     # -- see build_update_report()'s own docstring above and
     # core/config.py's personal_roots_from_config() for the full rationale.
     personal_roots = (
-        list(_personal_roots) if _personal_roots is not _UNSET else personal_roots_from_config()
+        list(_personal_roots)
+        if _personal_roots is not _UNSET
+        else personal_roots_from_config()
     )
 
-    mat_report = materialize(
-        resolved,
-        materialize_root=materialize_root,
-        materialize_roots=materialize_roots,
-        target_allowlist=None if _target_allowlist is _UNSET else _target_allowlist,
-        previous_lock=previous_lock,
-        layer_source_paths=layer_source_paths,
-        layer_source_refs=layer_source_refs,
-        layer_policies={layer["id"]: layer.get("policy", {}) for layer in effective_layers},
-        layer_products={layer["id"]: layer["product"] for layer in effective_layers},
-        policy=_policy or default_policy,
-        personal_roots=personal_roots,
-        mirror_roots=[mirror_root_base],
-        dry_run=_dry_run,
-    )
-
-    incomplete_layers = {
-        op["layer"] for op in mat_report["ops"] if op["op"] in {"blocked", "held"}
-    }
-    if not _dry_run:
-        for layer in effective_layers:
-            layer_id = layer["id"]
-            if layer_id in incomplete_layers:
-                continue
-            set_layer_meta(
-                mat_report["lock"],
-                layer_id,
-                product=layer["product"],
-                tier=layer.get("role"),
-                role=layer.get("role"),
-                source_sha=source_shas.get(layer_id),
-            )
-
-    if not _dry_run:
-        lock_write_path = (
-            _lock_write_path if _lock_write_path is not _UNSET else _lockfile_path_default()
+    def _commit() -> dict[str, Any]:
+        mat_report = materialize(
+            resolved,
+            materialize_root=materialize_root,
+            materialize_roots=materialize_roots,
+            target_allowlist=None if _target_allowlist is _UNSET else _target_allowlist,
+            previous_lock=previous_lock,
+            layer_source_paths=layer_source_paths,
+            layer_source_refs=layer_source_refs,
+            layer_policies={
+                layer["id"]: layer.get("policy", {}) for layer in effective_layers
+            },
+            layer_products={layer["id"]: layer["product"] for layer in declared_layers},
+            policy=_policy or default_policy,
+            personal_roots=personal_roots,
+            mirror_roots=[mirror_root_base],
+            protected_orphan_layers={decision.layer for decision in entitlement_holds},
+            dry_run=_dry_run,
         )
-        write_lockfile(lock_write_path, mat_report["lock"])
+
+        incomplete_layers = {
+            op["layer"] for op in mat_report["ops"] if op["op"] in {"blocked", "held"}
+        }
+        if not _dry_run:
+            for layer in effective_layers:
+                layer_id = layer["id"]
+                if layer_id in incomplete_layers:
+                    continue
+                set_layer_meta(
+                    mat_report["lock"],
+                    layer_id,
+                    product=layer["product"],
+                    tier=layer.get("role"),
+                    role=layer.get("role"),
+                    source_sha=source_shas.get(layer_id),
+                )
+
+        # Deliver inherited ecosystem.yml under the same entitlement lease as
+        # item copies/prunes and the resulting lock write.
+        claude_materialize_root = (
+            materialize_roots.get("claude")
+            if materialize_roots is not None
+            else materialize_root
+        )
+        ecosystem_op = materialize_ecosystem_config(
+            effective_layers,
+            layer_source_paths=layer_source_paths,
+            materialize_root=claude_materialize_root,
+            personal_roots=personal_roots,
+            mirror_roots=[mirror_root_base],
+            dry_run=_dry_run,
+        )
+        if ecosystem_op is not None:
+            mat_report["ops"].append(ecosystem_op)
+
+        if not _dry_run:
+            lock_write_path = (
+                _lock_write_path
+                if _lock_write_path is not _UNSET
+                else _lockfile_path_default()
+            )
+            write_lockfile(lock_write_path, mat_report["lock"])
+        return mat_report
+
+    lease_valid, mat_report = entitlement.run_under_revision_lease(
+        state_path=state_path or Path("."),
+        decisions=entitlement_decisions,
+        action=_commit,
+    )
+    if not lease_valid or mat_report is None:
+        report = _empty_report(lock_before, result="held")
+        report["held_for_approval"] = [
+            {
+                "product": "ecosystem",
+                "dimension": "entitlement",
+                "from": lock_before,
+                "to": lock_before,
+                "reason": (
+                    "entitlement decision was superseded before commit; "
+                    "retry the update"
+                ),
+            }
+        ]
+        return report
 
     lock_after = lock_fingerprint(mat_report["lock"])
     shadow_lookup = _shadowed_by_lookup(resolved)
 
-    # WP-372 P1.3(a): deliver the org's inherited ecosystem.yml alongside
-    # the regular dimension fold -- see materialize_ecosystem_config()'s
-    # own docstring (core/ecosystem/materialize.py) for why this is a
-    # dedicated step, not a new PRODUCT_TARGET_ALLOWLIST dimension. Runs
-    # AFTER the lock/set_layer_meta bookkeeping above so this op (which
-    # never touches mat_report["lock"] -- see that function's "known
-    # limitation" docstring section) can never be mistaken for a
-    # dimension-tracked item when computing `incomplete_layers`.
-    claude_materialize_root = (
-        materialize_roots.get("claude") if materialize_roots is not None else materialize_root
-    )
-    ecosystem_op = materialize_ecosystem_config(
-        effective_layers,
-        layer_source_paths=layer_source_paths,
-        materialize_root=claude_materialize_root,
-        personal_roots=personal_roots,
-        mirror_roots=[mirror_root_base],
-        dry_run=_dry_run,
-    )
-    if ecosystem_op is not None:
-        mat_report["ops"].append(ecosystem_op)
-
     changed: list[dict[str, Any]] = []
     held_for_approval: list[dict[str, Any]] = []
     blocked: list[dict[str, Any]] = []
+
+    layer_by_id = {
+        str(layer.get("id")): layer for layer in effective_layers if layer.get("id")
+    }
+    original_by_id = {
+        str(layer.get("id")): layer for layer in declared_layers if layer.get("id")
+    }
 
     for op in mat_report["ops"]:
         if op["op"] == "blocked":
@@ -402,6 +495,23 @@ def build_update_report(
                     "reason": op.get("reason"),
                 }
             )
+
+    for decision in entitlement_holds:
+        layer = (
+            original_by_id.get(decision.layer) or layer_by_id.get(decision.layer) or {}
+        )
+        blocked.append(
+            {
+                "product": str(layer.get("product", "unknown")),
+                "dimension": "entitlement",
+                "layer": decision.layer,
+                "item": decision.layer,
+                "reason": (
+                    f"{decision.state}; responsible actor: "
+                    f"{decision.responsible_actor}; {decision.recovery}"
+                ),
+            }
+        )
 
     # Overall result precedence: blocked > held > applied > up-to-date.
     # OWNER-DEFENSIBLE CHOICE (flag for confirmation at freeze): with
@@ -526,4 +636,6 @@ def render_update_report_rich(report: dict[str, Any], *, console: Any = None) ->
     for h in report.get("held_for_approval", []):
         con.print(f"  [yellow]held[/yellow] {h['dimension']}: {h.get('reason')}")
     for b in report.get("blocked", []):
-        con.print(f"  [red]blocked[/red] {b['dimension']}/{b.get('item')}: {b.get('reason')}")
+        con.print(
+            f"  [red]blocked[/red] {b['dimension']}/{b.get('item')}: {b.get('reason')}"
+        )

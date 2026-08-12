@@ -21,6 +21,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Optional
 
 from cc.core.config import resolve_key
+from cc.core.ecosystem.canonical_transaction import claude_reference_roster
 from cc.core.ecosystem.project_locking import (
     fingerprint_file_payload,
     fingerprint_symlink,
@@ -70,10 +71,15 @@ def _customized_framework_path_allowed(component: str, relative: str) -> bool:
         "plugins/codex-copilot/"
     )
 
+
 _MANAGED_OUTPUT_TARGET_KINDS = {
     "claude": {
         "CLAUDE.md": "managed-text",
         ".mcp.json": "merged-json",
+        ".claude/settings.json": "merged-json",
+        ".claude/cc/config.json": "merged-json",
+        ".claude/memory/entries/.gitkeep": "managed-text",
+        ".claude/memory/.gitignore": "managed-text",
         "copilot.project.json": "merged-json",
     },
     "codex": {
@@ -89,10 +95,19 @@ _CLAUDE_RELEVANT_PATHS = (
     ".mcp.json",
     ".claude/commands/protocol.md",
     ".claude/commands/continue.md",
+    ".claude/commands/pause.md",
+    ".claude/commands/map.md",
+    ".claude/commands/memory.md",
+    ".claude/commands/extensions.md",
+    ".claude/commands/orchestrate.md",
     ".claude/fitness-check.sh",
     ".claude/hooks/copilot-hook.sh",
+    ".claude/settings.json",
     ".claude/agents",
     ".claude/evals",
+    ".claude/cc/config.json",
+    ".claude/memory/entries/.gitkeep",
+    ".claude/memory/.gitignore",
 )
 
 _CODEX_RELEVANT_PATHS = (
@@ -109,8 +124,14 @@ _CLAUDE_ACTION_TARGETS = (
     ".mcp.json",
     ".claude/commands/protocol.md",
     ".claude/commands/continue.md",
+    ".claude/commands/pause.md",
+    ".claude/commands/map.md",
+    ".claude/commands/memory.md",
+    ".claude/commands/extensions.md",
+    ".claude/commands/orchestrate.md",
     ".claude/fitness-check.sh",
     ".claude/hooks/copilot-hook.sh",
+    ".claude/settings.json",
     ".claude/agents",
     ".claude/evals",
     ".claude/cc/config.json",
@@ -341,16 +362,14 @@ def _framework_root(component: str, supplied: Optional[Path | str]) -> Optional[
 
 def _claude_source_files(source: Path) -> Optional[dict[str, Path]]:
     try:
-        version = json.loads((source / "VERSION.json").read_text(encoding="utf-8"))
-        roster = list(version["components"]["agents"]["frameworkAgents"])
-        if any(not isinstance(agent, str) or not agent for agent in roster):
-            return None
-    except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError, OSError):
+        commands, roster = claude_reference_roster(source)
+    except (OSError, ValueError):
         return None
-    roster.append("kc")
     files = {
-        ".claude/commands/protocol.md": source / ".claude/commands/protocol.md",
-        ".claude/commands/continue.md": source / ".claude/commands/continue.md",
+        **{
+            f".claude/commands/{command}": source / ".claude/commands" / command
+            for command in commands
+        },
         ".claude/fitness-check.sh": source / ".claude/fitness-check.sh",
         ".claude/hooks/copilot-hook.sh": source / ".claude/hooks/copilot-hook.sh",
     }
@@ -480,6 +499,34 @@ def _verify_lock_entry(
         entry.get("release_tag"),
         ownership_mode,
     ]
+    provenance = entry.get("provenance")
+    if provenance is not None:
+        if (
+            component != "codex"
+            or not isinstance(provenance, dict)
+            or set(provenance) != {"layer", "ref", "tree", "signer"}
+            or any(
+                not isinstance(provenance.get(key), str) or not provenance[key]
+                for key in provenance
+            )
+            or len(str(provenance["tree"])) not in {40, 64}
+            or any(
+                character not in "0123456789abcdef" for character in provenance["tree"]
+            )
+        ):
+            missing.append(
+                {
+                    "id": "valid-source-provenance",
+                    "detail": f"The {component} lock source provenance is invalid.",
+                }
+            )
+            return False, evidence, missing, fingerprint
+        fingerprint.append(
+            [
+                "provenance",
+                *(provenance[key] for key in ("layer", "ref", "tree", "signer")),
+            ]
+        )
     files = entry.get("files")
     if (
         not isinstance(entry.get("version"), str)
@@ -678,9 +725,7 @@ def _verify_lock_entry(
     if (
         component == "claude"
         and ownership_mode == "full"
-        and not any(
-        path.startswith(".claude/agents/") for path in recorded
-        )
+        and not any(path.startswith(".claude/agents/") for path in recorded)
     ):
         absent_required.append(".claude/agents/<framework-agent>.md")
     if ownership_mode == "customized-preserve" and not all(
@@ -695,8 +740,7 @@ def _verify_lock_entry(
     if (
         ownership_mode == "customized-preserve"
         and not recorded
-        and ("CLAUDE.md" if component == "claude" else "AGENTS.md")
-        not in managed_paths
+        and ("CLAUDE.md" if component == "claude" else "AGENTS.md") not in managed_paths
     ):
         missing.append(
             {
@@ -777,9 +821,7 @@ def _verify_internal_skill_link(root: Path) -> tuple[bool, str, list[Any]]:
             "The project uses a verified read-only Knowledge skill hierarchy; the local Codex plugin remains project-contained.",
             ["skill-link", "external-knowledge-hierarchy", str(external_skills)],
         )
-    link, link_error = _safe_relative_target(
-        root, ".claude/skills/codex-copilot"
-    )
+    link, link_error = _safe_relative_target(root, ".claude/skills/codex-copilot")
     expected_target, expected_error = _safe_relative_target(
         root, "plugins/codex-copilot/skills"
     )
@@ -1207,8 +1249,7 @@ def _missing_action_targets(
             missing.append(".claude/agents")
         if (
             any(
-                rel_path.startswith(".claude/evals/")
-                and not (root / rel_path).exists()
+                rel_path.startswith(".claude/evals/") and not (root / rel_path).exists()
                 for rel_path in source_files
             )
             and ".claude/evals" not in missing
@@ -1298,6 +1339,31 @@ def _known_untracked_component(
             _missing_action_targets(root, component, source_files),
         )
 
+    # Merge-safe Claude scaffolding does not by itself establish a customized
+    # Claude integration. A project may already have human-authored settings,
+    # cc configuration, or memory storage before the framework is installed;
+    # the canonical recipe can preserve/merge those bounded targets while
+    # installing the missing authoritative component.
+    if component == "claude" and set(existing_paths) <= {
+        ".claude/settings.json",
+        ".claude/cc/config.json",
+        ".claude/memory/entries/.gitkeep",
+        ".claude/memory/.gitignore",
+    }:
+        return (
+            "safe-finish",
+            None,
+            [
+                {
+                    "id": "component-setup",
+                    "detail": "The Claude project integration is not present.",
+                }
+            ],
+            [],
+            fingerprint,
+            _missing_action_targets(root, component, source_files),
+        )
+
     entry_ok, entry_evidence, entry_missing, entry_fingerprint = (
         _verify_claude_entry(root)
         if component == "claude"
@@ -1338,7 +1404,11 @@ def _known_untracked_component(
         and item["state"] != "verified"
         and any(
             marker in item["detail"]
-            for marker in ("outside", "could not be proven contained", "resolved safely")
+            for marker in (
+                "outside",
+                "could not be proven contained",
+                "resolved safely",
+            )
         )
         for item in entry_evidence
     )
@@ -1548,14 +1618,13 @@ def _component_draft(
                 for item in lock_evidence
             )
             and entry_requirement_ids <= {"valid-mcp-marker"}
-            and all(
-                item.get("state") != "unreadable" for item in entry_evidence
-            )
+            and all(item.get("state") != "unreadable" for item in entry_evidence)
         )
         if (
             component == "claude"
             and (lock_ok or legacy_claude_lock or repairable_claude_lock)
-            and entry_requirement_ids <= {"compatible-claude-entry"}
+            and entry_requirement_ids
+            <= {"compatible-claude-entry"}
             | ({"valid-mcp-marker"} if repairable_claude_lock else set())
             and all(item["state"] != "unreadable" for item in entry_evidence)
             and (lock_missing or entry_missing)
@@ -1570,6 +1639,17 @@ def _component_draft(
                 )
             )
         elif component == "codex":
+            repairable_codex_lock = (
+                bool(lock_missing)
+                and lock_requirement_ids <= {"verified-framework-file"}
+                and all(
+                    item.get("state") not in {"mismatch", "unreadable"}
+                    for item in lock_evidence
+                )
+                and entry_ok
+            )
+            if repairable_codex_lock:
+                guided_variant = "codex-missing-framework-files-v1"
             legacy_linked, legacy_evidence, legacy_fingerprint = (
                 _verify_legacy_linked_codex_setup(root)
             )
@@ -1598,7 +1678,7 @@ def _component_draft(
                 "valid-codex-config",
                 "internal-skill-link",
             }
-            if (
+            if not repairable_codex_lock and (
                 legacy_linked
                 and (lock_ok or linked_lock_drift)
                 and (entry_ok or legacy_entry_only)

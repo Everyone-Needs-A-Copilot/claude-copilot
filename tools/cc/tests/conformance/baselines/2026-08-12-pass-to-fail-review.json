@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "reviewed_at": "2026-08-12",
+  "reviewed_by": "TASK-281 baseline reconciliation",
+  "pass_to_fail": [
+    {
+      "id": "repo.d01.fitness_check_passes",
+      "subject": "/Volumes/Dev/Sites/COPILOT/claude-copilot",
+      "classification": "reviewed-open-content-regression",
+      "rationale": "The live fitness check now detects that cco.md exceeds its recorded growth budget. This is a real content failure outside TASK-281's baseline/conformance write scope; it remains FAIL and is not waived.",
+      "owner": "Claude content maintainer"
+    },
+    {
+      "id": "repo.d06.memory_entries_committed_db_ignored",
+      "subject": "/Volumes/Dev/Sites/COPILOT/convoco",
+      "classification": "reviewed-open-fleet-regression",
+      "rationale": "The live sweep now detects a memory commit-contract violation in convoco. This is a real project-state failure outside TASK-281's baseline/conformance write scope; it remains FAIL and is not waived.",
+      "owner": "convoco project owner / fleet remediation stream"
+    }
+  ]
+}

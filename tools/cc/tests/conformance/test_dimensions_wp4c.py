@@ -41,6 +41,7 @@ from cc.core.conformance.dimensions import (
     d12_docs,
     d13_reach,
 )
+from cc.core.conformance.exclusions import ReviewedExclusion
 from cc.core.conformance.types import ExpectedToday, Mode, Verdict
 
 from .conftest import git_commit_all, init_git_repo
@@ -421,6 +422,18 @@ class TestD12InitiativesScaffold:
 
 
 class TestD13ScannerReachable:
+    @staticmethod
+    def _reviewed(path_suffix: str) -> tuple[ReviewedExclusion, ...]:
+        return (
+            ReviewedExclusion(
+                path_suffix=path_suffix,
+                reason="owner chose archive or exclude",
+                authority="ecosystem owner",
+                review_evidence="decision.md#q14",
+                reviewed_at="2026-08-10",
+            ),
+        )
+
     def test_pass_when_git_root_under_configured_root_unheld(self, tmp_path):
         roots_parent = tmp_path / "Sites"
         repo = _git_repo(roots_parent / "COPILOT" / "some-product")
@@ -484,6 +497,26 @@ class TestD13ScannerReachable:
         )
         assert result.verdict is Verdict.FAIL
         assert result.evidence[0].kind == "excluded-projects"
+
+    def test_reviewed_exclusion_is_explicit_skip_with_attribution(self, tmp_path):
+        roots_parent = tmp_path / "Sites"
+        repo = _git_repo(roots_parent / "COPILOT" / "retired-product")
+        excluded = tmp_path / "excluded-projects.json"
+        excluded.write_text(
+            json.dumps({"schema_version": "1.0", "paths": [str(repo.resolve())]}),
+            encoding="utf-8",
+        )
+        result = d13_reach.check_scanner_reachable(
+            repo,
+            configured_roots=[roots_parent],
+            excluded_registry=excluded,
+            holds_registry=tmp_path / "holds.json",
+            reviewed_exclusions=self._reviewed("COPILOT/retired-product"),
+        )
+        assert result.verdict is Verdict.SKIP
+        assert result.evidence[0].kind == "reviewed-exclusion"
+        assert "authority=" in result.evidence[0].actual
+        assert "review_evidence=" in result.evidence[0].detail
 
     def test_fail_when_held(self, tmp_path):
         from cc.core.ecosystem.workspaces import record_integration_hold
@@ -551,6 +584,38 @@ class TestD13ScannerReachable:
         )
         assert result.verdict is Verdict.FAIL
         assert result.evidence[0].path == str(excluded)
+
+    def test_global_registry_result_attributes_each_reviewed_exclusion(self, tmp_path):
+        repo = tmp_path / "Sites" / "COPILOT" / "retired-product"
+        excluded = tmp_path / "excluded-projects.json"
+        excluded.write_text(
+            json.dumps({"schema_version": "1.0", "paths": [str(repo)]}),
+            encoding="utf-8",
+        )
+        result = d13_reach.check_registries_are_empty(
+            projects_registry=tmp_path / "projects.json",
+            excluded_registry=excluded,
+            holds_registry=tmp_path / "holds.json",
+            reviewed_exclusions=self._reviewed("COPILOT/retired-product"),
+        )
+        assert result.verdict is Verdict.SKIP
+        assert len(result.evidence) == 1
+        assert result.evidence[0].kind == "reviewed-exclusion"
+
+    def test_unreviewed_registry_path_stays_red(self, tmp_path):
+        excluded = tmp_path / "excluded-projects.json"
+        excluded.write_text(
+            json.dumps({"schema_version": "1.0", "paths": ["/Sites/COPILOT/unknown"]}),
+            encoding="utf-8",
+        )
+        result = d13_reach.check_registries_are_empty(
+            projects_registry=tmp_path / "projects.json",
+            excluded_registry=excluded,
+            holds_registry=tmp_path / "holds.json",
+            reviewed_exclusions=(),
+        )
+        assert result.verdict is Verdict.FAIL
+        assert result.evidence[0].kind == "unreviewed-exclusion"
 
     def test_check_scanner_reachable_accepts_an_expected_today_override(self, tmp_path):
         repo = _git_repo(tmp_path / "Sites" / "override-me")

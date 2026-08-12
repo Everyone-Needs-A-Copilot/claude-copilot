@@ -432,7 +432,9 @@ def _content_matches(source: Path, dest: Path) -> bool:
     if source.is_dir() != dest.is_dir():
         return False
     if source.is_dir():
-        source_files = sorted(p.relative_to(source) for p in source.rglob("*") if p.is_file())
+        source_files = sorted(
+            p.relative_to(source) for p in source.rglob("*") if p.is_file()
+        )
         dest_files = sorted(p.relative_to(dest) for p in dest.rglob("*") if p.is_file())
         if source_files != dest_files:
             return False
@@ -506,6 +508,7 @@ def materialize(
     policy: Optional[PolicyFn] = None,
     personal_roots: Iterable[Path | str] = (),
     mirror_roots: Iterable[Path | str] = (),
+    protected_orphan_layers: Iterable[str] = (),
     dry_run: bool = False,
 ) -> MaterializeReport:
     """
@@ -556,9 +559,12 @@ def materialize(
     gate = policy or _default_policy
     if materialize_roots is None and materialize_root is None:
         raise ValueError("materialize_root or materialize_roots is required")
-    legacy_root = Path(materialize_root).expanduser() if materialize_root is not None else None
+    legacy_root = (
+        Path(materialize_root).expanduser() if materialize_root is not None else None
+    )
     product_roots = {
-        product: Path(path).expanduser() for product, path in (materialize_roots or {}).items()
+        product: Path(path).expanduser()
+        for product, path in (materialize_roots or {}).items()
     }
     allowlist = target_allowlist or PRODUCT_TARGET_ALLOWLIST
     layer_policies = layer_policies or {}
@@ -567,6 +573,7 @@ def materialize(
     previous_lock = previous_lock or {}
     personal_roots = list(personal_roots)
     mirror_roots = list(mirror_roots)
+    protected_orphan_layers = set(protected_orphan_layers)
 
     ops: list[MaterializeOp] = []
     new_lock: Lockfile = {}
@@ -657,7 +664,9 @@ def materialize(
                     "layer": shadow_id,
                     "item": item,
                     "sha": shadow_candidate_sha,
-                    "source_root": str(shadow_source_root) if shadow_source_root else None,
+                    "source_root": str(shadow_source_root)
+                    if shadow_source_root
+                    else None,
                     "relative_path": f"{dimension}/{shadow_source_child.name}",
                     "layer_policy": layer_policies.get(shadow_id),
                     "ref": layer_source_refs.get(shadow_id),
@@ -737,9 +746,15 @@ def materialize(
                 ops.append(
                     _op(
                         product=product,
-                        dimension=dimension, layer=layer_id, item=item, op="blocked",
-                        path=dest_path, signed=False, reason="unverified",
-                        from_sha=prev_sha, to_sha=candidate_sha,
+                        dimension=dimension,
+                        layer=layer_id,
+                        item=item,
+                        op="blocked",
+                        path=dest_path,
+                        signed=False,
+                        reason="unverified",
+                        from_sha=prev_sha,
+                        to_sha=candidate_sha,
                     )
                 )
                 continue
@@ -768,9 +783,15 @@ def materialize(
             ops.append(
                 _op(
                     product=product,
-                    dimension=dimension, layer=layer_id, item=item, op="held",
-                    path=dest_path, signed=False, reason="held for approval",
-                    from_sha=prev_sha, to_sha=candidate_sha,
+                    dimension=dimension,
+                    layer=layer_id,
+                    item=item,
+                    op="held",
+                    path=dest_path,
+                    signed=False,
+                    reason="held for approval",
+                    from_sha=prev_sha,
+                    to_sha=candidate_sha,
                 )
             )
             continue
@@ -781,10 +802,15 @@ def materialize(
             ops.append(
                 _op(
                     product=product,
-                    dimension=dimension, layer=layer_id, item=item, op="held",
-                    path=dest_path, signed=True,
+                    dimension=dimension,
+                    layer=layer_id,
+                    item=item,
+                    op="held",
+                    path=dest_path,
+                    signed=True,
                     reason=f"protected: {guard_reason} -- never overwritten",
-                    from_sha=prev_sha, to_sha=candidate_sha,
+                    from_sha=prev_sha,
+                    to_sha=candidate_sha,
                     blocked_winner=blocked_winner,
                 )
             )
@@ -795,9 +821,15 @@ def materialize(
             ops.append(
                 _op(
                     product=product,
-                    dimension=dimension, layer=layer_id, item=item, op="blocked",
-                    path=dest_path, signed=False, reason="source content not found",
-                    from_sha=prev_sha, to_sha=None,
+                    dimension=dimension,
+                    layer=layer_id,
+                    item=item,
+                    op="blocked",
+                    path=dest_path,
+                    signed=False,
+                    reason="source content not found",
+                    from_sha=prev_sha,
+                    to_sha=None,
                     blocked_winner=blocked_winner,
                 )
             )
@@ -820,13 +852,21 @@ def materialize(
         ops.append(
             _op(
                 product=product,
-                dimension=dimension, layer=layer_id, item=item, op=op_name,
-                path=dest_path, signed=True, reason=substitution_reason,
-                from_sha=prev_sha, to_sha=candidate_sha,
+                dimension=dimension,
+                layer=layer_id,
+                item=item,
+                op=op_name,
+                path=dest_path,
+                signed=True,
+                reason=substitution_reason,
+                from_sha=prev_sha,
+                to_sha=candidate_sha,
                 blocked_winner=blocked_winner,
             )
         )
-        new_lock.setdefault(layer_id, {}).setdefault(dimension, {})[item] = candidate_sha or ""
+        new_lock.setdefault(layer_id, {}).setdefault(dimension, {})[item] = (
+            candidate_sha or ""
+        )
 
     # --- Pruning: only previously-materialized items no longer resolved at all ---
     resolved_pairs = {
@@ -840,7 +880,9 @@ def materialize(
     }
 
     for layer_id, dims in previous_lock.items():
-        product = layer_products.get(layer_id, "") if materialize_roots is not None else ""
+        product = (
+            layer_products.get(layer_id, "") if materialize_roots is not None else ""
+        )
         for dimension, items in dims.items():
             if semantics_for(dimension) not in _MATERIALIZABLE_SEMANTICS:
                 continue
@@ -850,7 +892,9 @@ def materialize(
 
                 target_probe = _target(product, dimension, item)
                 if target_probe is None:
-                    new_lock.setdefault(layer_id, {}).setdefault(dimension, {})[item] = prev_sha
+                    new_lock.setdefault(layer_id, {}).setdefault(dimension, {})[
+                        item
+                    ] = prev_sha
                     continue
                 dim_dir = target_probe.parent
                 target = _find_source_child(dim_dir, item) if dim_dir.is_dir() else None
@@ -862,13 +906,46 @@ def materialize(
                     ops.append(
                         _op(
                             product=product,
-                            dimension=dimension, layer=layer_id, item=item, op="held",
-                            path=target, signed=True,
+                            dimension=dimension,
+                            layer=layer_id,
+                            item=item,
+                            op="held",
+                            path=target,
+                            signed=True,
                             reason=f"protected: {guard_reason} -- never pruned",
-                            from_sha=prev_sha, to_sha=None,
+                            from_sha=prev_sha,
+                            to_sha=None,
                         )
                     )
-                    new_lock.setdefault(layer_id, {}).setdefault(dimension, {})[item] = prev_sha
+                    new_lock.setdefault(layer_id, {}).setdefault(dimension, {})[
+                        item
+                    ] = prev_sha
+                    continue
+
+                # A revoked/stale protected layer must be removed when its
+                # engine-owned bytes still match the lock. If a person changed
+                # those bytes, preserve that human work and surface a hold.
+                # Ordinary orphan reconciliation retains its legacy behavior;
+                # callers opt layers into this stricter never-destroy branch.
+                current_sha = _content_sha(target)
+                if layer_id in protected_orphan_layers and current_sha != prev_sha:
+                    ops.append(
+                        _op(
+                            product=product,
+                            dimension=dimension,
+                            layer=layer_id,
+                            item=item,
+                            op="held",
+                            path=target,
+                            signed=False,
+                            reason="protected: materialized content was customized -- never pruned",
+                            from_sha=prev_sha,
+                            to_sha=current_sha,
+                        )
+                    )
+                    new_lock.setdefault(layer_id, {}).setdefault(dimension, {})[
+                        item
+                    ] = prev_sha
                     continue
 
                 if not dry_run:
@@ -877,8 +954,14 @@ def materialize(
                 ops.append(
                     _op(
                         product=product,
-                        dimension=dimension, layer=layer_id, item=item, op="pruned",
-                        path=target, signed=True, from_sha=prev_sha, to_sha=None,
+                        dimension=dimension,
+                        layer=layer_id,
+                        item=item,
+                        op="pruned",
+                        path=target,
+                        signed=True,
+                        from_sha=prev_sha,
+                        to_sha=None,
                     )
                 )
 
@@ -960,7 +1043,9 @@ def materialize_ecosystem_config(
     """
     claude_layers = sorted(
         (layer for layer in layers if layer.get("product") == "claude"),
-        key=lambda layer: layer.get("rank", 0) if isinstance(layer.get("rank"), int) else 0,
+        key=lambda layer: (
+            layer.get("rank", 0) if isinstance(layer.get("rank"), int) else 0
+        ),
     )
 
     if materialize_root is None:
@@ -988,10 +1073,16 @@ def materialize_ecosystem_config(
         )
         if guard_reason is not None:
             return _op(
-                product="claude", dimension="ecosystem", layer=layer["id"],
-                item="ecosystem", op="held", path=dest, signed=True,
+                product="claude",
+                dimension="ecosystem",
+                layer=layer["id"],
+                item="ecosystem",
+                op="held",
+                path=dest,
+                signed=True,
                 reason=f"protected: {guard_reason} -- never overwritten",
-                from_sha=None, to_sha=candidate_sha,
+                from_sha=None,
+                to_sha=candidate_sha,
             )
 
         existed = dest.exists()
@@ -1001,9 +1092,15 @@ def materialize_ecosystem_config(
         op_name = "unchanged" if not changed else ("updated" if existed else "added")
 
         return _op(
-            product="claude", dimension="ecosystem", layer=layer["id"],
-            item="ecosystem", op=op_name, path=dest, signed=True,
-            from_sha=None, to_sha=candidate_sha,
+            product="claude",
+            dimension="ecosystem",
+            layer=layer["id"],
+            item="ecosystem",
+            op=op_name,
+            path=dest,
+            signed=True,
+            from_sha=None,
+            to_sha=candidate_sha,
         )
 
     return None

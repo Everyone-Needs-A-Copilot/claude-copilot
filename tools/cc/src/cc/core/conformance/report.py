@@ -30,7 +30,7 @@ from __future__ import annotations
 import json
 import re
 import socket
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
@@ -38,8 +38,11 @@ from typing import Any, Iterable, Mapping, Sequence
 from cc.core.conformance.types import (
     BareReadyError,
     CheckResult,
+    Evidence,
+    ExpectedToday,
     Layer,
     Mode,
+    Scope,
     Severity,
     Verdict,
     severity_at_or_above,
@@ -48,6 +51,10 @@ from cc.core.conformance.types import (
 SCHEMA_VERSION = "1.0"
 CONTRACT_ID = "ecosystem-conformance"
 CONTRACT_VERSION = "1"
+
+_ROUNDTRIP_SCRATCH_SUBJECT = re.compile(
+    r"^.*/cc-conformance-roundtrip-[^/]+/project(?P<suffix>(?:::.+)?)$"
+)
 
 NO_AVERAGING_NOTE = (
     "Counts are not averaged. S0 and S3 are not commensurable "
@@ -102,11 +109,141 @@ def filter_by_repo(
     return tuple(
         result
         for result in results
-        if any(
+        if result.scope is Scope.GLOBAL
+        or any(
             result.subject == repo or result.subject.endswith(f"/{Path(repo).name}")
             for repo in wanted
         )
     )
+
+
+def deduplicate_global_results(
+    results: Sequence[CheckResult],
+) -> tuple[CheckResult, ...]:
+    """Emit each global ``(id, subject)`` claim once.
+
+    Dimension modules run once per repo by contract, so a global check can
+    arrive many times.  Byte-for-byte equivalent results collapse to their
+    first occurrence.  Conflicting duplicates are *not* guessed away: they
+    collapse to one attributable ``COULD_NOT_RUN`` result naming the stale
+    cache/check-wiring prerequisite and its owning actor.
+    """
+
+    output: list[CheckResult] = []
+    index_by_key: dict[tuple[str, str], int] = {}
+    for result in results:
+        if result.scope is not Scope.GLOBAL:
+            output.append(result)
+            continue
+        key = (result.id, result.subject)
+        prior_index = index_by_key.get(key)
+        if prior_index is None:
+            index_by_key[key] = len(output)
+            output.append(result)
+            continue
+        prior = output[prior_index]
+        if prior == result:
+            continue
+        output[prior_index] = replace(
+            prior,
+            verdict=Verdict.COULD_NOT_RUN,
+            expected_today=ExpectedToday.PASS,
+            evidence=(
+                Evidence(
+                    kind="global-result-conflict",
+                    path=result.subject,
+                    expected="one stable machine-wide verdict for this check",
+                    actual=(
+                        f"conflicting duplicates: {prior.verdict.value} and "
+                        f"{result.verdict.value}"
+                    ),
+                    detail=(
+                        "missing prerequisite: consistent uncached global input; "
+                        "owning actor: conformance harness maintainer"
+                    ),
+                ),
+            ),
+            detail=(
+                "Global check instances disagreed. Missing prerequisite: "
+                "consistent uncached global input. Owning actor: conformance "
+                "harness maintainer."
+            ),
+            remediation=(
+                "Invalidate the conformance cache, then inspect why this global "
+                "check depends on per-repo execution state."
+            ),
+        )
+    return tuple(output)
+
+
+_COULD_NOT_RUN_PREREQUISITES: Mapping[Layer, tuple[str, str]] = {
+    Layer.TIER: (
+        "a readable layer manifest, knowledge ladder, and tier source material",
+        "ecosystem configuration owner",
+    ),
+    Layer.STACK: (
+        "a readable layer manifest and locally resolvable source/ref evidence",
+        "layer source owner",
+    ),
+    Layer.REPO: (
+        "a readable project plus an executable conformance dimension",
+        "project owner or conformance harness maintainer",
+    ),
+    Layer.LOCK: (
+        "a readable, supported lock whose recorded files can be inspected",
+        "project installer owner",
+    ),
+    Layer.ROUNDTRIP: (
+        "the framework source, cc binary, installer adapters, and scratch git tools",
+        "cc framework maintainer",
+    ),
+    Layer.REGRESSION: (
+        "the configured layer sources and fleet evidence required by the regression pin",
+        "ecosystem operator",
+    ),
+}
+
+
+def attribute_could_not_run_results(
+    results: Sequence[CheckResult],
+) -> tuple[CheckResult, ...]:
+    """Attach an explicit prerequisite and owning actor to every unknown.
+
+    Existing check-specific evidence is preserved.  This normalizer is the
+    CLI boundary, so older checks that only said "could not run" still become
+    actionable without being coerced to PASS or FAIL.
+    """
+
+    attributed: list[CheckResult] = []
+    for result in results:
+        if result.verdict is not Verdict.COULD_NOT_RUN:
+            attributed.append(result)
+            continue
+        prerequisite, owner = _COULD_NOT_RUN_PREREQUISITES[result.layer]
+        if any(entry.kind == "could-not-run-attribution" for entry in result.evidence):
+            attributed.append(result)
+            continue
+        context = result.detail.strip()
+        detail = (
+            f"{context.rstrip('.')} " if context else ""
+        ) + f"Missing prerequisite: {prerequisite}. Owning actor: {owner}."
+        attributed.append(
+            replace(
+                result,
+                evidence=(
+                    *result.evidence,
+                    Evidence(
+                        kind="could-not-run-attribution",
+                        path=result.subject,
+                        expected=prerequisite,
+                        actual="not established",
+                        detail=f"owning_actor={owner}",
+                    ),
+                ),
+                detail=detail,
+            )
+        )
+    return tuple(attributed)
 
 
 def filter_by_severity_threshold(
@@ -151,7 +288,9 @@ class Summary:
     def as_dict(self) -> dict[str, Any]:
         return {
             "by_severity": dict(self.by_severity),
-            "by_layer": {layer: dict(counts) for layer, counts in self.by_layer.items()},
+            "by_layer": {
+                layer: dict(counts) for layer, counts in self.by_layer.items()
+            },
             "could_not_run_total": self.could_not_run_total,
             "note": self.note,
         }
@@ -197,7 +336,7 @@ class BaselineEntry:
     verdict: Verdict
 
     def key(self) -> tuple[str, str]:
-        return (self.id, self.subject)
+        return (self.id, baseline_subject(self.id, self.subject))
 
     def as_dict(self) -> dict[str, Any]:
         return {"id": self.id, "subject": self.subject, "verdict": self.verdict.value}
@@ -220,6 +359,24 @@ def load_baseline(path: Path) -> tuple[BaselineEntry, ...]:
     raw = json.loads(path.read_text(encoding="utf-8"))
     entries_raw = raw.get("entries", []) if isinstance(raw, dict) else []
     return tuple(BaselineEntry.from_dict(entry) for entry in entries_raw)
+
+
+def baseline_subject(check_id: str, subject: str) -> str:
+    """Return the stable identity used for baseline comparisons.
+
+    Round-trip checks deliberately run under a fresh random temporary
+    directory.  Persisting that directory name would make every healthy run
+    look like an unrelated new check.  Only that known scratch prefix is
+    normalized; real repository subjects and facet suffixes remain exact.
+    """
+
+    if check_id.startswith("roundtrip."):
+        match = _ROUNDTRIP_SCRATCH_SUBJECT.fullmatch(subject)
+        if match:
+            return "roundtrip:canonical-scratch-project" + (
+                match.group("suffix") or ""
+            )
+    return subject
 
 
 @dataclass(frozen=True)
@@ -263,7 +420,7 @@ def compare_to_baseline(
     new_failures: list[CheckResult] = []
 
     for result in results:
-        key = (result.id, result.subject)
+        key = (result.id, baseline_subject(result.id, result.subject))
         baseline_verdict = baseline_by_key.get(key)
         if baseline_verdict is None:
             if result.verdict is Verdict.FAIL:
@@ -325,7 +482,9 @@ def to_envelope(
         _assert_result_texts_are_safe(result)
 
     summary = summarize(results)
-    overall_pass = compute_exit_code(results, fail_on=Severity.S3, baseline=baseline) == 0
+    overall_pass = (
+        compute_exit_code(results, fail_on=Severity.S3, baseline=baseline) == 0
+    )
 
     envelope: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
@@ -440,7 +599,9 @@ def render_human(
 
     exit_code = compute_exit_code(results, fail_on=fail_on, baseline=baseline)
     result_word = "pass" if exit_code == 0 else "fail"
-    lines.append(f"RESULT    {result_word} (--fail-on {fail_on.value})    exit {exit_code}")
+    lines.append(
+        f"RESULT    {result_word} (--fail-on {fail_on.value})    exit {exit_code}"
+    )
 
     text = "\n".join(lines)
     assert_no_bare_ready(text)
@@ -462,11 +623,14 @@ __all__ = [
     "SCHEMA_VERSION",
     "Summary",
     "assert_no_bare_ready",
+    "baseline_subject",
     "compare_to_baseline",
     "compute_exit_code",
+    "deduplicate_global_results",
     "filter_by_repo",
     "filter_by_severity_threshold",
     "group_by_root_cause",
+    "attribute_could_not_run_results",
     "load_baseline",
     "render_human",
     "summarize",

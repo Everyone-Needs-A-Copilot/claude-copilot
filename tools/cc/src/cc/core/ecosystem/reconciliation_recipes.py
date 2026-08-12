@@ -20,6 +20,13 @@ from types import MappingProxyType
 from typing import Any, Callable, Mapping, Sequence
 
 from cc.core.config import resolve_key
+from cc.core.ecosystem.canonical_transaction import claude_reference_roster
+from cc.core.ecosystem.codex_plugin_source import (
+    CodexPluginSource,
+    CodexPluginSourceError,
+    resolve_codex_plugin_source,
+    resolve_codex_plugin_source_with_bindings,
+)
 from cc.core.ecosystem.project_locking import (
     ProjectIdentity,
     fingerprint_file_payload,
@@ -33,6 +40,7 @@ from cc.core.ecosystem.reconciliation_types import (
     ComponentRoute,
     ProjectAssessment,
     RecipeOperationKind,
+    RequestValidationError,
 )
 
 
@@ -54,6 +62,11 @@ _COMPONENT_TARGETS: Mapping[str, tuple[str, ...]] = MappingProxyType(
             ".mcp.json",
             ".claude/commands/protocol.md",
             ".claude/commands/continue.md",
+            ".claude/commands/pause.md",
+            ".claude/commands/map.md",
+            ".claude/commands/memory.md",
+            ".claude/commands/extensions.md",
+            ".claude/commands/orchestrate.md",
             ".claude/fitness-check.sh",
             ".claude/hooks/copilot-hook.sh",
             ".claude/settings.json",
@@ -85,11 +98,23 @@ _PAYLOAD_KEYS: Mapping[RecipeOperationKind, frozenset[str]] = MappingProxyType(
     {
         RecipeOperationKind.CREATE_FILE_FROM_SOURCE: frozenset({"source_path", "mode"}),
         RecipeOperationKind.COPY_FILE_FROM_SOURCE: frozenset({"source_path", "mode"}),
-        RecipeOperationKind.COPY_TREE_FROM_SOURCE: frozenset({"source_path"}),
+        RecipeOperationKind.COPY_TREE_FROM_SOURCE: frozenset(
+            {
+                "source_path",
+                "source_provenance",
+                "source_repository_root",
+                "source_relative_path",
+            }
+        ),
         RecipeOperationKind.APPEND_MANAGED_BLOCK: frozenset({"block", "mode"}),
         RecipeOperationKind.MERGE_JSON_KEYS: frozenset({"keys"}),
         RecipeOperationKind.REPLACE_RECOGNIZED_SYMLINK_WITH_COPY: frozenset(
-            {"source_path"}
+            {
+                "source_path",
+                "source_provenance",
+                "source_repository_root",
+                "source_relative_path",
+            }
         ),
         RecipeOperationKind.CREATE_INTERNAL_RELATIVE_SYMLINK: frozenset(
             {"link_target"}
@@ -141,7 +166,7 @@ _CODEX_BLOCK = (
     "<!-- cc:project-integration:codex:v1:end -->\n"
 )
 
-_LEGACY_CODEX_GATE_WRAPPER = b'''#!/usr/bin/env bash
+_LEGACY_CODEX_GATE_WRAPPER = b"""#!/usr/bin/env bash
 
 set -euo pipefail
 
@@ -156,7 +181,7 @@ if [[ ! -f "${SHARED_GATE}" ]]; then
 fi
 
 exec bash "${SHARED_GATE}" "$@"
-'''
+"""
 
 
 def _canonical_hash(payload: Any) -> str:
@@ -244,7 +269,12 @@ def _validate_relative_target(component: str, target: str) -> None:
     pure = PurePosixPath(target)
     if not target or pure.is_absolute() or ".." in pure.parts:
         raise RecipeValidationError("Recipe targets must stay relative to the project.")
-    if target not in _COMPONENT_TARGETS[component]:
+    nested_claude_agent = (
+        component == "claude"
+        and len(pure.parts) >= 3
+        and pure.parts[:2] == (".claude", "agents")
+    )
+    if target not in _COMPONENT_TARGETS[component] and not nested_claude_agent:
         raise RecipeValidationError(
             f"Recipe target {target!r} is not allowlisted for {component}."
         )
@@ -261,7 +291,14 @@ def _validate_payload(kind: RecipeOperationKind, payload: Mapping[str, Any]) -> 
             "Recipe payloads must contain only JSON-compatible typed values."
         ) from exc
     keys = frozenset(payload)
-    required = allowed - {"mode", "replace_ecosystem_lock"}
+    optional = {
+        "mode",
+        "replace_ecosystem_lock",
+        "source_provenance",
+        "source_repository_root",
+        "source_relative_path",
+    }
+    required = allowed - optional
     if not required <= keys or not keys <= allowed:
         raise RecipeValidationError(
             f"{kind.value} uses missing or unsupported payload keys."
@@ -272,7 +309,10 @@ def _validate_payload(kind: RecipeOperationKind, payload: Mapping[str, Any]) -> 
         or payload["mode"] > 0o777
     ):
         raise RecipeValidationError("Recipe file mode must be a bounded integer.")
-    if "replace_ecosystem_lock" in payload and payload["replace_ecosystem_lock"] is not True:
+    if (
+        "replace_ecosystem_lock" in payload
+        and payload["replace_ecosystem_lock"] is not True
+    ):
         raise RecipeValidationError(
             "The ecosystem-lock replacement marker must be exactly true."
         )
@@ -280,6 +320,46 @@ def _validate_payload(kind: RecipeOperationKind, payload: Mapping[str, Any]) -> 
         source = payload["source_path"]
         if not isinstance(source, str) or not Path(source).is_absolute():
             raise RecipeValidationError("Recipe sources must be absolute paths.")
+    if "source_provenance" in payload:
+        provenance = payload["source_provenance"]
+        if (
+            not isinstance(provenance, Mapping)
+            or set(provenance) != {"layer", "ref", "tree", "signer"}
+            or any(
+                not isinstance(provenance.get(key), str) or not provenance[key]
+                for key in provenance
+            )
+            or len(str(provenance["tree"])) not in {40, 64}
+            or any(
+                character not in "0123456789abcdef" for character in provenance["tree"]
+            )
+        ):
+            raise RecipeValidationError("Recipe source provenance is invalid.")
+    provenance_keys = {
+        "source_provenance",
+        "source_repository_root",
+        "source_relative_path",
+    }
+    present_provenance_keys = provenance_keys.intersection(payload)
+    if present_provenance_keys and present_provenance_keys != provenance_keys:
+        raise RecipeValidationError(
+            "Recipe source provenance requires its exact nominal Git item identity."
+        )
+    if "source_repository_root" in payload:
+        repository_root = payload["source_repository_root"]
+        relative_path = payload["source_relative_path"]
+        relative = (
+            PurePosixPath(relative_path) if isinstance(relative_path, str) else None
+        )
+        if (
+            not isinstance(repository_root, str)
+            or not Path(repository_root).is_absolute()
+            or relative is None
+            or not relative_path
+            or relative.is_absolute()
+            or ".." in relative.parts
+        ):
+            raise RecipeValidationError("Recipe nominal Git item identity is invalid.")
     if "block" in payload and (
         not isinstance(payload["block"], str) or not payload["block"]
     ):
@@ -380,6 +460,7 @@ class RecipePlan:
     recipes: tuple[tuple[str, str], ...]
     sources: tuple[dict[str, str], ...]
     operations: tuple[RecipeOperation, ...]
+    entitlement_bindings: tuple[Mapping[str, Any], ...]
     preservation: tuple[dict[str, str], ...]
     allowed_targets: tuple[str, ...]
     prohibited_actions: tuple[str, ...]
@@ -442,6 +523,22 @@ class RecipePlan:
             raise RecipeValidationError(
                 "Recipe plans must combine changes to one target into one operation."
             )
+        from cc.core.ecosystem.entitlement import EntitlementBinding
+
+        try:
+            parsed_bindings = tuple(
+                EntitlementBinding.from_value(dict(binding))
+                for binding in self.entitlement_bindings
+            )
+        except (TypeError, ValueError) as exc:
+            raise RecipeValidationError(
+                "Recipe entitlement bindings are invalid."
+            ) from exc
+        binding_keys = {
+            (binding.state_path, binding.layer) for binding in parsed_bindings
+        }
+        if len(binding_keys) != len(parsed_bindings):
+            raise RecipeValidationError("Recipe entitlement bindings repeat a layer.")
         allowed = set(self.allowed_targets)
         if any(operation.target not in allowed for operation in self.operations):
             raise RecipeValidationError(
@@ -480,6 +577,9 @@ class RecipePlan:
             ],
             "sources": [dict(source) for source in self.sources],
             "operations": [operation.as_dict() for operation in self.operations],
+            "entitlement_bindings": [
+                dict(binding) for binding in self.entitlement_bindings
+            ],
             "preservation": [dict(item) for item in self.preservation],
             "allowed_targets": list(self.allowed_targets),
             "prohibited_actions": list(self.prohibited_actions),
@@ -604,6 +704,7 @@ def _operation(
     description: str,
     payload: Mapping[str, Any],
     source: Path | None = None,
+    source_fingerprint_override: str | None = None,
 ) -> RecipeOperation:
     if kind == RecipeOperationKind.CREATE_INTERNAL_RELATIVE_SYMLINK:
         link_value = str(payload.get("link_target", ""))
@@ -621,7 +722,12 @@ def _operation(
                 stack.append(part)
     expected = _target_fingerprint(root / target)
     source_fingerprint = None
-    if source is not None:
+    if source_fingerprint_override is not None:
+        _validate_fingerprint(
+            source_fingerprint_override, field="source fingerprint override"
+        )
+        source_fingerprint = source_fingerprint_override
+    elif source is not None:
         source_fingerprint = fingerprint_recipe_source(
             source,
             tree=kind
@@ -651,9 +757,7 @@ def _operation(
     )
 
 
-def validated_source_root(
-    component: str, configured: Path | str | None = None
-) -> Path:
+def validated_source_root(component: str, configured: Path | str | None = None) -> Path:
     """Resolve one configured read-only framework source to a protected root.
 
     A configured source may be a compatibility symlink (the established
@@ -663,7 +767,9 @@ def validated_source_root(
     execution; this does not relax any target-side symlink boundary.
     """
     if component not in SUPPORTED_COMPONENTS:
-        raise RecipeValidationError("The authoritative framework source is unavailable.")
+        raise RecipeValidationError(
+            "The authoritative framework source is unavailable."
+        )
     configured = (
         configured
         if configured is not None
@@ -720,30 +826,49 @@ def _version(source: Path, component: str) -> str:
     )
 
 
+def _claude_agent_files(source: Path) -> tuple[str, ...]:
+    agents_root = source / ".claude/agents"
+    try:
+        if agents_root.is_symlink() or not agents_root.is_dir():
+            raise RecipeValidationError(
+                "The authoritative Claude agent tree is unavailable."
+            )
+        files = tuple(
+            path.relative_to(source).as_posix()
+            for path in sorted(agents_root.rglob("*"))
+            if path.is_file() and not path.is_symlink()
+        )
+    except OSError as exc:
+        raise RecipeValidationError(
+            "The authoritative Claude agent tree is unavailable."
+        ) from exc
+    if not files:
+        raise RecipeValidationError(
+            "The authoritative Claude agent tree is unavailable."
+        )
+    return files
+
+
 def _framework_files(source: Path, component: str) -> list[dict[str, str]]:
     if component == "claude":
         try:
-            agents = source / ".claude/agents"
-            if agents.is_symlink() or not agents.is_dir():
-                raise RecipeValidationError(
-                    "The authoritative Claude file roster is unavailable."
-                )
-            agent_files = [
-                candidate
-                for candidate in sorted(agents.rglob("*"))
-                if candidate.is_file() and not candidate.is_symlink()
-            ]
-        except OSError as exc:
+            commands, agents = claude_reference_roster(source)
+            agent_files = _claude_agent_files(source)
+        except (OSError, RequestValidationError) as exc:
             raise RecipeValidationError(
                 "The authoritative Claude file roster is unavailable."
             ) from exc
         paths = [
-            ".claude/commands/protocol.md",
-            ".claude/commands/continue.md",
+            *(f".claude/commands/{command}" for command in commands),
             ".claude/fitness-check.sh",
             ".claude/hooks/copilot-hook.sh",
-            *(candidate.relative_to(source).as_posix() for candidate in agent_files),
+            *agent_files,
         ]
+        required_agents = {f".claude/agents/{agent}.md" for agent in agents}
+        if not required_agents <= set(agent_files):
+            raise RecipeValidationError(
+                "The authoritative Claude file roster is unavailable."
+            )
     else:
         plugin = source / "plugins/codex-copilot"
         gate = source / "scripts/copilot-gate.sh"
@@ -781,9 +906,105 @@ def _framework_files(source: Path, component: str) -> list[dict[str, str]]:
     return files
 
 
-def _lock_entry(source: Path, component: str) -> dict[str, Any]:
-    version = _version(source, component)
-    return {
+_BINDING_UNSET = object()
+
+
+def _existing_codex_provenance(root: Path) -> dict[str, str] | None:
+    try:
+        raw = json.loads((root / "copilot.lock.json").read_text(encoding="utf-8"))
+        entry = next(
+            item
+            for item in raw["components"]
+            if isinstance(item, Mapping) and item.get("component") == "codex"
+        )
+        provenance = entry.get("provenance")
+    except (
+        FileNotFoundError,
+        OSError,
+        KeyError,
+        StopIteration,
+        TypeError,
+        json.JSONDecodeError,
+    ):
+        return None
+    if (
+        not isinstance(provenance, dict)
+        or set(provenance) != {"layer", "ref", "tree", "signer"}
+        or any(
+            not isinstance(provenance.get(key), str) or not provenance[key]
+            for key in provenance
+        )
+    ):
+        return None
+    return {key: str(provenance[key]) for key in ("layer", "ref", "tree", "signer")}
+
+
+def _codex_plugin_binding(root: Path | None = None) -> CodexPluginSource | None:
+    try:
+        binding = resolve_codex_plugin_source()
+    except CodexPluginSourceError as exc:
+        raise RecipeValidationError(str(exc)) from exc
+    if binding is None and root is not None and _existing_codex_provenance(root):
+        raise RecipeValidationError(
+            "The project requires its previously verified signed Codex source; provenance cannot be downgraded."
+        )
+    return binding
+
+
+def _tier_plugin_files(binding: CodexPluginSource) -> list[dict[str, str]]:
+    files = [
+        {
+            "path": f"plugins/codex-copilot/{item.path}",
+            "ownership": "framework",
+            "checksum": _bytes_hash(item.content),
+        }
+        for item in binding.snapshot.files
+    ]
+    if not files:
+        raise RecipeValidationError("The signed Codex plugin is empty.")
+    return files
+
+
+def _tier_plugin_version(binding: CodexPluginSource) -> str:
+    manifest = next(
+        (
+            item
+            for item in binding.snapshot.files
+            if item.path == ".codex-plugin/plugin.json"
+        ),
+        None,
+    )
+    try:
+        payload = json.loads(manifest.content.decode("utf-8")) if manifest else None
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RecipeValidationError(
+            "The signed Codex plugin version is unavailable."
+        ) from exc
+    version = payload.get("version") if isinstance(payload, dict) else None
+    if not isinstance(version, str) or not version:
+        raise RecipeValidationError("The signed Codex plugin version is unavailable.")
+    return version
+
+
+def _lock_entry(
+    source: Path,
+    component: str,
+    *,
+    codex_binding: CodexPluginSource | None | object = _BINDING_UNSET,
+) -> dict[str, Any]:
+    binding = None
+    if component == "codex":
+        binding = (
+            _codex_plugin_binding()
+            if codex_binding is _BINDING_UNSET
+            else codex_binding
+        )
+    version = (
+        _tier_plugin_version(binding)
+        if isinstance(binding, CodexPluginSource)
+        else _version(source, component)
+    )
+    entry = {
         "component": component,
         "version": version,
         "release_tag": f"v{version}",
@@ -793,6 +1014,17 @@ def _lock_entry(source: Path, component: str) -> dict[str, Any]:
         "ownership_mode": "full",
         "files": _framework_files(source, component),
     }
+    if component == "codex":
+        if binding is not None:
+            entry["files"] = [
+                item
+                for item in entry["files"]
+                if not str(item.get("path", "")).startswith("plugins/codex-copilot/")
+            ]
+            entry["files"].extend(_tier_plugin_files(binding))
+            entry["files"].sort(key=lambda item: str(item["path"]))
+            entry["provenance"] = binding.provenance()
+    return entry
 
 
 def _ecosystem_lock_collision(root: Path) -> bool:
@@ -831,9 +1063,9 @@ def _lock_payload(root: Path, entry: Any) -> dict[str, Any]:
 
 def _claude_customized_lock_entry(source: Path, root: Path) -> dict[str, Any]:
     entry = _lock_entry(source, "claude")
+    commands, _agents = claude_reference_roster(source)
     owned_paths = {
-        ".claude/commands/protocol.md",
-        ".claude/commands/continue.md",
+        *(f".claude/commands/{command}" for command in commands),
         ".claude/fitness-check.sh",
         ".claude/hooks/copilot-hook.sh",
     }
@@ -857,9 +1089,10 @@ def _claude_customized_lock_entry(source: Path, root: Path) -> dict[str, Any]:
 
 
 def _codex_customized_lock_entry(source: Path, root: Path) -> dict[str, Any]:
-    entry = _lock_entry(source, "codex")
+    binding = _codex_plugin_binding(root)
+    entry = _lock_entry(source, "codex", codex_binding=binding)
     plugin_missing = _target_missing(root, "plugins/codex-copilot")
-    return {
+    result = {
         **entry,
         "ownership_mode": "customized-preserve",
         "files": [
@@ -884,6 +1117,13 @@ def _codex_customized_lock_entry(source: Path, root: Path) -> dict[str, Any]:
             )
         ],
     }
+    if not plugin_missing:
+        if _existing_codex_provenance(root):
+            raise RecipeValidationError(
+                "A customized Codex plugin cannot remove existing signed provenance."
+            )
+        result.pop("provenance", None)
+    return result
 
 
 def authoritative_source_available(
@@ -954,6 +1194,42 @@ def _contained_missing_codex_bridge(root: Path) -> bool:
         return False
 
 
+def _codex_plugin_degraded_repairable(root: Path) -> bool:
+    """Allow replacement only when a locked plugin has missing bytes alone."""
+    try:
+        raw = json.loads((root / "copilot.lock.json").read_text(encoding="utf-8"))
+        entries = raw["components"]
+        entry = next(item for item in entries if item.get("component") == "codex")
+        expected = {
+            str(item["path"]): str(item["checksum"])
+            for item in entry["files"]
+            if str(item.get("path", "")).startswith("plugins/codex-copilot/")
+        }
+        plugin = root / "plugins/codex-copilot"
+        actual_paths = {
+            path.relative_to(root).as_posix()
+            for path in plugin.rglob("*")
+            if path.is_file() and not path.is_symlink()
+        }
+        if not expected or not actual_paths < set(expected):
+            return False
+        if any(path.is_symlink() for path in plugin.rglob("*")):
+            return False
+        return all(
+            _bytes_hash((root / relative).read_bytes()) == expected[relative]
+            for relative in actual_paths
+        )
+    except (
+        FileNotFoundError,
+        OSError,
+        KeyError,
+        StopIteration,
+        TypeError,
+        json.JSONDecodeError,
+    ):
+        return False
+
+
 def _project_declaration_components(
     root: Path,
     project: ProjectAssessment,
@@ -1008,8 +1284,11 @@ def _project_declaration_components(
 
 def _claude_setup(root: Path, component: str) -> tuple[RecipeOperation, ...]:
     source = _source_root(component)
+    try:
+        command_roster, agent_roster = claude_reference_roster(source)
+    except RequestValidationError as exc:
+        raise RecipeValidationError(str(exc)) from exc
     operations: list[RecipeOperation] = []
-    agents_missing = _target_missing(root, ".claude/agents")
     if _target_missing(root, "CLAUDE.md"):
         operations.append(
             _operation(
@@ -1033,8 +1312,7 @@ def _claude_setup(root: Path, component: str) -> tuple[RecipeOperation, ...]:
             )
         )
     for target in (
-        ".claude/commands/protocol.md",
-        ".claude/commands/continue.md",
+        *(f".claude/commands/{command}" for command in command_roster),
         ".claude/fitness-check.sh",
     ):
         if _target_missing(root, target):
@@ -1063,8 +1341,10 @@ def _claude_setup(root: Path, component: str) -> tuple[RecipeOperation, ...]:
     # `cc reconcile apply` would silently resurrect what was deliberately
     # removed.
     hooks_disabled = not _target_missing(root, ".claude/copilot-hooks-disabled")
-    if component == "claude" and not hooks_disabled and _target_missing(
-        root, ".claude/hooks/copilot-hook.sh"
+    if (
+        component == "claude"
+        and not hooks_disabled
+        and _target_missing(root, ".claude/hooks/copilot-hook.sh")
     ):
         operations.append(
             _operation(
@@ -1161,34 +1441,75 @@ def _claude_setup(root: Path, component: str) -> tuple[RecipeOperation, ...]:
                     },
                 )
             )
-    if agents_missing:
+    agent_files = _claude_agent_files(source)
+    required_agents = {f".claude/agents/{agent}.md" for agent in agent_roster}
+    if not required_agents <= set(agent_files):
+        raise RecipeValidationError(
+            "The authoritative Claude file roster is unavailable."
+        )
+    for target in agent_files:
+        if _target_missing(root, target):
+            operations.append(
+                _operation(
+                    root=root,
+                    component=component,
+                    kind=RecipeOperationKind.COPY_FILE_FROM_SOURCE,
+                    target=target,
+                    description=f"Install the missing framework-owned {target} file.",
+                    source=source / target,
+                    payload={"source_path": str(source / target), "mode": 0o644},
+                )
+            )
+
+    if _target_missing(root, ".claude/cc/config.json"):
         operations.append(
             _operation(
                 root=root,
                 component=component,
-                kind=RecipeOperationKind.COPY_TREE_FROM_SOURCE,
-                target=".claude/agents",
-                description="Install the project-local Claude framework agent roster.",
-                source=source / ".claude/agents",
-                payload={"source_path": str(source / ".claude/agents")},
+                kind=RecipeOperationKind.MERGE_JSON_KEYS,
+                target=".claude/cc/config.json",
+                description="Initialize the project-local cc configuration with machine inheritance.",
+                payload={
+                    "keys": {
+                        "$schema": "cc-config-v1",
+                        "version": 1,
+                        "paths": {
+                            "shared_docs": "@machine",
+                            "knowledge_repo": "@machine",
+                        },
+                    }
+                },
+            )
+        )
+    if _target_missing(root, ".claude/memory/entries/.gitkeep"):
+        operations.append(
+            _operation(
+                root=root,
+                component=component,
+                kind=RecipeOperationKind.APPEND_MANAGED_BLOCK,
+                target=".claude/memory/entries/.gitkeep",
+                description="Keep the project memory entries directory in Git.",
+                payload={
+                    "block": "# Project memory entries are committed here.\n",
+                    "mode": 0o644,
+                },
+            )
+        )
+    if _target_missing(root, ".claude/memory/.gitignore"):
+        operations.append(
+            _operation(
+                root=root,
+                component=component,
+                kind=RecipeOperationKind.APPEND_MANAGED_BLOCK,
+                target=".claude/memory/.gitignore",
+                description="Exclude only the local cc memory index from Git.",
+                payload={
+                    "block": "memory.db\nmemory.db-shm\nmemory.db-wal\n",
+                    "mode": 0o644,
+                },
             )
         )
     lock_entry = _lock_entry(source, component)
-    if not agents_missing:
-        lock_entry = {
-            **lock_entry,
-            "files": [
-                item
-                for item in lock_entry["files"]
-                if not str(item.get("path", "")).startswith(".claude/agents/")
-                or (
-                    (root / str(item["path"])).is_file()
-                    and not (root / str(item["path"])).is_symlink()
-                    and _bytes_hash((root / str(item["path"])).read_bytes())
-                    == item.get("checksum")
-                )
-            ],
-        }
     operations.append(
         _operation(
             root=root,
@@ -1226,6 +1547,7 @@ def _claude_legacy(root: Path, component: str) -> tuple[RecipeOperation, ...]:
 
 def _codex_setup(root: Path, component: str) -> tuple[RecipeOperation, ...]:
     source = _source_root(component)
+    binding = _codex_plugin_binding(root)
     operations: list[RecipeOperation] = []
     if _target_missing(root, "AGENTS.md"):
         operations.append(
@@ -1238,8 +1560,12 @@ def _codex_setup(root: Path, component: str) -> tuple[RecipeOperation, ...]:
                 payload={"block": _CODEX_BLOCK, "mode": 0o644},
             )
         )
-    plugin_source = source / "plugins/codex-copilot"
-    if _target_missing(root, "plugins/codex-copilot"):
+    plugin_source = (
+        binding.path if binding is not None else source / "plugins/codex-copilot"
+    )
+    if _target_missing(
+        root, "plugins/codex-copilot"
+    ) or _codex_plugin_degraded_repairable(root):
         operations.append(
             _operation(
                 root=root,
@@ -1248,12 +1574,24 @@ def _codex_setup(root: Path, component: str) -> tuple[RecipeOperation, ...]:
                 target="plugins/codex-copilot",
                 description="Install a portable project-local Codex plugin copy.",
                 source=plugin_source,
-                payload={"source_path": str(plugin_source)},
+                source_fingerprint_override=(
+                    binding.snapshot.fingerprint() if binding is not None else None
+                ),
+                payload={
+                    "source_path": str(plugin_source),
+                    **(
+                        {"source_provenance": binding.provenance()}
+                        | {
+                            "source_repository_root": str(binding.repository_root),
+                            "source_relative_path": binding.relative_path,
+                        }
+                        if binding is not None
+                        else {}
+                    ),
+                },
             )
         )
-    if not _recognized_read_only_knowledge_link(
-        root, ".claude/skills"
-    ) and (
+    if not _recognized_read_only_knowledge_link(root, ".claude/skills") and (
         _target_missing(root, ".claude/skills/codex-copilot")
         or _contained_missing_codex_bridge(root)
     ):
@@ -1303,7 +1641,9 @@ def _codex_setup(root: Path, component: str) -> tuple[RecipeOperation, ...]:
             kind=RecipeOperationKind.UPSERT_LOCK_COMPONENT,
             target="copilot.lock.json",
             description="Record exact Codex framework-owned checksums.",
-            payload=_lock_payload(root, _lock_entry(source, component)),
+            payload=_lock_payload(
+                root, _lock_entry(source, component, codex_binding=binding)
+            ),
         )
     )
     return tuple(operations)
@@ -1311,7 +1651,10 @@ def _codex_setup(root: Path, component: str) -> tuple[RecipeOperation, ...]:
 
 def _codex_legacy(root: Path, component: str) -> tuple[RecipeOperation, ...]:
     source = _source_root(component)
-    plugin_source = source / "plugins/codex-copilot"
+    binding = _codex_plugin_binding(root)
+    plugin_source = (
+        binding.path if binding is not None else source / "plugins/codex-copilot"
+    )
     gate_source = source / "scripts/copilot-gate.sh"
     operations = [
         _operation(
@@ -1321,7 +1664,21 @@ def _codex_legacy(root: Path, component: str) -> tuple[RecipeOperation, ...]:
             target="plugins/codex-copilot",
             description="Replace only the recognized legacy link with a portable plugin copy.",
             source=plugin_source,
-            payload={"source_path": str(plugin_source)},
+            source_fingerprint_override=(
+                binding.snapshot.fingerprint() if binding is not None else None
+            ),
+            payload={
+                "source_path": str(plugin_source),
+                **(
+                    {"source_provenance": binding.provenance()}
+                    | {
+                        "source_repository_root": str(binding.repository_root),
+                        "source_relative_path": binding.relative_path,
+                    }
+                    if binding is not None
+                    else {}
+                ),
+            },
         ),
         _operation(
             root=root,
@@ -1369,7 +1726,9 @@ def _codex_legacy(root: Path, component: str) -> tuple[RecipeOperation, ...]:
                 kind=RecipeOperationKind.UPSERT_LOCK_COMPONENT,
                 target="copilot.lock.json",
                 description="Refresh only the Codex lock component after verification.",
-                payload=_lock_payload(root, _lock_entry(source, component)),
+                payload=_lock_payload(
+                    root, _lock_entry(source, component, codex_binding=binding)
+                ),
             ),
         ]
     )
@@ -1502,9 +1861,7 @@ def _safe_claude_project_tree(root: Path) -> bool:
         for entry in entries:
             try:
                 if entry.is_symlink():
-                    if _recognized_internal_codex_skill_bridge(
-                        root, Path(entry.path)
-                    ):
+                    if _recognized_internal_codex_skill_bridge(root, Path(entry.path)):
                         continue
                     return False
                 if entry.is_dir(follow_symlinks=False):
@@ -1595,9 +1952,10 @@ def _claude_assistant_preserve_entry_eligible(
         return False
     if _safe_target_kind(root, "CLAUDE.md") not in {"missing", "regular"}:
         return False
-    if "valid-mcp-marker" in requirements and _safe_target_kind(
-        root, ".mcp.json"
-    ) != "missing":
+    if (
+        "valid-mcp-marker" in requirements
+        and _safe_target_kind(root, ".mcp.json") != "missing"
+    ):
         return False
     return True
 
@@ -1733,7 +2091,9 @@ def _claude_assistant_preserve_entry(
     operations = _claude_customized_preserve_entry(root, component)
     bounded: list[RecipeOperation] = []
     for operation in operations:
-        if operation.target == ".claude/agents":
+        if operation.target == ".claude/agents" or operation.target.startswith(
+            ".claude/agents/"
+        ):
             continue
         if operation.kind == RecipeOperationKind.UPSERT_LOCK_COMPONENT:
             bounded.append(
@@ -1771,9 +2131,7 @@ def _codex_customized_preserve_entry(
             kind=RecipeOperationKind.UPSERT_LOCK_COMPONENT,
             target="copilot.lock.json",
             description="Record only verified bounded Codex outputs while preserving customized plugin content.",
-            payload=_lock_payload(
-                root, _codex_customized_lock_entry(source, root)
-            ),
+            payload=_lock_payload(root, _codex_customized_lock_entry(source, root)),
         )
         if operation.kind == RecipeOperationKind.UPSERT_LOCK_COMPONENT
         else operation
@@ -1785,6 +2143,7 @@ def _codex_customized_merge_config(
     root: Path, component: str
 ) -> tuple[RecipeOperation, ...]:
     source = _source_root(component)
+    binding = _codex_plugin_binding(root)
     return (
         _operation(
             root=root,
@@ -1805,7 +2164,9 @@ def _codex_customized_merge_config(
             kind=RecipeOperationKind.UPSERT_LOCK_COMPONENT,
             target="copilot.lock.json",
             description="Record exact Codex framework-owned checksums after the bounded config merge.",
-            payload=_lock_payload(root, _lock_entry(source, component)),
+            payload=_lock_payload(
+                root, _lock_entry(source, component, codex_binding=binding)
+            ),
         ),
     )
 
@@ -1999,6 +2360,32 @@ def _managed_output_for_operation(
         )
         fingerprint = fingerprint_file_payload(content, mode=mode)
         kind = "merged-json"
+    elif operation.kind == RecipeOperationKind.REGISTER_SETTINGS_HOOKS:
+        from cc.core.ecosystem.mutations import (
+            HookEntrySpec,
+            canonical_settings_bytes,
+            merge_hook_entries,
+        )
+
+        try:
+            current_json = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            current_json = {}
+        if not isinstance(current_json, dict):
+            raise RecipeValidationError("A managed settings target is not an object.")
+        entries = tuple(
+            HookEntrySpec(
+                str(item["event"]), str(item["matcher"]), str(item["command"])
+            )
+            for item in operation.payload["entries"]
+        )
+        merged, _actions = merge_hook_entries(
+            current_json, entries, source=str(operation.payload["source"])
+        )
+        content = canonical_settings_bytes(merged)
+        mode = stat.S_IMODE(path.lstat().st_mode) if path.exists() else 0o644
+        fingerprint = fingerprint_file_payload(content, mode=mode)
+        kind = "merged-json"
     elif operation.kind == RecipeOperationKind.CREATE_INTERNAL_RELATIVE_SYMLINK:
         fingerprint = fingerprint_symlink(str(operation.payload["link_target"]))
         kind = "internal-symlink"
@@ -2132,9 +2519,7 @@ def _coalesce_lock_operations(
         kind=RecipeOperationKind.UPSERT_LOCK_COMPONENT,
         target="copilot.lock.json",
         description="Atomically refresh the selected Claude and Codex lock components.",
-        payload=_lock_payload(
-            root, entries[0] if len(entries) == 1 else entries
-        ),
+        payload=_lock_payload(root, entries[0] if len(entries) == 1 else entries),
     )
     result: list[RecipeOperation] = []
     inserted = False
@@ -2235,6 +2620,43 @@ def build_recipe_plan(
     # minimal declaration shape.
     operations = _coalesce_lock_operations(root, operations)
 
+    entitlement_bindings: tuple[Mapping[str, Any], ...] = ()
+    codex_mutating = any(
+        definition.component == "codex" and component_ops
+        for definition, component_ops in built
+    )
+    if codex_mutating:
+        resolved_binding, private_bindings = (
+            resolve_codex_plugin_source_with_bindings()
+        )
+        expected_provenance = (
+            resolved_binding.provenance() if resolved_binding is not None else None
+        )
+        planned_provenance: dict[str, str] | None = None
+        for operation in operations:
+            if operation.kind != RecipeOperationKind.UPSERT_LOCK_COMPONENT:
+                continue
+            raw_entries = operation.payload.get("component_entry")
+            entries = (
+                [raw_entries]
+                if isinstance(raw_entries, Mapping)
+                else raw_entries
+                if isinstance(raw_entries, Sequence)
+                and not isinstance(raw_entries, (str, bytes))
+                else []
+            )
+            for entry in entries:
+                if isinstance(entry, Mapping) and entry.get("component") == "codex":
+                    value = entry.get("provenance")
+                    planned_provenance = dict(value) if isinstance(value, Mapping) else None
+        if planned_provenance != expected_provenance:
+            raise RecipeValidationError(
+                "The effective Codex entitlement changed while the recipe was being prepared."
+            )
+        entitlement_bindings = tuple(
+            MappingProxyType(binding.as_dict()) for binding in private_bindings
+        )
+
     allowed_targets = tuple(
         dict.fromkeys(
             [
@@ -2265,6 +2687,7 @@ def build_recipe_plan(
         ),
         sources=sources,
         operations=tuple(operations),
+        entitlement_bindings=entitlement_bindings,
         preservation=tuple(dossier.get("preservation", [])),
         allowed_targets=allowed_targets,
         prohibited_actions=tuple(dossier.get("prohibited_actions", [])),
