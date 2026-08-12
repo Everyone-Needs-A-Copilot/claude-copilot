@@ -65,13 +65,6 @@ cc docs cache --clear [--json]
 **Config keys:** `docs.source_order`, `docs.cache_ttl_hours` (default 168), `docs.cache_dir`, `docs.context7_endpoint` (reserved).
 **Note:** Context7 is not included at this release; the `SourceBackend` seam accepts it as a future drop-in.
 
-## MCP Shim
-
-```bash
-cc mcp serve              # start MCP server on stdio
-cc mcp config             # print .mcp.json snippet
-```
-
 ## Diagnostics
 
 ```bash

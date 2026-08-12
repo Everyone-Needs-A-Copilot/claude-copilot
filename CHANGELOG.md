@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-08-12 — cc 2.12.8
+
+- Removed the `cc mcp` compatibility server and optional MCP dependency.
+  Memory, skills, config, and live documentation are now CLI-only contracts.
+
 ## 2026-08-07 — cc 2.12.7
 
 - The committed `uv.lock` now matches the released package version, restoring

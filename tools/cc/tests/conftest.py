@@ -74,7 +74,7 @@ def _isolate_machine_config(tmp_path, monkeypatch):
        `core/locking.py`'s `lock_path()`, ... across core/config.py,
        core/entry_store.py, core/locking.py, commands/config.py,
        commands/onboard.py, commands/workspaces.py, commands/memory.py,
-       commands/mcp_serve.py, commands/doctor.py), so redirecting the two
+       commands/doctor.py), so redirecting the two
        shared roots covers all of them without any test opting in.
     2. DETECTION -- checksum the REAL files/paths before and after the test
        and fail loudly if any changed, so a test that somehow bypasses

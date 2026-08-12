@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "claude-cli"
-version = "2.12.7"
-description = "Unified CLI replacing copilot-memory and skills-copilot MCP servers"
+version = "2.12.8"
+description = "Unified Claude Copilot CLI for memory, skills, config, and live docs"
 requires-python = ">=3.10"
 dependencies = [
     "certifi>=2024.8.30",
@@ -16,9 +16,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-mcp = [
-    "mcp>=1.0.0",
-]
 embeddings = [
     "sentence-transformers>=2.2.0",
     "numpy>=1.24.0",

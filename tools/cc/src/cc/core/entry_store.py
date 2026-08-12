@@ -31,7 +31,7 @@ _GITIGNORE_CONTENT = "memory.db\nmemory.db-shm\nmemory.db-wal\n"
 # `core/config_paths.py`'s `CC_MACHINE_ROOT` already uses for
 # `machine_config_path()`/`machine_secrets_path()`, applied here for the
 # identical reason: this function is reached through a long fan-out call
-# chain (commands/memory.py, commands/mcp_serve.py, core/memory_index.py,
+# chain (commands/memory.py, core/memory_index.py,
 # core/locking.py's `lock_path()`, core/ecosystem/lockfile.py, and more --
 # see git blame / D2 for the full list), so a `_root` keyword-injection
 # convention would need threading through every one of those call sites
@@ -142,7 +142,7 @@ def store_entry(
     scanner error the ORIGINAL content is stored unscanned rather than lost,
     and the frontmatter `guard` field plus a stderr warning record what
     happened either way. Applied here (not in `commands/memory.py`) so every
-    caller reaching this function -- the CLI, `cc mcp-serve`'s memory_store
+    caller reaching this function -- the CLI's memory_store
     tool, and `cc.api` -- is covered, not just the CLI argument path.
 
     Returns {"id": <uuid>, "path": <str>, "guard": <summary token>}. `guard`

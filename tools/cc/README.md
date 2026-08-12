@@ -1,6 +1,6 @@
 # cc — Claude Copilot CLI
 
-Unified CLI that replaces the `copilot-memory` and `skills-copilot` MCP servers with a single installable tool and an optional MCP shim.
+Unified CLI for persistent memory, reusable skills, configuration, and live documentation. It is a CLI-only component and does not expose an MCP server.
 
 ## What Is `cc`?
 
@@ -10,7 +10,7 @@ Benefits over the MCP servers:
 - No Node.js runtime required for memory or skills
 - Memory entries are git-trackable markdown files
 - Works in headless/agent contexts via `eval "$(cc env)"`
-- Optional `cc mcp serve` shim keeps MCP compatibility
+- One stable CLI contract across Claude Code, Codex, terminals, and automation
 
 ---
 
@@ -627,29 +627,6 @@ Agents that need config values should add `eval "$(cc env)"` as their first shel
 
 ---
 
-### MCP Shim
-
-`cc mcp serve` starts an MCP-compatible server over stdio that delegates to the same underlying CLI commands. Use this for projects that still rely on MCP tool calls.
-
-```bash
-cc mcp serve          # start MCP server on stdio
-cc mcp config         # print .mcp.json snippet to register cc
-```
-
-To register `cc` as an MCP server, run `cc mcp config` and paste the output into your project's `.mcp.json`:
-
-```bash
-cc mcp config >> .mcp.json   # or paste manually
-```
-
-The MCP shim requires the `cc[mcp]` extra:
-
-```bash
-pip install 'cc[mcp]'
-```
-
----
-
 ### Diagnostics
 
 ```bash
@@ -751,7 +728,6 @@ tools/cc/
       env.py              # cc env (shell hydration)
       docs.py             # resolve, get, search, sources, cache (Live Docs)
       eval.py             # run, list, add, show (Eval harness)
-      mcp.py              # serve, config
       doctor.py           # cc doctor (standalone health check)
     api.py                # flat importable facade for code-execution use (memory_store/get/list/search, skill_get/search)
     core/                 # entry_store, entry_format, memory_index, skill_store, config, config_paths

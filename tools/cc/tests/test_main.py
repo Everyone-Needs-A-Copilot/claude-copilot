@@ -24,7 +24,7 @@ def test_help_lists_subgroups(cli):
     assert "memory" in result.output
     assert "skill" in result.output
     assert "config" in result.output
-    assert "mcp" in result.output
+    assert "mcp" not in result.output
     assert "env" in result.output
 
 
@@ -56,14 +56,6 @@ def test_config_help(cli):
     assert "set" in result.output
     assert "list" in result.output
     assert "doctor" in result.output
-
-
-def test_mcp_help(cli):
-    """cc mcp --help exits cleanly and lists mcp subcommands."""
-    result = cli(["mcp", "--help"])
-    assert result.exit_code == 0
-    assert "serve" in result.output
-    assert "config" in result.output
 
 
 def test_env_emits_exports(cli):

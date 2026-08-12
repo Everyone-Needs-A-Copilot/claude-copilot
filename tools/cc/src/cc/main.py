@@ -12,7 +12,6 @@ from cc.commands.docs import docs_app
 from cc.commands.eval import eval_app
 from cc.commands.extensions import extensions_app
 from cc.commands.layers import layers_app
-from cc.commands.mcp import mcp_app
 from cc.commands.memory import memory_app
 from cc.commands.onboard import onboard_cmd
 from cc.commands.reconcile import reconcile_app
@@ -26,7 +25,7 @@ from cc.core.config import resolve_key
 
 app = typer.Typer(
     name="cc",
-    help="Unified Claude Copilot CLI — memory, skills, config, and MCP in one tool.",
+    help="Unified Claude Copilot CLI — memory, skills, config, and live docs in one tool.",
     no_args_is_help=True,
 )
 
@@ -34,7 +33,6 @@ app = typer.Typer(
 app.add_typer(memory_app, name="memory")
 app.add_typer(skill_app, name="skill")
 app.add_typer(config_app, name="config")
-app.add_typer(mcp_app, name="mcp")
 app.add_typer(docs_app, name="docs")
 app.add_typer(usage_app, name="usage")
 app.add_typer(eval_app, name="eval")

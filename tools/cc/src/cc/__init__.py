@@ -1,3 +1,3 @@
-"""Claude Copilot CLI — unified replacement for copilot-memory and skills-copilot MCP servers."""
+"""Claude Copilot CLI for memory, skills, config, and live docs."""
 
-__version__ = "2.12.7"
+__version__ = "2.12.8"

@@ -16,7 +16,7 @@ from pathlib import Path
 # `write_config()`/`machine_config_path()` are reached through a long,
 # fan-out call chain -- a dozen functions in core/config.py, plus
 # commands/config.py, commands/onboard.py, commands/workspaces.py,
-# commands/mcp_serve.py, commands/doctor.py -- and every one of those call
+# commands/doctor.py -- and every one of those call
 # sites (present and future) would need a `_root` kwarg threaded through it
 # for the injection to actually reach this module. A single process-wide
 # env var closes the seam at its one true source instead, with nothing to

@@ -120,7 +120,6 @@ class TestMachineConfig:
             f"cc config list --scope machine failed:\n"
             f"stdout: {result.stdout}\nstderr: {result.stderr}"
         )
-
     def test_env_hydration(self):
         """cc env outputs valid shell exports in KEY=VALUE format."""
         result = run(["env"])
@@ -314,26 +313,3 @@ class TestMigration:
             f"cc memory migrate --status failed:\n"
             f"stdout: {result.stdout}\nstderr: {result.stderr}"
         )
-
-
-# ---------------------------------------------------------------------------
-# MCP shim
-# ---------------------------------------------------------------------------
-
-
-class TestMcpShim:
-    def test_mcp_config_valid_json(self):
-        """cc mcp config outputs valid JSON with a 'cc' key."""
-        result = run(["mcp", "config"])
-        assert result.returncode == 0, f"cc mcp config failed: {result.stderr}"
-        try:
-            data = json.loads(result.stdout)
-        except json.JSONDecodeError as exc:
-            pytest.fail(
-                f"cc mcp config output is not valid JSON: {exc}\n{result.stdout}"
-            )
-        assert "cc" in data, f"'cc' key missing from mcp config output: {data}"
-        entry = data["cc"]
-        assert "command" in entry, "'command' missing from cc mcp config entry"
-        assert "args" in entry, "'args' missing from cc mcp config entry"
-        assert entry["args"] == ["mcp", "serve"], f"Unexpected args: {entry['args']}"

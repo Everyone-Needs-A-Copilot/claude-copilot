@@ -231,32 +231,6 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Test: MCP shim
-# ---------------------------------------------------------------------------
-section "MCP"
-
-MCP_OUTPUT="$($CC mcp config 2>&1)"
-MCP_EXIT=$?
-if [ $MCP_EXIT -eq 0 ]; then
-    pass "cc mcp config exits 0"
-else
-    fail "cc mcp config (exit code: $MCP_EXIT)"
-fi
-
-if echo "$MCP_OUTPUT" | python3 -c "import sys, json; json.load(sys.stdin)" > /dev/null 2>&1; then
-    pass "cc mcp config output is valid JSON"
-else
-    fail "cc mcp config output is not valid JSON"
-    info "Output: $MCP_OUTPUT"
-fi
-
-if echo "$MCP_OUTPUT" | python3 -c "import sys, json; d=json.load(sys.stdin); assert 'cc' in d" > /dev/null 2>&1; then
-    pass "cc mcp config JSON has 'cc' key"
-else
-    fail "cc mcp config JSON missing 'cc' key"
-fi
-
-# ---------------------------------------------------------------------------
 # Cleanup — delete any leftover integration test entries
 # ---------------------------------------------------------------------------
 section "Cleanup"

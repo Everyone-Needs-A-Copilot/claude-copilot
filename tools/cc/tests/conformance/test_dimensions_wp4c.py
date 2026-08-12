@@ -129,6 +129,17 @@ class TestD10McpObjectNoRetiredServers:
         # Named in KNOWN_RETIRED_SERVER_REPOS -> grounded expected_today.
         assert result.expected_today is ExpectedToday.FAIL
 
+    def test_fail_on_cli_owned_task_and_research_servers(self, tmp_path):
+        repo = _git_repo(tmp_path / "stale-copilot-wiring")
+        (repo / ".mcp.json").write_text(
+            json.dumps({"mcpServers": {"task-copilot": {}, "research-copilot": {}}}),
+            encoding="utf-8",
+        )
+        result = d10_mcp.check_mcp_object_no_retired_servers(repo)
+        assert result.verdict is Verdict.FAIL
+        assert "research-copilot" in result.evidence[0].actual
+        assert "task-copilot" in result.evidence[0].actual
+
     def test_fail_on_missing_file(self, tmp_path):
         repo = _git_repo(tmp_path / "no-mcp")
         result = d10_mcp.check_mcp_object_no_retired_servers(repo)

@@ -6,15 +6,15 @@ found on this machine:
   - `repo.d10.mcp_object_no_retired_servers` -- `.mcp.json` parses with an
     `mcpServers` OBJECT (an empty object is the correct, modern state --
     Claude Copilot has shipped no MCP servers of its own since v5.0.0) that
-    names neither retired framework server (`copilot-memory`,
-    `skills-copilot`, both replaced by the `cc`/`tc` CLIs in v5.0.0).
+    names no retired Copilot-owned server (`copilot-memory`,
+    `skills-copilot`, `task-copilot`, or `research-copilot`).
     `cc workspace verify`'s own `_verify_claude_entry` treats ANY
     `mcpServers` object -- including one still declaring a dead server -- as
     PRESENT (`EXISTING-VERIFICATION.md` section 2: "An empty dict passes.").
     That is exactly the hollow pass this harness exists to catch, so this
     check asserts substance (no retired config left behind), not merely
     object shape. Legitimate third-party servers (`nocodb-mcp`,
-    `postgresql-mcp`, `task-copilot`, `delphi-assistant`) are preserved and
+    `postgresql-mcp`, `delphi-assistant`) are preserved and
     never flagged -- `/update-project` explicitly does not touch
     `.mcp.json`, and neither does this check.
 
@@ -61,7 +61,9 @@ if TYPE_CHECKING:
 # `cc`/`tc` CLIs in v5.0.0. Any project still declaring one is running dead
 # config. Kept as a plain data table on purpose -- a future third retirement
 # is one line here, never a change to the check logic below.
-RETIRED_MCP_SERVERS: frozenset[str] = frozenset({"copilot-memory", "skills-copilot"})
+RETIRED_MCP_SERVERS: frozenset[str] = frozenset(
+    {"copilot-memory", "skills-copilot", "task-copilot", "research-copilot"}
+)
 
 # Machine-verified today (`RUBRIC.md` D10 / `TEST-MATRIX.md` IC-D10-MCPOBJ):
 # these 4 PERSONAL/TSM repos still declare a retired server. Verified live,
@@ -109,14 +111,14 @@ _MCP_OBJECT_CHECK = register_check(
     scope=Scope.PER_REPO,
     summary=(
         ".mcp.json parses with an mcpServers object (empty is correct) and "
-        "names neither retired framework server (copilot-memory, "
-        "skills-copilot); third-party servers are preserved."
+        "names no retired Copilot-owned server (copilot-memory, "
+        "skills-copilot, task-copilot, research-copilot); third-party "
+        "servers are preserved."
     ),
     remediation=(
         "Remove the retired server entry/entries from mcpServers -- the "
         "cc/tc CLIs replace them since v5.0.0. Never touch a legitimate "
-        "third-party server (nocodb-mcp, postgresql-mcp, task-copilot, "
-        "delphi-assistant)."
+        "third-party server (nocodb-mcp, postgresql-mcp, delphi-assistant)."
     ),
     mode=Mode.FAST,
     applies_to_classes=_APPLIES_TO,

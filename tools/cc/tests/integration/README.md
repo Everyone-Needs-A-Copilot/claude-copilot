@@ -65,9 +65,6 @@ pytest /path/to/tools/cc/tests/integration/ -v
 ### Migration
 - `cc memory migrate --status` exits 0
 
-### MCP shim
-- `cc mcp config` outputs valid JSON with a `cc` key containing `command` and `args`
-
 ## Cleanup
 
 Both test runners clean up after themselves. Each memory entry created during
