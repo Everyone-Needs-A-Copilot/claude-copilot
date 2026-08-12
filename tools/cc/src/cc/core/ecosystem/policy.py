@@ -193,6 +193,32 @@ def _ssh_signer_fingerprint(*streams: str) -> str | None:
     return match.group(1) if match else None
 
 
+def _resolve_tag_object(
+    root: Path,
+    ref: str,
+    *,
+    run: Callable[..., subprocess.CompletedProcess[str]],
+) -> str | None:
+    """Capture one annotated-tag object identity from a mutable ref name.
+
+    Every later signature, commit, and tree lookup must use this immutable
+    object id.  Re-resolving ``ref`` after signature verification would let a
+    same-user process move the local tag between Git commands and lend the old
+    signature result to different bytes.
+    """
+    result = run(
+        ["git", "-C", str(root), "rev-parse", "--verify", f"{ref}^{{tag}}"],
+        capture_output=True,
+        text=True,
+        timeout=8.0,
+        check=False,
+    )
+    oid = result.stdout.strip()
+    if result.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40,64}", oid):
+        return None
+    return oid
+
+
 def _containing_git_root(path: Path) -> Path | None:
     """Return the nearest repository root for a layer path.
 
@@ -298,9 +324,14 @@ def verify_git_item(
             )
             os.chmod(trust_file, 0o600)
 
+            tag_oid = _resolve_tag_object(root, ref, run=run)
+            if tag_oid is None:
+                return False, None
+
             # Step 1: the tag itself must carry a valid signature from an
-            # allowlisted signer. Stop here on any failure -- an unsigned or
-            # wrongly-signed tag never earns a tree lookup.
+            # allowlisted signer. Verify the captured tag OBJECT, not its
+            # mutable name. Stop here on any failure -- an unsigned or
+            # wrongly-signed object never earns a tree lookup.
             tag_result = run(
                 [
                     "git",
@@ -311,7 +342,7 @@ def verify_git_item(
                     "-C",
                     str(root),
                     "verify-tag",
-                    ref,
+                    tag_oid,
                 ],
                 capture_output=True,
                 text=True,
@@ -331,11 +362,10 @@ def verify_git_item(
                 # membership alone.
                 return False, fingerprint
 
-            # Step 2: resolve the SAME ref to the commit its signature
-            # covers -- never a second, independently-supplied commit -- so
-            # the tree check below is provably the tag's own target.
+            # Step 2: peel the SAME immutable tag object to the commit its
+            # signature covers. Never resolve the mutable ref name again.
             commit_result = run(
-                ["git", "-C", str(root), "rev-parse", f"{ref}^{{commit}}"],
+                ["git", "-C", str(root), "rev-parse", f"{tag_oid}^{{commit}}"],
                 capture_output=True,
                 text=True,
                 timeout=8.0,
@@ -431,6 +461,9 @@ def verify_git_item_provenance(
                 encoding="utf-8",
             )
             os.chmod(trust_file, 0o600)
+            tag_oid = _resolve_tag_object(root, ref, run=run)
+            if tag_oid is None:
+                return None
             tag = run(
                 [
                     "git",
@@ -441,7 +474,7 @@ def verify_git_item_provenance(
                     "-C",
                     str(root),
                     "verify-tag",
-                    ref,
+                    tag_oid,
                 ],
                 capture_output=True,
                 text=True,
@@ -454,7 +487,7 @@ def verify_git_item_provenance(
             if signer is None or _normalize_fingerprint(signer) not in allowed:
                 return None
             commit = run(
-                ["git", "-C", str(root), "rev-parse", f"{ref}^{{commit}}"],
+                ["git", "-C", str(root), "rev-parse", f"{tag_oid}^{{commit}}"],
                 capture_output=True,
                 text=True,
                 timeout=8.0,

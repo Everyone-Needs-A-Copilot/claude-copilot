@@ -1,7 +1,15 @@
 import subprocess
 from pathlib import Path
 
-from cc.core.ecosystem.policy import evaluate, verify_git_item
+from cc.core.ecosystem.policy import (
+    evaluate,
+    read_git_tree_snapshot,
+    verify_git_item,
+    verify_git_item_provenance,
+)
+
+_TAG_OID = "a" * 40
+_COMMIT_OID = "b" * 40
 
 
 def test_non_executable_knowledge_does_not_require_code_signer():
@@ -28,6 +36,8 @@ def test_git_item_accepts_signed_tag_covering_item_in_its_tree(tmp_path):
 
     def fake(args, **kwargs):
         calls.append(list(args))
+        if args[-1].endswith("^{tag}"):
+            return subprocess.CompletedProcess(args, 0, f"{_TAG_OID}\n", "")
         if "verify-tag" in args:
             trust_arg = next(v for v in args if v.startswith("gpg.ssh.allowedSignersFile="))
             observed["trust"] = Path(trust_arg.split("=", 1)[1]).read_text(encoding="utf-8")
@@ -35,7 +45,7 @@ def test_git_item_accepts_signed_tag_covering_item_in_its_tree(tmp_path):
                 args, 0, "", 'Good "git" signature for enac-foundation with ED25519 key SHA256:ABC123\n'
             )
         if "rev-parse" in args:
-            return subprocess.CompletedProcess(args, 0, "deadbeefcafe1234\n", "")
+            return subprocess.CompletedProcess(args, 0, f"{_COMMIT_OID}\n", "")
         if "cat-file" in args:
             return subprocess.CompletedProcess(args, 0, "", "")
         raise AssertionError(f"unexpected git invocation: {args}")
@@ -51,25 +61,31 @@ def test_git_item_accepts_signed_tag_covering_item_in_its_tree(tmp_path):
 
     assert verified is True
     assert signer == "SHA256:ABC123"
-    assert len(calls) == 3
-    tag_call, rev_parse_call, cat_file_call = calls
+    assert len(calls) == 4
+    capture_call, tag_call, rev_parse_call, cat_file_call = calls
+
+    # Step 0: capture one immutable annotated-tag object identity from the
+    # mutable name. Every later command uses this object id.
+    assert capture_call == [
+        "git", "-C", str(tmp_path), "rev-parse", "--verify", "v5.13.23^{tag}",
+    ]
 
     # Step 1: the TAG itself is verified, using a trust file scoped to
     # exactly the compiled-key/manifest-signer intersection.
     assert observed["trust"] == (
         'enac-foundation namespaces="git" ssh-ed25519 AAAATESTKEY\n'
     )
-    assert tag_call[-2:] == ["verify-tag", "v5.13.23"]
+    assert tag_call[-2:] == ["verify-tag", _TAG_OID]
 
     # Step 2: the SAME ref is resolved to the commit its signature covers.
     assert rev_parse_call == [
-        "git", "-C", str(tmp_path), "rev-parse", "v5.13.23^{commit}",
+        "git", "-C", str(tmp_path), "rev-parse", f"{_TAG_OID}^{{commit}}",
     ]
 
     # Step 3: tree membership is checked at that resolved commit -- never a
     # `git log` walk.
     assert cat_file_call == [
-        "git", "-C", str(tmp_path), "cat-file", "-e", "deadbeefcafe1234:skills/review",
+        "git", "-C", str(tmp_path), "cat-file", "-e", f"{_COMMIT_OID}:skills/review",
     ]
 
 
@@ -82,6 +98,8 @@ def test_git_item_rejects_unsigned_or_wrongly_signed_tag(tmp_path):
 
     def fake(args, **kwargs):
         calls.append(list(args))
+        if args[-1].endswith("^{tag}"):
+            return subprocess.CompletedProcess(args, 0, f"{_TAG_OID}\n", "")
         return subprocess.CompletedProcess(args, 1, "", "No principal matched.\n")
 
     verified, signer = verify_git_item(
@@ -94,8 +112,8 @@ def test_git_item_rejects_unsigned_or_wrongly_signed_tag(tmp_path):
     )
 
     assert (verified, signer) == (False, None)
-    assert len(calls) == 1
-    assert calls[0][-2:] == ["verify-tag", "v5.13.23"]
+    assert len(calls) == 2
+    assert calls[1][-2:] == ["verify-tag", _TAG_OID]
 
 
 def test_git_item_rejects_valid_but_unapproved_signer(tmp_path):
@@ -107,6 +125,8 @@ def test_git_item_rejects_valid_but_unapproved_signer(tmp_path):
 
     def fake(args, **kwargs):
         calls.append(list(args))
+        if args[-1].endswith("^{tag}"):
+            return subprocess.CompletedProcess(args, 0, f"{_TAG_OID}\n", "")
         return subprocess.CompletedProcess(
             args, 0, "", 'Good "git" signature for x with ED25519 key SHA256:other\n'
         )
@@ -119,7 +139,7 @@ def test_git_item_rejects_valid_but_unapproved_signer(tmp_path):
         run=fake,
         _trusted_keys={"SHA256:approved": "ssh-ed25519 AAAAAPPROVED"},
     ) == (False, "SHA256:other")
-    assert len(calls) == 1
+    assert len(calls) == 2
 
 
 def test_git_item_rejects_manifest_fingerprint_not_compiled_into_cc(tmp_path):
@@ -168,6 +188,8 @@ def test_git_item_blocks_when_ref_does_not_resolve_after_signed_tag(tmp_path):
 
     def fake(args, **kwargs):
         calls.append(list(args))
+        if args[-1].endswith("^{tag}"):
+            return subprocess.CompletedProcess(args, 0, f"{_TAG_OID}\n", "")
         if "verify-tag" in args:
             return subprocess.CompletedProcess(
                 args, 0, "", 'Good "git" signature for x with ED25519 key SHA256:approved\n'
@@ -184,7 +206,7 @@ def test_git_item_blocks_when_ref_does_not_resolve_after_signed_tag(tmp_path):
         run=fake,
         _trusted_keys={"SHA256:approved": "ssh-ed25519 AAAAAPPROVED"},
     ) == (False, None)
-    assert len(calls) == 2
+    assert len(calls) == 3
 
 
 def test_git_item_blocks_when_item_missing_from_signed_tags_tree(tmp_path):
@@ -198,12 +220,14 @@ def test_git_item_blocks_when_item_missing_from_signed_tags_tree(tmp_path):
 
     def fake(args, **kwargs):
         calls.append(list(args))
+        if args[-1].endswith("^{tag}"):
+            return subprocess.CompletedProcess(args, 0, f"{_TAG_OID}\n", "")
         if "verify-tag" in args:
             return subprocess.CompletedProcess(
                 args, 0, "", 'Good "git" signature for x with ED25519 key SHA256:approved\n'
             )
         if "rev-parse" in args:
-            return subprocess.CompletedProcess(args, 0, "deadbeefcafe1234\n", "")
+            return subprocess.CompletedProcess(args, 0, f"{_COMMIT_OID}\n", "")
         if "cat-file" in args:
             return subprocess.CompletedProcess(
                 args, 128, "", "fatal: path 'skills/review' does not exist"
@@ -218,7 +242,7 @@ def test_git_item_blocks_when_item_missing_from_signed_tags_tree(tmp_path):
         run=fake,
         _trusted_keys={"SHA256:approved": "ssh-ed25519 AAAAAPPROVED"},
     ) == (False, None)
-    assert len(calls) == 3
+    assert len(calls) == 4
 
 
 def test_git_item_verifies_repo_relative_path_from_layer_subpath(tmp_path):
@@ -228,13 +252,15 @@ def test_git_item_verifies_repo_relative_path_from_layer_subpath(tmp_path):
     observed = {}
 
     def good(args, **kwargs):
+        if args[-1].endswith("^{tag}"):
+            return subprocess.CompletedProcess(args, 0, f"{_TAG_OID}\n", "")
         if "verify-tag" in args:
             observed["repo"] = args[args.index("-C") + 1]
             return subprocess.CompletedProcess(
                 args, 0, "", 'Good "git" signature for x with ED25519 key SHA256:approved\n'
             )
         if "rev-parse" in args:
-            return subprocess.CompletedProcess(args, 0, "deadbeefcafe1234\n", "")
+            return subprocess.CompletedProcess(args, 0, f"{_COMMIT_OID}\n", "")
         if "cat-file" in args:
             observed["path"] = args[-1]
             return subprocess.CompletedProcess(args, 0, "", "")
@@ -250,7 +276,7 @@ def test_git_item_verifies_repo_relative_path_from_layer_subpath(tmp_path):
     ) == (True, "SHA256:approved")
     assert observed == {
         "repo": str(tmp_path),
-        "path": "deadbeefcafe1234:.claude/commands/protocol.md",
+        "path": f"{_COMMIT_OID}:.claude/commands/protocol.md",
     }
 
 
@@ -369,3 +395,78 @@ def test_git_item_real_repro_still_blocks_genuinely_unsigned_tag(tmp_path):
         ref="v1.0.0",
         _trusted_keys={fingerprint: public_key},
     ) == (False, None)
+
+
+def test_provenance_binds_one_tag_object_across_ref_switch(tmp_path):
+    """A mutable tag name cannot lend its signature to replacement bytes."""
+    repo, fingerprint, public_key = _init_signing_repo(tmp_path)
+    skill = repo / "skills" / "review" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("signed bytes\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-q", "--no-gpg-sign", "-m", "signed tree"],
+        cwd=repo,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "tag", "-s", "v1.0.0", "-m", "signed release"],
+        cwd=repo,
+        check=True,
+    )
+    signed_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    skill.write_text("unsigned replacement bytes\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-q", "--no-gpg-sign", "-m", "replacement"],
+        cwd=repo,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "tag", "-a", "unsigned-replacement", "-m", "unsigned"],
+        cwd=repo,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "checkout", "-q", "--detach", signed_commit], cwd=repo, check=True
+    )
+
+    switched = False
+
+    def switch_after_verification(args, **kwargs):
+        nonlocal switched
+        result = subprocess.run(args, **kwargs)
+        if not switched and "verify-tag" in args and result.returncode == 0:
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repo),
+                    "update-ref",
+                    "refs/tags/v1.0.0",
+                    "refs/tags/unsigned-replacement",
+                ],
+                check=True,
+            )
+            switched = True
+        return result
+
+    proof = verify_git_item_provenance(
+        repo,
+        "skills/review",
+        [fingerprint],
+        ref="v1.0.0",
+        run=switch_after_verification,
+        _trusted_keys={fingerprint: public_key},
+    )
+    assert proof is not None
+    snapshot = read_git_tree_snapshot(repo, proof.tree)
+    assert snapshot is not None
+    assert [item.content for item in snapshot.files] == [b"signed bytes\n"]
