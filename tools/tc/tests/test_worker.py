@@ -368,7 +368,7 @@ class TestWorkerReadmeContentMatchesReality:
     def _worker_section_code_blocks(self) -> str:
         from pathlib import Path
 
-        readme = Path("/Volumes/Dev/Sites/COPILOT/claude-copilot/tools/tc/README.md")
+        readme = Path(__file__).resolve().parents[1] / "README.md"
         text = readme.read_text(encoding="utf-8")
         worker_section = text.split("### `tc worker`")[1].split("### `tc deploy`")[0]
         return "\n".join(_fenced_bash_blocks(worker_section))

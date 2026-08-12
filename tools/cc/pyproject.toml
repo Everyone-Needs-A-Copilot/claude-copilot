@@ -27,6 +27,10 @@ dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
     "jsonschema>=4.18.0",
+    # test_embedding_backend imports numpy directly while using a stub model.
+    # Keep the full model stack optional, but make the complete test suite
+    # collectable from the documented dev extra.
+    "numpy>=1.24.0",
 ]
 
 [project.scripts]

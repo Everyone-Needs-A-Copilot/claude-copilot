@@ -26,10 +26,9 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 from pathlib import Path
 
-REPO_ROOT = Path("/Volumes/Dev/Sites/COPILOT/claude-copilot")
+REPO_ROOT = Path(__file__).resolve().parents[1]
 QUALITY_GATES_JSON = REPO_ROOT / ".claude" / "quality-gates.json"
 PACKAGE_JSON = REPO_ROOT / "package.json"
 

@@ -30,7 +30,7 @@ import json
 import re
 from pathlib import Path
 
-REPO_ROOT = Path("/Volumes/Dev/Sites/COPILOT/claude-copilot")
+REPO_ROOT = Path(__file__).resolve().parents[3]
 ORCHESTRATE_MD = REPO_ROOT / ".claude/commands/orchestrate.md"
 
 
