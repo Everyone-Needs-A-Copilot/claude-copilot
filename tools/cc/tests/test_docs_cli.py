@@ -42,8 +42,9 @@ def runner() -> CliRunner:
 
 def _invoke(runner: CliRunner, args: list[str]):
     # Rich collapses option columns when the detected terminal is narrow.
-    # Help-contract assertions must be independent of CI runner width.
-    return runner.invoke(app, args, terminal_width=160)
+    # Actions also forces ANSI color, which can split option tokens in the
+    # captured string. Help-contract assertions must be independent of both.
+    return runner.invoke(app, args, terminal_width=160, color=False)
 
 
 class _FakeBackend:
