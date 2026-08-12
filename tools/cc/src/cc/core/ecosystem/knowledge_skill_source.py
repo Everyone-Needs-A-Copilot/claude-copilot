@@ -11,6 +11,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
+import secrets
 import shutil
 import stat
 import subprocess
@@ -29,6 +31,8 @@ from cc.core.ecosystem.policy import (
 )
 from cc.core.ecosystem.project_locking import (
     UnsafeProjectPath,
+    advisory_file_lock,
+    atomic_json_write,
     ensure_private_directory,
     fsync_directory,
 )
@@ -52,6 +56,8 @@ class VerifiedKnowledgeSkillSource:
     tree: str
     signer: str
     snapshot: GitTreeSnapshot
+    snapshot_cache_root: Path
+    entitlement_binding: entitlement.EntitlementBinding | None = None
 
     def skill_files(self) -> tuple[Path, ...]:
         """Return SKILL.md paths enumerated by the immutable Git tree."""
@@ -69,21 +75,60 @@ class VerifiedKnowledgeSkillSource:
             raise KnowledgeSkillSourceError(
                 "The requested Knowledge skill is absent from its signed release."
             )
+
+        def read_current() -> bytes:
+            with advisory_file_lock(
+                _snapshot_lock_path(self.snapshot_cache_root), blocking=True
+            ):
+                if not _snapshot_matches(self.skills_root, self.snapshot):
+                    raise KnowledgeSkillSourceError(
+                        "The authenticated Knowledge snapshot is unavailable."
+                    )
+                expected_mode = 0o500 if item.mode & 0o111 else 0o400
+                content = _read_private_file(path, expected_mode=expected_mode)
+                if content != item.content:
+                    raise KnowledgeSkillSourceError(
+                        "The authenticated Knowledge snapshot changed before use."
+                    )
+                return content
+
+        if self.entitlement_binding is None:
+            content = read_current()
+        else:
+            valid, content = entitlement.run_under_binding_leases(
+                [self.entitlement_binding], read_current
+            )
+            if not valid or content is None:
+                raise KnowledgeSkillSourceError(
+                    "Knowledge authorization changed before use; retry the command."
+                )
         try:
-            return item.content.decode("utf-8")
+            return content.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise KnowledgeSkillSourceError(
                 "The requested Knowledge skill is not valid UTF-8."
             ) from exc
 
 
-def _snapshot_cache_root() -> Path:
+SNAPSHOT_INDEX_SCHEMA_VERSION = "1.0"
+_SNAPSHOT_INDEX_NAME = "index.json"
+_SNAPSHOT_LOCK_NAME = ".lifecycle.lock"
+_DIGEST = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _snapshot_lock_path(base: Path) -> Path:
+    return base / _SNAPSHOT_LOCK_NAME
+
+
+def _snapshot_cache_root(*, create: bool = True) -> Path:
     """Return a private, non-symlinked root for authenticated snapshots."""
     from cc.core import config
 
     raw = config.resolve_key("skills.cache_dir")
     cache_root = _nominal(raw or Path.home() / ".claude" / "cache" / "skills")
     snapshots = cache_root / "signed-knowledge-v1"
+    if not create and not snapshots.exists() and not snapshots.is_symlink():
+        return snapshots
     try:
         ensure_private_directory(cache_root, boundary=cache_root)
         ensure_private_directory(snapshots, boundary=cache_root)
@@ -92,6 +137,339 @@ def _snapshot_cache_root() -> Path:
             "The private Knowledge snapshot cache is unsafe."
         ) from exc
     return snapshots
+
+
+def _empty_snapshot_index() -> dict[str, Any]:
+    return {"schema_version": SNAPSHOT_INDEX_SCHEMA_VERSION, "entries": {}}
+
+
+def _valid_snapshot_entry(key: str, value: object) -> bool:
+    if not _DIGEST.fullmatch(key) or not isinstance(value, dict):
+        return False
+    if set(value) != {
+        "binding",
+        "protected",
+        "layer",
+        "repository",
+        "login",
+        "revision",
+        "ref",
+        "tree",
+        "signer",
+        "state_path",
+        "target",
+        "status",
+    }:
+        return False
+    target = value.get("target")
+    relative = Path(target) if isinstance(target, str) else Path("/")
+    protected = value.get("protected")
+    protected_target = (
+        len(relative.parts) == 4
+        and relative.parts[0] == "protected"
+        and all(_DIGEST.fullmatch(part) for part in relative.parts[1:])
+    )
+    public_target = (
+        len(relative.parts) == 2
+        and relative.parts[0] == "public"
+        and _DIGEST.fullmatch(relative.parts[1])
+    )
+    return bool(
+        value.get("binding") == key
+        and isinstance(protected, bool)
+        and isinstance(value.get("layer"), str)
+        and value.get("layer")
+        and isinstance(value.get("repository"), str)
+        and value.get("repository")
+        and (value.get("login") is None or isinstance(value.get("login"), str))
+        and (
+            value.get("revision") is None
+            or isinstance(value.get("revision"), int)
+            and not isinstance(value.get("revision"), bool)
+            and value.get("revision") >= 0
+        )
+        and all(
+            isinstance(value.get(field), str) and value.get(field)
+            for field in ("ref", "tree", "signer")
+        )
+        and (
+            isinstance(value.get("state_path"), str) and value.get("state_path")
+            if protected
+            else value.get("state_path") is None
+        )
+        and value.get("status") in {"pending", "active"}
+        and isinstance(target, str)
+        and not relative.is_absolute()
+        and ".." not in relative.parts
+        and (protected_target if protected else public_target)
+        and relative.parts[-1] == key
+        and (
+            value.get("revision") is not None
+            if protected
+            else value.get("revision") is None and value.get("login") is None
+        )
+    )
+
+
+def _load_snapshot_index(base: Path) -> dict[str, Any]:
+    path = base / _SNAPSHOT_INDEX_NAME
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        return _empty_snapshot_index()
+    except OSError as exc:
+        raise KnowledgeSkillSourceError(
+            "The private Knowledge snapshot index is unavailable."
+        ) from exc
+    if (
+        path.is_symlink()
+        or not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_uid != os.geteuid()
+        or stat.S_IMODE(metadata.st_mode) != 0o600
+    ):
+        raise KnowledgeSkillSourceError(
+            "The private Knowledge snapshot index is unsafe."
+        )
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise KnowledgeSkillSourceError(
+            "The private Knowledge snapshot index is invalid."
+        ) from exc
+    if (
+        not isinstance(raw, dict)
+        or set(raw) != {"schema_version", "entries"}
+        or raw.get("schema_version") != SNAPSHOT_INDEX_SCHEMA_VERSION
+        or not isinstance(raw.get("entries"), dict)
+        or not all(_valid_snapshot_entry(key, value) for key, value in raw["entries"].items())
+    ):
+        raise KnowledgeSkillSourceError(
+            "The private Knowledge snapshot index is invalid."
+        )
+    return raw
+
+
+def _write_snapshot_index(base: Path, index: dict[str, Any]) -> None:
+    try:
+        atomic_json_write(base / _SNAPSHOT_INDEX_NAME, index)
+    except (OSError, UnsafeProjectPath) as exc:
+        raise KnowledgeSkillSourceError(
+            "The private Knowledge snapshot index could not be updated."
+        ) from exc
+
+
+def _scope_digest(*values: object) -> str:
+    encoded = json.dumps(
+        ["signed-knowledge-scope-v1", *values],
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _snapshot_relative_target(
+    binding: str, *, layer: str, repository: str, login: str | None, revision: int
+) -> Path:
+    scope = _scope_digest(layer, repository, login)
+    generation = _scope_digest(revision)
+    return Path("protected") / scope / generation / binding
+
+
+def _recover_snapshot_state(base: Path, index: dict[str, Any]) -> None:
+    """Recover interrupted prune/publication without broad deletion authority."""
+    changed = False
+    entries = index["entries"]
+    for key, entry in list(entries.items()):
+        target = base / entry["target"]
+        if entry["status"] == "pending" or not target.exists() or target.is_symlink():
+            if target.exists() or target.is_symlink():
+                _remove_snapshot_target(base, Path(entry["target"]))
+            entries.pop(key)
+            changed = True
+    for candidate in base.iterdir():
+        if not re.fullmatch(r"\.reap-[0-9a-f]{32}", candidate.name):
+            continue
+        try:
+            metadata = candidate.lstat()
+        except OSError:
+            continue
+        if (
+            stat.S_ISDIR(metadata.st_mode)
+            and not stat.S_ISLNK(metadata.st_mode)
+            and metadata.st_uid == os.geteuid()
+        ):
+            _make_stage_writable(candidate)
+            shutil.rmtree(candidate, ignore_errors=True)
+    if changed:
+        _write_snapshot_index(base, index)
+
+
+def _remove_snapshot_target(base: Path, relative: Path) -> bool:
+    protected_target = (
+        len(relative.parts) == 4
+        and relative.parts[0] == "protected"
+        and all(_DIGEST.fullmatch(part) for part in relative.parts[1:])
+    )
+    public_target = (
+        len(relative.parts) == 2
+        and relative.parts[0] == "public"
+        and bool(_DIGEST.fullmatch(relative.parts[1]))
+    )
+    if relative.is_absolute() or ".." in relative.parts or not (
+        protected_target or public_target
+    ):
+        raise KnowledgeSkillSourceError(
+            "The private Knowledge snapshot index contains an unsafe target."
+        )
+    target = base / relative
+    try:
+        metadata = target.lstat()
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        raise KnowledgeSkillSourceError(
+            "A protected Knowledge snapshot could not be inspected."
+        ) from exc
+    if stat.S_ISLNK(metadata.st_mode):
+        try:
+            target.unlink()
+            fsync_directory(target.parent)
+            return True
+        except OSError as exc:
+            raise KnowledgeSkillSourceError(
+                "A protected Knowledge snapshot link could not be revoked."
+            ) from exc
+    if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.geteuid():
+        raise KnowledgeSkillSourceError(
+            "A protected Knowledge snapshot target is unsafe."
+        )
+    tombstone = base / f".reap-{secrets.token_hex(16)}"
+    try:
+        os.rename(target, tombstone)
+        fsync_directory(target.parent)
+        fsync_directory(base)
+    except OSError as exc:
+        raise KnowledgeSkillSourceError(
+            "A protected Knowledge snapshot could not be revoked atomically."
+        ) from exc
+    _make_stage_writable(tombstone)
+    shutil.rmtree(tombstone, ignore_errors=True)
+    return True
+
+
+def _revoke_protected_root(base: Path) -> None:
+    """Invalidate every protected pathname if its private index is corrupt."""
+    protected = base / "protected"
+    try:
+        metadata = protected.lstat()
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise KnowledgeSkillSourceError(
+            "The protected Knowledge snapshot root could not be inspected."
+        ) from exc
+    if stat.S_ISLNK(metadata.st_mode):
+        try:
+            protected.unlink()
+            fsync_directory(base)
+            return
+        except OSError as exc:
+            raise KnowledgeSkillSourceError(
+                "The protected Knowledge snapshot root could not be revoked."
+            ) from exc
+    if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.geteuid():
+        raise KnowledgeSkillSourceError(
+            "The protected Knowledge snapshot root is unsafe."
+        )
+    tombstone = base / f".reap-{secrets.token_hex(16)}"
+    try:
+        os.rename(protected, tombstone)
+        fsync_directory(base)
+    except OSError as exc:
+        raise KnowledgeSkillSourceError(
+            "The protected Knowledge snapshot root could not be revoked."
+        ) from exc
+    _make_stage_writable(tombstone)
+    shutil.rmtree(tombstone, ignore_errors=True)
+
+
+def prune_protected_knowledge_snapshots(
+    *,
+    layer: str | None = None,
+    repository: str | None = None,
+    state_path: Path | str | None = None,
+    keep_login: str | None = None,
+    keep_revision: int | None = None,
+    cache_root: Path | str | None = None,
+    dry_run: bool = False,
+) -> int:
+    """Prune exact indexed protected snapshots; never scan arbitrary paths."""
+    base = (
+        _nominal(cache_root)
+        if cache_root is not None
+        else _snapshot_cache_root(create=False)
+    )
+    if not base.exists():
+        return 0
+    with advisory_file_lock(_snapshot_lock_path(base), blocking=True):
+        try:
+            index = _load_snapshot_index(base)
+        except KnowledgeSkillSourceError:
+            # The index grants precise per-entry cleanup authority.  If it is
+            # corrupt, invalidate only the dedicated protected root so a stale
+            # disclosed path cannot survive by corrupting cleanup metadata.
+            if not dry_run:
+                _revoke_protected_root(base)
+            raise
+        _recover_snapshot_state(base, index)
+        selected: list[tuple[str, dict[str, Any]]] = []
+        normalized_state = str(Path(state_path).expanduser()) if state_path is not None else None
+        for key, entry in index["entries"].items():
+            if not entry["protected"]:
+                continue
+            if layer is not None and entry["layer"] != layer:
+                continue
+            if repository is not None and entry["repository"] != repository:
+                continue
+            if normalized_state is not None and entry["state_path"] != normalized_state:
+                continue
+            if (
+                keep_revision is not None
+                and entry["revision"] == keep_revision
+                and entry["login"] == keep_login
+            ):
+                continue
+            selected.append((key, entry))
+        if dry_run:
+            return len(selected)
+        for key, entry in selected:
+            _remove_snapshot_target(base, Path(entry["target"]))
+            index["entries"].pop(key, None)
+        if selected:
+            _write_snapshot_index(base, index)
+        return len(selected)
+
+
+def prune_all_knowledge_snapshots(
+    *, cache_root: Path | str, dry_run: bool = False
+) -> int:
+    """Hard-deprovision every exact framework-indexed Knowledge snapshot."""
+    base = _nominal(cache_root)
+    if not base.exists():
+        return 0
+    with advisory_file_lock(_snapshot_lock_path(base), blocking=True):
+        index = _load_snapshot_index(base)
+        _recover_snapshot_state(base, index)
+        entries = list(index["entries"].items())
+        if dry_run:
+            return len(entries)
+        for key, entry in entries:
+            _remove_snapshot_target(base, Path(entry["target"]))
+            index["entries"].pop(key, None)
+        if entries:
+            _write_snapshot_index(base, index)
+        return len(entries)
 
 
 def _snapshot_binding(
@@ -162,7 +540,10 @@ def _snapshot_matches(target: Path, snapshot: GitTreeSnapshot) -> bool:
             not stat.S_ISDIR(root_metadata.st_mode)
             or stat.S_ISLNK(root_metadata.st_mode)
             or root_metadata.st_uid != os.geteuid()
-            or stat.S_IMODE(root_metadata.st_mode) != 0o500
+            # The publication root remains 0700 so macOS can atomically
+            # rename it during revocation.  Every descendant and file stays
+            # read/execute-only and every read verifies the exact tree.
+            or stat.S_IMODE(root_metadata.st_mode) != 0o700
         ):
             return False
         expected_files = {item.path: item for item in snapshot.files}
@@ -231,10 +612,11 @@ def _materialize_snapshot(
     ref: str,
     tree: str,
     signer: str,
+    entitlement_binding: entitlement.EntitlementBinding | None,
 ) -> Path:
     """Atomically publish exact Git-object bytes under a private digest path."""
     base = _snapshot_cache_root()
-    binding = _snapshot_binding(
+    content_binding = _snapshot_binding(
         repository=repository,
         layer=layer,
         ref=ref,
@@ -242,7 +624,74 @@ def _materialize_snapshot(
         signer=signer,
         snapshot=snapshot,
     )
-    target = base / binding
+    if entitlement_binding is None:
+        binding = content_binding
+        relative_target = Path("public") / binding
+        index_entry = {
+            "binding": binding,
+            "protected": False,
+            "layer": layer,
+            "repository": repository,
+            "login": None,
+            "revision": None,
+            "ref": ref,
+            "tree": tree,
+            "signer": signer,
+            "state_path": None,
+            "target": relative_target.as_posix(),
+            "status": "pending",
+        }
+    else:
+        # A protected cache identity is both content-addressed and authority-
+        # generation-addressed.  Reauthorization may select the same Git tree,
+        # but it must never revive the pathname disclosed by an older grant.
+        binding = _scope_digest(
+            content_binding,
+            layer,
+            repository,
+            entitlement_binding.login,
+            entitlement_binding.revision,
+        )
+        relative_target = _snapshot_relative_target(
+            binding,
+            layer=layer,
+            repository=repository,
+            login=entitlement_binding.login,
+            revision=entitlement_binding.revision,
+        )
+        index_entry = {
+            "binding": binding,
+            "protected": True,
+            "layer": layer,
+            "repository": repository,
+            "login": entitlement_binding.login,
+            "revision": entitlement_binding.revision,
+            "ref": ref,
+            "tree": tree,
+            "signer": signer,
+            "state_path": entitlement_binding.state_path,
+            "target": relative_target.as_posix(),
+            "status": "pending",
+        }
+    target = base / relative_target
+    ensure_private_directory(target.parent, boundary=base)
+
+    index = _load_snapshot_index(base)
+    _recover_snapshot_state(base, index)
+    recorded = index["entries"].get(binding)
+    if recorded is not None:
+        if recorded != (index_entry | {"status": "active"}):
+            raise KnowledgeSkillSourceError(
+                "A Knowledge snapshot binding conflicts with its private index."
+            )
+        if _snapshot_matches(target, snapshot):
+            return target
+        raise KnowledgeSkillSourceError(
+            "A cached Knowledge snapshot failed integrity verification."
+        )
+    index["entries"][binding] = index_entry
+    _write_snapshot_index(base, index)
+
     if target.exists() or target.is_symlink():
         if _snapshot_matches(target, snapshot):
             return target
@@ -250,7 +699,7 @@ def _materialize_snapshot(
             "A cached Knowledge snapshot failed integrity verification."
         )
 
-    stage = Path(tempfile.mkdtemp(prefix=f".{binding}.", dir=base))
+    stage = Path(tempfile.mkdtemp(prefix=f".{binding}.", dir=target.parent))
     try:
         stage.chmod(0o700)
         for item in snapshot.files:
@@ -280,18 +729,21 @@ def _materialize_snapshot(
             fsync_directory(directory)
             directory.chmod(0o500)
         fsync_directory(stage)
-        stage.chmod(0o500)
+        stage.chmod(0o700)
 
         try:
             os.rename(stage, target)
         except OSError:
             if not _snapshot_matches(target, snapshot):
                 raise
+        fsync_directory(target.parent)
         fsync_directory(base)
         if not _snapshot_matches(target, snapshot):
             raise KnowledgeSkillSourceError(
                 "The authenticated Knowledge snapshot changed during publication."
             )
+        index["entries"][binding]["status"] = "active"
+        _write_snapshot_index(base, index)
         return target
     except KnowledgeSkillSourceError:
         raise
@@ -376,14 +828,22 @@ def _signed_policy(layer: dict[str, Any]) -> list[str] | None:
 
 
 def _effective_knowledge_layers(
-    manifest_source: Any, mirror_root_base: Path | str
-) -> tuple[list[dict[str, Any]], set[str]]:
+    knowledge: list[dict[str, Any]],
+    mirror_root_base: Path | str,
+    *,
+    state_path: Path,
+    login: str | None,
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[entitlement.EntitlementDecision],
+]:
     try:
-        layers = validate_layers(load_layers(manifest_source))
-        knowledge = [layer for layer in layers if layer.get("product") == "knowledge"]
         if not knowledge:
-            return [], set()
-        eligible, _decisions = entitlement.filter_eligible_layers(knowledge)
+            return [], [], []
+        eligible, decisions = entitlement.filter_eligible_layers(
+            knowledge, state_path=state_path, login=login
+        )
         effective = synthesize_effective_layers(
             knowledge, mirror_root_base=mirror_root_base
         )
@@ -391,7 +851,7 @@ def _effective_knowledge_layers(
         raise KnowledgeSkillSourceError(
             "The configured Knowledge layer manifest is invalid."
         ) from exc
-    return effective, {str(layer.get("id")) for layer in eligible}
+    return effective, eligible, decisions
 
 
 def resolve_knowledge_skill_sources(
@@ -399,6 +859,8 @@ def resolve_knowledge_skill_sources(
     repositories: Iterable[str] | None = None,
     manifest_source: Any = None,
     mirror_root_base: Path | str | None = None,
+    entitlement_state_path_value: Path | str | None = None,
+    entitlement_login: str | None = None,
 ) -> list[tuple[Path, VerifiedKnowledgeSkillSource | None]]:
     """Resolve configured roots and authenticate every signed matching layer.
 
@@ -422,92 +884,176 @@ def resolve_knowledge_skill_sources(
             for repo in configured_repositories
             if (_nominal(repo) / KNOWLEDGE_SKILLS_SUBPATH).is_dir()
         ]
+    try:
+        layers = validate_layers(load_layers(configured_manifest))
+        declared_knowledge = [
+            layer for layer in layers if layer.get("product") == "knowledge"
+        ]
+    except (ManifestError, OSError, TypeError, ValueError) as exc:
+        raise KnowledgeSkillSourceError(
+            "The configured Knowledge layer manifest is invalid."
+        ) from exc
     mirrors = (
         config.resolve_key("paths.mirrors_root")
         if mirror_root_base is None
         else mirror_root_base
     )
-    effective, eligible_ids = _effective_knowledge_layers(
-        configured_manifest, mirrors or Path.home() / ".copilot" / "mirrors"
+    protected_declared = [
+        layer for layer in declared_knowledge if entitlement.is_protected_layer(layer)
+    ]
+    if protected_declared:
+        state_path = (
+            Path(entitlement_state_path_value).expanduser()
+            if entitlement_state_path_value is not None
+            else entitlement.entitlement_state_path()
+        )
+        login = (
+            entitlement_login
+            if entitlement_login is not None
+            else entitlement.current_login()
+        )
+    else:
+        # Public/anonymous Knowledge must not require or even inspect account
+        # state.  This sentinel is never consumed when no layer is protected.
+        state_path = Path("/")
+        login = None
+    effective, eligible, decisions = _effective_knowledge_layers(
+        declared_knowledge,
+        mirrors or Path.home() / ".copilot" / "mirrors",
+        state_path=state_path,
+        login=login,
     )
-    result: list[tuple[Path, VerifiedKnowledgeSkillSource | None]] = []
-    for repo_value in configured_repositories:
-        repo = _nominal(repo_value)
-        skills_root = repo / KNOWLEDGE_SKILLS_SUBPATH
-        matches = [
-            layer
-            for layer in effective
-            if isinstance((layer.get("source") or {}).get("path"), str)
-            and _nominal((layer.get("source") or {})["path"]) == repo
-        ]
-        if len(matches) > 1:
-            raise KnowledgeSkillSourceError(
-                "A configured Knowledge repository matches more than one layer."
-            )
-        if not matches:
-            if skills_root.is_dir():
-                result.append((skills_root, None))
-            continue
-        layer = matches[0]
-        signers = _signed_policy(layer)
-        if signers is None:
-            if skills_root.is_dir():
-                result.append((skills_root, None))
-            continue
-        if str(layer.get("id")) not in eligible_ids:
-            continue
-        source = layer.get("source") or {}
-        ref = source.get("ref")
-        expected_repository = repository_identity(source.get("repo"))
-        if not isinstance(ref, str) or not ref or expected_repository is None:
-            raise KnowledgeSkillSourceError(
-                "The effective Knowledge layer lacks immutable source provenance."
-            )
-        verified = verify_git_item_provenance(
-            repo, KNOWLEDGE_SKILLS_SUBPATH, signers, ref=ref
+    eligible_ids = {str(layer.get("id")) for layer in eligible}
+    decision_by_id = {decision.layer: decision for decision in decisions}
+    declared_by_id = {
+        str(layer.get("id")): layer
+        for layer in declared_knowledge
+    }
+    bindings = (
+        entitlement.bind_layer_decisions(
+            list(declared_by_id.values()),
+            decisions,
+            state_path=state_path,
+            login=login,
         )
-        if verified is None:
-            raise KnowledgeSkillSourceError(
-                "The effective Knowledge skills do not match their signed release."
+        if protected_declared
+        else ()
+    )
+    binding_by_id = {binding.layer: binding for binding in bindings}
+
+    def resolve_bound() -> list[tuple[Path, VerifiedKnowledgeSkillSource | None]]:
+        result: list[tuple[Path, VerifiedKnowledgeSkillSource | None]] = []
+        protected_ids = {
+            layer_id
+            for layer_id, layer in declared_by_id.items()
+            if entitlement.is_protected_layer(layer)
+        }
+        base = _snapshot_cache_root()
+        for layer_id in protected_ids:
+            layer = declared_by_id[layer_id]
+            source = layer.get("source") or {}
+            repository = repository_identity(source.get("repo"))
+            decision = decision_by_id.get(layer_id)
+            if repository is None or decision is None:
+                continue
+            prune_protected_knowledge_snapshots(
+                layer=layer_id,
+                repository=repository,
+                state_path=state_path,
+                keep_login=login if decision.eligible else None,
+                keep_revision=decision.revision if decision.eligible else None,
+                cache_root=base,
             )
-        repository_root = Path(verified.repository_root)
-        if _origin(repository_root) != expected_repository:
-            raise KnowledgeSkillSourceError(
-                "The effective Knowledge checkout has the wrong repository origin."
+
+        for repo_value in configured_repositories:
+            repo = _nominal(repo_value)
+            skills_root = repo / KNOWLEDGE_SKILLS_SUBPATH
+            matches = [
+                layer
+                for layer in effective
+                if isinstance((layer.get("source") or {}).get("path"), str)
+                and _nominal((layer.get("source") or {})["path"]) == repo
+            ]
+            if len(matches) > 1:
+                raise KnowledgeSkillSourceError(
+                    "A configured Knowledge repository matches more than one layer."
+                )
+            if not matches:
+                if skills_root.is_dir():
+                    result.append((skills_root, None))
+                continue
+            layer = matches[0]
+            signers = _signed_policy(layer)
+            if signers is None:
+                if skills_root.is_dir():
+                    result.append((skills_root, None))
+                continue
+            layer_id = str(layer.get("id"))
+            if layer_id not in eligible_ids:
+                continue
+            source = layer.get("source") or {}
+            ref = source.get("ref")
+            expected_repository = repository_identity(source.get("repo"))
+            if not isinstance(ref, str) or not ref or expected_repository is None:
+                raise KnowledgeSkillSourceError(
+                    "The effective Knowledge layer lacks immutable source provenance."
+                )
+            verified = verify_git_item_provenance(
+                repo, KNOWLEDGE_SKILLS_SUBPATH, signers, ref=ref
             )
-        if _has_ignored_additions(repository_root, verified.relative_path):
-            raise KnowledgeSkillSourceError(
-                "The effective Knowledge skills contain ignored local additions."
-            )
-        snapshot = read_git_tree_snapshot(repository_root, verified.tree)
-        if snapshot is None:
-            raise KnowledgeSkillSourceError(
-                "The signed Knowledge skill tree contains an unsafe Git object."
-            )
-        layer_id = str(layer["id"])
-        materialized_root = _materialize_snapshot(
-            snapshot,
-            repository=expected_repository,
-            layer=layer_id,
-            ref=verified.ref,
-            tree=verified.tree,
-            signer=verified.signer,
-        )
-        result.append(
-            (
-                materialized_root,
-                VerifiedKnowledgeSkillSource(
-                    skills_root=materialized_root,
-                    repository_root=repository_root,
-                    relative_path=verified.relative_path,
+            if verified is None:
+                raise KnowledgeSkillSourceError(
+                    "The effective Knowledge skills do not match their signed release."
+                )
+            repository_root = Path(verified.repository_root)
+            if _origin(repository_root) != expected_repository:
+                raise KnowledgeSkillSourceError(
+                    "The effective Knowledge checkout has the wrong repository origin."
+                )
+            if _has_ignored_additions(repository_root, verified.relative_path):
+                raise KnowledgeSkillSourceError(
+                    "The effective Knowledge skills contain ignored local additions."
+                )
+            snapshot = read_git_tree_snapshot(repository_root, verified.tree)
+            if snapshot is None:
+                raise KnowledgeSkillSourceError(
+                    "The signed Knowledge skill tree contains an unsafe Git object."
+                )
+            entitlement_binding = binding_by_id.get(layer_id)
+            with advisory_file_lock(_snapshot_lock_path(base), blocking=True):
+                materialized_root = _materialize_snapshot(
+                    snapshot,
                     repository=expected_repository,
                     layer=layer_id,
                     ref=verified.ref,
                     tree=verified.tree,
                     signer=verified.signer,
-                    snapshot=snapshot,
-                ),
+                    entitlement_binding=entitlement_binding,
+                )
+            result.append(
+                (
+                    materialized_root,
+                    VerifiedKnowledgeSkillSource(
+                        skills_root=materialized_root,
+                        repository_root=repository_root,
+                        relative_path=verified.relative_path,
+                        repository=expected_repository,
+                        layer=layer_id,
+                        ref=verified.ref,
+                        tree=verified.tree,
+                        signer=verified.signer,
+                        snapshot=snapshot,
+                        snapshot_cache_root=base,
+                        entitlement_binding=entitlement_binding,
+                    ),
+                )
             )
+        return result
+
+    valid, result = entitlement.run_under_binding_leases(bindings, resolve_bound)
+    if not valid or result is None:
+        raise KnowledgeSkillSourceError(
+            "Knowledge authorization changed during resolution; retry the command."
         )
     return result
 
@@ -523,7 +1069,16 @@ def revalidate_knowledge_skill_source(
     )
     if source is None or any(
         getattr(source, field) != getattr(expected, field)
-        for field in ("repository", "layer", "ref", "tree", "signer")
+        for field in (
+            "skills_root",
+            "repository",
+            "layer",
+            "ref",
+            "tree",
+            "signer",
+            "snapshot_cache_root",
+            "entitlement_binding",
+        )
     ):
         raise KnowledgeSkillSourceError(
             "The Knowledge source changed after it was selected; retry the command."
@@ -535,6 +1090,8 @@ __all__ = [
     "KNOWLEDGE_SKILLS_SUBPATH",
     "KnowledgeSkillSourceError",
     "VerifiedKnowledgeSkillSource",
+    "prune_all_knowledge_snapshots",
+    "prune_protected_knowledge_snapshots",
     "resolve_knowledge_skill_sources",
     "revalidate_knowledge_skill_source",
 ]
