@@ -1,217 +1,108 @@
 # Extensions Status
 
-Show the status of the extension system, including knowledge repositories, active extensions, and setup guidance.
+Show the configured Knowledge ladder, reusable skills, and active agent extensions. Do not create or modify files.
 
-## Step 1: Check Knowledge Repository Status
+## 1. Inspect the real Knowledge ladder
 
-`~/.claude/knowledge/knowledge-manifest.json` and `./knowledge-manifest.json` are NOT the machine's real configured knowledge sources — do not read them. The real sources are the ordered `CC_KNOWLEDGE_REPOS` ladder `cc env` exports (`paths.knowledge_repo`, nearest-tier-first: personal → department → org → foundation). Discover it and check each tier for a manifest:
+The only authoritative inputs are `paths.knowledge_repo` and the ordered `CC_KNOWLEDGE_REPOS` value from `cc env` (personal → department → organization → foundation). Do not inspect `~/.claude/knowledge/knowledge-manifest.json` or `./knowledge-manifest.json` unless that path is actually in the ladder.
 
 ```bash
 eval "$(cc env)"
-echo "Ladder (nearest tier first): ${CC_KNOWLEDGE_REPOS:-<none configured>}"
-
-# Portable across bash and zsh (this framework's Bash tool may run either,
-# depending on the harness/OS default shell) -- avoid `read -ra` array
-# syntax, whose `-a` flag is bash-only; zsh needs `-A`. Splitting on
-# newlines via `tr` and reading one line at a time with `while IFS= read -r`
-# is the same idiom already used elsewhere in this repo's command files
-# (setup-project.md, update-project.md) and works identically in both shells.
+echo "${CC_KNOWLEDGE_REPOS:-}"
 echo "${CC_KNOWLEDGE_REPOS:-}" | tr ',' '\n' | while IFS= read -r repo; do
   [[ -z "$repo" ]] && continue
   if [[ -f "$repo/knowledge-manifest.json" ]]; then
     name="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('name','?'))" "$repo/knowledge-manifest.json" 2>/dev/null)"
-    echo "FOUND:   $repo  (name: $name)"
+    echo "FOUND: $repo (name: $name)"
   else
-    echo "MISSING: $repo  (no knowledge-manifest.json at this tier)"
+    echo "MISSING: $repo"
   fi
 done
 ```
 
-Store the results (repo path, tier position, name, found/missing) per tier.
+Store each tier's position, path, manifest name, and found/missing state. The `tr`/`while` form is portable across bash and zsh.
 
----
-
-## Step 2: List Active Skills and Extensions
-
-Extensions are per-agent entries inside each tier's `knowledge-manifest.json`, resolved with personal-over-org precedence by walking the SAME `CC_KNOWLEDGE_REPOS` ladder — never a fixed `~/.claude/knowledge/.claude/extensions/` path. Resolve every agent in one deterministic call instead of hand-listing directories:
+## 2. Resolve skills and extensions
 
 ```bash
-# List all discovered skills
 cc skill list
-
-# Resolve every agent's extension across the real ladder (one deterministic
-# call per agent id -- this is what /protocol and every wired agent's own
-# Workflow step 3 now call too, so this status view matches what actually
-# fires on invocation)
 cc extensions resolve --all --json
 ```
 
-Store the parsed JSON array (one object per agent id: `agent`, `action`, `matched`, `type`, `file`, `source_repo`, `description`, `requiredSkills`, `missingSkills`, `warning`).
+Use the returned JSON as source truth. For every agent it supplies `agent`, `action`, `matched`, `type`, `file`, `source_repo`, `description`, `requiredSkills`, `missingSkills`, and `warning`. Resolution is nearest-first: the first tier declaring an agent wins; otherwise the base agent runs unchanged.
 
----
+Interpret `action` without inventing state:
 
-## Step 3: Present Status
+- `apply`: the declared extension is usable; show its type and source tier.
+- `fallback_use_base`: no usable extension was selected; the base agent runs.
+- `fallback_use_base_with_warning`: the base agent runs, and the returned warning must be shown.
+- `fallback_fail`: show the returned warning as a blocking configuration error. Do not claim the agent can run.
+- `no_extension`: no tier declares that agent; this is a healthy base-agent state.
 
-Based on the results, present the extension status.
+`requiredSkills` and `missingSkills` are evidence, not suggestions. When skills are missing, list their exact names beside the affected agent. Do not scan directories or recompute whether a requirement is satisfied; the resolver already applied the same contract used during agent invocation.
 
-### If the ladder resolves at least one manifest or extension:
+## 3. Present status
 
-```
-## Knowledge Ladder (nearest tier first)
+If at least one Knowledge tier is configured, return:
 
-[For each entry in $CC_KNOWLEDGE_REPOS, in order:]
+```text
+## Knowledge Ladder (nearest first)
+
 Tier N: [repo path]
-Status: [✓ knowledge-manifest.json found (name: ...) / ✗ no manifest at this tier]
-
-Resolution rule: for each agent, the FIRST tier (in the order above) whose
-manifest declares an `extensions[]` entry for that agent wins outright --
-personal-over-org precedence falls out of this list's order, not a separate
-rank comparison.
+Status: [✓ manifest found (name: ...) / ✗ manifest missing]
 
 ## Active Skills
 
-[Output from `cc skill list`]
+[cc skill list output]
 
 ## Active Extensions
 
-[Build this table from the real `cc extensions resolve --all --json` output --
-one row per agent where `matched: true`. Do not fabricate rows for agents
-that returned `no_extension`.]
-
 | Agent | Action | Type | Source Tier | Description |
-|-------|--------|------|-------------|--------------|
+|-------|--------|------|-------------|-------------|
 | @agent-<id> | <action> | <type or --> | <source_repo> | <description> |
 
-Agents not listed above returned `no_extension` (no repo in the ladder
-declares an entry for them) -- they run on base framework instructions,
-unchanged. This is a legitimate, honest outcome, not a failure.
-
-## Extension Types
-
-### override
-Completely replaces the base agent with your methodology.
-- Use when: You have a proprietary methodology fundamentally different from base
-- Example: Service Designer using the Moments Framework instead of generic Service Blueprinting
-
-### extension
-Appends company-specific content after the base agent (never a section-level merge -- `cc.core.extensions_resolver.compose_agent_content()` guarantees both bodies of text reach the agent, in a fixed, labeled order; it does not attempt to decide which overlapping prose section "wins").
-- Use when: You want base practices plus company-specific additions
-- Example: UX Designer with company design system requirements
-
-### skills
-Injects additional skills into the agent (no content change).
-- Use when: You have company-specific tools/patterns to make available
-- Example: Tech Architect with company architecture patterns
-
-## Ladder Resolution
-
-The system checks for extensions in ladder order (nearest tier first, exactly
-`$CC_KNOWLEDGE_REPOS`): the first tier whose manifest declares an entry for an
-agent wins; if none do, the base agent runs unchanged. This same resolution
-now fires automatically as step 3 of every wired agent's own Workflow (not
-only when routed through `/protocol`) -- see `docs/00-knowledge-copilot/
-02-consumption-contract.md`.
-
-## Learn More
-
-See: docs/40-extensions/00-extension-spec.md for extension file formats,
-fallback behaviors, and required-skills validation.
+[Agents with matched:false use the base framework unchanged. Surface any warning.]
 ```
 
-### If no tier resolves a manifest or extension:
+Include only real `matched:true` rows. Sort them by agent ID; never fabricate examples.
 
-```
+After the table, summarize unmatched agents in two groups: healthy `no_extension`/`fallback_use_base` outcomes, and warnings or failures that need action. Preserve the resolver's wording for failures so the report cannot convert a fail-closed result into an apparently healthy status.
+
+If the ladder is empty, return:
+
+```text
 ## Extension Status
 
-No knowledge tier configured (or no tier declares any agent extensions).
-Using base framework agents only.
-
-## Knowledge Ladder Status
-
-[List $CC_KNOWLEDGE_REPOS entries with ✗ next to each, or "No knowledge
-tiers configured (CC_KNOWLEDGE_REPOS empty)" if the ladder itself is empty]
+No Knowledge tiers configured. Base framework agents remain available.
 
 ## Active Skills
 
-[Output from `cc skill list`, or "No skills found"]
-
-## Why Use Extensions?
-
-Extensions customize Claude Copilot agents for your team:
-- **Override** agents with proprietary methodologies
-- **Extend** agents with company-specific checklists and standards
-- **Inject skills** to provide company-specific tools and patterns
-
-This is Claude Copilot's biggest differentiator - bringing your company's expertise into the AI workflow.
-
-## Extension Types
-
-### override
-Completely replaces the base agent with your methodology.
-Use when: Your methodology is fundamentally different from generic approach.
-
-### extension
-Appends company-specific content after the base agent (labeled, not merged).
-Use when: You want to keep base practices but add company requirements.
-
-### skills
-Adds company-specific skills to an agent without changing behavior.
-Use when: You want to provide access to proprietary tools/patterns.
+[cc skill list output, or "No skills found"]
 
 ## Get Started
 
-1. Run `/knowledge-copilot` to create or link a knowledge repository -- it
-   writes the repo path into `paths.knowledge_repo` via
-   `cc config set paths.knowledge_repo <path>` (this key accepts an ORDERED
-   LIST for multiple tiers -- personal, department, org, foundation --
-   nearest tier first).
-2. Add a `.claude/extensions/<agent>.override.md` or `.extension.md` file to
-   that repo and declare it in the repo's own `knowledge-manifest.json`
-   `extensions[]` array (see docs/40-extensions/00-extension-spec.md).
-3. Re-run `/extensions` (or `cc extensions resolve --agent <id> --json`) to
-   confirm it resolves.
-
-## Ladder Resolution
-
-The system checks for extensions in ladder order (nearest tier first): the
-first tier whose manifest declares an entry for an agent wins; if none do,
-the base agent runs unchanged.
-
-## Learn More
-
-See: docs/40-extensions/00-extension-spec.md
+1. Run /knowledge-copilot to create or link a repository.
+2. Declare its path with `cc config set paths.knowledge_repo <path>`; multiple paths form a nearest-first list.
+3. Add and declare `.claude/extensions/<agent>.override.md` or `.extension.md` in that repository.
+4. Re-run /extensions to verify the resolved result.
 ```
 
----
+## Explain the extension types
 
-## Formatting Guidelines
+- `override`: replace the base agent with a proprietary methodology.
+- `extension`: append company-specific instructions after the base agent, explicitly labeled; never section-merge them.
+- `skills`: add reusable capabilities without changing agent instructions.
 
-- Use checkmarks (✓) and crosses (✗) for status indicators
-- Show "Not configured" instead of error messages for missing repositories
-- Group extensions by agent ID, sorted alphabetically
-- Include helpful next steps if no extensions are active
-- Keep output scannable with clear headers and tables
-- Present information clearly based on actual extension state
+An `override` replaces the base instructions only after successful resolution. An `extension` appends a labeled company section; it does not merge headings or silently win conflicts. A `skills` entry changes availability, not behavior. These distinctions matter when explaining why an agent is using base behavior despite a manifest entry.
 
----
+For format and fallback details, point to `docs/40-extensions/00-extension-spec.md`.
 
-## Error Handling
+## Error handling
 
-**If cc skill list fails:**
-- Check that `cc` CLI is installed: `which cc`
-- Install if missing: `bash ~/.claude/copilot/tools/cc/install.sh`
+- If `cc skill list` fails, check `which cc`; if missing, use `bash ~/.claude/copilot/tools/cc/install.sh`.
+- If a manifest is unreadable, show that tier as unreadable and continue reporting other verified tiers.
+- Missing repositories and `no_extension` are honest states, not fabricated errors.
 
-**If manifest files are unreadable:**
-- Show knowledge repository status (may still work)
-- Display "Unable to read manifest" message
+Never print raw manifest content, tokens, or credential-store values. Paths and manifest names are sufficient for this status command. If a configured tier cannot be read, report that bounded fact; do not fall through and present a farther tier as though it were the configured nearest winner.
 
----
-
-## Important
-
-- DO NOT create documentation or files unless explicitly requested
-- ONLY show status and guidance
-- Present information clearly based on actual extension state
-- Include setup instructions appropriate to current state
-- Distinguish which tier of the `CC_KNOWLEDGE_REPOS` ladder each active extension resolved from
-- Emphasize that the ladder is auto-detected from `paths.knowledge_repo` once configured (no per-project config needed)
+Keep the report scannable. Use ✓/✗, show "Not configured" instead of a stack trace, distinguish source tiers, and state that `paths.knowledge_repo` drives automatic ladder discovery.

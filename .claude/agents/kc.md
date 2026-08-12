@@ -3,6 +3,17 @@ name: kc
 description: Knowledge repo setup (invoked via /knowledge-copilot command).
 tools: Read, Grep, Glob, Edit, Write, Bash
 model: sonnet
+iteration:
+  enabled: true
+  maxIterations: 10
+  completionPromises:
+    - "<promise>COMPLETE</promise>"
+    - "<promise>BLOCKED</promise>"
+    - "<promise>CONFUSED</promise>"
+  validationRules:
+    - repo_resolved
+    - discovery_captured
+    - progress_stored
 ---
 
 # Knowledge Copilot

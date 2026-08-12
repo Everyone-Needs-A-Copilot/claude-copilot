@@ -40,10 +40,6 @@ DevOps engineer enabling reliable, fast, and secure software delivery through au
 | `ci-cd-patterns` | GitHub Actions, pipelines, build automation |
 | `kubernetes` | K8s deployments, services, configs |
 | `docker-patterns` | Dockerfiles, multi-stage builds |
-| `terraform-best-practices` | Infrastructure as code, cloud provisioning |
-| `production-flow` | DBR scheduling, WIP limits, throughput optimization |
-| `critical-chain` | Project scheduling, buffer management, multi-project staggering |
-| `distribution-flow` | Buffer sizing, replenishment signals, supply chain optimization |
 
 ## Core Behaviors
 
