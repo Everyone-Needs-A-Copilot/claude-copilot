@@ -53,6 +53,7 @@ class SkillMeta:
     version: str = ""
     source: str = ""  # "project" | "machine" | "framework"
     extra: dict[str, Any] = field(default_factory=dict)
+    _knowledge_source: Any = field(default=None, repr=False, compare=False)
 
 
 def _git_root() -> Path | None:
@@ -85,14 +86,11 @@ def knowledge_skill_paths() -> list[Path]:
     "absent is a valid machine state" fail-open posture every other
     config-driven path in this codebase uses; never raises.
     """
-    from cc.core.config import resolve_knowledge_repos
+    from cc.core.ecosystem.knowledge_skill_source import (
+        resolve_knowledge_skill_sources,
+    )
 
-    paths: list[Path] = []
-    for repo in resolve_knowledge_repos():
-        skills_dir = Path(repo).expanduser() / _KNOWLEDGE_SKILLS_SUBPATH
-        if skills_dir.is_dir():
-            paths.append(skills_dir)
-    return paths
+    return [path for path, _source in resolve_knowledge_skill_sources()]
 
 
 def default_skill_paths() -> list[tuple[Path, str]]:
@@ -341,6 +339,7 @@ def discover_skills(
     source_label: str = "",
     *,
     cache_dir: Optional[Path] = None,
+    _knowledge_source: Any = None,
 ) -> list[SkillMeta]:
     """Scan each path for ``*/SKILL.md`` files and parse frontmatter.
 
@@ -370,10 +369,13 @@ def discover_skills(
         # Also supports nested: base/<category>/<name>/SKILL.md.
         # Follow symlinked directories so shared framework skills can be bridged
         # into project-local .claude/skills without copying the framework.
-        skill_files = []
-        for root, _dirs, files in os.walk(base, followlinks=True):
-            if "SKILL.md" in files:
-                skill_files.append(Path(root) / "SKILL.md")
+        if _knowledge_source is not None:
+            skill_files = list(_knowledge_source.skill_files())
+        else:
+            skill_files = []
+            for root, _dirs, files in os.walk(base, followlinks=True):
+                if "SKILL.md" in files:
+                    skill_files.append(Path(root) / "SKILL.md")
 
         for skill_file in sorted(skill_files):
             fm: Optional[dict[str, Any]] = None
@@ -394,7 +396,11 @@ def discover_skills(
 
             if fm is None:
                 try:
-                    text = _read_frontmatter_prefix(skill_file)
+                    text = (
+                        _knowledge_source.read_text(skill_file)
+                        if _knowledge_source is not None
+                        else _read_frontmatter_prefix(skill_file)
+                    )
                 except OSError:
                     continue
 
@@ -441,6 +447,7 @@ def discover_skills(
                     version=version,
                     source=source_label,
                     extra=extra,
+                    _knowledge_source=_knowledge_source,
                 )
             )
 
@@ -464,8 +471,29 @@ def discover_skills_with_sources(
     results: list[SkillMeta] = []
 
     for base_path, source_label in path_source_pairs:
+        knowledge_source = None
+        effective_cache_dir = cache_dir
+        if source_label == "knowledge":
+            from cc.core.ecosystem.knowledge_skill_source import (
+                resolve_knowledge_skill_sources,
+            )
+
+            nominal = Path(os.path.abspath(Path(base_path).expanduser()))
+            knowledge_source = next(
+                (
+                    source
+                    for root, source in resolve_knowledge_skill_sources()
+                    if root == nominal
+                ),
+                None,
+            )
+            # A mutable mtime/size cache is not an authority for signed bytes.
+            effective_cache_dir = None
         for skill in discover_skills(
-            [base_path], source_label=source_label, cache_dir=cache_dir
+            [base_path],
+            source_label=source_label,
+            cache_dir=effective_cache_dir,
+            _knowledge_source=knowledge_source,
         ):
             if skill.name not in seen_names:
                 seen_names.add(skill.name)
@@ -501,7 +529,25 @@ def search_skills(query: str, skills: list[SkillMeta]) -> list[SkillMeta]:
 
 def get_skill_content(skill_meta: SkillMeta) -> str:
     """Read and return the full SKILL.md content for a given skill."""
+    if skill_meta._knowledge_source is not None:
+        from cc.core.ecosystem.knowledge_skill_source import (
+            revalidate_knowledge_skill_source,
+        )
+
+        source = revalidate_knowledge_skill_source(skill_meta._knowledge_source)
+        return source.read_text(skill_meta.path)
     return skill_meta.path.read_text(encoding="utf-8")
+
+
+def revalidate_skill_path(skill_meta: SkillMeta) -> None:
+    """Revalidate signed Knowledge authority before disclosing a live path."""
+    if skill_meta._knowledge_source is None:
+        return
+    from cc.core.ecosystem.knowledge_skill_source import (
+        revalidate_knowledge_skill_source,
+    )
+
+    revalidate_knowledge_skill_source(skill_meta._knowledge_source)
 
 
 def find_skill_by_name(
