@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import stat
 import subprocess
 from pathlib import Path
 
@@ -97,6 +99,7 @@ def signed_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         lambda key: {
             "layers.manifest": [_layer(repo, fingerprint)],
             "paths.mirrors_root": str(tmp_path / "mirrors"),
+            "skills.cache_dir": str(tmp_path / "skill-cache"),
         }.get(key),
     )
     return repo, fingerprint
@@ -110,9 +113,13 @@ def _discover_signed():
 
 
 def test_signed_tree_drives_discovery_and_get(signed_source):
+    repo, _fingerprint = signed_source
     skill = _discover_signed()
     assert skill.name == "accounting"
     assert get_skill_content(skill).endswith("authorized body\n")
+    assert repo not in skill.path.parents
+    assert stat.S_IMODE(skill.path.stat().st_mode) == 0o400
+    assert stat.S_IMODE(skill.path.parent.stat().st_mode) == 0o500
     revalidate_skill_path(skill)
 
 
@@ -214,7 +221,8 @@ def test_symlinked_skill_ancestor_fails_closed(signed_source):
 def test_mutation_after_discovery_blocks_get_and_path(signed_source):
     repo, _fingerprint = signed_source
     skill = _discover_signed()
-    skill.path.write_text("changed after selection\n", encoding="utf-8")
+    checkout_skill = repo / KNOWLEDGE_SKILLS_SUBPATH / "accounting" / "SKILL.md"
+    checkout_skill.write_text("changed after selection\n", encoding="utf-8")
     with pytest.raises(KnowledgeSkillSourceError):
         get_skill_content(skill)
     with pytest.raises(KnowledgeSkillSourceError):
@@ -240,3 +248,46 @@ def test_cli_search_get_and_path_fail_closed_on_mutable_tamper(
     assert result.exit_code == 1
     assert "do not match their signed release" in result.output
     assert forbidden not in result.output
+
+
+def test_path_returns_immutable_snapshot_not_mutable_checkout(signed_source):
+    repo, _fingerprint = signed_source
+    result = CliRunner().invoke(
+        app, ["skill", "path", "accounting", "--scope", "knowledge"]
+    )
+    assert result.exit_code == 0, result.output
+    emitted = Path(result.output.strip())
+    assert repo not in emitted.parents
+
+    checkout_skill = repo / KNOWLEDGE_SKILLS_SUBPATH / "accounting" / "SKILL.md"
+    checkout_skill.write_text("attacker bytes after path return\n", encoding="utf-8")
+
+    assert emitted.read_text(encoding="utf-8").endswith("authorized body\n")
+    assert "attacker bytes" not in emitted.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["skill", "list", "--scope", "knowledge", "--json"],
+        ["skill", "search", "accounting", "--scope", "knowledge", "--json"],
+    ],
+)
+def test_path_bearing_json_uses_snapshot_not_checkout(
+    signed_source, arguments: list[str]
+):
+    repo, _fingerprint = signed_source
+    result = CliRunner().invoke(app, arguments)
+    assert result.exit_code == 0, result.output
+    path = Path(json.loads(result.output)[0]["path"])
+    assert repo not in path.parents
+    assert path.read_text(encoding="utf-8").endswith("authorized body\n")
+
+
+def test_cached_snapshot_tamper_fails_closed(signed_source):
+    skill = _discover_signed()
+    skill.path.chmod(0o600)
+    skill.path.write_text("tampered cached bytes\n", encoding="utf-8")
+
+    with pytest.raises(KnowledgeSkillSourceError, match="snapshot failed integrity"):
+        resolve_knowledge_skill_sources()

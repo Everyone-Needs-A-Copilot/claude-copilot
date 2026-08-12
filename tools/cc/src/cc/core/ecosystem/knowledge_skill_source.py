@@ -8,8 +8,13 @@ the signed annotated tag and its exact skill-tree Git object are.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+import shutil
+import stat
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -21,6 +26,11 @@ from cc.core.ecosystem.policy import (
     GitTreeSnapshot,
     read_git_tree_snapshot,
     verify_git_item_provenance,
+)
+from cc.core.ecosystem.project_locking import (
+    UnsafeProjectPath,
+    ensure_private_directory,
+    fsync_directory,
 )
 from cc.core.ecosystem.repository_scope import repository_identity
 
@@ -65,6 +75,234 @@ class VerifiedKnowledgeSkillSource:
             raise KnowledgeSkillSourceError(
                 "The requested Knowledge skill is not valid UTF-8."
             ) from exc
+
+
+def _snapshot_cache_root() -> Path:
+    """Return a private, non-symlinked root for authenticated snapshots."""
+    from cc.core import config
+
+    raw = config.resolve_key("skills.cache_dir")
+    cache_root = _nominal(raw or Path.home() / ".claude" / "cache" / "skills")
+    snapshots = cache_root / "signed-knowledge-v1"
+    try:
+        ensure_private_directory(cache_root, boundary=cache_root)
+        ensure_private_directory(snapshots, boundary=cache_root)
+    except (OSError, UnsafeProjectPath) as exc:
+        raise KnowledgeSkillSourceError(
+            "The private Knowledge snapshot cache is unsafe."
+        ) from exc
+    return snapshots
+
+
+def _snapshot_binding(
+    *,
+    repository: str,
+    layer: str,
+    ref: str,
+    tree: str,
+    signer: str,
+    snapshot: GitTreeSnapshot,
+) -> str:
+    encoded = json.dumps(
+        [
+            "signed-knowledge-v1",
+            repository,
+            layer,
+            ref,
+            tree,
+            signer,
+            snapshot.fingerprint(),
+        ],
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _snapshot_directories(snapshot: GitTreeSnapshot) -> set[str]:
+    result: set[str] = set()
+    for item in snapshot.files:
+        parent = Path(item.path).parent
+        while parent != Path("."):
+            result.add(parent.as_posix())
+            parent = parent.parent
+    return result
+
+
+def _read_private_file(path: Path, *, expected_mode: int) -> bytes | None:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError:
+        return None
+    try:
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.geteuid()
+            or stat.S_IMODE(metadata.st_mode) != expected_mode
+        ):
+            return None
+        chunks: list[bytes] = []
+        while chunk := os.read(descriptor, 1024 * 1024):
+            chunks.append(chunk)
+        return b"".join(chunks)
+    except OSError:
+        return None
+    finally:
+        os.close(descriptor)
+
+
+def _snapshot_matches(target: Path, snapshot: GitTreeSnapshot) -> bool:
+    """Require exact bytes, shape, modes, and ownership in a cached tree."""
+    try:
+        root_metadata = target.lstat()
+        if (
+            not stat.S_ISDIR(root_metadata.st_mode)
+            or stat.S_ISLNK(root_metadata.st_mode)
+            or root_metadata.st_uid != os.geteuid()
+            or stat.S_IMODE(root_metadata.st_mode) != 0o500
+        ):
+            return False
+        expected_files = {item.path: item for item in snapshot.files}
+        expected_directories = _snapshot_directories(snapshot)
+        observed_files: set[str] = set()
+        observed_directories: set[str] = set()
+        for root, directories, files in os.walk(target, followlinks=False):
+            root_path = Path(root)
+            for name in directories:
+                candidate = root_path / name
+                metadata = candidate.lstat()
+                relative = candidate.relative_to(target).as_posix()
+                if (
+                    not stat.S_ISDIR(metadata.st_mode)
+                    or stat.S_ISLNK(metadata.st_mode)
+                    or metadata.st_uid != os.geteuid()
+                    or stat.S_IMODE(metadata.st_mode) != 0o500
+                ):
+                    return False
+                observed_directories.add(relative)
+            for name in files:
+                candidate = root_path / name
+                relative = candidate.relative_to(target).as_posix()
+                expected = expected_files.get(relative)
+                if expected is None:
+                    return False
+                expected_mode = 0o500 if expected.mode & 0o111 else 0o400
+                content = _read_private_file(candidate, expected_mode=expected_mode)
+                if content is None or content != expected.content:
+                    return False
+                observed_files.add(relative)
+        return (
+            observed_files == set(expected_files)
+            and observed_directories == expected_directories
+        )
+    except (OSError, ValueError):
+        return False
+
+
+def _make_stage_writable(stage: Path) -> None:
+    """Best-effort cleanup preparation for an unpublished private stage."""
+    if not stage.exists() or stage.is_symlink():
+        return
+    for root, directories, files in os.walk(stage, topdown=False, followlinks=False):
+        for name in files:
+            try:
+                (Path(root) / name).chmod(0o600)
+            except OSError:
+                pass
+        for name in directories:
+            try:
+                (Path(root) / name).chmod(0o700)
+            except OSError:
+                pass
+    try:
+        stage.chmod(0o700)
+    except OSError:
+        pass
+
+
+def _materialize_snapshot(
+    snapshot: GitTreeSnapshot,
+    *,
+    repository: str,
+    layer: str,
+    ref: str,
+    tree: str,
+    signer: str,
+) -> Path:
+    """Atomically publish exact Git-object bytes under a private digest path."""
+    base = _snapshot_cache_root()
+    binding = _snapshot_binding(
+        repository=repository,
+        layer=layer,
+        ref=ref,
+        tree=tree,
+        signer=signer,
+        snapshot=snapshot,
+    )
+    target = base / binding
+    if target.exists() or target.is_symlink():
+        if _snapshot_matches(target, snapshot):
+            return target
+        raise KnowledgeSkillSourceError(
+            "A cached Knowledge snapshot failed integrity verification."
+        )
+
+    stage = Path(tempfile.mkdtemp(prefix=f".{binding}.", dir=base))
+    try:
+        stage.chmod(0o700)
+        for item in snapshot.files:
+            destination = stage / item.path
+            destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            descriptor = os.open(
+                destination,
+                os.O_CREAT
+                | os.O_EXCL
+                | os.O_WRONLY
+                | getattr(os, "O_NOFOLLOW", 0),
+                0o600,
+            )
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(item.content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            final_mode = 0o500 if item.mode & 0o111 else 0o400
+            destination.chmod(final_mode)
+
+        directories = sorted(
+            (candidate for candidate in stage.rglob("*") if candidate.is_dir()),
+            key=lambda candidate: len(candidate.parts),
+            reverse=True,
+        )
+        for directory in directories:
+            fsync_directory(directory)
+            directory.chmod(0o500)
+        fsync_directory(stage)
+        stage.chmod(0o500)
+
+        try:
+            os.rename(stage, target)
+        except OSError:
+            if not _snapshot_matches(target, snapshot):
+                raise
+        fsync_directory(base)
+        if not _snapshot_matches(target, snapshot):
+            raise KnowledgeSkillSourceError(
+                "The authenticated Knowledge snapshot changed during publication."
+            )
+        return target
+    except KnowledgeSkillSourceError:
+        raise
+    except OSError as exc:
+        raise KnowledgeSkillSourceError(
+            "The authenticated Knowledge snapshot could not be published safely."
+        ) from exc
+    finally:
+        if stage.exists() and stage != target:
+            _make_stage_writable(stage)
+            shutil.rmtree(stage, ignore_errors=True)
 
 
 def _nominal(path: Path | str) -> Path:
@@ -246,15 +484,24 @@ def resolve_knowledge_skill_sources(
             raise KnowledgeSkillSourceError(
                 "The signed Knowledge skill tree contains an unsafe Git object."
             )
+        layer_id = str(layer["id"])
+        materialized_root = _materialize_snapshot(
+            snapshot,
+            repository=expected_repository,
+            layer=layer_id,
+            ref=verified.ref,
+            tree=verified.tree,
+            signer=verified.signer,
+        )
         result.append(
             (
-                skills_root,
+                materialized_root,
                 VerifiedKnowledgeSkillSource(
-                    skills_root=skills_root,
+                    skills_root=materialized_root,
                     repository_root=repository_root,
                     relative_path=verified.relative_path,
                     repository=expected_repository,
-                    layer=str(layer["id"]),
+                    layer=layer_id,
                     ref=verified.ref,
                     tree=verified.tree,
                     signer=verified.signer,
