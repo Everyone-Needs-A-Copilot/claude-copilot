@@ -769,6 +769,244 @@ def test_fanout_claude_ladder_matches_direct_materialize_no_second_implementatio
     assert direct[("agents", "cw")].layer == fanout_report["changed"][0]["layer"]
 
 
+# ---------------------------------------------------------------------------
+# CONTENT-LEVEL STALENESS WIDENING (mechanism defect fix, 2026-08): a
+# version-string match against `target_version` alone is no longer proof
+# that a `claude` component has nothing pending -- org/department/personal
+# tier content can change without ever bumping the foundation's version.
+# ---------------------------------------------------------------------------
+
+
+def test_materialize_project_claude_content_drift_at_matching_version_still_applies(tmp_path):
+    """The exact live defect: `target_version == current_version` (a
+    foundation version bump never happened), but the organization tier now
+    declares REAL, substantive content for an already-tracked item. A bare
+    version check would report `up-to-date` and never even resolve the
+    ladder -- this must still detect the drift and apply it."""
+    project = tmp_path / "drift-project"
+    _git_init(project)
+    _write_files(project, {".claude/agents/cw.md": "old cw content (foundation)"})
+    _write_manifest(
+        project,
+        [
+            _component(
+                "claude",
+                "1.0.0",
+                release_tag="claude@1.0.0",
+                files=[
+                    _framework_file(
+                        ".claude/agents/cw.md", content="old cw content (foundation)"
+                    )
+                ],
+            )
+        ],
+    )
+    _git_commit_all(project)
+
+    foundation_root = _make_source_repo(
+        tmp_path,
+        {".claude/agents/cw.md": "old cw content (foundation)"},
+        name="drift-foundation",
+    )
+    org_root = tmp_path / "drift-org"
+    _write_files(
+        org_root, {"agents/cw.md": "NEW real, substantive organization override for cw"}
+    )
+
+    layers = [
+        _claude_layer("claude-organization", role="organization", rank=30, path=org_root),
+        _claude_layer(
+            "claude-foundation", role="foundation", rank=40, path=foundation_root, subpath=".claude"
+        ),
+    ]
+
+    report = build_materialize_project_report(
+        project,
+        component="claude",
+        target_version="1.0.0",  # SAME as current -- no version bump at all
+        release_tag="claude@1.0.0",
+        source_root=foundation_root,
+        _claude_layers=layers,
+    )
+
+    assert report["result"] == "applied"
+    assert (
+        project / ".claude" / "agents" / "cw.md"
+    ).read_text() == "NEW real, substantive organization override for cw"
+    assert report["changed"][0]["layer"] == "claude-organization"
+
+    manifest = read_project_lock(project / "copilot.lock.json")
+    assert manifest["components"][0]["version"] == "1.0.0"  # unchanged, as expected
+
+
+def test_materialize_project_claude_no_drift_at_matching_version_stays_up_to_date(tmp_path):
+    """Regression guard on the ORIGINAL fast path: when the version matches
+    AND the resolved tier content is byte-identical to what is recorded,
+    the result must still be `up-to-date` with zero writes -- widening the
+    gate must never turn every routine run into a full re-materialize."""
+    project = tmp_path / "no-drift-project"
+    _git_init(project)
+    _write_files(project, {".claude/agents/cw.md": "foundation cw content"})
+    _write_manifest(
+        project,
+        [
+            _component(
+                "claude",
+                "1.0.0",
+                release_tag="claude@1.0.0",
+                files=[_framework_file(".claude/agents/cw.md", content="foundation cw content")],
+            )
+        ],
+    )
+    before_manifest = (project / "copilot.lock.json").read_text()
+    _git_commit_all(project)
+
+    foundation_root = _make_source_repo(
+        tmp_path, {".claude/agents/cw.md": "foundation cw content"}, name="no-drift-foundation"
+    )
+    layers = [
+        _claude_layer(
+            "claude-foundation", role="foundation", rank=40, path=foundation_root, subpath=".claude"
+        )
+    ]
+
+    report = build_materialize_project_report(
+        project,
+        component="claude",
+        target_version="1.0.0",
+        release_tag="claude@1.0.0",
+        source_root=foundation_root,
+        _claude_layers=layers,
+    )
+
+    assert report["result"] == "up-to-date"
+    assert report["changed"] == []
+    assert (project / "copilot.lock.json").read_text() == before_manifest
+
+
+def test_fanout_claude_content_drift_at_matching_version_is_detected_and_propagated(tmp_path):
+    """End-to-end at the fan-out roll-up level: adding real organization
+    content for an already-tracked item, with NO version bump, must still
+    be detected and applied by `cc update --fanout` -- the exact mechanism
+    defect this fix closes (`cc update --fanout` previously reported
+    `up_to_date` for every project whenever the recorded version already
+    matched the foundation's, regardless of what any nearer tier declared)."""
+    project = tmp_path / "fanout-drift-project"
+    _git_init(project)
+    _write_files(project, {".claude/agents/cw.md": "old cw content (foundation)"})
+    _write_manifest(
+        project,
+        [
+            _component(
+                "claude",
+                "1.0.0",
+                release_tag="claude@1.0.0",
+                files=[
+                    _framework_file(
+                        ".claude/agents/cw.md", content="old cw content (foundation)"
+                    )
+                ],
+            )
+        ],
+    )
+    _git_commit_all(project)
+
+    foundation_root = _make_source_repo(
+        tmp_path,
+        {".claude/agents/cw.md": "old cw content (foundation)"},
+        name="fanout-drift-foundation",
+    )
+    org_root = tmp_path / "fanout-drift-org"
+    _write_files(
+        org_root, {"agents/cw.md": "NEW real, substantive organization override for cw"}
+    )
+
+    layers = [
+        _claude_layer("claude-organization", role="organization", rank=30, path=org_root),
+        _claude_layer(
+            "claude-foundation", role="foundation", rank=40, path=foundation_root, subpath=".claude"
+        ),
+    ]
+
+    report = build_fanout_report(
+        _projects=[project],
+        _latest_by_product={"claude": "1.0.0"},  # SAME as recorded -- no version bump
+        _release_tags={"claude": "claude@1.0.0"},
+        _source_roots={"claude": foundation_root},
+        _claude_layers=layers,
+    )
+
+    assert report["summary"]["updated"] == 1
+    assert report["summary"]["up_to_date"] == 0
+    assert (
+        project / ".claude" / "agents" / "cw.md"
+    ).read_text() == "NEW real, substantive organization override for cw"
+
+    # Idempotent: a second run with nothing changed is a true no-op.
+    second = build_fanout_report(
+        _projects=[project],
+        _latest_by_product={"claude": "1.0.0"},
+        _release_tags={"claude": "claude@1.0.0"},
+        _source_roots={"claude": foundation_root},
+        _claude_layers=layers,
+    )
+    assert second["summary"]["updated"] == 0
+    assert second["summary"]["up_to_date"] == 1
+
+
+def test_fanout_claude_content_reverted_falls_back_to_foundation(tmp_path):
+    """The negative half of the same proof: once the organization tier no
+    longer declares the item (reverted), a subsequent fan-out run detects
+    THAT drift too (recorded checksum is now the org's content, which no
+    longer resolves) and falls the project back to the foundation's copy."""
+    project = tmp_path / "fanout-revert-project"
+    _git_init(project)
+    _write_files(project, {".claude/agents/cw.md": "org override content"})
+    _write_manifest(
+        project,
+        [
+            _component(
+                "claude",
+                "1.0.0",
+                release_tag="claude@1.0.0",
+                files=[_framework_file(".claude/agents/cw.md", content="org override content")],
+            )
+        ],
+    )
+    _git_commit_all(project)
+
+    foundation_root = _make_source_repo(
+        tmp_path,
+        {".claude/agents/cw.md": "foundation cw content, real and substantive"},
+        name="fanout-revert-foundation",
+    )
+    # Organization tier no longer contributes anything for "agents" (reverted).
+    org_root = tmp_path / "fanout-revert-org"
+    org_root.mkdir()
+
+    layers = [
+        _claude_layer("claude-organization", role="organization", rank=30, path=org_root),
+        _claude_layer(
+            "claude-foundation", role="foundation", rank=40, path=foundation_root, subpath=".claude"
+        ),
+    ]
+
+    report = build_fanout_report(
+        _projects=[project],
+        _latest_by_product={"claude": "1.0.0"},
+        _release_tags={"claude": "claude@1.0.0"},
+        _source_roots={"claude": foundation_root},
+        _claude_layers=layers,
+    )
+
+    assert report["summary"]["updated"] == 1
+    fanout_entry = report["results"][0]["report"]
+    assert fanout_entry["changed"][0]["layer"] == "claude-foundation"
+    assert (
+        project / ".claude" / "agents" / "cw.md"
+    ).read_text() == "foundation cw content, real and substantive"
+
+
 def test_materialize_project_blocked_when_unverified_no_release_tag(tmp_path):
     project = tmp_path / "unverified-project"
     _git_init(project)

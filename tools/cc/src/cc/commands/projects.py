@@ -80,12 +80,18 @@ import socket
 import stat
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Mapping, Optional
 
 from cc.commands.update import compute_exit_code
 from cc.core.ecosystem.freshness import compute_freshness, lock_fingerprint
 from cc.core.ecosystem.materialize import guard_personal
-from cc.core.ecosystem.project_sources import INSTALL_DIMENSIONS, ResolvedItem, resolve_claude_content
+from cc.core.ecosystem.project_sources import (
+    INSTALL_DIMENSIONS,
+    ResolvedItem,
+    claude_resolution_checksums,
+    resolve_all_claude_items,
+    resolve_claude_content,
+)
 from cc.core.ecosystem.projects import (
     GLOBAL_ONCE_PRODUCTS,
     PROJECT_LOCK_FILENAME,
@@ -117,6 +123,56 @@ def _claude_ladder_dimension_item(rel_path: str) -> Optional[tuple[str, str]]:
     if dimension not in INSTALL_DIMENSIONS:
         return None
     return dimension, item
+
+
+def _claude_content_stale(
+    entry: dict[str, Any], *, checksum_by_key: Mapping[tuple[str, str], str]
+) -> bool:
+    """
+    CONTENT-LEVEL STALENESS (mechanism defect fix, 2026-08): True if ANY
+    of `entry`'s ladder-eligible tracked paths (`.claude/{commands,agents}/
+    <item>.md`) would resolve to DIFFERENT bytes than what this project's
+    manifest last recorded for it — the signal a bare version-string
+    comparison can never see, because org/department/personal tier
+    content changing does not bump the foundation's version (see
+    `project_sources.py`'s `resolve_claude_content()` docstring, PER-
+    ARTIFACT TIER RESOLUTION note).
+
+    `checksum_by_key` is `claude_resolution_checksums()`'s pre-computed
+    `{(dimension, item): "sha256:<hex>"}` map, built ONCE per fan-out
+    sweep (`build_fanout_report()`) or once per standalone materialize
+    call (`build_materialize_project_report()`'s own fallback) — comparing
+    against it here costs ZERO additional file I/O: the recorded checksum
+    already lives in `entry`, and the resolved-tier checksum was hashed
+    once, never per project.
+
+    A path with no ladder concept, no recorded checksum yet (a first-time
+    add — nothing to compare, not a drift), or nothing resolvable in
+    `checksum_by_key` (no manifest configured, or no tier declares it) is
+    never a drift signal here — matches `locally_modified_paths()`'s own
+    posture on the equivalent question at the destination side.
+    """
+    if not checksum_by_key:
+        return False
+    files_by_path = {
+        f.get("path"): f
+        for f in entry.get("files", []) or []
+        if isinstance(f, dict) and isinstance(f.get("path"), str)
+    }
+    for rel_path in framework_owned_paths(entry):
+        parsed = _claude_ladder_dimension_item(rel_path)
+        if parsed is None:
+            continue
+        resolved_checksum = checksum_by_key.get(parsed)
+        if resolved_checksum is None:
+            continue
+        recorded = files_by_path.get(rel_path, {}).get("checksum")
+        if not isinstance(recorded, str):
+            continue
+        if resolved_checksum != recorded:
+            return True
+    return False
+
 
 SCHEMA_VERSION = "1.0"
 
@@ -259,6 +315,8 @@ def build_materialize_project_report(
     _lock_manifest_path: Any = _UNSET,
     _personal_roots: Iterable[Path | str] = (),
     _claude_layers: Optional[list[dict[str, Any]]] = None,
+    _claude_resolution_cache: Optional[Mapping[tuple[str, str], ResolvedItem]] = None,
+    _claude_checksum_cache: Optional[Mapping[tuple[str, str], str]] = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """
@@ -271,9 +329,25 @@ def build_materialize_project_report(
         ("component is global-once; not materialized per project" -- a
         global-once component's single machine-wide apply is `cc update`'s
         job, never duplicated here).
-      - `component` not embedded in this project's manifest, or already at
-        `target_version`, or has no framework-owned files at all ->
-        `up-to-date`, zero writes.
+      - `component` not embedded in this project's manifest, or has no
+        framework-owned files at all -> `up-to-date`, zero writes.
+      - already at `target_version` AND (for `claude`) every ladder-
+        eligible tracked file's resolved-tier content already matches
+        what this project's manifest recorded -> `up-to-date`, zero
+        writes. CONTENT-LEVEL STALENESS WIDENING (mechanism defect fix,
+        2026-08): a version-string match ALONE is no longer sufficient
+        proof of "nothing pending" for `claude` -- org/department/
+        personal tier content can change without ever bumping the
+        foundation's version (`project_sources.py`'s PER-ARTIFACT TIER
+        RESOLUTION note). `_claude_content_stale()` compares the
+        resolved tier's checksum against the RECORDED checksum for each
+        ladder-eligible path (via `_claude_resolution_cache`/
+        `_claude_checksum_cache`, or a fresh one-off resolve when neither
+        is supplied) -- zero extra file reads on the destination side,
+        since the comparison never touches the project's own on-disk
+        file, only the two checksums. A genuine version bump still
+        triggers an update exactly as before; this only widens what ELSE
+        also counts as "stale".
       - no `release_tag` supplied -> `blocked` ("unverified" -- SAME reason
         string `materialize.py` uses for its own fail-closed policy
         default; ADR-002's rule 1: only a PUBLISHED release tag licenses
@@ -333,6 +407,18 @@ def build_materialize_project_report(
     content()`'s own `_layers` override. `None` (the default) means "not
     overridden" -- `resolve_claude_content()` auto-resolves the real
     `layers.manifest` config key, exactly like production callers.
+
+    `_claude_resolution_cache`/`_claude_checksum_cache`: optional pre-
+    built `resolve_all_claude_items()`/`claude_resolution_checksums()`
+    results (`project_sources.py`), consumed for BOTH the content-
+    staleness check above AND the real write-time resolution. `build_
+    fanout_report()` builds each of these ONCE per sweep and passes them
+    to every project's call here, so a 66-project fan-out run pays the
+    discovery/resolve/substance/hash cost exactly once, never once per
+    project. `None` (the default -- a standalone caller like `cc
+    materialize --project`) means this call builds its own small one-off
+    cache scoped to just this project's own ladder items, no more I/O than
+    a version-differs materialize already paid before this fix existed.
     """
     project = Path(project_path).expanduser()
     manifest = (
@@ -390,7 +476,42 @@ def build_materialize_project_report(
     current_version = entry.get("version")
     resolved_target = target_version if target_version is not _UNSET else current_version
 
-    if current_version == resolved_target:
+    # `rel_paths` is a pure, side-effect-free computation from `entry` --
+    # moved up here (from its original position after the release_tag
+    # check below) only so the content-staleness check can use it too. The
+    # actual "no framework-owned files -> up-to-date" BRANCH stays at its
+    # original position, unchanged relative to the release_tag check.
+    rel_paths = framework_owned_paths(entry)
+
+    # CONTENT-LEVEL STALENESS WIDENING (mechanism defect fix, 2026-08): see
+    # this function's own docstring. `ladder_items` is computed once here
+    # and reused again below at write time (never re-derived) -- `resolve
+    # _all_claude_items()`/`claude_resolution_checksums()` similarly
+    # computed (or reused from the caller's cache) once and shared between
+    # the staleness check and the write step.
+    ladder_items: dict[str, list[str]] = {}
+    if component == "claude":
+        for rel_path in rel_paths:
+            parsed = _claude_ladder_dimension_item(rel_path)
+            if parsed is None:
+                continue
+            dimension, item = parsed
+            ladder_items.setdefault(dimension, []).append(item)
+
+    resolution_cache = _claude_resolution_cache
+    if ladder_items and resolution_cache is None:
+        resolution_cache = resolve_all_claude_items(_layers=_claude_layers)
+
+    checksum_cache = _claude_checksum_cache
+    if ladder_items and checksum_cache is None:
+        checksum_cache = claude_resolution_checksums(resolution_cache) if resolution_cache else {}
+
+    version_stale = current_version != resolved_target
+    content_stale = bool(checksum_cache) and _claude_content_stale(
+        entry, checksum_by_key=checksum_cache
+    )
+
+    if not version_stale and not content_stale:
         return _report(result="up-to-date")
 
     if not release_tag:
@@ -399,7 +520,6 @@ def build_materialize_project_report(
             blocked=[{"dimension": component, "reason": "unverified"}],
         )
 
-    rel_paths = framework_owned_paths(entry)
     if not rel_paths:
         return _report(result="up-to-date")
 
@@ -459,27 +579,24 @@ def build_materialize_project_report(
     # like `_claude_plan()`'s single-project install -- rather than always
     # copying from `source_base`. A path this resolves nothing for (not a
     # `commands`/`agents` item, or `component != "claude"`) keeps the prior
-    # single-root behavior unchanged.
+    # single-root behavior unchanged. `ladder_items` and `resolution_cache`
+    # were already computed above (for the content-staleness check) --
+    # reused here verbatim, never re-derived.
     ladder_by_relpath: dict[str, ResolvedItem] = {}
-    if component == "claude":
-        ladder_items: dict[str, list[str]] = {}
+    if component == "claude" and ladder_items:
+        resolved_map = resolve_claude_content(
+            foundation_root=source_base,
+            items=ladder_items,
+            _layers=_claude_layers,
+            _resolution_cache=resolution_cache,
+        )
         for rel_path in rel_paths:
             parsed = _claude_ladder_dimension_item(rel_path)
             if parsed is None:
                 continue
-            dimension, item = parsed
-            ladder_items.setdefault(dimension, []).append(item)
-        if ladder_items:
-            resolved_map = resolve_claude_content(
-                foundation_root=source_base, items=ladder_items, _layers=_claude_layers
-            )
-            for rel_path in rel_paths:
-                parsed = _claude_ladder_dimension_item(rel_path)
-                if parsed is None:
-                    continue
-                resolved = resolved_map.get(parsed)
-                if resolved is not None:
-                    ladder_by_relpath[rel_path] = resolved
+            resolved = resolved_map.get(parsed)
+            if resolved is not None:
+                ladder_by_relpath[rel_path] = resolved
 
     def _source_for(rel_path: str) -> Path:
         resolved = ladder_by_relpath.get(rel_path)
@@ -748,10 +865,39 @@ def build_fanout_report(
     and production's only value) means every project's `claude` files
     resolve through the REAL configured tier ladder, identically to how
     single-project install already does.
+
+    CONTENT-LEVEL STALENESS WIDENING (mechanism defect fix, 2026-08): a
+    version-string match against `_latest_by_product` alone used to mean
+    "up to date" -- but org/department/personal tier content can change
+    without ever bumping the FOUNDATION's version, which is the only
+    thing `_latest_by_product["claude"]` tracks (`resolve_fanout_sources()`
+    's own note). That left a live, provable gap: adding real content at
+    the organization tier was invisible to every already-on-latest-
+    version project forever, because `build_materialize_project_report()`
+    was never even CALLED for them. This function now resolves the
+    `claude` product's FULL nearest-substantive-tier winner set and hashes
+    every winning file EXACTLY ONCE per sweep (`resolve_all_claude_items()`
+    / `claude_resolution_checksums()`, `project_sources.py`) -- project-
+    independent by construction, so every one of the ~66 fleet projects
+    below reuses the identical map: a `claude` component whose version
+    matches `latest` is STILL attempted if any of its ladder-eligible
+    tracked paths' recorded checksum no longer matches what the ladder
+    would resolve today, at the cost of one dict lookup per tracked path,
+    never a second discovery/hash pass. A genuine foundation version bump
+    still triggers an update exactly as before -- this only widens what
+    ELSE also counts as stale, it does not replace the version check.
     """
     latest_by_product = _latest_by_product or {}
     release_tags = _release_tags or {}
     source_roots = _source_roots or {}
+
+    # Computed ONCE for the whole sweep -- see the docstring section above.
+    # Degrades to `{}` (no manifest configured, or nothing to resolve) with
+    # zero extra cost; every per-project content check below is then a
+    # guaranteed no-op fast-path (`_claude_content_stale()`'s own `if not
+    # checksum_by_key: return False`).
+    claude_resolution = resolve_all_claude_items(_layers=_claude_layers)
+    claude_checksums = claude_resolution_checksums(claude_resolution)
 
     if _projects is not None:
         projects = _projects
@@ -810,9 +956,21 @@ def build_fanout_report(
             current = entry.get("version")
             target = latest_by_product.get(product)
             folded = compute_freshness(current, target)
+            version_stale = folded["stale"]
 
-            if not folded["stale"]:
-                if folded["stale"] is False:
+            # CONTENT-LEVEL STALENESS WIDENING (function docstring): a
+            # version MATCH alone is no longer proof this project has
+            # nothing pending for `claude` -- `claude_checksums` was
+            # resolved once for the whole sweep above, so this costs zero
+            # additional I/O here.
+            content_stale = (
+                version_stale is False
+                and product == "claude"
+                and _claude_content_stale(entry, checksum_by_key=claude_checksums)
+            )
+
+            if not version_stale and not content_stale:
+                if version_stale is False:
                     up_to_date += 1
                     results.append(
                         {"path": str(project), "component": product, "result": "up-to-date"}
@@ -848,6 +1006,8 @@ def build_fanout_report(
                     _manifest=manifest,
                     _personal_roots=_personal_roots,
                     _claude_layers=_claude_layers,
+                    _claude_resolution_cache=claude_resolution,
+                    _claude_checksum_cache=claude_checksums,
                     dry_run=dry_run,
                 )
             except Exception as exc:

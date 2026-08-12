@@ -25,6 +25,7 @@ merely by existing — see `resolve_claude_content()`'s docstring.
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any, Mapping, NamedTuple, Optional, Sequence
 
@@ -139,6 +140,133 @@ def _select_substantive(
     return candidates[-1] if candidates else None
 
 
+def resolve_all_claude_items(
+    *,
+    manifest_path: Any = _UNSET,
+    mirror_root_base: Any = _UNSET,
+    _layers: Optional[list[dict[str, Any]]] = None,
+) -> dict[tuple[str, str], ResolvedItem]:
+    """
+    Resolve EVERY `(dimension, item)` pair discoverable across the
+    `claude` product's configured tiers — the expensive part of
+    `resolve_claude_content()` (manifest load, `discover_contributions()`,
+    `resolve_layers()`, and the per-item `_select_substantive()` walk)
+    factored out so it can be computed ONCE and shared, rather than redone
+    for every caller regardless of which items that caller actually wants.
+
+    THE CACHE OPPORTUNITY (content-level fan-out staleness widening,
+    2026-08): this whole computation is PROJECT-INDEPENDENT — it depends
+    only on the manifest/layers config and the tiers' own on-disk content,
+    never on which project is asking or which roster of `.claude/
+    {commands,agents}/<item>.md` files that project happens to track.
+    `commands/projects.py`'s `build_fanout_report()` calls this EXACTLY
+    ONCE per fan-out sweep; every one of the ~66 fleet projects' own
+    roster is then a free dict lookup against the same map, instead of
+    re-walking discovery, the resolver fold, and the substance gate once
+    per project (the discovery scan alone hashes every tracked tier
+    file's bytes — paying that ~66 times over is exactly what would make
+    a content-level staleness check too slow for a routine fan-out run).
+
+    Note there is no `foundation_root`/fallback here (unlike
+    `resolve_claude_content()`): an item this function has no ladder
+    opinion about simply is not a key in the returned map at all — the
+    foundation-root fallback is `resolve_claude_content()`'s own concern,
+    since only it knows a specific caller's `foundation_root`.
+
+    Same degrade posture as `resolve_claude_content()`: any manifest
+    problem (unset, unreadable, no `claude` layers, validation failure)
+    yields an EMPTY map — never a crash, never a partial/guessed result.
+    """
+    if _layers is not None:
+        layers = _layers
+    else:
+        path = manifest_path if manifest_path is not _UNSET else resolve_key("layers.manifest")
+        if not path:
+            return {}
+        try:
+            layers = load_layers(path)
+        except ManifestError:
+            return {}
+
+    claude_layers = [layer for layer in layers if layer.get("product") == "claude"]
+    if not claude_layers:
+        return {}
+
+    try:
+        validate_layers(claude_layers)
+        base = (
+            Path(mirror_root_base).expanduser()
+            if mirror_root_base is not _UNSET
+            else Path(str(resolve_key("paths.mirrors_root"))).expanduser()
+        )
+        effective_layers = synthesize_effective_layers(claude_layers, mirror_root_base=base)
+    except ManifestError:
+        return {}
+
+    source_roots: dict[str, Path] = {}
+    for layer in effective_layers:
+        raw_path = (layer.get("source") or {}).get("path")
+        if raw_path:
+            source_roots[layer["id"]] = Path(str(raw_path)).expanduser()
+
+    contributions = discover_contributions(effective_layers, dimensions=INSTALL_DIMENSIONS)
+    try:
+        resolved_set = resolve_layers(effective_layers, contributions)
+    except ManifestError:
+        return {}
+
+    resolved: dict[tuple[str, str], ResolvedItem] = {}
+    for entry in resolved_set:
+        winner = _select_substantive(entry, source_roots=source_roots)
+        if winner is None:
+            continue
+        layer_id, path = winner
+        resolved[(entry["dimension"], entry["item"])] = ResolvedItem(
+            path=path, layer=layer_id, ladder_resolved=True
+        )
+
+    return resolved
+
+
+def claude_resolution_checksums(
+    resolution: Mapping[tuple[str, str], ResolvedItem],
+) -> dict[tuple[str, str], str]:
+    """
+    `{(dimension, item): "sha256:<hex>"}` for every entry in `resolution`
+    — the same `"sha256:<hex>"` convention a project's OWN lock manifest
+    records for a tracked file's `checksum` field
+    (`core/ecosystem/projects.py`'s `_generated_file_checksum()` /
+    `commands/projects.py`'s materialize `to_sha` convention), so a
+    caller can compare a resolved tier's content directly against a
+    project's RECORDED checksum without ever touching that project's own
+    on-disk file.
+
+    Dedups by resolved PATH, not by `(dimension, item)` key: the whole
+    point of computing this once is that many CALLERS (every project in a
+    fan-out sweep) share the exact same resolved winning file per key, so
+    hashing pays its cost exactly once per unique file, never once per
+    (project, item) pair.
+
+    A resolved path that vanishes or cannot be read (race, permissions, a
+    resolved directory with no single-file content) is silently left out
+    of the returned map — fail-open, matching every other read in this
+    module; a caller comparing against this map already treats "nothing
+    to compare" as "not drifted", never as a crash.
+    """
+    checksum_by_path: dict[Path, str] = {}
+    checksums: dict[tuple[str, str], str] = {}
+    for key, resolved in resolution.items():
+        cached = checksum_by_path.get(resolved.path)
+        if cached is None:
+            try:
+                cached = "sha256:" + hashlib.sha256(resolved.path.read_bytes()).hexdigest()
+            except OSError:
+                continue
+            checksum_by_path[resolved.path] = cached
+        checksums[key] = cached
+    return checksums
+
+
 def resolve_claude_content(
     *,
     foundation_root: Path,
@@ -146,6 +274,7 @@ def resolve_claude_content(
     manifest_path: Any = _UNSET,
     mirror_root_base: Any = _UNSET,
     _layers: Optional[list[dict[str, Any]]] = None,
+    _resolution_cache: Optional[Mapping[tuple[str, str], ResolvedItem]] = None,
 ) -> dict[tuple[str, str], ResolvedItem]:
     """
     Resolve one source `Path` per requested `(dimension, item)` pair for
@@ -156,6 +285,16 @@ def resolve_claude_content(
     `items`: e.g. `{"commands": ["protocol", "continue"], "agents":
     [<roster names>]}` — the exact set `_claude_plan()` needs; this
     function never widens the search beyond what's asked for.
+
+    `_resolution_cache`: an optional pre-built `resolve_all_claude_items()`
+    map. When supplied, this call makes NO filesystem calls beyond the
+    dict lookups needed to fold it against `items` and build the
+    foundation-root fallback — the expensive discovery/resolve/substance
+    walk is skipped entirely (`build_fanout_report()`'s own run-scoped
+    cache, reused across every project). `None` (the default) means "no
+    cache given": this call computes its own one-off
+    `resolve_all_claude_items()` result, byte-identical to what this
+    function always did before that helper existed.
 
     Falls back to `foundation_root / ".claude" / <dimension> / "<item>.md"`
     (today's pre-ladder behavior, byte-for-byte) whenever: no manifest is
@@ -202,56 +341,18 @@ def resolve_claude_content(
         for item in names:
             resolved[(dimension, item)] = _fallback(dimension, item)
 
-    if _layers is not None:
-        layers = _layers
-    else:
-        path = manifest_path if manifest_path is not _UNSET else resolve_key("layers.manifest")
-        if not path:
-            return resolved
-        try:
-            layers = load_layers(path)
-        except ManifestError:
-            return resolved
-
-    claude_layers = [layer for layer in layers if layer.get("product") == "claude"]
-    if not claude_layers:
-        return resolved
-
-    try:
-        validate_layers(claude_layers)
-        base = (
-            Path(mirror_root_base).expanduser()
-            if mirror_root_base is not _UNSET
-            else Path(str(resolve_key("paths.mirrors_root"))).expanduser()
+    all_resolved = (
+        _resolution_cache
+        if _resolution_cache is not None
+        else resolve_all_claude_items(
+            manifest_path=manifest_path, mirror_root_base=mirror_root_base, _layers=_layers
         )
-        effective_layers = synthesize_effective_layers(claude_layers, mirror_root_base=base)
-    except ManifestError:
-        return resolved
+    )
 
-    source_roots: dict[str, Path] = {}
-    for layer in effective_layers:
-        raw_path = (layer.get("source") or {}).get("path")
-        if raw_path:
-            source_roots[layer["id"]] = Path(str(raw_path)).expanduser()
-
-    contributions = discover_contributions(effective_layers, dimensions=INSTALL_DIMENSIONS)
-    try:
-        resolved_set = resolve_layers(effective_layers, contributions)
-    except ManifestError:
-        return resolved
-
-    by_key = {(entry["dimension"], entry["item"]): entry for entry in resolved_set}
     for dimension, names in items.items():
         for item in names:
-            entry = by_key.get((dimension, item))
-            if entry is None:
-                continue
-            winner = _select_substantive(entry, source_roots=source_roots)
-            if winner is None:
-                continue
-            layer_id, path = winner
-            resolved[(dimension, item)] = ResolvedItem(
-                path=path, layer=layer_id, ladder_resolved=True
-            )
+            found = all_resolved.get((dimension, item))
+            if found is not None:
+                resolved[(dimension, item)] = found
 
     return resolved
