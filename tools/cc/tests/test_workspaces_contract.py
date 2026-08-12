@@ -2056,6 +2056,7 @@ def _use_fixture_installers(monkeypatch):
         "paths.codex_copilot_root": str(codex_root),
     }
     monkeypatch.setattr(core_workspaces, "resolve_key", values.get)
+    monkeypatch.setattr(integration_core, "resolve_key", values.get)
 
 
 def test_project_present_at_grant_time_is_always_ask(tmp_path):

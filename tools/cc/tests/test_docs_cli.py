@@ -18,6 +18,7 @@ import json
 
 import pytest
 from cc.main import app
+from click import unstyle
 from typer.testing import CliRunner
 
 # ---------------------------------------------------------------------------
@@ -279,11 +280,12 @@ class TestHelpSmoke:
     def test_docs_help(self, runner):
         result = _invoke(runner, ["docs", "--help"])
         assert result.exit_code == 0
-        assert "resolve" in result.output
-        assert "get" in result.output
-        assert "search" in result.output
-        assert "sources" in result.output
-        assert "cache" in result.output
+        output = unstyle(result.output)
+        assert "resolve" in output
+        assert "get" in output
+        assert "search" in output
+        assert "sources" in output
+        assert "cache" in output
 
     def test_docs_resolve_help(self, runner):
         result = _invoke(runner, ["docs", "resolve", "--help"])
@@ -292,10 +294,11 @@ class TestHelpSmoke:
     def test_docs_get_help(self, runner):
         result = _invoke(runner, ["docs", "get", "--help"])
         assert result.exit_code == 0
-        assert "--topic" in result.output
-        assert "--source" in result.output
-        assert "--refresh" in result.output
-        assert "--json" in result.output
+        output = unstyle(result.output)
+        assert "--topic" in output
+        assert "--source" in output
+        assert "--refresh" in output
+        assert "--json" in output
 
     def test_docs_search_help(self, runner):
         result = _invoke(runner, ["docs", "search", "--help"])
@@ -304,5 +307,6 @@ class TestHelpSmoke:
     def test_docs_cache_help(self, runner):
         result = _invoke(runner, ["docs", "cache", "--help"])
         assert result.exit_code == 0
-        assert "--status" in result.output
-        assert "--clear" in result.output
+        output = unstyle(result.output)
+        assert "--status" in output
+        assert "--clear" in output
