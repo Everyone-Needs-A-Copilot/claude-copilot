@@ -15,11 +15,17 @@ Covers:
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 from cc.main import app
-from click import unstyle
 from typer.testing import CliRunner
+
+_ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def _unstyle(value: str) -> str:
+    return _ANSI.sub("", value)
 
 # ---------------------------------------------------------------------------
 # Registry isolation + fake backend fixture
@@ -280,7 +286,7 @@ class TestHelpSmoke:
     def test_docs_help(self, runner):
         result = _invoke(runner, ["docs", "--help"])
         assert result.exit_code == 0
-        output = unstyle(result.output)
+        output = _unstyle(result.output)
         assert "resolve" in output
         assert "get" in output
         assert "search" in output
@@ -294,7 +300,7 @@ class TestHelpSmoke:
     def test_docs_get_help(self, runner):
         result = _invoke(runner, ["docs", "get", "--help"])
         assert result.exit_code == 0
-        output = unstyle(result.output)
+        output = _unstyle(result.output)
         assert "--topic" in output
         assert "--source" in output
         assert "--refresh" in output
@@ -307,6 +313,6 @@ class TestHelpSmoke:
     def test_docs_cache_help(self, runner):
         result = _invoke(runner, ["docs", "cache", "--help"])
         assert result.exit_code == 0
-        output = unstyle(result.output)
+        output = _unstyle(result.output)
         assert "--status" in output
         assert "--clear" in output
