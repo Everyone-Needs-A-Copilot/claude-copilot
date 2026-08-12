@@ -19,11 +19,6 @@ jobs:
       contents: read
       security-events: write
 
-    strategy:
-      fail-fast: false
-      matrix:
-        language: [ 'javascript-typescript' ]
-
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
@@ -31,7 +26,7 @@ jobs:
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v4
       with:
-        languages: ${{ matrix.language }}
+        languages: javascript-typescript
 
     - name: Autobuild
       uses: github/codeql-action/autobuild@v4
@@ -39,4 +34,4 @@ jobs:
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v4
       with:
-        category: "/language:${{ matrix.language }}"
+        category: "/language:javascript-typescript"
