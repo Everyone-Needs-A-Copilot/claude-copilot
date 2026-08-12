@@ -5,15 +5,22 @@ from __future__ import annotations
 import json
 import stat
 import subprocess
+import threading
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+from cc.commands.deprovision import build_deprovision_report
+from cc.core.ecosystem import entitlement
 from cc.core.ecosystem.knowledge_skill_source import (
     KNOWLEDGE_SKILLS_SUBPATH,
     KnowledgeSkillSourceError,
+    prune_all_knowledge_snapshots,
     resolve_knowledge_skill_sources,
 )
+from cc.core.ecosystem.project_locking import atomic_json_write
 from cc.core.skill_store import (
+    discover_skills,
     discover_skills_with_sources,
     get_skill_content,
     revalidate_skill_path,
@@ -103,6 +110,56 @@ def signed_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         }.get(key),
     )
     return repo, fingerprint
+
+
+@pytest.fixture
+def protected_signed_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    repo, fingerprint, public_key = _signed_knowledge_repo(tmp_path)
+    layer = _layer(repo, fingerprint) | {
+        "role": "department",
+        "auth": "work",
+    }
+    state_path = tmp_path / "entitlements.json"
+    checked_at = (
+        datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    )
+    atomic_json_write(
+        state_path,
+        {
+            "schema_version": entitlement.ENTITLEMENT_SCHEMA_VERSION,
+            "next_sequence": 2,
+            "layers": {
+                "knowledge-test": {
+                    "layer": "knowledge-test",
+                    "product": "knowledge",
+                    "repo": "example/knowledge",
+                    "login": "person",
+                    "state": "entitled",
+                    "checked_at": checked_at,
+                    "last_entitled_at": checked_at,
+                    "revision": 1,
+                }
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "cc.core.ecosystem.policy.FOUNDATION_SSH_SIGNING_KEYS",
+        {fingerprint: public_key},
+    )
+    monkeypatch.setattr("cc.core.config.resolve_knowledge_repos", lambda: [str(repo)])
+    monkeypatch.setattr(
+        "cc.core.config.resolve_key",
+        lambda key: {
+            "layers.manifest": [layer],
+            "paths.mirrors_root": str(tmp_path / "mirrors"),
+            "skills.cache_dir": str(tmp_path / "skill-cache"),
+        }.get(key),
+    )
+    monkeypatch.setattr("cc.core.ecosystem.entitlement.current_login", lambda: "person")
+    monkeypatch.setattr(
+        "cc.core.ecosystem.entitlement.entitlement_state_path", lambda: state_path
+    )
+    return repo, layer, state_path, tmp_path / "skill-cache" / "signed-knowledge-v1"
 
 
 def _discover_signed():
@@ -291,3 +348,401 @@ def test_cached_snapshot_tamper_fails_closed(signed_source):
 
     with pytest.raises(KnowledgeSkillSourceError, match="snapshot failed integrity"):
         resolve_knowledge_skill_sources()
+
+
+def test_public_signed_knowledge_is_account_free(
+    signed_source, monkeypatch: pytest.MonkeyPatch
+):
+    def unexpected_account_access():
+        raise AssertionError("public Knowledge consulted account state")
+
+    monkeypatch.setattr(
+        "cc.core.ecosystem.entitlement.current_login", unexpected_account_access
+    )
+    monkeypatch.setattr(
+        "cc.core.ecosystem.entitlement.entitlement_state_path",
+        unexpected_account_access,
+    )
+
+    skill = _discover_signed()
+    assert get_skill_content(skill).endswith("authorized body\n")
+
+
+def test_protected_index_is_private_token_free_and_revision_scoped(
+    protected_signed_source,
+):
+    _repo, _layer, state_path, cache_root = protected_signed_source
+    skill = _discover_signed()
+    index_path = cache_root / "index.json"
+    serialized = index_path.read_text(encoding="utf-8")
+    index = json.loads(serialized)
+    entry = next(iter(index["entries"].values()))
+
+    assert stat.S_IMODE(cache_root.stat().st_mode) == 0o700
+    assert stat.S_IMODE(index_path.stat().st_mode) == 0o600
+    assert "token" not in serialized.casefold()
+    assert entry["layer"] == "knowledge-test"
+    assert entry["repository"] == "example/knowledge"
+    assert entry["login"] == "person"
+    assert entry["revision"] == 1
+    assert entry["state_path"] == str(state_path)
+    assert entry["ref"] == "v1.0.0"
+    assert entry["tree"] == skill._knowledge_source.tree
+    assert all(
+        value not in entry["target"]
+        for value in ("knowledge-test", "example/knowledge", "person")
+    )
+
+
+@pytest.mark.parametrize(
+    ("login", "token", "status", "expected_state"),
+    [
+        ("person", "token", 404, "revoked"),
+        ("new-person", "token", 404, "unentitled"),
+        (None, None, None, "signed-out"),
+    ],
+)
+def test_protected_prior_path_is_pruned_on_terminal_observation(
+    protected_signed_source,
+    login: str | None,
+    token: str | None,
+    status: int | None,
+    expected_state: str,
+):
+    repo, layer, state_path, _cache_root = protected_signed_source
+    skill = _discover_signed()
+    stale_path = skill.path
+    assert stale_path.is_file()
+
+    decision = entitlement.observe_layer(
+        layer,
+        login=login,
+        token=token,
+        get_json=lambda *_args, **_kwargs: status,
+        state_path=state_path,
+    )
+
+    assert decision.state == expected_state
+    assert decision.eligible is False
+    assert not stale_path.exists()
+    with pytest.raises(FileNotFoundError):
+        stale_path.read_bytes()
+    if login == "new-person":
+        assert resolve_knowledge_skill_sources(entitlement_login=login) == []
+    else:
+        assert resolve_knowledge_skill_sources() == []
+    assert (repo / KNOWLEDGE_SKILLS_SUBPATH).is_dir()
+
+
+def test_offline_eligible_revision_retains_then_reauth_supersedes_snapshot(
+    protected_signed_source,
+):
+    _repo, layer, state_path, _cache_root = protected_signed_source
+    skill = _discover_signed()
+    prior_path = skill.path
+
+    offline = entitlement.observe_layer(
+        layer,
+        login="person",
+        token="token",
+        get_json=lambda *_args, **_kwargs: None,
+        state_path=state_path,
+    )
+    assert offline.state == "offline-cached"
+    assert offline.eligible is True
+    assert not prior_path.exists()
+    refreshed = _discover_signed()
+    assert refreshed.path != prior_path
+    assert refreshed.path.is_file()
+
+    live = entitlement.observe_layer(
+        layer,
+        login="person",
+        token="token",
+        get_json=lambda *_args, **_kwargs: 200,
+        state_path=state_path,
+    )
+    assert live.eligible is True
+    assert not refreshed.path.exists()
+
+
+def test_protected_read_and_revoke_serialize_without_partial_bytes(
+    protected_signed_source, monkeypatch: pytest.MonkeyPatch
+):
+    _repo, layer, state_path, _cache_root = protected_signed_source
+    skill = _discover_signed()
+    entered = threading.Event()
+    release = threading.Event()
+    original = skill._knowledge_source.snapshot.files[0].content
+
+    from cc.core.ecosystem import knowledge_skill_source as source_module
+
+    real_read = source_module._read_private_file
+
+    def delayed_read(path, *, expected_mode):
+        entered.set()
+        assert release.wait(timeout=5)
+        return real_read(path, expected_mode=expected_mode)
+
+    monkeypatch.setattr(source_module, "_read_private_file", delayed_read)
+    result: list[str] = []
+
+    reader = threading.Thread(target=lambda: result.append(skill._knowledge_source.read_text(skill.path)))
+    reader.start()
+    assert entered.wait(timeout=5)
+
+    revoke_done = threading.Event()
+
+    def revoke():
+        entitlement.observe_layer(
+            layer,
+            login="person",
+            token="token",
+            get_json=lambda *_args, **_kwargs: 404,
+            state_path=state_path,
+        )
+        revoke_done.set()
+
+    revoker = threading.Thread(target=revoke)
+    revoker.start()
+    assert not revoke_done.wait(timeout=0.1)
+    release.set()
+    reader.join(timeout=5)
+    revoker.join(timeout=5)
+
+    assert result and result[0].encode("utf-8") == original
+    assert revoke_done.is_set()
+    assert not skill.path.exists()
+
+
+def test_superseded_offline_observation_cannot_restore_revoked_snapshot(
+    protected_signed_source,
+):
+    _repo, layer, state_path, _cache_root = protected_signed_source
+    skill = _discover_signed()
+    stale_path = skill.path
+    entered = threading.Event()
+    release = threading.Event()
+    results: list[entitlement.EntitlementDecision] = []
+
+    def delayed_offline(_url, _token):
+        entered.set()
+        assert release.wait(timeout=5)
+        return None
+
+    old = threading.Thread(
+        target=lambda: results.append(
+            entitlement.observe_layer(
+                layer,
+                login="person",
+                token="token",
+                get_json=delayed_offline,
+                state_path=state_path,
+            )
+        )
+    )
+    old.start()
+    assert entered.wait(timeout=5)
+    revoked = entitlement.observe_layer(
+        layer,
+        login="person",
+        token="token",
+        get_json=lambda *_args, **_kwargs: 404,
+        state_path=state_path,
+    )
+    assert revoked.state == "revoked"
+    assert not stale_path.exists()
+
+    release.set()
+    old.join(timeout=5)
+    assert results and results[0].superseded is True
+    assert results[0].eligible is False
+    assert not stale_path.exists()
+    assert resolve_knowledge_skill_sources() == []
+
+
+def test_superseded_old_identity_cannot_prune_new_reauthorization(
+    protected_signed_source,
+):
+    _repo, layer, state_path, _cache_root = protected_signed_source
+    old_skill = _discover_signed()
+    entered = threading.Event()
+    release = threading.Event()
+    results: list[entitlement.EntitlementDecision] = []
+
+    def delayed_denial(_url, _token):
+        entered.set()
+        assert release.wait(timeout=5)
+        return 404
+
+    old = threading.Thread(
+        target=lambda: results.append(
+            entitlement.observe_layer(
+                layer,
+                login="person",
+                token="token",
+                get_json=delayed_denial,
+                state_path=state_path,
+            )
+        )
+    )
+    old.start()
+    assert entered.wait(timeout=5)
+    reauthorized = entitlement.observe_layer(
+        layer,
+        login="new-person",
+        token="token",
+        get_json=lambda *_args, **_kwargs: 200,
+        state_path=state_path,
+    )
+    assert reauthorized.eligible is True
+    assert not old_skill.path.exists()
+    pairs = resolve_knowledge_skill_sources(entitlement_login="new-person")
+    new_skill = discover_skills(
+        [pairs[0][0]],
+        source_label="knowledge",
+        _knowledge_source=pairs[0][1],
+    )[0]
+    assert new_skill.path.is_file()
+
+    release.set()
+    old.join(timeout=5)
+    assert results and results[0].superseded is True
+    assert results[0].eligible is True
+    assert new_skill.path.is_file()
+
+
+def test_hard_prune_recovers_pending_and_removes_indexed_snapshots(
+    protected_signed_source,
+):
+    _repo, _layer, _state_path, cache_root = protected_signed_source
+    skill = _discover_signed()
+    assert skill.path.exists()
+    assert prune_all_knowledge_snapshots(cache_root=cache_root) == 1
+    assert not skill.path.exists()
+    index = json.loads((cache_root / "index.json").read_text(encoding="utf-8"))
+    assert index["entries"] == {}
+
+
+def test_interrupted_publication_is_recovered_without_reviving_path(
+    protected_signed_source,
+):
+    _repo, _layer, _state_path, cache_root = protected_signed_source
+    skill = _discover_signed()
+    index_path = cache_root / "index.json"
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    entry = next(iter(index["entries"].values()))
+    entry["status"] = "pending"
+    atomic_json_write(index_path, index)
+
+    assert prune_all_knowledge_snapshots(cache_root=cache_root) == 0
+    assert not skill.path.exists()
+    recovered = json.loads(index_path.read_text(encoding="utf-8"))
+    assert recovered["entries"] == {}
+
+
+def test_symlinked_snapshot_index_fails_closed_and_preserves_outside(
+    protected_signed_source,
+):
+    _repo, _layer, _state_path, cache_root = protected_signed_source
+    skill = _discover_signed()
+    index_path = cache_root / "index.json"
+    outside = cache_root.parent / "outside-index.json"
+    outside.write_text(index_path.read_text(encoding="utf-8"), encoding="utf-8")
+    index_path.unlink()
+    index_path.symlink_to(outside)
+
+    with pytest.raises(KnowledgeSkillSourceError, match="index is unsafe"):
+        prune_all_knowledge_snapshots(cache_root=cache_root)
+    # Hard-prune rejects corrupted metadata without following the link.  The
+    # entitlement path uses the protected-only emergency invalidation below.
+    assert skill.path.exists()
+    assert outside.is_file()
+
+    with pytest.raises(KnowledgeSkillSourceError, match="index is unsafe"):
+        entitlement.observe_layer(
+            protected_signed_source[1],
+            login="person",
+            token="token",
+            get_json=lambda *_args, **_kwargs: 404,
+            state_path=protected_signed_source[2],
+        )
+    assert not skill.path.exists()
+    assert outside.is_file()
+
+
+def test_revocation_unlinks_replaced_snapshot_without_following_it(
+    protected_signed_source,
+):
+    _repo, layer, state_path, cache_root = protected_signed_source
+    skill = _discover_signed()
+    snapshot_root = skill._knowledge_source.skills_root
+    outside = cache_root.parent / "outside-protected-tree"
+    snapshot_root.rename(outside)
+    snapshot_root.symlink_to(outside, target_is_directory=True)
+    assert skill.path.is_file()
+
+    decision = entitlement.observe_layer(
+        layer,
+        login="person",
+        token="token",
+        get_json=lambda *_args, **_kwargs: 404,
+        state_path=state_path,
+    )
+
+    assert decision.state == "revoked"
+    assert not snapshot_root.exists()
+    assert not snapshot_root.is_symlink()
+    assert (outside / "accounting" / "SKILL.md").is_file()
+
+
+def test_protected_revocation_preserves_account_free_public_snapshot(
+    protected_signed_source, monkeypatch: pytest.MonkeyPatch
+):
+    repo, protected_layer, state_path, _cache_root = protected_signed_source
+    protected_skill = _discover_signed()
+    public_layer = protected_layer | {"role": "personal", "auth": "anon"}
+    monkeypatch.setattr(
+        "cc.core.config.resolve_key",
+        lambda key: {
+            "layers.manifest": [public_layer],
+            "paths.mirrors_root": str(repo.parent / "mirrors"),
+            "skills.cache_dir": str(repo.parent / "skill-cache"),
+        }.get(key),
+    )
+    public_skill = _discover_signed()
+    assert public_skill.path != protected_skill.path
+
+    entitlement.observe_layer(
+        protected_layer,
+        login="person",
+        token="token",
+        get_json=lambda *_args, **_kwargs: 404,
+        state_path=state_path,
+    )
+
+    assert not protected_skill.path.exists()
+    assert public_skill.path.is_file()
+    assert public_skill.path.read_text(encoding="utf-8").endswith("authorized body\n")
+
+
+def test_hard_deprovision_prunes_exact_index_and_preserves_unrelated_cache(
+    protected_signed_source,
+):
+    _repo, _layer, _state_path, cache_root = protected_signed_source
+    skill = _discover_signed()
+    unrelated = cache_root / "not-framework-owned.txt"
+    unrelated.write_text("keep", encoding="utf-8")
+
+    report = build_deprovision_report(
+        _lockfile_path=cache_root.parent / "missing.lock.json",
+        _mirror_root=cache_root.parent / "mirrors",
+        _materialize_root=cache_root.parent / "materialized",
+        _knowledge_snapshot_root=cache_root,
+        _mode="hard",
+        _personal_roots=[],
+    )
+
+    assert report["removed"]["materialized"] == 1
+    assert not skill.path.exists()
+    assert unrelated.read_text(encoding="utf-8") == "keep"

@@ -586,10 +586,24 @@ def observe_layer(
             and not isinstance(record_revision, bool)
             and record_revision >= sequence
         ):
-            return replace(
-                _cached_decision(layer, record, login=login, now=current),
+            authoritative_login = (
+                record.get("login")
+                if isinstance(record, dict) and isinstance(record.get("login"), str)
+                else None
+            )
+            current_decision = replace(
+                _cached_decision(
+                    layer, record, login=authoritative_login, now=current
+                ),
                 superseded=True,
             )
+            _reconcile_knowledge_snapshot_authority(
+                layer,
+                current_decision,
+                state_path=path,
+                login=authoritative_login,
+            )
+            return current_decision
 
         if record is not None:
             checked = _parse_timestamp(record.get("checked_at"))
@@ -648,26 +662,66 @@ def observe_layer(
             "revision": sequence,
         }
         _write_state(path, records, next_sequence=next_sequence)
-    if state == "entitled":
-        return _decision(
-            layer_id,
-            state,
-            True,
-            checked_at=_timestamp(current),
-            expires_at=_timestamp(current + OFFLINE_GRACE),
-            revision=sequence,
+        if state == "entitled":
+            decision = _decision(
+                layer_id,
+                state,
+                True,
+                checked_at=_timestamp(current),
+                expires_at=_timestamp(current + OFFLINE_GRACE),
+                revision=sequence,
+            )
+        elif state == "offline":
+            decision = replace(
+                _cached_decision(
+                    layer, records[layer_id], login=stored_login, now=current
+                ),
+                revision=sequence,
+            )
+        else:
+            decision = _decision(
+                layer_id,
+                state,
+                False,
+                checked_at=_timestamp(current),
+                revision=sequence,
+            )
+        _reconcile_knowledge_snapshot_authority(
+            layer, decision, state_path=path, login=stored_login
         )
-    if state == "offline":
-        return replace(
-            _cached_decision(layer, records[layer_id], login=stored_login, now=current),
-            revision=sequence,
-        )
-    return _decision(
-        layer_id,
-        state,
-        False,
-        checked_at=_timestamp(current),
-        revision=sequence,
+    return decision
+
+
+def _reconcile_knowledge_snapshot_authority(
+    layer: dict[str, object],
+    decision: EntitlementDecision,
+    *,
+    state_path: Path,
+    login: str | None,
+) -> None:
+    """Keep protected Knowledge snapshots only for the current eligible row.
+
+    The caller holds the entitlement ledger lock, establishing the global
+    ledger-before-snapshot lock order used by the resolver as well. A terminal,
+    stale, or superseded decision atomically removes the prior pathname before
+    the observation returns.
+    """
+    if str(layer.get("product", "")).lower() != "knowledge":
+        return
+    source = layer.get("source")
+    repository = github_repo_slug(source.get("repo")) if isinstance(source, dict) else None
+    if repository is None:
+        return
+    from cc.core.ecosystem.knowledge_skill_source import (
+        prune_protected_knowledge_snapshots,
+    )
+
+    prune_protected_knowledge_snapshots(
+        layer=decision.layer,
+        repository=repository.casefold(),
+        state_path=state_path,
+        keep_login=login if decision.eligible else None,
+        keep_revision=decision.revision if decision.eligible else None,
     )
 
 
