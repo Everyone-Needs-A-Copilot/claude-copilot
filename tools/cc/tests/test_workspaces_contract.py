@@ -290,8 +290,13 @@ def test_status_distinguishes_shared_declaration_from_real_installation(tmp_path
     _git_init(project, "git@github.com:Example/Widget.git")
     write_declaration(project, ("claude", "codex"))
 
+    claude_root, codex_root = _repo_roots()
     report = workspace_status(
-        project, personal_registry=registry, which=lambda _name: None
+        project,
+        personal_registry=registry,
+        which=lambda _name: None,
+        claude_root=claude_root,
+        codex_root=codex_root,
     )
     assert report["state"] == "activation-required"
     assert report["declared_components"] == ["claude", "codex"]
@@ -323,10 +328,19 @@ def test_superficial_markers_never_count_as_ready(tmp_path):
     (ready / ".claude/commands/protocol.md").write_text("framework")
     (ready / ".mcp.json").write_text("{}")
 
+    claude_root, codex_root = _repo_roots()
     arbitrary_report = workspace_status(
-        arbitrary, personal_registry=tmp_path / "a.json"
+        arbitrary,
+        personal_registry=tmp_path / "a.json",
+        claude_root=claude_root,
+        codex_root=codex_root,
     )
-    marker_report = workspace_status(ready, personal_registry=tmp_path / "b.json")
+    marker_report = workspace_status(
+        ready,
+        personal_registry=tmp_path / "b.json",
+        claude_root=claude_root,
+        codex_root=codex_root,
+    )
 
     assert arbitrary_report["state"] == "setup-available"
     assert marker_report["state"] == "blocked"
@@ -374,9 +388,7 @@ def test_local_only_project_never_gets_fabricated_portable_identity(tmp_path):
 def test_activation_installs_both_products_and_only_then_becomes_ready(tmp_path):
     project = tmp_path / "project"
     _git_init(project, "git@github.com:Example/Activation.git")
-    repo_parent = Path(__file__).resolve().parents[4]
-    claude_root = repo_parent / "claude-copilot"
-    codex_root = repo_parent / "codex-copilot"
+    claude_root, codex_root = _repo_roots()
 
     activated = activate_components(
         project,
@@ -1510,14 +1522,14 @@ def test_activation_collision_blocks_before_any_selected_product_writes(tmp_path
     project = tmp_path / "project"
     _git_init(project)
     (project / "AGENTS.md").write_text("project-owned")
-    repo_parent = Path(__file__).resolve().parents[4]
+    claude_root, codex_root = _repo_roots()
 
     try:
         activate_components(
             project,
             ("claude", "codex"),
-            claude_root=repo_parent / "claude-copilot",
-            codex_root=repo_parent / "codex-copilot",
+            claude_root=claude_root,
+            codex_root=codex_root,
         )
     except ActivationError:
         pass
@@ -1708,6 +1720,7 @@ def test_apply_all_plans_every_project_that_needs_setup_and_skips_ready_ones(
     monkeypatch.setattr(
         workspaces_command, "discover_workspaces", lambda: [alpha, already_ready, beta]
     )
+    _use_fixture_installers(monkeypatch)
 
     workspaces_command.configure(
         project=None,
@@ -1736,6 +1749,7 @@ def test_apply_all_applies_every_project_and_collects_a_per_project_failure(
     monkeypatch.setattr(
         workspaces_command, "discover_workspaces", lambda: [failing_project, ok_project]
     )
+    _use_fixture_installers(monkeypatch)
 
     def fake_activate(root, components):
         if root == failing_project:
@@ -1917,9 +1931,7 @@ def test_revert_removes_only_recorded_files_and_excludes_the_project_from_automa
 ):
     project = tmp_path / "project"
     _git_init(project, "git@github.com:Example/Revert.git")
-    repo_parent = Path(__file__).resolve().parents[4]
-    claude_root = repo_parent / "claude-copilot"
-    codex_root = repo_parent / "codex-copilot"
+    claude_root, codex_root = _repo_roots()
 
     activate_components(
         project, ("claude", "codex"), claude_root=claude_root, codex_root=codex_root
@@ -1962,9 +1974,7 @@ def test_revert_removes_only_recorded_files_and_excludes_the_project_from_automa
 def test_revert_refuses_when_a_recorded_file_was_edited_since(tmp_path):
     project = tmp_path / "project"
     _git_init(project, "git@github.com:Example/Edited.git")
-    repo_parent = Path(__file__).resolve().parents[4]
-    claude_root = repo_parent / "claude-copilot"
-    codex_root = repo_parent / "codex-copilot"
+    claude_root, codex_root = _repo_roots()
 
     activate_components(
         project, ("claude",), claude_root=claude_root, codex_root=codex_root
@@ -1995,9 +2005,8 @@ def test_revert_refuses_when_a_recorded_file_was_edited_since(tmp_path):
 def test_revert_command_plan_then_apply_shapes(monkeypatch, capsys, tmp_path):
     project = tmp_path / "project"
     _git_init(project, "git@github.com:Example/CliRevert.git")
-    repo_parent = Path(__file__).resolve().parents[4]
-    claude_root = repo_parent / "claude-copilot"
-    codex_root = repo_parent / "codex-copilot"
+    claude_root, codex_root = _repo_roots()
+    _use_fixture_installers(monkeypatch)
     activate_components(
         project, ("claude",), claude_root=claude_root, codex_root=codex_root
     )
@@ -2038,6 +2047,15 @@ def _repo_roots():
         Path(__file__).resolve().parents[3],
         Path(__file__).parent / "fixtures" / "codex-installer",
     )
+
+
+def _use_fixture_installers(monkeypatch):
+    claude_root, codex_root = _repo_roots()
+    values = {
+        "paths.claude_copilot_root": str(claude_root),
+        "paths.codex_copilot_root": str(codex_root),
+    }
+    monkeypatch.setattr(core_workspaces, "resolve_key", values.get)
 
 
 def test_project_present_at_grant_time_is_always_ask(tmp_path):
@@ -2099,11 +2117,14 @@ def test_project_outside_any_granted_root_keeps_the_honest_ask_default(tmp_path)
     elsewhere = tmp_path / "elsewhere"
     _git_init(elsewhere)
 
+    claude_root, codex_root = _repo_roots()
     report = workspace_status(
         elsewhere,
         personal_registry=tmp_path / "personal.json",
         known_projects_registry=known_registry,
         configured_roots=[root],
+        claude_root=claude_root,
+        codex_root=codex_root,
     )
 
     assert report["setup_policy"] == "ask"
@@ -2195,6 +2216,7 @@ def test_automatic_setup_is_recorded_and_fully_revertible(monkeypatch, tmp_path)
     monkeypatch.setattr(
         core_workspaces, "default_automatic_setups_registry", lambda: automatic_registry
     )
+    _use_fixture_installers(monkeypatch)
 
     before = workspace_status(
         project,
