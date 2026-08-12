@@ -8,11 +8,16 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 HOOK="$PROJECT_ROOT/.claude/hooks/subagent-stop.sh"
-STATE_DIR="$PROJECT_ROOT/.claude/hooks/state"
-GATE_FILE="${STATE_DIR}/qa-gate.json"
 JQ="/usr/bin/jq"
 
 TEST_SESSION="test-subagent-$$"
+TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/subagent-stop.XXXXXX")"
+TEST_PROJECT="${TEST_ROOT}/project"
+STATE_DIR="${TEST_ROOT}/state"
+GATE_FILE="${STATE_DIR}/qa-gate.json"
+
+export CLAUDE_PROJECT_DIR="$TEST_PROJECT"
+export COPILOT_HOOK_STATE_DIR="$STATE_DIR"
 
 PASS=0
 FAIL=0
@@ -33,6 +38,21 @@ fail() {
 clean_gate() {
   rm -f "$GATE_FILE" "${STATE_DIR}/qa-gate.lock" "${STATE_DIR}/qa-gate.log" 2>/dev/null || true
 }
+
+cleanup_all() {
+  case "$TEST_ROOT" in
+    "${TMPDIR:-/tmp}"/subagent-stop.*) rm -rf -- "$TEST_ROOT" ;;
+    *) echo "Refusing to remove unexpected fixture root: $TEST_ROOT" >&2 ;;
+  esac
+}
+
+trap cleanup_all EXIT
+
+mkdir -p "$TEST_PROJECT" "$STATE_DIR"
+tc init --path "$TEST_PROJECT" --json >/dev/null
+for task_number in $(seq 1 20); do
+  (cd "$TEST_PROJECT" && tc task create --title "Subagent stop fixture ${task_number}" --json) >/dev/null
+done
 
 # Send payload to hook; capture exit code and stdout
 invoke_hook() {
