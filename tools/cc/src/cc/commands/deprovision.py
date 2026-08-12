@@ -49,6 +49,7 @@ def build_deprovision_report(
     _lockfile_path: Any = _UNSET,
     _mirror_root: Any = _UNSET,
     _materialize_root: Any = _UNSET,
+    _knowledge_snapshot_root: Any = _UNSET,
     _mode: str = "soft",
     _personal_roots: Any = _UNSET,
     _dry_run: bool = False,
@@ -107,6 +108,32 @@ def build_deprovision_report(
         personal_roots=personal_roots,
         dry_run=_dry_run,
     )
+
+    snapshot_removed = 0
+    if _mode == "hard":
+        if _knowledge_snapshot_root is not _UNSET:
+            snapshot_root = Path(_knowledge_snapshot_root).expanduser()
+        elif _mirror_root is _UNSET and _materialize_root is _UNSET:
+            skill_cache = resolve_key("skills.cache_dir")
+            snapshot_root = (
+                Path(str(skill_cache)).expanduser()
+                if skill_cache
+                else None
+            )
+            if snapshot_root is not None:
+                snapshot_root /= "signed-knowledge-v1"
+        else:
+            # Injected engine tests do not gain authority over machine state.
+            snapshot_root = None
+        if snapshot_root is not None:
+            from cc.core.ecosystem.knowledge_skill_source import (
+                prune_all_knowledge_snapshots,
+            )
+
+            snapshot_removed = prune_all_knowledge_snapshots(
+                cache_root=snapshot_root, dry_run=_dry_run
+            )
+            engine_report["removed_materialized"] += snapshot_removed
 
     removed_materialized = engine_report["removed_materialized"]
     removed_clones = engine_report["removed_clones"]
