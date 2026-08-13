@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import threading
 from types import SimpleNamespace
 
 import pytest
-
 from cc.core.evaluation.journey import (
     CapabilityReceipt,
     DeterministicJourneyAdapter,
@@ -13,6 +13,7 @@ from cc.core.evaluation.journey import (
     KnowledgeReceipt,
     RouteEvent,
     RouteTrace,
+    SecurityReceipt,
     TcContinuationStore,
 )
 
@@ -90,6 +91,17 @@ class Capability:
         return self.result
 
 
+class Security:
+    def __init__(self, result=SecurityReceipt("allowed", "fixture-policy"), error=None):
+        self.result = result
+        self.error = error
+
+    def authorize(self, *, case_id: str) -> SecurityReceipt:
+        if self.error:
+            raise self.error
+        return self.result
+
+
 class Rows:
     def __init__(self):
         self.rows = {}
@@ -122,11 +134,18 @@ def adapters(*, runtime="claude", capability=None, knowledge=None):
         list_wps=rows.list_wps,
     )
     selected_knowledge = knowledge or Knowledge()
-    return rows, protocol, store, selected_knowledge, DeterministicJourneyAdapter(
-        protocol=protocol,
-        knowledge=selected_knowledge,
-        capability=capability or Capability(),
-        continuation=store,
+    return (
+        rows,
+        protocol,
+        store,
+        selected_knowledge,
+        DeterministicJourneyAdapter(
+            protocol=protocol,
+            knowledge=selected_knowledge,
+            capability=capability or Capability(),
+            security=Security(),
+            continuation=store,
+        ),
     )
 
 
@@ -142,6 +161,7 @@ def test_fresh_adapter_resumes_exact_next_stage_without_duplication():
         protocol=protocol,
         knowledge=resumed_knowledge,
         capability=Capability(),
+        security=Security(),
         continuation=store,
     )
     resumed = fresh.resume(locator)
@@ -156,7 +176,9 @@ def test_fresh_adapter_resumes_exact_next_stage_without_duplication():
     assert len(rows.rows) == 2
 
 
-@pytest.mark.parametrize("error,state", [(TimeoutError(), "timeout"), (OSError(), "malformed")])
+@pytest.mark.parametrize(
+    "error,state", [(TimeoutError(), "timeout"), (OSError(), "malformed")]
+)
 def test_optional_capability_failures_preserve_core_route(error, state):
     _rows, _protocol, _store, _knowledge, adapter = adapters(
         capability=Capability(error=error)
@@ -167,12 +189,35 @@ def test_optional_capability_failures_preserve_core_route(error, state):
 
 
 def test_security_denial_is_fail_closed():
-    denied = Capability(CapabilityReceipt("repo-status", "security-denied"))
-    _rows, _protocol, _store, knowledge, adapter = adapters(capability=denied)
+    rows, protocol, store, knowledge, _adapter = adapters()
+    adapter = DeterministicJourneyAdapter(
+        protocol=protocol,
+        knowledge=knowledge,
+        capability=Capability(),
+        security=Security(SecurityReceipt("denied", "policy")),
+        continuation=store,
+    )
     evidence, _locator = adapter.start(JourneyCase("case-1", "problem", 3))
     assert evidence.outcome == "INVALID"
     assert evidence.completed_specialists == ()
     assert evidence.next_specialist == "ta"
+    assert knowledge.calls == []
+
+
+@pytest.mark.parametrize(
+    "error", [PermissionError("denied"), OSError("auth unavailable")]
+)
+def test_mandatory_security_errors_fail_closed_before_knowledge(error):
+    _rows, protocol, store, knowledge, _adapter = adapters()
+    adapter = DeterministicJourneyAdapter(
+        protocol=protocol,
+        knowledge=knowledge,
+        capability=Capability(),
+        security=Security(error=error),
+        continuation=store,
+    )
+    evidence, _ = adapter.start(JourneyCase("case-1", "problem", 3))
+    assert evidence.outcome == "INVALID"
     assert knowledge.calls == []
 
 
@@ -183,6 +228,15 @@ def test_untyped_malformed_capability_result_is_typed_fail_open():
     evidence, _locator = adapter.start(JourneyCase("case-1", "problem", 3))
     assert evidence.outcome == "STRUCTURALLY_INTEGRATED"
     assert evidence.capability == CapabilityReceipt("optional-operations", "malformed")
+
+
+def test_permission_denial_from_operational_boundary_fails_closed():
+    _rows, _protocol, _store, knowledge, adapter = adapters(
+        capability=Capability(error=PermissionError("denied"))
+    )
+    evidence, _ = adapter.start(JourneyCase("case-1", "problem", 3))
+    assert evidence.outcome == "INVALID"
+    assert knowledge.calls == []
 
 
 def test_missing_required_knowledge_returns_invalid_evidence():
@@ -240,6 +294,82 @@ def test_knowledge_bytes_must_match_attributable_receipt():
     )
     with pytest.raises(ValueError, match="does not bind"):
         KnowledgeComposition("composed bytes", (receipt,), ("different bytes",))
+
+
+def test_unrelated_composed_content_and_unauthenticated_source_are_rejected():
+    source = "source"
+    receipt = KnowledgeReceipt(
+        "organization",
+        "v1",
+        "a" * 40,
+        "signer",
+        "skill",
+        hashlib.sha256(source.encode()).hexdigest(),
+        "claude",
+        "v1",
+    )
+    with pytest.raises(ValueError, match="canonical"):
+        KnowledgeComposition("INJECTED", (receipt,), (source,))
+    with pytest.raises(ValueError, match="immutable source identity"):
+        KnowledgeReceipt(
+            "organization",
+            "v1",
+            "a" * 40,
+            "signer",
+            "skill",
+            hashlib.sha256(source.encode()).hexdigest(),
+            "claude",
+            "v1",
+            authenticated=False,
+        )
+
+
+def test_continuation_row_identity_and_plaintext_privacy_are_enforced():
+    rows, _protocol, store, _knowledge, adapter = adapters()
+    secret_prompt = "token=secret /Users/alice/private"
+    _evidence, locator = adapter.start(JourneyCase("case-1", secret_prompt, 1))
+    persisted = rows.rows[locator.work_product_id]["content"]
+    assert secret_prompt not in persisted
+    assert hashlib.sha256(secret_prompt.encode()).hexdigest() in persisted
+    rows.rows[locator.work_product_id]["task_id"] = 999
+    with pytest.raises(ValueError, match="identity"):
+        store.load(locator)
+
+
+def test_concurrent_resume_executes_suffix_and_completion_once():
+    rows, protocol, store, _knowledge, first = adapters()
+    _paused, locator = first.start(JourneyCase("race", "problem", 1))
+    knowledge = Knowledge()
+    results = []
+    errors = []
+
+    def resume():
+        try:
+            adapter = DeterministicJourneyAdapter(
+                protocol=protocol,
+                knowledge=knowledge,
+                capability=Capability(),
+                security=Security(),
+                continuation=store,
+            )
+            results.append(adapter.resume(locator))
+        except Exception as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=resume) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert not errors
+    assert results[0] == results[1]
+    assert knowledge.calls == ["me", "qa"]
+    completions = [
+        row
+        for row in rows.rows.values()
+        if str(row["title"]).startswith("Journey completion:")
+    ]
+    assert len(completions) == 1
 
 
 def test_route_trace_requires_ordered_transitions_and_reasoned_checkpoint_skip():
