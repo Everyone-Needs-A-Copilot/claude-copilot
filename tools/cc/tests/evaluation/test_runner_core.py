@@ -16,6 +16,7 @@ from cc.core.evaluation._authority import (
     _EvaluationAuthority,
 )
 from cc.core.evaluation.artifact import (
+    _open_root_directory,
     _reject_aggregate_fields,
     _verify_named_artifact,
     _write_artifact,
@@ -448,7 +449,7 @@ def test_artifact_writer_rejects_unsafe_root_type_and_existing_file_modes(
     record = EvaluationRunner(_Runtime()).run(cell)
 
     tmp_path.chmod(0o777)
-    with pytest.raises(ValueError, match="mode-0700"):
+    with pytest.raises(ValueError, match="group/world write|mode-0700"):
         write_run_record(tmp_path, record, cell=cell)
     tmp_path.chmod(0o700)
 
@@ -473,7 +474,7 @@ def test_artifact_writer_rejects_wrong_effective_owner_and_symlink_type(
     record = EvaluationRunner(_Runtime()).run(cell)
     actual_uid = os.geteuid()
     monkeypatch.setattr(os, "geteuid", lambda: actual_uid + 1)
-    with pytest.raises(ValueError, match="current-user-owned"):
+    with pytest.raises(ValueError, match="trusted-owned|current-user-owned"):
         write_run_record(tmp_path, record, cell=cell)
     monkeypatch.undo()
 
@@ -481,6 +482,82 @@ def test_artifact_writer_rejects_wrong_effective_owner_and_symlink_type(
     outside.mkdir(mode=0o700)
     (tmp_path / "run-record").symlink_to(outside, target_is_directory=True)
     with pytest.raises(OSError):
+        write_run_record(tmp_path, record, cell=cell)
+
+
+def test_artifact_root_descriptor_walk_rejects_ancestor_swap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    supplied = tmp_path / "supplied"
+    supplied.mkdir(mode=0o700)
+    root = supplied / "root"
+    root.mkdir(mode=0o700)
+    target = tmp_path / "target"
+    target.mkdir(mode=0o700)
+    (target / "root").mkdir(mode=0o700)
+    held = tmp_path / "held"
+    real_open = os.open
+    real_fstat = os.fstat
+    swapped = False
+
+    def swapping_open(path, flags, *args, **kwargs):
+        nonlocal swapped
+        if path == "root" and kwargs.get("dir_fd") is not None and not swapped:
+            swapped = True
+            supplied.rename(held)
+            supplied.symlink_to(target, target_is_directory=True)
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", swapping_open)
+    root_fd = _open_root_directory(root)
+    try:
+        assert (real_fstat(root_fd).st_dev, real_fstat(root_fd).st_ino) == (
+            (held / "root").stat().st_dev,
+            (held / "root").stat().st_ino,
+        )
+        assert (real_fstat(root_fd).st_dev, real_fstat(root_fd).st_ino) != (
+            (target / "root").stat().st_dev,
+            (target / "root").stat().st_ino,
+        )
+    finally:
+        os.close(root_fd)
+
+
+def test_artifact_writer_rejects_root_and_file_mode_final_snapshot_races(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cell = _cell()
+    record = EvaluationRunner(_Runtime()).run(cell)
+    real_fsync = os.fsync
+    fsync_calls = 0
+
+    def root_mode_race(file_descriptor: int) -> None:
+        nonlocal fsync_calls
+        fsync_calls += 1
+        real_fsync(file_descriptor)
+        if fsync_calls == 3:
+            tmp_path.chmod(0o777)
+
+    monkeypatch.setattr(os, "fsync", root_mode_race)
+    with pytest.raises(ValueError, match="mode-0700"):
+        write_run_record(tmp_path, record, cell=cell)
+    monkeypatch.undo()
+    tmp_path.chmod(0o700)
+
+    receipt = write_run_record(tmp_path, record, cell=cell)
+    artifact_path = tmp_path / receipt.relative_path
+    real_fsync = os.fsync
+    fsync_calls = 0
+
+    def file_mode_race(file_descriptor: int) -> None:
+        nonlocal fsync_calls
+        fsync_calls += 1
+        real_fsync(file_descriptor)
+        if fsync_calls == 3:
+            artifact_path.chmod(0o666)
+
+    monkeypatch.setattr(os, "fsync", file_mode_race)
+    with pytest.raises(ValueError, match="private stable regular file"):
         write_run_record(tmp_path, record, cell=cell)
 
 
