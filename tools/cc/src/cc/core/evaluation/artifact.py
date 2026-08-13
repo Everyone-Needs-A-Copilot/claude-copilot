@@ -191,23 +191,80 @@ def _require_named_directory(
         raise ValueError(f"{description} path identity is not private and stable.")
 
 
-def _reject_symlink_ancestors(root: Path) -> Path:
-    absolute = root.absolute()
-    current = Path(absolute.anchor)
-    for component in absolute.parts[1:]:
-        current /= component
-        if stat.S_ISLNK(os.lstat(current).st_mode):
-            raise ValueError("Evaluation artifact root cannot contain symlinks.")
-    return absolute
+def _directory_open_flags() -> int:
+    return (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
 
 
-def _verify_named_artifact(
-    type_fd: int, filename: str, content: bytes, digest: str
-) -> None:
-    """Bind verified bytes and inode to the final directory entry."""
+def _require_traversal_directory(file_descriptor: int, *, description: str) -> None:
+    metadata = os.fstat(file_descriptor)
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or metadata.st_uid not in {0, os.geteuid()}
+        or stat.S_IMODE(metadata.st_mode) & 0o022
+    ):
+        raise ValueError(
+            f"{description} must be trusted-owned without group/world write access."
+        )
 
+
+def _open_root_directory(root: Path) -> int:
+    """Open every root component relative to a retained, non-symlink FD."""
+
+    path = Path(root)
+    if path.is_absolute():
+        anchor = path.anchor
+        components = path.parts[1:]
+    else:
+        anchor = "."
+        components = path.parts
+    current_fd = os.open(anchor, _directory_open_flags())
+    try:
+        _require_traversal_directory(current_fd, description="Artifact path anchor")
+        for component in components:
+            if component in {"", "."}:
+                continue
+            if component == "..":
+                raise ValueError("Evaluation artifact root cannot traverse upward.")
+            next_fd = os.open(
+                component,
+                _directory_open_flags(),
+                dir_fd=current_fd,
+            )
+            try:
+                _require_traversal_directory(
+                    next_fd, description="Artifact path component"
+                )
+            except Exception:
+                os.close(next_fd)
+                raise
+            os.close(current_fd)
+            current_fd = next_fd
+        _require_private_directory(current_fd, description="Evaluation artifact root")
+        return current_fd
+    except Exception:
+        os.close(current_fd)
+        raise
+
+
+def _read_verified_artifact(
+    type_fd: int,
+    filename: str,
+    *,
+    digest: str,
+    expected_content: bytes | None = None,
+    maximum_size: int | None = None,
+) -> bytes:
     nofollow = getattr(os, "O_NOFOLLOW", 0)
-    file_fd = os.open(filename, os.O_RDONLY | nofollow, dir_fd=type_fd)
+    file_fd = os.open(
+        filename,
+        os.O_RDONLY | nofollow | getattr(os, "O_CLOEXEC", 0),
+        dir_fd=type_fd,
+    )
     try:
         before = os.fstat(file_fd)
         if (
@@ -215,7 +272,10 @@ def _verify_named_artifact(
             or before.st_nlink != 1
             or before.st_uid != os.geteuid()
             or stat.S_IMODE(before.st_mode) != 0o600
-            or before.st_size != len(content)
+            or (maximum_size is not None and before.st_size > maximum_size)
+            or (
+                expected_content is not None and before.st_size != len(expected_content)
+            )
         ):
             raise ValueError(
                 "Existing evaluation artifact is not a private stable regular file."
@@ -226,7 +286,7 @@ def _verify_named_artifact(
             if not chunk:
                 break
             chunks.append(chunk)
-        existing = b"".join(chunks)
+        content = b"".join(chunks)
         after = os.fstat(file_fd)
         named = os.stat(filename, dir_fd=type_fd, follow_symlinks=False)
         if (
@@ -236,12 +296,49 @@ def _verify_named_artifact(
             or named.st_uid != os.geteuid()
             or stat.S_IMODE(named.st_mode) != 0o600
             or (named.st_dev, named.st_ino) != (after.st_dev, after.st_ino)
-            or existing != content
-            or hashlib.sha256(existing).hexdigest() != digest
+            or (expected_content is not None and content != expected_content)
+            or hashlib.sha256(content).hexdigest() != digest
         ):
             raise ValueError("Content-addressed artifact identity collision.")
+        return content
     finally:
         os.close(file_fd)
+
+
+def _verify_named_artifact(
+    type_fd: int, filename: str, content: bytes, digest: str
+) -> None:
+    """Bind verified bytes and inode to the final directory entry."""
+
+    _read_verified_artifact(
+        type_fd,
+        filename,
+        digest=digest,
+        expected_content=content,
+    )
+
+
+def _verify_storage_snapshot(
+    root_fd: int,
+    type_fd: int,
+    artifact_type: str,
+    filename: str,
+    content: bytes,
+    digest: str,
+) -> None:
+    """Make the retained-FD validation the final operation before a receipt."""
+
+    _require_private_directory(root_fd, description="Evaluation artifact root")
+    type_metadata = _require_private_directory(
+        type_fd, description="Evaluation artifact type directory"
+    )
+    _require_named_directory(
+        root_fd,
+        artifact_type,
+        type_metadata,
+        description="Evaluation artifact type directory",
+    )
+    _verify_named_artifact(type_fd, filename, content, digest)
 
 
 def _reject_disclosure_values(value: object) -> None:
@@ -303,19 +400,10 @@ def _write_artifact(
     filename = f"{digest}.json"
     staging_name = f".{digest}.{secrets.token_hex(12)}.tmp"
     nofollow = getattr(os, "O_NOFOLLOW", 0)
-    root = _reject_symlink_ancestors(root)
-    root_fd = os.open(root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | nofollow)
+    cloexec = getattr(os, "O_CLOEXEC", 0)
+    root_fd = _open_root_directory(root)
     artifact_fd: int | None = None
     try:
-        root_metadata = _require_private_directory(
-            root_fd, description="Evaluation artifact root"
-        )
-        root_named = os.stat(root, follow_symlinks=False)
-        if (root_named.st_dev, root_named.st_ino) != (
-            root_metadata.st_dev,
-            root_metadata.st_ino,
-        ):
-            raise ValueError("Evaluation artifact root path identity changed.")
         created_type_directory = False
         try:
             os.mkdir(artifact_type, mode=0o700, dir_fd=root_fd)
@@ -330,7 +418,7 @@ def _write_artifact(
             pass
         type_fd = os.open(
             artifact_type,
-            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | nofollow,
+            _directory_open_flags(),
             dir_fd=root_fd,
         )
         try:
@@ -348,7 +436,7 @@ def _write_artifact(
             try:
                 artifact_fd = os.open(
                     staging_name,
-                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow | cloexec,
                     0o600,
                     dir_fd=type_fd,
                 )
@@ -370,20 +458,25 @@ def _write_artifact(
                     os.unlink(staging_name, dir_fd=type_fd)
                 except FileNotFoundError:
                     pass
-            _verify_named_artifact(type_fd, filename, content, digest)
-            _require_named_directory(
-                root_fd,
-                artifact_type,
-                type_metadata,
-                description="Evaluation artifact type directory",
+            durable_fd = os.open(
+                filename,
+                os.O_RDONLY | nofollow | cloexec,
+                dir_fd=type_fd,
             )
-            current_root = os.stat(root, follow_symlinks=False)
-            if (current_root.st_dev, current_root.st_ino) != (
-                root_metadata.st_dev,
-                root_metadata.st_ino,
-            ):
-                raise ValueError("Evaluation artifact root path identity changed.")
+            try:
+                os.fsync(durable_fd)
+            finally:
+                os.close(durable_fd)
             os.fsync(type_fd)
+            os.fsync(root_fd)
+            _verify_storage_snapshot(
+                root_fd,
+                type_fd,
+                artifact_type,
+                filename,
+                content,
+                digest,
+            )
         except Exception:
             if artifact_fd is not None:
                 os.close(artifact_fd)
@@ -495,24 +588,13 @@ def load_run_record_document(
 
     if lineage_depth >= 32:
         return None
-    nofollow = getattr(os, "O_NOFOLLOW", 0)
     root_fd: int | None = None
     type_fd: int | None = None
     try:
-        root = _reject_symlink_ancestors(root)
-        root_fd = os.open(root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | nofollow)
-        root_metadata = _require_private_directory(
-            root_fd, description="Evaluation artifact root"
-        )
-        root_named = os.stat(root, follow_symlinks=False)
-        if (root_named.st_dev, root_named.st_ino) != (
-            root_metadata.st_dev,
-            root_metadata.st_ino,
-        ):
-            raise ValueError("Evaluation artifact root path identity changed.")
+        root_fd = _open_root_directory(root)
         type_fd = os.open(
             "run-record",
-            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | nofollow,
+            _directory_open_flags(),
             dir_fd=root_fd,
         )
         type_metadata = _require_private_directory(
@@ -536,32 +618,12 @@ def load_run_record_document(
             if not _ARTIFACT_NAME.fullmatch(name):
                 continue
             try:
-                file_fd = os.open(name, os.O_RDONLY | nofollow, dir_fd=type_fd)
-            except OSError:
-                continue
-            try:
-                metadata = os.fstat(file_fd)
-                if (
-                    not stat.S_ISREG(metadata.st_mode)
-                    or metadata.st_nlink != 1
-                    or metadata.st_uid != os.geteuid()
-                    or stat.S_IMODE(metadata.st_mode) != 0o600
-                    or metadata.st_size > 1_048_576
-                ):
-                    continue
-                chunks: list[bytes] = []
-                while True:
-                    chunk = os.read(file_fd, 65536)
-                    if not chunk:
-                        break
-                    chunks.append(chunk)
-                raw = b"".join(chunks)
-            finally:
-                os.close(file_fd)
-            if hashlib.sha256(raw).hexdigest() != name[:-5]:
-                continue
-            try:
-                _verify_named_artifact(type_fd, name, raw, name[:-5])
+                raw = _read_verified_artifact(
+                    type_fd,
+                    name,
+                    digest=name[:-5],
+                    maximum_size=1_048_576,
+                )
             except (OSError, ValueError):
                 continue
             try:
@@ -637,19 +699,15 @@ def load_run_record_document(
             _reject_aggregate_fields(value)
             _reject_disclosure_values(value)
             try:
-                _require_named_directory(
+                _verify_storage_snapshot(
                     root_fd,
+                    type_fd,
                     "run-record",
-                    type_metadata,
-                    description="Evaluation artifact type directory",
+                    name,
+                    raw,
+                    name[:-5],
                 )
-                current_root = os.stat(root, follow_symlinks=False)
             except (OSError, ValueError):
-                return None
-            if (current_root.st_dev, current_root.st_ino) != (
-                root_metadata.st_dev,
-                root_metadata.st_ino,
-            ):
                 return None
             return value
     finally:
