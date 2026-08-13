@@ -1555,9 +1555,7 @@ def test_lock_wait_is_bounded_and_fails_closed():
         lock_timeout=0.03,
         allow_missing_guard=True,
     )
-    descriptor = os.open(
-        _GLOBAL_LOCK_PATH, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-    )
+    descriptor = os.open(_GLOBAL_LOCK_PATH, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
     fcntl.flock(descriptor, fcntl.LOCK_EX)
     started = time.monotonic()
     try:

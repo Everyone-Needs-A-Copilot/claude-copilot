@@ -392,9 +392,7 @@ def baseline_subject(check_id: str, subject: str) -> str:
     if check_id.startswith("roundtrip."):
         match = _ROUNDTRIP_SCRATCH_SUBJECT.fullmatch(subject)
         if match:
-            return "roundtrip:canonical-scratch-project" + (
-                match.group("suffix") or ""
-            )
+            return "roundtrip:canonical-scratch-project" + (match.group("suffix") or "")
     for facet in _FRAMEWORK_FACET_SUBJECTS.get(check_id, ()):
         if subject == facet or subject.endswith(f"/{facet}"):
             return f"framework:{facet}"

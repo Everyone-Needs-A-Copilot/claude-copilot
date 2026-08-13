@@ -44,7 +44,7 @@ from cc.core.conformance.fsguard import MachineReadOnlyGuard
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers",
-        'machine: exercises real machine state, strictly read-only, guarded '
+        "machine: exercises real machine state, strictly read-only, guarded "
         'by fsguard.MachineReadOnlyGuard. `pytest -m "not machine"` gives a '
         "hermetic run on any machine, including one with no ecosystem "
         "installed (HARNESS-DESIGN.md section 6.5).",
@@ -176,8 +176,7 @@ def _tier_dir_name(product: str, role: str, unit: str | None) -> str:
     if role == "personal":
         return f"{product}-copilot-private"
     raise ValueError(
-        f"unknown tier role {role!r}; must be one of "
-        f"{sorted(_ROLE_RANK_DEFAULT)}"
+        f"unknown tier role {role!r}; must be one of {sorted(_ROLE_RANK_DEFAULT)}"
     )
 
 
@@ -209,9 +208,7 @@ class TierBuilder:
         dim_dir.mkdir(parents=True, exist_ok=True)
         for name, content in items.items():
             (dim_dir / f"{name}.md").write_text(content, encoding="utf-8")
-        git_commit_all(
-            self.path, f"contribute {dimension}: {', '.join(sorted(items))}"
-        )
+        git_commit_all(self.path, f"contribute {dimension}: {', '.join(sorted(items))}")
         return self
 
     def write(
@@ -463,7 +460,9 @@ def fleet_factory(tmp_path: Path) -> FleetFactory:
 
 
 @pytest.fixture
-def apply_fleet_env(monkeypatch: pytest.MonkeyPatch) -> Callable[[FleetHandle], FleetHandle]:
+def apply_fleet_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Callable[[FleetHandle], FleetHandle]:
     """`apply_fleet_env(handle)` — `monkeypatch.setenv` every entry in
     `handle.env`, so subsequent IN-PROCESS `cc` calls (that resolve config
     via `resolve_key`/`Path.home()` rather than explicit DI) resolve
