@@ -129,7 +129,9 @@ class VerifiedKnowledgeSkillSource:
         current = revalidate_knowledge_skill_source(self)
         contribution = Path(relative_path)
         if contribution.is_absolute() or ".." in contribution.parts:
-            raise KnowledgeSkillSourceError("The Knowledge contribution path is unsafe.")
+            raise KnowledgeSkillSourceError(
+                "The Knowledge contribution path is unsafe."
+            )
 
         def read_current() -> bytes:
             try:
@@ -351,7 +353,9 @@ def _load_snapshot_index(base: Path) -> dict[str, Any]:
         or set(raw) != {"schema_version", "entries"}
         or raw.get("schema_version") != SNAPSHOT_INDEX_SCHEMA_VERSION
         or not isinstance(raw.get("entries"), dict)
-        or not all(_valid_snapshot_entry(key, value) for key, value in raw["entries"].items())
+        or not all(
+            _valid_snapshot_entry(key, value) for key, value in raw["entries"].items()
+        )
     ):
         raise KnowledgeSkillSourceError(
             "The private Knowledge snapshot index is invalid."
@@ -426,8 +430,10 @@ def _remove_snapshot_target(base: Path, relative: Path) -> bool:
         and relative.parts[0] == "public"
         and bool(_DIGEST.fullmatch(relative.parts[1]))
     )
-    if relative.is_absolute() or ".." in relative.parts or not (
-        protected_target or public_target
+    if (
+        relative.is_absolute()
+        or ".." in relative.parts
+        or not (protected_target or public_target)
     ):
         raise KnowledgeSkillSourceError(
             "The private Knowledge snapshot index contains an unsafe target."
@@ -534,7 +540,9 @@ def prune_protected_knowledge_snapshots(
             raise
         _recover_snapshot_state(base, index)
         selected: list[tuple[str, dict[str, Any]]] = []
-        normalized_state = str(Path(state_path).expanduser()) if state_path is not None else None
+        normalized_state = (
+            str(Path(state_path).expanduser()) if state_path is not None else None
+        )
         for key, entry in index["entries"].items():
             if not entry["protected"]:
                 continue
@@ -818,10 +826,7 @@ def _materialize_snapshot(
             destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             descriptor = os.open(
                 destination,
-                os.O_CREAT
-                | os.O_EXCL
-                | os.O_WRONLY
-                | getattr(os, "O_NOFOLLOW", 0),
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0),
                 0o600,
             )
             with os.fdopen(descriptor, "wb") as handle:
@@ -898,7 +903,9 @@ def _origin(root: Path) -> str | None:
         )
     except (OSError, subprocess.SubprocessError):
         return None
-    return repository_identity(result.stdout.strip()) if result.returncode == 0 else None
+    return (
+        repository_identity(result.stdout.strip()) if result.returncode == 0 else None
+    )
 
 
 def _has_ignored_additions(root: Path, relative_path: str) -> bool:
@@ -1370,10 +1377,7 @@ def resolve_knowledge_skill_sources(
     )
     eligible_ids = {str(layer.get("id")) for layer in eligible}
     decision_by_id = {decision.layer: decision for decision in decisions}
-    declared_by_id = {
-        str(layer.get("id")): layer
-        for layer in declared_knowledge
-    }
+    declared_by_id = {str(layer.get("id")): layer for layer in declared_knowledge}
     bindings = (
         entitlement.bind_layer_decisions(
             list(declared_by_id.values()),

@@ -129,9 +129,7 @@ def signed_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         "cc.core.ecosystem.policy.FOUNDATION_SSH_SIGNING_KEYS",
         {fingerprint: public_key},
     )
-    monkeypatch.setattr(
-        "cc.core.config.resolve_knowledge_repos", lambda: [str(repo)]
-    )
+    monkeypatch.setattr("cc.core.config.resolve_knowledge_repos", lambda: [str(repo)])
     monkeypatch.setattr(
         "cc.core.config.resolve_key",
         lambda key: {
@@ -317,9 +315,7 @@ def test_protected_projection_preserves_tampered_prior_receipt_on_rollover(
     source, projection = _protected_projection(protected_signed_source)
     assert source.entitlement_binding is not None
     cache_root = protected_signed_source[3]
-    old_target, index_before = _tamper_protected_receipt(
-        cache_root, projection.binding
-    )
+    old_target, index_before = _tamper_protected_receipt(cache_root, projection.binding)
     current = entitlement.EntitlementBinding(
         **(source.entitlement_binding.as_dict() | {"revision": 2})
     )
@@ -341,9 +337,7 @@ def test_update_tampered_rollover_aborts_without_receipt_or_lock_mutation(
 ):
     _repo, layer, state_path, cache_root = protected_signed_source
     _source, projection = _protected_projection(protected_signed_source)
-    old_target, index_before = _tamper_protected_receipt(
-        cache_root, projection.binding
-    )
+    old_target, index_before = _tamper_protected_receipt(cache_root, projection.binding)
     ledger = json.loads(state_path.read_text(encoding="utf-8"))
     ledger["next_sequence"] = 3
     ledger["layers"][layer["id"]]["revision"] = 2
@@ -434,9 +428,10 @@ def test_signed_skill_get_returns_exact_authenticated_receipt(signed_source):
     assert result.receipt.tree == skill._knowledge_source.release.tree
     assert result.receipt.signer == skill._knowledge_source.signer
     assert result.receipt.contribution.endswith("/accounting/SKILL.md")
-    assert result.receipt.content_sha256 == __import__("hashlib").sha256(
-        result.content.encode("utf-8")
-    ).hexdigest()
+    assert (
+        result.receipt.content_sha256
+        == __import__("hashlib").sha256(result.content.encode("utf-8")).hexdigest()
+    )
     assert result.receipt.runtime == "claude"
 
 
@@ -499,7 +494,9 @@ def test_untracked_and_ignored_additions_fail_closed(signed_source):
     _run(repo, "add", ".gitignore")
     _run(repo, "commit", "-q", "--no-gpg-sign", "-m", "ignore rule after release")
     injected.write_text("ignored injection\n", encoding="utf-8")
-    with pytest.raises(KnowledgeSkillSourceError, match="signed release|ignored local additions"):
+    with pytest.raises(
+        KnowledgeSkillSourceError, match="signed release|ignored local additions"
+    ):
         resolve_knowledge_skill_sources()
 
 
@@ -815,7 +812,9 @@ def test_protected_read_and_revoke_serialize_without_partial_bytes(
     monkeypatch.setattr(source_module, "_read_private_file", delayed_read)
     result: list[str] = []
 
-    reader = threading.Thread(target=lambda: result.append(skill._knowledge_source.read_text(skill.path)))
+    reader = threading.Thread(
+        target=lambda: result.append(skill._knowledge_source.read_text(skill.path))
+    )
     reader.start()
     assert entered.wait(timeout=5)
 
