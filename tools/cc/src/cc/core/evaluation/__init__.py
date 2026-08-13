@@ -9,6 +9,7 @@ from cc.core.evaluation.journey import (
     JourneyEvidence,
     KnowledgeComposition,
     KnowledgeReceipt,
+    RouteEvent,
     RouteTrace,
     TcContinuationStore,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "JourneyEvidence",
     "KnowledgeComposition",
     "KnowledgeReceipt",
+    "RouteEvent",
     "RouteTrace",
     "TcContinuationStore",
 ]
