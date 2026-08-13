@@ -60,6 +60,14 @@ class CapturedFile:
     mode: int = 0
 
 
+@dataclass(frozen=True)
+class TrackedArtifact:
+    kind: str
+    executable: bool = False
+    checksum: str = ""
+    link_target: str = ""
+
+
 CcInstaller = Callable[[Path, Path], None]
 CcVerifier = Callable[[Path], None]
 
@@ -277,6 +285,151 @@ def _extract_git_archive(source_root: Path, commit: str, destination: Path) -> N
                     os.chmod(destination.joinpath(*parts), member.mode & 0o777)
 
 
+def _git_archive_identity(source_root: Path, commit: str) -> dict[str, TrackedArtifact]:
+    """Return the complete tracked identity encoded by ``git archive``."""
+
+    with tempfile.TemporaryFile() as archive_file:
+        try:
+            result = subprocess.run(
+                ("git", "-C", str(source_root), "archive", "--format=tar", commit),
+                check=False,
+                stdout=archive_file,
+                stderr=subprocess.PIPE,
+                timeout=60.0,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise FrameworkInstallError("git archive identity could not run") from exc
+        if result.returncode != 0:
+            raise FrameworkInstallError(
+                result.stderr.decode("utf-8", errors="replace").strip()
+                or "git archive identity failed"
+            )
+        archive_file.seek(0)
+        identity: dict[str, TrackedArtifact] = {}
+        with tarfile.open(fileobj=archive_file, mode="r:") as archive:
+            for member in archive.getmembers():
+                relative = "/".join(_member_parts(member.name))
+                if relative in identity:
+                    raise FrameworkInstallError(
+                        f"git archive contains a duplicate path: {member.name}"
+                    )
+                if member.isdir():
+                    artifact = TrackedArtifact(kind="directory")
+                elif member.isreg():
+                    source = archive.extractfile(member)
+                    if source is None:
+                        raise FrameworkInstallError(
+                            f"git archive file is unreadable: {member.name}"
+                        )
+                    with source:
+                        checksum = _sha256(source.read())
+                    artifact = TrackedArtifact(
+                        kind="file",
+                        executable=bool(member.mode & 0o111),
+                        checksum=checksum,
+                    )
+                elif member.issym():
+                    artifact = TrackedArtifact(
+                        kind="symlink", link_target=member.linkname
+                    )
+                else:
+                    raise FrameworkInstallError(
+                        f"git archive contains an unsupported entry: {member.name}"
+                    )
+                identity[relative] = artifact
+        return identity
+
+
+def _is_installer_owned_extra(relative: str) -> bool:
+    return (
+        relative in _MARKER_NAMES
+        or relative == "tools/cc/.venv"
+        or relative.startswith("tools/cc/.venv/")
+    )
+
+
+def _validate_snapshot_tree(snapshot: Path, source_root: Path, commit: str) -> None:
+    """Bind every reusable snapshot entry to the explicit Git commit tree.
+
+    Git tracks the regular-file executable bit rather than full POSIX modes;
+    the installed copy additionally requires every non-symlink entry to be
+    read-only. Only the provenance marker pair and cc's built virtual
+    environment may exist outside the tracked archive.
+    """
+
+    expected = _git_archive_identity(source_root, commit)
+    for relative, artifact in expected.items():
+        path = snapshot.joinpath(*PurePosixPath(relative).parts)
+        try:
+            metadata = path.lstat()
+        except OSError as exc:
+            raise FrameworkInstallError(
+                f"tracked snapshot entry is unavailable: {relative}"
+            ) from exc
+
+        if artifact.kind == "directory":
+            if not stat.S_ISDIR(metadata.st_mode) or path.is_symlink():
+                raise FrameworkInstallError(
+                    f"tracked snapshot entry has the wrong type: {relative}"
+                )
+            if metadata.st_mode & 0o222:
+                raise FrameworkInstallError(
+                    f"tracked snapshot directory is writable: {relative}"
+                )
+        elif artifact.kind == "file":
+            if not stat.S_ISREG(metadata.st_mode) or path.is_symlink():
+                raise FrameworkInstallError(
+                    f"tracked snapshot entry has the wrong type: {relative}"
+                )
+            if metadata.st_mode & 0o222:
+                raise FrameworkInstallError(
+                    f"tracked snapshot file is writable: {relative}"
+                )
+            if bool(metadata.st_mode & 0o111) != artifact.executable:
+                raise FrameworkInstallError(
+                    f"tracked snapshot executable mode differs from Git: {relative}"
+                )
+            try:
+                checksum = _sha256(path.read_bytes())
+            except OSError as exc:
+                raise FrameworkInstallError(
+                    f"tracked snapshot file is unreadable: {relative}"
+                ) from exc
+            if checksum != artifact.checksum:
+                raise FrameworkInstallError(
+                    f"tracked snapshot content differs from Git: {relative}"
+                )
+        else:
+            if not stat.S_ISLNK(metadata.st_mode):
+                raise FrameworkInstallError(
+                    f"tracked snapshot entry has the wrong type: {relative}"
+                )
+            try:
+                link_target = os.readlink(path)
+            except OSError as exc:
+                raise FrameworkInstallError(
+                    f"tracked snapshot symlink is unreadable: {relative}"
+                ) from exc
+            if link_target != artifact.link_target:
+                raise FrameworkInstallError(
+                    f"tracked snapshot symlink differs from Git: {relative}"
+                )
+
+    for path in snapshot.rglob("*"):
+        relative = path.relative_to(snapshot).as_posix()
+        if relative in expected:
+            continue
+        if not _is_installer_owned_extra(relative):
+            raise FrameworkInstallError(
+                f"snapshot contains an untracked extra entry: {relative}"
+            )
+        metadata = path.lstat()
+        if not stat.S_ISLNK(metadata.st_mode) and metadata.st_mode & 0o222:
+            raise FrameworkInstallError(
+                f"installer-owned snapshot entry is writable: {relative}"
+            )
+
+
 def _read_regular(path: Path, *, readonly: bool = False) -> bytes:
     try:
         metadata = path.lstat()
@@ -358,7 +511,7 @@ def _make_tree_readonly(root: Path) -> None:
 
 
 def _validate_snapshot(
-    snapshot: Path, commit: str, tree: str
+    snapshot: Path, source_root: Path, commit: str, tree: str
 ) -> tuple[CommandArtifact, ...]:
     try:
         metadata = snapshot.lstat()
@@ -383,6 +536,7 @@ def _validate_snapshot(
         if actual != expected:
             raise FrameworkInstallError(f"snapshot marker mismatch: {marker}")
 
+    _validate_snapshot_tree(snapshot, source_root, commit)
     for relative in _REQUIRED_SNAPSHOT_FILES:
         _read_regular(snapshot / relative, readonly=True)
     commands = _load_machine_commands(snapshot, readonly=True)
@@ -448,10 +602,13 @@ def _default_cc_installer(snapshot: Path, staged_shim: Path) -> None:
 
 def _default_cc_verifier(staged_shim: Path) -> None:
     try:
+        environment = dict(os.environ)
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
         subprocess.run(
             (str(staged_shim), "--version"),
             check=True,
             capture_output=True,
+            env=environment,
             timeout=30.0,
         )
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
@@ -573,7 +730,7 @@ def install_framework_snapshot(
         staged_shim = operation_root / "cc"
         try:
             if existed_before:
-                commands = _validate_snapshot(snapshot, commit, tree)
+                commands = _validate_snapshot(snapshot, source, commit, tree)
                 runtime_cc = snapshot / "tools" / "cc" / ".venv" / "bin" / "cc"
                 _atomic_write(staged_shim, _read_regular(runtime_cc), mode=0o755)
             else:
@@ -582,7 +739,7 @@ def install_framework_snapshot(
                     _read_regular(staged_shim)
                     cc_verifier(staged_shim)
                     _make_tree_readonly(snapshot)
-                    commands = _validate_snapshot(snapshot, commit, tree)
+                    commands = _validate_snapshot(snapshot, source, commit, tree)
                 except BaseException:
                     _remove_created_snapshot(snapshot)
                     raise

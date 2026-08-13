@@ -95,6 +95,7 @@ def _source_repository(
         "# committed roundtrip\n",
     )
     _write(repo / "tracked-outside-runtime.txt", "full archive sentinel\n")
+    (repo / "tracked-link").symlink_to("tracked-outside-runtime.txt")
     subprocess.run(("git", "-C", str(repo), "add", "."), check=True)
     subprocess.run(
         (
@@ -295,6 +296,62 @@ def test_reinstall_is_idempotent_and_reuses_valid_readonly_snapshot(tmp_path: Pa
     assert second["result"] == "up-to-date"
     assert second["changed_targets"] == 0
     assert active.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "machine-command-content",
+        "non-runtime-content",
+        "tracked-type",
+        "tracked-mode",
+        "symlink-target",
+        "untracked-extra",
+    ],
+)
+def test_reuse_rejects_snapshot_that_no_longer_matches_git(
+    tmp_path: Path, mutation: str
+):
+    repo, commit, tree = _source_repository(tmp_path)
+    home = tmp_path / "home"
+    first = _install(repo, commit, tree, home)
+    snapshot = Path(first["snapshot"])
+    managed = [
+        *(home / ".claude" / "commands" / name for name in MACHINE_COMMANDS),
+        home / ".local" / "bin" / "cc",
+        home / ".copilot" / "framework-runtime.json",
+    ]
+    before = {path: path.read_bytes() for path in managed}
+    snapshot.chmod(0o755)
+
+    if mutation == "machine-command-content":
+        target = snapshot / ".claude/commands/setup-project.md"
+        target.chmod(0o644)
+        target.write_text("# altered command\n", encoding="utf-8")
+    elif mutation == "non-runtime-content":
+        target = snapshot / "tracked-outside-runtime.txt"
+        target.chmod(0o644)
+        target.write_text("altered tracked bytes\n", encoding="utf-8")
+    elif mutation == "tracked-type":
+        target = snapshot / "tracked-outside-runtime.txt"
+        target.unlink()
+        target.mkdir(mode=0o755)
+    elif mutation == "tracked-mode":
+        target = snapshot / "tracked-outside-runtime.txt"
+        target.chmod(0o555)
+    elif mutation == "symlink-target":
+        target = snapshot / "tracked-link"
+        target.unlink()
+        target.symlink_to("VERSION.json")
+    else:
+        target = snapshot / "untracked-extra.txt"
+        target.write_text("not in Git\n", encoding="utf-8")
+    installer._make_tree_readonly(snapshot)
+
+    with pytest.raises(installer.FrameworkInstallError, match="snapshot"):
+        _install(repo, commit, tree, home)
+
+    assert {path: path.read_bytes() for path in managed} == before
 
 
 def test_full_repository_snapshot_runs_real_roundtrip_without_cnr(
