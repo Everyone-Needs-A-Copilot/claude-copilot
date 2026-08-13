@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import re
+import secrets
+from collections.abc import Callable
 from typing import Protocol
 
-from cc.core.evaluation._authority import _EvaluationAuthority, _VerifiedRuntimeOutput
+from cc.core.evaluation._authority import _EvaluationAuthority, _production_authority
 from cc.core.evaluation.comparison import comparability_identity
 from cc.core.evaluation.identity import (
     consumption_receipt_identity,
@@ -37,29 +39,6 @@ _IDENTIFIER = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 
 class InjectedRuntimeRunner(Protocol):
     def execute(self, cell: EvaluationCell) -> RuntimeOutput | object: ...
-
-
-class _AttemptLedger:
-    def __init__(self) -> None:
-        self.__records: dict[str, RunRecord] = {}
-
-    def parent_for(self, cell: EvaluationCell) -> RunRecord | None:
-        return (
-            self.__records.get(cell.parent_attempt_sha256)
-            if cell.parent_attempt_sha256
-            else None
-        )
-
-    def preserve_issued(self, record: RunRecord) -> None:
-        if not verify_run_record_identity(record):
-            raise ValueError("Runner-issued record identity changed.")
-        existing = self.__records.get(record.run_sha256)
-        if existing is not None and existing != record:
-            raise ValueError("Attempt identity collision.")
-        self.__records[record.run_sha256] = record
-
-    def snapshot(self) -> tuple[RunRecord, ...]:
-        return tuple(self.__records.values())
 
 
 class RuntimeAdapterFailure(RuntimeError):
@@ -102,13 +81,18 @@ def _binding_valid(cell: EvaluationCell) -> bool:
     )
 
 
-def _lineage_valid(cell: EvaluationCell, ledger: _AttemptLedger) -> bool:
+def _lineage_valid(
+    cell: EvaluationCell,
+    parent_for: Callable[[str], RunRecord | None],
+    ledger_binding_sha256: str,
+) -> bool:
     if cell.attempt == 1:
         return cell.parent_attempt_sha256 is None
-    parent = ledger.parent_for(cell)
+    parent = parent_for(cell.parent_attempt_sha256 or "")
     return bool(
         parent
         and verify_run_record_identity(parent)
+        and parent.ledger_binding_sha256 == ledger_binding_sha256
         and parent.case_id == cell.case_id
         and parent.revision == cell.revision
         and parent.variant is cell.variant
@@ -122,7 +106,8 @@ def _lineage_valid(cell: EvaluationCell, ledger: _AttemptLedger) -> bool:
 def _preflight_for(
     cell: EvaluationCell,
     authority: _EvaluationAuthority,
-    ledger: _AttemptLedger,
+    parent_for: Callable[[str], RunRecord | None],
+    ledger_binding_sha256: str,
 ) -> PreflightResult:
     if not isinstance(authority, _EvaluationAuthority) or not authority.applies_to(
         cell
@@ -136,7 +121,7 @@ def _preflight_for(
             PreflightGate.RESOLUTION_IDENTITY,
             reason="receipt-binding-mismatch",
         )
-    if not _lineage_valid(cell, ledger):
+    if not _lineage_valid(cell, parent_for, ledger_binding_sha256):
         observations = _replace_gate(
             observations,
             PreflightGate.ATTEMPT_POLICY,
@@ -175,6 +160,7 @@ def _record_document(record: RunRecord, *, include_identity: bool) -> dict[str, 
         "runtime": record.runtime.value,
         "attempt": record.attempt,
         "parent_attempt_sha256": record.parent_attempt_sha256,
+        "ledger_binding_sha256": record.ledger_binding_sha256,
         "fixture_sha256": record.fixture_sha256,
         "prompt_evidence_sha256": record.prompt_evidence_sha256,
         "attempt_policy_sha256": record.attempt_policy_sha256,
@@ -209,6 +195,7 @@ def _record(
     *,
     preflight: PreflightResult,
     state: RunState,
+    ledger_binding_sha256: str,
     output_sha256: str | None = None,
     controlled_artifact_path: str | None = None,
     completion_evidence_sha256: str | None = None,
@@ -223,6 +210,7 @@ def _record(
         runtime=cell.runtime_receipt.runtime,
         attempt=cell.attempt,
         parent_attempt_sha256=cell.parent_attempt_sha256,
+        ledger_binding_sha256=ledger_binding_sha256,
         fixture_sha256=cell.fixture_sha256,
         prompt_evidence_sha256=cell.prompt_evidence_sha256,
         attempt_policy_sha256=cell.attempt_policy_sha256,
@@ -259,32 +247,69 @@ class EvaluationRunner:
     def __init__(
         self,
         runtime: InjectedRuntimeRunner,
-        authority: object,
+        *,
+        loaded_fixture: object = None,
+        journey_run_id: str = "",
+        journey_ledger: object = None,
     ) -> None:
         self._runtime = runtime
-        self._authority = authority
-        self.__ledger = _AttemptLedger()
+        self._loaded_fixture = loaded_fixture
+        self._journey_run_id = journey_run_id
+        self._journey_ledger = journey_ledger
+        records: dict[str, RunRecord] = {}
+        ledger_binding_sha256 = secrets.token_hex(32)
+
+        def preserve(record: RunRecord) -> None:
+            if not verify_run_record_identity(record):
+                raise ValueError("Runner-issued record identity changed.")
+            existing = records.get(record.run_sha256)
+            if existing is not None and existing is not record:
+                raise ValueError("Attempt identity collision.")
+            records[record.run_sha256] = record
+
+        self.__records_snapshot = lambda: tuple(records.values())
+        self.__preserve = preserve
+        self.__parent_for = records.get
+        self.__ledger_binding_sha256 = ledger_binding_sha256
 
     @property
     def records(self) -> tuple[RunRecord, ...]:
-        return self.__ledger.snapshot()
+        return self.__records_snapshot()
 
     def _finish(self, record: RunRecord) -> RunRecord:
-        self.__ledger.preserve_issued(record)
+        self.__preserve(record)
         return record
 
     def run(self, cell: EvaluationCell) -> RunRecord:
-        if not isinstance(self._authority, _EvaluationAuthority):
-            preflight = evaluate_preflight(())
-        else:
-            preflight = _preflight_for(cell, self._authority, self.__ledger)
+        authority = _production_authority(
+            cell,
+            loaded_fixture=self._loaded_fixture,
+            journey_run_id=self._journey_run_id,
+            journey_ledger=self._journey_ledger,
+        )
+        preflight = _preflight_for(
+            cell,
+            authority,
+            self.__parent_for,
+            self.__ledger_binding_sha256,
+        )
         if preflight.state is PreflightState.INVALID:
             return self._finish(
-                _record(cell, preflight=preflight, state=RunState.INVALID)
+                _record(
+                    cell,
+                    preflight=preflight,
+                    state=RunState.INVALID,
+                    ledger_binding_sha256=self.__ledger_binding_sha256,
+                )
             )
         if preflight.state is PreflightState.UNSUPPORTED:
             return self._finish(
-                _record(cell, preflight=preflight, state=RunState.UNSUPPORTED)
+                _record(
+                    cell,
+                    preflight=preflight,
+                    state=RunState.UNSUPPORTED,
+                    ledger_binding_sha256=self.__ledger_binding_sha256,
+                )
             )
         try:
             result = self._runtime.execute(cell)
@@ -294,6 +319,7 @@ class EvaluationRunner:
                     cell,
                     preflight=preflight,
                     state=RunState.TECHNICAL_ERROR,
+                    ledger_binding_sha256=self.__ledger_binding_sha256,
                     technical_error_reason=exc.reason,
                 )
             )
@@ -303,17 +329,18 @@ class EvaluationRunner:
                     cell,
                     preflight=preflight,
                     state=RunState.TECHNICAL_ERROR,
+                    ledger_binding_sha256=self.__ledger_binding_sha256,
                     technical_error_reason="runtime-adapter-failure",
                 )
             )
-        verified = isinstance(result, _VerifiedRuntimeOutput)
-        output = result.output if verified else result
+        output = result
         if not isinstance(output, RuntimeOutput):
             return self._finish(
                 _record(
                     cell,
                     preflight=preflight,
                     state=RunState.TECHNICAL_ERROR,
+                    ledger_binding_sha256=self.__ledger_binding_sha256,
                     technical_error_reason="runtime-adapter-failure",
                 )
             )
@@ -331,9 +358,16 @@ class EvaluationRunner:
                 ),
                 subject_sha256=preflight.subject_sha256,
             )
-            return self._finish(_record(cell, preflight=failed, state=RunState.INVALID))
+            return self._finish(
+                _record(
+                    cell,
+                    preflight=failed,
+                    state=RunState.INVALID,
+                    ledger_binding_sha256=self.__ledger_binding_sha256,
+                )
+            )
         output_sha256 = hashlib.sha256(output.output_text.encode()).hexdigest()
-        proof = result.completion if verified else None
+        proof = _verify_completion(cell, output, output_sha256)
         proof_valid = bool(
             proof
             and proof.invocation_envelope_sha256
@@ -349,6 +383,7 @@ class EvaluationRunner:
                 state=RunState.COMPLETED
                 if proof_valid
                 else RunState.DISPATCH_AUTHORIZED,
+                ledger_binding_sha256=self.__ledger_binding_sha256,
                 output_sha256=output_sha256,
                 controlled_artifact_path=output.controlled_artifact_path,
                 completion_evidence_sha256=proof.evidence_sha256
@@ -356,3 +391,11 @@ class EvaluationRunner:
                 else None,
             )
         )
+
+
+def _verify_completion(
+    cell: EvaluationCell, output: RuntimeOutput, output_sha256: str
+) -> object | None:
+    """Production completion remains unavailable until an authenticated adapter lands."""
+
+    return None

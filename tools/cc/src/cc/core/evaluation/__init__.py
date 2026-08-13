@@ -33,7 +33,6 @@ from cc.core.evaluation.journey_runtime import (
 from cc.core.evaluation.models import (
     ArtifactReceipt,
     ComparisonRecord,
-    CompletionProof,
     ConsumptionReceipt,
     ContentReceipt,
     CriterionComparison,
@@ -61,7 +60,6 @@ __all__ = [
     "CapabilityReceipt",
     "ArtifactReceipt",
     "ComparisonRecord",
-    "CompletionProof",
     "ConsumptionReceipt",
     "ContentReceipt",
     "ContinuationLocator",

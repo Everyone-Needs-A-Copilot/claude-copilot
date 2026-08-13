@@ -4,10 +4,17 @@ import importlib
 import json
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
-from cc.core.evaluation._authority import _test_authority, _test_completed_output
+from cc.core.evaluation._authority import (
+    _AUTHORITY_TOKEN,
+    _cell_subject,
+    _EvaluationAuthority,
+)
 from cc.core.evaluation.artifact import (
+    _reject_aggregate_fields,
     _write_artifact,
     write_comparison_record,
     write_run_record,
@@ -170,11 +177,33 @@ class _Runtime:
         self.calls += 1
         if isinstance(self.output, Exception):
             raise self.output
-        return (
-            _test_completed_output(cell, self.output, evidence_sha256=_sha("7"))
-            if self.complete
-            else self.output
-        )
+        return self.output
+
+
+def _test_authority(
+    cell: EvaluationCell, observations: tuple[GateObservation, ...]
+) -> _EvaluationAuthority:
+    subject = _cell_subject(cell)
+    return _EvaluationAuthority(
+        subject,
+        evaluate_preflight(observations, subject_sha256=subject),
+        _AUTHORITY_TOKEN,
+    )
+
+
+def _test_completion(cell: EvaluationCell, output: RuntimeOutput) -> object:
+    return SimpleNamespace(
+        invocation_envelope_sha256=(
+            cell.consumption_receipt.invocation_envelope_sha256
+        ),
+        output_sha256=__import__("hashlib")
+        .sha256(output.output_text.encode())
+        .hexdigest(),
+        artifact_path_sha256=__import__("hashlib")
+        .sha256(output.controlled_artifact_path.encode())
+        .hexdigest(),
+        evidence_sha256=_sha("7"),
+    )
 
 
 class _RunnerHarness:
@@ -189,15 +218,24 @@ class _RunnerHarness:
 
     def run(self, cell: EvaluationCell):
         if self.runner is None:
-            facts = {
-                item.gate: (item.state, item.reason, item.actor, item.prerequisite)
-                for item in self.observations
-            }
-            self.runner = EvaluationRunner(
-                self.runtime,
-                _test_authority(cell, facts),
-            )
-        return self.runner.run(cell)
+            self.runner = EvaluationRunner(self.runtime)
+        authority = _test_authority(cell, self.observations)
+        completion = (
+            _test_completion(cell, self.runtime.output)
+            if self.runtime.complete and isinstance(self.runtime.output, RuntimeOutput)
+            else None
+        )
+        with (
+            patch(
+                "cc.core.evaluation.runner._production_authority",
+                return_value=authority,
+            ),
+            patch(
+                "cc.core.evaluation.runner._verify_completion",
+                return_value=completion,
+            ),
+        ):
+            return self.runner.run(cell)
 
     @property
     def records(self):
@@ -376,22 +414,14 @@ def test_artifact_writer_rejects_aggregate_fields_and_symlink_roots(
     tmp_path: Path,
 ) -> None:
     with pytest.raises(ValueError, match="Aggregate"):
-        _write_artifact(
-            tmp_path,
-            artifact_type="comparison-record",
-            payload={"criteria": [{"criterion_score": 10}]},
-        )
+        _reject_aggregate_fields({"criteria": [{"criterion_score": 10}]})
 
     real = tmp_path / "real"
     real.mkdir()
     linked = tmp_path / "linked"
     linked.symlink_to(real, target_is_directory=True)
     with pytest.raises(OSError):
-        _write_artifact(
-            linked,
-            artifact_type="run-record",
-            payload={"schema_version": "1.0"},
-        )
+        write_run_record(linked, _runner(_Runtime()).run(_cell()))
 
 
 def test_callers_cannot_mint_passing_gate_or_valid_preflight() -> None:
@@ -508,11 +538,7 @@ def test_artifact_rejects_semantic_aggregate_key_variants(
     tmp_path: Path, field: str
 ) -> None:
     with pytest.raises(ValueError, match="Aggregate"):
-        _write_artifact(
-            tmp_path,
-            artifact_type="comparison-record",
-            payload={"nested": [{field: 1}]},
-        )
+        _reject_aggregate_fields({"nested": [{field: 1}]})
 
 
 def test_public_package_exposes_no_authority_issuer_or_generic_writer() -> None:
@@ -537,7 +563,9 @@ def test_public_package_exposes_no_authority_issuer_or_generic_writer() -> None:
 
 def test_unsealed_authority_cannot_execute_adapter() -> None:
     runtime = _Runtime()
-    record = EvaluationRunner(runtime, lambda _cell: True).run(_cell())
+    with pytest.raises(TypeError):
+        EvaluationRunner(runtime, lambda _cell: True)
+    record = EvaluationRunner(runtime).run(_cell())
     assert record.state is RunState.INVALID
     assert runtime.calls == 0
 
@@ -585,3 +613,39 @@ def test_attempt_history_is_read_only_and_rejects_changed_identity() -> None:
     assert isinstance(snapshot, tuple)
     assert not hasattr(runner, "attempt_ledger")
     assert not hasattr(runner, "preserve")
+
+
+def test_imported_internal_writer_rejects_arbitrary_payload(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="authentic sealed"):
+        _write_artifact(tmp_path, {"schema_version": "1.0"})
+
+
+def test_cross_runner_retry_parent_is_rejected_without_dispatch() -> None:
+    first = _runner(_Runtime()).run(_cell())
+    runtime = _Runtime()
+    other = _runner(runtime)
+    retry = other.run(_cell(attempt=2, parent_attempt_sha256=first.run_sha256))
+    assert retry.state is RunState.INVALID
+    assert runtime.calls == 0
+
+
+@pytest.mark.parametrize(
+    "path",
+    (
+        "outputs/%55sers/pabs/result.txt",
+        "outputs/%2568ome/result.txt",
+        "outputs/ｔｏｋｅｎ.txt",
+        "outputs/fullwidth＠example.com.txt",
+    ),
+)
+def test_output_paths_reject_percent_encoding_and_nfkc_confusables(path: str) -> None:
+    with pytest.raises(ValueError, match="exact relative path"):
+        RuntimeOutput("safe synthetic output", path, "shared-output")
+
+
+def test_production_adapter_cannot_claim_completion() -> None:
+    runtime = _Runtime()
+    record = EvaluationRunner(runtime).run(_cell())
+    assert record.state is RunState.INVALID
+    assert record.completion_evidence_sha256 is None
+    assert runtime.calls == 0
