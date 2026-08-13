@@ -18,14 +18,49 @@ from cc.core.evaluation.schema import canonical_sha256, validate_document
 
 _MAX_FILE_BYTES = 8 * 1024 * 1024
 _LOADED_FIXTURE_AUTHORITY = object()
-_PREREGISTERED_MATRICES = {
-    ("eval-01", 1): (("F", "F+O"), ("claude", "codex")),
-    ("eval-02", 1): (("F", "F+O"), ("claude", "codex")),
-    ("eval-03", 1): (("F", "F+O"), ("claude", "codex")),
-    ("eval-04", 1): (("F", "F+O"), ("claude", "codex")),
-    ("eval-05", 1): (("F", "F+O+D"), ("claude", "codex")),
-    ("eval-06", 1): (("F", "F+O"), ("claude", "codex")),
-    ("eval-07", 1): (("F+O+D", "F+O+D+P"), ("claude", "codex")),
+_PREREGISTERED_PACKETS = {
+    ("eval-01", 1): (
+        "SYNTHETIC-EVAL01",
+        ("F", "F+O"),
+        ("claude", "codex"),
+        "81d9b54b01c848c26b91afd0dfb9d8bbd28d34681804370e9cbd7e173815cda9",
+    ),
+    ("eval-02", 1): (
+        "SYNTHETIC-EVAL02",
+        ("F", "F+O"),
+        ("claude", "codex"),
+        "6d5074abff079874deac60a73981cdc365a584dd5cf7dd607199942dcdea2f04",
+    ),
+    ("eval-03", 1): (
+        "SYNTHETIC-EVAL03",
+        ("F", "F+O"),
+        ("claude", "codex"),
+        "7baf4c78bc9b18c0d28dab89fb416ad977a00fc23be8d5d17340248601251bf6",
+    ),
+    ("eval-04", 1): (
+        "SYNTHETIC-EVAL04",
+        ("F", "F+O"),
+        ("claude", "codex"),
+        "d915fce6e530a6440366577f46986e367cf6c7f4693c5774b47fdab29c235dfb",
+    ),
+    ("eval-05", 1): (
+        "SYNTHETIC-EVAL05",
+        ("F", "F+O+D"),
+        ("claude", "codex"),
+        "840b4942fa3f92ad2f19cd7c975bd492195ad012229ebda5658f71ab78906c72",
+    ),
+    ("eval-06", 1): (
+        "SYNTHETIC-EVAL06",
+        ("F", "F+O"),
+        ("claude", "codex"),
+        "5e2bbd2295496bd9815464ccb4cda847fdb6105a6b51058fa8adbfba12cc2f77",
+    ),
+    ("eval-07", 1): (
+        "SYNTHETIC-EVAL07",
+        ("F+O+D", "F+O+D+P"),
+        ("claude", "codex"),
+        "5a57820248b7dc97900eda0a27cfc7367da66f177a245f390a2a0b11d9ca2415",
+    ),
 }
 
 
@@ -99,6 +134,8 @@ def load_fixture(case_root: Path) -> LoadedFixture:
                     content=content,
                 )
             )
+
+        _require_preregistered_packet_identity(fixture, canonical_sha256(value))
 
     return LoadedFixture(
         fixture=fixture,
@@ -230,10 +267,12 @@ def _require_digest(content: bytes, expected: str) -> None:
 
 
 def _validate_fixture_invariants(fixture: EvaluationFixture) -> None:
-    preregistered = _PREREGISTERED_MATRICES.get((fixture.case_id, fixture.revision))
+    preregistered = _PREREGISTERED_PACKETS.get((fixture.case_id, fixture.revision))
     if preregistered is None:
         raise FixtureLoadError("Fixture case and revision are not preregistered.")
-    expected_layers, expected_runtimes = preregistered
+    expected_namespace, expected_layers, expected_runtimes, _ = preregistered
+    if fixture.fixture_namespace != expected_namespace:
+        raise FixtureLoadError("Fixture namespace differs from preregistration.")
     if tuple(item.value for item in fixture.layer_variants) != expected_layers:
         raise FixtureLoadError("Fixture layer matrix differs from preregistration.")
     if tuple(item.value for item in fixture.runtimes) != expected_runtimes:
@@ -251,3 +290,12 @@ def _validate_fixture_invariants(fixture: EvaluationFixture) -> None:
         raise FixtureLoadError("Synthetic fixture namespace mismatch.")
     for path in (*evidence_paths, fixture.private_oracle.path):
         _canonical_relative_path(path)
+
+
+def _require_preregistered_packet_identity(
+    fixture: EvaluationFixture, fixture_sha256: str
+) -> None:
+    preregistered = _PREREGISTERED_PACKETS[(fixture.case_id, fixture.revision)]
+    expected_sha256 = preregistered[3]
+    if fixture_sha256 != expected_sha256:
+        raise FixtureLoadError("Fixture packet differs from preregistration.")
