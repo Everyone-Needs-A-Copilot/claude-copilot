@@ -146,9 +146,13 @@ def _find_hardcoded_paths(claude_md: Path) -> list[tuple[int, str, str]]:
     except (OSError, UnicodeDecodeError):
         return hits
     for line_number, line in enumerate(lines, start=1):
-        for pattern in _ABSOLUTE_PATH_PATTERNS:
-            match = pattern.search(line)
-            if match and _KNOWLEDGE_PATH_MARKER.search(match.group(0)):
+        matches = (
+            match
+            for pattern in _ABSOLUTE_PATH_PATTERNS
+            for match in pattern.finditer(line)
+        )
+        for match in matches:
+            if _KNOWLEDGE_PATH_MARKER.search(match.group(0)):
                 hits.append((line_number, match.group(0), line.strip()))
                 break
     return hits
