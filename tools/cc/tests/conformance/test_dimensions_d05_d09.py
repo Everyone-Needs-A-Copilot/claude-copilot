@@ -354,6 +354,60 @@ class TestD07Knowledge:
             for entry in result.evidence
         )
 
+    def test_passes_admin_server_operational_volume_paths(self, tmp_path):
+        """D7 is not a general ban on machine-specific operational docs."""
+
+        repo = tmp_path / "admin-server"
+        _write(
+            repo,
+            ".claude/cc/config.json",
+            json.dumps({"paths": {"knowledge_repo": "@machine"}}),
+        )
+        _write(
+            repo,
+            "CLAUDE.md",
+            "\n".join(
+                (
+                    "/Volumes/DockerApps/scripts/backup/pre-change-backup.sh",
+                    "cd /Volumes/DockerApps/stacks/network && docker compose up -d",
+                    "- Bind mounts: audiobooks from `/Volumes/Davy Jones/Audiobooks`",
+                    "- `/Volumes/Barbossa/` — Backups",
+                )
+            ),
+        )
+
+        result = check_d07_knowledge_wiring_resolves(repo)
+
+        assert result.verdict is Verdict.PASS
+        assert not any(
+            entry.kind == "knowledge-claude-md-hardcoded-path"
+            for entry in result.evidence
+        )
+
+    def test_fails_admin_server_hardcoded_knowledge_volume_path(self, tmp_path):
+        repo = tmp_path / "admin-server"
+        _write(
+            repo,
+            ".claude/cc/config.json",
+            json.dumps({"paths": {"knowledge_repo": "@machine"}}),
+        )
+        _write(
+            repo,
+            "CLAUDE.md",
+            "Knowledge Copilot: `/Volumes/DockerApps/docs/knowledge-copilot/`\n",
+        )
+
+        result = check_d07_knowledge_wiring_resolves(repo)
+
+        assert result.verdict is Verdict.FAIL
+        evidence = tuple(
+            entry
+            for entry in result.evidence
+            if entry.kind == "knowledge-claude-md-hardcoded-path"
+        )
+        assert len(evidence) == 1
+        assert evidence[0].actual.startswith("Knowledge Copilot:")
+
     def test_pass_reproduces_org_manifest_healthy_baseline(self, tmp_path):
         """Mirrors `knowledge-copilot-internal`'s live shape: 2 extensions,
         each requiredSkills entry resolves against skills.local, 0 broken

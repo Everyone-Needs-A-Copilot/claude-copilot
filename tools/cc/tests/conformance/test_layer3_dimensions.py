@@ -300,10 +300,12 @@ class TestRealClassificationToml:
     def real_table(self):
         return classes.load_classification_table()
 
-    def test_has_seventy_five_entries(self, real_table):
-        # 76 CLASSIFICATION.md rows minus the `shared-docs` symlink alias
-        # (not a distinct directory) -- see classification.toml's header.
-        assert len(real_table) == 75
+    def test_has_reviewed_audit_entries_plus_deferred_app_disposition(
+        self, real_table
+    ):
+        # 75 real directories from the 2026-08-10 audit, plus the app-only
+        # public repo discovered afterward and explicitly deferred to PRD-24.
+        assert len(real_table) == 76
 
     def test_every_entry_has_a_valid_rubric_letter(self, real_table):
         for key, entry in real_table.items():
@@ -317,12 +319,21 @@ class TestRealClassificationToml:
         assert counts[RepoClass.PRODUCT] == 35
         assert counts[RepoClass.SITE_CONTENT] == 8
         assert counts[RepoClass.DOCS_KNOWLEDGE] == 1
-        assert counts[RepoClass.SCRATCH_ARCHIVE] == 14
+        assert counts[RepoClass.SCRATCH_ARCHIVE] == 15
 
     def test_q9_reclassifies_control_tower_as_a_consumer(self, real_table):
         entry = real_table["COPILOT/copilot-control-tower"]
         assert entry.repo_class is RepoClass.PRODUCT
         assert entry.rubric_letter == "C"
+
+    def test_public_control_tower_app_is_attributably_deferred(self, real_table):
+        entry = real_table["COPILOT/copilot-control-tower-public"]
+        assert entry.repo_class is RepoClass.SCRATCH_ARCHIVE
+        assert entry.rubric_letter == "E"
+        assert "Pablo Alejo" in entry.rationale
+        assert "PRD-24/TASK-301" in entry.rationale
+        assert "WP-838" in entry.rationale
+        assert "2026-08-13" in entry.rationale
 
     def test_q27_bm_is_docs_knowledge_not_product(self, real_table):
         entry = real_table["COPILOT/BM"]
