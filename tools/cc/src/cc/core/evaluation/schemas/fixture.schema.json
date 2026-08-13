@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://everyone-needs-a-copilot.invalid/schemas/evaluation-fixture-v1.json",
+  "title": "Copilot behavioral evaluation fixture",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "case_id",
+    "revision",
+    "fixture_namespace",
+    "problem_statement",
+    "evidence_files",
+    "layer_variants",
+    "runtimes",
+    "required_criteria",
+    "hard_rejection_rules",
+    "journey_requirements",
+    "private_oracle"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "case_id": {"type": "string", "pattern": "^eval-[0-9]{2}$"},
+    "revision": {"type": "integer", "minimum": 1},
+    "fixture_namespace": {
+      "type": "string",
+      "pattern": "^SYNTHETIC-[A-Z0-9][A-Z0-9_-]{2,63}$"
+    },
+    "problem_statement": {"type": "string", "minLength": 1, "maxLength": 8192},
+    "evidence_files": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {"$ref": "#/$defs/evidenceFile"}
+    },
+    "layer_variants": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"enum": ["F", "F+O", "F+O+D", "F+O+D+P"]}
+    },
+    "runtimes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"enum": ["claude", "codex"]}
+    },
+    "required_criteria": {"$ref": "#/$defs/identifierList"},
+    "hard_rejection_rules": {"$ref": "#/$defs/identifierList"},
+    "journey_requirements": {"$ref": "#/$defs/identifierList"},
+    "private_oracle": {"$ref": "#/$defs/privateOracle"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?/)(?!.*\\\\)(?!.*//)[^\\u0000-\\u001f]+$"
+    },
+    "identifierList": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$"}
+    },
+    "evidenceFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "media_type", "synthetic_fixture", "fixture_namespace"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relativePath"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "media_type": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9.+-]{0,63}/[a-z0-9][a-z0-9.+-]{0,63}$"
+        },
+        "synthetic_fixture": {"const": true},
+        "fixture_namespace": {
+          "type": "string",
+          "pattern": "^SYNTHETIC-[A-Z0-9][A-Z0-9_-]{2,63}$"
+        }
+      }
+    },
+    "privateOracle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relativePath"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

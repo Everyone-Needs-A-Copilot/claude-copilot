@@ -30,19 +30,31 @@ from cc.core.evaluation.journey_runtime import (
     resume_run,
     verify_dispatch,
 )
+from cc.core.evaluation.models import (
+    EvaluationFixture,
+    EvidenceFile,
+    LayerVariant,
+    PrivateOracle,
+    RuntimeName,
+)
 
 __all__ = [
     "CapabilityReceipt",
     "ContinuationLocator",
     "DeterministicJourneyAdapter",
+    "EvaluationFixture",
+    "EvidenceFile",
     "InvocationReceipt",
     "JourneyCase",
     "JourneyEvidence",
+    "LayerVariant",
     "KnowledgeComposition",
     "KnowledgeReceipt",
     "KnowledgeReceiptVerifier",
     "RouteEvent",
     "RouteTrace",
+    "PrivateOracle",
+    "RuntimeName",
     "SecurityReceipt",
     "TcContinuationStore",
     "TrustedKnowledgeSourcePolicy",
