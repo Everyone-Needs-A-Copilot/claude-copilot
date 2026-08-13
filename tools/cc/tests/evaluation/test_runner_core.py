@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import importlib
 import json
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from cc.core.evaluation._authority import _test_authority, _test_completed_output
 from cc.core.evaluation.artifact import (
-    write_artifact,
+    _write_artifact,
     write_comparison_record,
     write_run_record,
 )
@@ -34,13 +36,8 @@ from cc.core.evaluation.models import (
     RuntimeOutput,
     RuntimeReceipt,
 )
-from cc.core.evaluation.preflight import TrustedEvidenceVerifier, evaluate_preflight
-from cc.core.evaluation.runner import (
-    AttemptLedger,
-    EvaluationRunner,
-    RuntimeAdapterFailure,
-    TrustedCompletionVerifier,
-)
+from cc.core.evaluation.preflight import evaluate_preflight
+from cc.core.evaluation.runner import EvaluationRunner, RuntimeAdapterFailure
 
 
 def _sha(character: str) -> str:
@@ -155,35 +152,56 @@ def _cell(
 
 
 class _Runtime:
-    def __init__(self, output: RuntimeOutput | Exception | None = None) -> None:
+    def __init__(
+        self,
+        output: RuntimeOutput | Exception | None = None,
+        *,
+        complete: bool = True,
+    ) -> None:
         self.calls = 0
+        self.complete = complete
         self.output = output or RuntimeOutput(
             output_text="Synthetic result with cited evidence.",
             controlled_artifact_path="outputs/eval-01.txt",
             output_location_class="shared-output",
         )
 
-    def execute(self, cell: EvaluationCell) -> RuntimeOutput:
+    def execute(self, cell: EvaluationCell) -> RuntimeOutput | object:
         self.calls += 1
         if isinstance(self.output, Exception):
             raise self.output
-        return self.output
+        return (
+            _test_completed_output(cell, self.output, evidence_sha256=_sha("7"))
+            if self.complete
+            else self.output
+        )
 
 
-def _evidence(
-    observations: tuple[GateObservation, ...] | None = None,
-) -> TrustedEvidenceVerifier:
-    packet = observations if observations is not None else _observations()
-    return TrustedEvidenceVerifier(
-        lambda _cell: {
-            item.gate: (item.state, item.reason, item.actor, item.prerequisite)
-            for item in packet
-        }
-    )
+class _RunnerHarness:
+    def __init__(
+        self,
+        runtime: _Runtime,
+        observations: tuple[GateObservation, ...] | None,
+    ) -> None:
+        self.runtime = runtime
+        self.observations = observations or _observations()
+        self.runner: EvaluationRunner | None = None
 
+    def run(self, cell: EvaluationCell):
+        if self.runner is None:
+            facts = {
+                item.gate: (item.state, item.reason, item.actor, item.prerequisite)
+                for item in self.observations
+            }
+            self.runner = EvaluationRunner(
+                self.runtime,
+                _test_authority(cell, facts),
+            )
+        return self.runner.run(cell)
 
-def _completion() -> TrustedCompletionVerifier:
-    return TrustedCompletionVerifier(lambda _cell, _output, _digest: _sha("7"))
+    @property
+    def records(self):
+        return self.runner.records if self.runner else ()
 
 
 def _runner(
@@ -191,14 +209,9 @@ def _runner(
     *,
     observations: tuple[GateObservation, ...] | None = None,
     complete: bool = True,
-    ledger: AttemptLedger | None = None,
-) -> EvaluationRunner:
-    return EvaluationRunner(
-        runtime,
-        _evidence(observations),
-        completion_verifier=_completion() if complete else None,
-        attempt_ledger=ledger,
-    )
+) -> _RunnerHarness:
+    runtime.complete = complete
+    return _RunnerHarness(runtime, observations)
 
 
 def test_receipt_identities_are_canonical_and_value_suppressing() -> None:
@@ -363,7 +376,7 @@ def test_artifact_writer_rejects_aggregate_fields_and_symlink_roots(
     tmp_path: Path,
 ) -> None:
     with pytest.raises(ValueError, match="Aggregate"):
-        write_artifact(
+        _write_artifact(
             tmp_path,
             artifact_type="comparison-record",
             payload={"criteria": [{"criterion_score": 10}]},
@@ -374,7 +387,7 @@ def test_artifact_writer_rejects_aggregate_fields_and_symlink_roots(
     linked = tmp_path / "linked"
     linked.symlink_to(real, target_is_directory=True)
     with pytest.raises(OSError):
-        write_artifact(
+        _write_artifact(
             linked,
             artifact_type="run-record",
             payload={"schema_version": "1.0"},
@@ -460,15 +473,14 @@ def test_comparison_rejects_inapplicable_and_nonadjacent_case_pairs() -> None:
 def test_retry_lineage_requires_preserved_matching_parent_and_keeps_all_attempts() -> (
     None
 ):
-    ledger = AttemptLedger()
-    runner = _runner(_Runtime(), ledger=ledger)
+    runner = _runner(_Runtime())
     first = runner.run(_cell())
     retry = runner.run(_cell(attempt=2, parent_attempt_sha256=first.run_sha256))
     assert retry.state is RunState.COMPLETED
-    assert len(ledger.records()) == 2
+    assert len(runner.records) == 2
 
     bad_runtime = _Runtime()
-    bad = _runner(bad_runtime, ledger=ledger).run(
+    bad = runner.run(
         _cell(
             LayerVariant.ORGANIZATION,
             attempt=2,
@@ -477,7 +489,7 @@ def test_retry_lineage_requires_preserved_matching_parent_and_keeps_all_attempts
     )
     assert bad.state is RunState.INVALID
     assert bad_runtime.calls == 0
-    assert len(ledger.records()) == 3
+    assert len(runner.records) == 3
 
 
 @pytest.mark.parametrize(
@@ -496,8 +508,80 @@ def test_artifact_rejects_semantic_aggregate_key_variants(
     tmp_path: Path, field: str
 ) -> None:
     with pytest.raises(ValueError, match="Aggregate"):
-        write_artifact(
+        _write_artifact(
             tmp_path,
             artifact_type="comparison-record",
             payload={"nested": [{field: 1}]},
         )
+
+
+def test_public_package_exposes_no_authority_issuer_or_generic_writer() -> None:
+    package = importlib.import_module("cc.core.evaluation")
+    artifact = importlib.import_module("cc.core.evaluation.artifact")
+    runner = importlib.import_module("cc.core.evaluation.runner")
+    preflight = importlib.import_module("cc.core.evaluation.preflight")
+    for name in (
+        "TrustedEvidenceVerifier",
+        "TrustedCompletionVerifier",
+        "AttemptLedger",
+        "write_artifact",
+        "_test_authority",
+        "_test_completed_output",
+    ):
+        assert not hasattr(package, name)
+    assert not hasattr(artifact, "write_artifact")
+    assert not hasattr(runner, "TrustedCompletionVerifier")
+    assert not hasattr(runner, "AttemptLedger")
+    assert not hasattr(preflight, "TrustedEvidenceVerifier")
+
+
+def test_unsealed_authority_cannot_execute_adapter() -> None:
+    runtime = _Runtime()
+    record = EvaluationRunner(runtime, lambda _cell: True).run(_cell())
+    assert record.state is RunState.INVALID
+    assert runtime.calls == 0
+
+
+def test_unsealed_completion_cannot_claim_completed() -> None:
+    class _ForgedRuntime(_Runtime):
+        def execute(self, cell: EvaluationCell) -> object:
+            self.calls += 1
+            return {
+                "output": self.output,
+                "completion_evidence_sha256": _sha("0"),
+            }
+
+    record = _runner(_ForgedRuntime()).run(_cell())
+    assert record.state is RunState.TECHNICAL_ERROR
+
+
+def test_forged_run_and_comparison_records_cannot_be_minted_or_written(
+    tmp_path: Path,
+) -> None:
+
+    record = _runner(_Runtime()).run(_cell())
+    with pytest.raises(ValueError, match="runner-issued"):
+        replace(record, run_sha256=_sha("9"), _authority=None)
+    forged = replace(record, run_sha256=_sha("9"))
+    with pytest.raises(ValueError, match="authentic"):
+        write_run_record(tmp_path, forged)
+
+    comparison = pair_control_runs(
+        _runner(_Runtime()).run(_cell(LayerVariant.FOUNDATION)),
+        _runner(_Runtime()).run(_cell(LayerVariant.ORGANIZATION)),
+    )
+    with pytest.raises(ValueError, match="coordinator-issued"):
+        replace(comparison, comparison_sha256=_sha("8"), _authority=None)
+    forged_comparison = replace(comparison, comparison_sha256=_sha("8"))
+    with pytest.raises(ValueError, match="authentic"):
+        write_comparison_record(tmp_path, forged_comparison)
+
+
+def test_attempt_history_is_read_only_and_rejects_changed_identity() -> None:
+    runner = _runner(_Runtime())
+    first = runner.run(_cell())
+    snapshot = runner.records
+    assert snapshot == (first,)
+    assert isinstance(snapshot, tuple)
+    assert not hasattr(runner, "attempt_ledger")
+    assert not hasattr(runner, "preserve")

@@ -9,9 +9,16 @@ import unicodedata
 from pathlib import Path
 from typing import Mapping
 
-from cc.core.evaluation.comparison import comparison_record_document
+from cc.core.evaluation.comparison import (
+    comparison_record_document,
+    verify_comparison_record_identity,
+)
 from cc.core.evaluation.models import ArtifactReceipt, ComparisonRecord, RunRecord
-from cc.core.evaluation.runner import run_record_document
+from cc.core.evaluation.runner import run_record_document, verify_run_record_identity
+from cc.core.evaluation.safety import (
+    FixtureSafetyViolation,
+    require_safe_synthetic_text,
+)
 from cc.core.evaluation.schema import canonical_json_bytes
 
 _ARTIFACT_TYPES = frozenset({"run-record", "comparison-record"})
@@ -49,7 +56,23 @@ def _write_all(file_descriptor: int, content: bytes) -> None:
         offset += written
 
 
-def write_artifact(
+def _reject_disclosure_values(value: object) -> None:
+    if isinstance(value, Mapping):
+        for item in value.values():
+            _reject_disclosure_values(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _reject_disclosure_values(item)
+    elif isinstance(value, str):
+        try:
+            require_safe_synthetic_text(value, location_class="artifact-metadata")
+        except FixtureSafetyViolation as exc:
+            raise ValueError(
+                "Evaluation artifact metadata is disclosure-unsafe."
+            ) from exc
+
+
+def _write_artifact(
     root: Path,
     *,
     artifact_type: str,
@@ -60,6 +83,7 @@ def write_artifact(
     if artifact_type not in _ARTIFACT_TYPES:
         raise ValueError("Unsupported evaluation artifact type.")
     _reject_aggregate_fields(payload)
+    _reject_disclosure_values(payload)
     content = canonical_json_bytes(dict(payload))
     digest = hashlib.sha256(content).hexdigest()
     filename = f"{digest}.json"
@@ -136,7 +160,9 @@ def write_artifact(
 
 
 def write_run_record(root: Path, record: RunRecord) -> ArtifactReceipt:
-    return write_artifact(
+    if not verify_run_record_identity(record):
+        raise ValueError("Run artifact requires an authentic runner-issued record.")
+    return _write_artifact(
         root,
         artifact_type="run-record",
         payload=run_record_document(record),
@@ -144,7 +170,11 @@ def write_run_record(root: Path, record: RunRecord) -> ArtifactReceipt:
 
 
 def write_comparison_record(root: Path, record: ComparisonRecord) -> ArtifactReceipt:
-    return write_artifact(
+    if not verify_comparison_record_identity(record):
+        raise ValueError(
+            "Comparison artifact requires an authentic coordinator record."
+        )
+    return _write_artifact(
         root,
         artifact_type="comparison-record",
         payload=comparison_record_document(record),

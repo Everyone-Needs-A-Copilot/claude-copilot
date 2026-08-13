@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from cc.core.evaluation.identity import runtime_receipt_identity
 from cc.core.evaluation.models import (
+    _COMPARISON_AUTHORITY,
     ComparisonRecord,
     CriterionComparison,
     EvaluationCell,
@@ -62,6 +63,12 @@ def pair_control_runs(
 ) -> ComparisonRecord:
     """Create an attributable pair or fail before any behavioral claim."""
 
+    from cc.core.evaluation.runner import verify_run_record_identity
+
+    if not verify_run_record_identity(control) or not verify_run_record_identity(
+        layered
+    ):
+        raise ValueError("Only authentic runner-issued records can be compared.")
     if (
         control.state is not RunState.COMPLETED
         or layered.state is not RunState.COMPLETED
@@ -110,10 +117,13 @@ def pair_control_runs(
         layered_run_sha256=layered.run_sha256,
         relations=relations,
         hard_gate_state=PreflightState.VALID,
+        _authority=_COMPARISON_AUTHORITY,
     )
 
 
 def comparison_record_document(record: ComparisonRecord) -> dict[str, object]:
+    if not verify_comparison_record_identity(record):
+        raise ValueError("Comparison record is not authentic.")
     return {
         "schema_version": record.schema_version,
         "comparison_sha256": record.comparison_sha256,
@@ -131,3 +141,27 @@ def comparison_record_document(record: ComparisonRecord) -> dict[str, object]:
         ],
         "hard_gate_state": record.hard_gate_state.value,
     }
+
+
+def verify_comparison_record_identity(record: ComparisonRecord) -> bool:
+    document = {
+        "schema_version": record.schema_version,
+        "comparability_sha256": record.comparability_sha256,
+        "control_run_sha256": record.control_run_sha256,
+        "layered_run_sha256": record.layered_run_sha256,
+        "relations": [
+            {
+                "criterion": item.criterion,
+                "relation": item.relation.value,
+                "control_evidence_sha256": list(item.control_evidence_sha256),
+                "layered_evidence_sha256": list(item.layered_evidence_sha256),
+            }
+            for item in record.relations
+        ],
+        "hard_gate_state": record.hard_gate_state.value,
+    }
+    return getattr(
+        record, "_authority", None
+    ) is _COMPARISON_AUTHORITY and record.comparison_sha256 == canonical_sha256(
+        document
+    )

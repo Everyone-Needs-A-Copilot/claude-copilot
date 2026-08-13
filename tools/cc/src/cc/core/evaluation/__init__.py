@@ -55,13 +55,7 @@ from cc.core.evaluation.models import (
     RuntimeOutput,
     RuntimeReceipt,
 )
-from cc.core.evaluation.preflight import TrustedEvidenceVerifier
-from cc.core.evaluation.runner import (
-    AttemptLedger,
-    EvaluationRunner,
-    RuntimeAdapterFailure,
-    TrustedCompletionVerifier,
-)
+from cc.core.evaluation.runner import EvaluationRunner, RuntimeAdapterFailure
 
 __all__ = [
     "CapabilityReceipt",
@@ -77,7 +71,6 @@ __all__ = [
     "EvaluationCell",
     "EvaluationFixture",
     "EvaluationRunner",
-    "AttemptLedger",
     "EvidenceFile",
     "GateObservation",
     "GateState",
@@ -98,8 +91,6 @@ __all__ = [
     "RunRecord",
     "RunState",
     "RuntimeAdapterFailure",
-    "TrustedCompletionVerifier",
-    "TrustedEvidenceVerifier",
     "RuntimeOutput",
     "RuntimeReceipt",
     "RuntimeName",
