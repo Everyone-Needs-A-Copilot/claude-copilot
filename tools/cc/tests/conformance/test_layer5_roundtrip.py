@@ -55,10 +55,138 @@ DEGRADED_SHAPES_PATH = FIXTURES / "degraded" / "known-bad-shapes.json"
 
 pytestmark = pytest.mark.filterwarnings("ignore")
 
+_TEST_SOURCE_COMMIT = "a" * 40
+_TEST_SOURCE_TREE = "b" * 40
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
+
+def _archive_snapshot(
+    tmp_path: Path,
+    *,
+    commit: str = _TEST_SOURCE_COMMIT,
+    tree: str = _TEST_SOURCE_TREE,
+    include_commit: bool = True,
+    include_tree: bool = True,
+    read_only: bool = True,
+) -> tuple[Path, Path]:
+    """Build the minimum installed-source shape discovery authenticates."""
+
+    root = tmp_path / "installed-framework"
+    source_file = root / "tools/cc/src/cc/core/conformance/roundtrip.py"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("# installed snapshot\n", encoding="utf-8")
+    (root / "tools/cc/pyproject.toml").write_text(
+        "[project]\nname = 'claude-cli'\n", encoding="utf-8"
+    )
+    source_file.chmod(0o444)
+    (root / "tools/cc/pyproject.toml").chmod(0o444)
+    if include_commit:
+        (root / ".source-commit").write_text(f"{commit}\n", encoding="ascii")
+    if include_tree:
+        (root / ".source-tree").write_text(f"{tree}\n", encoding="ascii")
+    for marker in (root / ".source-commit", root / ".source-tree"):
+        if marker.exists():
+            marker.chmod(0o444)
+    if read_only:
+        root.chmod(0o555)
+    return root, source_file.parent
+
+
+def test_framework_root_discovers_read_only_archive_snapshot_without_git(tmp_path):
+    root, start = _archive_snapshot(tmp_path)
+
+    assert rt.discover_framework_repo_root(start=start) == root
+
+
+@pytest.mark.parametrize("missing", ["commit", "tree"])
+def test_framework_root_fails_closed_on_partial_archive_provenance(tmp_path, missing):
+    _, start = _archive_snapshot(
+        tmp_path,
+        include_commit=missing != "commit",
+        include_tree=missing != "tree",
+    )
+
+    with pytest.raises(rt.InstallerScriptError, match="provenance is incomplete"):
+        rt.discover_framework_repo_root(start=start)
+
+
+@pytest.mark.parametrize(
+    ("commit", "tree", "message"),
+    [
+        ("not-a-commit", _TEST_SOURCE_TREE, "provenance marker is invalid"),
+        (_TEST_SOURCE_COMMIT, "A" * 40, "provenance marker is invalid"),
+        (_TEST_SOURCE_COMMIT, _TEST_SOURCE_COMMIT, "commit/tree markers are invalid"),
+    ],
+)
+def test_framework_root_fails_closed_on_invalid_archive_provenance(
+    tmp_path, commit, tree, message
+):
+    _, start = _archive_snapshot(tmp_path, commit=commit, tree=tree)
+
+    with pytest.raises(rt.InstallerScriptError, match=message):
+        rt.discover_framework_repo_root(start=start)
+
+
+def test_framework_root_rejects_writable_archive_snapshot(tmp_path):
+    _, start = _archive_snapshot(tmp_path, read_only=False)
+
+    with pytest.raises(rt.InstallerScriptError, match="root must be read-only"):
+        rt.discover_framework_repo_root(start=start)
+
+
+def test_framework_root_rejects_writable_archive_provenance_marker(tmp_path):
+    root, start = _archive_snapshot(tmp_path, read_only=False)
+    (root / ".source-commit").chmod(0o644)
+    root.chmod(0o555)
+
+    with pytest.raises(rt.InstallerScriptError, match="marker must be read-only"):
+        rt.discover_framework_repo_root(start=start)
+
+
+def test_framework_root_rejects_linked_archive_provenance_marker(tmp_path):
+    root, start = _archive_snapshot(tmp_path, read_only=False)
+    outside = tmp_path / "outside-commit"
+    outside.write_text(f"{_TEST_SOURCE_COMMIT}\n", encoding="ascii")
+    (root / ".source-commit").unlink()
+    (root / ".source-commit").symlink_to(outside)
+    root.chmod(0o555)
+
+    with pytest.raises(rt.InstallerScriptError, match="must be a regular file"):
+        rt.discover_framework_repo_root(start=start)
+
+
+def test_archive_runtime_does_not_require_retired_installer_adapters(tmp_path):
+    root, _start = _archive_snapshot(tmp_path)
+
+    assert (
+        rt.check_reports_only_what_it_did(
+            framework_repo_root=root,
+            project=tmp_path / "unused-project",
+            subject="archive-roundtrip",
+        )
+        == ()
+    )
+
+
+def test_archive_runtime_fails_closed_when_only_one_installer_adapter_exists(
+    tmp_path,
+):
+    root, _start = _archive_snapshot(tmp_path, read_only=False)
+    setup = root / ".claude/commands/setup-project.md"
+    setup.parent.mkdir(parents=True)
+    setup.write_text("# partial adapter source\n", encoding="utf-8")
+    root.chmod(0o555)
+
+    with pytest.raises(rt.InstallerScriptError, match="missing installer adapter"):
+        rt.check_reports_only_what_it_did(
+            framework_repo_root=root,
+            project=tmp_path / "unused-project",
+            subject="archive-roundtrip",
+        )
 
 
 @pytest.fixture(scope="module")
