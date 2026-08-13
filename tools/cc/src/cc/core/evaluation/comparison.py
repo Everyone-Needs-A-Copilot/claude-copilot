@@ -20,6 +20,15 @@ _VARIANT_ORDER = {
     LayerVariant.DEPARTMENT: 2,
     LayerVariant.PERSONAL: 3,
 }
+_APPLICABLE_PAIRS = {
+    "eval-01": {(LayerVariant.FOUNDATION, LayerVariant.ORGANIZATION)},
+    "eval-02": {(LayerVariant.FOUNDATION, LayerVariant.ORGANIZATION)},
+    "eval-03": {(LayerVariant.FOUNDATION, LayerVariant.ORGANIZATION)},
+    "eval-04": {(LayerVariant.FOUNDATION, LayerVariant.ORGANIZATION)},
+    "eval-05": {(LayerVariant.FOUNDATION, LayerVariant.DEPARTMENT)},
+    "eval-06": {(LayerVariant.FOUNDATION, LayerVariant.ORGANIZATION)},
+    "eval-07": {(LayerVariant.DEPARTMENT, LayerVariant.PERSONAL)},
+}
 
 
 def comparability_identity(cell: EvaluationCell) -> str:
@@ -33,6 +42,9 @@ def comparability_identity(cell: EvaluationCell) -> str:
             "prompt_evidence_sha256": cell.prompt_evidence_sha256,
             "runtime_receipt_sha256": runtime_receipt_identity(cell.runtime_receipt),
             "journey_task_id": cell.consumption_receipt.task_id,
+            "journey_evidence_sha256": cell.consumption_receipt.journey_evidence_sha256,
+            "route_evidence_sha256": cell.consumption_receipt.route_evidence_sha256,
+            "continuity_evidence_sha256": cell.consumption_receipt.continuity_evidence_sha256,
             "attempt": cell.attempt,
             "parent_attempt_sha256": cell.parent_attempt_sha256,
             "attempt_policy_sha256": cell.attempt_policy_sha256,
@@ -62,8 +74,14 @@ def pair_control_runs(
         raise ValueError("Only preflight-valid runs can enter behavioral comparison.")
     if control.comparability_sha256 != layered.comparability_sha256:
         raise ValueError("Control inputs are not comparable.")
-    if _VARIANT_ORDER[control.variant] >= _VARIANT_ORDER[layered.variant]:
-        raise ValueError("The layered run must add exactly the intended higher tier.")
+    applicable = _APPLICABLE_PAIRS.get(control.case_id, set())
+    if (
+        control.case_id != layered.case_id
+        or (control.variant, layered.variant) not in applicable
+    ):
+        raise ValueError(
+            "Runs are not the exact applicable control pair for this case."
+        )
     criteria = tuple(item.criterion for item in relations)
     if len(criteria) != len(set(criteria)):
         raise ValueError("Criterion relations must be unique.")
