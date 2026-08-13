@@ -281,7 +281,9 @@ def check_d01_agent_roster_exact(
 
     framework_root = _framework_root("claude", claude_root)
     if framework_root is None:
-        return _missing_framework_root_result(registration, subject_name, expected_today)
+        return _missing_framework_root_result(
+            registration, subject_name, expected_today
+        )
 
     manifest = _load_version_manifest(framework_root)
     if manifest is None:
@@ -413,7 +415,9 @@ def check_d01_command_set_exact(
 
     framework_root = _framework_root("claude", claude_root)
     if framework_root is None:
-        return _missing_framework_root_result(registration, subject_name, expected_today)
+        return _missing_framework_root_result(
+            registration, subject_name, expected_today
+        )
 
     manifest = _load_version_manifest(framework_root)
     if manifest is None:
@@ -659,7 +663,9 @@ def check_d01_claude_md_agent_count_accurate(
             expected_today=expected_today,
         )
 
-    claims = sorted({int(match.group(1)) for match in _AGENT_COUNT_CLAIM.finditer(text)})
+    claims = sorted(
+        {int(match.group(1)) for match in _AGENT_COUNT_CLAIM.finditer(text)}
+    )
     if not claims:
         return _D01_AGENT_COUNT_REGISTRATION.result(
             subject=subject_name,
@@ -769,7 +775,9 @@ def check_d01_documented_commands_exist(
     if unresolved:
         framework_root = _framework_root("claude", claude_root)
         if framework_root is None:
-            return _missing_framework_root_result(registration, subject_name, expected_today)
+            return _missing_framework_root_result(
+                registration, subject_name, expected_today
+            )
         manifest = _load_version_manifest(framework_root)
         if manifest is None:
             return _unreadable_manifest_result(
@@ -834,7 +842,7 @@ _D01_MCP_JSON_REGISTRATION = register_check(
     severity=Severity.S2,
     scope=Scope.PER_REPO,
     summary="TEST-MATRIX.md IC-D1-MCP: `.mcp.json` parses and `mcpServers` is a JSON object (an empty object is correct since v5.0.0).",
-    remediation="Restore `.mcp.json` with at least `{\"mcpServers\": {}}` (or run `/update-project`, which does not touch an existing valid `.mcp.json`).",
+    remediation='Restore `.mcp.json` with at least `{"mcpServers": {}}` (or run `/update-project`, which does not touch an existing valid `.mcp.json`).',
     mode=Mode.FAST,
     applies_to_classes=_APPLIES_TO,
     expected_today=ExpectedToday.PASS,
@@ -894,7 +902,11 @@ def check_d01_mcp_json_is_object(
             expected_today=expected_today,
         )
 
-    actual = f"mcpServers is {type(servers).__name__}" if servers is not None else "mcpServers is absent"
+    actual = (
+        f"mcpServers is {type(servers).__name__}"
+        if servers is not None
+        else "mcpServers is absent"
+    )
     return _D01_MCP_JSON_REGISTRATION.result(
         subject=subject_name,
         verdict=Verdict.FAIL,
@@ -989,7 +1001,9 @@ def check_d01_fitness_check_passes(
             expected_today=expected_today,
         )
 
-    fail_lines = [line for line in result.stdout.splitlines() if line.startswith("FAIL ")]
+    fail_lines = [
+        line for line in result.stdout.splitlines() if line.startswith("FAIL ")
+    ]
     evidence = tuple(
         Evidence(
             kind="fitness-check-failure",
@@ -1044,7 +1058,9 @@ def run(context: "RepoContext") -> Iterable[CheckResult]:
     results: list[CheckResult] = [
         check_d01_agent_roster_exact(context.path, subject=context.subject),
         check_d01_command_set_exact(context.path, subject=context.subject),
-        check_d01_fitness_check_present_executable(context.path, subject=context.subject),
+        check_d01_fitness_check_present_executable(
+            context.path, subject=context.subject
+        ),
         check_d01_claude_md_entry_heading(context.path, subject=context.subject),
         check_d01_claude_md_agent_count_accurate(context.path, subject=context.subject),
         check_d01_documented_commands_exist(context.path, subject=context.subject),

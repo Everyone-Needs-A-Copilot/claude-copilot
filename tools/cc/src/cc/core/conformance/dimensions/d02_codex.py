@@ -158,14 +158,19 @@ def check_d02_codex_entry_contract(
                 kind="plugin-manifest-invalid",
                 path=PLUGIN_MANIFEST_RELATIVE_PATH,
                 expected='name == "codex-copilot"',
-                actual="missing/unreadable" if manifest is None else f"name={manifest.get('name')!r}",
+                actual="missing/unreadable"
+                if manifest is None
+                else f"name={manifest.get('name')!r}",
             )
         )
 
     # (c) skill bridge
     bridge_ok, bridge_detail, bridge_fingerprint = _verify_internal_skill_link(repo)
     if not bridge_ok:
-        dangling = bool(bridge_fingerprint) and bridge_fingerprint[-1] == _DANGLING_FINGERPRINT_TAG
+        dangling = (
+            bool(bridge_fingerprint)
+            and bridge_fingerprint[-1] == _DANGLING_FINGERPRINT_TAG
+        )
         dangling_only = dangling
         evidence.append(
             Evidence(
@@ -213,7 +218,9 @@ def check_d02_codex_entry_contract(
                 kind="codex-config-invalid",
                 path=CODEX_CONFIG_RELATIVE_PATH,
                 expected='installType in {"copy", "link"}',
-                actual="missing/unreadable" if config is None else f"installType={install_type!r}",
+                actual="missing/unreadable"
+                if config is None
+                else f"installType={install_type!r}",
             )
         )
 
@@ -595,7 +602,9 @@ def check_d02_declared_version_matches_lock(
 
     lock_state, lock_entries, _ = _lock_state(repo)
     codex_entry = lock_entries.get("codex") if lock_state == "verified" else None
-    locked_version = codex_entry.get("version") if isinstance(codex_entry, dict) else None
+    locked_version = (
+        codex_entry.get("version") if isinstance(codex_entry, dict) else None
+    )
     if not isinstance(locked_version, str) or not locked_version:
         return registration.result(
             subject=subject_name,
@@ -667,9 +676,13 @@ def run(context: "RepoContext") -> Iterable[CheckResult]:
 
     return (
         check_d02_codex_entry_contract(context.path, subject=context.subject),
-        check_d02_plugin_tree_matches_pinned_mirror(context.path, subject=context.subject),
+        check_d02_plugin_tree_matches_pinned_mirror(
+            context.path, subject=context.subject
+        ),
         check_d02_skill_bridge_internal_symlink(context.path, subject=context.subject),
-        check_d02_install_type_not_legacy_symlink(context.path, subject=context.subject),
+        check_d02_install_type_not_legacy_symlink(
+            context.path, subject=context.subject
+        ),
         check_d02_declared_version_matches_lock(context.path, subject=context.subject),
     )
 

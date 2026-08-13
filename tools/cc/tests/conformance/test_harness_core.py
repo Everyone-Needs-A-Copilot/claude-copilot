@@ -480,9 +480,9 @@ class TestReport:
             "/private/tmp/cc-conformance-roundtrip-def456/project::agents",
         )
         assert first == second == "roundtrip:canonical-scratch-project::agents"
-        assert report.baseline_subject("repo.d01.agent_roster_exact", "/tmp/project") == (
-            "/tmp/project"
-        )
+        assert report.baseline_subject(
+            "repo.d01.agent_roster_exact", "/tmp/project"
+        ) == ("/tmp/project")
 
     @pytest.mark.parametrize(
         "check_id,facet",
@@ -513,11 +513,15 @@ class TestReport:
         self, check_id, facet
     ):
         authoring = f"/Volumes/Dev/Sites/COPILOT/claude-copilot/{facet}"
-        snapshot = f"/Users/pabs/.copilot/framework-snapshots/claude-copilot-aa0125/{facet}"
+        snapshot = (
+            f"/Users/pabs/.copilot/framework-snapshots/claude-copilot-aa0125/{facet}"
+        )
 
-        assert report.baseline_subject(check_id, authoring) == (
-            report.baseline_subject(check_id, snapshot)
-        ) == f"framework:{facet}"
+        assert (
+            report.baseline_subject(check_id, authoring)
+            == (report.baseline_subject(check_id, snapshot))
+            == f"framework:{facet}"
+        )
         assert report.baseline_subject("unrelated.check", snapshot) == snapshot
 
     def test_assert_no_bare_ready_raises_on_bare_word(self):
