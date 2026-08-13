@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-import secrets
-from collections.abc import Callable
+from pathlib import Path
 from typing import Protocol
 
 from cc.core.evaluation._authority import _EvaluationAuthority, _production_authority
@@ -83,22 +82,36 @@ def _binding_valid(cell: EvaluationCell) -> bool:
 
 def _lineage_valid(
     cell: EvaluationCell,
-    parent_for: Callable[[str], RunRecord | None],
-    ledger_binding_sha256: str,
+    artifact_root: Path | None,
+    *,
+    loaded_fixture: object,
+    journey_run_id: str,
+    journey_ledger: object,
+    lineage_depth: int,
 ) -> bool:
     if cell.attempt == 1:
         return cell.parent_attempt_sha256 is None
-    parent = parent_for(cell.parent_attempt_sha256 or "")
+    if artifact_root is None:
+        return False
+    from cc.core.evaluation.artifact import load_run_record_document
+
+    parent = load_run_record_document(
+        artifact_root,
+        cell.parent_attempt_sha256 or "",
+        child_cell=cell,
+        loaded_fixture=loaded_fixture,
+        journey_run_id=journey_run_id,
+        journey_ledger=journey_ledger,
+        lineage_depth=lineage_depth,
+    )
     return bool(
         parent
-        and verify_run_record_identity(parent)
-        and parent.ledger_binding_sha256 == ledger_binding_sha256
-        and parent.case_id == cell.case_id
-        and parent.revision == cell.revision
-        and parent.variant is cell.variant
-        and parent.runtime is cell.runtime_receipt.runtime
-        and parent.attempt == cell.attempt - 1
-        and parent.runtime_receipt_sha256
+        and parent["case_id"] == cell.case_id
+        and parent["revision"] == cell.revision
+        and parent["variant"] == cell.variant.value
+        and parent["runtime"] == cell.runtime_receipt.runtime.value
+        and parent["attempt"] == cell.attempt - 1
+        and parent["runtime_receipt_sha256"]
         == runtime_receipt_identity(cell.runtime_receipt)
     )
 
@@ -106,8 +119,12 @@ def _lineage_valid(
 def _preflight_for(
     cell: EvaluationCell,
     authority: _EvaluationAuthority,
-    parent_for: Callable[[str], RunRecord | None],
-    ledger_binding_sha256: str,
+    artifact_root: Path | None,
+    *,
+    loaded_fixture: object = None,
+    journey_run_id: str = "",
+    journey_ledger: object = None,
+    lineage_depth: int = 0,
 ) -> PreflightResult:
     if not isinstance(authority, _EvaluationAuthority) or not authority.applies_to(
         cell
@@ -121,7 +138,14 @@ def _preflight_for(
             PreflightGate.RESOLUTION_IDENTITY,
             reason="receipt-binding-mismatch",
         )
-    if not _lineage_valid(cell, parent_for, ledger_binding_sha256):
+    if not _lineage_valid(
+        cell,
+        artifact_root,
+        loaded_fixture=loaded_fixture,
+        journey_run_id=journey_run_id,
+        journey_ledger=journey_ledger,
+        lineage_depth=lineage_depth,
+    ):
         observations = _replace_gate(
             observations,
             PreflightGate.ATTEMPT_POLICY,
@@ -160,7 +184,6 @@ def _record_document(record: RunRecord, *, include_identity: bool) -> dict[str, 
         "runtime": record.runtime.value,
         "attempt": record.attempt,
         "parent_attempt_sha256": record.parent_attempt_sha256,
-        "ledger_binding_sha256": record.ledger_binding_sha256,
         "fixture_sha256": record.fixture_sha256,
         "prompt_evidence_sha256": record.prompt_evidence_sha256,
         "attempt_policy_sha256": record.attempt_policy_sha256,
@@ -195,7 +218,6 @@ def _record(
     *,
     preflight: PreflightResult,
     state: RunState,
-    ledger_binding_sha256: str,
     output_sha256: str | None = None,
     controlled_artifact_path: str | None = None,
     completion_evidence_sha256: str | None = None,
@@ -210,7 +232,6 @@ def _record(
         runtime=cell.runtime_receipt.runtime,
         attempt=cell.attempt,
         parent_attempt_sha256=cell.parent_attempt_sha256,
-        ledger_binding_sha256=ledger_binding_sha256,
         fixture_sha256=cell.fixture_sha256,
         prompt_evidence_sha256=cell.prompt_evidence_sha256,
         attempt_policy_sha256=cell.attempt_policy_sha256,
@@ -251,13 +272,14 @@ class EvaluationRunner:
         loaded_fixture: object = None,
         journey_run_id: str = "",
         journey_ledger: object = None,
+        artifact_root: Path | None = None,
     ) -> None:
         self._runtime = runtime
         self._loaded_fixture = loaded_fixture
         self._journey_run_id = journey_run_id
         self._journey_ledger = journey_ledger
+        self._artifact_root = artifact_root
         records: dict[str, RunRecord] = {}
-        ledger_binding_sha256 = secrets.token_hex(32)
 
         def preserve(record: RunRecord) -> None:
             if not verify_run_record_identity(record):
@@ -269,8 +291,6 @@ class EvaluationRunner:
 
         self.__records_snapshot = lambda: tuple(records.values())
         self.__preserve = preserve
-        self.__parent_for = records.get
-        self.__ledger_binding_sha256 = ledger_binding_sha256
 
     @property
     def records(self) -> tuple[RunRecord, ...]:
@@ -290,8 +310,10 @@ class EvaluationRunner:
         preflight = _preflight_for(
             cell,
             authority,
-            self.__parent_for,
-            self.__ledger_binding_sha256,
+            self._artifact_root,
+            loaded_fixture=self._loaded_fixture,
+            journey_run_id=self._journey_run_id,
+            journey_ledger=self._journey_ledger,
         )
         if preflight.state is PreflightState.INVALID:
             return self._finish(
@@ -299,7 +321,6 @@ class EvaluationRunner:
                     cell,
                     preflight=preflight,
                     state=RunState.INVALID,
-                    ledger_binding_sha256=self.__ledger_binding_sha256,
                 )
             )
         if preflight.state is PreflightState.UNSUPPORTED:
@@ -308,7 +329,6 @@ class EvaluationRunner:
                     cell,
                     preflight=preflight,
                     state=RunState.UNSUPPORTED,
-                    ledger_binding_sha256=self.__ledger_binding_sha256,
                 )
             )
         try:
@@ -319,7 +339,6 @@ class EvaluationRunner:
                     cell,
                     preflight=preflight,
                     state=RunState.TECHNICAL_ERROR,
-                    ledger_binding_sha256=self.__ledger_binding_sha256,
                     technical_error_reason=exc.reason,
                 )
             )
@@ -329,7 +348,6 @@ class EvaluationRunner:
                     cell,
                     preflight=preflight,
                     state=RunState.TECHNICAL_ERROR,
-                    ledger_binding_sha256=self.__ledger_binding_sha256,
                     technical_error_reason="runtime-adapter-failure",
                 )
             )
@@ -340,7 +358,6 @@ class EvaluationRunner:
                     cell,
                     preflight=preflight,
                     state=RunState.TECHNICAL_ERROR,
-                    ledger_binding_sha256=self.__ledger_binding_sha256,
                     technical_error_reason="runtime-adapter-failure",
                 )
             )
@@ -363,7 +380,6 @@ class EvaluationRunner:
                     cell,
                     preflight=failed,
                     state=RunState.INVALID,
-                    ledger_binding_sha256=self.__ledger_binding_sha256,
                 )
             )
         output_sha256 = hashlib.sha256(output.output_text.encode()).hexdigest()
@@ -383,7 +399,6 @@ class EvaluationRunner:
                 state=RunState.COMPLETED
                 if proof_valid
                 else RunState.DISPATCH_AUTHORIZED,
-                ledger_binding_sha256=self.__ledger_binding_sha256,
                 output_sha256=output_sha256,
                 controlled_artifact_path=output.controlled_artifact_path,
                 completion_evidence_sha256=proof.evidence_sha256
