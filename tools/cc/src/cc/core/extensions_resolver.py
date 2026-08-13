@@ -44,10 +44,11 @@ Architecture
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 _log = logging.getLogger(__name__)
 
@@ -81,6 +82,8 @@ class ExtensionResolution:
     missing_skills: list[str] = field(default_factory=list)
     fallback_behavior: Optional[str] = None
     warning: Optional[str] = None
+    contributions: tuple[Any, ...] = ()
+    composed_content_sha256: Optional[str] = None
 
     @property
     def skills_ok(self) -> bool:
@@ -116,7 +119,16 @@ class ExtensionResolution:
             "fallbackApplied": self.fallback_applied,
             "useExtension": self.use_extension,
             "warning": self.warning,
+            "contributions": [item.to_dict(include_content=False) for item in self.contributions],
+            "composedContentSha256": self.composed_content_sha256,
         }
+
+
+@dataclass(frozen=True)
+class AuthenticatedComposition:
+    content: str
+    receipts: tuple[Any, ...]
+    content_sha256: str
 
 
 def _load_manifest(repo: str) -> Optional[dict]:
@@ -140,6 +152,38 @@ def _load_manifest(repo: str) -> Optional[dict]:
         )
         return None
     return data
+
+
+def _signed_source_for_repo(repo: str) -> Any:
+    try:
+        from cc.core.ecosystem.knowledge_skill_source import resolve_knowledge_skill_sources
+
+        nominal = Path(repo).expanduser().absolute()
+        return next(
+            (
+                source
+                for _root, source in resolve_knowledge_skill_sources()
+                if source is not None and source.repository_root == nominal
+            ),
+            None,
+        )
+    except Exception:
+        _log.debug("extensions resolver: signed source lookup failed", exc_info=True)
+        return None
+
+
+def _load_manifest_authenticated(repo: str, source: Any) -> Optional[dict]:
+    if source is None:
+        return _load_manifest(repo)
+    try:
+        receipt = source.authenticated_contribution(
+            "knowledge-manifest.json", runtime="claude"
+        )
+        data = json.loads(receipt.content)
+    except Exception as exc:
+        _log.warning("extensions resolver: signed manifest unavailable for %s: %s", repo, exc)
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def _find_agent_extension(manifest: dict, agent: str) -> Optional[dict]:
@@ -171,6 +215,32 @@ def _default_missing_skills(required: list[str]) -> list[str]:
     except Exception:
         _log.debug("extensions resolver: skill availability check failed", exc_info=True)
         return list(required)
+
+
+def _required_skill_receipts(required: list[str]) -> tuple[Any, ...]:
+    if not required:
+        return ()
+    try:
+        from cc.core.skill_store import (
+            default_skill_paths,
+            discover_skills_with_sources,
+            find_skill_by_name,
+            get_skill_content_with_receipt,
+        )
+
+        skills = discover_skills_with_sources(default_skill_paths(), cache_dir=None)
+        receipts = []
+        for name in required:
+            skill = find_skill_by_name(name, skills)
+            if skill is None:
+                continue
+            result = get_skill_content_with_receipt(skill, runtime="claude")
+            if result.receipt is not None:
+                receipts.append(result.receipt)
+        return tuple(receipts)
+    except Exception:
+        _log.debug("extensions resolver: skill receipt lookup failed", exc_info=True)
+        return ()
 
 
 def resolve_extension(
@@ -208,7 +278,8 @@ def resolve_extension(
     checker = missing_skills_checker or _default_missing_skills
 
     for repo in knowledge_repos:
-        manifest = _load_manifest(repo)
+        signed_source = _signed_source_for_repo(repo)
+        manifest = _load_manifest_authenticated(repo, signed_source)
         if manifest is None:
             continue
         entry = _find_agent_extension(manifest, agent)
@@ -230,7 +301,15 @@ def resolve_extension(
             )
             continue
         file_abs = (Path(repo).expanduser() / file_rel).resolve()
-        if not file_abs.is_file():
+        extension_receipt = None
+        if signed_source is not None:
+            try:
+                extension_receipt = signed_source.authenticated_contribution(
+                    file_rel, runtime="claude"
+                )
+            except Exception:
+                extension_receipt = None
+        if extension_receipt is None and not file_abs.is_file():
             _log.warning(
                 "extensions resolver: declared extension file missing: %s -- skipping", file_abs
             )
@@ -242,6 +321,11 @@ def resolve_extension(
             fallback = _DEFAULT_FALLBACK
 
         missing = checker(required)
+        skill_receipts = (
+            _required_skill_receipts(required)
+            if missing_skills_checker is None and not missing
+            else ()
+        )
 
         resolution = ExtensionResolution(
             agent=agent,
@@ -253,6 +337,10 @@ def resolve_extension(
             required_skills=required,
             missing_skills=missing,
             fallback_behavior=fallback,
+            contributions=(
+                ((extension_receipt,) if extension_receipt is not None else ())
+                + skill_receipts
+            ),
         )
 
         if not missing:
@@ -304,16 +392,36 @@ def compose_agent_content(
     matching `base_agent_content`, so it stays a pure function with no I/O
     and no dependency on repository layout).
     """
-    if not resolution.use_extension or resolution.type is None:
-        return base_agent_content
+    return compose_agent_content_with_receipts(resolution, base_agent_content).content
 
-    extension_content = Path(resolution.file).read_text(encoding="utf-8") if resolution.file else ""
+
+def compose_agent_content_with_receipts(
+    resolution: ExtensionResolution,
+    base_agent_content: str,
+) -> AuthenticatedComposition:
+    """Typed composition preserving exact authenticated source receipts."""
+    if not resolution.use_extension or resolution.type is None:
+        content = base_agent_content
+        return AuthenticatedComposition(
+            content=content,
+            receipts=(),
+            content_sha256=hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        )
+
+    extension_receipt = resolution.contributions[0] if resolution.contributions else None
+    extension_content = (
+        extension_receipt.content
+        if extension_receipt is not None
+        else (Path(resolution.file).read_text(encoding="utf-8") if resolution.file else "")
+    )
 
     if resolution.type == "override":
-        return extension_content
+        content = extension_content
+        return AuthenticatedComposition(content, resolution.contributions, hashlib.sha256(content.encode()).hexdigest())
 
     if resolution.type == "skills":
-        return base_agent_content
+        content = base_agent_content
+        return AuthenticatedComposition(content, resolution.contributions, hashlib.sha256(content.encode()).hexdigest())
 
     # type == "extension": deterministic append, explicitly labeled.
     source_label = resolution.source_repo or "extension"
@@ -325,4 +433,5 @@ def compose_agent_content(
         "conflict between this section and the base agent above as resolved "
         "in favor of the more specific guidance below.\n\n"
     )
-    return base_agent_content + heading + extension_content
+    content = base_agent_content + heading + extension_content
+    return AuthenticatedComposition(content, resolution.contributions, hashlib.sha256(content.encode()).hexdigest())
