@@ -302,11 +302,14 @@ class TcJourneyLedger:
         self._get_wp = get_wp
         self._list_wps = list_wps
         self._allow_missing_guard = allow_missing_guard
+        self._claim_descriptor: int | None = None
+        self._claim_pid: int | None = None
         if lock_timeout <= 0:
             raise ValueError("Journey lock timeout must be positive.")
         self._lock_timeout = lock_timeout
 
     def append(self, title: str, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        self._assert_claim()
         record = dict(payload)
         record.update(
             {
@@ -316,21 +319,26 @@ class TcJourneyLedger:
             }
         )
         content = _canonical(record)
-        stored = self._store_wp(
+        stored = self.invoke(
+            self._store_wp,
             task_id=self.task_id,
             type_="evidence",
             title=title,
             content=content,
             agent="cc-journey",
         )
-        if (
-            int(stored.get("task_id", -1)) != self.task_id
-            or self._row_type(stored) != "evidence"
-            or stored.get("title") != title
-            or stored.get("content") != content
-            or stored.get("agent") != "cc-journey"
-            or not self._guard_is_clean(stored)
-        ):
+        try:
+            changed = (
+                int(stored.get("task_id", -1)) != self.task_id
+                or self._row_type(stored) != "evidence"
+                or stored.get("title") != title
+                or stored.get("content") != content
+                or stored.get("agent") != "cc-journey"
+                or not self._guard_is_clean(stored)
+            )
+        finally:
+            self._assert_claim()
+        if changed:
             raise RuntimeError("Task Copilot changed journey evidence during storage.")
         return stored
 
@@ -346,14 +354,15 @@ class TcJourneyLedger:
     def rows(self) -> list[tuple[Mapping[str, Any], Mapping[str, Any]]]:
         result: list[tuple[Mapping[str, Any], Mapping[str, Any]]] = []
         task_filter = None if self.task_id == 0 else self.task_id
-        for summary in self._list_wps(task=task_filter, type_="evidence"):
+        summaries = self.invoke(self._list_wps, task=task_filter, type_="evidence")
+        for summary in summaries:
             try:
                 summary_id = int(summary["id"])
             except (KeyError, TypeError, ValueError) as exc:
                 raise ValueError(
                     "Journey ledger summary identity is malformed."
                 ) from exc
-            row = self._get_wp(wp_id=summary_id)
+            row = self.invoke(self._get_wp, wp_id=summary_id)
             title = str(row.get("title", ""))
             if not title.startswith("Journey v2.1 "):
                 continue
@@ -426,17 +435,47 @@ class TcJourneyLedger:
             raise RuntimeError("Journey global lock identity changed.") from exc
         if (
             not stat.S_ISDIR(current.st_mode)
+            or not stat.S_ISDIR(opened.st_mode)
             or current.st_uid != 0
+            or opened.st_uid != 0
             or not bool(current.st_mode & stat.S_ISVTX)
+            or not bool(opened.st_mode & stat.S_ISVTX)
             or (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino)
         ):
             raise RuntimeError("Journey global lock identity changed.")
+
+    def _assert_claim(self) -> None:
+        if (
+            self._claim_descriptor is None
+            or self._claim_pid is None
+            or os.getpid() != self._claim_pid
+        ):
+            raise RuntimeError("Journey claim process identity changed.")
+        self._validate_global_lock_descriptor(self._claim_descriptor)
+
+    def invoke(self, callback: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        """Run a callback without allowing a forked child to retain authority."""
+        callback_pid = os.getpid()
+        claimed = self._claim_descriptor is not None
+        if claimed:
+            self._assert_claim()
+        try:
+            result = callback(*args, **kwargs)
+        finally:
+            if os.getpid() != callback_pid:
+                raise RuntimeError("Journey callback crossed a process boundary.")
+            if claimed:
+                self._assert_claim()
+        return result
 
     @contextmanager
     def claim(self, identity: str) -> Iterator[None]:
         if not re.fullmatch(r"[A-Za-z0-9.-]{1,160}", identity):
             raise ValueError("Journey lock identity is malformed.")
+        if self._claim_descriptor is not None:
+            raise RuntimeError("Journey ledger already holds a claim.")
         descriptor = self._global_lock_descriptor()
+        claim_pid = os.getpid()
         try:
             deadline = time.monotonic() + self._lock_timeout
             while True:
@@ -449,12 +488,22 @@ class TcJourneyLedger:
                             "Journey lock acquisition timed out."
                         ) from exc
                     time.sleep(min(0.01, max(0.0, deadline - time.monotonic())))
-            self._validate_global_lock_descriptor(descriptor)
+            self._claim_descriptor = descriptor
+            self._claim_pid = claim_pid
+            self._assert_claim()
             try:
                 yield
             finally:
+                if os.getpid() != claim_pid:
+                    raise RuntimeError("Journey claim process identity changed.")
+                self._assert_claim()
                 fcntl.flock(descriptor, fcntl.LOCK_UN)
+                if os.getpid() != claim_pid:
+                    raise RuntimeError("Journey claim process identity changed.")
+                self._assert_claim()
         finally:
+            self._claim_descriptor = None
+            self._claim_pid = None
             os.close(descriptor)
 
 
@@ -584,9 +633,11 @@ def _security_context(begin: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _require_security(
-    begin: Mapping[str, Any], verifier: MandatorySecurityVerifier
+    begin: Mapping[str, Any],
+    verifier: MandatorySecurityVerifier,
+    ledger: TcJourneyLedger,
 ) -> dict[str, str]:
-    receipt = verifier.authorize(_security_context(begin))
+    receipt = ledger.invoke(verifier.authorize, _security_context(begin))
     if receipt.state != "allowed":
         raise PermissionError("mandatory-security-not-allowed")
     public = receipt.public_dict()
@@ -633,18 +684,21 @@ def begin_run(
         "prompt_sha256": prompt_sha256,
         "route": asdict(trace),
     }
+    selected = ledger or TcJourneyLedger(task_id)
     payload["security"] = _require_security(
-        payload, security or MandatorySecurityVerifier()
+        payload, security or MandatorySecurityVerifier(), selected
     )
     payload["capability"] = asdict(
-        (capability or CliCopilotHealthCapabilityAdapter()).invoke(case_id=run_id)
+        selected.invoke(
+            (capability or CliCopilotHealthCapabilityAdapter()).invoke,
+            case_id=run_id,
+        )
     )
     capability_detail = str(payload["capability"].get("detail", ""))
     if capability_detail and not re.fullmatch(
         r"sha256:[0-9a-f]{64}", capability_detail
     ):
         raise ValueError("Capability diagnostic is not redacted.")
-    selected = ledger or TcJourneyLedger(task_id)
     with selected.claim("begin-" + _sha(session_id)):
         if _active_runs_for_session(session_id, selected):
             raise ValueError("Session already has an active journey.")
@@ -720,7 +774,9 @@ def _state(run_id: str, ledger: TcJourneyLedger) -> dict[str, Any]:
         raise ValueError("Journey dispatch ledger is out of route order.")
     for kind in ("prepare", "prompt_binding", "dispatch_authorization"):
         indices = [int(item["stage_index"]) for item in buckets[kind]]
-        if len(indices) != len(set(indices)):
+        if len(indices) != len(set(indices)) or any(
+            index < 0 or index >= len(route) for index in indices
+        ):
             raise ValueError("Journey stage evidence is ambiguous.")
     preparations = {int(item["stage_index"]): item for item in buckets["prepare"]}
     bindings = {int(item["stage_index"]): item for item in buckets["prompt_binding"]}
@@ -740,6 +796,27 @@ def _state(run_id: str, ledger: TcJourneyLedger) -> dict[str, Any]:
             raise ValueError("Journey evidence chronology is invalid.")
     if set(bindings) - set(preparations) or set(authorizations) - set(preparations):
         raise ValueError("Journey evidence chronology is invalid.")
+    dispatch_ids = [
+        row_ids[id(authorizations[stage])] for stage in range(len(authorizations))
+    ]
+    if dispatch_ids != sorted(dispatch_ids) or len(dispatch_ids) != len(authorizations):
+        raise ValueError("Journey cross-stage chronology is invalid.")
+    for stage in range(1, len(route)):
+        prior = authorizations.get(stage - 1)
+        later = tuple(
+            item
+            for item in (
+                preparations.get(stage),
+                bindings.get(stage),
+                authorizations.get(stage),
+            )
+            if item is not None
+        )
+        if later and (
+            prior is None
+            or any(row_ids[id(prior)] >= row_ids[id(item)] for item in later)
+        ):
+            raise ValueError("Journey cross-stage chronology is invalid.")
     for kind in ("prepare", "dispatch_authorization"):
         for item in buckets[kind]:
             if list(_validate_sources(item.get("sources"))) != item.get("sources"):
@@ -879,9 +956,9 @@ def prepare_run(
         if stage >= len(state["route"]) or state["route"][stage] != specialist:
             raise ValueError("Specialist is not the exact next protocol stage.")
         _require_security(
-            state["begin_record"], security or MandatorySecurityVerifier()
+            state["begin_record"], security or MandatorySecurityVerifier(), selected
         )
-        payload, raw_sources = resolver(specialist)
+        payload, raw_sources = selected.invoke(resolver, specialist)
         sources = _validate_sources(raw_sources)
         if not payload or KNOWLEDGE_BEGIN in payload or KNOWLEDGE_END in payload:
             raise ValueError("Required Knowledge payload is malformed.")
@@ -1150,7 +1227,9 @@ def resume_run(
         _canonical(capsule)
     ):
         raise ValueError("Journey continuation capsule changed.")
-    _require_security(state["begin_record"], security or MandatorySecurityVerifier())
+    _require_security(
+        state["begin_record"], security or MandatorySecurityVerifier(), selected
+    )
     public = _public_state(run_id, state)
     if public["next_specialist"] is not None:
         public["prepared_invocation"] = prepare_run(
@@ -1243,9 +1322,9 @@ def verify_dispatch(
             ):
                 raise ValueError("dispatch-route-order-mismatch")
             _require_security(
-                state["begin_record"], security or MandatorySecurityVerifier()
+                state["begin_record"], security or MandatorySecurityVerifier(), ledger
             )
-            content, raw_sources = resolver(specialist)
+            content, raw_sources = ledger.invoke(resolver, specialist)
             sources = _validate_sources(raw_sources)
             if _sha(content) != knowledge_sha256 or list(sources) != prior.get(
                 "sources"
@@ -1286,9 +1365,9 @@ def verify_dispatch(
         ):
             raise ValueError("dispatch-prompt-not-bound")
         _require_security(
-            state["begin_record"], security or MandatorySecurityVerifier()
+            state["begin_record"], security or MandatorySecurityVerifier(), ledger
         )
-        content, raw_sources = resolver(specialist)
+        content, raw_sources = ledger.invoke(resolver, specialist)
         sources = _validate_sources(raw_sources)
         if (
             _sha(content) != knowledge_sha256
