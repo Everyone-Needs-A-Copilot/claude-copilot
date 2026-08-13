@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 from cc.commands.deprovision import build_deprovision_report
+from cc.commands.update import build_update_report
 from cc.core.ecosystem import entitlement
 from cc.core.ecosystem.knowledge_skill_source import (
     KNOWLEDGE_SKILLS_SUBPATH,
@@ -297,6 +298,99 @@ def test_protected_projection_rolls_receipt_to_current_entitlement_generation(
     new_index = json.loads((cache_root / "index.json").read_text(encoding="utf-8"))
     assert new_index["entries"][projections[0].binding]["revision"] == 2
     assert new_index["entries"][projections[0].binding]["status"] == "active"
+
+
+def _tamper_protected_receipt(cache_root: Path, binding: str) -> tuple[Path, bytes]:
+    index_path = cache_root / "index.json"
+    index_before = index_path.read_bytes()
+    index = json.loads(index_before)
+    target = cache_root / index["entries"][binding]["target"]
+    skill = target / "accounting" / "SKILL.md"
+    skill.chmod(0o600)
+    skill.write_text("tampered receipt bytes\n", encoding="utf-8")
+    return target, index_before
+
+
+def test_protected_projection_preserves_tampered_prior_receipt_on_rollover(
+    protected_signed_source,
+):
+    source, projection = _protected_projection(protected_signed_source)
+    assert source.entitlement_binding is not None
+    cache_root = protected_signed_source[3]
+    old_target, index_before = _tamper_protected_receipt(
+        cache_root, projection.binding
+    )
+    current = entitlement.EntitlementBinding(
+        **(source.entitlement_binding.as_dict() | {"revision": 2})
+    )
+
+    with pytest.raises(KnowledgeSkillSourceError, match="receipt bytes do not match"):
+        resolve_protected_knowledge_lock_projections(
+            [protected_signed_source[1]], [current], cache_root=cache_root
+        )
+
+    assert old_target.is_dir()
+    assert (old_target / "accounting" / "SKILL.md").read_text() == (
+        "tampered receipt bytes\n"
+    )
+    assert (cache_root / "index.json").read_bytes() == index_before
+
+
+def test_update_tampered_rollover_aborts_without_receipt_or_lock_mutation(
+    protected_signed_source, tmp_path, monkeypatch
+):
+    _repo, layer, state_path, cache_root = protected_signed_source
+    _source, projection = _protected_projection(protected_signed_source)
+    old_target, index_before = _tamper_protected_receipt(
+        cache_root, projection.binding
+    )
+    ledger = json.loads(state_path.read_text(encoding="utf-8"))
+    ledger["next_sequence"] = 3
+    ledger["layers"][layer["id"]]["revision"] = 2
+    atomic_json_write(state_path, ledger)
+    monkeypatch.setattr(
+        "cc.commands.update.entitlement.observe_layer",
+        lambda *_args, **_kwargs: entitlement.EntitlementDecision(
+            layer=layer["id"],
+            state="entitled",
+            eligible=True,
+            responsible_actor="none",
+            recovery="none",
+            revision=2,
+        ),
+    )
+    lock_path = tmp_path / "copilot.lock.json"
+    previous_lock = {
+        layer["id"]: {
+            "plugins": {"codex-copilot": projection.content_sha256},
+            "_meta": {"product": "knowledge", "role": "department"},
+        }
+    }
+    atomic_json_write(lock_path, previous_lock)
+    lock_before = lock_path.read_bytes()
+
+    with pytest.raises(KnowledgeSkillSourceError, match="receipt bytes do not match"):
+        build_update_report(
+            _layers=[layer],
+            _previous_lock=previous_lock,
+            _lockfile_path=lock_path,
+            _lock_write_path=lock_path,
+            _mirror_root=tmp_path / "mirrors",
+            _materialize_root=tmp_path / "materialize",
+            _personal_roots=[],
+            _entitlement_login="person",
+            _entitlement_token="token",
+            _entitlement_state_path=state_path,
+            _entitlement_now=datetime.now(timezone.utc),
+            _knowledge_snapshot_root=cache_root,
+        )
+
+    assert old_target.is_dir()
+    assert (old_target / "accounting" / "SKILL.md").read_text() == (
+        "tampered receipt bytes\n"
+    )
+    assert (cache_root / "index.json").read_bytes() == index_before
+    assert lock_path.read_bytes() == lock_before
 
 
 def test_protected_projection_rejects_mismatched_index_signer(

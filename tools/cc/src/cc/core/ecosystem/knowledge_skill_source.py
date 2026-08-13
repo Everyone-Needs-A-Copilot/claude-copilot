@@ -1122,6 +1122,18 @@ def resolve_protected_knowledge_lock_projections(
                 raise KnowledgeSkillSourceError(
                     f"Protected Knowledge layer {layer_id!r} has no matching active receipt."
                 )
+            # Preflight every pathname before changing any receipt state.  A
+            # tampered older generation must not be removed and silently
+            # replaced by clean Git bytes: that would erase the evidence that
+            # blocked this transaction.  Validate the whole matching set first
+            # so any mismatch preserves both the index and every target.
+            if any(
+                not _snapshot_matches(base / entry["target"], skills_snapshot)
+                for _key, entry in matching_receipts
+            ):
+                raise KnowledgeSkillSourceError(
+                    f"Protected Knowledge layer {layer_id!r} receipt bytes do not match."
+                )
             # A fresh update observation advances the entitlement generation.
             # Never reuse the older disclosed pathname: revoke every matching
             # prior-generation target, then publish exact Git-object bytes at
