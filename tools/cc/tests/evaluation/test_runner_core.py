@@ -4,6 +4,8 @@ import importlib
 import json
 import os
 import stat
+import sys
+import tempfile
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -49,6 +51,30 @@ from cc.core.evaluation.models import (
 )
 from cc.core.evaluation.preflight import evaluate_preflight
 from cc.core.evaluation.runner import EvaluationRunner, RuntimeAdapterFailure
+
+
+@pytest.fixture(name="tmp_path")
+def _private_artifact_root(tmp_path_factory: pytest.TempPathFactory):
+    """Give artifact tests a secure root without relaxing production checks.
+
+    GitHub's Linux runner places pytest's normal temporary directory below a
+    user-replaceable ancestor.  Production correctly rejects that path.  On
+    Linux, make the per-test mode-0700 directory inside the checked-out tree,
+    whose ancestry is stable for the job.  macOS keeps pytest's canonical
+    private temporary hierarchy and its existing traversal proof.
+    """
+
+    if not sys.platform.startswith("linux"):
+        yield tmp_path_factory.mktemp("evaluation-artifact")
+        return
+
+    repo_root = Path(__file__).resolve().parents[4]
+    with tempfile.TemporaryDirectory(
+        prefix=".cc-evaluation-artifact-", dir=repo_root
+    ) as directory:
+        root = Path(directory)
+        root.chmod(0o700)
+        yield root
 
 
 def _sha(character: str) -> str:

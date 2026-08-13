@@ -8,6 +8,7 @@ import os
 import sqlite3
 import stat
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import replace
@@ -21,9 +22,11 @@ from cc.core.evaluation._authority import (
 from cc.core.evaluation.identity import build_consumption_receipt
 from cc.core.evaluation.journey import CapabilityReceipt
 from cc.core.evaluation.journey_runtime import (
+    _GLOBAL_LOCK_PATH,
     CliCopilotHealthCapabilityAdapter,
     MandatorySecurityVerifier,
     TcJourneyLedger,
+    _platform_global_lock_path,
     begin_run,
     bind_prompt,
     inspect_run,
@@ -1523,13 +1526,23 @@ def test_global_lock_is_exact_root_owned_sticky_directory():
         list_wps=rows.list_wps,
         allow_missing_guard=True,
     )
-    before = os.lstat("/private/tmp")
+    expected = "/private/tmp" if sys.platform == "darwin" else "/tmp"
+    assert _GLOBAL_LOCK_PATH == expected
+    before = os.lstat(_GLOBAL_LOCK_PATH)
     with selected.claim("global-vnode"):
-        current = os.lstat("/private/tmp")
+        current = os.lstat(_GLOBAL_LOCK_PATH)
         assert stat.S_ISDIR(current.st_mode)
         assert current.st_uid == 0
         assert current.st_mode & stat.S_ISVTX
-        assert (current.st_dev, current.st_ino) == (before.st_dev, before.st_ino)
+    assert (current.st_dev, current.st_ino) == (before.st_dev, before.st_ino)
+
+
+def test_global_lock_platform_mapping_preserves_secure_system_directories():
+    assert _platform_global_lock_path("darwin") == "/private/tmp"
+    assert _platform_global_lock_path("linux") == "/tmp"
+    assert _platform_global_lock_path("linux-musl") == "/tmp"
+    with pytest.raises(RuntimeError, match="unsupported"):
+        _platform_global_lock_path("win32")
 
 
 def test_lock_wait_is_bounded_and_fails_closed():
@@ -1542,7 +1555,9 @@ def test_lock_wait_is_bounded_and_fails_closed():
         lock_timeout=0.03,
         allow_missing_guard=True,
     )
-    descriptor = os.open("/private/tmp", os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    descriptor = os.open(
+        _GLOBAL_LOCK_PATH, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    )
     fcntl.flock(descriptor, fcntl.LOCK_EX)
     started = time.monotonic()
     try:
@@ -1557,7 +1572,7 @@ def test_lock_wait_is_bounded_and_fails_closed():
 
 def test_lock_rename_unlink_recreate_attack_cannot_split_claim_identity(tmp_path):
     assert os.geteuid() != 0
-    before = os.lstat("/private/tmp")
+    before = os.lstat(_GLOBAL_LOCK_PATH)
     context = multiprocessing.get_context("spawn")
     ready = context.Event()
     release = context.Event()
@@ -1566,11 +1581,11 @@ def test_lock_rename_unlink_recreate_attack_cannot_split_claim_identity(tmp_path
     assert ready.wait(timeout=10)
     try:
         with pytest.raises(PermissionError):
-            os.rename("/private/tmp", tmp_path / "renamed-global-lock")
+            os.rename(_GLOBAL_LOCK_PATH, tmp_path / "renamed-global-lock")
         with pytest.raises(OSError):
-            os.unlink("/private/tmp")
+            os.unlink(_GLOBAL_LOCK_PATH)
         with pytest.raises(FileExistsError):
-            os.mkdir("/private/tmp")
+            os.mkdir(_GLOBAL_LOCK_PATH)
 
         queue = context.Queue()
         process = context.Process(target=global_lock_worker, args=(queue,))
@@ -1584,7 +1599,7 @@ def test_lock_rename_unlink_recreate_attack_cannot_split_claim_identity(tmp_path
         assert not holder.is_alive()
         assert holder.exitcode == 0
 
-    after = os.lstat("/private/tmp")
+    after = os.lstat(_GLOBAL_LOCK_PATH)
     assert (after.st_dev, after.st_ino) == (before.st_dev, before.st_ino)
 
 
@@ -1704,9 +1719,10 @@ def test_forked_callback_child_cannot_continue_or_store():
 
 
 def test_runtime_contains_no_second_router_or_resolver():
-    source = Path("tools/cc/src/cc/core/evaluation/journey_runtime.py").read_text(
-        encoding="utf-8"
-    )
+    repo_root = Path(__file__).resolve().parents[4]
+    source = (
+        repo_root / "tools/cc/src/cc/core/evaluation/journey_runtime.py"
+    ).read_text(encoding="utf-8")
     forbidden = (
         "keyword_map",
         "flow_to_agents",
@@ -1717,7 +1733,7 @@ def test_runtime_contains_no_second_router_or_resolver():
     assert not any(item in source for item in forbidden)
     assert "resolve_extension(specialist)" in source
 
-    hook = Path(".claude/hooks/pretool-check.sh").read_text(encoding="utf-8")
+    hook = (repo_root / ".claude/hooks/pretool-check.sh").read_text(encoding="utf-8")
     dispatch = hook.rsplit("# Dispatch — rule sets run in order", 1)[1]
     assert dispatch.index("rule_qa_gate") < dispatch.index("rule_extension_resolution")
     assert dispatch.index("rule_path_scope") < dispatch.index("rule_journey_dispatch")
