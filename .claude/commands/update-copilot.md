@@ -60,21 +60,31 @@ echo "New version: $NEW_VERSION"
 git log --oneline -1
 ```
 
-Compare with OLD_VERSION. If same, tell user "Already up to date" and skip to Step 6.
+Compare with OLD_VERSION. If same, tell user "Source is already up to date" and
+continue to Step 4: the content-addressed installer is idempotent and also
+repairs a stale shim or machine-command deployment.
 
 ---
 
-## Step 4: Reinstall cc CLI
+## Step 4: Install the Exact Immutable Runtime
 
-Tell user: "Reinstalling cc CLI (Memory + Skills)..."
+Tell user: "Installing the exact framework snapshot, cc CLI, and global commands..."
 
 ```bash
-bash ~/.claude/copilot/tools/cc/install.sh
+COPILOT_SOURCE_ROOT="$(git -C "$HOME/.claude/copilot" rev-parse --show-toplevel)"
+COPILOT_SOURCE_COMMIT="$(git -C "$COPILOT_SOURCE_ROOT" rev-parse HEAD)"
+COPILOT_SOURCE_TREE="$(git -C "$COPILOT_SOURCE_ROOT" rev-parse "$COPILOT_SOURCE_COMMIT^{tree}")"
+python3 "$COPILOT_SOURCE_ROOT/scripts/install-framework-snapshot.py" \
+  --source-root "$COPILOT_SOURCE_ROOT" \
+  --source-commit "$COPILOT_SOURCE_COMMIT" \
+  --source-tree "$COPILOT_SOURCE_TREE"
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 **Verify:**
 ```bash
-cc version
+python3 -m json.tool "$HOME/.copilot/framework-runtime.json" >/dev/null
+cc --version
 cc config doctor
 ```
 
@@ -104,20 +114,26 @@ mkdir -p ~/.claude/memory
 
 ---
 
-## Step 7: Update Global Commands
+## Step 7: Verify Global Commands
 
-Tell user: "Updating global commands..."
+The immutable runtime installer already deployed every command in
+`VERSION.json`'s `machineCommands` roster from the same source snapshot.
 
 ```bash
-cp ~/.claude/copilot/.claude/commands/setup-project.md ~/.claude/commands/
-cp ~/.claude/copilot/.claude/commands/update-project.md ~/.claude/commands/
-cp ~/.claude/copilot/.claude/commands/update-copilot.md ~/.claude/commands/
-cp ~/.claude/copilot/.claude/commands/knowledge-copilot.md ~/.claude/commands/
-```
+python3 - <<'PY'
+import json
+from pathlib import Path
 
-**Verify:**
-```bash
-ls -la ~/.claude/commands/
+active = json.loads((Path.home() / ".copilot/framework-runtime.json").read_text())
+missing = [
+    item["name"]
+    for item in active["machine_commands"]
+    if not (Path.home() / ".claude/commands" / item["name"]).is_file()
+]
+if missing:
+    raise SystemExit("Missing global commands: " + ", ".join(missing))
+print(f"Verified {len(active['machine_commands'])} global commands")
+PY
 ```
 
 ---
@@ -178,10 +194,13 @@ cd your-project
 # Ensure Python 3 is available
 python3 --version
 
-# Try manual install
-cd ~/.claude/copilot/tools/cc
-pip install -e .
-ln -sf $(pwd)/.venv/bin/cc ~/.local/bin/cc
+# Retry the exact checked-out commit; do not point the shim at mutable source
+COPILOT_SOURCE_ROOT="$(git -C "$HOME/.claude/copilot" rev-parse --show-toplevel)"
+COPILOT_SOURCE_COMMIT="$(git -C "$COPILOT_SOURCE_ROOT" rev-parse HEAD)"
+python3 "$COPILOT_SOURCE_ROOT/scripts/install-framework-snapshot.py" \
+  --source-root "$COPILOT_SOURCE_ROOT" \
+  --source-commit "$COPILOT_SOURCE_COMMIT" \
+  --source-tree "$(git -C "$COPILOT_SOURCE_ROOT" rev-parse "$COPILOT_SOURCE_COMMIT^{tree}")"
 ```
 
 ### Permission Errors

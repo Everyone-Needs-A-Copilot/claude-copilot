@@ -4,13 +4,55 @@
 # Creates a venv inside tools/cc/, installs cc in editable mode, then places
 # a shim at ~/.local/bin/cc that points to the venv's Python interpreter.
 # Safe to run multiple times (idempotent).
+#
+# The framework snapshot installer uses --shim-path/--no-profile-update to
+# stage and verify this entry point before it atomically activates the whole
+# machine runtime. Ordinary direct callers retain the historical defaults.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/.venv"
-SHIM_DIR="$HOME/.local/bin"
-SHIM="$SHIM_DIR/cc"
+SHIM="$HOME/.local/bin/cc"
+UPDATE_PROFILES=1
+
+usage() {
+    cat <<'EOF'
+Usage: install.sh [--shim-path ABSOLUTE_PATH] [--no-profile-update]
+
+  --shim-path ABSOLUTE_PATH  Write and verify the cc shim at this path.
+  --no-profile-update        Do not edit shell startup files.
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --shim-path)
+            [ "$#" -ge 2 ] || { echo "ERROR: --shim-path requires a value" >&2; exit 2; }
+            SHIM="$2"
+            case "$SHIM" in
+                /*) ;;
+                *) echo "ERROR: --shim-path must be absolute" >&2; exit 2 ;;
+            esac
+            shift 2
+            ;;
+        --no-profile-update)
+            UPDATE_PROFILES=0
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "ERROR: Unknown argument: $1" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+
+SHIM_DIR="$(dirname "$SHIM")"
 
 echo "==> Installing cc CLI from $SCRIPT_DIR"
 
@@ -70,14 +112,16 @@ echo ""
 # Step 6: Add ~/.local/bin to PATH in shell profiles (idempotent)
 PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
 PATH_COMMENT='# Added by cc install'
-PROFILES=("$HOME/.zshrc" "$HOME/.zprofile" "$HOME/.bashrc" "$HOME/.bash_profile")
+if [ "$UPDATE_PROFILES" -eq 1 ]; then
+    PROFILES=("$HOME/.zshrc" "$HOME/.zprofile" "$HOME/.bashrc" "$HOME/.bash_profile")
 
-for profile in "${PROFILES[@]}"; do
-    if [ -f "$profile" ] && ! grep -qF '.local/bin' "$profile"; then
-        printf '\n%s\n%s\n' "$PATH_COMMENT" "$PATH_LINE" >> "$profile"
-        echo "==> Added ~/.local/bin to PATH in $profile"
-    fi
-done
+    for profile in "${PROFILES[@]}"; do
+        if [ -f "$profile" ] && ! grep -qF '.local/bin' "$profile"; then
+            printf '\n%s\n%s\n' "$PATH_COMMENT" "$PATH_LINE" >> "$profile"
+            echo "==> Added ~/.local/bin to PATH in $profile"
+        fi
+    done
+fi
 
 echo "cc is installed. Reload your shell or run:"
 echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
