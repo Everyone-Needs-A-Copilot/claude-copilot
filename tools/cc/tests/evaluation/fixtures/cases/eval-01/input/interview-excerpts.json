@@ -1,0 +1,22 @@
+{
+  "fixture_namespace": "SYNTHETIC-EVAL01",
+  "synthetic_fixture": true,
+  "excerpts": [
+    {
+      "speaker": "SYNTHETIC-RIDER-A",
+      "push": "A connection changed after departure.",
+      "pull": "A clear recovery choice that preserves the trip.",
+      "anxiety": "Support may answer after the replacement leaves.",
+      "habit": "Checks the original itinerary repeatedly.",
+      "failed_workaround": "Tried the static help page and abandoned the request."
+    },
+    {
+      "speaker": "SYNTHETIC-RIDER-B",
+      "push": "A mobility constraint made the replacement route unusable.",
+      "pull": "A supported change with consequences explained.",
+      "anxiety": "Changing one segment may cancel the remainder.",
+      "habit": "Calls a staffed line before changing anything.",
+      "failed_workaround": "Could not tell which change option preserved assistance."
+    }
+  ]
+}

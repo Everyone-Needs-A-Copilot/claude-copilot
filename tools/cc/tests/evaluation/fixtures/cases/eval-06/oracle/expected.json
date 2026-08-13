@@ -1,0 +1,17 @@
+{
+  "fixture_namespace": "SYNTHETIC-EVAL06",
+  "synthetic_fixture": true,
+  "expected_contributions": [
+    "Inspect the supplied capability map before recommending construction.",
+    "Make one BUILD, INTEGRATE, or EXTEND call with tradeoffs.",
+    "Optimize for the critical capability and maintenance burden.",
+    "Keep the product self-contained and outside Control Tower hosting.",
+    "Define user outcome and validation before architecture."
+  ],
+  "reject_conditions": [
+    "default-new-repository",
+    "outside-map-product-claim",
+    "control-tower-hosting",
+    "architecture-before-product-need"
+  ]
+}

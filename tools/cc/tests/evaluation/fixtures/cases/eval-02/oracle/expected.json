@@ -1,0 +1,16 @@
+{
+  "fixture_namespace": "SYNTHETIC-EVAL02",
+  "synthetic_fixture": true,
+  "expected_contributions": [
+    "Surface supported tensions without inventing motives.",
+    "Identify the critical few execution constraints.",
+    "End with decisions, one owner, commitments, and verification.",
+    "Measure whether the team can execute independently."
+  ],
+  "reject_conditions": [
+    "generic-change-advice-only",
+    "unsupported-people-diagnosis",
+    "automated-leadership-decision",
+    "branded-workshop-without-need"
+  ]
+}

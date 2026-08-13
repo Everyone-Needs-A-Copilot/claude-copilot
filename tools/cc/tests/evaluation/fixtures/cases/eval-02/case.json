@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0",
+  "case_id": "eval-02",
+  "revision": 1,
+  "fixture_namespace": "SYNTHETIC-EVAL02",
+  "problem_statement": "A SYNTHETIC-LEADERSHIP team agrees in meetings, but SYNTHETIC-BUSINESS-UNIT leaders optimize for their own silos and delay a strategic launch. Create an intervention plan.",
+  "evidence_files": [
+    {
+      "path": "input/stakeholder-statements.json",
+      "sha256": "b91be610e786fdf48959053de5b9f8c7b423e1f44d96e524ed8a56b910c257c1",
+      "media_type": "application/json",
+      "synthetic_fixture": true,
+      "fixture_namespace": "SYNTHETIC-EVAL02"
+    },
+    {
+      "path": "input/launch-dependencies.json",
+      "sha256": "ac1940c7c61b850778f0fbb46e74440eaf44ec600cb2cb30358eb0e73302cd29",
+      "media_type": "application/json",
+      "synthetic_fixture": true,
+      "fixture_namespace": "SYNTHETIC-EVAL02"
+    }
+  ],
+  "layer_variants": ["F", "F+O"],
+  "runtimes": ["claude", "codex"],
+  "required_criteria": ["co-creation", "company-specificity", "appropriate-methodology", "critical-few", "evidence", "operational-soundness", "user-ownership"],
+  "hard_rejection_rules": ["generic-change-advice-only", "unsupported-people-diagnosis", "automated-leadership-decision", "branded-workshop-without-need"],
+  "journey_requirements": ["route-evidence", "consumption-evidence", "continuity-evidence"],
+  "private_oracle": {
+    "path": "oracle/expected.json",
+    "sha256": "cedab57acec7884860c3a2206373fd7530b1e92344ec0bbf931553909a19b158"
+  }
+}

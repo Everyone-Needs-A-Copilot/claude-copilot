@@ -1,0 +1,13 @@
+{
+  "fixture_namespace": "SYNTHETIC-EVAL05",
+  "synthetic_fixture": true,
+  "record_type": "SYNTHETIC-PROFIT-AND-LOSS",
+  "entity": "SYNTHETIC-DESIGN-FIRM",
+  "identifier": "SYNTHETIC-ID-NOT-FOR-FILING",
+  "period": "SYNTHETIC-PERIOD-ALPHA",
+  "lines": [
+    {"label": "SYNTHETIC-REVENUE", "synthetic_amount_units": 4200, "unit": "SYNTHETIC_USD_FIXTURE", "status": "complete"},
+    {"label": "SYNTHETIC-OPERATING-EXPENSE", "synthetic_amount_units": 1700, "unit": "SYNTHETIC_USD_FIXTURE", "status": "partial"},
+    {"label": "SYNTHETIC-CONTRACTOR-EXPENSE", "synthetic_amount_units": null, "unit": "SYNTHETIC_USD_FIXTURE", "status": "missing"}
+  ]
+}

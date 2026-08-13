@@ -1,0 +1,12 @@
+{
+  "fixture_namespace": "SYNTHETIC-EVAL03",
+  "synthetic_fixture": true,
+  "primary_user": "SYNTHETIC-OPERATIONS-LEADER",
+  "tasks": [
+    "See which solution decisions need attention.",
+    "Understand evidence and unresolved assumptions.",
+    "Choose a next action without technical vocabulary.",
+    "Return later and recognize the current state."
+  ],
+  "content_density": "high"
+}

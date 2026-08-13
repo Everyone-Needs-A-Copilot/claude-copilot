@@ -1,0 +1,16 @@
+{
+  "fixture_namespace": "SYNTHETIC-EVAL03",
+  "synthetic_fixture": true,
+  "expected_contributions": [
+    "Define hierarchy, states, responsiveness, and accessibility.",
+    "Use the current design source and flag historical conflict.",
+    "Express bold human-centered character without hiding weak UX.",
+    "Apply the declared asset hierarchy only where contextual."
+  ],
+  "reject_conditions": [
+    "invented-canonical-color",
+    "slogan-only-specificity",
+    "accessibility-sacrifice",
+    "historical-source-treated-current"
+  ]
+}

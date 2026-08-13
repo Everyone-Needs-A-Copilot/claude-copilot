@@ -1,0 +1,13 @@
+{
+  "fixture_namespace": "SYNTHETIC-EVAL05",
+  "synthetic_fixture": true,
+  "record_type": "SYNTHETIC-BALANCE-SHEET",
+  "entity": "SYNTHETIC-DESIGN-FIRM",
+  "period": "SYNTHETIC-PERIOD-ALPHA-END",
+  "lines": [
+    {"label": "SYNTHETIC-CASH", "synthetic_amount_units": 900, "unit": "SYNTHETIC_USD_FIXTURE", "status": "partial"},
+    {"label": "SYNTHETIC-RECEIVABLE", "synthetic_amount_units": 600, "unit": "SYNTHETIC_USD_FIXTURE", "status": "complete"},
+    {"label": "SYNTHETIC-PAYABLE", "synthetic_amount_units": 300, "unit": "SYNTHETIC_USD_FIXTURE", "status": "complete"}
+  ],
+  "reconciliation_note": "SYNTHETIC-CASH conflicts with the document inventory closing statement."
+}

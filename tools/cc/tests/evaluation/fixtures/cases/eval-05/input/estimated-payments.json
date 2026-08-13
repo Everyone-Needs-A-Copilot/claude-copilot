@@ -1,0 +1,12 @@
+{
+  "fixture_namespace": "SYNTHETIC-EVAL05",
+  "synthetic_fixture": true,
+  "record_type": "SYNTHETIC-ESTIMATED-PAYMENTS",
+  "jurisdiction": "SYNTHETIC-JURISDICTION-ORBIT",
+  "form": "SYNTHETIC-FORM-ESTIMATE-NOT-FOR-FILING",
+  "payments": [
+    {"period": "SYNTHETIC-PERIOD-ALPHA-FIRST", "synthetic_amount_units": 120, "unit": "SYNTHETIC_USD_FIXTURE", "status": "complete"},
+    {"period": "SYNTHETIC-PERIOD-ALPHA-SECOND", "synthetic_amount_units": null, "unit": "SYNTHETIC_USD_FIXTURE", "status": "missing"}
+  ],
+  "regulatory_freshness": "verification-required"
+}

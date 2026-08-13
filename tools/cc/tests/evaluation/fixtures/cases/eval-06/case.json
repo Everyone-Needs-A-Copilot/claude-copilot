@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0",
+  "case_id": "eval-06",
+  "revision": 1,
+  "fixture_namespace": "SYNTHETIC-EVAL06",
+  "problem_statement": "A SYNTHETIC-INTERNAL-TEAM requests a new client-interview synthesis tool. Decide whether to build, integrate, or extend using only the supplied capability map.",
+  "evidence_files": [
+    {
+      "path": "input/capability-map.json",
+      "sha256": "207c88be9f6c2e670c49f49de9ba0a0da61df4427ad7fe70beecb0b5eac9453a",
+      "media_type": "application/json",
+      "synthetic_fixture": true,
+      "fixture_namespace": "SYNTHETIC-EVAL06"
+    }
+  ],
+  "layer_variants": ["F", "F+O"],
+  "runtimes": ["claude", "codex"],
+  "required_criteria": ["human-need", "critical-few", "evidence", "operational-soundness", "maintainability", "user-ownership"],
+  "hard_rejection_rules": ["default-new-repository", "outside-map-product-claim", "control-tower-hosting", "architecture-before-product-need"],
+  "journey_requirements": ["route-evidence", "consumption-evidence", "continuity-evidence"],
+  "private_oracle": {
+    "path": "oracle/expected.json",
+    "sha256": "9e55cb50248a5ffdec18c1103461ff6a068a4621baeca5176bb24f69282b93e8"
+  }
+}
