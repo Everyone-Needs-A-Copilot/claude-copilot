@@ -853,7 +853,7 @@ When invoking an agent:
    [Brief description of what agent will do]
    Invoking @agent-<name>...
 
-3. Call agent with context. For an active journey, the exact returned
+3. Assemble the complete Agent prompt. For an active journey, the exact returned
    `agent_prompt_fragment` MUST begin at byte 0 of the Agent prompt, unchanged,
    before all task/context text. Do not copy a marker from prose or reconstruct
    the Knowledge frame:
@@ -867,7 +867,14 @@ When invoking an agent:
    Context: [handoff context from previous agent if applicable]
    [Any specific constraints or user feedback]
 
-4. Wait for agent response. The hook's permit means dispatch was observed and
+   Before issuing the Agent call, compute the SHA-256 of those exact complete
+   bytes and bind it once:
+   `cc journey bind-prompt --run <run-id> --specialist <exact-next-agent>
+   --prompt-sha256 <64-lowercase-hex> --json`. A rejected binding is a hard
+   stop; after binding, changing even task or handoff text requires a new run.
+
+4. Call the agent with those exact bytes, then wait for its response. The
+   hook's permit means dispatch was observed and
    authorized only; never describe it as specialist completion.
 5. If agent returns checkpoint summary: Follow checkpoint handling logic
 6. If agent returns completion (no checkpoint): Present summary, determine next step

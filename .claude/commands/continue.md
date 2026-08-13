@@ -22,6 +22,8 @@ cc journey resume --task <N> --json
 
 If it returns an active journey, dispatch only its exact `next_specialist` using
 the returned prepared `agent_prompt_fragment` at byte 0 of the Agent prompt.
+Assemble the complete prompt and bind its exact SHA-256 with `cc journey
+bind-prompt` before dispatch, exactly as `/protocol` requires.
 Do not rerun flow detection, choose another specialist, reconstruct Knowledge,
 or treat a prepared envelope as dispatched. If it returns stored completion
 evidence, perform no Agent dispatch. If it reports no journey, continue with the

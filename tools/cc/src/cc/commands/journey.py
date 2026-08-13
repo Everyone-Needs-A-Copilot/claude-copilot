@@ -8,6 +8,7 @@ import typer
 
 from cc.core.evaluation.journey_runtime import (
     begin_run,
+    bind_prompt,
     inspect_run,
     pause_run,
     prepare_run,
@@ -24,8 +25,8 @@ journey_app = typer.Typer(
 def _emit(call) -> None:
     try:
         value = call()
-    except (RuntimeError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        typer.echo(json.dumps({"schema_version": "2.0", "error": str(exc)}))
+    except (OSError, RuntimeError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        typer.echo(json.dumps({"schema_version": "2.1", "error": str(exc)}))
         raise typer.Exit(2) from exc
     typer.echo(json.dumps(value))
 
@@ -68,6 +69,18 @@ def journey_inspect(
     _emit(lambda: inspect_run(run))
 
 
+@journey_app.command("bind-prompt")
+def journey_bind_prompt(
+    run: str = typer.Option(..., "--run"),
+    specialist: str = typer.Option(..., "--specialist"),
+    prompt_sha256: str = typer.Option(..., "--prompt-sha256"),
+    output_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Bind the exact complete Agent prompt before PreToolUse dispatch."""
+    del output_json
+    _emit(lambda: bind_prompt(run, specialist, prompt_sha256))
+
+
 @journey_app.command("pause")
 def journey_pause(
     run: str = typer.Option(..., "--run"),
@@ -102,10 +115,10 @@ def journey_verify_dispatch(
             session_id=session, specialist=subagent, marker=marker,
             prompt_sha256=prompt_sha256, knowledge_sha256=knowledge_sha256,
         )
-    except (RuntimeError, TypeError, ValueError) as exc:
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
         reason = str(exc) if str(exc) else "dispatch-verification-failed"
         typer.echo(json.dumps({
-            "schema_version": "2.0", "state": "denied", "reason": reason,
+            "schema_version": "2.1", "state": "denied", "reason": reason,
             "recovery_command": "cc journey prepare --run <run> --specialist <next> --json",
         }))
         raise typer.Exit(2) from exc

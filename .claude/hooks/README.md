@@ -230,8 +230,8 @@ When `@agent-qa` completes and the verdict is parsed as a pass, the task is remo
 
 ### Journey-Dispatch Rule
 
-`rule_journey_dispatch` runs immediately after the QA gate and before
-extension/safety rules. It does not route a request or resolve Knowledge. For a
+`rule_journey_dispatch` runs as the final permitting gate, after QA,
+extension, safety, and path-scope rules. It does not route a request or resolve Knowledge. For a
 direct main-session framework `Agent` call it hashes the exact decoded Agent
 prompt, structurally extracts the single-use marker and Knowledge frame emitted
 by `cc journey prepare`, hashes only the bytes inside that frame, and calls:
@@ -246,13 +246,17 @@ cc journey verify-dispatch --session <session> --subagent <agent> \
 - `dispatch_authorized` permits the call once and is evidence only that
   PreToolUse observed and authorized dispatch. It is not a specialist
   completion receipt and says nothing about output quality.
+- `cc journey bind-prompt` must already have bound the SHA-256 of the entire
+  Agent prompt. This includes task context and handoff bytes after the prepared
+  Knowledge frame; changing any byte is denied.
 - `denied`, a replay, a wrong specialist/session/marker, altered prompt or
   Knowledge bytes, malformed framing, or indeterminate active state fails
   closed before `Agent` executes.
 - Nested subagent calls and non-framework Agent types do not advance a journey.
-- There is deliberately no bypass. A prepared journey marker with no verifier
-  is denied; an ordinary markerless legacy call remains unchanged when `cc` is
-  unavailable.
+- There is deliberately no bypass. Any direct framework Agent call with no
+  verifier is denied because the hook cannot prove the session has no active
+  journey. A markerless legacy call remains unchanged only after `cc` returns
+  the authoritative `no_active` state.
 
 The hook passes digests and the opaque marker only. Raw prompt and Knowledge
 content are not placed in argv, hook state, or denial output. The PreToolUse
