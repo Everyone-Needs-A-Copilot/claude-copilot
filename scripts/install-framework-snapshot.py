@@ -585,6 +585,8 @@ def _materialize_snapshot(
 def _default_cc_installer(snapshot: Path, staged_shim: Path) -> None:
     script = snapshot / "tools" / "cc" / "install.sh"
     try:
+        environment = dict(os.environ)
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
         subprocess.run(
             (
                 "bash",
@@ -594,6 +596,7 @@ def _default_cc_installer(snapshot: Path, staged_shim: Path) -> None:
                 "--no-profile-update",
             ),
             check=True,
+            env=environment,
             timeout=300.0,
         )
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
@@ -616,12 +619,26 @@ def _default_cc_verifier(staged_shim: Path) -> None:
 
 
 def _remove_created_snapshot(snapshot: Path) -> None:
-    def make_writable_and_retry(function, path, _error) -> None:  # noqa: ANN001
-        with contextlib.suppress(OSError):
-            os.chmod(path, 0o700)
-        function(path)
+    try:
+        metadata = snapshot.lstat()
+    except FileNotFoundError:
+        return
+    if not stat.S_ISDIR(metadata.st_mode) or snapshot.is_symlink():
+        raise FrameworkInstallError(
+            f"created snapshot cleanup target must be a real directory: {snapshot}"
+        )
 
-    shutil.rmtree(snapshot, onerror=make_writable_and_retry)
+    for directory, subdirectories, _files in os.walk(
+        snapshot, topdown=True, followlinks=False
+    ):
+        current = Path(directory)
+        current.chmod(stat.S_IMODE(current.lstat().st_mode) | 0o700)
+        for name in subdirectories:
+            child = current / name
+            child_metadata = child.lstat()
+            if not stat.S_ISLNK(child_metadata.st_mode):
+                child.chmod(stat.S_IMODE(child_metadata.st_mode) | 0o700)
+    shutil.rmtree(snapshot)
 
 
 @contextlib.contextmanager
@@ -740,8 +757,11 @@ def install_framework_snapshot(
                     cc_verifier(staged_shim)
                     _make_tree_readonly(snapshot)
                     commands = _validate_snapshot(snapshot, source, commit, tree)
-                except BaseException:
-                    _remove_created_snapshot(snapshot)
+                except BaseException as install_error:
+                    try:
+                        _remove_created_snapshot(snapshot)
+                    except BaseException as cleanup_error:
+                        raise install_error from cleanup_error
                     raise
 
             cc_verifier(staged_shim)
