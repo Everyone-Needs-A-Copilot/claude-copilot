@@ -45,6 +45,8 @@ Treat a missing, malformed, or rejected response as a hard stop: do not mark the
 generic task paused while its journey capsule is unproven. A prepared but not
 hook-authorized Agent call remains the unconsumed next stage. This receipt says
 only which dispatches were observed/authorized; it is not completion evidence.
+Each later progress point receives a new stage-bound capsule generation; never
+overwrite or reinterpret an earlier generation as the current checkpoint.
 When no active journey exists, continue unchanged with Step 2.
 
 ## Step 2: Find In-Progress Tasks

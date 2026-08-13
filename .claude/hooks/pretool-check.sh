@@ -62,16 +62,28 @@ set -uEo pipefail
 # -E  : errtrace — ERR trap propagates into functions (ensures no silent crashes)
 # -o pipefail : pipeline exit code is rightmost non-zero command
 
-# Emit a diagnostic and exit 0 (fail-open) on any unexpected ERR so that
-# hook failures never silently block legitimate tool calls.
-# With -E, this trap now also fires inside functions, not just the top level.
-trap 'echo "[pretool-check] unexpected error at line $LINENO (exit $?)" >&2; exit 0' ERR
+JOURNEY_FAIL_CLOSED_CANDIDATE=0
+_unexpected_hook_failure() {
+  local line="${1:-unknown}" status="${2:-1}" signal="${3:-ERR}"
+  echo "[pretool-check] unexpected ${signal} at line ${line} (exit ${status})" >&2
+  if [[ "$JOURNEY_FAIL_CLOSED_CANDIDATE" -eq 1 ]]; then
+    echo "[hook-deny] Journey dispatch state is indeterminate after an earlier hook failure." >&2
+    printf '%s\n' '{"permissionDecision":"deny","reason":"Journey dispatch state is indeterminate after an earlier hook failure. Restore the hook and inspect journey state before retrying."}'
+    exit 2
+  fi
+  exit 0
+}
+
+# Legacy/non-Agent failures remain fail-open. Once a direct main-session Agent
+# call is identified below, every unexpected failure is fail-closed so no
+# earlier rule can bypass the final journey authority.
+trap '_unexpected_hook_failure "$LINENO" "$?" ERR' ERR
 
 # Catch SIGPIPE: if stdout is unexpectedly closed (e.g., harness pipe break
 # or race with the hosting process), the default SIGPIPE action kills the
 # process silently. By catching it we ensure a stderr diagnostic is emitted
 # and the hook fails open rather than dying with no output.
-trap 'echo "[pretool-check] SIGPIPE at line $LINENO — stdout pipe broken, failing open" >&2; exit 0' PIPE
+trap '_unexpected_hook_failure "$LINENO" 141 PIPE' PIPE
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -202,6 +214,14 @@ if [[ -z "$SESSION_ID" || -z "$TOOL_NAME" ]]; then
   exit 0
 fi
 
+if [[ "$TOOL_NAME" == "Agent" && -z "$AGENT_TYPE" ]]; then
+  _DIRECT_SUBAGENT="$("$JQ" -r '.tool_input.subagent_type // ""' <<< "$PAYLOAD" 2>/dev/null)" \
+    || _DIRECT_SUBAGENT=""
+  if [[ -n "$_DIRECT_SUBAGENT" ]]; then
+    JOURNEY_FAIL_CLOSED_CANDIDATE=1
+  fi
+fi
+
 # TOOL_COMMAND (.tool_input.command) is arbitrary free-form shell text — NOT
 # run through @tsv (which would mangle embedded backslashes/tabs/newlines) —
 # extracted once here with plain -r raw output and shared by
@@ -229,8 +249,10 @@ acquire_lock() {
     sleep 0.02
     i=$((i + 1))
     if [[ $i -ge 10 ]]; then
-      # Could not acquire lock in ~200ms — allow and bail
-      exit 0
+      # Streak bookkeeping is optional. A timeout skips only this rule; it
+      # must never terminate the dispatcher before the journey gate.
+      echo "[pretool-check] force-delegate streak lock timed out; skipping streak update" >&2
+      return 1
     fi
   done
 }
@@ -379,7 +401,9 @@ rule_force_delegate() {
   case "$TOOL_NAME" in
     Bash|Read|Edit) ;;
     Agent)
-      acquire_lock
+      if ! acquire_lock; then
+        return 0
+      fi
       trap 'release_lock' EXIT
       write_streak "" 0
       release_lock
@@ -406,7 +430,9 @@ rule_force_delegate() {
     fi
   fi
 
-  acquire_lock
+  if ! acquire_lock; then
+    return 0
+  fi
   trap 'release_lock' EXIT
 
   local last_tool streak
