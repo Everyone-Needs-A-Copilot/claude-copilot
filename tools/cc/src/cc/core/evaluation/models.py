@@ -25,7 +25,8 @@ _DISCLOSURE = re.compile(
     r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"
 )
 _EVIDENCE_AUTHORITY = object()
-_COMPLETION_AUTHORITY = object()
+_RUN_RECORD_AUTHORITY = object()
+_COMPARISON_AUTHORITY = object()
 
 
 def _digest(value: str, field_name: str) -> None:
@@ -431,6 +432,8 @@ class CompletionProof:
             "evidence_sha256",
         ):
             _digest(getattr(self, field_name), field_name)
+        from cc.core.evaluation._authority import _COMPLETION_AUTHORITY
+
         if self._authority is not _COMPLETION_AUTHORITY:
             raise ValueError("Completion proof must be verifier-issued.")
 
@@ -460,6 +463,11 @@ class RunRecord:
     controlled_artifact_path: str | None
     completion_evidence_sha256: str | None
     technical_error_reason: str | None
+    _authority: object = None
+
+    def __post_init__(self) -> None:
+        if self._authority is not _RUN_RECORD_AUTHORITY:
+            raise ValueError("Run records must be runner-issued.")
 
 
 @dataclass(frozen=True)
@@ -501,6 +509,11 @@ class ComparisonRecord:
     layered_run_sha256: str
     relations: tuple[CriterionComparison, ...]
     hard_gate_state: PreflightState
+    _authority: object = None
+
+    def __post_init__(self) -> None:
+        if self._authority is not _COMPARISON_AUTHORITY:
+            raise ValueError("Comparison records must be coordinator-issued.")
 
 
 @dataclass(frozen=True)

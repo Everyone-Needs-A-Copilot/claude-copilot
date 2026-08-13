@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import Callable, Mapping
 
 from cc.core.evaluation.models import (
     _EVIDENCE_AUTHORITY,
-    EvaluationCell,
     GateObservation,
     GateState,
     PreflightGate,
@@ -15,43 +13,6 @@ from cc.core.evaluation.models import (
     PreflightState,
 )
 from cc.core.evaluation.schema import canonical_sha256
-
-GateFact = tuple[GateState, str, str, str]
-EvidenceProbe = Callable[[EvaluationCell], Mapping[PreflightGate, GateFact]]
-
-
-class TrustedEvidenceVerifier:
-    """Translate one injected trusted evidence probe into opaque gate facts.
-
-    The probe is the authority boundary. Evaluation cells contain identities,
-    never caller-authored pass booleans.
-    """
-
-    def __init__(self, probe: EvidenceProbe) -> None:
-        self._probe = probe
-
-    def verify(self, cell: EvaluationCell) -> tuple[GateObservation, ...]:
-        try:
-            facts = self._probe(cell)
-        except Exception:
-            facts = {}
-        observations: list[GateObservation] = []
-        for gate, fact in facts.items():
-            try:
-                state, reason, actor, prerequisite = fact
-                observations.append(
-                    GateObservation(
-                        gate,
-                        state,
-                        reason,
-                        actor,
-                        prerequisite,
-                        _EVIDENCE_AUTHORITY if state is GateState.PASS else None,
-                    )
-                )
-            except (TypeError, ValueError):
-                continue
-        return tuple(observations)
 
 
 def issue_failure(

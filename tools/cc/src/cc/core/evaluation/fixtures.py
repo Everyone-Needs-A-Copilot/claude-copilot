@@ -17,6 +17,7 @@ from cc.core.evaluation.safety import require_safe_synthetic_text
 from cc.core.evaluation.schema import canonical_sha256, validate_document
 
 _MAX_FILE_BYTES = 8 * 1024 * 1024
+_LOADED_FIXTURE_AUTHORITY = object()
 
 
 class FixtureLoadError(ValueError):
@@ -36,6 +37,11 @@ class LoadedFixture:
     fixture: EvaluationFixture
     fixture_sha256: str
     evidence: tuple[VerifiedEvidence, ...]
+    _authority: object = None
+
+    def __post_init__(self) -> None:
+        if self._authority is not _LOADED_FIXTURE_AUTHORITY:
+            raise ValueError("Loaded fixtures must be verifier-issued.")
 
 
 def load_fixture(case_root: Path) -> LoadedFixture:
@@ -85,6 +91,7 @@ def load_fixture(case_root: Path) -> LoadedFixture:
         fixture=fixture,
         fixture_sha256=canonical_sha256(value),
         evidence=tuple(verified),
+        _authority=_LOADED_FIXTURE_AUTHORITY,
     )
 
 
