@@ -43,8 +43,8 @@ Architecture
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -154,12 +154,26 @@ def _load_manifest(repo: str) -> Optional[dict]:
     return data
 
 
-def _signed_source_for_repo(repo: str) -> Any:
+def _signed_source_for_repo(repo: str) -> tuple[bool, Any]:
+    """Return ``(authentication_required, source)`` for one repository.
+
+    The first value is deliberately independent of source availability.  A
+    revoked or unverifiable manifest-declared source therefore remains an
+    authenticated source and cannot fall through to mutable checkout bytes.
+    """
     try:
-        from cc.core.ecosystem.knowledge_skill_source import resolve_knowledge_skill_sources
+        from cc.core.ecosystem.knowledge_skill_source import (
+            knowledge_repository_requires_authenticated_source,
+            resolve_knowledge_skill_sources,
+        )
 
         nominal = Path(repo).expanduser().absolute()
-        return next(
+        authentication_required = knowledge_repository_requires_authenticated_source(
+            nominal
+        )
+        if not authentication_required:
+            return False, None
+        source = next(
             (
                 source
                 for _root, source in resolve_knowledge_skill_sources()
@@ -167,13 +181,20 @@ def _signed_source_for_repo(repo: str) -> Any:
             ),
             None,
         )
+        return True, source
     except Exception:
         _log.debug("extensions resolver: signed source lookup failed", exc_info=True)
-        return None
+        # A configured manifest that cannot be classified or verified cannot
+        # grant the checkout legacy unsigned authority.
+        return True, None
 
 
-def _load_manifest_authenticated(repo: str, source: Any) -> Optional[dict]:
+def _load_manifest_authenticated(
+    repo: str, source: Any, *, authentication_required: bool
+) -> Optional[dict]:
     if source is None:
+        if authentication_required:
+            return None
         return _load_manifest(repo)
     try:
         receipt = source.authenticated_contribution(
@@ -207,7 +228,11 @@ def _default_missing_skills(required: list[str]) -> list[str]:
     if not required:
         return []
     try:
-        from cc.core.skill_store import default_skill_paths, discover_skills_with_sources, find_skill_by_name
+        from cc.core.skill_store import (
+            default_skill_paths,
+            discover_skills_with_sources,
+            find_skill_by_name,
+        )
 
         pairs = default_skill_paths()
         skills = discover_skills_with_sources(pairs, cache_dir=None)
@@ -278,8 +303,12 @@ def resolve_extension(
     checker = missing_skills_checker or _default_missing_skills
 
     for repo in knowledge_repos:
-        signed_source = _signed_source_for_repo(repo)
-        manifest = _load_manifest_authenticated(repo, signed_source)
+        authentication_required, signed_source = _signed_source_for_repo(repo)
+        manifest = _load_manifest_authenticated(
+            repo,
+            signed_source,
+            authentication_required=authentication_required,
+        )
         if manifest is None:
             continue
         entry = _find_agent_extension(manifest, agent)
@@ -307,8 +336,15 @@ def resolve_extension(
                 extension_receipt = signed_source.authenticated_contribution(
                     file_rel, runtime="claude"
                 )
-            except Exception:
-                extension_receipt = None
+            except Exception as exc:
+                _log.warning(
+                    "extensions resolver: signed extension unavailable for %s: %s",
+                    repo,
+                    exc,
+                )
+                continue
+        elif authentication_required:
+            continue
         if extension_receipt is None and not file_abs.is_file():
             _log.warning(
                 "extensions resolver: declared extension file missing: %s -- skipping", file_abs
