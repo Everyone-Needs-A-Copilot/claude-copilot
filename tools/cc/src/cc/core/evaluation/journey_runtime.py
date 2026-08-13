@@ -353,6 +353,7 @@ class TcJourneyLedger:
 
     def rows(self) -> list[tuple[Mapping[str, Any], Mapping[str, Any]]]:
         result: list[tuple[Mapping[str, Any], Mapping[str, Any]]] = []
+        seen_summary_ids: set[int] = set()
         task_filter = None if self.task_id == 0 else self.task_id
         summaries = self.invoke(self._list_wps, task=task_filter, type_="evidence")
         for summary in summaries:
@@ -362,6 +363,9 @@ class TcJourneyLedger:
                 raise ValueError(
                     "Journey ledger summary identity is malformed."
                 ) from exc
+            if summary_id <= 0 or summary_id in seen_summary_ids:
+                raise ValueError("Journey ledger row identity is invalid.")
+            seen_summary_ids.add(summary_id)
             row = self.invoke(self._get_wp, wp_id=summary_id)
             title = str(row.get("title", ""))
             if not title.startswith("Journey v2.1 "):
@@ -739,6 +743,7 @@ def _state(run_id: str, ledger: TcJourneyLedger) -> dict[str, Any]:
         )
     }
     row_ids: dict[int, int] = {}
+    seen_row_ids: set[int] = set()
     for row, payload in ledger.rows():
         if payload.get("run_id") != run_id:
             continue
@@ -749,8 +754,12 @@ def _state(run_id: str, ledger: TcJourneyLedger) -> dict[str, Any]:
         kind = str(payload.get("record_type", ""))
         if kind not in buckets:
             raise ValueError("Journey evidence type is invalid.")
+        row_id = int(row["id"])
+        if row_id <= 0 or row_id in seen_row_ids:
+            raise ValueError("Journey ledger row identity is invalid.")
+        seen_row_ids.add(row_id)
         buckets[kind].append(payload)
-        row_ids[id(payload)] = int(row["id"])
+        row_ids[id(payload)] = row_id
     if len(buckets["begin"]) != 1 or len(buckets["final_authorization"]) > 1:
         raise ValueError("Journey evidence is missing or ambiguous.")
     begin = buckets["begin"][0]
@@ -762,6 +771,15 @@ def _state(run_id: str, ledger: TcJourneyLedger) -> dict[str, Any]:
         for item in records
     ):
         raise ValueError("Journey evidence chronology is invalid.")
+    if buckets["final_authorization"]:
+        final = buckets["final_authorization"][0]
+        final_id = row_ids[id(final)]
+        if any(
+            row_id >= final_id
+            for payload_id, row_id in row_ids.items()
+            if payload_id != id(final)
+        ):
+            raise ValueError("Journey final chronology is invalid.")
     route_trace = _route_from(begin.get("route", {}))
     route = route_trace.specialists
     dispatches = sorted(
@@ -1307,7 +1325,7 @@ def verify_dispatch(
         stage = len(state["completed"])
         if state["begin_record"].get("session_id_sha256") != _sha(session_id):
             raise ValueError("dispatch-session-mismatch")
-        if stage == len(state["route"]) and not state["final_authorization"]:
+        if stage == len(state["route"]):
             prior = (
                 state["dispatch_authorization"][-1]
                 if state["dispatch_authorization"]
@@ -1316,11 +1334,45 @@ def verify_dispatch(
             if (
                 prior is None
                 or prior.get("specialist") != specialist
+                or prior.get("session_id_sha256") != _sha(session_id)
                 or prior.get("invocation_marker_sha256") != _sha(marker)
                 or prior.get("prompt_sha256") != prompt_sha256
                 or prior.get("composed_content_sha256") != knowledge_sha256
             ):
                 raise ValueError("dispatch-route-order-mismatch")
+            matching_preparations = [
+                item
+                for item in state["prepare"]
+                if item.get("stage_index") == prior.get("stage_index")
+                and item.get("invocation_marker") == marker
+            ]
+            if len(matching_preparations) != 1 or matching_preparations[0] != prepared:
+                raise ValueError("dispatch-preparation-row-mismatch")
+            matching_bindings = [
+                item
+                for item in state["prompt_binding"]
+                if item.get("stage_index") == prior.get("stage_index")
+            ]
+            if (
+                len(matching_bindings) != 1
+                or matching_bindings[0].get("specialist") != specialist
+                or matching_bindings[0].get("invocation_marker") != marker
+                or matching_bindings[0].get("prompt_sha256") != prompt_sha256
+                or matching_bindings[0].get("prepared_sha256")
+                != _sha(_canonical(prepared))
+            ):
+                raise ValueError("dispatch-prompt-not-bound")
+            result = {
+                "schema_version": RUNTIME_SCHEMA_VERSION,
+                "state": "dispatch_authorized",
+                "evidence_claim": "dispatch_observed_and_authorized_only",
+                "run_id": run_id,
+                "stage_index": int(prior["stage_index"]),
+                "dispatch_sha256": prompt_sha256,
+            }
+            if state["final_authorization"]:
+                _public_state(run_id, state)
+                return result
             _require_security(
                 state["begin_record"], security or MandatorySecurityVerifier(), ledger
             )
@@ -1331,14 +1383,7 @@ def verify_dispatch(
             ):
                 raise ValueError("dispatch-knowledge-changed")
             _store_final(run_id, ledger)
-            return {
-                "schema_version": RUNTIME_SCHEMA_VERSION,
-                "state": "dispatch_authorized",
-                "evidence_claim": "dispatch_observed_and_authorized_only",
-                "run_id": run_id,
-                "stage_index": int(prior["stage_index"]),
-                "dispatch_sha256": prompt_sha256,
-            }
+            return result
         if (
             prepared.get("stage_index") != stage
             or prepared.get("specialist") != specialist

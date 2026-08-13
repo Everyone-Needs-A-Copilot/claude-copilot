@@ -185,6 +185,18 @@ def two_stage_progress(rows: Rows):
     return started
 
 
+def complete_two_stage_with_pause(rows: Rows):
+    started = begin(rows, specialists=("me", "qa"))
+    first = prepare_run(started["run_id"], "me", ledger=ledger(rows), resolver=resolver)
+    authorize(rows, first)
+    pause_run(started["run_id"], ledger=ledger(rows), resolver=resolver)
+    second = prepare_run(
+        started["run_id"], "qa", ledger=ledger(rows), resolver=resolver
+    )
+    authorize(rows, second, prompt_sha="d" * 64)
+    return started
+
+
 def test_begin_prepare_dispatch_pause_fresh_resume_and_next_dispatch():
     rows = Rows()
     started = begin(rows)
@@ -316,11 +328,7 @@ def test_concurrent_dispatch_consumes_tc_stage_exactly_once():
 
     assert outcomes.count("dispatch_authorized") == 1
     denied = [item for item in outcomes if item != "dispatch_authorized"]
-    assert len(denied) == 1
-    assert denied[0] in {
-        "dispatch-route-order-mismatch",
-        "Exact next Agent prompt has not been prepared.",
-    }
+    assert denied == ["Exact next Agent prompt has not been prepared."]
     titles = [item["title"] for item in rows.items.values()]
     assert titles.count("Journey v2.1 dispatch evidence") == 1
     assert titles.count("Journey v2.1 final evidence") == 1
@@ -362,6 +370,85 @@ def test_final_write_failure_is_recoverable_without_second_dispatch_row():
         ledger_factory=ledger_factory(rows),
         resolver=resolver,
     )
+    assert recovered["state"] == "dispatch_authorized"
+    titles = [item["title"] for item in rows.items.values()]
+    assert titles.count("Journey v2.1 dispatch evidence") == 1
+    assert titles.count("Journey v2.1 final evidence") == 1
+
+
+@pytest.mark.parametrize(
+    ("failure_title", "checks_until_failure"),
+    (
+        ("Journey v2.1 dispatch evidence", 1),
+        ("Journey v2.1 final evidence", 2),
+    ),
+)
+def test_post_store_identity_failure_retry_is_idempotent(
+    failure_title, checks_until_failure
+):
+    class FailAfterFinalRows(Rows):
+        validation_countdown = 0
+
+        def store_wp(self, **values):
+            stored = super().store_wp(**values)
+            if values["title"] == failure_title:
+                self.validation_countdown = checks_until_failure
+            return stored
+
+    class FailAfterFinalLedger(TcJourneyLedger):
+        def _validate_global_lock_descriptor(self, descriptor):
+            if rows.validation_countdown:
+                rows.validation_countdown -= 1
+                if rows.validation_countdown == 0:
+                    raise RuntimeError("Journey global lock identity changed.")
+            return super()._validate_global_lock_descriptor(descriptor)
+
+    rows = FailAfterFinalRows()
+
+    def factory(task_id):
+        return FailAfterFinalLedger(
+            task_id,
+            store_wp=rows.store_wp,
+            get_wp=rows.get_wp,
+            list_wps=rows.list_wps,
+            allow_missing_guard=True,
+        )
+
+    started = begin(rows, specialists=("me",))
+    prepared = prepare_run(
+        started["run_id"], "me", ledger=ledger(rows), resolver=resolver
+    )
+    bind_prompt(started["run_id"], "me", "c" * 64, ledger=ledger(rows))
+    with pytest.raises(RuntimeError, match="identity changed"):
+        verify_dispatch(
+            session_id="session-296",
+            specialist="me",
+            marker=prepared.invocation_marker,
+            prompt_sha256="c" * 64,
+            knowledge_sha256=prepared.composed_content_sha256,
+            ledger_factory=factory,
+            resolver=resolver,
+        )
+
+    recovered = verify_dispatch(
+        session_id="session-296",
+        specialist="me",
+        marker=prepared.invocation_marker,
+        prompt_sha256="c" * 64,
+        knowledge_sha256=prepared.composed_content_sha256,
+        ledger_factory=factory,
+        resolver=resolver,
+    )
+    repeated = verify_dispatch(
+        session_id="session-296",
+        specialist="me",
+        marker=prepared.invocation_marker,
+        prompt_sha256="c" * 64,
+        knowledge_sha256=prepared.composed_content_sha256,
+        ledger_factory=factory,
+        resolver=resolver,
+    )
+    assert recovered == repeated
     assert recovered["state"] == "dispatch_authorized"
     titles = [item["title"] for item in rows.items.values()]
     assert titles.count("Journey v2.1 dispatch evidence") == 1
@@ -672,6 +759,105 @@ def test_duplicate_pause_generation_is_rejected():
         inspect_run(started["run_id"], ledger=ledger(rows))
 
 
+def assert_terminal_chronology_rejected(rows: Rows, run_id: str) -> None:
+    count = len(rows.items)
+    with pytest.raises(ValueError, match="final chronology"):
+        inspect_run(run_id, ledger=ledger(rows))
+    with pytest.raises(ValueError, match="final chronology"):
+        resume_run(296, run_id=run_id, ledger=ledger(rows), resolver=resolver)
+    assert len(rows.items) == count
+
+
+def test_final_before_dispatch_is_rejected():
+    rows = Rows()
+    started = begin(rows, specialists=("me",))
+    prepared = prepare_run(
+        started["run_id"], "me", ledger=ledger(rows), resolver=resolver
+    )
+    authorize(rows, prepared)
+    original = list(rows.items.values())
+    final = next(
+        row
+        for row in original
+        if payload_for(row)["record_type"] == "final_authorization"
+    )
+    dispatch = next(
+        row
+        for row in original
+        if payload_for(row)["record_type"] == "dispatch_authorization"
+    )
+    ordered = [row for row in original if row is not final]
+    ordered.insert(ordered.index(dispatch), final)
+    reassign_row_order(rows, ordered)
+
+    assert_terminal_chronology_rejected(rows, started["run_id"])
+
+
+def test_final_after_early_pause_but_before_later_dispatch_is_rejected():
+    rows = Rows()
+    started = complete_two_stage_with_pause(rows)
+    original = list(rows.items.values())
+    final = next(
+        row
+        for row in original
+        if payload_for(row)["record_type"] == "final_authorization"
+    )
+    later_dispatch = next(
+        row
+        for row in original
+        if payload_for(row)["record_type"] == "dispatch_authorization"
+        and payload_for(row)["stage_index"] == 1
+    )
+    ordered = [row for row in original if row is not final]
+    ordered.insert(ordered.index(later_dispatch), final)
+    reassign_row_order(rows, ordered)
+
+    assert_terminal_chronology_rejected(rows, started["run_id"])
+
+
+def test_final_before_last_pause_is_rejected():
+    rows = Rows()
+    started = complete_two_stage_with_pause(rows)
+    original = list(rows.items.values())
+    last_pause = max(
+        (row for row in original if payload_for(row)["record_type"] == "pause_capsule"),
+        key=lambda row: row["id"],
+    )
+    ordered = [row for row in original if row is not last_pause]
+    ordered.append(last_pause)
+    reassign_row_order(rows, ordered)
+
+    assert_terminal_chronology_rejected(rows, started["run_id"])
+
+
+def test_valid_terminal_row_is_positive_unique_and_last():
+    rows = Rows()
+    started = complete_two_stage_with_pause(rows)
+    run_rows = [
+        row
+        for row in rows.items.values()
+        if payload_for(row).get("run_id") == started["run_id"]
+    ]
+    row_ids = [row["id"] for row in run_rows]
+    final = next(
+        row
+        for row in run_rows
+        if payload_for(row)["record_type"] == "final_authorization"
+    )
+
+    assert all(row_id > 0 for row_id in row_ids)
+    assert len(row_ids) == len(set(row_ids))
+    assert final["id"] == max(row_ids)
+    expected = inspect_run(started["run_id"], ledger=ledger(rows))
+    assert expected["status"] == "all_dispatches_authorized"
+    assert (
+        resume_run(
+            296, run_id=started["run_id"], ledger=ledger(rows), resolver=resolver
+        )
+        == expected
+    )
+
+
 @pytest.mark.parametrize(
     "moved_stage_one_kinds",
     [
@@ -816,6 +1002,160 @@ def test_real_tc_cross_stage_row_reassignment_is_rejected(tmp_path, monkeypatch)
 
 
 @pytest.mark.parametrize(
+    ("attack", "specialists"),
+    [
+        ("final-before-dispatch", ("me",)),
+        ("final-after-pause-before-dispatch", ("me", "qa")),
+        ("final-before-last-pause", ("me", "qa")),
+        ("valid", ("me", "qa")),
+    ],
+)
+def test_real_tc_terminal_chronology(tmp_path, monkeypatch, attack, specialists):
+    monkeypatch.syspath_prepend(str(Path("tools/tc/src").resolve()))
+    from tc.api import create_prd, create_task, get_wp, list_wps, store_wp
+    from tc.db.connection import init_db
+
+    db_path = tmp_path / "tasks.db"
+    init_db(db_path)
+    prd = create_prd(title="Terminal chronology fixture", db_path=db_path)
+    task_id = create_task(
+        title="Terminal chronology task", prd=prd["id"], db_path=db_path
+    )["id"]
+
+    def real_ledger(selected_task):
+        return TcJourneyLedger(
+            selected_task,
+            store_wp=lambda **values: store_wp(**values, db_path=db_path),
+            get_wp=lambda **values: get_wp(**values, db_path=db_path),
+            list_wps=lambda **values: list_wps(**values, db_path=db_path),
+        )
+
+    capability = type(
+        "Capability",
+        (),
+        {
+            "invoke": lambda self, **_: CapabilityReceipt(
+                "cli-copilot-health", "unavailable"
+            )
+        },
+    )()
+    session_id = f"real-terminal-{attack}"
+    started = begin_run(
+        task_id=task_id,
+        runtime="claude",
+        classification="implementation",
+        specialists=specialists,
+        events=tuple(
+            {
+                "kind": "transition",
+                "specialist": item,
+                "reason": "protocol-supplied",
+            }
+            for item in specialists
+        ),
+        prompt_sha256="b" * 64,
+        session_id=session_id,
+        ledger=real_ledger(task_id),
+        capability=capability,
+    )
+
+    first = prepare_run(
+        started["run_id"], "me", ledger=real_ledger(task_id), resolver=resolver
+    )
+    bind_prompt(started["run_id"], "me", "c" * 64, ledger=real_ledger(task_id))
+    verify_dispatch(
+        session_id=session_id,
+        specialist="me",
+        marker=first.invocation_marker,
+        prompt_sha256="c" * 64,
+        knowledge_sha256=first.composed_content_sha256,
+        ledger_factory=real_ledger,
+        resolver=resolver,
+    )
+    if len(specialists) == 2:
+        pause_run(started["run_id"], ledger=real_ledger(task_id), resolver=resolver)
+        second = prepare_run(
+            started["run_id"], "qa", ledger=real_ledger(task_id), resolver=resolver
+        )
+        bind_prompt(started["run_id"], "qa", "d" * 64, ledger=real_ledger(task_id))
+        verify_dispatch(
+            session_id=session_id,
+            specialist="qa",
+            marker=second.invocation_marker,
+            prompt_sha256="d" * 64,
+            knowledge_sha256=second.composed_content_sha256,
+            ledger_factory=real_ledger,
+            resolver=resolver,
+        )
+
+    summaries = list_wps(task=task_id, type_="evidence", db_path=db_path)
+    full_rows = [get_wp(wp_id=row["id"], db_path=db_path) for row in summaries]
+    final = next(
+        row
+        for row in full_rows
+        if payload_for(row)["record_type"] == "final_authorization"
+    )
+    if attack == "valid":
+        row_ids = [row["id"] for row in full_rows]
+        assert all(row_id > 0 for row_id in row_ids)
+        assert len(row_ids) == len(set(row_ids))
+        assert final["id"] == max(row_ids)
+        terminal = inspect_run(started["run_id"], ledger=real_ledger(task_id))
+        assert terminal["status"] == "all_dispatches_authorized"
+        assert (
+            resume_run(
+                task_id,
+                run_id=started["run_id"],
+                ledger=real_ledger(task_id),
+                resolver=resolver,
+            )
+            == terminal
+        )
+        return
+
+    if attack in {"final-before-dispatch", "final-after-pause-before-dispatch"}:
+        dispatches = [
+            row
+            for row in full_rows
+            if payload_for(row)["record_type"] == "dispatch_authorization"
+        ]
+        target = max(dispatches, key=lambda row: payload_for(row)["stage_index"])
+        replacements = ((final["id"], target["id"]), (target["id"], final["id"]))
+    else:
+        pause = max(
+            (
+                row
+                for row in full_rows
+                if payload_for(row)["record_type"] == "pause_capsule"
+            ),
+            key=lambda row: row["id"],
+        )
+        replacements = ((pause["id"], max(row["id"] for row in full_rows) + 1),)
+    with sqlite3.connect(db_path) as connection:
+        for old_id, _new_id in replacements:
+            connection.execute(
+                "UPDATE work_products SET id = ? WHERE id = ?", (-old_id, old_id)
+            )
+        for old_id, new_id in replacements:
+            connection.execute(
+                "UPDATE work_products SET id = ? WHERE id = ?", (new_id, -old_id)
+            )
+        connection.commit()
+
+    count = len(list_wps(task=task_id, type_="evidence", db_path=db_path))
+    with pytest.raises(ValueError, match="final chronology"):
+        inspect_run(started["run_id"], ledger=real_ledger(task_id))
+    with pytest.raises(ValueError, match="final chronology"):
+        resume_run(
+            task_id,
+            run_id=started["run_id"],
+            ledger=real_ledger(task_id),
+            resolver=resolver,
+        )
+    assert len(list_wps(task=task_id, type_="evidence", db_path=db_path)) == count
+
+
+@pytest.mark.parametrize(
     ("field", "value"),
     [
         ("specialist", "qa"),
@@ -943,6 +1283,33 @@ def test_tc_row_identity_and_payload_fields_fail_closed():
     begin_row["content"] = json.dumps(changed, sort_keys=True, separators=(",", ":"))
     with pytest.raises(ValueError, match="payload fields"):
         inspect_run(started["run_id"], ledger=ledger(rows))
+
+
+def test_nonpositive_and_duplicate_tc_row_ids_fail_closed():
+    nonpositive = Rows()
+    started = begin(nonpositive, specialists=("me",))
+    row = nonpositive.items.pop(1)
+    row["id"] = 0
+    nonpositive.items[0] = row
+    with pytest.raises(ValueError, match="row identity"):
+        inspect_run(started["run_id"], ledger=ledger(nonpositive))
+
+    duplicated = Rows()
+    started = begin(duplicated, specialists=("me",))
+
+    def duplicate_list(**values):
+        listed = duplicated.list_wps(**values)
+        return [*listed, listed[0]]
+
+    duplicate_ledger = TcJourneyLedger(
+        296,
+        store_wp=duplicated.store_wp,
+        get_wp=duplicated.get_wp,
+        list_wps=duplicate_list,
+        allow_missing_guard=True,
+    )
+    with pytest.raises(ValueError, match="row identity"):
+        inspect_run(started["run_id"], ledger=duplicate_ledger)
 
 
 def test_production_ledger_rejects_modified_or_missing_guards():
@@ -1419,7 +1786,7 @@ def test_real_tc_guard_safe_roundtrip_and_multiprocess_dispatch(tmp_path, monkey
         assert not process.is_alive()
     outcomes = sorted(queue.get(timeout=2) for _ in processes)
     assert outcomes == [
-        ("error", "dispatch-route-order-mismatch"),
+        ("ok", "dispatch_authorized"),
         ("ok", "dispatch_authorized"),
     ]
 
