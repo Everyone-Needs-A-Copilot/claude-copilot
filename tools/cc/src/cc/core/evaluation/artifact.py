@@ -65,6 +65,58 @@ _RUN_DOCUMENT_KEYS = frozenset(
 )
 
 
+def _expected_run_identity(cell: EvaluationCell) -> dict[str, object]:
+    from cc.core.evaluation.comparison import comparability_identity
+    from cc.core.evaluation.identity import (
+        consumption_receipt_identity,
+        content_receipt_identity,
+        runtime_receipt_identity,
+    )
+
+    return {
+        "schema_version": "1.2",
+        "case_id": cell.case_id,
+        "revision": cell.revision,
+        "variant": cell.variant.value,
+        "runtime": cell.runtime_receipt.runtime.value,
+        "attempt": cell.attempt,
+        "parent_attempt_sha256": cell.parent_attempt_sha256,
+        "fixture_sha256": cell.fixture_sha256,
+        "prompt_evidence_sha256": cell.prompt_evidence_sha256,
+        "attempt_policy_sha256": cell.attempt_policy_sha256,
+        "runtime_configuration_sha256": cell.runtime_configuration_sha256,
+        "tool_configuration_sha256": cell.tool_configuration_sha256,
+        "comparability_sha256": comparability_identity(cell),
+        "runtime_receipt_sha256": runtime_receipt_identity(cell.runtime_receipt),
+        "content_receipt_sha256": content_receipt_identity(cell.content_receipt),
+        "consumption_receipt_sha256": consumption_receipt_identity(
+            cell.consumption_receipt
+        ),
+    }
+
+
+def _record_matches_cell(record: RunRecord, cell: EvaluationCell) -> bool:
+    expected = _expected_run_identity(cell)
+    return all(
+        (
+            getattr(record, field).value
+            if field in {"variant", "runtime"}
+            else getattr(record, field)
+        )
+        == value
+        for field, value in expected.items()
+    )
+
+
+def _document_matches_cell(
+    document: Mapping[str, object], cell: EvaluationCell
+) -> bool:
+    return all(
+        document.get(field) == value
+        for field, value in _expected_run_identity(cell).items()
+    )
+
+
 def _reject_aggregate_fields(value: object) -> None:
     if isinstance(value, Mapping):
         for key, item in value.items():
@@ -92,6 +144,19 @@ def _write_all(file_descriptor: int, content: bytes) -> None:
         if written < 1:
             raise OSError("Evaluation artifact write did not make progress.")
         offset += written
+
+
+def _stable_file_identity(metadata: os.stat_result) -> tuple[int, ...]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_nlink,
+        metadata.st_uid,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
 
 
 def _reject_disclosure_values(value: object) -> None:
@@ -193,16 +258,31 @@ def _write_artifact(
                     pass
                 existing_fd = os.open(filename, os.O_RDONLY | nofollow, dir_fd=type_fd)
                 try:
+                    before = os.fstat(existing_fd)
+                    if (
+                        not stat.S_ISREG(before.st_mode)
+                        or before.st_nlink != 1
+                        or before.st_size != len(content)
+                    ):
+                        raise ValueError(
+                            "Existing evaluation artifact is not a stable regular file."
+                        )
                     existing = b""
                     while True:
                         chunk = os.read(existing_fd, 65536)
                         if not chunk:
                             break
                         existing += chunk
+                    after = os.fstat(existing_fd)
                 finally:
                     os.close(existing_fd)
-                if existing != content:
+                if (
+                    _stable_file_identity(before) != _stable_file_identity(after)
+                    or existing != content
+                    or hashlib.sha256(existing).hexdigest() != digest
+                ):
                     raise ValueError("Content-addressed artifact identity collision.")
+                os.fsync(type_fd)
         except Exception:
             if artifact_fd is not None:
                 os.close(artifact_fd)
@@ -264,12 +344,6 @@ def _production_record_valid(
     if not verify_run_record_identity(record) or not isinstance(cell, EvaluationCell):
         return False
     from cc.core.evaluation._authority import _production_authority
-    from cc.core.evaluation.comparison import comparability_identity
-    from cc.core.evaluation.identity import (
-        consumption_receipt_identity,
-        content_receipt_identity,
-        runtime_receipt_identity,
-    )
     from cc.core.evaluation.runner import _preflight_for
 
     authority = _production_authority(
@@ -288,26 +362,7 @@ def _production_record_valid(
     )
     if record.preflight != expected_preflight:
         return False
-    if not (
-        record.case_id == cell.case_id
-        and record.revision == cell.revision
-        and record.variant is cell.variant
-        and record.runtime is cell.runtime_receipt.runtime
-        and record.attempt == cell.attempt
-        and record.parent_attempt_sha256 == cell.parent_attempt_sha256
-        and record.fixture_sha256 == cell.fixture_sha256
-        and record.prompt_evidence_sha256 == cell.prompt_evidence_sha256
-        and record.attempt_policy_sha256 == cell.attempt_policy_sha256
-        and record.runtime_configuration_sha256 == cell.runtime_configuration_sha256
-        and record.tool_configuration_sha256 == cell.tool_configuration_sha256
-        and record.comparability_sha256 == comparability_identity(cell)
-        and record.runtime_receipt_sha256
-        == runtime_receipt_identity(cell.runtime_receipt)
-        and record.content_receipt_sha256
-        == content_receipt_identity(cell.content_receipt)
-        and record.consumption_receipt_sha256
-        == consumption_receipt_identity(cell.consumption_receipt)
-    ):
+    if not _record_matches_cell(record, cell):
         return False
     if record.state is RunState.INVALID:
         return record.preflight.state is PreflightState.INVALID
@@ -390,6 +445,7 @@ def load_run_record_document(
             if (
                 not isinstance(value, dict)
                 or set(value) != _RUN_DOCUMENT_KEYS
+                or value.get("schema_version") != "1.2"
                 or canonical_json_bytes(value) != raw
             ):
                 continue
@@ -430,6 +486,8 @@ def load_run_record_document(
                 attempt=attempt,
                 parent_attempt_sha256=parent_attempt,
             )
+            if not _document_matches_cell(value, parent_cell):
+                continue
             from cc.core.evaluation._authority import _production_authority
             from cc.core.evaluation.runner import _preflight_document, _preflight_for
 

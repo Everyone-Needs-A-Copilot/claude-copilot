@@ -10,9 +10,15 @@ import stat
 import subprocess
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from cc.core.evaluation._authority import (
+    _production_authority,
+    _verified_journey_identities,
+)
+from cc.core.evaluation.identity import build_consumption_receipt
 from cc.core.evaluation.journey import CapabilityReceipt
 from cc.core.evaluation.journey_runtime import (
     CliCopilotHealthCapabilityAdapter,
@@ -26,6 +32,7 @@ from cc.core.evaluation.journey_runtime import (
     resume_run,
     verify_dispatch,
 )
+from cc.core.evaluation.models import GateState, PreflightGate
 
 
 class Rows:
@@ -228,6 +235,85 @@ def test_begin_prepare_dispatch_pause_fresh_resume_and_next_dispatch():
     final = inspect_run(started["run_id"], ledger=ledger(rows))
     assert final["status"] == "all_dispatches_authorized"
     assert final["evidence_claim"] == "dispatch_observed_and_authorized_only"
+
+
+def test_terminal_ledger_derives_complete_evaluation_evidence_identity():
+    rows = Rows()
+    started = complete_two_stage_with_pause(rows)
+    identities = _verified_journey_identities(started["run_id"], ledger(rows))
+    assert identities is not None
+    assert identities["task_id"] == 296
+    assert identities["run_id"] == started["run_id"]
+    assert identities["session_id_sha256"]
+    assert identities["prompt_sha256"] == "b" * 64
+    for field in (
+        "route_evidence_sha256",
+        "continuity_evidence_sha256",
+        "invocation_receipts_sha256",
+        "terminal_evidence_sha256",
+        "journey_evidence_sha256",
+    ):
+        assert len(str(identities[field])) == 64
+
+    final_id = max(rows.items)
+    final_row = rows.items.pop(final_id)
+    assert _verified_journey_identities(started["run_id"], ledger(rows)) is None
+    rows.items[final_id] = final_row
+
+
+def test_production_authority_requires_exact_ledger_derived_journey_receipt():
+    from test_runner_core import _cell
+
+    rows = Rows()
+    started = complete_two_stage_with_pause(rows)
+    selected = ledger(rows)
+    identities = _verified_journey_identities(started["run_id"], selected)
+    assert identities is not None
+    base = _cell()
+    prompt = str(identities["prompt_sha256"])
+    receipt = build_consumption_receipt(
+        task_id=296,
+        runtime_receipt=base.runtime_receipt,
+        content_receipt=base.content_receipt,
+        prompt_evidence_sha256=prompt,
+        journey_evidence_sha256=str(identities["journey_evidence_sha256"]),
+        route_evidence_sha256=str(identities["route_evidence_sha256"]),
+        continuity_evidence_sha256=str(identities["continuity_evidence_sha256"]),
+    )
+    cell = replace(
+        base,
+        prompt_evidence_sha256=prompt,
+        consumption_receipt=receipt,
+    )
+    authority = _production_authority(
+        cell,
+        loaded_fixture=None,
+        journey_run_id=started["run_id"],
+        journey_ledger=selected,
+    )
+    journey = next(
+        item
+        for item in authority.preflight.observations
+        if item.gate is PreflightGate.JOURNEY_EVIDENCE
+    )
+    assert journey.state is GateState.PASS
+
+    tampered = replace(
+        cell,
+        consumption_receipt=replace(receipt, route_evidence_sha256="9" * 64),
+    )
+    rejected = _production_authority(
+        tampered,
+        loaded_fixture=None,
+        journey_run_id=started["run_id"],
+        journey_ledger=selected,
+    )
+    rejected_journey = next(
+        item
+        for item in rejected.preflight.observations
+        if item.gate is PreflightGate.JOURNEY_EVIDENCE
+    )
+    assert rejected_journey.state is GateState.FAIL
 
 
 def test_no_active_legacy_and_missing_wrong_or_replayed_markers():
