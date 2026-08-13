@@ -1323,6 +1323,9 @@ def verify_dispatch(
     with ledger.claim(run_id):
         state = _state(run_id, ledger)
         stage = len(state["completed"])
+        if state["final_authorization"]:
+            _public_state(run_id, state)
+            raise ValueError("dispatch-replay")
         if state["begin_record"].get("session_id_sha256") != _sha(session_id):
             raise ValueError("dispatch-session-mismatch")
         if stage == len(state["route"]):
@@ -1370,9 +1373,6 @@ def verify_dispatch(
                 "stage_index": int(prior["stage_index"]),
                 "dispatch_sha256": prompt_sha256,
             }
-            if state["final_authorization"]:
-                _public_state(run_id, state)
-                return result
             _require_security(
                 state["begin_record"], security or MandatorySecurityVerifier(), ledger
             )
