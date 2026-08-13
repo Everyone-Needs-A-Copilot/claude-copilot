@@ -98,6 +98,97 @@ def test_loader_rejects_symlinked_evidence_directory(tmp_path):
         load_fixture(tmp_path)
 
 
+def test_loader_rejects_hardlinked_evidence_even_when_bytes_match(tmp_path):
+    document = _write_fixture(tmp_path)
+    evidence_path = tmp_path / document["evidence_files"][0]["path"]
+    outside = tmp_path / "outside-evidence.json"
+    outside.write_bytes(evidence_path.read_bytes())
+    evidence_path.unlink()
+    os.link(outside, evidence_path)
+
+    with pytest.raises(FixtureLoadError, match="bounded regular file"):
+        load_fixture(tmp_path)
+
+
+def test_loader_rejects_hardlink_created_after_oracle_snapshot(tmp_path, monkeypatch):
+    document = _write_fixture(tmp_path)
+    oracle_path = tmp_path / document["private_oracle"]["path"]
+    evidence_path = tmp_path / document["evidence_files"][0]["path"]
+    original_read = __import__(
+        "cc.core.evaluation.fixtures", fromlist=["_read_regular_file"]
+    )._read_regular_file
+    switched = False
+
+    def link_oracle_after_read(root_descriptor, relative_path, *, file_identities):
+        nonlocal switched
+        content = original_read(
+            root_descriptor, relative_path, file_identities=file_identities
+        )
+        if relative_path == document["private_oracle"]["path"] and not switched:
+            switched = True
+            evidence_path.unlink()
+            os.link(oracle_path, evidence_path)
+        return content
+
+    monkeypatch.setattr(
+        "cc.core.evaluation.fixtures._read_regular_file", link_oracle_after_read
+    )
+    with pytest.raises(FixtureLoadError, match="bounded regular file"):
+        load_fixture(tmp_path)
+    assert switched
+
+
+def test_loader_rejects_duplicate_inode_moved_between_fixture_paths(
+    tmp_path, monkeypatch
+):
+    document = _write_fixture(tmp_path)
+    oracle_path = tmp_path / document["private_oracle"]["path"]
+    evidence_path = tmp_path / document["evidence_files"][0]["path"]
+    original_read = __import__(
+        "cc.core.evaluation.fixtures", fromlist=["_read_regular_file"]
+    )._read_regular_file
+    switched = False
+
+    def move_oracle_after_read(root_descriptor, relative_path, *, file_identities):
+        nonlocal switched
+        content = original_read(
+            root_descriptor, relative_path, file_identities=file_identities
+        )
+        if relative_path == document["private_oracle"]["path"] and not switched:
+            switched = True
+            evidence_path.unlink()
+            oracle_path.replace(evidence_path)
+        return content
+
+    monkeypatch.setattr(
+        "cc.core.evaluation.fixtures._read_regular_file", move_oracle_after_read
+    )
+    with pytest.raises(FixtureLoadError, match="unique file identities"):
+        load_fixture(tmp_path)
+    assert switched
+
+
+def test_loader_rejects_same_size_post_read_mutation(tmp_path, monkeypatch):
+    document = _write_fixture(tmp_path)
+    evidence_path = tmp_path / document["evidence_files"][0]["path"]
+    evidence = evidence_path.read_bytes()
+    original_read = os.read
+    mutated = False
+
+    def mutate_after_content_read(file_descriptor, size):
+        nonlocal mutated
+        chunk = original_read(file_descriptor, size)
+        if chunk == evidence and not mutated:
+            mutated = True
+            evidence_path.write_bytes(evidence)
+        return chunk
+
+    monkeypatch.setattr(os, "read", mutate_after_content_read)
+    with pytest.raises(FixtureLoadError, match="changed during verified read"):
+        load_fixture(tmp_path)
+    assert mutated
+
+
 def test_loader_rejects_fixture_root_swap_to_symlink(tmp_path, monkeypatch):
     root = tmp_path / "case"
     attacker = tmp_path / "attacker"

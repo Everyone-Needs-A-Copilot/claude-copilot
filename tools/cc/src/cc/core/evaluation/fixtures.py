@@ -77,10 +77,18 @@ class VerifiedEvidence:
 
 
 @dataclass(frozen=True)
+class VerifiedOracle:
+    path: str
+    sha256: str
+    content: bytes
+
+
+@dataclass(frozen=True)
 class LoadedFixture:
     fixture: EvaluationFixture
     fixture_sha256: str
     evidence: tuple[VerifiedEvidence, ...]
+    oracle: VerifiedOracle
     _authority: object = None
 
     def __post_init__(self) -> None:
@@ -90,7 +98,10 @@ class LoadedFixture:
 
 def load_fixture(case_root: Path) -> LoadedFixture:
     with _open_verified_root(case_root) as root_descriptor:
-        raw_case = _read_regular_file(root_descriptor, "case.json")
+        file_identities: set[tuple[int, int]] = set()
+        raw_case = _read_regular_file(
+            root_descriptor, "case.json", file_identities=file_identities
+        )
         value = _load_json_object(raw_case)
         validate_document(value)
         fixture = EvaluationFixture.from_validated_mapping(value)
@@ -99,7 +110,11 @@ def load_fixture(case_root: Path) -> LoadedFixture:
         require_safe_synthetic_text(
             fixture.problem_statement, location_class="problem-statement"
         )
-        oracle_bytes = _read_regular_file(root_descriptor, fixture.private_oracle.path)
+        oracle_bytes = _read_regular_file(
+            root_descriptor,
+            fixture.private_oracle.path,
+            file_identities=file_identities,
+        )
         _require_digest(oracle_bytes, fixture.private_oracle.sha256)
         try:
             oracle_text = oracle_bytes.decode("utf-8")
@@ -111,7 +126,11 @@ def load_fixture(case_root: Path) -> LoadedFixture:
         for declared in fixture.evidence_files:
             if declared.sha256 == fixture.private_oracle.sha256:
                 raise FixtureLoadError("Runtime evidence aliases the private oracle.")
-            content = _read_regular_file(root_descriptor, declared.path)
+            content = _read_regular_file(
+                root_descriptor,
+                declared.path,
+                file_identities=file_identities,
+            )
             _require_digest(content, declared.sha256)
             if content == oracle_bytes:
                 raise FixtureLoadError("Runtime evidence aliases the private oracle.")
@@ -141,6 +160,11 @@ def load_fixture(case_root: Path) -> LoadedFixture:
         fixture=fixture,
         fixture_sha256=canonical_sha256(value),
         evidence=tuple(verified),
+        oracle=VerifiedOracle(
+            path=fixture.private_oracle.path,
+            sha256=fixture.private_oracle.sha256,
+            content=oracle_bytes,
+        ),
         _authority=_LOADED_FIXTURE_AUTHORITY,
     )
 
@@ -195,7 +219,24 @@ def _canonical_relative_path(value: str) -> tuple[str, ...]:
     return parts
 
 
-def _read_regular_file(root_descriptor: int, relative_path: str) -> bytes:
+def _stable_file_identity(metadata: os.stat_result) -> tuple[int, ...]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_nlink,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+def _read_regular_file(
+    root_descriptor: int,
+    relative_path: str,
+    *,
+    file_identities: set[tuple[int, int]],
+) -> bytes:
     parts = _canonical_relative_path(relative_path)
     no_follow = getattr(os, "O_NOFOLLOW", None)
     directory = getattr(os, "O_DIRECTORY", None)
@@ -215,9 +256,16 @@ def _read_regular_file(root_descriptor: int, relative_path: str) -> bytes:
             descriptors.append(current)
         file_descriptor = os.open(parts[-1], os.O_RDONLY | no_follow, dir_fd=current)
         descriptors.append(file_descriptor)
-        metadata = os.fstat(file_descriptor)
-        if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > _MAX_FILE_BYTES:
+        before = os.fstat(file_descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_nlink != 1
+            or before.st_size > _MAX_FILE_BYTES
+        ):
             raise FixtureLoadError("Fixture input is not a bounded regular file.")
+        file_identity = (before.st_dev, before.st_ino)
+        if file_identity in file_identities:
+            raise FixtureLoadError("Fixture inputs must have unique file identities.")
         chunks: list[bytes] = []
         remaining = _MAX_FILE_BYTES + 1
         while remaining:
@@ -229,6 +277,12 @@ def _read_regular_file(root_descriptor: int, relative_path: str) -> bytes:
         content = b"".join(chunks)
         if len(content) > _MAX_FILE_BYTES:
             raise FixtureLoadError("Fixture input exceeds the size limit.")
+        after = os.fstat(file_descriptor)
+        if _stable_file_identity(before) != _stable_file_identity(after):
+            raise FixtureLoadError("Fixture input changed during verified read.")
+        if len(content) != before.st_size:
+            raise FixtureLoadError("Fixture input size changed during verified read.")
+        file_identities.add(file_identity)
         return content
     except FixtureLoadError:
         raise
