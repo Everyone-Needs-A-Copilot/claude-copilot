@@ -7,6 +7,7 @@ import json
 import os
 import stat
 import unicodedata
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -38,42 +39,47 @@ class LoadedFixture:
 
 
 def load_fixture(case_root: Path) -> LoadedFixture:
-    root = _verified_root(case_root)
-    raw_case = _read_regular_file(root, "case.json")
-    value = _load_json_object(raw_case)
-    validate_document(value)
-    fixture = EvaluationFixture.from_validated_mapping(value)
-    _validate_fixture_invariants(fixture)
+    with _open_verified_root(case_root) as root_descriptor:
+        raw_case = _read_regular_file(root_descriptor, "case.json")
+        value = _load_json_object(raw_case)
+        validate_document(value)
+        fixture = EvaluationFixture.from_validated_mapping(value)
+        _validate_fixture_invariants(fixture)
 
-    require_safe_synthetic_text(
-        fixture.problem_statement, location_class="problem-statement"
-    )
-    verified: list[VerifiedEvidence] = []
-    for declared in fixture.evidence_files:
-        content = _read_regular_file(root, declared.path)
-        _require_digest(content, declared.sha256)
-        if declared.media_type.startswith("text/") or declared.media_type == "application/json":
-            try:
-                text = content.decode("utf-8")
-            except UnicodeDecodeError as error:
-                raise FixtureLoadError("Declared text evidence is not UTF-8.") from error
-            require_safe_synthetic_text(text, location_class="evidence-input")
-        verified.append(
-            VerifiedEvidence(
-                path=declared.path,
-                sha256=declared.sha256,
-                media_type=declared.media_type,
-                content=content,
-            )
+        require_safe_synthetic_text(
+            fixture.problem_statement, location_class="problem-statement"
         )
+        verified: list[VerifiedEvidence] = []
+        for declared in fixture.evidence_files:
+            content = _read_regular_file(root_descriptor, declared.path)
+            _require_digest(content, declared.sha256)
+            if (
+                declared.media_type.startswith("text/")
+                or declared.media_type == "application/json"
+            ):
+                try:
+                    text = content.decode("utf-8")
+                except UnicodeDecodeError as error:
+                    raise FixtureLoadError(
+                        "Declared text evidence is not UTF-8."
+                    ) from error
+                require_safe_synthetic_text(text, location_class="evidence-input")
+            verified.append(
+                VerifiedEvidence(
+                    path=declared.path,
+                    sha256=declared.sha256,
+                    media_type=declared.media_type,
+                    content=content,
+                )
+            )
 
-    oracle_bytes = _read_regular_file(root, fixture.private_oracle.path)
-    _require_digest(oracle_bytes, fixture.private_oracle.sha256)
-    try:
-        oracle_text = oracle_bytes.decode("utf-8")
-    except UnicodeDecodeError as error:
-        raise FixtureLoadError("Private oracle is not UTF-8.") from error
-    require_safe_synthetic_text(oracle_text, location_class="private-oracle")
+        oracle_bytes = _read_regular_file(root_descriptor, fixture.private_oracle.path)
+        _require_digest(oracle_bytes, fixture.private_oracle.sha256)
+        try:
+            oracle_text = oracle_bytes.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise FixtureLoadError("Private oracle is not UTF-8.") from error
+        require_safe_synthetic_text(oracle_text, location_class="private-oracle")
 
     return LoadedFixture(
         fixture=fixture,
@@ -82,18 +88,43 @@ def load_fixture(case_root: Path) -> LoadedFixture:
     )
 
 
-def _verified_root(case_root: Path) -> Path:
+@contextmanager
+def _open_verified_root(case_root: Path):
     try:
-        metadata = case_root.lstat()
+        expected = case_root.lstat()
     except OSError as error:
         raise FixtureLoadError("Fixture root is unavailable.") from error
-    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+    if stat.S_ISLNK(expected.st_mode) or not stat.S_ISDIR(expected.st_mode):
         raise FixtureLoadError("Fixture root must be a real directory.")
-    return case_root.resolve(strict=True)
+    no_follow = getattr(os, "O_NOFOLLOW", None)
+    directory = getattr(os, "O_DIRECTORY", None)
+    if no_follow is None or directory is None:
+        raise FixtureLoadError("Platform lacks no-follow fixture protections.")
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(case_root, os.O_RDONLY | directory | no_follow)
+        actual = os.fstat(descriptor)
+        if not stat.S_ISDIR(actual.st_mode) or (actual.st_dev, actual.st_ino) != (
+            expected.st_dev,
+            expected.st_ino,
+        ):
+            raise FixtureLoadError("Fixture root identity changed during open.")
+        yield descriptor
+    except FixtureLoadError:
+        raise
+    except OSError as error:
+        raise FixtureLoadError("Fixture root cannot be opened safely.") from error
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
 
 
 def _canonical_relative_path(value: str) -> tuple[str, ...]:
-    if value != unicodedata.normalize("NFC", value) or "\\" in value:
+    if (
+        value != unicodedata.normalize("NFC", value)
+        or "\\" in value
+        or any(unicodedata.category(character) in {"Cc", "Cf"} for character in value)
+    ):
         raise FixtureLoadError("Fixture path is not canonical.")
     path = PurePosixPath(value)
     parts = path.parts
@@ -107,7 +138,7 @@ def _canonical_relative_path(value: str) -> tuple[str, ...]:
     return parts
 
 
-def _read_regular_file(root: Path, relative_path: str) -> bytes:
+def _read_regular_file(root_descriptor: int, relative_path: str) -> bytes:
     parts = _canonical_relative_path(relative_path)
     no_follow = getattr(os, "O_NOFOLLOW", None)
     directory = getattr(os, "O_DIRECTORY", None)
@@ -116,7 +147,7 @@ def _read_regular_file(root: Path, relative_path: str) -> bytes:
 
     descriptors: list[int] = []
     try:
-        current = os.open(root, os.O_RDONLY | directory)
+        current = os.dup(root_descriptor)
         descriptors.append(current)
         for component in parts[:-1]:
             current = os.open(
@@ -165,7 +196,9 @@ def _load_json_object(content: bytes) -> dict[str, Any]:
     except FixtureLoadError:
         raise
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise FixtureLoadError("Fixture case document is not valid UTF-8 JSON.") from error
+        raise FixtureLoadError(
+            "Fixture case document is not valid UTF-8 JSON."
+        ) from error
     if not isinstance(value, dict):
         raise FixtureLoadError("Fixture case document must be an object.")
     return value

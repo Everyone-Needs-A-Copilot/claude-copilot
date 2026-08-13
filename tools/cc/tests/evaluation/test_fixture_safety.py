@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -67,9 +68,12 @@ def test_loader_verifies_exact_files_and_keeps_oracle_out_of_runtime_evidence(tm
     loaded = load_fixture(tmp_path)
 
     assert loaded.fixture.case_id == "eval-05"
-    assert loaded.fixture_sha256 == hashlib.sha256(
-        json.dumps(document, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    assert (
+        loaded.fixture_sha256
+        == hashlib.sha256(
+            json.dumps(document, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+    )
     assert tuple(item.path for item in loaded.evidence) == ("input/summary.txt",)
     assert all("oracle" not in item.path for item in loaded.evidence)
 
@@ -121,6 +125,34 @@ def test_loader_rejects_symlinked_evidence_directory(tmp_path):
         load_fixture(tmp_path)
 
 
+def test_loader_rejects_fixture_root_swap_to_symlink(tmp_path, monkeypatch):
+    root = tmp_path / "case"
+    attacker = tmp_path / "attacker"
+    root.mkdir()
+    attacker.mkdir()
+    _write_fixture(root)
+    _write_fixture(attacker)
+    attacker_case = json.loads((attacker / "case.json").read_text(encoding="utf-8"))
+    attacker_case["case_id"] = "eval-99"
+    (attacker / "case.json").write_text(json.dumps(attacker_case), encoding="utf-8")
+
+    original_open = os.open
+    swapped = False
+
+    def swap_before_root_open(path, flags, mode=0o777, *, dir_fd=None):
+        nonlocal swapped
+        if not swapped and Path(path) == root and dir_fd is None:
+            swapped = True
+            root.rename(tmp_path / "original-case")
+            root.symlink_to(attacker, target_is_directory=True)
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "open", swap_before_root_open)
+    with pytest.raises(FixtureLoadError, match="root cannot be opened safely"):
+        load_fixture(root)
+    assert swapped
+
+
 def test_loader_rejects_oracle_declared_as_runtime_evidence(tmp_path):
     document = _write_fixture(tmp_path)
     document["evidence_files"][0]["path"] = "oracle/expected.json"
@@ -160,7 +192,9 @@ def test_loader_runs_value_suppressing_safety_gate_on_evidence(tmp_path):
         ("client: Actual Client Incorporated", "real-party-marker"),
     ],
 )
-def test_safety_findings_report_rule_count_and_location_but_suppress_value(unsafe, rule):
+def test_safety_findings_report_rule_count_and_location_but_suppress_value(
+    unsafe, rule
+):
     findings = scan_synthetic_text(unsafe, location_class="evidence-input")
     assert rule in {item.rule for item in findings}
     with pytest.raises(FixtureSafetyViolation) as caught:
