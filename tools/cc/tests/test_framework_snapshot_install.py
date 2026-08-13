@@ -298,6 +298,36 @@ def test_reinstall_is_idempotent_and_reuses_valid_readonly_snapshot(tmp_path: Pa
     assert active.read_bytes() == before
 
 
+def test_failed_validation_preserves_error_and_removes_readonly_snapshot(
+    tmp_path: Path,
+):
+    repo, commit, tree = _source_repository(tmp_path)
+    home = tmp_path / "home"
+
+    def install_with_forbidden_cache(snapshot: Path, staged_shim: Path) -> None:
+        _fake_cc_installer(snapshot, staged_shim)
+        cache = snapshot / "tools" / "cc" / "src" / "cc" / "__pycache__"
+        cache.mkdir(parents=True)
+        (cache / "main.cpython-314.pyc").write_bytes(b"untracked bytecode")
+
+    with pytest.raises(
+        installer.FrameworkInstallError,
+        match=r"untracked extra entry: tools/cc/src/cc/__pycache__",
+    ):
+        installer.install_framework_snapshot(
+            source_root=repo,
+            source_commit=commit,
+            source_tree=tree,
+            home=home,
+            cc_installer=install_with_forbidden_cache,
+        )
+
+    snapshot = home / ".copilot" / "framework-snapshots" / f"claude-copilot-{commit}"
+    assert not snapshot.exists()
+    assert not (home / ".local" / "bin" / "cc").exists()
+    assert not (home / ".copilot" / "framework-runtime.json").exists()
+
+
 @pytest.mark.parametrize(
     "mutation",
     [
@@ -383,3 +413,54 @@ def test_full_repository_snapshot_runs_real_roundtrip_without_cnr(
         result.id == "roundtrip.transaction.plan_apply_verify" for result in results
     )
     assert all(result.verdict is not Verdict.COULD_NOT_RUN for result in results)
+
+
+def test_full_repository_real_installer_succeeds_in_isolated_home(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    commit = _git(REPO_ROOT, "rev-parse", "HEAD")
+    tree = _git(REPO_ROOT, "rev-parse", "HEAD^{tree}")
+    home = tmp_path / "home"
+    home.mkdir()
+    for name in ("tmp", "cache", "pip-cache", "uv-cache"):
+        (tmp_path / name).mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.setenv("PIP_CACHE_DIR", str(tmp_path / "pip-cache"))
+    monkeypatch.setenv("UV_CACHE_DIR", str(tmp_path / "uv-cache"))
+
+    report = installer.install_framework_snapshot(
+        source_root=REPO_ROOT,
+        source_commit=commit,
+        source_tree=tree,
+        home=home,
+    )
+
+    snapshot = Path(report["snapshot"])
+    shim = home / ".local" / "bin" / "cc"
+    active = json.loads((home / ".copilot" / "framework-runtime.json").read_text())
+    assert report["result"] == "installed"
+    assert report["machine_commands"] == list(MACHINE_COMMANDS)
+    assert not (snapshot / ".git").exists()
+    assert not list((snapshot / "tools" / "cc" / "src").rglob("__pycache__"))
+    assert not list((snapshot / "tools" / "cc" / "src").rglob("*.pyc"))
+    assert (
+        subprocess.check_output(
+            (str(shim), "--version"),
+            text=True,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+        .strip()
+        .startswith("cc version ")
+    )
+    assert active["source_commit"] == commit
+    assert active["source_tree"] == tree
+    assert active["snapshot"] == str(snapshot)
+    assert [item["name"] for item in active["machine_commands"]] == list(
+        MACHINE_COMMANDS
+    )
+    for name in MACHINE_COMMANDS:
+        assert (home / ".claude" / "commands" / name).read_bytes() == (
+            snapshot / ".claude" / "commands" / name
+        ).read_bytes()
