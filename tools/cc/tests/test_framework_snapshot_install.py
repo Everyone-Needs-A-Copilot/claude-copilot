@@ -752,6 +752,7 @@ def test_full_repository_real_installer_succeeds_in_isolated_home(
         source_commit=commit,
         source_tree=tree,
         home=home,
+        codex_runner=_FakeCodexRunner(),
     )
 
     snapshot = Path(report["snapshot"])

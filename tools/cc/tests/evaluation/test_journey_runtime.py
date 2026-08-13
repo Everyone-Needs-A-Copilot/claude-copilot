@@ -1578,7 +1578,10 @@ def test_lock_rename_unlink_recreate_attack_cannot_split_claim_identity(tmp_path
     holder.start()
     assert ready.wait(timeout=10)
     try:
-        with pytest.raises(PermissionError):
+        # macOS rejects renaming /private/tmp with EPERM, while Linux rejects
+        # moving /tmp beneath itself with EINVAL.  Both prove the security
+        # invariant: an unprivileged caller cannot replace the locked vnode.
+        with pytest.raises(OSError):
             os.rename(_GLOBAL_LOCK_PATH, tmp_path / "renamed-global-lock")
         with pytest.raises(OSError):
             os.unlink(_GLOBAL_LOCK_PATH)
