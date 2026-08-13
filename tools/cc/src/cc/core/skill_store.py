@@ -56,6 +56,16 @@ class SkillMeta:
     _knowledge_source: Any = field(default=None, repr=False, compare=False)
 
 
+@dataclass(frozen=True)
+class SkillContent:
+    content: str
+    receipt: Any = None
+
+    @property
+    def is_authenticated(self) -> bool:
+        return self.receipt is not None and bool(self.receipt.is_authenticated)
+
+
 def _git_root() -> Path | None:
     """Return the git repository root, or None if not inside a repo."""
     try:
@@ -529,14 +539,26 @@ def search_skills(query: str, skills: list[SkillMeta]) -> list[SkillMeta]:
 
 def get_skill_content(skill_meta: SkillMeta) -> str:
     """Read and return the full SKILL.md content for a given skill."""
-    if skill_meta._knowledge_source is not None:
-        from cc.core.ecosystem.knowledge_skill_source import (
-            revalidate_knowledge_skill_source,
-        )
+    return get_skill_content_with_receipt(skill_meta).content
 
-        source = revalidate_knowledge_skill_source(skill_meta._knowledge_source)
-        return source.read_text(skill_meta.path)
-    return skill_meta.path.read_text(encoding="utf-8")
+
+def get_skill_content_with_receipt(
+    skill_meta: SkillMeta, *, runtime: str = "cc"
+) -> SkillContent:
+    """Read a skill and retain signed Knowledge provenance when available.
+
+    Project, machine, and legacy unsigned Knowledge paths remain compatible,
+    but deliberately return no authenticated receipt.
+    """
+    if skill_meta._knowledge_source is not None:
+        source = skill_meta._knowledge_source
+        relative = skill_meta.path.relative_to(source.skills_root)
+        contribution = (
+            Path(source.relative_path) / relative
+        ).as_posix()
+        receipt = source.authenticated_contribution(contribution, runtime=runtime)
+        return SkillContent(content=receipt.content, receipt=receipt)
+    return SkillContent(content=skill_meta.path.read_text(encoding="utf-8"))
 
 
 def revalidate_skill_path(skill_meta: SkillMeta) -> None:

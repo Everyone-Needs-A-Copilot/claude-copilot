@@ -64,6 +64,65 @@ class GitItemProvenance:
     signer: str
     repository_root: str
     relative_path: str
+    release: "VerifiedSignedRelease"
+
+
+@dataclass(frozen=True)
+class VerifiedSignedRelease:
+    """One signature-verified, immutable annotated-tag release.
+
+    Blob reads are addressed through the captured root tree, never through a
+    mutable ref or working tree.
+    """
+
+    ref: str
+    tag: str
+    commit: str
+    tree: str
+    signer: str
+    repository_root: str
+
+    def read_blob(self, relative_path: str) -> bytes:
+        relative = Path(relative_path)
+        if (
+            relative.is_absolute()
+            or not relative.parts
+            or ".." in relative.parts
+            or relative.as_posix() in {"", "."}
+        ):
+            raise ValueError("Signed release blob path is unsafe.")
+        root = Path(self.repository_root)
+        try:
+            oid_result = subprocess.run(
+                ["git", "-C", str(root), "rev-parse", f"{self.tree}:{relative.as_posix()}"],
+                capture_output=True,
+                text=True,
+                timeout=8.0,
+                check=False,
+            )
+            oid = oid_result.stdout.strip()
+            if oid_result.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40,64}", oid):
+                raise ValueError("Signed release blob is unavailable.")
+            kind = subprocess.run(
+                ["git", "-C", str(root), "cat-file", "-t", oid],
+                capture_output=True,
+                text=True,
+                timeout=8.0,
+                check=False,
+            )
+            if kind.returncode != 0 or kind.stdout.strip() != "blob":
+                raise ValueError("Signed release path is not a blob.")
+            blob = subprocess.run(
+                ["git", "-C", str(root), "cat-file", "blob", oid],
+                capture_output=True,
+                timeout=8.0,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise ValueError("Signed release blob is unavailable.") from exc
+        if blob.returncode != 0:
+            raise ValueError("Signed release blob is unavailable.")
+        return blob.stdout
 
 
 @dataclass(frozen=True)
@@ -548,6 +607,18 @@ def verify_git_item_provenance(
             )
             if extras.returncode != 0 or extras.stdout.strip():
                 return None
+            root_tree_result = run(
+                ["git", "-C", str(root), "rev-parse", f"{pinned_commit}^{{tree}}"],
+                capture_output=True,
+                text=True,
+                timeout=8.0,
+                check=False,
+            )
+            root_tree = root_tree_result.stdout.strip()
+            if root_tree_result.returncode != 0 or not re.fullmatch(
+                r"[0-9a-f]{40,64}", root_tree
+            ):
+                return None
     except (OSError, subprocess.SubprocessError):
         return None
     return GitItemProvenance(
@@ -556,6 +627,14 @@ def verify_git_item_provenance(
         signer=signer,
         repository_root=str(root),
         relative_path=repo_relative,
+        release=VerifiedSignedRelease(
+            ref=ref,
+            tag=tag_oid,
+            commit=pinned_commit,
+            tree=root_tree,
+            signer=signer,
+            repository_root=str(root),
+        ),
     )
 
 

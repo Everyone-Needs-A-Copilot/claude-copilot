@@ -19,10 +19,16 @@ from cc.core.ecosystem.knowledge_skill_source import (
     resolve_knowledge_skill_sources,
 )
 from cc.core.ecosystem.project_locking import atomic_json_write
+from cc.core.extensions_resolver import (
+    ACTION_APPLY,
+    compose_agent_content_with_receipts,
+    resolve_extension,
+)
 from cc.core.skill_store import (
     discover_skills,
     discover_skills_with_sources,
     get_skill_content,
+    get_skill_content_with_receipt,
     revalidate_skill_path,
 )
 from cc.main import app
@@ -66,6 +72,23 @@ def _signed_knowledge_repo(tmp_path: Path) -> tuple[Path, str, str]:
     skill.write_text(
         "---\nname: accounting\ndescription: Signed accounting knowledge\n"
         "tags: [accounting]\n---\n\nauthorized body\n",
+        encoding="utf-8",
+    )
+    extension = repo / ".claude" / "extensions" / "do.extension.md"
+    extension.parent.mkdir(parents=True)
+    extension.write_text("signed extension body\n", encoding="utf-8")
+    (repo / "knowledge-manifest.json").write_text(
+        json.dumps(
+            {
+                "extensions": [
+                    {
+                        "agent": "do",
+                        "type": "override",
+                        "file": ".claude/extensions/do.extension.md",
+                    }
+                ]
+            }
+        ),
         encoding="utf-8",
     )
     _run(repo, "add", ".")
@@ -178,6 +201,62 @@ def test_signed_tree_drives_discovery_and_get(signed_source):
     assert stat.S_IMODE(skill.path.stat().st_mode) == 0o400
     assert stat.S_IMODE(skill.path.parent.stat().st_mode) == 0o500
     revalidate_skill_path(skill)
+
+
+def test_signed_skill_get_returns_exact_authenticated_receipt(signed_source):
+    _repo, _fingerprint = signed_source
+    skill = _discover_signed()
+    result = get_skill_content_with_receipt(skill, runtime="claude")
+
+    assert result.content.endswith("authorized body\n")
+    assert result.is_authenticated is True
+    assert result.receipt.layer == "knowledge-test"
+    assert result.receipt.role == "personal"
+    assert result.receipt.repository == "example/knowledge"
+    assert result.receipt.ref == "v1.0.0"
+    assert result.receipt.tree == skill._knowledge_source.release.tree
+    assert result.receipt.signer == skill._knowledge_source.signer
+    assert result.receipt.contribution.endswith("/accounting/SKILL.md")
+    assert result.receipt.content_sha256 == __import__("hashlib").sha256(
+        result.content.encode("utf-8")
+    ).hexdigest()
+    assert result.receipt.runtime == "claude"
+
+
+def test_signed_release_blob_read_ignores_checkout_and_tag_switch(signed_source):
+    repo, _fingerprint = signed_source
+    source = _discover_signed()._knowledge_source
+    expected = source.release.read_blob(".claude/extensions/do.extension.md")
+    (repo / ".claude/extensions/do.extension.md").write_text(
+        "mutable checkout replacement\n", encoding="utf-8"
+    )
+    _run(repo, "tag", "-f", "v1.0.0", "HEAD")
+
+    assert source.release.read_blob(".claude/extensions/do.extension.md") == expected
+
+
+def test_existing_resolver_composes_signed_extension_with_receipt(signed_source):
+    repo, _fingerprint = signed_source
+    resolution = resolve_extension("do", knowledge_repos=[str(repo)])
+    composed = compose_agent_content_with_receipts(resolution, "base ignored")
+
+    assert resolution.action == ACTION_APPLY
+    assert composed.content == "signed extension body\n"
+    assert len(composed.receipts) == 1
+    assert composed.receipts[0].contribution == ".claude/extensions/do.extension.md"
+    assert composed.receipts[0].content_sha256 == composed.content_sha256
+
+
+def test_signed_extension_checkout_mutation_cannot_change_composition(signed_source):
+    repo, _fingerprint = signed_source
+    resolution = resolve_extension("do", knowledge_repos=[str(repo)])
+    (repo / ".claude/extensions/do.extension.md").write_text(
+        "attacker checkout bytes\n", encoding="utf-8"
+    )
+
+    composed = compose_agent_content_with_receipts(resolution, "")
+    assert composed.content == "signed extension body\n"
+    assert "attacker" not in composed.content
 
 
 def test_tracked_mutation_fails_closed_before_discovery(signed_source):

@@ -26,6 +26,7 @@ from cc.core.ecosystem.manifest import ManifestError, load_layers, validate_laye
 from cc.core.ecosystem.mirror import synthesize_effective_layers
 from cc.core.ecosystem.policy import (
     GitTreeSnapshot,
+    VerifiedSignedRelease,
     read_git_tree_snapshot,
     verify_git_item_provenance,
 )
@@ -46,6 +47,45 @@ class KnowledgeSkillSourceError(ValueError):
 
 
 @dataclass(frozen=True)
+class AuthenticatedKnowledgeContribution:
+    layer: str
+    role: str
+    unit: str | None
+    repository: str
+    ref: str
+    tree: str
+    signer: str
+    contribution: str
+    content_sha256: str
+    content: str
+    runtime: str
+    adapter_version: str = "knowledge-contribution-v1"
+
+    @property
+    def is_authenticated(self) -> bool:
+        return True
+
+    def to_dict(self, *, include_content: bool = True) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "layer": self.layer,
+            "role": self.role,
+            "unit": self.unit,
+            "repository": self.repository,
+            "ref": self.ref,
+            "tree": self.tree,
+            "signer": self.signer,
+            "contribution": self.contribution,
+            "content_sha256": self.content_sha256,
+            "runtime": self.runtime,
+            "adapter_version": self.adapter_version,
+            "authenticated": True,
+        }
+        if include_content:
+            result["content"] = self.content
+        return result
+
+
+@dataclass(frozen=True)
 class VerifiedKnowledgeSkillSource:
     skills_root: Path
     repository_root: Path
@@ -55,9 +95,59 @@ class VerifiedKnowledgeSkillSource:
     ref: str
     tree: str
     signer: str
+    role: str
+    unit: str | None
+    release: VerifiedSignedRelease
     snapshot: GitTreeSnapshot
     snapshot_cache_root: Path
     entitlement_binding: entitlement.EntitlementBinding | None = None
+
+    def authenticated_contribution(
+        self, relative_path: str, *, runtime: str
+    ) -> AuthenticatedKnowledgeContribution:
+        """Read exact UTF-8 contribution bytes under current entitlement."""
+        current = revalidate_knowledge_skill_source(self)
+        contribution = Path(relative_path)
+        if contribution.is_absolute() or ".." in contribution.parts:
+            raise KnowledgeSkillSourceError("The Knowledge contribution path is unsafe.")
+
+        def read_current() -> bytes:
+            try:
+                return current.release.read_blob(contribution.as_posix())
+            except ValueError as exc:
+                raise KnowledgeSkillSourceError(
+                    "The requested Knowledge contribution is absent from its signed release."
+                ) from exc
+
+        if current.entitlement_binding is None:
+            raw = read_current()
+        else:
+            valid, raw = entitlement.run_under_binding_leases(
+                [current.entitlement_binding], read_current
+            )
+            if not valid or raw is None:
+                raise KnowledgeSkillSourceError(
+                    "Knowledge authorization changed before use; retry the command."
+                )
+        try:
+            content = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise KnowledgeSkillSourceError(
+                "The requested Knowledge contribution is not valid UTF-8."
+            ) from exc
+        return AuthenticatedKnowledgeContribution(
+            layer=current.layer,
+            role=current.role,
+            unit=current.unit,
+            repository=current.repository,
+            ref=current.ref,
+            tree=current.release.tree,
+            signer=current.signer,
+            contribution=contribution.as_posix(),
+            content_sha256=hashlib.sha256(raw).hexdigest(),
+            content=content,
+            runtime=runtime,
+        )
 
     def skill_files(self) -> tuple[Path, ...]:
         """Return SKILL.md paths enumerated by the immutable Git tree."""
@@ -1042,6 +1132,13 @@ def resolve_knowledge_skill_sources(
                         ref=verified.ref,
                         tree=verified.tree,
                         signer=verified.signer,
+                        role=str(layer.get("role") or ""),
+                        unit=(
+                            str(layer.get("unit"))
+                            if layer.get("unit") is not None
+                            else None
+                        ),
+                        release=verified.release,
                         snapshot=snapshot,
                         snapshot_cache_root=base,
                         entitlement_binding=entitlement_binding,
@@ -1076,6 +1173,9 @@ def revalidate_knowledge_skill_source(
             "ref",
             "tree",
             "signer",
+            "role",
+            "unit",
+            "release",
             "snapshot_cache_root",
             "entitlement_binding",
         )
@@ -1087,6 +1187,7 @@ def revalidate_knowledge_skill_source(
 
 
 __all__ = [
+    "AuthenticatedKnowledgeContribution",
     "KNOWLEDGE_SKILLS_SUBPATH",
     "KnowledgeSkillSourceError",
     "VerifiedKnowledgeSkillSource",

@@ -351,7 +351,7 @@ def skill_get(name: str) -> dict[str, Any]:
         default_skill_paths,
         discover_skills_with_sources,
         find_skill_by_name,
-        get_skill_content,
+        get_skill_content_with_receipt,
     )
 
     path_pairs = default_skill_paths()
@@ -361,15 +361,23 @@ def skill_get(name: str) -> dict[str, Any]:
     if skill is None:
         raise SkillNotFound(f"Skill {name!r} not found")
 
-    return {
+    result = get_skill_content_with_receipt(skill)
+    payload = {
         "name": skill.name,
         "description": skill.description,
         "tags": skill.tags,
         "version": skill.version,
         "source": skill.source,
-        "path": str(skill.path),
-        "content": get_skill_content(skill),
+        "content": result.content,
+        "receipt": (
+            result.receipt.to_dict(include_content=False)
+            if result.receipt is not None
+            else None
+        ),
     }
+    if result.receipt is None:
+        payload["path"] = str(skill.path)
+    return payload
 
 
 def skill_search(query: str) -> list[dict[str, Any]]:

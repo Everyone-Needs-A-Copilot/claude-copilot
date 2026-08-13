@@ -201,6 +201,7 @@ def skill_get(
         "--scope",
         help="Scope to scan: project | machine | knowledge | all",
     ),
+    output_json: bool = typer.Option(False, "--json", help="Output content and provenance as JSON."),
 ) -> None:
     """Print the full SKILL.md content (plain text, pipeable).
 
@@ -208,7 +209,7 @@ def skill_get(
         cc skill get security
         @include <(cc skill get stride-dread)
     """
-    from cc.core.skill_store import find_skill_by_name, get_skill_content
+    from cc.core.skill_store import find_skill_by_name, get_skill_content_with_receipt
 
     skills = _load_trusted_skills(scope)
     skill = find_skill_by_name(name, skills)
@@ -217,8 +218,19 @@ def skill_get(
         err_console.print(f"[red]Skill not found:[/red] {name!r}")
         raise typer.Exit(2)
 
-    # Plain text — deliberately no Rich markup so output is pipeable
-    sys.stdout.write(get_skill_content(skill))
+    result = get_skill_content_with_receipt(skill)
+    if output_json:
+        payload = _skill_to_dict(skill, include_path=result.receipt is None)
+        payload["content"] = result.content
+        payload["receipt"] = (
+            result.receipt.to_dict(include_content=False)
+            if result.receipt is not None
+            else None
+        )
+        typer.echo(json.dumps(payload))
+        return
+    # Plain text compatibility is deliberately preserved.
+    sys.stdout.write(result.content)
 
 
 @skill_app.command("path")
