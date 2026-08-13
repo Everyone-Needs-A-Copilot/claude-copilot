@@ -377,33 +377,37 @@ def _write_artifact(
 ) -> ArtifactReceipt:
     """Write only a production-revalidated record below a non-symlink root."""
 
-    if isinstance(record, RunRecord) and _production_record_valid(
-        root,
-        record,
-        cell=cell,
-        loaded_fixture=loaded_fixture,
-        journey_run_id=journey_run_id,
-        journey_ledger=journey_ledger,
-    ):
-        artifact_type = "run-record"
-        payload = run_record_document(record)
-    elif isinstance(record, ComparisonRecord):
+    if isinstance(record, ComparisonRecord):
         raise ValueError(
             "Comparison artifacts require production completion authority."
         )
-    else:
+    if not isinstance(record, RunRecord):
         raise ValueError("Artifact writes require production-authoritative evidence.")
-    _reject_aggregate_fields(payload)
-    _reject_disclosure_values(payload)
-    content = canonical_json_bytes(dict(payload))
-    digest = hashlib.sha256(content).hexdigest()
-    filename = f"{digest}.json"
-    staging_name = f".{digest}.{secrets.token_hex(12)}.tmp"
-    nofollow = getattr(os, "O_NOFOLLOW", 0)
-    cloexec = getattr(os, "O_CLOEXEC", 0)
     root_fd = _open_root_directory(root)
-    artifact_fd: int | None = None
     try:
+        if not _production_record_valid(
+            root,
+            record,
+            cell=cell,
+            loaded_fixture=loaded_fixture,
+            journey_run_id=journey_run_id,
+            journey_ledger=journey_ledger,
+            root_fd=root_fd,
+        ):
+            raise ValueError(
+                "Artifact writes require production-authoritative evidence."
+            )
+        artifact_type = "run-record"
+        payload = run_record_document(record)
+        _reject_aggregate_fields(payload)
+        _reject_disclosure_values(payload)
+        content = canonical_json_bytes(dict(payload))
+        digest = hashlib.sha256(content).hexdigest()
+        filename = f"{digest}.json"
+        staging_name = f".{digest}.{secrets.token_hex(12)}.tmp"
+        nofollow = getattr(os, "O_NOFOLLOW", 0)
+        cloexec = getattr(os, "O_CLOEXEC", 0)
+        artifact_fd: int | None = None
         created_type_directory = False
         try:
             os.mkdir(artifact_type, mode=0o700, dir_fd=root_fd)
@@ -532,6 +536,7 @@ def _production_record_valid(
     loaded_fixture: object,
     journey_run_id: str,
     journey_ledger: object,
+    root_fd: int,
 ) -> bool:
     """Revalidate durable claims; never rely on an in-memory seal alone."""
 
@@ -550,6 +555,7 @@ def _production_record_valid(
         cell,
         authority,
         root,
+        artifact_root_fd=root_fd,
         loaded_fixture=loaded_fixture,
         journey_run_id=journey_run_id,
         journey_ledger=journey_ledger,
@@ -583,25 +589,31 @@ def load_run_record_document(
     journey_run_id: str,
     journey_ledger: object,
     lineage_depth: int,
+    root_fd: int | None = None,
 ) -> dict[str, object] | None:
     """Reload one canonical, production-acceptable parent from artifact storage."""
 
     if lineage_depth >= 32:
         return None
-    root_fd: int | None = None
+    owned_root_fd: int | None = None
     type_fd: int | None = None
     try:
-        root_fd = _open_root_directory(root)
+        owned_root_fd = (
+            _open_root_directory(root) if root_fd is None else os.dup(root_fd)
+        )
+        _require_private_directory(
+            owned_root_fd, description="Evaluation artifact root"
+        )
         type_fd = os.open(
             "run-record",
             _directory_open_flags(),
-            dir_fd=root_fd,
+            dir_fd=owned_root_fd,
         )
         type_metadata = _require_private_directory(
             type_fd, description="Evaluation artifact type directory"
         )
         _require_named_directory(
-            root_fd,
+            owned_root_fd,
             "run-record",
             type_metadata,
             description="Evaluation artifact type directory",
@@ -609,8 +621,8 @@ def load_run_record_document(
     except (OSError, ValueError):
         if type_fd is not None:
             os.close(type_fd)
-        if root_fd is not None:
-            os.close(root_fd)
+        if owned_root_fd is not None:
+            os.close(owned_root_fd)
         return None
     try:
         names = os.listdir(type_fd)
@@ -689,6 +701,7 @@ def load_run_record_document(
                 parent_cell,
                 authority,
                 root,
+                artifact_root_fd=owned_root_fd,
                 loaded_fixture=loaded_fixture,
                 journey_run_id=journey_run_id,
                 journey_ledger=journey_ledger,
@@ -700,7 +713,7 @@ def load_run_record_document(
             _reject_disclosure_values(value)
             try:
                 _verify_storage_snapshot(
-                    root_fd,
+                    owned_root_fd,
                     type_fd,
                     "run-record",
                     name,
@@ -712,5 +725,5 @@ def load_run_record_document(
             return value
     finally:
         os.close(type_fd)
-        os.close(root_fd)
+        os.close(owned_root_fd)
     return None
