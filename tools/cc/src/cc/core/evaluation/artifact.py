@@ -341,6 +341,45 @@ def _verify_storage_snapshot(
     _verify_named_artifact(type_fd, filename, content, digest)
 
 
+def _open_artifact_type_directory(
+    root_fd: int, artifact_type: str, *, create: bool
+) -> int:
+    created = False
+    if create:
+        try:
+            os.mkdir(artifact_type, mode=0o700, dir_fd=root_fd)
+            created = True
+            os.chmod(
+                artifact_type,
+                0o700,
+                dir_fd=root_fd,
+                follow_symlinks=False,
+            )
+        except FileExistsError:
+            pass
+    type_fd = os.open(
+        artifact_type,
+        _directory_open_flags(),
+        dir_fd=root_fd,
+    )
+    try:
+        if created:
+            os.fchmod(type_fd, 0o700)
+        type_metadata = _require_private_directory(
+            type_fd, description="Evaluation artifact type directory"
+        )
+        _require_named_directory(
+            root_fd,
+            artifact_type,
+            type_metadata,
+            description="Evaluation artifact type directory",
+        )
+        return type_fd
+    except Exception:
+        os.close(type_fd)
+        raise
+
+
 def _reject_disclosure_values(value: object) -> None:
     if isinstance(value, Mapping):
         for item in value.values():
@@ -383,8 +422,11 @@ def _write_artifact(
         )
     if not isinstance(record, RunRecord):
         raise ValueError("Artifact writes require production-authoritative evidence.")
+    artifact_type = "run-record"
     root_fd = _open_root_directory(root)
+    type_fd: int | None = None
     try:
+        type_fd = _open_artifact_type_directory(root_fd, artifact_type, create=True)
         if not _production_record_valid(
             root,
             record,
@@ -393,11 +435,11 @@ def _write_artifact(
             journey_run_id=journey_run_id,
             journey_ledger=journey_ledger,
             root_fd=root_fd,
+            type_fd=type_fd,
         ):
             raise ValueError(
                 "Artifact writes require production-authoritative evidence."
             )
-        artifact_type = "run-record"
         payload = run_record_document(record)
         _reject_aggregate_fields(payload)
         _reject_disclosure_values(payload)
@@ -408,26 +450,7 @@ def _write_artifact(
         nofollow = getattr(os, "O_NOFOLLOW", 0)
         cloexec = getattr(os, "O_CLOEXEC", 0)
         artifact_fd: int | None = None
-        created_type_directory = False
         try:
-            os.mkdir(artifact_type, mode=0o700, dir_fd=root_fd)
-            created_type_directory = True
-            os.chmod(
-                artifact_type,
-                0o700,
-                dir_fd=root_fd,
-                follow_symlinks=False,
-            )
-        except FileExistsError:
-            pass
-        type_fd = os.open(
-            artifact_type,
-            _directory_open_flags(),
-            dir_fd=root_fd,
-        )
-        try:
-            if created_type_directory:
-                os.fchmod(type_fd, 0o700)
             type_metadata = _require_private_directory(
                 type_fd, description="Evaluation artifact type directory"
             )
@@ -491,7 +514,10 @@ def _write_artifact(
             raise
         finally:
             os.close(type_fd)
+            type_fd = None
     finally:
+        if type_fd is not None:
+            os.close(type_fd)
         os.close(root_fd)
     return ArtifactReceipt(
         artifact_type=artifact_type,
@@ -537,6 +563,7 @@ def _production_record_valid(
     journey_run_id: str,
     journey_ledger: object,
     root_fd: int,
+    type_fd: int,
 ) -> bool:
     """Revalidate durable claims; never rely on an in-memory seal alone."""
 
@@ -556,6 +583,7 @@ def _production_record_valid(
         authority,
         root,
         artifact_root_fd=root_fd,
+        artifact_type_fd=type_fd,
         loaded_fixture=loaded_fixture,
         journey_run_id=journey_run_id,
         journey_ledger=journey_ledger,
@@ -590,13 +618,14 @@ def load_run_record_document(
     journey_ledger: object,
     lineage_depth: int,
     root_fd: int | None = None,
+    type_fd: int | None = None,
 ) -> dict[str, object] | None:
     """Reload one canonical, production-acceptable parent from artifact storage."""
 
     if lineage_depth >= 32:
         return None
     owned_root_fd: int | None = None
-    type_fd: int | None = None
+    owned_type_fd: int | None = None
     try:
         owned_root_fd = (
             _open_root_directory(root) if root_fd is None else os.dup(root_fd)
@@ -604,13 +633,13 @@ def load_run_record_document(
         _require_private_directory(
             owned_root_fd, description="Evaluation artifact root"
         )
-        type_fd = os.open(
-            "run-record",
-            _directory_open_flags(),
-            dir_fd=owned_root_fd,
+        owned_type_fd = (
+            _open_artifact_type_directory(owned_root_fd, "run-record", create=False)
+            if type_fd is None
+            else os.dup(type_fd)
         )
         type_metadata = _require_private_directory(
-            type_fd, description="Evaluation artifact type directory"
+            owned_type_fd, description="Evaluation artifact type directory"
         )
         _require_named_directory(
             owned_root_fd,
@@ -619,19 +648,19 @@ def load_run_record_document(
             description="Evaluation artifact type directory",
         )
     except (OSError, ValueError):
-        if type_fd is not None:
-            os.close(type_fd)
+        if owned_type_fd is not None:
+            os.close(owned_type_fd)
         if owned_root_fd is not None:
             os.close(owned_root_fd)
         return None
     try:
-        names = os.listdir(type_fd)
+        names = os.listdir(owned_type_fd)
         for name in names:
             if not _ARTIFACT_NAME.fullmatch(name):
                 continue
             try:
                 raw = _read_verified_artifact(
-                    type_fd,
+                    owned_type_fd,
                     name,
                     digest=name[:-5],
                     maximum_size=1_048_576,
@@ -702,6 +731,7 @@ def load_run_record_document(
                 authority,
                 root,
                 artifact_root_fd=owned_root_fd,
+                artifact_type_fd=owned_type_fd,
                 loaded_fixture=loaded_fixture,
                 journey_run_id=journey_run_id,
                 journey_ledger=journey_ledger,
@@ -714,7 +744,7 @@ def load_run_record_document(
             try:
                 _verify_storage_snapshot(
                     owned_root_fd,
-                    type_fd,
+                    owned_type_fd,
                     "run-record",
                     name,
                     raw,
@@ -724,6 +754,6 @@ def load_run_record_document(
                 return None
             return value
     finally:
-        os.close(type_fd)
+        os.close(owned_type_fd)
         os.close(owned_root_fd)
     return None
