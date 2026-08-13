@@ -408,6 +408,71 @@ class TestD07Knowledge:
         assert len(evidence) == 1
         assert evidence[0].actual.startswith("Knowledge Copilot:")
 
+    @pytest.mark.parametrize(
+        "line",
+        (
+            (
+                "Backup `/Volumes/DockerApps/scripts/backup.sh`; "
+                "Knowledge `/Volumes/DockerApps/docs/knowledge-copilot/README.md`"
+            ),
+            (
+                "Knowledge `/Volumes/DockerApps/docs/knowledge-copilot/README.md`; "
+                "backup `/Volumes/DockerApps/scripts/backup.sh`"
+            ),
+        ),
+    )
+    def test_fails_when_knowledge_path_is_among_multiple_absolute_paths(
+        self, tmp_path, line
+    ):
+        repo = tmp_path / "admin-server"
+        _write(
+            repo,
+            ".claude/cc/config.json",
+            json.dumps({"paths": {"knowledge_repo": "@machine"}}),
+        )
+        _write(repo, "CLAUDE.md", f"{line}\n")
+
+        result = check_d07_knowledge_wiring_resolves(repo)
+
+        assert result.verdict is Verdict.FAIL
+        evidence = tuple(
+            entry
+            for entry in result.evidence
+            if entry.kind == "knowledge-claude-md-hardcoded-path"
+        )
+        assert len(evidence) == 1
+        assert "knowledge-copilot/README.md" in evidence[0].actual
+
+    @pytest.mark.parametrize(
+        "line",
+        (
+            (
+                "Backup `/Volumes/DockerApps/scripts/backup.sh`; "
+                "media `/Volumes/Davy Jones/Audiobooks`"
+            ),
+            (
+                "Media `/Volumes/Davy Jones/Audiobooks`; "
+                "backup `/Volumes/DockerApps/scripts/backup.sh`"
+            ),
+        ),
+    )
+    def test_passes_multiple_operational_absolute_paths(self, tmp_path, line):
+        repo = tmp_path / "admin-server"
+        _write(
+            repo,
+            ".claude/cc/config.json",
+            json.dumps({"paths": {"knowledge_repo": "@machine"}}),
+        )
+        _write(repo, "CLAUDE.md", f"{line}\n")
+
+        result = check_d07_knowledge_wiring_resolves(repo)
+
+        assert result.verdict is Verdict.PASS
+        assert not any(
+            entry.kind == "knowledge-claude-md-hardcoded-path"
+            for entry in result.evidence
+        )
+
     def test_pass_reproduces_org_manifest_healthy_baseline(self, tmp_path):
         """Mirrors `knowledge-copilot-internal`'s live shape: 2 extensions,
         each requiredSkills entry resolves against skills.local, 0 broken
