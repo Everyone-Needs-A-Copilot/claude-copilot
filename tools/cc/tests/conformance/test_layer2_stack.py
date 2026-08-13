@@ -94,7 +94,7 @@ def _tagged_repo(tmp_path: Path, *, name: str, tag: str, branch: str = "main") -
     (path / "README.md").write_text("hello\n", encoding="utf-8")
     subprocess.run(["git", "add", "-A"], cwd=path, check=True)
     subprocess.run(["git", "commit", "-q", "-m", "initial"], cwd=path, check=True)
-    subprocess.run(["git", "tag", tag], cwd=path, check=True)
+    subprocess.run(["git", "-c", "tag.gpgSign=false", "tag", tag], cwd=path, check=True)
     return path
 
 
@@ -336,7 +336,10 @@ class TestCsAncestor:
             capture_output=True,
         )
         subprocess.run(
-            ["git", "tag", "v1.0.0"], cwd=repo, check=True, capture_output=True
+            ["git", "-c", "tag.gpgSign=false", "tag", "v1.0.0"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
         )
 
         manifest_path = tmp_path / "copilot.layers.yml"

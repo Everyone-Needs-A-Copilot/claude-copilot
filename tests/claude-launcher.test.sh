@@ -8,6 +8,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 LAUNCHER="$PROJECT_ROOT/.claude/claude-launcher"
 MODEL_FILE="$PROJECT_ROOT/.claude/.model"
+FAKE_BIN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/claude-launcher-test.XXXXXX")"
+
+cleanup() {
+  rm -rf "$FAKE_BIN_DIR"
+}
+trap cleanup EXIT
+
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "$FAKE_BIN_DIR/claude"
+chmod +x "$FAKE_BIN_DIR/claude"
+export PATH="$FAKE_BIN_DIR:$PATH"
 
 PASS=0
 FAIL=0

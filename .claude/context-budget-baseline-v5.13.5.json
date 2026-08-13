@@ -1,0 +1,77 @@
+{
+  "$comment": "Committed baseline for FF9 after reviewing four command-budget increases introduced by approved framework work since v5.13.4. `pause.md` grew from 4,639 to 5,416 bytes (+777) to persist active journey state and evidence before handoff. `protocol.md` grew from 36,624 to 40,777 bytes (+4,153) to enforce real extension resolution and prepare, bind, and verify journey dispatch authority, including fail-closed recovery guidance. `setup.md` grew from 6,658 to 7,521 bytes (+863) for extension-resolution setup and immutable framework snapshot installation. `update-copilot.md` grew from 3,498 to 4,733 bytes (+1,235) for the immutable snapshot update and roundtrip contract. These are reviewed security/runtime contracts, not accidental prose expansion. Policy thresholds and every unrelated measurement are carried forward unchanged from v5.13.4 so this re-baseline does not silently reset headroom for other artifacts.",
+  "framework_version": "5.13.5",
+  "captured_at": "2026-08-13T21:31:28Z",
+  "byte_to_token_ratio": 4.0,
+  "byte_to_token_basis": "~4 characters per token for English/markdown text -- OpenAI's widely-published tokenizer heuristic (platform.openai.com/tokenizer: 'a helpful rule of thumb is that one token generally corresponds to ~4 characters of text'). No tokenizer dependency is added; this is a documented approximation, applied identically to every artifact so ratios between artifacts stay comparable even though the absolute token count is approximate.",
+  "thresholds": {
+    "growth_ratio": 1.10,
+    "growth_ratio_basis": "Matches IMPL-plan item 5's starting point: tight enough to catch a real content-bloat edit, loose enough for normal edits (a new table row, a paragraph) not to trip it. Applies uniformly to every tracked artifact (agents, commands, CLAUDE.md, the SessionStart injection file, and the frontmatter-description catalog). Unchanged from v5.13.4 -- this re-baseline resets only four reviewed command byte counts, not the policy.",
+    "shrink_floor_ratio": 0.70,
+    "shrink_floor_basis": "A single edit legitimately removing under 30% of a file (trimming a stale section) is normal; losing more than 30% in one change is the signature of an accidental body-strip or truncated write, which a growth-only budget cannot see. Unchanged from v5.13.4.",
+    "corpus_ceiling_ratio": 1.10,
+    "corpus_ceiling_basis": "Same 10% headroom as the per-file ratio, applied to the SUM of all 16 agent files, so many small under-ratio additions across different files (each individually compliant) still can't add up to unbounded corpus growth. Unchanged from v5.13.4.",
+    "always_loaded_growth_ratio": 1.08,
+    "always_loaded_growth_ratio_basis": "Deliberately tighter than every other ratio in this file (8% vs 10%) because this is the one number that taxes literally every session with zero user action -- CLAUDE.md and the SessionStart injection are read whether or not the session ever touches an agent or a command. Unchanged from v5.13.4."
+  },
+  "agents": {
+    "cco.md": 9081,
+    "cpa.md": 11240,
+    "cs.md": 9633,
+    "cw.md": 9362,
+    "do.md": 9890,
+    "doc.md": 8204,
+    "ind.md": 14469,
+    "kc.md": 8690,
+    "me.md": 9704,
+    "qa.md": 13205,
+    "sd.md": 15073,
+    "sec.md": 10269,
+    "ta.md": 12917,
+    "uid.md": 8630,
+    "uids.md": 24686,
+    "uxd.md": 20922
+  },
+  "agent_corpus_total_bytes": 195975,
+  "agent_corpus_note": "Carried forward from v5.13.4. This re-baseline reviews only four command artifacts and deliberately does not reset the agent-corpus ceiling against unrelated later growth.",
+  "commands": {
+    "config.md": 8735,
+    "continue.md": 14169,
+    "extensions.md": 6862,
+    "knowledge-copilot.md": 2837,
+    "map.md": 3894,
+    "memory.md": 4881,
+    "orchestrate.md": 4654,
+    "pause.md": 5416,
+    "protocol.md": 40777,
+    "reflect.md": 4335,
+    "setup-copilot.md": 1320,
+    "setup-knowledge-sync.md": 6174,
+    "setup-project.md": 13318,
+    "setup.md": 7521,
+    "skills-approve.md": 2394,
+    "update-copilot.md": 4733,
+    "update-project.md": 14080
+  },
+  "always_loaded": {
+    "claude_md_bytes": 20531,
+    "claude_md_note": "Carried forward unchanged from v5.13.4; none of the four reviewed command artifacts is auto-loaded into every session.",
+    "session_start_injection_bytes": 3445,
+    "session_start_injection_note": "Carried forward unchanged from v5.13.4; the runtime-computed Known References and Session Quota additions remain excluded because they are not committed static content.",
+    "frontmatter_catalog_bytes": 2292,
+    "frontmatter_catalog_note": "Carried forward unchanged from v5.13.4; the reviewed changes do not alter agent frontmatter.",
+    "total_bytes": 26268
+  },
+  "excluded_from_always_loaded": {
+    "protocol.md": {
+      "bytes": 40777,
+      "reason": "Loads only on explicit `/protocol` invocation, not via an auto-loaded file or unconditional hook. It remains tracked under the ordinary per-artifact growth and shrink invariants. Since v5.13.4 it added reviewed extension-resolution enforcement and journey dispatch preparation, evidence binding, fail-closed verification, and recovery contracts, growing by 4,153 bytes.",
+      "verification": "No PreToolUse/SessionStart/UserPromptSubmit hook reads or emits protocol.md's content; it is resolved only for an explicit /protocol command invocation."
+    },
+    "AGENTS.md": {
+      "bytes": 5840,
+      "reason": "Codex-layer file, not loaded into a Claude Code session and not referenced by Claude Code hooks. Carried forward unchanged from v5.13.4."
+    }
+  },
+  "override_log": ".claude/context-budget-overrides.jsonl"
+}

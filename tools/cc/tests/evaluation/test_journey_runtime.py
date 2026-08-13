@@ -1728,11 +1728,11 @@ def test_runtime_contains_no_second_router_or_resolver():
     "unsafe",
     [
         "line\nfeed",
-        "/Users/pabs/private",
+        "/Users/example/private",
         "api_token=value",
         "Pablo Alejo",
         "contact-pabs@example.com",
-        "inspect-/Users/pabs/private",
+        "inspect-/Users/example/private",
         "sk-abcdefghijklmnopqrstuvwxyz",
     ],
 )
@@ -1771,7 +1771,7 @@ def test_persisted_classification_and_reasons_reject_unsafe_values(unsafe):
     [
         "Pablo Alejo",
         "contact-pabs@example.com",
-        "inspect-/Users/pabs/private",
+        "inspect-/Users/example/private",
         "sk-abcdefghijklmnopqrstuvwxyz",
     ],
 )
