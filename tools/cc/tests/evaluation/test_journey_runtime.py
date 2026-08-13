@@ -283,6 +283,60 @@ def test_no_active_legacy_and_missing_wrong_or_replayed_markers():
         )
 
 
+def test_completed_dispatch_replay_denies_without_security_or_knowledge():
+    rows = Rows()
+    started = begin(rows, specialists=("me",))
+    prepared = prepare_run(
+        started["run_id"], "me", ledger=ledger(rows), resolver=resolver
+    )
+    authorize(rows, prepared)
+    calls = []
+    denied = MandatorySecurityVerifier(
+        lambda _context: calls.append("security") or ("denied", "revoked")
+    )
+
+    def unavailable(_specialist):
+        calls.append("knowledge")
+        raise RuntimeError("Knowledge unavailable")
+
+    for _ in range(2):
+        with pytest.raises(ValueError, match="dispatch-replay"):
+            verify_dispatch(
+                session_id="session-296",
+                specialist="me",
+                marker=prepared.invocation_marker,
+                prompt_sha256="c" * 64,
+                knowledge_sha256=prepared.composed_content_sha256,
+                ledger_factory=ledger_factory(rows),
+                resolver=unavailable,
+                security=denied,
+            )
+    assert calls == []
+    titles = [item["title"] for item in rows.items.values()]
+    assert titles.count("Journey v2.1 dispatch evidence") == 1
+    assert titles.count("Journey v2.1 final evidence") == 1
+    final = next(
+        item
+        for item in rows.items.values()
+        if item["title"] == "Journey v2.1 final evidence"
+    )
+    changed = json.loads(final["content"])
+    changed["result_sha256"] = "f" * 64
+    final["content"] = json.dumps(changed, sort_keys=True, separators=(",", ":"))
+    with pytest.raises(ValueError, match="Final authorization evidence changed"):
+        verify_dispatch(
+            session_id="other-session",
+            specialist="me",
+            marker=prepared.invocation_marker,
+            prompt_sha256="c" * 64,
+            knowledge_sha256=prepared.composed_content_sha256,
+            ledger_factory=ledger_factory(rows),
+            resolver=unavailable,
+            security=denied,
+        )
+    assert calls == []
+
+
 def test_signed_source_binding_is_rechecked_before_dispatch():
     rows = Rows()
     started = begin(rows, specialists=("me",))
@@ -328,7 +382,10 @@ def test_concurrent_dispatch_consumes_tc_stage_exactly_once():
 
     assert outcomes.count("dispatch_authorized") == 1
     denied = [item for item in outcomes if item != "dispatch_authorized"]
-    assert denied == ["Exact next Agent prompt has not been prepared."]
+    assert denied[0] in {
+        "dispatch-replay",
+        "Exact next Agent prompt has not been prepared.",
+    }
     titles = [item["title"] for item in rows.items.values()]
     assert titles.count("Journey v2.1 dispatch evidence") == 1
     assert titles.count("Journey v2.1 final evidence") == 1
@@ -361,6 +418,18 @@ def test_final_write_failure_is_recoverable_without_second_dispatch_row():
             resolver=resolver,
         )
 
+    recovery_calls = []
+    current_security = MandatorySecurityVerifier(
+        lambda _context: (
+            recovery_calls.append("security")
+            or ("allowed", "protocol-route-authorized")
+        )
+    )
+
+    def current_resolver(specialist):
+        recovery_calls.append("knowledge")
+        return resolver(specialist)
+
     recovered = verify_dispatch(
         session_id="session-296",
         specialist="me",
@@ -368,9 +437,11 @@ def test_final_write_failure_is_recoverable_without_second_dispatch_row():
         prompt_sha256="c" * 64,
         knowledge_sha256=prepared.composed_content_sha256,
         ledger_factory=ledger_factory(rows),
-        resolver=resolver,
+        resolver=current_resolver,
+        security=current_security,
     )
     assert recovered["state"] == "dispatch_authorized"
+    assert recovery_calls == ["security", "knowledge"]
     titles = [item["title"] for item in rows.items.values()]
     assert titles.count("Journey v2.1 dispatch evidence") == 1
     assert titles.count("Journey v2.1 final evidence") == 1
@@ -383,7 +454,7 @@ def test_final_write_failure_is_recoverable_without_second_dispatch_row():
         ("Journey v2.1 final evidence", 2),
     ),
 )
-def test_post_store_identity_failure_retry_is_idempotent(
+def test_post_store_identity_failure_recovery_is_exactly_once(
     failure_title, checks_until_failure
 ):
     class FailAfterFinalRows(Rows):
@@ -430,26 +501,30 @@ def test_post_store_identity_failure_retry_is_idempotent(
             resolver=resolver,
         )
 
-    recovered = verify_dispatch(
-        session_id="session-296",
-        specialist="me",
-        marker=prepared.invocation_marker,
-        prompt_sha256="c" * 64,
-        knowledge_sha256=prepared.composed_content_sha256,
-        ledger_factory=factory,
-        resolver=resolver,
+    if failure_title == "Journey v2.1 dispatch evidence":
+        recovered = verify_dispatch(
+            session_id="session-296",
+            specialist="me",
+            marker=prepared.invocation_marker,
+            prompt_sha256="c" * 64,
+            knowledge_sha256=prepared.composed_content_sha256,
+            ledger_factory=factory,
+            resolver=resolver,
+        )
+        assert recovered["state"] == "dispatch_authorized"
+    with pytest.raises(ValueError, match="dispatch-replay"):
+        verify_dispatch(
+            session_id="session-296",
+            specialist="me",
+            marker=prepared.invocation_marker,
+            prompt_sha256="c" * 64,
+            knowledge_sha256=prepared.composed_content_sha256,
+            ledger_factory=factory,
+            resolver=resolver,
+        )
+    assert inspect_run(started["run_id"], ledger=ledger(rows))["status"] == (
+        "all_dispatches_authorized"
     )
-    repeated = verify_dispatch(
-        session_id="session-296",
-        specialist="me",
-        marker=prepared.invocation_marker,
-        prompt_sha256="c" * 64,
-        knowledge_sha256=prepared.composed_content_sha256,
-        ledger_factory=factory,
-        resolver=resolver,
-    )
-    assert recovered == repeated
-    assert recovered["state"] == "dispatch_authorized"
     titles = [item["title"] for item in rows.items.values()]
     assert titles.count("Journey v2.1 dispatch evidence") == 1
     assert titles.count("Journey v2.1 final evidence") == 1
@@ -1786,7 +1861,7 @@ def test_real_tc_guard_safe_roundtrip_and_multiprocess_dispatch(tmp_path, monkey
         assert not process.is_alive()
     outcomes = sorted(queue.get(timeout=2) for _ in processes)
     assert outcomes == [
-        ("ok", "dispatch_authorized"),
+        ("error", "dispatch-replay"),
         ("ok", "dispatch_authorized"),
     ]
 
