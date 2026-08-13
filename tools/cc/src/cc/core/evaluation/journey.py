@@ -15,7 +15,7 @@ import os
 import re
 import tempfile
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
 SCHEMA_VERSION = "1.0"
@@ -29,6 +29,7 @@ _ROUTE_EVENT_KINDS = frozenset({"transition", "checkpoint", "skip"})
 _SAFE_IDENTITY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@/+\-]{0,255}$")
 _COMPOSITION_SEPARATOR = "\n\n"
 _SECRET_LIKE = re.compile(r"(?i)(bearer|password|secret|token|api[_-]?key)")
+_VERIFIED_SOURCE_AUTHORITY = object()
 
 
 def _is_safe_identity(value: str) -> bool:
@@ -49,6 +50,52 @@ def _digest(value: object) -> str:
 
 
 @dataclass(frozen=True)
+class TrustedKnowledgeSourcePolicy:
+    """Exact identity accepted by an upstream authenticated resolver."""
+
+    repository: str
+    ref: str
+    tree: str
+    signer: str
+    runtime: str
+    adapter_version: str
+    contributions: frozenset[str]
+
+    def __post_init__(self) -> None:
+        identities = (
+            self.repository,
+            self.ref,
+            self.signer,
+            self.runtime,
+            self.adapter_version,
+            *self.contributions,
+        )
+        if (
+            not self.contributions
+            or not all(_is_safe_identity(item) for item in identities)
+            or not _TREE.fullmatch(self.tree)
+        ):
+            raise ValueError("Trusted Knowledge source policy is malformed.")
+
+
+class _VerifiedKnowledgeSourceProof:
+    """Opaque proof issued only after exact policy and byte validation."""
+
+    __slots__ = ("_claims",)
+
+    def __init__(self, authority: object, claims: tuple[str, ...]) -> None:
+        if authority is not _VERIFIED_SOURCE_AUTHORITY:
+            raise TypeError("Verified Knowledge proof has no trusted issuer.")
+        self._claims = claims
+
+    def matches(self, claims: tuple[str, ...]) -> bool:
+        return self._claims == claims
+
+    def __deepcopy__(self, memo):
+        return self
+
+
+@dataclass(frozen=True)
 class KnowledgeReceipt:
     """Identity and bytes of one winning Knowledge contribution."""
 
@@ -61,7 +108,7 @@ class KnowledgeReceipt:
     runtime: str
     adapter_version: str
     repository: str = "local-fixture"
-    authenticated: bool = True
+    _verification: object | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         required = (
@@ -76,12 +123,60 @@ class KnowledgeReceipt:
         if (
             not all(identities)
             or not all(_is_safe_identity(item) for item in identities)
-            or not self.authenticated
             or not _TREE.fullmatch(self.tree)
         ):
             raise ValueError("Knowledge receipt lacks immutable source identity.")
         if not _DIGEST.fullmatch(self.content_sha256):
             raise ValueError("Knowledge receipt has an invalid content digest.")
+
+    def _claims(self) -> tuple[str, ...]:
+        return (
+            self.layer,
+            self.repository,
+            self.ref,
+            self.tree,
+            self.signer,
+            self.contribution,
+            self.content_sha256,
+            self.runtime,
+            self.adapter_version,
+        )
+
+    @property
+    def is_authenticated(self) -> bool:
+        proof = self._verification
+        return isinstance(proof, _VerifiedKnowledgeSourceProof) and proof.matches(
+            self._claims()
+        )
+
+
+class KnowledgeReceiptVerifier:
+    """Trusted resolver projection that issues byte- and identity-bound receipts."""
+
+    def __init__(self, policy: TrustedKnowledgeSourcePolicy) -> None:
+        self._policy = policy
+
+    def issue(
+        self, *, layer: str, contribution: str, source_content: str
+    ) -> KnowledgeReceipt:
+        policy = self._policy
+        if contribution not in policy.contributions:
+            raise ValueError("Knowledge contribution is not allowed by source policy.")
+        receipt = KnowledgeReceipt(
+            layer=layer,
+            ref=policy.ref,
+            tree=policy.tree,
+            signer=policy.signer,
+            contribution=contribution,
+            content_sha256=hashlib.sha256(source_content.encode()).hexdigest(),
+            runtime=policy.runtime,
+            adapter_version=policy.adapter_version,
+            repository=policy.repository,
+        )
+        proof = _VerifiedKnowledgeSourceProof(
+            _VERIFIED_SOURCE_AUTHORITY, receipt._claims()
+        )
+        return replace(receipt, _verification=proof)
 
 
 @dataclass(frozen=True)
@@ -104,6 +199,8 @@ class KnowledgeComposition:
             for receipt, content in zip(self.receipts, self.source_contents)
         ):
             raise ValueError("Knowledge receipt does not bind the composed bytes.")
+        if any(not receipt.is_authenticated for receipt in self.receipts):
+            raise ValueError("Knowledge source receipt is not authenticated.")
         canonical_content = _COMPOSITION_SEPARATOR.join(self.source_contents)
         if self.content != canonical_content:
             raise ValueError(
@@ -252,6 +349,9 @@ class JourneyEvidence:
 
     def as_dict(self) -> dict[str, Any]:
         value = asdict(self)
+        for invocation in value["invocations"]:
+            for source in invocation["sources"]:
+                source.pop("_verification", None)
         detail = value["capability"].get("detail", "")
         if detail and not detail.startswith("sha256:"):
             value["capability"]["detail"] = (

@@ -11,11 +11,28 @@ from cc.core.evaluation.journey import (
     JourneyCase,
     KnowledgeComposition,
     KnowledgeReceipt,
+    KnowledgeReceiptVerifier,
     RouteEvent,
     RouteTrace,
     SecurityReceipt,
     TcContinuationStore,
+    TrustedKnowledgeSourcePolicy,
 )
+
+
+def verified_receipt(content: str, contribution: str) -> KnowledgeReceipt:
+    policy = TrustedKnowledgeSourcePolicy(
+        repository="local-fixture",
+        ref="v1.0.0",
+        tree="a" * 40,
+        signer="SHA256:test",
+        runtime="claude",
+        adapter_version="knowledge-v1",
+        contributions=frozenset({contribution}),
+    )
+    return KnowledgeReceiptVerifier(policy).issue(
+        layer="organization", contribution=contribution, source_content=content
+    )
 
 
 class Protocol:
@@ -47,16 +64,7 @@ class Knowledge:
         if self.error:
             raise self.error
         content = f"synthetic context for {specialist}"
-        receipt = KnowledgeReceipt(
-            layer="organization",
-            ref="v1.0.0",
-            tree="a" * 40,
-            signer="SHA256:test",
-            contribution=f"skills/{specialist}",
-            content_sha256=hashlib.sha256(content.encode()).hexdigest(),
-            runtime="claude",
-            adapter_version="knowledge-v1",
-        )
+        receipt = verified_receipt(content, f"skills/{specialist}")
         return KnowledgeComposition(content, (receipt,), (content,))
 
 
@@ -298,7 +306,10 @@ def test_knowledge_bytes_must_match_attributable_receipt():
 
 def test_unrelated_composed_content_and_unauthenticated_source_are_rejected():
     source = "source"
-    receipt = KnowledgeReceipt(
+    receipt = verified_receipt(source, "skill")
+    with pytest.raises(ValueError, match="canonical"):
+        KnowledgeComposition("INJECTED", (receipt,), (source,))
+    manual = KnowledgeReceipt(
         "organization",
         "v1",
         "a" * 40,
@@ -308,19 +319,60 @@ def test_unrelated_composed_content_and_unauthenticated_source_are_rejected():
         "claude",
         "v1",
     )
-    with pytest.raises(ValueError, match="canonical"):
-        KnowledgeComposition("INJECTED", (receipt,), (source,))
-    with pytest.raises(ValueError, match="immutable source identity"):
-        KnowledgeReceipt(
-            "organization",
-            "v1",
-            "a" * 40,
-            "signer",
-            "skill",
-            hashlib.sha256(source.encode()).hexdigest(),
-            "claude",
-            "v1",
-            authenticated=False,
+    with pytest.raises(ValueError, match="not authenticated"):
+        KnowledgeComposition(source, (manual,), (source,))
+
+
+def test_safe_looking_fabricated_identity_and_counterfeit_proof_are_rejected():
+    source = "source"
+    attacker = KnowledgeReceipt(
+        "organization",
+        "attacker-ref",
+        "a" * 40,
+        "attacker-signer",
+        "skills/ta",
+        hashlib.sha256(source.encode()).hexdigest(),
+        "claude",
+        "attacker-adapter",
+    )
+    assert not attacker.is_authenticated
+    with pytest.raises(ValueError, match="not authenticated"):
+        KnowledgeComposition(source, (attacker,), (source,))
+    counterfeit = KnowledgeReceipt(
+        "organization",
+        "v1",
+        "a" * 40,
+        "signer",
+        "skills/ta",
+        hashlib.sha256(source.encode()).hexdigest(),
+        "claude",
+        "v1",
+        _verification=object(),
+    )
+    assert not counterfeit.is_authenticated
+    with pytest.raises(ValueError, match="not authenticated"):
+        KnowledgeComposition(source, (counterfeit,), (source,))
+
+
+def test_verifier_binds_every_policy_identity_and_source_bytes():
+    source = "source"
+    policy = TrustedKnowledgeSourcePolicy(
+        "trusted-repo",
+        "v1",
+        "a" * 40,
+        "trusted-signer",
+        "claude",
+        "v1",
+        frozenset({"skills/ta"}),
+    )
+    receipt = KnowledgeReceiptVerifier(policy).issue(
+        layer="organization", contribution="skills/ta", source_content=source
+    )
+    assert receipt.is_authenticated
+    assert KnowledgeComposition(source, (receipt,), (source,)).content == source
+    with pytest.raises(ValueError, match="not allowed"):
+        KnowledgeReceiptVerifier(policy).issue(
+            layer="organization", contribution="skills/me", source_content=source
         )
 
 
