@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import stat
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -421,6 +422,68 @@ def test_content_addressed_artifacts_are_canonical_and_idempotent(
     assert not tuple(tmp_path.rglob("*.tmp"))
 
 
+def test_artifact_writer_enforces_private_modes_independent_of_umask(
+    tmp_path: Path,
+) -> None:
+    cell = _cell()
+    record = EvaluationRunner(_Runtime()).run(cell)
+    previous_umask = os.umask(0o777)
+    try:
+        receipt = write_run_record(tmp_path, record, cell=cell)
+    finally:
+        os.umask(previous_umask)
+
+    artifact_type = tmp_path / "run-record"
+    artifact_path = tmp_path / receipt.relative_path
+    assert stat.S_IMODE(artifact_type.stat().st_mode) == 0o700
+    assert stat.S_IMODE(artifact_path.stat().st_mode) == 0o600
+    assert artifact_type.stat().st_uid == os.geteuid()
+    assert artifact_path.stat().st_uid == os.geteuid()
+
+
+def test_artifact_writer_rejects_unsafe_root_type_and_existing_file_modes(
+    tmp_path: Path,
+) -> None:
+    cell = _cell()
+    record = EvaluationRunner(_Runtime()).run(cell)
+
+    tmp_path.chmod(0o777)
+    with pytest.raises(ValueError, match="mode-0700"):
+        write_run_record(tmp_path, record, cell=cell)
+    tmp_path.chmod(0o700)
+
+    artifact_type = tmp_path / "run-record"
+    artifact_type.mkdir(mode=0o700)
+    artifact_type.chmod(0o777)
+    with pytest.raises(ValueError, match="mode-0700"):
+        write_run_record(tmp_path, record, cell=cell)
+    artifact_type.chmod(0o700)
+
+    receipt = write_run_record(tmp_path, record, cell=cell)
+    artifact_path = tmp_path / receipt.relative_path
+    artifact_path.chmod(0o666)
+    with pytest.raises(ValueError, match="private stable regular file"):
+        write_run_record(tmp_path, record, cell=cell)
+
+
+def test_artifact_writer_rejects_wrong_effective_owner_and_symlink_type(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cell = _cell()
+    record = EvaluationRunner(_Runtime()).run(cell)
+    actual_uid = os.geteuid()
+    monkeypatch.setattr(os, "geteuid", lambda: actual_uid + 1)
+    with pytest.raises(ValueError, match="current-user-owned"):
+        write_run_record(tmp_path, record, cell=cell)
+    monkeypatch.undo()
+
+    outside = tmp_path / "outside"
+    outside.mkdir(mode=0o700)
+    (tmp_path / "run-record").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(OSError):
+        write_run_record(tmp_path, record, cell=cell)
+
+
 def test_artifact_writer_rejects_aggregate_fields_and_symlink_roots(
     tmp_path: Path,
 ) -> None:
@@ -432,19 +495,20 @@ def test_artifact_writer_rejects_aggregate_fields_and_symlink_roots(
     linked = tmp_path / "linked"
     linked.symlink_to(real, target_is_directory=True)
     cell = _cell()
-    with pytest.raises(OSError):
+    with pytest.raises((OSError, ValueError)):
         write_run_record(linked, EvaluationRunner(_Runtime()).run(cell), cell=cell)
 
 
 def test_artifact_writer_rejects_existing_identical_hardlink(tmp_path: Path) -> None:
     source = tmp_path / "source"
     target = tmp_path / "target"
-    source.mkdir()
-    target.mkdir()
+    source.mkdir(mode=0o700)
+    target.mkdir(mode=0o700)
     cell = _cell()
     record = EvaluationRunner(_Runtime()).run(cell)
     receipt = write_run_record(source, record, cell=cell)
-    (target / "run-record").mkdir()
+    (target / "run-record").mkdir(mode=0o700)
+    (target / "run-record").chmod(0o700)
     os.link(source / receipt.relative_path, target / receipt.relative_path)
     with pytest.raises(ValueError, match="stable regular"):
         write_run_record(target, record, cell=cell)
@@ -459,6 +523,7 @@ def test_artifact_final_name_must_still_reference_verified_inode(
     digest = __import__("hashlib").sha256(content).hexdigest()
     filename = f"{digest}.json"
     (artifact_type / filename).write_bytes(content)
+    (artifact_type / filename).chmod(0o600)
     replacement = artifact_type / "replacement.json"
     replacement.write_bytes(b"replacement")
     type_fd = os.open(artifact_type, os.O_RDONLY | os.O_DIRECTORY)
@@ -598,6 +663,21 @@ def test_retry_lineage_reloads_canonical_parent_artifact(tmp_path: Path) -> None
     retry = runner.run(_cell(attempt=2, parent_attempt_sha256=first.run_sha256))
     assert retry.state is RunState.DISPATCH_AUTHORIZED
     assert len(runner.records) == 1
+
+
+def test_retry_lineage_rejects_parent_artifact_with_unsafe_mode(
+    tmp_path: Path,
+) -> None:
+    first_cell = _cell()
+    first = EvaluationRunner(_Runtime(), artifact_root=tmp_path).run(first_cell)
+    receipt = write_run_record(tmp_path, first, cell=first_cell)
+    (tmp_path / receipt.relative_path).chmod(0o666)
+
+    runtime = _Runtime()
+    runner = _runner(runtime, complete=False, artifact_root=tmp_path)
+    retry = runner.run(_cell(attempt=2, parent_attempt_sha256=first.run_sha256))
+    assert retry.state is RunState.INVALID
+    assert runtime.calls == 0
     assert (tmp_path / "run-record").is_dir()
 
     bad_runtime = _Runtime()
