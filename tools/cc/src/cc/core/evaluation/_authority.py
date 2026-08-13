@@ -28,6 +28,84 @@ from cc.core.evaluation.schema import canonical_sha256
 _AUTHORITY_TOKEN = object()
 
 
+def _verified_journey_identities(
+    run_id: str, journey_ledger: object
+) -> dict[str, object] | None:
+    """Derive identities only from TASK-296's fully validated terminal ledger."""
+
+    from cc.core.evaluation.journey_runtime import (
+        TcJourneyLedger,
+        _state,
+        inspect_run,
+    )
+
+    if not isinstance(journey_ledger, TcJourneyLedger):
+        return None
+    try:
+        state = _state(run_id, journey_ledger)
+        projected = inspect_run(run_id, ledger=journey_ledger)
+    except (OSError, TypeError, ValueError):
+        return None
+    if (
+        len(state["final_authorization"]) != 1
+        or projected.get("status") != "all_dispatches_authorized"
+        or projected.get("evidence_claim") != "dispatch_observed_and_authorized_only"
+        or projected.get("run_id") != run_id
+    ):
+        return None
+    begin = state["begin_record"]
+    final = state["final_authorization"][0]
+    route_sha256 = canonical_sha256(begin["route"])
+    continuity_sha256 = canonical_sha256(
+        [
+            {
+                "generation": item["generation"],
+                "capsule_sha256": item["capsule_sha256"],
+            }
+            for item in state["pause_capsule"]
+        ]
+    )
+    invocation_sha256 = canonical_sha256(
+        {
+            "prepare": state["prepare"],
+            "prompt_binding": state["prompt_binding"],
+            "dispatch_authorization": state["dispatch_authorization"],
+            "security_sha256": canonical_sha256(begin["security"]),
+        }
+    )
+    terminal_sha256 = canonical_sha256(
+        {
+            "result_sha256": final["result_sha256"],
+            "dispatch_authorizations_sha256": final["dispatch_authorizations_sha256"],
+            "projected_result_sha256": canonical_sha256(projected),
+        }
+    )
+    journey_sha256 = canonical_sha256(
+        {
+            "schema_version": "task296-evaluation-evidence-v1",
+            "task_id": begin["task_id"],
+            "run_id": run_id,
+            "session_id_sha256": begin["session_id_sha256"],
+            "prompt_sha256": begin["prompt_sha256"],
+            "route_evidence_sha256": route_sha256,
+            "continuity_evidence_sha256": continuity_sha256,
+            "invocation_receipts_sha256": invocation_sha256,
+            "terminal_evidence_sha256": terminal_sha256,
+        }
+    )
+    return {
+        "task_id": begin["task_id"],
+        "run_id": run_id,
+        "session_id_sha256": begin["session_id_sha256"],
+        "prompt_sha256": begin["prompt_sha256"],
+        "route_evidence_sha256": route_sha256,
+        "continuity_evidence_sha256": continuity_sha256,
+        "invocation_receipts_sha256": invocation_sha256,
+        "terminal_evidence_sha256": terminal_sha256,
+        "journey_evidence_sha256": journey_sha256,
+    }
+
+
 def _cell_subject(cell: EvaluationCell) -> str:
     return canonical_sha256(
         {
@@ -91,7 +169,7 @@ def _production_authority(
     """
 
     from cc.core.evaluation.fixtures import LoadedFixture
-    from cc.core.evaluation.journey_runtime import TcJourneyLedger, inspect_run
+    from cc.core.evaluation.journey_runtime import TcJourneyLedger
 
     facts: dict[PreflightGate, tuple[GateState, str, str, str]] = {}
     if isinstance(loaded_fixture, LoadedFixture) and (
@@ -106,14 +184,17 @@ def _production_authority(
             "digest-bound-fixture",
         )
     if isinstance(journey_ledger, TcJourneyLedger):
-        try:
-            state = inspect_run(journey_run_id, ledger=journey_ledger)
-        except (OSError, TypeError, ValueError):
-            state = {}
+        state = _verified_journey_identities(journey_run_id, journey_ledger) or {}
         if (
-            state.get("evidence_claim") == "dispatch_observed_and_authorized_only"
+            state.get("run_id") == journey_run_id
             and state.get("prompt_sha256") == cell.prompt_evidence_sha256
             and state.get("task_id") == cell.consumption_receipt.task_id
+            and state.get("journey_evidence_sha256")
+            == cell.consumption_receipt.journey_evidence_sha256
+            and state.get("route_evidence_sha256")
+            == cell.consumption_receipt.route_evidence_sha256
+            and state.get("continuity_evidence_sha256")
+            == cell.consumption_receipt.continuity_evidence_sha256
         ):
             facts[PreflightGate.JOURNEY_EVIDENCE] = (
                 GateState.PASS,

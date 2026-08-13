@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -125,6 +126,8 @@ def _cell(
     variant: LayerVariant = LayerVariant.FOUNDATION,
     *,
     runtime_configuration_sha256: str | None = None,
+    attempt_policy_sha256: str | None = None,
+    tool_configuration_sha256: str | None = None,
     case_id: str = "eval-01",
     attempt: int = 1,
     parent_attempt_sha256: str | None = None,
@@ -151,9 +154,9 @@ def _cell(
         content_receipt=content,
         consumption_receipt=consumption,
         attempt=attempt,
-        attempt_policy_sha256=_sha("4"),
+        attempt_policy_sha256=attempt_policy_sha256 or _sha("4"),
         runtime_configuration_sha256=runtime_configuration_sha256 or _sha("5"),
-        tool_configuration_sha256=_sha("6"),
+        tool_configuration_sha256=tool_configuration_sha256 or _sha("6"),
         parent_attempt_sha256=parent_attempt_sha256,
     )
 
@@ -432,6 +435,20 @@ def test_artifact_writer_rejects_aggregate_fields_and_symlink_roots(
         write_run_record(linked, EvaluationRunner(_Runtime()).run(cell), cell=cell)
 
 
+def test_artifact_writer_rejects_existing_identical_hardlink(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.mkdir()
+    target.mkdir()
+    cell = _cell()
+    record = EvaluationRunner(_Runtime()).run(cell)
+    receipt = write_run_record(source, record, cell=cell)
+    (target / "run-record").mkdir()
+    os.link(source / receipt.relative_path, target / receipt.relative_path)
+    with pytest.raises(ValueError, match="stable regular"):
+        write_run_record(target, record, cell=cell)
+
+
 def test_callers_cannot_mint_passing_gate_or_valid_preflight() -> None:
     with pytest.raises(ValueError, match="verifier-issued"):
         GateObservation(
@@ -466,6 +483,9 @@ def test_receipt_fields_reject_mutable_refs_bad_signers_and_disclosure_paths() -
             "outputs/token-value.txt",
             "shared-output",
         )
+    record = EvaluationRunner(_Runtime()).run(_cell())
+    with pytest.raises(ValueError, match="exactly 1.2"):
+        replace(record, schema_version="1.3")
 
 
 def test_dispatch_is_not_completion_without_correlated_completion_proof() -> None:
@@ -529,6 +549,31 @@ def test_retry_lineage_reloads_canonical_parent_artifact(tmp_path: Path) -> None
     assert bad.state is RunState.INVALID
     assert bad_runtime.calls == 0
     assert len(runner.records) == 2
+
+
+@pytest.mark.parametrize(
+    "changed",
+    (
+        {"attempt_policy_sha256": _sha("8")},
+        {"runtime_configuration_sha256": _sha("8")},
+        {"tool_configuration_sha256": _sha("8")},
+    ),
+)
+def test_retry_lineage_rejects_control_configuration_transplant(
+    tmp_path: Path, changed: dict[str, str]
+) -> None:
+    first_cell = _cell()
+    first = EvaluationRunner(_Runtime(), artifact_root=tmp_path).run(first_cell)
+    write_run_record(tmp_path, first, cell=first_cell)
+    runtime = _Runtime()
+    child = _cell(
+        attempt=2,
+        parent_attempt_sha256=first.run_sha256,
+        **changed,
+    )
+    record = _runner(runtime, artifact_root=tmp_path).run(child)
+    assert record.state is RunState.INVALID
+    assert runtime.calls == 0
 
 
 @pytest.mark.parametrize(

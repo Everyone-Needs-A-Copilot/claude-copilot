@@ -446,6 +446,8 @@ class RunRecord:
     _authority: object = None
 
     def __post_init__(self) -> None:
+        if self.schema_version != "1.2":
+            raise ValueError("Run record schema_version must be exactly 1.2.")
         if self._authority is not _RUN_RECORD_AUTHORITY:
             raise ValueError("Run records must be runner-issued.")
 
