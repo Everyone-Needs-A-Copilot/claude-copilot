@@ -547,8 +547,15 @@ def observe_layer(
     get_json: GetJsonFn | None = None,
     state_path: Path | str | None = None,
     now: datetime | None = None,
+    defer_eligible_knowledge_snapshot_rollover: bool = False,
 ) -> EntitlementDecision:
-    """Record one live GitHub access observation and return current eligibility."""
+    """Record one live GitHub access observation and return current eligibility.
+
+    Canonical ecosystem update may defer cleanup for an eligible Knowledge
+    generation so its projector can integrity-check and roll the prior receipt
+    under the update transaction.  Terminal decisions are never deferred, and
+    ordinary observations retain immediate cleanup.
+    """
     layer_id = str(layer.get("id", ""))
     if not is_protected_layer(layer):
         return _decision(layer_id, "not-required", True)
@@ -602,6 +609,7 @@ def observe_layer(
                 current_decision,
                 state_path=path,
                 login=authoritative_login,
+                defer_eligible_rollover=(defer_eligible_knowledge_snapshot_rollover),
             )
             return current_decision
 
@@ -687,7 +695,11 @@ def observe_layer(
                 revision=sequence,
             )
         _reconcile_knowledge_snapshot_authority(
-            layer, decision, state_path=path, login=stored_login
+            layer,
+            decision,
+            state_path=path,
+            login=stored_login,
+            defer_eligible_rollover=defer_eligible_knowledge_snapshot_rollover,
         )
     return decision
 
@@ -698,6 +710,7 @@ def _reconcile_knowledge_snapshot_authority(
     *,
     state_path: Path,
     login: str | None,
+    defer_eligible_rollover: bool = False,
 ) -> None:
     """Keep protected Knowledge snapshots only for the current eligible row.
 
@@ -707,6 +720,8 @@ def _reconcile_knowledge_snapshot_authority(
     the observation returns.
     """
     if str(layer.get("product", "")).lower() != "knowledge":
+        return
+    if defer_eligible_rollover and decision.eligible:
         return
     source = layer.get("source")
     repository = github_repo_slug(source.get("repo")) if isinstance(source, dict) else None

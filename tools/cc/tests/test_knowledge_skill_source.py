@@ -333,26 +333,11 @@ def test_protected_projection_preserves_tampered_prior_receipt_on_rollover(
 
 
 def test_update_tampered_rollover_aborts_without_receipt_or_lock_mutation(
-    protected_signed_source, tmp_path, monkeypatch
+    protected_signed_source, tmp_path
 ):
     _repo, layer, state_path, cache_root = protected_signed_source
     _source, projection = _protected_projection(protected_signed_source)
     old_target, index_before = _tamper_protected_receipt(cache_root, projection.binding)
-    ledger = json.loads(state_path.read_text(encoding="utf-8"))
-    ledger["next_sequence"] = 3
-    ledger["layers"][layer["id"]]["revision"] = 2
-    atomic_json_write(state_path, ledger)
-    monkeypatch.setattr(
-        "cc.commands.update.entitlement.observe_layer",
-        lambda *_args, **_kwargs: entitlement.EntitlementDecision(
-            layer=layer["id"],
-            state="entitled",
-            eligible=True,
-            responsible_actor="none",
-            recovery="none",
-            revision=2,
-        ),
-    )
     lock_path = tmp_path / "copilot.lock.json"
     previous_lock = {
         layer["id"]: {
@@ -374,6 +359,7 @@ def test_update_tampered_rollover_aborts_without_receipt_or_lock_mutation(
             _personal_roots=[],
             _entitlement_login="person",
             _entitlement_token="token",
+            _entitlement_get_json=lambda *_args, **_kwargs: 200,
             _entitlement_state_path=state_path,
             _entitlement_now=datetime.now(timezone.utc),
             _knowledge_snapshot_root=cache_root,
@@ -385,6 +371,60 @@ def test_update_tampered_rollover_aborts_without_receipt_or_lock_mutation(
     )
     assert (cache_root / "index.json").read_bytes() == index_before
     assert lock_path.read_bytes() == lock_before
+    ledger = json.loads(state_path.read_text(encoding="utf-8"))
+    assert ledger["layers"][layer["id"]]["revision"] == 2
+
+
+def test_update_observes_then_rolls_valid_receipt_and_projects_lock(
+    protected_signed_source, tmp_path, monkeypatch
+):
+    from cc.commands import update as update_module
+
+    _repo, layer, state_path, cache_root = protected_signed_source
+    _source, projection = _protected_projection(protected_signed_source)
+    index_before = json.loads((cache_root / "index.json").read_text(encoding="utf-8"))
+    old_target = cache_root / index_before["entries"][projection.binding]["target"]
+    real_projector = update_module.resolve_protected_knowledge_lock_projections
+    projector_observed_old_receipt = False
+
+    def observe_then_project(*args, **kwargs):
+        nonlocal projector_observed_old_receipt
+        projector_observed_old_receipt = old_target.is_dir()
+        return real_projector(*args, **kwargs)
+
+    monkeypatch.setattr(
+        update_module,
+        "resolve_protected_knowledge_lock_projections",
+        observe_then_project,
+    )
+    lock_path = tmp_path / "copilot.lock.json"
+
+    report = build_update_report(
+        _layers=[layer],
+        _previous_lock={layer["id"]: {"_meta": {"product": "knowledge"}}},
+        _lockfile_path=lock_path,
+        _lock_write_path=lock_path,
+        _mirror_root=tmp_path / "mirrors",
+        _materialize_root=tmp_path / "materialize",
+        _personal_roots=[],
+        _entitlement_login="person",
+        _entitlement_token="token",
+        _entitlement_get_json=lambda *_args, **_kwargs: 200,
+        _entitlement_state_path=state_path,
+        _entitlement_now=datetime.now(timezone.utc),
+        _knowledge_snapshot_root=cache_root,
+    )
+
+    assert projector_observed_old_receipt is True
+    assert not old_target.exists()
+    ledger = json.loads(state_path.read_text(encoding="utf-8"))
+    assert ledger["layers"][layer["id"]]["revision"] == 2
+    index_after = json.loads((cache_root / "index.json").read_text(encoding="utf-8"))
+    active = next(iter(index_after["entries"].values()))
+    assert active["revision"] == 2
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    assert lock[layer["id"]]["plugins"]["codex-copilot"] == projection.content_sha256
+    assert report["result"] == "applied"
 
 
 def test_protected_projection_rejects_mismatched_index_signer(
