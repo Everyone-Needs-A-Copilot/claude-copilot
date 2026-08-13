@@ -16,6 +16,7 @@ from cc.core.evaluation._authority import (
 )
 from cc.core.evaluation.artifact import (
     _reject_aggregate_fields,
+    _verify_named_artifact,
     _write_artifact,
     write_comparison_record,
     write_run_record,
@@ -449,6 +450,41 @@ def test_artifact_writer_rejects_existing_identical_hardlink(tmp_path: Path) -> 
         write_run_record(target, record, cell=cell)
 
 
+def test_artifact_final_name_must_still_reference_verified_inode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifact_type = tmp_path / "run-record"
+    artifact_type.mkdir()
+    content = b'{"schema_version":"1.2"}'
+    digest = __import__("hashlib").sha256(content).hexdigest()
+    filename = f"{digest}.json"
+    (artifact_type / filename).write_bytes(content)
+    replacement = artifact_type / "replacement.json"
+    replacement.write_bytes(b"replacement")
+    type_fd = os.open(artifact_type, os.O_RDONLY | os.O_DIRECTORY)
+    real_stat = os.stat
+    swapped = False
+
+    def replacing_stat(path, *args, **kwargs):
+        nonlocal swapped
+        if path == filename and not swapped:
+            swapped = True
+            os.replace(
+                "replacement.json",
+                filename,
+                src_dir_fd=type_fd,
+                dst_dir_fd=type_fd,
+            )
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", replacing_stat)
+    try:
+        with pytest.raises(ValueError, match="identity collision"):
+            _verify_named_artifact(type_fd, filename, content, digest)
+    finally:
+        os.close(type_fd)
+
+
 def test_callers_cannot_mint_passing_gate_or_valid_preflight() -> None:
     with pytest.raises(ValueError, match="verifier-issued"):
         GateObservation(
@@ -486,6 +522,32 @@ def test_receipt_fields_reject_mutable_refs_bad_signers_and_disclosure_paths() -
     record = EvaluationRunner(_Runtime()).run(_cell())
     with pytest.raises(ValueError, match="exactly 1.2"):
         replace(record, schema_version="1.3")
+
+
+def test_run_record_state_matrix_rejects_reflective_contradictions() -> None:
+    from cc.core.evaluation.runner import _record
+
+    cell = _cell()
+    invalid = EvaluationRunner(_Runtime()).run(cell)
+    with pytest.raises(ValueError, match="cannot carry result"):
+        _record(
+            cell,
+            preflight=invalid.preflight,
+            state=RunState.INVALID,
+            output_sha256=_sha("8"),
+            controlled_artifact_path="outputs/invalid.txt",
+            completion_evidence_sha256=_sha("9"),
+        )
+
+    dispatch = _runner(_Runtime(), complete=False).run(cell)
+    with pytest.raises(ValueError, match="without completion"):
+        replace(dispatch, completion_evidence_sha256=_sha("9"))
+    completed = _runner(_Runtime()).run(cell)
+    with pytest.raises(ValueError, match="correlated completion"):
+        replace(completed, completion_evidence_sha256=None)
+    technical = _runner(_Runtime(RuntimeError("synthetic"))).run(cell)
+    with pytest.raises(ValueError, match="only a stable error"):
+        replace(technical, output_sha256=_sha("8"))
 
 
 def test_dispatch_is_not_completion_without_correlated_completion_proof() -> None:

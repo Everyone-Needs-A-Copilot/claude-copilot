@@ -35,16 +35,17 @@ def _verified_journey_identities(
 
     from cc.core.evaluation.journey_runtime import (
         TcJourneyLedger,
+        _public_state,
         _state,
-        inspect_run,
     )
 
     if not isinstance(journey_ledger, TcJourneyLedger):
         return None
     try:
-        state = _state(run_id, journey_ledger)
-        projected = inspect_run(run_id, ledger=journey_ledger)
-    except (OSError, TypeError, ValueError):
+        with journey_ledger.claim(run_id):
+            state = _state(run_id, journey_ledger)
+            projected = _public_state(run_id, state)
+    except (OSError, RuntimeError, TypeError, ValueError):
         return None
     if (
         len(state["final_authorization"]) != 1
@@ -80,6 +81,16 @@ def _verified_journey_identities(
             "projected_result_sha256": canonical_sha256(projected),
         }
     )
+    snapshot_sha256 = canonical_sha256(
+        {
+            "begin": begin,
+            "prepare": state["prepare"],
+            "prompt_binding": state["prompt_binding"],
+            "dispatch_authorization": state["dispatch_authorization"],
+            "pause_capsule": state["pause_capsule"],
+            "final_authorization": state["final_authorization"],
+        }
+    )
     journey_sha256 = canonical_sha256(
         {
             "schema_version": "task296-evaluation-evidence-v1",
@@ -91,6 +102,7 @@ def _verified_journey_identities(
             "continuity_evidence_sha256": continuity_sha256,
             "invocation_receipts_sha256": invocation_sha256,
             "terminal_evidence_sha256": terminal_sha256,
+            "terminal_snapshot_sha256": snapshot_sha256,
         }
     )
     return {
@@ -102,6 +114,7 @@ def _verified_journey_identities(
         "continuity_evidence_sha256": continuity_sha256,
         "invocation_receipts_sha256": invocation_sha256,
         "terminal_evidence_sha256": terminal_sha256,
+        "terminal_snapshot_sha256": snapshot_sha256,
         "journey_evidence_sha256": journey_sha256,
     }
 
