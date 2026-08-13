@@ -18,6 +18,15 @@ from cc.core.evaluation.schema import canonical_sha256, validate_document
 
 _MAX_FILE_BYTES = 8 * 1024 * 1024
 _LOADED_FIXTURE_AUTHORITY = object()
+_PREREGISTERED_MATRICES = {
+    ("eval-01", 1): (("F", "F+O"), ("claude", "codex")),
+    ("eval-02", 1): (("F", "F+O"), ("claude", "codex")),
+    ("eval-03", 1): (("F", "F+O"), ("claude", "codex")),
+    ("eval-04", 1): (("F", "F+O"), ("claude", "codex")),
+    ("eval-05", 1): (("F", "F+O+D"), ("claude", "codex")),
+    ("eval-06", 1): (("F", "F+O"), ("claude", "codex")),
+    ("eval-07", 1): (("F+O+D", "F+O+D+P"), ("claude", "codex")),
+}
 
 
 class FixtureLoadError(ValueError):
@@ -55,10 +64,22 @@ def load_fixture(case_root: Path) -> LoadedFixture:
         require_safe_synthetic_text(
             fixture.problem_statement, location_class="problem-statement"
         )
+        oracle_bytes = _read_regular_file(root_descriptor, fixture.private_oracle.path)
+        _require_digest(oracle_bytes, fixture.private_oracle.sha256)
+        try:
+            oracle_text = oracle_bytes.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise FixtureLoadError("Private oracle is not UTF-8.") from error
+        require_safe_synthetic_text(oracle_text, location_class="private-oracle")
+
         verified: list[VerifiedEvidence] = []
         for declared in fixture.evidence_files:
+            if declared.sha256 == fixture.private_oracle.sha256:
+                raise FixtureLoadError("Runtime evidence aliases the private oracle.")
             content = _read_regular_file(root_descriptor, declared.path)
             _require_digest(content, declared.sha256)
+            if content == oracle_bytes:
+                raise FixtureLoadError("Runtime evidence aliases the private oracle.")
             if (
                 declared.media_type.startswith("text/")
                 or declared.media_type == "application/json"
@@ -78,14 +99,6 @@ def load_fixture(case_root: Path) -> LoadedFixture:
                     content=content,
                 )
             )
-
-        oracle_bytes = _read_regular_file(root_descriptor, fixture.private_oracle.path)
-        _require_digest(oracle_bytes, fixture.private_oracle.sha256)
-        try:
-            oracle_text = oracle_bytes.decode("utf-8")
-        except UnicodeDecodeError as error:
-            raise FixtureLoadError("Private oracle is not UTF-8.") from error
-        require_safe_synthetic_text(oracle_text, location_class="private-oracle")
 
     return LoadedFixture(
         fixture=fixture,
@@ -217,6 +230,15 @@ def _require_digest(content: bytes, expected: str) -> None:
 
 
 def _validate_fixture_invariants(fixture: EvaluationFixture) -> None:
+    preregistered = _PREREGISTERED_MATRICES.get((fixture.case_id, fixture.revision))
+    if preregistered is None:
+        raise FixtureLoadError("Fixture case and revision are not preregistered.")
+    expected_layers, expected_runtimes = preregistered
+    if tuple(item.value for item in fixture.layer_variants) != expected_layers:
+        raise FixtureLoadError("Fixture layer matrix differs from preregistration.")
+    if tuple(item.value for item in fixture.runtimes) != expected_runtimes:
+        raise FixtureLoadError("Fixture runtime matrix differs from preregistration.")
+
     evidence_paths = tuple(item.path for item in fixture.evidence_files)
     if len(set(evidence_paths)) != len(evidence_paths):
         raise FixtureLoadError("Fixture evidence paths must be unique.")

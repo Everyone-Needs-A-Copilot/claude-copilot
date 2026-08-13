@@ -163,6 +163,46 @@ def test_loader_rejects_oracle_declared_as_runtime_evidence(tmp_path):
         load_fixture(tmp_path)
 
 
+def test_loader_rejects_runtime_evidence_that_copies_private_oracle_bytes(tmp_path):
+    document = _write_fixture(tmp_path)
+    oracle = (tmp_path / "oracle" / "expected.json").read_bytes()
+    leaked_path = tmp_path / "input" / "leaked-oracle.json"
+    leaked_path.write_bytes(oracle)
+    document["evidence_files"].append(
+        {
+            "path": "input/leaked-oracle.json",
+            "sha256": _sha(oracle),
+            "media_type": "application/json",
+            "synthetic_fixture": True,
+            "fixture_namespace": "SYNTHETIC-EVAL05",
+        }
+    )
+    (tmp_path / "case.json").write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(FixtureLoadError, match="aliases the private oracle"):
+        load_fixture(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "field,value,error",
+    [
+        ("layer_variants", ["F", "F+O+D", "F+O+D+P"], "layer matrix"),
+        ("runtimes", ["claude"], "runtime matrix"),
+        ("revision", 2, "not preregistered"),
+        ("case_id", "eval-99", "not preregistered"),
+    ],
+)
+def test_loader_rejects_fixture_matrix_or_identity_outside_preregistration(
+    tmp_path, field, value, error
+):
+    document = _write_fixture(tmp_path)
+    document[field] = value
+    (tmp_path / "case.json").write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(FixtureLoadError, match=error):
+        load_fixture(tmp_path)
+
+
 def test_loader_rejects_duplicate_json_fields(tmp_path):
     _write_fixture(tmp_path)
     (tmp_path / "case.json").write_text(
