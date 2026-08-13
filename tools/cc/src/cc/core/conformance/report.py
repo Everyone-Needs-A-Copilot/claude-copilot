@@ -56,6 +56,22 @@ _ROUNDTRIP_SCRATCH_SUBJECT = re.compile(
     r"^.*/cc-conformance-roundtrip-[^/]+/project(?P<suffix>(?:::.+)?)$"
 )
 
+# These tier checks inspect the framework checkout itself.  An installed
+# immutable snapshot has a different checkout prefix from the authoring tree,
+# but the inspected framework facet is the same baseline subject.  Keep this
+# list deliberately check-specific: ordinary repo subjects must remain exact.
+_FRAMEWORK_FACET_SUBJECTS: Mapping[str, tuple[str, ...]] = {
+    "tier.precedence.commands_dimension_has_no_consumer": (
+        "tools/cc/src/cc/commands",
+        "tools/cc/src/cc/core/ecosystem",
+    ),
+    "tier.effectiveness.extension_resolution_wired_beyond_prose": (
+        ".claude",
+        "plugins",
+        "scripts",
+    ),
+}
+
 NO_AVERAGING_NOTE = (
     "Counts are not averaged. S0 and S3 are not commensurable "
     "(RUBRIC.md section 4) -- there is no aggregate score."
@@ -367,7 +383,10 @@ def baseline_subject(check_id: str, subject: str) -> str:
     Round-trip checks deliberately run under a fresh random temporary
     directory.  Persisting that directory name would make every healthy run
     look like an unrelated new check.  Only that known scratch prefix is
-    normalized; real repository subjects and facet suffixes remain exact.
+    normalized.  The two framework-internal tier checks also use a stable
+    facet identity so the authoring checkout and an immutable installed
+    snapshot compare as the same subject.  All other repository subjects and
+    facet suffixes remain exact.
     """
 
     if check_id.startswith("roundtrip."):
@@ -376,6 +395,9 @@ def baseline_subject(check_id: str, subject: str) -> str:
             return "roundtrip:canonical-scratch-project" + (
                 match.group("suffix") or ""
             )
+    for facet in _FRAMEWORK_FACET_SUBJECTS.get(check_id, ()):
+        if subject == facet or subject.endswith(f"/{facet}"):
+            return f"framework:{facet}"
     return subject
 
 

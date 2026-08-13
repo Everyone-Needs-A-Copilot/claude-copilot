@@ -484,6 +484,42 @@ class TestReport:
             "/tmp/project"
         )
 
+    @pytest.mark.parametrize(
+        "check_id,facet",
+        [
+            (
+                "tier.precedence.commands_dimension_has_no_consumer",
+                "tools/cc/src/cc/commands",
+            ),
+            (
+                "tier.precedence.commands_dimension_has_no_consumer",
+                "tools/cc/src/cc/core/ecosystem",
+            ),
+            (
+                "tier.effectiveness.extension_resolution_wired_beyond_prose",
+                ".claude",
+            ),
+            (
+                "tier.effectiveness.extension_resolution_wired_beyond_prose",
+                "plugins",
+            ),
+            (
+                "tier.effectiveness.extension_resolution_wired_beyond_prose",
+                "scripts",
+            ),
+        ],
+    )
+    def test_framework_baseline_subject_ignores_only_checkout_prefix(
+        self, check_id, facet
+    ):
+        authoring = f"/Volumes/Dev/Sites/COPILOT/claude-copilot/{facet}"
+        snapshot = f"/Users/pabs/.copilot/framework-snapshots/claude-copilot-aa0125/{facet}"
+
+        assert report.baseline_subject(check_id, authoring) == (
+            report.baseline_subject(check_id, snapshot)
+        ) == f"framework:{facet}"
+        assert report.baseline_subject("unrelated.check", snapshot) == snapshot
+
     def test_assert_no_bare_ready_raises_on_bare_word(self):
         with pytest.raises(report.BareReadyError):
             report.assert_no_bare_ready("this repo is ready")

@@ -580,7 +580,7 @@ def check_d02_declared_version_matches_lock(
     if not isinstance(declared, str) or not declared:
         return registration.result(
             subject=subject_name,
-            verdict=Verdict.COULD_NOT_RUN,
+            verdict=Verdict.FAIL,
             evidence=(
                 Evidence(
                     kind="declared-version-missing",
@@ -599,7 +599,7 @@ def check_d02_declared_version_matches_lock(
     if not isinstance(locked_version, str) or not locked_version:
         return registration.result(
             subject=subject_name,
-            verdict=Verdict.COULD_NOT_RUN,
+            verdict=Verdict.FAIL,
             evidence=(
                 Evidence(
                     kind="lock-version-missing",

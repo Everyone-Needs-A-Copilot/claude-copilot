@@ -943,7 +943,7 @@ def check_d01_fitness_check_passes(
     if not path.is_file() or not os.access(path, os.X_OK):
         return _D01_FITNESS_PASSES_REGISTRATION.result(
             subject=subject_name,
-            verdict=Verdict.COULD_NOT_RUN,
+            verdict=Verdict.FAIL,
             evidence=(
                 Evidence(
                     kind="fitness-check-unavailable",
