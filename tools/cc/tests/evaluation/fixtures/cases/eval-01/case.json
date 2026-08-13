@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0",
+  "case_id": "eval-01",
+  "revision": 1,
+  "fixture_namespace": "SYNTHETIC-EVAL01",
+  "problem_statement": "A SYNTHETIC-REGIONAL-TRANSPORTATION company's riders tolerate its trip-change experience but abandon support when plans change unexpectedly. Help me figure out what to build.",
+  "evidence_files": [
+    {
+      "path": "input/interview-excerpts.json",
+      "sha256": "55fabe8acbaa6ad55565d95c4c397d8928617fdae2d3d0a679d9e8047835c260",
+      "media_type": "application/json",
+      "synthetic_fixture": true,
+      "fixture_namespace": "SYNTHETIC-EVAL01"
+    },
+    {
+      "path": "input/operational-constraints.json",
+      "sha256": "523587e4fee5a46ba586eaf8c6e7cbb8719c4f346485c337e8396a8d27786d99",
+      "media_type": "application/json",
+      "synthetic_fixture": true,
+      "fixture_namespace": "SYNTHETIC-EVAL01"
+    }
+  ],
+  "layer_variants": ["F", "F+O"],
+  "runtimes": ["claude", "codex"],
+  "required_criteria": ["human-need", "co-creation", "company-specificity", "appropriate-methodology", "evidence", "user-ownership"],
+  "hard_rejection_rules": ["feature-backlog-first", "unearned-validation-claim", "company-vocabulary-only", "client-decision-replacement"],
+  "journey_requirements": ["route-evidence", "consumption-evidence", "continuity-evidence"],
+  "private_oracle": {
+    "path": "oracle/expected.json",
+    "sha256": "68009261d0a1bfb8e819518d1c368f2d3177e1228becde1e5dbb24f1662ba0c6"
+  }
+}

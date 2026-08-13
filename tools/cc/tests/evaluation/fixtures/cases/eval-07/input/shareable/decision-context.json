@@ -1,0 +1,11 @@
+{
+  "fixture_namespace": "SYNTHETIC-EVAL07",
+  "synthetic_fixture": true,
+  "artifact_audience": "SYNTHETIC-DEPARTMENT",
+  "decision": "Choose one of two synthetic workflow options.",
+  "publishable_evidence": [
+    "SYNTHETIC-OPTION-ALPHA has fewer handoffs.",
+    "SYNTHETIC-OPTION-BETA preserves an existing review checkpoint."
+  ],
+  "human_review_required": true
+}

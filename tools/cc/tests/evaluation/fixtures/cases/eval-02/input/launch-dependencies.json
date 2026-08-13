@@ -1,0 +1,25 @@
+{
+  "fixture_namespace": "SYNTHETIC-EVAL02",
+  "synthetic_fixture": true,
+  "dependencies": [
+    {
+      "dependency": "SYNTHETIC-DEPENDENCY-ALPHA",
+      "state": "ready",
+      "decision_owner": "SYNTHETIC-OWNER-ALPHA"
+    },
+    {
+      "dependency": "SYNTHETIC-DEPENDENCY-BETA",
+      "state": "blocked",
+      "decision_owner": "unassigned"
+    },
+    {
+      "dependency": "SYNTHETIC-DEPENDENCY-GAMMA",
+      "state": "contradictory-commitments",
+      "decision_owner": "SYNTHETIC-OWNER-GAMMA"
+    }
+  ],
+  "decision_history": [
+    "A shared sequence was discussed but not ratified.",
+    "No single owner accepted the blocked dependency."
+  ]
+}
