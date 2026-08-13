@@ -84,6 +84,7 @@ def _lineage_valid(
     cell: EvaluationCell,
     artifact_root: Path | None,
     *,
+    artifact_root_fd: int | None,
     loaded_fixture: object,
     journey_run_id: str,
     journey_ledger: object,
@@ -91,7 +92,7 @@ def _lineage_valid(
 ) -> bool:
     if cell.attempt == 1:
         return cell.parent_attempt_sha256 is None
-    if artifact_root is None:
+    if artifact_root is None and artifact_root_fd is None:
         return False
     from cc.core.evaluation.artifact import load_run_record_document
 
@@ -103,6 +104,7 @@ def _lineage_valid(
         journey_run_id=journey_run_id,
         journey_ledger=journey_ledger,
         lineage_depth=lineage_depth,
+        root_fd=artifact_root_fd,
     )
     return bool(
         parent
@@ -121,6 +123,7 @@ def _preflight_for(
     authority: _EvaluationAuthority,
     artifact_root: Path | None,
     *,
+    artifact_root_fd: int | None = None,
     loaded_fixture: object = None,
     journey_run_id: str = "",
     journey_ledger: object = None,
@@ -141,6 +144,7 @@ def _preflight_for(
     if not _lineage_valid(
         cell,
         artifact_root,
+        artifact_root_fd=artifact_root_fd,
         loaded_fixture=loaded_fixture,
         journey_run_id=journey_run_id,
         journey_ledger=journey_ledger,
