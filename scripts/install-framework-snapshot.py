@@ -17,6 +17,7 @@ import argparse
 import contextlib
 import fcntl
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -30,6 +31,20 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Callable, Iterator, Sequence
+
+_PLUGIN_HELPER_SPEC = importlib.util.spec_from_file_location(
+    "codex_plugin_snapshot", Path(__file__).with_name("codex_plugin_snapshot.py")
+)
+if _PLUGIN_HELPER_SPEC is None or _PLUGIN_HELPER_SPEC.loader is None:
+    raise RuntimeError("Codex plugin snapshot helper could not be loaded")
+_plugin_helper = importlib.util.module_from_spec(_PLUGIN_HELPER_SPEC)
+sys.modules[_PLUGIN_HELPER_SPEC.name] = _plugin_helper
+_PLUGIN_HELPER_SPEC.loader.exec_module(_plugin_helper)
+CodexPluginError = _plugin_helper.CodexPluginError
+CodexRunner = _plugin_helper.CodexRunner
+normalize_codex_plugin = _plugin_helper.normalize_codex_plugin
+run_codex_plugin = _plugin_helper.run_codex_plugin
+validate_snapshot_plugin = _plugin_helper.validate_snapshot_plugin
 
 _OBJECT_ID = re.compile(r"[0-9a-f]{40}")
 _REQUIRED_MACHINE_COMMANDS = frozenset({"setup-project.md", "update-project.md"})
@@ -720,6 +735,7 @@ def install_framework_snapshot(
     home: Path | None = None,
     cc_installer: CcInstaller = _default_cc_installer,
     cc_verifier: CcVerifier = _default_cc_verifier,
+    codex_runner: CodexRunner = run_codex_plugin,
     _fail_after_publish: int | None = None,
 ) -> dict[str, object]:
     commit = _validate_object_id(source_commit, label="source commit")
@@ -766,6 +782,20 @@ def install_framework_snapshot(
 
             cc_verifier(staged_shim)
             shim_checksum = _sha256(_read_regular(staged_shim))
+            try:
+                plugin_artifacts, plugin_manifest_sha256 = validate_snapshot_plugin(
+                    snapshot
+                )
+                plugin_transaction = normalize_codex_plugin(
+                    snapshot,
+                    plugin_artifacts,
+                    plugin_manifest_sha256,
+                    home_root,
+                    codex_runner,
+                )
+            except CodexPluginError as exc:
+                raise FrameworkInstallError(str(exc)) from exc
+            plugin = plugin_transaction.receipt
             manifest = {
                 "schema_version": "1.0",
                 "source_commit": commit,
@@ -778,19 +808,39 @@ def install_framework_snapshot(
                 "machine_commands": [
                     {"name": item.name, "sha256": item.checksum} for item in commands
                 ],
+                "codex_plugin": {
+                    "plugin_id": plugin.plugin_id,
+                    "marketplace": plugin.marketplace,
+                    "marketplace_source": plugin.marketplace_source,
+                    "plugin_source": plugin.plugin_source,
+                    "installed_path": plugin.installed_path,
+                    "manifest_sha256": plugin.manifest_sha256,
+                    "tree_sha256": plugin.tree_sha256,
+                },
             }
             manifest_payload = (
                 json.dumps(manifest, indent=2, sort_keys=True) + "\n"
             ).encode("utf-8")
-            changed = _publish_runtime(
-                commands=commands,
-                staged_shim=staged_shim,
-                commands_root=commands_root,
-                shim=shim_root / "cc",
-                active_manifest=copilot_root / "framework-runtime.json",
-                manifest_payload=manifest_payload,
-                fail_after_publish=_fail_after_publish,
-            )
+            try:
+                published_changed = _publish_runtime(
+                    commands=commands,
+                    staged_shim=staged_shim,
+                    commands_root=commands_root,
+                    shim=shim_root / "cc",
+                    active_manifest=copilot_root / "framework-runtime.json",
+                    manifest_payload=manifest_payload,
+                    fail_after_publish=_fail_after_publish,
+                )
+            except BaseException as publish_error:
+                try:
+                    plugin_transaction.rollback()
+                except BaseException as rollback_error:
+                    raise FrameworkInstallError(
+                        "runtime publication failed and Codex plugin rollback was "
+                        f"incomplete: {rollback_error}"
+                    ) from publish_error
+                raise
+            changed = published_changed + plugin_transaction.changed
         finally:
             shutil.rmtree(operation_root, ignore_errors=True)
 
@@ -826,7 +876,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             source_tree=arguments.source_tree,
             home=arguments.home,
         )
-    except (FrameworkInstallError, OSError) as exc:
+    except (CodexPluginError, FrameworkInstallError, OSError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     print(json.dumps(report, indent=2, sort_keys=True))
