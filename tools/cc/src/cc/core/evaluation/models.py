@@ -66,7 +66,9 @@ class EvaluationFixture:
             fixture_namespace=value["fixture_namespace"],
             problem_statement=value["problem_statement"],
             evidence_files=evidence,
-            layer_variants=tuple(LayerVariant(item) for item in value["layer_variants"]),
+            layer_variants=tuple(
+                LayerVariant(item) for item in value["layer_variants"]
+            ),
             runtimes=tuple(RuntimeName(item) for item in value["runtimes"]),
             required_criteria=tuple(value["required_criteria"]),
             hard_rejection_rules=tuple(value["hard_rejection_rules"]),

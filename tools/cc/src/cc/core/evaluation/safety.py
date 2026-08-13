@@ -23,9 +23,15 @@ class FixtureSafetyViolation(ValueError):
 
 
 _RULES = (
-    ("secret-private-key", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")),
+    (
+        "secret-private-key",
+        re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
+    ),
     ("secret-bearer", re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{12,}")),
-    ("secret-token", re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})\b")),
+    (
+        "secret-token",
+        re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})\b"),
+    ),
     (
         "secret-assignment",
         re.compile(r"(?i)\b(?:api[_-]?key|password|secret|token)\s*[:=]\s*[^\s,;]{8,}"),
@@ -34,11 +40,22 @@ _RULES = (
     ("realistic-ein", re.compile(r"(?<!\d)\d{2}-\d{7}(?!\d)")),
     (
         "realistic-account",
-        re.compile(r"(?i)\b(?:account|routing|taxpayer)[ _-]?(?:number|id)?\s*[:#=]\s*\d{6,17}\b"),
+        re.compile(
+            r"(?i)\b(?:account|routing|taxpayer)[ _-]?(?:number|id)?\s*[:#=]\s*\d{6,17}\b"
+        ),
     ),
-    ("private-home-path", re.compile(r"(?:/Users/[^/\s]+|/home/[^/\s]+|[A-Za-z]:\\Users\\[^\\\s]+)")),
-    ("personal-email", re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)),
-    ("personal-phone", re.compile(r"(?<!\d)(?:\+?1[ .-]?)?\(?\d{3}\)?[ .-]\d{3}[ .-]\d{4}(?!\d)")),
+    (
+        "private-home-path",
+        re.compile(r"(?:/Users/[^/\s]+|/home/[^/\s]+|[A-Za-z]:\\Users\\[^\\\s]+)"),
+    ),
+    (
+        "personal-email",
+        re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE),
+    ),
+    (
+        "personal-phone",
+        re.compile(r"(?<!\d)(?:\+?1[ .-]?)?\(?\d{3}\)?[ .-]\d{3}[ .-]\d{4}(?!\d)"),
+    ),
     (
         "real-party-marker",
         re.compile(
@@ -66,7 +83,9 @@ def scan_synthetic_text(text: str, *, location_class: str) -> tuple[SafetyFindin
     if location_class in {"shared-output", "shared-artifact"}:
         count = len(tuple(_PRIVATE_MARKERS.finditer(text)))
         if count:
-            findings.append(SafetyFinding("upward-personal-disclosure", location_class, count))
+            findings.append(
+                SafetyFinding("upward-personal-disclosure", location_class, count)
+            )
     return tuple(findings)
 
 
