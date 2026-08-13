@@ -11,6 +11,7 @@ from cc.core.evaluation.journey import (
     KnowledgeReceipt,
     RouteEvent,
     RouteTrace,
+    SecurityReceipt,
     TcContinuationStore,
 )
 
@@ -25,5 +26,6 @@ __all__ = [
     "KnowledgeReceipt",
     "RouteEvent",
     "RouteTrace",
+    "SecurityReceipt",
     "TcContinuationStore",
 ]
