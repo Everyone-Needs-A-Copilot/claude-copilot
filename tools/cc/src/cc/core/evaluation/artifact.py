@@ -3,27 +3,65 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
+import re
 import secrets
+import stat
 import unicodedata
+from dataclasses import replace
 from pathlib import Path
 from typing import Mapping
 from urllib.parse import unquote
 
 from cc.core.evaluation.comparison import (
-    comparison_record_document,
     verify_comparison_record_identity,
 )
-from cc.core.evaluation.models import ArtifactReceipt, ComparisonRecord, RunRecord
+from cc.core.evaluation.models import (
+    ArtifactReceipt,
+    ComparisonRecord,
+    EvaluationCell,
+    PreflightState,
+    RunRecord,
+    RunState,
+)
 from cc.core.evaluation.runner import run_record_document, verify_run_record_identity
 from cc.core.evaluation.safety import (
     FixtureSafetyViolation,
     require_safe_synthetic_text,
 )
-from cc.core.evaluation.schema import canonical_json_bytes
+from cc.core.evaluation.schema import canonical_json_bytes, canonical_sha256
 
 _FORBIDDEN_AGGREGATES = frozenset(
     {"score", "total", "average", "percent", "percentage", "rank", "winner"}
+)
+_ARTIFACT_NAME = re.compile(r"^[0-9a-f]{64}\.json$")
+_RUN_DOCUMENT_KEYS = frozenset(
+    {
+        "schema_version",
+        "run_sha256",
+        "case_id",
+        "revision",
+        "variant",
+        "runtime",
+        "attempt",
+        "parent_attempt_sha256",
+        "fixture_sha256",
+        "prompt_evidence_sha256",
+        "attempt_policy_sha256",
+        "runtime_configuration_sha256",
+        "tool_configuration_sha256",
+        "comparability_sha256",
+        "runtime_receipt_sha256",
+        "content_receipt_sha256",
+        "consumption_receipt_sha256",
+        "preflight",
+        "state",
+        "output_sha256",
+        "controlled_artifact_path",
+        "completion_evidence_sha256",
+        "technical_error_reason",
+    }
 )
 
 
@@ -84,19 +122,30 @@ def _reject_disclosure_values(value: object) -> None:
 def _write_artifact(
     root: Path,
     record: RunRecord | ComparisonRecord,
+    *,
+    cell: EvaluationCell | None = None,
+    loaded_fixture: object = None,
+    journey_run_id: str = "",
+    journey_ledger: object = None,
 ) -> ArtifactReceipt:
-    """Write only a sealed coordinator record below a non-symlink root."""
+    """Write only a production-revalidated record below a non-symlink root."""
 
-    if isinstance(record, RunRecord) and verify_run_record_identity(record):
+    if isinstance(record, RunRecord) and _production_record_valid(
+        root,
+        record,
+        cell=cell,
+        loaded_fixture=loaded_fixture,
+        journey_run_id=journey_run_id,
+        journey_ledger=journey_ledger,
+    ):
         artifact_type = "run-record"
         payload = run_record_document(record)
-    elif isinstance(record, ComparisonRecord) and verify_comparison_record_identity(
-        record
-    ):
-        artifact_type = "comparison-record"
-        payload = comparison_record_document(record)
+    elif isinstance(record, ComparisonRecord):
+        raise ValueError(
+            "Comparison artifacts require production completion authority."
+        )
     else:
-        raise ValueError("Artifact writes require an authentic sealed record.")
+        raise ValueError("Artifact writes require production-authoritative evidence.")
     _reject_aggregate_fields(payload)
     _reject_disclosure_values(payload)
     content = canonical_json_bytes(dict(payload))
@@ -174,10 +223,23 @@ def _write_artifact(
     )
 
 
-def write_run_record(root: Path, record: RunRecord) -> ArtifactReceipt:
-    if not verify_run_record_identity(record):
-        raise ValueError("Run artifact requires an authentic runner-issued record.")
-    return _write_artifact(root, record)
+def write_run_record(
+    root: Path,
+    record: RunRecord,
+    *,
+    cell: EvaluationCell,
+    loaded_fixture: object = None,
+    journey_run_id: str = "",
+    journey_ledger: object = None,
+) -> ArtifactReceipt:
+    return _write_artifact(
+        root,
+        record,
+        cell=cell,
+        loaded_fixture=loaded_fixture,
+        journey_run_id=journey_run_id,
+        journey_ledger=journey_ledger,
+    )
 
 
 def write_comparison_record(root: Path, record: ComparisonRecord) -> ArtifactReceipt:
@@ -186,3 +248,211 @@ def write_comparison_record(root: Path, record: ComparisonRecord) -> ArtifactRec
             "Comparison artifact requires an authentic coordinator record."
         )
     return _write_artifact(root, record)
+
+
+def _production_record_valid(
+    root: Path,
+    record: RunRecord,
+    *,
+    cell: EvaluationCell | None,
+    loaded_fixture: object,
+    journey_run_id: str,
+    journey_ledger: object,
+) -> bool:
+    """Revalidate durable claims; never rely on an in-memory seal alone."""
+
+    if not verify_run_record_identity(record) or not isinstance(cell, EvaluationCell):
+        return False
+    from cc.core.evaluation._authority import _production_authority
+    from cc.core.evaluation.comparison import comparability_identity
+    from cc.core.evaluation.identity import (
+        consumption_receipt_identity,
+        content_receipt_identity,
+        runtime_receipt_identity,
+    )
+    from cc.core.evaluation.runner import _preflight_for
+
+    authority = _production_authority(
+        cell,
+        loaded_fixture=loaded_fixture,
+        journey_run_id=journey_run_id,
+        journey_ledger=journey_ledger,
+    )
+    expected_preflight = _preflight_for(
+        cell,
+        authority,
+        root,
+        loaded_fixture=loaded_fixture,
+        journey_run_id=journey_run_id,
+        journey_ledger=journey_ledger,
+    )
+    if record.preflight != expected_preflight:
+        return False
+    if not (
+        record.case_id == cell.case_id
+        and record.revision == cell.revision
+        and record.variant is cell.variant
+        and record.runtime is cell.runtime_receipt.runtime
+        and record.attempt == cell.attempt
+        and record.parent_attempt_sha256 == cell.parent_attempt_sha256
+        and record.fixture_sha256 == cell.fixture_sha256
+        and record.prompt_evidence_sha256 == cell.prompt_evidence_sha256
+        and record.attempt_policy_sha256 == cell.attempt_policy_sha256
+        and record.runtime_configuration_sha256 == cell.runtime_configuration_sha256
+        and record.tool_configuration_sha256 == cell.tool_configuration_sha256
+        and record.comparability_sha256 == comparability_identity(cell)
+        and record.runtime_receipt_sha256
+        == runtime_receipt_identity(cell.runtime_receipt)
+        and record.content_receipt_sha256
+        == content_receipt_identity(cell.content_receipt)
+        and record.consumption_receipt_sha256
+        == consumption_receipt_identity(cell.consumption_receipt)
+    ):
+        return False
+    if record.state is RunState.INVALID:
+        return record.preflight.state is PreflightState.INVALID
+    if record.state is RunState.UNSUPPORTED:
+        return record.preflight.state is PreflightState.UNSUPPORTED
+    if record.state is RunState.DISPATCH_AUTHORIZED:
+        return (
+            record.preflight.state is PreflightState.VALID
+            and record.output_sha256 is not None
+            and record.controlled_artifact_path is not None
+            and record.completion_evidence_sha256 is None
+        )
+    # TASK-297 has not supplied a production completion verifier. Neither a
+    # COMPLETED nor a TECHNICAL_ERROR record is durable authority before then.
+    return False
+
+
+def load_run_record_document(
+    root: Path,
+    run_sha256: str,
+    *,
+    child_cell: EvaluationCell,
+    loaded_fixture: object,
+    journey_run_id: str,
+    journey_ledger: object,
+    lineage_depth: int,
+) -> dict[str, object] | None:
+    """Reload one canonical, production-acceptable parent from artifact storage."""
+
+    if lineage_depth >= 32:
+        return None
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    try:
+        root_fd = os.open(root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | nofollow)
+    except OSError:
+        return None
+    try:
+        try:
+            type_fd = os.open(
+                "run-record",
+                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | nofollow,
+                dir_fd=root_fd,
+            )
+        except OSError:
+            return None
+    finally:
+        os.close(root_fd)
+    try:
+        names = os.listdir(type_fd)
+        for name in names:
+            if not _ARTIFACT_NAME.fullmatch(name):
+                continue
+            try:
+                file_fd = os.open(name, os.O_RDONLY | nofollow, dir_fd=type_fd)
+            except OSError:
+                continue
+            try:
+                metadata = os.fstat(file_fd)
+                if (
+                    not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_nlink != 1
+                    or metadata.st_size > 1_048_576
+                ):
+                    continue
+                chunks: list[bytes] = []
+                while True:
+                    chunk = os.read(file_fd, 65536)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                raw = b"".join(chunks)
+            finally:
+                os.close(file_fd)
+            if hashlib.sha256(raw).hexdigest() != name[:-5]:
+                continue
+            try:
+                value = json.loads(raw)
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                continue
+            if (
+                not isinstance(value, dict)
+                or set(value) != _RUN_DOCUMENT_KEYS
+                or canonical_json_bytes(value) != raw
+            ):
+                continue
+            embedded = value.get("run_sha256")
+            if embedded != run_sha256:
+                continue
+            identity_document = dict(value)
+            identity_document.pop("run_sha256", None)
+            if canonical_sha256(identity_document) != run_sha256:
+                continue
+            state = value.get("state")
+            preflight = value.get("preflight")
+            if not isinstance(preflight, dict):
+                continue
+            if state not in {
+                RunState.INVALID.value,
+                RunState.UNSUPPORTED.value,
+                RunState.DISPATCH_AUTHORIZED.value,
+            }:
+                continue
+            expected = {
+                RunState.INVALID.value: PreflightState.INVALID.value,
+                RunState.UNSUPPORTED.value: PreflightState.UNSUPPORTED.value,
+                RunState.DISPATCH_AUTHORIZED.value: PreflightState.VALID.value,
+            }[state]
+            if preflight.get("state") != expected:
+                continue
+            attempt = value.get("attempt")
+            parent_attempt = value.get("parent_attempt_sha256")
+            if (
+                not isinstance(attempt, int)
+                or attempt != child_cell.attempt - 1
+                or not (parent_attempt is None or isinstance(parent_attempt, str))
+            ):
+                continue
+            parent_cell = replace(
+                child_cell,
+                attempt=attempt,
+                parent_attempt_sha256=parent_attempt,
+            )
+            from cc.core.evaluation._authority import _production_authority
+            from cc.core.evaluation.runner import _preflight_document, _preflight_for
+
+            authority = _production_authority(
+                parent_cell,
+                loaded_fixture=loaded_fixture,
+                journey_run_id=journey_run_id,
+                journey_ledger=journey_ledger,
+            )
+            authoritative_preflight = _preflight_for(
+                parent_cell,
+                authority,
+                root,
+                loaded_fixture=loaded_fixture,
+                journey_run_id=journey_run_id,
+                journey_ledger=journey_ledger,
+                lineage_depth=lineage_depth + 1,
+            )
+            if value.get("preflight") != _preflight_document(authoritative_preflight):
+                continue
+            _reject_aggregate_fields(value)
+            _reject_disclosure_values(value)
+            return value
+    finally:
+        os.close(type_fd)
+    return None

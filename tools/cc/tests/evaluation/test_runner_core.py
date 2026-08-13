@@ -211,14 +211,18 @@ class _RunnerHarness:
         self,
         runtime: _Runtime,
         observations: tuple[GateObservation, ...] | None,
+        artifact_root: Path | None = None,
     ) -> None:
         self.runtime = runtime
         self.observations = observations or _observations()
         self.runner: EvaluationRunner | None = None
+        self.artifact_root = artifact_root
 
     def run(self, cell: EvaluationCell):
         if self.runner is None:
-            self.runner = EvaluationRunner(self.runtime)
+            self.runner = EvaluationRunner(
+                self.runtime, artifact_root=self.artifact_root
+            )
         authority = _test_authority(cell, self.observations)
         completion = (
             _test_completion(cell, self.runtime.output)
@@ -247,9 +251,10 @@ def _runner(
     *,
     observations: tuple[GateObservation, ...] | None = None,
     complete: bool = True,
+    artifact_root: Path | None = None,
 ) -> _RunnerHarness:
     runtime.complete = complete
-    return _RunnerHarness(runtime, observations)
+    return _RunnerHarness(runtime, observations, artifact_root)
 
 
 def test_receipt_identities_are_canonical_and_value_suppressing() -> None:
@@ -396,16 +401,18 @@ def test_control_pairing_uses_exact_comparability_without_a_score() -> None:
 def test_content_addressed_artifacts_are_canonical_and_idempotent(
     tmp_path: Path,
 ) -> None:
-    control = _runner(_Runtime()).run(_cell(LayerVariant.FOUNDATION))
+    control_cell = _cell(LayerVariant.FOUNDATION)
+    control = EvaluationRunner(_Runtime()).run(control_cell)
     layered = _runner(_Runtime()).run(_cell(LayerVariant.ORGANIZATION))
-    comparison = pair_control_runs(control, layered)
+    completed_control = _runner(_Runtime()).run(_cell(LayerVariant.FOUNDATION))
+    comparison = pair_control_runs(completed_control, layered)
 
-    run_receipt = write_run_record(tmp_path, control)
-    repeated = write_run_record(tmp_path, control)
-    comparison_receipt = write_comparison_record(tmp_path, comparison)
+    run_receipt = write_run_record(tmp_path, control, cell=control_cell)
+    repeated = write_run_record(tmp_path, control, cell=control_cell)
+    with pytest.raises(ValueError, match="completion authority"):
+        write_comparison_record(tmp_path, comparison)
     assert run_receipt == repeated
     assert (tmp_path / run_receipt.relative_path).is_file()
-    assert (tmp_path / comparison_receipt.relative_path).is_file()
     assert run_receipt.sha256 in run_receipt.relative_path
     assert not tuple(tmp_path.rglob("*.tmp"))
 
@@ -420,8 +427,9 @@ def test_artifact_writer_rejects_aggregate_fields_and_symlink_roots(
     real.mkdir()
     linked = tmp_path / "linked"
     linked.symlink_to(real, target_is_directory=True)
+    cell = _cell()
     with pytest.raises(OSError):
-        write_run_record(linked, _runner(_Runtime()).run(_cell()))
+        write_run_record(linked, EvaluationRunner(_Runtime()).run(cell), cell=cell)
 
 
 def test_callers_cannot_mint_passing_gate_or_valid_preflight() -> None:
@@ -500,14 +508,15 @@ def test_comparison_rejects_inapplicable_and_nonadjacent_case_pairs() -> None:
     assert pair_control_runs(eval_five_foundation, eval_five_department)
 
 
-def test_retry_lineage_requires_preserved_matching_parent_and_keeps_all_attempts() -> (
-    None
-):
-    runner = _runner(_Runtime())
-    first = runner.run(_cell())
+def test_retry_lineage_reloads_canonical_parent_artifact(tmp_path: Path) -> None:
+    first_cell = _cell()
+    first = EvaluationRunner(_Runtime(), artifact_root=tmp_path).run(first_cell)
+    write_run_record(tmp_path, first, cell=first_cell)
+    runner = _runner(_Runtime(), complete=False, artifact_root=tmp_path)
     retry = runner.run(_cell(attempt=2, parent_attempt_sha256=first.run_sha256))
-    assert retry.state is RunState.COMPLETED
-    assert len(runner.records) == 2
+    assert retry.state is RunState.DISPATCH_AUTHORIZED
+    assert len(runner.records) == 1
+    assert (tmp_path / "run-record").is_dir()
 
     bad_runtime = _Runtime()
     bad = runner.run(
@@ -519,7 +528,7 @@ def test_retry_lineage_requires_preserved_matching_parent_and_keeps_all_attempts
     )
     assert bad.state is RunState.INVALID
     assert bad_runtime.calls == 0
-    assert len(runner.records) == 3
+    assert len(runner.records) == 2
 
 
 @pytest.mark.parametrize(
@@ -591,8 +600,8 @@ def test_forged_run_and_comparison_records_cannot_be_minted_or_written(
     with pytest.raises(ValueError, match="runner-issued"):
         replace(record, run_sha256=_sha("9"), _authority=None)
     forged = replace(record, run_sha256=_sha("9"))
-    with pytest.raises(ValueError, match="authentic"):
-        write_run_record(tmp_path, forged)
+    with pytest.raises(ValueError, match="production-authoritative"):
+        write_run_record(tmp_path, forged, cell=_cell())
 
     comparison = pair_control_runs(
         _runner(_Runtime()).run(_cell(LayerVariant.FOUNDATION)),
@@ -616,8 +625,13 @@ def test_attempt_history_is_read_only_and_rejects_changed_identity() -> None:
 
 
 def test_imported_internal_writer_rejects_arbitrary_payload(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="authentic sealed"):
+    with pytest.raises(ValueError, match="production-authoritative"):
         _write_artifact(tmp_path, {"schema_version": "1.0"})
+    record = EvaluationRunner(_Runtime()).run(_cell())
+    with pytest.raises(ValueError, match="production-authoritative"):
+        _write_artifact(tmp_path, record)
+    with pytest.raises(TypeError):
+        type(record)(**{**record.__dict__, "unexpected_score": 100})
 
 
 def test_cross_runner_retry_parent_is_rejected_without_dispatch() -> None:
@@ -649,3 +663,24 @@ def test_production_adapter_cannot_claim_completion() -> None:
     assert record.state is RunState.INVALID
     assert record.completion_evidence_sha256 is None
     assert runtime.calls == 0
+
+
+def test_reflection_cannot_persist_fabricated_completed_record(
+    tmp_path: Path,
+) -> None:
+    from cc.core.evaluation.runner import _record
+
+    cell = _cell()
+    runner = _runner(_Runtime())
+    authentic = runner.run(cell)
+    fabricated = _record(
+        cell,
+        preflight=authentic.preflight,
+        state=RunState.COMPLETED,
+        output_sha256=_sha("8"),
+        controlled_artifact_path="outputs/fabricated.txt",
+        completion_evidence_sha256=_sha("9"),
+    )
+    assert fabricated.state is RunState.COMPLETED
+    with pytest.raises(ValueError, match="production-authoritative"):
+        write_run_record(tmp_path, fabricated, cell=cell)

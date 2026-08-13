@@ -428,7 +428,6 @@ class RunRecord:
     runtime: RuntimeName
     attempt: int
     parent_attempt_sha256: str | None
-    ledger_binding_sha256: str
     fixture_sha256: str
     prompt_evidence_sha256: str
     attempt_policy_sha256: str
@@ -449,7 +448,6 @@ class RunRecord:
     def __post_init__(self) -> None:
         if self._authority is not _RUN_RECORD_AUTHORITY:
             raise ValueError("Run records must be runner-issued.")
-        _digest(self.ledger_binding_sha256, "ledger_binding_sha256")
 
 
 @dataclass(frozen=True)
