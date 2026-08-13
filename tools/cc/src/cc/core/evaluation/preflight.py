@@ -1,10 +1,13 @@
-"""Fail-closed deterministic gates for behavioral evaluation cells."""
+"""Verifier-issued, fail-closed gates for behavioral evaluation cells."""
 
 from __future__ import annotations
 
 from collections import Counter
+from typing import Callable, Mapping
 
 from cc.core.evaluation.models import (
+    _EVIDENCE_AUTHORITY,
+    EvaluationCell,
     GateObservation,
     GateState,
     PreflightGate,
@@ -13,47 +16,79 @@ from cc.core.evaluation.models import (
 )
 from cc.core.evaluation.schema import canonical_sha256
 
+GateFact = tuple[GateState, str, str, str]
+EvidenceProbe = Callable[[EvaluationCell], Mapping[PreflightGate, GateFact]]
 
-def evaluate_preflight(
-    observations: tuple[GateObservation, ...],
-) -> PreflightResult:
-    """Classify a complete gate packet without treating absence as weakness.
 
-    Runtime capability is the only gate allowed to produce ``UNSUPPORTED``.
-    Every other missing, duplicate, failed, or unsupported gate is ``INVALID``.
+class TrustedEvidenceVerifier:
+    """Translate one injected trusted evidence probe into opaque gate facts.
+
+    The probe is the authority boundary. Evaluation cells contain identities,
+    never caller-authored pass booleans.
     """
 
+    def __init__(self, probe: EvidenceProbe) -> None:
+        self._probe = probe
+
+    def verify(self, cell: EvaluationCell) -> tuple[GateObservation, ...]:
+        try:
+            facts = self._probe(cell)
+        except Exception:
+            facts = {}
+        observations: list[GateObservation] = []
+        for gate, fact in facts.items():
+            try:
+                state, reason, actor, prerequisite = fact
+                observations.append(
+                    GateObservation(
+                        gate,
+                        state,
+                        reason,
+                        actor,
+                        prerequisite,
+                        _EVIDENCE_AUTHORITY if state is GateState.PASS else None,
+                    )
+                )
+            except (TypeError, ValueError):
+                continue
+        return tuple(observations)
+
+
+def issue_failure(
+    gate: PreflightGate,
+    *,
+    reason: str,
+    actor: str = "framework",
+    prerequisite: str = "verified-evidence",
+) -> GateObservation:
+    return GateObservation(gate, GateState.FAIL, reason, actor, prerequisite)
+
+
+def evaluate_preflight(
+    observations: tuple[GateObservation, ...], *, subject_sha256: str | None = None
+) -> PreflightResult:
     counts = Counter(item.gate for item in observations)
     first = {item.gate: item for item in observations}
     normalized: list[GateObservation] = []
     for gate in sorted(PreflightGate, key=lambda item: item.value):
         item = first.get(gate)
         if item is None:
-            item = GateObservation(
-                gate,
-                GateState.FAIL,
-                "missing-evidence",
-                "framework",
-                "verified-evidence",
-            )
+            item = issue_failure(gate, reason="missing-evidence")
         elif counts[gate] != 1:
-            item = GateObservation(
+            item = issue_failure(
                 gate,
-                GateState.FAIL,
-                "duplicate-evidence",
-                "framework",
-                "unique-evidence",
+                reason="duplicate-evidence",
+                prerequisite="unique-evidence",
             )
         elif (
             item.state is GateState.UNSUPPORTED
             and gate is not PreflightGate.RUNTIME_CAPABILITY
         ):
-            item = GateObservation(
+            item = issue_failure(
                 gate,
-                GateState.FAIL,
-                "unsupported-not-permitted",
-                item.actor,
-                item.prerequisite,
+                reason="unsupported-not-permitted",
+                actor=item.actor,
+                prerequisite=item.prerequisite,
             )
         normalized.append(item)
 
@@ -63,9 +98,10 @@ def evaluate_preflight(
         state = PreflightState.UNSUPPORTED
     else:
         state = PreflightState.VALID
-
+    subject = subject_sha256 or canonical_sha256({"unbound": True})
     document = {
         "state": state.value,
+        "subject_sha256": subject,
         "observations": [
             {
                 "gate": item.gate.value,
@@ -77,4 +113,10 @@ def evaluate_preflight(
             for item in normalized
         ],
     }
-    return PreflightResult(state, tuple(normalized), canonical_sha256(document))
+    return PreflightResult(
+        state,
+        tuple(normalized),
+        subject,
+        canonical_sha256(document),
+        _EVIDENCE_AUTHORITY if state is PreflightState.VALID else None,
+    )

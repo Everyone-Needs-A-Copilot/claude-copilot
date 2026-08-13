@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import secrets
+import unicodedata
 from pathlib import Path
 from typing import Mapping
 
@@ -22,9 +23,16 @@ _FORBIDDEN_AGGREGATES = frozenset(
 def _reject_aggregate_fields(value: object) -> None:
     if isinstance(value, Mapping):
         for key, item in value.items():
-            normalized = str(key).casefold().replace("-", "_")
-            key_tokens = frozenset(normalized.split("_"))
-            if key_tokens & _FORBIDDEN_AGGREGATES:
+            normalized = "".join(
+                character
+                for character in unicodedata.normalize("NFKC", str(key)).casefold()
+                if character.isalnum()
+            )
+            if any(
+                stem in normalized
+                for stem in _FORBIDDEN_AGGREGATES
+                | {"scores", "totals", "ranks", "winners"}
+            ):
                 raise ValueError("Aggregate evaluation fields are prohibited.")
             _reject_aggregate_fields(item)
     elif isinstance(value, (list, tuple)):

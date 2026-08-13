@@ -33,6 +33,7 @@ from cc.core.evaluation.journey_runtime import (
 from cc.core.evaluation.models import (
     ArtifactReceipt,
     ComparisonRecord,
+    CompletionProof,
     ConsumptionReceipt,
     ContentReceipt,
     CriterionComparison,
@@ -54,12 +55,19 @@ from cc.core.evaluation.models import (
     RuntimeOutput,
     RuntimeReceipt,
 )
-from cc.core.evaluation.runner import EvaluationRunner, RuntimeAdapterFailure
+from cc.core.evaluation.preflight import TrustedEvidenceVerifier
+from cc.core.evaluation.runner import (
+    AttemptLedger,
+    EvaluationRunner,
+    RuntimeAdapterFailure,
+    TrustedCompletionVerifier,
+)
 
 __all__ = [
     "CapabilityReceipt",
     "ArtifactReceipt",
     "ComparisonRecord",
+    "CompletionProof",
     "ConsumptionReceipt",
     "ContentReceipt",
     "ContinuationLocator",
@@ -69,6 +77,7 @@ __all__ = [
     "EvaluationCell",
     "EvaluationFixture",
     "EvaluationRunner",
+    "AttemptLedger",
     "EvidenceFile",
     "GateObservation",
     "GateState",
@@ -89,6 +98,8 @@ __all__ = [
     "RunRecord",
     "RunState",
     "RuntimeAdapterFailure",
+    "TrustedCompletionVerifier",
+    "TrustedEvidenceVerifier",
     "RuntimeOutput",
     "RuntimeReceipt",
     "RuntimeName",

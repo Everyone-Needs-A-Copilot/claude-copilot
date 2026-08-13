@@ -34,8 +34,13 @@ from cc.core.evaluation.models import (
     RuntimeOutput,
     RuntimeReceipt,
 )
-from cc.core.evaluation.preflight import evaluate_preflight
-from cc.core.evaluation.runner import EvaluationRunner, RuntimeAdapterFailure
+from cc.core.evaluation.preflight import TrustedEvidenceVerifier, evaluate_preflight
+from cc.core.evaluation.runner import (
+    AttemptLedger,
+    EvaluationRunner,
+    RuntimeAdapterFailure,
+    TrustedCompletionVerifier,
+)
 
 
 def _sha(character: str) -> str:
@@ -104,6 +109,9 @@ def _observations() -> tuple[GateObservation, ...]:
             "verified",
             "framework",
             "signed-evidence",
+            __import__(
+                "cc.core.evaluation.models", fromlist=["_EVIDENCE_AUTHORITY"]
+            )._EVIDENCE_AUTHORITY,
         )
         for gate in PreflightGate
     )
@@ -112,8 +120,10 @@ def _observations() -> tuple[GateObservation, ...]:
 def _cell(
     variant: LayerVariant = LayerVariant.FOUNDATION,
     *,
-    observations: tuple[GateObservation, ...] | None = None,
     runtime_configuration_sha256: str | None = None,
+    case_id: str = "eval-01",
+    attempt: int = 1,
+    parent_attempt_sha256: str | None = None,
 ) -> EvaluationCell:
     runtime = _runtime()
     content = _content(variant)
@@ -128,7 +138,7 @@ def _cell(
         continuity_evidence_sha256=_sha("2"),
     )
     return EvaluationCell(
-        case_id="eval-01",
+        case_id=case_id,
         revision=1,
         fixture_sha256=_sha("3"),
         prompt_evidence_sha256=prompt,
@@ -136,11 +146,11 @@ def _cell(
         runtime_receipt=runtime,
         content_receipt=content,
         consumption_receipt=consumption,
-        observations=observations if observations is not None else _observations(),
-        attempt=1,
+        attempt=attempt,
         attempt_policy_sha256=_sha("4"),
         runtime_configuration_sha256=runtime_configuration_sha256 or _sha("5"),
         tool_configuration_sha256=_sha("6"),
+        parent_attempt_sha256=parent_attempt_sha256,
     )
 
 
@@ -151,7 +161,6 @@ class _Runtime:
             output_text="Synthetic result with cited evidence.",
             controlled_artifact_path="outputs/eval-01.txt",
             output_location_class="shared-output",
-            completion_evidence_sha256=_sha("7"),
         )
 
     def execute(self, cell: EvaluationCell) -> RuntimeOutput:
@@ -159,6 +168,37 @@ class _Runtime:
         if isinstance(self.output, Exception):
             raise self.output
         return self.output
+
+
+def _evidence(
+    observations: tuple[GateObservation, ...] | None = None,
+) -> TrustedEvidenceVerifier:
+    packet = observations if observations is not None else _observations()
+    return TrustedEvidenceVerifier(
+        lambda _cell: {
+            item.gate: (item.state, item.reason, item.actor, item.prerequisite)
+            for item in packet
+        }
+    )
+
+
+def _completion() -> TrustedCompletionVerifier:
+    return TrustedCompletionVerifier(lambda _cell, _output, _digest: _sha("7"))
+
+
+def _runner(
+    runtime: _Runtime,
+    *,
+    observations: tuple[GateObservation, ...] | None = None,
+    complete: bool = True,
+    ledger: AttemptLedger | None = None,
+) -> EvaluationRunner:
+    return EvaluationRunner(
+        runtime,
+        _evidence(observations),
+        completion_verifier=_completion() if complete else None,
+        attempt_ledger=ledger,
+    )
 
 
 def test_receipt_identities_are_canonical_and_value_suppressing() -> None:
@@ -217,7 +257,7 @@ def test_only_runtime_capability_can_be_unsupported() -> None:
 def test_runner_never_calls_adapter_when_gate_is_not_valid() -> None:
     missing = _observations()[:-1]
     runtime = _Runtime()
-    record = EvaluationRunner(runtime).run(_cell(observations=missing))
+    record = _runner(runtime, observations=missing).run(_cell())
     assert record.state is RunState.INVALID
     assert runtime.calls == 0
 
@@ -227,7 +267,7 @@ def test_runner_never_calls_adapter_when_gate_is_not_valid() -> None:
         else item
         for item in _observations()
     )
-    record = EvaluationRunner(runtime).run(_cell(observations=unsupported))
+    record = _runner(runtime, observations=unsupported).run(_cell())
     assert record.state is RunState.UNSUPPORTED
     assert runtime.calls == 0
 
@@ -239,7 +279,7 @@ def test_runner_derives_receipt_binding_gate_and_fails_closed() -> None:
         invocation_envelope_sha256=_sha("9"),
     )
     runtime = _Runtime()
-    record = EvaluationRunner(runtime).run(replace(cell, consumption_receipt=tampered))
+    record = _runner(runtime).run(replace(cell, consumption_receipt=tampered))
     assert record.state is RunState.INVALID
     assert runtime.calls == 0
     assert any(
@@ -250,7 +290,7 @@ def test_runner_derives_receipt_binding_gate_and_fails_closed() -> None:
 
 def test_runner_executes_one_injected_call_and_records_only_digests() -> None:
     runtime = _Runtime()
-    record = EvaluationRunner(runtime).run(_cell())
+    record = _runner(runtime).run(_cell())
     assert record.state is RunState.COMPLETED
     assert runtime.calls == 1
     assert record.output_sha256 is not None
@@ -260,12 +300,12 @@ def test_runner_executes_one_injected_call_and_records_only_digests() -> None:
 
 def test_runner_sanitizes_errors_and_rejects_unsafe_shared_output() -> None:
     failure = _Runtime(RuntimeAdapterFailure("runtime-timeout"))
-    record = EvaluationRunner(failure).run(_cell())
+    record = _runner(failure).run(_cell())
     assert record.state is RunState.TECHNICAL_ERROR
     assert record.technical_error_reason == "runtime-timeout"
 
     generic = _Runtime(RuntimeError("password=do-not-persist-this"))
-    record = EvaluationRunner(generic).run(_cell())
+    record = _runner(generic).run(_cell())
     assert record.technical_error_reason == "runtime-adapter-failure"
     assert "password" not in json.dumps(record.__dict__, default=str)
 
@@ -274,17 +314,16 @@ def test_runner_sanitizes_errors_and_rejects_unsafe_shared_output() -> None:
             output_text="PRIVATE_PERSONAL must not enter a shared artifact",
             controlled_artifact_path="outputs/eval-01.txt",
             output_location_class="shared-output",
-            completion_evidence_sha256=_sha("7"),
         )
     )
-    record = EvaluationRunner(unsafe).run(_cell())
+    record = _runner(unsafe).run(_cell())
     assert record.state is RunState.INVALID
     assert record.output_sha256 is None
 
 
 def test_control_pairing_uses_exact_comparability_without_a_score() -> None:
-    control = EvaluationRunner(_Runtime()).run(_cell(LayerVariant.FOUNDATION))
-    layered = EvaluationRunner(_Runtime()).run(_cell(LayerVariant.ORGANIZATION))
+    control = _runner(_Runtime()).run(_cell(LayerVariant.FOUNDATION))
+    layered = _runner(_Runtime()).run(_cell(LayerVariant.ORGANIZATION))
     relation = CriterionComparison(
         criterion="evidence-discipline",
         relation=CriterionRelation.IMPROVED,
@@ -296,7 +335,7 @@ def test_control_pairing_uses_exact_comparability_without_a_score() -> None:
     assert comparison.relations == (relation,)
     assert "score" not in json.dumps(comparison.__dict__, default=str).casefold()
 
-    changed = EvaluationRunner(_Runtime()).run(
+    changed = _runner(_Runtime()).run(
         _cell(LayerVariant.ORGANIZATION, runtime_configuration_sha256=_sha("8"))
     )
     with pytest.raises(ValueError, match="not comparable"):
@@ -306,8 +345,8 @@ def test_control_pairing_uses_exact_comparability_without_a_score() -> None:
 def test_content_addressed_artifacts_are_canonical_and_idempotent(
     tmp_path: Path,
 ) -> None:
-    control = EvaluationRunner(_Runtime()).run(_cell(LayerVariant.FOUNDATION))
-    layered = EvaluationRunner(_Runtime()).run(_cell(LayerVariant.ORGANIZATION))
+    control = _runner(_Runtime()).run(_cell(LayerVariant.FOUNDATION))
+    layered = _runner(_Runtime()).run(_cell(LayerVariant.ORGANIZATION))
     comparison = pair_control_runs(control, layered)
 
     run_receipt = write_run_record(tmp_path, control)
@@ -339,4 +378,126 @@ def test_artifact_writer_rejects_aggregate_fields_and_symlink_roots(
             linked,
             artifact_type="run-record",
             payload={"schema_version": "1.0"},
+        )
+
+
+def test_callers_cannot_mint_passing_gate_or_valid_preflight() -> None:
+    with pytest.raises(ValueError, match="verifier-issued"):
+        GateObservation(
+            PreflightGate.FIXTURE_CONTRACT,
+            GateState.PASS,
+            "verified",
+            "framework",
+            "signed-evidence",
+        )
+    with pytest.raises(ValueError, match="verifier-issued"):
+        from cc.core.evaluation.models import PreflightResult
+
+        PreflightResult(
+            PreflightState.VALID,
+            (),
+            _sha("1"),
+            _sha("2"),
+        )
+
+
+def test_receipt_fields_reject_mutable_refs_bad_signers_and_disclosure_paths() -> None:
+    layer = _layer("foundation", 0)
+    with pytest.raises(ValueError, match="signed tag"):
+        replace(layer, immutable_ref="refs/heads/main")
+    with pytest.raises(ValueError, match="signer fingerprint"):
+        replace(layer, signer_identity="self-asserted")
+    with pytest.raises(ValueError, match="exact relative path"):
+        replace(layer, materialized_destinations=("Users/pabs/result.md",))
+    with pytest.raises(ValueError, match="exact relative path"):
+        RuntimeOutput(
+            "safe",
+            "outputs/token-value.txt",
+            "shared-output",
+        )
+
+
+def test_dispatch_is_not_completion_without_correlated_completion_proof() -> None:
+    runtime = _Runtime()
+    record = _runner(runtime, complete=False).run(_cell())
+    assert record.state is RunState.DISPATCH_AUTHORIZED
+    assert record.completion_evidence_sha256 is None
+    assert runtime.calls == 1
+    with pytest.raises(ValueError, match="completed"):
+        pair_control_runs(record, record)
+
+
+def test_route_and_continuity_bind_preflight_and_comparability() -> None:
+    original_cell = _cell()
+    changed_receipt = replace(
+        original_cell.consumption_receipt,
+        route_evidence_sha256=_sha("8"),
+        continuity_evidence_sha256=_sha("9"),
+    )
+    original = _runner(_Runtime()).run(original_cell)
+    changed = _runner(_Runtime()).run(
+        replace(original_cell, consumption_receipt=changed_receipt)
+    )
+    assert original.preflight.subject_sha256 != changed.preflight.subject_sha256
+    assert original.comparability_sha256 != changed.comparability_sha256
+
+
+def test_comparison_rejects_inapplicable_and_nonadjacent_case_pairs() -> None:
+    foundation = _runner(_Runtime()).run(_cell(LayerVariant.FOUNDATION))
+    department = _runner(_Runtime()).run(_cell(LayerVariant.DEPARTMENT))
+    with pytest.raises(ValueError, match="exact applicable"):
+        pair_control_runs(foundation, department)
+
+    eval_five_foundation = _runner(_Runtime()).run(
+        _cell(LayerVariant.FOUNDATION, case_id="eval-05")
+    )
+    eval_five_department = _runner(_Runtime()).run(
+        _cell(LayerVariant.DEPARTMENT, case_id="eval-05")
+    )
+    assert pair_control_runs(eval_five_foundation, eval_five_department)
+
+
+def test_retry_lineage_requires_preserved_matching_parent_and_keeps_all_attempts() -> (
+    None
+):
+    ledger = AttemptLedger()
+    runner = _runner(_Runtime(), ledger=ledger)
+    first = runner.run(_cell())
+    retry = runner.run(_cell(attempt=2, parent_attempt_sha256=first.run_sha256))
+    assert retry.state is RunState.COMPLETED
+    assert len(ledger.records()) == 2
+
+    bad_runtime = _Runtime()
+    bad = _runner(bad_runtime, ledger=ledger).run(
+        _cell(
+            LayerVariant.ORGANIZATION,
+            attempt=2,
+            parent_attempt_sha256=first.run_sha256,
+        )
+    )
+    assert bad.state is RunState.INVALID
+    assert bad_runtime.calls == 0
+    assert len(ledger.records()) == 3
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "criterionScore",
+        "evaluation.score",
+        "scores",
+        "Total-Value",
+        "AVERAGE_RESULT",
+        "percentile",
+        "winningRank",
+    ],
+)
+def test_artifact_rejects_semantic_aggregate_key_variants(
+    tmp_path: Path, field: str
+) -> None:
+    with pytest.raises(ValueError, match="Aggregate"):
+        write_artifact(
+            tmp_path,
+            artifact_type="comparison-record",
+            payload={"nested": [{field: 1}]},
         )

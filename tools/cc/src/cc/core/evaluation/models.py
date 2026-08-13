@@ -1,13 +1,13 @@
-"""Closed, immutable models for versioned evaluation fixtures.
+"""Closed, immutable models for evaluation inputs and evidence artifacts.
 
-This module deliberately models fixture inputs only. Runtime execution,
-Knowledge resolution, entitlement, and journey-consumption evidence remain at
-their existing boundaries and are not inferred here.
+Knowledge resolution, entitlement, and journey truth remain verifier-owned;
+these records bind their disclosed evidence without inferring it.
 """
 
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Mapping
@@ -15,6 +15,17 @@ from typing import Any, Mapping
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _IDENTIFIER = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 _SAFE_REFERENCE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/+:-]{0,255}$")
+_REPOSITORY = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+)
+_SIGNER = re.compile(r"^SHA256:[A-Za-z0-9+/=_-]{8,128}$")
+_DISCLOSURE = re.compile(
+    r"(?i)(?:^|[/._-])(?:users|home|private|tmp|var|volumes)(?:[/._-]|$)|"
+    r"(?:password|secret|token|credential|api[_-]?key)|"
+    r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"
+)
+_EVIDENCE_AUTHORITY = object()
+_COMPLETION_AUTHORITY = object()
 
 
 def _digest(value: str, field_name: str) -> None:
@@ -28,7 +39,12 @@ def _identifier(value: str, field_name: str) -> None:
 
 
 def _reference(value: str, field_name: str) -> None:
-    if not _SAFE_REFERENCE.fullmatch(value) or ".." in value.split("/"):
+    if (
+        not _SAFE_REFERENCE.fullmatch(value)
+        or ".." in value.split("/")
+        or _DISCLOSURE.search(value)
+        or any(unicodedata.category(character) in {"Cc", "Cf"} for character in value)
+    ):
         raise ValueError(f"{field_name} must be a safe immutable reference.")
 
 
@@ -39,6 +55,8 @@ def _relative_path(value: str, field_name: str) -> None:
         or value.startswith("/")
         or "\\" in value
         or any(part in {"", ".", ".."} for part in parts)
+        or _DISCLOSURE.search(value)
+        or any(unicodedata.category(character) in {"Cc", "Cf"} for character in value)
     ):
         raise ValueError(f"{field_name} must be an exact relative path.")
 
@@ -92,6 +110,7 @@ class PreflightGate(str, Enum):
 
 class RunState(str, Enum):
     COMPLETED = "completed"
+    DISPATCH_AUTHORIZED = "dispatch-authorized"
     INVALID = "invalid"
     UNSUPPORTED = "unsupported"
     TECHNICAL_ERROR = "technical-error"
@@ -209,9 +228,19 @@ class LayerContentReceipt:
     def __post_init__(self) -> None:
         _identifier(self.product, "product")
         _identifier(self.tier, "tier")
+        if not _REPOSITORY.fullmatch(self.repository_identifier):
+            raise ValueError(
+                "repository_identifier must be a canonical owner/repository."
+            )
         _reference(self.repository_identifier, "repository_identifier")
         _reference(self.immutable_ref, "immutable_ref")
-        _reference(self.signer_identity, "signer_identity")
+        if not (
+            self.immutable_ref.startswith("refs/tags/")
+            or re.fullmatch(r"sha256:[0-9a-f]{64}", self.immutable_ref)
+        ):
+            raise ValueError("immutable_ref must be a signed tag or content object.")
+        if not _SIGNER.fullmatch(self.signer_identity):
+            raise ValueError("signer_identity must be a verified signer fingerprint.")
         _identifier(self.resolution_action, "resolution_action")
         for field_name in (
             "tree_sha256",
@@ -313,21 +342,32 @@ class GateObservation:
     reason: str
     actor: str
     prerequisite: str
+    _authority: object = None
 
     def __post_init__(self) -> None:
         _identifier(self.reason, "gate reason")
         _identifier(self.actor, "gate actor")
         _identifier(self.prerequisite, "gate prerequisite")
+        if self.state is GateState.PASS and self._authority is not _EVIDENCE_AUTHORITY:
+            raise ValueError("Passing gate evidence must be verifier-issued.")
 
 
 @dataclass(frozen=True)
 class PreflightResult:
     state: PreflightState
     observations: tuple[GateObservation, ...]
+    subject_sha256: str
     result_sha256: str
+    _authority: object = None
 
     def __post_init__(self) -> None:
+        _digest(self.subject_sha256, "subject_sha256")
         _digest(self.result_sha256, "result_sha256")
+        if (
+            self.state is PreflightState.VALID
+            and self._authority is not _EVIDENCE_AUTHORITY
+        ):
+            raise ValueError("Valid preflight results must be verifier-issued.")
 
 
 @dataclass(frozen=True)
@@ -340,7 +380,6 @@ class EvaluationCell:
     runtime_receipt: RuntimeReceipt
     content_receipt: ContentReceipt
     consumption_receipt: ConsumptionReceipt
-    observations: tuple[GateObservation, ...]
     attempt: int
     attempt_policy_sha256: str
     runtime_configuration_sha256: str
@@ -369,13 +408,31 @@ class RuntimeOutput:
     output_text: str
     controlled_artifact_path: str
     output_location_class: str
-    completion_evidence_sha256: str
 
     def __post_init__(self) -> None:
         _relative_path(self.controlled_artifact_path, "controlled_artifact_path")
         if self.output_location_class not in {"private-output", "shared-output"}:
             raise ValueError("output_location_class is not supported.")
-        _digest(self.completion_evidence_sha256, "completion_evidence_sha256")
+
+
+@dataclass(frozen=True)
+class CompletionProof:
+    invocation_envelope_sha256: str
+    output_sha256: str
+    artifact_path_sha256: str
+    evidence_sha256: str
+    _authority: object = None
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "invocation_envelope_sha256",
+            "output_sha256",
+            "artifact_path_sha256",
+            "evidence_sha256",
+        ):
+            _digest(getattr(self, field_name), field_name)
+        if self._authority is not _COMPLETION_AUTHORITY:
+            raise ValueError("Completion proof must be verifier-issued.")
 
 
 @dataclass(frozen=True)
