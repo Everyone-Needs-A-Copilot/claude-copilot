@@ -73,6 +73,9 @@ def test_eval_01_through_eval_07_load_with_digest_bound_runtime_packets():
         assert case["private_oracle"]["path"] not in {
             item.path for item in loaded.evidence
         }
+        assert loaded.oracle.path == case["private_oracle"]["path"]
+        assert loaded.oracle.sha256 == case["private_oracle"]["sha256"]
+        assert hashlib.sha256(loaded.oracle.content).hexdigest() == loaded.oracle.sha256
         for evidence in loaded.evidence:
             assert hashlib.sha256(evidence.content).hexdigest() == evidence.sha256
 
