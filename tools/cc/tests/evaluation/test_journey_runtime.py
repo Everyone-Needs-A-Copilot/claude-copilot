@@ -238,9 +238,20 @@ def test_begin_prepare_dispatch_pause_fresh_resume_and_next_dispatch():
 
 
 def test_terminal_ledger_derives_complete_evaluation_evidence_identity():
-    rows = Rows()
+    class CountingRows(Rows):
+        def __init__(self) -> None:
+            super().__init__()
+            self.list_calls = 0
+
+        def list_wps(self, *, task=None, type_=None):
+            self.list_calls += 1
+            return super().list_wps(task=task, type_=type_)
+
+    rows = CountingRows()
     started = complete_two_stage_with_pause(rows)
+    before = rows.list_calls
     identities = _verified_journey_identities(started["run_id"], ledger(rows))
+    assert rows.list_calls - before == 1
     assert identities is not None
     assert identities["task_id"] == 296
     assert identities["run_id"] == started["run_id"]
@@ -251,6 +262,7 @@ def test_terminal_ledger_derives_complete_evaluation_evidence_identity():
         "continuity_evidence_sha256",
         "invocation_receipts_sha256",
         "terminal_evidence_sha256",
+        "terminal_snapshot_sha256",
         "journey_evidence_sha256",
     ):
         assert len(str(identities[field])) == 64

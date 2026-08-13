@@ -450,6 +450,63 @@ class RunRecord:
             raise ValueError("Run record schema_version must be exactly 1.2.")
         if self._authority is not _RUN_RECORD_AUTHORITY:
             raise ValueError("Run records must be runner-issued.")
+        for field_name in (
+            "run_sha256",
+            "fixture_sha256",
+            "prompt_evidence_sha256",
+            "attempt_policy_sha256",
+            "runtime_configuration_sha256",
+            "tool_configuration_sha256",
+            "comparability_sha256",
+            "runtime_receipt_sha256",
+            "content_receipt_sha256",
+            "consumption_receipt_sha256",
+        ):
+            _digest(getattr(self, field_name), field_name)
+        if self.parent_attempt_sha256 is not None:
+            _digest(self.parent_attempt_sha256, "parent_attempt_sha256")
+        if self.output_sha256 is not None:
+            _digest(self.output_sha256, "output_sha256")
+        if self.completion_evidence_sha256 is not None:
+            _digest(
+                self.completion_evidence_sha256,
+                "completion_evidence_sha256",
+            )
+        if self.controlled_artifact_path is not None:
+            _relative_path(self.controlled_artifact_path, "controlled_artifact_path")
+        if self.technical_error_reason is not None:
+            _identifier(self.technical_error_reason, "technical_error_reason")
+        outputs = (self.output_sha256, self.controlled_artifact_path)
+        if self.state in {RunState.INVALID, RunState.UNSUPPORTED}:
+            if any(
+                value is not None
+                for value in outputs
+                + (
+                    self.completion_evidence_sha256,
+                    self.technical_error_reason,
+                )
+            ):
+                raise ValueError("Non-dispatched records cannot carry result fields.")
+        elif self.state is RunState.DISPATCH_AUTHORIZED:
+            if (
+                any(value is None for value in outputs)
+                or self.completion_evidence_sha256 is not None
+                or self.technical_error_reason is not None
+            ):
+                raise ValueError("Dispatch records require output without completion.")
+        elif self.state is RunState.COMPLETED:
+            if (
+                any(value is None for value in outputs)
+                or self.completion_evidence_sha256 is None
+                or self.technical_error_reason is not None
+            ):
+                raise ValueError("Completed records require correlated completion.")
+        elif self.state is RunState.TECHNICAL_ERROR and (
+            any(value is not None for value in outputs)
+            or self.completion_evidence_sha256 is not None
+            or self.technical_error_reason is None
+        ):
+            raise ValueError("Technical errors require only a stable error reason.")
 
 
 @dataclass(frozen=True)

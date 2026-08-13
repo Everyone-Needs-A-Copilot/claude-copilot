@@ -159,6 +159,45 @@ def _stable_file_identity(metadata: os.stat_result) -> tuple[int, ...]:
     )
 
 
+def _verify_named_artifact(
+    type_fd: int, filename: str, content: bytes, digest: str
+) -> None:
+    """Bind verified bytes and inode to the final directory entry."""
+
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    file_fd = os.open(filename, os.O_RDONLY | nofollow, dir_fd=type_fd)
+    try:
+        before = os.fstat(file_fd)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_nlink != 1
+            or before.st_size != len(content)
+        ):
+            raise ValueError(
+                "Existing evaluation artifact is not a stable regular file."
+            )
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(file_fd, 65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        existing = b"".join(chunks)
+        after = os.fstat(file_fd)
+        named = os.stat(filename, dir_fd=type_fd, follow_symlinks=False)
+        if (
+            _stable_file_identity(before) != _stable_file_identity(after)
+            or not stat.S_ISREG(named.st_mode)
+            or named.st_nlink != 1
+            or (named.st_dev, named.st_ino) != (after.st_dev, after.st_ino)
+            or existing != content
+            or hashlib.sha256(existing).hexdigest() != digest
+        ):
+            raise ValueError("Content-addressed artifact identity collision.")
+    finally:
+        os.close(file_fd)
+
+
 def _reject_disclosure_values(value: object) -> None:
     if isinstance(value, Mapping):
         for item in value.values():
@@ -250,39 +289,13 @@ def _write_artifact(
                     follow_symlinks=False,
                 )
                 os.unlink(staging_name, dir_fd=type_fd)
-                os.fsync(type_fd)
             except FileExistsError:
                 try:
                     os.unlink(staging_name, dir_fd=type_fd)
                 except FileNotFoundError:
                     pass
-                existing_fd = os.open(filename, os.O_RDONLY | nofollow, dir_fd=type_fd)
-                try:
-                    before = os.fstat(existing_fd)
-                    if (
-                        not stat.S_ISREG(before.st_mode)
-                        or before.st_nlink != 1
-                        or before.st_size != len(content)
-                    ):
-                        raise ValueError(
-                            "Existing evaluation artifact is not a stable regular file."
-                        )
-                    existing = b""
-                    while True:
-                        chunk = os.read(existing_fd, 65536)
-                        if not chunk:
-                            break
-                        existing += chunk
-                    after = os.fstat(existing_fd)
-                finally:
-                    os.close(existing_fd)
-                if (
-                    _stable_file_identity(before) != _stable_file_identity(after)
-                    or existing != content
-                    or hashlib.sha256(existing).hexdigest() != digest
-                ):
-                    raise ValueError("Content-addressed artifact identity collision.")
-                os.fsync(type_fd)
+            _verify_named_artifact(type_fd, filename, content, digest)
+            os.fsync(type_fd)
         except Exception:
             if artifact_fd is not None:
                 os.close(artifact_fd)
