@@ -5,6 +5,7 @@ import hashlib
 import json
 import multiprocessing
 import os
+import sqlite3
 import stat
 import subprocess
 import threading
@@ -160,6 +161,28 @@ def authorize(rows: Rows, prepared, *, prompt_sha="c" * 64, selected_resolver=re
         ledger_factory=ledger_factory(rows),
         resolver=selected_resolver,
     )
+
+
+def payload_for(row):
+    return json.loads(row["content"])
+
+
+def reassign_row_order(rows: Rows, ordered: list[dict]) -> None:
+    rows.items = {}
+    for row_id, row in enumerate(ordered, start=1):
+        row["id"] = row_id
+        rows.items[row_id] = row
+
+
+def two_stage_progress(rows: Rows):
+    started = begin(rows, specialists=("me", "qa", "sec"))
+    first = prepare_run(started["run_id"], "me", ledger=ledger(rows), resolver=resolver)
+    authorize(rows, first)
+    second = prepare_run(
+        started["run_id"], "qa", ledger=ledger(rows), resolver=resolver
+    )
+    authorize(rows, second, prompt_sha="d" * 64)
+    return started
 
 
 def test_begin_prepare_dispatch_pause_fresh_resume_and_next_dispatch():
@@ -650,6 +673,149 @@ def test_duplicate_pause_generation_is_rejected():
 
 
 @pytest.mark.parametrize(
+    "moved_stage_one_kinds",
+    [
+        ("prepare",),
+        ("prepare", "prompt_binding"),
+        ("prepare", "prompt_binding", "dispatch_authorization"),
+    ],
+)
+def test_cross_stage_row_reassignment_is_rejected(moved_stage_one_kinds):
+    rows = Rows()
+    started = two_stage_progress(rows)
+    original = list(rows.items.values())
+
+    def matches(row, kind, stage):
+        payload = payload_for(row)
+        return payload["record_type"] == kind and payload.get("stage_index") == stage
+
+    stage_zero_dispatch = next(
+        row for row in original if matches(row, "dispatch_authorization", 0)
+    )
+    moved = [
+        row
+        for kind in moved_stage_one_kinds
+        for row in original
+        if matches(row, kind, 1)
+    ]
+    ordered = []
+    for row in original:
+        if row is stage_zero_dispatch:
+            ordered.extend(moved)
+        if row not in moved:
+            ordered.append(row)
+    reassign_row_order(rows, ordered)
+    count = len(rows.items)
+
+    with pytest.raises(ValueError, match="cross-stage chronology"):
+        inspect_run(started["run_id"], ledger=ledger(rows))
+    with pytest.raises(ValueError, match="cross-stage chronology"):
+        pause_run(started["run_id"], ledger=ledger(rows), resolver=resolver)
+    assert len(rows.items) == count
+
+
+def test_real_tc_cross_stage_row_reassignment_is_rejected(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(Path("tools/tc/src").resolve()))
+    from tc.api import create_prd, create_task, get_wp, list_wps, store_wp
+    from tc.db.connection import init_db
+
+    db_path = tmp_path / "tasks.db"
+    init_db(db_path)
+    prd = create_prd(title="Chronology fixture", db_path=db_path)
+    task_id = create_task(title="Chronology task", prd=prd["id"], db_path=db_path)["id"]
+
+    def real_ledger(selected_task):
+        return TcJourneyLedger(
+            selected_task,
+            store_wp=lambda **values: store_wp(**values, db_path=db_path),
+            get_wp=lambda **values: get_wp(**values, db_path=db_path),
+            list_wps=lambda **values: list_wps(**values, db_path=db_path),
+        )
+
+    capability = type(
+        "Capability",
+        (),
+        {
+            "invoke": lambda self, **_: CapabilityReceipt(
+                "cli-copilot-health", "unavailable"
+            )
+        },
+    )()
+    started = begin_run(
+        task_id=task_id,
+        runtime="claude",
+        classification="implementation",
+        specialists=("me", "qa", "sec"),
+        events=tuple(
+            {
+                "kind": "transition",
+                "specialist": item,
+                "reason": "protocol-supplied",
+            }
+            for item in ("me", "qa", "sec")
+        ),
+        prompt_sha256="b" * 64,
+        session_id="real-chronology",
+        ledger=real_ledger(task_id),
+        capability=capability,
+    )
+    first = prepare_run(
+        started["run_id"], "me", ledger=real_ledger(task_id), resolver=resolver
+    )
+    bind_prompt(started["run_id"], "me", "c" * 64, ledger=real_ledger(task_id))
+    verify_dispatch(
+        session_id="real-chronology",
+        specialist="me",
+        marker=first.invocation_marker,
+        prompt_sha256="c" * 64,
+        knowledge_sha256=first.composed_content_sha256,
+        ledger_factory=real_ledger,
+        resolver=resolver,
+    )
+    second = prepare_run(
+        started["run_id"], "qa", ledger=real_ledger(task_id), resolver=resolver
+    )
+    bind_prompt(started["run_id"], "qa", "d" * 64, ledger=real_ledger(task_id))
+    verify_dispatch(
+        session_id="real-chronology",
+        specialist="qa",
+        marker=second.invocation_marker,
+        prompt_sha256="d" * 64,
+        knowledge_sha256=second.composed_content_sha256,
+        ledger_factory=real_ledger,
+        resolver=resolver,
+    )
+
+    summaries = list_wps(task=task_id, type_="evidence", db_path=db_path)
+    full_rows = [get_wp(wp_id=row["id"], db_path=db_path) for row in summaries]
+    stage_zero_dispatch = next(
+        row
+        for row in full_rows
+        if payload_for(row)["record_type"] == "dispatch_authorization"
+        and payload_for(row)["stage_index"] == 0
+    )
+    stage_one = sorted(
+        (row for row in full_rows if payload_for(row).get("stage_index") == 1),
+        key=lambda row: row["id"],
+    )
+    target_ids = [stage_zero_dispatch["id"], *(row["id"] for row in stage_one)]
+    reordered_ids = [target_ids[-1], *target_ids[:-1]]
+    with sqlite3.connect(db_path) as connection:
+        for old_id in target_ids:
+            connection.execute(
+                "UPDATE work_products SET id = ? WHERE id = ?", (-old_id, old_id)
+            )
+        for old_id, new_id in zip(target_ids, reordered_ids, strict=True):
+            connection.execute(
+                "UPDATE work_products SET id = ? WHERE id = ?", (new_id, -old_id)
+            )
+        connection.commit()
+
+    with pytest.raises(ValueError, match="cross-stage chronology"):
+        inspect_run(started["run_id"], ledger=real_ledger(task_id))
+
+
+@pytest.mark.parametrize(
     ("field", "value"),
     [
         ("specialist", "qa"),
@@ -880,6 +1046,121 @@ def test_lock_rename_unlink_recreate_attack_cannot_split_claim_identity(tmp_path
 
     after = os.lstat("/private/tmp")
     assert (after.st_dev, after.st_ino) == (before.st_dev, before.st_ino)
+
+
+def test_store_revalidates_claim_before_after_and_after_verification(monkeypatch):
+    rows = Rows()
+    selected = ledger(rows)
+    events = []
+    original = selected._validate_global_lock_descriptor
+
+    def validate(descriptor):
+        events.append(("validate", os.getpid(), descriptor))
+        original(descriptor)
+
+    monkeypatch.setattr(selected, "_validate_global_lock_descriptor", validate)
+    with selected.claim("validation-sequence"):
+        before = len(events)
+        selected.append(
+            "Journey v2.1 begin evidence",
+            {
+                "record_type": "begin",
+                "run_id": "j2-296-" + "a" * 24,
+                "session_id_sha256": "b" * 64,
+                "prompt_sha256": "c" * 64,
+                "route": {
+                    "classification": "implementation",
+                    "specialists": ["me"],
+                    "runtime": "claude",
+                    "contract_version": "2.1",
+                    "events": [
+                        {
+                            "kind": "transition",
+                            "specialist": "me",
+                            "reason": "protocol-supplied",
+                        }
+                    ],
+                },
+                "security": {
+                    "state": "allowed",
+                    "reason": "fixture-policy",
+                    "policy_sha256": "d" * 64,
+                },
+                "capability": {
+                    "name": "cli-copilot-health",
+                    "state": "unavailable",
+                    "detail": "",
+                },
+            },
+        )
+        store_validations = events[before:]
+    assert len(store_validations) >= 4
+    assert {pid for _, pid, _ in store_validations} == {os.getpid()}
+    assert len({descriptor for _, _, descriptor in store_validations}) == 1
+
+
+def test_store_identity_failure_before_callback_performs_no_store(monkeypatch):
+    calls = []
+    rows = Rows()
+    selected = ledger(rows)
+    with selected.claim("identity-failure"):
+        original_validate = selected._validate_global_lock_descriptor
+        original = selected._store_wp
+        try:
+            monkeypatch.setattr(
+                selected,
+                "_validate_global_lock_descriptor",
+                lambda _descriptor: (_ for _ in ()).throw(
+                    RuntimeError("Journey global lock identity changed.")
+                ),
+            )
+            selected._store_wp = lambda **values: (
+                calls.append(values),
+                original(**values),
+            )[1]
+            with pytest.raises(RuntimeError, match="identity changed"):
+                selected.append("Journey v2.1 preparation evidence", {})
+            assert calls == []
+        finally:
+            selected._validate_global_lock_descriptor = original_validate
+
+
+def test_forked_callback_child_cannot_continue_or_store():
+    if not hasattr(os, "fork"):
+        pytest.skip("raw fork is unavailable")
+    rows = Rows()
+    selected = ledger(rows)
+    started = begin(rows, specialists=("me",))
+    original_pid = os.getpid()
+    child_status = []
+
+    def forking_resolver(specialist):
+        pid = os.fork()
+        if pid == 0:
+            return resolver(specialist)
+        waited, status = os.waitpid(pid, 0)
+        child_status.append((waited, status))
+        return resolver(specialist)
+
+    try:
+        prepared = prepare_run(
+            started["run_id"], "me", ledger=selected, resolver=forking_resolver
+        )
+    except RuntimeError as exc:
+        if os.getpid() != original_pid:
+            os._exit(0 if "process" in str(exc) else 2)
+        raise
+
+    assert os.getpid() == original_pid
+    assert child_status and os.waitstatus_to_exitcode(child_status[0][1]) == 0
+    assert prepared.specialist == "me"
+    assert (
+        sum(
+            row["title"] == "Journey v2.1 preparation evidence"
+            for row in rows.items.values()
+        )
+        == 1
+    )
 
 
 def test_runtime_contains_no_second_router_or_resolver():
