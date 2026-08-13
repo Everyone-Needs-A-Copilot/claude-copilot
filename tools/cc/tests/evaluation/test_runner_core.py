@@ -857,6 +857,89 @@ def test_recursive_retry_lineage_reuses_the_transaction_root_fd(
         assert not (root / receipt.relative_path).exists()
 
 
+def test_durable_retry_rejects_type_directory_swap_before_child_staging(
+    tmp_path: Path,
+) -> None:
+    import cc.core.evaluation.artifact as artifact_module
+
+    root = tmp_path / "store"
+    root.mkdir(mode=0o700)
+    held_type = root / "held-run-record"
+    first_cell = _cell()
+    first = EvaluationRunner(_Runtime(), artifact_root=root).run(first_cell)
+    first_receipt = write_run_record(root, first, cell=first_cell)
+    child_cell = _cell(attempt=2, parent_attempt_sha256=first.run_sha256)
+    child = EvaluationRunner(_Runtime(), artifact_root=root).run(child_cell)
+    real_valid = artifact_module._production_record_valid
+
+    def swapping_valid(*args, **kwargs):
+        result = real_valid(*args, **kwargs)
+        (root / "run-record").rename(held_type)
+        (root / "run-record").mkdir(mode=0o700)
+        return result
+
+    with (
+        patch.object(artifact_module, "_production_record_valid", swapping_valid),
+        patch.object(
+            artifact_module,
+            "_open_artifact_type_directory",
+            wraps=artifact_module._open_artifact_type_directory,
+        ) as open_type,
+        pytest.raises((OSError, ValueError)),
+    ):
+        write_run_record(root, child, cell=child_cell)
+
+    assert open_type.call_count == 1
+    assert (held_type / Path(first_receipt.relative_path).name).is_file()
+    assert not tuple((root / "run-record").iterdir())
+
+
+def test_recursive_retry_rejects_type_directory_swap_at_any_depth(
+    tmp_path: Path,
+) -> None:
+    import cc.core.evaluation.artifact as artifact_module
+
+    root = tmp_path / "store"
+    root.mkdir(mode=0o700)
+    held_type = root / "held-run-record"
+    first_cell = _cell()
+    first = EvaluationRunner(_Runtime(), artifact_root=root).run(first_cell)
+    first_receipt = write_run_record(root, first, cell=first_cell)
+    second_cell = _cell(attempt=2, parent_attempt_sha256=first.run_sha256)
+    second = EvaluationRunner(_Runtime(), artifact_root=root).run(second_cell)
+    second_receipt = write_run_record(root, second, cell=second_cell)
+    third_cell = _cell(attempt=3, parent_attempt_sha256=second.run_sha256)
+    third = EvaluationRunner(_Runtime(), artifact_root=root).run(third_cell)
+    real_read = artifact_module._read_verified_artifact
+    reads = 0
+
+    def swapping_read(*args, **kwargs):
+        nonlocal reads
+        raw = real_read(*args, **kwargs)
+        reads += 1
+        if reads == 1:
+            (root / "run-record").rename(held_type)
+            (root / "run-record").mkdir(mode=0o700)
+        return raw
+
+    with (
+        patch.object(artifact_module, "_read_verified_artifact", swapping_read),
+        patch.object(
+            artifact_module,
+            "_open_artifact_type_directory",
+            wraps=artifact_module._open_artifact_type_directory,
+        ) as open_type,
+        pytest.raises(ValueError, match="production-authoritative"),
+    ):
+        write_run_record(root, third, cell=third_cell)
+
+    assert reads >= 1
+    assert open_type.call_count == 1
+    for receipt in (first_receipt, second_receipt):
+        assert (held_type / Path(receipt.relative_path).name).is_file()
+    assert not tuple((root / "run-record").iterdir())
+
+
 @pytest.mark.parametrize(
     "changed",
     (
