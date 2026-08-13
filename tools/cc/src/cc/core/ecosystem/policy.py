@@ -64,6 +64,84 @@ class GitItemProvenance:
     signer: str
     repository_root: str
     relative_path: str
+    tag_object: str
+    commit: str
+    release_tree: str
+
+
+@dataclass(frozen=True)
+class VerifiedGitRelease:
+    """One authenticated, immutable Git release and safe blob reader.
+
+    The annotated tag verification remains owned by
+    :func:`verify_git_item_provenance`.  This projection only preserves the
+    verified identity and reads bytes from its content-addressed tree; it never
+    consults the mutable checkout for content.
+    """
+
+    repository_root: str
+    repository: str
+    ref: str
+    tree: str
+    signer: str
+
+    def read_blob(self, relative_path: str) -> bytes:
+        relative = Path(relative_path)
+        if (
+            not relative_path
+            or relative.is_absolute()
+            or ".." in relative.parts
+            or relative.as_posix() != relative_path
+        ):
+            raise ValueError("Signed release blob path is unsafe.")
+        try:
+            kind = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    self.repository_root,
+                    "cat-file",
+                    "-t",
+                    f"{self.tree}:{relative_path}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=8.0,
+                check=False,
+            )
+            if kind.returncode != 0 or kind.stdout.strip() != "blob":
+                raise ValueError("Signed release contribution is not a regular blob.")
+            blob = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    self.repository_root,
+                    "cat-file",
+                    "blob",
+                    f"{self.tree}:{relative_path}",
+                ],
+                capture_output=True,
+                timeout=8.0,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise ValueError("Signed release blob is unavailable.") from exc
+        if blob.returncode != 0:
+            raise ValueError("Signed release blob is unavailable.")
+        return blob.stdout
+
+
+def verified_release_from_provenance(
+    provenance: GitItemProvenance, *, repository: str
+) -> VerifiedGitRelease:
+    """Project an already-verified item to its containing release tree."""
+    return VerifiedGitRelease(
+        repository_root=provenance.repository_root,
+        repository=repository,
+        ref=provenance.ref,
+        tree=provenance.release_tree,
+        signer=provenance.signer,
+    )
 
 
 @dataclass(frozen=True)
@@ -496,6 +574,18 @@ def verify_git_item_provenance(
             if commit.returncode != 0 or not commit.stdout.strip():
                 return None
             pinned_commit = commit.stdout.strip()
+            release_tree_result = run(
+                ["git", "-C", str(root), "rev-parse", f"{pinned_commit}^{{tree}}"],
+                capture_output=True,
+                text=True,
+                timeout=8.0,
+                check=False,
+            )
+            release_tree = release_tree_result.stdout.strip()
+            if release_tree_result.returncode != 0 or not re.fullmatch(
+                r"[0-9a-f]{40,64}", release_tree
+            ):
+                return None
             tree = run(
                 [
                     "git",
@@ -556,6 +646,9 @@ def verify_git_item_provenance(
         signer=signer,
         repository_root=str(root),
         relative_path=repo_relative,
+        tag_object=tag_oid,
+        commit=pinned_commit,
+        release_tree=release_tree,
     )
 
 

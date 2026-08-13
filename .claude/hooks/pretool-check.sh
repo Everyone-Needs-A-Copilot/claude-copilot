@@ -13,6 +13,7 @@
 #   Set COPILOT_FORCE_DELEGATE=off to bypass all force-delegate checks.
 #   Set COPILOT_QA_GATE=off to bypass all QA gate checks.
 #   Set COPILOT_EXTENSIONS_GATE=off to bypass the extension-resolution gate.
+#   Set COPILOT_JOURNEY_GATE=off to bypass journey dispatch receipts.
 #
 # INPUT (stdin):
 #   JSON object with fields:
@@ -562,6 +563,34 @@ rule_qa_gate() {
 }
 
 # ---------------------------------------------------------------------------
+# Rule: journey dispatch receipt
+# The existing protocol owns routing. This rule only witnesses the actual
+# main-session Agent call and binds it to the verifier-issued Knowledge bytes.
+# ---------------------------------------------------------------------------
+rule_journey_dispatch() {
+  [[ "${COPILOT_JOURNEY_GATE:-}" == "off" ]] && return 0
+  [[ "$TOOL_NAME" != "Agent" || -n "$AGENT_TYPE" ]] && return 0
+
+  local cc_bin="${COPILOT_CC_BIN:-}"
+  if [[ -z "$cc_bin" ]]; then
+    cc_bin="$(command -v cc 2>/dev/null || true)"
+  fi
+  [[ -z "$cc_bin" || ! -x "$cc_bin" ]] && return 0
+
+  local result status
+  set +e
+  result="$(printf '%s' "$PAYLOAD" | "$cc_bin" journey verify-hook 2>/dev/null)"
+  status=$?
+  set -e
+  if [[ "$status" -ne 0 ]]; then
+    local reason
+    reason="$("$JQ" -r '.error // "journey dispatch verification failed"' <<< "$result" 2>/dev/null || echo "journey dispatch verification failed")"
+    deny "Journey gate: ${reason} Recovery: run 'cc journey prepare --run <run> --specialist <next>' and include the returned agent_prompt_fragment unchanged. Set COPILOT_JOURNEY_GATE=off only for an intentional legacy bypass."
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # Rule: extension-resolution
 # On a direct main-session @agent-X dispatch, run `cc extensions resolve
 # --agent <id> --json` for real and deny only on `fallback_fail` — every
@@ -765,6 +794,7 @@ rule_path_scope() {
 # ---------------------------------------------------------------------------
 rule_force_delegate
 rule_qa_gate
+rule_journey_dispatch
 rule_extension_resolution
 rule_destructive_command
 rule_path_scope

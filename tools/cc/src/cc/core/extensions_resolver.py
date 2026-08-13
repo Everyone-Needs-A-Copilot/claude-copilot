@@ -47,7 +47,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 _log = logging.getLogger(__name__)
 
@@ -81,6 +81,8 @@ class ExtensionResolution:
     missing_skills: list[str] = field(default_factory=list)
     fallback_behavior: Optional[str] = None
     warning: Optional[str] = None
+    contributions: tuple[Any, ...] = ()
+    extension_content: Optional[str] = field(default=None, repr=False)
 
     @property
     def skills_ok(self) -> bool:
@@ -116,19 +118,38 @@ class ExtensionResolution:
             "fallbackApplied": self.fallback_applied,
             "useExtension": self.use_extension,
             "warning": self.warning,
+            "contributions": [
+                {
+                    "layer": item.layer,
+                    "repository": item.repository,
+                    "ref": item.ref,
+                    "tree": item.tree,
+                    "signer": item.signer,
+                    "contribution": item.contribution,
+                    "content_sha256": __import__("hashlib").sha256(
+                        item.content.encode()
+                    ).hexdigest(),
+                    "runtime": item.runtime,
+                    "adapter_version": item.adapter_version,
+                }
+                for item in self.contributions
+            ],
         }
 
 
-def _load_manifest(repo: str) -> Optional[dict]:
+def _load_manifest(repo: str, authenticated_source: Any = None) -> Optional[dict]:
     """Parse `<repo>/knowledge-manifest.json`. Returns None (with a logged
     warning) for anything short of a well-formed JSON object -- absent
     file, unreadable file, malformed JSON, or a non-object top level.
     Never raises."""
     manifest_path = Path(repo).expanduser() / "knowledge-manifest.json"
-    if not manifest_path.exists():
-        return None
     try:
-        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        text = (
+            authenticated_source.read_contribution("knowledge-manifest.json").content
+            if authenticated_source is not None
+            else manifest_path.read_text(encoding="utf-8")
+        )
+        data = json.loads(text)
     except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
         _log.warning(
             "extensions resolver: skipping malformed manifest %s: %s", manifest_path, exc
@@ -207,8 +228,27 @@ def resolve_extension(
 
     checker = missing_skills_checker or _default_missing_skills
 
+    authenticated_by_repo: dict[str, Any] = {}
+    try:
+        from cc.core.ecosystem.knowledge_skill_source import (
+            resolve_knowledge_skill_sources,
+        )
+
+        for _root, source in resolve_knowledge_skill_sources(
+            repositories=knowledge_repos
+        ):
+            if source is not None:
+                authenticated_by_repo[str(source.repository_root)] = source
+    except (OSError, TypeError, ValueError):
+        # The signed resolver is fail-closed for protected sources. Preserve
+        # ordinary unsigned compatibility only when it has no signed source.
+        if authenticated_by_repo:
+            raise
+
     for repo in knowledge_repos:
-        manifest = _load_manifest(repo)
+        nominal_repo = str(Path(repo).expanduser().resolve())
+        authenticated_source = authenticated_by_repo.get(nominal_repo)
+        manifest = _load_manifest(repo, authenticated_source)
         if manifest is None:
             continue
         entry = _find_agent_extension(manifest, agent)
@@ -230,7 +270,7 @@ def resolve_extension(
             )
             continue
         file_abs = (Path(repo).expanduser() / file_rel).resolve()
-        if not file_abs.is_file():
+        if authenticated_source is None and not file_abs.is_file():
             _log.warning(
                 "extensions resolver: declared extension file missing: %s -- skipping", file_abs
             )
@@ -254,6 +294,11 @@ def resolve_extension(
             missing_skills=missing,
             fallback_behavior=fallback,
         )
+
+        if authenticated_source is not None:
+            contribution = authenticated_source.read_contribution(file_rel)
+            resolution.contributions = (contribution,)
+            resolution.extension_content = contribution.content
 
         if not missing:
             resolution.action = ACTION_APPLY
@@ -307,7 +352,13 @@ def compose_agent_content(
     if not resolution.use_extension or resolution.type is None:
         return base_agent_content
 
-    extension_content = Path(resolution.file).read_text(encoding="utf-8") if resolution.file else ""
+    extension_content = (
+        resolution.extension_content
+        if resolution.extension_content is not None
+        else Path(resolution.file).read_text(encoding="utf-8")
+        if resolution.file
+        else ""
+    )
 
     if resolution.type == "override":
         return extension_content
@@ -326,3 +377,25 @@ def compose_agent_content(
         "in favor of the more specific guidance below.\n\n"
     )
     return base_agent_content + heading + extension_content
+
+
+@dataclass(frozen=True)
+class ComposedAgentContent:
+    """Actual agent bytes plus verifier-issued immutable Knowledge receipts."""
+
+    content: str
+    contributions: tuple[Any, ...]
+
+    @property
+    def receipts(self) -> tuple[Any, ...]:
+        return tuple(item.receipt() for item in self.contributions)
+
+
+def compose_agent_content_with_receipts(
+    resolution: ExtensionResolution, base_agent_content: str
+) -> ComposedAgentContent:
+    """Receipt-preserving wrapper around the one existing composition rule."""
+    return ComposedAgentContent(
+        content=compose_agent_content(resolution, base_agent_content),
+        contributions=resolution.contributions,
+    )

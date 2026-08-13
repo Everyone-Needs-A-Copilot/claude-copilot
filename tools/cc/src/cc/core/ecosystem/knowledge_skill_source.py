@@ -28,6 +28,7 @@ from cc.core.ecosystem.policy import (
     GitTreeSnapshot,
     read_git_tree_snapshot,
     verify_git_item_provenance,
+    verified_release_from_provenance,
 )
 from cc.core.ecosystem.project_locking import (
     UnsafeProjectPath,
@@ -43,6 +44,43 @@ KNOWLEDGE_SKILLS_SUBPATH = "03-ai-enabling/01-skills"
 
 class KnowledgeSkillSourceError(ValueError):
     """A signed Knowledge source could not earn read authority."""
+
+
+@dataclass(frozen=True)
+class AuthenticatedKnowledgeContribution:
+    """Exact UTF-8 bytes projected by the existing signed Knowledge authority."""
+
+    layer: str
+    repository: str
+    ref: str
+    tree: str
+    signer: str
+    contribution: str
+    content: str
+    runtime: str = "claude"
+    adapter_version: str = "signed-knowledge-v1"
+
+    def receipt(self):
+        """Issue the private proof consumed by journey composition."""
+        from cc.core.evaluation.journey import (
+            KnowledgeReceiptVerifier,
+            TrustedKnowledgeSourcePolicy,
+        )
+
+        policy = TrustedKnowledgeSourcePolicy(
+            repository=self.repository,
+            ref=self.ref,
+            tree=self.tree,
+            signer=self.signer,
+            runtime=self.runtime,
+            adapter_version=self.adapter_version,
+            contributions=frozenset({self.contribution}),
+        )
+        return KnowledgeReceiptVerifier(policy).issue(
+            layer=self.layer,
+            contribution=self.contribution,
+            source_content=self.content,
+        )
 
 
 @dataclass(frozen=True)
@@ -108,6 +146,66 @@ class VerifiedKnowledgeSkillSource:
             raise KnowledgeSkillSourceError(
                 "The requested Knowledge skill is not valid UTF-8."
             ) from exc
+
+    def read_contribution(
+        self, relative_path: str, *, runtime: str = "claude"
+    ) -> AuthenticatedKnowledgeContribution:
+        """Read any repository contribution from the same verified release.
+
+        This is the receipt-preserving seam used by the existing extension
+        resolver.  It revalidates signature, source identity, and entitlement
+        immediately before reading Git object bytes.
+        """
+        current = revalidate_knowledge_skill_source(self)
+        verified = verify_git_item_provenance(
+            current.repository_root,
+            current.relative_path,
+            [current.signer],
+            ref=current.ref,
+        )
+        if verified is None or any(
+            (
+                verified.tree != current.tree,
+                verified.signer != current.signer,
+                verified.repository_root != str(current.repository_root),
+            )
+        ):
+            raise KnowledgeSkillSourceError(
+                "The Knowledge release changed before contribution use."
+            )
+        release = verified_release_from_provenance(
+            verified, repository=current.repository
+        )
+
+        def read_current() -> bytes:
+            return release.read_blob(relative_path)
+
+        if current.entitlement_binding is None:
+            raw = read_current()
+        else:
+            valid, raw = entitlement.run_under_binding_leases(
+                [current.entitlement_binding], read_current
+            )
+            if not valid or raw is None:
+                raise KnowledgeSkillSourceError(
+                    "Knowledge authorization changed before contribution use."
+                )
+        try:
+            content = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise KnowledgeSkillSourceError(
+                "The Knowledge contribution is not valid UTF-8."
+            ) from exc
+        return AuthenticatedKnowledgeContribution(
+            layer=current.layer,
+            repository=current.repository,
+            ref=current.ref,
+            tree=release.tree,
+            signer=current.signer,
+            contribution=relative_path,
+            content=content,
+            runtime=runtime,
+        )
 
 
 SNAPSHOT_INDEX_SCHEMA_VERSION = "1.0"
@@ -1087,6 +1185,7 @@ def revalidate_knowledge_skill_source(
 
 
 __all__ = [
+    "AuthenticatedKnowledgeContribution",
     "KNOWLEDGE_SKILLS_SUBPATH",
     "KnowledgeSkillSourceError",
     "VerifiedKnowledgeSkillSource",

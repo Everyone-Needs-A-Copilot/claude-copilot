@@ -16,6 +16,14 @@ from cc.core.evaluation.journey import (
     TcContinuationStore,
     TrustedKnowledgeSourcePolicy,
 )
+from cc.core.evaluation.journey_runtime import (
+    CliCopilotHealthCapabilityAdapter,
+    PreparedInvocation,
+    TcJourneyLedger,
+    begin_run,
+    prepare_run,
+    verify_dispatch_hook,
+)
 
 __all__ = [
     "CapabilityReceipt",
@@ -32,4 +40,10 @@ __all__ = [
     "SecurityReceipt",
     "TcContinuationStore",
     "TrustedKnowledgeSourcePolicy",
+    "CliCopilotHealthCapabilityAdapter",
+    "PreparedInvocation",
+    "TcJourneyLedger",
+    "begin_run",
+    "prepare_run",
+    "verify_dispatch_hook",
 ]
