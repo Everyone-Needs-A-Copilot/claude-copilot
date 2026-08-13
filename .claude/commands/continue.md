@@ -12,6 +12,24 @@ This command supports an optional stream name argument for resuming work on spec
 
 ## Step 0: Check for Paused Tasks (Priority Check)
 
+Before generic paused-task discovery, when a Task Copilot task ID is known or
+selected, ask the journey authority for its exact continuation:
+
+```bash
+cc journey resume --task <N> --json
+# Add --run <run-id> when the response requires disambiguation.
+```
+
+If it returns an active journey, dispatch only its exact `next_specialist` using
+the returned prepared `agent_prompt_fragment` at byte 0 of the Agent prompt.
+Do not rerun flow detection, choose another specialist, reconstruct Knowledge,
+or treat a prepared envelope as dispatched. If it returns stored completion
+evidence, perform no Agent dispatch. If it reports no journey, continue with the
+generic paused-task behavior below. Invalid, ambiguous, drifted, or malformed
+journey state fails closed and must not fall through to an optimistic generic
+resume. Dispatch receipts mean observed/authorized only, not successful agent
+completion.
+
 **BEFORE loading standard context**, check for paused tasks:
 
 ```bash

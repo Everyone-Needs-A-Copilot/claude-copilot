@@ -32,6 +32,21 @@ cc memory search "current focus" 2>/dev/null
 # respond: "No in-progress tasks to pause. Start work with /protocol first."
 ```
 
+## Step 1A: Preserve an Active Journey First
+
+If the current protocol flow has an active journey `run_id`, preserve its exact
+next-stage capsule before changing generic task status:
+
+```bash
+cc journey pause --run <active-run-id> --json
+```
+
+Treat a missing, malformed, or rejected response as a hard stop: do not mark the
+generic task paused while its journey capsule is unproven. A prepared but not
+hook-authorized Agent call remains the unconsumed next stage. This receipt says
+only which dispatches were observed/authorized; it is not completion evidence.
+When no active journey exists, continue unchanged with Step 2.
+
 ## Step 2: Find In-Progress Tasks
 
 ```bash

@@ -32,6 +32,26 @@ This command supports an optional task description argument for quick task initi
 
 When an argument is provided, the system detects intent via keyword matching and routes to the appropriate agent chain:
 
+## Record the Chosen Route (Claude Production Journey)
+
+After this file has chosen the classification, ordered specialist chain, and
+reasoned transition/checkpoint/skip events, record those existing decisions;
+do not ask `cc` to classify the prompt or expand a flow name. For a Task
+Copilot-backed Claude journey, compute the user prompt SHA-256 and run:
+
+```bash
+cc journey begin --task <N> --session <current-session-id> --runtime claude \
+  --classification <chosen-classification> \
+  --specialists-json '<exact ordered JSON array>' \
+  --events-json '<exact reasoned RouteEvent JSON array>' \
+  --prompt-sha256 <64-lowercase-hex> --json
+```
+
+Keep the returned opaque `run_id`. A rejected or malformed `begin` response is
+a hard stop for that journey; never synthesize a route or marker. Question-only
+responses and workflows for which no Task Copilot journey is begun retain their
+existing behavior.
+
 ### Flow A: Experience-First (DEFAULT)
 
 **Detection:** User wants to build a feature, add functionality, create UI, or anything not explicitly technical/defect.
@@ -819,23 +839,39 @@ Do you want to proceed? (yes to skip, no to return)
 When invoking an agent:
 
 ```
-1. Show invocation notice:
+1. For an active journey, prepare the exact next specialist before showing or
+   issuing the Agent call:
+   cc journey prepare --run <run-id> --specialist <exact-next-agent> --json
+
+   The response contains `invocation_marker` and `agent_prompt_fragment`. It is
+   prepared evidence only, not dispatch or completion evidence. A missing,
+   malformed, wrong-stage, or rejected response is a hard stop.
+
+2. Show invocation notice:
    [PROTOCOL: <TYPE> | Agent: @agent-<name> | Action: INVOKING]
 
    [Brief description of what agent will do]
    Invoking @agent-<name>...
 
-2. Call agent with context:
+3. Call agent with context. For an active journey, the exact returned
+   `agent_prompt_fragment` MUST begin at byte 0 of the Agent prompt, unchanged,
+   before all task/context text. Do not copy a marker from prose or reconstruct
+   the Knowledge frame:
    @agent-<name>
 
+   CC-JOURNEY-INVOCATION: <opaque marker from prepare>
+   CC-JOURNEY-KNOWLEDGE-BEGIN
+   <exact prepared Knowledge bytes>
+   CC-JOURNEY-KNOWLEDGE-END
    Task: [description or TASK-xxx ID]
    Context: [handoff context from previous agent if applicable]
    [Any specific constraints or user feedback]
 
-3. Wait for agent response
-4. If agent returns checkpoint summary: Follow checkpoint handling logic
-5. If agent returns completion (no checkpoint): Present summary, determine next step
-6. If agent returns blocker: Surface to user, ask how to proceed
+4. Wait for agent response. The hook's permit means dispatch was observed and
+   authorized only; never describe it as specialist completion.
+5. If agent returns checkpoint summary: Follow checkpoint handling logic
+6. If agent returns completion (no checkpoint): Present summary, determine next step
+7. If agent returns blocker: Surface to user, ask how to proceed
 ```
 
 ### Iteration Handling (Change Requests)

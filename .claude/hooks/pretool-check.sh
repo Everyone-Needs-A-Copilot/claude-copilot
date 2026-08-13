@@ -13,6 +13,8 @@
 #   Set COPILOT_FORCE_DELEGATE=off to bypass all force-delegate checks.
 #   Set COPILOT_QA_GATE=off to bypass all QA gate checks.
 #   Set COPILOT_EXTENSIONS_GATE=off to bypass the extension-resolution gate.
+#   Journey dispatch verification has no bypass: an active journey is a
+#   security/evidence boundary, not an optional workflow preference.
 #
 # INPUT (stdin):
 #   JSON object with fields:
@@ -50,6 +52,10 @@
 #      document as a hard stop but had no enforced consumer for
 #      (EFFECTIVENESS E-6: a mention in agent/command markdown is not a
 #      consumer). Bypass: COPILOT_EXTENSIONS_GATE=off
+#   4. journey-dispatch — after the QA gate, verify an active journey's
+#      single-use invocation marker and exact Agent/Knowledge prompt digests.
+#      No active journey is an explicit no-op; indeterminate active state
+#      fails closed.
 
 set -uEo pipefail
 # -u  : nounset — error on unbound variables
@@ -562,6 +568,154 @@ rule_qa_gate() {
 }
 
 # ---------------------------------------------------------------------------
+# Rule: journey-dispatch
+#
+# Witnesses only decisions already made by /protocol and prepared by
+# `cc journey prepare`. It does not classify prompts, select specialists, or
+# resolve Knowledge. For every direct main-session framework Agent call it
+# asks the journey authority whether this session has an active run. When a
+# run is active, the prompt must begin with exactly one structural envelope:
+#
+#   CC-JOURNEY-INVOCATION: <48 lowercase hex>
+#   CC-JOURNEY-KNOWLEDGE-BEGIN
+#   <exact prepared Knowledge bytes>
+#   CC-JOURNEY-KNOWLEDGE-END
+#
+# Only digests and the opaque marker cross into cc. The raw Agent prompt and
+# Knowledge bytes never appear in command arguments, hook state, or errors.
+# PreToolUse can prove only that dispatch was observed and authorized. It does
+# not prove that the specialist ran successfully or completed its work.
+# ---------------------------------------------------------------------------
+rule_journey_dispatch() {
+  [[ "$TOOL_NAME" != "Agent" ]] && return 0
+  # Nested/sidechain Agent traffic is not a main-session protocol dispatch.
+  [[ -n "$AGENT_TYPE" ]] && return 0
+
+  local subagent_type
+  subagent_type="$("$JQ" -r '.tool_input.subagent_type // ""' <<< "$PAYLOAD" 2>/dev/null)" \
+    || subagent_type=""
+  [[ -z "$subagent_type" ]] && return 0
+
+  # Only framework agents participate. Built-in/generic Agent calls remain
+  # unchanged and can never manufacture journey evidence.
+  _ensure_manifest_loaded
+  local candidate is_framework=0
+  for candidate in $MANIFEST_AGENTS; do
+    if [[ "$candidate" == "$subagent_type" ]]; then
+      is_framework=1
+      break
+    fi
+  done
+  [[ "$is_framework" -eq 0 ]] && return 0
+
+  local cc_bin="${COPILOT_CC_BIN:-}"
+  if [[ -z "$cc_bin" ]]; then
+    cc_bin="$(command -v cc 2>/dev/null || true)"
+  fi
+  if [[ -z "$cc_bin" || ! -x "$cc_bin" ]]; then
+    # Preserve legacy behavior when no structural journey marker is present.
+    # An anchored marker proves this call belongs to a prepared journey and
+    # therefore must fail closed if its verifier disappeared mid-session.
+    if "$JQ" -e '(.tool_input.prompt // "") | test("\\ACC-JOURNEY-INVOCATION: [0-9a-f]{48}\\n")' \
+        <<< "$PAYLOAD" &>/dev/null; then
+      deny "Journey dispatch state is indeterminate (verifier-unavailable). Restore cc, then inspect the active journey before retrying."
+    fi
+    return 0
+  fi
+
+  local sha_bin="${COPILOT_SHA256_BIN:-/usr/bin/shasum}"
+  if [[ ! -x "$sha_bin" ]]; then
+    deny "Journey dispatch state is indeterminate (digest-verifier-unavailable). Restore the SHA-256 verifier before retrying."
+  fi
+
+  local prompt_sha256
+  prompt_sha256="$("$JQ" -j '.tool_input.prompt // ""' <<< "$PAYLOAD" 2>/dev/null \
+    | "$sha_bin" -a 256 2>/dev/null | awk '{print $1}')"
+  if [[ ! "$prompt_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+    deny "Journey dispatch state is indeterminate (prompt-digest-failed). Inspect the active journey before retrying."
+  fi
+
+  # jq operates on the decoded JSON string, preserving its exact Unicode and
+  # newline structure. A marker is accepted only at byte/character zero, and
+  # only with one immediately-following Knowledge frame. Duplicate structural
+  # lines are malformed even if one copy looks valid.
+  local frame_data marker knowledge_sha256 frame_valid
+  frame_data="$("$JQ" -r '
+    (.tool_input.prompt // "") as $p |
+    ([ $p | scan("(?m)^CC-JOURNEY-INVOCATION: [0-9a-f]{48}$") ] | length) as $headers |
+    ([ $p | scan("(?m)^CC-JOURNEY-KNOWLEDGE-BEGIN$") ] | length) as $begins |
+    ([ $p | scan("(?m)^CC-JOURNEY-KNOWLEDGE-END$") ] | length) as $ends |
+    if ($headers == 1 and $begins == 1 and $ends == 1 and
+        ($p | test("\\ACC-JOURNEY-INVOCATION: [0-9a-f]{48}\\nCC-JOURNEY-KNOWLEDGE-BEGIN\\n[\\s\\S]*\\nCC-JOURNEY-KNOWLEDGE-END(?:\\n|\\z)")))
+    then ($p | capture("\\ACC-JOURNEY-INVOCATION: (?<marker>[0-9a-f]{48})\\nCC-JOURNEY-KNOWLEDGE-BEGIN\\n(?<knowledge>[\\s\\S]*)\\nCC-JOURNEY-KNOWLEDGE-END(?:\\n[\\s\\S]*)?\\z") |
+          ["valid", .marker, (.knowledge | @base64)] | @tsv)
+    elif ($headers + $begins + $ends) == 0
+    then ["absent", "", ""] | @tsv
+    else ["malformed", "", ""] | @tsv
+    end
+  ' <<< "$PAYLOAD" 2>/dev/null)" || frame_data=$'malformed\t\t'
+  IFS=$'\t' read -r frame_valid marker knowledge_b64 <<< "$frame_data"
+  marker="${marker:-}"
+  knowledge_sha256=""
+
+  if [[ "$frame_valid" == "valid" ]]; then
+    knowledge_sha256="$(printf '%s' "${knowledge_b64:-}" | /usr/bin/base64 --decode 2>/dev/null \
+      | "$sha_bin" -a 256 2>/dev/null | awk '{print $1}')"
+    if [[ ! "$knowledge_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+      frame_valid="malformed"
+      marker=""
+      knowledge_sha256=""
+    fi
+  fi
+
+  # Never offer a malformed marker to the consuming verifier. An empty marker
+  # performs the non-consuming active-run lookup. Thus malformed framing is a
+  # deny only when the session is actually active; no-active legacy calls stay
+  # unchanged.
+  local verify_marker="$marker" verify_knowledge="$knowledge_sha256"
+  if [[ "$frame_valid" == "malformed" ]]; then
+    verify_marker=""
+    verify_knowledge=""
+  fi
+
+  local verification verify_exit
+  if verification="$("$cc_bin" journey verify-dispatch \
+      --session "$SESSION_ID" \
+      --subagent "$subagent_type" \
+      --marker "$verify_marker" \
+      --prompt-sha256 "$prompt_sha256" \
+      --knowledge-sha256 "$verify_knowledge" \
+      --json 2>/dev/null)"; then
+    verify_exit=0
+  else
+    verify_exit=$?
+  fi
+
+  local schema state reason
+  schema="$("$JQ" -r '.schema_version // ""' <<< "$verification" 2>/dev/null)" || schema=""
+  state="$("$JQ" -r '.state // ""' <<< "$verification" 2>/dev/null)" || state=""
+  reason="$("$JQ" -r '.reason // "journey-dispatch-denied"' <<< "$verification" 2>/dev/null)" \
+    || reason="journey-dispatch-denied"
+
+  if [[ "$schema" != "2.0" ]]; then
+    deny "Journey dispatch state is indeterminate (malformed-verifier-response). Inspect the active journey before retrying."
+  fi
+  if [[ "$state" == "no_active" && "$verify_exit" -eq 0 ]]; then
+    return 0
+  fi
+  if [[ "$state" == "dispatch_authorized" && "$verify_exit" -eq 0 && "$frame_valid" == "valid" ]]; then
+    return 0
+  fi
+  if [[ "$frame_valid" == "malformed" && "$state" != "no_active" ]]; then
+    deny "Journey dispatch denied (malformed-invocation-envelope). Run cc journey inspect for recovery details."
+  fi
+  if [[ "$state" == "denied" && "$verify_exit" -eq 2 && "$reason" =~ ^[a-z0-9][a-z0-9._-]{0,127}$ ]]; then
+    deny "Journey dispatch denied (${reason}). Run cc journey inspect for recovery details."
+  fi
+  deny "Journey dispatch state is indeterminate (verifier-failed). Inspect the active journey before retrying."
+}
+
+# ---------------------------------------------------------------------------
 # Rule: extension-resolution
 # On a direct main-session @agent-X dispatch, run `cc extensions resolve
 # --agent <id> --json` for real and deny only on `fallback_fail` — every
@@ -765,6 +919,7 @@ rule_path_scope() {
 # ---------------------------------------------------------------------------
 rule_force_delegate
 rule_qa_gate
+rule_journey_dispatch
 rule_extension_resolution
 rule_destructive_command
 rule_path_scope
