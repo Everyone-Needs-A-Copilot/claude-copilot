@@ -1018,7 +1018,7 @@ def resolve_protected_knowledge_lock_projections(
                 or not binding.eligible
                 or binding.state not in {"entitled", "offline-cached"}
                 or binding.layer != layer_id
-                or binding.repo != repository
+                or repository_identity(binding.repo) != repository
                 or not isinstance(source_root, str)
                 or not isinstance(ref, str)
                 or not ref

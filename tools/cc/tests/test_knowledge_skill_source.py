@@ -375,13 +375,14 @@ def test_update_tampered_rollover_aborts_without_receipt_or_lock_mutation(
     assert ledger["layers"][layer["id"]]["revision"] == 2
 
 
-def test_update_observes_then_rolls_valid_receipt_and_projects_lock(
+def test_update_mixed_case_repo_observes_then_rolls_and_projects_lock(
     protected_signed_source, tmp_path, monkeypatch
 ):
     from cc.commands import update as update_module
 
     _repo, layer, state_path, cache_root = protected_signed_source
     _source, projection = _protected_projection(protected_signed_source)
+    layer["source"]["repo"] = "git@github-work:Example/Knowledge.git"
     index_before = json.loads((cache_root / "index.json").read_text(encoding="utf-8"))
     old_target = cache_root / index_before["entries"][projection.binding]["target"]
     real_projector = update_module.resolve_protected_knowledge_lock_projections
@@ -419,12 +420,79 @@ def test_update_observes_then_rolls_valid_receipt_and_projects_lock(
     assert not old_target.exists()
     ledger = json.loads(state_path.read_text(encoding="utf-8"))
     assert ledger["layers"][layer["id"]]["revision"] == 2
+    assert ledger["layers"][layer["id"]]["repo"] == "Example/Knowledge"
     index_after = json.loads((cache_root / "index.json").read_text(encoding="utf-8"))
     active = next(iter(index_after["entries"].values()))
     assert active["revision"] == 2
     lock = json.loads(lock_path.read_text(encoding="utf-8"))
     assert lock[layer["id"]]["plugins"]["codex-copilot"] == projection.content_sha256
     assert report["result"] == "applied"
+
+
+def test_update_wrong_binding_repository_aborts_without_receipt_or_lock_writes(
+    protected_signed_source, tmp_path, monkeypatch
+):
+    from cc.commands import update as update_module
+
+    _repo, layer, state_path, cache_root = protected_signed_source
+    source, projection = _protected_projection(protected_signed_source)
+    assert source.entitlement_binding is not None
+    index_before = (cache_root / "index.json").read_bytes()
+    index = json.loads(index_before)
+    old_target = cache_root / index["entries"][projection.binding]["target"]
+    lock_path = tmp_path / "copilot.lock.json"
+    previous_lock = {
+        layer["id"]: {
+            "plugins": {"codex-copilot": projection.content_sha256},
+            "_meta": {"product": "knowledge", "role": "department"},
+        }
+    }
+    atomic_json_write(lock_path, previous_lock)
+    lock_before = lock_path.read_bytes()
+    real_bind = update_module.entitlement.bind_layer_decisions
+
+    def bind_wrong_repository(*args, **kwargs):
+        bindings = real_bind(*args, **kwargs)
+        return tuple(
+            entitlement.EntitlementBinding(
+                **(
+                    binding.as_dict()
+                    | {
+                        "repo": "different-owner/knowledge",
+                    }
+                )
+            )
+            if binding.layer == layer["id"]
+            else binding
+            for binding in bindings
+        )
+
+    monkeypatch.setattr(
+        update_module.entitlement,
+        "bind_layer_decisions",
+        bind_wrong_repository,
+    )
+
+    with pytest.raises(KnowledgeSkillSourceError, match="active bound receipt"):
+        build_update_report(
+            _layers=[layer],
+            _previous_lock=previous_lock,
+            _lockfile_path=lock_path,
+            _lock_write_path=lock_path,
+            _mirror_root=tmp_path / "mirrors",
+            _materialize_root=tmp_path / "materialize",
+            _personal_roots=[],
+            _entitlement_login="person",
+            _entitlement_token="token",
+            _entitlement_get_json=lambda *_args, **_kwargs: 200,
+            _entitlement_state_path=state_path,
+            _entitlement_now=datetime.now(timezone.utc),
+            _knowledge_snapshot_root=cache_root,
+        )
+
+    assert old_target.is_dir()
+    assert (cache_root / "index.json").read_bytes() == index_before
+    assert lock_path.read_bytes() == lock_before
 
 
 def test_protected_projection_rejects_mismatched_index_signer(
