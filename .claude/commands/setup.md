@@ -82,52 +82,36 @@ mkdir -p ~/.claude/tasks
 
 ---
 
-## Step 6: Install Global Commands
+## Step 6: Install the Immutable Framework Runtime
 
-Install commands that work in any folder:
+Install `cc` and every global command declared by the exact source commit's
+`VERSION.json`. The installer archives the full commit, verifies its Git tree,
+and activates the cc shim and command set only after checksum verification.
 
 ```bash
-mkdir -p ~/.claude/commands
-
-# Project management commands
-cp ~/.claude/copilot/.claude/commands/setup-project.md ~/.claude/commands/
-cp ~/.claude/copilot/.claude/commands/update-project.md ~/.claude/commands/
-
-# Maintenance command
-cp ~/.claude/copilot/.claude/commands/update-copilot.md ~/.claude/commands/
-
-# Knowledge setup command
-cp ~/.claude/copilot/.claude/commands/knowledge-copilot.md ~/.claude/commands/
-
-# Universal setup command
-cp ~/.claude/copilot/.claude/commands/setup-copilot.md ~/.claude/commands/
+COPILOT_SOURCE_ROOT="$(git -C "$HOME/.claude/copilot" rev-parse --show-toplevel)"
+COPILOT_SOURCE_COMMIT="$(git -C "$COPILOT_SOURCE_ROOT" rev-parse HEAD)"
+COPILOT_SOURCE_TREE="$(git -C "$COPILOT_SOURCE_ROOT" rev-parse "$COPILOT_SOURCE_COMMIT^{tree}")"
+python3 "$COPILOT_SOURCE_ROOT/scripts/install-framework-snapshot.py" \
+  --source-root "$COPILOT_SOURCE_ROOT" \
+  --source-commit "$COPILOT_SOURCE_COMMIT" \
+  --source-tree "$COPILOT_SOURCE_TREE"
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Tell user: "Installing global commands..."
+Tell user: "Installing the reviewed framework snapshot and global commands..."
 
 **Verify:**
 ```bash
-ls ~/.claude/commands/
-```
-
-Should show: `setup-copilot.md`, `setup-project.md`, `update-project.md`, `update-copilot.md`, `knowledge-copilot.md`
-
----
-
-## Step 7: Install cc CLI
-
-Tell user: "Installing cc CLI (memory and skills manager)..."
-
-```bash
-bash ~/.claude/copilot/tools/cc/install.sh
-```
-
-**Verify:**
-```bash
+python3 -m json.tool "$HOME/.copilot/framework-runtime.json" >/dev/null
 cc --version
 ```
 
-### Step 7B: Initialize Machine Config
+---
+
+## Step 7: Initialize cc
+
+### Step 7A: Initialize Machine Config
 
 ```bash
 cc config init --machine
@@ -222,7 +206,9 @@ Store result (and the ladder itself, if present) for reporting.
 
 **Machine Setup Complete!**
 
-Claude Copilot is installed at `~/.claude/copilot`
+Claude Copilot's authoring checkout is at `~/.claude/copilot`; the active
+runtime is the exact immutable snapshot recorded in
+`~/.copilot/framework-runtime.json`.
 
 **What's ready:**
 - tc CLI - Manages PRDs, tasks, and work products
@@ -268,8 +254,13 @@ Open Claude Code in any project directory and run:
 ### cc Install Fails
 
 ```bash
-# Retry manually
-bash ~/.claude/copilot/tools/cc/install.sh
+# Retry the exact current checkout commit
+COPILOT_SOURCE_ROOT="$(git -C "$HOME/.claude/copilot" rev-parse --show-toplevel)"
+COPILOT_SOURCE_COMMIT="$(git -C "$COPILOT_SOURCE_ROOT" rev-parse HEAD)"
+python3 "$COPILOT_SOURCE_ROOT/scripts/install-framework-snapshot.py" \
+  --source-root "$COPILOT_SOURCE_ROOT" \
+  --source-commit "$COPILOT_SOURCE_COMMIT" \
+  --source-tree "$(git -C "$COPILOT_SOURCE_ROOT" rev-parse "$COPILOT_SOURCE_COMMIT^{tree}")"
 
 # Verify PATH includes ~/.local/bin
 echo $PATH

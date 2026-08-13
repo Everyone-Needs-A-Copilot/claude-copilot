@@ -114,8 +114,14 @@ If you prefer to run steps manually:
 # tc CLI — Task Copilot (required)
 pip install -e ~/.claude/copilot/tools/tc
 
-# cc CLI — memory and skills (required)
-bash ~/.claude/copilot/tools/cc/install.sh
+# Exact immutable framework runtime — cc plus VERSION.json machineCommands
+COPILOT_SOURCE_ROOT="$(git -C "$HOME/.claude/copilot" rev-parse --show-toplevel)"
+COPILOT_SOURCE_COMMIT="$(git -C "$COPILOT_SOURCE_ROOT" rev-parse HEAD)"
+python3 "$COPILOT_SOURCE_ROOT/scripts/install-framework-snapshot.py" \
+  --source-root "$COPILOT_SOURCE_ROOT" \
+  --source-commit "$COPILOT_SOURCE_COMMIT" \
+  --source-tree "$(git -C "$COPILOT_SOURCE_ROOT" rev-parse "$COPILOT_SOURCE_COMMIT^{tree}")"
+export PATH="$HOME/.local/bin:$PATH"
 cc config init --machine
 mkdir -p ~/.claude/cache/models ~/.claude/skills
 printf 'config.json\n' > ~/.claude/cc/.gitignore
@@ -123,13 +129,8 @@ printf 'config.json\n' > ~/.claude/cc/.gitignore
 
 ### Install Global Commands
 
-```bash
-mkdir -p ~/.claude/commands
-cp ~/.claude/copilot/.claude/commands/setup-project.md ~/.claude/commands/
-cp ~/.claude/copilot/.claude/commands/update-project.md ~/.claude/commands/
-cp ~/.claude/copilot/.claude/commands/update-copilot.md ~/.claude/commands/
-cp ~/.claude/copilot/.claude/commands/knowledge-copilot.md ~/.claude/commands/
-```
+The immutable framework installer above deploys every command declared in
+`VERSION.json`'s `machineCommands` roster and verifies the installed bytes.
 
 ### Project Setup
 
@@ -206,11 +207,11 @@ Then verify in Claude Code:
 ### `cc` Not Found
 
 ```bash
-# Reinstall (install.sh auto-appends ~/.local/bin to your shell profile)
-bash ~/.claude/copilot/tools/cc/install.sh
+# The immutable installer places the verified shim here
+export PATH="$HOME/.local/bin:$PATH"
+$HOME/.local/bin/cc --version
 
-# Reload your shell — the installer updated your profile automatically
-source ~/.zshrc   # or ~/.bash_profile / ~/.zprofile
+# Persist the PATH in the shell profile you use if needed
 ```
 
 ### `tc` Not Found
