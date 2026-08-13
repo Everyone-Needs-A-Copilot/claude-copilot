@@ -11,6 +11,7 @@ from cc.commands.conformance import conformance_app
 from cc.commands.docs import docs_app
 from cc.commands.eval import eval_app
 from cc.commands.extensions import extensions_app
+from cc.commands.journey import journey_app
 from cc.commands.layers import layers_app
 from cc.commands.memory import memory_app
 from cc.commands.onboard import onboard_cmd
@@ -39,6 +40,7 @@ app.add_typer(eval_app, name="eval")
 app.add_typer(extensions_app, name="extensions")
 app.add_typer(auth_app, name="auth")
 app.add_typer(layers_app, name="layers")
+app.add_typer(journey_app, name="journey")
 app.add_typer(workspaces_app, name="workspace")
 app.add_typer(reconcile_app, name="reconcile")
 app.add_typer(store_app, name="store")
