@@ -32,6 +32,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -111,11 +112,132 @@ class CcBinaryNotFoundError(RuntimeError):
 # ---------------------------------------------------------------------------
 
 
+_SOURCE_OBJECT_ID = re.compile(r"[0-9a-f]{40}")
+_ARCHIVE_SOURCE_MARKERS: tuple[str, str] = (".source-commit", ".source-tree")
+_ARCHIVE_SOURCE_REQUIRED_PATHS: tuple[str, ...] = (
+    "tools/cc/pyproject.toml",
+    "tools/cc/src/cc/core/conformance/roundtrip.py",
+)
+
+
+def _read_archive_source_marker(path: Path) -> str:
+    """Read one immutable-snapshot provenance marker without following links."""
+
+    try:
+        mode = path.lstat().st_mode
+    except OSError as exc:
+        raise InstallerScriptError(
+            f"archive snapshot provenance marker is unavailable: {path}"
+        ) from exc
+    if not stat.S_ISREG(mode) or path.is_symlink():
+        raise InstallerScriptError(
+            f"archive snapshot provenance marker must be a regular file: {path}"
+        )
+    if mode & 0o222:
+        raise InstallerScriptError(
+            f"archive snapshot provenance marker must be read-only: {path}"
+        )
+    try:
+        value = path.read_text(encoding="ascii").strip()
+    except (OSError, UnicodeError) as exc:
+        raise InstallerScriptError(
+            f"archive snapshot provenance marker is unreadable: {path}"
+        ) from exc
+    if _SOURCE_OBJECT_ID.fullmatch(value) is None:
+        raise InstallerScriptError(
+            f"archive snapshot provenance marker is invalid: {path}"
+        )
+    return value
+
+
+def _discover_archive_snapshot_root(start: Path) -> Path | None:
+    """Resolve a deliberately marker-bound, no-``.git`` framework snapshot.
+
+    Local framework installation materializes reviewed source with an exact
+    commit/tree marker pair before making the snapshot root read-only.  A
+    directory name is not provenance, so discovery never parses or trusts it.
+    Partial, malformed, linked, or writable marker roots fail closed rather
+    than being silently treated as an installed framework.
+    """
+
+    current = start.resolve()
+    if current.is_file():
+        current = current.parent
+
+    for candidate in (current, *current.parents):
+        marker_paths = tuple(candidate / name for name in _ARCHIVE_SOURCE_MARKERS)
+        present = tuple(path.exists() or path.is_symlink() for path in marker_paths)
+        if not any(present):
+            continue
+        if not all(present):
+            missing = [
+                name
+                for name, is_present in zip(_ARCHIVE_SOURCE_MARKERS, present)
+                if not is_present
+            ]
+            raise InstallerScriptError(
+                "archive snapshot provenance is incomplete; missing "
+                + ", ".join(missing)
+                + f" under {candidate}"
+            )
+
+        # Both values are independently validated even though callers need
+        # only the root. Their pair is the install transaction's reviewed
+        # source identity; neither a directory name nor one marker alone is
+        # sufficient evidence.
+        commit = _read_archive_source_marker(marker_paths[0])
+        tree = _read_archive_source_marker(marker_paths[1])
+        if commit == tree:
+            raise InstallerScriptError(
+                f"archive snapshot commit/tree markers are invalid under {candidate}"
+            )
+
+        try:
+            candidate_mode = candidate.lstat().st_mode
+        except OSError as exc:
+            raise InstallerScriptError(
+                f"archive snapshot root is unavailable: {candidate}"
+            ) from exc
+        if not stat.S_ISDIR(candidate_mode) or candidate.is_symlink():
+            raise InstallerScriptError(
+                f"archive snapshot root must be a real directory: {candidate}"
+            )
+        if candidate_mode & 0o222:
+            raise InstallerScriptError(
+                f"archive snapshot root must be read-only: {candidate}"
+            )
+
+        missing_paths = [
+            relative
+            for relative in _ARCHIVE_SOURCE_REQUIRED_PATHS
+            if not (candidate / relative).is_file()
+        ]
+        if missing_paths:
+            raise InstallerScriptError(
+                "archive snapshot does not contain the cc framework source: "
+                + ", ".join(missing_paths)
+            )
+        unsafe_paths = []
+        for relative in _ARCHIVE_SOURCE_REQUIRED_PATHS:
+            path = candidate / relative
+            mode = path.lstat().st_mode
+            if not stat.S_ISREG(mode) or path.is_symlink() or mode & 0o222:
+                unsafe_paths.append(relative)
+        if unsafe_paths:
+            raise InstallerScriptError(
+                "archive snapshot cc framework source must be regular and read-only: "
+                + ", ".join(unsafe_paths)
+            )
+        return candidate
+    return None
+
+
 def discover_framework_repo_root(start: Path | None = None) -> Path:
     """The `claude-copilot` repo root that ships `setup-project.md` /
     `update-project.md` / `VERSION.json` — resolved dynamically via `git
-    rev-parse --show-toplevel`, exactly like `test_project_integration.py`'s
-    own `project_root()` helper, never a hardcoded absolute path."""
+    rev-parse --show-toplevel` for a checkout, or via the complete validated
+    source-marker pair for an installed immutable snapshot. Never a hardcoded
+    absolute path and never inferred from a snapshot directory name."""
 
     cwd = start or Path(__file__).resolve().parent
     result = subprocess.run(
@@ -127,6 +249,9 @@ def discover_framework_repo_root(start: Path | None = None) -> Path:
         timeout=10.0,
     )
     if result.returncode != 0:
+        archive_root = _discover_archive_snapshot_root(cwd)
+        if archive_root is not None:
+            return archive_root
         raise InstallerScriptError(
             f"git rev-parse --show-toplevel failed from {cwd}: {result.stderr}"
         )
@@ -1342,14 +1467,36 @@ def check_reports_only_what_it_did(
     """Static-text scan of the two command files' success-message sections
     for hardcoded count claims, cross-referenced against the measured tree
     this round-trip actually produced (not the audit's paraphrase of an
-    earlier reading — the literal current text, re-verified now)."""
+    earlier reading — the literal current text, re-verified now).
 
-    setup_text = (
-        framework_repo_root / ".claude" / "commands" / "setup-project.md"
-    ).read_text(encoding="utf-8")
-    update_text = (
-        framework_repo_root / ".claude" / "commands" / "update-project.md"
-    ).read_text(encoding="utf-8")
+    The installed immutable runtime deliberately carries the canonical
+    transaction and its fixtures, not the retired human-facing adapter
+    commands. In that one marker-validated source shape this historical
+    prose check is inapplicable and returns no result; request/plan/apply/
+    verify report truth remains covered by ``check_canonical_transaction``.
+    A normal checkout, or a snapshot that carries only one adapter, still
+    fails loudly rather than hiding source damage.
+    """
+
+    setup_path = framework_repo_root / ".claude" / "commands" / "setup-project.md"
+    update_path = framework_repo_root / ".claude" / "commands" / "update-project.md"
+    adapters_present = (setup_path.is_file(), update_path.is_file())
+    if not any(adapters_present):
+        archive_root = _discover_archive_snapshot_root(framework_repo_root)
+        if archive_root == framework_repo_root.resolve():
+            return ()
+    if not all(adapters_present):
+        missing = [
+            str(path.relative_to(framework_repo_root))
+            for path, present in zip((setup_path, update_path), adapters_present)
+            if not present
+        ]
+        raise InstallerScriptError(
+            "framework source is missing installer adapter(s): " + ", ".join(missing)
+        )
+
+    setup_text = setup_path.read_text(encoding="utf-8")
+    update_text = update_path.read_text(encoding="utf-8")
     observed = observe_install(project)
     actual_agent_count = len(observed["agent_names"])
 
