@@ -1,0 +1,17 @@
+{
+  "fixture_namespace": "SYNTHETIC-EVAL05",
+  "synthetic_fixture": true,
+  "record_type": "SYNTHETIC-DOCUMENT-INVENTORY",
+  "documents": [
+    {"document": "SYNTHETIC-PROFIT-AND-LOSS", "status": "complete", "source_locator": "input/profit-and-loss.json"},
+    {"document": "SYNTHETIC-BALANCE-SHEET", "status": "partial", "source_locator": "input/balance-sheet.json"},
+    {"document": "SYNTHETIC-PAYROLL-SUMMARY", "status": "partial", "source_locator": "input/payroll-summary.json"},
+    {"document": "SYNTHETIC-ESTIMATED-PAYMENTS", "status": "missing", "source_locator": "input/estimated-payments.json"},
+    {"document": "SYNTHETIC-UNUSED-SCHEDULE", "status": "not-applicable", "source_locator": "fixture-declaration"}
+  ],
+  "closing_cash_statement": {
+    "synthetic_amount_units": 950,
+    "unit": "SYNTHETIC_USD_FIXTURE",
+    "status": "partial"
+  }
+}

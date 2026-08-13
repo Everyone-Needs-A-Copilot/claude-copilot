@@ -1,0 +1,10 @@
+{
+  "fixture_namespace": "SYNTHETIC-EVAL01",
+  "synthetic_fixture": true,
+  "constraints": [
+    "Existing itinerary service exposes read-only trip state.",
+    "A staffed escalation path exists during limited service windows.",
+    "No software feature has been selected.",
+    "Any direction requires rider validation before implementation."
+  ]
+}

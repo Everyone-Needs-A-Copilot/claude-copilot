@@ -1,0 +1,39 @@
+{
+  "schema_version": "1.0",
+  "case_id": "eval-03",
+  "revision": 1,
+  "fixture_namespace": "SYNTHETIC-EVAL03",
+  "problem_statement": "Design the information hierarchy and visual direction for a SYNTHETIC-SOLUTION-CREATION workspace used by a non-technical operations leader.",
+  "evidence_files": [
+    {
+      "path": "input/user-tasks.json",
+      "sha256": "e8da54f52a18dcccc64eaca1f78ca9a09cc046d5422cd3930881cad5deaf6f97",
+      "media_type": "application/json",
+      "synthetic_fixture": true,
+      "fixture_namespace": "SYNTHETIC-EVAL03"
+    },
+    {
+      "path": "input/product-constraints.json",
+      "sha256": "ccf80f3bdbae759a80ab57525693d3164f8b115c6ed2d7cba8e4bb0fe7a42b5e",
+      "media_type": "application/json",
+      "synthetic_fixture": true,
+      "fixture_namespace": "SYNTHETIC-EVAL03"
+    },
+    {
+      "path": "input/canonical-design-references.json",
+      "sha256": "61c64f6c5a01bcc1298b03efd1cb7bb3955d6bfe520a9cf5883a3ada718cc83e",
+      "media_type": "application/json",
+      "synthetic_fixture": true,
+      "fixture_namespace": "SYNTHETIC-EVAL03"
+    }
+  ],
+  "layer_variants": ["F", "F+O"],
+  "runtimes": ["claude", "codex"],
+  "required_criteria": ["human-need", "company-specificity", "specialist-craft", "safety-and-privacy", "maintainability"],
+  "hard_rejection_rules": ["invented-canonical-color", "slogan-only-specificity", "accessibility-sacrifice", "historical-source-treated-current"],
+  "journey_requirements": ["route-evidence", "consumption-evidence", "continuity-evidence"],
+  "private_oracle": {
+    "path": "oracle/expected.json",
+    "sha256": "0a3150180b04a4322fd36a7c88d9197de1d62dfedb92757159700795049d1b35"
+  }
+}

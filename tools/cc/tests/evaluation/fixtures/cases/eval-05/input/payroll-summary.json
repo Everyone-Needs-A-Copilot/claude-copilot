@@ -1,0 +1,12 @@
+{
+  "fixture_namespace": "SYNTHETIC-EVAL05",
+  "synthetic_fixture": true,
+  "record_type": "SYNTHETIC-PAYROLL-SUMMARY",
+  "period": "SYNTHETIC-PERIOD-ALPHA",
+  "jurisdiction": "SYNTHETIC-JURISDICTION-ORBIT",
+  "form": "SYNTHETIC-FORM-PAYROLL-NOT-FOR-FILING",
+  "lines": [
+    {"label": "SYNTHETIC-GROSS-PAY", "synthetic_amount_units": 800, "unit": "SYNTHETIC_USD_FIXTURE", "status": "complete"},
+    {"label": "SYNTHETIC-WITHHOLDING", "synthetic_amount_units": null, "unit": "SYNTHETIC_USD_FIXTURE", "status": "missing"}
+  ]
+}

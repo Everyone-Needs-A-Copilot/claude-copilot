@@ -1,0 +1,17 @@
+{
+  "fixture_namespace": "SYNTHETIC-EVAL05",
+  "synthetic_fixture": true,
+  "record_type": "SYNTHETIC-REPOSITORY-ACTIVITY",
+  "summary": {
+    "change_count": 14,
+    "review_count": 5,
+    "release_count": 2
+  },
+  "synthetic_relative_paths": [
+    "SYNTHETIC-WORKSPACE/project-alpha",
+    "SYNTHETIC-WORKSPACE/project-beta"
+  ],
+  "remote_identifiers_included": false,
+  "people_included": false,
+  "credentials_included": false
+}
