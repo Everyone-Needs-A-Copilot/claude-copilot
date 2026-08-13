@@ -467,6 +467,10 @@ class DeterministicJourneyAdapter:
                     composition = self._knowledge.compose(
                         specialist=specialist, prompt=case.prompt
                     )
+                    if not isinstance(composition, KnowledgeComposition):
+                        raise TypeError(
+                            "Knowledge adapter returned a malformed composition."
+                        )
                     invocations.append(
                         InvocationReceipt(
                             specialist=specialist,

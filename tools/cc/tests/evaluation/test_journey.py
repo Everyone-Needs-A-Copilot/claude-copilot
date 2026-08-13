@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from types import SimpleNamespace
 
 import pytest
 
@@ -56,6 +57,22 @@ class Knowledge:
             adapter_version="knowledge-v1",
         )
         return KnowledgeComposition(content, (receipt,), (content,))
+
+
+class UntypedKnowledge:
+    def __init__(self, result):
+        self.result = result
+        self.calls = []
+
+    def compose(self, *, specialist: str, prompt: str):
+        self.calls.append(specialist)
+        return self.result
+
+
+class ExplosiveKnowledgeResult:
+    @property
+    def content(self):
+        raise AssertionError("malformed Knowledge fields must not be accessed")
 
 
 class Capability:
@@ -176,6 +193,28 @@ def test_missing_required_knowledge_returns_invalid_evidence():
     assert evidence.completed_specialists == ()
     assert evidence.next_specialist == "ta"
     assert evidence.limitations == ("required-knowledge-invalid:ta",)
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        {},
+        None,
+        SimpleNamespace(wrong_field="context"),
+        SimpleNamespace(content=42, receipts="wrong-type"),
+        ExplosiveKnowledgeResult(),
+    ],
+    ids=["dict", "none", "wrong-field", "wrong-type", "unreadable-fields"],
+)
+def test_malformed_untyped_knowledge_returns_invalid_without_field_access(malformed):
+    knowledge = UntypedKnowledge(malformed)
+    _rows, _protocol, _store, _knowledge, adapter = adapters(knowledge=knowledge)
+    evidence, _locator = adapter.start(JourneyCase("case-1", "problem", 3))
+    assert evidence.outcome == "INVALID"
+    assert evidence.completed_specialists == ()
+    assert evidence.next_specialist == "ta"
+    assert evidence.limitations == ("required-knowledge-invalid:ta",)
+    assert knowledge.calls == ["ta"]
 
 
 def test_tampered_continuation_is_rejected():
