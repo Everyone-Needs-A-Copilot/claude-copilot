@@ -71,10 +71,20 @@ KNOWLEDGE_MANIFEST_RELATIVE_PATH = "knowledge-manifest.json"
 _APPLIES_TO = ("A", "B", "C", "D")
 
 # Absolute user-home and mounted-volume paths are machine-specific regardless
-# of which account or volume happened to appear in the original audit.
-_HARDCODED_PATH_PATTERNS: tuple[re.Pattern[str], ...] = (
+# of which account or volume happened to appear in the original audit.  D7 is
+# narrower than a general portability check, though: only an absolute path to
+# Knowledge/shared-docs violates this dimension.  Operational paths (Docker
+# stacks, backup scripts, media mounts, and similar) belong to their own repo's
+# documentation and must not become false knowledge-wiring failures merely
+# because they are mounted below /Volumes.
+_ABSOLUTE_PATH_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"/(?:Users|home)/[^/\s`\"']+(?:/[^\s`\"']*)?"),
     re.compile(r"/Volumes/[^/\s`\"']+(?:/[^\s`\"']*)?"),
+)
+
+_KNOWLEDGE_PATH_MARKER = re.compile(
+    r"(?:^|[/_.-])(?:knowledge(?:-copilot)?|shared-docs)(?:[/_.-]|$)",
+    re.IGNORECASE,
 )
 
 _D07_REGISTRATION = register_check(
@@ -136,9 +146,9 @@ def _find_hardcoded_paths(claude_md: Path) -> list[tuple[int, str, str]]:
     except (OSError, UnicodeDecodeError):
         return hits
     for line_number, line in enumerate(lines, start=1):
-        for pattern in _HARDCODED_PATH_PATTERNS:
+        for pattern in _ABSOLUTE_PATH_PATTERNS:
             match = pattern.search(line)
-            if match:
+            if match and _KNOWLEDGE_PATH_MARKER.search(match.group(0)):
                 hits.append((line_number, match.group(0), line.strip()))
                 break
     return hits
