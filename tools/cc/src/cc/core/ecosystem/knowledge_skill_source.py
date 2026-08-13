@@ -22,7 +22,9 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from cc.core.ecosystem import entitlement
+from cc.core.ecosystem.discovery import discover_contributions
 from cc.core.ecosystem.manifest import ManifestError, load_layers, validate_layers
+from cc.core.ecosystem.materialize import stable_directory_content_sha
 from cc.core.ecosystem.mirror import synthesize_effective_layers
 from cc.core.ecosystem.policy import (
     GitTreeSnapshot,
@@ -38,12 +40,30 @@ from cc.core.ecosystem.project_locking import (
     fsync_directory,
 )
 from cc.core.ecosystem.repository_scope import repository_identity
+from cc.core.ecosystem.resolver import resolve_layers
 
 KNOWLEDGE_SKILLS_SUBPATH = "03-ai-enabling/01-skills"
 
 
 class KnowledgeSkillSourceError(ValueError):
     """A signed Knowledge source could not earn read authority."""
+
+
+@dataclass(frozen=True)
+class ProtectedKnowledgeLockProjection:
+    """One update-authorized lock pin derived from signed Knowledge objects."""
+
+    layer: str
+    repository: str
+    ref: str
+    tree: str
+    signer: str
+    binding: str
+    item_tree: str
+    release_tree: str
+    content_sha256: str
+    dimension: str = "plugins"
+    item: str = "codex-copilot"
 
 
 @dataclass(frozen=True)
@@ -703,9 +723,10 @@ def _materialize_snapshot(
     tree: str,
     signer: str,
     entitlement_binding: entitlement.EntitlementBinding | None,
+    cache_root: Path | None = None,
 ) -> Path:
     """Atomically publish exact Git-object bytes under a private digest path."""
-    base = _snapshot_cache_root()
+    base = cache_root if cache_root is not None else _snapshot_cache_root()
     content_binding = _snapshot_binding(
         repository=repository,
         layer=layer,
@@ -915,6 +936,272 @@ def _signed_policy(layer: dict[str, Any]) -> list[str] | None:
             "A Knowledge layer declares an invalid signer policy."
         )
     return signers
+
+
+def resolve_protected_knowledge_lock_projections(
+    layers: Iterable[dict[str, Any]],
+    bindings: Iterable[entitlement.EntitlementBinding],
+    *,
+    cache_root: Path | str | None = None,
+) -> tuple[ProtectedKnowledgeLockProjection, ...]:
+    """Verify protected receipts and derive canonical Knowledge plugin pins.
+
+    This function is deliberately called only by the mutating update
+    transaction.  It grants no lock-write authority and ordinary Knowledge
+    read resolution never invokes it.
+    """
+    layer_list = list(layers)
+    if not layer_list:
+        return ()
+    binding_by_layer = {
+        binding.layer: entitlement.EntitlementBinding.from_value(binding)
+        for binding in bindings
+    }
+    base = (
+        _nominal(cache_root)
+        if cache_root is not None
+        else _snapshot_cache_root(create=False)
+    )
+    contributions = discover_contributions(layer_list, dimensions=("plugins",))
+    resolved = resolve_layers(layer_list, contributions, lockfile={})
+    protected_winners = {
+        str(item["winning_layer"])
+        for item in resolved
+        if item.get("dimension") == "plugins" and item.get("item") == "codex-copilot"
+    }
+    protected_layers = [
+        layer
+        for layer in layer_list
+        if layer.get("product") == "knowledge"
+        and entitlement.is_protected_layer(layer)
+        and str(layer.get("id")) in protected_winners
+    ]
+    if not protected_layers:
+        return ()
+    try:
+        metadata = base.lstat()
+    except OSError as exc:
+        raise KnowledgeSkillSourceError(
+            "The protected Knowledge snapshot receipt is unavailable."
+        ) from exc
+    if (
+        stat.S_ISLNK(metadata.st_mode)
+        or not stat.S_ISDIR(metadata.st_mode)
+        or metadata.st_uid != os.geteuid()
+        or stat.S_IMODE(metadata.st_mode) != 0o700
+    ):
+        raise KnowledgeSkillSourceError(
+            "The protected Knowledge snapshot receipt root is unsafe."
+        )
+
+    projections: list[ProtectedKnowledgeLockProjection] = []
+    with advisory_file_lock(_snapshot_lock_path(base), blocking=True):
+        index = _load_snapshot_index(base)
+        _recover_snapshot_state(base, index)
+        for layer in sorted(protected_layers, key=lambda value: value["rank"]):
+            layer_id = str(layer.get("id") or "")
+            binding = binding_by_layer.get(layer_id)
+            source = layer.get("source") or {}
+            source_root = source.get("path")
+            ref = source.get("ref")
+            repository = repository_identity(source.get("repo"))
+            signers = _signed_policy(layer)
+            if (
+                binding is None
+                or not binding.eligible
+                or binding.state not in {"entitled", "offline-cached"}
+                or binding.layer != layer_id
+                or binding.repo != repository
+                or not isinstance(source_root, str)
+                or not isinstance(ref, str)
+                or not ref
+                or repository is None
+                or signers is None
+            ):
+                raise KnowledgeSkillSourceError(
+                    f"Protected Knowledge layer {layer_id!r} lacks an active bound receipt."
+                )
+            repository_root = _nominal(source_root)
+            if _origin(repository_root) != repository:
+                raise KnowledgeSkillSourceError(
+                    f"Protected Knowledge layer {layer_id!r} has the wrong repository origin."
+                )
+
+            skills_verified = verify_git_item_provenance(
+                repository_root, KNOWLEDGE_SKILLS_SUBPATH, signers, ref=ref
+            )
+            if skills_verified is None:
+                raise KnowledgeSkillSourceError(
+                    f"Protected Knowledge layer {layer_id!r} has no verified skills receipt."
+                )
+            if _has_ignored_additions(repository_root, KNOWLEDGE_SKILLS_SUBPATH):
+                raise KnowledgeSkillSourceError(
+                    f"Protected Knowledge layer {layer_id!r} has ignored skill additions."
+                )
+            skills_snapshot = read_git_tree_snapshot(
+                repository_root, skills_verified.tree
+            )
+            if skills_snapshot is None:
+                raise KnowledgeSkillSourceError(
+                    f"Protected Knowledge layer {layer_id!r} has an unsafe skill tree."
+                )
+            content_binding = _snapshot_binding(
+                repository=repository,
+                layer=layer_id,
+                ref=skills_verified.ref,
+                tree=skills_verified.tree,
+                signer=skills_verified.signer,
+                snapshot=skills_snapshot,
+            )
+            protected_binding = _scope_digest(
+                content_binding,
+                layer_id,
+                repository,
+                binding.login,
+                binding.revision,
+            )
+            expected_target = _snapshot_relative_target(
+                protected_binding,
+                layer=layer_id,
+                repository=repository,
+                login=binding.login,
+                revision=binding.revision,
+            ).as_posix()
+            expected_entry = {
+                "binding": protected_binding,
+                "protected": True,
+                "layer": layer_id,
+                "repository": repository,
+                "login": binding.login,
+                "revision": binding.revision,
+                "ref": skills_verified.ref,
+                "tree": skills_verified.tree,
+                "signer": skills_verified.signer,
+                "state_path": binding.state_path,
+                "target": expected_target,
+                "status": "active",
+            }
+            matching_receipts: list[tuple[str, dict[str, Any]]] = []
+            for key, entry in index["entries"].items():
+                revision = entry.get("revision")
+                if (
+                    entry.get("protected") is not True
+                    or entry.get("status") != "active"
+                    or entry.get("layer") != layer_id
+                    or entry.get("repository") != repository
+                    or entry.get("login") != binding.login
+                    or not isinstance(revision, int)
+                    or revision > binding.revision
+                    or entry.get("ref") != skills_verified.ref
+                    or entry.get("tree") != skills_verified.tree
+                    or entry.get("signer") != skills_verified.signer
+                    or entry.get("state_path") != binding.state_path
+                ):
+                    continue
+                candidate_binding = _scope_digest(
+                    content_binding,
+                    layer_id,
+                    repository,
+                    binding.login,
+                    revision,
+                )
+                candidate_target = _snapshot_relative_target(
+                    candidate_binding,
+                    layer=layer_id,
+                    repository=repository,
+                    login=binding.login,
+                    revision=revision,
+                ).as_posix()
+                if (
+                    key == candidate_binding
+                    and entry.get("binding") == candidate_binding
+                    and entry.get("target") == candidate_target
+                ):
+                    matching_receipts.append((key, entry))
+            if not matching_receipts:
+                raise KnowledgeSkillSourceError(
+                    f"Protected Knowledge layer {layer_id!r} has no matching active receipt."
+                )
+            # A fresh update observation advances the entitlement generation.
+            # Never reuse the older disclosed pathname: revoke every matching
+            # prior-generation target, then publish exact Git-object bytes at
+            # the current binding.  A current-generation target is instead
+            # integrity-checked by `_materialize_snapshot` below.
+            prior_receipts = [
+                (key, entry)
+                for key, entry in matching_receipts
+                if entry["revision"] < binding.revision
+            ]
+            for key, entry in prior_receipts:
+                _remove_snapshot_target(base, Path(entry["target"]))
+                index["entries"].pop(key, None)
+            if prior_receipts:
+                _write_snapshot_index(base, index)
+            _materialize_snapshot(
+                skills_snapshot,
+                repository=repository,
+                layer=layer_id,
+                ref=skills_verified.ref,
+                tree=skills_verified.tree,
+                signer=skills_verified.signer,
+                entitlement_binding=binding,
+                cache_root=base,
+            )
+            refreshed_index = _load_snapshot_index(base)
+            if refreshed_index["entries"].get(protected_binding) != expected_entry:
+                raise KnowledgeSkillSourceError(
+                    f"Protected Knowledge layer {layer_id!r} receipt rollover failed."
+                )
+
+            plugin_verified = verify_git_item_provenance(
+                repository_root, "plugins/codex-copilot", signers, ref=ref
+            )
+            if plugin_verified is None:
+                raise KnowledgeSkillSourceError(
+                    f"Protected Knowledge layer {layer_id!r} has no verified plugin tree."
+                )
+            if _has_ignored_additions(repository_root, plugin_verified.relative_path):
+                raise KnowledgeSkillSourceError(
+                    f"Protected Knowledge layer {layer_id!r} has ignored plugin additions."
+                )
+            if any(
+                getattr(plugin_verified.release, field)
+                != getattr(skills_verified.release, field)
+                for field in (
+                    "ref",
+                    "tag",
+                    "commit",
+                    "tree",
+                    "signer",
+                    "repository_root",
+                )
+            ):
+                raise KnowledgeSkillSourceError(
+                    f"Protected Knowledge layer {layer_id!r} receipts do not share one release."
+                )
+            plugin_snapshot = read_git_tree_snapshot(
+                repository_root, plugin_verified.tree
+            )
+            if plugin_snapshot is None:
+                raise KnowledgeSkillSourceError(
+                    f"Protected Knowledge layer {layer_id!r} has an unsafe plugin tree."
+                )
+            projections.append(
+                ProtectedKnowledgeLockProjection(
+                    layer=layer_id,
+                    repository=repository,
+                    ref=ref,
+                    tree=skills_verified.tree,
+                    signer=skills_verified.signer,
+                    binding=protected_binding,
+                    item_tree=plugin_verified.tree,
+                    release_tree=plugin_verified.release.tree,
+                    content_sha256=stable_directory_content_sha(
+                        (item.path, item.content) for item in plugin_snapshot.files
+                    ),
+                )
+            )
+    return tuple(projections)
 
 
 def _effective_knowledge_layers(
@@ -1246,10 +1533,12 @@ __all__ = [
     "AuthenticatedKnowledgeContribution",
     "KNOWLEDGE_SKILLS_SUBPATH",
     "KnowledgeSkillSourceError",
+    "ProtectedKnowledgeLockProjection",
     "VerifiedKnowledgeSkillSource",
     "knowledge_repository_requires_authenticated_source",
     "prune_all_knowledge_snapshots",
     "prune_protected_knowledge_snapshots",
     "resolve_knowledge_skill_sources",
+    "resolve_protected_knowledge_lock_projections",
     "revalidate_knowledge_skill_source",
 ]

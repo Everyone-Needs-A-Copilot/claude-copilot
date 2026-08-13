@@ -37,6 +37,9 @@ from typing import Any, Optional
 from cc.core.config import personal_roots_from_config, resolve_key
 from cc.core.ecosystem import entitlement, mirror
 from cc.core.ecosystem.freshness import lock_fingerprint
+from cc.core.ecosystem.knowledge_skill_source import (
+    resolve_protected_knowledge_lock_projections,
+)
 from cc.core.ecosystem.lockfile import (
     default_lockfile_path,
     layer_meta,
@@ -102,6 +105,7 @@ def build_update_report(
     _entitlement_get_json: entitlement.GetJsonFn | None = None,
     _entitlement_state_path: Any = _UNSET,
     _entitlement_now: datetime | None = None,
+    _knowledge_snapshot_root: Any = _UNSET,
 ) -> dict[str, Any]:
     """
     Build the WS-A `update --json` contract object AND (unless
@@ -192,6 +196,16 @@ def build_update_report(
         else:
             entitlement_holds.append(decision)
     layers = eligible_layers
+    entitlement_bindings = (
+        entitlement.bind_layer_decisions(
+            declared_layers,
+            entitlement_decisions,
+            state_path=state_path,
+            login=login,
+        )
+        if has_protected_layers and state_path is not None
+        else ()
+    )
 
     if _previous_lock is not None:
         previous_lock = _previous_lock
@@ -372,6 +386,88 @@ def build_update_report(
             op["layer"] for op in mat_report["ops"] if op["op"] in {"blocked", "held"}
         }
         if not _dry_run:
+            # Knowledge is externally consumed, so generic materialization
+            # cannot truthfully pin it.  The canonical update transaction owns
+            # this exact protected projection lifecycle: remove prior pins for
+            # declared protected layers, then restore only pins backed by a
+            # matching active private receipt and the same signed release.
+            protected_knowledge_ids = {
+                str(layer.get("id"))
+                for layer in declared_layers
+                if layer.get("product") == "knowledge"
+                and entitlement.is_protected_layer(layer)
+            }
+            previous_projection_pins = {
+                layer_id: previous_lock.get(layer_id, {})
+                .get("plugins", {})
+                .get("codex-copilot")
+                for layer_id in protected_knowledge_ids
+            }
+            for layer_id in protected_knowledge_ids:
+                layer_lock = mat_report["lock"].get(layer_id)
+                if not isinstance(layer_lock, dict):
+                    continue
+                plugin_lock = layer_lock.get("plugins")
+                if isinstance(plugin_lock, dict):
+                    plugin_lock.pop("codex-copilot", None)
+                    if not plugin_lock:
+                        layer_lock.pop("plugins", None)
+                if not layer_lock:
+                    mat_report["lock"].pop(layer_id, None)
+
+            projections = resolve_protected_knowledge_lock_projections(
+                effective_layers,
+                entitlement_bindings,
+                cache_root=(
+                    None
+                    if _knowledge_snapshot_root is _UNSET
+                    else _knowledge_snapshot_root
+                ),
+            )
+            projection_by_layer = {item.layer: item for item in projections}
+            layer_by_projection_id = {
+                str(layer.get("id")): layer for layer in declared_layers
+            }
+            for projection in projections:
+                mat_report["lock"].setdefault(projection.layer, {}).setdefault(
+                    projection.dimension, {}
+                )[projection.item] = projection.content_sha256
+            for layer_id in sorted(protected_knowledge_ids):
+                before = previous_projection_pins.get(layer_id)
+                projection = projection_by_layer.get(layer_id)
+                after = projection.content_sha256 if projection is not None else None
+                if before is None and after is None:
+                    continue
+                op = (
+                    "pruned"
+                    if after is None
+                    else "added"
+                    if before is None
+                    else "unchanged"
+                    if before == after
+                    else "updated"
+                )
+                source_path = (
+                    layer_by_projection_id.get(layer_id, {}).get("source") or {}
+                ).get("path")
+                mat_report["ops"].append(
+                    {
+                        "product": "knowledge",
+                        "dimension": "plugins",
+                        "layer": layer_id,
+                        "item": "codex-copilot",
+                        "op": op,
+                        "path": str(Path(source_path) / "plugins" / "codex-copilot")
+                        if source_path
+                        else "",
+                        "signed": True,
+                        "reason": "protected Knowledge receipt lock projection",
+                        "from_sha": before,
+                        "to_sha": after,
+                        "blocked_winner": None,
+                    }
+                )
+
             for layer in effective_layers:
                 layer_id = layer["id"]
                 if layer_id in incomplete_layers:
