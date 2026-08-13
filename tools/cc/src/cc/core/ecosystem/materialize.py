@@ -408,6 +408,20 @@ def _find_source_child(dim_dir: Path, item: str) -> Optional[Path]:
     return None
 
 
+def stable_directory_content_sha(files: Iterable[tuple[str, bytes]]) -> str:
+    """Return the canonical lock identity for an immutable directory tree.
+
+    Callers that already hold verified object bytes can use this without
+    materializing them first.  Keeping the algorithm here makes the projected
+    lock identity exactly the one ``materialize()`` records for a directory.
+    """
+    digest = hashlib.sha256()
+    for relative_path, content in sorted(files, key=lambda item: item[0]):
+        digest.update(relative_path.encode("utf-8"))
+        digest.update(content)
+    return digest.hexdigest()
+
+
 def _content_sha(path: Path) -> str:
     """
     Content-identity hash for whatever `materialize()` actually places on
@@ -419,12 +433,13 @@ def _content_sha(path: Path) -> str:
     contributions()` call would compute for the same bytes.
     """
     if path.is_dir():
-        digest = hashlib.sha256()
-        for child in sorted(path.rglob("*")):
-            if child.is_file():
-                digest.update(child.relative_to(path).as_posix().encode("utf-8"))
-                digest.update(child.read_bytes())
-        return digest.hexdigest()
+        return stable_directory_content_sha(
+            (
+                (child.relative_to(path).as_posix(), child.read_bytes())
+                for child in path.rglob("*")
+                if child.is_file()
+            )
+        )
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 

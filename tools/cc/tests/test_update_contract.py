@@ -19,10 +19,15 @@ from __future__ import annotations
 
 import json
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 from cc.commands.update import build_update_report
+from cc.core.ecosystem.knowledge_skill_source import (
+    KnowledgeSkillSourceError,
+    ProtectedKnowledgeLockProjection,
+)
 from cc.core.ecosystem.policy import permissive_policy
 from cc.core.locking import copilot_lock
 from cc.main import app
@@ -69,11 +74,15 @@ def _no_real_home(monkeypatch):
     monkeypatch.setattr(Path, "home", staticmethod(_boom))
 
 
-def _make_source_repo(tmp_path: Path, files: dict[str, str], *, name: str = "source-repo") -> Path:
+def _make_source_repo(
+    tmp_path: Path, files: dict[str, str], *, name: str = "source-repo"
+) -> Path:
     repo = tmp_path / name
     repo.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
-    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True
+    )
     subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
     subprocess.run(["git", "checkout", "-q", "-b", "main"], cwd=repo, check=True)
     for relpath, content in files.items():
@@ -99,6 +108,42 @@ def _one_layer(source_repo: Path) -> list[dict]:
     ]
 
 
+def _protected_knowledge_layer(source_repo: Path) -> dict:
+    return {
+        "id": "knowledge-department-accounting",
+        "role": "department",
+        "rank": 20,
+        "product": "knowledge",
+        "unit": "accounting",
+        "source": {
+            "repo": "git@github.com:Everyone-Needs-A-Copilot/knowledge-copilot-accounting.git",
+            "ref": "v1.0.0",
+            "path": str(source_repo),
+        },
+        "auth": "work",
+        "activation": "always",
+        "policy": {"allowed_signers": ["SHA256:foundation"]},
+    }
+
+
+def _protected_update_kwargs(tmp_path: Path, layer: dict) -> dict:
+    return {
+        "_layers": [layer],
+        "_previous_lock": {},
+        "_lockfile_path": tmp_path / "copilot.lock.json",
+        "_lock_write_path": tmp_path / "copilot.lock.json",
+        "_mirror_root": tmp_path / "mirrors",
+        "_materialize_root": tmp_path / "materialize",
+        "_personal_roots": [],
+        "_entitlement_login": "person",
+        "_entitlement_token": "token",
+        "_entitlement_get_json": lambda *_args, **_kwargs: 200,
+        "_entitlement_state_path": tmp_path / "entitlements.json",
+        "_entitlement_now": datetime.now(timezone.utc),
+        "_knowledge_snapshot_root": tmp_path / "signed-knowledge-v1",
+    }
+
+
 def _patch_roots(
     monkeypatch,
     *,
@@ -116,7 +161,9 @@ def _patch_roots(
         }.get(key)
 
     monkeypatch.setattr("cc.commands.update.resolve_key", _resolve_key)
-    monkeypatch.setattr("cc.commands.update.default_lockfile_path", lambda: lockfile_path)
+    monkeypatch.setattr(
+        "cc.commands.update.default_lockfile_path", lambda: lockfile_path
+    )
     monkeypatch.setattr("cc.commands.update.lock_path", lambda: lock_mutex_path)
 
 
@@ -188,13 +235,16 @@ def test_update_json_applied_validates_against_contract_schema(tmp_path):
     assert written["foundation"]["agents"]["sec"]
     assert written["foundation"]["_meta"]["product"] == "claude"
     assert written["foundation"]["_meta"]["role"] == "foundation"
-    assert written["foundation"]["_meta"]["source_sha"] == subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=source_repo,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
+    assert (
+        written["foundation"]["_meta"]["source_sha"]
+        == subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=source_repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    )
 
     changed_ops = {c["item"]: c["op"] for c in report["changed"]}
     assert changed_ops["sec"] == "added"
@@ -216,7 +266,10 @@ def _two_local_layers(org_root: Path, foundation_root: Path) -> list[dict]:
             "role": "organization",
             "rank": 20,
             "product": "claude",
-            "source": {"repo": "https://example.invalid/claude-organization.git", "path": str(org_root)},
+            "source": {
+                "repo": "https://example.invalid/claude-organization.git",
+                "path": str(org_root),
+            },
             "auth": "anon",
             "activation": "always",
         },
@@ -225,7 +278,10 @@ def _two_local_layers(org_root: Path, foundation_root: Path) -> list[dict]:
             "role": "foundation",
             "rank": 40,
             "product": "claude",
-            "source": {"repo": "https://example.invalid/claude-foundation.git", "path": str(foundation_root)},
+            "source": {
+                "repo": "https://example.invalid/claude-foundation.git",
+                "path": str(foundation_root),
+            },
             "auth": "anon",
             "activation": "always",
         },
@@ -269,9 +325,9 @@ def test_update_json_fold_fallback_reports_blocked_winner_and_validates_against_
 
     _validate(report)
     assert report["result"] == "applied"
-    assert (
-        tmp_path / "materialize" / "commands" / "protocol.md"
-    ).read_text(encoding="utf-8") == "foundation protocol"
+    assert (tmp_path / "materialize" / "commands" / "protocol.md").read_text(
+        encoding="utf-8"
+    ) == "foundation protocol"
 
     change = next(c for c in report["changed"] if c["item"] == "protocol")
     assert change["layer"] == "claude-foundation"
@@ -320,7 +376,9 @@ def test_update_delivers_org_ecosystem_yml_and_validates_against_schema(tmp_path
     is a purely additive widening -- no schema change required)."""
     org_repo = _make_source_repo(
         tmp_path,
-        {"ecosystem.yml": "org: acme\ndepartments:\n  - unit: accounting\n    topology: separate\n"},
+        {
+            "ecosystem.yml": "org: acme\ndepartments:\n  - unit: accounting\n    topology: separate\n"
+        },
         name="org-repo",
     )
     layers = [
@@ -356,7 +414,9 @@ def test_update_delivers_org_ecosystem_yml_and_validates_against_schema(tmp_path
 
 def test_update_second_run_reports_ecosystem_yml_unchanged(tmp_path):
     org_repo = _make_source_repo(
-        tmp_path, {"ecosystem.yml": "org: acme\n"}, name="org-repo",
+        tmp_path,
+        {"ecosystem.yml": "org: acme\n"},
+        name="org-repo",
     )
     layers = [
         {
@@ -393,7 +453,9 @@ def test_update_second_run_reports_ecosystem_yml_unchanged(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_update_default_personal_roots_feeder_protects_configured_root(monkeypatch, tmp_path):
+def test_update_default_personal_roots_feeder_protects_configured_root(
+    monkeypatch, tmp_path
+):
     """When `_personal_roots` is NOT injected (the real production path),
     `build_update_report()` must consult `personal_roots_from_config()`
     and pass the result through to `materialize()` -- proving the
@@ -428,7 +490,9 @@ def test_update_default_personal_roots_feeder_protects_configured_root(monkeypat
     assert "personal root" in held[0]["reason"]
 
 
-def test_update_explicit_personal_roots_override_skips_config_feeder(monkeypatch, tmp_path):
+def test_update_explicit_personal_roots_override_skips_config_feeder(
+    monkeypatch, tmp_path
+):
     """An explicitly injected `_personal_roots=[]` must NOT be replaced by
     `personal_roots_from_config()` -- tests (and any future caller wanting
     to opt out) can still pass an explicit list."""
@@ -502,12 +566,86 @@ def test_update_syncs_external_product_mirrors_without_materializing_authored_sh
 
     assert report["result"] == "up-to-date"
     assert report["changed"] == []
-    assert (tmp_path / "mirrors/knowledge/knowledge-foundation/00-best-practices/README.md").is_file()
+    assert (
+        tmp_path / "mirrors/knowledge/knowledge-foundation/00-best-practices/README.md"
+    ).is_file()
     assert (tmp_path / "mirrors/cli/foundation/cli.overlay.yml").is_file()
     assert not materialized.exists()
     lock = json.loads(lock_path.read_text())
     assert lock["knowledge-foundation"]["_meta"]["product"] == "knowledge"
     assert lock["foundation"]["_meta"]["product"] == "cli"
+
+
+def test_update_commits_verified_protected_knowledge_projection(monkeypatch, tmp_path):
+    source = _make_source_repo(
+        tmp_path,
+        {"plugins/codex-copilot/SKILL.md": "protected"},
+        name="protected-knowledge",
+    )
+    layer = _protected_knowledge_layer(source)
+    projection = ProtectedKnowledgeLockProjection(
+        layer=layer["id"],
+        repository="everyone-needs-a-copilot/knowledge-copilot-accounting",
+        ref="v1.0.0",
+        tree="a" * 40,
+        signer="SHA256:foundation",
+        binding="b" * 64,
+        item_tree="c" * 40,
+        release_tree="d" * 40,
+        content_sha256="e" * 64,
+    )
+    monkeypatch.setattr(
+        "cc.commands.update.resolve_protected_knowledge_lock_projections",
+        lambda *_args, **_kwargs: (projection,),
+    )
+    kwargs = _protected_update_kwargs(tmp_path, layer)
+
+    report = build_update_report(**kwargs)
+    lock = json.loads((tmp_path / "copilot.lock.json").read_text(encoding="utf-8"))
+
+    assert report["result"] == "applied"
+    assert lock[layer["id"]]["plugins"]["codex-copilot"] == "e" * 64
+    assert lock[layer["id"]]["_meta"]["product"] == "knowledge"
+    assert report["changed"][0]["signed"] is True
+
+
+def test_update_missing_protected_receipt_aborts_before_lock_write(tmp_path):
+    source = _make_source_repo(
+        tmp_path,
+        {"plugins/codex-copilot/SKILL.md": "protected"},
+        name="missing-receipt-knowledge",
+    )
+    layer = _protected_knowledge_layer(source)
+    kwargs = _protected_update_kwargs(tmp_path, layer)
+
+    with pytest.raises(KnowledgeSkillSourceError, match="receipt is unavailable"):
+        build_update_report(**kwargs)
+
+    assert not (tmp_path / "copilot.lock.json").exists()
+
+
+def test_update_revocation_removes_prior_protected_projection(tmp_path):
+    source = _make_source_repo(
+        tmp_path,
+        {"plugins/codex-copilot/SKILL.md": "protected"},
+        name="revoked-knowledge",
+    )
+    layer = _protected_knowledge_layer(source)
+    kwargs = _protected_update_kwargs(tmp_path, layer)
+    kwargs["_previous_lock"] = {
+        layer["id"]: {
+            "plugins": {"codex-copilot": "e" * 64},
+            "_meta": {"product": "knowledge", "role": "department"},
+        }
+    }
+    kwargs["_entitlement_get_json"] = lambda *_args, **_kwargs: 404
+
+    report = build_update_report(**kwargs)
+    lock = json.loads((tmp_path / "copilot.lock.json").read_text(encoding="utf-8"))
+
+    assert report["result"] == "blocked"
+    assert not lock.get(layer["id"], {}).get("plugins")
+    assert any(item["op"] == "pruned" for item in report["changed"])
 
 
 def test_update_json_second_run_up_to_date(tmp_path):

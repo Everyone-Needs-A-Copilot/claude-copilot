@@ -21,6 +21,7 @@ import pytest
 from cc.core.conformance import effectiveness as eff
 from cc.core.conformance.types import Verdict
 from cc.core.ecosystem.discovery import discover_contributions
+from cc.core.ecosystem.knowledge_skill_source import ProtectedKnowledgeLockProjection
 from cc.core.ecosystem.lockfile import LAYER_META_KEY
 
 from .conftest import FleetFactory
@@ -304,6 +305,54 @@ class TestE4AttributionMatchesLock:
         lockfile = {"org": {"commands": {"protocol": "sha-org-1"}, LAYER_META_KEY: {}}}
         results = eff.check_e4_resolve_attribution_matches_lock(
             layers=self._LAYERS, contributions=self._CONTRIBUTIONS, lockfile=lockfile
+        )
+        assert len(results) == 1
+        assert results[0].verdict is Verdict.PASS
+
+    def test_fixture_protected_knowledge_projection_satisfies_e4_without_waiver(self):
+        projection = ProtectedKnowledgeLockProjection(
+            layer="knowledge-department-accounting",
+            repository="everyone-needs-a-copilot/knowledge-copilot-accounting",
+            ref="v1.0.0",
+            tree="a" * 40,
+            signer="SHA256:foundation",
+            binding="b" * 64,
+            item_tree="c" * 40,
+            release_tree="d" * 40,
+            content_sha256="e" * 64,
+        )
+        layers = [
+            {
+                "id": projection.layer,
+                "role": "department",
+                "rank": 20,
+                "product": "knowledge",
+                "source": {
+                    "repo": "git@github.com:Everyone-Needs-A-Copilot/knowledge-copilot-accounting.git",
+                    "path": "/knowledge/accounting",
+                },
+                "auth": "work",
+                "activation": "always",
+            }
+        ]
+        contributions = {
+            projection.layer: {
+                projection.dimension: {
+                    projection.item: projection.content_sha256,
+                }
+            }
+        }
+        lockfile = {
+            projection.layer: {
+                projection.dimension: {
+                    projection.item: projection.content_sha256,
+                },
+                LAYER_META_KEY: {"product": "knowledge"},
+            }
+        }
+
+        results = eff.check_e4_resolve_attribution_matches_lock(
+            layers=layers, contributions=contributions, lockfile=lockfile
         )
         assert len(results) == 1
         assert results[0].verdict is Verdict.PASS

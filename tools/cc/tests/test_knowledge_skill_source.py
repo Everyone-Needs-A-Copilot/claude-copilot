@@ -17,7 +17,10 @@ from cc.core.ecosystem.knowledge_skill_source import (
     KnowledgeSkillSourceError,
     prune_all_knowledge_snapshots,
     resolve_knowledge_skill_sources,
+    resolve_protected_knowledge_lock_projections,
 )
+from cc.core.ecosystem.materialize import stable_directory_content_sha
+from cc.core.ecosystem.policy import read_git_tree_snapshot
 from cc.core.ecosystem.project_locking import atomic_json_write
 from cc.core.extensions_resolver import (
     ACTION_APPLY,
@@ -78,6 +81,9 @@ def _signed_knowledge_repo(tmp_path: Path) -> tuple[Path, str, str]:
     extension = repo / ".claude" / "extensions" / "do.extension.md"
     extension.parent.mkdir(parents=True)
     extension.write_text("signed extension body\n", encoding="utf-8")
+    plugin = repo / "plugins" / "codex-copilot" / "SKILL.md"
+    plugin.parent.mkdir(parents=True)
+    plugin.write_text("signed codex plugin\n", encoding="utf-8")
     (repo / "knowledge-manifest.json").write_text(
         json.dumps(
             {
@@ -202,6 +208,122 @@ def test_signed_tree_drives_discovery_and_get(signed_source):
     assert stat.S_IMODE(skill.path.stat().st_mode) == 0o400
     assert stat.S_IMODE(skill.path.parent.stat().st_mode) == 0o500
     revalidate_skill_path(skill)
+
+
+def _protected_projection(protected_signed_source):
+    _repo, layer, _state_path, cache_root = protected_signed_source
+    source = _discover_signed()._knowledge_source
+    assert source.entitlement_binding is not None
+    projections = resolve_protected_knowledge_lock_projections(
+        [layer], [source.entitlement_binding], cache_root=cache_root
+    )
+    assert len(projections) == 1
+    return source, projections[0]
+
+
+def test_protected_receipt_projects_exact_signed_plugin_lock_identity(
+    protected_signed_source,
+):
+    source, projection = _protected_projection(protected_signed_source)
+    plugin_tree = source.release.read_blob  # receipt remains immutable/read-capable
+    assert callable(plugin_tree)
+    snapshot = read_git_tree_snapshot(source.repository_root, projection.item_tree)
+    assert snapshot is not None
+    assert projection.layer == "knowledge-test"
+    assert projection.repository == "example/knowledge"
+    assert projection.ref == source.ref
+    assert projection.tree == source.tree
+    assert projection.signer == source.signer
+    assert projection.release_tree == source.release.tree
+    assert projection.content_sha256 == stable_directory_content_sha(
+        (item.path, item.content) for item in snapshot.files
+    )
+
+
+def test_protected_projection_fails_when_active_receipt_is_missing(
+    protected_signed_source,
+):
+    source, _projection = _protected_projection(protected_signed_source)
+    cache_root = protected_signed_source[3]
+    atomic_json_write(
+        cache_root / "index.json", {"schema_version": "1.0", "entries": {}}
+    )
+
+    with pytest.raises(KnowledgeSkillSourceError, match="matching active receipt"):
+        resolve_protected_knowledge_lock_projections(
+            [protected_signed_source[1]],
+            [source.entitlement_binding],
+            cache_root=cache_root,
+        )
+
+
+def test_protected_projection_rejects_revoked_binding(protected_signed_source):
+    source, _projection = _protected_projection(protected_signed_source)
+    assert source.entitlement_binding is not None
+    revoked = entitlement.EntitlementBinding(
+        **(
+            source.entitlement_binding.as_dict()
+            | {"state": "revoked", "eligible": False}
+        )
+    )
+
+    with pytest.raises(KnowledgeSkillSourceError, match="active bound receipt"):
+        resolve_protected_knowledge_lock_projections(
+            [protected_signed_source[1]],
+            [revoked],
+            cache_root=protected_signed_source[3],
+        )
+
+
+def test_protected_projection_rolls_receipt_to_current_entitlement_generation(
+    protected_signed_source,
+):
+    source, projection = _protected_projection(protected_signed_source)
+    assert source.entitlement_binding is not None
+    cache_root = protected_signed_source[3]
+    old_index = json.loads((cache_root / "index.json").read_text(encoding="utf-8"))
+    old_target = cache_root / old_index["entries"][projection.binding]["target"]
+    current = entitlement.EntitlementBinding(
+        **(source.entitlement_binding.as_dict() | {"revision": 2})
+    )
+
+    projections = resolve_protected_knowledge_lock_projections(
+        [protected_signed_source[1]], [current], cache_root=cache_root
+    )
+
+    assert len(projections) == 1
+    assert projections[0].binding != projection.binding
+    assert not old_target.exists()
+    new_index = json.loads((cache_root / "index.json").read_text(encoding="utf-8"))
+    assert new_index["entries"][projections[0].binding]["revision"] == 2
+    assert new_index["entries"][projections[0].binding]["status"] == "active"
+
+
+def test_protected_projection_rejects_mismatched_index_signer(
+    protected_signed_source,
+):
+    source, projection = _protected_projection(protected_signed_source)
+    cache_root = protected_signed_source[3]
+    index = json.loads((cache_root / "index.json").read_text(encoding="utf-8"))
+    index["entries"][projection.binding]["signer"] = "SHA256:mismatch"
+    atomic_json_write(cache_root / "index.json", index)
+
+    with pytest.raises(KnowledgeSkillSourceError, match="matching active receipt"):
+        resolve_protected_knowledge_lock_projections(
+            [protected_signed_source[1]],
+            [source.entitlement_binding],
+            cache_root=cache_root,
+        )
+
+
+def test_ordinary_knowledge_read_has_no_ecosystem_lock_write_authority(
+    signed_source, monkeypatch
+):
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("ordinary read attempted an ecosystem lock write")
+
+    monkeypatch.setattr("cc.core.ecosystem.lockfile.write_lockfile", forbidden)
+    assert _discover_signed().name == "accounting"
 
 
 def test_signed_skill_get_returns_exact_authenticated_receipt(signed_source):
