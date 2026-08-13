@@ -16,7 +16,6 @@ import re
 import secrets
 import stat
 import subprocess
-import tempfile
 import time
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
@@ -45,36 +44,58 @@ _SOURCE_REPOSITORY = re.compile(
     r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?:/[A-Za-z0-9][A-Za-z0-9._-]{0,127})?$"
 )
 _SOURCE_REF = re.compile(r"^refs/(?:heads|tags)/[A-Za-z0-9][A-Za-z0-9._/+\-]{0,191}$")
-_SOURCE_SIGNER = re.compile(r"^(?:SHA256:[A-Za-z0-9+/=_-]{4,128}|[a-z][a-z0-9-]{0,63})$")
-_SOURCE_CONTRIBUTION = re.compile(
-    r"^[A-Za-z0-9._+-]+(?:/[A-Za-z0-9._+-]+)*$"
+_SOURCE_SIGNER = re.compile(
+    r"^(?:SHA256:[A-Za-z0-9+/=_-]{4,128}|[a-z][a-z0-9-]{0,63})$"
 )
+_SOURCE_CONTRIBUTION = re.compile(r"^[A-Za-z0-9._+-]+(?:/[A-Za-z0-9._+-]+)*$")
 _SECRET = re.compile(r"(?i)(bearer|password|secret|token|api[_-]?key|credential)")
 _CREDENTIAL_SHAPE = re.compile(
     r"(?i)(?:^|[^A-Za-z0-9])(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|github_pat_[A-Za-z0-9_]{8,})"
 )
 _EMAIL = re.compile(r"(?i)[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}")
 _PRIVATE_PATH = re.compile(r"(?i)(?:^|/)(?:Users|home|private|tmp|var|Volumes)(?:/|$)")
+_GLOBAL_LOCK_PATH = "/private/tmp"
 _SECURITY_AUTHORITY = object()
-_COMMON_RECORD_KEYS = {"schema_version", "adapter_version", "task_id", "record_type", "run_id"}
+_COMMON_RECORD_KEYS = {
+    "schema_version",
+    "adapter_version",
+    "task_id",
+    "record_type",
+    "run_id",
+}
 _RECORD_KEYS = {
     "begin": {"session_id_sha256", "prompt_sha256", "route", "security", "capability"},
     "prepare": {
-        "stage_index", "specialist", "invocation_marker", "composed_content_sha256",
-        "sources", "security_sha256",
+        "stage_index",
+        "specialist",
+        "invocation_marker",
+        "composed_content_sha256",
+        "sources",
+        "security_sha256",
     },
     "prompt_binding": {
-        "stage_index", "specialist", "invocation_marker", "prompt_sha256",
+        "stage_index",
+        "specialist",
+        "invocation_marker",
+        "prompt_sha256",
         "prepared_sha256",
     },
     "dispatch_authorization": {
-        "stage_index", "specialist", "session_id_sha256", "prompt_sha256",
-        "composed_content_sha256", "sources", "security", "claim",
+        "stage_index",
+        "specialist",
+        "session_id_sha256",
+        "prompt_sha256",
+        "composed_content_sha256",
+        "sources",
+        "security",
+        "claim",
         "invocation_marker_sha256",
     },
     "pause_capsule": {"generation", "capsule", "capsule_sha256"},
     "final_authorization": {
-        "result_json", "result_sha256", "dispatch_authorizations_sha256",
+        "result_json",
+        "result_sha256",
+        "dispatch_authorizations_sha256",
     },
 }
 
@@ -99,20 +120,13 @@ def _has_disclosure(value: str) -> bool:
 
 
 def _safe_text(value: str) -> str:
-    if (
-        not _IDENTIFIER.fullmatch(value)
-        or _has_disclosure(value)
-    ):
+    if not _IDENTIFIER.fullmatch(value) or _has_disclosure(value):
         raise ValueError("Journey persisted identity is unsafe.")
     return value
 
 
 def _safe_session(value: str) -> str:
-    if (
-        not _SESSION.fullmatch(value)
-        or "@" in value
-        or _has_disclosure(value)
-    ):
+    if not _SESSION.fullmatch(value) or "@" in value or _has_disclosure(value):
         raise ValueError("Session identity is unsafe.")
     return value
 
@@ -153,7 +167,9 @@ class SecurityAuthorization:
 class MandatorySecurityVerifier:
     """Issue an authenticated receipt from one closed mandatory policy probe."""
 
-    def __init__(self, probe: Callable[[Mapping[str, Any]], tuple[str, str]] | None = None) -> None:
+    def __init__(
+        self, probe: Callable[[Mapping[str, Any]], tuple[str, str]] | None = None
+    ) -> None:
         self._probe = probe or self._default_probe
 
     @staticmethod
@@ -181,7 +197,14 @@ class MandatorySecurityVerifier:
         return SecurityAuthorization(
             state,
             _safe_text(reason),
-            _sha("mandatory-security-v1\n" + canonical_context + "\n" + state + "\n" + reason),
+            _sha(
+                "mandatory-security-v1\n"
+                + canonical_context
+                + "\n"
+                + state
+                + "\n"
+                + reason
+            ),
             _SECURITY_AUTHORITY,
         )
 
@@ -261,7 +284,6 @@ class TcJourneyLedger:
         store_wp: Callable[..., Mapping[str, Any]] | None = None,
         get_wp: Callable[..., Mapping[str, Any]] | None = None,
         list_wps: Callable[..., Sequence[Mapping[str, Any]]] | None = None,
-        lock_dir: Path | None = None,
         lock_timeout: float = 5.0,
         allow_missing_guard: bool = False,
     ) -> None:
@@ -271,13 +293,14 @@ class TcJourneyLedger:
                 from tc.api import list_wps as tc_list_wps
                 from tc.api import store_wp as tc_store_wp
             except ImportError as exc:
-                raise RuntimeError("Task Copilot is unavailable; journey state cannot continue.") from exc
+                raise RuntimeError(
+                    "Task Copilot is unavailable; journey state cannot continue."
+                ) from exc
             store_wp, get_wp, list_wps = tc_store_wp, tc_get_wp, tc_list_wps
         self.task_id = task_id
         self._store_wp = store_wp
         self._get_wp = get_wp
         self._list_wps = list_wps
-        self._lock_dir = lock_dir
         self._allow_missing_guard = allow_missing_guard
         if lock_timeout <= 0:
             raise ValueError("Journey lock timeout must be positive.")
@@ -285,11 +308,13 @@ class TcJourneyLedger:
 
     def append(self, title: str, payload: Mapping[str, Any]) -> Mapping[str, Any]:
         record = dict(payload)
-        record.update({
-            "schema_version": RUNTIME_SCHEMA_VERSION,
-            "adapter_version": RUNTIME_ADAPTER_VERSION,
-            "task_id": self.task_id,
-        })
+        record.update(
+            {
+                "schema_version": RUNTIME_SCHEMA_VERSION,
+                "adapter_version": RUNTIME_ADAPTER_VERSION,
+                "task_id": self.task_id,
+            }
+        )
         content = _canonical(record)
         stored = self._store_wp(
             task_id=self.task_id,
@@ -325,7 +350,9 @@ class TcJourneyLedger:
             try:
                 summary_id = int(summary["id"])
             except (KeyError, TypeError, ValueError) as exc:
-                raise ValueError("Journey ledger summary identity is malformed.") from exc
+                raise ValueError(
+                    "Journey ledger summary identity is malformed."
+                ) from exc
             row = self._get_wp(wp_id=summary_id)
             title = str(row.get("title", ""))
             if not title.startswith("Journey v2.1 "):
@@ -358,50 +385,63 @@ class TcJourneyLedger:
             result.append((row, payload))
         return result
 
-    def _private_lock_dir(self) -> Path:
-        path = self._lock_dir or Path(tempfile.gettempdir()) / f"cc-journey-{os.getuid()}"
+    @staticmethod
+    def _global_lock_descriptor() -> int:
+        if _GLOBAL_LOCK_PATH != "/private/tmp":
+            raise RuntimeError("Journey global lock path is invalid.")
+        flags = (
+            os.O_RDONLY
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+        )
+        descriptor = -1
         try:
-            path.mkdir(mode=0o700, parents=False, exist_ok=True)
-            info = path.lstat()
+            before = os.lstat(_GLOBAL_LOCK_PATH)
+            descriptor = os.open(_GLOBAL_LOCK_PATH, flags)
+            opened = os.fstat(descriptor)
         except OSError as exc:
-            raise RuntimeError("Journey lock directory is unavailable.") from exc
-        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
-            raise RuntimeError("Journey lock directory is unsafe.")
-        return path
+            if descriptor >= 0:
+                os.close(descriptor)
+            raise RuntimeError("Journey global lock is unavailable.") from exc
+        if (
+            not stat.S_ISDIR(before.st_mode)
+            or not stat.S_ISDIR(opened.st_mode)
+            or before.st_uid != 0
+            or opened.st_uid != 0
+            or not bool(before.st_mode & stat.S_ISVTX)
+            or not bool(opened.st_mode & stat.S_ISVTX)
+            or (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino)
+        ):
+            os.close(descriptor)
+            raise RuntimeError("Journey global lock identity is unsafe.")
+        return descriptor
 
-    def _lock_path(self, identity: str) -> Path:
-        lock_dir = self._private_lock_dir()
-        scope = _sha(str(lock_dir.absolute()))[:24]
-        claim = _sha(f"{self.task_id}:{identity}")[:32]
-        # The anchor is deliberately outside ``lock_dir``.  Renaming and
-        # recreating that same-user directory therefore cannot split one
-        # task/run claim across two lock-file inodes.
-        return lock_dir.parent / f".cc-journey-{os.getuid()}-{scope}-{claim}.lock"
+    @staticmethod
+    def _validate_global_lock_descriptor(descriptor: int) -> None:
+        try:
+            current = os.lstat(_GLOBAL_LOCK_PATH)
+            opened = os.fstat(descriptor)
+        except OSError as exc:
+            raise RuntimeError("Journey global lock identity changed.") from exc
+        if (
+            not stat.S_ISDIR(current.st_mode)
+            or current.st_uid != 0
+            or not bool(current.st_mode & stat.S_ISVTX)
+            or (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino)
+        ):
+            raise RuntimeError("Journey global lock identity changed.")
 
     @contextmanager
     def claim(self, identity: str) -> Iterator[None]:
         if not re.fullmatch(r"[A-Za-z0-9.-]{1,160}", identity):
             raise ValueError("Journey lock identity is malformed.")
-        path = self._lock_path(identity)
-        flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = self._global_lock_descriptor()
         try:
-            descriptor = os.open(path, flags, 0o600)
-        except OSError as exc:
-            raise RuntimeError("Journey lock acquisition failed.") from exc
-        info = os.fstat(descriptor)
-        if (
-            not stat.S_ISREG(info.st_mode)
-            or info.st_uid != os.getuid()
-            or info.st_nlink != 1
-        ):
-            os.close(descriptor)
-            raise RuntimeError("Journey lock file is unsafe.")
-        os.fchmod(descriptor, 0o600)
-        with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
             deadline = time.monotonic() + self._lock_timeout
             while True:
                 try:
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     break
                 except BlockingIOError as exc:
                     if time.monotonic() >= deadline:
@@ -409,10 +449,13 @@ class TcJourneyLedger:
                             "Journey lock acquisition timed out."
                         ) from exc
                     time.sleep(min(0.01, max(0.0, deadline - time.monotonic())))
+            self._validate_global_lock_descriptor(descriptor)
             try:
                 yield
             finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+        finally:
+            os.close(descriptor)
 
 
 def _task_from_run(run_id: str) -> int:
@@ -446,8 +489,15 @@ def _source_dict(receipt: Any) -> dict[str, Any]:
     result = {
         key: getattr(receipt, key)
         for key in (
-            "layer", "repository", "ref", "tree", "signer", "contribution",
-            "content_sha256", "runtime", "adapter_version",
+            "layer",
+            "repository",
+            "ref",
+            "tree",
+            "signer",
+            "contribution",
+            "content_sha256",
+            "runtime",
+            "adapter_version",
         )
     }
     for key, value in result.items():
@@ -479,8 +529,15 @@ def _validate_sources(value: object) -> tuple[dict[str, Any], ...]:
     if not isinstance(value, (list, tuple)) or not value:
         raise ValueError("Knowledge source receipts are missing.")
     allowed = {
-        "layer", "repository", "ref", "tree", "signer", "contribution",
-        "content_sha256", "runtime", "adapter_version",
+        "layer",
+        "repository",
+        "ref",
+        "tree",
+        "signer",
+        "contribution",
+        "content_sha256",
+        "runtime",
+        "adapter_version",
     }
     result = []
     for item in value:
@@ -491,7 +548,9 @@ def _validate_sources(value: object) -> tuple[dict[str, Any], ...]:
     return tuple(result)
 
 
-def resolve_specialist_knowledge(specialist: str) -> tuple[str, tuple[dict[str, Any], ...]]:
+def resolve_specialist_knowledge(
+    specialist: str,
+) -> tuple[str, tuple[dict[str, Any], ...]]:
     """Consume the existing resolver without adding precedence or fallback."""
     from cc.core.extensions_resolver import (
         ACTION_APPLY,
@@ -524,7 +583,9 @@ def _security_context(begin: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _require_security(begin: Mapping[str, Any], verifier: MandatorySecurityVerifier) -> dict[str, str]:
+def _require_security(
+    begin: Mapping[str, Any], verifier: MandatorySecurityVerifier
+) -> dict[str, str]:
     receipt = verifier.authorize(_security_context(begin))
     if receipt.state != "allowed":
         raise PermissionError("mandatory-security-not-allowed")
@@ -557,7 +618,9 @@ def begin_run(
         runtime=_safe_text(runtime),
         contract_version=RUNTIME_SCHEMA_VERSION,
         events=tuple(
-            RouteEvent(item["kind"], _safe_text(item["specialist"]), _safe_text(item["reason"]))
+            RouteEvent(
+                item["kind"], _safe_text(item["specialist"]), _safe_text(item["reason"])
+            )
             for item in events
         ),
     )
@@ -570,17 +633,26 @@ def begin_run(
         "prompt_sha256": prompt_sha256,
         "route": asdict(trace),
     }
-    payload["security"] = _require_security(payload, security or MandatorySecurityVerifier())
-    payload["capability"] = asdict((capability or CliCopilotHealthCapabilityAdapter()).invoke(case_id=run_id))
+    payload["security"] = _require_security(
+        payload, security or MandatorySecurityVerifier()
+    )
+    payload["capability"] = asdict(
+        (capability or CliCopilotHealthCapabilityAdapter()).invoke(case_id=run_id)
+    )
     capability_detail = str(payload["capability"].get("detail", ""))
-    if capability_detail and not re.fullmatch(r"sha256:[0-9a-f]{64}", capability_detail):
+    if capability_detail and not re.fullmatch(
+        r"sha256:[0-9a-f]{64}", capability_detail
+    ):
         raise ValueError("Capability diagnostic is not redacted.")
     selected = ledger or TcJourneyLedger(task_id)
     with selected.claim("begin-" + _sha(session_id)):
         if _active_runs_for_session(session_id, selected):
             raise ValueError("Session already has an active journey.")
         selected.append(BEGIN_TITLE, payload)
-    return payload | {"schema_version": RUNTIME_SCHEMA_VERSION, "adapter_version": RUNTIME_ADAPTER_VERSION}
+    return payload | {
+        "schema_version": RUNTIME_SCHEMA_VERSION,
+        "adapter_version": RUNTIME_ADAPTER_VERSION,
+    }
 
 
 def _expected_title(payload: Mapping[str, Any]) -> str:
@@ -601,12 +673,24 @@ def _expected_title(payload: Mapping[str, Any]) -> str:
 
 
 def _state(run_id: str, ledger: TcJourneyLedger) -> dict[str, Any]:
-    buckets = {key: [] for key in ("begin", "prepare", "prompt_binding", "dispatch_authorization", "pause_capsule", "final_authorization")}
+    buckets = {
+        key: []
+        for key in (
+            "begin",
+            "prepare",
+            "prompt_binding",
+            "dispatch_authorization",
+            "pause_capsule",
+            "final_authorization",
+        )
+    }
     row_ids: dict[int, int] = {}
     for row, payload in ledger.rows():
         if payload.get("run_id") != run_id:
             continue
-        if payload.get("task_id") != _task_from_run(run_id) or row.get("title") != _expected_title(payload):
+        if payload.get("task_id") != _task_from_run(run_id) or row.get(
+            "title"
+        ) != _expected_title(payload):
             raise ValueError("Journey evidence identity is invalid.")
         kind = str(payload.get("record_type", ""))
         if kind not in buckets:
@@ -616,42 +700,86 @@ def _state(run_id: str, ledger: TcJourneyLedger) -> dict[str, Any]:
     if len(buckets["begin"]) != 1 or len(buckets["final_authorization"]) > 1:
         raise ValueError("Journey evidence is missing or ambiguous.")
     begin = buckets["begin"][0]
+    begin_id = row_ids[id(begin)]
+    if any(
+        row_ids[id(item)] <= begin_id
+        for kind, records in buckets.items()
+        if kind != "begin"
+        for item in records
+    ):
+        raise ValueError("Journey evidence chronology is invalid.")
     route_trace = _route_from(begin.get("route", {}))
     route = route_trace.specialists
-    dispatches = sorted(buckets["dispatch_authorization"], key=lambda item: int(item["stage_index"]))
+    dispatches = sorted(
+        buckets["dispatch_authorization"], key=lambda item: int(item["stage_index"])
+    )
     completed = tuple(item["specialist"] for item in dispatches)
-    if completed != route[: len(completed)] or tuple(item["stage_index"] for item in dispatches) != tuple(range(len(dispatches))):
+    if completed != route[: len(completed)] or tuple(
+        item["stage_index"] for item in dispatches
+    ) != tuple(range(len(dispatches))):
         raise ValueError("Journey dispatch ledger is out of route order.")
     for kind in ("prepare", "prompt_binding", "dispatch_authorization"):
         indices = [int(item["stage_index"]) for item in buckets[kind]]
         if len(indices) != len(set(indices)):
             raise ValueError("Journey stage evidence is ambiguous.")
+    preparations = {int(item["stage_index"]): item for item in buckets["prepare"]}
+    bindings = {int(item["stage_index"]): item for item in buckets["prompt_binding"]}
+    authorizations = {
+        int(item["stage_index"]): item for item in buckets["dispatch_authorization"]
+    }
+    for stage, prepared in preparations.items():
+        binding = bindings.get(stage)
+        dispatched = authorizations.get(stage)
+        if binding is not None and row_ids[id(prepared)] >= row_ids[id(binding)]:
+            raise ValueError("Journey evidence chronology is invalid.")
+        if dispatched is not None and (
+            binding is None
+            or row_ids[id(prepared)] >= row_ids[id(dispatched)]
+            or row_ids[id(binding)] >= row_ids[id(dispatched)]
+        ):
+            raise ValueError("Journey evidence chronology is invalid.")
+    if set(bindings) - set(preparations) or set(authorizations) - set(preparations):
+        raise ValueError("Journey evidence chronology is invalid.")
     for kind in ("prepare", "dispatch_authorization"):
         for item in buckets[kind]:
             if list(_validate_sources(item.get("sources"))) != item.get("sources"):
                 raise ValueError("Stored Knowledge source receipts are malformed.")
     pause_generations = [int(item["generation"]) for item in buckets["pause_capsule"]]
-    if (
-        len(pause_generations) != len(set(pause_generations))
-        or any(generation < 0 or generation > len(route) for generation in pause_generations)
+    if len(pause_generations) != len(set(pause_generations)) or any(
+        generation < 0 or generation > len(route) for generation in pause_generations
     ):
         raise ValueError("Journey pause evidence is ambiguous.")
-    buckets["pause_capsule"].sort(key=lambda item: int(item["generation"]))
+    pauses_in_order = sorted(
+        buckets["pause_capsule"], key=lambda item: row_ids[id(item)]
+    )
+    if [int(item["generation"]) for item in pauses_in_order] != sorted(
+        pause_generations
+    ):
+        raise ValueError("Journey pause chronology is invalid.")
+    buckets["pause_capsule"] = pauses_in_order
     state = buckets | {"begin_record": begin, "route": route, "completed": completed}
     for item in buckets["pause_capsule"]:
         generation = int(item["generation"])
         cutoff = row_ids[id(item)]
         historical = state | {
-            kind: [
-                record for record in state[kind]
-                if row_ids[id(record)] < cutoff
-            ]
+            kind: [record for record in state[kind] if row_ids[id(record)] < cutoff]
             for kind in ("prepare", "prompt_binding", "dispatch_authorization")
         }
-        expected = _capsule_for_generation(run_id, historical, generation)
         if (
-            item.get("capsule") != expected
-            or item.get("capsule_sha256") != _sha(_canonical(expected))
+            len(historical["dispatch_authorization"]) != generation
+            or any(
+                int(record["stage_index"]) > generation
+                for kind in ("prepare", "prompt_binding")
+                for record in historical[kind]
+            )
+            or any(
+                row_ids[id(record)] < cutoff for record in state["final_authorization"]
+            )
+        ):
+            raise ValueError("Journey pause chronology is invalid.")
+        expected = _capsule_for_generation(run_id, historical, generation)
+        if item.get("capsule") != expected or item.get("capsule_sha256") != _sha(
+            _canonical(expected)
         ):
             raise ValueError("Journey historical pause capsule changed.")
     if buckets["final_authorization"] and len(completed) != len(route):
@@ -674,8 +802,7 @@ def _unfinished_public_state(run_id: str, state: Mapping[str, Any]) -> dict[str,
         "status": (
             "paused"
             if any(
-                int(item["generation"]) == next_index
-                for item in state["pause_capsule"]
+                int(item["generation"]) == next_index for item in state["pause_capsule"]
             )
             else "active"
         ),
@@ -687,8 +814,14 @@ def _unfinished_public_state(run_id: str, state: Mapping[str, Any]) -> dict[str,
         "dispatch_authorized_specialists": completed,
         "next_specialist": route[next_index] if next_index < len(route) else None,
         "next_stage_state": (
-            "prompt_bound" if next_index in bindings else "prepared" if next_index in preparations else "unprepared"
-        ) if next_index < len(route) else None,
+            "prompt_bound"
+            if next_index in bindings
+            else "prepared"
+            if next_index in preparations
+            else "unprepared"
+        )
+        if next_index < len(route)
+        else None,
     }
 
 
@@ -722,7 +855,9 @@ def _public_state(run_id: str, state: Mapping[str, Any]) -> dict[str, Any]:
     return _unfinished_public_state(run_id, state)
 
 
-def inspect_run(run_id: str, *, ledger: TcJourneyLedger | None = None) -> dict[str, Any]:
+def inspect_run(
+    run_id: str, *, ledger: TcJourneyLedger | None = None
+) -> dict[str, Any]:
     selected = ledger or TcJourneyLedger(_task_from_run(run_id))
     return _public_state(run_id, _state(run_id, selected))
 
@@ -732,7 +867,9 @@ def prepare_run(
     specialist: str,
     *,
     ledger: TcJourneyLedger | None = None,
-    resolver: Callable[[str], tuple[str, tuple[dict[str, Any], ...]]] = resolve_specialist_knowledge,
+    resolver: Callable[
+        [str], tuple[str, tuple[dict[str, Any], ...]]
+    ] = resolve_specialist_knowledge,
     security: MandatorySecurityVerifier | None = None,
 ) -> PreparedInvocation:
     selected = ledger or TcJourneyLedger(_task_from_run(run_id))
@@ -741,16 +878,24 @@ def prepare_run(
         stage = len(state["completed"])
         if stage >= len(state["route"]) or state["route"][stage] != specialist:
             raise ValueError("Specialist is not the exact next protocol stage.")
-        _require_security(state["begin_record"], security or MandatorySecurityVerifier())
+        _require_security(
+            state["begin_record"], security or MandatorySecurityVerifier()
+        )
         payload, raw_sources = resolver(specialist)
         sources = _validate_sources(raw_sources)
         if not payload or KNOWLEDGE_BEGIN in payload or KNOWLEDGE_END in payload:
             raise ValueError("Required Knowledge payload is malformed.")
         digest = _sha(payload)
-        matches = [item for item in state["prepare"] if item.get("stage_index") == stage]
+        matches = [
+            item for item in state["prepare"] if item.get("stage_index") == stage
+        ]
         if matches:
             prepared = matches[0]
-            if prepared.get("specialist") != specialist or prepared.get("composed_content_sha256") != digest or prepared.get("sources") != list(sources):
+            if (
+                prepared.get("specialist") != specialist
+                or prepared.get("composed_content_sha256") != digest
+                or prepared.get("sources") != list(sources)
+            ):
                 raise ValueError("Knowledge changed after preparation.")
             marker = str(prepared["invocation_marker"])
         else:
@@ -758,16 +903,36 @@ def prepare_run(
             selected.append(
                 PREPARE_TITLE,
                 {
-                    "record_type": "prepare", "run_id": run_id, "stage_index": stage,
-                    "specialist": specialist, "invocation_marker": marker,
-                    "composed_content_sha256": digest, "sources": list(sources),
-                    "security_sha256": _sha(_canonical(state["begin_record"]["security"])),
+                    "record_type": "prepare",
+                    "run_id": run_id,
+                    "stage_index": stage,
+                    "specialist": specialist,
+                    "invocation_marker": marker,
+                    "composed_content_sha256": digest,
+                    "sources": list(sources),
+                    "security_sha256": _sha(
+                        _canonical(state["begin_record"]["security"])
+                    ),
                 },
             )
-        binding = next((item for item in state["prompt_binding"] if item.get("stage_index") == stage), None)
+        binding = next(
+            (
+                item
+                for item in state["prompt_binding"]
+                if item.get("stage_index") == stage
+            ),
+            None,
+        )
     fragment = f"{MARKER_HEADER}{marker}\n{KNOWLEDGE_BEGIN}\n{payload}\n{KNOWLEDGE_END}"
     return PreparedInvocation(
-        run_id, specialist, stage, marker, payload, fragment, digest, sources,
+        run_id,
+        specialist,
+        stage,
+        marker,
+        payload,
+        fragment,
+        digest,
+        sources,
         str(binding["prompt_sha256"]) if binding else None,
     )
 
@@ -785,10 +950,14 @@ def bind_prompt(
     with selected.claim(run_id):
         state = _state(run_id, selected)
         stage = len(state["completed"])
-        prepared = [item for item in state["prepare"] if item.get("stage_index") == stage]
+        prepared = [
+            item for item in state["prepare"] if item.get("stage_index") == stage
+        ]
         if len(prepared) != 1 or prepared[0].get("specialist") != specialist:
             raise ValueError("Exact next Agent prompt has not been prepared.")
-        bindings = [item for item in state["prompt_binding"] if item.get("stage_index") == stage]
+        bindings = [
+            item for item in state["prompt_binding"] if item.get("stage_index") == stage
+        ]
         if bindings:
             if bindings[0].get("prompt_sha256") != prompt_sha256:
                 raise ValueError("Full Agent prompt changed after binding.")
@@ -796,8 +965,10 @@ def bind_prompt(
             selected.append(
                 BIND_TITLE,
                 {
-                    "record_type": "prompt_binding", "run_id": run_id,
-                    "stage_index": stage, "specialist": specialist,
+                    "record_type": "prompt_binding",
+                    "run_id": run_id,
+                    "stage_index": stage,
+                    "specialist": specialist,
                     "invocation_marker": prepared[0]["invocation_marker"],
                     "prompt_sha256": prompt_sha256,
                     "prepared_sha256": _sha(_canonical(prepared[0])),
@@ -820,8 +991,13 @@ def _capsule_for_generation(
     dispatches = list(state["dispatch_authorization"][:generation])
     if len(dispatches) != generation:
         raise ValueError("Journey pause generation exceeds dispatch history.")
-    prepared = next((item for item in state["prepare"] if item.get("stage_index") == stage), None)
-    binding = next((item for item in state["prompt_binding"] if item.get("stage_index") == stage), None)
+    prepared = next(
+        (item for item in state["prepare"] if item.get("stage_index") == stage), None
+    )
+    binding = next(
+        (item for item in state["prompt_binding"] if item.get("stage_index") == stage),
+        None,
+    )
     return {
         "capsule_version": "journey-pause-v1",
         "schema_version": RUNTIME_SCHEMA_VERSION,
@@ -836,7 +1012,9 @@ def _capsule_for_generation(
         "prepared": prepared,
         "prompt_binding": binding,
         "next_stage_index": stage if stage < len(state["route"]) else None,
-        "next_specialist": state["route"][stage] if stage < len(state["route"]) else None,
+        "next_specialist": state["route"][stage]
+        if stage < len(state["route"])
+        else None,
     }
 
 
@@ -848,7 +1026,9 @@ def pause_run(
     run_id: str,
     *,
     ledger: TcJourneyLedger | None = None,
-    resolver: Callable[[str], tuple[str, tuple[dict[str, Any], ...]]] = resolve_specialist_knowledge,
+    resolver: Callable[
+        [str], tuple[str, tuple[dict[str, Any], ...]]
+    ] = resolve_specialist_knowledge,
     security: MandatorySecurityVerifier | None = None,
 ) -> dict[str, Any]:
     selected = ledger or TcJourneyLedger(_task_from_run(run_id))
@@ -858,8 +1038,11 @@ def pause_run(
         item.get("stage_index") == next_index for item in initial["prepare"]
     ):
         prepare_run(
-            run_id, initial["route"][next_index], ledger=selected,
-            resolver=resolver, security=security,
+            run_id,
+            initial["route"][next_index],
+            ledger=selected,
+            resolver=resolver,
+            security=security,
         )
     with selected.claim(run_id):
         state = _state(run_id, selected)
@@ -874,8 +1057,13 @@ def pause_run(
         ]
         if matches:
             stored = matches[0]
-            if stored.get("capsule") != capsule or stored.get("capsule_sha256") != digest:
-                raise ValueError("Journey pause capsule no longer matches runtime state.")
+            if (
+                stored.get("capsule") != capsule
+                or stored.get("capsule_sha256") != digest
+            ):
+                raise ValueError(
+                    "Journey pause capsule no longer matches runtime state."
+                )
         else:
             selected.append(
                 PAUSE_TITLE,
@@ -893,14 +1081,21 @@ def pause_run(
 def _active_runs_for_session(session_id: str, ledger: TcJourneyLedger) -> list[str]:
     runs = []
     for row, payload in ledger.rows():
-        if payload.get("record_type") == "begin" and payload.get("session_id_sha256") == _sha(session_id):
+        if payload.get("record_type") == "begin" and payload.get(
+            "session_id_sha256"
+        ) == _sha(session_id):
             run_id = str(payload.get("run_id", ""))
-            state = _state(run_id, TcJourneyLedger(
-                _task_from_run(run_id), store_wp=ledger._store_wp, get_wp=ledger._get_wp,
-                list_wps=ledger._list_wps, lock_dir=ledger._lock_dir,
-                lock_timeout=ledger._lock_timeout,
-                allow_missing_guard=ledger._allow_missing_guard,
-            ))
+            state = _state(
+                run_id,
+                TcJourneyLedger(
+                    _task_from_run(run_id),
+                    store_wp=ledger._store_wp,
+                    get_wp=ledger._get_wp,
+                    list_wps=ledger._list_wps,
+                    lock_timeout=ledger._lock_timeout,
+                    allow_missing_guard=ledger._allow_missing_guard,
+                ),
+            )
             if not state["final_authorization"]:
                 runs.append(run_id)
     return sorted(set(runs))
@@ -911,7 +1106,9 @@ def resume_run(
     *,
     run_id: str | None = None,
     ledger: TcJourneyLedger | None = None,
-    resolver: Callable[[str], tuple[str, tuple[dict[str, Any], ...]]] = resolve_specialist_knowledge,
+    resolver: Callable[
+        [str], tuple[str, tuple[dict[str, Any], ...]]
+    ] = resolve_specialist_knowledge,
     security: MandatorySecurityVerifier | None = None,
 ) -> dict[str, Any]:
     selected = ledger or TcJourneyLedger(task_id)
@@ -949,13 +1146,18 @@ def resume_run(
         raise ValueError("Journey continuation capsule is missing.")
     capsule = _capsule(run_id, state)
     stored = capsules[0]
-    if stored.get("capsule") != capsule or stored.get("capsule_sha256") != _sha(_canonical(capsule)):
+    if stored.get("capsule") != capsule or stored.get("capsule_sha256") != _sha(
+        _canonical(capsule)
+    ):
         raise ValueError("Journey continuation capsule changed.")
     _require_security(state["begin_record"], security or MandatorySecurityVerifier())
     public = _public_state(run_id, state)
     if public["next_specialist"] is not None:
         public["prepared_invocation"] = prepare_run(
-            run_id, public["next_specialist"], ledger=selected, resolver=resolver,
+            run_id,
+            public["next_specialist"],
+            ledger=selected,
+            resolver=resolver,
             security=security,
         ).public_dict()
     return public
@@ -972,9 +1174,13 @@ def _store_final(run_id: str, ledger: TcJourneyLedger) -> None:
     ledger.append(
         FINAL_TITLE,
         {
-            "record_type": "final_authorization", "run_id": run_id,
-            "result_json": result_json, "result_sha256": _sha(result_json),
-            "dispatch_authorizations_sha256": _sha(_canonical(state["dispatch_authorization"])),
+            "record_type": "final_authorization",
+            "run_id": run_id,
+            "result_json": result_json,
+            "result_sha256": _sha(result_json),
+            "dispatch_authorizations_sha256": _sha(
+                _canonical(state["dispatch_authorization"])
+            ),
         },
     )
 
@@ -987,7 +1193,9 @@ def verify_dispatch(
     prompt_sha256: str,
     knowledge_sha256: str,
     ledger_factory: Callable[[int], TcJourneyLedger] = TcJourneyLedger,
-    resolver: Callable[[str], tuple[str, tuple[dict[str, Any], ...]]] = resolve_specialist_knowledge,
+    resolver: Callable[
+        [str], tuple[str, tuple[dict[str, Any], ...]]
+    ] = resolve_specialist_knowledge,
     security: MandatorySecurityVerifier | None = None,
 ) -> dict[str, Any]:
     try:
@@ -1005,8 +1213,10 @@ def verify_dispatch(
     if not _MARKER.fullmatch(marker) or not _DIGEST.fullmatch(knowledge_sha256):
         raise ValueError("dispatch-marker-malformed")
     candidates = [
-        payload for row, payload in probe.rows()
-        if payload.get("record_type") == "prepare" and payload.get("invocation_marker") == marker
+        payload
+        for row, payload in probe.rows()
+        if payload.get("record_type") == "prepare"
+        and payload.get("invocation_marker") == marker
     ]
     if len(candidates) != 1:
         raise ValueError("dispatch-marker-stale-or-ambiguous")
@@ -1019,7 +1229,11 @@ def verify_dispatch(
         if state["begin_record"].get("session_id_sha256") != _sha(session_id):
             raise ValueError("dispatch-session-mismatch")
         if stage == len(state["route"]) and not state["final_authorization"]:
-            prior = state["dispatch_authorization"][-1] if state["dispatch_authorization"] else None
+            prior = (
+                state["dispatch_authorization"][-1]
+                if state["dispatch_authorization"]
+                else None
+            )
             if (
                 prior is None
                 or prior.get("specialist") != specialist
@@ -1033,9 +1247,8 @@ def verify_dispatch(
             )
             content, raw_sources = resolver(specialist)
             sources = _validate_sources(raw_sources)
-            if (
-                _sha(content) != knowledge_sha256
-                or list(sources) != prior.get("sources")
+            if _sha(content) != knowledge_sha256 or list(sources) != prior.get(
+                "sources"
             ):
                 raise ValueError("dispatch-knowledge-changed")
             _store_final(run_id, ledger)
@@ -1047,16 +1260,22 @@ def verify_dispatch(
                 "stage_index": int(prior["stage_index"]),
                 "dispatch_sha256": prompt_sha256,
             }
-        if prepared.get("stage_index") != stage or prepared.get("specialist") != specialist:
+        if (
+            prepared.get("stage_index") != stage
+            or prepared.get("specialist") != specialist
+        ):
             raise ValueError("dispatch-route-order-mismatch")
         scoped_preparations = [
-            item for item in state["prepare"]
+            item
+            for item in state["prepare"]
             if item.get("stage_index") == stage
             and item.get("invocation_marker") == marker
         ]
         if len(scoped_preparations) != 1 or scoped_preparations[0] != prepared:
             raise ValueError("dispatch-preparation-row-mismatch")
-        bindings = [item for item in state["prompt_binding"] if item.get("stage_index") == stage]
+        bindings = [
+            item for item in state["prompt_binding"] if item.get("stage_index") == stage
+        ]
         expected_prepared_sha256 = _sha(_canonical(prepared))
         if (
             len(bindings) != 1
@@ -1066,7 +1285,9 @@ def verify_dispatch(
             or bindings[0].get("prompt_sha256") != prompt_sha256
         ):
             raise ValueError("dispatch-prompt-not-bound")
-        _require_security(state["begin_record"], security or MandatorySecurityVerifier())
+        _require_security(
+            state["begin_record"], security or MandatorySecurityVerifier()
+        )
         content, raw_sources = resolver(specialist)
         sources = _validate_sources(raw_sources)
         if (
@@ -1078,8 +1299,10 @@ def verify_dispatch(
         ledger.append(
             DISPATCH_TITLE,
             {
-                "record_type": "dispatch_authorization", "run_id": run_id,
-                "stage_index": stage, "specialist": specialist,
+                "record_type": "dispatch_authorization",
+                "run_id": run_id,
+                "stage_index": stage,
+                "specialist": specialist,
                 "session_id_sha256": _sha(session_id),
                 "prompt_sha256": prompt_sha256,
                 "invocation_marker_sha256": _sha(marker),
@@ -1101,8 +1324,17 @@ def verify_dispatch(
 
 
 __all__ = [
-    "CliCopilotHealthCapabilityAdapter", "MandatorySecurityVerifier",
-    "PreparedInvocation", "SecurityAuthorization", "TcJourneyLedger",
-    "begin_run", "bind_prompt", "inspect_run", "pause_run", "prepare_run",
-    "resume_run", "resolve_specialist_knowledge", "verify_dispatch",
+    "CliCopilotHealthCapabilityAdapter",
+    "MandatorySecurityVerifier",
+    "PreparedInvocation",
+    "SecurityAuthorization",
+    "TcJourneyLedger",
+    "begin_run",
+    "bind_prompt",
+    "inspect_run",
+    "pause_run",
+    "prepare_run",
+    "resume_run",
+    "resolve_specialist_knowledge",
+    "verify_dispatch",
 ]

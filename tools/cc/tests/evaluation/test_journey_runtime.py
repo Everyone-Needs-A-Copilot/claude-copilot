@@ -5,6 +5,7 @@ import hashlib
 import json
 import multiprocessing
 import os
+import stat
 import subprocess
 import threading
 import time
@@ -86,6 +87,38 @@ def ledger_factory(rows: Rows):
     return lambda task_id: ledger(rows, task_id)
 
 
+def global_lock_worker(queue):
+    rows = Rows()
+    selected = TcJourneyLedger(
+        296,
+        store_wp=rows.store_wp,
+        get_wp=rows.get_wp,
+        list_wps=rows.list_wps,
+        lock_timeout=0.05,
+        allow_missing_guard=True,
+    )
+    try:
+        with selected.claim("same-run"):
+            queue.put("acquired")
+    except RuntimeError as exc:
+        queue.put(str(exc))
+
+
+def global_lock_holder(ready, release):
+    rows = Rows()
+    selected = TcJourneyLedger(
+        296,
+        store_wp=rows.store_wp,
+        get_wp=rows.get_wp,
+        list_wps=rows.list_wps,
+        lock_timeout=1.0,
+        allow_missing_guard=True,
+    )
+    with selected.claim("same-run"):
+        ready.set()
+        release.wait(timeout=10)
+
+
 def begin(rows: Rows, *, specialists=("me", "qa"), session="session-296"):
     return begin_run(
         task_id=296,
@@ -99,7 +132,15 @@ def begin(rows: Rows, *, specialists=("me", "qa"), session="session-296"):
         prompt_sha256="b" * 64,
         session_id=session,
         ledger=ledger(rows),
-        capability=type("Capability", (), {"invoke": lambda self, **_: CapabilityReceipt("cli-copilot-health", "unavailable")})(),
+        capability=type(
+            "Capability",
+            (),
+            {
+                "invoke": lambda self, **_: CapabilityReceipt(
+                    "cli-copilot-health", "unavailable"
+                )
+            },
+        )(),
     )
 
 
@@ -126,10 +167,15 @@ def test_begin_prepare_dispatch_pause_fresh_resume_and_next_dispatch():
     started = begin(rows)
     first = prepare_run(started["run_id"], "me", ledger=ledger(rows), resolver=resolver)
     assert authorize(rows, first)["state"] == "dispatch_authorized"
-    assert pause_run(started["run_id"], ledger=ledger(rows), resolver=resolver)["status"] == "paused"
+    assert (
+        pause_run(started["run_id"], ledger=ledger(rows), resolver=resolver)["status"]
+        == "paused"
+    )
 
     # A newly constructed ledger has no ambient state; it resumes from tc rows.
-    resumed = resume_run(296, run_id=started["run_id"], ledger=ledger(rows), resolver=resolver)
+    resumed = resume_run(
+        296, run_id=started["run_id"], ledger=ledger(rows), resolver=resolver
+    )
     assert resumed["dispatch_authorized_specialists"] == ("me",)
     assert resumed["next_specialist"] == "qa"
     second = resumed["prepared_invocation"]
@@ -152,38 +198,62 @@ def test_begin_prepare_dispatch_pause_fresh_resume_and_next_dispatch():
 def test_no_active_legacy_and_missing_wrong_or_replayed_markers():
     rows = Rows()
     factory = ledger_factory(rows)
-    assert verify_dispatch(
-        session_id="legacy", specialist="me", marker="", prompt_sha256="c" * 64,
-        knowledge_sha256="", ledger_factory=factory, resolver=resolver,
-    )["state"] == "no_active"
+    assert (
+        verify_dispatch(
+            session_id="legacy",
+            specialist="me",
+            marker="",
+            prompt_sha256="c" * 64,
+            knowledge_sha256="",
+            ledger_factory=factory,
+            resolver=resolver,
+        )["state"]
+        == "no_active"
+    )
 
     started = begin(rows)
     with pytest.raises(ValueError, match="active-journey-marker-required"):
         verify_dispatch(
-            session_id="session-296", specialist="me", marker="", prompt_sha256="c" * 64,
-            knowledge_sha256="", ledger_factory=factory, resolver=resolver,
+            session_id="session-296",
+            specialist="me",
+            marker="",
+            prompt_sha256="c" * 64,
+            knowledge_sha256="",
+            ledger_factory=factory,
+            resolver=resolver,
         )
-    prepared = prepare_run(started["run_id"], "me", ledger=ledger(rows), resolver=resolver)
+    prepared = prepare_run(
+        started["run_id"], "me", ledger=ledger(rows), resolver=resolver
+    )
     with pytest.raises(ValueError, match="route-order"):
         verify_dispatch(
-            session_id="session-296", specialist="qa", marker=prepared.invocation_marker,
-            prompt_sha256="c" * 64, knowledge_sha256=prepared.composed_content_sha256,
-            ledger_factory=factory, resolver=resolver,
+            session_id="session-296",
+            specialist="qa",
+            marker=prepared.invocation_marker,
+            prompt_sha256="c" * 64,
+            knowledge_sha256=prepared.composed_content_sha256,
+            ledger_factory=factory,
+            resolver=resolver,
         )
     authorize(rows, prepared)
     with pytest.raises(ValueError, match="route-order"):
         verify_dispatch(
-            session_id="session-296", specialist=prepared.specialist,
-            marker=prepared.invocation_marker, prompt_sha256="c" * 64,
+            session_id="session-296",
+            specialist=prepared.specialist,
+            marker=prepared.invocation_marker,
+            prompt_sha256="c" * 64,
             knowledge_sha256=prepared.composed_content_sha256,
-            ledger_factory=factory, resolver=resolver,
+            ledger_factory=factory,
+            resolver=resolver,
         )
 
 
 def test_signed_source_binding_is_rechecked_before_dispatch():
     rows = Rows()
     started = begin(rows, specialists=("me",))
-    prepared = prepare_run(started["run_id"], "me", ledger=ledger(rows), resolver=resolver)
+    prepared = prepare_run(
+        started["run_id"], "me", ledger=ledger(rows), resolver=resolver
+    )
 
     def changed(specialist: str):
         content = "changed signed bytes"
@@ -191,13 +261,20 @@ def test_signed_source_binding_is_rechecked_before_dispatch():
 
     with pytest.raises(ValueError, match="dispatch-knowledge-changed"):
         authorize(rows, prepared, selected_resolver=changed)
-    assert inspect_run(started["run_id"], ledger=ledger(rows))["dispatch_authorized_specialists"] == ()
+    assert (
+        inspect_run(started["run_id"], ledger=ledger(rows))[
+            "dispatch_authorized_specialists"
+        ]
+        == ()
+    )
 
 
 def test_concurrent_dispatch_consumes_tc_stage_exactly_once():
     rows = Rows()
     started = begin(rows, specialists=("me",))
-    prepared = prepare_run(started["run_id"], "me", ledger=ledger(rows), resolver=resolver)
+    prepared = prepare_run(
+        started["run_id"], "me", ledger=ledger(rows), resolver=resolver
+    )
     barrier = threading.Barrier(2)
     outcomes: list[str] = []
 
@@ -271,19 +348,29 @@ def test_final_write_failure_is_recoverable_without_second_dispatch_row():
 def test_exact_full_prompt_must_be_bound_before_dispatch():
     rows = Rows()
     started = begin(rows, specialists=("me",))
-    prepared = prepare_run(started["run_id"], "me", ledger=ledger(rows), resolver=resolver)
+    prepared = prepare_run(
+        started["run_id"], "me", ledger=ledger(rows), resolver=resolver
+    )
     with pytest.raises(ValueError, match="prompt-not-bound"):
         verify_dispatch(
-            session_id="session-296", specialist="me", marker=prepared.invocation_marker,
-            prompt_sha256="c" * 64, knowledge_sha256=prepared.composed_content_sha256,
-            ledger_factory=ledger_factory(rows), resolver=resolver,
+            session_id="session-296",
+            specialist="me",
+            marker=prepared.invocation_marker,
+            prompt_sha256="c" * 64,
+            knowledge_sha256=prepared.composed_content_sha256,
+            ledger_factory=ledger_factory(rows),
+            resolver=resolver,
         )
     bind_prompt(started["run_id"], "me", "c" * 64, ledger=ledger(rows))
     with pytest.raises(ValueError, match="prompt-not-bound"):
         verify_dispatch(
-            session_id="session-296", specialist="me", marker=prepared.invocation_marker,
-            prompt_sha256="d" * 64, knowledge_sha256=prepared.composed_content_sha256,
-            ledger_factory=ledger_factory(rows), resolver=resolver,
+            session_id="session-296",
+            specialist="me",
+            marker=prepared.invocation_marker,
+            prompt_sha256="d" * 64,
+            knowledge_sha256=prepared.composed_content_sha256,
+            ledger_factory=ledger_factory(rows),
+            resolver=resolver,
         )
 
 
@@ -292,10 +379,29 @@ def test_security_denial_stops_before_knowledge_and_dispatch():
     denied = MandatorySecurityVerifier(lambda _context: ("denied", "policy-denied"))
     with pytest.raises(PermissionError, match="mandatory-security-not-allowed"):
         begin_run(
-            task_id=296, runtime="claude", classification="implementation",
-            specialists=("me",), events=({"kind": "transition", "specialist": "me", "reason": "protocol-supplied"},),
-            prompt_sha256="b" * 64, session_id="denied-session", ledger=ledger(rows),
-            capability=type("Explode", (), {"invoke": lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("capability called"))})(),
+            task_id=296,
+            runtime="claude",
+            classification="implementation",
+            specialists=("me",),
+            events=(
+                {
+                    "kind": "transition",
+                    "specialist": "me",
+                    "reason": "protocol-supplied",
+                },
+            ),
+            prompt_sha256="b" * 64,
+            session_id="denied-session",
+            ledger=ledger(rows),
+            capability=type(
+                "Explode",
+                (),
+                {
+                    "invoke": lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                        AssertionError("capability called")
+                    )
+                },
+            )(),
             security=denied,
         )
     assert rows.items == {}
@@ -307,26 +413,40 @@ def test_pause_capsule_detects_route_and_receipt_drift_and_no_journey_is_distinc
 
     rows = Rows()
     started = begin(rows)
-    prepared = prepare_run(started["run_id"], "me", ledger=ledger(rows), resolver=resolver)
+    prepared = prepare_run(
+        started["run_id"], "me", ledger=ledger(rows), resolver=resolver
+    )
     authorize(rows, prepared)
     pause_run(started["run_id"], ledger=ledger(rows), resolver=resolver)
-    begin_row = next(item for item in rows.items.values() if item["title"] == "Journey v2.1 begin evidence")
+    begin_row = next(
+        item
+        for item in rows.items.values()
+        if item["title"] == "Journey v2.1 begin evidence"
+    )
     payload = json.loads(begin_row["content"])
     payload["route"]["specialists"] = ["me", "sec"]
     begin_row["content"] = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     with pytest.raises(ValueError):
-        resume_run(296, run_id=started["run_id"], ledger=ledger(rows), resolver=resolver)
+        resume_run(
+            296, run_id=started["run_id"], ledger=ledger(rows), resolver=resolver
+        )
 
 
 def test_completed_resume_is_immutable_and_reads_no_knowledge():
     rows = Rows()
     started = begin(rows, specialists=("me",))
-    prepared = prepare_run(started["run_id"], "me", ledger=ledger(rows), resolver=resolver)
+    prepared = prepare_run(
+        started["run_id"], "me", ledger=ledger(rows), resolver=resolver
+    )
     authorize(rows, prepared)
     first = inspect_run(started["run_id"], ledger=ledger(rows))
     second = resume_run(
-        296, run_id=started["run_id"], ledger=ledger(rows),
-        resolver=lambda _specialist: (_ for _ in ()).throw(AssertionError("resolver called")),
+        296,
+        run_id=started["run_id"],
+        ledger=ledger(rows),
+        resolver=lambda _specialist: (_ for _ in ()).throw(
+            AssertionError("resolver called")
+        ),
     )
     assert first == second
 
@@ -351,9 +471,12 @@ def test_three_stage_route_supports_pause_after_each_progress_point():
     started = begin(rows, specialists=("me", "qa", "sec"))
     first = prepare_run(started["run_id"], "me", ledger=ledger(rows), resolver=resolver)
     authorize(rows, first)
-    assert pause_run(started["run_id"], ledger=ledger(rows), resolver=resolver)[
-        "next_specialist"
-    ] == "qa"
+    assert (
+        pause_run(started["run_id"], ledger=ledger(rows), resolver=resolver)[
+            "next_specialist"
+        ]
+        == "qa"
+    )
 
     resumed = resume_run(
         296, run_id=started["run_id"], ledger=ledger(rows), resolver=resolver
@@ -369,9 +492,7 @@ def test_three_stage_route_supports_pause_after_each_progress_point():
         ledger_factory=ledger_factory(rows),
         resolver=resolver,
     )
-    second_pause = pause_run(
-        started["run_id"], ledger=ledger(rows), resolver=resolver
-    )
+    second_pause = pause_run(started["run_id"], ledger=ledger(rows), resolver=resolver)
     assert second_pause["status"] == "paused"
     assert second_pause["next_specialist"] == "sec"
     assert [
@@ -392,27 +513,140 @@ def test_every_historical_pause_capsule_is_validated():
     )["prepared_invocation"]
     bind_prompt(started["run_id"], "qa", "d" * 64, ledger=ledger(rows))
     verify_dispatch(
-        session_id="session-296", specialist="qa",
-        marker=second["invocation_marker"], prompt_sha256="d" * 64,
+        session_id="session-296",
+        specialist="qa",
+        marker=second["invocation_marker"],
+        prompt_sha256="d" * 64,
         knowledge_sha256=second["composed_content_sha256"],
-        ledger_factory=ledger_factory(rows), resolver=resolver,
+        ledger_factory=ledger_factory(rows),
+        resolver=resolver,
     )
     pause_run(started["run_id"], ledger=ledger(rows), resolver=resolver)
 
     first_pause = next(
-        item for item in rows.items.values()
+        item
+        for item in rows.items.values()
         if item["title"] == "Journey v2.1 pause evidence"
         and json.loads(item["content"])["generation"] == 1
     )
     changed = json.loads(first_pause["content"])
     changed["capsule"]["next_specialist"] = "sec"
-    first_pause["content"] = json.dumps(
-        changed, sort_keys=True, separators=(",", ":")
-    )
+    first_pause["content"] = json.dumps(changed, sort_keys=True, separators=(",", ":"))
     with pytest.raises(ValueError, match="historical pause capsule changed"):
         resume_run(
             296, run_id=started["run_id"], ledger=ledger(rows), resolver=resolver
         )
+
+
+def test_late_lower_generation_pause_after_later_progress_is_rejected():
+    rows = Rows()
+    started = begin(rows, specialists=("me", "qa", "sec"))
+    first = prepare_run(started["run_id"], "me", ledger=ledger(rows), resolver=resolver)
+    authorize(rows, first)
+    pause_run(started["run_id"], ledger=ledger(rows), resolver=resolver)
+    second = resume_run(
+        296, run_id=started["run_id"], ledger=ledger(rows), resolver=resolver
+    )["prepared_invocation"]
+    bind_prompt(started["run_id"], "qa", "d" * 64, ledger=ledger(rows))
+    verify_dispatch(
+        session_id="session-296",
+        specialist="qa",
+        marker=second["invocation_marker"],
+        prompt_sha256="d" * 64,
+        knowledge_sha256=second["composed_content_sha256"],
+        ledger_factory=ledger_factory(rows),
+        resolver=resolver,
+    )
+
+    pause_id, pause = next(
+        (row_id, item)
+        for row_id, item in rows.items.items()
+        if item["title"] == "Journey v2.1 pause evidence"
+    )
+    rows.items.pop(pause_id)
+    late_id = max(rows.items) + 1
+    pause["id"] = late_id
+    rows.items[late_id] = pause
+    with pytest.raises(ValueError, match="pause chronology"):
+        inspect_run(started["run_id"], ledger=ledger(rows))
+
+
+def test_pause_generation_order_follows_tc_row_order():
+    rows = Rows()
+    started = begin(rows, specialists=("me", "qa", "sec"))
+    first = prepare_run(started["run_id"], "me", ledger=ledger(rows), resolver=resolver)
+    authorize(rows, first)
+    pause_run(started["run_id"], ledger=ledger(rows), resolver=resolver)
+    second = resume_run(
+        296, run_id=started["run_id"], ledger=ledger(rows), resolver=resolver
+    )["prepared_invocation"]
+    bind_prompt(started["run_id"], "qa", "d" * 64, ledger=ledger(rows))
+    verify_dispatch(
+        session_id="session-296",
+        specialist="qa",
+        marker=second["invocation_marker"],
+        prompt_sha256="d" * 64,
+        knowledge_sha256=second["composed_content_sha256"],
+        ledger_factory=ledger_factory(rows),
+        resolver=resolver,
+    )
+    pause_run(started["run_id"], ledger=ledger(rows), resolver=resolver)
+    pause_rows = [
+        (row_id, item)
+        for row_id, item in rows.items.items()
+        if item["title"] == "Journey v2.1 pause evidence"
+    ]
+    first_id, first_pause = pause_rows[0]
+    second_id, second_pause = pause_rows[1]
+    rows.items.pop(first_id)
+    rows.items.pop(second_id)
+    first_pause["id"], second_pause["id"] = second_id, first_id
+    rows.items[second_id], rows.items[first_id] = first_pause, second_pause
+    with pytest.raises(ValueError, match="pause chronology"):
+        inspect_run(started["run_id"], ledger=ledger(rows))
+
+
+def test_pause_before_its_dispatch_prefix_is_rejected():
+    rows = Rows()
+    started = begin(rows, specialists=("me", "qa"))
+    first = prepare_run(started["run_id"], "me", ledger=ledger(rows), resolver=resolver)
+    authorize(rows, first)
+    pause_run(started["run_id"], ledger=ledger(rows), resolver=resolver)
+    pause = next(
+        item
+        for item in rows.items.values()
+        if item["title"] == "Journey v2.1 pause evidence"
+    )
+    reordered = {}
+    for row_id, item in sorted(rows.items.items()):
+        if item is pause:
+            new_id = 2
+        elif row_id >= 2:
+            new_id = row_id + 1
+        else:
+            new_id = row_id
+        item["id"] = new_id
+        reordered[new_id] = item
+    rows.items = reordered
+    with pytest.raises(ValueError, match="pause chronology"):
+        inspect_run(started["run_id"], ledger=ledger(rows))
+
+
+def test_duplicate_pause_generation_is_rejected():
+    rows = Rows()
+    started = begin(rows, specialists=("me", "qa"))
+    first = prepare_run(started["run_id"], "me", ledger=ledger(rows), resolver=resolver)
+    authorize(rows, first)
+    pause_run(started["run_id"], ledger=ledger(rows), resolver=resolver)
+    pause = next(
+        item.copy()
+        for item in rows.items.values()
+        if item["title"] == "Journey v2.1 pause evidence"
+    )
+    pause["id"] = max(rows.items) + 1
+    rows.items[pause["id"]] = pause
+    with pytest.raises(ValueError, match="pause evidence is ambiguous"):
+        inspect_run(started["run_id"], ledger=ledger(rows))
 
 
 @pytest.mark.parametrize(
@@ -437,9 +671,7 @@ def test_prompt_binding_must_match_exact_preparation(field, value):
     )
     payload = json.loads(binding_row["content"])
     payload[field] = value
-    binding_row["content"] = json.dumps(
-        payload, sort_keys=True, separators=(",", ":")
-    )
+    binding_row["content"] = json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
     with pytest.raises(ValueError, match="dispatch-prompt-not-bound"):
         verify_dispatch(
@@ -467,9 +699,7 @@ def test_terminal_evidence_rejects_dispatch_source_drift():
     )
     payload = json.loads(dispatch_row["content"])
     payload["sources"][0]["ref"] = "refs/tags/v9.9.9"
-    dispatch_row["content"] = json.dumps(
-        payload, sort_keys=True, separators=(",", ":")
-    )
+    dispatch_row["content"] = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     with pytest.raises(ValueError, match="Final authorization evidence changed"):
         inspect_run(started["run_id"], ledger=ledger(rows))
 
@@ -479,7 +709,9 @@ def test_security_change_at_dispatch_stops_before_knowledge():
     allowed = MandatorySecurityVerifier(
         lambda _context: ("allowed", "fixture-policy-authorized")
     )
-    denied = MandatorySecurityVerifier(lambda _context: ("denied", "fixture-policy-denied"))
+    denied = MandatorySecurityVerifier(
+        lambda _context: ("denied", "fixture-policy-denied")
+    )
     started = begin_run(
         task_id=296,
         runtime="claude",
@@ -576,60 +808,35 @@ def test_resume_ambiguity_never_picks_newest():
         resume_run(296, ledger=ledger(rows), resolver=resolver)
 
 
-def test_lock_rejects_preexisting_symlink(tmp_path):
+def test_global_lock_is_exact_root_owned_sticky_directory():
     rows = Rows()
-    lock_dir = tmp_path / "locks"
-    lock_dir.mkdir(mode=0o700)
-    victim = tmp_path / "victim"
-    victim.write_text("unchanged", encoding="utf-8")
     selected = TcJourneyLedger(
         296,
         store_wp=rows.store_wp,
         get_wp=rows.get_wp,
         list_wps=rows.list_wps,
-        lock_dir=lock_dir,
         allow_missing_guard=True,
     )
-    selected._lock_path("unsafe").symlink_to(victim)
-    with pytest.raises(RuntimeError, match="lock acquisition"):
-        with selected.claim("unsafe"):
-            pass
-    assert victim.read_text(encoding="utf-8") == "unchanged"
+    before = os.lstat("/private/tmp")
+    with selected.claim("global-vnode"):
+        current = os.lstat("/private/tmp")
+        assert stat.S_ISDIR(current.st_mode)
+        assert current.st_uid == 0
+        assert current.st_mode & stat.S_ISVTX
+        assert (current.st_dev, current.st_ino) == (before.st_dev, before.st_ino)
 
 
-def test_lock_is_private_and_regular(tmp_path):
+def test_lock_wait_is_bounded_and_fails_closed():
     rows = Rows()
-    lock_dir = tmp_path / "locks"
     selected = TcJourneyLedger(
         296,
         store_wp=rows.store_wp,
         get_wp=rows.get_wp,
         list_wps=rows.list_wps,
-        lock_dir=lock_dir,
-        allow_missing_guard=True,
-    )
-    with selected.claim("private"):
-        lock_path = selected._lock_path("private")
-        assert lock_dir.stat().st_mode & 0o777 == 0o700
-        assert lock_path.stat().st_mode & 0o777 == 0o600
-        assert lock_path.is_file()
-
-
-def test_lock_wait_is_bounded_and_fails_closed(tmp_path):
-    rows = Rows()
-    lock_dir = tmp_path / "locks"
-    lock_dir.mkdir(mode=0o700)
-    selected = TcJourneyLedger(
-        296,
-        store_wp=rows.store_wp,
-        get_wp=rows.get_wp,
-        list_wps=rows.list_wps,
-        lock_dir=lock_dir,
         lock_timeout=0.03,
         allow_missing_guard=True,
     )
-    lock_path = selected._lock_path("contended")
-    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    descriptor = os.open("/private/tmp", os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
     fcntl.flock(descriptor, fcntl.LOCK_EX)
     started = time.monotonic()
     try:
@@ -642,39 +849,49 @@ def test_lock_wait_is_bounded_and_fails_closed(tmp_path):
     assert time.monotonic() - started < 0.5
 
 
-def test_lock_directory_replacement_cannot_split_claim_identity(tmp_path):
-    rows = Rows()
-    lock_dir = tmp_path / "locks"
-    first = TcJourneyLedger(
-        296, store_wp=rows.store_wp, get_wp=rows.get_wp,
-        list_wps=rows.list_wps, lock_dir=lock_dir, lock_timeout=0.03,
-        allow_missing_guard=True,
-    )
-    second = TcJourneyLedger(
-        296, store_wp=rows.store_wp, get_wp=rows.get_wp,
-        list_wps=rows.list_wps, lock_dir=lock_dir, lock_timeout=0.03,
-        allow_missing_guard=True,
-    )
-    with first.claim("same-run"):
-        first_inode = first._lock_path("same-run").stat().st_ino
-        lock_dir.rename(tmp_path / "renamed-locks")
-        lock_dir.mkdir(mode=0o700)
-        assert second._lock_path("same-run").stat().st_ino == first_inode
-        with pytest.raises(RuntimeError, match="timed out"):
-            with second.claim("same-run"):
-                pass
+def test_lock_rename_unlink_recreate_attack_cannot_split_claim_identity(tmp_path):
+    assert os.geteuid() != 0
+    before = os.lstat("/private/tmp")
+    context = multiprocessing.get_context("spawn")
+    ready = context.Event()
+    release = context.Event()
+    holder = context.Process(target=global_lock_holder, args=(ready, release))
+    holder.start()
+    assert ready.wait(timeout=10)
+    try:
+        with pytest.raises(PermissionError):
+            os.rename("/private/tmp", tmp_path / "renamed-global-lock")
+        with pytest.raises(OSError):
+            os.unlink("/private/tmp")
+        with pytest.raises(FileExistsError):
+            os.mkdir("/private/tmp")
+
+        queue = context.Queue()
+        process = context.Process(target=global_lock_worker, args=(queue,))
+        process.start()
+        process.join(timeout=10)
+        assert not process.is_alive()
+        assert queue.get(timeout=2) == "Journey lock acquisition timed out."
+    finally:
+        release.set()
+        holder.join(timeout=10)
+        assert not holder.is_alive()
+        assert holder.exitcode == 0
+
+    after = os.lstat("/private/tmp")
+    assert (after.st_dev, after.st_ino) == (before.st_dev, before.st_ino)
 
 
 def test_runtime_contains_no_second_router_or_resolver():
-    source = Path(
-        "tools/cc/src/cc/core/evaluation/journey_runtime.py"
-    ).read_text(encoding="utf-8")
+    source = Path("tools/cc/src/cc/core/evaluation/journey_runtime.py").read_text(
+        encoding="utf-8"
+    )
     forbidden = (
         "keyword_map",
         "flow_to_agents",
         "knowledge_repo_rank",
         "CC_KNOWLEDGE_REPOS",
-        "glob(\"knowledge-manifest",
+        'glob("knowledge-manifest',
     )
     assert not any(item in source for item in forbidden)
     assert "resolve_extension(specialist)" in source
@@ -702,10 +919,29 @@ def test_persisted_classification_and_reasons_reject_unsafe_values(unsafe):
     rows = Rows()
     with pytest.raises(ValueError, match="unsafe"):
         begin_run(
-            task_id=296, runtime="claude", classification=unsafe,
-            specialists=("me",), events=({"kind": "transition", "specialist": "me", "reason": "protocol-supplied"},),
-            prompt_sha256="b" * 64, session_id="safe-session", ledger=ledger(rows),
-            capability=type("Capability", (), {"invoke": lambda self, **_: CapabilityReceipt("cli-copilot-health", "unavailable")})(),
+            task_id=296,
+            runtime="claude",
+            classification=unsafe,
+            specialists=("me",),
+            events=(
+                {
+                    "kind": "transition",
+                    "specialist": "me",
+                    "reason": "protocol-supplied",
+                },
+            ),
+            prompt_sha256="b" * 64,
+            session_id="safe-session",
+            ledger=ledger(rows),
+            capability=type(
+                "Capability",
+                (),
+                {
+                    "invoke": lambda self, **_: CapabilityReceipt(
+                        "cli-copilot-health", "unavailable"
+                    )
+                },
+            )(),
         )
 
 
@@ -723,7 +959,11 @@ def test_persisted_reason_and_session_reject_disclosure_values(unsafe):
     capability = type(
         "Capability",
         (),
-        {"invoke": lambda self, **_: CapabilityReceipt("cli-copilot-health", "unavailable")},
+        {
+            "invoke": lambda self, **_: CapabilityReceipt(
+                "cli-copilot-health", "unavailable"
+            )
+        },
     )()
     with pytest.raises(ValueError, match="unsafe"):
         begin_run(
@@ -743,7 +983,13 @@ def test_persisted_reason_and_session_reject_disclosure_values(unsafe):
             runtime="claude",
             classification="implementation",
             specialists=("me",),
-            events=({"kind": "transition", "specialist": "me", "reason": "protocol-supplied"},),
+            events=(
+                {
+                    "kind": "transition",
+                    "specialist": "me",
+                    "reason": "protocol-supplied",
+                },
+            ),
             prompt_sha256="b" * 64,
             session_id=unsafe,
             ledger=ledger(rows),
@@ -774,7 +1020,9 @@ def test_knowledge_source_identities_reject_disclosure_values(field, unsafe):
 
     with pytest.raises(ValueError, match="source receipt is malformed"):
         prepare_run(
-            started["run_id"], "me", ledger=ledger(rows),
+            started["run_id"],
+            "me",
+            ledger=ledger(rows),
             resolver=unsafe_resolver,
         )
 
@@ -783,12 +1031,26 @@ def test_knowledge_source_identities_reject_disclosure_values(field, unsafe):
     ("resolver_result", "run_result", "state"),
     [
         (None, None, "unavailable"),
-        (Path("/bin/false"), subprocess.CompletedProcess([], 2, "out", "err"), "nonzero"),
-        (Path("/bin/echo"), subprocess.CompletedProcess([], 0, "not-json", ""), "malformed"),
-        (Path("/bin/echo"), subprocess.CompletedProcess([], 0, '{"status":"ok"}', ""), "available"),
+        (
+            Path("/bin/false"),
+            subprocess.CompletedProcess([], 2, "out", "err"),
+            "nonzero",
+        ),
+        (
+            Path("/bin/echo"),
+            subprocess.CompletedProcess([], 0, "not-json", ""),
+            "malformed",
+        ),
+        (
+            Path("/bin/echo"),
+            subprocess.CompletedProcess([], 0, '{"status":"ok"}', ""),
+            "available",
+        ),
     ],
 )
-def test_optional_health_matrix_is_typed_and_fail_open(resolver_result, run_result, state):
+def test_optional_health_matrix_is_typed_and_fail_open(
+    resolver_result, run_result, state
+):
     def run(*_args, **_kwargs):
         assert run_result is not None
         return run_result
@@ -800,9 +1062,7 @@ def test_optional_health_matrix_is_typed_and_fail_open(resolver_result, run_resu
     assert adapter.invoke(case_id="fixture").state == state
 
 
-def test_real_tc_guard_safe_roundtrip_and_multiprocess_dispatch(
-    tmp_path, monkeypatch
-):
+def test_real_tc_guard_safe_roundtrip_and_multiprocess_dispatch(tmp_path, monkeypatch):
     monkeypatch.syspath_prepend(str(Path("tools/tc/src").resolve()))
     from tc.api import create_prd, create_task, get_wp, list_wps, store_wp
     from tc.db.connection import init_db
@@ -813,7 +1073,6 @@ def test_real_tc_guard_safe_roundtrip_and_multiprocess_dispatch(
     task_id = create_task(
         title="Journey dispatch fixture", prd=prd["id"], db_path=db_path
     )["id"]
-    lock_dir = tmp_path / "locks"
 
     def real_ledger(selected_task):
         return TcJourneyLedger(
@@ -821,13 +1080,16 @@ def test_real_tc_guard_safe_roundtrip_and_multiprocess_dispatch(
             store_wp=lambda **values: store_wp(**values, db_path=db_path),
             get_wp=lambda **values: get_wp(**values, db_path=db_path),
             list_wps=lambda **values: list_wps(**values, db_path=db_path),
-            lock_dir=lock_dir,
         )
 
     capability = type(
         "Capability",
         (),
-        {"invoke": lambda self, **_: CapabilityReceipt("cli-copilot-health", "unavailable")},
+        {
+            "invoke": lambda self, **_: CapabilityReceipt(
+                "cli-copilot-health", "unavailable"
+            )
+        },
     )()
     started = begin_run(
         task_id=task_id,
@@ -849,9 +1111,7 @@ def test_real_tc_guard_safe_roundtrip_and_multiprocess_dispatch(
     prepared = prepare_run(
         started["run_id"], "me", ledger=real_ledger(task_id), resolver=resolver
     )
-    bind_prompt(
-        started["run_id"], "me", "c" * 64, ledger=real_ledger(task_id)
-    )
+    bind_prompt(started["run_id"], "me", "c" * 64, ledger=real_ledger(task_id))
 
     def worker(queue):
         try:
