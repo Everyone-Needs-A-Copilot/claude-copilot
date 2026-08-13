@@ -2,14 +2,12 @@
 
 Nothing in this module is re-exported by ``cc.core.evaluation``. Production
 issuance consumes the verified fixture loader and TASK-296 ledger inspection;
-tests use the explicitly private seam at the bottom of this file.
+the adapter stays fail-closed until signed TASK-297 evidence exists.
 """
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
-from typing import Mapping
 
 from cc.core.evaluation.identity import (
     consumption_receipt_identity,
@@ -18,19 +16,16 @@ from cc.core.evaluation.identity import (
 )
 from cc.core.evaluation.models import (
     _EVIDENCE_AUTHORITY,
-    CompletionProof,
     EvaluationCell,
     GateObservation,
     GateState,
     PreflightGate,
     PreflightResult,
-    RuntimeOutput,
 )
 from cc.core.evaluation.preflight import evaluate_preflight
 from cc.core.evaluation.schema import canonical_sha256
 
 _AUTHORITY_TOKEN = object()
-_COMPLETION_AUTHORITY = object()
 
 
 def _cell_subject(cell: EvaluationCell) -> str:
@@ -61,17 +56,6 @@ class _EvaluationAuthority:
 
     def applies_to(self, cell: EvaluationCell) -> bool:
         return self.subject_sha256 == _cell_subject(cell)
-
-
-@dataclass(frozen=True)
-class _VerifiedRuntimeOutput:
-    output: RuntimeOutput
-    completion: CompletionProof
-    _token: object
-
-    def __post_init__(self) -> None:
-        if self._token is not _AUTHORITY_TOKEN:
-            raise ValueError("Verified runtime output is invalid.")
 
 
 def _observation(
@@ -154,38 +138,3 @@ def _production_authority(
         evaluate_preflight(observations, subject_sha256=subject),
         _AUTHORITY_TOKEN,
     )
-
-
-def _test_authority(
-    cell: EvaluationCell,
-    facts: Mapping[PreflightGate, tuple[GateState, str, str, str]],
-) -> _EvaluationAuthority:
-    observations = tuple(
-        _observation(gate, *fact)
-        for gate, fact in sorted(facts.items(), key=lambda x: x[0].value)
-    )
-    subject = _cell_subject(cell)
-    return _EvaluationAuthority(
-        subject,
-        evaluate_preflight(observations, subject_sha256=subject),
-        _AUTHORITY_TOKEN,
-    )
-
-
-def _test_completed_output(
-    cell: EvaluationCell,
-    output: RuntimeOutput,
-    *,
-    evidence_sha256: str,
-) -> _VerifiedRuntimeOutput:
-    output_sha256 = hashlib.sha256(output.output_text.encode()).hexdigest()
-    proof = CompletionProof(
-        invocation_envelope_sha256=cell.consumption_receipt.invocation_envelope_sha256,
-        output_sha256=output_sha256,
-        artifact_path_sha256=hashlib.sha256(
-            output.controlled_artifact_path.encode()
-        ).hexdigest(),
-        evidence_sha256=evidence_sha256,
-        _authority=_COMPLETION_AUTHORITY,
-    )
-    return _VerifiedRuntimeOutput(output, proof, _AUTHORITY_TOKEN)

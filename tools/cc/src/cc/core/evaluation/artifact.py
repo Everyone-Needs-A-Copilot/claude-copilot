@@ -8,6 +8,7 @@ import secrets
 import unicodedata
 from pathlib import Path
 from typing import Mapping
+from urllib.parse import unquote
 
 from cc.core.evaluation.comparison import (
     comparison_record_document,
@@ -21,7 +22,6 @@ from cc.core.evaluation.safety import (
 )
 from cc.core.evaluation.schema import canonical_json_bytes
 
-_ARTIFACT_TYPES = frozenset({"run-record", "comparison-record"})
 _FORBIDDEN_AGGREGATES = frozenset(
     {"score", "total", "average", "percent", "percentage", "rank", "winner"}
 )
@@ -64,8 +64,17 @@ def _reject_disclosure_values(value: object) -> None:
         for item in value:
             _reject_disclosure_values(item)
     elif isinstance(value, str):
+        normalized = unicodedata.normalize("NFKC", value)
+        decoded = normalized
+        for _ in range(4):
+            candidate = unquote(decoded)
+            if candidate == decoded:
+                break
+            decoded = candidate
+        if normalized != value or decoded != normalized:
+            raise ValueError("Evaluation artifact metadata is not canonical.")
         try:
-            require_safe_synthetic_text(value, location_class="artifact-metadata")
+            require_safe_synthetic_text(decoded, location_class="artifact-metadata")
         except FixtureSafetyViolation as exc:
             raise ValueError(
                 "Evaluation artifact metadata is disclosure-unsafe."
@@ -74,14 +83,20 @@ def _reject_disclosure_values(value: object) -> None:
 
 def _write_artifact(
     root: Path,
-    *,
-    artifact_type: str,
-    payload: Mapping[str, object],
+    record: RunRecord | ComparisonRecord,
 ) -> ArtifactReceipt:
-    """Write one canonical artifact below an existing non-symlink root."""
+    """Write only a sealed coordinator record below a non-symlink root."""
 
-    if artifact_type not in _ARTIFACT_TYPES:
-        raise ValueError("Unsupported evaluation artifact type.")
+    if isinstance(record, RunRecord) and verify_run_record_identity(record):
+        artifact_type = "run-record"
+        payload = run_record_document(record)
+    elif isinstance(record, ComparisonRecord) and verify_comparison_record_identity(
+        record
+    ):
+        artifact_type = "comparison-record"
+        payload = comparison_record_document(record)
+    else:
+        raise ValueError("Artifact writes require an authentic sealed record.")
     _reject_aggregate_fields(payload)
     _reject_disclosure_values(payload)
     content = canonical_json_bytes(dict(payload))
@@ -162,11 +177,7 @@ def _write_artifact(
 def write_run_record(root: Path, record: RunRecord) -> ArtifactReceipt:
     if not verify_run_record_identity(record):
         raise ValueError("Run artifact requires an authentic runner-issued record.")
-    return _write_artifact(
-        root,
-        artifact_type="run-record",
-        payload=run_record_document(record),
-    )
+    return _write_artifact(root, record)
 
 
 def write_comparison_record(root: Path, record: ComparisonRecord) -> ArtifactReceipt:
@@ -174,8 +185,4 @@ def write_comparison_record(root: Path, record: ComparisonRecord) -> ArtifactRec
         raise ValueError(
             "Comparison artifact requires an authentic coordinator record."
         )
-    return _write_artifact(
-        root,
-        artifact_type="comparison-record",
-        payload=comparison_record_document(record),
-    )
+    return _write_artifact(root, record)

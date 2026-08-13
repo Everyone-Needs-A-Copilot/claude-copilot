@@ -53,8 +53,10 @@ def _relative_path(value: str, field_name: str) -> None:
     parts = value.split("/")
     if (
         not value
+        or not value.isascii()
         or value.startswith("/")
         or "\\" in value
+        or "%" in value
         or any(part in {"", ".", ".."} for part in parts)
         or _DISCLOSURE.search(value)
         or any(unicodedata.category(character) in {"Cc", "Cf"} for character in value)
@@ -417,28 +419,6 @@ class RuntimeOutput:
 
 
 @dataclass(frozen=True)
-class CompletionProof:
-    invocation_envelope_sha256: str
-    output_sha256: str
-    artifact_path_sha256: str
-    evidence_sha256: str
-    _authority: object = None
-
-    def __post_init__(self) -> None:
-        for field_name in (
-            "invocation_envelope_sha256",
-            "output_sha256",
-            "artifact_path_sha256",
-            "evidence_sha256",
-        ):
-            _digest(getattr(self, field_name), field_name)
-        from cc.core.evaluation._authority import _COMPLETION_AUTHORITY
-
-        if self._authority is not _COMPLETION_AUTHORITY:
-            raise ValueError("Completion proof must be verifier-issued.")
-
-
-@dataclass(frozen=True)
 class RunRecord:
     schema_version: str
     run_sha256: str
@@ -448,6 +428,7 @@ class RunRecord:
     runtime: RuntimeName
     attempt: int
     parent_attempt_sha256: str | None
+    ledger_binding_sha256: str
     fixture_sha256: str
     prompt_evidence_sha256: str
     attempt_policy_sha256: str
@@ -468,6 +449,7 @@ class RunRecord:
     def __post_init__(self) -> None:
         if self._authority is not _RUN_RECORD_AUTHORITY:
             raise ValueError("Run records must be runner-issued.")
+        _digest(self.ledger_binding_sha256, "ledger_binding_sha256")
 
 
 @dataclass(frozen=True)
