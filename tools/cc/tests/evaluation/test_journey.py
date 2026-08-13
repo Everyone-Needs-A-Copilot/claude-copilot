@@ -378,7 +378,7 @@ def test_verifier_binds_every_policy_identity_and_source_bytes():
 
 def test_continuation_row_identity_and_plaintext_privacy_are_enforced():
     rows, _protocol, store, _knowledge, adapter = adapters()
-    secret_prompt = "token=secret /Users/alice/private"
+    secret_prompt = "token=secret /Users/example/private"
     _evidence, locator = adapter.start(JourneyCase("case-1", secret_prompt, 1))
     persisted = rows.rows[locator.work_product_id]["content"]
     assert secret_prompt not in persisted

@@ -10,6 +10,7 @@ violations=""
 
 intentional_fixture() {
   case "$1" in
+    tools/cc/src/cc/core/evaluation/safety.py | \
     tools/cc/src/cc/core/conformance/dimensions/d07_knowledge.py | \
     tools/cc/src/cc/core/conformance/dimensions/d09_declaration.py | \
     tools/cc/tests/conformance/test_dimensions_d05_d09.py | \

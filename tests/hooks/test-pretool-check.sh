@@ -51,6 +51,22 @@ clean_gate_state() {
   rm -f "$GATE_FILE" "${STATE_DIR}/qa-gate.lock" 2>/dev/null || true
 }
 
+# Direct framework Agent calls reach the final journey authority gate. Legacy
+# smoke cases that are not exercising a prepared journey must still supply an
+# authoritative no-active witness; verifier absence is intentionally a deny.
+NO_ACTIVE_CC="${STATE_DIR}/test-no-active-cc-${TEST_SESSION}"
+prepare_no_active_cc() {
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'printf '\''%s\n'\'' '\''{"schema_version":"2.1","state":"no_active"}'\''' \
+    > "$NO_ACTIVE_CC"
+  chmod +x "$NO_ACTIVE_CC"
+}
+
+clean_no_active_cc() {
+  rm -f "$NO_ACTIVE_CC" 2>/dev/null || true
+}
+
 # Invoke hook with Agent payload (for qa-gate tests)
 invoke_hook_agent() {
   local subagent_type="$1"
@@ -502,10 +518,11 @@ test_qa_gate_pending_denies_read() {
 test_qa_gate_pending_allows_agent_qa() {
   clean_state
   clean_gate_state
+  prepare_no_active_cc
   write_gate_pending '["TASK-5"]'
 
   local result exit_code
-  result="$(invoke_hook_agent "qa")"
+  result="$(invoke_hook_agent "qa" "COPILOT_CC_BIN=$NO_ACTIVE_CC")"
   exit_code="$(get_exit_code "$result")"
   if [[ "$exit_code" -eq 0 ]]; then
     ok "QA gate: pending TASK-5 → Agent(qa) allowed"
@@ -513,6 +530,7 @@ test_qa_gate_pending_allows_agent_qa() {
     fail "QA gate: pending TASK-5 → Agent(qa) should be allowed, got exit $exit_code"
   fi
   clean_gate_state
+  clean_no_active_cc
 }
 
 # ---------------------------------------------------------------------------
@@ -979,6 +997,7 @@ test_qa_gate_nested_agent_dispatch_still_gated() {
 # ===========================================================================
 test_streak_resets_on_agent_dispatch() {
   clean_state
+  prepare_no_active_cc
   local result exit_code
 
   # Build a 4-Read streak on the main session (agent_type empty) — under the
@@ -997,7 +1016,7 @@ test_streak_resets_on_agent_dispatch() {
   # main session issuing the Agent tool call).
   local agent_payload
   agent_payload="$(printf '{"session_id":"%s","tool_name":"Agent","tool_input":{"subagent_type":"qa"}}' "$TEST_SESSION")"
-  result="$(invoke_hook_raw "$agent_payload")"
+  result="$(invoke_hook_raw "$agent_payload" "COPILOT_CC_BIN=$NO_ACTIVE_CC")"
   exit_code="$(get_exit_code "$result")"
   if [[ "$exit_code" -ne 0 ]]; then
     fail "streak-reset: Agent dispatch itself should always be allowed, got exit $exit_code"
@@ -1023,6 +1042,7 @@ test_streak_resets_on_agent_dispatch() {
   fi
 
   clean_state
+  clean_no_active_cc
 }
 
 # ===========================================================================
@@ -1228,6 +1248,7 @@ test_unknown_agent_type_not_exempt_qa_gate
 clean_state
 clean_gate_state
 clean_freeze_state
+clean_no_active_cc
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

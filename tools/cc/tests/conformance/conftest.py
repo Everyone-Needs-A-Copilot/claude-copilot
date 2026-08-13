@@ -133,7 +133,7 @@ def git_orphan_tag(path: Path, tag: str, *, message: str = "orphan snapshot") ->
         text=True,
         check=True,
     ).stdout.strip()
-    _run_git(["tag", tag, commit], cwd=path)
+    _run_git(["-c", "tag.gpgSign=false", "tag", tag, commit], cwd=path)
     return commit
 
 
@@ -241,7 +241,7 @@ class TierBuilder:
         if orphan:
             git_orphan_tag(self.path, ref)
         else:
-            _run_git(["tag", ref], cwd=self.path)
+            _run_git(["-c", "tag.gpgSign=false", "tag", ref], cwd=self.path)
         self.pinned_ref = ref
         return self
 

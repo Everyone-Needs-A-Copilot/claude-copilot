@@ -324,7 +324,7 @@ def test_loader_runs_value_suppressing_safety_gate_on_evidence(tmp_path):
         ("taxpayer id: 123-45-6789", "realistic-ssn"),
         ("ein=12-3456789", "realistic-ein"),
         ("Authorization: Bearer abcdefghijklmnopqrst", "secret-bearer"),
-        ("path=/Users/actual-person/private.txt", "private-home-path"),
+        ("path=/Users/example/private.txt", "private-home-path"),
         ("client: Actual Client Incorporated", "real-party-marker"),
     ],
 )
