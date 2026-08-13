@@ -41,11 +41,20 @@ _MARKER = re.compile(r"^[0-9a-f]{48}$")
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _IDENTIFIER = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 _SESSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
-_SAFE_SOURCE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@/+\-]{0,255}$")
+_SOURCE_REPOSITORY = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?:/[A-Za-z0-9][A-Za-z0-9._-]{0,127})?$"
+)
+_SOURCE_REF = re.compile(r"^refs/(?:heads|tags)/[A-Za-z0-9][A-Za-z0-9._/+\-]{0,191}$")
+_SOURCE_SIGNER = re.compile(r"^(?:SHA256:[A-Za-z0-9+/=_-]{4,128}|[a-z][a-z0-9-]{0,63})$")
+_SOURCE_CONTRIBUTION = re.compile(
+    r"^[A-Za-z0-9._+-]+(?:/[A-Za-z0-9._+-]+)*$"
+)
 _SECRET = re.compile(r"(?i)(bearer|password|secret|token|api[_-]?key|credential)")
 _CREDENTIAL_SHAPE = re.compile(
     r"(?i)(?:^|[^A-Za-z0-9])(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|github_pat_[A-Za-z0-9_]{8,})"
 )
+_EMAIL = re.compile(r"(?i)[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}")
+_PRIVATE_PATH = re.compile(r"(?i)(?:^|/)(?:Users|home|private|tmp|var|Volumes)(?:/|$)")
 _SECURITY_AUTHORITY = object()
 _COMMON_RECORD_KEYS = {"schema_version", "adapter_version", "task_id", "record_type", "run_id"}
 _RECORD_KEYS = {
@@ -78,14 +87,21 @@ def _sha(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
-def _safe_text(value: str, *, source: bool = False) -> str:
-    pattern = _SAFE_SOURCE if source else _IDENTIFIER
-    if (
-        not pattern.fullmatch(value)
-        or value.startswith("/")
+def _has_disclosure(value: str) -> bool:
+    return bool(
+        value.startswith("/")
         or ".." in value.split("/")
         or _SECRET.search(value)
         or _CREDENTIAL_SHAPE.search(value)
+        or _EMAIL.search(value)
+        or _PRIVATE_PATH.search(value)
+    )
+
+
+def _safe_text(value: str) -> str:
+    if (
+        not _IDENTIFIER.fullmatch(value)
+        or _has_disclosure(value)
     ):
         raise ValueError("Journey persisted identity is unsafe.")
     return value
@@ -95,8 +111,7 @@ def _safe_session(value: str) -> str:
     if (
         not _SESSION.fullmatch(value)
         or "@" in value
-        or _SECRET.search(value)
-        or _CREDENTIAL_SHAPE.search(value)
+        or _has_disclosure(value)
     ):
         raise ValueError("Session identity is unsafe.")
     return value
@@ -248,6 +263,7 @@ class TcJourneyLedger:
         list_wps: Callable[..., Sequence[Mapping[str, Any]]] | None = None,
         lock_dir: Path | None = None,
         lock_timeout: float = 5.0,
+        allow_missing_guard: bool = False,
     ) -> None:
         if store_wp is None or get_wp is None or list_wps is None:
             try:
@@ -262,6 +278,7 @@ class TcJourneyLedger:
         self._get_wp = get_wp
         self._list_wps = list_wps
         self._lock_dir = lock_dir
+        self._allow_missing_guard = allow_missing_guard
         if lock_timeout <= 0:
             raise ValueError("Journey lock timeout must be positive.")
         self._lock_timeout = lock_timeout
@@ -287,7 +304,7 @@ class TcJourneyLedger:
             or stored.get("title") != title
             or stored.get("content") != content
             or stored.get("agent") != "cc-journey"
-            or stored.get("guard") not in {None, "title=clean;content=clean"}
+            or not self._guard_is_clean(stored)
         ):
             raise RuntimeError("Task Copilot changed journey evidence during storage.")
         return stored
@@ -295,6 +312,11 @@ class TcJourneyLedger:
     @staticmethod
     def _row_type(row: Mapping[str, Any]) -> object:
         return row.get("type_", row.get("type"))
+
+    def _guard_is_clean(self, row: Mapping[str, Any]) -> bool:
+        return row.get("guard") == "title=clean;content=clean" or (
+            self._allow_missing_guard and "guard" not in row
+        )
 
     def rows(self) -> list[tuple[Mapping[str, Any], Mapping[str, Any]]]:
         result: list[tuple[Mapping[str, Any], Mapping[str, Any]]] = []
@@ -317,6 +339,8 @@ class TcJourneyLedger:
                 or str(summary.get("title", "")) != title
                 or int(summary.get("task_id", -1)) != int(row["task_id"])
                 or self._row_type(summary) != "evidence"
+                or not self._guard_is_clean(summary)
+                or not self._guard_is_clean(row)
             ):
                 raise ValueError("Journey ledger row identity is invalid.")
             try:
@@ -345,11 +369,20 @@ class TcJourneyLedger:
             raise RuntimeError("Journey lock directory is unsafe.")
         return path
 
+    def _lock_path(self, identity: str) -> Path:
+        lock_dir = self._private_lock_dir()
+        scope = _sha(str(lock_dir.absolute()))[:24]
+        claim = _sha(f"{self.task_id}:{identity}")[:32]
+        # The anchor is deliberately outside ``lock_dir``.  Renaming and
+        # recreating that same-user directory therefore cannot split one
+        # task/run claim across two lock-file inodes.
+        return lock_dir.parent / f".cc-journey-{os.getuid()}-{scope}-{claim}.lock"
+
     @contextmanager
     def claim(self, identity: str) -> Iterator[None]:
         if not re.fullmatch(r"[A-Za-z0-9.-]{1,160}", identity):
             raise ValueError("Journey lock identity is malformed.")
-        path = self._private_lock_dir() / f"{self.task_id}-{identity}.lock"
+        path = self._lock_path(identity)
         flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
         try:
             descriptor = os.open(path, flags, 0o600)
@@ -420,11 +453,25 @@ def _source_dict(receipt: Any) -> dict[str, Any]:
     for key, value in result.items():
         if not isinstance(value, str):
             raise ValueError("Knowledge source receipt is malformed.")
+        if _has_disclosure(value):
+            raise ValueError("Knowledge source receipt is malformed.")
         if key in {"tree", "content_sha256"}:
             if not re.fullmatch(r"[0-9a-f]{40,64}", value):
                 raise ValueError("Knowledge source receipt is malformed.")
-        else:
-            _safe_text(value, source=True)
+        elif key == "repository":
+            if not _SOURCE_REPOSITORY.fullmatch(value):
+                raise ValueError("Knowledge source receipt is malformed.")
+        elif key == "ref":
+            if not _SOURCE_REF.fullmatch(value):
+                raise ValueError("Knowledge source receipt is malformed.")
+        elif key == "signer":
+            if not _SOURCE_SIGNER.fullmatch(value):
+                raise ValueError("Knowledge source receipt is malformed.")
+        elif key == "contribution":
+            if not _SOURCE_CONTRIBUTION.fullmatch(value):
+                raise ValueError("Knowledge source receipt is malformed.")
+        elif not _IDENTIFIER.fullmatch(value):
+            raise ValueError("Knowledge source receipt is malformed.")
     return result
 
 
@@ -555,6 +602,7 @@ def _expected_title(payload: Mapping[str, Any]) -> str:
 
 def _state(run_id: str, ledger: TcJourneyLedger) -> dict[str, Any]:
     buckets = {key: [] for key in ("begin", "prepare", "prompt_binding", "dispatch_authorization", "pause_capsule", "final_authorization")}
+    row_ids: dict[int, int] = {}
     for row, payload in ledger.rows():
         if payload.get("run_id") != run_id:
             continue
@@ -564,6 +612,7 @@ def _state(run_id: str, ledger: TcJourneyLedger) -> dict[str, Any]:
         if kind not in buckets:
             raise ValueError("Journey evidence type is invalid.")
         buckets[kind].append(payload)
+        row_ids[id(payload)] = int(row["id"])
     if len(buckets["begin"]) != 1 or len(buckets["final_authorization"]) > 1:
         raise ValueError("Journey evidence is missing or ambiguous.")
     begin = buckets["begin"][0]
@@ -577,6 +626,10 @@ def _state(run_id: str, ledger: TcJourneyLedger) -> dict[str, Any]:
         indices = [int(item["stage_index"]) for item in buckets[kind]]
         if len(indices) != len(set(indices)):
             raise ValueError("Journey stage evidence is ambiguous.")
+    for kind in ("prepare", "dispatch_authorization"):
+        for item in buckets[kind]:
+            if list(_validate_sources(item.get("sources"))) != item.get("sources"):
+                raise ValueError("Stored Knowledge source receipts are malformed.")
     pause_generations = [int(item["generation"]) for item in buckets["pause_capsule"]]
     if (
         len(pause_generations) != len(set(pause_generations))
@@ -584,9 +637,26 @@ def _state(run_id: str, ledger: TcJourneyLedger) -> dict[str, Any]:
     ):
         raise ValueError("Journey pause evidence is ambiguous.")
     buckets["pause_capsule"].sort(key=lambda item: int(item["generation"]))
+    state = buckets | {"begin_record": begin, "route": route, "completed": completed}
+    for item in buckets["pause_capsule"]:
+        generation = int(item["generation"])
+        cutoff = row_ids[id(item)]
+        historical = state | {
+            kind: [
+                record for record in state[kind]
+                if row_ids[id(record)] < cutoff
+            ]
+            for kind in ("prepare", "prompt_binding", "dispatch_authorization")
+        }
+        expected = _capsule_for_generation(run_id, historical, generation)
+        if (
+            item.get("capsule") != expected
+            or item.get("capsule_sha256") != _sha(_canonical(expected))
+        ):
+            raise ValueError("Journey historical pause capsule changed.")
     if buckets["final_authorization"] and len(completed) != len(route):
         raise ValueError("Journey final evidence is premature.")
-    return buckets | {"begin_record": begin, "route": route, "completed": completed}
+    return state
 
 
 def _unfinished_public_state(run_id: str, state: Mapping[str, Any]) -> dict[str, Any]:
@@ -742,9 +812,14 @@ def bind_prompt(
     }
 
 
-def _capsule(run_id: str, state: Mapping[str, Any]) -> dict[str, Any]:
+def _capsule_for_generation(
+    run_id: str, state: Mapping[str, Any], generation: int
+) -> dict[str, Any]:
     begin = state["begin_record"]
-    stage = len(state["completed"])
+    stage = generation
+    dispatches = list(state["dispatch_authorization"][:generation])
+    if len(dispatches) != generation:
+        raise ValueError("Journey pause generation exceeds dispatch history.")
     prepared = next((item for item in state["prepare"] if item.get("stage_index") == stage), None)
     binding = next((item for item in state["prompt_binding"] if item.get("stage_index") == stage), None)
     return {
@@ -757,12 +832,16 @@ def _capsule(run_id: str, state: Mapping[str, Any]) -> dict[str, Any]:
         "prompt_sha256": begin["prompt_sha256"],
         "capability": begin["capability"],
         "security": begin["security"],
-        "dispatch_authorizations": list(state["dispatch_authorization"]),
+        "dispatch_authorizations": dispatches,
         "prepared": prepared,
         "prompt_binding": binding,
         "next_stage_index": stage if stage < len(state["route"]) else None,
         "next_specialist": state["route"][stage] if stage < len(state["route"]) else None,
     }
+
+
+def _capsule(run_id: str, state: Mapping[str, Any]) -> dict[str, Any]:
+    return _capsule_for_generation(run_id, state, len(state["completed"]))
 
 
 def pause_run(
@@ -820,6 +899,7 @@ def _active_runs_for_session(session_id: str, ledger: TcJourneyLedger) -> list[s
                 _task_from_run(run_id), store_wp=ledger._store_wp, get_wp=ledger._get_wp,
                 list_wps=ledger._list_wps, lock_dir=ledger._lock_dir,
                 lock_timeout=ledger._lock_timeout,
+                allow_missing_guard=ledger._allow_missing_guard,
             ))
             if not state["final_authorization"]:
                 runs.append(run_id)

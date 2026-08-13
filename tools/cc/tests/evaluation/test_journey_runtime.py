@@ -78,6 +78,7 @@ def ledger(rows: Rows, task_id: int = 296) -> TcJourneyLedger:
         store_wp=rows.store_wp,
         get_wp=rows.get_wp,
         list_wps=rows.list_wps,
+        allow_missing_guard=True,
     )
 
 
@@ -380,6 +381,40 @@ def test_three_stage_route_supports_pause_after_each_progress_point():
     ] == [1, 2]
 
 
+def test_every_historical_pause_capsule_is_validated():
+    rows = Rows()
+    started = begin(rows, specialists=("me", "qa", "sec"))
+    first = prepare_run(started["run_id"], "me", ledger=ledger(rows), resolver=resolver)
+    authorize(rows, first)
+    pause_run(started["run_id"], ledger=ledger(rows), resolver=resolver)
+    second = resume_run(
+        296, run_id=started["run_id"], ledger=ledger(rows), resolver=resolver
+    )["prepared_invocation"]
+    bind_prompt(started["run_id"], "qa", "d" * 64, ledger=ledger(rows))
+    verify_dispatch(
+        session_id="session-296", specialist="qa",
+        marker=second["invocation_marker"], prompt_sha256="d" * 64,
+        knowledge_sha256=second["composed_content_sha256"],
+        ledger_factory=ledger_factory(rows), resolver=resolver,
+    )
+    pause_run(started["run_id"], ledger=ledger(rows), resolver=resolver)
+
+    first_pause = next(
+        item for item in rows.items.values()
+        if item["title"] == "Journey v2.1 pause evidence"
+        and json.loads(item["content"])["generation"] == 1
+    )
+    changed = json.loads(first_pause["content"])
+    changed["capsule"]["next_specialist"] = "sec"
+    first_pause["content"] = json.dumps(
+        changed, sort_keys=True, separators=(",", ":")
+    )
+    with pytest.raises(ValueError, match="historical pause capsule changed"):
+        resume_run(
+            296, run_id=started["run_id"], ledger=ledger(rows), resolver=resolver
+        )
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
@@ -512,6 +547,25 @@ def test_tc_row_identity_and_payload_fields_fail_closed():
         inspect_run(started["run_id"], ledger=ledger(rows))
 
 
+def test_production_ledger_rejects_modified_or_missing_guards():
+    rows = Rows()
+    compatibility = ledger(rows)
+    started = begin(rows, specialists=("me",))
+    strict = TcJourneyLedger(
+        296,
+        store_wp=rows.store_wp,
+        get_wp=rows.get_wp,
+        list_wps=rows.list_wps,
+    )
+    with pytest.raises(ValueError, match="row identity"):
+        inspect_run(started["run_id"], ledger=strict)
+
+    for row in rows.items.values():
+        row["guard"] = "title=modified:instruction-override;content=clean"
+    with pytest.raises(ValueError, match="row identity"):
+        inspect_run(started["run_id"], ledger=compatibility)
+
+
 def test_resume_ambiguity_never_picks_newest():
     rows = Rows()
     first = begin(rows, specialists=("me",), session="session-one")
@@ -528,14 +582,15 @@ def test_lock_rejects_preexisting_symlink(tmp_path):
     lock_dir.mkdir(mode=0o700)
     victim = tmp_path / "victim"
     victim.write_text("unchanged", encoding="utf-8")
-    (lock_dir / "296-unsafe.lock").symlink_to(victim)
     selected = TcJourneyLedger(
         296,
         store_wp=rows.store_wp,
         get_wp=rows.get_wp,
         list_wps=rows.list_wps,
         lock_dir=lock_dir,
+        allow_missing_guard=True,
     )
+    selected._lock_path("unsafe").symlink_to(victim)
     with pytest.raises(RuntimeError, match="lock acquisition"):
         with selected.claim("unsafe"):
             pass
@@ -551,9 +606,10 @@ def test_lock_is_private_and_regular(tmp_path):
         get_wp=rows.get_wp,
         list_wps=rows.list_wps,
         lock_dir=lock_dir,
+        allow_missing_guard=True,
     )
     with selected.claim("private"):
-        lock_path = lock_dir / "296-private.lock"
+        lock_path = selected._lock_path("private")
         assert lock_dir.stat().st_mode & 0o777 == 0o700
         assert lock_path.stat().st_mode & 0o777 == 0o600
         assert lock_path.is_file()
@@ -563,9 +619,6 @@ def test_lock_wait_is_bounded_and_fails_closed(tmp_path):
     rows = Rows()
     lock_dir = tmp_path / "locks"
     lock_dir.mkdir(mode=0o700)
-    lock_path = lock_dir / "296-contended.lock"
-    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
-    fcntl.flock(descriptor, fcntl.LOCK_EX)
     selected = TcJourneyLedger(
         296,
         store_wp=rows.store_wp,
@@ -573,7 +626,11 @@ def test_lock_wait_is_bounded_and_fails_closed(tmp_path):
         list_wps=rows.list_wps,
         lock_dir=lock_dir,
         lock_timeout=0.03,
+        allow_missing_guard=True,
     )
+    lock_path = selected._lock_path("contended")
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    fcntl.flock(descriptor, fcntl.LOCK_EX)
     started = time.monotonic()
     try:
         with pytest.raises(RuntimeError, match="timed out"):
@@ -583,6 +640,29 @@ def test_lock_wait_is_bounded_and_fails_closed(tmp_path):
         fcntl.flock(descriptor, fcntl.LOCK_UN)
         os.close(descriptor)
     assert time.monotonic() - started < 0.5
+
+
+def test_lock_directory_replacement_cannot_split_claim_identity(tmp_path):
+    rows = Rows()
+    lock_dir = tmp_path / "locks"
+    first = TcJourneyLedger(
+        296, store_wp=rows.store_wp, get_wp=rows.get_wp,
+        list_wps=rows.list_wps, lock_dir=lock_dir, lock_timeout=0.03,
+        allow_missing_guard=True,
+    )
+    second = TcJourneyLedger(
+        296, store_wp=rows.store_wp, get_wp=rows.get_wp,
+        list_wps=rows.list_wps, lock_dir=lock_dir, lock_timeout=0.03,
+        allow_missing_guard=True,
+    )
+    with first.claim("same-run"):
+        first_inode = first._lock_path("same-run").stat().st_ino
+        lock_dir.rename(tmp_path / "renamed-locks")
+        lock_dir.mkdir(mode=0o700)
+        assert second._lock_path("same-run").stat().st_ino == first_inode
+        with pytest.raises(RuntimeError, match="timed out"):
+            with second.claim("same-run"):
+                pass
 
 
 def test_runtime_contains_no_second_router_or_resolver():
@@ -668,6 +748,34 @@ def test_persisted_reason_and_session_reject_disclosure_values(unsafe):
             session_id=unsafe,
             ledger=ledger(rows),
             capability=capability,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "unsafe"),
+    [
+        ("repository", "Users/pabs"),
+        ("repository", "owner/contact-pabs@example.com"),
+        ("signer", "contact-pabs@example.com"),
+        ("signer", "sk-abcdefghijklmnopqrstuvwxyz"),
+        ("contribution", "Users/pabs/private.extension.md"),
+        ("contribution", "skills/contact-pabs@example.com"),
+    ],
+)
+def test_knowledge_source_identities_reject_disclosure_values(field, unsafe):
+    rows = Rows()
+    started = begin(rows, specialists=("me",))
+
+    def unsafe_resolver(specialist):
+        content = f"signed context for {specialist}"
+        source = receipt(content, specialist)
+        source[field] = unsafe
+        return content, (source,)
+
+    with pytest.raises(ValueError, match="source receipt is malformed"):
+        prepare_run(
+            started["run_id"], "me", ledger=ledger(rows),
+            resolver=unsafe_resolver,
         )
 
 
