@@ -8,6 +8,7 @@ The hooks system provides lifecycle-based injection and enforcement for the main
 |-----------|----------------------|------|-------------|
 | `pretool-check.sh` | PreToolUse | Force-delegate (5 consecutive same-tool calls) | Mandatory — exit 2 |
 | `pretool-check.sh` | PreToolUse | QA gate (after @agent-me, before @agent-qa) | Mandatory — exit 2 |
+| `pretool-check.sh` | PreToolUse | Active-journey Agent dispatch witness | Mandatory for active journeys — exit 2 on mismatch/indeterminate state |
 | `pretool-check.sh` | PreToolUse | Destructive-command safety `/careful` | block → exit 2; warn → exit 0 + stderr |
 | `pretool-check.sh` | PreToolUse | Path-scope lock `/freeze` | Mandatory — exit 2 |
 | `subagent-stop.sh` | SubagentStop | QA gate state manager | Mandatory state write |
@@ -176,6 +177,7 @@ State files are written atomically (write to `.tmp` file then `mv`) to prevent c
 |------|-----------|---------|--------|
 | `rule_force_delegate` | P4.2 (task 17) | 5+ consecutive Bash/Read/Edit calls | Deny with agent delegation suggestion |
 | `rule_qa_gate` | P4.1 (task 16) | Any task in pending-qa state for this session | Deny all except Agent(qa) and safe tc reads |
+| `rule_journey_dispatch` | TASK-296 | Direct main-session framework `Agent` call | Ask `cc journey verify-dispatch` to allow no active journey or atomically authorize the exact prepared dispatch |
 
 ### Extending with a New Rule Set
 
@@ -225,6 +227,36 @@ When `@agent-qa` completes and the verdict is parsed as a pass, the task is remo
 **Debug:** `.claude/hooks/bin/qa-gate-status.sh [session_id]`
 
 **Escape hatch:** Set `COPILOT_QA_GATE=off` to disable for a shell session.
+
+### Journey-Dispatch Rule
+
+`rule_journey_dispatch` runs immediately after the QA gate and before
+extension/safety rules. It does not route a request or resolve Knowledge. For a
+direct main-session framework `Agent` call it hashes the exact decoded Agent
+prompt, structurally extracts the single-use marker and Knowledge frame emitted
+by `cc journey prepare`, hashes only the bytes inside that frame, and calls:
+
+```text
+cc journey verify-dispatch --session <session> --subagent <agent> \
+  --marker <48-hex-or-empty> --prompt-sha256 <digest> \
+  --knowledge-sha256 <digest-or-empty> --json
+```
+
+- `no_active` leaves existing direct/question-only workflows unchanged.
+- `dispatch_authorized` permits the call once and is evidence only that
+  PreToolUse observed and authorized dispatch. It is not a specialist
+  completion receipt and says nothing about output quality.
+- `denied`, a replay, a wrong specialist/session/marker, altered prompt or
+  Knowledge bytes, malformed framing, or indeterminate active state fails
+  closed before `Agent` executes.
+- Nested subagent calls and non-framework Agent types do not advance a journey.
+- There is deliberately no bypass. A prepared journey marker with no verifier
+  is denied; an ordinary markerless legacy call remains unchanged when `cc` is
+  unavailable.
+
+The hook passes digests and the opaque marker only. Raw prompt and Knowledge
+content are not placed in argv, hook state, or denial output. The PreToolUse
+event contract itself is unchanged, so `PROTOCOL_VERSION` remains unchanged.
 
 ### Exit Codes
 
