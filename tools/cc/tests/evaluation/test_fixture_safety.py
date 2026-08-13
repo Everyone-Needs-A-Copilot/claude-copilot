@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -19,46 +20,16 @@ def _sha(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
+CASES_ROOT = Path(__file__).parent / "fixtures" / "cases"
+
+
 def _write_fixture(root: Path, *, evidence: bytes | None = None) -> dict:
-    evidence = evidence or (
-        b"SYNTHETIC-EVAL05\n"
-        b"synthetic_amount_units=120\n"
-        b"unit=SYNTHETIC_USD_FIXTURE\n"
-        b"status=missing\n"
-    )
-    oracle = json.dumps(
-        {
-            "fixture_namespace": "SYNTHETIC-EVAL05",
-            "expected_gap": "missing-source-evidence",
-        },
-        sort_keys=True,
-    ).encode()
-    (root / "input").mkdir(parents=True)
-    (root / "oracle").mkdir()
-    (root / "input" / "summary.txt").write_bytes(evidence)
-    (root / "oracle" / "expected.json").write_bytes(oracle)
-    document = {
-        "schema_version": "1.0",
-        "case_id": "eval-05",
-        "revision": 1,
-        "fixture_namespace": "SYNTHETIC-EVAL05",
-        "problem_statement": "Reconcile the SYNTHETIC-EVAL05 packet.",
-        "evidence_files": [
-            {
-                "path": "input/summary.txt",
-                "sha256": _sha(evidence),
-                "media_type": "text/plain",
-                "synthetic_fixture": True,
-                "fixture_namespace": "SYNTHETIC-EVAL05",
-            }
-        ],
-        "layer_variants": ["F", "F+O+D"],
-        "runtimes": ["claude", "codex"],
-        "required_criteria": ["evidence-trace", "factual-restraint"],
-        "hard_rejection_rules": ["invented-value", "unsupported-certainty"],
-        "journey_requirements": ["route-evidence", "continuity-evidence"],
-        "private_oracle": {"path": "oracle/expected.json", "sha256": _sha(oracle)},
-    }
+    shutil.copytree(CASES_ROOT / "eval-05", root, dirs_exist_ok=True)
+    document = json.loads((root / "case.json").read_text(encoding="utf-8"))
+    if evidence is not None:
+        declared = document["evidence_files"][0]
+        (root / declared["path"]).write_bytes(evidence)
+        declared["sha256"] = _sha(evidence)
     (root / "case.json").write_text(json.dumps(document), encoding="utf-8")
     return document
 
@@ -74,7 +45,9 @@ def test_loader_verifies_exact_files_and_keeps_oracle_out_of_runtime_evidence(tm
             json.dumps(document, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
     )
-    assert tuple(item.path for item in loaded.evidence) == ("input/summary.txt",)
+    assert tuple(item.path for item in loaded.evidence) == tuple(
+        item["path"] for item in document["evidence_files"]
+    )
     assert all("oracle" not in item.path for item in loaded.evidence)
 
 
@@ -104,7 +77,7 @@ def test_loader_rejects_symlinked_evidence_even_when_target_digest_matches(tmp_p
     document = _write_fixture(tmp_path)
     target = tmp_path / "outside.txt"
     target.write_text("SYNTHETIC-OUTSIDE", encoding="utf-8")
-    evidence_path = tmp_path / "input" / "summary.txt"
+    evidence_path = tmp_path / document["evidence_files"][0]["path"]
     evidence_path.unlink()
     evidence_path.symlink_to(target)
     document["evidence_files"][0]["sha256"] = _sha(target.read_bytes())
@@ -200,6 +173,38 @@ def test_loader_rejects_fixture_matrix_or_identity_outside_preregistration(
     (tmp_path / "case.json").write_text(json.dumps(document), encoding="utf-8")
 
     with pytest.raises(FixtureLoadError, match=error):
+        load_fixture(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "source_case,target_case",
+    [
+        (source_case, target_case)
+        for source_case in sorted(path.name for path in CASES_ROOT.iterdir())
+        for target_case in sorted(path.name for path in CASES_ROOT.iterdir())
+        if source_case != target_case
+    ],
+)
+def test_loader_rejects_all_pairwise_known_case_identity_substitutions(
+    tmp_path, source_case, target_case
+):
+    shutil.copytree(CASES_ROOT / source_case, tmp_path, dirs_exist_ok=True)
+    document = json.loads((tmp_path / "case.json").read_text(encoding="utf-8"))
+    document["case_id"] = target_case
+    (tmp_path / "case.json").write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(FixtureLoadError, match="preregistration"):
+        load_fixture(tmp_path)
+
+
+def test_loader_requires_explicit_preregistration_for_legitimate_packet_edits(
+    tmp_path,
+):
+    document = _write_fixture(tmp_path)
+    document["problem_statement"] += " Clarify the synthetic review handoff."
+    (tmp_path / "case.json").write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(FixtureLoadError, match="packet differs"):
         load_fixture(tmp_path)
 
 
