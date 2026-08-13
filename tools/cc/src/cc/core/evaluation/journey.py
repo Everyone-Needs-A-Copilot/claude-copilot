@@ -21,6 +21,7 @@ _TREE = re.compile(r"^[0-9a-f]{40,64}$")
 _CAPABILITY_STATES = frozenset(
     {"available", "unavailable", "timeout", "nonzero", "malformed", "security-denied"}
 )
+_ROUTE_EVENT_KINDS = frozenset({"transition", "checkpoint", "skip"})
 
 
 def _canonical(value: object) -> str:
@@ -82,6 +83,19 @@ class KnowledgeComposition:
 
 
 @dataclass(frozen=True)
+class RouteEvent:
+    """One protocol-emitted transition, checkpoint, or skipped stage."""
+
+    kind: str
+    specialist: str
+    reason: str
+
+    def __post_init__(self) -> None:
+        if self.kind not in _ROUTE_EVENT_KINDS or not self.specialist or not self.reason:
+            raise ValueError("Protocol route event is malformed.")
+
+
+@dataclass(frozen=True)
 class RouteTrace:
     """Trace emitted by the supported protocol router; policy is not duplicated here."""
 
@@ -89,6 +103,7 @@ class RouteTrace:
     specialists: tuple[str, ...]
     runtime: str
     contract_version: str
+    events: tuple[RouteEvent, ...]
 
     def __post_init__(self) -> None:
         if not self.classification or not self.specialists:
@@ -99,6 +114,11 @@ class RouteTrace:
             or any(not item for item in self.specialists)
         ):
             raise ValueError("Protocol route trace is malformed.")
+        transitions = tuple(
+            event.specialist for event in self.events if event.kind == "transition"
+        )
+        if transitions != self.specialists:
+            raise ValueError("Protocol route events do not match the specialist route.")
 
 
 @dataclass(frozen=True)
@@ -163,14 +183,60 @@ class JourneyEvidence:
     limitations: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        if self.schema_version != SCHEMA_VERSION or self.adapter_version != ADAPTER_VERSION:
+            raise ValueError("Journey evidence version is unsupported.")
         if self.outcome not in {"STRUCTURALLY_INTEGRATED", "UNSUPPORTED", "INVALID"}:
             raise ValueError("Journey outcome is invalid.")
         specialists = tuple(item.specialist for item in self.invocations)
         if specialists != self.completed_specialists:
             raise ValueError("Journey invocations do not match completed stages.")
+        if tuple(self.route.specialists[: len(specialists)]) != specialists:
+            raise ValueError("Journey invocations are not a protocol-route prefix.")
+        expected_next = (
+            self.route.specialists[len(specialists)]
+            if len(specialists) < len(self.route.specialists)
+            else None
+        )
+        if self.next_specialist != expected_next:
+            raise ValueError("Journey next stage does not match the protocol route.")
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> JourneyEvidence:
+        try:
+            route_value = value["route"]
+            capability_value = value["capability"]
+            route = RouteTrace(
+                classification=str(route_value["classification"]),
+                specialists=tuple(route_value["specialists"]),
+                runtime=str(route_value["runtime"]),
+                contract_version=str(route_value["contract_version"]),
+                events=tuple(RouteEvent(**event) for event in route_value["events"]),
+            )
+            invocations = tuple(
+                InvocationReceipt(
+                    specialist=str(item["specialist"]),
+                    composed_content_sha256=str(item["composed_content_sha256"]),
+                    sources=tuple(KnowledgeReceipt(**source) for source in item["sources"]),
+                )
+                for item in value["invocations"]
+            )
+            return cls(
+                schema_version=str(value["schema_version"]),
+                adapter_version=str(value["adapter_version"]),
+                outcome=str(value["outcome"]),
+                case_id=str(value["case_id"]),
+                route=route,
+                invocations=invocations,
+                capability=CapabilityReceipt(**capability_value),
+                completed_specialists=tuple(value["completed_specialists"]),
+                next_specialist=value.get("next_specialist"),
+                limitations=tuple(value.get("limitations") or ()),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("Stored journey evidence is malformed.") from exc
 
 
 class ProtocolRouteAdapter(Protocol):
@@ -190,6 +256,14 @@ class ContinuationStore(Protocol):
 
     def load(self, locator: ContinuationLocator) -> Mapping[str, Any]: ...
 
+    def load_completion(
+        self, locator: ContinuationLocator
+    ) -> Mapping[str, Any] | None: ...
+
+    def save_completion(
+        self, locator: ContinuationLocator, evidence: Mapping[str, Any]
+    ) -> Mapping[str, Any]: ...
+
 
 class TcContinuationStore:
     """Thin adapter over Task Copilot's public work-product API.
@@ -206,10 +280,13 @@ class TcContinuationStore:
         task_id: int,
         store_wp: Callable[..., Mapping[str, Any]],
         get_wp: Callable[..., Mapping[str, Any]],
+        list_wps: Callable[..., Sequence[Mapping[str, Any]]] | None = None,
     ) -> None:
         self._task_id = task_id
         self._store_wp = store_wp
         self._get_wp = get_wp
+        self._list_wps = list_wps
+        self._local_completions: dict[str, Mapping[str, Any]] = {}
 
     def save(self, capsule: Mapping[str, Any]) -> ContinuationLocator:
         content = _canonical(capsule)
@@ -233,6 +310,64 @@ class TcContinuationStore:
         if not isinstance(capsule, dict) or _digest(capsule) != locator.capsule_sha256:
             raise ValueError("Continuation capsule integrity check failed.")
         return capsule
+
+    @staticmethod
+    def _completion_title(locator: ContinuationLocator) -> str:
+        return f"Journey completion: {locator.capsule_sha256}"
+
+    def load_completion(
+        self, locator: ContinuationLocator
+    ) -> Mapping[str, Any] | None:
+        title = self._completion_title(locator)
+        if self._list_wps is None:
+            return self._local_completions.get(title)
+        matches = [
+            row
+            for row in self._list_wps(task=self._task_id, type_="evidence")
+            if row.get("title") == title
+        ]
+        if len(matches) > 1:
+            raise ValueError("Continuation has duplicate completion evidence.")
+        if not matches:
+            return None
+        row = self._get_wp(wp_id=int(matches[0]["id"]))
+        try:
+            payload = json.loads(str(row["content"]))
+            evidence = payload["evidence"]
+        except (KeyError, TypeError, json.JSONDecodeError) as exc:
+            raise ValueError("Continuation completion evidence is malformed.") from exc
+        if (
+            not isinstance(payload, dict)
+            or payload.get("locator") != asdict(locator)
+            or not isinstance(evidence, dict)
+            or payload.get("evidence_sha256") != _digest(evidence)
+        ):
+            raise ValueError("Continuation completion evidence is invalid.")
+        return evidence
+
+    def save_completion(
+        self, locator: ContinuationLocator, evidence: Mapping[str, Any]
+    ) -> Mapping[str, Any]:
+        existing = self.load_completion(locator)
+        if existing is not None:
+            return existing
+        title = self._completion_title(locator)
+        payload = {
+            "locator": asdict(locator),
+            "evidence": evidence,
+            "evidence_sha256": _digest(evidence),
+        }
+        if self._list_wps is None:
+            self._local_completions[title] = dict(evidence)
+            return evidence
+        self._store_wp(
+            task_id=self._task_id,
+            type_="evidence",
+            title=title,
+            content=_canonical(payload),
+            agent="cc-journey",
+        )
+        return self.load_completion(locator) or evidence
 
 
 class DeterministicJourneyAdapter:
@@ -268,6 +403,9 @@ class DeterministicJourneyAdapter:
         return evidence, self._continuation.save(capsule)
 
     def resume(self, locator: ContinuationLocator) -> JourneyEvidence:
+        completed_evidence = self._continuation.load_completion(locator)
+        if completed_evidence is not None:
+            return JourneyEvidence.from_dict(completed_evidence)
         capsule = self._continuation.load(locator)
         saved = capsule.get("evidence")
         if not isinstance(saved, dict):
@@ -275,12 +413,7 @@ class DeterministicJourneyAdapter:
         route_data = saved.get("route")
         if not isinstance(route_data, dict):
             raise ValueError("Continuation route is missing.")
-        route = RouteTrace(
-            classification=str(route_data.get("classification", "")),
-            specialists=tuple(route_data.get("specialists") or ()),
-            runtime=str(route_data.get("runtime", "")),
-            contract_version=str(route_data.get("contract_version", "")),
-        )
+        route = JourneyEvidence.from_dict(saved).route
         # Re-trace in the fresh adapter and require exact route identity; never
         # reconstruct or silently continue when protocol policy changed.
         current = self._protocol.trace(str(capsule.get("prompt", "")))
@@ -299,7 +432,7 @@ class DeterministicJourneyAdapter:
             str(capsule.get("prompt", "")),
             len(route.specialists),
         )
-        return self._run(
+        evidence = self._run(
             case=case,
             route=route,
             capability=capability,
@@ -307,6 +440,8 @@ class DeterministicJourneyAdapter:
             prior=prior,
             stop=len(route.specialists),
         )
+        stored = self._continuation.save_completion(locator, evidence.as_dict())
+        return JourneyEvidence.from_dict(stored)
 
     def _run(
         self,
@@ -323,25 +458,40 @@ class DeterministicJourneyAdapter:
         if len(prior) != len(completed):
             raise ValueError("Continuation evidence has missing or duplicate stages.")
         invocations = list(prior)
-        for specialist in route.specialists[len(completed) : stop]:
-            composition = self._knowledge.compose(specialist=specialist, prompt=case.prompt)
-            invocations.append(
-                InvocationReceipt(
-                    specialist=specialist,
-                    composed_content_sha256=hashlib.sha256(
-                        composition.content.encode()
-                    ).hexdigest(),
-                    sources=composition.receipts,
-                )
-            )
-        finished = tuple(route.specialists[:stop])
-        next_specialist = route.specialists[stop] if stop < len(route.specialists) else None
+        invalid_reason: str | None = None
+        if not capability.core_may_continue:
+            invalid_reason = "security-denied"
+        else:
+            for specialist in route.specialists[len(completed) : stop]:
+                try:
+                    composition = self._knowledge.compose(
+                        specialist=specialist, prompt=case.prompt
+                    )
+                    invocations.append(
+                        InvocationReceipt(
+                            specialist=specialist,
+                            composed_content_sha256=hashlib.sha256(
+                                composition.content.encode()
+                            ).hexdigest(),
+                            sources=composition.receipts,
+                        )
+                    )
+                except (OSError, TypeError, ValueError):
+                    invalid_reason = f"required-knowledge-invalid:{specialist}"
+                    break
+        finished = tuple(item.specialist for item in invocations)
+        next_specialist = (
+            route.specialists[len(finished)]
+            if len(finished) < len(route.specialists)
+            else None
+        )
         runtime_limitations = (
             ()
             if route.runtime == "claude"
             else (f"{route.runtime}-knowledge-parity-unproven",)
         )
-        if not capability.core_may_continue:
+        limitations = runtime_limitations + ((invalid_reason,) if invalid_reason else ())
+        if invalid_reason is not None:
             outcome = "INVALID"
         elif route.runtime == "claude":
             outcome = "STRUCTURALLY_INTEGRATED"
@@ -357,13 +507,17 @@ class DeterministicJourneyAdapter:
             capability=capability,
             completed_specialists=finished,
             next_specialist=next_specialist,
-            limitations=runtime_limitations,
+            limitations=limitations,
         )
 
     def _safe_capability(self, case_id: str) -> CapabilityReceipt:
         try:
             result = self._capability.invoke(case_id=case_id)
-            return result
+            return (
+                result
+                if isinstance(result, CapabilityReceipt)
+                else CapabilityReceipt("optional-operations", "malformed")
+            )
         except TimeoutError:
             return CapabilityReceipt("optional-operations", "timeout")
         except (OSError, ValueError, TypeError):
