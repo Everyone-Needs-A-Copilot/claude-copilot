@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -30,6 +31,145 @@ MACHINE_COMMANDS = (
     "setup-copilot.md",
     "knowledge-copilot.md",
 )
+
+
+class _FakeCodexRunner:
+    def __init__(self) -> None:
+        self.marketplaces: dict[str, Path] = {}
+        self.plugins: dict[str, dict[str, object]] = {}
+        self.calls: list[tuple[str, ...]] = []
+        self.fail_mutation: int | None = None
+        self._mutations = 0
+
+    @staticmethod
+    def _marketplace(root: Path) -> dict[str, object]:
+        return json.loads((root / ".agents/plugins/marketplace.json").read_text())
+
+    def seed(self, root: Path, *, installed: bool = True) -> str:
+        marketplace = self._marketplace(root)
+        name = marketplace["name"]
+        assert isinstance(name, str)
+        self.marketplaces[name] = root.resolve()
+        if installed:
+            self._install_plugin(name, Path("/not-used"), copy_cache=False)
+        return name
+
+    def _mutate(self) -> None:
+        self._mutations += 1
+        if self.fail_mutation == self._mutations:
+            raise installer.FrameworkInstallError("injected Codex plugin failure")
+
+    def _install_plugin(
+        self, marketplace_name: str, home: Path, *, copy_cache: bool = True
+    ) -> dict[str, object]:
+        root = self.marketplaces[marketplace_name]
+        marketplace = self._marketplace(root)
+        plugin = marketplace["plugins"][0]
+        source = (root / plugin["source"]["path"]).resolve()
+        manifest = json.loads(
+            (source / ".codex-plugin/plugin.json").read_text(encoding="utf-8")
+        )
+        version = manifest["version"]
+        plugin_id = f"codex-copilot@{marketplace_name}"
+        installed_path = (
+            home / ".codex/plugins/cache" / marketplace_name / "codex-copilot" / version
+        )
+        if copy_cache and plugin_id not in self.plugins:
+            if installed_path.exists():
+                shutil.rmtree(installed_path)
+            installed_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(source, installed_path, symlinks=True)
+            for directory, subdirectories, files in os.walk(installed_path):
+                Path(directory).chmod(0o755)
+                for name in subdirectories:
+                    path = Path(directory) / name
+                    if not path.is_symlink():
+                        path.chmod(0o755)
+                for name in files:
+                    path = Path(directory) / name
+                    if not path.is_symlink():
+                        path.chmod(0o755 if path.stat().st_mode & 0o111 else 0o644)
+        self.plugins[plugin_id] = {
+            "pluginId": plugin_id,
+            "name": "codex-copilot",
+            "marketplaceName": marketplace_name,
+            "version": version,
+            "installed": True,
+            "enabled": True,
+            "source": {"source": "local", "path": str(source)},
+        }
+        return {
+            "pluginId": plugin_id,
+            "name": "codex-copilot",
+            "marketplaceName": marketplace_name,
+            "version": version,
+            "installedPath": str(installed_path.resolve()),
+        }
+
+    def __call__(
+        self, arguments: tuple[str, ...] | list[str], home: Path
+    ) -> dict[str, object]:
+        args = tuple(arguments)
+        self.calls.append(args)
+        if args == ("marketplace", "list", "--json"):
+            return {
+                "marketplaces": [
+                    {
+                        "name": name,
+                        "root": str(root),
+                        "marketplaceSource": {
+                            "sourceType": "local",
+                            "source": str(root),
+                        },
+                    }
+                    for name, root in sorted(self.marketplaces.items())
+                ]
+            }
+        if args == ("list", "--json"):
+            return {"installed": list(self.plugins.values()), "available": []}
+        if args[:2] == ("marketplace", "add"):
+            self._mutate()
+            root = Path(args[2]).resolve()
+            marketplace = self._marketplace(root)
+            name = marketplace["name"]
+            assert isinstance(name, str)
+            current = self.marketplaces.get(name)
+            if current is not None and current != root:
+                raise installer.FrameworkInstallError(
+                    f"marketplace {name} already has a different source"
+                )
+            self.marketplaces[name] = root
+            return {
+                "marketplaceName": name,
+                "installedRoot": str(root),
+                "alreadyAdded": current == root,
+            }
+        if args[:2] == ("marketplace", "remove"):
+            self._mutate()
+            self.marketplaces.pop(args[2])
+            return {"marketplaceName": args[2], "installedRoot": None}
+        if args[0] == "add":
+            self._mutate()
+            marketplace_name = args[1].split("@", 1)[1]
+            return self._install_plugin(marketplace_name, home)
+        if args[0] == "remove":
+            self._mutate()
+            plugin_id = args[1]
+            item = self.plugins.pop(plugin_id)
+            cache = (
+                home
+                / ".codex/plugins/cache"
+                / item["marketplaceName"]
+                / "codex-copilot"
+                / item["version"]
+            )
+            if cache.exists():
+                shutil.rmtree(cache)
+            return {"pluginId": plugin_id, "removed": True}
+        raise AssertionError(f"unexpected Codex command: {args}")
+
+
+_FAKE_CODEX_RUNNERS: dict[Path, _FakeCodexRunner] = {}
 
 
 @pytest.fixture(autouse=True)
@@ -96,6 +236,32 @@ def _source_repository(
     )
     _write(repo / "tracked-outside-runtime.txt", "full archive sentinel\n")
     (repo / "tracked-link").symlink_to("tracked-outside-runtime.txt")
+    _write(
+        repo / ".agents/plugins/marketplace.json",
+        json.dumps(
+            {
+                "name": "codex-copilot-project",
+                "plugins": [
+                    {
+                        "name": "codex-copilot",
+                        "source": {
+                            "source": "local",
+                            "path": "./plugins/codex-copilot",
+                        },
+                    }
+                ],
+            }
+        )
+        + "\n",
+    )
+    _write(
+        repo / "plugins/codex-copilot/.codex-plugin/plugin.json",
+        json.dumps({"name": "codex-copilot", "version": "0.6.1"}) + "\n",
+    )
+    _write(
+        repo / "plugins/codex-copilot/skills/me/SKILL.md",
+        "# committed engineer skill\n",
+    )
     subprocess.run(("git", "-C", str(repo), "add", "."), check=True)
     subprocess.run(
         (
@@ -136,14 +302,33 @@ def _install(
     home: Path,
     **kwargs,
 ):
+    runner = kwargs.pop("codex_runner", None)
+    if runner is None:
+        runner = _FAKE_CODEX_RUNNERS.setdefault(home, _FakeCodexRunner())
     return installer.install_framework_snapshot(
         source_root=repo,
         source_commit=commit,
         source_tree=tree,
         home=home,
         cc_installer=_fake_cc_installer,
+        codex_runner=runner,
         **kwargs,
     )
+
+
+def _codex_plugin(home: Path, *arguments: str) -> dict[str, object]:
+    codex_home = home / ".codex"
+    codex_home.mkdir(parents=True, exist_ok=True)
+    result = subprocess.run(
+        ("codex", "plugin", *arguments),
+        check=True,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "HOME": str(home), "CODEX_HOME": str(codex_home)},
+    )
+    payload = json.loads(result.stdout)
+    assert isinstance(payload, dict)
+    return payload
 
 
 def test_exact_commit_archive_ignores_dirty_source_and_deploys_manifest_roster(
@@ -296,6 +481,138 @@ def test_reinstall_is_idempotent_and_reuses_valid_readonly_snapshot(tmp_path: Pa
     assert second["result"] == "up-to-date"
     assert second["changed_targets"] == 0
     assert active.read_bytes() == before
+
+
+def test_normalization_removes_duplicate_copilot_and_preserves_unrelated_state(
+    tmp_path: Path,
+):
+    repo, commit, tree = _source_repository(tmp_path)
+    legacy = tmp_path / "legacy"
+    shutil.copytree(repo, legacy, ignore=shutil.ignore_patterns(".git"))
+    descriptor = legacy / ".agents/plugins/marketplace.json"
+    marketplace = json.loads(descriptor.read_text())
+    marketplace["name"] = "legacy-copilot"
+    descriptor.write_text(json.dumps(marketplace) + "\n", encoding="utf-8")
+    unrelated = tmp_path / "unrelated"
+    unrelated.mkdir()
+    runner = _FakeCodexRunner()
+    runner.seed(repo)
+    runner.seed(legacy)
+    runner.marketplaces["unrelated"] = unrelated
+    runner.plugins["other@unrelated"] = {
+        "pluginId": "other@unrelated",
+        "name": "other",
+        "marketplaceName": "unrelated",
+        "version": "1.0.0",
+        "installed": True,
+        "enabled": True,
+        "source": {"source": "local", "path": str(unrelated)},
+    }
+
+    report = _install(repo, commit, tree, tmp_path / "home", codex_runner=runner)
+
+    matching = [
+        item for item in runner.plugins.values() if item["name"] == "codex-copilot"
+    ]
+    assert [item["pluginId"] for item in matching] == [
+        "codex-copilot@codex-copilot-project"
+    ]
+    assert (
+        runner.marketplaces["codex-copilot-project"]
+        == Path(report["snapshot"]).resolve()
+    )
+    assert runner.marketplaces["legacy-copilot"] == legacy.resolve()
+    assert runner.marketplaces["unrelated"] == unrelated
+    assert "other@unrelated" in runner.plugins
+
+
+@pytest.mark.skipif(shutil.which("codex") is None, reason="Codex CLI unavailable")
+def test_real_codex_plugin_moves_old_registration_to_exact_snapshot(tmp_path: Path):
+    repo, _old_commit, _old_tree = _source_repository(tmp_path)
+    old_root = tmp_path / "old-framework"
+    shutil.copytree(repo, old_root, ignore=shutil.ignore_patterns(".git"))
+    plugin_skill = repo / "plugins/codex-copilot/skills/me/SKILL.md"
+    plugin_skill.write_text("# new committed engineer skill\n", encoding="utf-8")
+    subprocess.run(("git", "-C", str(repo), "add", "."), check=True)
+    subprocess.run(
+        (
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.name=Snapshot Test",
+            "-c",
+            "user.email=snapshot@test.invalid",
+            "commit",
+            "--quiet",
+            "-m",
+            "new plugin bytes",
+        ),
+        check=True,
+    )
+    commit = _git(repo, "rev-parse", "HEAD")
+    tree = _git(repo, "rev-parse", "HEAD^{tree}")
+    home = tmp_path / "home"
+    _codex_plugin(home, "marketplace", "add", str(old_root), "--json")
+    _codex_plugin(home, "add", "codex-copilot@codex-copilot-project", "--json")
+
+    report = _install(repo, commit, tree, home, codex_runner=installer.run_codex_plugin)
+
+    snapshot = Path(report["snapshot"])
+    marketplaces = _codex_plugin(home, "marketplace", "list", "--json")
+    plugins = _codex_plugin(home, "list", "--json")
+    matching = [
+        item for item in plugins["installed"] if item["name"] == "codex-copilot"
+    ]
+    active = json.loads((home / ".copilot/framework-runtime.json").read_text())
+    assert [(item["name"], item["root"]) for item in marketplaces["marketplaces"]] == [
+        ("codex-copilot-project", str(snapshot))
+    ]
+    assert len(matching) == 1
+    assert matching[0]["source"]["path"] == str(snapshot / "plugins/codex-copilot")
+    installed_path = Path(active["codex_plugin"]["installed_path"])
+    assert installer._plugin_helper._tree_identity(installed_path) == (
+        installer._plugin_helper._tree_identity(snapshot / "plugins/codex-copilot")
+    )
+    assert active["codex_plugin"]["tree_sha256"] == (
+        installer._plugin_helper._tree_sha256(
+            installer._plugin_helper._tree_identity(snapshot / "plugins/codex-copilot")
+        )
+    )
+
+
+@pytest.mark.skipif(shutil.which("codex") is None, reason="Codex CLI unavailable")
+def test_real_codex_plugin_rolls_back_old_registration_on_publish_failure(
+    tmp_path: Path,
+):
+    repo, commit, tree = _source_repository(tmp_path)
+    old_root = tmp_path / "old-framework"
+    shutil.copytree(repo, old_root, ignore=shutil.ignore_patterns(".git"))
+    home = tmp_path / "home"
+    _codex_plugin(home, "marketplace", "add", str(old_root), "--json")
+    _codex_plugin(home, "add", "codex-copilot@codex-copilot-project", "--json")
+
+    with pytest.raises(installer.FrameworkInstallError, match="publish failure"):
+        _install(
+            repo,
+            commit,
+            tree,
+            home,
+            codex_runner=installer.run_codex_plugin,
+            _fail_after_publish=1,
+        )
+
+    marketplaces = _codex_plugin(home, "marketplace", "list", "--json")
+    plugins = _codex_plugin(home, "list", "--json")
+    assert [(item["name"], item["root"]) for item in marketplaces["marketplaces"]] == [
+        ("codex-copilot-project", str(old_root))
+    ]
+    matching = [
+        item for item in plugins["installed"] if item["name"] == "codex-copilot"
+    ]
+    assert len(matching) == 1
+    assert matching[0]["source"]["path"] == str(old_root / "plugins/codex-copilot")
+    assert not (home / ".copilot/framework-runtime.json").exists()
 
 
 def test_failed_validation_preserves_error_and_removes_readonly_snapshot(
