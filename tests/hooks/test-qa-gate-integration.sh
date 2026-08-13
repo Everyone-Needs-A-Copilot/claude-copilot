@@ -4,7 +4,8 @@
 # Proves the full flow:
 #   1. SubagentStop(me) → pending_tasks gets TASK-N
 #   2. PreToolUse(Bash) → deny
-#   3. PreToolUse(Agent, subagent_type=qa) → allow
+#   3. PreToolUse(Agent, subagent_type=qa) with an authoritative no-active
+#      journey witness → allow
 #   4. SubagentStop(qa, APPROVED) → pending_tasks cleared
 #   5. PreToolUse(Bash) → allow again
 #
@@ -24,6 +25,7 @@ TEST_PROJECT="${TEST_ROOT}/project"
 OTHER_PROJECT="${TEST_ROOT}/other-project"
 STATE_DIR="${TEST_ROOT}/state"
 GATE_FILE="${STATE_DIR}/qa-gate.json"
+NO_ACTIVE_CC="${STATE_DIR}/test-no-active-cc"
 
 # Hooks must resolve task authority and state entirely inside the fixture.
 export CLAUDE_PROJECT_DIR="$TEST_PROJECT"
@@ -60,6 +62,11 @@ cleanup_all() {
 trap cleanup_all EXIT
 
 mkdir -p "$TEST_PROJECT" "$OTHER_PROJECT" "$STATE_DIR"
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'printf '\''%s\n'\'' '\''{"schema_version":"2.1","state":"no_active"}'\''' \
+  > "$NO_ACTIVE_CC"
+chmod +x "$NO_ACTIVE_CC"
 tc init --path "$TEST_PROJECT" --json >/dev/null
 tc init --path "$OTHER_PROJECT" --json >/dev/null
 
@@ -116,7 +123,7 @@ send_pretool_agent() {
     "$TEST_SESSION" "$subagent_type")"
   local exit_code=0
   local output
-  output="$(bash "$PRETOOL_HOOK" <<< "$payload" 2>/dev/null)" || exit_code=$?
+  output="$(COPILOT_CC_BIN="$NO_ACTIVE_CC" bash "$PRETOOL_HOOK" <<< "$payload" 2>/dev/null)" || exit_code=$?
   printf '%d|%s' "$exit_code" "$output"
 }
 
@@ -164,7 +171,7 @@ else
   fail "Step 2: deny response malformed: $OUTPUT"
 fi
 
-# --- Step 3: PreToolUse(Agent, subagent_type=qa) → should be allowed ---
+# --- Step 3: PreToolUse(Agent, subagent_type=qa) with no active journey → allow ---
 echo ""
 echo "Step 3: PreToolUse(Agent, subagent_type=qa) → expect allow"
 RESULT="$(send_pretool_agent "qa")"
