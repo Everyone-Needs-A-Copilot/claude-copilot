@@ -52,7 +52,7 @@
 #      document as a hard stop but had no enforced consumer for
 #      (EFFECTIVENESS E-6: a mention in agent/command markdown is not a
 #      consumer). Bypass: COPILOT_EXTENSIONS_GATE=off
-#   4. journey-dispatch — after the QA gate, verify an active journey's
+#   4. journey-dispatch — as the final permitting gate, verify an active journey's
 #      single-use invocation marker and exact Agent/Knowledge prompt digests.
 #      No active journey is an explicit no-op; indeterminate active state
 #      fails closed.
@@ -613,14 +613,11 @@ rule_journey_dispatch() {
     cc_bin="$(command -v cc 2>/dev/null || true)"
   fi
   if [[ -z "$cc_bin" || ! -x "$cc_bin" ]]; then
-    # Preserve legacy behavior when no structural journey marker is present.
-    # An anchored marker proves this call belongs to a prepared journey and
-    # therefore must fail closed if its verifier disappeared mid-session.
-    if "$JQ" -e '(.tool_input.prompt // "") | test("\\ACC-JOURNEY-INVOCATION: [0-9a-f]{48}\\n")' \
-        <<< "$PAYLOAD" &>/dev/null; then
-      deny "Journey dispatch state is indeterminate (verifier-unavailable). Restore cc, then inspect the active journey before retrying."
-    fi
-    return 0
+    # A direct framework Agent call is allowed only after the authority proves
+    # either no_active or an exact prepared dispatch.  Without cc the hook
+    # cannot distinguish a legacy call from an active marker bypass, so it
+    # must not guess.
+    deny "Journey dispatch state is indeterminate (verifier-unavailable). Restore cc, then inspect the journey state before retrying."
   fi
 
   local sha_bin="${COPILOT_SHA256_BIN:-/usr/bin/shasum}"
@@ -669,9 +666,9 @@ rule_journey_dispatch() {
   fi
 
   # Never offer a malformed marker to the consuming verifier. An empty marker
-  # performs the non-consuming active-run lookup. Thus malformed framing is a
-  # deny only when the session is actually active; no-active legacy calls stay
-  # unchanged.
+  # performs the non-consuming authoritative no-active lookup. Thus malformed
+  # framing is a deny only when the session is actually active; a proven
+  # no-active legacy call stays unchanged.
   local verify_marker="$marker" verify_knowledge="$knowledge_sha256"
   if [[ "$frame_valid" == "malformed" ]]; then
     verify_marker=""
@@ -697,7 +694,7 @@ rule_journey_dispatch() {
   reason="$("$JQ" -r '.reason // "journey-dispatch-denied"' <<< "$verification" 2>/dev/null)" \
     || reason="journey-dispatch-denied"
 
-  if [[ "$schema" != "2.0" ]]; then
+  if [[ "$schema" != "2.1" ]]; then
     deny "Journey dispatch state is indeterminate (malformed-verifier-response). Inspect the active journey before retrying."
   fi
   if [[ "$state" == "no_active" && "$verify_exit" -eq 0 ]]; then
@@ -919,9 +916,9 @@ rule_path_scope() {
 # ---------------------------------------------------------------------------
 rule_force_delegate
 rule_qa_gate
-rule_journey_dispatch
 rule_extension_resolution
 rule_destructive_command
 rule_path_scope
+rule_journey_dispatch
 
 exit 0

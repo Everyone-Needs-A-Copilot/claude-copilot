@@ -33,22 +33,22 @@ printf 'session=%s subagent=%s marker=%s prompt=%s knowledge=%s\n' "$session" "$
 
 case "${FAKE_CC_MODE:-no_active}" in
   no_active)
-    printf '%s\n' '{"schema_version":"2.0","state":"no_active"}'
+    printf '%s\n' '{"schema_version":"2.1","state":"no_active"}'
     ;;
   authorize)
     if [[ "$marker" =~ ^[0-9a-f]{48}$ && "$prompt_sha" =~ ^[0-9a-f]{64}$ && "$knowledge_sha" =~ ^[0-9a-f]{64}$ ]]; then
-      printf '%s\n' '{"schema_version":"2.0","state":"dispatch_authorized","run_id":"run-test","stage_index":0,"dispatch_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'
+      printf '%s\n' '{"schema_version":"2.1","state":"dispatch_authorized","run_id":"run-test","stage_index":0,"dispatch_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'
     else
-      printf '%s\n' '{"schema_version":"2.0","state":"denied","reason":"missing-marker","recovery_command":"cc journey inspect --run run-test --json"}'
+      printf '%s\n' '{"schema_version":"2.1","state":"denied","reason":"missing-marker","recovery_command":"cc journey inspect --run run-test --json"}'
       exit 2
     fi
     ;;
   active)
-    printf '%s\n' '{"schema_version":"2.0","state":"denied","reason":"missing-marker","recovery_command":"cc journey inspect --run run-test --json"}'
+    printf '%s\n' '{"schema_version":"2.1","state":"denied","reason":"missing-marker","recovery_command":"cc journey inspect --run run-test --json"}'
     exit 2
     ;;
   replay)
-    printf '%s\n' '{"schema_version":"2.0","state":"denied","reason":"marker-replayed","recovery_command":"cc journey inspect --run run-test --json"}'
+    printf '%s\n' '{"schema_version":"2.1","state":"denied","reason":"marker-replayed","recovery_command":"cc journey inspect --run run-test --json"}'
     exit 2
     ;;
   malformed)
@@ -132,6 +132,15 @@ printf '\n=== journey dispatch hook ===\n'
 invoke_hook "$(agent_payload legacy me 'Task: ordinary direct work')" no_active
 assert_exit "no active journey leaves legacy framework dispatch unchanged" 0
 assert_log "markerless lookup uses the exact verifier command" '^journey verify-dispatch --session legacy --subagent me --marker  --prompt-sha256 [0-9a-f]{64} --knowledge-sha256  --json$'
+
+HOOK_STDOUT="$(printf '%s' "$(agent_payload unavailable me 'Task: markerless but authority missing')" | \
+  COPILOT_CC_BIN="${TEST_ROOT}/missing-cc" \
+  COPILOT_HOOK_STATE_DIR="$STATE_DIR" \
+  COPILOT_FORCE_DELEGATE=off COPILOT_QA_GATE=off COPILOT_EXTENSIONS_GATE=off \
+  bash "$HOOK" 2>"${TEST_ROOT}/stderr")"
+HOOK_EXIT=$?
+HOOK_STDERR="$(cat "${TEST_ROOT}/stderr" 2>/dev/null || true)"
+assert_exit "missing verifier denies markerless framework dispatch" 2
 
 invoke_hook "$(agent_payload active me 'Task: missing journey envelope')" active
 assert_exit "active journey denies missing marker" 2
