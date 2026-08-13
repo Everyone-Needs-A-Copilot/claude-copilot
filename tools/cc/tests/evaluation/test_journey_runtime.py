@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
+import multiprocessing
+import os
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -88,7 +92,7 @@ def begin(rows: Rows, *, specialists=("me", "qa"), session="session-296"):
         classification="implementation",
         specialists=specialists,
         events=[
-            {"kind": "transition", "specialist": item, "reason": "protocol supplied"}
+            {"kind": "transition", "specialist": item, "reason": "protocol-supplied"}
             for item in specialists
         ],
         prompt_sha256="b" * 64,
@@ -210,10 +214,57 @@ def test_concurrent_dispatch_consumes_tc_stage_exactly_once():
         thread.join()
 
     assert outcomes.count("dispatch_authorized") == 1
-    assert outcomes.count("dispatch-route-order-mismatch") == 1
+    denied = [item for item in outcomes if item != "dispatch_authorized"]
+    assert len(denied) == 1
+    assert denied[0] in {
+        "dispatch-route-order-mismatch",
+        "Exact next Agent prompt has not been prepared.",
+    }
     titles = [item["title"] for item in rows.items.values()]
-    assert sum(title.startswith("Journey v2.1 dispatch authorization: ") for title in titles) == 1
-    assert sum(title.startswith("Journey v2.1 final authorization evidence: ") for title in titles) == 1
+    assert titles.count("Journey v2.1 dispatch evidence") == 1
+    assert titles.count("Journey v2.1 final evidence") == 1
+
+
+def test_final_write_failure_is_recoverable_without_second_dispatch_row():
+    class FailFinalOnceRows(Rows):
+        fail_final = True
+
+        def store_wp(self, **values):
+            if values["title"] == "Journey v2.1 final evidence" and self.fail_final:
+                self.fail_final = False
+                raise RuntimeError("injected final write failure")
+            return super().store_wp(**values)
+
+    rows = FailFinalOnceRows()
+    started = begin(rows, specialists=("me",))
+    prepared = prepare_run(
+        started["run_id"], "me", ledger=ledger(rows), resolver=resolver
+    )
+    bind_prompt(started["run_id"], "me", "c" * 64, ledger=ledger(rows))
+    with pytest.raises(RuntimeError, match="injected final write failure"):
+        verify_dispatch(
+            session_id="session-296",
+            specialist="me",
+            marker=prepared.invocation_marker,
+            prompt_sha256="c" * 64,
+            knowledge_sha256=prepared.composed_content_sha256,
+            ledger_factory=ledger_factory(rows),
+            resolver=resolver,
+        )
+
+    recovered = verify_dispatch(
+        session_id="session-296",
+        specialist="me",
+        marker=prepared.invocation_marker,
+        prompt_sha256="c" * 64,
+        knowledge_sha256=prepared.composed_content_sha256,
+        ledger_factory=ledger_factory(rows),
+        resolver=resolver,
+    )
+    assert recovered["state"] == "dispatch_authorized"
+    titles = [item["title"] for item in rows.items.values()]
+    assert titles.count("Journey v2.1 dispatch evidence") == 1
+    assert titles.count("Journey v2.1 final evidence") == 1
 
 
 def test_exact_full_prompt_must_be_bound_before_dispatch():
@@ -241,7 +292,7 @@ def test_security_denial_stops_before_knowledge_and_dispatch():
     with pytest.raises(PermissionError, match="mandatory-security-not-allowed"):
         begin_run(
             task_id=296, runtime="claude", classification="implementation",
-            specialists=("me",), events=({"kind": "transition", "specialist": "me", "reason": "protocol supplied"},),
+            specialists=("me",), events=({"kind": "transition", "specialist": "me", "reason": "protocol-supplied"},),
             prompt_sha256="b" * 64, session_id="denied-session", ledger=ledger(rows),
             capability=type("Explode", (), {"invoke": lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("capability called"))})(),
             security=denied,
@@ -258,7 +309,7 @@ def test_pause_capsule_detects_route_and_receipt_drift_and_no_journey_is_distinc
     prepared = prepare_run(started["run_id"], "me", ledger=ledger(rows), resolver=resolver)
     authorize(rows, prepared)
     pause_run(started["run_id"], ledger=ledger(rows), resolver=resolver)
-    begin_row = next(item for item in rows.items.values() if item["title"].startswith("Journey v2.1 begin:"))
+    begin_row = next(item for item in rows.items.values() if item["title"] == "Journey v2.1 begin evidence")
     payload = json.loads(begin_row["content"])
     payload["route"]["specialists"] = ["me", "sec"]
     begin_row["content"] = json.dumps(payload, sort_keys=True, separators=(",", ":"))
@@ -281,7 +332,7 @@ def test_completed_resume_is_immutable_and_reads_no_knowledge():
     begin_row = next(
         item
         for item in rows.items.values()
-        if item["title"].startswith("Journey v2.1 begin:")
+        if item["title"] == "Journey v2.1 begin evidence"
     )
     changed = json.loads(begin_row["content"])
     changed["capability"] = {
@@ -290,7 +341,102 @@ def test_completed_resume_is_immutable_and_reads_no_knowledge():
         "detail": "sha256:" + "f" * 64,
     }
     begin_row["content"] = json.dumps(changed, sort_keys=True, separators=(",", ":"))
-    assert resume_run(296, run_id=started["run_id"], ledger=ledger(rows)) == first
+    with pytest.raises(ValueError, match="Final authorization evidence changed"):
+        resume_run(296, run_id=started["run_id"], ledger=ledger(rows))
+
+
+def test_three_stage_route_supports_pause_after_each_progress_point():
+    rows = Rows()
+    started = begin(rows, specialists=("me", "qa", "sec"))
+    first = prepare_run(started["run_id"], "me", ledger=ledger(rows), resolver=resolver)
+    authorize(rows, first)
+    assert pause_run(started["run_id"], ledger=ledger(rows), resolver=resolver)[
+        "next_specialist"
+    ] == "qa"
+
+    resumed = resume_run(
+        296, run_id=started["run_id"], ledger=ledger(rows), resolver=resolver
+    )
+    second = resumed["prepared_invocation"]
+    bind_prompt(started["run_id"], "qa", "d" * 64, ledger=ledger(rows))
+    verify_dispatch(
+        session_id="session-296",
+        specialist="qa",
+        marker=second["invocation_marker"],
+        prompt_sha256="d" * 64,
+        knowledge_sha256=second["composed_content_sha256"],
+        ledger_factory=ledger_factory(rows),
+        resolver=resolver,
+    )
+    second_pause = pause_run(
+        started["run_id"], ledger=ledger(rows), resolver=resolver
+    )
+    assert second_pause["status"] == "paused"
+    assert second_pause["next_specialist"] == "sec"
+    assert [
+        json.loads(item["content"])["generation"]
+        for item in rows.items.values()
+        if item["title"] == "Journey v2.1 pause evidence"
+    ] == [1, 2]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("specialist", "qa"),
+        ("invocation_marker", "f" * 48),
+        ("prepared_sha256", "e" * 64),
+    ],
+)
+def test_prompt_binding_must_match_exact_preparation(field, value):
+    rows = Rows()
+    started = begin(rows, specialists=("me",))
+    prepared = prepare_run(
+        started["run_id"], "me", ledger=ledger(rows), resolver=resolver
+    )
+    bind_prompt(started["run_id"], "me", "c" * 64, ledger=ledger(rows))
+    binding_row = next(
+        item
+        for item in rows.items.values()
+        if item["title"] == "Journey v2.1 prompt binding evidence"
+    )
+    payload = json.loads(binding_row["content"])
+    payload[field] = value
+    binding_row["content"] = json.dumps(
+        payload, sort_keys=True, separators=(",", ":")
+    )
+
+    with pytest.raises(ValueError, match="dispatch-prompt-not-bound"):
+        verify_dispatch(
+            session_id="session-296",
+            specialist="me",
+            marker=prepared.invocation_marker,
+            prompt_sha256="c" * 64,
+            knowledge_sha256=prepared.composed_content_sha256,
+            ledger_factory=ledger_factory(rows),
+            resolver=resolver,
+        )
+
+
+def test_terminal_evidence_rejects_dispatch_source_drift():
+    rows = Rows()
+    started = begin(rows, specialists=("me",))
+    prepared = prepare_run(
+        started["run_id"], "me", ledger=ledger(rows), resolver=resolver
+    )
+    authorize(rows, prepared)
+    dispatch_row = next(
+        item
+        for item in rows.items.values()
+        if item["title"] == "Journey v2.1 dispatch evidence"
+    )
+    payload = json.loads(dispatch_row["content"])
+    payload["sources"][0]["ref"] = "refs/tags/v9.9.9"
+    dispatch_row["content"] = json.dumps(
+        payload, sort_keys=True, separators=(",", ":")
+    )
+    with pytest.raises(ValueError, match="Final authorization evidence changed"):
+        inspect_run(started["run_id"], ledger=ledger(rows))
 
 
 def test_security_change_at_dispatch_stops_before_knowledge():
@@ -308,7 +454,7 @@ def test_security_change_at_dispatch_stops_before_knowledge():
             {
                 "kind": "transition",
                 "specialist": "me",
-                "reason": "protocol supplied",
+                "reason": "protocol-supplied",
             },
         ),
         prompt_sha256="b" * 64,
@@ -413,6 +559,32 @@ def test_lock_is_private_and_regular(tmp_path):
         assert lock_path.is_file()
 
 
+def test_lock_wait_is_bounded_and_fails_closed(tmp_path):
+    rows = Rows()
+    lock_dir = tmp_path / "locks"
+    lock_dir.mkdir(mode=0o700)
+    lock_path = lock_dir / "296-contended.lock"
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    fcntl.flock(descriptor, fcntl.LOCK_EX)
+    selected = TcJourneyLedger(
+        296,
+        store_wp=rows.store_wp,
+        get_wp=rows.get_wp,
+        list_wps=rows.list_wps,
+        lock_dir=lock_dir,
+        lock_timeout=0.03,
+    )
+    started = time.monotonic()
+    try:
+        with pytest.raises(RuntimeError, match="timed out"):
+            with selected.claim("contended"):
+                pass
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+    assert time.monotonic() - started < 0.5
+
+
 def test_runtime_contains_no_second_router_or_resolver():
     source = Path(
         "tools/cc/src/cc/core/evaluation/journey_runtime.py"
@@ -434,15 +606,68 @@ def test_runtime_contains_no_second_router_or_resolver():
     assert dispatch.index("rule_journey_dispatch") < dispatch.index("exit 0")
 
 
-@pytest.mark.parametrize("unsafe", ["line\nfeed", "/Users/pabs/private", "api_token=value"])
+@pytest.mark.parametrize(
+    "unsafe",
+    [
+        "line\nfeed",
+        "/Users/pabs/private",
+        "api_token=value",
+        "Pablo Alejo",
+        "contact-pabs@example.com",
+        "inspect-/Users/pabs/private",
+        "sk-abcdefghijklmnopqrstuvwxyz",
+    ],
+)
 def test_persisted_classification_and_reasons_reject_unsafe_values(unsafe):
     rows = Rows()
     with pytest.raises(ValueError, match="unsafe"):
         begin_run(
             task_id=296, runtime="claude", classification=unsafe,
-            specialists=("me",), events=({"kind": "transition", "specialist": "me", "reason": "protocol supplied"},),
+            specialists=("me",), events=({"kind": "transition", "specialist": "me", "reason": "protocol-supplied"},),
             prompt_sha256="b" * 64, session_id="safe-session", ledger=ledger(rows),
             capability=type("Capability", (), {"invoke": lambda self, **_: CapabilityReceipt("cli-copilot-health", "unavailable")})(),
+        )
+
+
+@pytest.mark.parametrize(
+    "unsafe",
+    [
+        "Pablo Alejo",
+        "contact-pabs@example.com",
+        "inspect-/Users/pabs/private",
+        "sk-abcdefghijklmnopqrstuvwxyz",
+    ],
+)
+def test_persisted_reason_and_session_reject_disclosure_values(unsafe):
+    rows = Rows()
+    capability = type(
+        "Capability",
+        (),
+        {"invoke": lambda self, **_: CapabilityReceipt("cli-copilot-health", "unavailable")},
+    )()
+    with pytest.raises(ValueError, match="unsafe"):
+        begin_run(
+            task_id=296,
+            runtime="claude",
+            classification="implementation",
+            specialists=("me",),
+            events=({"kind": "transition", "specialist": "me", "reason": unsafe},),
+            prompt_sha256="b" * 64,
+            session_id="safe-session",
+            ledger=ledger(rows),
+            capability=capability,
+        )
+    with pytest.raises(ValueError, match="unsafe"):
+        begin_run(
+            task_id=296,
+            runtime="claude",
+            classification="implementation",
+            specialists=("me",),
+            events=({"kind": "transition", "specialist": "me", "reason": "protocol-supplied"},),
+            prompt_sha256="b" * 64,
+            session_id=unsafe,
+            ledger=ledger(rows),
+            capability=capability,
         )
 
 
@@ -465,3 +690,92 @@ def test_optional_health_matrix_is_typed_and_fail_open(resolver_result, run_resu
         run=run,
     )
     assert adapter.invoke(case_id="fixture").state == state
+
+
+def test_real_tc_guard_safe_roundtrip_and_multiprocess_dispatch(
+    tmp_path, monkeypatch
+):
+    monkeypatch.syspath_prepend(str(Path("tools/tc/src").resolve()))
+    from tc.api import create_prd, create_task, get_wp, list_wps, store_wp
+    from tc.db.connection import init_db
+
+    db_path = tmp_path / "tasks.db"
+    init_db(db_path)
+    prd = create_prd(title="Journey QA fixture", db_path=db_path)
+    task_id = create_task(
+        title="Journey dispatch fixture", prd=prd["id"], db_path=db_path
+    )["id"]
+    lock_dir = tmp_path / "locks"
+
+    def real_ledger(selected_task):
+        return TcJourneyLedger(
+            selected_task,
+            store_wp=lambda **values: store_wp(**values, db_path=db_path),
+            get_wp=lambda **values: get_wp(**values, db_path=db_path),
+            list_wps=lambda **values: list_wps(**values, db_path=db_path),
+            lock_dir=lock_dir,
+        )
+
+    capability = type(
+        "Capability",
+        (),
+        {"invoke": lambda self, **_: CapabilityReceipt("cli-copilot-health", "unavailable")},
+    )()
+    started = begin_run(
+        task_id=task_id,
+        runtime="claude",
+        classification="implementation",
+        specialists=("me",),
+        events=(
+            {
+                "kind": "transition",
+                "specialist": "me",
+                "reason": "protocol-supplied",
+            },
+        ),
+        prompt_sha256="b" * 64,
+        session_id="real-process-session",
+        ledger=real_ledger(task_id),
+        capability=capability,
+    )
+    prepared = prepare_run(
+        started["run_id"], "me", ledger=real_ledger(task_id), resolver=resolver
+    )
+    bind_prompt(
+        started["run_id"], "me", "c" * 64, ledger=real_ledger(task_id)
+    )
+
+    def worker(queue):
+        try:
+            outcome = verify_dispatch(
+                session_id="real-process-session",
+                specialist="me",
+                marker=prepared.invocation_marker,
+                prompt_sha256="c" * 64,
+                knowledge_sha256=prepared.composed_content_sha256,
+                ledger_factory=real_ledger,
+                resolver=resolver,
+            )
+            queue.put(("ok", outcome["state"]))
+        except Exception as exc:  # pragma: no cover - asserted in parent
+            queue.put(("error", str(exc)))
+
+    context = multiprocessing.get_context("fork")
+    queue = context.Queue()
+    processes = [context.Process(target=worker, args=(queue,)) for _ in range(2)]
+    for process in processes:
+        process.start()
+    for process in processes:
+        process.join(timeout=10)
+        assert not process.is_alive()
+    outcomes = sorted(queue.get(timeout=2) for _ in processes)
+    assert outcomes == [
+        ("error", "dispatch-route-order-mismatch"),
+        ("ok", "dispatch_authorized"),
+    ]
+
+    summaries = list_wps(task=task_id, type_="evidence", db_path=db_path)
+    rows = [get_wp(wp_id=item["id"], db_path=db_path) for item in summaries]
+    assert all(item["guard"] == "title=clean;content=clean" for item in rows)
+    assert sum(item["title"] == "Journey v2.1 dispatch evidence" for item in rows) == 1
+    assert sum(item["title"] == "Journey v2.1 final evidence" for item in rows) == 1

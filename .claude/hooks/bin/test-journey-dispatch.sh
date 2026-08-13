@@ -145,6 +145,20 @@ assert_exit "missing verifier denies markerless framework dispatch" 2
 invoke_hook "$(agent_payload active me 'Task: missing journey envelope')" active
 assert_exit "active journey denies missing marker" 2
 
+# A stalled optional force-delegate streak lock must skip only streak
+# bookkeeping. It must never exit the dispatcher before journey verification.
+mkdir "${STATE_DIR}/streak-lock-bypass.lock"
+: > "$FAKE_LOG"
+HOOK_STDOUT="$(printf '%s' "$(agent_payload lock-bypass me 'Task: missing journey envelope')" | \
+  PATH="${FAKE_BIN}:${PATH}" FAKE_CC_LOG="$FAKE_LOG" FAKE_CC_MODE=active \
+  COPILOT_HOOK_STATE_DIR="$STATE_DIR" COPILOT_QA_GATE=off COPILOT_EXTENSIONS_GATE=off \
+  bash "$HOOK" 2>"${TEST_ROOT}/stderr")"
+HOOK_EXIT=$?
+HOOK_STDERR="$(cat "${TEST_ROOT}/stderr" 2>/dev/null || true)"
+assert_exit "stalled streak lock cannot bypass journey verification" 2
+assert_log "stalled streak lock still invokes journey verifier" '^journey verify-dispatch --session lock-bypass '
+rmdir "${STATE_DIR}/streak-lock-bypass.lock"
+
 invoke_hook "$(agent_payload valid me "$VALID_PROMPT")" authorize
 assert_exit "matching structural envelope is authorized" 0
 assert_log "valid envelope passes marker and both digests" "marker=${MARKER} prompt=[0-9a-f]{64} knowledge=[0-9a-f]{64}"

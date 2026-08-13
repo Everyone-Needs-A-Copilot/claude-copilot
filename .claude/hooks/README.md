@@ -26,6 +26,12 @@ The hooks system provides lifecycle-based injection and enforcement for the main
 | `COPILOT_FREEZE=off` | Path-scope lock rule (`/freeze`) |
 | `COPILOT_SAFETY=off` | Both `/careful` and `/freeze` (convenience alias) |
 
+Active-journey verification has no escape hatch. Optional rule bookkeeping
+(including force-delegate streak locking) may time out and skip its own update,
+but it must continue to the final journey decision. Once a direct main-session
+Agent call is identified, unexpected hook errors fail closed rather than
+silently permitting a dispatch whose active state was not verified.
+
 ### State Directory
 
 `.claude/hooks/state/` (gitignored, ephemeral)

@@ -39,6 +39,14 @@ reasoned transition/checkpoint/skip events, record those existing decisions;
 do not ask `cc` to classify the prompt or expand a flow name. For a Task
 Copilot-backed Claude journey, compute the user prompt SHA-256 and run:
 
+Persisted route fields use disclosure-safe identifiers, not prose: runtime,
+classification, specialist, and event reason values must be lowercase slugs
+matching `[a-z][a-z0-9-]{0,63}` (for example `implementation` and
+`protocol-supplied`). Keep human explanation in the conversation; never place
+a person name, email, filesystem path, credential-shaped value, or free-form
+prompt text in these fields. The session ID must be an opaque runtime token
+containing only letters, digits, `.`, `_`, or `-`.
+
 ```bash
 cc journey begin --task <N> --session <current-session-id> --runtime claude \
   --classification <chosen-classification> \
