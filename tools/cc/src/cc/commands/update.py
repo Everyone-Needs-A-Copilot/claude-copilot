@@ -189,6 +189,11 @@ def build_update_report(
             get_json=_entitlement_get_json,
             state_path=state_path,
             now=_entitlement_now,
+            # Eligible protected Knowledge receipts must survive this
+            # observation until the projector can validate and roll them
+            # inside the update transaction. Terminal decisions still prune
+            # immediately inside observe_layer.
+            defer_eligible_knowledge_snapshot_rollover=True,
         )
         entitlement_decisions.append(decision)
         if decision.eligible:
