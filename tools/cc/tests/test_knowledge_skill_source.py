@@ -21,6 +21,7 @@ from cc.core.ecosystem.knowledge_skill_source import (
 from cc.core.ecosystem.project_locking import atomic_json_write
 from cc.core.extensions_resolver import (
     ACTION_APPLY,
+    ACTION_NO_EXTENSION,
     compose_agent_content_with_receipts,
     resolve_extension,
 )
@@ -511,6 +512,38 @@ def test_protected_prior_path_is_pruned_on_terminal_observation(
     else:
         assert resolve_knowledge_skill_sources() == []
     assert (repo / KNOWLEDGE_SKILLS_SUBPATH).is_dir()
+
+
+def test_protected_extension_revocation_never_falls_back_to_checkout(
+    protected_signed_source,
+):
+    repo, layer, state_path, _cache_root = protected_signed_source
+    initial = resolve_extension("do", knowledge_repos=[str(repo)])
+    assert initial.action == ACTION_APPLY
+    assert compose_agent_content_with_receipts(initial, "base").content == (
+        "signed extension body\n"
+    )
+
+    decision = entitlement.observe_layer(
+        layer,
+        login="person",
+        token="token",
+        get_json=lambda *_args, **_kwargs: 404,
+        state_path=state_path,
+    )
+    assert decision.state == "revoked"
+    (repo / ".claude/extensions/do.extension.md").write_text(
+        "ATTACKER AFTER REVOKE\n", encoding="utf-8"
+    )
+
+    revoked = resolve_extension("do", knowledge_repos=[str(repo)])
+    composed = compose_agent_content_with_receipts(revoked, "base")
+
+    assert revoked.action == ACTION_NO_EXTENSION
+    assert revoked.contributions == ()
+    assert composed.content == "base"
+    assert composed.receipts == ()
+    assert "ATTACKER" not in composed.content
 
 
 def test_offline_eligible_revision_retains_then_reauth_supersedes_snapshot(

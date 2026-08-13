@@ -944,6 +944,62 @@ def _effective_knowledge_layers(
     return effective, eligible, decisions
 
 
+def knowledge_repository_requires_authenticated_source(
+    repository_root: Path | str,
+    *,
+    manifest_source: Any = None,
+    mirror_root_base: Path | str | None = None,
+) -> bool:
+    """Classify whether a configured repository may use mutable checkout bytes.
+
+    Repositories absent from the layer manifest retain the explicit legacy
+    unsigned compatibility path.  A matching protected layer or a layer with
+    signer policy must instead produce a currently authorized, verified
+    source; callers must not reinterpret its absence as unsigned authority.
+    """
+    from cc.core import config
+
+    configured_manifest = (
+        config.resolve_key("layers.manifest")
+        if manifest_source is None
+        else manifest_source
+    )
+    if not configured_manifest:
+        return False
+    try:
+        layers = validate_layers(load_layers(configured_manifest))
+        declared = [layer for layer in layers if layer.get("product") == "knowledge"]
+        mirrors = (
+            config.resolve_key("paths.mirrors_root")
+            if mirror_root_base is None
+            else mirror_root_base
+        )
+        effective = synthesize_effective_layers(
+            declared,
+            mirror_root_base=mirrors or Path.home() / ".copilot" / "mirrors",
+        )
+    except (ManifestError, OSError, TypeError, ValueError) as exc:
+        raise KnowledgeSkillSourceError(
+            "The configured Knowledge layer manifest is invalid."
+        ) from exc
+
+    nominal = _nominal(repository_root)
+    matches = [
+        layer
+        for layer in effective
+        if isinstance((layer.get("source") or {}).get("path"), str)
+        and _nominal((layer.get("source") or {})["path"]) == nominal
+    ]
+    if len(matches) > 1:
+        raise KnowledgeSkillSourceError(
+            "A configured Knowledge repository matches more than one layer."
+        )
+    if not matches:
+        return False
+    layer = matches[0]
+    return entitlement.is_protected_layer(layer) or _signed_policy(layer) is not None
+
+
 def resolve_knowledge_skill_sources(
     *,
     repositories: Iterable[str] | None = None,
@@ -1191,6 +1247,7 @@ __all__ = [
     "KNOWLEDGE_SKILLS_SUBPATH",
     "KnowledgeSkillSourceError",
     "VerifiedKnowledgeSkillSource",
+    "knowledge_repository_requires_authenticated_source",
     "prune_all_knowledge_snapshots",
     "prune_protected_knowledge_snapshots",
     "resolve_knowledge_skill_sources",
