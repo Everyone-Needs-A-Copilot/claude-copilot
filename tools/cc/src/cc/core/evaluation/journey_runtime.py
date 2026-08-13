@@ -16,6 +16,7 @@ import re
 import secrets
 import stat
 import subprocess
+import sys
 import time
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
@@ -54,7 +55,24 @@ _CREDENTIAL_SHAPE = re.compile(
 )
 _EMAIL = re.compile(r"(?i)[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}")
 _PRIVATE_PATH = re.compile(r"(?i)(?:^|/)(?:Users|home|private|tmp|var|Volumes)(?:/|$)")
-_GLOBAL_LOCK_PATH = "/private/tmp"
+
+
+def _platform_global_lock_path(platform: str = sys.platform) -> str:
+    """Return a stable, root-owned system directory used only as a lock FD."""
+
+    if platform == "darwin":
+        # `/tmp` is a symlink on macOS; the no-follow descriptor must bind the
+        # canonical root-owned sticky directory instead.
+        return "/private/tmp"
+    if platform.startswith("linux"):
+        # Hosted Linux provides `/tmp` itself as the root-owned sticky system
+        # directory.  Retain its directory descriptor; never create a lock
+        # file in a user-controlled temporary directory.
+        return "/tmp"
+    raise RuntimeError("Journey global locking is unsupported on this platform.")
+
+
+_GLOBAL_LOCK_PATH = _platform_global_lock_path()
 _SECURITY_AUTHORITY = object()
 _COMMON_RECORD_KEYS = {
     "schema_version",
@@ -400,7 +418,7 @@ class TcJourneyLedger:
 
     @staticmethod
     def _global_lock_descriptor() -> int:
-        if _GLOBAL_LOCK_PATH != "/private/tmp":
+        if _GLOBAL_LOCK_PATH != _platform_global_lock_path():
             raise RuntimeError("Journey global lock path is invalid.")
         flags = (
             os.O_RDONLY
