@@ -16,6 +16,7 @@ from cc.core.ecosystem import entitlement
 from cc.core.ecosystem.knowledge_skill_source import (
     KNOWLEDGE_SKILLS_SUBPATH,
     KnowledgeSkillSourceError,
+    inspect_protected_knowledge_lock_projection,
     prune_all_knowledge_snapshots,
     resolve_knowledge_skill_sources,
     resolve_protected_knowledge_lock_projections,
@@ -236,6 +237,89 @@ def test_protected_receipt_projects_exact_signed_plugin_lock_identity(
     assert projection.release_tree == source.release.tree
     assert projection.content_sha256 == stable_directory_content_sha(
         (item.path, item.content) for item in snapshot.files
+    )
+
+
+def test_read_only_projection_inspector_reproves_active_receipt(
+    protected_signed_source,
+):
+    _source, projection = _protected_projection(protected_signed_source)
+    _repo, layer, _state_path, cache_root = protected_signed_source
+    index_path = cache_root / "index.json"
+    index_before = index_path.read_bytes()
+
+    inspected = inspect_protected_knowledge_lock_projection(
+        layer, cache_root=cache_root
+    )
+
+    assert inspected == projection
+    assert index_path.read_bytes() == index_before
+
+
+def test_read_only_projection_inspector_uses_receipt_not_checkout_bytes(
+    protected_signed_source,
+):
+    _source, projection = _protected_projection(protected_signed_source)
+    repo, layer, _state_path, cache_root = protected_signed_source
+    (repo / KNOWLEDGE_SKILLS_SUBPATH / "accounting" / "SKILL.md").write_text(
+        "mutable checkout replacement\n", encoding="utf-8"
+    )
+    (repo / "plugins" / "codex-copilot" / "SKILL.md").write_text(
+        "mutable plugin replacement\n", encoding="utf-8"
+    )
+
+    assert (
+        inspect_protected_knowledge_lock_projection(layer, cache_root=cache_root)
+        == projection
+    )
+
+
+def test_read_only_projection_inspector_fails_closed_on_receipt_tamper(
+    protected_signed_source,
+):
+    _source, projection = _protected_projection(protected_signed_source)
+    _repo, layer, _state_path, cache_root = protected_signed_source
+    _tamper_protected_receipt(cache_root, projection.binding)
+
+    assert (
+        inspect_protected_knowledge_lock_projection(layer, cache_root=cache_root)
+        is None
+    )
+
+
+def test_read_only_projection_inspector_fails_closed_on_newer_revocation(
+    protected_signed_source,
+):
+    _source, _projection = _protected_projection(protected_signed_source)
+    _repo, layer, state_path, cache_root = protected_signed_source
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["next_sequence"] = 3
+    state["layers"]["knowledge-test"]["state"] = "revoked"
+    state["layers"]["knowledge-test"]["revision"] = 2
+    atomic_json_write(state_path, state)
+
+    assert (
+        inspect_protected_knowledge_lock_projection(layer, cache_root=cache_root)
+        is None
+    )
+
+
+def test_read_only_projection_inspector_rejects_alternate_entitlement_ledger(
+    protected_signed_source,
+):
+    _source, projection = _protected_projection(protected_signed_source)
+    _repo, layer, state_path, cache_root = protected_signed_source
+    alternate = state_path.with_name("forged-entitlements.json")
+    alternate.write_bytes(state_path.read_bytes())
+    alternate.chmod(0o600)
+    index_path = cache_root / "index.json"
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    index["entries"][projection.binding]["state_path"] = str(alternate)
+    atomic_json_write(index_path, index)
+
+    assert (
+        inspect_protected_knowledge_lock_projection(layer, cache_root=cache_root)
+        is None
     )
 
 
@@ -550,7 +634,7 @@ def test_signed_release_blob_read_ignores_checkout_and_tag_switch(signed_source)
     (repo / ".claude/extensions/do.extension.md").write_text(
         "mutable checkout replacement\n", encoding="utf-8"
     )
-    _run(repo, "tag", "-f", "v1.0.0", "HEAD")
+    _run(repo, "tag", "--no-sign", "-f", "v1.0.0", "HEAD")
 
     assert source.release.read_blob(".claude/extensions/do.extension.md") == expected
 
@@ -634,7 +718,7 @@ def test_unsigned_tag_and_symlinked_item_fail_closed(
     signed_source, monkeypatch: pytest.MonkeyPatch
 ):
     repo, fingerprint = signed_source
-    _run(repo, "tag", "unsigned")
+    _run(repo, "tag", "--no-sign", "unsigned")
     monkeypatch.setattr(
         "cc.core.config.resolve_key",
         lambda key: {

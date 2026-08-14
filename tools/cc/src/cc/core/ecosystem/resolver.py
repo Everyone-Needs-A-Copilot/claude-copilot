@@ -72,10 +72,9 @@ def _make_item(
         "winning_layer": winning_layer,
         "winning_sha": winning_sha,
         "shadowed": shadowed,
-        # Fail-closed (this slice): signature-verify and materialize have
-        # not landed yet. NEVER fabricate "signed"/"matches" here — these
-        # two fields become real once the policy/materialize modules exist
-        # (see cc/commands/resolve.py's module docstring).
+        # The fold stays pure and fail-closed.  The read-only command layer
+        # enriches these defaults only after re-proving signed source and
+        # freshly hashing the materialized destination.
         "signer_of_introducing_commit": None,
         "live_hash_matches": False,
     }

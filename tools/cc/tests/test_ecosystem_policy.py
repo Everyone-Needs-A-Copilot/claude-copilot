@@ -386,7 +386,7 @@ def test_git_item_real_repro_still_blocks_genuinely_unsigned_tag(tmp_path):
         ["git", "commit", "-q", "--no-gpg-sign", "-m", "add skill"], cwd=repo, check=True
     )
     # Lightweight (unsigned) tag -- `git verify-tag` must reject it outright.
-    subprocess.run(["git", "tag", "v1.0.0"], cwd=repo, check=True)
+    subprocess.run(["git", "tag", "--no-sign", "v1.0.0"], cwd=repo, check=True)
 
     assert verify_git_item(
         repo,

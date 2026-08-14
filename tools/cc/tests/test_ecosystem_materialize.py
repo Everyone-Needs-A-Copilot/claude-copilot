@@ -22,10 +22,12 @@ from pathlib import Path
 import pytest
 from cc.core.ecosystem.discovery import discover_contributions
 from cc.core.ecosystem.materialize import (
+    content_item_path,
     guard_personal,
     guard_personal_reason,
     materialize,
     materialize_ecosystem_config,
+    materialized_item_content_sha,
 )
 from cc.core.ecosystem.policy import evaluate as fail_closed_policy
 from cc.core.ecosystem.policy import permissive_policy
@@ -86,6 +88,57 @@ def _fingerprint_tree(path: Path) -> str:
             digest.update(child.relative_to(path).as_posix().encode("utf-8"))
             digest.update(child.read_bytes())
     return digest.hexdigest()
+
+
+def test_materialized_item_content_sha_matches_file_lock_identity(tmp_path):
+    root = tmp_path / "claude"
+    item = root / "agents" / "sec.md"
+    item.parent.mkdir(parents=True)
+    item.write_bytes(b"security agent\n")
+
+    assert materialized_item_content_sha(
+        product="claude",
+        dimension="agents",
+        item="sec",
+        materialize_roots={"claude": root},
+    ) == hashlib.sha256(item.read_bytes()).hexdigest()
+
+
+def test_materialized_item_content_sha_fails_closed_on_symlink(tmp_path):
+    root = tmp_path / "claude"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "sec.md").write_text("security agent\n", encoding="utf-8")
+    root.mkdir()
+    (root / "agents").symlink_to(outside, target_is_directory=True)
+
+    assert (
+        materialized_item_content_sha(
+            product="claude",
+            dimension="agents",
+            item="sec",
+            materialize_roots={"claude": root},
+        )
+        is None
+    )
+
+
+def test_read_only_item_helpers_reject_path_traversal(tmp_path):
+    root = tmp_path / "materialized"
+    outside = tmp_path / "outside.md"
+    outside.write_text("outside\n", encoding="utf-8")
+    (root / "agents").mkdir(parents=True)
+
+    assert content_item_path(root, dimension="agents", item="../outside") is None
+    assert (
+        materialized_item_content_sha(
+            product="claude",
+            dimension="agents",
+            item="../outside",
+            materialize_roots={"claude": root},
+        )
+        is None
+    )
 
 
 # ---------------------------------------------------------------------------
