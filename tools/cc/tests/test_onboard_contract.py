@@ -220,13 +220,45 @@ def test_default_codex_runner_fails_closed_when_env_runtime_is_missing(
     assert result.stderr == "node runtime required by codex is not installed."
 
 
+def _write_materialized_codex_plugin(
+    root: Path, name: str, *, skill: tuple[str, str] | None = None
+) -> None:
+    manifest = root / "plugins" / name / ".codex-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(json.dumps({"name": name}) + "\n", encoding="utf-8")
+    if skill is not None:
+        skill_name, content = skill
+        skill_path = root / "plugins" / name / "skills" / skill_name / "SKILL.md"
+        skill_path.parent.mkdir(parents=True)
+        skill_path.write_text(content, encoding="utf-8")
+
+
+def _write_materialized_codex_marketplace(
+    root: Path, plugin_names: tuple[str, ...]
+) -> None:
+    marketplace = root / ".agents" / "plugins" / "marketplace.json"
+    marketplace.parent.mkdir(parents=True)
+    marketplace.write_text(
+        json.dumps(onboard_module._codex_marketplace_payload(plugin_names), indent=2)
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _codex_plugin_lock(plugin_names: tuple[str, ...]) -> dict[str, object]:
+    return {
+        "codex-test-layer": {
+            "_meta": {"product": "codex", "role": "foundation"},
+            "plugins": {name: f"sha-{name}" for name in plugin_names},
+        }
+    }
+
+
 def test_codex_plugin_install_is_idempotent_and_uses_supported_commands(
     monkeypatch, tmp_path
 ):
     root = tmp_path / "materialized" / "codex"
-    manifest = root / "plugins" / "codex-copilot" / ".codex-plugin" / "plugin.json"
-    manifest.parent.mkdir(parents=True)
-    manifest.write_text('{"name":"codex-copilot"}\n', encoding="utf-8")
+    _write_materialized_codex_plugin(root, "codex-copilot")
     monkeypatch.setattr(
         onboard_module,
         "resolve_key",
@@ -250,8 +282,9 @@ def test_codex_plugin_install_is_idempotent_and_uses_supported_commands(
             "",
         )
 
-    first = onboard_module._install_codex_plugin(apply=True, run=run)
-    second = onboard_module._install_codex_plugin(apply=True, run=run)
+    lock = _codex_plugin_lock(("codex-copilot",))
+    first = onboard_module._install_codex_plugin(apply=True, run=run, _lock=lock)
+    second = onboard_module._install_codex_plugin(apply=True, run=run, _lock=lock)
 
     assert first == {"result": "ready"}
     assert second == {"result": "ready"}
@@ -283,14 +316,129 @@ def test_codex_plugin_install_is_idempotent_and_uses_supported_commands(
     assert marketplace["plugins"][0]["source"]["path"] == "./plugins/codex-copilot"
 
 
+def test_codex_activation_installs_every_locked_additive_tier_plugin(
+    monkeypatch, tmp_path
+):
+    root = tmp_path / "materialized" / "codex"
+    plugin_names = (
+        "codex-copilot",
+        "codex-copilot-internal",
+        "codex-copilot-accounting",
+    )
+    _write_materialized_codex_plugin(root, "codex-copilot")
+    _write_materialized_codex_plugin(
+        root,
+        "codex-copilot-internal",
+        skill=("cco", "organization-cco-bytes\n"),
+    )
+    _write_materialized_codex_plugin(
+        root,
+        "codex-copilot-accounting",
+        skill=("cpa", "accounting-cpa-bytes\n"),
+    )
+    monkeypatch.setattr(
+        onboard_module,
+        "resolve_key",
+        lambda key: root if key == "paths.codex_materialize_root" else None,
+    )
+    calls: list[tuple[str, ...]] = []
+
+    def apply_run(args):
+        calls.append(tuple(args))
+        return subprocess.CompletedProcess(args, 0, "{}", "")
+
+    lock = _codex_plugin_lock(plugin_names)
+    report = onboard_module._install_codex_plugin(apply=True, run=apply_run, _lock=lock)
+
+    assert report == {"result": "ready"}
+    assert calls == [
+        ("codex", "plugin", "marketplace", "add", str(root), "--json"),
+        (
+            "codex",
+            "plugin",
+            "add",
+            "codex-copilot@enac-materialized",
+            "--json",
+        ),
+        (
+            "codex",
+            "plugin",
+            "add",
+            "codex-copilot-internal@enac-materialized",
+            "--json",
+        ),
+        (
+            "codex",
+            "plugin",
+            "add",
+            "codex-copilot-accounting@enac-materialized",
+            "--json",
+        ),
+    ]
+    marketplace = json.loads(
+        (root / ".agents/plugins/marketplace.json").read_text(encoding="utf-8")
+    )
+    assert [item["name"] for item in marketplace["plugins"]] == list(plugin_names)
+    assert (
+        root / "plugins/codex-copilot-internal/skills/cco/SKILL.md"
+    ).read_bytes() == b"organization-cco-bytes\n"
+    assert (
+        root / "plugins/codex-copilot-accounting/skills/cpa/SKILL.md"
+    ).read_bytes() == b"accounting-cpa-bytes\n"
+
+    def plan_run(args):
+        if args[2] == "marketplace":
+            payload = {
+                "marketplaces": [{"name": "enac-materialized", "root": str(root)}]
+            }
+        else:
+            payload = {
+                "installed": [
+                    {
+                        "pluginId": f"{name}@enac-materialized",
+                        "installed": True,
+                        "enabled": True,
+                    }
+                    for name in plugin_names
+                ]
+            }
+        return subprocess.CompletedProcess(args, 0, json.dumps(payload), "")
+
+    assert onboard_module._install_codex_plugin(
+        apply=False, run=plan_run, _lock=lock
+    ) == {"result": "ready"}
+
+
+def test_codex_activation_rejects_valid_looking_plugin_absent_from_lock(
+    monkeypatch, tmp_path
+):
+    root = tmp_path / "materialized" / "codex"
+    _write_materialized_codex_plugin(root, "codex-copilot")
+    _write_materialized_codex_plugin(root, "same-uid-injected-plugin")
+    monkeypatch.setattr(
+        onboard_module,
+        "resolve_key",
+        lambda key: root if key == "paths.codex_materialize_root" else None,
+    )
+
+    report = onboard_module._install_codex_plugin(
+        apply=True,
+        run=lambda _args: pytest.fail(
+            "unlocked plugin must be rejected before Codex runs"
+        ),
+        _lock=_codex_plugin_lock(("codex-copilot",)),
+    )
+
+    assert report == {
+        "result": "blocked",
+        "detail": "Materialized Codex plugins do not match the verified ecosystem lock.",
+    }
+
+
 def test_codex_plugin_plan_uses_read_only_codex_inventory(monkeypatch, tmp_path):
     root = tmp_path / "materialized" / "codex"
-    manifest = root / "plugins" / "codex-copilot" / ".codex-plugin" / "plugin.json"
-    manifest.parent.mkdir(parents=True)
-    manifest.write_text('{"name":"codex-copilot"}\n', encoding="utf-8")
-    marketplace = root / ".agents" / "plugins" / "marketplace.json"
-    marketplace.parent.mkdir(parents=True)
-    marketplace.write_text('{"name":"enac-materialized"}\n', encoding="utf-8")
+    _write_materialized_codex_plugin(root, "codex-copilot")
+    _write_materialized_codex_marketplace(root, ("codex-copilot",))
     monkeypatch.setattr(
         onboard_module,
         "resolve_key",
@@ -316,7 +464,9 @@ def test_codex_plugin_plan_uses_read_only_codex_inventory(monkeypatch, tmp_path)
             }
         return subprocess.CompletedProcess(args, 0, json.dumps(payload), "")
 
-    report = onboard_module._install_codex_plugin(apply=False, run=run)
+    report = onboard_module._install_codex_plugin(
+        apply=False, run=run, _lock=_codex_plugin_lock(("codex-copilot",))
+    )
 
     assert report == {"result": "ready"}
     assert calls == [
@@ -329,12 +479,8 @@ def test_codex_plugin_plan_reports_unregistered_marketplace_as_change(
     monkeypatch, tmp_path
 ):
     root = tmp_path / "materialized" / "codex"
-    manifest = root / "plugins" / "codex-copilot" / ".codex-plugin" / "plugin.json"
-    manifest.parent.mkdir(parents=True)
-    manifest.write_text('{"name":"codex-copilot"}\n', encoding="utf-8")
-    marketplace = root / ".agents" / "plugins" / "marketplace.json"
-    marketplace.parent.mkdir(parents=True)
-    marketplace.write_text('{"name":"enac-materialized"}\n', encoding="utf-8")
+    _write_materialized_codex_plugin(root, "codex-copilot")
+    _write_materialized_codex_marketplace(root, ("codex-copilot",))
     monkeypatch.setattr(
         onboard_module,
         "resolve_key",
@@ -346,6 +492,7 @@ def test_codex_plugin_plan_reports_unregistered_marketplace_as_change(
         run=lambda args: subprocess.CompletedProcess(
             args, 0, '{"marketplaces":[]}', ""
         ),
+        _lock=_codex_plugin_lock(("codex-copilot",)),
     )
 
     assert report == {"result": "changes-required"}
@@ -353,12 +500,8 @@ def test_codex_plugin_plan_reports_unregistered_marketplace_as_change(
 
 def test_codex_plugin_plan_fails_closed_when_codex_cannot_start(monkeypatch, tmp_path):
     root = tmp_path / "materialized" / "codex"
-    manifest = root / "plugins" / "codex-copilot" / ".codex-plugin" / "plugin.json"
-    manifest.parent.mkdir(parents=True)
-    manifest.write_text('{"name":"codex-copilot"}\n', encoding="utf-8")
-    marketplace = root / ".agents" / "plugins" / "marketplace.json"
-    marketplace.parent.mkdir(parents=True)
-    marketplace.write_text('{"name":"enac-materialized"}\n', encoding="utf-8")
+    _write_materialized_codex_plugin(root, "codex-copilot")
+    _write_materialized_codex_marketplace(root, ("codex-copilot",))
     monkeypatch.setattr(
         onboard_module,
         "resolve_key",
@@ -370,6 +513,7 @@ def test_codex_plugin_plan_fails_closed_when_codex_cannot_start(monkeypatch, tmp
         run=lambda args: subprocess.CompletedProcess(
             args, 127, "", "node runtime required by codex is not installed."
         ),
+        _lock=_codex_plugin_lock(("codex-copilot",)),
     )
 
     assert report == {
@@ -400,12 +544,8 @@ def test_codex_plugin_plan_fails_closed_on_unreadable_inventory(
     monkeypatch, tmp_path, marketplace_stdout, plugin_stdout, detail
 ):
     root = tmp_path / "materialized" / "codex"
-    manifest = root / "plugins" / "codex-copilot" / ".codex-plugin" / "plugin.json"
-    manifest.parent.mkdir(parents=True)
-    manifest.write_text('{"name":"codex-copilot"}\n', encoding="utf-8")
-    marketplace = root / ".agents" / "plugins" / "marketplace.json"
-    marketplace.parent.mkdir(parents=True)
-    marketplace.write_text('{"name":"enac-materialized"}\n', encoding="utf-8")
+    _write_materialized_codex_plugin(root, "codex-copilot")
+    _write_materialized_codex_marketplace(root, ("codex-copilot",))
     monkeypatch.setattr(
         onboard_module,
         "resolve_key",
@@ -421,6 +561,7 @@ def test_codex_plugin_plan_fails_closed_on_unreadable_inventory(
     report = onboard_module._install_codex_plugin(
         apply=False,
         run=lambda args: subprocess.CompletedProcess(args, 0, next(responses), ""),
+        _lock=_codex_plugin_lock(("codex-copilot",)),
     )
 
     assert report == {"result": "blocked", "detail": detail}
@@ -469,7 +610,11 @@ def test_codex_marketplace_failures_are_distinct_and_do_not_leak_stderr(
         lambda key: root if key == "paths.codex_materialize_root" else None,
     )
 
-    report = onboard_module._install_codex_plugin(apply=True, run=lambda _args: result)
+    report = onboard_module._install_codex_plugin(
+        apply=True,
+        run=lambda _args: result,
+        _lock=_codex_plugin_lock(("codex-copilot",)),
+    )
 
     assert report == {"result": "blocked", "detail": detail}
     assert result.stderr not in report["detail"]
@@ -499,7 +644,9 @@ def test_codex_plugin_install_failure_is_distinct_from_marketplace_failure(
             "" if calls == 1 else "install policy rejected",
         )
 
-    report = onboard_module._install_codex_plugin(apply=True, run=run)
+    report = onboard_module._install_codex_plugin(
+        apply=True, run=run, _lock=_codex_plugin_lock(("codex-copilot",))
+    )
 
     assert report == {
         "result": "blocked",
@@ -778,6 +925,19 @@ def _aggregate_run(args):
 org: Acme
 harness: [claude, codex]
 components: [knowledge, cli, claude, codex]
+shared_releases:
+  allowed_signers: [SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo]
+  organization:
+    knowledge: v1.5.0
+    cli: v0.1.2
+    claude: v1.0.0
+    codex: v1.0.0
+  departments:
+    accounting:
+      knowledge: v1.0.1
+      cli: v1.0.0
+      claude: v1.0.0
+      codex: v1.0.0
 store:
   status: deferred
 foundation:
@@ -1098,10 +1258,24 @@ def test_existing_eight_layer_machine_repairs_to_all_twelve_layers(tmp_path):
                 "claude": "v5.9.0",
                 "codex": "v0.6.2",
             }
-        }
+        },
+        "shared_releases": {
+            "allowed_signers": ["SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo"],
+            "organization": {
+                "knowledge": "v1.5.0",
+                "cli": "v0.1.2",
+                "claude": "v1.0.0",
+                "codex": "v1.0.0",
+            },
+            "departments": {},
+        },
     }
     desired = onboard_module._layer_manifest(
-        "Acme", "pablo", ("knowledge", "cli", "claude", "codex"), handoff, run=_aggregate_run
+        "Acme",
+        "pablo",
+        ("knowledge", "cli", "claude", "codex"),
+        handoff,
+        run=_aggregate_run,
     )
     existing_layers = [
         dict(layer)
@@ -1129,13 +1303,18 @@ def test_existing_eight_layer_machine_repairs_to_all_twelve_layers(tmp_path):
     authored_file = authoring / "private.md"
     authored_file.write_text("keep me", encoding="utf-8")
 
-    plan = onboard_module._manifest_adoption_plan(desired, target, configured_path=target)
+    plan = onboard_module._manifest_adoption_plan(
+        desired, target, configured_path=target
+    )
 
     assert plan.action == "repair"
     assert plan.payload is not None
     assert len(plan.payload["layers"]) == 12
     assert {layer["product"] for layer in plan.payload["layers"]} == {
-        "knowledge", "cli", "claude", "codex"
+        "knowledge",
+        "cli",
+        "claude",
+        "codex",
     }
     assert authored_file.read_text(encoding="utf-8") == "keep me"
 
@@ -1151,7 +1330,17 @@ def test_existing_eight_layer_machine_apply_commits_all_four_products_without_to
                 "claude": "v5.9.0",
                 "codex": "v0.6.2",
             }
-        }
+        },
+        "shared_releases": {
+            "allowed_signers": ["SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo"],
+            "organization": {
+                "knowledge": "v1.5.0",
+                "cli": "v0.1.2",
+                "claude": "v1.0.0",
+                "codex": "v1.0.0",
+            },
+            "departments": {},
+        },
     }
     desired = onboard_module._layer_manifest(
         "Acme",
@@ -1212,18 +1401,15 @@ def test_existing_eight_layer_machine_apply_commits_all_four_products_without_to
     assert report["result"] == "ready"
     applied = yaml.safe_load(target.read_text(encoding="utf-8"))
     assert len(applied["layers"]) == 12
-    assert {
-        (layer["product"], layer["role"])
-        for layer in applied["layers"]
-    } == {
+    assert {(layer["product"], layer["role"]) for layer in applied["layers"]} == {
         (product, role)
         for product in ("knowledge", "cli", "claude", "codex")
         for role in ("personal", "organization", "foundation")
     }
     rollback = Path(
-        next(
-            stage for stage in report["stages"] if stage["stage"] == "layer-manifest"
-        )["rollback_path"]
+        next(stage for stage in report["stages"] if stage["stage"] == "layer-manifest")[
+            "rollback_path"
+        ]
     )
     assert rollback.read_bytes() == before
     assert authored_file.read_text(encoding="utf-8") == "keep me exactly"
@@ -1249,9 +1435,7 @@ def test_machine_pointer_commit_is_atomic_and_preserves_unrelated_config(tmp_pat
     manifest_path = tmp_path / "copilot.layers.yml"
     knowledge_paths = ["/mirrors/knowledge/personal", "/mirrors/knowledge/org"]
 
-    written = onboard_module._commit_machine_pointers(
-        manifest_path, knowledge_paths
-    )
+    written = onboard_module._commit_machine_pointers(manifest_path, knowledge_paths)
 
     assert written == config_path
     payload = json.loads(config_path.read_text(encoding="utf-8"))
@@ -1356,6 +1540,225 @@ layers:
     products = {layer["product"] for layer in written["layers"] if "product" in layer}
     assert products == {"knowledge", "cli", "claude", "codex"}
     assert report["result"] == "ready"
+    _assert_valid_onboard_report(report)
+
+
+def test_manifest_repair_advances_an_exact_shared_release_without_accepting_a_downgrade(
+    tmp_path,
+):
+    target = tmp_path / "layers.yml"
+    existing = {
+        "version": 1,
+        "org": "Acme",
+        "layers": [
+            {
+                "id": "claude-organization",
+                "role": "organization",
+                "rank": 30,
+                "product": "claude",
+                "source": {
+                    "repo": "git@github-work:Acme/claude-copilot-internal.git",
+                    "ref": "v1.0.2",
+                },
+                "auth": "work",
+                "activation": "always",
+                "policy": {
+                    "allowed_signers": [
+                        "SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo"
+                    ]
+                },
+            }
+        ],
+    }
+    desired = {
+        "version": 1,
+        "org": "Acme",
+        "layers": [
+            {
+                **existing["layers"][0],
+                "source": {
+                    **existing["layers"][0]["source"],
+                    "ref": "v1.0.4",
+                },
+                "policy": {
+                    "allowed_signers": [
+                        "SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo"
+                    ]
+                },
+            }
+        ],
+    }
+    target.write_text(yaml.safe_dump(existing, sort_keys=False), encoding="utf-8")
+
+    upgrade = onboard_module._manifest_adoption_plan(desired, target)
+
+    assert upgrade.action == "repair"
+    assert upgrade.payload is not None
+    assert upgrade.payload["layers"][0]["source"]["ref"] == "v1.0.4"
+    assert upgrade.payload["layers"][0]["policy"]["allowed_signers"] == [
+        "SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo"
+    ]
+
+    target.write_text(yaml.safe_dump(desired, sort_keys=False), encoding="utf-8")
+    downgrade = onboard_module._manifest_adoption_plan(existing, target)
+    assert downgrade.action == "review"
+    assert downgrade.payload is None
+
+
+def test_manifest_product_change_detection_is_scoped_and_fail_closed(tmp_path):
+    target = tmp_path / "layers.yml"
+    cli_layer = {
+        "id": "org-internal",
+        "role": "organization",
+        "rank": 30,
+        "product": "cli",
+        "source": {
+            "repo": "git@github-work:Acme/cli-copilot-internal.git",
+            "ref": "v0.1.2",
+        },
+        "auth": "work",
+        "activation": "always",
+    }
+    claude_layer = {
+        "id": "claude-organization",
+        "role": "organization",
+        "rank": 30,
+        "product": "claude",
+        "source": {
+            "repo": "git@github-work:Acme/claude-copilot-internal.git",
+            "ref": "v1.0.2",
+        },
+        "auth": "work",
+        "activation": "always",
+    }
+    target.write_text(
+        yaml.safe_dump(
+            {"version": 1, "org": "Acme", "layers": [cli_layer, claude_layer]},
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    claude_upgrade = onboard_module._manifest_adoption_plan(
+        {
+            "version": 1,
+            "org": "Acme",
+            "layers": [
+                {
+                    **claude_layer,
+                    "source": {**claude_layer["source"], "ref": "v1.0.4"},
+                }
+            ],
+        },
+        target,
+    )
+
+    assert onboard_module._manifest_product_changed(claude_upgrade, "cli") is False
+    assert onboard_module._manifest_product_changed(claude_upgrade, "claude") is True
+
+    cli_upgrade = onboard_module._manifest_adoption_plan(
+        {
+            "version": 1,
+            "org": "Acme",
+            "layers": [
+                {
+                    **cli_layer,
+                    "source": {**cli_layer["source"], "ref": "v0.1.3"},
+                }
+            ],
+        },
+        target,
+    )
+
+    assert onboard_module._manifest_product_changed(cli_upgrade, "cli") is True
+
+
+def test_claude_only_release_repair_does_not_sync_unchanged_cli_layers(tmp_path):
+    target = tmp_path / "layers.yml"
+
+    def v104_run(args):
+        result = _aggregate_run(args)
+        if args[2].endswith("/contents/ecosystem.yml"):
+            payload = json.loads(result.stdout)
+            handoff = base64.b64decode(payload["content"]).decode()
+            payload["content"] = base64.b64encode(
+                handoff.replace("claude: v1.0.0", "claude: v1.0.4").encode()
+            ).decode()
+            return subprocess.CompletedProcess(args, 0, json.dumps(payload), "")
+        return result
+
+    def update(**_):
+        return {"result": "up-to-date", "blocked": [], "held_for_approval": []}, 0
+
+    first = build_ecosystem_onboard_report(
+        org="Acme",
+        products=("claude",),
+        apply=True,
+        run=v104_run,
+        manifest_path=target,
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=_cli,
+        consumer_probe_fn=_consumer_ready,
+        update_fn=update,
+        doctor_fn=lambda **_: {"status": "healthy", "score": 100},
+        mirror_seed_fn=_no_mirror_seed,
+        commit_config_fn=lambda *_: None,
+    )
+    assert first["result"] == "ready"
+    existing = yaml.safe_load(target.read_text(encoding="utf-8"))
+    for layer in existing["layers"]:
+        if layer["product"] == "claude" and layer["role"] in {
+            "department",
+            "organization",
+        }:
+            layer["source"]["ref"] = "v1.0.2"
+        if layer["product"] == "cli" and layer["role"] == "foundation":
+            layer["policy"]["allowed_signers"] = [
+                "SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo"
+            ]
+    target.write_text(yaml.safe_dump(existing, sort_keys=False), encoding="utf-8")
+    cli_calls = []
+
+    report = build_ecosystem_onboard_report(
+        org="Acme",
+        products=("claude",),
+        apply=True,
+        run=v104_run,
+        manifest_path=target,
+        personal_fn=_personal,
+        ssh_fn=_ssh,
+        codex_fn=_codex,
+        cli_fn=lambda path: cli_calls.append(path),
+        consumer_probe_fn=_consumer_ready,
+        update_fn=update,
+        doctor_fn=lambda **_: {"status": "healthy", "score": 100},
+        mirror_seed_fn=_no_mirror_seed,
+        commit_config_fn=lambda *_: None,
+    )
+
+    assert report["result"] == "ready"
+    assert cli_calls == []
+    cli_stage = next(
+        stage for stage in report["stages"] if stage["stage"] == "cli-sync"
+    )
+    assert cli_stage == {"stage": "cli-sync", "result": "ready"}
+    repaired = yaml.safe_load(target.read_text(encoding="utf-8"))
+    assert {
+        layer["source"]["ref"]
+        for layer in repaired["layers"]
+        if layer["product"] == "claude"
+        and layer["role"] in {"department", "organization"}
+    } == {"v1.0.4"}
+    cli_foundation = next(
+        layer
+        for layer in repaired["layers"]
+        if layer["product"] == "cli" and layer["role"] == "foundation"
+    )
+    assert cli_foundation["policy"]["allowed_signers"] == [
+        "SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo"
+    ]
     _assert_valid_onboard_report(report)
 
 
@@ -1543,6 +1946,7 @@ def _fake_commit_config(events=None):
     def commit_config(path, knowledge):
         if events is not None:
             events.append("commit-config")
+
     return commit_config
 
 
@@ -1711,7 +2115,15 @@ def test_materialize_held_still_activates_codex_and_completes_the_pipeline(
                 "result": "held",
                 "changed": [],
                 "blocked": [],
-                "held_for_approval": [{"product": "claude", "dimension": "knowledge", "from": "a", "to": "a", "reason": "held"}],
+                "held_for_approval": [
+                    {
+                        "product": "claude",
+                        "dimension": "knowledge",
+                        "from": "a",
+                        "to": "a",
+                        "reason": "held",
+                    }
+                ],
             },
             1,
         )
@@ -1778,7 +2190,9 @@ def test_materialize_environment_failure_still_rolls_back_manifest_loudly(tmp_pa
         cli_fn=_cli,
         consumer_probe_fn=_consumer_ready,
         update_fn=update,
-        doctor_fn=lambda **_: pytest.fail("doctor must not run after an environment materialize failure"),
+        doctor_fn=lambda **_: pytest.fail(
+            "doctor must not run after an environment materialize failure"
+        ),
     )
 
     assert report["result"] == "blocked"
@@ -1816,7 +2230,9 @@ def test_materialize_raised_exception_still_rolls_back_manifest_loudly(tmp_path)
         cli_fn=_cli,
         consumer_probe_fn=_consumer_ready,
         update_fn=update,
-        doctor_fn=lambda **_: pytest.fail("doctor must not run after a raised materialize exception"),
+        doctor_fn=lambda **_: pytest.fail(
+            "doctor must not run after a raised materialize exception"
+        ),
     )
 
     assert report["result"] == "blocked"
@@ -1863,7 +2279,13 @@ def test_rollback_confirmation_compares_bytes_not_the_restored_manifests_own_gat
                 "result": "held",
                 "blocked": [],
                 "held_for_approval": [
-                    {"product": "cli", "dimension": "commands", "from": "a", "to": "a", "reason": "held"}
+                    {
+                        "product": "cli",
+                        "dimension": "commands",
+                        "from": "a",
+                        "to": "a",
+                        "reason": "held",
+                    }
                 ],
             },
             1,
@@ -1880,7 +2302,9 @@ def test_rollback_confirmation_compares_bytes_not_the_restored_manifests_own_gat
         cli_fn=_cli,
         consumer_probe_fn=_consumer_ready,
         update_fn=update,
-        doctor_fn=lambda **_: pytest.fail("doctor must not run after a rolled-back manifest"),
+        doctor_fn=lambda **_: pytest.fail(
+            "doctor must not run after a rolled-back manifest"
+        ),
     )
 
     assert report["result"] == "blocked"
@@ -1928,7 +2352,9 @@ def test_rollback_confirmation_still_fails_when_bytes_do_not_match(tmp_path):
         cli_fn=_cli,
         consumer_probe_fn=_consumer_ready,
         update_fn=update,
-        doctor_fn=lambda **_: pytest.fail("doctor must not run after a failed rollback"),
+        doctor_fn=lambda **_: pytest.fail(
+            "doctor must not run after a failed rollback"
+        ),
     )
 
     assert report["result"] == "blocked"
@@ -2103,7 +2529,9 @@ def test_mirror_seed_runs_before_doctor_and_is_ledgered(tmp_path, monkeypatch):
 
     monkeypatch.setattr(onboard_module, "_topology_report_layers", topology)
     monkeypatch.setattr(
-        onboard_module, "_apply_visible_topology", lambda *_args, **_kwargs: (True, None)
+        onboard_module,
+        "_apply_visible_topology",
+        lambda *_args, **_kwargs: (True, None),
     )
 
     def update(**kwargs):
@@ -2278,6 +2706,7 @@ def test_ecosystem_apply_writes_exact_refs_and_runs_update_doctor(
     def doctor(**_kwargs):
         events.append("doctor")
         return {"status": "healthy", "score": 100}
+
     monkeypatch.setattr(
         onboard_module,
         "FOUNDATION_ALLOWED_SIGNERS",
@@ -2509,7 +2938,11 @@ def test_existing_identity_reads_ready_without_ever_calling_create():
 
     report = onboard_module._provision_store(store, apply=False, run=run)
 
-    assert report == {"result": "ready", "type": "infisical", "scope": "prod:/shared:read"}
+    assert report == {
+        "result": "ready",
+        "type": "infisical",
+        "scope": "prod:/shared:read",
+    }
     assert calls == [("copilot", "infisical", "--json", "identity", "list")]
 
 
@@ -2545,9 +2978,7 @@ def test_no_identity_yet_apply_mode_creates_one_and_reads_ready(monkeypatch):
         "secret_path": "/shared",
     }
     calls: list[tuple[str, ...]] = []
-    monkeypatch.setattr(
-        onboard_module.socket, "gethostname", lambda: "pablos-macbook"
-    )
+    monkeypatch.setattr(onboard_module.socket, "gethostname", lambda: "pablos-macbook")
 
     def run(args: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
         calls.append(tuple(args))
@@ -2559,10 +2990,21 @@ def test_no_identity_yet_apply_mode_creates_one_and_reads_ready(monkeypatch):
 
     report = onboard_module._provision_store(store, apply=True, run=run)
 
-    assert report == {"result": "ready", "type": "infisical", "scope": "prod:/shared:read"}
+    assert report == {
+        "result": "ready",
+        "type": "infisical",
+        "scope": "prod:/shared:read",
+    }
     assert calls == [
         ("copilot", "infisical", "--json", "identity", "list"),
-        ("copilot", "infisical", "--json", "identity", "create", "copilot-pablos-macbook"),
+        (
+            "copilot",
+            "infisical",
+            "--json",
+            "identity",
+            "create",
+            "copilot-pablos-macbook",
+        ),
     ]
 
 
@@ -2754,9 +3196,16 @@ def _assert_layers_fully_reported(report: dict) -> None:
     assert report["layers_state"] == "reported"
     assert len(report["layers"]) > 0
     required = {
-        "id", "product", "role", "rank",
-        "action", "local_state", "sync_state", "remote_state",
-        "repository_name", "local_path",
+        "id",
+        "product",
+        "role",
+        "rank",
+        "action",
+        "local_state",
+        "sync_state",
+        "remote_state",
+        "repository_name",
+        "local_path",
     }
     for row in report["layers"]:
         assert required.issubset(row.keys())
@@ -2796,7 +3245,9 @@ def test_ssh_apply_blocked_after_topology_preflight_still_reports_layers(
     monkeypatch.setattr(onboard_module, "_topology_report_layers", _full_topology_rows)
 
     def ssh(*, apply, **_kwargs):
-        return {"result": "blocked", "detail": "Device key rejected."} if apply else _ssh()
+        return (
+            {"result": "blocked", "detail": "Device key rejected."} if apply else _ssh()
+        )
 
     report = build_ecosystem_onboard_report(
         org="Acme",
@@ -2821,9 +3272,11 @@ def test_store_apply_blocked_after_topology_apply_still_reports_layers(
     monkeypatch.setattr(onboard_module, "_topology_report_layers", _full_topology_rows)
 
     def store(_store, *, apply, run):
-        return {"result": "blocked", "detail": "Store rejected the write."} if apply else {
-            "result": "deferred"
-        }
+        return (
+            {"result": "blocked", "detail": "Store rejected the write."}
+            if apply
+            else {"result": "deferred"}
+        )
 
     report = build_ecosystem_onboard_report(
         org="Acme",
@@ -2853,8 +3306,12 @@ def test_reported_layers_state_forbids_empty_layers():
         personal_fn=lambda **_: {
             "result": "blocked",
             "summary": {
-                "existing": 0, "missing": 0, "created": 0,
-                "seeded": 0, "held": 1, "blocked": 1,
+                "existing": 0,
+                "missing": 0,
+                "created": 0,
+                "seeded": 0,
+                "held": 1,
+                "blocked": 1,
             },
         },
         ssh_fn=_ssh,
@@ -2866,7 +3323,9 @@ def test_reported_layers_state_forbids_empty_layers():
     tampered["layers_state"] = "reported"
     validator = _onboard_validator()
     errors = list(validator.iter_errors(tampered))
-    assert errors, "an empty `layers` claiming `layers_state: reported` must fail validation"
+    assert (
+        errors
+    ), "an empty `layers` claiming `layers_state: reported` must fail validation"
 
 
 def test_skeletal_four_field_layer_row_fails_validation():
@@ -2884,7 +3343,12 @@ def test_skeletal_four_field_layer_row_fails_validation():
         "stages": [],
         "layers_state": "reported",
         "layers": [
-            {"id": "claude-personal", "product": "claude", "role": "personal", "rank": 10}
+            {
+                "id": "claude-personal",
+                "product": "claude",
+                "role": "personal",
+                "rank": 10,
+            }
         ],
         "inventory": [],
         "inventory_summary": {"reused": 0, "changes": 0, "review": 0},
@@ -2904,7 +3368,24 @@ def test_department_membership_expands_visible_manifest_to_sixteen_layers(tmp_pa
                 "claude": "v5.9.0",
                 "codex": "v0.6.2",
             }
-        }
+        },
+        "shared_releases": {
+            "allowed_signers": ["SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo"],
+            "organization": {
+                "knowledge": "v1.5.0",
+                "cli": "v0.1.2",
+                "claude": "v1.0.0",
+                "codex": "v1.0.0",
+            },
+            "departments": {
+                "accounting": {
+                    "knowledge": "v1.0.1",
+                    "cli": "v1.0.0",
+                    "claude": "v1.0.0",
+                    "codex": "v1.0.0",
+                }
+            },
+        },
     }
 
     manifest = onboard_module._layer_manifest(
@@ -2944,6 +3425,52 @@ def test_department_membership_expands_visible_manifest_to_sixteen_layers(tmp_pa
         for layer in manifest["layers"]
         if layer is not claude_foundation
     )
+    shared = [
+        layer
+        for layer in manifest["layers"]
+        if layer["role"] in {"organization", "department"}
+    ]
+    assert all(layer["source"]["ref"].startswith("v") for layer in shared)
+    assert all(
+        layer["policy"]["allowed_signers"]
+        == ["SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo"]
+        for layer in shared
+    )
+    assert (
+        next(
+            layer
+            for layer in shared
+            if layer["product"] == "cli" and layer["role"] == "organization"
+        )["source"]["ref"]
+        == "v0.1.2"
+    )
+
+
+def test_layer_manifest_refuses_missing_shared_release_authority():
+    handoff = {
+        "foundation": {"refs": {"claude": "v5.9.0"}},
+    }
+
+    with pytest.raises(RuntimeError, match="shared_releases.allowed_signers"):
+        onboard_module._layer_manifest(
+            "Acme", "pablo", ("claude",), handoff, run=_aggregate_run
+        )
+
+
+def test_layer_manifest_refuses_mutable_shared_release_ref():
+    handoff = {
+        "foundation": {"refs": {"claude": "v5.9.0"}},
+        "shared_releases": {
+            "allowed_signers": ["SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo"],
+            "organization": {"claude": "main"},
+            "departments": {},
+        },
+    }
+
+    with pytest.raises(RuntimeError, match="shared_releases.organization.claude"):
+        onboard_module._layer_manifest(
+            "Acme", "pablo", ("claude",), handoff, run=_aggregate_run
+        )
 
 
 def test_department_entitlement_requires_declared_active_membership():
@@ -3011,7 +3538,9 @@ def test_topology_reports_connected_then_independently_verified(tmp_path):
     def run(args):
         args = tuple(args)
         if args[:3] == ("gh", "api", "repos/pablo/codex-copilot-private"):
-            return subprocess.CompletedProcess(args, 0, json.dumps({"private": True}), "")
+            return subprocess.CompletedProcess(
+                args, 0, json.dumps({"private": True}), ""
+            )
         if args[:3] == ("gh", "api", "repos/pablo/codex-copilot-private/contents"):
             return subprocess.CompletedProcess(args, 0, "[]", "")
         if args[:4] == ("git", "-C", str(checkout), "remote"):
@@ -3049,12 +3578,16 @@ def _real_run(args):
     return subprocess.run(list(args), capture_output=True, text=True)
 
 
-def _init_content_repo(path: Path, filename: str, content: str, *, message: str = "init") -> None:
+def _init_content_repo(
+    path: Path, filename: str, content: str, *, message: str = "init"
+) -> None:
     """A real, disposable one-commit repo -- the G-1 fixture rule (never a
     live tree)."""
     path.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "init", "-q", "-b", "main"], cwd=path, check=True)
-    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=path, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.invalid"], cwd=path, check=True
+    )
     subprocess.run(["git", "config", "user.name", "Test"], cwd=path, check=True)
     _commit(path, filename, content, message)
 
@@ -3074,7 +3607,15 @@ def _set_fake_origin(path: Path, owner: str, name: str) -> None:
     syntactically valid, never-dereferenced GitHub SSH URL is sufficient and
     keeps every fixture fully offline."""
     subprocess.run(
-        ["git", "-C", str(path), "remote", "add", "origin", f"git@github.com:{owner}/{name}.git"],
+        [
+            "git",
+            "-C",
+            str(path),
+            "remote",
+            "add",
+            "origin",
+            f"git@github.com:{owner}/{name}.git",
+        ],
         check=True,
     )
 
@@ -3087,9 +3628,7 @@ def _clone_with_fake_origin(remote: Path, local: Path, owner: str, name: str) ->
         ["git", "-C", str(local), "config", "user.email", "test@example.invalid"],
         check=True,
     )
-    subprocess.run(
-        ["git", "-C", str(local), "config", "user.name", "Test"], check=True
-    )
+    subprocess.run(["git", "-C", str(local), "config", "user.name", "Test"], check=True)
     subprocess.run(["git", "-C", str(local), "remote", "remove", "origin"], check=True)
     _set_fake_origin(local, owner, name)
 
@@ -3215,7 +3754,9 @@ def test_classify_repository_history_fast_forwardable_to_annotated_tag(tmp_path)
     _annotated_tag(remote, "v2.0.0")
     peeled_commit = _rev_parse(remote)
     tag_object_sha = _rev_parse(remote, "v2.0.0")
-    assert tag_object_sha != peeled_commit  # sanity: a real tag object, not a passthrough
+    assert (
+        tag_object_sha != peeled_commit
+    )  # sanity: a real tag object, not a passthrough
 
     classification = onboard_module._classify_repository_history(
         local,
@@ -3277,7 +3818,9 @@ def test_classify_repository_history_parentless_snapshot_pin_different_tree_is_d
     local = tmp_path / "local"
     _init_content_repo(remote, "note.txt", "remote content")
     _annotated_tag(remote, "v1.0.0")
-    _init_content_repo(local, "note.txt", "local content", message="independent history")
+    _init_content_repo(
+        local, "note.txt", "local content", message="independent history"
+    )
     _set_fake_origin(local, "pablo", "widget")
 
     classification = onboard_module._classify_repository_history(
@@ -3487,7 +4030,9 @@ def test_classify_repository_history_divergent_different_content(tmp_path):
     remote = tmp_path / "remote"
     local = tmp_path / "local"
     _init_content_repo(remote, "note.txt", "remote content")
-    _init_content_repo(local, "note.txt", "local content", message="independent history")
+    _init_content_repo(
+        local, "note.txt", "local content", message="independent history"
+    )
     _set_fake_origin(local, "pablo", "widget")
 
     classification = onboard_module._classify_repository_history(
@@ -3565,7 +4110,9 @@ def test_classify_repository_history_unreadable_when_fetch_fails(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def _topology_manifest(layer_id: str, local: Path, repo: Path, ref: str = "main") -> dict:
+def _topology_manifest(
+    layer_id: str, local: Path, repo: Path, ref: str = "main"
+) -> dict:
     return {
         "version": 1,
         "layers": [
@@ -3580,7 +4127,9 @@ def _topology_manifest(layer_id: str, local: Path, repo: Path, ref: str = "main"
     }
 
 
-def test_topology_report_never_promises_a_fast_forward_for_ahead_only(tmp_path, monkeypatch):
+def test_topology_report_never_promises_a_fast_forward_for_ahead_only(
+    tmp_path, monkeypatch
+):
     remote = tmp_path / "remote"
     local = tmp_path / "codex-copilot-private"
     _init_content_repo(remote, "note.txt", "v1")
@@ -3667,9 +4216,9 @@ def test_legacy_personal_mirrors_move_out_of_active_tree(tmp_path):
     assert len(moved) == 4
     assert not any((mirrors / layer["id"]).exists() for layer in layers)
     quarantined = mirrors.parent / "legacy-mirrors"
-    assert sorted(path.read_text(encoding="utf-8") for path in quarantined.glob("*/preserved.txt")) == [
-        "claude", "cli", "codex", "knowledge"
-    ]
+    assert sorted(
+        path.read_text(encoding="utf-8") for path in quarantined.glob("*/preserved.txt")
+    ) == ["claude", "cli", "codex", "knowledge"]
 
 
 def test_seed_cold_start_mirrors_skips_published_and_existing_and_seeds_the_rest(
@@ -3682,25 +4231,37 @@ def test_seed_cold_start_mirrors_skips_published_and_existing_and_seeds_the_rest
             {
                 "id": "claude-foundation",
                 "product": "claude",
-                "source": {"repo": "https://example.invalid/claude-copilot.git", "ref": "main"},
+                "source": {
+                    "repo": "https://example.invalid/claude-copilot.git",
+                    "ref": "main",
+                },
             },
             # Already has a local mirror on disk -- nothing new to adopt.
             {
                 "id": "codex-organization",
                 "product": "codex",
-                "source": {"repo": "git@github-work:Acme/codex-copilot-internal.git", "ref": "main"},
+                "source": {
+                    "repo": "git@github-work:Acme/codex-copilot-internal.git",
+                    "ref": "main",
+                },
             },
             # Cold start: no pointer, no mirror -- must be seeded.
             {
                 "id": "knowledge-department-accounting",
                 "product": "knowledge",
-                "source": {"repo": "git@github-work:Acme/knowledge-copilot-accounting.git", "ref": "main"},
+                "source": {
+                    "repo": "git@github-work:Acme/knowledge-copilot-accounting.git",
+                    "ref": "main",
+                },
             },
             # A clone that itself fails offline stays honestly unseeded.
             {
                 "id": "cli-department-accounting",
                 "product": "cli",
-                "source": {"repo": "git@github-work:Acme/cli-copilot-accounting.git", "ref": "main"},
+                "source": {
+                    "repo": "git@github-work:Acme/cli-copilot-accounting.git",
+                    "ref": "main",
+                },
             },
         ]
     }
@@ -3738,7 +4299,10 @@ def test_seed_cold_start_mirrors_never_raises_on_a_misbehaving_collaborator(tmp_
             {
                 "id": "claude-personal",
                 "product": "claude",
-                "source": {"repo": "git@github-personal:pablo/claude-copilot-private.git", "ref": "main"},
+                "source": {
+                    "repo": "git@github-personal:pablo/claude-copilot-private.git",
+                    "ref": "main",
+                },
             }
         ]
     }
@@ -3787,7 +4351,9 @@ def test_visible_apply_cannot_report_ready_when_resolution_is_empty(
 
     monkeypatch.setattr(onboard_module, "_topology_report_layers", topology)
     monkeypatch.setattr(
-        onboard_module, "_apply_visible_topology", lambda *_args, **_kwargs: (True, None)
+        onboard_module,
+        "_apply_visible_topology",
+        lambda *_args, **_kwargs: (True, None),
     )
     target = tmp_path / "config" / "layers.yml"
     report = build_ecosystem_onboard_report(
@@ -3815,9 +4381,12 @@ def test_visible_apply_cannot_report_ready_when_resolution_is_empty(
     )
 
     assert report["result"] == "blocked"
-    assert next(stage for stage in report["stages"] if stage["stage"] == "resolve")[
-        "result"
-    ] == "blocked"
+    assert (
+        next(stage for stage in report["stages"] if stage["stage"] == "resolve")[
+            "result"
+        ]
+        == "blocked"
+    )
     assert not target.exists()
     _assert_valid_onboard_report(report)
 
@@ -4016,9 +4585,7 @@ def test_ecosystem_apply_orders_topology_preflight_before_first_remote_mutation(
     )
 
     assert report["result"] == "ready"
-    first_mutation = min(
-        events.index("personal-apply"), events.index("ssh-apply")
-    )
+    first_mutation = min(events.index("personal-apply"), events.index("ssh-apply"))
     assert events.index("topology-preflight") < first_mutation
     assert events.index("personal-plan") < first_mutation
     assert events.index("ssh-plan") < first_mutation
@@ -4081,9 +4648,7 @@ def test_failure_after_personal_repo_creation_ledger_names_created_repos(tmp_pat
         if "PUT" in args:
             endpoint = args[args.index("PUT") + 1]
             if "codex-copilot-private" in endpoint:
-                return subprocess.CompletedProcess(
-                    args, 1, "", "gh: validation failed"
-                )
+                return subprocess.CompletedProcess(args, 1, "", "gh: validation failed")
         return _org_handoff_and_tags_or_github(gh)(args)
 
     report = build_ecosystem_onboard_report(
@@ -4111,7 +4676,9 @@ def test_failure_after_personal_repo_creation_ledger_names_created_repos(tmp_pat
         "pablo/codex-copilot-private",
     }
     assert all(entry["outcome"] == "completed" for entry in created)
-    assert all(entry["url"] == f"https://github.com/{entry['target']}" for entry in created)
+    assert all(
+        entry["url"] == f"https://github.com/{entry['target']}" for entry in created
+    )
     failed_content = [
         entry
         for entry in report["completed_actions"]
@@ -4177,7 +4744,9 @@ def test_ecosystem_apply_ledger_matches_recorded_github_mutations_one_to_one(
     ]
     assert len(repo_entries) == len(post_calls)
     assert len(content_entries) == len(put_calls)
-    assert all(entry["outcome"] == "completed" for entry in repo_entries + content_entries)
+    assert all(
+        entry["outcome"] == "completed" for entry in repo_entries + content_entries
+    )
     manifest_entries = [
         entry
         for entry in report["completed_actions"]
@@ -4205,7 +4774,9 @@ def test_ecosystem_apply_ledger_matches_recorded_github_mutations_one_to_one(
 # ---------------------------------------------------------------------------
 
 
-def _repair_row_fixture(layer_id: str, local: Path, ref: str = "main") -> tuple[dict, list[dict]]:
+def _repair_row_fixture(
+    layer_id: str, local: Path, ref: str = "main"
+) -> tuple[dict, list[dict]]:
     """A manifest/row pair claiming `action == "repair"` for `local`.
 
     `source["repo"]` is deliberately a placeholder: the `repair` branch of
@@ -4278,7 +4849,9 @@ def test_apply_visible_topology_fast_forwardable_to_annotated_tag_reaches_peeled
     _annotated_tag(remote, "v2.0.0")
     peeled_commit = _rev_parse(remote)
     tag_object_sha = _rev_parse(remote, "v2.0.0")
-    assert tag_object_sha != peeled_commit  # sanity: a real tag object, not a passthrough
+    assert (
+        tag_object_sha != peeled_commit
+    )  # sanity: a real tag object, not a passthrough
     manifest, rows = _repair_row_fixture("codex-personal", local, ref="v2.0.0")
 
     ok, detail = onboard_module._apply_visible_topology(manifest, rows, run=_real_run)
@@ -4303,7 +4876,9 @@ def test_apply_visible_topology_repair_reports_already_at_target_when_nothing_mo
     _init_content_repo(remote, "note.txt", "v1")
     subprocess.run(["git", "clone", "-q", str(remote), str(local)], check=True)
     _commit(remote, "note.txt", "v2", "advance")
-    subprocess.run(["git", "-C", str(local), "fetch", "-q", "origin", "main"], check=True)
+    subprocess.run(
+        ["git", "-C", str(local), "fetch", "-q", "origin", "main"], check=True
+    )
     subprocess.run(
         ["git", "-C", str(local), "merge", "-q", "--ff-only", "FETCH_HEAD"], check=True
     )
@@ -4418,7 +4993,9 @@ def test_apply_visible_topology_divergent_different_content_routes_to_review(
     remote = tmp_path / "remote"
     local = tmp_path / "codex-copilot-private"
     _init_content_repo(remote, "note.txt", "remote content")
-    _init_content_repo(local, "note.txt", "local content", message="independent history")
+    _init_content_repo(
+        local, "note.txt", "local content", message="independent history"
+    )
     _set_fake_origin(local, "pablo", "codex-copilot-private")
     monkeypatch.setattr(
         onboard_module,

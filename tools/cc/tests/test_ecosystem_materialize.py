@@ -16,6 +16,7 @@ call it (every root is a required keyword argument).
 from __future__ import annotations
 
 import hashlib
+import json
 import subprocess
 from pathlib import Path
 
@@ -31,6 +32,7 @@ from cc.core.ecosystem.materialize import (
 )
 from cc.core.ecosystem.policy import evaluate as fail_closed_policy
 from cc.core.ecosystem.policy import permissive_policy
+from cc.core.ecosystem.project_sources import resolve_all_claude_items
 from cc.core.ecosystem.resolver import resolve_layers
 
 
@@ -1047,6 +1049,164 @@ def test_product_native_roots_keep_same_named_items_isolated(tmp_path):
     assert (claude_root / "skills" / "review" / "SKILL.md").read_text() == "claude"
     assert (codex_root / "plugins" / "review" / "plugin.json").read_text() == "codex"
     assert {op["product"] for op in report["ops"]} == {"claude", "codex"}
+
+
+def test_codex_additive_tier_plugins_materialize_with_exact_layer_attribution(tmp_path):
+    layer_specs = (
+        (
+            "codex-department-accounting",
+            "department",
+            20,
+            "codex-copilot-accounting",
+            "skills/cpa/SKILL.md",
+            b"accounting-cpa-bytes\n",
+        ),
+        (
+            "codex-organization",
+            "organization",
+            30,
+            "codex-copilot-internal",
+            "skills/cco/SKILL.md",
+            b"organization-cco-bytes\n",
+        ),
+        (
+            "codex-foundation",
+            "foundation",
+            40,
+            "codex-copilot",
+            "skills/me/SKILL.md",
+            b"foundation-me-bytes\n",
+        ),
+    )
+    layers = []
+    source_paths = {}
+    expected = {}
+    for layer_id, role, rank, plugin_name, relative_skill, skill_bytes in layer_specs:
+        source = tmp_path / f"source-{layer_id}"
+        manifest = source / "plugins" / plugin_name / ".codex-plugin" / "plugin.json"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text(json.dumps({"name": plugin_name}), encoding="utf-8")
+        skill = source / "plugins" / plugin_name / relative_skill
+        skill.parent.mkdir(parents=True)
+        skill.write_bytes(skill_bytes)
+        layers.append(
+            {
+                "id": layer_id,
+                "role": role,
+                "rank": rank,
+                "product": "codex",
+                "source": {
+                    "repo": f"https://example.invalid/{layer_id}.git",
+                    "path": str(source),
+                },
+                "auth": "anon",
+                "activation": "always",
+            }
+        )
+        source_paths[layer_id] = source
+        expected[plugin_name] = (layer_id, relative_skill, skill_bytes)
+
+    contributions = discover_contributions(layers)
+    resolved = resolve_layers(layers, contributions, lockfile={})
+    codex_root = tmp_path / "materialized-codex"
+    report = materialize(
+        resolved,
+        materialize_roots={"codex": codex_root},
+        layer_source_paths=source_paths,
+        layer_products={layer["id"]: "codex" for layer in layers},
+        policy=permissive_policy,
+    )
+
+    assert {entry["item"] for entry in resolved} == set(expected)
+    for plugin_name, (layer_id, relative_skill, skill_bytes) in expected.items():
+        target = codex_root / "plugins" / plugin_name
+        assert (target / relative_skill).read_bytes() == skill_bytes
+        op = next(item for item in report["ops"] if item["item"] == plugin_name)
+        assert op["op"] == "added"
+        assert op["layer"] == layer_id
+        assert op["signed"] is True
+        assert report["lock"][layer_id]["plugins"][plugin_name] == (
+            materialized_item_content_sha(
+                product="codex",
+                dimension="plugins",
+                item=plugin_name,
+                materialize_roots={"codex": codex_root},
+            )
+        )
+
+
+def test_complete_claude_tier_agents_win_resolver_lock_disk_and_fallback(tmp_path):
+    foundation = tmp_path / "claude-foundation"
+    organization = tmp_path / "claude-organization"
+    accounting = tmp_path / "claude-accounting"
+    foundation_cco = ("foundation cco safety and continuity\n" * 80).encode()
+    foundation_cpa = ("foundation cpa safety and continuity\n" * 80).encode()
+    organization_cco = foundation_cco + b"ENAC organization creative method\n"
+    accounting_cpa = foundation_cpa + b"ENAC accounting evidence method\n"
+
+    for root, item, content in (
+        (foundation, "cco", foundation_cco),
+        (foundation, "cpa", foundation_cpa),
+        (organization, "cco", organization_cco),
+        (accounting, "cpa", accounting_cpa),
+    ):
+        path = root / "agents" / f"{item}.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+
+    layers = [
+        _layer("claude-department-accounting", 20, accounting)
+        | {"role": "department", "unit": "accounting"},
+        _layer("claude-organization", 30, organization)
+        | {"role": "organization"},
+        _layer("claude-foundation", 40, foundation),
+    ]
+    runtime = resolve_all_claude_items(_layers=layers)
+    assert runtime[("agents", "cco")].layer == "claude-organization"
+    assert runtime[("agents", "cco")].path.read_bytes() == organization_cco
+    assert runtime[("agents", "cpa")].layer == "claude-department-accounting"
+    assert runtime[("agents", "cpa")].path.read_bytes() == accounting_cpa
+
+    contributions = discover_contributions(layers)
+    resolved = resolve_layers(layers, contributions, lockfile={})
+    materialized_root = tmp_path / "materialized-claude"
+    report = materialize(
+        resolved,
+        materialize_root=materialized_root,
+        layer_source_paths={
+            "claude-department-accounting": accounting,
+            "claude-organization": organization,
+            "claude-foundation": foundation,
+        },
+        policy=permissive_policy,
+    )
+
+    assert (materialized_root / "agents" / "cco.md").read_bytes() == organization_cco
+    assert (materialized_root / "agents" / "cpa.md").read_bytes() == accounting_cpa
+    assert report["lock"]["claude-organization"]["agents"]["cco"] == (
+        materialized_item_content_sha(
+            product="claude",
+            dimension="agents",
+            item="cco",
+            materialize_roots={"claude": materialized_root},
+        )
+    )
+    assert report["lock"]["claude-department-accounting"]["agents"]["cpa"] == (
+        materialized_item_content_sha(
+            product="claude",
+            dimension="agents",
+            item="cpa",
+            materialize_roots={"claude": materialized_root},
+        )
+    )
+
+    (organization / "agents" / "cco.md").unlink()
+    (accounting / "agents" / "cpa.md").unlink()
+    fallback = resolve_all_claude_items(_layers=layers)
+    assert fallback[("agents", "cco")].layer == "claude-foundation"
+    assert fallback[("agents", "cco")].path.read_bytes() == foundation_cco
+    assert fallback[("agents", "cpa")].layer == "claude-foundation"
+    assert fallback[("agents", "cpa")].path.read_bytes() == foundation_cpa
 
 
 def test_product_target_allowlist_blocks_cross_product_dimension(tmp_path):

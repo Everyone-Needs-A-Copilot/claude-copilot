@@ -20,7 +20,9 @@ Benefits over the MCP servers:
 bash tools/cc/install.sh
 ```
 
-This creates a virtual environment at `tools/cc/.venv`, installs `cc` in editable mode, and places a shim at `~/.local/bin/cc`.
+This creates a virtual environment at `tools/cc/.venv`, installs the exact local `cc` and Task Copilot packages without editable path injection, verifies the hidden journey-dispatch boundary in an isolated environment, and places a shim at `~/.local/bin/cc`.
+
+The supported installation is the Claude Copilot framework's `cc + Task Copilot runtime bundle`. Journey enforcement uses Task Copilot as its durable ledger, so a standalone `claude-cli` wheel is not a supported framework runtime even when public `cc` commands appear to work.
 
 Make sure `~/.local/bin` is in your `PATH`:
 

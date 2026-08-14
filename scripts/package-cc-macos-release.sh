@@ -152,7 +152,10 @@ cleanup() {
 trap cleanup EXIT
 
 source_checkout="${scratch}/source"
-git clone --quiet --branch "${SOURCE_REF}" --single-branch \
+# A tag checkout combined with --single-branch has no origin/main ref. Keep
+# the remote branch refs so verify-foundation-release.sh can prove that the
+# exact signed release commit is an ancestor of the branch it claims.
+git clone --quiet --branch "${SOURCE_REF}" --no-single-branch \
     "${remote_url}" "${source_checkout}"
 cloned_commit="$(git -C "${source_checkout}" rev-parse HEAD)"
 [[ "${cloned_commit}" == "${SOURCE_COMMIT}" ]] ||
@@ -346,7 +349,7 @@ run_python -m PyInstaller \
     --paths "${source_checkout}/tools/cc/src" \
     --paths "${source_checkout}/tools/tc/src" \
     --paths "${site_packages}" \
-    --hidden-import "tc.api" \
+    --collect-submodules "tc" \
     --distpath "${pyinstaller_dist}" \
     --workpath "${scratch}/pyinstaller-work" \
     --specpath "${scratch}/pyinstaller-spec" \
@@ -382,6 +385,40 @@ if /usr/sbin/sysctl -n sysctl.proc_translated >/dev/null 2>&1 ||
     [[ "${x86_version}" == "cc version ${expected_version}" ]] ||
         die "x86_64 helper returned unexpected version: ${x86_version}"
 fi
+
+# Exercise the hidden command used by Claude's PreToolUse hook before any
+# network or machine-state probe. A frozen release is a cc + Task Copilot
+# bundle, not a standalone cc wheel: PyInstaller must carry the complete tc
+# import graph needed to distinguish a provable no-active journey from an
+# unavailable verifier. The empty environment, disposable HOME, and working
+# directory outside the checkout prevent PYTHONPATH, an editable .pth, or the
+# release checkout from satisfying this import accidentally.
+journey_probe_root="${scratch}/journey-dispatch-probe"
+journey_probe_home="${journey_probe_root}/home"
+journey_probe_work="${journey_probe_root}/work"
+journey_probe_json="${journey_probe_root}/result.json"
+mkdir -p "${journey_probe_home}" "${journey_probe_work}"
+(
+    cd "${journey_probe_work}"
+    env -i \
+        HOME="${journey_probe_home}" \
+        PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+        "${artifact}" journey verify-dispatch \
+            --session cc-frozen-release-probe \
+            --subagent qa \
+            --prompt-sha256 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+            --json > "${journey_probe_json}"
+)
+/usr/bin/python3 - "${journey_probe_json}" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+if payload != {"schema_version": "2.1", "state": "no_active"}:
+    raise SystemExit(
+        f"isolated frozen journey verifier returned an invalid result: {payload!r}"
+    )
+PY
 
 # Exercise the exact first network boundary the Control Tower User app needs.
 # Version and signature checks alone cannot detect a frozen interpreter that

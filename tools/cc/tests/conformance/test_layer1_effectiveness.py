@@ -19,10 +19,10 @@ from pathlib import Path
 
 import pytest
 from cc.core.conformance import effectiveness as eff
-from cc.core.conformance.types import Verdict
+from cc.core.conformance.types import ExpectedToday, Verdict
 from cc.core.ecosystem.discovery import discover_contributions
 from cc.core.ecosystem.knowledge_skill_source import ProtectedKnowledgeLockProjection
-from cc.core.ecosystem.lockfile import LAYER_META_KEY
+from cc.core.ecosystem.lockfile import LAYER_META_KEY, read_lockfile
 
 from .conftest import FleetFactory
 
@@ -383,29 +383,30 @@ class TestE4AttributionMatchesLock:
 
     @requires_real_machine
     @pytest.mark.machine
-    def test_machine_claude_organization_no_longer_wins_anything(self):
-        """TASK-live-2026-08-11 ground truth (superseded, re-verified
-        2026-08-11): `cc resolve --explain` used to report `winning_layer:
-        claude-organization` for `commands/protocol`, while `~/.claude/cc/
-        copilot.lock.json`'s `claude-organization` entry carried only
-        `_meta`. That specific discrepancy is now closed at the source: the
-        stale, empty `commands/protocol.md` placeholder in
-        `claude-copilot-internal` was deleted (E-3's fix, this same task),
-        so `claude-organization` no longer declares anything and cannot
-        win any item at all -- it simply never appears as a `winning_layer`
-        in E-4's results any more, not because the check stopped looking."""
+    def test_machine_signed_claude_organization_wins_cco_with_lock_attribution(self):
+        """TASK-297 ground truth, re-verified 2026-08-14: the signed Claude organization v1.0.4 layer legitimately contributes `agents/cco`, wins that exact item, and carries a real agents pin in the ecosystem lock. This supersedes the 2026-08-11 no-content state without relaxing E-4's lock-attribution requirement."""
 
         from cc.commands import conformance as conformance_cmd
 
-        conformance_cmd._ensure_registry_loaded()
-        results = conformance_cmd._run_resolver_effectiveness_machine()
-        e4_results = [r for r in results if r.id == eff.E4_ATTRIBUTION_MATCHES_LOCK.id]
+        inputs = conformance_cmd._resolver_effectiveness_inputs()
+        assert inputs is not None, "resolver effectiveness inputs are unavailable"
+        layers, contributions, _isolated_test_lock = inputs
+        real_lock = read_lockfile(_REAL_HOME / ".claude" / "cc" / "copilot.lock.json")
+        e4_results = list(
+            eff.check_e4_resolve_attribution_matches_lock(
+                layers=layers,
+                contributions=contributions,
+                lockfile=real_lock,
+            )
+        )
         assert e4_results, "resolver effectiveness probe produced no E-4 result"
         org_results = [r for r in e4_results if "claude-organization" in r.subject]
-        assert org_results == [], (
-            "claude-organization should not win any item now that its only "
-            "declared content (commands/protocol.md) has been removed"
-        )
+        assert len(org_results) == 1
+        result = org_results[0]
+        assert result.subject == "claude/agents/cco -> claude-organization"
+        assert result.verdict is Verdict.PASS
+        assert result.expected_today is ExpectedToday.PASS
+        assert "1 real dimension pin" in result.detail
 
     # NOTE: deliberately NOT a `@pytest.mark.machine` test. `tests/conftest.py`'s
     # autouse `_isolate_machine_config` fixture redirects `CC_MACHINE_ROOT`
@@ -564,9 +565,9 @@ class TestE5KnowledgeLadderActuallyConsumed:
 
         agents_dir = _CLAUDE_COPILOT_ROOT / ".claude" / "agents"
         agent_paths = [agents_dir / name for name in _LADDER_AGENT_FILES]
-        assert all(p.is_file() for p in agent_paths), (
-            "expected the real framework agent files to exist"
-        )
+        assert all(
+            p.is_file() for p in agent_paths
+        ), "expected the real framework agent files to exist"
 
         with machine_readonly_guard(extra_paths=agent_paths):
             agent_files = {
@@ -579,9 +580,9 @@ class TestE5KnowledgeLadderActuallyConsumed:
         by_name = {result.subject: result for result in results}
         assert set(by_name) == set(_LADDER_AGENT_FILES)
         for name, result in by_name.items():
-            assert result.verdict is Verdict.PASS, (
-                f"{name} regressed to hydrate-then-never-read: {result.detail}"
-            )
+            assert (
+                result.verdict is Verdict.PASS
+            ), f"{name} regressed to hydrate-then-never-read: {result.detail}"
 
 
 # ---------------------------------------------------------------------------

@@ -18,6 +18,8 @@ from cc.core.ecosystem.ecosystem_config import (
     ecosystem_config_path,
     github_client_id,
     load_ecosystem_config,
+    shared_release_ref,
+    shared_release_signers,
 )
 
 
@@ -129,7 +131,11 @@ def test_departments_present():
     cfg = {
         "departments": [
             {"id": "finance", "name": "Finance", "repo": "org/dept-finance-copilot"},
-            {"id": "engineering", "name": "Engineering", "repo": "org/dept-eng-copilot"},
+            {
+                "id": "engineering",
+                "name": "Engineering",
+                "repo": "org/dept-eng-copilot",
+            },
         ]
     }
     result = departments(cfg)
@@ -194,17 +200,87 @@ def test_department_catalog_derives_one_entry_per_component():
 
     ids = {entry["id"] for entry in catalog}
     assert ids == {
-        "accounting-knowledge",
-        "accounting-cli",
-        "accounting-claude",
-        "accounting-codex",
+        "knowledge-department-accounting",
+        "cli-department-accounting",
+        "claude-department-accounting",
+        "codex-department-accounting",
     }
-    claude_entry = next(e for e in catalog if e["id"] == "accounting-claude")
+    claude_entry = next(
+        e for e in catalog if e["id"] == "claude-department-accounting"
+    )
     assert claude_entry["repo"] == "Everyone-Needs-A-Copilot/claude-copilot-accounting"
     assert claude_entry["product"] == "claude"
     assert claude_entry["role"] == "department"
     assert claude_entry["rank"] == 20
     assert claude_entry["auth"] == "ssh-work"
+
+
+def test_department_catalog_binds_exact_release_and_signer_policy():
+    cfg = {
+        "org": "Everyone-Needs-A-Copilot",
+        "components": ["claude"],
+        "departments": [{"unit": "accounting"}],
+        "shared_releases": {
+            "allowed_signers": [
+                "SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo"
+            ],
+            "organization": {"claude": "v1.0.0"},
+            "departments": {"accounting": {"claude": "v1.2.3"}},
+        },
+    }
+
+    catalog = department_catalog(cfg)
+
+    assert catalog[0]["ref"] == "v1.2.3"
+    assert catalog[0]["policy"] == {
+        "allowed_signers": [
+            "SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo"
+        ]
+    }
+    assert shared_release_ref("claude", "organization", cfg=cfg) == "v1.0.0"
+    assert shared_release_signers(cfg) == (
+        "SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo",
+    )
+
+
+@pytest.mark.parametrize("ref", ["main", "^1.0.0", "v1.0", "v01.0.0", ""])
+def test_shared_release_ref_rejects_mutable_or_noncanonical_refs(ref):
+    cfg = {
+        "shared_releases": {
+            "organization": {"claude": ref},
+        }
+    }
+    assert shared_release_ref("claude", "organization", cfg=cfg) is None
+
+
+def test_shared_release_signers_rejects_empty_duplicate_or_non_ssh_values():
+    assert shared_release_signers({}) == ()
+    assert shared_release_signers({"shared_releases": {"allowed_signers": []}}) == ()
+    assert (
+        shared_release_signers(
+            {
+                "shared_releases": {
+                    "allowed_signers": [
+                        "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                        "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                    ]
+                }
+            }
+        )
+        == ()
+    )
+    assert (
+        shared_release_signers(
+            {"shared_releases": {"allowed_signers": ["not-a-fingerprint"]}}
+        )
+        == ()
+    )
+    assert (
+        shared_release_signers(
+            {"shared_releases": {"allowed_signers": ["SHA256:too-short"]}}
+        )
+        == ()
+    )
 
 
 def test_department_catalog_defaults_missing_topology_to_separate():
@@ -216,7 +292,7 @@ def test_department_catalog_defaults_missing_topology_to_separate():
     catalog = department_catalog(cfg)
     assert catalog == [
         {
-            "id": "finance-claude",
+            "id": "claude-department-finance",
             "name": "Finance (claude)",
             "repo": "acme/claude-copilot-finance",
             "product": "claude",
@@ -251,11 +327,15 @@ def test_department_catalog_mixes_both_shapes():
     }
     catalog = department_catalog(cfg)
     ids = {entry["id"] for entry in catalog}
-    assert ids == {"legacy", "finance-claude"}
+    assert ids == {"legacy", "claude-department-finance"}
 
 
 def test_department_catalog_warns_and_skips_entry_missing_both_shapes(caplog):
-    cfg = {"org": "acme", "components": ["claude"], "departments": [{"topology": "separate"}]}
+    cfg = {
+        "org": "acme",
+        "components": ["claude"],
+        "departments": [{"topology": "separate"}],
+    }
     with caplog.at_level("WARNING"):
         catalog = department_catalog(cfg)
     assert catalog == []
@@ -300,7 +380,7 @@ def test_department_catalog_one_malformed_department_does_not_block_others():
         ],
     }
     catalog = department_catalog(cfg)
-    assert [entry["id"] for entry in catalog] == ["finance-claude"]
+    assert [entry["id"] for entry in catalog] == ["claude-department-finance"]
 
 
 def test_department_catalog_empty_departments_returns_empty_list():
@@ -316,4 +396,4 @@ def test_department_catalog_default_loads_real_ecosystem_config(tmp_path):
         encoding="utf-8",
     )
     cfg = load_ecosystem_config(config_path)
-    assert department_catalog(cfg)[0]["id"] == "finance-claude"
+    assert department_catalog(cfg)[0]["id"] == "claude-department-finance"

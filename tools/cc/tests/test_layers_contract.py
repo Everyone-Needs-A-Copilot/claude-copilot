@@ -34,13 +34,12 @@ from cc.commands.layers import (
     execute_layers_join,
     layers_app,
 )
+from cc.core.ecosystem import entitlement
 from cc.core.ecosystem.policy import permissive_policy
 from cc.core.locking import copilot_lock
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 from typer.testing import CliRunner
-
-from cc.core.ecosystem import entitlement
 
 runner = CliRunner()
 
@@ -86,11 +85,15 @@ def _no_real_home(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def _make_source_repo(tmp_path: Path, files: dict[str, str], *, name: str = "source-repo") -> Path:
+def _make_source_repo(
+    tmp_path: Path, files: dict[str, str], *, name: str = "source-repo"
+) -> Path:
     repo = tmp_path / name
     repo.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
-    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True
+    )
     subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
     subprocess.run(["git", "checkout", "-q", "-b", "main"], cwd=repo, check=True)
     for relpath, content in files.items():
@@ -133,19 +136,31 @@ TOKENS = {"octocat": "s3cr3t-token"}
 
 
 def test_repo_accessible_200_is_entitled():
-    assert entitlement.repo_accessible("org/repo", "tok", get_json=_get_json_status(200)) is True
+    assert (
+        entitlement.repo_accessible("org/repo", "tok", get_json=_get_json_status(200))
+        is True
+    )
 
 
 def test_repo_accessible_404_is_not_entitled():
-    assert entitlement.repo_accessible("org/repo", "tok", get_json=_get_json_status(404)) is False
+    assert (
+        entitlement.repo_accessible("org/repo", "tok", get_json=_get_json_status(404))
+        is False
+    )
 
 
 def test_repo_accessible_403_is_not_entitled():
-    assert entitlement.repo_accessible("org/repo", "tok", get_json=_get_json_status(403)) is False
+    assert (
+        entitlement.repo_accessible("org/repo", "tok", get_json=_get_json_status(403))
+        is False
+    )
 
 
 def test_repo_accessible_network_failure_is_none():
-    assert entitlement.repo_accessible("org/repo", "tok", get_json=_get_json_status(None)) is None
+    assert (
+        entitlement.repo_accessible("org/repo", "tok", get_json=_get_json_status(None))
+        is None
+    )
 
 
 def test_repo_accessible_no_token_is_none_without_calling_transport():
@@ -307,7 +322,9 @@ def test_list_report_end_to_end_tmp_ecosystem_yaml(tmp_path):
 
 
 def test_join_happy_path_materializes_and_validates_against_schema(tmp_path):
-    source_repo = _make_source_repo(tmp_path, {"agents/sec.md": "v1"}, name="dept-finance")
+    source_repo = _make_source_repo(
+        tmp_path, {"agents/sec.md": "v1"}, name="dept-finance"
+    )
     ecosystem_path = _write_ecosystem_yaml(
         tmp_path,
         [
@@ -397,13 +414,15 @@ def test_list_report_derives_catalog_from_real_unit_topology_shape(tmp_path):
     _validate(report)
     ids = {layer["id"] for layer in report["layers"]}
     assert ids == {
-        "accounting-knowledge",
-        "accounting-cli",
-        "accounting-claude",
-        "accounting-codex",
+        "knowledge-department-accounting",
+        "cli-department-accounting",
+        "claude-department-accounting",
+        "codex-department-accounting",
     }
     claude_layer = next(
-        layer for layer in report["layers"] if layer["id"] == "accounting-claude"
+        layer
+        for layer in report["layers"]
+        if layer["id"] == "claude-department-accounting"
     )
     assert claude_layer["repo"] == "Everyone-Needs-A-Copilot/claude-copilot-accounting"
     assert claude_layer["tier"] == "department"
@@ -424,14 +443,18 @@ def test_join_derived_catalog_entries_set_correct_product_not_hardcoded_cli(tmp_
     default is never exercised by a real, correctly-shaped catalog entry
     (WP-372 case 5a)."""
     claude_source = _make_source_repo(
-        tmp_path, {"agents/claude-agent.md": "claude content"}, name="accounting-claude-repo"
+        tmp_path,
+        {"agents/claude-agent.md": "claude content"},
+        name="accounting-claude-repo",
     )
     codex_source = _make_source_repo(
-        tmp_path, {"plugins/codex-plugin.md": "codex content"}, name="accounting-codex-repo"
+        tmp_path,
+        {"plugins/codex-plugin.md": "codex content"},
+        name="accounting-codex-repo",
     )
     catalog = [
         {
-            "id": "accounting-claude",
+            "id": "claude-department-accounting",
             "name": "Accounting (claude)",
             "repo": str(claude_source),
             "product": "claude",
@@ -440,7 +463,7 @@ def test_join_derived_catalog_entries_set_correct_product_not_hardcoded_cli(tmp_
             "auth": "anon",
         },
         {
-            "id": "accounting-codex",
+            "id": "codex-department-accounting",
             "name": "Accounting (codex)",
             "repo": str(codex_source),
             "product": "codex",
@@ -466,10 +489,14 @@ def test_join_derived_catalog_entries_set_correct_product_not_hardcoded_cli(tmp_
     )
 
     claude_report, claude_exit = execute_layers_join(
-        "accounting-claude", _lock_path=tmp_path / "copilot.lock.1", **common_kwargs
+        "claude-department-accounting",
+        _lock_path=tmp_path / "copilot.lock.1",
+        **common_kwargs,
     )
     codex_report, codex_exit = execute_layers_join(
-        "accounting-codex", _lock_path=tmp_path / "copilot.lock.2", **common_kwargs
+        "codex-department-accounting",
+        _lock_path=tmp_path / "copilot.lock.2",
+        **common_kwargs,
     )
 
     assert claude_report["result"] == "joined"
@@ -479,14 +506,54 @@ def test_join_derived_catalog_entries_set_correct_product_not_hardcoded_cli(tmp_
 
     written_manifest = yaml.safe_load(manifest_path.read_text())
     layers_by_id = {layer["id"]: layer for layer in written_manifest["layers"]}
-    assert layers_by_id["accounting-claude"]["product"] == "claude"
-    assert layers_by_id["accounting-claude"]["rank"] == 20
-    assert layers_by_id["accounting-codex"]["product"] == "codex"
-    assert layers_by_id["accounting-codex"]["rank"] == 20
+    assert layers_by_id["claude-department-accounting"]["product"] == "claude"
+    assert layers_by_id["claude-department-accounting"]["rank"] == 20
+    assert layers_by_id["codex-department-accounting"]["product"] == "codex"
+    assert layers_by_id["codex-department-accounting"]["rank"] == 20
+
+
+@pytest.mark.parametrize(
+    ("ref", "allowed_signers"),
+    (
+        (
+            "main",
+            ["SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo"],
+        ),
+        ("v1.0.0", ["SHA256:too-short"]),
+        ("v1.0.0", []),
+    ),
+)
+def test_join_refuses_mutable_or_malformed_shared_release(
+    tmp_path, ref, allowed_signers
+):
+    report, exit_code = execute_layers_join(
+        "claude-department-accounting",
+        _lock_path=tmp_path / "copilot.lock",
+        _identity=IDENTITY,
+        _get_secret=_fake_get_secret_factory(TOKENS),
+        _departments=[
+            {
+                "id": "claude-department-accounting",
+                "repo": "Acme/claude-copilot-accounting",
+                "product": "claude",
+                "role": "department",
+                "ref": ref,
+                "policy": {"allowed_signers": allowed_signers},
+            }
+        ],
+        _manifest_path=tmp_path / "copilot.layers.yml",
+        _get_json=_get_json_status(200),
+    )
+
+    assert exit_code == 2
+    assert report["error"]["code"] == "invalid-manifest"
+    assert "exact vMAJOR.MINOR.PATCH" in report["error"]["message"]
 
 
 def test_join_second_call_is_already_joined(tmp_path):
-    source_repo = _make_source_repo(tmp_path, {"agents/sec.md": "v1"}, name="dept-finance")
+    source_repo = _make_source_repo(
+        tmp_path, {"agents/sec.md": "v1"}, name="dept-finance"
+    )
     ecosystem_path = _write_ecosystem_yaml(
         tmp_path, [{"id": "finance", "name": "Finance", "repo": str(source_repo)}]
     )
@@ -601,7 +668,9 @@ def test_join_lock_contention_reported_honestly(tmp_path):
             _lock_path=lock_mutex_path,
             _identity=IDENTITY,
             _get_secret=_fake_get_secret_factory(TOKENS),
-            _departments=[{"id": "finance", "name": "Finance", "repo": "org/dept-finance"}],
+            _departments=[
+                {"id": "finance", "name": "Finance", "repo": "org/dept-finance"}
+            ],
             _manifest_path=tmp_path / "copilot.layers.yml",
             _get_json=_get_json_status(200),
         )
@@ -660,7 +729,12 @@ def test_cli_join_not_entitled_via_runner(monkeypatch):
     monkeypatch.setattr(
         "cc.commands.layers.execute_layers_join",
         lambda layer_id: (
-            {"schema_version": "1.0", "result": "not-entitled", "tier": "department", "id": layer_id},
+            {
+                "schema_version": "1.0",
+                "result": "not-entitled",
+                "tier": "department",
+                "id": layer_id,
+            },
             0,
         ),
     )
@@ -675,7 +749,10 @@ def test_cli_join_lock_contention_via_runner_exit_two(monkeypatch):
     monkeypatch.setattr(
         "cc.commands.layers.execute_layers_join",
         lambda layer_id: (
-            {"schema_version": "1.0", "error": {"code": "lock-contention", "message": "held"}},
+            {
+                "schema_version": "1.0",
+                "error": {"code": "lock-contention", "message": "held"},
+            },
             2,
         ),
     )

@@ -75,6 +75,9 @@ jobs:
           # section of fitness-check.sh for the invariants and overrides.
           ./.claude/fitness-check.sh
 
+      - name: Validate Claude plugin manifests
+        run: python .claude-plugin/check-manifest.py
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

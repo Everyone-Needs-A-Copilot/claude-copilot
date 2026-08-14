@@ -28,6 +28,11 @@ from cc.core import authstore, keychain
 from cc.core.config import load_machine_config, resolve_key
 from cc.core.config_paths import machine_config_path
 from cc.core.ecosystem import mirror
+from cc.core.ecosystem.ecosystem_config import (
+    shared_release_ref,
+    shared_release_signers,
+)
+from cc.core.ecosystem.lockfile import default_lockfile_path, layer_meta, read_lockfile
 from cc.core.ecosystem.manifest import (
     ManifestError,
     load_layers,
@@ -458,11 +463,11 @@ def _row(
     package_action = (
         "seed"
         if package_state in {"missing", "empty"}
-        else "none"
-        if package_state == "ready"
-        else "adopt"
-        if package_state == "adoptable"
-        else "blocked"
+        else (
+            "none"
+            if package_state == "ready"
+            else "adopt" if package_state == "adoptable" else "blocked"
+        )
     )
     return {
         "component": component,
@@ -472,23 +477,27 @@ def _row(
         "name": f"{component}-copilot-private",
         "visibility": probe.visibility,
         "state": probe.state,
-        "action": "create"
-        if probe.state == "missing"
-        else (
-            "none"
-            if probe.state == "existing-private" and package_action != "blocked"
-            else "blocked"
+        "action": (
+            "create"
+            if probe.state == "missing"
+            else (
+                "none"
+                if probe.state == "existing-private" and package_action != "blocked"
+                else "blocked"
+            )
         ),
         "detail": probe.detail,
         "rank": 10,
         "package_state": package_state,
         "package_action": package_action,
-        "package_detail": package.detail
-        if package
-        else "Will be set up right after this space is created.",
-        "decline_detail": _decline_detail(component)
-        if package_state == "adoptable"
-        else "",
+        "package_detail": (
+            package.detail
+            if package
+            else "Will be set up right after this space is created."
+        ),
+        "decline_detail": (
+            _decline_detail(component) if package_state == "adoptable" else ""
+        ),
     }
 
 
@@ -888,7 +897,9 @@ def _classify_repository_history(
             f"Visible at {local}; its checked-out revision matches GitHub.",
         )
 
-    forward = _git_output(local, "merge-base", "--is-ancestor", head_sha, target_sha, run=run)
+    forward = _git_output(
+        local, "merge-base", "--is-ancestor", head_sha, target_sha, run=run
+    )
     if forward.returncode == 0:
         return HistoryClassification(
             "fast-forwardable",
@@ -897,7 +908,9 @@ def _classify_repository_history(
             f"Visible at {local}; a clean fast-forward is available.",
         )
 
-    backward = _git_output(local, "merge-base", "--is-ancestor", target_sha, head_sha, run=run)
+    backward = _git_output(
+        local, "merge-base", "--is-ancestor", target_sha, head_sha, run=run
+    )
     if backward.returncode == 0:
         return HistoryClassification(
             "ahead-only",
@@ -1090,7 +1103,9 @@ def _topology_report_layers(
                 detail = f"Download {owner}/{name} to {local}."
             else:
                 action = "review"
-                detail = f"GitHub could not confirm {owner}/{name}; nothing will be changed."
+                detail = (
+                    f"GitHub could not confirm {owner}/{name}; nothing will be changed."
+                )
 
         rows.append(
             {
@@ -1111,11 +1126,11 @@ def _topology_report_layers(
                 "connection_state": (
                     "verified"
                     if verified and action == "reuse"
-                    else "connected"
-                    if action == "reuse"
-                    else "planned"
-                    if action != "review"
-                    else "blocked"
+                    else (
+                        "connected"
+                        if action == "reuse"
+                        else "planned" if action != "review" else "blocked"
+                    )
                 ),
                 "sync_state": sync_state,
                 "action": action,
@@ -1141,14 +1156,23 @@ def _department_seed(component: str, unit: str) -> str:
     )
 
 
-def _seed_department(owner: str, name: str, component: str, unit: str, *, run: Run) -> bool:
-    encoded = base64.b64encode(_department_seed(component, unit).encode("utf-8")).decode("ascii")
+def _seed_department(
+    owner: str, name: str, component: str, unit: str, *, run: Run
+) -> bool:
+    encoded = base64.b64encode(
+        _department_seed(component, unit).encode("utf-8")
+    ).decode("ascii")
     result = run(
         (
-            "gh", "api", "-X", "PUT",
+            "gh",
+            "api",
+            "-X",
+            "PUT",
             f"repos/{owner}/{name}/contents/copilot.layer.yml",
-            "-f", f"message=Initialize {unit} {component} Copilot layer",
-            "-f", f"content={encoded}",
+            "-f",
+            f"message=Initialize {unit} {component} Copilot layer",
+            "-f",
+            f"content={encoded}",
         )
     )
     return result.returncode == 0
@@ -1187,7 +1211,9 @@ def _apply_visible_topology(
     reaches the JSON contract directly.
     """
     by_id = {row["id"]: row for row in rows}
-    for layer in sorted(manifest["layers"], key=lambda item: item["rank"], reverse=True):
+    for layer in sorted(
+        manifest["layers"], key=lambda item: item["rank"], reverse=True
+    ):
         row = by_id[layer["id"]]
         action = row["action"]
         if action in {"reuse"}:
@@ -1200,10 +1226,16 @@ def _apply_visible_topology(
         entries: list[dict[str, Any]] = []
         if action == "initialize":
             if not _seed_department(
-                row["repository_owner"], row["repository_name"],
-                layer["product"], layer.get("unit", ""), run=run,
+                row["repository_owner"],
+                row["repository_name"],
+                layer["product"],
+                layer.get("unit", ""),
+                run=run,
             ):
-                return False, f"GitHub did not confirm initialization of {row['repository_owner']}/{row['repository_name']}."
+                return (
+                    False,
+                    f"GitHub did not confirm initialization of {row['repository_owner']}/{row['repository_name']}.",
+                )
             entries.append(
                 _ledger_entry(
                     kind="github-repository-content",
@@ -1215,13 +1247,30 @@ def _apply_visible_topology(
             action = "download"
         if action in {"create", "download"}:
             if target.exists():
-                return False, f"{target} appeared during setup, so Control Tower stopped without changing it."
+                return (
+                    False,
+                    f"{target} appeared during setup, so Control Tower stopped without changing it.",
+                )
             target.parent.mkdir(parents=True, exist_ok=True)
-            clone = run(("git", "clone", "--origin", "origin", "--branch", source.get("ref", "main"), source["repo"], str(target)))
+            clone = run(
+                (
+                    "git",
+                    "clone",
+                    "--origin",
+                    "origin",
+                    "--branch",
+                    source.get("ref", "main"),
+                    source["repo"],
+                    str(target),
+                )
+            )
             if clone.returncode != 0:
                 if target.exists() and not any(target.iterdir()):
                     target.rmdir()
-                return False, f"Git could not download {row['repository_owner']}/{row['repository_name']} to {target}."
+                return (
+                    False,
+                    f"Git could not download {row['repository_owner']}/{row['repository_name']} to {target}.",
+                )
             cloned_head = _git_output(target, "rev-parse", "HEAD", run=run)
             entries.append(
                 _ledger_entry(
@@ -1231,25 +1280,42 @@ def _apply_visible_topology(
                     summary=f"Placed a working copy of {repo_full_name} at {target}.",
                     local_path=str(target),
                     from_sha=None,
-                    to_sha=cloned_head.stdout.strip() if cloned_head.returncode == 0 else None,
+                    to_sha=(
+                        cloned_head.stdout.strip()
+                        if cloned_head.returncode == 0
+                        else None
+                    ),
                     action=action,
                 )
             )
         elif action == "repair":
             pre_merge_head = _git_output(target, "rev-parse", "HEAD", run=run)
             if pre_merge_head.returncode != 0:
-                return False, f"{target}'s current revision could not be confirmed; nothing was changed."
-            fetch = _git_output(target, "fetch", "origin", source.get("ref", "main"), run=run)
+                return (
+                    False,
+                    f"{target}'s current revision could not be confirmed; nothing was changed.",
+                )
+            fetch = _git_output(
+                target, "fetch", "origin", source.get("ref", "main"), run=run
+            )
             if fetch.returncode != 0:
-                return False, f"Git could not fetch {row['repository_owner']}/{row['repository_name']}."
+                return (
+                    False,
+                    f"Git could not fetch {row['repository_owner']}/{row['repository_name']}.",
+                )
             # `FETCH_HEAD^{commit}` peels an annotated tag object to the
             # commit it points at, mirroring `_classify_repository_history`
             # above -- `rev-parse` does not auto-peel, so an unpeeled
             # `target_sha` here would make the postcondition below fail even
             # after a genuinely successful fast-forward to an annotated tag.
-            fetched_head = _git_output(target, "rev-parse", "FETCH_HEAD^{commit}", run=run)
+            fetched_head = _git_output(
+                target, "rev-parse", "FETCH_HEAD^{commit}", run=run
+            )
             if fetched_head.returncode != 0:
-                return False, f"Git could not resolve the fetched revision for {row['repository_owner']}/{row['repository_name']}."
+                return (
+                    False,
+                    f"Git could not resolve the fetched revision for {row['repository_owner']}/{row['repository_name']}.",
+                )
             target_sha = fetched_head.stdout.strip()
             # `merge` (unlike `rev-parse`) treats an annotated tag object as
             # a commit-ish and peels it automatically, so merging the
@@ -1257,9 +1323,15 @@ def _apply_visible_topology(
             # commit as `target_sha`.
             merge = _git_output(target, "merge", "--ff-only", "FETCH_HEAD", run=run)
             if merge.returncode != 0:
-                return False, f"{target} could not be fast-forwarded safely; local work was preserved."
+                return (
+                    False,
+                    f"{target} could not be fast-forwarded safely; local work was preserved.",
+                )
             post_merge_head = _git_output(target, "rev-parse", "HEAD", run=run)
-            if post_merge_head.returncode != 0 or post_merge_head.stdout.strip() != target_sha:
+            if (
+                post_merge_head.returncode != 0
+                or post_merge_head.stdout.strip() != target_sha
+            ):
                 return False, (
                     f"{target} did not reach the expected revision after the fast-forward, "
                     "so Control Tower is reporting this failed rather than synced."
@@ -1331,7 +1403,9 @@ def build_shared_repository_refresh_report(
     normalized = tuple(dict.fromkeys(value.strip().lower() for value in products))
     if not normalized or any(value not in COMPONENTS for value in normalized):
         raise ValueError("Supported shared components are required.")
-    resolved_org = _discover_org(normalized, run=run) if org.casefold() == "auto" else org
+    resolved_org = (
+        _discover_org(normalized, run=run) if org.casefold() == "auto" else org
+    )
     owner = _owner(run=run)
     handoff = _load_handoff(resolved_org, normalized, run=run)
     departments = _eligible_department_units(handoff, resolved_org, owner, run=run)
@@ -1417,7 +1491,11 @@ def build_shared_repository_refresh_report(
         and entry.get("outcome") == "completed"
         for entry in completed_actions
     )
-    result = "partial" if holds and completed_actions else "blocked" if holds else "applied" if updated else "ready"
+    result = (
+        "partial"
+        if holds and completed_actions
+        else "blocked" if holds else "applied" if updated else "ready"
+    )
     return {
         "schema_version": SCHEMA_VERSION,
         "result": result,
@@ -1518,7 +1596,9 @@ def _seed_cold_start_mirrors(
     ``try/except``, which exists only for a collaborator that misbehaves in
     a way this function itself does not).
     """
-    configured = mirrors_root if mirrors_root is not None else resolve_key("paths.mirrors_root")
+    configured = (
+        mirrors_root if mirrors_root is not None else resolve_key("paths.mirrors_root")
+    )
     if not configured:
         return []
     base = Path(str(configured)).expanduser()
@@ -1533,7 +1613,9 @@ def _seed_cold_start_mirrors(
             continue
         product = layer.get("product")
         product_root = (
-            base / str(product) if product in mirror.EXTERNALLY_CONSUMED_PRODUCTS else base
+            base / str(product)
+            if product in mirror.EXTERNALLY_CONSUMED_PRODUCTS
+            else base
         )
         if (product_root / str(layer_id) / ".git").is_dir():
             continue  # already has a local mirror -- nothing new to seed
@@ -1543,7 +1625,10 @@ def _seed_cold_start_mirrors(
                 continue  # already publishes a freshness pointer -- no fallback needed
             transport = mirror.resolve_transport(repo, layer.get("auth", "anon"))
             result = clone(
-                layer_id, transport, source.get("ref", "main"), mirror_root=product_root,
+                layer_id,
+                transport,
+                source.get("ref", "main"),
+                mirror_root=product_root,
             )
         except Exception:
             continue
@@ -1610,6 +1695,11 @@ def _layer_manifest(
     repository_root: Path | None = None,
 ) -> dict[str, Any]:
     refs = (handoff.get("foundation") or {}).get("refs") or {}
+    shared_signers = shared_release_signers(handoff)
+    if not shared_signers:
+        raise RuntimeError(
+            "The organization handoff is missing shared_releases.allowed_signers."
+        )
     layers: list[dict[str, Any]] = []
     for product in products:
         requested = refs.get(product) or LEGACY_FOUNDATION_REFS.get(product)
@@ -1618,8 +1708,25 @@ def _layer_manifest(
                 f"The organization handoff is missing foundation.refs.{product}."
             )
         exact_ref = _resolve_foundation_ref(product, requested, run=run)
+        organization_ref = shared_release_ref(product, "organization", cfg=handoff)
+        if organization_ref is None:
+            raise RuntimeError(
+                f"The organization handoff is missing an exact shared_releases.organization.{product} release."
+            )
+        department_refs: dict[str, str] = {}
+        for unit in department_units:
+            department_ref = shared_release_ref(
+                product, "department", unit=unit, cfg=handoff
+            )
+            if department_ref is None:
+                raise RuntimeError(
+                    f"The organization handoff is missing an exact shared_releases.departments.{unit}.{product} release."
+                )
+            department_refs[unit] = department_ref
         personal_id = "cli-personal" if product == "cli" else f"{product}-personal"
-        organization_id = "org-internal" if product == "cli" else f"{product}-organization"
+        organization_id = (
+            "org-internal" if product == "cli" else f"{product}-organization"
+        )
         foundation_id = "foundation" if product == "cli" else f"{product}-foundation"
         private_foundation = product in {"knowledge", "cli"}
         foundation_repo = (
@@ -1642,7 +1749,7 @@ def _layer_manifest(
                     "department",
                     20,
                     f"git@github-work:{org}/{product}-copilot-{unit}.git",
-                    "main",
+                    department_refs[unit],
                     "work",
                 )
                 for unit in department_units
@@ -1652,7 +1759,7 @@ def _layer_manifest(
                 "organization",
                 30,
                 f"git@github-work:{org}/{product}-copilot-internal.git",
-                "main",
+                organization_ref,
                 "work",
             ),
             (
@@ -1684,19 +1791,25 @@ def _layer_manifest(
             if product == "claude" and role == "foundation":
                 source["subpath"] = ".claude"
             layer = {
-                    "id": layer_id,
-                    "role": role,
-                    "rank": rank,
-                    "product": product,
-                    "source": source,
-                    "auth": auth,
-                    "activation": "always",
-                    "policy": {
-                        "allowed_signers": list(FOUNDATION_ALLOWED_SIGNERS.get(product, ()))
+                "id": layer_id,
+                "role": role,
+                "rank": rank,
+                "product": product,
+                "source": source,
+                "auth": auth,
+                "activation": "always",
+                "policy": {
+                    "allowed_signers": (
+                        list(FOUNDATION_ALLOWED_SIGNERS.get(product, ()))
                         if role == "foundation"
-                        else []
-                    },
-                }
+                        else (
+                            list(shared_signers)
+                            if role in {"organization", "department"}
+                            else []
+                        )
+                    )
+                },
+            }
             if role == "department":
                 layer["unit"] = next(
                     unit for unit in department_units if layer_id.endswith("-" + unit)
@@ -1768,6 +1881,15 @@ def _managed_product_is_compatible(
     """Return true only for a previously generated stack we can repair."""
     if not existing:
         return False
+
+    def exact_release_version(value: Any) -> tuple[int, int, int] | None:
+        if not isinstance(value, str) or not value.startswith("v"):
+            return None
+        match = _SEMVER.fullmatch(value)
+        if match is None:
+            return None
+        return tuple(int(part) for part in match.groups())
+
     def canonical_role(value: Any) -> Any:
         return {
             "org": "organization",
@@ -1775,6 +1897,7 @@ def _managed_product_is_compatible(
             "dept": "department",
             "department": "department",
         }.get(value, value)
+
     desired_by_key = {
         (layer.get("product"), canonical_role(layer.get("role"))): layer
         for layer in desired
@@ -1816,8 +1939,7 @@ def _managed_product_is_compatible(
         actual_role = canonical_role(layer.get("role"))
         expected_role = canonical_role(expected.get("role"))
         if actual_role != expected_role or any(
-            layer.get(key) != expected.get(key)
-            for key in ("rank", "product", "unit")
+            layer.get(key) != expected.get(key) for key in ("rank", "product", "unit")
         ):
             return False
         actual_source = layer.get("source") or {}
@@ -1831,12 +1953,24 @@ def _managed_product_is_compatible(
         if expected["role"] != "foundation" and actual_source.get(
             "ref"
         ) != expected_source.get("ref"):
-            return False
+            actual_release = exact_release_version(actual_source.get("ref"))
+            expected_release = exact_release_version(expected_source.get("ref"))
+            immutable_shared_upgrade = (
+                expected_role in {"organization", "department"}
+                and expected_release is not None
+                and (
+                    actual_source.get("ref") == "main"
+                    or actual_release is not None
+                    and actual_release < expected_release
+                )
+            )
+            if not immutable_shared_upgrade:
+                return False
         actual_auth, expected_auth = layer.get("auth"), expected.get("auth")
-        foundation_transport_upgrade = (
-            expected_role == "foundation"
-            and {actual_auth, expected_auth} <= {"anon", "work", "ssh-work"}
-        )
+        foundation_transport_upgrade = expected_role == "foundation" and {
+            actual_auth,
+            expected_auth,
+        } <= {"anon", "work", "ssh-work"}
         if not foundation_transport_upgrade and not any(
             {actual_auth, expected_auth} <= group for group in auth_equivalents
         ):
@@ -1853,8 +1987,15 @@ def _manifest_adoption_plan(
     configured_path: Path | str | None = None,
     legacy_paths: Sequence[Path | str] = (),
     allowed_root: Path | str | None = None,
+    managed_products: Sequence[str] | None = None,
 ) -> ManifestAdoption:
-    """Inventory and merge a recognized existing manifest without data loss."""
+    """Inventory and merge a recognized existing manifest without data loss.
+
+    When ``managed_products`` is provided, an existing manifest contributes
+    every other product's raw layer records unchanged.  A product-scoped
+    transaction must not regenerate or synchronize unrelated product state.
+    A first-time manifest still receives the complete desired ecosystem.
+    """
     destination = destination.expanduser()
     candidates: list[Path] = [destination]
     if configured_path:
@@ -1906,7 +2047,40 @@ def _manifest_adoption_plan(
             None,
         )
 
-    desired_layers = list(desired["layers"])
+    all_desired_products = {layer["product"] for layer in desired["layers"]}
+    requested_products = (
+        set(managed_products)
+        if managed_products is not None
+        else set(all_desired_products)
+    )
+    if managed_products is not None:
+
+        def stack_keys(
+            layers: Sequence[dict[str, Any]], product: str
+        ) -> list[tuple[Any, Any]]:
+            return sorted(
+                (
+                    {
+                        "org": "organization",
+                        "dept": "department",
+                    }.get(layer.get("role"), layer.get("role")),
+                    layer.get("unit"),
+                )
+                for layer in layers
+                if layer.get("product") == product
+            )
+
+        for product in all_desired_products - requested_products:
+            if stack_keys(existing["layers"], product) != stack_keys(
+                desired["layers"], product
+            ):
+                # An absent or partial stack is onboarding work, not an
+                # unrelated-product rewrite. Generate its missing canonical
+                # layers and take the ordinary synchronizer path.
+                requested_products.add(product)
+    desired_layers = [
+        layer for layer in desired["layers"] if layer["product"] in requested_products
+    ]
     desired_products = {layer["product"] for layer in desired_layers}
     retained = [
         raw_layer
@@ -1992,6 +2166,42 @@ def _manifest_adoption_plan(
         destination,
         merged,
     )
+
+
+def _manifest_product_changed(plan: ManifestAdoption, product: str) -> bool:
+    """Return whether adoption changes any layer for ``product``.
+
+    Product-specific synchronizers mutate authoring checkouts, so an unrelated
+    product repair must not invoke them.  Only an exact normalized match is
+    treated as unchanged; a missing/unreadable source or candidate stays
+    fail-closed and requires synchronization.
+    """
+    if plan.payload is None:
+        return True
+    try:
+        existing_layers = (
+            _existing_manifest(plan.source)[1]["layers"]
+            if plan.source is not None and plan.source.is_file()
+            else []
+        )
+        candidate_layers = [
+            normalize_layer_product(layer) for layer in plan.payload["layers"]
+        ]
+    except (KeyError, ManifestError, OSError, TypeError):
+        return True
+
+    def selected(layers: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+        return sorted(
+            (layer for layer in layers if layer.get("product") == product),
+            key=lambda layer: (
+                layer.get("rank", -1),
+                str(layer.get("id", "")),
+                str(layer.get("role", "")),
+                str(layer.get("unit", "")),
+            ),
+        )
+
+    return selected(existing_layers) != selected(candidate_layers)
 
 
 def _backup_path(path: Path) -> Path:
@@ -2283,6 +2493,7 @@ def _commit_machine_pointers(
     _atomic_bytes(path, content)
     return path
 
+
 def _provision_store(store: dict[str, Any], *, apply: bool, run: Run) -> dict[str, Any]:
     """Confirm (or, in apply mode only, bootstrap) this Mac's access to the
     organization's shared Infisical store.
@@ -2420,15 +2631,127 @@ def _codex_marketplace_failure(result: subprocess.CompletedProcess[str]) -> str:
     return "Codex rejected the verified local marketplace."
 
 
-def _install_codex_plugin(*, apply: bool, run: Run) -> dict[str, Any]:
-    root = Path(str(resolve_key("paths.codex_materialize_root"))).expanduser()
-    plugin = root / "plugins" / "codex-copilot"
-    marketplace = root / ".agents" / "plugins" / "marketplace.json"
-    if not apply:
+def _materialized_codex_plugin_names(root: Path) -> tuple[str, ...] | None:
+    """Return validated additive plugin package names from the managed root.
+
+    Each tier owns a distinct plugin directory. A malformed or symlinked
+    package fails closed so marketplace generation cannot silently omit signed
+    organization or department content.
+    """
+    plugins_root = root / "plugins"
+    try:
+        if not plugins_root.is_dir() or plugins_root.is_symlink():
+            return ()
+        plugin_names: list[str] = []
+        for plugin in plugins_root.iterdir():
+            if not plugin.is_dir():
+                continue
+            if plugin.is_symlink():
+                return None
+            manifest = plugin / ".codex-plugin" / "plugin.json"
+            if not manifest.is_file() or manifest.is_symlink():
+                return None
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict) or payload.get("name") != plugin.name:
+                return None
+            plugin_names.append(plugin.name)
+    except (json.JSONDecodeError, OSError, TypeError):
+        return None
+
+    return tuple(
+        sorted(
+            plugin_names,
+            key=lambda name: (
+                (
+                    0
+                    if name == "codex-copilot"
+                    else 1 if name == "codex-copilot-internal" else 2
+                ),
+                name,
+            ),
+        )
+    )
+
+
+def _codex_marketplace_payload(plugin_names: Sequence[str]) -> dict[str, Any]:
+    return {
+        "name": "enac-materialized",
+        "interface": {"displayName": "Copilot Control Tower"},
+        "plugins": [
+            {
+                "name": name,
+                "source": {"source": "local", "path": f"./plugins/{name}"},
+                "policy": {
+                    "installation": "INSTALLED_BY_DEFAULT",
+                    "authentication": "ON_INSTALL",
+                },
+                "category": "Productivity",
+            }
+            for name in plugin_names
+        ],
+    }
+
+
+def _locked_codex_plugin_names(lock: dict[str, Any]) -> tuple[str, ...]:
+    names: set[str] = set()
+    for layer_id, entry in lock.items():
         if (
-            not plugin.joinpath(".codex-plugin", "plugin.json").is_file()
-            or not marketplace.is_file()
+            not isinstance(entry, dict)
+            or layer_meta(lock, layer_id).get("product") != "codex"
         ):
+            continue
+        plugins = entry.get("plugins")
+        if not isinstance(plugins, dict):
+            continue
+        names.update(
+            name
+            for name, content_sha in plugins.items()
+            if isinstance(name, str)
+            and name
+            and isinstance(content_sha, str)
+            and content_sha
+        )
+    return tuple(sorted(names))
+
+
+def _install_codex_plugin(
+    *, apply: bool, run: Run, _lock: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    root = Path(str(resolve_key("paths.codex_materialize_root"))).expanduser()
+    marketplace = root / ".agents" / "plugins" / "marketplace.json"
+    plugin_names = _materialized_codex_plugin_names(root)
+    if plugin_names is None:
+        return {
+            "result": "blocked",
+            "detail": "A materialized Codex plugin manifest is invalid.",
+        }
+    lock = _lock if _lock is not None else read_lockfile(default_lockfile_path())
+    locked_plugin_names = _locked_codex_plugin_names(lock)
+    if set(plugin_names) != set(locked_plugin_names):
+        if not apply:
+            return {"result": "changes-required"}
+        return {
+            "result": "blocked",
+            "detail": "Materialized Codex plugins do not match the verified ecosystem lock.",
+        }
+    if "codex-copilot" not in plugin_names:
+        if not apply:
+            return {"result": "changes-required"}
+        return {
+            "result": "blocked",
+            "detail": "The verified Codex Copilot plugin was not materialized.",
+        }
+    expected_marketplace = _codex_marketplace_payload(plugin_names)
+    if not apply:
+        if not marketplace.is_file():
+            return {"result": "changes-required"}
+        try:
+            if (
+                json.loads(marketplace.read_text(encoding="utf-8"))
+                != expected_marketplace
+            ):
+                return {"result": "changes-required"}
+        except (json.JSONDecodeError, OSError):
             return {"result": "changes-required"}
         listed_marketplaces = run(("codex", "plugin", "marketplace", "list", "--json"))
         if listed_marketplaces.returncode != 0:
@@ -2459,11 +2782,13 @@ def _install_codex_plugin(*, apply: bool, run: Run) -> dict[str, Any]:
             }
         try:
             plugin_payload = json.loads(listed_plugins.stdout)
-            ready = any(
-                row.get("pluginId") == "codex-copilot@enac-materialized"
-                and row.get("installed") is True
-                and row.get("enabled") is True
+            ready_plugin_ids = {
+                row.get("pluginId")
                 for row in plugin_payload["installed"]
+                if row.get("installed") is True and row.get("enabled") is True
+            }
+            ready = all(
+                f"{name}@enac-materialized" in ready_plugin_ids for name in plugin_names
             )
         except (json.JSONDecodeError, KeyError, TypeError):
             return {
@@ -2471,31 +2796,11 @@ def _install_codex_plugin(*, apply: bool, run: Run) -> dict[str, Any]:
                 "detail": "Codex returned an unreadable plugin inventory.",
             }
         return {"result": "ready" if ready else "changes-required"}
-    if not plugin.joinpath(".codex-plugin", "plugin.json").is_file():
-        return {
-            "result": "blocked",
-            "detail": "The verified Codex Copilot plugin was not materialized.",
-        }
-    payload = {
-        "name": "enac-materialized",
-        "interface": {"displayName": "Copilot Control Tower"},
-        "plugins": [
-            {
-                "name": "codex-copilot",
-                "source": {"source": "local", "path": "./plugins/codex-copilot"},
-                "policy": {
-                    "installation": "INSTALLED_BY_DEFAULT",
-                    "authentication": "ON_INSTALL",
-                },
-                "category": "Productivity",
-            }
-        ],
-    }
     marketplace.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
         "w", dir=marketplace.parent, delete=False, encoding="utf-8"
     ) as handle:
-        json.dump(payload, handle, indent=2)
+        json.dump(expected_marketplace, handle, indent=2)
         handle.write("\n")
         temp = Path(handle.name)
     os.replace(temp, marketplace)
@@ -2505,14 +2810,24 @@ def _install_codex_plugin(*, apply: bool, run: Run) -> dict[str, Any]:
             "result": "blocked",
             "detail": _codex_marketplace_failure(added),
         }
-    installed = run(
-        ("codex", "plugin", "add", "codex-copilot@enac-materialized", "--json")
-    )
-    if installed.returncode != 0:
-        return {
-            "result": "blocked",
-            "detail": "Codex rejected the Codex Copilot plugin installation.",
-        }
+    for plugin_name in plugin_names:
+        installed = run(
+            (
+                "codex",
+                "plugin",
+                "add",
+                f"{plugin_name}@enac-materialized",
+                "--json",
+            )
+        )
+        if installed.returncode != 0:
+            display_name = (
+                "Codex Copilot" if plugin_name == "codex-copilot" else plugin_name
+            )
+            return {
+                "result": "blocked",
+                "detail": f"Codex rejected the {display_name} plugin installation.",
+            }
     return {"result": "ready"}
 
 
@@ -2772,14 +3087,16 @@ def _ecosystem_result(
         "action",
         "detail",
     )
-    for layer in (layers or ()):
+    for layer in layers or ():
         row = {
             "id": layer["id"],
             "product": layer["product"],
             "role": layer["role"],
             "rank": layer["rank"],
         }
-        row.update({key: layer.get(key) for key in optional_layer_fields if key in layer})
+        row.update(
+            {key: layer.get(key) for key in optional_layer_fields if key in layer}
+        )
         report["layers"].append(row)
     report["inventory"] = list(inventory or ())
     report["inventory_summary"] = {
@@ -2816,9 +3133,9 @@ def _personal_inventory(personal: dict[str, Any]) -> list[dict[str, Any]]:
         action = (
             "create"
             if row.get("state") == "missing" or package_state in {"empty", "adoptable"}
-            else "reuse"
-            if package_state in {"ready", "seeded", "adopted"}
-            else "review"
+            else (
+                "reuse" if package_state in {"ready", "seeded", "adopted"} else "review"
+            )
         )
         items.append(
             {
@@ -3045,17 +3362,25 @@ def build_ecosystem_onboard_report(
                 detail="Visible repository placement was not requested by this injected transaction.",
             )
     repository_stage = {
-            "stage": "repository-location",
-            "result": "ready" if visible_root is not None or legacy_injected_mode else "changes-required",
-            "action": "reuse" if visible_root is not None or legacy_injected_mode else "choose",
-            "detail": (
-                f"Copilot repositories are visible in {visible_root}."
-                if visible_root is not None
-                else "Visible repository placement is controlled by this injected transaction."
+        "stage": "repository-location",
+        "result": (
+            "ready"
+            if visible_root is not None or legacy_injected_mode
+            else "changes-required"
+        ),
+        "action": (
+            "reuse" if visible_root is not None or legacy_injected_mode else "choose"
+        ),
+        "detail": (
+            f"Copilot repositories are visible in {visible_root}."
+            if visible_root is not None
+            else (
+                "Visible repository placement is controlled by this injected transaction."
                 if legacy_injected_mode
                 else "Choose the visible folder where Copilot repositories should be created or downloaded."
-            ),
-        }
+            )
+        ),
+    }
     if visible_root is not None:
         repository_stage["path"] = str(visible_root)
     if not legacy_injected_mode:
@@ -3077,7 +3402,9 @@ def build_ecosystem_onboard_report(
         configured_path=configured_manifest,
         legacy_paths=legacy_manifests,
         allowed_root=None if manifest_path else Path.home(),
+        managed_products=normalized,
     )
+    cli_sync_required = _manifest_product_changed(adoption, "cli")
     inventory.append(adoption.as_item())
     # `github-work` is what the layer manifest above just wired every org
     # repo through; `github-personal` is what it wired every personal repo
@@ -3110,15 +3437,19 @@ def build_ecosystem_onboard_report(
     stages.append(
         {
             "stage": "layer-manifest",
-            "result": "blocked"
-            if adoption.action == "review"
-            else ("ready" if adoption.action == "reuse" else "changes-required"),
+            "result": (
+                "blocked"
+                if adoption.action == "review"
+                else ("ready" if adoption.action == "reuse" else "changes-required")
+            ),
             "action": adoption.action,
             "detail": adoption.detail,
             "path": str(target),
-            "layers": len(adoption.payload["layers"])
-            if adoption.payload
-            else len(manifest["layers"]),
+            "layers": (
+                len(adoption.payload["layers"])
+                if adoption.payload
+                else len(manifest["layers"])
+            ),
         }
     )
     if adoption.action == "review":
@@ -3321,14 +3652,16 @@ def build_ecosystem_onboard_report(
             row_entries = topology_row.pop("_ledger_entries", None)
             if row_entries:
                 ledger.extend(row_entries)
-        stages.append({
-            "stage": "visible-repositories",
-            "result": "ready" if topology_ok else "blocked",
-            "detail": topology_detail
-            or f"All {len(topology_layers)} expected repositories are visible in {visible_root}.",
-            "path": str(visible_root),
-            "layers": len(topology_layers),
-        })
+        stages.append(
+            {
+                "stage": "visible-repositories",
+                "result": "ready" if topology_ok else "blocked",
+                "detail": topology_detail
+                or f"All {len(topology_layers)} expected repositories are visible in {visible_root}.",
+                "path": str(visible_root),
+                "layers": len(topology_layers),
+            }
+        )
     if not topology_ok:
         return _ecosystem_result(
             org,
@@ -3432,10 +3765,11 @@ def build_ecosystem_onboard_report(
                     " The restored manifest's own machine reconciliation "
                     f"failed: {exc}"
                 )
-            try:
-                cli_fn(prior_manifest)
-            except Exception as exc:
-                reconcile_note += f" CLI layer sync could not be reconciled: {exc}"
+            if cli_sync_required:
+                try:
+                    cli_fn(prior_manifest)
+                except Exception as exc:
+                    reconcile_note += f" CLI layer sync could not be reconciled: {exc}"
         manifest_stage["result"] = "rolled-back" if rolled_back else "rollback-failed"
         manifest_stage["detail"] = (
             f"{detail} The previous manifest was restored.{reconcile_note}"
@@ -3518,10 +3852,13 @@ def build_ecosystem_onboard_report(
             ),
         )
     )
-    try:
-        cli_report = cli_fn(target)
-    except Exception as exc:
-        return blocked_after_write(f"CLI layer sync failed: {exc}")
+    if cli_sync_required:
+        try:
+            cli_report = cli_fn(target)
+        except Exception as exc:
+            return blocked_after_write(f"CLI layer sync failed: {exc}")
+    else:
+        cli_report = {"result": "ready"}
     stages.append({"stage": "cli-sync", **cli_report})
     if cli_report.get("result") != "ready":
         return blocked_after_write(
@@ -3575,10 +3912,14 @@ def build_ecosystem_onboard_report(
         return blocked_after_write(f"The post-apply health check failed: {exc}")
     doctor_checkers = doctor.get("checkers") or []
     doctor_fail_count = sum(
-        1 for c in doctor_checkers if isinstance(c, dict) and c.get("severity") == "fail"
+        1
+        for c in doctor_checkers
+        if isinstance(c, dict) and c.get("severity") == "fail"
     )
     doctor_warn_count = sum(
-        1 for c in doctor_checkers if isinstance(c, dict) and c.get("severity") == "warn"
+        1
+        for c in doctor_checkers
+        if isinstance(c, dict) and c.get("severity") == "warn"
     )
     doctor_stage: dict[str, Any] = {
         "stage": "doctor",
@@ -3640,7 +3981,8 @@ def build_ecosystem_onboard_report(
         knowledge_paths = [
             str(Path(layer["source"]["path"]).expanduser())
             for layer in sorted(manifest["layers"], key=lambda item: item["rank"])
-            if layer.get("product") == "knowledge" and layer.get("source", {}).get("path")
+            if layer.get("product") == "knowledge"
+            and layer.get("source", {}).get("path")
         ]
         if visible_root is None:
             commit_config_fn(target, _knowledge_mirror_paths(manifest))

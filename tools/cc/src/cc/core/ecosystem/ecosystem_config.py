@@ -55,6 +55,7 @@ shape 2, or the entry as-authored for shape 1.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Any, Optional
 
@@ -94,10 +95,66 @@ _DEPARTMENT_RANK = 20
 # credential).
 _DEFAULT_DEPARTMENT_AUTH = "ssh-work"
 
+_EXACT_RELEASE_REF = re.compile(r"^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$")
+_SSH_SHA256_FINGERPRINT = re.compile(r"^SHA256:[A-Za-z0-9+/]{43}$")
+
 # Sentinel distinguishing "no override passed" from an explicit None
 # argument (mirrors core/ecosystem/mirror.py's `_root` / commands/
 # freshness.py's `_UNSET` injection convention).
 _UNSET: Any = object()
+
+
+def valid_ssh_sha256_fingerprint(value: object) -> bool:
+    """Return whether a value is one exact OpenSSH SHA-256 fingerprint."""
+    return isinstance(value, str) and _SSH_SHA256_FINGERPRINT.fullmatch(value) is not None
+
+
+def shared_release_signers(cfg: Optional[dict[str, Any]] = None) -> tuple[str, ...]:
+    """Return the handoff's non-empty shared-tier SSH signer allowlist.
+
+    Organization and department content is executable agent input, so an empty
+    or malformed allowlist is never converted into an unsigned default.
+    """
+    cfg = cfg if cfg is not None else load_ecosystem_config()
+    releases = cfg.get("shared_releases")
+    values = releases.get("allowed_signers") if isinstance(releases, dict) else None
+    if not isinstance(values, list):
+        return ()
+    signers = tuple(
+        value
+        for value in values
+        if valid_ssh_sha256_fingerprint(value)
+    )
+    return (
+        signers
+        if len(signers) == len(values) and len(set(signers)) == len(signers)
+        else ()
+    )
+
+
+def shared_release_ref(
+    product: str,
+    role: str,
+    *,
+    unit: Optional[str] = None,
+    cfg: Optional[dict[str, Any]] = None,
+) -> Optional[str]:
+    """Resolve one exact immutable organization/department release ref."""
+    cfg = cfg if cfg is not None else load_ecosystem_config()
+    releases = cfg.get("shared_releases")
+    if not isinstance(releases, dict):
+        return None
+    if role == "organization":
+        refs = releases.get("organization")
+    elif role == "department" and unit:
+        departments_value = releases.get("departments")
+        refs = (
+            departments_value.get(unit) if isinstance(departments_value, dict) else None
+        )
+    else:
+        return None
+    ref = refs.get(product) if isinstance(refs, dict) else None
+    return ref if isinstance(ref, str) and _EXACT_RELEASE_REF.fullmatch(ref) else None
 
 
 def ecosystem_config_path(*, _path: Any = _UNSET) -> Optional[Path]:
@@ -206,8 +263,9 @@ def department_catalog(cfg: Optional[dict[str, Any]] = None) -> list[dict[str, A
     P2.1-prereq: a department with claude+codex+knowledge+cli repos needs
     one JOINABLE layer per product, not one layer for the whole
     department, so `{unit: accounting}` with `components: [claude, codex,
-    knowledge, cli]` fans into FOUR entries: `accounting-claude`,
-    `accounting-codex`, `accounting-knowledge`, `accounting-cli` -- each
+    knowledge, cli]` fans into FOUR canonical entries:
+    `claude-department-accounting`, `codex-department-accounting`,
+    `knowledge-department-accounting`, `cli-department-accounting` -- each
     already carrying its own correct `product` (feeding `commands/
     layers.py`'s `_new_manifest_layer()` directly, so a real join never
     falls through to that function's legacy `product: "cli"` default).
@@ -272,14 +330,17 @@ def department_catalog(cfg: Optional[dict[str, Any]] = None) -> list[dict[str, A
                 "department %r declares topology %r, which this reader "
                 "does not yet derive (only %s is implemented) -- "
                 "skipping catalog derivation for this department",
-                unit, topology, sorted(_SUPPORTED_TOPOLOGIES),
+                unit,
+                topology,
+                sorted(_SUPPORTED_TOPOLOGIES),
             )
             continue
 
         if not isinstance(org, str) or not org:
             _log.warning(
                 "ecosystem.yml has no top-level `org` -- cannot derive a "
-                "repo slug for department %r, skipping", unit,
+                "repo slug for department %r, skipping",
+                unit,
             )
             continue
 
@@ -287,7 +348,8 @@ def department_catalog(cfg: Optional[dict[str, Any]] = None) -> list[dict[str, A
             _log.warning(
                 "ecosystem.yml has no top-level `components` list -- "
                 "cannot derive per-product layers for department %r, "
-                "skipping", unit,
+                "skipping",
+                unit,
             )
             continue
 
@@ -296,20 +358,28 @@ def department_catalog(cfg: Optional[dict[str, Any]] = None) -> list[dict[str, A
                 _log.warning(
                     "ecosystem.yml `components` entry %r is not a string "
                     "-- skipping malformed component for department %r",
-                    component, unit,
+                    component,
+                    unit,
                 )
                 continue
-            catalog.append(
-                {
-                    "id": f"{unit}-{component}",
-                    "name": f"{unit.capitalize()} ({component})",
-                    "repo": f"{org}/"
-                    + _DEPARTMENT_REPO_TEMPLATE.format(component=component, unit=unit),
-                    "product": component,
-                    "role": entry.get("role", "department"),
-                    "rank": entry.get("rank", _DEPARTMENT_RANK),
-                    "auth": entry.get("auth", _DEFAULT_DEPARTMENT_AUTH),
-                }
+            derived = {
+                "id": f"{component}-department-{unit}",
+                "name": f"{unit.capitalize()} ({component})",
+                "repo": f"{org}/"
+                + _DEPARTMENT_REPO_TEMPLATE.format(component=component, unit=unit),
+                "product": component,
+                "role": entry.get("role", "department"),
+                "rank": entry.get("rank", _DEPARTMENT_RANK),
+                "auth": entry.get("auth", _DEFAULT_DEPARTMENT_AUTH),
+            }
+            release_ref = shared_release_ref(
+                component, "department", unit=unit, cfg=cfg
             )
+            release_signers = shared_release_signers(cfg)
+            if release_ref is not None:
+                derived["ref"] = release_ref
+            if release_signers:
+                derived["policy"] = {"allowed_signers": list(release_signers)}
+            catalog.append(derived)
 
     return catalog

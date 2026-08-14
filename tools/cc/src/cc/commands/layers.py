@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import json as _json
 import logging
+import re
 import socket
 from datetime import datetime
 from pathlib import Path
@@ -63,6 +64,7 @@ from cc.core.ecosystem.ecosystem_config import (
 from cc.core.ecosystem.ecosystem_config import (
     ecosystem_config_path,
     load_ecosystem_config,
+    valid_ssh_sha256_fingerprint,
 )
 from cc.core.ecosystem.lockfile import default_lockfile_path, read_lockfile
 from cc.core.ecosystem.manifest import ManifestError, load_layers
@@ -82,6 +84,7 @@ GITHUB_KEYCHAIN_SERVICE = "com.everyoneneedsacopilot.copilot.github"
 # Sentinel distinguishing "no override passed" from an explicit None argument
 # (mirrors commands/update.py's `_UNSET` convention).
 _UNSET: Any = object()
+_EXACT_RELEASE_REF = re.compile(r"^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$")
 
 
 class NoIdentityError(RuntimeError):
@@ -369,7 +372,7 @@ def _next_rank(layers: list[dict[str, Any]]) -> int:
 
 
 def _new_manifest_layer(
-    dept: dict[str, Any], *, source_path: Optional[str]
+    dept: dict[str, Any], *, source_path: Optional[str], enforce_release: bool = True
 ) -> dict[str, Any]:
     """
     Build the `copilot.layers.yml` layer entry a join writes.
@@ -381,7 +384,8 @@ def _new_manifest_layer(
     carries its own explicit `product` (one catalog entry per department
     UNIT x COMPONENT pair -- see that function's docstring), so a real join
     of a derived entry never reaches this default at all: joining
-    `accounting-claude` sets `product: claude`, joining `accounting-codex`
+    `claude-department-accounting` sets `product: claude`, joining
+    `codex-department-accounting`
     sets `product: codex`, etc. -- "one layer per product" per-department,
     not one cli-product layer for the whole department.
 
@@ -391,18 +395,49 @@ def _new_manifest_layer(
     `product` -- a real, already-tested call shape this function must not
     break. It is never exercised by the convention-derived path.
     """
-    source: dict[str, Any] = {"repo": str(dept["repo"]), "ref": dept.get("ref", "main")}
+    repo = str(dept["repo"])
+    role = str(dept.get("role", "department"))
+    ref = dept.get("ref")
+    policy = dept.get("policy")
+    protected_shared_repo = role in {"department", "organization"} and bool(
+        entitlement.github_repo_slug(repo)
+    )
+    allowed_signers = (
+        policy.get("allowed_signers") if isinstance(policy, dict) else None
+    )
+    if (
+        enforce_release
+        and protected_shared_repo
+        and (
+            not isinstance(ref, str)
+            or _EXACT_RELEASE_REF.fullmatch(ref) is None
+            or not isinstance(allowed_signers, list)
+            or not allowed_signers
+            or any(
+                not valid_ssh_sha256_fingerprint(signer)
+                for signer in allowed_signers
+            )
+        )
+    ):
+        raise ManifestError(
+            f"shared layer {dept.get('id')!r} must declare an exact vMAJOR.MINOR.PATCH ref and a non-empty SSH signer allowlist"
+        )
+
+    source: dict[str, Any] = {"repo": repo, "ref": ref or "main"}
     if source_path:
         source["path"] = source_path
     default_auth = "work" if entitlement.github_repo_slug(dept.get("repo")) else "anon"
-    return {
+    layer = {
         "id": str(dept["id"]),
-        "role": dept.get("role", "department"),
+        "role": role,
         "product": dept.get("product", "cli"),
         "source": source,
         "auth": dept.get("auth", default_auth),
         "activation": dept.get("activation", "always"),
     }
+    if isinstance(policy, dict):
+        layer["policy"] = policy
+    return layer
 
 
 def _write_manifest(path: Path, layers: list[dict[str, Any]]) -> None:
@@ -496,7 +531,9 @@ def build_layers_join_report(
             reason=f"unknown layer id: {layer_id!r}",
         )
 
-    entitlement_layer = _new_manifest_layer(dept, source_path=None) | {
+    entitlement_layer = _new_manifest_layer(
+        dept, source_path=None, enforce_release=False
+    ) | {
         "rank": int(dept.get("rank", 100)),
         "role": str(dept.get("role", "department")),
         # A legacy local-path fixture remains anonymous; a GitHub catalog row
@@ -545,6 +582,12 @@ def build_layers_join_report(
                 f"{decision.responsible_actor}; {decision.recovery}"
             ),
         )
+
+    # Trust is validated before any mirror/network or manifest mutation. The
+    # entitlement probe above remains useful for rendering denied/offline
+    # outcomes, but an eligible shared layer may proceed only from one exact,
+    # signer-authorized release.
+    _new_manifest_layer(dept, source_path=None)
 
     local_layers = _local_layers(
         _layers=_layers, _manifest_path=_manifest_path, swallow_errors=False
