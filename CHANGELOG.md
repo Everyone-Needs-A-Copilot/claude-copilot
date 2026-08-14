@@ -84,6 +84,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Authoritative project source drift (framework 5.14.10):** verified full-ownership Claude and Codex installations now detect a newer authoritative framework contract, offer a bounded safe update only when the project is stable, preserve unrelated project work, stop for path collisions or retired framework paths, and become a zero-work ready state after application. Customized-preservation locks compare only their recorded ownership boundary and require owner review when that boundary becomes stale instead of being promoted to full framework ownership.
+
 - **Journey verifier runtime availability (framework 5.14.9):** snapshot and frozen `cc` installs now embed Task Copilot's public evidence API, and a project with no `tasks.db` is correctly proven to have no active journey for an unframed agent dispatch while any supplied journey marker still fails closed.
 
 - **Accurate setup support status (`cc` 2.11.1):** a successful preparation

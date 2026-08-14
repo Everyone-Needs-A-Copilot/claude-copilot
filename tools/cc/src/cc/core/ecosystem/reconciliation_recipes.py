@@ -48,6 +48,10 @@ class RecipeValidationError(ValueError):
     """A recipe is unknown, mismatched, or outside the typed safety boundary."""
 
 
+class ComponentSourceConflict(RecipeValidationError):
+    """A current source update would collide with unowned project content."""
+
+
 _FINGERPRINT_PREFIX = "sha256:"
 
 _COMMON_TARGETS = (
@@ -1545,6 +1549,43 @@ def _claude_legacy(root: Path, component: str) -> tuple[RecipeOperation, ...]:
     )
 
 
+def _claude_update(root: Path, component: str) -> tuple[RecipeOperation, ...]:
+    source = _source_root(component)
+    operations = list(_claude_setup(root, component))
+    planned_targets = {operation.target for operation in operations}
+    desired = _lock_entry(source, component)
+    for item in desired["files"]:
+        target = str(item["path"])
+        if target in planned_targets:
+            continue
+        try:
+            current = _bytes_hash((root / target).read_bytes())
+        except OSError:
+            current = None
+        if current == item["checksum"]:
+            continue
+        operation = _operation(
+            root=root,
+            component=component,
+            kind=RecipeOperationKind.COPY_FILE_FROM_SOURCE,
+            target=target,
+            description=f"Refresh the verified framework-owned {target} file.",
+            source=source / target,
+            payload={
+                "source_path": str(source / target),
+                "mode": 0o755 if target.endswith(".sh") else 0o644,
+            },
+        )
+        lock_index = next(
+            index
+            for index, existing in enumerate(operations)
+            if existing.kind == RecipeOperationKind.UPSERT_LOCK_COMPONENT
+        )
+        operations.insert(lock_index, operation)
+        planned_targets.add(target)
+    return tuple(operations)
+
+
 def _codex_setup(root: Path, component: str) -> tuple[RecipeOperation, ...]:
     source = _source_root(component)
     binding = _codex_plugin_binding(root)
@@ -1646,6 +1687,89 @@ def _codex_setup(root: Path, component: str) -> tuple[RecipeOperation, ...]:
             ),
         )
     )
+    return tuple(operations)
+
+
+def _codex_update(root: Path, component: str) -> tuple[RecipeOperation, ...]:
+    source = _source_root(component)
+    binding = _codex_plugin_binding(root)
+    operations = list(_codex_setup(root, component))
+    planned_targets = {operation.target for operation in operations}
+    desired = _lock_entry(source, component, codex_binding=binding)
+    existing = _existing_lock_entries(root).get(component, {})
+    desired_files = {
+        str(item["path"]): str(item["checksum"]) for item in desired["files"]
+    }
+    existing_files = {
+        str(item["path"]): str(item["checksum"])
+        for item in existing.get("files", [])
+        if isinstance(item, Mapping)
+    }
+    insertions: list[RecipeOperation] = []
+    desired_plugin = {
+        path: checksum
+        for path, checksum in desired_files.items()
+        if path.startswith("plugins/codex-copilot/")
+    }
+    existing_plugin = {
+        path: checksum
+        for path, checksum in existing_files.items()
+        if path.startswith("plugins/codex-copilot/")
+    }
+    if (
+        desired_plugin != existing_plugin
+        and "plugins/codex-copilot" not in planned_targets
+    ):
+        plugin_source = (
+            binding.path if binding is not None else source / "plugins/codex-copilot"
+        )
+        insertions.append(
+            _operation(
+                root=root,
+                component=component,
+                kind=RecipeOperationKind.COPY_TREE_FROM_SOURCE,
+                target="plugins/codex-copilot",
+                description="Refresh the verified portable project-local Codex plugin copy.",
+                source=plugin_source,
+                source_fingerprint_override=(
+                    binding.snapshot.fingerprint() if binding is not None else None
+                ),
+                payload={
+                    "source_path": str(plugin_source),
+                    **(
+                        {"source_provenance": binding.provenance()}
+                        | {
+                            "source_repository_root": str(binding.repository_root),
+                            "source_relative_path": binding.relative_path,
+                        }
+                        if binding is not None
+                        else {}
+                    ),
+                },
+            )
+        )
+    gate = "scripts/copilot-gate.sh"
+    if (
+        desired_files.get(gate) != existing_files.get(gate)
+        and gate not in planned_targets
+    ):
+        insertions.append(
+            _operation(
+                root=root,
+                component=component,
+                kind=RecipeOperationKind.COPY_FILE_FROM_SOURCE,
+                target=gate,
+                description="Refresh the verified project-local Codex gate.",
+                source=source / gate,
+                payload={"source_path": str(source / gate), "mode": 0o755},
+            )
+        )
+    lock_index = next(
+        index
+        for index, operation in enumerate(operations)
+        if operation.kind == RecipeOperationKind.UPSERT_LOCK_COMPONENT
+    )
+    operations[lock_index:lock_index] = insertions
     return tuple(operations)
 
 
@@ -2217,13 +2341,13 @@ DEFAULT_RECIPE_REGISTRY = RecipeRegistry(
             "claude-repair-known-v1",
             "claude",
             frozenset({ComponentRoute.SAFE_UPDATE_AVAILABLE}),
-            _claude_setup,
+            _claude_update,
         ),
         RecipeDefinition(
             "codex-repair-known-v1",
             "codex",
             frozenset({ComponentRoute.SAFE_UPDATE_AVAILABLE}),
-            _codex_setup,
+            _codex_update,
         ),
         RecipeDefinition(
             "claude.customized-preserve-entry.v1",
@@ -2430,6 +2554,151 @@ def _existing_lock_entries(root: Path) -> dict[str, dict[str, Any]]:
     return result
 
 
+def _normalized_component_contract(entry: Mapping[str, Any]) -> dict[str, Any]:
+    files = entry.get("files")
+    normalized_files = (
+        sorted(
+            (dict(item) for item in files if isinstance(item, Mapping)),
+            key=lambda item: str(item.get("path", "")),
+        )
+        if isinstance(files, list)
+        else []
+    )
+    return {
+        "component": entry.get("component"),
+        "version": entry.get("version"),
+        "release_tag": entry.get("release_tag"),
+        "ownership_mode": entry.get("ownership_mode"),
+        "files": normalized_files,
+        "provenance": entry.get("provenance"),
+    }
+
+
+def _verified_update_boundary(
+    root: Path,
+    component: str,
+    existing: Mapping[str, Any],
+    desired: Mapping[str, Any],
+) -> None:
+    existing_files = {
+        str(item["path"]): str(item["checksum"])
+        for item in existing.get("files", [])
+        if isinstance(item, Mapping)
+        and isinstance(item.get("path"), str)
+        and isinstance(item.get("checksum"), str)
+    }
+    desired_files = {
+        str(item["path"]): str(item["checksum"])
+        for item in desired.get("files", [])
+        if isinstance(item, Mapping)
+        and isinstance(item.get("path"), str)
+        and isinstance(item.get("checksum"), str)
+    }
+    retired = set(existing_files) - set(desired_files)
+    if retired:
+        raise ComponentSourceConflict(
+            "The authoritative source retires framework paths that require an owner-reviewed disposition."
+        )
+    for relative in set(desired_files) - set(existing_files):
+        target = root / relative
+        try:
+            metadata = target.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise ComponentSourceConflict(
+                "A newly managed framework path could not be inspected safely."
+            ) from exc
+        try:
+            conflicts = (
+                stat.S_ISLNK(metadata.st_mode)
+                or not stat.S_ISREG(metadata.st_mode)
+                or _bytes_hash(target.read_bytes()) != desired_files[relative]
+            )
+        except OSError as exc:
+            raise ComponentSourceConflict(
+                "A newly managed framework path could not be inspected safely."
+            ) from exc
+        if conflicts:
+            raise ComponentSourceConflict(
+                "A newly managed framework path conflicts with existing project content."
+            )
+    if component != "codex" or existing.get("ownership_mode") == "customized-preserve":
+        return
+    plugin = root / "plugins/codex-copilot"
+    recorded_plugin_paths = {
+        path for path in existing_files if path.startswith("plugins/codex-copilot/")
+    }
+    try:
+        actual_plugin_paths = {
+            path.relative_to(root).as_posix()
+            for path in plugin.rglob("*")
+            if path.is_file() and not path.is_symlink()
+        }
+        unsafe_plugin_entry = any(path.is_symlink() for path in plugin.rglob("*"))
+    except OSError as exc:
+        raise ComponentSourceConflict(
+            "The current project-local Codex plugin could not be inspected safely."
+        ) from exc
+    if unsafe_plugin_entry or actual_plugin_paths != recorded_plugin_paths:
+        raise ComponentSourceConflict(
+            "The current project-local Codex plugin contains content outside its verified lock boundary."
+        )
+
+
+def _desired_component_contract(
+    root: Path, component: str, existing: Mapping[str, Any]
+) -> dict[str, Any]:
+    binding = _codex_plugin_binding(root) if component == "codex" else _BINDING_UNSET
+    desired = _lock_entry(_source_root(component), component, codex_binding=binding)
+    if existing.get("ownership_mode") != "customized-preserve":
+        return desired
+
+    owned_paths = {
+        str(item["path"])
+        for item in existing.get("files", [])
+        if isinstance(item, Mapping) and isinstance(item.get("path"), str)
+    }
+    desired["ownership_mode"] = "customized-preserve"
+    desired["files"] = [
+        item for item in desired["files"] if str(item.get("path", "")) in owned_paths
+    ]
+    if component == "codex" and "provenance" not in existing:
+        desired.pop("provenance", None)
+    return desired
+
+
+def component_lock_update_required(root: Path, component: str) -> bool:
+    """Return whether a verified lock differs from today's effective source.
+
+    The integration inspector proves the existing lock against disk. This
+    comparison answers the independent question needed by reconciliation:
+    whether the verified installation is still the exact installation the
+    current authoritative source would produce. Managed-output fingerprints
+    are deliberately excluded because the recipe preserves and recomputes
+    them around project-owned merge targets.
+
+    A missing component entry returns ``False`` because the integration
+    inspector owns setup/repair classification. Callers use this only after
+    that inspector has classified a component as ready.
+    """
+    if component not in SUPPORTED_COMPONENTS:
+        raise RecipeValidationError("The component lock comparison is unsupported.")
+    existing = _existing_lock_entries(root).get(component)
+    if existing is None:
+        return False
+    desired = _desired_component_contract(root, component, existing)
+    _verified_update_boundary(root, component, existing, desired)
+    update_required = _normalized_component_contract(
+        existing
+    ) != _normalized_component_contract(desired)
+    if update_required and existing.get("ownership_mode") == "customized-preserve":
+        raise ComponentSourceConflict(
+            "The customized framework boundary differs from the authoritative source and requires owner review."
+        )
+    return update_required
+
+
 def _managed_records(entry: Mapping[str, Any]) -> list[dict[str, str]]:
     records = entry.get("managed_outputs", [])
     if not isinstance(records, list):
@@ -2626,9 +2895,7 @@ def build_recipe_plan(
         for definition, component_ops in built
     )
     if codex_mutating:
-        resolved_binding, private_bindings = (
-            resolve_codex_plugin_source_with_bindings()
-        )
+        resolved_binding, private_bindings = resolve_codex_plugin_source_with_bindings()
         expected_provenance = (
             resolved_binding.provenance() if resolved_binding is not None else None
         )
@@ -2648,7 +2915,9 @@ def build_recipe_plan(
             for entry in entries:
                 if isinstance(entry, Mapping) and entry.get("component") == "codex":
                     value = entry.get("provenance")
-                    planned_provenance = dict(value) if isinstance(value, Mapping) else None
+                    planned_provenance = (
+                        dict(value) if isinstance(value, Mapping) else None
+                    )
         if planned_provenance != expected_provenance:
             raise RecipeValidationError(
                 "The effective Codex entitlement changed while the recipe was being prepared."
@@ -2704,8 +2973,10 @@ __all__ = [
     "RecipePlan",
     "RecipeRegistry",
     "RecipeValidationError",
+    "ComponentSourceConflict",
     "allowed_targets_for_components",
     "authoritative_source_available",
     "build_recipe_plan",
+    "component_lock_update_required",
     "validated_source_root",
 ]
