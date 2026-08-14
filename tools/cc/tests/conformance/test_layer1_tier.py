@@ -8,8 +8,8 @@ two-world rule (`HARNESS-DESIGN.md` §5.1):
     `conftest.py`'s `FleetFactory` -- proving the check can detect BOTH
     outcomes (`test_every_h_check_has_a_positive_and_a_negative_test`
     below is the fitness function that holds this package to it), and
-  - for the six H-ids that have a live instance on this machine (H-1, H-2,
-    H-3, H-4, H-5, H-6, H-7 -- everything except the fixture-only H-8/H-9,
+  - for the H-ids that have a live instance on this machine (H-1, H-2,
+    H-3, H-4, H-5, H-6, H-7, H-8 -- everything except fixture-only H-9,
     `TEST-MATRIX.md` §7 items 9-10), a `@pytest.mark.machine` test that
     reads the REAL manifest/config/tier repos strictly read-only and
     asserts the verdict `TEST-MATRIX.md` §8 predicts for THIS machine
@@ -791,7 +791,7 @@ class TestH7NoHollowRung:
 
 
 # ---------------------------------------------------------------------------
-# H-8 -- commands dimension has no consumer (fixture-only, no live instance)
+# H-8 -- commands dimension has a framework-wide materialization consumer
 # ---------------------------------------------------------------------------
 
 
@@ -905,55 +905,24 @@ class TestH8CommandsDimensionHasNoConsumer:
 
     @requires_real_machine
     @pytest.mark.machine
-    def test_machine_ecosystem_and_commands_verdicts_are_self_consistent(
+    def test_machine_framework_has_one_real_dimensions_consumer(
         self, machine_readonly_guard
     ):
-        """TEST-MATRIX H-8 ground truth as of WP-2: uniformly FAIL
-        (`commands/onboard.py` only ever WRITES `"dimensions": []`, never
-        reads a layer's `dimensions:` field back). Mid-task (2026-08-11)
-        this was observed live to have changed for `core/ecosystem`
-        specifically: a concurrently-landing sibling fix
-        (`core/ecosystem/discovery.py`'s `_declared_dimensions()`) gives it
-        a real consumer, flipping that one subject to PASS while `commands`
-        stays FAIL -- exactly the "several checks flip to green as sibling
-        fixes land" dynamic this task exists to let the harness observe.
-        Deliberately NOT hard-pinned to one direction here: this repo's
-        `core/ecosystem/discovery.py` is concurrently owned by another
-        in-flight change this test file's own commit does not control, so
-        pinning `Verdict.PASS` would make this test's outcome depend on
-        exactly when it runs relative to that unrelated commit landing.
-        What IS pinned, and never varies: `check_h8_commands_dimension_
-        has_no_consumer`'s own per-branch `expected_today` (`tier.py`)
-        always agrees with whatever it verdicts, for BOTH subjects -- the
-        thing this test exists to prove is that the check's prediction
-        never silently drifts from its own answer, not which specific
-        answer this developer's machine gives on this specific day. The
-        `core/conformance/`-exclusion mechanism itself (the actual fix
-        this task made) is proven able to FAIL by the hermetic fixture
-        tests above, which is what a check "still being able to fail"
-        requires -- not this machine snapshot."""
+        """The framework needs one materialization consumer, not one copy in
+        every sibling package. `discovery.py` provides that consumer while
+        `core/conformance` remains structurally excluded from the scan."""
 
-        ecosystem_root = _CC_TOOL_ROOT / "src" / "cc" / "core" / "ecosystem"
-        commands_root = _CC_TOOL_ROOT / "src" / "cc" / "commands"
-        assert ecosystem_root.is_dir() and commands_root.is_dir()
+        cc_source_root = _CC_TOOL_ROOT / "src" / "cc"
+        assert cc_source_root.is_dir()
 
-        with machine_readonly_guard(extra_paths=[ecosystem_root, commands_root]):
-            ecosystem_result = tier.check_h8_commands_dimension_has_no_consumer(
-                source_root=ecosystem_root
-            )
-            commands_result = tier.check_h8_commands_dimension_has_no_consumer(
-                source_root=commands_root
+        with machine_readonly_guard(extra_paths=[cc_source_root]):
+            result = tier.check_h8_commands_dimension_has_no_consumer(
+                source_root=cc_source_root
             )
 
-        assert ecosystem_result.verdict.value == ecosystem_result.expected_today.value, (
-            ecosystem_result.detail
-        )
-        assert commands_result.verdict.value == commands_result.expected_today.value, (
-            commands_result.detail
-        )
-        # `commands` has no plausible concurrent change in flight this
-        # session -- pin its direction explicitly as the one stable fact.
-        assert commands_result.verdict is Verdict.FAIL, commands_result.detail
+        assert result.verdict is Verdict.PASS, result.detail
+        assert result.expected_today is ExpectedToday.PASS
+        assert "core/ecosystem/discovery.py" in result.detail
 
 
 # ---------------------------------------------------------------------------

@@ -250,7 +250,7 @@ E6_EXTENSION_RESOLUTION_WIRED_BEYOND_PROSE = register_check(
         "path, so extension resolution is enforced rather than merely "
         "documented"
     ),
-    expected_today=ExpectedToday.FAIL,
+    expected_today=ExpectedToday.PASS,
 )
 
 
@@ -715,8 +715,10 @@ def check_e5_knowledge_ladder_actually_consumed(
 _EXTENSIONS_RESOLVE_RE = re.compile(r"cc extensions resolve")
 
 
-def find_extension_resolution_invocations(source_root: Path) -> tuple[Path, ...]:
-    """Every `*.sh` file under `source_root` with a non-comment line
+def find_extension_resolution_invocations(
+    source_root: Path, *, scan_roots: Sequence[Path] | None = None
+) -> tuple[Path, ...]:
+    """Every `*.sh` file under the selected roots with a non-comment line
     invoking `cc extensions resolve` -- deliberately `.sh` only (hooks and
     scripts, the framework's actual executable surface), and deliberately
     skipping comment lines, so a `.md` mention (agent/command prose an LLM
@@ -725,28 +727,36 @@ def find_extension_resolution_invocations(source_root: Path) -> tuple[Path, ...]
     `find_dimensions_consumers` already enforces for H-8."""
 
     hits: list[Path] = []
-    for path in sorted(source_root.rglob("*.sh")):
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        for line in text.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("#"):
+    roots = tuple(scan_roots) if scan_roots is not None else (source_root,)
+    for root in roots:
+        for path in sorted(root.rglob("*.sh")):
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
                 continue
-            if _EXTENSIONS_RESOLVE_RE.search(stripped):
-                hits.append(path)
-                break
+            for line in text.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("#"):
+                    continue
+                if _EXTENSIONS_RESOLVE_RE.search(stripped):
+                    hits.append(path)
+                    break
     return tuple(hits)
 
 
 def check_e6_extension_resolution_wired_beyond_prose(
-    *, source_root: Path
+    *,
+    source_root: Path,
+    scan_roots: Sequence[Path] | None = None,
+    subject: str | None = None,
 ) -> CheckResult:
-    hits = find_extension_resolution_invocations(source_root)
+    hits = find_extension_resolution_invocations(
+        source_root, scan_roots=scan_roots
+    )
+    result_subject = subject or str(source_root)
     if hits:
         return E6_EXTENSION_RESOLUTION_WIRED_BEYOND_PROSE.result(
-            subject=str(source_root),
+            subject=result_subject,
             verdict=Verdict.PASS,
             detail=(
                 f"{len(hits)} executable invocation(s) found: "
@@ -757,7 +767,7 @@ def check_e6_extension_resolution_wired_beyond_prose(
     evidence = (
         Evidence(
             kind="code-scan",
-            path=str(source_root),
+            path=result_subject,
             expected=(
                 "at least one *.sh hook/script with a non-comment "
                 "`cc extensions resolve` invocation"
@@ -771,7 +781,10 @@ def check_e6_extension_resolution_wired_beyond_prose(
         ),
     )
     return E6_EXTENSION_RESOLUTION_WIRED_BEYOND_PROSE.result(
-        subject=str(source_root), verdict=Verdict.FAIL, evidence=evidence
+        subject=result_subject,
+        verdict=Verdict.FAIL,
+        evidence=evidence,
+        expected_today=ExpectedToday.FAIL,
     )
 
 

@@ -50,10 +50,8 @@ checks that a winning tier's content is *substantive*"):
 H-8 (`tier.precedence.commands_dimension_has_no_consumer`) is also net-new
 in a narrower sense: it does not compute resolution at all. `TEST-MATRIX.md`
 H-8's own fail criterion is "the harness cannot locate any consumer of
-`dimensions:` at all" — verified true on this codebase (`copilot.layer.yml`'s
-`dimensions` field is only ever WRITTEN, by `commands/onboard.py`'s two
-scaffold call sites, never READ by anything), so this check is a grep-shaped
-absence assertion, the same shape Layer 6's RC regression pins use.
+`dimensions:` at all", so this check is a grep-shaped absence assertion,
+the same shape Layer 6's RC regression pins use.
 `find_dimensions_consumers` structurally excludes its own `core/conformance/`
 package (see `_is_under_excluded_package` below) so this stays a true
 absence assertion regardless of how wide a caller's `source_root` is —
@@ -62,9 +60,9 @@ checkers themselves (`root_causes.py`, `stack.py`, this file) reading
 `dimensions:` for read-only inspection and reported a false PASS ("a
 consumer exists") purely because the check's own package matched its own
 pattern; re-verified live 2026-08-11 that with the exclusion in place, the
-real, correctly-scoped verdict against `core/ecosystem` + `commands` is
-still FAIL (0 real consumers) — H-8's true verdict is unchanged, only now
-enforced rather than merely caller-disciplined.
+real framework now has a consumer in `core/ecosystem/discovery.py`. The
+consumer surface is checked once across `src/cc`; a sibling directory with
+no duplicate implementation is not a separate capability failure.
 """
 
 from __future__ import annotations
@@ -232,20 +230,10 @@ H8_COMMANDS_DIMENSION_HAS_NO_CONSUMER = register_check(
         "reads a layer's declared `dimensions:`), or fold command-"
         "dimension declarations into an existing materialize path"
     ),
-    # Was uniformly FAIL (RC-5's own finding: dimensions: was write-only).
-    # Live-verified 2026-08-11, mid-task: a concurrent sibling agent landed
-    # a real consumer in `core/ecosystem/discovery.py`
-    # (`_declared_dimensions()`, reads a layer's own copilot.layer.yml to
-    # narrow which sub-directories that layer is probed for during
-    # discover_contributions() -- directly feeding resolve_layers()'s own
-    # materialize/shadow fold, not a read-only inspection) -- so the
-    # `core/ecosystem` subject now correctly PASSes, while `commands` still
-    # has no consumer and correctly still FAILs. The registration default
-    # stays FAIL (still true for `commands`); `check_h8_commands_dimension_
-    # has_no_consumer` sets `expected_today` per-branch below so each
-    # subject's own live-verified truth travels with it, never a single
-    # blanket value.
-    expected_today=ExpectedToday.FAIL,
+    # Was uniformly FAIL while dimensions was write-only. The real consumer
+    # now lives in `core/ecosystem/discovery.py` and feeds the materialization
+    # path, so the one framework-wide verdict is expected to pass.
+    expected_today=ExpectedToday.PASS,
 )
 
 H9_PROJECT_OVERRIDES_MACHINE_LADDER = register_check(
@@ -870,10 +858,6 @@ def check_h8_commands_dimension_has_no_consumer(*, source_root: Path) -> CheckRe
                 f"{len(consumers)} consumer(s) found: "
                 f"{', '.join(str(path) for path in consumers)}"
             ),
-            # This subject's own live-verified truth (e.g. `core/ecosystem`
-            # since `discovery.py`'s `_declared_dimensions()` landed) --
-            # never a blanket registration default, since a sibling subject
-            # (`commands`) can legitimately still have zero consumers.
             expected_today=ExpectedToday.PASS,
         )
 
@@ -889,8 +873,8 @@ def check_h8_commands_dimension_has_no_consumer(*, source_root: Path) -> CheckRe
             detail=(
                 "copilot.layer.yml's `dimensions:` field is only ever WRITTEN "
                 '(commands/onboard.py scaffolds `"dimensions": []` at two call '
-                "sites), never READ anywhere under this specific source_root -- "
-                "RC-5's authoring gap has no materialization consumer here yet"
+                "sites), never READ anywhere under the selected source surface -- "
+                "RC-5's authoring gap has no materialization consumer yet"
             ),
         ),
     )
