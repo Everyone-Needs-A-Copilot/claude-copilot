@@ -103,7 +103,9 @@ def knowledge_skill_paths() -> list[Path]:
     return [path for path, _source in resolve_knowledge_skill_sources()]
 
 
-def default_skill_paths() -> list[tuple[Path, str]]:
+def default_skill_paths(
+    *, knowledge_sources: Optional[list[tuple[Path, Any]]] = None
+) -> list[tuple[Path, str]]:
     """Return the default skill search paths with their source labels.
 
     Resolution order: project → machine → knowledge.
@@ -124,8 +126,15 @@ def default_skill_paths() -> list[tuple[Path, str]]:
         paths.append((machine_skills, "machine"))
 
     # Knowledge skills: every configured paths.knowledge_repo entry's
-    # 03-ai-enabling/01-skills/ tree (WP-372 P2.2).
-    for skills_dir in knowledge_skill_paths():
+    # 03-ai-enabling/01-skills/ tree (WP-372 P2.2). A caller that already
+    # verified the Knowledge ladder may provide those exact source roots so
+    # one operation does not recursively verify the same ladder again.
+    resolved_knowledge = (
+        [(path, None) for path in knowledge_skill_paths()]
+        if knowledge_sources is None
+        else knowledge_sources
+    )
+    for skills_dir, _source in resolved_knowledge:
         paths.append((skills_dir, "knowledge"))
 
     return paths
@@ -468,6 +477,7 @@ def discover_skills_with_sources(
     path_source_pairs: list[tuple[Path, str]],
     *,
     cache_dir: Optional[Path] = None,
+    _knowledge_sources: Optional[dict[Path, Any]] = None,
 ) -> list[SkillMeta]:
     """Discover skills from multiple paths, each with its own source label.
 
@@ -476,6 +486,10 @@ def discover_skills_with_sources(
 
     `cache_dir`: forwarded to `discover_skills()` unchanged -- `None` (the
     default) disables caching for every existing/direct caller.
+
+    `_knowledge_sources` is the internal caller-scoped authority seam for an
+    operation that already verified the Knowledge ladder. When supplied, a
+    Knowledge path absent from that exact mapping is skipped fail-closed.
     """
     seen_names: set[str] = set()
     results: list[SkillMeta] = []
@@ -484,19 +498,24 @@ def discover_skills_with_sources(
         knowledge_source = None
         effective_cache_dir = cache_dir
         if source_label == "knowledge":
-            from cc.core.ecosystem.knowledge_skill_source import (
-                resolve_knowledge_skill_sources,
-            )
-
             nominal = Path(os.path.abspath(Path(base_path).expanduser()))
-            knowledge_source = next(
-                (
-                    source
-                    for root, source in resolve_knowledge_skill_sources()
-                    if root == nominal
-                ),
-                None,
-            )
+            if _knowledge_sources is not None:
+                if nominal not in _knowledge_sources:
+                    continue
+                knowledge_source = _knowledge_sources[nominal]
+            else:
+                from cc.core.ecosystem.knowledge_skill_source import (
+                    resolve_knowledge_skill_sources,
+                )
+
+                knowledge_source = next(
+                    (
+                        source
+                        for root, source in resolve_knowledge_skill_sources()
+                        if root == nominal
+                    ),
+                    None,
+                )
             # A mutable mtime/size cache is not an authority for signed bytes.
             effective_cache_dir = None
         for skill in discover_skills(
@@ -557,6 +576,21 @@ def get_skill_content_with_receipt(
             Path(source.relative_path) / relative
         ).as_posix()
         receipt = source.authenticated_contribution(contribution, runtime=runtime)
+        return SkillContent(content=receipt.content, receipt=receipt)
+    return SkillContent(content=skill_meta.path.read_text(encoding="utf-8"))
+
+
+def get_skill_content_with_receipt_from_verified_batch(
+    skill_meta: SkillMeta, *, runtime: str = "cc"
+) -> SkillContent:
+    """Read a skill selected by the current caller-scoped verified batch."""
+    if skill_meta._knowledge_source is not None:
+        source = skill_meta._knowledge_source
+        relative = skill_meta.path.relative_to(source.skills_root)
+        contribution = (Path(source.relative_path) / relative).as_posix()
+        receipt = source.authenticated_contribution_from_verified_batch(
+            contribution, runtime=runtime
+        )
         return SkillContent(content=receipt.content, receipt=receipt)
     return SkillContent(content=skill_meta.path.read_text(encoding="utf-8"))
 

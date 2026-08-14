@@ -48,7 +48,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Mapping, Optional, Sequence
 
 _log = logging.getLogger(__name__)
 
@@ -131,6 +131,151 @@ class AuthenticatedComposition:
     content_sha256: str
 
 
+ExtensionSourceBindings = Mapping[str, tuple[bool, Any]]
+
+
+def _repository_key(repo: str | Path) -> str:
+    return str(Path(repo).expanduser().absolute())
+
+
+def prepare_extension_source_bindings(
+    knowledge_repos: Sequence[str],
+) -> dict[str, tuple[bool, Any]]:
+    """Verify the signed Knowledge ladder once for one resolution batch.
+
+    The returned mapping is intentionally caller-scoped and never cached
+    globally. A command or conformance collection therefore gets one stable,
+    entitlement-bound view while the next invocation always revalidates the
+    current authorization and signed source state.
+    """
+
+    bindings: dict[str, tuple[bool, Any]] = {}
+    try:
+        from cc.core.ecosystem.knowledge_skill_source import (
+            knowledge_repository_requires_authenticated_source,
+            resolve_knowledge_skill_sources,
+        )
+    except Exception:
+        return {_repository_key(repo): (True, None) for repo in knowledge_repos}
+
+    protected: dict[str, bool] = {}
+    for repo in knowledge_repos:
+        key = _repository_key(repo)
+        try:
+            protected[key] = knowledge_repository_requires_authenticated_source(
+                Path(key)
+            )
+        except Exception:
+            protected[key] = True
+
+    sources_by_repo: dict[str, Any] = {}
+    if any(protected.values()):
+        try:
+            for _root, source in resolve_knowledge_skill_sources():
+                if source is not None:
+                    sources_by_repo[_repository_key(source.repository_root)] = source
+        except Exception:
+            # Preserve the existing fail-closed behavior: an unavailable or
+            # invalid signed ladder grants no protected checkout authority.
+            sources_by_repo = {}
+
+    for key, authentication_required in protected.items():
+        bindings[key] = (
+            authentication_required,
+            sources_by_repo.get(key) if authentication_required else None,
+        )
+    return bindings
+
+
+@dataclass
+class ExtensionSkillBindings:
+    """Lazy skill index shared by one extension-resolution operation."""
+
+    knowledge_repos: tuple[str, ...]
+    source_bindings: ExtensionSourceBindings
+    _skills: list[Any] | None = field(default=None, init=False, repr=False)
+
+    def _catalog(self) -> list[Any]:
+        if self._skills is not None:
+            return self._skills
+
+        from cc.core.ecosystem.knowledge_skill_source import (
+            KNOWLEDGE_SKILLS_SUBPATH,
+        )
+        from cc.core.skill_store import (
+            default_skill_paths,
+            discover_skills_with_sources,
+        )
+
+        knowledge_sources: list[tuple[Path, Any]] = []
+        sources_by_root: dict[Path, Any] = {}
+        for repo in self.knowledge_repos:
+            key = _repository_key(repo)
+            authentication_required, source = self.source_bindings.get(
+                key, (True, None)
+            )
+            if source is not None:
+                skills_root = Path(source.skills_root).expanduser().absolute()
+                knowledge_sources.append((skills_root, source))
+                sources_by_root[skills_root] = source
+                continue
+            if authentication_required:
+                continue
+            skills_root = Path(key) / KNOWLEDGE_SKILLS_SUBPATH
+            if skills_root.is_dir():
+                knowledge_sources.append((skills_root, None))
+                sources_by_root[skills_root] = None
+
+        self._skills = discover_skills_with_sources(
+            default_skill_paths(knowledge_sources=knowledge_sources),
+            cache_dir=None,
+            _knowledge_sources=sources_by_root,
+        )
+        return self._skills
+
+    def evaluate(self, required: list[str]) -> tuple[list[str], tuple[Any, ...]]:
+        """Return missing skill names and authenticated receipts in one scan."""
+        if not required:
+            return [], ()
+        from cc.core.skill_store import (
+            find_skill_by_name,
+            get_skill_content_with_receipt_from_verified_batch,
+        )
+
+        try:
+            skills = self._catalog()
+        except Exception:
+            _log.debug(
+                "extensions resolver: skill availability check failed",
+                exc_info=True,
+            )
+            return list(required), ()
+
+        missing = []
+        receipts = []
+        for name in required:
+            skill = find_skill_by_name(name, skills)
+            if skill is None:
+                missing.append(name)
+                continue
+            if skill._knowledge_source is None:
+                continue
+            try:
+                result = get_skill_content_with_receipt_from_verified_batch(
+                    skill, runtime="claude"
+                )
+            except Exception:
+                _log.debug(
+                    "extensions resolver: authenticated skill receipt unavailable",
+                    exc_info=True,
+                )
+                missing.append(name)
+                continue
+            if result.receipt is not None:
+                receipts.append(result.receipt)
+        return missing, tuple(receipts)
+
+
 def _load_manifest(repo: str) -> Optional[dict]:
     """Parse `<repo>/knowledge-manifest.json`. Returns None (with a logged
     warning) for anything short of a well-formed JSON object -- absent
@@ -154,13 +299,19 @@ def _load_manifest(repo: str) -> Optional[dict]:
     return data
 
 
-def _signed_source_for_repo(repo: str) -> tuple[bool, Any]:
+def _signed_source_for_repo(
+    repo: str,
+    source_bindings: ExtensionSourceBindings | None = None,
+) -> tuple[bool, Any]:
     """Return ``(authentication_required, source)`` for one repository.
 
     The first value is deliberately independent of source availability.  A
     revoked or unverifiable manifest-declared source therefore remains an
     authenticated source and cannot fall through to mutable checkout bytes.
     """
+    key = _repository_key(repo)
+    if source_bindings is not None:
+        return source_bindings.get(key, (True, None))
     try:
         from cc.core.ecosystem.knowledge_skill_source import (
             knowledge_repository_requires_authenticated_source,
@@ -197,7 +348,7 @@ def _load_manifest_authenticated(
             return None
         return _load_manifest(repo)
     try:
-        receipt = source.authenticated_contribution(
+        receipt = source.authenticated_contribution_from_verified_batch(
             "knowledge-manifest.json", runtime="claude"
         )
         data = json.loads(receipt.content)
@@ -217,62 +368,13 @@ def _find_agent_extension(manifest: dict, agent: str) -> Optional[dict]:
     return None
 
 
-def _default_missing_skills(required: list[str]) -> list[str]:
-    """Verify `required` skill names via the exact same lookup `cc skill
-    get` uses (`core/skill_store.py`'s `default_skill_paths()` +
-    `discover_skills_with_sources()`), so a skill this resolver says is
-    available is guaranteed retrievable by the agent that reads it next.
-    Returns the subset of `required` that could NOT be found. Never
-    raises -- an unreadable skill tree is treated as "missing", not a
-    crash."""
-    if not required:
-        return []
-    try:
-        from cc.core.skill_store import (
-            default_skill_paths,
-            discover_skills_with_sources,
-            find_skill_by_name,
-        )
-
-        pairs = default_skill_paths()
-        skills = discover_skills_with_sources(pairs, cache_dir=None)
-        return [name for name in required if find_skill_by_name(name, skills) is None]
-    except Exception:
-        _log.debug("extensions resolver: skill availability check failed", exc_info=True)
-        return list(required)
-
-
-def _required_skill_receipts(required: list[str]) -> tuple[Any, ...]:
-    if not required:
-        return ()
-    try:
-        from cc.core.skill_store import (
-            default_skill_paths,
-            discover_skills_with_sources,
-            find_skill_by_name,
-            get_skill_content_with_receipt,
-        )
-
-        skills = discover_skills_with_sources(default_skill_paths(), cache_dir=None)
-        receipts = []
-        for name in required:
-            skill = find_skill_by_name(name, skills)
-            if skill is None:
-                continue
-            result = get_skill_content_with_receipt(skill, runtime="claude")
-            if result.receipt is not None:
-                receipts.append(result.receipt)
-        return tuple(receipts)
-    except Exception:
-        _log.debug("extensions resolver: skill receipt lookup failed", exc_info=True)
-        return ()
-
-
 def resolve_extension(
     agent: str,
     *,
     knowledge_repos: Optional[list[str]] = None,
     missing_skills_checker: Optional[Callable[[list[str]], list[str]]] = None,
+    source_bindings: ExtensionSourceBindings | None = None,
+    skill_bindings: ExtensionSkillBindings | None = None,
 ) -> ExtensionResolution:
     """Resolve the winning extension (if any) for `agent`.
 
@@ -300,10 +402,17 @@ def resolve_extension(
 
         knowledge_repos = resolve_knowledge_repos()
 
-    checker = missing_skills_checker or _default_missing_skills
+    if source_bindings is None:
+        source_bindings = prepare_extension_source_bindings(knowledge_repos)
+    if missing_skills_checker is None and skill_bindings is None:
+        skill_bindings = ExtensionSkillBindings(
+            tuple(knowledge_repos), source_bindings
+        )
 
     for repo in knowledge_repos:
-        authentication_required, signed_source = _signed_source_for_repo(repo)
+        authentication_required, signed_source = _signed_source_for_repo(
+            repo, source_bindings
+        )
         manifest = _load_manifest_authenticated(
             repo,
             signed_source,
@@ -333,7 +442,7 @@ def resolve_extension(
         extension_receipt = None
         if signed_source is not None:
             try:
-                extension_receipt = signed_source.authenticated_contribution(
+                extension_receipt = signed_source.authenticated_contribution_from_verified_batch(
                     file_rel, runtime="claude"
                 )
             except Exception as exc:
@@ -356,12 +465,14 @@ def resolve_extension(
         if fallback not in _VALID_FALLBACKS:
             fallback = _DEFAULT_FALLBACK
 
-        missing = checker(required)
-        skill_receipts = (
-            _required_skill_receipts(required)
-            if missing_skills_checker is None and not missing
-            else ()
-        )
+        if missing_skills_checker is not None:
+            missing = missing_skills_checker(required)
+            skill_receipts = ()
+        else:
+            assert skill_bindings is not None
+            missing, skill_receipts = skill_bindings.evaluate(required)
+            if missing:
+                skill_receipts = ()
 
         resolution = ExtensionResolution(
             agent=agent,

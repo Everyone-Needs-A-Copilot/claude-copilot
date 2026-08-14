@@ -128,6 +128,24 @@ class VerifiedKnowledgeSkillSource:
     ) -> AuthenticatedKnowledgeContribution:
         """Read exact UTF-8 contribution bytes under current entitlement."""
         current = revalidate_knowledge_skill_source(self)
+        return current.authenticated_contribution_from_verified_batch(
+            relative_path,
+            runtime=runtime,
+        )
+
+    def authenticated_contribution_from_verified_batch(
+        self, relative_path: str, *, runtime: str
+    ) -> AuthenticatedKnowledgeContribution:
+        """Read one contribution from a caller-scoped verified source batch.
+
+        The source must come directly from the current operation's
+        ``resolve_knowledge_skill_sources`` result. The signed release tree is
+        immutable, and protected reads still hold and validate the bound
+        entitlement ledger lease. This avoids recursively resolving the same
+        ladder for every contribution while preserving fresh validation at the
+        start of each new operation.
+        """
+        current = self
         contribution = Path(relative_path)
         if contribution.is_absolute() or ".." in contribution.parts:
             raise KnowledgeSkillSourceError(

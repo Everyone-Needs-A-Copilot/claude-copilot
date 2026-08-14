@@ -118,6 +118,10 @@ from cc.core.ecosystem.reconciliation import (
     build_verify_report,
 )
 from cc.core.ecosystem.resolver import resolve_layers
+from cc.core.extensions_resolver import (
+    ExtensionSkillBindings,
+    prepare_extension_source_bindings,
+)
 
 conformance_app = typer.Typer(
     help=(
@@ -285,15 +289,34 @@ def _run_tier_layer_machine() -> tuple[CheckResult, ...]:
     ladder = resolve_knowledge_repos()
     if not ladder:
         return tuple(results)
+    source_bindings = prepare_extension_source_bindings(ladder)
+    skill_bindings = ExtensionSkillBindings(tuple(ladder), source_bindings)
 
     for agent in sorted(_declared_agent_names(ladder)):
         results.append(
-            tier.check_h1_nearest_declared_wins(agent, knowledge_repos=ladder)
+            tier.check_h1_nearest_declared_wins(
+                agent,
+                knowledge_repos=ladder,
+                source_bindings=source_bindings,
+                skill_bindings=skill_bindings,
+            )
         )
         results.append(
-            tier.check_h2_absence_is_not_shadow(agent, knowledge_repos=ladder)
+            tier.check_h2_absence_is_not_shadow(
+                agent,
+                knowledge_repos=ladder,
+                source_bindings=source_bindings,
+                skill_bindings=skill_bindings,
+            )
         )
-        results.append(tier.check_h3_shadow_substance(agent, knowledge_repos=ladder))
+        results.append(
+            tier.check_h3_shadow_substance(
+                agent,
+                knowledge_repos=ladder,
+                source_bindings=source_bindings,
+                skill_bindings=skill_bindings,
+            )
+        )
 
     layers = _load_validated_layers()
     expected_ladder = (
