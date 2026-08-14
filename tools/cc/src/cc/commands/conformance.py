@@ -270,28 +270,18 @@ def _run_tier_layer_machine() -> tuple[CheckResult, ...]:
                 )
             )
 
-        # The exact two subtrees `test_layer1_tier.py`'s own real-machine
-        # H-8 test scans: `core/ecosystem` and `commands` -- deliberately
-        # NOT the whole `src/cc` tree, which would also sweep in
-        # `core/conformance/` itself. `stack.py`'s own dimensions-declared
-        # check legitimately reads a layer's declared-dimensions field
-        # while INSPECTING a copilot.layer.yml (a read-only harness check,
-        # never a materialize/shadow consumer), and `find_dimensions_
-        # consumers`'s plain-text scan cannot tell that apart from a real
-        # consumer -- scanning the harness's own package (including THIS
-        # file, whose comments would otherwise echo the literal pattern
-        # being searched for) would produce a false "a consumer exists"
-        # PASS, contradicting the FAIL TEST-MATRIX.md predicts for the
-        # real ecosystem source.
+        # H-8: scan the complete cc source surface once; the checker
+        # structurally excludes its own core/conformance package. A consumer
+        # in core/ecosystem satisfies the framework-wide capability, so a
+        # sibling directory with no duplicate consumer must not manufacture
+        # a second, contradictory failure.
         cc_src_root = framework_root / "tools" / "cc" / "src" / "cc"
-        for relative in ("core/ecosystem", "commands"):
-            candidate = cc_src_root / relative
-            if candidate.is_dir():
-                results.append(
-                    tier.check_h8_commands_dimension_has_no_consumer(
-                        source_root=candidate
-                    )
+        if cc_src_root.is_dir():
+            results.append(
+                tier.check_h8_commands_dimension_has_no_consumer(
+                    source_root=cc_src_root
                 )
+            )
 
         # E-5: every framework agent whose instructions claim to consult the
         # knowledge ladder, not just the three H-5 already reads for the
@@ -318,21 +308,24 @@ def _run_tier_layer_machine() -> tuple[CheckResult, ...]:
                 )
             )
 
-        # E-6: `cc extensions resolve` must fire from an executable
-        # consumer (a hook/script), not merely be described in markdown
-        # prose -- scoped to the framework's real executable surface
-        # (`.claude`, `plugins`, `scripts`), deliberately never `tools/cc`
-        # itself (the CLI's own implementation/tests always mention the
-        # command they implement, the same H-8-shaped trap `tier.py`'s
-        # `_is_under_excluded_package` guards against).
-        for relative in (".claude", "plugins", "scripts"):
-            candidate = framework_root / relative
-            if candidate.is_dir():
-                results.append(
-                    effectiveness.check_e6_extension_resolution_wired_beyond_prose(
-                        source_root=candidate
-                    )
+        # E-6: `cc extensions resolve` must fire from one legitimate
+        # executable consumer, not be duplicated in every sibling surface.
+        # Scan `.claude`, `plugins`, and `scripts` together and emit one
+        # framework-wide verdict. Deliberately never scan `tools/cc` itself:
+        # the CLI implementation/tests necessarily mention the command.
+        executable_surfaces = tuple(
+            candidate
+            for relative in (".claude", "plugins", "scripts")
+            if (candidate := framework_root / relative).is_dir()
+        )
+        if executable_surfaces:
+            results.append(
+                effectiveness.check_e6_extension_resolution_wired_beyond_prose(
+                    source_root=framework_root,
+                    scan_roots=executable_surfaces,
+                    subject="framework:executable-surfaces",
                 )
+            )
 
     tier_repos = {f"rank-{index}": repo for index, repo in enumerate(ladder)}
     results.extend(tier.check_h6_declared_skill_paths_exist(tier_repos=tier_repos))

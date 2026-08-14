@@ -45,6 +45,58 @@ def test_ordinary_full_layers_include_roundtrip():
     assert "roundtrip" in layers
 
 
+def test_tier_collection_emits_one_verdict_per_aggregate_capability(
+    monkeypatch, tmp_path: Path
+):
+    framework_root = tmp_path / "framework"
+    cc_source_root = framework_root / "tools" / "cc" / "src" / "cc"
+    ecosystem = cc_source_root / "core" / "ecosystem"
+    ecosystem.mkdir(parents=True)
+    (ecosystem / "discovery.py").write_text(
+        'def declared(layer):\n    return layer.get("dimensions")\n',
+        encoding="utf-8",
+    )
+    hook_root = framework_root / ".claude" / "hooks"
+    hook_root.mkdir(parents=True)
+    (hook_root / "pretool-check.sh").write_text(
+        '#!/bin/bash\ncc extensions resolve --agent "$AGENT" --json\n',
+        encoding="utf-8",
+    )
+    (framework_root / "plugins").mkdir()
+    (framework_root / "scripts").mkdir()
+
+    monkeypatch.setattr(conformance, "resolve_knowledge_repos", lambda: ["/fixture"])
+    monkeypatch.setattr(conformance, "_declared_agent_names", lambda _repos: set())
+    monkeypatch.setattr(conformance, "_load_validated_layers", lambda: ())
+    monkeypatch.setattr(
+        conformance.roundtrip,
+        "discover_framework_repo_root",
+        lambda: framework_root,
+    )
+    monkeypatch.setattr(
+        conformance, "_run_resolver_effectiveness_machine", lambda: ()
+    )
+
+    results = conformance._run_tier_layer_machine()
+    aggregate_ids = {
+        "tier.precedence.commands_dimension_has_no_consumer",
+        "tier.effectiveness.extension_resolution_wired_beyond_prose",
+    }
+    aggregate = [result for result in results if result.id in aggregate_ids]
+
+    assert len(aggregate) == 2
+    assert {result.id for result in aggregate} == aggregate_ids
+    assert all(result.verdict is Verdict.PASS for result in aggregate)
+    assert sum(
+        result.id == "tier.precedence.commands_dimension_has_no_consumer"
+        for result in aggregate
+    ) == 1
+    assert sum(
+        result.id == "tier.effectiveness.extension_resolution_wired_beyond_prose"
+        for result in aggregate
+    ) == 1
+
+
 def test_full_collection_runs_sandboxed_roundtrip_and_announces_it(monkeypatch):
     monkeypatch.setattr(conformance, "_run_tier_layer_machine", lambda: ())
     monkeypatch.setattr(conformance, "_run_stack_layer_machine", lambda: ())

@@ -130,8 +130,8 @@
         }
       ],
       "ownership_mode": "full",
-      "release_tag": "v5.13.3",
-      "version": "5.13.3"
+      "release_tag": "v5.14.4",
+      "version": "5.14.4"
     },
     {
       "component": "codex",

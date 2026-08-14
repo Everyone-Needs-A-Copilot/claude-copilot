@@ -640,10 +640,9 @@ class TestE6ExtensionResolutionWiredBeyondProse:
         frequent operation for the ~half of the roster that can only ever
         resolve to `no_extension`) and denies on `fallback_fail`, the one
         outcome every wired agent's own file already documented as a hard
-        stop but had no enforced consumer for. `plugins`/`scripts`
-        correctly stay FAIL -- neither has any reason to invoke extension
-        resolution, and wiring it there anyway would be exactly the
-        cargo-culting this check exists to catch, not a fix. Reads
+        stop but had no enforced consumer for. `plugins`/`scripts` have no
+        reason to duplicate that invocation, so the three legitimate
+        executable surfaces are evaluated as one capability. Reads
         `_CLAUDE_COPILOT_ROOT` directly, same isolation-avoidance reason as
         the E-5 machine test above."""
 
@@ -655,16 +654,12 @@ class TestE6ExtensionResolutionWiredBeyondProse:
         assert candidates, "expected at least one of .claude/plugins/scripts to exist"
 
         with machine_readonly_guard(extra_paths=candidates):
-            results = [
-                eff.check_e6_extension_resolution_wired_beyond_prose(source_root=path)
-                for path in candidates
-            ]
+            result = eff.check_e6_extension_resolution_wired_beyond_prose(
+                source_root=_CLAUDE_COPILOT_ROOT,
+                scan_roots=candidates,
+                subject="framework:executable-surfaces",
+            )
 
-        by_name = {Path(r.subject).name: r for r in results}
-        assert by_name[".claude"].verdict is Verdict.PASS, by_name[".claude"].detail
-        for name in ("plugins", "scripts"):
-            if name in by_name:
-                assert by_name[name].verdict is Verdict.FAIL, (
-                    f"{name}: expected still-FAIL (nothing there legitimately "
-                    "invokes extension resolution)"
-                )
+        assert result.verdict is Verdict.PASS, result.detail
+        assert result.subject == "framework:executable-surfaces"
+        assert ".claude/hooks/pretool-check.sh" in result.detail

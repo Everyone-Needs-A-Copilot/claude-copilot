@@ -489,11 +489,7 @@ class TestReport:
         [
             (
                 "tier.precedence.commands_dimension_has_no_consumer",
-                "tools/cc/src/cc/commands",
-            ),
-            (
-                "tier.precedence.commands_dimension_has_no_consumer",
-                "tools/cc/src/cc/core/ecosystem",
+                "tools/cc/src/cc",
             ),
             (
                 "tier.effectiveness.extension_resolution_wired_beyond_prose",

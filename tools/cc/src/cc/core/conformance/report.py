@@ -62,8 +62,7 @@ _ROUNDTRIP_SCRATCH_SUBJECT = re.compile(
 # list deliberately check-specific: ordinary repo subjects must remain exact.
 _FRAMEWORK_FACET_SUBJECTS: Mapping[str, tuple[str, ...]] = {
     "tier.precedence.commands_dimension_has_no_consumer": (
-        "tools/cc/src/cc/commands",
-        "tools/cc/src/cc/core/ecosystem",
+        "tools/cc/src/cc",
     ),
     "tier.effectiveness.extension_resolution_wired_beyond_prose": (
         ".claude",

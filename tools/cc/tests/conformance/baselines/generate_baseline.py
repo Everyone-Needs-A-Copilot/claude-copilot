@@ -123,8 +123,6 @@ _REAL_MACHINE_CONFIG_PATH = _REAL_HOME / ".claude" / "cc" / "config.json"
 _REAL_MANIFEST_PATH = _REAL_HOME / ".config" / "copilot" / "copilot.layers.yml"
 _AGENTS_DIR = _FRAMEWORK_ROOT / ".claude" / "agents"
 _REAL_AGENT_FILES = ("cw.md", "sd.md", "ta.md")
-_ECOSYSTEM_SRC_ROOT = _CC_TOOL_ROOT / "src" / "cc" / "core" / "ecosystem"
-_COMMANDS_SRC_ROOT = _CC_TOOL_ROOT / "src" / "cc" / "commands"
 _REFERENCE_MANIFEST_PATH = (
     _CONFORMANCE_TESTS_DIR / "fixtures" / "reference-install" / "manifest.json"
 )
@@ -226,16 +224,11 @@ def collect_layer1_tier() -> list[CheckResult]:
         results.extend(tier.check_h6_declared_skill_paths_exist(tier_repos=tier_repos))
         results.append(tier.check_h7_no_hollow_rung(tier_repos=tier_repos))
 
-    if _ECOSYSTEM_SRC_ROOT.is_dir():
+    cc_source_root = _CC_TOOL_ROOT / "src" / "cc"
+    if cc_source_root.is_dir():
         results.append(
             tier.check_h8_commands_dimension_has_no_consumer(
-                source_root=_ECOSYSTEM_SRC_ROOT
-            )
-        )
-    if _COMMANDS_SRC_ROOT.is_dir():
-        results.append(
-            tier.check_h8_commands_dimension_has_no_consumer(
-                source_root=_COMMANDS_SRC_ROOT
+                source_root=cc_source_root
             )
         )
 
