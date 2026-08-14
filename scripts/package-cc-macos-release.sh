@@ -250,7 +250,7 @@ run_python() {
         PYTHONHOME="${python_root}" \
         DYLD_FRAMEWORK_PATH="${framework_shim}" \
         DYLD_LIBRARY_PATH="${python_root}/lib" \
-        PYTHONPATH="${site_packages:-}:${source_checkout}/tools/cc/src" \
+        PYTHONPATH="${site_packages:-}:${source_checkout}/tools/cc/src:${source_checkout}/tools/tc/src" \
         "${python_executable}" "$@"
 }
 
@@ -344,7 +344,9 @@ run_python -m PyInstaller \
     --target-arch universal2 \
     --codesign-identity "${CT_SIGN_IDENTITY}" \
     --paths "${source_checkout}/tools/cc/src" \
+    --paths "${source_checkout}/tools/tc/src" \
     --paths "${site_packages}" \
+    --hidden-import "tc.api" \
     --distpath "${pyinstaller_dist}" \
     --workpath "${scratch}/pyinstaller-work" \
     --specpath "${scratch}/pyinstaller-spec" \

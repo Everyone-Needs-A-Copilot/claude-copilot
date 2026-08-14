@@ -1320,6 +1320,27 @@ def verify_dispatch(
         raise ValueError("dispatch-arguments-malformed") from exc
     if not _DIGEST.fullmatch(prompt_sha256):
         raise ValueError("dispatch-arguments-malformed")
+    if ledger_factory is TcJourneyLedger:
+        try:
+            from tc.db.connection import find_db_path
+        except ImportError as exc:
+            raise RuntimeError(
+                "Task Copilot is unavailable; journey state cannot continue."
+            ) from exc
+        try:
+            task_db = find_db_path()
+        except OSError as exc:
+            raise RuntimeError(
+                "Task Copilot state could not be inspected."
+            ) from exc
+        if task_db is None:
+            # With no durable ledger, no active journey can exist. An
+            # unframed legacy dispatch is therefore provably no-active. A
+            # supplied marker is still rejected: accepting one without its
+            # evidence would turn absence of state into an authority bypass.
+            if marker:
+                raise ValueError("dispatch-marker-stale-or-ambiguous")
+            return {"schema_version": RUNTIME_SCHEMA_VERSION, "state": "no_active"}
     probe = ledger_factory(0)
     if not marker:
         if _active_runs_for_session(session_id, probe):
