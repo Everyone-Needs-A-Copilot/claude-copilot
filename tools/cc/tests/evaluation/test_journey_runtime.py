@@ -384,6 +384,30 @@ def test_no_active_legacy_and_missing_wrong_or_replayed_markers():
         )
 
 
+def test_default_verifier_proves_no_active_without_task_database(
+    tmp_path, monkeypatch
+):
+    monkeypatch.syspath_prepend(str(Path("tools/tc/src").resolve()))
+    monkeypatch.chdir(tmp_path)
+
+    assert verify_dispatch(
+        session_id="database-free-session",
+        specialist="qa",
+        marker="",
+        prompt_sha256="c" * 64,
+        knowledge_sha256="",
+    ) == {"schema_version": "2.1", "state": "no_active"}
+
+    with pytest.raises(ValueError, match="dispatch-marker-stale-or-ambiguous"):
+        verify_dispatch(
+            session_id="database-free-session",
+            specialist="qa",
+            marker="a" * 48,
+            prompt_sha256="c" * 64,
+            knowledge_sha256="d" * 64,
+        )
+
+
 def test_completed_dispatch_replay_denies_without_security_or_knowledge():
     rows = Rows()
     started = begin(rows, specialists=("me",))

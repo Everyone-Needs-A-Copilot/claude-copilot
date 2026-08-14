@@ -8,14 +8,13 @@ from typing import Any
 
 import jsonschema
 import pytest
+from cc.core.ecosystem import project_reconciliation as reconciliation
 from cc.core.ecosystem.project_reconciliation import (
     ProjectReconciliationError,
     assess_project,
     build_project_census,
     build_project_plans,
 )
-
-from cc.core.ecosystem import project_reconciliation as reconciliation
 
 FIXTURES = Path(__file__).parent / "fixtures/project-reconciliation/cases.json"
 SCHEMA = Path(__file__).parent / "fixtures/schemas/reconcile.schema.json"
@@ -132,6 +131,9 @@ def stable_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     monkeypatch.setattr(reconciliation, "is_project_excluded", lambda path: False)
     monkeypatch.setattr(reconciliation, "resolve_key", lambda key: str(source))
     monkeypatch.setattr(reconciliation, "_source_available", lambda component: True)
+    monkeypatch.setattr(
+        reconciliation, "component_lock_update_required", lambda *args: False
+    )
     monkeypatch.setattr(
         reconciliation,
         "DEFAULT_RECIPE_REGISTRY",

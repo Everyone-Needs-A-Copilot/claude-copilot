@@ -13,6 +13,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/.venv"
+TC_DIR="$SCRIPT_DIR/../tc"
 SHIM="$HOME/.local/bin/cc"
 UPDATE_PROFILES=1
 
@@ -76,10 +77,22 @@ if ! "$VENV_DIR/bin/python" -m pip --version >/dev/null 2>&1; then
     "$VENV_DIR/bin/python" -m ensurepip --upgrade >/dev/null
 fi
 
-# Step 2: Install/upgrade pip and install cc in editable mode
+# Step 2: Install/upgrade pip and install the runtime packages in editable mode.
+# cc journey uses Task Copilot's public Python API as its durable evidence
+# ledger. Installing only cc leaves every Agent dispatch unable to distinguish
+# "no active journey" from "verifier unavailable" and therefore fail-closed.
 echo "==> Installing cc in editable mode"
+if [ ! -f "$TC_DIR/pyproject.toml" ]; then
+    echo "ERROR: Bundled Task Copilot package not found at $TC_DIR" >&2
+    exit 1
+fi
 "$VENV_DIR/bin/python" -m pip install --quiet --upgrade pip
+"$VENV_DIR/bin/python" -m pip install --quiet -e "$TC_DIR"
 "$VENV_DIR/bin/python" -m pip install --quiet -e "$SCRIPT_DIR"
+"$VENV_DIR/bin/python" -c 'import tc.api' || {
+    echo "ERROR: cc runtime cannot import the Task Copilot evidence API" >&2
+    exit 1
+}
 
 # Step 3: Ensure shim directory exists
 mkdir -p "$SHIM_DIR"

@@ -1,6 +1,6 @@
 {
-  "framework": "5.14.8",
-  "lastUpdated": "2026-08-14T17:15:00.000Z",
+  "framework": "5.14.9",
+  "lastUpdated": "2026-08-14T17:50:00.000Z",
   "components": {
     "cc": {
       "version": "2.12.10",

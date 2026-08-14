@@ -9,8 +9,11 @@ task/PRD/work-product operations in a single python3 block.  All functions:
     one transaction (use ``transaction()`` as context manager).
   - Are import-side-effect-free: no DB opened, no env read at import time.
 
-CRITICAL: tc and cc live in separate installed environments.  Keep each
-code-execution block scoped to ONE tool (tc-only OR cc-only).
+CRITICAL: Keep each user-authored code-execution block scoped to ONE tool
+(tc-only OR cc-only). The framework snapshot installer also embeds this public
+API in cc's private environment because journey verification uses Task Copilot
+as its durable evidence ledger; that internal runtime binding does not make
+mixed user-authored tc/cc API blocks safe.
 
 Usage pattern — "create PRD + N tasks + wire dependencies" (one Bash call):
     python3 - << 'PY'

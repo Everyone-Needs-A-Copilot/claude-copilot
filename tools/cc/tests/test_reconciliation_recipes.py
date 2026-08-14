@@ -577,6 +577,186 @@ def test_both_component_apply_and_repeat_proposes_zero_work(
     assert repeat_plans[0].operations == ()
 
 
+def test_verified_stale_lock_becomes_bounded_update_and_repeats(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = _project(tmp_path)
+    claude, codex = _framework_sources(tmp_path)
+    _configure_sources(monkeypatch, claude, codex)
+    monkeypatch.setattr(
+        project_module,
+        "inspect_project_integration",
+        integration_module.inspect_project_integration,
+    )
+    initial = assess_project(
+        project,
+        approved_root=tmp_path,
+        selected_components=("claude", "codex"),
+    )
+    _, initial_plans = build_project_plans(
+        [initial], {str(project): ("claude", "codex")}
+    )
+    first = execute_reconciliation(
+        [initial_plans[0].transaction_plan()],
+        run_id="run_" + "e" * 32,
+        root=tmp_path / "transaction-state",
+    )
+    assert first[0]["status"] == "applied"
+    _git(project, "add", "-A")
+    _git(project, "commit", "-qm", "initial integration")
+
+    version = json.loads((claude / "VERSION.json").read_text(encoding="utf-8"))
+    version["framework"] = "5.14.8"
+    version["components"]["commands"] = {
+        "projectCommands": ["protocol.md", "continue.md", "pause.md"]
+    }
+    _write(claude / "VERSION.json", json.dumps(version))
+    _write(claude / ".claude/commands/protocol.md", "updated protocol\n")
+    _write(claude / ".claude/commands/pause.md", "pause\n")
+
+    stale = assess_project(
+        project,
+        approved_root=tmp_path,
+        selected_components=("claude", "codex"),
+    )
+    states = {item["component"]: item["state"] for item in stale["components"]}
+    assert states == {"claude": "safe-update-available", "codex": "ready"}
+    assert stale["route"] == "safe-update-available"
+    claude_evidence = stale["components"][0]["evidence"]
+    assert any(
+        item["id"] == "claude-authoritative-source"
+        and item["state"] == "update-available"
+        for item in claude_evidence
+    )
+
+    public, update_plans = build_project_plans(
+        [stale], {str(project): ("claude", "codex")}
+    )
+    targets = {item["target"] for item in public[0]["operations"]}
+    assert ".claude/commands/pause.md" in targets
+    assert ".claude/commands/protocol.md" in targets
+    second = execute_reconciliation(
+        [update_plans[0].transaction_plan()],
+        run_id="run_" + "f" * 32,
+        root=tmp_path / "transaction-state",
+    )
+    assert second[0]["status"] == "applied"
+    lock = json.loads((project / "copilot.lock.json").read_text(encoding="utf-8"))
+    claude_entry = next(
+        entry for entry in lock["components"] if entry["component"] == "claude"
+    )
+    assert claude_entry["version"] == "5.14.8"
+    assert ".claude/commands/pause.md" in {
+        item["path"] for item in claude_entry["files"]
+    }
+
+    repeat = assess_project(
+        project,
+        approved_root=tmp_path,
+        selected_components=("claude", "codex"),
+    )
+    assert repeat["route"] == "ready"
+    repeated_public, repeated_internal = build_project_plans(
+        [repeat], {str(project): ("claude", "codex")}
+    )
+    assert repeated_public[0]["operations"] == []
+    assert repeated_internal[0].operations == ()
+
+
+def test_verified_stale_lock_is_held_when_project_has_active_work(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = _project(tmp_path)
+    claude, codex = _framework_sources(tmp_path)
+    _configure_sources(monkeypatch, claude, codex)
+    monkeypatch.setattr(
+        project_module,
+        "inspect_project_integration",
+        integration_module.inspect_project_integration,
+    )
+    initial = assess_project(
+        project,
+        approved_root=tmp_path,
+        selected_components=("claude", "codex"),
+    )
+    _, plans = build_project_plans([initial], {str(project): ("claude", "codex")})
+    receipt = execute_reconciliation(
+        [plans[0].transaction_plan()],
+        run_id="run_" + "1" * 32,
+        root=tmp_path / "transaction-state",
+    )
+    assert receipt[0]["status"] == "applied"
+    _git(project, "add", "-A")
+    _git(project, "commit", "-qm", "initial integration")
+
+    version = json.loads((claude / "VERSION.json").read_text(encoding="utf-8"))
+    version["framework"] = "5.14.8"
+    _write(claude / "VERSION.json", json.dumps(version))
+    _write(project / "owner-notes.md", "active work\n")
+
+    assessment = assess_project(
+        project,
+        approved_root=tmp_path,
+        selected_components=("claude", "codex"),
+    )
+    states = {item["component"]: item["state"] for item in assessment["components"]}
+    assert states == {"claude": "held", "codex": "ready"}
+    assert assessment["route"] == "held"
+    assert any(item["code"] == "dirty-working-tree" for item in assessment["blockers"])
+
+
+def test_new_framework_path_conflict_requires_owner_decision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = _project(tmp_path)
+    claude, codex = _framework_sources(tmp_path)
+    _configure_sources(monkeypatch, claude, codex)
+    monkeypatch.setattr(
+        project_module,
+        "inspect_project_integration",
+        integration_module.inspect_project_integration,
+    )
+    initial = assess_project(
+        project,
+        approved_root=tmp_path,
+        selected_components=("claude", "codex"),
+    )
+    _, plans = build_project_plans([initial], {str(project): ("claude", "codex")})
+    receipt = execute_reconciliation(
+        [plans[0].transaction_plan()],
+        run_id="run_" + "2" * 32,
+        root=tmp_path / "transaction-state",
+    )
+    assert receipt[0]["status"] == "applied"
+    _write(project / ".claude/commands/pause.md", "project-owned pause\n")
+    _git(project, "add", "-A")
+    _git(project, "commit", "-qm", "initial integration with local command")
+
+    version = json.loads((claude / "VERSION.json").read_text(encoding="utf-8"))
+    version["framework"] = "5.14.8"
+    version["components"]["commands"] = {
+        "projectCommands": ["protocol.md", "continue.md", "pause.md"]
+    }
+    _write(claude / "VERSION.json", json.dumps(version))
+    _write(claude / ".claude/commands/pause.md", "framework pause\n")
+
+    assessment = assess_project(
+        project,
+        approved_root=tmp_path,
+        selected_components=("claude", "codex"),
+    )
+    states = {item["component"]: item["state"] for item in assessment["components"]}
+    assert states == {"claude": "owner-decision", "codex": "ready"}
+    assert assessment["route"] == "owner-decision"
+    assert (project / ".claude/commands/pause.md").read_text(encoding="utf-8") == (
+        "project-owned pause\n"
+    )
+    assert any(
+        item["id"] == "claude-authoritative-source" and item["state"] == "conflict"
+        for item in assessment["components"][0]["evidence"]
+    )
+
+
 def test_sequential_claude_then_codex_apply_moves_shared_declaration_evidence_and_repeats(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
