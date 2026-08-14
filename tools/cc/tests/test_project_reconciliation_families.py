@@ -10,6 +10,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from cc.core.ecosystem import project_integration as integration
+from cc.core.ecosystem import project_reconciliation as reconciliation
+from cc.core.ecosystem import reconciliation_recipes as recipes
 from cc.core.ecosystem.project_locking import fingerprint_file_payload
 from cc.core.ecosystem.project_reconciliation import assess_project, build_project_plans
 from cc.core.ecosystem.reconciliation_recipes import (
@@ -19,10 +22,6 @@ from cc.core.ecosystem.reconciliation_recipes import (
 )
 from cc.core.ecosystem.reconciliation_transaction import execute_reconciliation
 from cc.core.ecosystem.reconciliation_types import ComponentRoute
-
-from cc.core.ecosystem import project_integration as integration
-from cc.core.ecosystem import project_reconciliation as reconciliation
-from cc.core.ecosystem import reconciliation_recipes as recipes
 
 
 def _git(project: Path, *arguments: str) -> str:
@@ -138,6 +137,7 @@ def _lock_entry(
         "component": component,
         "version": version,
         "release_tag": f"v{version}",
+        "ownership_mode": "full",
         "files": [
             {
                 "path": relative,
@@ -1005,6 +1005,39 @@ def test_custom_family_apply_verifies_and_repeats_without_work(
     assert public[0]["operations"] == []
     assert repeat_plans[0].operations == ()
     assert _git(project, "status", "--porcelain=v1")
+
+
+def test_customized_lock_source_drift_requires_owner_review(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    claude_source, codex_source = _framework_sources(tmp_path)
+    _configure_sources(monkeypatch, claude_source, codex_source)
+    project = _project(tmp_path, "customized-source-drift")
+    _install_current(project, claude_source, codex_source, ("claude",))
+    lock_path = project / "copilot.lock.json"
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    lock["components"][0]["ownership_mode"] = "customized-preserve"
+    lock["components"][0]["files"] = [
+        item
+        for item in lock["components"][0]["files"]
+        if not item["path"].startswith(".claude/agents/")
+    ]
+    _write(lock_path, json.dumps(lock, indent=2) + "\n")
+    _commit(project)
+
+    version = json.loads((claude_source / "VERSION.json").read_text(encoding="utf-8"))
+    version["framework"] = "5.14.10"
+    _write(claude_source / "VERSION.json", json.dumps(version))
+    _write(claude_source / ".claude/commands/protocol.md", "updated protocol\n")
+
+    stale = assess_project(
+        project,
+        approved_root=tmp_path,
+        selected_components=("claude",),
+    )
+    assert stale["route"] == "owner-decision", stale
+    assert _component(stale, "claude")["state"] == "owner-decision"
+    assert _component(stale, "claude")["recipe_options"] == []
 
 
 def test_verified_read_only_knowledge_links_allow_local_dual_integration(

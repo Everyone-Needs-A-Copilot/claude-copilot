@@ -33,11 +33,13 @@ from cc.core.ecosystem.project_locking import (
 )
 from cc.core.ecosystem.reconciliation_recipes import (
     DEFAULT_RECIPE_REGISTRY,
+    ComponentSourceConflict,
     RecipePlan,
     RecipeValidationError,
     allowed_targets_for_components,
     authoritative_source_available,
     build_recipe_plan,
+    component_lock_update_required,
 )
 from cc.core.ecosystem.reconciliation_types import (
     SUPPORTED_COMPONENTS,
@@ -1053,9 +1055,13 @@ def assess_project(
         for component in SUPPORTED_COMPONENTS
     }
     components: list[ComponentAssessment] = []
+    source_drift_held = False
     for component in SUPPORTED_COMPONENTS:
         draft = underlying[component]
         is_selected = component in selected
+        source_drift = False
+        source_conflict = False
+        source_comparison_failed = False
         route = _component_route(
             draft,
             selected=is_selected,
@@ -1064,6 +1070,25 @@ def assess_project(
             unstable=unstable,
             ready_repeat_safe=ready_repeat_safe,
         )
+        if route == ComponentRoute.READY:
+            try:
+                source_drift = component_lock_update_required(path, component)
+            except ComponentSourceConflict:
+                source_conflict = True
+                route = ComponentRoute.OWNER_DECISION
+            except RecipeValidationError:
+                source_comparison_failed = True
+                route = ComponentRoute.SOURCE_UNAVAILABLE
+            else:
+                if source_drift:
+                    route = (
+                        ComponentRoute.HELD
+                        if unstable
+                        else ComponentRoute.SAFE_UPDATE_AVAILABLE
+                    )
+                    source_drift_held = (
+                        source_drift_held or route == ComponentRoute.HELD
+                    )
         if _requires_owner_for_unreadable_config(path, component, draft, route):
             route = ComponentRoute.OWNER_DECISION
         if route in {
@@ -1095,7 +1120,42 @@ def assess_project(
             "recommended": recommended,
             "recommendation_reason": reason,
             "responsible_actor": _ACTOR[route],
-            "evidence": _component_evidence(draft),
+            "evidence": [
+                *_component_evidence(draft),
+                *(
+                    [
+                        {
+                            "id": f"{component}-authoritative-source",
+                            "state": "update-available",
+                            "detail": f"The verified {component.title()} project lock differs from the current authoritative source contract.",
+                        }
+                    ]
+                    if source_drift
+                    else []
+                ),
+                *(
+                    [
+                        {
+                            "id": f"{component}-authoritative-source",
+                            "state": "conflict",
+                            "detail": f"The current authoritative {component.title()} source would collide with content outside the verified framework-owned update boundary.",
+                        }
+                    ]
+                    if source_conflict
+                    else []
+                ),
+                *(
+                    [
+                        {
+                            "id": f"{component}-authoritative-source",
+                            "state": "unavailable",
+                            "detail": f"The current authoritative {component.title()} source contract could not be verified.",
+                        }
+                    ]
+                    if source_comparison_failed
+                    else []
+                ),
+            ],
             "missing_requirements": _component_missing(draft),
             "next_action": _component_next_action(route, component),
             "recipe_options": [],
@@ -1171,7 +1231,7 @@ def assess_project(
                 "Remove the exclusion only after a person explicitly opts in.",
             )
         )
-    if dirty and not ready_repeat_safe:
+    if dirty and (not ready_repeat_safe or source_drift_held):
         blockers.append(
             _blocker(
                 "dirty-working-tree",
