@@ -18,3 +18,20 @@ def test_installer_supports_transactional_shim_staging_without_profile_edits():
     assert "--no-profile-update" in source
     assert 'SHIM_DIR="$(dirname "$SHIM")"' in source
     assert 'if [ "$UPDATE_PROFILES" -eq 1 ]' in source
+
+
+def test_installer_embeds_task_copilot_api_required_by_journey_verifier():
+    source = (Path(__file__).parents[1] / "install.sh").read_text(encoding="utf-8")
+
+    assert 'TC_DIR="$SCRIPT_DIR/../tc"' in source
+    assert 'pip install --quiet -e "$TC_DIR"' in source
+    assert "-c 'import tc.api'" in source
+
+
+def test_frozen_release_embeds_task_copilot_api_required_by_journey_verifier():
+    script = (
+        Path(__file__).parents[3] / "scripts/package-cc-macos-release.sh"
+    ).read_text(encoding="utf-8")
+
+    assert '${source_checkout}/tools/tc/src' in script
+    assert '--hidden-import "tc.api"' in script
