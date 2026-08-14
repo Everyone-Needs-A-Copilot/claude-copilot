@@ -639,6 +639,53 @@ def test_signed_release_blob_read_ignores_checkout_and_tag_switch(signed_source)
     assert source.release.read_blob(".claude/extensions/do.extension.md") == expected
 
 
+def test_verified_batch_contribution_uses_selected_immutable_source(
+    signed_source, monkeypatch
+):
+    repo, _fingerprint = signed_source
+    source = _discover_signed()._knowledge_source
+    (repo / ".claude/extensions/do.extension.md").write_text(
+        "mutable checkout replacement\n", encoding="utf-8"
+    )
+
+    def unexpected_revalidation(_source):
+        raise AssertionError("verified batch reads must not resolve the ladder again")
+
+    monkeypatch.setattr(
+        "cc.core.ecosystem.knowledge_skill_source.revalidate_knowledge_skill_source",
+        unexpected_revalidation,
+    )
+
+    receipt = source.authenticated_contribution_from_verified_batch(
+        ".claude/extensions/do.extension.md", runtime="claude"
+    )
+
+    assert receipt.content == "signed extension body\n"
+    assert receipt.is_authenticated is True
+
+
+def test_protected_verified_batch_read_fails_when_entitlement_changes(
+    protected_signed_source,
+):
+    _repo, layer, state_path, _cache_root = protected_signed_source
+    source = _discover_signed()._knowledge_source
+    assert source.entitlement_binding is not None
+
+    decision = entitlement.observe_layer(
+        layer,
+        login="person",
+        token="token",
+        get_json=lambda *_args, **_kwargs: 404,
+        state_path=state_path,
+    )
+
+    assert decision.state == "revoked"
+    with pytest.raises(KnowledgeSkillSourceError, match="authorization changed"):
+        source.authenticated_contribution_from_verified_batch(
+            ".claude/extensions/do.extension.md", runtime="claude"
+        )
+
+
 def test_existing_resolver_composes_signed_extension_with_receipt(signed_source):
     repo, _fingerprint = signed_source
     resolution = resolve_extension("do", knowledge_repos=[str(repo)])

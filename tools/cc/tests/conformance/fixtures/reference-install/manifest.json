@@ -2,7 +2,7 @@
   "_comment": "Golden-tree description for Layer 5's round-trip (and, per HARNESS-DESIGN.md section 5.2, reusable by Layer 3). Every field here was verified directly against VERSION.json and, where noted, a read-only inspection of the reference install on this machine -- never assumed from RUBRIC.md, which has two confirmed errors recorded below. See TEST-MATRIX.md section 5 'Ground truth constants'.",
   "generated_at": "2026-08-10",
   "verified_against": {
-    "version_json": "VERSION.json (framework 5.14.6, agents 5.6.0, commands 5.3.2)",
+    "version_json": "VERSION.json (framework 5.14.7, agents 5.6.0, commands 5.3.2)",
     "reference_install": "/Volumes/Dev/Sites/TSM/hermes (read-only inspection; no single repo is a complete reference -- hermes itself fails D3/D4/D7/D11/D12 per TEST-MATRIX.md)",
     "codex_plugin_source": "/Volumes/Dev/Sites/COPILOT/codex-copilot/plugins/codex-copilot (read-only file count)"
   },

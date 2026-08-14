@@ -32,20 +32,24 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from types import SimpleNamespace
 
+import cc.core.ecosystem.knowledge_skill_source as knowledge_skill_source
+import cc.core.extensions_resolver as extensions_resolver
 import pytest
-from typer.testing import CliRunner
-
 from cc.core.extensions_resolver import (
     ACTION_APPLY,
     ACTION_FALLBACK_FAIL,
     ACTION_FALLBACK_USE_BASE,
     ACTION_FALLBACK_WARNING,
     ACTION_NO_EXTENSION,
+    ExtensionSkillBindings,
     compose_agent_content,
     resolve_extension,
 )
+from cc.core.skill_store import SkillMeta
 from cc.main import app
+from typer.testing import CliRunner
 
 runner = CliRunner()
 
@@ -296,6 +300,223 @@ def test_empty_knowledge_repos_list_returns_no_match():
     r = resolve_extension("sd", knowledge_repos=[])
     assert r.matched is False
     assert r.action == ACTION_NO_EXTENSION
+
+
+def test_prepare_source_bindings_verifies_protected_ladder_once(
+    monkeypatch, tmp_path
+):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    calls = 0
+
+    monkeypatch.setattr(
+        knowledge_skill_source,
+        "knowledge_repository_requires_authenticated_source",
+        lambda _repo: True,
+    )
+
+    def resolve_sources():
+        nonlocal calls
+        calls += 1
+        return [
+            (first, SimpleNamespace(repository_root=first)),
+            (second, SimpleNamespace(repository_root=second)),
+        ]
+
+    monkeypatch.setattr(
+        knowledge_skill_source, "resolve_knowledge_skill_sources", resolve_sources
+    )
+
+    bindings = extensions_resolver.prepare_extension_source_bindings(
+        [str(first), str(second)]
+    )
+
+    assert calls == 1
+    assert bindings[str(first.absolute())][0] is True
+    assert bindings[str(first.absolute())][1].repository_root == first
+    assert bindings[str(second.absolute())][0] is True
+    assert bindings[str(second.absolute())][1].repository_root == second
+
+
+def test_prepare_source_bindings_fails_closed_for_entire_protected_batch(
+    monkeypatch, tmp_path
+):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+
+    monkeypatch.setattr(
+        knowledge_skill_source,
+        "knowledge_repository_requires_authenticated_source",
+        lambda _repo: True,
+    )
+
+    def unavailable_sources():
+        raise RuntimeError("signed ladder unavailable")
+
+    monkeypatch.setattr(
+        knowledge_skill_source,
+        "resolve_knowledge_skill_sources",
+        unavailable_sources,
+    )
+
+    bindings = extensions_resolver.prepare_extension_source_bindings(
+        [str(first), str(second)]
+    )
+
+    assert bindings == {
+        str(first.absolute()): (True, None),
+        str(second.absolute()): (True, None),
+    }
+
+
+def test_resolve_extension_prepares_one_batch_for_multiple_repositories(monkeypatch):
+    calls = 0
+
+    def prepare(repos):
+        nonlocal calls
+        calls += 1
+        return {str(Path(repo).absolute()): (False, None) for repo in repos}
+
+    monkeypatch.setattr(
+        extensions_resolver, "prepare_extension_source_bindings", prepare
+    )
+
+    result = resolve_extension(
+        "cw",
+        knowledge_repos=[PERSONAL_REPO, ORG_REPO],
+        missing_skills_checker=_no_missing,
+    )
+
+    assert calls == 1
+    assert result.source_repo == PERSONAL_REPO
+
+
+def test_resolve_extension_uses_caller_batch_without_reverification(monkeypatch):
+    def unexpected_prepare(_repos):
+        raise AssertionError("caller-scoped bindings must be reused")
+
+    monkeypatch.setattr(
+        extensions_resolver,
+        "prepare_extension_source_bindings",
+        unexpected_prepare,
+    )
+    bindings = {
+        str(Path(PERSONAL_REPO).absolute()): (False, None),
+        str(Path(ORG_REPO).absolute()): (False, None),
+    }
+
+    result = resolve_extension(
+        "cw",
+        knowledge_repos=[PERSONAL_REPO, ORG_REPO],
+        missing_skills_checker=_no_missing,
+        source_bindings=bindings,
+    )
+
+    assert result.source_repo == PERSONAL_REPO
+
+
+def test_shared_skill_bindings_discover_required_skills_once(monkeypatch, tmp_path):
+    calls = 0
+    skills = [
+        SkillMeta(
+            name=name,
+            description="test skill",
+            path=tmp_path / name / "SKILL.md",
+        )
+        for name in ("moments-mapping", "cocreate-sprint", "accessibility")
+    ]
+
+    monkeypatch.setattr(
+        "cc.core.skill_store.default_skill_paths", lambda **_kwargs: []
+    )
+
+    def discover(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return skills
+
+    monkeypatch.setattr("cc.core.skill_store.discover_skills_with_sources", discover)
+    source_bindings = {
+        str(Path(PERSONAL_REPO).absolute()): (False, None),
+        str(Path(ORG_REPO).absolute()): (False, None),
+    }
+    skill_bindings = ExtensionSkillBindings(
+        (PERSONAL_REPO, ORG_REPO), source_bindings
+    )
+
+    sd = resolve_extension(
+        "sd",
+        knowledge_repos=[PERSONAL_REPO, ORG_REPO],
+        source_bindings=source_bindings,
+        skill_bindings=skill_bindings,
+    )
+    uxd = resolve_extension(
+        "uxd",
+        knowledge_repos=[PERSONAL_REPO, ORG_REPO],
+        source_bindings=source_bindings,
+        skill_bindings=skill_bindings,
+    )
+
+    assert sd.action == ACTION_APPLY
+    assert uxd.action == ACTION_APPLY
+    assert calls == 1
+
+
+def test_skill_binding_receipt_failure_marks_authenticated_skill_missing(
+    monkeypatch, tmp_path
+):
+    source = object()
+    skill = SkillMeta(
+        name="secure-skill",
+        description="test skill",
+        path=tmp_path / "secure-skill" / "SKILL.md",
+        _knowledge_source=source,
+    )
+    bindings = ExtensionSkillBindings((), {})
+    bindings._skills = [skill]
+
+    def unavailable_receipt(*_args, **_kwargs):
+        raise RuntimeError("entitlement changed")
+
+    monkeypatch.setattr(
+        "cc.core.skill_store.get_skill_content_with_receipt_from_verified_batch",
+        unavailable_receipt,
+    )
+
+    missing, receipts = bindings.evaluate(["secure-skill"])
+
+    assert missing == ["secure-skill"]
+    assert receipts == ()
+
+
+def test_resolve_extension_missing_caller_binding_fails_closed(monkeypatch):
+    def unexpected_lookup(*_args, **_kwargs):
+        raise AssertionError("missing batch keys must not trigger live lookup")
+
+    monkeypatch.setattr(
+        knowledge_skill_source,
+        "knowledge_repository_requires_authenticated_source",
+        unexpected_lookup,
+    )
+    monkeypatch.setattr(
+        knowledge_skill_source,
+        "resolve_knowledge_skill_sources",
+        unexpected_lookup,
+    )
+
+    result = resolve_extension(
+        "cw",
+        knowledge_repos=[PERSONAL_REPO],
+        missing_skills_checker=_no_missing,
+        source_bindings={},
+    )
+
+    assert result.matched is False
+    assert result.action == ACTION_NO_EXTENSION
 
 
 # ---------------------------------------------------------------------------

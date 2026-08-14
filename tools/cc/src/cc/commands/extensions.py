@@ -73,7 +73,13 @@ def extensions_resolve(
     extensions[] entries by agent id, verifies requiredSkills, and applies
     fallbackBehavior. Never raises on a missing/malformed manifest.
     """
-    from cc.core.extensions_resolver import ACTION_FALLBACK_FAIL, resolve_extension
+    from cc.core.config import resolve_knowledge_repos
+    from cc.core.extensions_resolver import (
+        ACTION_FALLBACK_FAIL,
+        ExtensionSkillBindings,
+        prepare_extension_source_bindings,
+        resolve_extension,
+    )
 
     if not agent and not all_agents:
         err_console.print("[red]Error:[/red] pass --agent <id> or --all")
@@ -84,7 +90,18 @@ def extensions_resolve(
     if all_agents and not agent_ids:
         err_console.print("[yellow]No agents found under .claude/agents/ -- nothing to resolve.[/yellow]")
 
-    results = [resolve_extension(a) for a in agent_ids]
+    knowledge_repos = resolve_knowledge_repos()
+    source_bindings = prepare_extension_source_bindings(knowledge_repos)
+    skill_bindings = ExtensionSkillBindings(tuple(knowledge_repos), source_bindings)
+    results = [
+        resolve_extension(
+            a,
+            knowledge_repos=knowledge_repos,
+            source_bindings=source_bindings,
+            skill_bindings=skill_bindings,
+        )
+        for a in agent_ids
+    ]
 
     if output_json:
         payload = [r.to_dict() for r in results]

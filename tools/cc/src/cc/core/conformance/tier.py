@@ -82,7 +82,12 @@ from cc.core.conformance.types import (
     Severity,
     Verdict,
 )
-from cc.core.extensions_resolver import ACTION_APPLY, resolve_extension
+from cc.core.extensions_resolver import (
+    ACTION_APPLY,
+    ExtensionSkillBindings,
+    ExtensionSourceBindings,
+    resolve_extension,
+)
 
 # `resolve_extension`'s own signature types `missing_skills_checker` as
 # `Callable[[list[str]], list[str]] | None`; extensions_resolver.py does not
@@ -414,11 +419,19 @@ def check_h1_nearest_declared_wins(
     *,
     knowledge_repos: Sequence[str],
     missing_skills_checker: MissingSkillsChecker | None = None,
+    source_bindings: ExtensionSourceBindings | None = None,
+    skill_bindings: ExtensionSkillBindings | None = None,
 ) -> CheckResult:
     repos = list(knowledge_repos)
-    resolution = resolve_extension(
-        agent, knowledge_repos=repos, missing_skills_checker=missing_skills_checker
-    )
+    resolver_kwargs: dict[str, Any] = {
+        "knowledge_repos": repos,
+        "missing_skills_checker": missing_skills_checker,
+    }
+    if source_bindings is not None:
+        resolver_kwargs["source_bindings"] = source_bindings
+    if skill_bindings is not None:
+        resolver_kwargs["skill_bindings"] = skill_bindings
+    resolution = resolve_extension(agent, **resolver_kwargs)
     declaring = _declaring_repos_in_order(agent, repos)
 
     if not declaring:
@@ -466,6 +479,8 @@ def check_h2_absence_is_not_shadow(
     *,
     knowledge_repos: Sequence[str],
     missing_skills_checker: MissingSkillsChecker | None = None,
+    source_bindings: ExtensionSourceBindings | None = None,
+    skill_bindings: ExtensionSkillBindings | None = None,
 ) -> CheckResult:
     repos = list(knowledge_repos)
     declaring = _declaring_repos_in_order(agent, repos)
@@ -492,9 +507,15 @@ def check_h2_absence_is_not_shadow(
             ),
         )
 
-    resolution = resolve_extension(
-        agent, knowledge_repos=repos, missing_skills_checker=missing_skills_checker
-    )
+    resolver_kwargs: dict[str, Any] = {
+        "knowledge_repos": repos,
+        "missing_skills_checker": missing_skills_checker,
+    }
+    if source_bindings is not None:
+        resolver_kwargs["source_bindings"] = source_bindings
+    if skill_bindings is not None:
+        resolver_kwargs["skill_bindings"] = skill_bindings
+    resolution = resolve_extension(agent, **resolver_kwargs)
     ok = (
         resolution.action == ACTION_APPLY
         and resolution.source_repo == nearest_declaring
@@ -540,12 +561,20 @@ def check_h3_shadow_substance(
     *,
     knowledge_repos: Sequence[str],
     missing_skills_checker: MissingSkillsChecker | None = None,
+    source_bindings: ExtensionSourceBindings | None = None,
+    skill_bindings: ExtensionSkillBindings | None = None,
     minimum_size_ratio: float = 0.5,
 ) -> CheckResult:
     repos = list(knowledge_repos)
-    resolution = resolve_extension(
-        agent, knowledge_repos=repos, missing_skills_checker=missing_skills_checker
-    )
+    resolver_kwargs: dict[str, Any] = {
+        "knowledge_repos": repos,
+        "missing_skills_checker": missing_skills_checker,
+    }
+    if source_bindings is not None:
+        resolver_kwargs["source_bindings"] = source_bindings
+    if skill_bindings is not None:
+        resolver_kwargs["skill_bindings"] = skill_bindings
+    resolution = resolve_extension(agent, **resolver_kwargs)
     if not resolution.matched or not resolution.file:
         return H3_SHADOW_SUBSTANCE.result(
             subject=agent,
@@ -569,11 +598,15 @@ def check_h3_shadow_substance(
     winner_size = winner_path.stat().st_size
 
     shadow_repo = shadowed[0]
-    shadow_resolution = resolve_extension(
-        agent,
-        knowledge_repos=[shadow_repo],
-        missing_skills_checker=missing_skills_checker,
-    )
+    shadow_kwargs: dict[str, Any] = {
+        "knowledge_repos": [shadow_repo],
+        "missing_skills_checker": missing_skills_checker,
+    }
+    if source_bindings is not None:
+        shadow_kwargs["source_bindings"] = source_bindings
+    if skill_bindings is not None:
+        shadow_kwargs["skill_bindings"] = skill_bindings
+    shadow_resolution = resolve_extension(agent, **shadow_kwargs)
     shadow_size = (
         Path(shadow_resolution.file).stat().st_size if shadow_resolution.file else 0
     )
