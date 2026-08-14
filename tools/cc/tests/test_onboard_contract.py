@@ -3100,7 +3100,7 @@ def _lightweight_tag(path: Path, tag: str, message: str = "unused") -> None:
     `FETCH_HEAD` never needed peeling for this case, so it never reproduced
     the live annotated-tag bug on its own -- kept as a regression guard that
     the fix's `^{commit}` peel is also a no-op passthrough here."""
-    subprocess.run(["git", "-C", str(path), "tag", tag], check=True)
+    subprocess.run(["git", "-C", str(path), "tag", "--no-sign", tag], check=True)
 
 
 def _annotated_tag(path: Path, tag: str, message: str = "release") -> None:

@@ -15,7 +15,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
 from cc.core.ecosystem import mirror
 
 
@@ -310,13 +309,13 @@ def test_clone_or_update_mirror_resolves_caret_semver_to_highest_compatible_tag(
     tmp_path,
 ):
     source = _make_content_repo(tmp_path, {"version.txt": "0.3.0"})
-    subprocess.run(["git", "tag", "v0.3.0"], cwd=source, check=True)
+    subprocess.run(["git", "tag", "--no-sign", "v0.3.0"], cwd=source, check=True)
     (source / "version.txt").write_text("0.3.1", encoding="utf-8")
     subprocess.run(["git", "commit", "-aqm", "v0.3.1"], cwd=source, check=True)
-    subprocess.run(["git", "tag", "v0.3.1"], cwd=source, check=True)
+    subprocess.run(["git", "tag", "--no-sign", "v0.3.1"], cwd=source, check=True)
     (source / "version.txt").write_text("0.4.0", encoding="utf-8")
     subprocess.run(["git", "commit", "-aqm", "v0.4.0"], cwd=source, check=True)
-    subprocess.run(["git", "tag", "v0.4.0"], cwd=source, check=True)
+    subprocess.run(["git", "tag", "--no-sign", "v0.4.0"], cwd=source, check=True)
 
     result = mirror.clone_or_update_mirror(
         "foundation",

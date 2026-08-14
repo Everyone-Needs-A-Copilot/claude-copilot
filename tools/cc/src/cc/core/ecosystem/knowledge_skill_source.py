@@ -31,6 +31,7 @@ from cc.core.ecosystem.policy import (
     VerifiedSignedRelease,
     read_git_tree_snapshot,
     verify_git_item_provenance,
+    verify_git_tree_release,
 )
 from cc.core.ecosystem.project_locking import (
     UnsafeProjectPath,
@@ -1221,6 +1222,174 @@ def resolve_protected_knowledge_lock_projections(
                 )
             )
     return tuple(projections)
+
+
+def inspect_protected_knowledge_lock_projection(
+    layer: dict[str, Any],
+    *,
+    cache_root: Path | str | None = None,
+) -> ProtectedKnowledgeLockProjection | None:
+    """Read and re-prove one protected Knowledge plugin lock projection.
+
+    Unlike ``resolve_protected_knowledge_lock_projections()``, this inspector
+    never rolls a receipt, writes the index, creates a cache directory, or
+    consults the network.  It accepts evidence only when one active private
+    receipt still matches the signed skills tree byte-for-byte and the plugin
+    projection is derived from the same verified immutable release.
+    """
+    if layer.get("product") != "knowledge" or not entitlement.is_protected_layer(
+        layer
+    ):
+        return None
+    layer_id = str(layer.get("id") or "")
+    source = layer.get("source") or {}
+    source_root = source.get("path")
+    ref = source.get("ref")
+    repository = repository_identity(source.get("repo"))
+    try:
+        signers = _signed_policy(layer)
+    except KnowledgeSkillSourceError:
+        return None
+    if (
+        not layer_id
+        or not isinstance(source_root, str)
+        or not isinstance(ref, str)
+        or not ref
+        or repository is None
+        or signers is None
+    ):
+        return None
+    repository_root = _nominal(source_root)
+    if _origin(repository_root) != repository:
+        return None
+
+    if cache_root is not None:
+        base = _nominal(cache_root)
+    else:
+        from cc.core import config
+
+        configured = config.resolve_key("skills.cache_dir")
+        base = _nominal(
+            configured or Path.home() / ".claude" / "cache" / "skills"
+        ) / "signed-knowledge-v1"
+    try:
+        metadata = base.lstat()
+        if (
+            stat.S_ISLNK(metadata.st_mode)
+            or not stat.S_ISDIR(metadata.st_mode)
+            or metadata.st_uid != os.geteuid()
+            or stat.S_IMODE(metadata.st_mode) != 0o700
+        ):
+            return None
+        index = _load_snapshot_index(base)
+    except (OSError, KnowledgeSkillSourceError):
+        return None
+
+    skills_verified = verify_git_tree_release(
+        repository_root, KNOWLEDGE_SKILLS_SUBPATH, signers, ref=ref
+    )
+    if skills_verified is None:
+        return None
+    skills_snapshot = read_git_tree_snapshot(repository_root, skills_verified.tree)
+    if skills_snapshot is None:
+        return None
+    actual_login = entitlement.current_login()
+    if not actual_login:
+        return None
+    expected_state_path = str(entitlement.entitlement_state_path().expanduser())
+    content_binding = _snapshot_binding(
+        repository=repository,
+        layer=layer_id,
+        ref=skills_verified.ref,
+        tree=skills_verified.tree,
+        signer=skills_verified.signer,
+        snapshot=skills_snapshot,
+    )
+    receipts: list[dict[str, Any]] = []
+    for entry in index["entries"].values():
+        revision = entry.get("revision")
+        expected_binding = (
+            _scope_digest(
+                content_binding,
+                layer_id,
+                repository,
+                actual_login,
+                revision,
+            )
+            if isinstance(revision, int) and not isinstance(revision, bool)
+            else None
+        )
+        expected_target = (
+            _snapshot_relative_target(
+                expected_binding,
+                layer=layer_id,
+                repository=repository,
+                login=actual_login,
+                revision=revision,
+            ).as_posix()
+            if expected_binding is not None
+            else None
+        )
+        if (
+            entry.get("protected") is not True
+            or entry.get("status") != "active"
+            or entry.get("layer") != layer_id
+            or entry.get("repository") != repository
+            or entry.get("login") != actual_login
+            or entry.get("binding") != expected_binding
+            or entry.get("target") != expected_target
+            or entry.get("state_path") != expected_state_path
+            or entry.get("ref") != skills_verified.ref
+            or entry.get("tree") != skills_verified.tree
+            or entry.get("signer") != skills_verified.signer
+            or not _snapshot_matches(base / entry["target"], skills_snapshot)
+        ):
+            continue
+        _eligible, decisions = entitlement.filter_eligible_layers(
+            [layer],
+            state_path=entry["state_path"],
+            login=actual_login,
+        )
+        decision = decisions[0]
+        if not decision.eligible or decision.revision != entry.get("revision"):
+            continue
+        receipts.append(entry)
+    if len(receipts) != 1:
+        return None
+    receipt = receipts[0]
+
+    plugin_verified = verify_git_tree_release(
+        repository_root, "plugins/codex-copilot", signers, ref=ref
+    )
+    if plugin_verified is None or any(
+        getattr(plugin_verified.release, field)
+        != getattr(skills_verified.release, field)
+        for field in (
+            "ref",
+            "tag",
+            "commit",
+            "tree",
+            "signer",
+            "repository_root",
+        )
+    ):
+        return None
+    plugin_snapshot = read_git_tree_snapshot(repository_root, plugin_verified.tree)
+    if plugin_snapshot is None:
+        return None
+    return ProtectedKnowledgeLockProjection(
+        layer=layer_id,
+        repository=repository,
+        ref=skills_verified.ref,
+        tree=skills_verified.tree,
+        signer=skills_verified.signer,
+        binding=str(receipt["binding"]),
+        item_tree=plugin_verified.tree,
+        release_tree=plugin_verified.release.tree,
+        content_sha256=stable_directory_content_sha(
+            (item.path, item.content) for item in plugin_snapshot.files
+        ),
+    )
 
 
 def _effective_knowledge_layers(

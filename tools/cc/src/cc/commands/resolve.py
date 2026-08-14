@@ -11,11 +11,10 @@ Contract sources:
     test)
 
 READ-ONLY: this module never acquires the copilot lock (core/locking.py)
-and never materializes/writes anything. It only (in order): loads the
-layer manifest, best-effort-discovers local layer content
-(core/ecosystem/discovery.py), reads (never writes) the lockfile
-(core/ecosystem/lockfile.py), and folds the PURE resolver
-(core/ecosystem/resolver.py) over the result.
+and never materializes/writes anything. It loads the layer manifest,
+best-effort-discovers local layer content, reads the lockfile, folds the
+PURE resolver, then re-proves signed-source and materialized-byte evidence
+without changing any receipt, cache, lock, or destination.
 
 Naming note: `cc resolve` already existed as a single-config-key resolver
 (`cc resolve paths.shared_docs`). Per the same WS-A naming precedent as
@@ -27,12 +26,13 @@ argument was given: `cc resolve <key>` keeps its pre-existing behavior;
 `resolve_cmd` for the dispatch and a note on why this collision was
 resolved this way rather than by renaming either verb.
 
-Fail-closed security fields (deferred to later slices): every item always
-emits `signer_of_introducing_commit: null` and `live_hash_matches: false`.
-These become real once signature-verify (a policy module, ecosystem-
-architecture.md §7.2/§9) and materialize (§3.2) land. NEVER fabricate a
-"signed"/"matches" verdict before those modules exist — see
-core/ecosystem/resolver.py's `_make_item()`.
+Fail-closed security fields are enriched only here, at the I/O boundary.
+The pure resolver still defaults them to null/false. A signer is emitted
+only after the winning item is reverified against its immutable signed tag;
+`live_hash_matches` becomes true only when the destination's freshly computed
+canonical content hash equals the winning lock pin. Protected Knowledge uses
+its private active receipt and signed Git-object projection as authority,
+never mutable checkout bytes.
 """
 
 from __future__ import annotations
@@ -41,10 +41,18 @@ from pathlib import Path
 from typing import Any, Optional
 
 from cc.core.config import resolve_key
-from cc.core.ecosystem import mirror
+from cc.core.ecosystem import entitlement, mirror
 from cc.core.ecosystem.discovery import discover_contributions
+from cc.core.ecosystem.knowledge_skill_source import (
+    inspect_protected_knowledge_lock_projection,
+)
 from cc.core.ecosystem.lockfile import default_lockfile_path, read_lockfile
 from cc.core.ecosystem.manifest import load_layers, validate_layers
+from cc.core.ecosystem.materialize import (
+    content_item_path,
+    materialized_item_content_sha,
+)
+from cc.core.ecosystem.policy import verify_git_item
 from cc.core.ecosystem.resolver import resolve_layers
 
 SCHEMA_VERSION = "1.0"
@@ -85,6 +93,112 @@ def _synthesize_effective_layers(
     return mirror.synthesize_effective_layers(layers, mirror_root_base=mirror_root_base)
 
 
+def _resolved_materialize_roots(
+    injected: Any,
+) -> dict[str, Path]:
+    if injected is not _UNSET:
+        return {
+            str(product): Path(path).expanduser()
+            for product, path in injected.items()
+        }
+    generic_value = resolve_key("paths.materialize_root")
+    claude_value = resolve_key("paths.claude_materialize_root")
+    codex_value = resolve_key("paths.codex_materialize_root")
+    generic = Path(str(generic_value)).expanduser() if generic_value else None
+    roots: dict[str, Path] = {}
+    if claude_value:
+        roots["claude"] = Path(str(claude_value)).expanduser()
+    elif generic is not None:
+        roots["claude"] = generic
+    if codex_value:
+        roots["codex"] = Path(str(codex_value)).expanduser()
+    elif generic is not None:
+        roots["codex"] = generic / "codex"
+    return roots
+
+
+def _enrich_provenance(
+    items: list[dict[str, Any]],
+    layers: list[dict[str, Any]],
+    *,
+    materialize_roots: dict[str, Path],
+    knowledge_cache_root: Path | str | None,
+) -> None:
+    """Mutate resolver result dictionaries with freshly re-proved evidence."""
+    layer_by_id = {str(layer["id"]): layer for layer in layers}
+    knowledge_projection_by_layer: dict[str, Any] = {}
+    for entry in items:
+        layer_id = str(entry.get("winning_layer") or "")
+        layer = layer_by_id.get(layer_id)
+        if layer is None:
+            continue
+
+        if layer.get("product") == "knowledge" and entitlement.is_protected_layer(
+            layer
+        ):
+            if layer_id not in knowledge_projection_by_layer:
+                knowledge_projection_by_layer[layer_id] = (
+                    inspect_protected_knowledge_lock_projection(
+                        layer, cache_root=knowledge_cache_root
+                    )
+                )
+            projection = knowledge_projection_by_layer[layer_id]
+            if (
+                projection is not None
+                and entry.get("dimension") == projection.dimension
+                and entry.get("item") == projection.item
+            ):
+                entry["signer_of_introducing_commit"] = projection.signer
+                entry["live_hash_matches"] = bool(
+                    entry.get("winning_sha")
+                    and entry["winning_sha"] == projection.content_sha256
+                )
+            continue
+
+        source = layer.get("source") or {}
+        source_root = source.get("path")
+        source_ref = source.get("ref")
+        policy = layer.get("policy")
+        signers = policy.get("allowed_signers") if isinstance(policy, dict) else None
+        if (
+            isinstance(source_root, str)
+            and isinstance(source_ref, str)
+            and isinstance(signers, list)
+            and signers
+        ):
+            source_item = content_item_path(
+                source_root,
+                dimension=str(entry["dimension"]),
+                item=str(entry["item"]),
+            )
+            if source_item is not None:
+                try:
+                    relative_path = source_item.relative_to(
+                        Path(source_root).expanduser()
+                    ).as_posix()
+                except ValueError:
+                    relative_path = ""
+                if relative_path:
+                    verified, signer = verify_git_item(
+                        source_root,
+                        relative_path,
+                        signers,
+                        ref=source_ref,
+                    )
+                    if verified and signer:
+                        entry["signer_of_introducing_commit"] = signer
+
+        winning_sha = entry.get("winning_sha")
+        if isinstance(winning_sha, str) and winning_sha:
+            live_sha = materialized_item_content_sha(
+                product=str(entry.get("product") or ""),
+                dimension=str(entry["dimension"]),
+                item=str(entry["item"]),
+                materialize_roots=materialize_roots,
+            )
+            entry["live_hash_matches"] = live_sha == winning_sha
+
+
 def build_resolve_report(
     *,
     _layers: Optional[list[dict[str, Any]]] = None,
@@ -93,6 +207,8 @@ def build_resolve_report(
     _manifest_path: Any = _UNSET,
     _lockfile_path: Any = _UNSET,
     _mirror_root: Any = _UNSET,
+    _materialize_roots: Any = _UNSET,
+    _knowledge_cache_root: Any = _UNSET,
 ) -> dict[str, Any]:
     """
     Build the WS-A `resolve --explain --json` contract object.
@@ -150,6 +266,14 @@ def build_resolve_report(
         lockfile = read_lockfile(lockfile_path)
 
     items = resolve_layers(effective_layers, contributions, lockfile=lockfile)
+    _enrich_provenance(
+        items,
+        effective_layers,
+        materialize_roots=_resolved_materialize_roots(_materialize_roots),
+        knowledge_cache_root=(
+            None if _knowledge_cache_root is _UNSET else _knowledge_cache_root
+        ),
+    )
     return {"schema_version": SCHEMA_VERSION, "items": items}
 
 
@@ -183,8 +307,14 @@ def render_resolve_report_rich(report: dict[str, Any], *, console: Any = None) -
             con.print(
                 f"    shadows {shadow.get('layer')} (rank {shadow.get('rank')}){stale_note}"
             )
+        signer = entry.get("signer_of_introducing_commit")
+        if signer:
+            con.print(f"    signer: {signer}")
         if entry.get("live_hash_matches") is False:
-            con.print(
-                "    [yellow]live_hash_matches: false — unverified "
-                "(signature-verify not implemented yet)[/yellow]"
-            )
+            if entry.get("winning_sha"):
+                con.print(
+                    "    [red]MODIFIED — on-disk content no longer matches "
+                    "the recorded SHA[/red]"
+                )
+            else:
+                con.print("    [yellow]no recorded SHA is available[/yellow]")

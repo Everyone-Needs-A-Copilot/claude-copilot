@@ -17,6 +17,7 @@ import json
 from pathlib import Path
 
 import pytest
+from cc.commands.resolve import build_resolve_report
 from cc.core.ecosystem.discovery import discover_contributions
 from cc.main import app
 from jsonschema import Draft202012Validator
@@ -144,15 +145,101 @@ def test_resolve_explain_json_validates_against_contract_schema(monkeypatch, tmp
 
 
 def test_resolve_explain_json_fail_closed_security_fields(monkeypatch, tmp_path):
-    """Every item must emit signer_of_introducing_commit: null and
-    live_hash_matches: false until signature-verify + materialize land --
-    never a fabricated 'signed'/'matches' verdict."""
+    """Missing signed/materialized evidence remains null/false."""
     payload, _ = _invoke_resolve_json(monkeypatch, tmp_path)
 
     assert payload["items"]
     for entry in payload["items"]:
         assert entry["signer_of_introducing_commit"] is None
         assert entry["live_hash_matches"] is False
+
+
+def test_resolve_enriches_verified_signer_and_live_destination_hash(
+    monkeypatch, tmp_path
+):
+    source_root = _write_fixture_layer(tmp_path)
+    materialize_root = tmp_path / "materialized-claude"
+    destination = materialize_root / "agents" / "sec.md"
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes((source_root / "agents" / "sec.md").read_bytes())
+    layer = {
+        "id": "foundation",
+        "role": "foundation",
+        "rank": 40,
+        "product": "claude",
+        "source": {
+            "repo": "https://example.invalid/foundation.git",
+            "ref": "v1.0.0",
+            "path": str(source_root),
+        },
+        "auth": "anon",
+        "activation": "always",
+        "policy": {"allowed_signers": ["SHA256:test-signer"]},
+    }
+    contributions = discover_contributions([layer])
+    locked_sha = contributions["foundation"]["agents"]["sec"]
+    monkeypatch.setattr(
+        "cc.commands.resolve.verify_git_item",
+        lambda *args, **kwargs: (True, "SHA256:test-signer"),
+    )
+
+    report = build_resolve_report(
+        _layers=[layer],
+        _contributions=contributions,
+        _lockfile={"foundation": {"agents": {"sec": locked_sha}}},
+        _mirror_root=tmp_path / "mirrors",
+        _materialize_roots={"claude": materialize_root},
+        _knowledge_cache_root=tmp_path / "knowledge-cache",
+    )
+
+    assert report["items"][0]["signer_of_introducing_commit"] == (
+        "SHA256:test-signer"
+    )
+    assert report["items"][0]["live_hash_matches"] is True
+
+
+def test_resolve_reports_modified_destination_without_losing_source_signer(
+    monkeypatch, tmp_path
+):
+    source_root = _write_fixture_layer(tmp_path)
+    materialize_root = tmp_path / "materialized-claude"
+    destination = materialize_root / "agents" / "sec.md"
+    destination.parent.mkdir(parents=True)
+    destination.write_text("tampered destination\n", encoding="utf-8")
+    layer = {
+        "id": "foundation",
+        "role": "foundation",
+        "rank": 40,
+        "product": "claude",
+        "source": {
+            "repo": "https://example.invalid/foundation.git",
+            "ref": "v1.0.0",
+            "path": str(source_root),
+        },
+        "auth": "anon",
+        "activation": "always",
+        "policy": {"allowed_signers": ["SHA256:test-signer"]},
+    }
+    contributions = discover_contributions([layer])
+    locked_sha = contributions["foundation"]["agents"]["sec"]
+    monkeypatch.setattr(
+        "cc.commands.resolve.verify_git_item",
+        lambda *args, **kwargs: (True, "SHA256:test-signer"),
+    )
+
+    report = build_resolve_report(
+        _layers=[layer],
+        _contributions=contributions,
+        _lockfile={"foundation": {"agents": {"sec": locked_sha}}},
+        _mirror_root=tmp_path / "mirrors",
+        _materialize_roots={"claude": materialize_root},
+        _knowledge_cache_root=tmp_path / "knowledge-cache",
+    )
+
+    assert report["items"][0]["signer_of_introducing_commit"] == (
+        "SHA256:test-signer"
+    )
+    assert report["items"][0]["live_hash_matches"] is False
 
 
 def test_resolve_no_manifest_configured_returns_schema_valid_empty_report(monkeypatch):

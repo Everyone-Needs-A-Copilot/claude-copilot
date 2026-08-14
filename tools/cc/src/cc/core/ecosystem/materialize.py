@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import hashlib
 import shutil
+import stat
 import subprocess
 from pathlib import Path
 from typing import Any, Iterable, Optional, TypedDict
@@ -408,6 +409,18 @@ def _find_source_child(dim_dir: Path, item: str) -> Optional[Path]:
     return None
 
 
+def content_item_path(
+    content_root: Path | str, *, dimension: str, item: str
+) -> Optional[Path]:
+    """Resolve an item name to the file or directory materialize consumes."""
+    if any(
+        not value or Path(value).is_absolute() or Path(value).name != value
+        for value in (dimension, item)
+    ):
+        return None
+    return _find_source_child(Path(content_root).expanduser() / dimension, item)
+
+
 def stable_directory_content_sha(files: Iterable[tuple[str, bytes]]) -> str:
     """Return the canonical lock identity for an immutable directory tree.
 
@@ -441,6 +454,67 @@ def _content_sha(path: Path) -> str:
             )
         )
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def materialized_item_content_sha(
+    *,
+    product: str,
+    dimension: str,
+    item: str,
+    materialize_roots: dict[str, Path | str],
+    target_allowlist: Optional[dict[str, dict[str, str]]] = None,
+) -> Optional[str]:
+    """Read one managed destination with the materializer's lock algorithm.
+
+    This is the read-only counterpart to ``materialize()``'s private target
+    and content helpers.  It resolves file extensions exactly the same way as
+    the writer, refuses paths outside the product allow-list, and treats any
+    symlink or non-file/non-directory node in the managed item as a mismatch.
+    A caller can therefore compare the returned digest directly with the
+    item's lock pin without trusting source-checkout bytes.
+    """
+    allowlist = target_allowlist or PRODUCT_TARGET_ALLOWLIST
+    root_value = materialize_roots.get(product)
+    relative_value = allowlist.get(product, {}).get(dimension)
+    if (
+        root_value is None
+        or not relative_value
+        or not item
+        or Path(item).is_absolute()
+        or Path(item).name != item
+    ):
+        return None
+    root = Path(root_value).expanduser()
+    relative = Path(relative_value)
+    if relative.is_absolute() or ".." in relative.parts:
+        return None
+    dimension_root = root / relative
+    target = _find_source_child(dimension_root, item)
+    if target is None:
+        return None
+    try:
+        target_relative = target.relative_to(root)
+        candidates = [root]
+        current = root
+        for part in target_relative.parts:
+            current = current / part
+            candidates.append(current)
+        for candidate in candidates:
+            metadata = candidate.lstat()
+            if candidate.is_symlink() or not (
+                stat.S_ISDIR(metadata.st_mode) or stat.S_ISREG(metadata.st_mode)
+            ):
+                return None
+        if target.is_dir():
+            for child in target.rglob("*"):
+                metadata = child.lstat()
+                if child.is_symlink() or not (
+                    stat.S_ISDIR(metadata.st_mode) or stat.S_ISREG(metadata.st_mode)
+                ):
+                    return None
+        return _content_sha(target)
+    except (OSError, ValueError):
+        return None
 
 
 def _content_matches(source: Path, dest: Path) -> bool:

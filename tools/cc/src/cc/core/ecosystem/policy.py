@@ -459,6 +459,163 @@ def verify_git_item(
     return True, fingerprint
 
 
+def verify_git_tree_release(
+    source_root: Path | str,
+    relative_path: str,
+    allowed_signers: Sequence[str],
+    *,
+    ref: str | None = None,
+    run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+    _trusted_keys: dict[str, str] | None = None,
+) -> GitItemProvenance | None:
+    """Verify an immutable signed tag and return one covered tree object.
+
+    This object-only verifier deliberately ignores mutable working-item bytes.
+    It is used when an independently integrity-checked private receipt is the
+    live authority.  The repository root and source prefix must still be real,
+    non-symlinked Git paths, and the returned tree is addressed through the
+    captured annotated-tag object rather than resolving the ref twice.
+    """
+    source = Path(os.path.abspath(Path(source_root).expanduser()))
+    relative = Path(relative_path)
+    allowed = {_normalize_fingerprint(value) for value in allowed_signers if value}
+    trusted_keys = (
+        FOUNDATION_SSH_SIGNING_KEYS if _trusted_keys is None else _trusted_keys
+    )
+    trusted = {
+        _normalize_fingerprint(fingerprint): public_key
+        for fingerprint, public_key in trusted_keys.items()
+        if _normalize_fingerprint(fingerprint) in allowed
+    }
+    if (
+        not ref
+        or relative.is_absolute()
+        or ".." in relative.parts
+        or not allowed
+        or not trusted
+    ):
+        return None
+    root = _containing_git_root(source)
+    if root is None:
+        return None
+    try:
+        source_relative = source.relative_to(root)
+        candidate = root
+        if stat.S_ISLNK(candidate.lstat().st_mode):
+            return None
+        for part in source_relative.parts:
+            candidate = candidate / part
+            metadata = candidate.lstat()
+            if stat.S_ISLNK(metadata.st_mode):
+                return None
+    except (OSError, ValueError):
+        return None
+    repo_relative = (source_relative / relative).as_posix()
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="cc-allowed-signers-") as temp_root:
+            trust_file = Path(temp_root) / "allowed_signers"
+            trust_file.write_text(
+                "".join(
+                    f'enac-foundation namespaces="git" {public_key}\n'
+                    for public_key in trusted.values()
+                ),
+                encoding="utf-8",
+            )
+            os.chmod(trust_file, 0o600)
+            tag_oid = _resolve_tag_object(root, ref, run=run)
+            if tag_oid is None:
+                return None
+            tag = run(
+                [
+                    "git",
+                    "-c",
+                    "gpg.format=ssh",
+                    "-c",
+                    f"gpg.ssh.allowedSignersFile={trust_file}",
+                    "-C",
+                    str(root),
+                    "verify-tag",
+                    tag_oid,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=8.0,
+                check=False,
+            )
+            if tag.returncode != 0:
+                return None
+            signer = _ssh_signer_fingerprint(tag.stdout, tag.stderr)
+            if signer is None or _normalize_fingerprint(signer) not in allowed:
+                return None
+            commit = run(
+                ["git", "-C", str(root), "rev-parse", f"{tag_oid}^{{commit}}"],
+                capture_output=True,
+                text=True,
+                timeout=8.0,
+                check=False,
+            )
+            if commit.returncode != 0 or not commit.stdout.strip():
+                return None
+            pinned_commit = commit.stdout.strip()
+            item_tree = run(
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "rev-parse",
+                    f"{pinned_commit}:{repo_relative}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=8.0,
+                check=False,
+            )
+            tree_oid = item_tree.stdout.strip()
+            if item_tree.returncode != 0 or not re.fullmatch(
+                r"[0-9a-f]{40,64}", tree_oid
+            ):
+                return None
+            kind = run(
+                ["git", "-C", str(root), "cat-file", "-t", tree_oid],
+                capture_output=True,
+                text=True,
+                timeout=8.0,
+                check=False,
+            )
+            if kind.returncode != 0 or kind.stdout.strip() != "tree":
+                return None
+            root_tree_result = run(
+                ["git", "-C", str(root), "rev-parse", f"{pinned_commit}^{{tree}}"],
+                capture_output=True,
+                text=True,
+                timeout=8.0,
+                check=False,
+            )
+            root_tree = root_tree_result.stdout.strip()
+            if root_tree_result.returncode != 0 or not re.fullmatch(
+                r"[0-9a-f]{40,64}", root_tree
+            ):
+                return None
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return GitItemProvenance(
+        ref=ref,
+        tree=tree_oid,
+        signer=signer,
+        repository_root=str(root),
+        relative_path=repo_relative,
+        release=VerifiedSignedRelease(
+            ref=ref,
+            tag=tag_oid,
+            commit=pinned_commit,
+            tree=root_tree,
+            signer=signer,
+            repository_root=str(root),
+        ),
+    )
+
+
 def verify_git_item_provenance(
     source_root: Path | str,
     relative_path: str,
