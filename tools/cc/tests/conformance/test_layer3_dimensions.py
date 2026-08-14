@@ -300,12 +300,11 @@ class TestRealClassificationToml:
     def real_table(self):
         return classes.load_classification_table()
 
-    def test_has_reviewed_audit_entries_plus_deferred_app_disposition(
-        self, real_table
-    ):
+    def test_has_reviewed_audit_entries_plus_deferred_app_disposition(self, real_table):
         # 75 real directories from the 2026-08-10 audit, plus the app-only
-        # public repo discovered afterward and explicitly deferred to PRD-24.
-        assert len(real_table) == 76
+        # public repo discovered afterward and explicitly deferred to PRD-24,
+        # then one active Git root omitted from that static audit.
+        assert len(real_table) == 77
 
     def test_every_entry_has_a_valid_rubric_letter(self, real_table):
         for key, entry in real_table.items():
@@ -316,7 +315,7 @@ class TestRealClassificationToml:
 
         counts = Counter(entry.repo_class for entry in real_table.values())
         assert counts[RepoClass.COMPONENT] == 17
-        assert counts[RepoClass.PRODUCT] == 35
+        assert counts[RepoClass.PRODUCT] == 36
         assert counts[RepoClass.SITE_CONTENT] == 8
         assert counts[RepoClass.DOCS_KNOWLEDGE] == 1
         assert counts[RepoClass.SCRATCH_ARCHIVE] == 15
@@ -366,6 +365,12 @@ class TestRealClassificationToml:
             "investr-api",
         ):
             assert real_table[f"PERSONAL/{name}"].repo_class is RepoClass.PRODUCT
+
+    def test_live_product_omission_is_explicitly_classified(self, real_table):
+        assert (
+            real_table["COPILOT/convoco-google-verification"].repo_class
+            is RepoClass.PRODUCT
+        )
 
 
 # ---------------------------------------------------------------------------
