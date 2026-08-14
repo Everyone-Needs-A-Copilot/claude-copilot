@@ -1047,17 +1047,27 @@ def _collect_results(
     _ensure_registry_loaded()
     results: list[CheckResult] = []
 
-    if "tier" in layers:
+    execution_layers = tuple(layers)
+    if check_ids:
+        selected_layers = {
+            registration.layer.value
+            for registration in DEFAULT_REGISTRY.select(check_ids=check_ids)
+        }
+        execution_layers = tuple(
+            layer for layer in execution_layers if layer in selected_layers
+        )
+
+    if "tier" in execution_layers:
         results.extend(
             _safe_run(Layer.TIER, "tier layer (real machine)", _run_tier_layer_machine)
         )
-    if "stack" in layers:
+    if "stack" in execution_layers:
         results.extend(
             _safe_run(
                 Layer.STACK, "stack layer (real machine)", _run_stack_layer_machine
             )
         )
-    if "repo" in layers:
+    if "repo" in execution_layers:
         results.extend(
             _safe_run(
                 Layer.REPO,
@@ -1073,7 +1083,7 @@ def _collect_results(
                 ),
             )
         )
-    if "lock" in layers:
+    if "lock" in execution_layers:
         results.extend(
             _safe_run(
                 Layer.LOCK,
@@ -1083,7 +1093,7 @@ def _collect_results(
                 ),
             )
         )
-    if "regression" in layers:
+    if "regression" in execution_layers:
         results.extend(
             _safe_run(
                 Layer.REGRESSION,
@@ -1091,7 +1101,7 @@ def _collect_results(
                 root_causes.run_all_root_cause_checks,
             )
         )
-    if "roundtrip" in layers:
+    if "roundtrip" in execution_layers:
         if announce is not None:
             announce(_ROUNDTRIP_MUTATION_NOTICE)
         results.extend(
@@ -1139,6 +1149,26 @@ def _resolve_layers(
             f"conformance {command}: unknown --layer value(s) {unknown!r}; "
             f"choose from {list(ALL_LAYER_CHOICES)!r}",
             output_json,
+        )
+        raise typer.Exit(2)
+    return deduped
+
+
+def _resolve_check_ids(
+    raw: Optional[Sequence[str]], *, command: str, output_json: bool
+) -> tuple[str, ...]:
+    if not raw:
+        return ()
+    _ensure_registry_loaded()
+    deduped = tuple(dict.fromkeys(raw))
+    registered = {registration.id for registration in DEFAULT_REGISTRY.all()}
+    unknown = [value for value in deduped if value not in registered]
+    if unknown:
+        _emit_argument_error(
+            f"conformance {command}: unknown --check value(s) {unknown!r}. "
+            "Run `cc conformance list` to see valid ids.",
+            output_json,
+            code="unknown-check-id",
         )
         raise typer.Exit(2)
     return deduped
@@ -1362,6 +1392,7 @@ def check_cmd(
     rubric_classes, classification_names = _resolve_class_filters(
         repo_class, command="check", output_json=output_json
     )
+    check_ids = _resolve_check_ids(check_id, command="check", output_json=output_json)
 
     baseline_entries: tuple[report.BaselineEntry, ...] = ()
     if baseline is not None:
@@ -1379,7 +1410,7 @@ def check_cmd(
             repos=repo or (),
             classes=rubric_classes,
             repo_classes=classification_names,
-            check_ids=check_id or (),
+            check_ids=check_ids,
             jobs=jobs,
             use_cache=not no_cache,
             announce=lambda text: typer.echo(text, err=True),
@@ -1492,6 +1523,7 @@ def report_cmd(
     rubric_classes, classification_names = _resolve_class_filters(
         repo_class, command="report", output_json=output_json
     )
+    check_ids = _resolve_check_ids(check_id, command="report", output_json=output_json)
 
     baseline_entries: tuple[report.BaselineEntry, ...] = ()
     if baseline is not None:
@@ -1510,7 +1542,7 @@ def report_cmd(
             repos=repo or (),
             classes=rubric_classes,
             repo_classes=classification_names,
-            check_ids=check_id or (),
+            check_ids=check_ids,
             jobs=jobs,
             use_cache=not no_cache,
             announce=lambda text: typer.echo(text, err=True),
