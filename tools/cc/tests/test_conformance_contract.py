@@ -54,6 +54,8 @@ from typer.testing import CliRunner
 
 runner = CliRunner()
 
+_REAL_COLLECT_RESULTS = conformance_mod._collect_results
+
 _SCHEMA_DIR = Path(__file__).parent / "fixtures" / "schemas"
 
 pytestmark = pytest.mark.filterwarnings("ignore")
@@ -277,6 +279,15 @@ def test_check_rejects_unknown_fail_on(monkeypatch):
     assert "unknown --fail-on" in result.output
 
 
+def test_check_rejects_unknown_check_id():
+    result = runner.invoke(
+        app, ["conformance", "check", "--check", "stack.not_registered", "--json"]
+    )
+    assert result.exit_code == 2
+    payload = json.loads(result.output)
+    assert payload["error"]["code"] == "unknown-check-id"
+
+
 def test_check_rejects_missing_baseline_file(tmp_path):
     result = runner.invoke(
         app, ["conformance", "check", "--baseline", str(tmp_path / "does-not-exist.json")]
@@ -294,6 +305,40 @@ def test_check_environment_error_maps_to_exit_2(monkeypatch):
     assert result.exit_code == 2, result.output
     payload = json.loads(result.output)
     assert payload["error"]["code"] == "environment-error"
+
+
+def test_check_id_executes_only_its_registered_layer(monkeypatch):
+    calls: list[str] = []
+
+    def _unexpected_layer(*args, **kwargs):
+        raise AssertionError("an unrelated conformance layer executed")
+
+    def _stack_layer():
+        calls.append("stack")
+        return (_result("stack.cs_ancestor", layer=Layer.STACK),)
+
+    monkeypatch.setattr(conformance_mod, "_run_tier_layer_machine", _unexpected_layer)
+    monkeypatch.setattr(conformance_mod, "_run_stack_layer_machine", _stack_layer)
+    monkeypatch.setattr(conformance_mod, "_run_repo_layer", _unexpected_layer)
+    monkeypatch.setattr(conformance_mod, "_run_lock_layer", _unexpected_layer)
+    monkeypatch.setattr(
+        conformance_mod.root_causes,
+        "run_all_root_cause_checks",
+        _unexpected_layer,
+    )
+    monkeypatch.setattr(conformance_mod, "_run_roundtrip_layer", _unexpected_layer)
+
+    results = _REAL_COLLECT_RESULTS(
+        layers=conformance_mod.FULL_CHECK_LAYERS,
+        mode=conformance_mod.Mode.FULL,
+        check_ids=("stack.cs_ancestor",),
+        use_cache=False,
+    )
+
+    assert calls == ["stack"]
+    assert [(result.id, result.layer) for result in results] == [
+        ("stack.cs_ancestor", Layer.STACK)
+    ]
 
 
 # ---------------------------------------------------------------------------
