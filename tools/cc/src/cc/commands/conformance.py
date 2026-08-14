@@ -39,14 +39,12 @@ sibling packages' actual public API (not assumed from the design prose):
    registered (visible to `cc conformance list`/`explain`) but never
    invoked by the real-machine sweep.
 3. **`--repo`/`--class` pre-filter the repo-layer sweep (`sweep.py`'s own
-   `SweepOptions`) for speed, and `report.filter_by_repo` post-filters
-   EVERY layer's results uniformly afterward** -- tier/stack/lock/
-   regression have no per-layer pre-filter API of their own (their real-
-   machine wiring is comparatively cheap: at most a few dozen file reads,
-   not a ~75-repo sweep), so re-deriving one would be more code for no
-   measurable speed gain; `report.filter_by_repo` (WP-1) already defines
-   the exact subject-matching semantics this module needs and is reused
-   verbatim, never reimplemented.
+   `SweepOptions`), while `--check` also bypasses the full tier collector
+   for the two framework-only H-8/E-6 capability probes.** The remaining
+   tier/stack/lock/regression paths keep their existing post-filter because
+   this incident showed no material cost there. `report.filter_by_repo`
+   (WP-1) still post-filters every layer uniformly and defines the subject-
+   matching semantics verbatim.
 4. **Ordinary `--full` includes the sandboxed round-trip.**
    `HARNESS-DESIGN.md` section 7.2 and the product PRD both define full mode
    as all six layers. The mutation boundary remains strict: round-trip writes
@@ -77,6 +75,7 @@ import json as _json
 import subprocess
 import tempfile
 from datetime import datetime, timezone
+from functools import partial
 from pathlib import Path
 from typing import Any, Callable, List, Optional, Sequence
 
@@ -159,6 +158,13 @@ _ROUNDTRIP_MUTATION_NOTICE = (
     "a write target."
 )
 
+_TIER_AGGREGATE_CAPABILITY_CHECK_IDS = frozenset(
+    {
+        "tier.precedence.commands_dimension_has_no_consumer",
+        "tier.effectiveness.extension_resolution_wired_beyond_prose",
+    }
+)
+
 
 def _ensure_registry_loaded() -> None:
     """Populate `DEFAULT_REGISTRY` with every check id, including the 13+1
@@ -226,6 +232,54 @@ def _declared_agent_names(knowledge_repos: Sequence[str]) -> set[str]:
     return names
 
 
+def _run_tier_aggregate_capabilities_machine(
+    *,
+    check_ids: Sequence[str] = (),
+    framework_root: Path | None = None,
+) -> tuple[CheckResult, ...]:
+    """Run the two framework-wide capability probes without a fleet walk.
+
+    These checks inspect the immutable framework source only. Keeping them
+    behind their own execution seam lets ``--check`` answer the targeted
+    question without first resolving every knowledge tier and repository.
+    """
+
+    selected = set(check_ids)
+    if framework_root is None:
+        try:
+            framework_root = roundtrip.discover_framework_repo_root()
+        except roundtrip.InstallerScriptError:
+            return ()
+
+    results: list[CheckResult] = []
+    h8_id = "tier.precedence.commands_dimension_has_no_consumer"
+    if not selected or h8_id in selected:
+        cc_src_root = framework_root / "tools" / "cc" / "src" / "cc"
+        if cc_src_root.is_dir():
+            results.append(
+                tier.check_h8_commands_dimension_has_no_consumer(
+                    source_root=cc_src_root
+                )
+            )
+
+    e6_id = "tier.effectiveness.extension_resolution_wired_beyond_prose"
+    if not selected or e6_id in selected:
+        executable_surfaces = tuple(
+            candidate
+            for relative in (".claude", "plugins", "scripts")
+            if (candidate := framework_root / relative).is_dir()
+        )
+        if executable_surfaces:
+            results.append(
+                effectiveness.check_e6_extension_resolution_wired_beyond_prose(
+                    source_root=framework_root,
+                    scan_roots=executable_surfaces,
+                    subject="framework:executable-surfaces",
+                )
+            )
+    return tuple(results)
+
+
 def _run_tier_layer_machine() -> tuple[CheckResult, ...]:
     results: list[CheckResult] = []
     ladder = resolve_knowledge_repos()
@@ -270,19 +324,6 @@ def _run_tier_layer_machine() -> tuple[CheckResult, ...]:
                 )
             )
 
-        # H-8: scan the complete cc source surface once; the checker
-        # structurally excludes its own core/conformance package. A consumer
-        # in core/ecosystem satisfies the framework-wide capability, so a
-        # sibling directory with no duplicate consumer must not manufacture
-        # a second, contradictory failure.
-        cc_src_root = framework_root / "tools" / "cc" / "src" / "cc"
-        if cc_src_root.is_dir():
-            results.append(
-                tier.check_h8_commands_dimension_has_no_consumer(
-                    source_root=cc_src_root
-                )
-            )
-
         # E-5: every framework agent whose instructions claim to consult the
         # knowledge ladder, not just the three H-5 already reads for the
         # singular-alias check -- ground truth (TEST-MATRIX-adjacent, this
@@ -308,24 +349,12 @@ def _run_tier_layer_machine() -> tuple[CheckResult, ...]:
                 )
             )
 
-        # E-6: `cc extensions resolve` must fire from one legitimate
-        # executable consumer, not be duplicated in every sibling surface.
-        # Scan `.claude`, `plugins`, and `scripts` together and emit one
-        # framework-wide verdict. Deliberately never scan `tools/cc` itself:
-        # the CLI implementation/tests necessarily mention the command.
-        executable_surfaces = tuple(
-            candidate
-            for relative in (".claude", "plugins", "scripts")
-            if (candidate := framework_root / relative).is_dir()
+        # H-8/E-6 are implemented once in a reusable framework-only seam.
+        # Full collection reaches it here; a targeted --check selection can
+        # call the same seam without resolving the rest of the fleet.
+        results.extend(
+            _run_tier_aggregate_capabilities_machine(framework_root=framework_root)
         )
-        if executable_surfaces:
-            results.append(
-                effectiveness.check_e6_extension_resolution_wired_beyond_prose(
-                    source_root=framework_root,
-                    scan_roots=executable_surfaces,
-                    subject="framework:executable-surfaces",
-                )
-            )
 
     tier_repos = {f"rank-{index}": repo for index, repo in enumerate(ladder)}
     results.extend(tier.check_h6_declared_skill_paths_exist(tier_repos=tier_repos))
@@ -1051,8 +1080,15 @@ def _collect_results(
         )
 
     if "tier" in execution_layers:
+        tier_runner: Callable[[], tuple[CheckResult, ...]]
+        if check_ids and set(check_ids) <= _TIER_AGGREGATE_CAPABILITY_CHECK_IDS:
+            tier_runner = partial(
+                _run_tier_aggregate_capabilities_machine, check_ids=check_ids
+            )
+        else:
+            tier_runner = _run_tier_layer_machine
         results.extend(
-            _safe_run(Layer.TIER, "tier layer (real machine)", _run_tier_layer_machine)
+            _safe_run(Layer.TIER, "tier layer (real machine)", tier_runner)
         )
     if "stack" in execution_layers:
         results.extend(
