@@ -97,6 +97,52 @@ def test_tier_collection_emits_one_verdict_per_aggregate_capability(
     ) == 1
 
 
+def test_targeted_aggregate_capabilities_bypass_full_tier_collection(
+    monkeypatch, tmp_path: Path
+):
+    framework_root = tmp_path / "framework"
+    cc_source_root = framework_root / "tools" / "cc" / "src" / "cc"
+    ecosystem = cc_source_root / "core" / "ecosystem"
+    ecosystem.mkdir(parents=True)
+    (ecosystem / "discovery.py").write_text(
+        'def declared(layer):\n    return layer.get("dimensions")\n',
+        encoding="utf-8",
+    )
+    hook_root = framework_root / ".claude" / "hooks"
+    hook_root.mkdir(parents=True)
+    (hook_root / "pretool-check.sh").write_text(
+        '#!/bin/bash\ncc extensions resolve --agent "$AGENT" --json\n',
+        encoding="utf-8",
+    )
+    (framework_root / "plugins").mkdir()
+    (framework_root / "scripts").mkdir()
+
+    monkeypatch.setattr(
+        conformance.roundtrip,
+        "discover_framework_repo_root",
+        lambda: framework_root,
+    )
+
+    def full_collection_must_not_run():
+        raise AssertionError("targeted aggregate checks invoked the full tier collector")
+
+    monkeypatch.setattr(
+        conformance, "_run_tier_layer_machine", full_collection_must_not_run
+    )
+    check_ids = tuple(sorted(conformance._TIER_AGGREGATE_CAPABILITY_CHECK_IDS))
+
+    results = conformance._collect_results(
+        layers=conformance.DEFAULT_CHECK_LAYERS,
+        mode=Mode.FAST,
+        check_ids=check_ids,
+        use_cache=False,
+    )
+
+    assert len(results) == 2
+    assert {result.id for result in results} == set(check_ids)
+    assert all(result.verdict is Verdict.PASS for result in results)
+
+
 def test_full_collection_runs_sandboxed_roundtrip_and_announces_it(monkeypatch):
     monkeypatch.setattr(conformance, "_run_tier_layer_machine", lambda: ())
     monkeypatch.setattr(conformance, "_run_stack_layer_machine", lambda: ())

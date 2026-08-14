@@ -722,15 +722,14 @@ class TestMachineTruth:
         ]
         assert all(r.evidence[0].kind == "accepted-authoring-checkout" for r in results)
 
-    def test_cs_signers_fails_exactly_two_of_four_foundations(self):
+    def test_cs_signers_passes_for_all_four_foundations(self):
         results = stack.check_cs_signers(stack.DEFAULT_PRODUCTS, self.snapshots)
         foundations = [r for r in results if r.subject.endswith("-foundation")]
         assert len(foundations) == 4
-        failing = {r.subject for r in foundations if r.verdict is Verdict.FAIL}
-        # claude-foundation and codex-foundation now carry a real
-        # SHA256 signer; cli-foundation and knowledge-foundation are still
-        # policy.allowed_signers: [].
-        assert failing == {"cli-foundation", "knowledge-foundation"}
+        # Re-verified live 2026-08-14: all four foundations declare the
+        # dedicated ENAC signer. CLI v0.3.6 and Knowledge v0.1.2 also verify
+        # against that fingerprint and remain ancestors of main.
+        assert all(r.verdict is Verdict.PASS for r in foundations)
         non_foundation = [r for r in results if not r.subject.endswith("-foundation")]
         assert len(non_foundation) == 12
         assert all(r.verdict is Verdict.SKIP for r in non_foundation)

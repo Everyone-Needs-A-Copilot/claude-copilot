@@ -68,10 +68,11 @@ contract, not the producer doc that described it days earlier):
     (unpushed), so `main` is not an ancestor of `origin/main` and
     CS-ANCESTOR now FAILS there too.
   - `TEST-MATRIX.md` §2's CS-SIGNERS row claims all 4 foundations have
-    `allowed_signers: []`. Freshly verified against the live manifest:
-    `claude-foundation` and `codex-foundation` now each carry one
-    `SHA256:...` entry (non-empty) and PASS; `cli-foundation` and
-    `knowledge-foundation` are still `[]` and FAIL. 2/4, not 0/4.
+    `allowed_signers: []`. Freshly verified against the live manifest on
+    2026-08-14: Claude, Codex, CLI, and Knowledge foundations each carry the
+    dedicated ENAC fingerprint and PASS. The CLI v0.3.6 and Knowledge
+    v0.1.2 tags independently verify with that key and are ancestors of
+    their main branches.
   - CS-MIRROR distinguishes two intentionally different source modes.
     Anything under `paths.mirrors_root` is managed and must be clean and
     unaliased. A path outside that root is accepted as an authoring checkout
@@ -247,7 +248,7 @@ _CS_SIGNERS = register_check(
     scope=Scope.PER_CELL,
     summary="CS-SIGNERS: foundation layers carry a non-empty policy.allowed_signers",
     remediation="Add at least one compiled-in trust root (a signing key fingerprint) to this foundation's policy.allowed_signers in copilot.layers.yml.",
-    expected_today=ExpectedToday.FAIL,
+    expected_today=ExpectedToday.PASS,
 )
 
 _CS_DIM = register_check(
