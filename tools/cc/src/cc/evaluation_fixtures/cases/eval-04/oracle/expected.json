@@ -1,0 +1,16 @@
+{
+  "fixture_namespace": "SYNTHETIC-EVAL04",
+  "synthetic_fixture": true,
+  "expected_contributions": [
+    "Create three distinct territories with experience or system implications.",
+    "Ground territories in approved purpose, values, voice, audience, and problem.",
+    "Identify evidence or SYNTHETIC-CLIENT input needed for final direction.",
+    "Leave the creative decision with human reviewers."
+  ],
+  "reject_conditions": [
+    "invented-brand-fact",
+    "tagline-list-only",
+    "generic-ai-transformation-language",
+    "declared-winner-without-human-choice"
+  ]
+}

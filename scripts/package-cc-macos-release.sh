@@ -120,12 +120,16 @@ esac
 
 remote_url="$(git -C "${REPO_ROOT}" remote get-url origin)"
 release_tool_commit="$(git -C "${REPO_ROOT}" rev-parse HEAD)"
+[[ "${release_tool_commit}" == "${SOURCE_COMMIT}" ]] ||
+    die "release tooling must run from the exact source commit ${SOURCE_COMMIT}"
 git -C "${REPO_ROOT}" diff --quiet HEAD -- \
     scripts/package-cc-macos-release.sh \
     scripts/notarytool-profile-retry.sh \
+    scripts/verify-project-lock-coherence.py \
     scripts/verify-foundation-release.sh \
     tools/cc/scripts/cc_frozen_entry.py ||
     die "release packaging files must be committed before building"
+"${REPO_ROOT}/scripts/verify-project-lock-coherence.py" "${REPO_ROOT}"
 
 if [[ -n "${CT_NOTARY_KEYCHAIN_PROFILE:-}" ]]; then
     echo "cc release: checking notarization profile before the build"
@@ -160,8 +164,201 @@ git clone --quiet --branch "${SOURCE_REF}" --no-single-branch \
 cloned_commit="$(git -C "${source_checkout}" rev-parse HEAD)"
 [[ "${cloned_commit}" == "${SOURCE_COMMIT}" ]] ||
     die "cloned source changed during release preparation"
+source_tree="$(git -C "${source_checkout}" rev-parse "${SOURCE_COMMIT}^{tree}")"
+verify_source_checkout() {
+    [[ "$(git -C "${source_checkout}" rev-parse HEAD)" == "${SOURCE_COMMIT}" ]] ||
+        die "verified source checkout HEAD changed during release preparation"
+    [[ "$(git -C "${source_checkout}" rev-parse 'HEAD^{tree}')" == "${source_tree}" ]] ||
+        die "verified source checkout tree changed during release preparation"
+    [[ -z "$(git -C "${source_checkout}" status --porcelain --untracked-files=all)" ]] ||
+        die "verified source checkout became dirty during release preparation"
+}
+verify_source_checkout
+source_snapshot="${scratch}/source-snapshot.json"
+source_snapshot_action() {
+    local action="$1"
+    /usr/bin/python3 - "${action}" "${source_checkout}" "${source_snapshot}" <<'PY'
+import hashlib
+import json
+import os
+import stat
+import sys
+from pathlib import Path
+
+action, root_value, snapshot_value = sys.argv[1:]
+root = Path(root_value).resolve(strict=True)
+snapshot_path = Path(snapshot_value)
+maximum_file_bytes = 512 * 1024 * 1024
+
+
+def identity(value: os.stat_result) -> list[int]:
+    return [
+        value.st_dev,
+        value.st_ino,
+        value.st_mode,
+        value.st_nlink,
+        value.st_uid,
+        value.st_size,
+        value.st_mtime_ns,
+        value.st_ctime_ns,
+    ]
+
+
+def exact_regular_file(path: Path) -> tuple[list[int], str]:
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_uid != os.getuid()
+            or before.st_nlink != 1
+            or before.st_size > maximum_file_bytes
+        ):
+            raise SystemExit(f"release source is not an exact owner file: {path}")
+        digest = hashlib.sha256()
+        total = 0
+        while total <= maximum_file_bytes:
+            chunk = os.read(descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            digest.update(chunk)
+        after = os.fstat(descriptor)
+        named = os.lstat(path)
+        if (
+            total > maximum_file_bytes
+            or identity(before) != identity(after)
+            or identity(before) != identity(named)
+        ):
+            raise SystemExit(f"release source changed while captured: {path}")
+        return identity(after), digest.hexdigest()
+    finally:
+        os.close(descriptor)
+
+
+def capture() -> bytes:
+    if not root.is_dir():
+        raise SystemExit("release source root is unavailable")
+    root_before = os.lstat(root)
+    records = [
+        {
+            "identity": identity(root_before),
+            "path": ".",
+            "type": "directory",
+        }
+    ]
+    for current_value, directory_names, file_names in os.walk(
+        root, topdown=True, followlinks=False
+    ):
+        current = Path(current_value)
+        relative_current = current.relative_to(root)
+        if relative_current == Path(".") and ".git" in directory_names:
+            directory_names.remove(".git")
+        directory_names.sort()
+        file_names.sort()
+        for name in sorted((*directory_names, *file_names)):
+            path = current / name
+            relative = path.relative_to(root).as_posix()
+            before = os.lstat(path)
+            if stat.S_ISREG(before.st_mode):
+                file_identity, digest = exact_regular_file(path)
+                records.append(
+                    {
+                        "identity": file_identity,
+                        "path": relative,
+                        "sha256": digest,
+                        "type": "file",
+                    }
+                )
+            elif stat.S_ISDIR(before.st_mode):
+                after = os.lstat(path)
+                if identity(before) != identity(after):
+                    raise SystemExit(
+                        f"release source directory changed while captured: {relative}"
+                    )
+                records.append(
+                    {
+                        "identity": identity(after),
+                        "path": relative,
+                        "type": "directory",
+                    }
+                )
+            elif stat.S_ISLNK(before.st_mode):
+                target = os.readlink(os.fsencode(path))
+                after = os.lstat(path)
+                if identity(before) != identity(after):
+                    raise SystemExit(
+                        f"release source link changed while captured: {relative}"
+                    )
+                records.append(
+                    {
+                        "identity": identity(after),
+                        "path": relative,
+                        "sha256": hashlib.sha256(target).hexdigest(),
+                        "type": "symlink",
+                    }
+                )
+            else:
+                raise SystemExit(f"release source contains an unsupported entry: {relative}")
+    root_after = os.lstat(root)
+    if identity(root_before) != identity(root_after):
+        raise SystemExit("release source root changed while captured")
+    document = {"entries": records, "schema": "cc-release-source-snapshot-v1"}
+    return (json.dumps(document, separators=(",", ":"), sort_keys=True) + "\n").encode()
+
+
+current = capture()
+maximum_snapshot_bytes = 64 * 1024 * 1024
+if len(current) > maximum_snapshot_bytes:
+    raise SystemExit("release source snapshot exceeds its closed bound")
+if action == "capture":
+    descriptor = os.open(
+        snapshot_path,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+        0o600,
+    )
+    try:
+        remaining = memoryview(current)
+        while remaining:
+            written = os.write(descriptor, remaining)
+            if written <= 0:
+                raise SystemExit("release source snapshot write failed")
+            remaining = remaining[written:]
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+elif action == "verify":
+    descriptor = os.open(snapshot_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        before = os.fstat(descriptor)
+        expected_buffer = bytearray()
+        while len(expected_buffer) <= maximum_snapshot_bytes:
+            chunk = os.read(descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            expected_buffer.extend(chunk)
+        after = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or stat.S_IMODE(before.st_mode) != 0o600
+            or before.st_uid != os.getuid()
+            or before.st_nlink != 1
+            or len(expected_buffer) > maximum_snapshot_bytes
+            or identity(before) != identity(after)
+        ):
+            raise SystemExit("release source snapshot authority is invalid")
+    finally:
+        os.close(descriptor)
+    if current != bytes(expected_buffer):
+        raise SystemExit("verified source checkout changed during release build")
+else:
+    raise SystemExit(f"unknown source snapshot action: {action}")
+PY
+}
+source_snapshot_action capture
 "${source_checkout}/scripts/verify-foundation-release.sh" \
     "${source_checkout}" "${SOURCE_REF}" "${SOURCE_COMMIT}"
+"${source_checkout}/scripts/verify-project-lock-coherence.py" "${source_checkout}"
 
 python_package="${scratch}/${PYTHON_PACKAGE}"
 echo "cc release: fetching pinned Python ${PYTHON_VERSION} universal2 toolchain"
@@ -333,7 +530,7 @@ merge_x86_wheel_binary \
     "pyyaml" "${pyyaml_version}" \
     "yaml/_yaml*.so"
 
-entry_point="${REPO_ROOT}/tools/cc/scripts/cc_frozen_entry.py"
+entry_point="${source_checkout}/tools/cc/scripts/cc_frozen_entry.py"
 [[ -f "${entry_point}" ]] || die "missing frozen entry point: ${entry_point}"
 
 pyinstaller_dist="${scratch}/pyinstaller-dist"
@@ -350,6 +547,7 @@ run_python -m PyInstaller \
     --paths "${source_checkout}/tools/tc/src" \
     --paths "${site_packages}" \
     --collect-submodules "tc" \
+    --collect-data "cc.evaluation_fixtures" \
     --distpath "${pyinstaller_dist}" \
     --workpath "${scratch}/pyinstaller-work" \
     --specpath "${scratch}/pyinstaller-spec" \
@@ -385,6 +583,44 @@ if /usr/sbin/sysctl -n sysctl.proc_translated >/dev/null 2>&1 ||
     [[ "${x86_version}" == "cc version ${expected_version}" ]] ||
         die "x86_64 helper returned unexpected version: ${x86_version}"
 fi
+
+# Prove that the frozen helper carries the complete, immutable 31-file
+# evaluation fixture tree. The command verifies the packaged bundle digest
+# before emitting the preregistered matrix and starts no runtime or network
+# work. Run it outside the release checkout with an empty environment so an
+# omitted PyInstaller data file cannot be supplied by ambient source paths.
+evaluation_probe_root="${scratch}/evaluation-fixture-probe"
+evaluation_probe_home="${evaluation_probe_root}/home"
+evaluation_probe_work="${evaluation_probe_root}/work"
+evaluation_probe_json="${evaluation_probe_root}/matrix.json"
+mkdir -p "${evaluation_probe_home}" "${evaluation_probe_work}"
+(
+    cd "${evaluation_probe_work}"
+    env -i \
+        HOME="${evaluation_probe_home}" \
+        PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+        "${artifact}" eval effectiveness matrix --json > "${evaluation_probe_json}"
+)
+/usr/bin/python3 - "${evaluation_probe_json}" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+expected_matrix = "0c844795668aa2dc40596975ba5e20d3ee2fe345583149d20c9c8a07ef6688f6"
+expected_fixture_bundle = "a2f20f40690ff1ca09312b72575bda5d1600539be06663afa689501c8d418698"
+expected_personal_layer = "ab0cba88ddde05682c82705bb0b8498b6666ce2e238c143a11c5a4d1d523d357"
+if (
+    payload.get("matrix_sha256") != expected_matrix
+    or payload.get("fixture_bundle_sha256") != expected_fixture_bundle
+    or payload.get("personal_layer_sha256") != expected_personal_layer
+    or payload.get("planned_cells") != 28
+    or payload.get("live_calls_started") != 0
+    or len(payload.get("cells", ())) != 28
+):
+    raise SystemExit(
+        f"isolated frozen evaluation fixture probe returned an invalid result: {payload!r}"
+    )
+PY
 
 # Exercise the hidden command used by Claude's PreToolUse hook before any
 # network or machine-state probe. A frozen release is a cc + Task Copilot
@@ -1461,6 +1697,8 @@ if subprocess.check_output(["git", "-C", str(project), "status", "--porcelain"])
     raise SystemExit("frozen guide preparation changed the selected project")
 PY
 
+verify_source_checkout
+source_snapshot_action verify
 archive="${scratch}/cc-macos-universal.zip"
 ditto -c -k --keepParent "${artifact}" "${archive}"
 

@@ -33,11 +33,14 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from cc.commands.effectiveness import effectiveness_app
+
 eval_app = typer.Typer(
     name="eval",
     help="Run regression evals against agent contracts.",
     no_args_is_help=True,
 )
+eval_app.add_typer(effectiveness_app, name="effectiveness")
 
 console = Console()
 err_console = Console(stderr=True)
@@ -98,9 +101,12 @@ def _persist_scores(result_dict: dict) -> None:
         sha = "unknown"
         try:
             import subprocess
+
             out = subprocess.run(
                 ["git", "rev-parse", "--short", "HEAD"],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             if out.returncode == 0:
                 sha = out.stdout.strip()
@@ -168,7 +174,9 @@ def _run_eval_impl(
         if (evals_dir_override and isinstance(evals_dir_override, str))
         else _evals_dir(repo_root)
     )
-    effective_threshold = threshold if threshold is not None else _load_threshold(repo_root)
+    effective_threshold = (
+        threshold if threshold is not None else _load_threshold(repo_root)
+    )
 
     try:
         result = run_eval(
@@ -210,7 +218,6 @@ def _format_human(result_dict: dict, threshold: float) -> None:
     agent = result_dict["agent"]
     total = result_dict["total"]
     passed = result_dict["passed"]
-    failed = result_dict["failed"]
     pass_rate = result_dict["pass_rate"]
     p0_regression = result_dict["p0_regression"]
 
@@ -359,7 +366,8 @@ def eval_default(
             console.print("[dim]No eval cases found.[/dim]")
             return
         agents = sorted(
-            d.name for d in evals_path.iterdir()
+            d.name
+            for d in evals_path.iterdir()
             if d.is_dir() and list(d.glob("*.yaml"))
         )
         if agents:

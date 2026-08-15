@@ -18,6 +18,7 @@ from cc.core.evaluation.schema import canonical_sha256, validate_document
 
 _MAX_FILE_BYTES = 8 * 1024 * 1024
 _LOADED_FIXTURE_AUTHORITY = object()
+_LOADED_FIXTURE_SEALS: dict[object, tuple[object, ...]] = {}
 _PREREGISTERED_PACKETS = {
     ("eval-01", 1): (
         "SYNTHETIC-EVAL01",
@@ -89,11 +90,41 @@ class LoadedFixture:
     fixture_sha256: str
     evidence: tuple[VerifiedEvidence, ...]
     oracle: VerifiedOracle
+    _seal: object
     _authority: object = None
 
     def __post_init__(self) -> None:
         if self._authority is not _LOADED_FIXTURE_AUTHORITY:
             raise ValueError("Loaded fixtures must be verifier-issued.")
+
+
+def _loaded_fixture_binding(loaded: LoadedFixture) -> tuple[object, ...]:
+    """Bind the exact verified objects and bytes, not only declared digests."""
+
+    return (
+        loaded.fixture,
+        loaded.fixture_sha256,
+        tuple(
+            (item.path, item.sha256, item.media_type, item.content)
+            for item in loaded.evidence
+        ),
+        (loaded.oracle.path, loaded.oracle.sha256, loaded.oracle.content),
+    )
+
+
+def verify_loaded_fixture(loaded: object) -> bool:
+    """Reject copied/replaced fixtures that preserve the public authority token."""
+
+    return bool(
+        isinstance(loaded, LoadedFixture)
+        and loaded._authority is _LOADED_FIXTURE_AUTHORITY
+        and _LOADED_FIXTURE_SEALS.get(loaded._seal) == _loaded_fixture_binding(loaded)
+        and all(
+            hashlib.sha256(item.content).hexdigest() == item.sha256
+            for item in loaded.evidence
+        )
+        and hashlib.sha256(loaded.oracle.content).hexdigest() == loaded.oracle.sha256
+    )
 
 
 def load_fixture(case_root: Path) -> LoadedFixture:
@@ -156,7 +187,8 @@ def load_fixture(case_root: Path) -> LoadedFixture:
 
         _require_preregistered_packet_identity(fixture, canonical_sha256(value))
 
-    return LoadedFixture(
+    seal = object()
+    loaded = LoadedFixture(
         fixture=fixture,
         fixture_sha256=canonical_sha256(value),
         evidence=tuple(verified),
@@ -165,8 +197,11 @@ def load_fixture(case_root: Path) -> LoadedFixture:
             sha256=fixture.private_oracle.sha256,
             content=oracle_bytes,
         ),
+        _seal=seal,
         _authority=_LOADED_FIXTURE_AUTHORITY,
     )
+    _LOADED_FIXTURE_SEALS[seal] = _loaded_fixture_binding(loaded)
+    return loaded
 
 
 @contextmanager

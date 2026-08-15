@@ -1,0 +1,21 @@
+{
+  "case_id": "eval-07",
+  "files": [
+    {
+      "materialized_mode": "0600",
+      "media_type": "text/markdown",
+      "path": "doc.md",
+      "sha256": "b46a92c3c7195834e5c76f18e23d1a1bbc69283e32bfadb3cf725cda7294fcad"
+    }
+  ],
+  "fixture_bundle_sha256": "a2f20f40690ff1ca09312b72575bda5d1600539be06663afa689501c8d418698",
+  "fixture_namespace": "SYNTHETIC-EVAL07",
+  "matrix_sha256": "0c844795668aa2dc40596975ba5e20d3ee2fe345583149d20c9c8a07ef6688f6",
+  "package_identity_sha256": "708f882d9f1cf3fc54e5b0305ce9ce5f6e46efdc8eafb661dd824241b737776b",
+  "release_identity_sha256": "834553c2a530658562689645850fbc21f8aabd4af7efbf18ef289e985a9881fa",
+  "revision": 1,
+  "schema_version": "task285-eval07-personal-snapshot-v1",
+  "snapshot_id": "eval-07-synthetic-personal-layer",
+  "snapshot_sha256": "2cd26a8d1f40fbff0e953685b86d1512691f4e47879427b7f73f642c3249d156",
+  "synthetic_fixture": true
+}

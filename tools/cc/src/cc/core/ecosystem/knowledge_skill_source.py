@@ -22,7 +22,6 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from cc.core.ecosystem import entitlement
-from cc.core.ecosystem.discovery import discover_contributions
 from cc.core.ecosystem.manifest import ManifestError, load_layers, validate_layers
 from cc.core.ecosystem.materialize import stable_directory_content_sha
 from cc.core.ecosystem.mirror import synthesize_effective_layers
@@ -41,7 +40,6 @@ from cc.core.ecosystem.project_locking import (
     fsync_directory,
 )
 from cc.core.ecosystem.repository_scope import repository_identity
-from cc.core.ecosystem.resolver import resolve_layers
 
 KNOWLEDGE_SKILLS_SUBPATH = "03-ai-enabling/01-skills"
 
@@ -65,6 +63,24 @@ class ProtectedKnowledgeLockProjection:
     content_sha256: str
     dimension: str = "plugins"
     item: str = "codex-copilot"
+
+
+@dataclass(frozen=True)
+class _ProtectedKnowledgeProjectionPlan:
+    """Fully verified inputs for one later receipt-generation commit."""
+
+    projection: ProtectedKnowledgeLockProjection
+    snapshot: GitTreeSnapshot
+    repository: str
+    layer: str
+    ref: str
+    tree: str
+    signer: str
+    entitlement_binding: entitlement.EntitlementBinding
+    protected_binding: str
+    expected_entry: dict[str, Any]
+    matching_receipts: tuple[tuple[str, dict[str, Any]], ...]
+    prior_receipts: tuple[tuple[str, dict[str, Any]], ...]
 
 
 @dataclass(frozen=True)
@@ -964,17 +980,87 @@ def _signed_policy(layer: dict[str, Any]) -> list[str] | None:
     return signers
 
 
+def _signed_release_tree_oid(
+    release: VerifiedSignedRelease,
+    relative_path: str,
+) -> str | None:
+    """Return one exact tree from an already authenticated release commit.
+
+    An empty result is the authenticated absence case. Any malformed or
+    unreadable Git response is a verifier failure, not absence. Looking up the
+    immutable commit prevents a mutable checkout deletion from hiding a signed
+    contribution before its live bytes are reverified below.
+    """
+    relative = Path(relative_path)
+    if (
+        relative.is_absolute()
+        or not relative.parts
+        or ".." in relative.parts
+        or relative.as_posix() in {"", "."}
+    ):
+        raise KnowledgeSkillSourceError("The signed Knowledge tree path is unsafe.")
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                release.repository_root,
+                "ls-tree",
+                "-z",
+                release.commit,
+                "--",
+                relative.as_posix(),
+            ],
+            capture_output=True,
+            timeout=8.0,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise KnowledgeSkillSourceError(
+            "The signed Knowledge release tree is unavailable."
+        ) from exc
+    if result.returncode != 0:
+        raise KnowledgeSkillSourceError(
+            "The signed Knowledge release tree is unavailable."
+        )
+    records = [record for record in result.stdout.split(b"\0") if record]
+    if not records:
+        return None
+    if len(records) != 1:
+        raise KnowledgeSkillSourceError("The signed Knowledge tree is ambiguous.")
+    header, separator, raw_path = records[0].partition(b"\t")
+    fields = header.split()
+    try:
+        path = raw_path.decode("utf-8")
+        oid = fields[2].decode("ascii")
+    except (IndexError, UnicodeDecodeError) as exc:
+        raise KnowledgeSkillSourceError(
+            "The signed Knowledge tree is malformed."
+        ) from exc
+    if (
+        not separator
+        or len(fields) != 3
+        or fields[1] != b"tree"
+        or path != relative.as_posix()
+        or not re.fullmatch(r"[0-9a-f]{40,64}", oid)
+    ):
+        raise KnowledgeSkillSourceError("The signed Knowledge tree is malformed.")
+    return oid
+
+
 def resolve_protected_knowledge_lock_projections(
     layers: Iterable[dict[str, Any]],
     bindings: Iterable[entitlement.EntitlementBinding],
     *,
     cache_root: Path | str | None = None,
 ) -> tuple[ProtectedKnowledgeLockProjection, ...]:
-    """Verify protected receipts and derive canonical Knowledge plugin pins.
+    """Verify protected receipts and derive per-layer Knowledge plugin pins.
 
     This function is deliberately called only by the mutating update
     transaction.  It grants no lock-write authority and ordinary Knowledge
-    read resolution never invokes it.
+    read resolution never invokes it. Every protected layer that carries its
+    own signed ``plugins/codex-copilot`` tree is pinned independently; global
+    nearest-wins selection must not erase a shadowed layer's provenance.
     """
     layer_list = list(layers)
     if not layer_list:
@@ -988,19 +1074,10 @@ def resolve_protected_knowledge_lock_projections(
         if cache_root is not None
         else _snapshot_cache_root(create=False)
     )
-    contributions = discover_contributions(layer_list, dimensions=("plugins",))
-    resolved = resolve_layers(layer_list, contributions, lockfile={})
-    protected_winners = {
-        str(item["winning_layer"])
-        for item in resolved
-        if item.get("dimension") == "plugins" and item.get("item") == "codex-copilot"
-    }
     protected_layers = [
         layer
         for layer in layer_list
-        if layer.get("product") == "knowledge"
-        and entitlement.is_protected_layer(layer)
-        and str(layer.get("id")) in protected_winners
+        if layer.get("product") == "knowledge" and entitlement.is_protected_layer(layer)
     ]
     if not protected_layers:
         return ()
@@ -1020,7 +1097,7 @@ def resolve_protected_knowledge_lock_projections(
             "The protected Knowledge snapshot receipt root is unsafe."
         )
 
-    projections: list[ProtectedKnowledgeLockProjection] = []
+    plans: list[_ProtectedKnowledgeProjectionPlan] = []
     with advisory_file_lock(_snapshot_lock_path(base), blocking=True):
         index = _load_snapshot_index(base)
         _recover_snapshot_state(base, index)
@@ -1071,6 +1148,12 @@ def resolve_protected_knowledge_lock_projections(
                 raise KnowledgeSkillSourceError(
                     f"Protected Knowledge layer {layer_id!r} has an unsafe skill tree."
                 )
+            signed_plugin_tree = _signed_release_tree_oid(
+                skills_verified.release,
+                "plugins/codex-copilot",
+            )
+            if signed_plugin_tree is None:
+                continue
             content_binding = _snapshot_binding(
                 repository=repository,
                 layer=layer_id,
@@ -1160,43 +1243,16 @@ def resolve_protected_knowledge_lock_projections(
                 raise KnowledgeSkillSourceError(
                     f"Protected Knowledge layer {layer_id!r} receipt bytes do not match."
                 )
-            # A fresh update observation advances the entitlement generation.
-            # Never reuse the older disclosed pathname: revoke every matching
-            # prior-generation target, then publish exact Git-object bytes at
-            # the current binding.  A current-generation target is instead
-            # integrity-checked by `_materialize_snapshot` below.
-            prior_receipts = [
-                (key, entry)
-                for key, entry in matching_receipts
-                if entry["revision"] < binding.revision
-            ]
-            for key, entry in prior_receipts:
-                _remove_snapshot_target(base, Path(entry["target"]))
-                index["entries"].pop(key, None)
-            if prior_receipts:
-                _write_snapshot_index(base, index)
-            _materialize_snapshot(
-                skills_snapshot,
-                repository=repository,
-                layer=layer_id,
-                ref=skills_verified.ref,
-                tree=skills_verified.tree,
-                signer=skills_verified.signer,
-                entitlement_binding=binding,
-                cache_root=base,
-            )
-            refreshed_index = _load_snapshot_index(base)
-            if refreshed_index["entries"].get(protected_binding) != expected_entry:
-                raise KnowledgeSkillSourceError(
-                    f"Protected Knowledge layer {layer_id!r} receipt rollover failed."
-                )
-
             plugin_verified = verify_git_item_provenance(
                 repository_root, "plugins/codex-copilot", signers, ref=ref
             )
             if plugin_verified is None:
                 raise KnowledgeSkillSourceError(
                     f"Protected Knowledge layer {layer_id!r} has no verified plugin tree."
+                )
+            if plugin_verified.tree != signed_plugin_tree:
+                raise KnowledgeSkillSourceError(
+                    f"Protected Knowledge layer {layer_id!r} plugin tree changed."
                 )
             if _has_ignored_additions(repository_root, plugin_verified.relative_path):
                 raise KnowledgeSkillSourceError(
@@ -1224,22 +1280,82 @@ def resolve_protected_knowledge_lock_projections(
                 raise KnowledgeSkillSourceError(
                     f"Protected Knowledge layer {layer_id!r} has an unsafe plugin tree."
                 )
-            projections.append(
-                ProtectedKnowledgeLockProjection(
+            projection = ProtectedKnowledgeLockProjection(
+                layer=layer_id,
+                repository=repository,
+                ref=ref,
+                tree=skills_verified.tree,
+                signer=skills_verified.signer,
+                binding=protected_binding,
+                item_tree=plugin_verified.tree,
+                release_tree=plugin_verified.release.tree,
+                content_sha256=stable_directory_content_sha(
+                    (item.path, item.content) for item in plugin_snapshot.files
+                ),
+            )
+            plans.append(
+                _ProtectedKnowledgeProjectionPlan(
+                    projection=projection,
+                    snapshot=skills_snapshot,
                     layer=layer_id,
                     repository=repository,
                     ref=ref,
                     tree=skills_verified.tree,
                     signer=skills_verified.signer,
-                    binding=protected_binding,
-                    item_tree=plugin_verified.tree,
-                    release_tree=plugin_verified.release.tree,
-                    content_sha256=stable_directory_content_sha(
-                        (item.path, item.content) for item in plugin_snapshot.files
+                    entitlement_binding=binding,
+                    protected_binding=protected_binding,
+                    expected_entry=expected_entry,
+                    matching_receipts=tuple(matching_receipts),
+                    prior_receipts=tuple(
+                        (key, entry)
+                        for key, entry in matching_receipts
+                        if entry["revision"] < binding.revision
                     ),
                 )
             )
-    return tuple(projections)
+
+        # This is one verifier transaction across the complete contributor
+        # set. Recheck every old receipt after all signed source/plugin facts
+        # have passed, then and only then advance any private generation.
+        if any(
+            not _snapshot_matches(base / entry["target"], plan.snapshot)
+            for plan in plans
+            for _key, entry in plan.matching_receipts
+        ):
+            raise KnowledgeSkillSourceError(
+                "A protected Knowledge receipt changed before rollover."
+            )
+
+        removed_prior = False
+        for plan in plans:
+            for key, entry in plan.prior_receipts:
+                _remove_snapshot_target(base, Path(entry["target"]))
+                index["entries"].pop(key, None)
+                removed_prior = True
+        if removed_prior:
+            _write_snapshot_index(base, index)
+
+        for plan in plans:
+            _materialize_snapshot(
+                plan.snapshot,
+                repository=plan.repository,
+                layer=plan.layer,
+                ref=plan.ref,
+                tree=plan.tree,
+                signer=plan.signer,
+                entitlement_binding=plan.entitlement_binding,
+                cache_root=base,
+            )
+        refreshed_index = _load_snapshot_index(base)
+        if any(
+            refreshed_index["entries"].get(plan.protected_binding)
+            != plan.expected_entry
+            for plan in plans
+        ):
+            raise KnowledgeSkillSourceError(
+                "A protected Knowledge receipt rollover failed."
+            )
+    return tuple(plan.projection for plan in plans)
 
 
 def inspect_protected_knowledge_lock_projection(
@@ -1255,9 +1371,7 @@ def inspect_protected_knowledge_lock_projection(
     receipt still matches the signed skills tree byte-for-byte and the plugin
     projection is derived from the same verified immutable release.
     """
-    if layer.get("product") != "knowledge" or not entitlement.is_protected_layer(
-        layer
-    ):
+    if layer.get("product") != "knowledge" or not entitlement.is_protected_layer(layer):
         return None
     layer_id = str(layer.get("id") or "")
     source = layer.get("source") or {}
@@ -1287,9 +1401,10 @@ def inspect_protected_knowledge_lock_projection(
         from cc.core import config
 
         configured = config.resolve_key("skills.cache_dir")
-        base = _nominal(
-            configured or Path.home() / ".claude" / "cache" / "skills"
-        ) / "signed-knowledge-v1"
+        base = (
+            _nominal(configured or Path.home() / ".claude" / "cache" / "skills")
+            / "signed-knowledge-v1"
+        )
     try:
         metadata = base.lstat()
         if (

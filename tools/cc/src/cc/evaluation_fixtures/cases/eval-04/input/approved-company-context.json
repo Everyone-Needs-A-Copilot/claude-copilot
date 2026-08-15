@@ -1,0 +1,10 @@
+{
+  "fixture_namespace": "SYNTHETIC-EVAL04",
+  "synthetic_fixture": true,
+  "purpose": "Help a SYNTHETIC-LEADERSHIP team move from debate to committed action.",
+  "values": ["co-creation", "clarity-through-turbulence", "fearless-questions", "action"],
+  "voice_principles": ["bold", "curious", "confident", "human-centered"],
+  "audience": "SYNTHETIC-LEADERSHIP-TEAM",
+  "problem_statement": "Repeated debate produces no owned commitment.",
+  "prewritten_campaign_concepts": false
+}

@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0",
+  "case_id": "eval-04",
+  "revision": 1,
+  "fixture_namespace": "SYNTHETIC-EVAL04",
+  "problem_statement": "Create three creative territories for explaining how a SYNTHETIC-LEADERSHIP team moves from debate to committed action.",
+  "evidence_files": [
+    {
+      "path": "input/approved-company-context.json",
+      "sha256": "be3ac17551666537a028801c27b6c94bf186e465dc1af716635fd599f37f9af1",
+      "media_type": "application/json",
+      "synthetic_fixture": true,
+      "fixture_namespace": "SYNTHETIC-EVAL04"
+    }
+  ],
+  "layer_variants": ["F", "F+O"],
+  "runtimes": ["claude", "codex"],
+  "required_criteria": ["co-creation", "company-specificity", "evidence", "specialist-craft", "user-ownership"],
+  "hard_rejection_rules": ["invented-brand-fact", "tagline-list-only", "generic-ai-transformation-language", "declared-winner-without-human-choice"],
+  "journey_requirements": ["route-evidence", "consumption-evidence", "continuity-evidence"],
+  "private_oracle": {
+    "path": "oracle/expected.json",
+    "sha256": "5b3188cc81fda8ef2bbc1df00ce64dae0d18c36befc11a27b47ae691ccd53ef1"
+  }
+}

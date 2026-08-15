@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Mapping
 
@@ -27,6 +27,9 @@ _DISCLOSURE = re.compile(
 _EVIDENCE_AUTHORITY = object()
 _RUN_RECORD_AUTHORITY = object()
 _COMPARISON_AUTHORITY = object()
+_CONTENT_RESOLUTION_ACTIONS = frozenset(
+    {"accumulated", "selected", "shadowed", "authenticated-absence"}
+)
 
 
 def _digest(value: str, field_name: str) -> None:
@@ -191,7 +194,7 @@ class RuntimeReceipt:
     runtime: RuntimeName
     executable_sha256: str
     runtime_version: str | None
-    model_version: str | None
+    model_version: str
     tool_availability: tuple[str, ...]
     adapter_name: str
     adapter_version: str
@@ -207,15 +210,18 @@ class RuntimeReceipt:
             raise ValueError("tool_availability must be sorted and unique.")
         if tuple(sorted(set(self.capability_flags))) != self.capability_flags:
             raise ValueError("capability_flags must be sorted and unique.")
-        for version in (self.runtime_version, self.model_version):
-            if version is not None:
-                _reference(version, "reported version")
+        if self.runtime_version is not None:
+            _reference(self.runtime_version, "reported version")
+        _reference(self.model_version, "preregistered model")
 
 
 @dataclass(frozen=True)
 class LayerContentReceipt:
     product: str
     tier: str
+    source_layer_identifier: str
+    source_runtime: str
+    source_adapter_version: str
     repository_identifier: str
     immutable_ref: str
     tree_sha256: str
@@ -227,10 +233,14 @@ class LayerContentReceipt:
     content_digests: tuple[str, ...]
     resolution_action: str
     materialized_destinations: tuple[str, ...]
+    source_tree: str | None = None
 
     def __post_init__(self) -> None:
         _identifier(self.product, "product")
         _identifier(self.tier, "tier")
+        _identifier(self.source_layer_identifier, "source_layer_identifier")
+        _identifier(self.source_runtime, "source_runtime")
+        _reference(self.source_adapter_version, "source_adapter_version")
         if not _REPOSITORY.fullmatch(self.repository_identifier):
             raise ValueError(
                 "repository_identifier must be a canonical owner/repository."
@@ -245,6 +255,8 @@ class LayerContentReceipt:
         if not _SIGNER.fullmatch(self.signer_identity):
             raise ValueError("signer_identity must be a verified signer fingerprint.")
         _identifier(self.resolution_action, "resolution_action")
+        if self.resolution_action not in _CONTENT_RESOLUTION_ACTIONS:
+            raise ValueError("resolution_action is not a canonical layer decision.")
         for field_name in (
             "tree_sha256",
             "policy_sha256",
@@ -252,16 +264,25 @@ class LayerContentReceipt:
             "lock_sha256",
         ):
             _digest(getattr(self, field_name), field_name)
-        if not self.contribution_ids or not self.content_digests:
+        if self.source_tree is not None and not re.fullmatch(
+            r"[0-9a-f]{40,64}", self.source_tree
+        ):
+            raise ValueError("source_tree must be an exact Git tree object id.")
+        if self.resolution_action == "authenticated-absence":
+            if self.contribution_ids or self.content_digests:
+                raise ValueError("Authenticated absence cannot claim a contribution.")
+        elif not self.contribution_ids or not self.content_digests:
             raise ValueError(
-                "Consumed layers require contributions and content digests."
+                "Contributing layers require contributions and content digests."
             )
+        if len(self.contribution_ids) != len(self.content_digests):
+            raise ValueError("Contributions and content digests require exact pairing.")
         if tuple(sorted(set(self.contribution_ids))) != self.contribution_ids:
             raise ValueError("contribution_ids must be sorted and unique.")
-        if tuple(sorted(set(self.content_digests))) != self.content_digests:
-            raise ValueError("content_digests must be sorted and unique.")
+        if len(set(self.content_digests)) != len(self.content_digests):
+            raise ValueError("content_digests must be unique.")
         for contribution in self.contribution_ids:
-            _reference(contribution, "contribution_id")
+            _relative_path(contribution, "contribution_id")
         for digest in self.content_digests:
             _digest(digest, "content_digest")
         if (
@@ -290,7 +311,13 @@ class ContentReceipt:
                 "Content receipt must identify at least one consumed layer."
             )
         identities = tuple(
-            (layer.product, layer.tier, layer.repository_identifier)
+            (
+                layer.product,
+                layer.tier,
+                layer.repository_identifier,
+                layer.immutable_ref,
+                layer.tree_sha256,
+            )
             for layer in self.layers
         )
         if len(identities) != len(set(identities)):
@@ -306,9 +333,25 @@ class ContentReceipt:
                 "personal",
             ),
         }[self.variant]
-        if tuple(layer.tier for layer in self.layers) != expected_tiers:
+        actual_tiers = tuple(dict.fromkeys(layer.tier for layer in self.layers))
+        if actual_tiers != expected_tiers:
             raise ValueError(
                 "Content receipt layers do not match the declared variant."
+            )
+        tier_order = {tier: index for index, tier in enumerate(expected_tiers)}
+        ordering = tuple(
+            (
+                tier_order[layer.tier],
+                layer.product,
+                layer.repository_identifier,
+                layer.immutable_ref,
+                layer.tree_sha256,
+            )
+            for layer in self.layers
+        )
+        if ordering != tuple(sorted(ordering)):
+            raise ValueError(
+                "Content receipt layers must use canonical tier and product order."
             )
 
 
@@ -387,9 +430,16 @@ class EvaluationCell:
     attempt_policy_sha256: str
     runtime_configuration_sha256: str
     tool_configuration_sha256: str
+    effective_full_prompt_sha256: str
+    command_policy_sha256: str
     parent_attempt_sha256: str | None = None
 
     def __post_init__(self) -> None:
+        from cc.core.evaluation.attempt_policy import (
+            ATTEMPT_POLICY_SHA256,
+            MAX_ATTEMPTS,
+        )
+
         if not re.fullmatch(r"eval-[0-9]{2}", self.case_id):
             raise ValueError("case_id must use the eval-NN contract.")
         if self.revision < 1 or self.attempt < 1:
@@ -400,8 +450,103 @@ class EvaluationCell:
             "attempt_policy_sha256",
             "runtime_configuration_sha256",
             "tool_configuration_sha256",
+            "effective_full_prompt_sha256",
+            "command_policy_sha256",
         ):
             _digest(getattr(self, field_name), field_name)
+        if self.attempt_policy_sha256 != ATTEMPT_POLICY_SHA256:
+            raise ValueError("Evaluation cell attempt policy is not canonical.")
+        if self.attempt > MAX_ATTEMPTS:
+            raise ValueError("Evaluation cell exceeds the canonical retry limit.")
+        if (self.attempt == 1) != (self.parent_attempt_sha256 is None):
+            raise ValueError("Evaluation cell retry parent shape is invalid.")
+        expected_tiers = {
+            LayerVariant.FOUNDATION: ("foundation",),
+            LayerVariant.ORGANIZATION: ("foundation", "organization"),
+            LayerVariant.DEPARTMENT: ("foundation", "organization", "department"),
+            LayerVariant.PERSONAL: (
+                "foundation",
+                "organization",
+                "department",
+                "personal",
+            ),
+        }[self.variant]
+        runtime_product = f"{self.runtime_receipt.runtime.value}-copilot"
+        for tier in expected_tiers:
+            knowledge_layers = [
+                layer
+                for layer in self.content_receipt.layers
+                if layer.tier == tier and layer.product == "knowledge"
+            ]
+            if len(knowledge_layers) != 1:
+                raise ValueError(
+                    "Evaluation cells require exactly one Knowledge product for "
+                    "every declared tier."
+                )
+        allowed_products = {"knowledge", runtime_product}
+        if any(
+            layer.product not in allowed_products
+            for layer in self.content_receipt.layers
+        ):
+            raise ValueError("Evaluation cells contain an unrelated layer product.")
+        runtime_layers = []
+        for tier in expected_tiers:
+            matches = [
+                layer
+                for layer in self.content_receipt.layers
+                if layer.tier == tier and layer.product == runtime_product
+            ]
+            if len(matches) != 1:
+                raise ValueError(
+                    "Evaluation cells require exactly one runtime resolution "
+                    "attestation for every declared tier."
+                )
+            runtime_layers.extend(matches)
+        selected_runtime = [
+            layer for layer in runtime_layers if layer.resolution_action == "selected"
+        ]
+        zero_call_codex = bool(
+            self.runtime_receipt.runtime is RuntimeName.CODEX
+            and not selected_runtime
+            and all(
+                layer.resolution_action == "authenticated-absence"
+                for layer in runtime_layers
+            )
+            and all(
+                layer.resolution_action == "authenticated-absence"
+                for layer in self.content_receipt.layers
+                if layer.product == "knowledge"
+            )
+        )
+        if len(selected_runtime) != 1 and not zero_call_codex:
+            raise ValueError(
+                "Evaluation cells require one exact nearest-wins runtime specialist."
+            )
+        if not zero_call_codex:
+            selected_index = expected_tiers.index(selected_runtime[0].tier)
+            for index, layer in enumerate(runtime_layers):
+                if index == selected_index:
+                    continue
+                allowed_action = (
+                    {"shadowed", "authenticated-absence"}
+                    if index < selected_index
+                    else {"authenticated-absence"}
+                )
+                if layer.resolution_action not in allowed_action:
+                    raise ValueError(
+                        "Runtime resolution attestations do not prove nearest-wins "
+                        "selection and inheritance."
+                    )
+        for layer in self.content_receipt.layers:
+            if layer.product == "knowledge" and layer.resolution_action not in {
+                "accumulated",
+                "shadowed",
+                "authenticated-absence",
+            }:
+                raise ValueError(
+                    "Knowledge resolution attestations must accumulate, shadow, or "
+                    "prove absence."
+                )
         if self.parent_attempt_sha256 is not None:
             _digest(self.parent_attempt_sha256, "parent_attempt_sha256")
 
@@ -433,6 +578,8 @@ class RunRecord:
     attempt_policy_sha256: str
     runtime_configuration_sha256: str
     tool_configuration_sha256: str
+    effective_full_prompt_sha256: str
+    command_policy_sha256: str
     comparability_sha256: str
     runtime_receipt_sha256: str
     content_receipt_sha256: str
@@ -443,11 +590,12 @@ class RunRecord:
     controlled_artifact_path: str | None
     completion_evidence_sha256: str | None
     technical_error_reason: str | None
+    technical_error_evidence_sha256: str | None
     _authority: object = None
 
     def __post_init__(self) -> None:
-        if self.schema_version != "1.2":
-            raise ValueError("Run record schema_version must be exactly 1.2.")
+        if self.schema_version != "1.4":
+            raise ValueError("Run record schema_version must be exactly 1.4.")
         if self._authority is not _RUN_RECORD_AUTHORITY:
             raise ValueError("Run records must be runner-issued.")
         for field_name in (
@@ -457,6 +605,8 @@ class RunRecord:
             "attempt_policy_sha256",
             "runtime_configuration_sha256",
             "tool_configuration_sha256",
+            "effective_full_prompt_sha256",
+            "command_policy_sha256",
             "comparability_sha256",
             "runtime_receipt_sha256",
             "content_receipt_sha256",
@@ -476,6 +626,11 @@ class RunRecord:
             _relative_path(self.controlled_artifact_path, "controlled_artifact_path")
         if self.technical_error_reason is not None:
             _identifier(self.technical_error_reason, "technical_error_reason")
+        if self.technical_error_evidence_sha256 is not None:
+            _digest(
+                self.technical_error_evidence_sha256,
+                "technical_error_evidence_sha256",
+            )
         outputs = (self.output_sha256, self.controlled_artifact_path)
         if self.state in {RunState.INVALID, RunState.UNSUPPORTED}:
             if any(
@@ -484,29 +639,37 @@ class RunRecord:
                 + (
                     self.completion_evidence_sha256,
                     self.technical_error_reason,
+                    self.technical_error_evidence_sha256,
                 )
             ):
                 raise ValueError("Non-dispatched records cannot carry result fields.")
         elif self.state is RunState.DISPATCH_AUTHORIZED:
             if (
-                any(value is None for value in outputs)
+                any(value is not None for value in outputs)
                 or self.completion_evidence_sha256 is not None
                 or self.technical_error_reason is not None
+                or self.technical_error_evidence_sha256 is not None
             ):
-                raise ValueError("Dispatch records require output without completion.")
+                raise ValueError(
+                    "Dispatch records cannot claim unauthenticated output evidence."
+                )
         elif self.state is RunState.COMPLETED:
             if (
                 any(value is None for value in outputs)
                 or self.completion_evidence_sha256 is None
                 or self.technical_error_reason is not None
+                or self.technical_error_evidence_sha256 is not None
             ):
                 raise ValueError("Completed records require correlated completion.")
         elif self.state is RunState.TECHNICAL_ERROR and (
             any(value is not None for value in outputs)
             or self.completion_evidence_sha256 is not None
             or self.technical_error_reason is None
+            or self.technical_error_evidence_sha256 is None
         ):
-            raise ValueError("Technical errors require only a stable error reason.")
+            raise ValueError(
+                "Technical errors require a stable reason and verifier evidence."
+            )
 
 
 @dataclass(frozen=True)
@@ -515,15 +678,41 @@ class CriterionAssessment:
     verdict: CriterionVerdict
     evidence_sha256: tuple[str, ...]
     content_receipt_sha256: tuple[str, ...]
-    rationale: str
+    rationale_code: str
+    rationale_commitment_sha256: str
 
     def __post_init__(self) -> None:
         _identifier(self.criterion, "criterion")
-        _safe_statement(self.rationale, "rationale")
+        expected_rationale = {
+            CriterionVerdict.DEMONSTRATED: "evidence-supports-verdict",
+            CriterionVerdict.PARTIAL: "evidence-partially-supports-verdict",
+            CriterionVerdict.ABSENT: "no-supporting-evidence",
+            CriterionVerdict.VIOLATED: "evidence-shows-violation",
+        }[self.verdict]
+        if self.rationale_code != expected_rationale:
+            raise ValueError("Assessment rationale code does not match its verdict.")
         if not self.evidence_sha256:
             raise ValueError("Criterion assessments require cited evidence.")
         for digest in self.evidence_sha256 + self.content_receipt_sha256:
             _digest(digest, "assessment evidence")
+        _digest(
+            self.rationale_commitment_sha256,
+            "rationale_commitment_sha256",
+        )
+
+
+@dataclass(frozen=True)
+class HardRejectionAssessment:
+    rule: str
+    triggered: bool
+    evidence_sha256: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        _identifier(self.rule, "hard rejection rule")
+        if self.triggered != bool(self.evidence_sha256):
+            raise ValueError("Hard rejection evidence must match its state.")
+        for digest in self.evidence_sha256:
+            _digest(digest, "hard rejection evidence")
 
 
 @dataclass(frozen=True)
@@ -546,6 +735,8 @@ class ComparisonRecord:
     comparability_sha256: str
     control_run_sha256: str
     layered_run_sha256: str
+    control_judgment_sha256: str
+    layered_judgment_sha256: str
     relations: tuple[CriterionComparison, ...]
     hard_gate_state: PreflightState
     _authority: object = None
@@ -553,6 +744,15 @@ class ComparisonRecord:
     def __post_init__(self) -> None:
         if self._authority is not _COMPARISON_AUTHORITY:
             raise ValueError("Comparison records must be coordinator-issued.")
+        for digest in (
+            self.comparison_sha256,
+            self.comparability_sha256,
+            self.control_run_sha256,
+            self.layered_run_sha256,
+            self.control_judgment_sha256,
+            self.layered_judgment_sha256,
+        ):
+            _digest(digest, "comparison identity")
 
 
 @dataclass(frozen=True)
@@ -561,6 +761,7 @@ class ArtifactReceipt:
     sha256: str
     relative_path: str
     size_bytes: int
+    _capability: object = field(repr=False, compare=False)
 
     def __post_init__(self) -> None:
         _identifier(self.artifact_type, "artifact_type")
@@ -568,3 +769,5 @@ class ArtifactReceipt:
         _relative_path(self.relative_path, "artifact relative_path")
         if self.size_bytes < 1:
             raise ValueError("Artifact must not be empty.")
+        if self._capability is None:
+            raise ValueError("Artifact receipt requires a retained leaf capability.")

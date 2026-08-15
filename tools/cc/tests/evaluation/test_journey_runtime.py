@@ -13,6 +13,8 @@ import threading
 import time
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 from cc.core.evaluation._authority import (
@@ -32,10 +34,14 @@ from cc.core.evaluation.journey_runtime import (
     inspect_run,
     pause_run,
     prepare_run,
+    resolve_specialist_knowledge,
     resume_run,
     verify_dispatch,
 )
 from cc.core.evaluation.models import GateState, PreflightGate
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
+TC_SOURCE_ROOT = REPO_ROOT / "tools" / "tc" / "src"
 
 
 class Rows:
@@ -65,23 +71,203 @@ class Rows:
         ]
 
 
-def receipt(content: str, specialist: str) -> dict[str, str]:
+def receipt(
+    content: str, specialist: str, *, runtime: str = "claude"
+) -> dict[str, str]:
     return {
         "layer": "organization",
+        "tier": "organization",
         "repository": "knowledge-fixture",
         "ref": "refs/tags/v1.0.0",
         "tree": "a" * 40,
         "signer": "SHA256:test-signer",
         "contribution": f"skills/{specialist}",
         "content_sha256": hashlib.sha256(content.encode()).hexdigest(),
-        "runtime": "claude",
+        "runtime": runtime,
         "adapter_version": "knowledge-v1",
     }
 
 
-def resolver(specialist: str):
+def resolver(specialist: str, _variant: str, runtime: str):
     content = f"signed context for {specialist}"
-    return content, (receipt(content, specialist),)
+    return content, (receipt(content, specialist, runtime=runtime),)
+
+
+def test_evaluation_knowledge_resolver_consumes_only_applicable_signed_tiers() -> None:
+    from cc.core.ecosystem.knowledge_skill_source import (
+        AuthenticatedKnowledgeContribution,
+    )
+    from cc.core.extensions_resolver import (
+        ACTION_APPLY,
+        ACTION_NO_EXTENSION,
+        ExtensionResolution,
+    )
+
+    foundation = SimpleNamespace(
+        role="foundation",
+        repository_root=Path("/synthetic/foundation"),
+        repository="synthetic/foundation",
+    )
+    organization = SimpleNamespace(
+        role="organization",
+        repository_root=Path("/synthetic/organization"),
+        repository="synthetic/organization",
+    )
+    organization_receipt = AuthenticatedKnowledgeContribution(
+        layer="knowledge-organization",
+        role="organization",
+        unit=None,
+        repository="synthetic/organization",
+        ref="refs/tags/v1.0.0",
+        tree="a" * 40,
+        signer="SHA256:test-signer",
+        contribution="extensions/sd.md",
+        content_sha256=hashlib.sha256(b"Organization method.").hexdigest(),
+        content="Organization method.",
+        runtime="claude",
+    )
+
+    def resolve(agent: str, *, knowledge_repos, **_kwargs):
+        assert agent == "sd"
+        if knowledge_repos == [str(foundation.repository_root)]:
+            return ExtensionResolution(agent=agent, action=ACTION_NO_EXTENSION)
+        return ExtensionResolution(
+            agent=agent,
+            action=ACTION_APPLY,
+            matched=True,
+            type="extension",
+            file="/synthetic/organization/extensions/sd.md",
+            source_repo=str(organization.repository_root),
+            contributions=(organization_receipt,),
+        )
+
+    with (
+        patch(
+            "cc.core.ecosystem.knowledge_skill_source.resolve_knowledge_skill_sources",
+            return_value=[
+                (Path("/snapshot/foundation"), foundation),
+                (Path("/snapshot/organization"), organization),
+            ],
+        ),
+        patch("cc.core.extensions_resolver.resolve_extension", side_effect=resolve),
+    ):
+        content, sources = resolve_specialist_knowledge("sd", "F+O", "claude")
+
+    assert "Organization method." in content
+    assert "/synthetic/organization" not in content
+    assert [source["tier"] for source in sources] == ["organization"]
+
+
+def test_evaluation_knowledge_resolver_rejects_missing_declared_tier() -> None:
+    foundation = SimpleNamespace(
+        role="foundation",
+        repository_root=Path("/synthetic/foundation"),
+        repository="synthetic/foundation",
+    )
+    with patch(
+        "cc.core.ecosystem.knowledge_skill_source.resolve_knowledge_skill_sources",
+        return_value=[(Path("/snapshot/foundation"), foundation)],
+    ):
+        with pytest.raises(ValueError, match="exact Knowledge variant"):
+            resolve_specialist_knowledge("sd", "F+O", "claude")
+
+
+def test_eval07_personal_resolver_adds_only_packaged_synthetic_contribution() -> None:
+    from cc.core.extensions_resolver import ACTION_NO_EXTENSION, ExtensionResolution
+    from cc.evaluation_fixtures.personal_snapshot import PERSONAL_SNAPSHOT_SHA256
+
+    shared = [
+        SimpleNamespace(
+            role=tier,
+            repository_root=Path(f"/synthetic/{tier}"),
+            repository=f"synthetic/{tier}",
+        )
+        for tier in ("foundation", "organization", "department")
+    ]
+
+    with (
+        patch(
+            "cc.core.ecosystem.knowledge_skill_source.resolve_knowledge_skill_sources",
+            return_value=[
+                (Path(f"/snapshot/{source.role}"), source) for source in shared
+            ],
+        ),
+        patch(
+            "cc.core.extensions_resolver.resolve_extension",
+            side_effect=lambda agent, **_kwargs: ExtensionResolution(
+                agent=agent,
+                action=ACTION_NO_EXTENSION,
+            ),
+        ),
+    ):
+        content, sources = resolve_specialist_knowledge(
+            "doc",
+            "F+O+D+P",
+            "claude",
+        )
+
+    assert "SYNTHETIC-EVAL07" in content
+    assert [source["layer"] for source in sources] == ["synthetic-personal-knowledge"]
+    assert sources[0]["ref"] == f"sha256:{PERSONAL_SNAPSHOT_SHA256}"
+    assert sources[0]["tier"] == "personal"
+
+
+def test_non_eval07_personal_resolver_attests_absence_without_snapshot_content() -> (
+    None
+):
+    from cc.core.extensions_resolver import ACTION_NO_EXTENSION, ExtensionResolution
+
+    shared = [
+        SimpleNamespace(
+            role=tier,
+            repository_root=Path(f"/synthetic/{tier}"),
+            repository=f"synthetic/{tier}",
+        )
+        for tier in ("foundation", "organization", "department")
+    ]
+    with (
+        patch(
+            "cc.core.ecosystem.knowledge_skill_source.resolve_knowledge_skill_sources",
+            return_value=[
+                (Path(f"/snapshot/{source.role}"), source) for source in shared
+            ],
+        ),
+        patch(
+            "cc.core.extensions_resolver.resolve_extension",
+            side_effect=lambda agent, **_kwargs: ExtensionResolution(
+                agent=agent,
+                action=ACTION_NO_EXTENSION,
+            ),
+        ),
+    ):
+        content, sources = resolve_specialist_knowledge(
+            "sd",
+            "F+O+D+P",
+            "claude",
+        )
+
+    assert content == "No applicable signed Knowledge contribution for this specialist."
+    assert sources == ()
+
+
+def test_prepare_normalizes_verified_bare_semver_to_canonical_tag_ref():
+    rows = Rows()
+    started = begin(rows, specialists=("me",))
+
+    def bare_ref_resolver(specialist: str, _variant: str, runtime: str):
+        content = f"signed context for {specialist}"
+        source = receipt(content, specialist, runtime=runtime)
+        source["ref"] = "v1.0.0"
+        return content, (source,)
+
+    prepared = prepare_run(
+        started["run_id"],
+        "me",
+        ledger=ledger(rows),
+        resolver=bare_ref_resolver,
+    )
+
+    assert prepared.sources[0]["ref"] == "refs/tags/v1.0.0"
 
 
 def ledger(rows: Rows, task_id: int = 296) -> TcJourneyLedger:
@@ -130,10 +316,16 @@ def global_lock_holder(ready, release):
         release.wait(timeout=10)
 
 
-def begin(rows: Rows, *, specialists=("me", "qa"), session="session-296"):
+def begin(
+    rows: Rows,
+    *,
+    specialists=("me", "qa"),
+    session="session-296",
+    runtime="claude",
+):
     return begin_run(
         task_id=296,
-        runtime="claude",
+        runtime=runtime,
         classification="implementation",
         specialists=specialists,
         events=[
@@ -175,6 +367,51 @@ def authorize(rows: Rows, prepared, *, prompt_sha="c" * 64, selected_resolver=re
 
 def payload_for(row):
     return json.loads(row["content"])
+
+
+def test_default_security_authorizes_codex_only_with_runtime_matched_projection():
+    rows = Rows()
+    started = begin(rows, specialists=("me",), runtime="codex")
+
+    def codex_resolver(specialist: str, _variant: str, runtime: str):
+        content = f"signed codex context for {specialist}"
+        return content, (receipt(content, specialist, runtime=runtime),)
+
+    prepared = prepare_run(
+        started["run_id"], "me", ledger=ledger(rows), resolver=codex_resolver
+    )
+    bind_prompt(
+        prepared.run_id,
+        prepared.specialist,
+        "c" * 64,
+        ledger=ledger(rows),
+    )
+    result = verify_dispatch(
+        session_id="session-296",
+        specialist="me",
+        marker=prepared.invocation_marker,
+        prompt_sha256="c" * 64,
+        knowledge_sha256=prepared.composed_content_sha256,
+        ledger_factory=ledger_factory(rows),
+        resolver=codex_resolver,
+    )
+    assert result["state"] == "dispatch_authorized"
+    assert prepared.sources[0]["runtime"] == "codex"
+
+    mismatch = Rows()
+    mismatch_started = begin(mismatch, specialists=("me",), runtime="codex")
+
+    def claude_only_resolver(specialist: str, _variant: str, _runtime: str):
+        content = f"signed context for {specialist}"
+        return content, (receipt(content, specialist, runtime="claude"),)
+
+    with pytest.raises(ValueError, match="runtime projection"):
+        prepare_run(
+            mismatch_started["run_id"],
+            "me",
+            ledger=ledger(mismatch),
+            resolver=claude_only_resolver,
+        )
 
 
 def reassign_row_order(rows: Rows, ordered: list[dict]) -> None:
@@ -384,10 +621,8 @@ def test_no_active_legacy_and_missing_wrong_or_replayed_markers():
         )
 
 
-def test_default_verifier_proves_no_active_without_task_database(
-    tmp_path, monkeypatch
-):
-    monkeypatch.syspath_prepend(str(Path("tools/tc/src").resolve()))
+def test_default_verifier_proves_no_active_without_task_database(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(TC_SOURCE_ROOT))
     monkeypatch.chdir(tmp_path)
 
     assert verify_dispatch(
@@ -469,9 +704,9 @@ def test_signed_source_binding_is_rechecked_before_dispatch():
         started["run_id"], "me", ledger=ledger(rows), resolver=resolver
     )
 
-    def changed(specialist: str):
+    def changed(specialist: str, _variant: str, runtime: str):
         content = "changed signed bytes"
-        return content, (receipt(content, specialist),)
+        return content, (receipt(content, specialist, runtime=runtime),)
 
     with pytest.raises(ValueError, match="dispatch-knowledge-changed"):
         authorize(rows, prepared, selected_resolver=changed)
@@ -551,9 +786,9 @@ def test_final_write_failure_is_recoverable_without_second_dispatch_row():
         )
     )
 
-    def current_resolver(specialist):
+    def current_resolver(specialist, variant, runtime):
         recovery_calls.append("knowledge")
-        return resolver(specialist)
+        return resolver(specialist, variant, runtime)
 
     recovered = verify_dispatch(
         session_id="session-296",
@@ -717,6 +952,18 @@ def test_security_denial_stops_before_knowledge_and_dispatch():
     assert rows.items == {}
 
 
+def test_security_authorization_copy_cannot_preserve_verifier_authority():
+    context = {
+        "runtime": "claude",
+        "route_sha256": "a" * 64,
+        "route_contract_version": "2.1",
+    }
+    authorization = MandatorySecurityVerifier().authorize(context)
+    assert authorization.public_dict()["state"] == "allowed"
+    with pytest.raises(ValueError, match="identity changed"):
+        replace(authorization).public_dict()
+
+
 def test_pause_capsule_detects_route_and_receipt_drift_and_no_journey_is_distinct():
     empty = Rows()
     assert resume_run(296, ledger=ledger(empty))["state"] == "no_journey"
@@ -754,7 +1001,7 @@ def test_completed_resume_is_immutable_and_reads_no_knowledge():
         296,
         run_id=started["run_id"],
         ledger=ledger(rows),
-        resolver=lambda _specialist: (_ for _ in ()).throw(
+        resolver=lambda _specialist, _variant, _runtime: (_ for _ in ()).throw(
             AssertionError("resolver called")
         ),
     )
@@ -1101,7 +1348,7 @@ def test_cross_stage_row_reassignment_is_rejected(moved_stage_one_kinds):
 
 
 def test_real_tc_cross_stage_row_reassignment_is_rejected(tmp_path, monkeypatch):
-    monkeypatch.syspath_prepend(str(Path("tools/tc/src").resolve()))
+    monkeypatch.syspath_prepend(str(TC_SOURCE_ROOT))
     from tc.api import create_prd, create_task, get_wp, list_wps, store_wp
     from tc.db.connection import init_db
 
@@ -1211,7 +1458,7 @@ def test_real_tc_cross_stage_row_reassignment_is_rejected(tmp_path, monkeypatch)
     ],
 )
 def test_real_tc_terminal_chronology(tmp_path, monkeypatch, attack, specialists):
-    monkeypatch.syspath_prepend(str(Path("tools/tc/src").resolve()))
+    monkeypatch.syspath_prepend(str(TC_SOURCE_ROOT))
     from tc.api import create_prd, create_task, get_wp, list_wps, store_wp
     from tc.db.connection import init_db
 
@@ -1453,7 +1700,7 @@ def test_security_change_at_dispatch_stops_before_knowledge():
     )
     bind_prompt(started["run_id"], "me", "c" * 64, ledger=ledger(rows))
 
-    def forbidden_resolver(_specialist):
+    def forbidden_resolver(_specialist, _variant, _runtime):
         raise AssertionError("Knowledge was read after security denial")
 
     with pytest.raises(PermissionError, match="mandatory-security-not-allowed"):
@@ -1714,13 +1961,13 @@ def test_forked_callback_child_cannot_continue_or_store():
     original_pid = os.getpid()
     child_status = []
 
-    def forking_resolver(specialist):
+    def forking_resolver(specialist, variant, runtime):
         pid = os.fork()
         if pid == 0:
-            return resolver(specialist)
+            return resolver(specialist, variant, runtime)
         waited, status = os.waitpid(pid, 0)
         child_status.append((waited, status))
-        return resolver(specialist)
+        return resolver(specialist, variant, runtime)
 
     try:
         prepared = prepare_run(
@@ -1756,7 +2003,8 @@ def test_runtime_contains_no_second_router_or_resolver():
         'glob("knowledge-manifest',
     )
     assert not any(item in source for item in forbidden)
-    assert "resolve_extension(specialist)" in source
+    assert "resolve_extension(" in source
+    assert "resolve_knowledge_skill_sources()" in source
 
     hook = (repo_root / ".claude/hooks/pretool-check.sh").read_text(encoding="utf-8")
     dispatch = hook.rsplit("# Dispatch — rule sets run in order", 1)[1]
@@ -1874,9 +2122,9 @@ def test_knowledge_source_identities_reject_disclosure_values(field, unsafe):
     rows = Rows()
     started = begin(rows, specialists=("me",))
 
-    def unsafe_resolver(specialist):
+    def unsafe_resolver(specialist, _variant, runtime):
         content = f"signed context for {specialist}"
-        source = receipt(content, specialist)
+        source = receipt(content, specialist, runtime=runtime)
         source[field] = unsafe
         return content, (source,)
 
@@ -1925,7 +2173,7 @@ def test_optional_health_matrix_is_typed_and_fail_open(
 
 
 def test_real_tc_guard_safe_roundtrip_and_multiprocess_dispatch(tmp_path, monkeypatch):
-    monkeypatch.syspath_prepend(str(Path("tools/tc/src").resolve()))
+    monkeypatch.syspath_prepend(str(TC_SOURCE_ROOT))
     from tc.api import create_prd, create_task, get_wp, list_wps, store_wp
     from tc.db.connection import init_db
 

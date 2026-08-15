@@ -1,0 +1,11 @@
+{
+  "fixture_namespace": "SYNTHETIC-EVAL03",
+  "synthetic_fixture": true,
+  "constraints": {
+    "minimum_text_scale": "SYNTHETIC-SCALE-LARGE",
+    "keyboard_navigation_required": true,
+    "non_color_status_required": true,
+    "responsive_states": ["compact", "standard", "wide"],
+    "unresolved_historical_brand_conflict": true
+  }
+}

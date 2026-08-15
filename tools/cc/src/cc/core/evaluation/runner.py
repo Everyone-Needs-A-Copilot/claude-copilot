@@ -9,6 +9,7 @@ from typing import Protocol
 
 from cc.core.evaluation._authority import _EvaluationAuthority, _production_authority
 from cc.core.evaluation.comparison import comparability_identity
+from cc.core.evaluation.content_authority import CanonicalContentUnavailable
 from cc.core.evaluation.identity import (
     consumption_receipt_identity,
     content_receipt_identity,
@@ -19,6 +20,8 @@ from cc.core.evaluation.models import (
     _RUN_RECORD_AUTHORITY,
     EvaluationCell,
     GateObservation,
+    GateState,
+    LayerVariant,
     PreflightGate,
     PreflightResult,
     PreflightState,
@@ -34,6 +37,7 @@ from cc.core.evaluation.safety import (
 from cc.core.evaluation.schema import canonical_sha256
 
 _IDENTIFIER = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
+_ISSUED_RUN_RECORDS: dict[int, RunRecord] = {}
 
 
 class InjectedRuntimeRunner(Protocol):
@@ -48,16 +52,199 @@ class RuntimeAdapterFailure(RuntimeError):
         super().__init__(reason)
 
 
+# Closed classification for every production RuntimeTerminalFailure reason.
+# Unknown reasons are integrity failures, never retry authority.
+_RUNTIME_FAILURE_DISPOSITIONS: dict[str, tuple[RunState, PreflightGate, str]] = {
+    "runtime-timeout": (
+        RunState.TECHNICAL_ERROR,
+        PreflightGate.RUNTIME_ADAPTER,
+        "bounded-runtime-process",
+    ),
+    **{
+        reason: (
+            RunState.UNSUPPORTED,
+            PreflightGate.RUNTIME_CAPABILITY,
+            "available-runtime-capability",
+        )
+        for reason in (
+            "runtime-artifact-root-unavailable",
+            "runtime-auth-projection-failed",
+            "runtime-auth-source-unavailable",
+            "runtime-command-policy-unavailable",
+            "runtime-executable-chain-unavailable",
+            "runtime-executable-chain-unsupported",
+            "runtime-executable-failure",
+            "runtime-executable-unavailable",
+        )
+    },
+    "claude-agent-projection-unavailable": (
+        RunState.UNSUPPORTED,
+        PreflightGate.RUNTIME_CAPABILITY,
+        "canonical-runtime-specialist",
+    ),
+    "codex-plugin-projection-unavailable": (
+        RunState.UNSUPPORTED,
+        PreflightGate.RUNTIME_CAPABILITY,
+        "canonical-runtime-specialist",
+    ),
+    "codex-no-tool-isolation-unavailable": (
+        RunState.UNSUPPORTED,
+        PreflightGate.RUNTIME_CAPABILITY,
+        "preventive-runtime-isolation",
+    ),
+    **{
+        reason: (
+            RunState.INVALID,
+            PreflightGate.NO_EXTERNAL_MUTATION,
+            "no-prohibited-runtime-action",
+        )
+        for reason in (
+            "claude-permission-denied",
+            "claude-prohibited-runtime-action",
+            "codex-prohibited-runtime-action",
+        )
+    },
+    "runtime-output-unsafe": (
+        RunState.INVALID,
+        PreflightGate.SAFETY_SCAN,
+        "safe-output",
+    ),
+    **{
+        reason: (
+            RunState.INVALID,
+            PreflightGate.ENTITLEMENT_AND_PINS,
+            "signed-entitled-content",
+        )
+        for reason in (
+            "claude-agent-projection-unsigned",
+            "claude-agent-projection-unverified",
+            "codex-plugin-projection-changed",
+            "codex-plugin-projection-invalid",
+            "codex-plugin-materialization-failed",
+        )
+    },
+    **{
+        reason: (
+            RunState.INVALID,
+            PreflightGate.RESOLUTION_IDENTITY,
+            "exact-runtime-identity",
+        )
+        for reason in (
+            "runtime-adapter-mismatch",
+            "runtime-artifact-root-untrusted",
+            "runtime-auth-source-changed",
+            "runtime-auth-source-untrusted",
+            "runtime-executable-changed",
+            "runtime-executable-untrusted",
+            "runtime-input-changed",
+            "runtime-receipt-mismatch",
+        )
+    },
+    **{
+        reason: (
+            RunState.INVALID,
+            PreflightGate.RUNTIME_ADAPTER,
+            "authenticated-terminal-evidence",
+        )
+        for reason in (
+            "claude-model-mismatch",
+            "claude-terminal-evidence-invalid",
+            "claude-terminal-failed",
+            "claude-terminal-state-invalid",
+            "claude-turn-count-invalid",
+            "codex-final-message-mismatch",
+            "codex-final-message-unavailable",
+            "codex-final-message-untrusted",
+            "codex-terminal-empty",
+            "codex-terminal-evidence-invalid",
+            "codex-terminal-failed",
+            "runtime-adapter-failure",
+            "runtime-output-malformed",
+            "runtime-output-preservation-failed",
+            "runtime-output-size-invalid",
+        )
+    },
+}
+
+
 def _replace_gate(
     observations: tuple[GateObservation, ...],
     gate: PreflightGate,
     *,
     reason: str,
     prerequisite: str = "verified-evidence",
+    state: GateState = GateState.FAIL,
 ) -> tuple[GateObservation, ...]:
     return tuple(item for item in observations if item.gate is not gate) + (
-        issue_failure(gate, reason=reason, prerequisite=prerequisite),
+        (
+            issue_failure(gate, reason=reason, prerequisite=prerequisite)
+            if state is GateState.FAIL
+            else GateObservation(
+                gate,
+                state,
+                reason,
+                "framework",
+                prerequisite,
+            )
+        ),
     )
+
+
+def _runtime_failure_record(
+    cell: EvaluationCell,
+    preflight: PreflightResult,
+    reason: str,
+    *,
+    technical_receipt: object | None = None,
+) -> RunRecord:
+    state, gate, prerequisite = _RUNTIME_FAILURE_DISPOSITIONS.get(
+        reason,
+        (
+            RunState.INVALID,
+            PreflightGate.RUNTIME_ADAPTER,
+            "recognized-runtime-failure",
+        ),
+    )
+    if state is RunState.TECHNICAL_ERROR:
+        from cc.core.evaluation.live_runtime import verify_runtime_technical_failure
+
+        if not verify_runtime_technical_failure(cell, technical_receipt, reason):
+            failed = evaluate_preflight(
+                _replace_gate(
+                    preflight.observations,
+                    PreflightGate.RUNTIME_ADAPTER,
+                    reason="runtime-timeout-unverified",
+                    prerequisite="verifier-issued-timeout-receipt",
+                ),
+                subject_sha256=preflight.subject_sha256,
+            )
+            return _record(cell, preflight=failed, state=RunState.INVALID)
+        return _record(
+            cell,
+            preflight=preflight,
+            state=state,
+            technical_error_reason=reason,
+            technical_error_evidence_sha256=technical_receipt.evidence_sha256,
+        )
+    failed = evaluate_preflight(
+        _replace_gate(
+            preflight.observations,
+            gate,
+            reason=(
+                reason
+                if reason in _RUNTIME_FAILURE_DISPOSITIONS
+                else ("unknown-runtime-failure")
+            ),
+            prerequisite=prerequisite,
+            state=(
+                GateState.UNSUPPORTED
+                if state is RunState.UNSUPPORTED
+                else GateState.FAIL
+            ),
+        ),
+        subject_sha256=preflight.subject_sha256,
+    )
+    return _record(cell, preflight=failed, state=state)
 
 
 def _binding_valid(cell: EvaluationCell) -> bool:
@@ -93,21 +280,12 @@ def _lineage_valid(
 ) -> bool:
     if cell.attempt == 1:
         return cell.parent_attempt_sha256 is None
-    if artifact_root is None and artifact_root_fd is None:
+    if artifact_root is None:
         return False
-    from cc.core.evaluation.artifact import load_run_record_document
+    from cc.core.evaluation.coordinator import load_technical_retry_parent
 
-    parent = load_run_record_document(
-        artifact_root,
-        cell.parent_attempt_sha256 or "",
-        child_cell=cell,
-        loaded_fixture=loaded_fixture,
-        journey_run_id=journey_run_id,
-        journey_ledger=journey_ledger,
-        lineage_depth=lineage_depth,
-        root_fd=artifact_root_fd,
-        type_fd=artifact_type_fd,
-    )
+    parent_result = load_technical_retry_parent(artifact_root, cell)
+    parent = parent_result.get("run_record") if parent_result else None
     return bool(
         parent
         and parent["case_id"] == cell.case_id
@@ -197,6 +375,8 @@ def _record_document(record: RunRecord, *, include_identity: bool) -> dict[str, 
         "attempt_policy_sha256": record.attempt_policy_sha256,
         "runtime_configuration_sha256": record.runtime_configuration_sha256,
         "tool_configuration_sha256": record.tool_configuration_sha256,
+        "effective_full_prompt_sha256": record.effective_full_prompt_sha256,
+        "command_policy_sha256": record.command_policy_sha256,
         "comparability_sha256": record.comparability_sha256,
         "runtime_receipt_sha256": record.runtime_receipt_sha256,
         "content_receipt_sha256": record.content_receipt_sha256,
@@ -207,6 +387,7 @@ def _record_document(record: RunRecord, *, include_identity: bool) -> dict[str, 
         "controlled_artifact_path": record.controlled_artifact_path,
         "completion_evidence_sha256": record.completion_evidence_sha256,
         "technical_error_reason": record.technical_error_reason,
+        "technical_error_evidence_sha256": record.technical_error_evidence_sha256,
     }
     if include_identity:
         document["run_sha256"] = record.run_sha256
@@ -214,10 +395,11 @@ def _record_document(record: RunRecord, *, include_identity: bool) -> dict[str, 
 
 
 def verify_run_record_identity(record: RunRecord) -> bool:
-    return getattr(
-        record, "_authority", None
-    ) is _RUN_RECORD_AUTHORITY and record.run_sha256 == canonical_sha256(
-        _record_document(record, include_identity=False)
+    return (
+        getattr(record, "_authority", None) is _RUN_RECORD_AUTHORITY
+        and _ISSUED_RUN_RECORDS.get(id(record)) is record
+        and record.run_sha256
+        == canonical_sha256(_record_document(record, include_identity=False))
     )
 
 
@@ -230,9 +412,10 @@ def _record(
     controlled_artifact_path: str | None = None,
     completion_evidence_sha256: str | None = None,
     technical_error_reason: str | None = None,
+    technical_error_evidence_sha256: str | None = None,
 ) -> RunRecord:
     base = dict(
-        schema_version="1.2",
+        schema_version="1.4",
         run_sha256="0" * 64,
         case_id=cell.case_id,
         revision=cell.revision,
@@ -245,6 +428,8 @@ def _record(
         attempt_policy_sha256=cell.attempt_policy_sha256,
         runtime_configuration_sha256=cell.runtime_configuration_sha256,
         tool_configuration_sha256=cell.tool_configuration_sha256,
+        effective_full_prompt_sha256=cell.effective_full_prompt_sha256,
+        command_policy_sha256=cell.command_policy_sha256,
         comparability_sha256=comparability_identity(cell),
         runtime_receipt_sha256=runtime_receipt_identity(cell.runtime_receipt),
         content_receipt_sha256=content_receipt_identity(cell.content_receipt),
@@ -257,13 +442,16 @@ def _record(
         controlled_artifact_path=controlled_artifact_path,
         completion_evidence_sha256=completion_evidence_sha256,
         technical_error_reason=technical_error_reason,
+        technical_error_evidence_sha256=technical_error_evidence_sha256,
         _authority=_RUN_RECORD_AUTHORITY,
     )
     provisional = RunRecord(**base)
     base["run_sha256"] = canonical_sha256(
         _record_document(provisional, include_identity=False)
     )
-    return RunRecord(**base)
+    record = RunRecord(**base)
+    _ISSUED_RUN_RECORDS[id(record)] = record
+    return record
 
 
 def run_record_document(record: RunRecord) -> dict[str, object]:
@@ -281,13 +469,18 @@ class EvaluationRunner:
         journey_run_id: str = "",
         journey_ledger: object = None,
         artifact_root: Path | None = None,
+        personal_snapshot_receipt: object | None = None,
+        content_projection: object | None = None,
     ) -> None:
         self._runtime = runtime
         self._loaded_fixture = loaded_fixture
         self._journey_run_id = journey_run_id
         self._journey_ledger = journey_ledger
         self._artifact_root = artifact_root
+        self._personal_snapshot_receipt = personal_snapshot_receipt
+        self._content_projection = content_projection
         records: dict[str, RunRecord] = {}
+        completed_outputs: dict[str, RuntimeOutput] = {}
 
         def preserve(record: RunRecord) -> None:
             if not verify_run_record_identity(record):
@@ -299,14 +492,48 @@ class EvaluationRunner:
 
         self.__records_snapshot = lambda: tuple(records.values())
         self.__preserve = preserve
+        self.__completed_output = lambda identity: completed_outputs.get(identity)
+        self.__preserve_completed_output = (
+            lambda identity, output: completed_outputs.__setitem__(identity, output)
+        )
 
     @property
     def records(self) -> tuple[RunRecord, ...]:
         return self.__records_snapshot()
 
-    def _finish(self, record: RunRecord) -> RunRecord:
+    def completion_output(self, record: RunRecord) -> RuntimeOutput | None:
+        """Return the sealed in-process output only for this runner's record."""
+
+        if not verify_run_record_identity(record):
+            return None
+        return self.__completed_output(record.run_sha256)
+
+    def _finish(
+        self,
+        record: RunRecord,
+        *,
+        completed_output: RuntimeOutput | None = None,
+    ) -> RunRecord:
         self.__preserve(record)
+        if completed_output is not None:
+            if record.state is not RunState.COMPLETED:
+                raise ValueError("Only completed runs retain runtime output authority.")
+            self.__preserve_completed_output(record.run_sha256, completed_output)
         return record
+
+    def _finish_claimed(
+        self,
+        cell: EvaluationCell,
+        record: RunRecord,
+        *,
+        completed_output: RuntimeOutput | None = None,
+    ) -> RunRecord:
+        if self._artifact_root is None:
+            return self._finish(record, completed_output=completed_output)
+        from cc.core.evaluation.coordinator import finalize_attempt
+
+        finalize_attempt(self._artifact_root, cell, record)
+        return self._finish(record, completed_output=completed_output)
 
     def run(self, cell: EvaluationCell) -> RunRecord:
         authority = _production_authority(
@@ -314,7 +541,24 @@ class EvaluationRunner:
             loaded_fixture=self._loaded_fixture,
             journey_run_id=self._journey_run_id,
             journey_ledger=self._journey_ledger,
+            runtime_adapter=self._runtime,
+            content_projection=self._content_projection,
+            personal_snapshot_receipt=(
+                self._personal_snapshot_receipt
+                if cell.variant is LayerVariant.PERSONAL and cell.case_id == "eval-07"
+                else None
+            ),
         )
+        try:
+            return self._run_authorized(cell, authority)
+        finally:
+            authority.close()
+
+    def _run_authorized(
+        self,
+        cell: EvaluationCell,
+        authority: _EvaluationAuthority,
+    ) -> RunRecord:
         preflight = _preflight_for(
             cell,
             authority,
@@ -339,35 +583,77 @@ class EvaluationRunner:
                     state=RunState.UNSUPPORTED,
                 )
             )
+        if self._artifact_root is not None:
+            from cc.core.evaluation.coordinator import claim_attempt
+
+            try:
+                claimed = claim_attempt(self._artifact_root, cell)
+            except (OSError, ValueError):
+                claimed = False
+            if not claimed:
+                rejected = evaluate_preflight(
+                    _replace_gate(
+                        preflight.observations,
+                        PreflightGate.ATTEMPT_POLICY,
+                        reason="attempt-already-claimed",
+                        prerequisite="atomic-attempt-claim",
+                    ),
+                    subject_sha256=preflight.subject_sha256,
+                )
+                return self._finish(
+                    _record(cell, preflight=rejected, state=RunState.INVALID)
+                )
         try:
-            result = self._runtime.execute(cell)
-        except RuntimeAdapterFailure as exc:
-            return self._finish(
-                _record(
-                    cell,
-                    preflight=preflight,
-                    state=RunState.TECHNICAL_ERROR,
-                    technical_error_reason=exc.reason,
-                )
+            result = authority.run_runtime(lambda: self._runtime.execute(cell))
+        except CanonicalContentUnavailable as exc:
+            failed = evaluate_preflight(
+                _replace_gate(
+                    preflight.observations,
+                    PreflightGate.ENTITLEMENT_AND_PINS,
+                    reason=exc.reason,
+                    prerequisite="canonical-signed-content",
+                ),
+                subject_sha256=preflight.subject_sha256,
             )
-        except Exception:
-            return self._finish(
-                _record(
+            return self._finish_claimed(
+                cell,
+                _record(cell, preflight=failed, state=RunState.INVALID),
+            )
+        except RuntimeAdapterFailure as exc:
+            return self._finish_claimed(
+                cell,
+                _runtime_failure_record(cell, preflight, exc.reason),
+            )
+        except Exception as exc:
+            from cc.core.evaluation.live_runtime import RuntimeTerminalFailure
+
+            if isinstance(exc, RuntimeTerminalFailure):
+                return self._finish_claimed(
                     cell,
-                    preflight=preflight,
-                    state=RunState.TECHNICAL_ERROR,
-                    technical_error_reason="runtime-adapter-failure",
+                    _runtime_failure_record(
+                        cell,
+                        preflight,
+                        exc.reason,
+                        technical_receipt=exc.technical_receipt,
+                    ),
                 )
+            return self._finish_claimed(
+                cell,
+                _runtime_failure_record(
+                    cell,
+                    preflight,
+                    "runtime-adapter-failure",
+                ),
             )
         output = result
         if not isinstance(output, RuntimeOutput):
-            return self._finish(
-                _record(
+            return self._finish_claimed(
+                cell,
+                _runtime_failure_record(
                     cell,
-                    preflight=preflight,
-                    state=RunState.TECHNICAL_ERROR,
-                    technical_error_reason="runtime-adapter-failure",
-                )
+                    preflight,
+                    "runtime-adapter-failure",
+                ),
             )
         try:
             require_safe_synthetic_text(
@@ -383,12 +669,13 @@ class EvaluationRunner:
                 ),
                 subject_sha256=preflight.subject_sha256,
             )
-            return self._finish(
+            return self._finish_claimed(
+                cell,
                 _record(
                     cell,
                     preflight=failed,
                     state=RunState.INVALID,
-                )
+                ),
             )
         output_sha256 = hashlib.sha256(output.output_text.encode()).hexdigest()
         proof = _verify_completion(cell, output, output_sha256)
@@ -400,25 +687,28 @@ class EvaluationRunner:
             and proof.artifact_path_sha256
             == hashlib.sha256(output.controlled_artifact_path.encode()).hexdigest()
         )
-        return self._finish(
-            _record(
-                cell,
-                preflight=preflight,
-                state=RunState.COMPLETED
-                if proof_valid
-                else RunState.DISPATCH_AUTHORIZED,
-                output_sha256=output_sha256,
-                controlled_artifact_path=output.controlled_artifact_path,
-                completion_evidence_sha256=proof.evidence_sha256
-                if proof_valid
-                else None,
-            )
+        record = _record(
+            cell,
+            preflight=preflight,
+            state=RunState.COMPLETED if proof_valid else RunState.DISPATCH_AUTHORIZED,
+            output_sha256=output_sha256 if proof_valid else None,
+            controlled_artifact_path=(
+                output.controlled_artifact_path if proof_valid else None
+            ),
+            completion_evidence_sha256=proof.evidence_sha256 if proof_valid else None,
+        )
+        return self._finish_claimed(
+            cell,
+            record,
+            completed_output=output if proof_valid else None,
         )
 
 
 def _verify_completion(
     cell: EvaluationCell, output: RuntimeOutput, output_sha256: str
 ) -> object | None:
-    """Production completion remains unavailable until an authenticated adapter lands."""
+    """Accept only a receipt minted from a native successful terminal event."""
 
-    return None
+    from cc.core.evaluation.live_runtime import verify_authenticated_completion
+
+    return verify_authenticated_completion(cell, output, output_sha256)

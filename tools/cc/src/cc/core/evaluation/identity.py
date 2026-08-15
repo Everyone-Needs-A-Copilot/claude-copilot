@@ -6,7 +6,7 @@ not resolve content, infer entitlement, or call a runtime.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping, Sequence
 
 from cc.core.evaluation.models import (
     ConsumptionReceipt,
@@ -38,9 +38,13 @@ def _layer_document(receipt: LayerContentReceipt) -> dict[str, Any]:
     return {
         "product": receipt.product,
         "tier": receipt.tier,
+        "source_layer_identifier": receipt.source_layer_identifier,
+        "source_runtime": receipt.source_runtime,
+        "source_adapter_version": receipt.source_adapter_version,
         "repository_identifier": receipt.repository_identifier,
         "immutable_ref": receipt.immutable_ref,
         "tree_sha256": receipt.tree_sha256,
+        "source_tree": receipt.source_tree,
         "signer_identity": receipt.signer_identity,
         "policy_sha256": receipt.policy_sha256,
         "manifest_sha256": receipt.manifest_sha256,
@@ -64,6 +68,60 @@ def content_receipt_document(receipt: ContentReceipt) -> dict[str, Any]:
 
 def content_receipt_identity(receipt: ContentReceipt) -> str:
     return canonical_sha256(content_receipt_document(receipt))
+
+
+def prepared_sources_match_content_receipt(
+    receipt: ContentReceipt,
+    sources: Sequence[Mapping[str, Any]],
+) -> bool:
+    """Require exact one-to-one source coverage for consumed layer products.
+
+    A journey source is deliberately narrower than a layer product receipt: it
+    names one contribution and its digest. Every such source must resolve to
+    exactly one signed product identity, and every contribution declared by a
+    product receipt must appear exactly once in the prepared invocation.
+    """
+
+    if not sources:
+        return False
+    unmatched = list(sources)
+    contributing_layers = tuple(
+        layer
+        for layer in receipt.layers
+        if layer.resolution_action in {"accumulated", "selected"}
+    )
+    for layer in contributing_layers:
+        matching = [
+            source
+            for source in unmatched
+            if source.get("repository") == layer.repository_identifier
+            and source.get("layer") == layer.source_layer_identifier
+            and source.get("tier") == layer.tier
+            and source.get("runtime") == layer.source_runtime
+            and source.get("adapter_version") == layer.source_adapter_version
+            and source.get("ref") == layer.immutable_ref
+            and source.get("tree") == (layer.source_tree or layer.tree_sha256)
+            and source.get("signer") == layer.signer_identity
+        ]
+        if not matching:
+            return False
+        contribution_pairs = tuple(
+            sorted(
+                (
+                    str(source.get("contribution", "")),
+                    str(source.get("content_sha256", "")),
+                )
+                for source in matching
+            )
+        )
+        declared_pairs = tuple(
+            sorted(zip(layer.contribution_ids, layer.content_digests, strict=True))
+        )
+        if contribution_pairs != declared_pairs:
+            return False
+        for source in matching:
+            unmatched.remove(source)
+    return not unmatched
 
 
 def invocation_envelope_identity(

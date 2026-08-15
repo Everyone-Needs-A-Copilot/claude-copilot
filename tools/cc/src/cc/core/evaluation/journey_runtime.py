@@ -44,7 +44,11 @@ _SESSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SOURCE_REPOSITORY = re.compile(
     r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?:/[A-Za-z0-9][A-Za-z0-9._-]{0,127})?$"
 )
-_SOURCE_REF = re.compile(r"^refs/(?:heads|tags)/[A-Za-z0-9][A-Za-z0-9._/+\-]{0,191}$")
+_SOURCE_REF = re.compile(
+    r"^(?:refs/(?:heads|tags)/[A-Za-z0-9][A-Za-z0-9._/+\-]{0,191}|"
+    r"sha256:[0-9a-f]{64})$"
+)
+_BARE_SEMVER_TAG = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9._-]+)?$")
 _SOURCE_SIGNER = re.compile(
     r"^(?:SHA256:[A-Za-z0-9+/=_-]{4,128}|[a-z][a-z0-9-]{0,63})$"
 )
@@ -74,6 +78,7 @@ def _platform_global_lock_path(platform: str = sys.platform) -> str:
 
 _GLOBAL_LOCK_PATH = _platform_global_lock_path()
 _SECURITY_AUTHORITY = object()
+_ISSUED_SECURITY_AUTHORIZATIONS: dict[int, "SecurityAuthorization"] = {}
 _COMMON_RECORD_KEYS = {
     "schema_version",
     "adapter_version",
@@ -86,6 +91,8 @@ _RECORD_KEYS = {
     "prepare": {
         "stage_index",
         "specialist",
+        "variant",
+        "runtime",
         "invocation_marker",
         "composed_content_sha256",
         "sources",
@@ -101,6 +108,8 @@ _RECORD_KEYS = {
     "dispatch_authorization": {
         "stage_index",
         "specialist",
+        "variant",
+        "runtime",
         "session_id_sha256",
         "prompt_sha256",
         "composed_content_sha256",
@@ -175,6 +184,8 @@ class SecurityAuthorization:
         _safe_text(self.reason)
 
     def public_dict(self) -> dict[str, str]:
+        if _ISSUED_SECURITY_AUTHORIZATIONS.get(id(self)) is not self:
+            raise ValueError("Mandatory security authorization identity changed.")
         return {
             "state": self.state,
             "reason": self.reason,
@@ -193,12 +204,14 @@ class MandatorySecurityVerifier:
     @staticmethod
     def _default_probe(context: Mapping[str, Any]) -> tuple[str, str]:
         # This is deliberately structural and closed.  It does not grant user
-        # or provider authority; it proves that only the supported Claude,
-        # task-bound, protocol-emitted contract reached the runtime boundary.
-        if context.get("runtime") != "claude":
+        # or provider authority; it proves that only a supported task-bound,
+        # protocol-emitted Claude/Codex contract reached the runtime boundary.
+        if context.get("runtime") not in {"claude", "codex"}:
             return "denied", "unsupported-runtime"
         if not _DIGEST.fullmatch(str(context.get("route_sha256", ""))):
             return "denied", "invalid-route-authority"
+        if context.get("route_contract_version") != RUNTIME_SCHEMA_VERSION:
+            return "denied", "invalid-route-contract"
         return "allowed", "protocol-route-authorized"
 
     def authorize(self, context: Mapping[str, Any]) -> SecurityAuthorization:
@@ -212,7 +225,7 @@ class MandatorySecurityVerifier:
                 raise TypeError
         except (OSError, PermissionError, TimeoutError, TypeError, ValueError):
             state, reason = "unavailable", "security-verifier-unavailable"
-        return SecurityAuthorization(
+        authorization = SecurityAuthorization(
             state,
             _safe_text(reason),
             _sha(
@@ -225,12 +238,16 @@ class MandatorySecurityVerifier:
             ),
             _SECURITY_AUTHORITY,
         )
+        _ISSUED_SECURITY_AUTHORIZATIONS[id(authorization)] = authorization
+        return authorization
 
 
 @dataclass(frozen=True)
 class PreparedInvocation:
     run_id: str
     specialist: str
+    variant: str
+    runtime: str
     stage_index: int
     invocation_marker: str
     knowledge_payload: str
@@ -238,6 +255,14 @@ class PreparedInvocation:
     composed_content_sha256: str
     sources: tuple[Mapping[str, Any], ...]
     prompt_sha256: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.variant not in {"F", "F+O", "F+O+D", "F+O+D+P"}:
+            raise ValueError("Prepared invocation variant is invalid.")
+        if self.runtime not in {"claude", "codex"}:
+            raise ValueError("Prepared invocation runtime is invalid.")
+        if any(source.get("runtime") != self.runtime for source in self.sources):
+            raise ValueError("Prepared invocation source runtime is invalid.")
 
     def public_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -558,19 +583,22 @@ def _route_from(value: Mapping[str, Any]) -> RouteTrace:
 
 def _source_dict(receipt: Any) -> dict[str, Any]:
     result = {
-        key: getattr(receipt, key)
-        for key in (
-            "layer",
-            "repository",
-            "ref",
-            "tree",
-            "signer",
-            "contribution",
-            "content_sha256",
-            "runtime",
-            "adapter_version",
-        )
+        "layer": getattr(receipt, "layer"),
+        "tier": getattr(receipt, "tier", getattr(receipt, "role", None)),
+        "repository": getattr(receipt, "repository"),
+        "ref": getattr(receipt, "ref"),
+        "tree": getattr(receipt, "tree"),
+        "signer": getattr(receipt, "signer"),
+        "contribution": getattr(receipt, "contribution"),
+        "content_sha256": getattr(receipt, "content_sha256"),
+        "runtime": getattr(receipt, "runtime"),
+        "adapter_version": getattr(receipt, "adapter_version"),
     }
+    if isinstance(result.get("ref"), str) and _BARE_SEMVER_TAG.fullmatch(result["ref"]):
+        # Git provenance verification accepts the manifest's conventional
+        # bare semver spelling. Persist the fully qualified immutable tag so
+        # every downstream receipt has one canonical identity.
+        result["ref"] = f"refs/tags/{result['ref']}"
     for key, value in result.items():
         if not isinstance(value, str):
             raise ValueError("Knowledge source receipt is malformed.")
@@ -597,10 +625,11 @@ def _source_dict(receipt: Any) -> dict[str, Any]:
 
 
 def _validate_sources(value: object) -> tuple[dict[str, Any], ...]:
-    if not isinstance(value, (list, tuple)) or not value:
+    if not isinstance(value, (list, tuple)):
         raise ValueError("Knowledge source receipts are missing.")
     allowed = {
         "layer",
+        "tier",
         "repository",
         "ref",
         "tree",
@@ -621,26 +650,324 @@ def _validate_sources(value: object) -> tuple[dict[str, Any], ...]:
 
 def resolve_specialist_knowledge(
     specialist: str,
+    variant: str,
+    runtime: str,
 ) -> tuple[str, tuple[dict[str, Any], ...]]:
-    """Consume the existing resolver without adding precedence or fallback."""
+    """Resolve the exact signed Knowledge subset for one evaluation variant.
+
+    Each declared tier is authenticated even when it has no applicable
+    specialist contribution. Only contributions that the canonical extension
+    resolver actually applies are placed in the runtime payload and source
+    list; signed absence remains a content-authority fact rather than invented
+    prompt text.
+    """
+    from dataclasses import replace
+
+    from cc.core.ecosystem.knowledge_skill_source import (
+        resolve_knowledge_skill_sources,
+    )
     from cc.core.extensions_resolver import (
         ACTION_APPLY,
+        ACTION_NO_EXTENSION,
+        ExtensionSkillBindings,
         compose_agent_content_with_receipts,
         resolve_extension,
     )
 
-    resolution = resolve_extension(specialist)
-    if resolution.action != ACTION_APPLY or not resolution.contributions:
-        raise ValueError("Required authenticated Knowledge is unavailable.")
-    composed = compose_agent_content_with_receipts(resolution, "")
-    if (
-        not composed.content
-        or not composed.receipts
-        or composed.content_sha256 != _sha(composed.content)
-        or any(not item.is_authenticated for item in composed.receipts)
-    ):
-        raise ValueError("Required authenticated Knowledge is unavailable.")
-    return composed.content, tuple(_source_dict(item) for item in composed.receipts)
+    expected_tiers = {
+        "F": ("foundation",),
+        "F+O": ("foundation", "organization"),
+        "F+O+D": ("foundation", "organization", "department"),
+        "F+O+D+P": ("foundation", "organization", "department", "personal"),
+    }.get(variant)
+    if expected_tiers is None or runtime != "claude":
+        raise ValueError("Required exact Knowledge variant is unavailable.")
+    signed_tiers = expected_tiers[:-1] if variant == "F+O+D+P" else expected_tiers
+    try:
+        verified = [
+            source
+            for _root, source in resolve_knowledge_skill_sources()
+            if source is not None and source.role in signed_tiers
+        ]
+    except Exception as exc:
+        raise ValueError("Required authenticated Knowledge is unavailable.") from exc
+    by_tier = {source.role: source for source in verified}
+    if len(by_tier) != len(verified) or set(by_tier) != set(signed_tiers):
+        raise ValueError("Required exact Knowledge variant is unavailable.")
+    ordered = [by_tier[tier] for tier in signed_tiers]
+    knowledge_repos = tuple(str(source.repository_root) for source in ordered)
+    source_bindings = {
+        str(source.repository_root.expanduser().absolute()): (True, source)
+        for source in ordered
+    }
+    skill_bindings = ExtensionSkillBindings(knowledge_repos, source_bindings)
+    content = ""
+    active_receipts: list[object] = []
+    for source in ordered:
+        repository_path = str(source.repository_root)
+        resolution = resolve_extension(
+            specialist,
+            knowledge_repos=[repository_path],
+            source_bindings=source_bindings,
+            skill_bindings=skill_bindings,
+        )
+        if resolution.action == ACTION_NO_EXTENSION:
+            continue
+        if resolution.action != ACTION_APPLY:
+            raise ValueError("Required authenticated Knowledge is unavailable.")
+        safe_resolution = replace(resolution, source_repo=source.repository)
+        composed = compose_agent_content_with_receipts(safe_resolution, content)
+        if composed.content_sha256 != _sha(composed.content) or any(
+            not item.is_authenticated for item in composed.receipts
+        ):
+            raise ValueError("Required authenticated Knowledge is unavailable.")
+        if resolution.type == "override":
+            active_receipts = list(composed.receipts)
+        elif resolution.type == "extension":
+            active_receipts.extend(composed.receipts)
+        content = composed.content
+    if not content:
+        content = "No applicable signed Knowledge contribution for this specialist."
+    sources = tuple(_source_dict(item) for item in active_receipts)
+    if variant == "F+O+D+P" and specialist == "doc":
+        from cc.evaluation_fixtures.personal_snapshot import (
+            personal_snapshot_contribution,
+        )
+
+        personal_content, personal_source = personal_snapshot_contribution(
+            runtime=runtime
+        )
+        content = f"{content}\n\n{personal_content}"
+        sources = (*sources, _source_dict(type("Receipt", (), personal_source)()))
+    if any(source["runtime"] != runtime for source in sources):
+        raise ValueError("Required exact Knowledge variant is unavailable.")
+    return content, sources
+
+
+def _codex_specialist_projection(
+    source: object, specialist: str
+) -> tuple[str, tuple[dict[str, Any], ...]]:
+    from urllib.parse import urlparse
+
+    try:
+        files = {item.path: item for item in source.snapshot.files}
+    except (AttributeError, TypeError) as exc:
+        raise ValueError("Required authenticated Codex plugin is unavailable.") from exc
+    source_kind = str(getattr(source, "source_kind", "plugin"))
+    if source_kind not in {"plugin", "activated-pack"}:
+        raise ValueError("Authenticated Codex specialist source is invalid.")
+    contribution = f"skills/{specialist}/SKILL.md"
+    skill = files.get(contribution)
+    manifest = files.get(
+        ".codex-plugin/plugin.json" if source_kind == "plugin" else "pack.json"
+    )
+    if skill is None or manifest is None:
+        raise ValueError("Required Codex specialist is unavailable.")
+    try:
+        content = skill.content.decode("utf-8")
+        plugin = json.loads(manifest.content)
+        if source_kind == "plugin":
+            parsed = urlparse(str(plugin["repository"]))
+            repository = parsed.path.strip("/").removesuffix(".git")
+        else:
+            specialists = plugin.get("specialists")
+            if (
+                plugin.get("name") != getattr(source, "plugin_name", None)
+                or not isinstance(specialists, list)
+                or specialist not in specialists
+                or not getattr(source, "activation_sha256", None)
+            ):
+                raise ValueError("Authenticated Codex pack activation is invalid.")
+            repository = str(getattr(source, "repository"))
+    except (
+        AttributeError,
+        KeyError,
+        TypeError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+    ) as exc:
+        raise ValueError("Authenticated Codex plugin manifest is invalid.") from exc
+    receipt = _source_dict(
+        type(
+            "CodexReceipt",
+            (),
+            {
+                "layer": source.layer,
+                "tier": getattr(
+                    source,
+                    "role",
+                    next(
+                        (
+                            role
+                            for role in (
+                                "personal",
+                                "department",
+                                "organization",
+                                "foundation",
+                            )
+                            if role in str(source.layer)
+                        ),
+                        "",
+                    ),
+                ),
+                "repository": repository,
+                "ref": source.ref,
+                "tree": source.tree,
+                "signer": source.signer,
+                "contribution": contribution,
+                "content_sha256": _sha(content),
+                "runtime": "codex",
+                "adapter_version": str(
+                    getattr(
+                        source,
+                        "adapter_version",
+                        (
+                            "codex-plugin-v1"
+                            if source_kind == "plugin"
+                            else "codex-pack-v1"
+                        ),
+                    )
+                ),
+            },
+        )()
+    )
+    return content, (receipt,)
+
+
+def resolve_codex_specialist_knowledge(
+    specialist: str,
+    variant: str,
+    runtime: str,
+    *,
+    case_id: str | None = None,
+) -> tuple[str, tuple[dict[str, Any], ...]]:
+    """Resolve one exact canonical additive Codex projection.
+
+    The production issuer owns source, entitlement, lock, and retained-file
+    authority. This journey boundary consumes that issuer rather than selecting
+    a mutable global plugin or treating the nearest plugin as the whole ladder.
+    """
+
+    if runtime != "codex":
+        raise ValueError("Required exact Codex variant is unavailable.")
+    from cc.core.evaluation.content_authority import (
+        CanonicalContentUnavailable,
+        issue_canonical_codex_content,
+    )
+    from cc.core.evaluation.models import LayerVariant
+
+    try:
+        selected_variant = LayerVariant(variant)
+        selected_case = case_id or {
+            "uids": "eval-03",
+            "cco": "eval-04",
+            "cpa": "eval-05",
+            "ta": "eval-06",
+            "doc": "eval-07",
+        }.get(specialist)
+        projection = issue_canonical_codex_content(
+            variant=selected_variant,
+            specialist=specialist,
+            case_id=selected_case,
+        )
+    except (CanonicalContentUnavailable, ValueError) as exc:
+        raise ValueError(
+            "Required additive Codex specialist and Knowledge projection is unavailable."
+        ) from exc
+    try:
+        return projection.knowledge_payload, tuple(
+            dict(item) for item in projection.knowledge_sources
+        )
+    finally:
+        projection.close()
+
+
+def _compose_codex_specialist_knowledge(
+    specialist: str,
+    variant: str,
+    runtime: str,
+    plugin_sources: Sequence[object],
+    *,
+    knowledge_projection: tuple[str, Sequence[Mapping[str, Any]]] | None = None,
+) -> tuple[
+    str,
+    tuple[dict[str, Any], ...],
+    str,
+    tuple[tuple[str, str | None, dict[str, Any] | None], ...],
+]:
+    """Compose tier-owned additive plugins with exact signed Knowledge."""
+
+    expected_tiers = {
+        "F": ("foundation",),
+        "F+O": ("foundation", "organization"),
+        "F+O+D": ("foundation", "organization", "department"),
+        "F+O+D+P": (
+            "foundation",
+            "organization",
+            "department",
+            "personal",
+        ),
+    }.get(variant)
+    if expected_tiers is None or runtime != "codex":
+        raise ValueError("Required exact Codex variant is unavailable.")
+    signed_tiers = expected_tiers[:-1] if variant == "F+O+D+P" else expected_tiers
+    by_tier = {
+        str(getattr(item, "role", "")): item
+        for item in plugin_sources
+        if getattr(item, "role", None) in signed_tiers
+    }
+    if len(by_tier) != len(plugin_sources) or set(by_tier) != set(signed_tiers):
+        raise ValueError("Required exact Codex plugin ladder is unavailable.")
+
+    facts: list[tuple[str, str | None, dict[str, Any] | None]] = []
+    for tier in signed_tiers:
+        try:
+            content, receipts = _codex_specialist_projection(by_tier[tier], specialist)
+        except ValueError as exc:
+            if str(exc) != "Required Codex specialist is unavailable.":
+                raise
+            facts.append((tier, None, None))
+            continue
+        if len(receipts) != 1:
+            raise ValueError("Required exact Codex specialist is ambiguous.")
+        facts.append((tier, content, dict(receipts[0])))
+    contributing = [item for item in facts if item[1] is not None]
+    if not contributing:
+        raise ValueError("Required Codex specialist is unavailable.")
+    winner_tier, winner_content, winner_receipt = contributing[-1]
+    assert winner_content is not None and winner_receipt is not None
+
+    if knowledge_projection is None:
+        knowledge_content, knowledge_sources = resolve_specialist_knowledge(
+            specialist,
+            variant,
+            "claude",
+        )
+    else:
+        knowledge_content, knowledge_sources = knowledge_projection
+        if not isinstance(knowledge_content, str) or not knowledge_content:
+            raise ValueError("Required exact Knowledge variant is unavailable.")
+    codex_knowledge_sources = tuple(
+        {**dict(item), "runtime": "codex"} for item in knowledge_sources
+    )
+    payload = (
+        winner_content
+        + "\n\n---\n\n## Applicable signed Knowledge\n\n"
+        + knowledge_content
+    )
+    sources = (*codex_knowledge_sources, winner_receipt)
+    if any(item.get("runtime") != "codex" for item in sources):
+        raise ValueError("Required exact Codex variant is unavailable.")
+    return payload, sources, winner_tier, tuple(facts)
+
+
+def _resolver_for_runtime(
+    resolver: Callable[[str, str, str], tuple[str, tuple[dict[str, Any], ...]]],
+    runtime: str,
+) -> Callable[[str, str, str], tuple[str, tuple[dict[str, Any], ...]]]:
+    if resolver is resolve_specialist_knowledge and runtime == "codex":
+        return resolve_codex_specialist_knowledge
+    return resolver
 
 
 def _security_context(begin: Mapping[str, Any]) -> dict[str, Any]:
@@ -649,6 +976,7 @@ def _security_context(begin: Mapping[str, Any]) -> dict[str, Any]:
         "run_id": begin["run_id"],
         "session_sha256": begin["session_id_sha256"],
         "runtime": begin["route"]["runtime"],
+        "route_contract_version": begin["route"]["contract_version"],
         "route_sha256": _sha(_canonical(begin["route"])),
         "prompt_sha256": begin["prompt_sha256"],
     }
@@ -927,14 +1255,14 @@ def _unfinished_public_state(run_id: str, state: Mapping[str, Any]) -> dict[str,
         "dispatch_authorized_specialists": completed,
         "next_specialist": route[next_index] if next_index < len(route) else None,
         "next_stage_state": (
-            "prompt_bound"
-            if next_index in bindings
-            else "prepared"
-            if next_index in preparations
-            else "unprepared"
-        )
-        if next_index < len(route)
-        else None,
+            (
+                "prompt_bound"
+                if next_index in bindings
+                else "prepared" if next_index in preparations else "unprepared"
+            )
+            if next_index < len(route)
+            else None
+        ),
     }
 
 
@@ -979,12 +1307,15 @@ def prepare_run(
     run_id: str,
     specialist: str,
     *,
+    variant: str = "F",
     ledger: TcJourneyLedger | None = None,
     resolver: Callable[
-        [str], tuple[str, tuple[dict[str, Any], ...]]
+        [str, str, str], tuple[str, tuple[dict[str, Any], ...]]
     ] = resolve_specialist_knowledge,
     security: MandatorySecurityVerifier | None = None,
 ) -> PreparedInvocation:
+    if variant not in {"F", "F+O", "F+O+D", "F+O+D+P"}:
+        raise ValueError("Knowledge variant is invalid.")
     selected = ledger or TcJourneyLedger(_task_from_run(run_id))
     with selected.claim(run_id):
         state = _state(run_id, selected)
@@ -994,8 +1325,17 @@ def prepare_run(
         _require_security(
             state["begin_record"], security or MandatorySecurityVerifier(), selected
         )
-        payload, raw_sources = selected.invoke(resolver, specialist)
+        runtime = str(state["begin_record"]["route"]["runtime"])
+        selected_resolver = _resolver_for_runtime(resolver, runtime)
+        payload, raw_sources = selected.invoke(
+            selected_resolver,
+            specialist,
+            variant,
+            runtime,
+        )
         sources = _validate_sources(raw_sources)
+        if any(source["runtime"] != runtime for source in sources):
+            raise ValueError("Knowledge runtime projection does not match the route.")
         if not payload or KNOWLEDGE_BEGIN in payload or KNOWLEDGE_END in payload:
             raise ValueError("Required Knowledge payload is malformed.")
         digest = _sha(payload)
@@ -1006,6 +1346,8 @@ def prepare_run(
             prepared = matches[0]
             if (
                 prepared.get("specialist") != specialist
+                or prepared.get("variant") != variant
+                or prepared.get("runtime") != runtime
                 or prepared.get("composed_content_sha256") != digest
                 or prepared.get("sources") != list(sources)
             ):
@@ -1020,6 +1362,8 @@ def prepare_run(
                     "run_id": run_id,
                     "stage_index": stage,
                     "specialist": specialist,
+                    "variant": variant,
+                    "runtime": runtime,
                     "invocation_marker": marker,
                     "composed_content_sha256": digest,
                     "sources": list(sources),
@@ -1038,15 +1382,17 @@ def prepare_run(
         )
     fragment = f"{MARKER_HEADER}{marker}\n{KNOWLEDGE_BEGIN}\n{payload}\n{KNOWLEDGE_END}"
     return PreparedInvocation(
-        run_id,
-        specialist,
-        stage,
-        marker,
-        payload,
-        fragment,
-        digest,
-        sources,
-        str(binding["prompt_sha256"]) if binding else None,
+        run_id=run_id,
+        specialist=specialist,
+        variant=variant,
+        runtime=runtime,
+        stage_index=stage,
+        invocation_marker=marker,
+        knowledge_payload=payload,
+        agent_prompt_fragment=fragment,
+        composed_content_sha256=digest,
+        sources=sources,
+        prompt_sha256=str(binding["prompt_sha256"]) if binding else None,
     )
 
 
@@ -1125,9 +1471,9 @@ def _capsule_for_generation(
         "prepared": prepared,
         "prompt_binding": binding,
         "next_stage_index": stage if stage < len(state["route"]) else None,
-        "next_specialist": state["route"][stage]
-        if stage < len(state["route"])
-        else None,
+        "next_specialist": (
+            state["route"][stage] if stage < len(state["route"]) else None
+        ),
     }
 
 
@@ -1140,7 +1486,7 @@ def pause_run(
     *,
     ledger: TcJourneyLedger | None = None,
     resolver: Callable[
-        [str], tuple[str, tuple[dict[str, Any], ...]]
+        [str, str, str], tuple[str, tuple[dict[str, Any], ...]]
     ] = resolve_specialist_knowledge,
     security: MandatorySecurityVerifier | None = None,
 ) -> dict[str, Any]:
@@ -1330,9 +1676,7 @@ def verify_dispatch(
         try:
             task_db = find_db_path()
         except OSError as exc:
-            raise RuntimeError(
-                "Task Copilot state could not be inspected."
-            ) from exc
+            raise RuntimeError("Task Copilot state could not be inspected.") from exc
         if task_db is None:
             # With no durable ledger, no active journey can exist. An
             # unframed legacy dispatch is therefore provably no-active. A
@@ -1376,6 +1720,8 @@ def verify_dispatch(
             if (
                 prior is None
                 or prior.get("specialist") != specialist
+                or prior.get("variant") != prepared.get("variant")
+                or prior.get("runtime") != prepared.get("runtime")
                 or prior.get("session_id_sha256") != _sha(session_id)
                 or prior.get("invocation_marker_sha256") != _sha(marker)
                 or prior.get("prompt_sha256") != prompt_sha256
@@ -1415,7 +1761,14 @@ def verify_dispatch(
             _require_security(
                 state["begin_record"], security or MandatorySecurityVerifier(), ledger
             )
-            content, raw_sources = ledger.invoke(resolver, specialist)
+            runtime = str(state["begin_record"]["route"]["runtime"])
+            selected_resolver = _resolver_for_runtime(resolver, runtime)
+            content, raw_sources = ledger.invoke(
+                selected_resolver,
+                specialist,
+                str(prepared["variant"]),
+                runtime,
+            )
             sources = _validate_sources(raw_sources)
             if _sha(content) != knowledge_sha256 or list(sources) != prior.get(
                 "sources"
@@ -1426,6 +1779,7 @@ def verify_dispatch(
         if (
             prepared.get("stage_index") != stage
             or prepared.get("specialist") != specialist
+            or prepared.get("runtime") != str(state["begin_record"]["route"]["runtime"])
         ):
             raise ValueError("dispatch-route-order-mismatch")
         scoped_preparations = [
@@ -1451,7 +1805,14 @@ def verify_dispatch(
         _require_security(
             state["begin_record"], security or MandatorySecurityVerifier(), ledger
         )
-        content, raw_sources = ledger.invoke(resolver, specialist)
+        runtime = str(state["begin_record"]["route"]["runtime"])
+        selected_resolver = _resolver_for_runtime(resolver, runtime)
+        content, raw_sources = ledger.invoke(
+            selected_resolver,
+            specialist,
+            str(prepared["variant"]),
+            runtime,
+        )
         sources = _validate_sources(raw_sources)
         if (
             _sha(content) != knowledge_sha256
@@ -1466,6 +1827,8 @@ def verify_dispatch(
                 "run_id": run_id,
                 "stage_index": stage,
                 "specialist": specialist,
+                "variant": prepared["variant"],
+                "runtime": prepared["runtime"],
                 "session_id_sha256": _sha(session_id),
                 "prompt_sha256": prompt_sha256,
                 "invocation_marker_sha256": _sha(marker),
@@ -1498,6 +1861,7 @@ __all__ = [
     "pause_run",
     "prepare_run",
     "resume_run",
+    "resolve_codex_specialist_knowledge",
     "resolve_specialist_knowledge",
     "verify_dispatch",
 ]

@@ -1,0 +1,19 @@
+{
+  "fixture_namespace": "SYNTHETIC-EVAL02",
+  "synthetic_fixture": true,
+  "statements": [
+    {
+      "speaker": "SYNTHETIC-UNIT-ALPHA",
+      "statement": "The shared launch matters, but our local renewal cannot slip."
+    },
+    {
+      "speaker": "SYNTHETIC-UNIT-BETA",
+      "statement": "We agree on the launch while ownership of the final dependency remains unclear."
+    },
+    {
+      "speaker": "SYNTHETIC-LEADERSHIP",
+      "statement": "Meetings end with consensus language and no named decision owner."
+    }
+  ],
+  "diagnosis_provided": false
+}

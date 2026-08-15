@@ -47,10 +47,15 @@ def _run(repo: Path, *args: str) -> str:
     ).stdout.strip()
 
 
-def _signed_knowledge_repo(tmp_path: Path) -> tuple[Path, str, str]:
-    repo = tmp_path / "knowledge"
+def _signed_knowledge_repo(
+    tmp_path: Path,
+    *,
+    name: str = "knowledge",
+    include_plugin: bool = True,
+) -> tuple[Path, str, str]:
+    repo = tmp_path / name
     repo.mkdir()
-    key = tmp_path / "release-key"
+    key = tmp_path / f"{name}-release-key"
     subprocess.run(
         ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)],
         check=True,
@@ -70,7 +75,7 @@ def _signed_knowledge_repo(tmp_path: Path) -> tuple[Path, str, str]:
         ("config", "user.email", "knowledge@example.invalid"),
         ("config", "gpg.format", "ssh"),
         ("config", "user.signingkey", str(key)),
-        ("remote", "add", "origin", "git@github.com:example/knowledge.git"),
+        ("remote", "add", "origin", f"git@github.com:example/{name}.git"),
     ):
         _run(repo, *args)
     skill = repo / KNOWLEDGE_SKILLS_SUBPATH / "accounting" / "SKILL.md"
@@ -83,9 +88,10 @@ def _signed_knowledge_repo(tmp_path: Path) -> tuple[Path, str, str]:
     extension = repo / ".claude" / "extensions" / "do.extension.md"
     extension.parent.mkdir(parents=True)
     extension.write_text("signed extension body\n", encoding="utf-8")
-    plugin = repo / "plugins" / "codex-copilot" / "SKILL.md"
-    plugin.parent.mkdir(parents=True)
-    plugin.write_text("signed codex plugin\n", encoding="utf-8")
+    if include_plugin:
+        plugin = repo / "plugins" / "codex-copilot" / "SKILL.md"
+        plugin.parent.mkdir(parents=True)
+        plugin.write_text("signed codex plugin\n", encoding="utf-8")
     (repo / "knowledge-manifest.json").write_text(
         json.dumps(
             {
@@ -219,6 +225,359 @@ def _protected_projection(protected_signed_source):
     )
     assert len(projections) == 1
     return source, projections[0]
+
+
+def _protected_layer(
+    repo: Path,
+    fingerprint: str,
+    *,
+    layer_id: str,
+    role: str,
+    rank: int,
+) -> dict:
+    return {
+        "id": layer_id,
+        "role": role,
+        "rank": rank,
+        "product": "knowledge",
+        "source": {
+            "repo": f"git@github.com:example/{repo.name}.git",
+            "ref": "v1.0.0",
+            "path": str(repo),
+        },
+        "auth": "work",
+        "activation": "always",
+        "policy": {"allowed_signers": [fingerprint]},
+    }
+
+
+def _two_protected_sources(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    department_plugin: bool = True,
+):
+    organization_repo, organization_fingerprint, organization_key = (
+        _signed_knowledge_repo(tmp_path, name="knowledge-organization")
+    )
+    department_repo, department_fingerprint, department_key = _signed_knowledge_repo(
+        tmp_path,
+        name="knowledge-department",
+        include_plugin=department_plugin,
+    )
+    layers = [
+        _protected_layer(
+            department_repo,
+            department_fingerprint,
+            layer_id="knowledge-department",
+            role="department",
+            rank=20,
+        ),
+        _protected_layer(
+            organization_repo,
+            organization_fingerprint,
+            layer_id="knowledge-organization",
+            role="organization",
+            rank=30,
+        ),
+    ]
+    checked_at = (
+        datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    )
+    state_path = tmp_path / "two-entitlements.json"
+    atomic_json_write(
+        state_path,
+        {
+            "schema_version": entitlement.ENTITLEMENT_SCHEMA_VERSION,
+            "next_sequence": 3,
+            "layers": {
+                layer["id"]: {
+                    "layer": layer["id"],
+                    "product": "knowledge",
+                    "repo": f"example/{Path(layer['source']['path']).name}",
+                    "login": "person",
+                    "state": "entitled",
+                    "checked_at": checked_at,
+                    "last_entitled_at": checked_at,
+                    "revision": 1,
+                }
+                for layer in layers
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "cc.core.ecosystem.policy.FOUNDATION_SSH_SIGNING_KEYS",
+        {
+            organization_fingerprint: organization_key,
+            department_fingerprint: department_key,
+        },
+    )
+    cache_parent = tmp_path / "skill-cache"
+    monkeypatch.setattr(
+        "cc.core.config.resolve_key",
+        lambda key: {
+            "skills.cache_dir": str(cache_parent),
+            "paths.mirrors_root": str(tmp_path / "mirrors"),
+        }.get(key),
+    )
+    resolved = resolve_knowledge_skill_sources(
+        repositories=(str(organization_repo), str(department_repo)),
+        manifest_source=layers,
+        entitlement_state_path_value=state_path,
+        entitlement_login="person",
+    )
+    sources = tuple(source for _root, source in resolved if source is not None)
+    assert len(sources) == 2
+    bindings = tuple(source.entitlement_binding for source in sources)
+    assert all(binding is not None for binding in bindings)
+    return layers, bindings, cache_parent / "signed-knowledge-v1", state_path
+
+
+def test_protected_projection_pins_every_signed_contributing_layer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    layers, bindings, cache_root, _state_path = _two_protected_sources(
+        tmp_path, monkeypatch
+    )
+
+    projections = resolve_protected_knowledge_lock_projections(
+        layers,
+        bindings,
+        cache_root=cache_root,
+    )
+
+    assert [item.layer for item in projections] == [
+        "knowledge-department",
+        "knowledge-organization",
+    ]
+    assert all(item.item == "codex-copilot" for item in projections)
+    assert len({item.content_sha256 for item in projections}) == 1
+
+
+def test_protected_projection_ignores_layer_without_signed_plugin_contribution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    layers, bindings, cache_root, _state_path = _two_protected_sources(
+        tmp_path,
+        monkeypatch,
+        department_plugin=False,
+    )
+
+    projections = resolve_protected_knowledge_lock_projections(
+        layers,
+        bindings,
+        cache_root=cache_root,
+    )
+
+    assert [item.layer for item in projections] == ["knowledge-organization"]
+
+
+@pytest.mark.parametrize("binding_variant", ["missing", "ineligible"])
+def test_protected_projection_requires_each_contributors_active_binding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    binding_variant: str,
+) -> None:
+    layers, bindings, cache_root, _state_path = _two_protected_sources(
+        tmp_path, monkeypatch
+    )
+    department = next(
+        binding for binding in bindings if binding.layer == "knowledge-department"
+    )
+    if binding_variant == "missing":
+        supplied = tuple(binding for binding in bindings if binding is not department)
+    else:
+        supplied = tuple(
+            (
+                entitlement.EntitlementBinding(
+                    **(binding.as_dict() | {"state": "revoked", "eligible": False})
+                )
+                if binding is department
+                else binding
+            )
+            for binding in bindings
+        )
+
+    with pytest.raises(KnowledgeSkillSourceError, match="active bound receipt"):
+        resolve_protected_knowledge_lock_projections(
+            layers,
+            supplied,
+            cache_root=cache_root,
+        )
+
+
+@pytest.mark.parametrize("substitution", ["source", "ref", "tree"])
+def test_protected_projection_rejects_contributor_identity_substitution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    substitution: str,
+) -> None:
+    layers, bindings, cache_root, _state_path = _two_protected_sources(
+        tmp_path, monkeypatch
+    )
+    department = next(
+        layer for layer in layers if layer["id"] == "knowledge-department"
+    )
+    if substitution == "source":
+        organization = next(
+            layer for layer in layers if layer["id"] == "knowledge-organization"
+        )
+        department["source"]["path"] = organization["source"]["path"]
+        expected = "wrong repository origin"
+    elif substitution == "ref":
+        department["source"]["ref"] = "v9.9.9"
+        expected = "verified skills receipt"
+    else:
+        index_path = cache_root / "index.json"
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+        department_entry = next(
+            entry
+            for entry in index["entries"].values()
+            if entry["layer"] == "knowledge-department"
+        )
+        department_entry["tree"] = "0" * 40
+        atomic_json_write(index_path, index)
+        expected = "matching active receipt"
+
+    with pytest.raises(KnowledgeSkillSourceError, match=expected):
+        resolve_protected_knowledge_lock_projections(
+            layers,
+            bindings,
+            cache_root=cache_root,
+        )
+
+
+def test_signed_contributor_cannot_be_hidden_by_checkout_deletion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    layers, bindings, cache_root, _state_path = _two_protected_sources(
+        tmp_path, monkeypatch
+    )
+    department = next(
+        layer for layer in layers if layer["id"] == "knowledge-department"
+    )
+    plugin = (
+        Path(department["source"]["path"]) / "plugins" / "codex-copilot" / "SKILL.md"
+    )
+    plugin.unlink()
+
+    with pytest.raises(KnowledgeSkillSourceError, match="verified plugin tree"):
+        resolve_protected_knowledge_lock_projections(
+            layers,
+            bindings,
+            cache_root=cache_root,
+        )
+
+
+def _advanced_bindings(bindings):
+    return tuple(
+        entitlement.EntitlementBinding(
+            **(binding.as_dict() | {"revision": binding.revision + 1})
+        )
+        for binding in bindings
+    )
+
+
+@pytest.mark.parametrize(
+    "mutated_layer",
+    ["knowledge-department", "knowledge-organization"],
+)
+def test_plugin_failure_after_revision_advance_preserves_every_prior_receipt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutated_layer: str,
+) -> None:
+    layers, bindings, cache_root, _state_path = _two_protected_sources(
+        tmp_path, monkeypatch
+    )
+    index_path = cache_root / "index.json"
+    index_before = index_path.read_bytes()
+    index = json.loads(index_before)
+    targets = tuple(cache_root / item["target"] for item in index["entries"].values())
+    layer = next(item for item in layers if item["id"] == mutated_layer)
+    plugin = Path(layer["source"]["path"]) / "plugins" / "codex-copilot" / "SKILL.md"
+    plugin.unlink()
+
+    with pytest.raises(KnowledgeSkillSourceError, match="verified plugin tree"):
+        resolve_protected_knowledge_lock_projections(
+            layers,
+            _advanced_bindings(bindings),
+            cache_root=cache_root,
+        )
+
+    assert index_path.read_bytes() == index_before
+    assert all(target.is_dir() for target in targets)
+    assert {
+        item["revision"]
+        for item in json.loads(index_path.read_text(encoding="utf-8"))[
+            "entries"
+        ].values()
+    } == {1}
+
+
+def test_later_layer_failure_aborts_update_without_receipt_or_lock_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    layers, bindings, cache_root, state_path = _two_protected_sources(
+        tmp_path, monkeypatch
+    )
+    projections = resolve_protected_knowledge_lock_projections(
+        layers,
+        bindings,
+        cache_root=cache_root,
+    )
+    index_path = cache_root / "index.json"
+    index_before = index_path.read_bytes()
+    targets = tuple(
+        cache_root / item["target"]
+        for item in json.loads(index_before)["entries"].values()
+    )
+    previous_lock = {
+        projection.layer: {
+            "_meta": {
+                "product": "knowledge",
+                "role": next(
+                    item["role"] for item in layers if item["id"] == projection.layer
+                ),
+            },
+            "plugins": {"codex-copilot": projection.content_sha256},
+        }
+        for projection in projections
+    }
+    lock_path = tmp_path / "copilot.lock.json"
+    atomic_json_write(lock_path, previous_lock)
+    lock_before = lock_path.read_bytes()
+    organization = next(
+        item for item in layers if item["id"] == "knowledge-organization"
+    )
+    (
+        Path(organization["source"]["path"]) / "plugins" / "codex-copilot" / "SKILL.md"
+    ).unlink()
+
+    with pytest.raises(KnowledgeSkillSourceError, match="verified plugin tree"):
+        build_update_report(
+            _layers=layers,
+            _previous_lock=previous_lock,
+            _lockfile_path=lock_path,
+            _lock_write_path=lock_path,
+            _mirror_root=tmp_path / "mirrors",
+            _materialize_root=tmp_path / "materialize",
+            _personal_roots=[],
+            _entitlement_login="person",
+            _entitlement_token="token",
+            _entitlement_get_json=lambda *_args, **_kwargs: 200,
+            _entitlement_state_path=state_path,
+            _entitlement_now=datetime.now(timezone.utc),
+            _knowledge_snapshot_root=cache_root,
+        )
+
+    assert index_path.read_bytes() == index_before
+    assert lock_path.read_bytes() == lock_before
+    assert all(target.is_dir() for target in targets)
 
 
 def test_protected_receipt_projects_exact_signed_plugin_lock_identity(
@@ -538,16 +897,18 @@ def test_update_wrong_binding_repository_aborts_without_receipt_or_lock_writes(
     def bind_wrong_repository(*args, **kwargs):
         bindings = real_bind(*args, **kwargs)
         return tuple(
-            entitlement.EntitlementBinding(
-                **(
-                    binding.as_dict()
-                    | {
-                        "repo": "different-owner/knowledge",
-                    }
+            (
+                entitlement.EntitlementBinding(
+                    **(
+                        binding.as_dict()
+                        | {
+                            "repo": "different-owner/knowledge",
+                        }
+                    )
                 )
+                if binding.layer == layer["id"]
+                else binding
             )
-            if binding.layer == layer["id"]
-            else binding
             for binding in bindings
         )
 

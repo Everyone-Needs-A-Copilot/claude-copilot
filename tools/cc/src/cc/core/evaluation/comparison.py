@@ -30,6 +30,8 @@ _APPLICABLE_PAIRS = {
     "eval-06": {(LayerVariant.FOUNDATION, LayerVariant.ORGANIZATION)},
     "eval-07": {(LayerVariant.DEPARTMENT, LayerVariant.PERSONAL)},
 }
+_JUDGMENT_COMPARISON_AUTHORITY = object()
+_ISSUED_COMPARISONS: dict[int, ComparisonRecord] = {}
 
 
 def comparability_identity(cell: EvaluationCell) -> str:
@@ -43,14 +45,9 @@ def comparability_identity(cell: EvaluationCell) -> str:
             "prompt_evidence_sha256": cell.prompt_evidence_sha256,
             "runtime_receipt_sha256": runtime_receipt_identity(cell.runtime_receipt),
             "journey_task_id": cell.consumption_receipt.task_id,
-            "journey_evidence_sha256": cell.consumption_receipt.journey_evidence_sha256,
             "route_evidence_sha256": cell.consumption_receipt.route_evidence_sha256,
-            "continuity_evidence_sha256": cell.consumption_receipt.continuity_evidence_sha256,
-            "attempt": cell.attempt,
-            "parent_attempt_sha256": cell.parent_attempt_sha256,
             "attempt_policy_sha256": cell.attempt_policy_sha256,
-            "runtime_configuration_sha256": cell.runtime_configuration_sha256,
-            "tool_configuration_sha256": cell.tool_configuration_sha256,
+            "command_policy_sha256": cell.command_policy_sha256,
         }
     )
 
@@ -60,8 +57,11 @@ def pair_control_runs(
     layered: RunRecord,
     *,
     relations: tuple[CriterionComparison, ...] = (),
+    control_judgment_sha256: str = "",
+    layered_judgment_sha256: str = "",
+    _judgment_authority: object | None = None,
 ) -> ComparisonRecord:
-    """Create an attributable pair or fail before any behavioral claim."""
+    """Create a pair only for the authenticated judgment coordinator."""
 
     from cc.core.evaluation.runner import verify_run_record_identity
 
@@ -90,14 +90,26 @@ def pair_control_runs(
             "Runs are not the exact applicable control pair for this case."
         )
     criteria = tuple(item.criterion for item in relations)
-    if len(criteria) != len(set(criteria)):
-        raise ValueError("Criterion relations must be unique.")
+    if not criteria or len(criteria) != len(set(criteria)):
+        raise ValueError("Comparison requires unique, nonempty criterion relations.")
+    if _judgment_authority is not _JUDGMENT_COMPARISON_AUTHORITY:
+        raise ValueError(
+            "Comparison issuance requires authenticated criterion judgments."
+        )
+    if any(
+        len(digest) != 64
+        or any(character not in "0123456789abcdef" for character in digest)
+        for digest in (control_judgment_sha256, layered_judgment_sha256)
+    ):
+        raise ValueError("Comparison requires exact durable judgment identities.")
 
     document = {
         "schema_version": "1.0",
         "comparability_sha256": control.comparability_sha256,
         "control_run_sha256": control.run_sha256,
         "layered_run_sha256": layered.run_sha256,
+        "control_judgment_sha256": control_judgment_sha256,
+        "layered_judgment_sha256": layered_judgment_sha256,
         "relations": [
             {
                 "criterion": item.criterion,
@@ -109,16 +121,20 @@ def pair_control_runs(
         ],
         "hard_gate_state": PreflightState.VALID.value,
     }
-    return ComparisonRecord(
+    record = ComparisonRecord(
         schema_version="1.0",
         comparison_sha256=canonical_sha256(document),
         comparability_sha256=control.comparability_sha256,
         control_run_sha256=control.run_sha256,
         layered_run_sha256=layered.run_sha256,
+        control_judgment_sha256=control_judgment_sha256,
+        layered_judgment_sha256=layered_judgment_sha256,
         relations=relations,
         hard_gate_state=PreflightState.VALID,
         _authority=_COMPARISON_AUTHORITY,
     )
+    _ISSUED_COMPARISONS[id(record)] = record
+    return record
 
 
 def comparison_record_document(record: ComparisonRecord) -> dict[str, object]:
@@ -130,6 +146,8 @@ def comparison_record_document(record: ComparisonRecord) -> dict[str, object]:
         "comparability_sha256": record.comparability_sha256,
         "control_run_sha256": record.control_run_sha256,
         "layered_run_sha256": record.layered_run_sha256,
+        "control_judgment_sha256": record.control_judgment_sha256,
+        "layered_judgment_sha256": record.layered_judgment_sha256,
         "relations": [
             {
                 "criterion": item.criterion,
@@ -149,6 +167,8 @@ def verify_comparison_record_identity(record: ComparisonRecord) -> bool:
         "comparability_sha256": record.comparability_sha256,
         "control_run_sha256": record.control_run_sha256,
         "layered_run_sha256": record.layered_run_sha256,
+        "control_judgment_sha256": record.control_judgment_sha256,
+        "layered_judgment_sha256": record.layered_judgment_sha256,
         "relations": [
             {
                 "criterion": item.criterion,
@@ -160,8 +180,8 @@ def verify_comparison_record_identity(record: ComparisonRecord) -> bool:
         ],
         "hard_gate_state": record.hard_gate_state.value,
     }
-    return getattr(
-        record, "_authority", None
-    ) is _COMPARISON_AUTHORITY and record.comparison_sha256 == canonical_sha256(
-        document
+    return (
+        getattr(record, "_authority", None) is _COMPARISON_AUTHORITY
+        and _ISSUED_COMPARISONS.get(id(record)) is record
+        and record.comparison_sha256 == canonical_sha256(document)
     )

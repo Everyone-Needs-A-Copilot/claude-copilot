@@ -1,0 +1,16 @@
+{
+  "fixture_namespace": "SYNTHETIC-EVAL01",
+  "synthetic_fixture": true,
+  "expected_contributions": [
+    "Frame the struggling moment before choosing a feature.",
+    "Separate observed evidence, assumptions, and research gaps.",
+    "Offer build, integrate, or extend choices with validation.",
+    "Keep the SYNTHETIC-CLIENT team as decision owner."
+  ],
+  "reject_conditions": [
+    "feature-backlog-first",
+    "unearned-validation-claim",
+    "company-vocabulary-only",
+    "client-decision-replacement"
+  ]
+}

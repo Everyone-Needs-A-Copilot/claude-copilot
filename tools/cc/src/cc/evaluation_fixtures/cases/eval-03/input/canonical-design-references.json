@@ -1,0 +1,15 @@
+{
+  "fixture_namespace": "SYNTHETIC-EVAL03",
+  "synthetic_fixture": true,
+  "content_owner_selection": [
+    {
+      "reference": "SYNTHETIC-CURRENT-DESIGN-SYSTEM",
+      "status": "current"
+    },
+    {
+      "reference": "SYNTHETIC-HISTORICAL-PALETTE",
+      "status": "superseded-and-flagged"
+    }
+  ],
+  "asset_hierarchy": ["aviator-primary-when-contextual", "infinity-supporting"]
+}

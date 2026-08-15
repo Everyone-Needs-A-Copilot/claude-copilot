@@ -1,5 +1,10 @@
 # Changelog
 
+## [5.14.11] — 2026-08-15 — cc 2.12.11
+
+- Added the preregistered 28-cell layered effectiveness evaluator with immutable packaged fixtures, authenticated runtime/content evidence, durable assessment and portfolio bundles, fail-closed readiness, and zero-call unsupported dispositions where a runtime cannot yet meet the production boundary.
+- Hardened the macOS `cc` release pipeline so the frozen helper is built only from the exact signed source commit, includes and verifies the exact evaluation case and personal-layer packages, and rejects a root project lock whose paths or checksums differ from the release tree.
+
 ## 2026-08-12 — cc 2.12.8
 
 - Removed the `cc mcp` compatibility server and optional MCP dependency.
@@ -1595,7 +1600,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
 ---
 
-[unreleased]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.4.0...HEAD
+[unreleased]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.14.11...HEAD
+[5.14.11]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.14.10...v5.14.11
 [5.4.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.3.0...v5.4.0
 [5.3.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.2.0...v5.3.0
 [5.2.0]: https://github.com/Everyone-Needs-A-Copilot/claude-copilot/compare/v5.1.0...v5.2.0

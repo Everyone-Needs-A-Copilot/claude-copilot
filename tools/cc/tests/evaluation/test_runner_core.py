@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ast
+import copy
 import importlib
 import json
 import os
@@ -13,19 +15,29 @@ from unittest.mock import patch
 
 import pytest
 from cc.core.evaluation._authority import (
-    _AUTHORITY_TOKEN,
     _cell_subject,
     _EvaluationAuthority,
+    _issue_evaluation_authority,
 )
 from cc.core.evaluation.artifact import (
     _open_root_directory,
     _reject_aggregate_fields,
     _verify_named_artifact,
+    _verify_storage_snapshot,
     _write_artifact,
-    write_comparison_record,
+    close_artifact_receipt,
+    load_durable_unsupported_run,
+    load_run_record_document,
+    verify_artifact_receipt,
     write_run_record,
 )
+from cc.core.evaluation.attempt_policy import ATTEMPT_POLICY_SHA256
 from cc.core.evaluation.comparison import pair_control_runs
+from cc.core.evaluation.coordinator import (
+    claim_attempt,
+    finalize_attempt,
+    load_technical_retry_parent,
+)
 from cc.core.evaluation.identity import (
     build_consumption_receipt,
     consumption_receipt_document,
@@ -50,7 +62,14 @@ from cc.core.evaluation.models import (
     RuntimeReceipt,
 )
 from cc.core.evaluation.preflight import evaluate_preflight
-from cc.core.evaluation.runner import EvaluationRunner, RuntimeAdapterFailure
+from cc.core.evaluation.runner import (
+    _RUNTIME_FAILURE_DISPOSITIONS,
+    EvaluationRunner,
+    RuntimeAdapterFailure,
+    _record_document,
+    verify_run_record_identity,
+)
+from cc.core.evaluation.schema import canonical_sha256
 
 
 @pytest.fixture(name="tmp_path")
@@ -86,7 +105,7 @@ def _runtime(*, configuration_marker: str = "base") -> RuntimeReceipt:
         runtime=RuntimeName.CLAUDE,
         executable_sha256=_sha("1"),
         runtime_version="2.1.0",
-        model_version=None,
+        model_version="test-model",
         tool_availability=("agent", "knowledge", "tc"),
         adapter_name="journey-adapter",
         adapter_version=f"v2.1-{configuration_marker}",
@@ -94,23 +113,37 @@ def _runtime(*, configuration_marker: str = "base") -> RuntimeReceipt:
     )
 
 
-def _layer(tier: str, index: int) -> LayerContentReceipt:
+def _layer(
+    product: str,
+    tier: str,
+    index: int,
+    *,
+    resolution_action: str | None = None,
+) -> LayerContentReceipt:
     characters = "23456789abcdef"
     marker = characters[index]
     return LayerContentReceipt(
-        product="codex-copilot",
+        product=product,
         tier=tier,
-        repository_identifier=f"synthetic/{tier}",
-        immutable_ref=f"refs/tags/synthetic-{tier}-v1",
+        source_layer_identifier=f"synthetic-{tier}",
+        source_runtime="claude",
+        source_adapter_version=(
+            "claude-agent-v1" if product == "claude-copilot" else "knowledge-v1"
+        ),
+        repository_identifier=f"synthetic/{product}-{tier}",
+        immutable_ref=f"refs/tags/synthetic-{product}-{tier}-v1",
         tree_sha256=_sha(marker),
         signer_identity="SHA256:SYNTHETICFOUNDATION",
         policy_sha256=_sha(characters[index + 1]),
         manifest_sha256=_sha(characters[index + 2]),
         lock_sha256=_sha(characters[index + 3]),
-        contribution_ids=(f"synthetic-{tier}-contribution",),
+        contribution_ids=(f"synthetic-{product}-{tier}-contribution",),
         content_digests=(_sha(characters[index + 4]),),
-        resolution_action="accumulated",
-        materialized_destinations=(f"knowledge/{tier}.md",),
+        resolution_action=(
+            resolution_action
+            or ("selected" if product == "claude-copilot" else "accumulated")
+        ),
+        materialized_destinations=(f"{product}/{tier}.md",),
     )
 
 
@@ -129,7 +162,32 @@ def _content(variant: LayerVariant) -> ContentReceipt:
     return ContentReceipt(
         variant=variant,
         entitlement_receipt_sha256=_sha("a"),
-        layers=tuple(_layer(tier, index) for index, tier in enumerate(tiers)),
+        layers=tuple(
+            sorted(
+                (
+                    *(
+                        _layer(
+                            "claude-copilot",
+                            tier,
+                            index,
+                            resolution_action=(
+                                "selected" if tier == tiers[-1] else "shadowed"
+                            ),
+                        )
+                        for index, tier in enumerate(tiers)
+                    ),
+                    *(
+                        _layer("knowledge", tier, index + len(tiers))
+                        for index, tier in enumerate(tiers)
+                    ),
+                ),
+                key=lambda layer: (
+                    tiers.index(layer.tier),
+                    layer.product,
+                    layer.repository_identifier,
+                ),
+            )
+        ),
         composed_content_sha256=_sha("b" if len(tiers) == 1 else "c"),
         materialization_sha256=_sha("d" if len(tiers) == 1 else "e"),
     )
@@ -157,6 +215,8 @@ def _cell(
     runtime_configuration_sha256: str | None = None,
     attempt_policy_sha256: str | None = None,
     tool_configuration_sha256: str | None = None,
+    effective_full_prompt_sha256: str | None = None,
+    command_policy_sha256: str | None = None,
     case_id: str = "eval-01",
     attempt: int = 1,
     parent_attempt_sha256: str | None = None,
@@ -183,9 +243,11 @@ def _cell(
         content_receipt=content,
         consumption_receipt=consumption,
         attempt=attempt,
-        attempt_policy_sha256=attempt_policy_sha256 or _sha("4"),
+        attempt_policy_sha256=attempt_policy_sha256 or ATTEMPT_POLICY_SHA256,
         runtime_configuration_sha256=runtime_configuration_sha256 or _sha("5"),
         tool_configuration_sha256=tool_configuration_sha256 or _sha("6"),
+        effective_full_prompt_sha256=effective_full_prompt_sha256 or _sha("7"),
+        command_policy_sha256=command_policy_sha256 or _sha("8"),
         parent_attempt_sha256=parent_attempt_sha256,
     )
 
@@ -212,14 +274,40 @@ class _Runtime:
         return self.output
 
 
+class _TechnicalTimeoutRuntime(_Runtime):
+    def execute(self, cell: EvaluationCell) -> object:
+        from cc.core.evaluation.live_runtime import (
+            RuntimeTerminalFailure,
+            _issue_runtime_timeout_receipt,
+        )
+
+        self.calls += 1
+        execution_policy = {
+            "schema_version": "1.0",
+            "command_policy_sha256": cell.command_policy_sha256,
+            "execution_boundary": "synthetic-process-group-timeout",
+        }
+        receipt = _issue_runtime_timeout_receipt(
+            cell,
+            runtime=cell.runtime_receipt.runtime,
+            adapter_name=cell.runtime_receipt.adapter_name,
+            adapter_version=cell.runtime_receipt.adapter_version,
+            execution_policy_document=execution_policy,
+            timeout_seconds=1.0,
+        )
+        raise RuntimeTerminalFailure(
+            "runtime-timeout",
+            technical_receipt=receipt,
+        )
+
+
 def _test_authority(
     cell: EvaluationCell, observations: tuple[GateObservation, ...]
 ) -> _EvaluationAuthority:
     subject = _cell_subject(cell)
-    return _EvaluationAuthority(
+    return _issue_evaluation_authority(
         subject,
         evaluate_preflight(observations, subject_sha256=subject),
-        _AUTHORITY_TOKEN,
     )
 
 
@@ -326,17 +414,21 @@ def test_preflight_requires_exact_complete_gate_packet() -> None:
 
 def test_only_runtime_capability_can_be_unsupported() -> None:
     runtime_unsupported = tuple(
-        replace(item, state=GateState.UNSUPPORTED, reason="capability-absent")
-        if item.gate is PreflightGate.RUNTIME_CAPABILITY
-        else item
+        (
+            replace(item, state=GateState.UNSUPPORTED, reason="capability-absent")
+            if item.gate is PreflightGate.RUNTIME_CAPABILITY
+            else item
+        )
         for item in _observations()
     )
     assert evaluate_preflight(runtime_unsupported).state is PreflightState.UNSUPPORTED
 
     journey_unsupported = tuple(
-        replace(item, state=GateState.UNSUPPORTED, reason="transport-unavailable")
-        if item.gate is PreflightGate.JOURNEY_EVIDENCE
-        else item
+        (
+            replace(item, state=GateState.UNSUPPORTED, reason="transport-unavailable")
+            if item.gate is PreflightGate.JOURNEY_EVIDENCE
+            else item
+        )
         for item in _observations()
     )
     assert evaluate_preflight(journey_unsupported).state is PreflightState.INVALID
@@ -350,9 +442,11 @@ def test_runner_never_calls_adapter_when_gate_is_not_valid() -> None:
     assert runtime.calls == 0
 
     unsupported = tuple(
-        replace(item, state=GateState.UNSUPPORTED, reason="capability-absent")
-        if item.gate is PreflightGate.RUNTIME_CAPABILITY
-        else item
+        (
+            replace(item, state=GateState.UNSUPPORTED, reason="capability-absent")
+            if item.gate is PreflightGate.RUNTIME_CAPABILITY
+            else item
+        )
         for item in _observations()
     )
     record = _runner(runtime, observations=unsupported).run(_cell())
@@ -387,14 +481,19 @@ def test_runner_executes_one_injected_call_and_records_only_digests() -> None:
 
 
 def test_runner_sanitizes_errors_and_rejects_unsafe_shared_output() -> None:
-    failure = _Runtime(RuntimeAdapterFailure("runtime-timeout"))
+    failure = _TechnicalTimeoutRuntime()
     record = _runner(failure).run(_cell())
     assert record.state is RunState.TECHNICAL_ERROR
     assert record.technical_error_reason == "runtime-timeout"
 
     generic = _Runtime(RuntimeError("password=do-not-persist-this"))
     record = _runner(generic).run(_cell())
-    assert record.technical_error_reason == "runtime-adapter-failure"
+    assert record.state is RunState.INVALID
+    assert record.technical_error_reason is None
+    assert any(
+        item.reason == "runtime-adapter-failure"
+        for item in record.preflight.observations
+    )
     assert "password" not in json.dumps(record.__dict__, default=str)
 
     unsafe = _Runtime(
@@ -409,22 +508,70 @@ def test_runner_sanitizes_errors_and_rejects_unsafe_shared_output() -> None:
     assert record.output_sha256 is None
 
 
+def test_copied_timeout_receipt_cannot_authorize_technical_retry() -> None:
+    from cc.core.evaluation.live_runtime import (
+        RuntimeTerminalFailure,
+        _issue_runtime_timeout_receipt,
+    )
+
+    cell = _cell()
+    genuine = _issue_runtime_timeout_receipt(
+        cell,
+        runtime=cell.runtime_receipt.runtime,
+        adapter_name=cell.runtime_receipt.adapter_name,
+        adapter_version=cell.runtime_receipt.adapter_version,
+        execution_policy_document={
+            "schema_version": "1.0",
+            "command_policy_sha256": cell.command_policy_sha256,
+        },
+        timeout_seconds=1.0,
+    )
+    forged = replace(genuine, timeout_milliseconds=2_000)
+
+    class Runtime(_Runtime):
+        def execute(self, _cell: EvaluationCell) -> object:
+            raise RuntimeTerminalFailure(
+                "runtime-timeout",
+                technical_receipt=forged,
+            )
+
+    record = _runner(Runtime(), complete=False).run(cell)
+    assert record.state is RunState.INVALID
+    assert record.technical_error_evidence_sha256 is None
+    assert any(
+        item.reason == "runtime-timeout-unverified"
+        for item in record.preflight.observations
+    )
+
+
 def test_control_pairing_uses_exact_comparability_without_a_score() -> None:
-    control = _runner(_Runtime()).run(_cell(LayerVariant.FOUNDATION))
-    layered = _runner(_Runtime()).run(_cell(LayerVariant.ORGANIZATION))
+    control = _runner(_Runtime()).run(
+        _cell(
+            LayerVariant.FOUNDATION,
+            runtime_configuration_sha256=_sha("a"),
+            tool_configuration_sha256=_sha("b"),
+            effective_full_prompt_sha256=_sha("c"),
+        )
+    )
+    layered = _runner(_Runtime()).run(
+        _cell(
+            LayerVariant.ORGANIZATION,
+            runtime_configuration_sha256=_sha("d"),
+            tool_configuration_sha256=_sha("e"),
+            effective_full_prompt_sha256=_sha("f"),
+        )
+    )
     relation = CriterionComparison(
         criterion="evidence-discipline",
         relation=CriterionRelation.IMPROVED,
         control_evidence_sha256=(_sha("1"),),
         layered_evidence_sha256=(_sha("2"),),
     )
-    comparison = pair_control_runs(control, layered, relations=(relation,))
-    assert comparison.hard_gate_state is PreflightState.VALID
-    assert comparison.relations == (relation,)
-    assert "score" not in json.dumps(comparison.__dict__, default=str).casefold()
+    with pytest.raises(ValueError, match="authenticated criterion judgments"):
+        pair_control_runs(control, layered, relations=(relation,))
 
     changed = _runner(_Runtime()).run(
-        _cell(LayerVariant.ORGANIZATION, runtime_configuration_sha256=_sha("8"))
+        _cell(LayerVariant.ORGANIZATION, command_policy_sha256=_sha("9"))
     )
     with pytest.raises(ValueError, match="not comparable"):
         pair_control_runs(control, changed)
@@ -437,16 +584,29 @@ def test_content_addressed_artifacts_are_canonical_and_idempotent(
     control = EvaluationRunner(_Runtime()).run(control_cell)
     layered = _runner(_Runtime()).run(_cell(LayerVariant.ORGANIZATION))
     completed_control = _runner(_Runtime()).run(_cell(LayerVariant.FOUNDATION))
-    comparison = pair_control_runs(completed_control, layered)
+    with pytest.raises(ValueError, match="nonempty criterion relations"):
+        pair_control_runs(completed_control, layered)
 
     run_receipt = write_run_record(tmp_path, control, cell=control_cell)
     repeated = write_run_record(tmp_path, control, cell=control_cell)
-    with pytest.raises(ValueError, match="completion authority"):
-        write_comparison_record(tmp_path, comparison)
     assert run_receipt == repeated
     assert (tmp_path / run_receipt.relative_path).is_file()
     assert run_receipt.sha256 in run_receipt.relative_path
+    assert verify_artifact_receipt(run_receipt)
+    assert not verify_artifact_receipt(replace(run_receipt, sha256=_sha("9")))
+    assert not verify_artifact_receipt(
+        replace(run_receipt, relative_path="run-record/" + _sha("9") + ".json")
+    )
+    assert not verify_artifact_receipt(
+        replace(run_receipt, size_bytes=run_receipt.size_bytes + 1)
+    )
     assert not tuple(tmp_path.rglob("*.tmp"))
+
+    replacement = tmp_path / "replacement.json"
+    replacement.write_text("replacement", encoding="utf-8")
+    replacement.chmod(0o600)
+    os.replace(replacement, tmp_path / run_receipt.relative_path)
+    assert not verify_artifact_receipt(run_receipt)
 
 
 def test_artifact_writer_enforces_private_modes_independent_of_umask(
@@ -466,6 +626,20 @@ def test_artifact_writer_enforces_private_modes_independent_of_umask(
     assert stat.S_IMODE(artifact_path.stat().st_mode) == 0o600
     assert artifact_type.stat().st_uid == os.geteuid()
     assert artifact_path.stat().st_uid == os.geteuid()
+
+
+def test_copied_artifact_receipt_close_cannot_revoke_authentic_receipt(
+    tmp_path: Path,
+) -> None:
+    cell = _cell()
+    record = EvaluationRunner(_Runtime()).run(cell)
+    receipt = write_run_record(tmp_path, record, cell=cell)
+
+    close_artifact_receipt(copy.copy(receipt))
+    assert verify_artifact_receipt(receipt)
+    close_artifact_receipt(receipt)
+    close_artifact_receipt(receipt)
+    assert not verify_artifact_receipt(receipt)
 
 
 def test_artifact_writer_rejects_unsafe_root_type_and_existing_file_modes(
@@ -653,6 +827,96 @@ def test_artifact_final_name_must_still_reference_verified_inode(
         os.close(type_fd)
 
 
+def test_storage_snapshot_rejects_type_name_swap_after_artifact_verification(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import cc.core.evaluation.artifact as artifact_module
+
+    root = tmp_path / "store"
+    root.mkdir(mode=0o700)
+    artifact_type = root / "run-record"
+    artifact_type.mkdir(mode=0o700)
+    content = b'{"schema_version":"1.2"}'
+    digest = __import__("hashlib").sha256(content).hexdigest()
+    filename = f"{digest}.json"
+    (artifact_type / filename).write_bytes(content)
+    (artifact_type / filename).chmod(0o600)
+    root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+    type_fd = os.open(artifact_type, os.O_RDONLY | os.O_DIRECTORY)
+    real_verify = artifact_module._verify_named_artifact
+
+    def swapping_verify(*args, **kwargs):
+        real_verify(*args, **kwargs)
+        artifact_type.rename(root / "held-run-record")
+        artifact_type.mkdir(mode=0o700)
+
+    monkeypatch.setattr(artifact_module, "_verify_named_artifact", swapping_verify)
+    try:
+        with pytest.raises(ValueError, match="path identity"):
+            _verify_storage_snapshot(
+                root_fd,
+                type_fd,
+                "run-record",
+                filename,
+                content,
+                digest,
+            )
+    finally:
+        os.close(type_fd)
+        os.close(root_fd)
+
+
+def test_storage_snapshot_retained_leaf_rejects_final_name_replacement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import cc.core.evaluation.artifact as artifact_module
+
+    root = tmp_path / "store"
+    root.mkdir(mode=0o700)
+    artifact_type = root / "run-record"
+    artifact_type.mkdir(mode=0o700)
+    content = b'{"schema_version":"1.4"}'
+    digest = __import__("hashlib").sha256(content).hexdigest()
+    filename = f"{digest}.json"
+    leaf = artifact_type / filename
+    leaf.write_bytes(content)
+    leaf.chmod(0o600)
+    replacement = artifact_type / "replacement.json"
+    replacement.write_bytes(b"replacement")
+    replacement.chmod(0o600)
+    root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+    type_fd = os.open(artifact_type, os.O_RDONLY | os.O_DIRECTORY)
+    leaf_fd = os.open(leaf, os.O_RDONLY)
+    real_require = artifact_module._require_named_directory
+
+    def replacing_leaf(*args, **kwargs):
+        os.replace(
+            "replacement.json",
+            filename,
+            src_dir_fd=type_fd,
+            dst_dir_fd=type_fd,
+        )
+        return real_require(*args, **kwargs)
+
+    monkeypatch.setattr(artifact_module, "_require_named_directory", replacing_leaf)
+    try:
+        with pytest.raises(ValueError, match="identity changed"):
+            _verify_storage_snapshot(
+                root_fd,
+                type_fd,
+                "run-record",
+                filename,
+                content,
+                digest,
+                leaf_fd=leaf_fd,
+            )
+    finally:
+        os.close(leaf_fd)
+        os.close(type_fd)
+        os.close(root_fd)
+
+
 def test_callers_cannot_mint_passing_gate_or_valid_preflight() -> None:
     with pytest.raises(ValueError, match="verifier-issued"):
         GateObservation(
@@ -674,7 +938,7 @@ def test_callers_cannot_mint_passing_gate_or_valid_preflight() -> None:
 
 
 def test_receipt_fields_reject_mutable_refs_bad_signers_and_disclosure_paths() -> None:
-    layer = _layer("foundation", 0)
+    layer = _layer("claude-copilot", "foundation", 0)
     with pytest.raises(ValueError, match="signed tag"):
         replace(layer, immutable_ref="refs/heads/main")
     with pytest.raises(ValueError, match="signer fingerprint"):
@@ -688,8 +952,219 @@ def test_receipt_fields_reject_mutable_refs_bad_signers_and_disclosure_paths() -
             "shared-output",
         )
     record = EvaluationRunner(_Runtime()).run(_cell())
-    with pytest.raises(ValueError, match="exactly 1.2"):
-        replace(record, schema_version="1.3")
+    with pytest.raises(ValueError, match="exactly 1.4"):
+        replace(record, schema_version="1.2")
+
+
+@pytest.mark.parametrize("variant", tuple(LayerVariant))
+def test_cell_requires_knowledge_for_every_declared_tier(
+    variant: LayerVariant,
+) -> None:
+    cell = _cell(variant)
+    for tier in dict.fromkeys(layer.tier for layer in cell.content_receipt.layers):
+        replacement_layers = []
+        for layer in cell.content_receipt.layers:
+            if (layer.tier, layer.product) == (tier, "knowledge"):
+                layer = replace(
+                    layer,
+                    product="claude-copilot",
+                    repository_identifier=f"synthetic/claude-copilot-{tier}-extra",
+                )
+            replacement_layers.append(layer)
+        changed_content = replace(
+            cell.content_receipt,
+            layers=tuple(
+                sorted(
+                    replacement_layers,
+                    key=lambda item: (
+                        tuple(
+                            dict.fromkeys(
+                                layer.tier for layer in cell.content_receipt.layers
+                            )
+                        ).index(item.tier),
+                        item.product,
+                        item.repository_identifier,
+                    ),
+                )
+            ),
+        )
+        with pytest.raises(ValueError, match="exactly one Knowledge product"):
+            replace(cell, content_receipt=changed_content)
+
+
+@pytest.mark.parametrize("variant", tuple(LayerVariant))
+def test_cell_requires_one_nearest_wins_runtime_specialist_product(
+    variant: LayerVariant,
+) -> None:
+    cell = _cell(variant)
+    changed_content = replace(
+        cell.content_receipt,
+        layers=tuple(
+            layer
+            for layer in cell.content_receipt.layers
+            if layer.product != "claude-copilot"
+        ),
+    )
+    with pytest.raises(ValueError, match="runtime resolution attestation"):
+        replace(cell, content_receipt=changed_content)
+
+
+def test_cell_rejects_cross_runtime_product_substitution() -> None:
+    cell = _cell(LayerVariant.FOUNDATION)
+    changed_layers = tuple(
+        (
+            replace(layer, product="codex-copilot")
+            if layer.product == "claude-copilot"
+            else layer
+        )
+        for layer in cell.content_receipt.layers
+    )
+    changed_content = replace(cell.content_receipt, layers=changed_layers)
+    with pytest.raises(ValueError, match="unrelated layer product"):
+        replace(cell, content_receipt=changed_content)
+
+
+def test_cell_rejects_duplicate_product_from_a_different_repository() -> None:
+    cell = _cell(LayerVariant.FOUNDATION)
+    knowledge = next(
+        layer for layer in cell.content_receipt.layers if layer.product == "knowledge"
+    )
+    duplicate = replace(
+        knowledge,
+        repository_identifier="synthetic/knowledge-foundation-extra",
+        immutable_ref="refs/tags/synthetic-knowledge-foundation-extra-v1",
+    )
+    changed_content = replace(
+        cell.content_receipt,
+        layers=tuple(
+            sorted(
+                cell.content_receipt.layers + (duplicate,),
+                key=lambda item: (item.tier, item.product, item.repository_identifier),
+            )
+        ),
+    )
+    with pytest.raises(ValueError, match="exactly one Knowledge product"):
+        replace(cell, content_receipt=changed_content)
+
+
+def test_cell_rejects_duplicate_runtime_product_from_a_different_repository() -> None:
+    cell = _cell(LayerVariant.ORGANIZATION)
+    runtime_layer = next(
+        layer
+        for layer in cell.content_receipt.layers
+        if layer.product == "claude-copilot"
+    )
+    duplicate = replace(
+        runtime_layer,
+        repository_identifier="synthetic/claude-copilot-organization-extra",
+        immutable_ref="refs/tags/synthetic-claude-copilot-organization-extra-v1",
+    )
+    changed_content = replace(
+        cell.content_receipt,
+        layers=tuple(
+            sorted(
+                cell.content_receipt.layers + (duplicate,),
+                key=lambda item: (
+                    {"foundation": 0, "organization": 1}[item.tier],
+                    item.product,
+                    item.repository_identifier,
+                ),
+            )
+        ),
+    )
+    with pytest.raises(ValueError, match="runtime resolution attestation"):
+        replace(cell, content_receipt=changed_content)
+
+
+@pytest.mark.parametrize(
+    ("variant", "downgraded_tier"),
+    (
+        (LayerVariant.ORGANIZATION, "foundation"),
+        (LayerVariant.DEPARTMENT, "organization"),
+        (LayerVariant.PERSONAL, "department"),
+    ),
+)
+def test_cell_accepts_authenticated_runtime_inheritance_from_a_lower_tier(
+    variant: LayerVariant,
+    downgraded_tier: str,
+) -> None:
+    cell = _cell(variant)
+    selected = next(
+        layer
+        for layer in cell.content_receipt.layers
+        if layer.product == "claude-copilot" and layer.resolution_action == "selected"
+    )
+    inherited = next(
+        layer
+        for layer in cell.content_receipt.layers
+        if layer.product == "claude-copilot" and layer.tier == downgraded_tier
+    )
+    changed_content = replace(
+        cell.content_receipt,
+        layers=tuple(
+            sorted(
+                (
+                    (
+                        replace(
+                            layer,
+                            resolution_action="authenticated-absence",
+                            contribution_ids=(),
+                            content_digests=(),
+                        )
+                        if layer is selected
+                        else (
+                            replace(layer, resolution_action="selected")
+                            if layer is inherited
+                            else layer
+                        )
+                    )
+                    for layer in cell.content_receipt.layers
+                ),
+                key=lambda item: (
+                    {
+                        "foundation": 0,
+                        "organization": 1,
+                        "department": 2,
+                        "personal": 3,
+                    }[item.tier],
+                    item.product,
+                    item.repository_identifier,
+                ),
+            )
+        ),
+    )
+    changed_cell = replace(cell, content_receipt=changed_content)
+    assert (
+        next(
+            layer
+            for layer in changed_cell.content_receipt.layers
+            if layer.product == "claude-copilot"
+            and layer.resolution_action == "selected"
+        ).tier
+        == downgraded_tier
+    )
+
+
+def test_cell_rejects_lower_winner_when_a_higher_contribution_exists() -> None:
+    cell = _cell(LayerVariant.ORGANIZATION)
+    changed_content = replace(
+        cell.content_receipt,
+        layers=tuple(
+            (
+                replace(layer, resolution_action="selected")
+                if layer.product == "claude-copilot" and layer.tier == "foundation"
+                else (
+                    replace(layer, resolution_action="shadowed")
+                    if layer.product == "claude-copilot"
+                    and layer.tier == "organization"
+                    else layer
+                )
+            )
+            for layer in cell.content_receipt.layers
+        ),
+    )
+    with pytest.raises(ValueError, match="nearest-wins selection and inheritance"):
+        replace(cell, content_receipt=changed_content)
 
 
 def test_run_record_state_matrix_rejects_reflective_contradictions() -> None:
@@ -708,13 +1183,13 @@ def test_run_record_state_matrix_rejects_reflective_contradictions() -> None:
         )
 
     dispatch = _runner(_Runtime(), complete=False).run(cell)
-    with pytest.raises(ValueError, match="without completion"):
+    with pytest.raises(ValueError, match="unauthenticated output evidence"):
         replace(dispatch, completion_evidence_sha256=_sha("9"))
     completed = _runner(_Runtime()).run(cell)
     with pytest.raises(ValueError, match="correlated completion"):
         replace(completed, completion_evidence_sha256=None)
-    technical = _runner(_Runtime(RuntimeError("synthetic"))).run(cell)
-    with pytest.raises(ValueError, match="only a stable error"):
+    technical = _runner(_TechnicalTimeoutRuntime()).run(cell)
+    with pytest.raises(ValueError, match="stable reason and verifier evidence"):
         replace(technical, output_sha256=_sha("8"))
 
 
@@ -723,12 +1198,14 @@ def test_dispatch_is_not_completion_without_correlated_completion_proof() -> Non
     record = _runner(runtime, complete=False).run(_cell())
     assert record.state is RunState.DISPATCH_AUTHORIZED
     assert record.completion_evidence_sha256 is None
+    assert record.output_sha256 is None
+    assert record.controlled_artifact_path is None
     assert runtime.calls == 1
     with pytest.raises(ValueError, match="completed"):
         pair_control_runs(record, record)
 
 
-def test_route_and_continuity_bind_preflight_and_comparability() -> None:
+def test_route_substitution_changes_preflight_and_control_identity() -> None:
     original_cell = _cell()
     changed_receipt = replace(
         original_cell.consumption_receipt,
@@ -743,6 +1220,33 @@ def test_route_and_continuity_bind_preflight_and_comparability() -> None:
     assert original.comparability_sha256 != changed.comparability_sha256
 
 
+def test_variant_preparation_continuity_may_differ_between_controls() -> None:
+    original_cell = _cell()
+    changed_receipt = replace(
+        original_cell.consumption_receipt,
+        journey_evidence_sha256=_sha("8"),
+        continuity_evidence_sha256=_sha("9"),
+    )
+    original = _runner(_Runtime()).run(original_cell)
+    changed = _runner(_Runtime()).run(
+        replace(original_cell, consumption_receipt=changed_receipt)
+    )
+    assert original.preflight.subject_sha256 != changed.preflight.subject_sha256
+    assert original.comparability_sha256 == changed.comparability_sha256
+
+
+def test_one_sided_authenticated_retry_keeps_pair_comparable() -> None:
+    from cc.core.evaluation.comparison import comparability_identity
+
+    control = _cell(LayerVariant.FOUNDATION)
+    layered_retry = _cell(
+        LayerVariant.ORGANIZATION,
+        attempt=2,
+        parent_attempt_sha256=_sha("9"),
+    )
+    assert comparability_identity(control) == comparability_identity(layered_retry)
+
+
 def test_comparison_rejects_inapplicable_and_nonadjacent_case_pairs() -> None:
     foundation = _runner(_Runtime()).run(_cell(LayerVariant.FOUNDATION))
     department = _runner(_Runtime()).run(_cell(LayerVariant.DEPARTMENT))
@@ -755,13 +1259,29 @@ def test_comparison_rejects_inapplicable_and_nonadjacent_case_pairs() -> None:
     eval_five_department = _runner(_Runtime()).run(
         _cell(LayerVariant.DEPARTMENT, case_id="eval-05")
     )
-    assert pair_control_runs(eval_five_foundation, eval_five_department)
+    relation = CriterionComparison(
+        criterion="department-method",
+        relation=CriterionRelation.SAME,
+        control_evidence_sha256=(_sha("1"),),
+        layered_evidence_sha256=(_sha("2"),),
+    )
+    with pytest.raises(ValueError, match="authenticated criterion judgments"):
+        pair_control_runs(
+            eval_five_foundation,
+            eval_five_department,
+            relations=(relation,),
+        )
 
 
-def test_retry_lineage_reloads_canonical_parent_artifact(tmp_path: Path) -> None:
+def test_retry_lineage_accepts_only_durable_retriable_technical_result(
+    tmp_path: Path,
+) -> None:
     first_cell = _cell()
-    first = EvaluationRunner(_Runtime(), artifact_root=tmp_path).run(first_cell)
-    write_run_record(tmp_path, first, cell=first_cell)
+    first = _runner(
+        _TechnicalTimeoutRuntime(),
+        artifact_root=tmp_path,
+    ).run(first_cell)
+    assert first.state is RunState.TECHNICAL_ERROR
     runner = _runner(_Runtime(), complete=False, artifact_root=tmp_path)
     retry = runner.run(_cell(attempt=2, parent_attempt_sha256=first.run_sha256))
     assert retry.state is RunState.DISPATCH_AUTHORIZED
@@ -772,16 +1292,19 @@ def test_retry_lineage_rejects_parent_artifact_with_unsafe_mode(
     tmp_path: Path,
 ) -> None:
     first_cell = _cell()
-    first = EvaluationRunner(_Runtime(), artifact_root=tmp_path).run(first_cell)
-    receipt = write_run_record(tmp_path, first, cell=first_cell)
-    (tmp_path / receipt.relative_path).chmod(0o666)
+    first = _runner(
+        _TechnicalTimeoutRuntime(),
+        artifact_root=tmp_path,
+    ).run(first_cell)
+    result = next((tmp_path / "attempt-result").glob("*.json"))
+    result.chmod(0o666)
 
     runtime = _Runtime()
     runner = _runner(runtime, complete=False, artifact_root=tmp_path)
     retry = runner.run(_cell(attempt=2, parent_attempt_sha256=first.run_sha256))
     assert retry.state is RunState.INVALID
     assert runtime.calls == 0
-    assert (tmp_path / "run-record").is_dir()
+    assert (tmp_path / "attempt-result").is_dir()
 
     bad_runtime = _Runtime()
     bad = runner.run(
@@ -796,182 +1319,402 @@ def test_retry_lineage_rejects_parent_artifact_with_unsafe_mode(
     assert len(runner.records) == 2
 
 
-def test_durable_retry_reuses_one_root_fd_for_parent_and_child(
+def test_retry_policy_rejects_nontechnical_parent_states(tmp_path: Path) -> None:
+    for index, runtime in enumerate(
+        (
+            _Runtime(),
+            _Runtime(RuntimeAdapterFailure("unclassified")),
+            _Runtime(RuntimeAdapterFailure("claude-model-mismatch")),
+            _Runtime(RuntimeAdapterFailure("codex-prohibited-runtime-action")),
+        )
+    ):
+        root = tmp_path / f"case-{index}"
+        first_cell = _cell(case_id="eval-01")
+        first = _runner(runtime, complete=False, artifact_root=root).run(first_cell)
+        child_runtime = _Runtime()
+        child = _runner(child_runtime, artifact_root=root).run(
+            _cell(attempt=2, parent_attempt_sha256=first.run_sha256)
+        )
+        assert child.state is RunState.INVALID
+        assert child_runtime.calls == 0
+
+
+@pytest.mark.parametrize(
+    ("reason", "expected_state", "failed_gate"),
+    (
+        ("runtime-timeout", RunState.INVALID, PreflightGate.RUNTIME_ADAPTER),
+        ("claude-model-mismatch", RunState.INVALID, PreflightGate.RUNTIME_ADAPTER),
+        (
+            "codex-prohibited-runtime-action",
+            RunState.INVALID,
+            PreflightGate.NO_EXTERNAL_MUTATION,
+        ),
+        (
+            "claude-agent-projection-unavailable",
+            RunState.UNSUPPORTED,
+            PreflightGate.RUNTIME_CAPABILITY,
+        ),
+        (
+            "unrecognized-runtime-failure",
+            RunState.INVALID,
+            PreflightGate.RUNTIME_ADAPTER,
+        ),
+    ),
+)
+def test_runtime_failure_classification_is_closed_and_nonretryable_by_default(
+    reason: str,
+    expected_state: RunState,
+    failed_gate: PreflightGate | None,
+) -> None:
+    record = _runner(_Runtime(RuntimeAdapterFailure(reason))).run(_cell())
+    assert record.state is expected_state
+    assert record.technical_error_reason == (
+        reason if expected_state is RunState.TECHNICAL_ERROR else None
+    )
+    terminal_gate_state = (
+        GateState.UNSUPPORTED
+        if expected_state is RunState.UNSUPPORTED
+        else GateState.FAIL
+    )
+    failures = tuple(
+        item
+        for item in record.preflight.observations
+        if item.state is terminal_gate_state
+    )
+    if failed_gate is None:
+        assert not failures
+    else:
+        assert any(item.gate is failed_gate for item in failures)
+
+
+@pytest.mark.parametrize(
+    "reason",
+    (
+        "codex-no-tool-isolation-unavailable",
+        "claude-agent-projection-unavailable",
+    ),
+)
+def test_capability_unavailable_is_durable_without_output_or_live_call(
+    tmp_path: Path,
+    reason: str,
+) -> None:
+    class CapabilityUnavailable:
+        live_calls = 0
+
+        def execute(self, _cell: EvaluationCell) -> object:
+            raise RuntimeAdapterFailure(reason)
+
+    cell = _cell()
+    runtime = CapabilityUnavailable()
+    authority = _test_authority(cell, _observations())
+    with patch(
+        "cc.core.evaluation.runner._production_authority",
+        return_value=authority,
+    ):
+        record = EvaluationRunner(runtime, artifact_root=tmp_path).run(cell)
+    assert record.state is RunState.UNSUPPORTED
+    assert record.preflight.state is PreflightState.UNSUPPORTED
+    assert record.output_sha256 is None
+    assert runtime.live_calls == 0
+
+    with patch(
+        "cc.core.evaluation._authority._production_authority",
+        side_effect=lambda *_args, **_kwargs: _test_authority(
+            cell,
+            _observations(),
+        ),
+    ):
+        receipt = write_run_record(tmp_path, record, cell=cell)
+        loaded = load_durable_unsupported_run(
+            tmp_path,
+            record.run_sha256,
+            cell=cell,
+        )
+    assert verify_artifact_receipt(receipt)
+    assert loaded is not None
+    assert loaded.record.state is RunState.UNSUPPORTED
+    assert loaded.validate()
+    copy.copy(loaded).close()
+    assert loaded.validate()
+    loaded.close()
+    loaded.close()
+    assert not loaded.validate()
+
+
+def test_artifact_authorities_close_on_success_mismatch_exception_and_lineage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    close_calls: list[_EvaluationAuthority] = []
+    original_close = _EvaluationAuthority.close
+
+    def tracked_close(authority: _EvaluationAuthority) -> None:
+        close_calls.append(authority)
+        original_close(authority)
+
+    monkeypatch.setattr(_EvaluationAuthority, "close", tracked_close)
+
+    class CapabilityUnavailable:
+        def execute(self, _cell: EvaluationCell) -> object:
+            raise RuntimeAdapterFailure("codex-no-tool-isolation-unavailable")
+
+    cell = _cell()
+    unsupported = _runner(
+        CapabilityUnavailable(),
+        complete=False,
+        artifact_root=tmp_path,
+    ).run(cell)
+    close_calls.clear()
+    issued: list[_EvaluationAuthority] = []
+
+    def issue_exact(selected: EvaluationCell, **_kwargs) -> _EvaluationAuthority:
+        authority = _test_authority(selected, _observations())
+        issued.append(authority)
+        return authority
+
+    with patch(
+        "cc.core.evaluation._authority._production_authority",
+        side_effect=issue_exact,
+    ):
+        write_run_record(tmp_path, unsupported, cell=cell)
+        loaded = load_durable_unsupported_run(
+            tmp_path,
+            unsupported.run_sha256,
+            cell=cell,
+        )
+    assert loaded is not None
+    assert issued
+    assert all(
+        sum(closed is authority for closed in close_calls) == 1 for authority in issued
+    )
+
+    issued.clear()
+    close_calls.clear()
+
+    def issue_mismatch(_selected: EvaluationCell, **_kwargs) -> _EvaluationAuthority:
+        authority = _test_authority(
+            _cell(case_id="eval-02"),
+            _observations(),
+        )
+        issued.append(authority)
+        return authority
+
+    with patch(
+        "cc.core.evaluation._authority._production_authority",
+        side_effect=issue_mismatch,
+    ):
+        assert (
+            load_durable_unsupported_run(
+                tmp_path,
+                unsupported.run_sha256,
+                cell=cell,
+            )
+            is None
+        )
+    assert all(
+        sum(closed is authority for closed in close_calls) == 1 for authority in issued
+    )
+
+    issued.clear()
+    close_calls.clear()
+    with (
+        patch(
+            "cc.core.evaluation._authority._production_authority",
+            side_effect=issue_exact,
+        ),
+        patch(
+            "cc.core.evaluation.runner._preflight_for",
+            side_effect=ValueError("synthetic preflight failure"),
+        ),
+    ):
+        assert (
+            load_durable_unsupported_run(
+                tmp_path,
+                unsupported.run_sha256,
+                cell=cell,
+            )
+            is None
+        )
+    assert all(
+        sum(closed is authority for closed in close_calls) == 1 for authority in issued
+    )
+
+    lineage_root = tmp_path / "lineage"
+    lineage_root.mkdir(mode=0o700)
+    lineage_cell = _cell()
+    parent = _runner(
+        _Runtime(),
+        complete=False,
+        artifact_root=lineage_root,
+    ).run(lineage_cell)
+    issued.clear()
+    close_calls.clear()
+    with patch(
+        "cc.core.evaluation._authority._production_authority",
+        side_effect=issue_exact,
+    ):
+        write_run_record(lineage_root, parent, cell=lineage_cell)
+    issued.clear()
+    close_calls.clear()
+    child = _cell(attempt=2, parent_attempt_sha256=parent.run_sha256)
+    with patch(
+        "cc.core.evaluation._authority._production_authority",
+        side_effect=issue_exact,
+    ):
+        document = load_run_record_document(
+            lineage_root,
+            parent.run_sha256,
+            child_cell=child,
+            loaded_fixture=None,
+            journey_run_id="",
+            journey_ledger=None,
+            lineage_depth=0,
+        )
+    assert document is not None
+    assert all(
+        sum(closed is authority for closed in close_calls) == 1 for authority in issued
+    )
+
+
+def test_every_emitted_runtime_terminal_reason_has_a_closed_disposition() -> None:
+    from cc.core.evaluation import live_runtime
+
+    module = ast.parse(Path(live_runtime.__file__).read_text(encoding="utf-8"))
+    emitted = {
+        node.args[0].value
+        for node in ast.walk(module)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "RuntimeTerminalFailure"
+        and node.args
+        and isinstance(node.args[0], ast.Constant)
+        and isinstance(node.args[0].value, str)
+    }
+    assert emitted <= set(_RUNTIME_FAILURE_DISPOSITIONS)
+
+
+def test_retry_policy_is_bounded_and_canonical() -> None:
+    with pytest.raises(ValueError, match="canonical retry limit"):
+        _cell(attempt=3, parent_attempt_sha256=_sha("8"))
+    with pytest.raises(ValueError, match="attempt policy is not canonical"):
+        _cell(attempt_policy_sha256=_sha("8"))
+
+
+def test_retry_lineage_rejects_attempt_result_directory_replacement(
     tmp_path: Path,
 ) -> None:
-    import cc.core.evaluation.artifact as artifact_module
+    first = _runner(
+        _TechnicalTimeoutRuntime(),
+        artifact_root=tmp_path,
+    ).run(_cell())
+    held = tmp_path / "held-attempt-result"
+    (tmp_path / "attempt-result").rename(held)
+    (tmp_path / "attempt-result").mkdir(mode=0o700)
+    runtime = _Runtime()
+    retry = _runner(runtime, artifact_root=tmp_path).run(
+        _cell(attempt=2, parent_attempt_sha256=first.run_sha256)
+    )
+    assert retry.state is RunState.INVALID
+    assert runtime.calls == 0
 
-    root = tmp_path / "store"
-    root.mkdir(mode=0o700)
-    held = tmp_path / "held"
-    first_cell = _cell()
-    first = EvaluationRunner(_Runtime(), artifact_root=root).run(first_cell)
-    first_receipt = write_run_record(root, first, cell=first_cell)
-    child_cell = _cell(attempt=2, parent_attempt_sha256=first.run_sha256)
-    child = EvaluationRunner(_Runtime(), artifact_root=root).run(child_cell)
-    real_valid = artifact_module._production_record_valid
+
+def test_finalize_attempt_retains_claim_leaf_through_result_binding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cell = _cell()
+    assert claim_attempt(tmp_path, cell)
+    record = _runner(_TechnicalTimeoutRuntime()).run(cell)
+    claim_path = next((tmp_path / "attempt-claim").glob("*.json"))
+    held_path = claim_path.with_suffix(".held")
+    real_require_named_directory = __import__(
+        "cc.core.evaluation.artifact", fromlist=["_require_named_directory"]
+    )._require_named_directory
     swapped = False
 
-    def swapping_valid(*args, **kwargs):
+    def replace_claim_during_result_binding(
+        parent_fd: int,
+        name: str,
+        opened: os.stat_result,
+        *,
+        description: str,
+    ) -> None:
         nonlocal swapped
-        result = real_valid(*args, **kwargs)
-        root.rename(held)
-        root.mkdir(mode=0o700)
-        swapped = True
-        return result
+        real_require_named_directory(parent_fd, name, opened, description=description)
+        if name == "attempt-result" and not swapped:
+            swapped = True
+            claim_path.rename(held_path)
+            claim_path.write_text('{"mutated":true}', encoding="utf-8")
+            claim_path.chmod(0o600)
 
-    with (
-        patch.object(artifact_module, "_production_record_valid", swapping_valid),
-        patch.object(
-            artifact_module,
-            "_open_root_directory",
-            wraps=_open_root_directory,
-        ) as open_root,
-    ):
-        child_receipt = write_run_record(root, child, cell=child_cell)
-
+    monkeypatch.setattr(
+        "cc.core.evaluation.artifact._require_named_directory",
+        replace_claim_during_result_binding,
+    )
+    with pytest.raises(ValueError, match="attempt evidence changed"):
+        finalize_attempt(tmp_path, cell, record)
     assert swapped
-    assert open_root.call_count == 1
-    assert (held / first_receipt.relative_path).is_file()
-    assert (held / child_receipt.relative_path).is_file()
-    assert not (root / first_receipt.relative_path).exists()
-    assert not (root / child_receipt.relative_path).exists()
 
 
-def test_recursive_retry_lineage_reuses_the_transaction_root_fd(
+def test_retry_parent_pair_verifier_rejects_post_finalize_claim_mutation(
     tmp_path: Path,
 ) -> None:
-    import cc.core.evaluation.artifact as artifact_module
-
-    root = tmp_path / "store"
-    root.mkdir(mode=0o700)
-    held = tmp_path / "held"
     first_cell = _cell()
-    first = EvaluationRunner(_Runtime(), artifact_root=root).run(first_cell)
-    first_receipt = write_run_record(root, first, cell=first_cell)
-    second_cell = _cell(attempt=2, parent_attempt_sha256=first.run_sha256)
-    second = EvaluationRunner(_Runtime(), artifact_root=root).run(second_cell)
-    second_receipt = write_run_record(root, second, cell=second_cell)
-    third_cell = _cell(attempt=3, parent_attempt_sha256=second.run_sha256)
-    third = EvaluationRunner(_Runtime(), artifact_root=root).run(third_cell)
-    real_read = artifact_module._read_verified_artifact
-    reads = 0
+    first = _runner(
+        _TechnicalTimeoutRuntime(),
+        artifact_root=tmp_path,
+    ).run(first_cell)
+    child = _cell(attempt=2, parent_attempt_sha256=first.run_sha256)
+    assert load_technical_retry_parent(tmp_path, child) is not None
 
-    def swapping_read(*args, **kwargs):
-        nonlocal reads
-        raw = real_read(*args, **kwargs)
-        reads += 1
-        if reads == 1:
-            root.rename(held)
-            root.mkdir(mode=0o700)
-        return raw
+    claim_path = next((tmp_path / "attempt-claim").glob("*.json"))
+    replacement = claim_path.with_suffix(".replacement")
+    replacement.write_text('{"mutated":true}', encoding="utf-8")
+    replacement.chmod(0o600)
+    os.replace(replacement, claim_path)
 
-    with (
-        patch.object(artifact_module, "_read_verified_artifact", swapping_read),
-        patch.object(
-            artifact_module,
-            "_open_root_directory",
-            wraps=_open_root_directory,
-        ) as open_root,
-    ):
-        third_receipt = write_run_record(root, third, cell=third_cell)
-
-    assert reads >= 3
-    assert open_root.call_count == 1
-    for receipt in (first_receipt, second_receipt, third_receipt):
-        assert (held / receipt.relative_path).is_file()
-        assert not (root / receipt.relative_path).exists()
+    assert load_technical_retry_parent(tmp_path, child) is None
 
 
-def test_durable_retry_rejects_type_directory_swap_before_child_staging(
+@pytest.mark.parametrize("artifact_type", ("attempt-claim", "attempt-result"))
+@pytest.mark.parametrize("mutation", ("pretty", "duplicate-key"))
+def test_retry_parent_rejects_noncanonical_or_duplicate_json_bytes(
     tmp_path: Path,
+    artifact_type: str,
+    mutation: str,
 ) -> None:
-    import cc.core.evaluation.artifact as artifact_module
+    first = _runner(
+        _TechnicalTimeoutRuntime(),
+        artifact_root=tmp_path,
+    ).run(_cell())
+    artifact_path = next((tmp_path / artifact_type).glob("*.json"))
+    raw = artifact_path.read_bytes()
+    if mutation == "pretty":
+        changed = json.dumps(json.loads(raw), indent=2, sort_keys=False).encode()
+    else:
+        field = (
+            b'"attempt":1,'
+            if artifact_type == "attempt-claim"
+            else (b'"schema_version":"1.0",')
+        )
+        changed = b"{" + field + raw[1:]
+    artifact_path.write_bytes(changed)
+    artifact_path.chmod(0o600)
 
-    root = tmp_path / "store"
-    root.mkdir(mode=0o700)
-    held_type = root / "held-run-record"
-    first_cell = _cell()
-    first = EvaluationRunner(_Runtime(), artifact_root=root).run(first_cell)
-    first_receipt = write_run_record(root, first, cell=first_cell)
-    child_cell = _cell(attempt=2, parent_attempt_sha256=first.run_sha256)
-    child = EvaluationRunner(_Runtime(), artifact_root=root).run(child_cell)
-    real_valid = artifact_module._production_record_valid
-
-    def swapping_valid(*args, **kwargs):
-        result = real_valid(*args, **kwargs)
-        (root / "run-record").rename(held_type)
-        (root / "run-record").mkdir(mode=0o700)
-        return result
-
-    with (
-        patch.object(artifact_module, "_production_record_valid", swapping_valid),
-        patch.object(
-            artifact_module,
-            "_open_artifact_type_directory",
-            wraps=artifact_module._open_artifact_type_directory,
-        ) as open_type,
-        pytest.raises((OSError, ValueError)),
-    ):
-        write_run_record(root, child, cell=child_cell)
-
-    assert open_type.call_count == 1
-    assert (held_type / Path(first_receipt.relative_path).name).is_file()
-    assert not tuple((root / "run-record").iterdir())
-
-
-def test_recursive_retry_rejects_type_directory_swap_at_any_depth(
-    tmp_path: Path,
-) -> None:
-    import cc.core.evaluation.artifact as artifact_module
-
-    root = tmp_path / "store"
-    root.mkdir(mode=0o700)
-    held_type = root / "held-run-record"
-    first_cell = _cell()
-    first = EvaluationRunner(_Runtime(), artifact_root=root).run(first_cell)
-    first_receipt = write_run_record(root, first, cell=first_cell)
-    second_cell = _cell(attempt=2, parent_attempt_sha256=first.run_sha256)
-    second = EvaluationRunner(_Runtime(), artifact_root=root).run(second_cell)
-    second_receipt = write_run_record(root, second, cell=second_cell)
-    third_cell = _cell(attempt=3, parent_attempt_sha256=second.run_sha256)
-    third = EvaluationRunner(_Runtime(), artifact_root=root).run(third_cell)
-    real_read = artifact_module._read_verified_artifact
-    reads = 0
-
-    def swapping_read(*args, **kwargs):
-        nonlocal reads
-        raw = real_read(*args, **kwargs)
-        reads += 1
-        if reads == 1:
-            (root / "run-record").rename(held_type)
-            (root / "run-record").mkdir(mode=0o700)
-        return raw
-
-    with (
-        patch.object(artifact_module, "_read_verified_artifact", swapping_read),
-        patch.object(
-            artifact_module,
-            "_open_artifact_type_directory",
-            wraps=artifact_module._open_artifact_type_directory,
-        ) as open_type,
-        pytest.raises(ValueError, match="production-authoritative"),
-    ):
-        write_run_record(root, third, cell=third_cell)
-
-    assert reads >= 1
-    assert open_type.call_count == 1
-    for receipt in (first_receipt, second_receipt):
-        assert (held_type / Path(receipt.relative_path).name).is_file()
-    assert not tuple((root / "run-record").iterdir())
+    runtime = _Runtime()
+    child = _runner(runtime, artifact_root=tmp_path).run(
+        _cell(attempt=2, parent_attempt_sha256=first.run_sha256)
+    )
+    assert child.state is RunState.INVALID
+    assert runtime.calls == 0
 
 
 @pytest.mark.parametrize(
     "changed",
     (
-        {"attempt_policy_sha256": _sha("8")},
         {"runtime_configuration_sha256": _sha("8")},
         {"tool_configuration_sha256": _sha("8")},
+        {"effective_full_prompt_sha256": _sha("9")},
+        {"command_policy_sha256": _sha("9")},
     ),
 )
 def test_retry_lineage_rejects_control_configuration_transplant(
@@ -1038,6 +1781,17 @@ def test_unsealed_authority_cannot_execute_adapter() -> None:
     assert record.state is RunState.INVALID
     assert runtime.calls == 0
 
+    cell = _cell()
+    copied = replace(_test_authority(cell, _observations()))
+    copied_runtime = _Runtime()
+    with patch(
+        "cc.core.evaluation.runner._production_authority",
+        return_value=copied,
+    ):
+        copied_record = EvaluationRunner(copied_runtime).run(cell)
+    assert copied_record.state is RunState.INVALID
+    assert copied_runtime.calls == 0
+
 
 def test_unsealed_completion_cannot_claim_completed() -> None:
     class _ForgedRuntime(_Runtime):
@@ -1049,7 +1803,7 @@ def test_unsealed_completion_cannot_claim_completed() -> None:
             }
 
     record = _runner(_ForgedRuntime()).run(_cell())
-    assert record.state is RunState.TECHNICAL_ERROR
+    assert record.state is RunState.INVALID
 
 
 def test_forged_run_and_comparison_records_cannot_be_minted_or_written(
@@ -1062,16 +1816,20 @@ def test_forged_run_and_comparison_records_cannot_be_minted_or_written(
     forged = replace(record, run_sha256=_sha("9"))
     with pytest.raises(ValueError, match="production-authoritative"):
         write_run_record(tmp_path, forged, cell=_cell())
-
-    comparison = pair_control_runs(
-        _runner(_Runtime()).run(_cell(LayerVariant.FOUNDATION)),
-        _runner(_Runtime()).run(_cell(LayerVariant.ORGANIZATION)),
+    changed = replace(record, technical_error_reason=None, case_id="eval-02")
+    recomputed = replace(
+        changed,
+        run_sha256=canonical_sha256(_record_document(changed, include_identity=False)),
     )
-    with pytest.raises(ValueError, match="coordinator-issued"):
-        replace(comparison, comparison_sha256=_sha("8"), _authority=None)
-    forged_comparison = replace(comparison, comparison_sha256=_sha("8"))
-    with pytest.raises(ValueError, match="authentic"):
-        write_comparison_record(tmp_path, forged_comparison)
+    assert not verify_run_record_identity(recomputed)
+    with pytest.raises(ValueError, match="production-authoritative"):
+        write_run_record(tmp_path, recomputed, cell=_cell())
+
+    with pytest.raises(ValueError, match="nonempty criterion relations"):
+        pair_control_runs(
+            _runner(_Runtime()).run(_cell(LayerVariant.FOUNDATION)),
+            _runner(_Runtime()).run(_cell(LayerVariant.ORGANIZATION)),
+        )
 
 
 def test_attempt_history_is_read_only_and_rejects_changed_identity() -> None:

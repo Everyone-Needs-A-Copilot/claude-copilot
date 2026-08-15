@@ -52,6 +52,63 @@ def test_frozen_release_collects_complete_task_copilot_package():
     assert '--collect-submodules "tc"' in script
 
 
+def test_frozen_release_collects_and_probes_exact_evaluation_fixture_bundle():
+    script = (
+        Path(__file__).parents[3] / "scripts/package-cc-macos-release.sh"
+    ).read_text(encoding="utf-8")
+
+    assert '--collect-data "cc.evaluation_fixtures"' in script
+    assert '"${artifact}" eval effectiveness matrix --json' in script
+    assert (
+        'expected_matrix = "0c844795668aa2dc40596975ba5e20d3ee2fe345583149d20c9c8a07ef6688f6"'
+        in script
+    )
+    assert (
+        'expected_fixture_bundle = "a2f20f40690ff1ca09312b72575bda5d1600539be06663afa689501c8d418698"'
+        in script
+    )
+    assert (
+        'expected_personal_layer = "ab0cba88ddde05682c82705bb0b8498b6666ce2e238c143a11c5a4d1d523d357"'
+        in script
+    )
+    assert 'payload.get("planned_cells") != 28' in script
+    assert 'payload.get("live_calls_started") != 0' in script
+    assert 'len(payload.get("cells", ())) != 28' in script
+
+
+def test_frozen_release_uses_only_the_exact_verified_source_commit():
+    script = (
+        Path(__file__).parents[3] / "scripts/package-cc-macos-release.sh"
+    ).read_text(encoding="utf-8")
+
+    assert '[[ "${release_tool_commit}" == "${SOURCE_COMMIT}" ]]' in script
+    assert (
+        'entry_point="${source_checkout}/tools/cc/scripts/cc_frozen_entry.py"' in script
+    )
+    assert (
+        'entry_point="${REPO_ROOT}/tools/cc/scripts/cc_frozen_entry.py"' not in script
+    )
+    assert "scripts/verify-project-lock-coherence.py" in script
+    assert (
+        '"${source_checkout}/scripts/verify-project-lock-coherence.py" "${source_checkout}"'
+        in script
+    )
+    local_lock = script.index(
+        '"${REPO_ROOT}/scripts/verify-project-lock-coherence.py" "${REPO_ROOT}"'
+    )
+    notary_preflight = script.index("run_notarytool history")
+    assert local_lock < notary_preflight
+    assert script.count("verify_source_checkout") >= 3
+    assert script.rindex("verify_source_checkout") < script.index(
+        "run_notarytool submit"
+    )
+    capture = script.index("source_snapshot_action capture")
+    build = script.index("run_python -m PyInstaller")
+    verify = script.index("source_snapshot_action verify")
+    assert capture < build < verify < script.index("run_notarytool submit")
+    assert "verified source checkout changed during release build" in script
+
+
 def test_frozen_release_probes_exact_artifact_without_checkout_or_pythonpath():
     script = (
         Path(__file__).parents[3] / "scripts/package-cc-macos-release.sh"
@@ -59,9 +116,12 @@ def test_frozen_release_probes_exact_artifact_without_checkout_or_pythonpath():
 
     build = script.index("run_python -m PyInstaller")
     artifact = script.index('artifact="${pyinstaller_dist}/cc"')
+    fixture_probe = script.index('"${artifact}" eval effectiveness matrix --json')
     probe = script.index('"${artifact}" journey verify-dispatch')
     first_network = script.index('"${artifact}" auth login')
-    assert build < artifact < probe < first_network
+    assert build < artifact < fixture_probe < probe < first_network
+    assert 'cd "${evaluation_probe_work}"' in script
+    assert 'HOME="${evaluation_probe_home}"' in script
     assert 'cd "${journey_probe_work}"' in script
     assert "env -i" in script
     assert 'HOME="${journey_probe_home}"' in script

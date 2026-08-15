@@ -609,6 +609,101 @@ def test_update_commits_verified_protected_knowledge_projection(monkeypatch, tmp
     assert report["changed"][0]["signed"] is True
 
 
+def test_update_round_trips_every_protected_projection_idempotently_and_revokes_one(
+    monkeypatch,
+    tmp_path,
+):
+    department_source = _make_source_repo(
+        tmp_path,
+        {"plugins/codex-copilot/SKILL.md": "department"},
+        name="protected-knowledge-department",
+    )
+    organization_source = _make_source_repo(
+        tmp_path,
+        {"plugins/codex-copilot/SKILL.md": "organization"},
+        name="protected-knowledge-organization",
+    )
+    department = _protected_knowledge_layer(department_source)
+    organization = {
+        **_protected_knowledge_layer(organization_source),
+        "id": "knowledge-organization",
+        "role": "organization",
+        "rank": 30,
+        "unit": "company",
+        "source": {
+            "repo": "git@github.com:Everyone-Needs-A-Copilot/knowledge-copilot.git",
+            "ref": "v1.0.0",
+            "path": str(organization_source),
+        },
+    }
+    layers = [department, organization]
+
+    def projection(layer: dict, token: str) -> ProtectedKnowledgeLockProjection:
+        return ProtectedKnowledgeLockProjection(
+            layer=layer["id"],
+            repository=layer["source"]["repo"],
+            ref="v1.0.0",
+            tree=token * 40,
+            signer="SHA256:foundation",
+            binding=token * 64,
+            item_tree=token * 40,
+            release_tree=token * 40,
+            content_sha256=token * 64,
+        )
+
+    department_projection = projection(department, "d")
+    organization_projection = projection(organization, "a")
+    active_projections = [department_projection, organization_projection]
+    monkeypatch.setattr(
+        "cc.commands.update.resolve_protected_knowledge_lock_projections",
+        lambda *_args, **_kwargs: tuple(active_projections),
+    )
+    lock_path = tmp_path / "copilot.lock.json"
+    kwargs = {
+        "_layers": layers,
+        "_lockfile_path": lock_path,
+        "_lock_write_path": lock_path,
+        "_mirror_root": tmp_path / "mirrors",
+        "_materialize_root": tmp_path / "materialize",
+        "_personal_roots": [],
+        "_entitlement_login": "person",
+        "_entitlement_token": "token",
+        "_entitlement_get_json": lambda *_args, **_kwargs: 200,
+        "_entitlement_state_path": tmp_path / "entitlements.json",
+        "_entitlement_now": datetime.now(timezone.utc),
+        "_knowledge_snapshot_root": tmp_path / "signed-knowledge-v1",
+    }
+
+    first = build_update_report(_previous_lock={}, **kwargs)
+    first_lock = json.loads(lock_path.read_text(encoding="utf-8"))
+
+    assert first["result"] == "applied"
+    assert first_lock[department["id"]]["plugins"]["codex-copilot"] == "d" * 64
+    assert first_lock[organization["id"]]["plugins"]["codex-copilot"] == "a" * 64
+
+    second = build_update_report(_previous_lock=first_lock, **kwargs)
+    second_lock = json.loads(lock_path.read_text(encoding="utf-8"))
+
+    assert second["result"] == "up-to-date"
+    assert second["lock_before"] == second["lock_after"]
+    assert second_lock == first_lock
+
+    active_projections[:] = [organization_projection]
+    kwargs["_entitlement_get_json"] = lambda url, *_args, **_kwargs: (
+        404 if "accounting" in url else 200
+    )
+    third = build_update_report(_previous_lock=second_lock, **kwargs)
+    third_lock = json.loads(lock_path.read_text(encoding="utf-8"))
+
+    assert third["result"] == "blocked"
+    assert not third_lock.get(department["id"], {}).get("plugins")
+    assert third_lock[organization["id"]]["plugins"]["codex-copilot"] == "a" * 64
+    assert any(
+        item["op"] == "pruned" and item["layer"] == department["id"]
+        for item in third["changed"]
+    )
+
+
 def test_update_missing_protected_receipt_aborts_before_lock_write(tmp_path):
     source = _make_source_repo(
         tmp_path,
