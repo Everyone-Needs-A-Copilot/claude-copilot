@@ -617,6 +617,10 @@ GROWTH_RATIO = th["growth_ratio"]
 SHRINK_FLOOR = th["shrink_floor_ratio"]
 CORPUS_RATIO = th["corpus_ceiling_ratio"]
 ALWAYS_RATIO = th["always_loaded_growth_ratio"]
+# Absolute ceilings. Ratios alone can only ratchet upward; these give the budget a
+# direction it can refuse. Absent from older baselines, so default to no ceiling.
+ALWAYS_CEILING = th.get("always_loaded_ceiling_bytes")
+CORPUS_CEILING = th.get("agent_corpus_ceiling_bytes")
 BYTES_PER_TOKEN = baseline["byte_to_token_ratio"]
 
 # ---------------------------------------------------------------------------
@@ -842,6 +846,37 @@ evaluate_ceiling(
     always_loaded_total,
     ALWAYS_RATIO,
 )
+
+
+def evaluate_absolute(label, actual_bytes, ceiling_bytes):
+    """Enforce a hard byte ceiling.
+
+    The ratio checks above answer "did this edit grow too fast". This answers "is it
+    too big", which no ratio can. Benchmarking on 2026-08-15 measured a real cost for
+    always-loaded context that FF9 could not see, because a compliant 8% step is
+    compliant however many times it is taken.
+    """
+    if not ceiling_bytes:
+        return
+    tokens = actual_bytes / BYTES_PER_TOKEN
+    limit_tokens = ceiling_bytes / BYTES_PER_TOKEN
+    if actual_bytes > ceiling_bytes:
+        over = actual_bytes - ceiling_bytes
+        fail(
+            f"{label} is {actual_bytes:,} B (~{tokens:,.0f} tok), over the absolute "
+            f"ceiling of {ceiling_bytes:,} B (~{limit_tokens:,.0f} tok) by {over:,} B. "
+            "Reduce it, or raise the ceiling deliberately in the baseline with a reason."
+        )
+    else:
+        head = ceiling_bytes - actual_bytes
+        ok(
+            f"{label} {actual_bytes:,} B (~{tokens:,.0f} tok) within absolute ceiling "
+            f"{ceiling_bytes:,} B ({head:,} B headroom)"
+        )
+
+
+evaluate_absolute("Always-loaded total", always_loaded_total, ALWAYS_CEILING)
+evaluate_absolute("Agent corpus total", corpus_total, CORPUS_CEILING)
 PYEOF
 )
 
