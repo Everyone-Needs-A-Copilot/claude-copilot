@@ -612,6 +612,36 @@ except Exception as exc:
     fail(f"{baseline_file.name} is not valid JSON: {exc}")
     sys.exit(0)
 
+# ---------------------------------------------------------------------------
+# Staleness. A baseline older than the artifacts it measures produces a scatter of
+# per-file failures that read like content bloat and are nothing of the kind. On
+# 2026-08-15 exactly that happened: five files failed (three over growth, two under
+# the shrink floor) purely because two feature commits post-dated the baseline. The
+# diagnosis cost far more than the fix. Say it once, plainly, up front.
+# ---------------------------------------------------------------------------
+captured = baseline.get("captured_at")
+if captured:
+    import subprocess as _sp
+    def _last_commit_iso(path):
+        try:
+            out = _sp.run(["git", "log", "-1", "--format=%cI", "--", path],
+                          capture_output=True, text=True, timeout=15)
+            return (out.stdout or "").strip()
+        except Exception:
+            return ""
+    _newer = []
+    for _p in ("CLAUDE.md", str(agents_dir), str(commands_dir)):
+        _iso = _last_commit_iso(_p)
+        if _iso and _iso > captured:
+            _newer.append((_p, _iso[:10]))
+    if _newer:
+        info(
+            "FF9: baseline captured " + captured[:10] + " but tracked artifacts changed "
+            "since: " + ", ".join(f"{a} ({d})" for a, d in _newer) + ". Per-file "
+            "results below are measured against a stale reference -- re-baseline to a "
+            "new version file before treating any of them as content bloat."
+        )
+
 th = baseline["thresholds"]
 GROWTH_RATIO = th["growth_ratio"]
 SHRINK_FLOOR = th["shrink_floor_ratio"]
