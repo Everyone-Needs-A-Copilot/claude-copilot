@@ -71,12 +71,6 @@ class _ProtectedKnowledgeProjectionPlan:
 
     projection: ProtectedKnowledgeLockProjection
     snapshot: GitTreeSnapshot
-    repository: str
-    layer: str
-    ref: str
-    tree: str
-    signer: str
-    entitlement_binding: entitlement.EntitlementBinding
     protected_binding: str
     expected_entry: dict[str, Any]
     matching_receipts: tuple[tuple[str, dict[str, Any]], ...]
@@ -260,6 +254,8 @@ class VerifiedKnowledgeSkillSource:
 SNAPSHOT_INDEX_SCHEMA_VERSION = "1.0"
 _SNAPSHOT_INDEX_NAME = "index.json"
 _SNAPSHOT_LOCK_NAME = ".lifecycle.lock"
+_PROJECTION_TRANSACTION_NAME = ".projection-transaction.json"
+_PROJECTION_TRANSACTION_SCHEMA_VERSION = "1.0"
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -427,6 +423,7 @@ def _snapshot_relative_target(
 
 def _recover_snapshot_state(base: Path, index: dict[str, Any]) -> None:
     """Recover interrupted prune/publication without broad deletion authority."""
+    _recover_projection_transaction(base, index)
     changed = False
     entries = index["entries"]
     for key, entry in list(entries.items()):
@@ -437,7 +434,9 @@ def _recover_snapshot_state(base: Path, index: dict[str, Any]) -> None:
             entries.pop(key)
             changed = True
     for candidate in base.iterdir():
-        if not re.fullmatch(r"\.reap-[0-9a-f]{32}", candidate.name):
+        if not re.fullmatch(
+            r"\.(?:reap|projection-stage)-[0-9a-f]{32}", candidate.name
+        ):
             continue
         try:
             metadata = candidate.lstat()
@@ -507,6 +506,128 @@ def _remove_snapshot_target(base: Path, relative: Path) -> bool:
     _make_stage_writable(tombstone)
     shutil.rmtree(tombstone, ignore_errors=True)
     return True
+
+
+def _projection_transaction_path(base: Path) -> Path:
+    return base / _PROJECTION_TRANSACTION_NAME
+
+
+def _projection_transaction_document(
+    old_entries: dict[str, dict[str, Any]],
+    new_entries: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "schema_version": _PROJECTION_TRANSACTION_SCHEMA_VERSION,
+        "old_entries": old_entries,
+        "new_entries": new_entries,
+    }
+
+
+def _valid_projection_transaction(value: object) -> bool:
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"schema_version", "old_entries", "new_entries"}
+        or value.get("schema_version") != _PROJECTION_TRANSACTION_SCHEMA_VERSION
+        or not isinstance(value.get("old_entries"), dict)
+        or not isinstance(value.get("new_entries"), dict)
+        or not value["new_entries"]
+    ):
+        return False
+    old_entries = value["old_entries"]
+    new_entries = value["new_entries"]
+    return bool(
+        set(old_entries).isdisjoint(new_entries)
+        and all(_valid_snapshot_entry(key, entry) for key, entry in old_entries.items())
+        and all(_valid_snapshot_entry(key, entry) for key, entry in new_entries.items())
+        and all(entry["status"] == "active" for entry in old_entries.values())
+        and all(entry["status"] == "active" for entry in new_entries.values())
+    )
+
+
+def _write_projection_transaction(
+    base: Path,
+    old_entries: dict[str, dict[str, Any]],
+    new_entries: dict[str, dict[str, Any]],
+) -> None:
+    path = _projection_transaction_path(base)
+    try:
+        if path.exists() or path.is_symlink():
+            raise KnowledgeSkillSourceError(
+                "A protected Knowledge projection transaction is already active."
+            )
+        atomic_json_write(
+            path,
+            _projection_transaction_document(old_entries, new_entries),
+        )
+    except (OSError, UnsafeProjectPath) as exc:
+        raise KnowledgeSkillSourceError(
+            "The protected Knowledge projection transaction could not be recorded."
+        ) from exc
+
+
+def _delete_projection_transaction(base: Path) -> None:
+    path = _projection_transaction_path(base)
+    try:
+        path.unlink(missing_ok=True)
+        fsync_directory(base)
+    except OSError as exc:
+        raise KnowledgeSkillSourceError(
+            "The protected Knowledge projection transaction could not be cleared."
+        ) from exc
+
+
+def _recover_projection_transaction(base: Path, index: dict[str, Any]) -> None:
+    """Finish or roll back a staged projection batch from the atomic index."""
+
+    path = _projection_transaction_path(base)
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise KnowledgeSkillSourceError(
+            "The protected Knowledge projection transaction is unavailable."
+        ) from exc
+    if (
+        stat.S_ISLNK(metadata.st_mode)
+        or not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_uid != os.geteuid()
+        or stat.S_IMODE(metadata.st_mode) != 0o600
+        or metadata.st_size > 1_000_000
+    ):
+        raise KnowledgeSkillSourceError(
+            "The protected Knowledge projection transaction is unsafe."
+        )
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise KnowledgeSkillSourceError(
+            "The protected Knowledge projection transaction is invalid."
+        ) from exc
+    if not _valid_projection_transaction(raw):
+        raise KnowledgeSkillSourceError(
+            "The protected Knowledge projection transaction is invalid."
+        )
+    old_entries = raw["old_entries"]
+    new_entries = raw["new_entries"]
+    current = index["entries"]
+    old_selected = all(current.get(key) == entry for key, entry in old_entries.items())
+    new_absent = all(key not in current for key in new_entries)
+    new_selected = all(current.get(key) == entry for key, entry in new_entries.items())
+    old_absent = all(key not in current for key in old_entries)
+    if old_selected and new_absent:
+        # The index never switched. New targets were unissued staging output.
+        for entry in new_entries.values():
+            _remove_snapshot_target(base, Path(entry["target"]))
+    elif new_selected and old_absent:
+        # The index switched atomically. Old targets no longer carry authority.
+        for entry in old_entries.values():
+            _remove_snapshot_target(base, Path(entry["target"]))
+    else:
+        raise KnowledgeSkillSourceError(
+            "The protected Knowledge projection transaction is inconsistent."
+        )
+    _delete_projection_transaction(base)
 
 
 def _revoke_protected_root(base: Path) -> None:
@@ -755,6 +876,147 @@ def _make_stage_writable(stage: Path) -> None:
         stage.chmod(0o700)
     except OSError:
         pass
+
+
+def _write_snapshot_stage(snapshot: GitTreeSnapshot, stage: Path) -> None:
+    """Write and verify one unpublished private snapshot directory."""
+
+    try:
+        stage.mkdir(mode=0o700)
+        for item in snapshot.files:
+            destination = stage / item.path
+            destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            descriptor = os.open(
+                destination,
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0),
+                0o600,
+            )
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(item.content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            destination.chmod(0o500 if item.mode & 0o111 else 0o400)
+        directories = sorted(
+            (candidate for candidate in stage.rglob("*") if candidate.is_dir()),
+            key=lambda candidate: len(candidate.parts),
+            reverse=True,
+        )
+        for directory in directories:
+            fsync_directory(directory)
+            directory.chmod(0o500)
+        fsync_directory(stage)
+        stage.chmod(0o700)
+    except OSError as exc:
+        raise KnowledgeSkillSourceError(
+            "The authenticated Knowledge snapshot could not be staged safely."
+        ) from exc
+    if not _snapshot_matches(stage, snapshot):
+        raise KnowledgeSkillSourceError(
+            "The authenticated Knowledge snapshot changed during staging."
+        )
+
+
+def _publish_protected_snapshot(
+    base: Path,
+    stage: Path,
+    target: Path,
+    snapshot: GitTreeSnapshot,
+) -> None:
+    """Publish one already-verified target while it remains unindexed."""
+
+    try:
+        if target.exists() or target.is_symlink():
+            raise KnowledgeSkillSourceError(
+                "A protected Knowledge projection target already exists."
+            )
+        os.rename(stage, target)
+        fsync_directory(target.parent)
+        fsync_directory(base)
+    except KnowledgeSkillSourceError:
+        raise
+    except OSError as exc:
+        raise KnowledgeSkillSourceError(
+            "The protected Knowledge projection could not be published."
+        ) from exc
+    if not _snapshot_matches(target, snapshot):
+        raise KnowledgeSkillSourceError(
+            "The protected Knowledge projection changed during publication."
+        )
+
+
+def _commit_protected_projection_plans(
+    base: Path,
+    index: dict[str, Any],
+    plans: list[_ProtectedKnowledgeProjectionPlan],
+) -> None:
+    """Stage every generation, atomically switch the index, then prune old paths."""
+
+    staged: list[tuple[_ProtectedKnowledgeProjectionPlan, Path, Path]] = []
+    old_entries: dict[str, dict[str, Any]] = {}
+    new_entries: dict[str, dict[str, Any]] = {}
+    stage_root: Path | None = None
+    journal_written = False
+    try:
+        for plan in plans:
+            recorded = index["entries"].get(plan.protected_binding)
+            target = base / plan.expected_entry["target"]
+            if recorded is not None:
+                if recorded != plan.expected_entry or not _snapshot_matches(
+                    target, plan.snapshot
+                ):
+                    raise KnowledgeSkillSourceError(
+                        "A protected Knowledge projection conflicts with its index."
+                    )
+                continue
+            if target.exists() or target.is_symlink():
+                raise KnowledgeSkillSourceError(
+                    "An unindexed protected Knowledge projection target exists."
+                )
+            ensure_private_directory(target.parent, boundary=base)
+            if stage_root is None:
+                stage_root = base / f".projection-stage-{secrets.token_hex(16)}"
+                stage_root.mkdir(mode=0o700)
+            stage = stage_root / plan.protected_binding
+            _write_snapshot_stage(plan.snapshot, stage)
+            staged.append((plan, stage, target))
+            new_entries[plan.protected_binding] = plan.expected_entry
+            old_entries.update(dict(plan.prior_receipts))
+
+        if not staged:
+            return
+        _write_projection_transaction(base, old_entries, new_entries)
+        journal_written = True
+        for plan, stage, target in staged:
+            _publish_protected_snapshot(base, stage, target, plan.snapshot)
+
+        next_index = json.loads(json.dumps(index))
+        for key in old_entries:
+            next_index["entries"].pop(key, None)
+        next_index["entries"].update(new_entries)
+        try:
+            _write_snapshot_index(base, next_index)
+        except KnowledgeSkillSourceError:
+            current = _load_snapshot_index(base)
+            index_switched = all(
+                current["entries"].get(key) == entry
+                for key, entry in new_entries.items()
+            ) and all(key not in current["entries"] for key in old_entries)
+            if not index_switched:
+                raise
+        for entry in old_entries.values():
+            _remove_snapshot_target(base, Path(entry["target"]))
+        _delete_projection_transaction(base)
+        journal_written = False
+    except BaseException:
+        if journal_written or _projection_transaction_path(base).exists():
+            current = _load_snapshot_index(base)
+            _recover_projection_transaction(base, current)
+            journal_written = False
+        raise
+    finally:
+        if stage_root is not None and stage_root.exists():
+            _make_stage_writable(stage_root)
+            shutil.rmtree(stage_root, ignore_errors=True)
 
 
 def _materialize_snapshot(
@@ -1297,12 +1559,6 @@ def resolve_protected_knowledge_lock_projections(
                 _ProtectedKnowledgeProjectionPlan(
                     projection=projection,
                     snapshot=skills_snapshot,
-                    layer=layer_id,
-                    repository=repository,
-                    ref=ref,
-                    tree=skills_verified.tree,
-                    signer=skills_verified.signer,
-                    entitlement_binding=binding,
                     protected_binding=protected_binding,
                     expected_entry=expected_entry,
                     matching_receipts=tuple(matching_receipts),
@@ -1326,26 +1582,7 @@ def resolve_protected_knowledge_lock_projections(
                 "A protected Knowledge receipt changed before rollover."
             )
 
-        removed_prior = False
-        for plan in plans:
-            for key, entry in plan.prior_receipts:
-                _remove_snapshot_target(base, Path(entry["target"]))
-                index["entries"].pop(key, None)
-                removed_prior = True
-        if removed_prior:
-            _write_snapshot_index(base, index)
-
-        for plan in plans:
-            _materialize_snapshot(
-                plan.snapshot,
-                repository=plan.repository,
-                layer=plan.layer,
-                ref=plan.ref,
-                tree=plan.tree,
-                signer=plan.signer,
-                entitlement_binding=plan.entitlement_binding,
-                cache_root=base,
-            )
+        _commit_protected_projection_plans(base, index, plans)
         refreshed_index = _load_snapshot_index(base)
         if any(
             refreshed_index["entries"].get(plan.protected_binding)

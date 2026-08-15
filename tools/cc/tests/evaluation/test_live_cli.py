@@ -10,6 +10,7 @@ import pytest
 from cc.commands import effectiveness
 from cc.commands.effectiveness import build_effectiveness_readiness
 from cc.commands.eval import eval_app
+from cc.core.evaluation import readiness as readiness_module
 from cc.core.evaluation.schema import canonical_sha256
 from cc.evaluation_fixtures import (
     PACKAGED_BUNDLE_SHA256,
@@ -18,6 +19,7 @@ from cc.evaluation_fixtures import (
     PackagedFixtureUnavailable,
     packaged_cases_root,
 )
+from test_readiness import _install_ready_probes
 from typer.testing import CliRunner
 
 FIXTURES = Path(__file__).parent / "fixtures" / "cases"
@@ -43,56 +45,23 @@ def _execution_report(
     return {**identity, "execution_sha256": canonical_sha256(identity)}
 
 
-def _signed_layers() -> list[dict[str, object]]:
-    rows = []
-    for product in ("knowledge", "claude", "codex"):
-        for rank, role in enumerate(
-            ("foundation", "organization", "department"),
-            start=1,
-        ):
-            layer_id = f"{product}-{role}"
-            rows.append(
-                {
-                    "id": layer_id,
-                    "product": product,
-                    "role": role,
-                    "rank": rank,
-                    "source": {"ref": "v1.2.3"},
-                    "policy": {"allowed_signers": ["SHA256:SYNTHETIC"]},
-                    "_evaluation_proof": {
-                        "signature_verified": True,
-                        "joined": True,
-                        "layer": layer_id,
-                        "ref": "v1.2.3",
-                        "tree": "1" * 40,
-                        "signer": "SHA256:SYNTHETIC",
-                        "lease_sha256": "2" * 64,
-                        "lock_sha256": "3" * 64,
-                        "materialization_sha256": "4" * 64,
-                    },
-                }
-            )
-    for product in ("knowledge", "claude", "codex"):
-        layer_id = f"{product}-personal"
-        ref = "sha256:" + "5" * 64
-        rows.append(
-            {
-                "id": layer_id,
-                "product": product,
-                "role": "personal",
-                "rank": 0,
-                "source": {"ref": ref},
-                "policy": {"allowed_signers": []},
-                "_evaluation_proof": {
-                    "joined": True,
-                    "layer": layer_id,
-                    "ref": ref,
-                    "lock_sha256": "6" * 64,
-                    "materialization_sha256": "7" * 64,
-                },
-            }
-        )
-    return rows
+def _phase_one_report() -> dict[str, object]:
+    identity: dict[str, object] = {
+        "schema_version": "task285-phase-one-execution-v1",
+        "matrix_sha256": PACKAGED_MATRIX_SHA256,
+        "state": "awaiting-assessment",
+        "acceptance_state": "not-evaluated",
+        "initial_cells_started": 28,
+        "total_attempts_started": 28,
+        "live_calls_started": 14,
+        "completed_cells": 14,
+        "unsupported_cells": 14,
+        "assessment_manifest_sha256": "1" * 64,
+        "assessment_bundle_sha256": "2" * 64,
+        "terminal_run_sha256": [f"{index:064x}" for index in range(1, 29)],
+        "blockers": [],
+    }
+    return {**identity, "execution_sha256": canonical_sha256(identity)}
 
 
 def test_matrix_cli_emits_exact_28_cells_without_live_calls() -> None:
@@ -184,70 +153,69 @@ def test_wheel_metadata_includes_fixture_tree_with_its_parent_package() -> None:
     assert packaged_cases_root().is_relative_to(pyproject.parent / "src" / "cc")
 
 
-def test_readiness_never_mints_canonical_authority_from_candidate_status() -> None:
-    document = build_effectiveness_readiness(
-        FIXTURES,
-        layers_loader=_signed_layers,
-        runtime_loader=lambda: (
-            [
-                {
-                    "runtime": "claude",
-                    "state": "ready",
-                    "executable_sha256": "1" * 64,
-                },
-                {
-                    "runtime": "codex",
-                    "state": "ready",
-                    "executable_sha256": "2" * 64,
-                },
-            ],
-            [],
-        ),
-    )
+def test_readiness_returns_exact_sealed_report_without_candidate_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _install_ready_probes(monkeypatch)
 
-    assert document["state"] == "blocked"
-    assert document["candidate_state"] == "satisfied"
-    assert document["planned_cells"] == 28
+    document = build_effectiveness_readiness()
+
+    assert document["state"] == "ready"
+    assert document["matrix_sha256"] == PACKAGED_MATRIX_SHA256
+    assert len(document["cells"]) == len(calls) == 28
+    assert [item["runtime"] for item in document["runtimes"]] == [
+        "claude",
+        "codex",
+    ]
     assert document["live_calls_started"] == 0
-    assert document["blockers"] == ["canonical-readiness-verifier-unavailable"]
-
-
-def test_readiness_reports_unsigned_layer_by_product_and_role() -> None:
-    layers = _signed_layers()
-    target = next(
-        item
-        for item in layers
-        if item["product"] == "codex" and item["role"] == "organization"
+    assert document["artifacts_written"] == 0
+    assert document["readiness_sha256"] == canonical_sha256(
+        {key: value for key, value in document.items() if key != "readiness_sha256"}
     )
-    target["source"] = {"ref": "main"}
-    target["policy"] = {"allowed_signers": []}
-
-    document = build_effectiveness_readiness(
-        FIXTURES,
-        layers_loader=lambda: layers,
-        runtime_loader=lambda: ([], []),
-    )
-
-    assert "unverified-codex-organization" in document["blockers"]
+    assert "candidate_state" not in document
+    assert "layers" not in document
 
 
-def test_readiness_rejects_tag_and_signer_without_verified_materialization() -> None:
-    layers = _signed_layers()
-    target = next(
-        item
-        for item in layers
-        if item["product"] == "codex" and item["role"] == "organization"
-    )
-    target.pop("_evaluation_proof")
+def test_readiness_nonpackaged_root_returns_nonauthorizing_blocked_envelope() -> None:
+    document = build_effectiveness_readiness(FIXTURES)
 
-    document = build_effectiveness_readiness(
-        FIXTURES,
-        layers_loader=lambda: layers,
-        runtime_loader=lambda: ([], []),
-    )
-
+    assert document["schema_version"] == ("task285-canonical-readiness-unavailable-v1")
     assert document["state"] == "blocked"
-    assert "unverified-codex-organization" in document["blockers"]
+    assert document["matrix_sha256"] == PACKAGED_MATRIX_SHA256
+    assert document["cells"] == []
+    assert document["runtimes"] == []
+    assert document["blockers"] == ["preregistered-matrix-unavailable"]
+    assert document["readiness_sha256"] is None
+    assert document["live_calls_started"] == 0
+    assert document["artifacts_written"] == 0
+
+
+def test_readiness_cli_surfaces_exact_canonical_blockers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_ready_probes(monkeypatch)
+    ready_content = readiness_module._probe_content_plan
+
+    def content(plan):
+        if plan.case_id == "eval-01":
+            return None, None, "canonical-content-materialized-lock-mismatch"
+        return ready_content(plan)
+
+    monkeypatch.setattr(readiness_module, "_probe_content_plan", content)
+
+    result = CliRunner().invoke(
+        eval_app,
+        ["effectiveness", "readiness", "--json"],
+    )
+
+    assert result.exit_code == 2
+    document = json.loads(result.stdout)
+    assert document["state"] == "blocked"
+    assert document["blockers"] == ["canonical-content-materialized-lock-mismatch"]
+    assert len(document["cells"]) == 28
+    assert len(document["runtimes"]) == 2
+    assert document["live_calls_started"] == 0
+    assert document["artifacts_written"] == 0
 
 
 def test_run_blocks_before_artifact_creation_when_issuer_is_unavailable(
@@ -337,6 +305,43 @@ def test_run_passes_only_exact_operator_inputs_to_production_boundary(
         },
     }
     assert json.loads(result.stdout) == _execution_report()
+
+
+def test_run_exposes_phase_one_as_awaiting_assessment_not_final_acceptance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Unavailable(Exception):
+        reason = "synthetic-unavailable"
+
+    report = _phase_one_report()
+    monkeypatch.setattr(
+        effectiveness,
+        "_execution_boundary",
+        lambda: (lambda **_kwargs: report, Unavailable),
+    )
+
+    result = CliRunner().invoke(
+        eval_app,
+        [
+            "effectiveness",
+            "run",
+            "--artifact-root",
+            str(tmp_path / "artifacts"),
+            "--claude-model",
+            "claude-exact-model",
+            "--codex-model",
+            "codex-exact-model",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    document = json.loads(result.stdout)
+    assert document == report
+    assert document["state"] == "awaiting-assessment"
+    assert document["acceptance_state"] == "not-evaluated"
+    assert "portfolio_sha256" not in document
 
 
 def test_run_returns_success_when_completed_portfolio_is_rejected(
@@ -437,6 +442,34 @@ def test_run_rejects_malformed_production_execution_reports(
     report[field] = value
 
     with pytest.raises(ValueError, match="failed validation"):
+        effectiveness._validated_execution_report(
+            report,
+            matrix_sha256=PACKAGED_MATRIX_SHA256,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("acceptance_state", "accepted"),
+        ("live_calls_started", 15),
+        ("completed_cells", True),
+        ("unsupported_cells", 13),
+        ("blockers", ["not-assessed"]),
+        ("terminal_run_sha256", ["1" * 64] * 28),
+        ("assessment_bundle_sha256", "f" * 63),
+    ],
+)
+def test_run_rejects_substituted_phase_one_handoffs(
+    field: str,
+    value: object,
+) -> None:
+    report = _phase_one_report()
+    report[field] = value
+    identity = {key: item for key, item in report.items() if key != "execution_sha256"}
+    report["execution_sha256"] = canonical_sha256(identity)
+
+    with pytest.raises(ValueError, match="Phase-one execution report"):
         effectiveness._validated_execution_report(
             report,
             matrix_sha256=PACKAGED_MATRIX_SHA256,

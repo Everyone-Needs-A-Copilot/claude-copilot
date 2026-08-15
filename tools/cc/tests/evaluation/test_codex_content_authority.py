@@ -17,6 +17,7 @@ from cc.core.evaluation.content_authority import (
     verify_canonical_content_projection,
 )
 from cc.core.evaluation.models import LayerVariant
+from cc.core.evaluation.schema import canonical_sha256
 from cc.evaluation_fixtures import PACKAGED_MATRIX_SHA256
 
 _SIGNER = "SHA256:abcdefgh"
@@ -469,6 +470,136 @@ def test_nearest_signed_plugin_shadows_activated_foundation_pack(
         )
     finally:
         projection.close()
+
+
+def test_codex_runtime_source_receipt_is_immutable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest, lock = _configure_codex_authority(
+        monkeypatch,
+        tmp_path,
+        variant=LayerVariant.ORGANIZATION,
+        specialist="cco",
+        runtime_specialists={
+            "foundation": None,
+            "organization": "cco",
+            "department": None,
+        },
+    )
+    projection = issue_canonical_codex_content(
+        variant=LayerVariant.ORGANIZATION,
+        specialist="cco",
+        case_id="eval-04",
+        manifest_path=manifest,
+        lock_path=lock,
+    )
+    try:
+        with pytest.raises(TypeError):
+            projection.runtime_projection.source_receipt["layer"] = "substituted"
+        assert verify_canonical_content_projection(projection)
+    finally:
+        projection.close()
+
+
+@pytest.mark.parametrize("mutation", ("source-receipt", "content", "plugin"))
+def test_parent_recomputes_complete_codex_runtime_projection_identity(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    manifest, lock = _configure_codex_authority(
+        monkeypatch,
+        tmp_path,
+        variant=LayerVariant.ORGANIZATION,
+        specialist="cco",
+        runtime_specialists={
+            "foundation": None,
+            "organization": "cco",
+            "department": None,
+        },
+    )
+    projection = issue_canonical_codex_content(
+        variant=LayerVariant.ORGANIZATION,
+        specialist="cco",
+        case_id="eval-04",
+        manifest_path=manifest,
+        lock_path=lock,
+    )
+    runtime = projection.runtime_projection
+    assert verify_canonical_content_projection(projection)
+    if mutation == "source-receipt":
+        object.__setattr__(
+            runtime,
+            "source_receipt",
+            {**dict(runtime.source_receipt), "layer": "substituted-layer"},
+        )
+    elif mutation == "content":
+        object.__setattr__(runtime, "content", "substituted content")
+    else:
+        first = replace(runtime.plugin_sources[0], layer="substituted-layer")
+        object.__setattr__(
+            runtime,
+            "plugin_sources",
+            (first, *runtime.plugin_sources[1:]),
+        )
+
+    assert not verify_canonical_content_projection(projection)
+    projection.close()
+
+
+def test_altered_codex_runtime_projection_copy_rejects_cached_identity() -> None:
+    source = _plugin_source("foundation", specialist="sd")
+    receipt = {
+        "layer": source.layer,
+        "tier": source.role,
+        "repository": source.repository,
+        "ref": source.ref,
+        "tree": source.tree,
+        "signer": source.signer,
+        "contribution": "skills/sd/SKILL.md",
+        "content_sha256": "a" * 64,
+        "runtime": "codex",
+        "adapter_version": source.adapter_version,
+    }
+    from cc.core.evaluation.content_authority import CanonicalCodexRuntimeProjection
+
+    document = {
+        "schema_version": "evaluation-codex-runtime-projection-v1",
+        "matrix_sha256": PACKAGED_MATRIX_SHA256,
+        "cell_plan_sha256": "b" * 64,
+        "plugins": [
+            {
+                "layer": source.layer,
+                "tier": source.role,
+                "repository": source.repository,
+                "relative_path": source.relative_path,
+                "plugin_name": source.plugin_name,
+                "source_kind": source.source_kind,
+                "adapter_version": source.adapter_version,
+                "activation_sha256": source.activation_sha256,
+                "ref": source.ref,
+                "tree": source.tree,
+                "signer": source.signer,
+                "release_tag": source.release_tag,
+                "release_commit": source.release_commit,
+                "release_tree": source.release_tree,
+            }
+        ],
+        "selected_source": receipt,
+        "selected_content_sha256": hashlib.sha256(b"signed").hexdigest(),
+    }
+    runtime = CanonicalCodexRuntimeProjection(
+        matrix_sha256=PACKAGED_MATRIX_SHA256,
+        cell_plan_sha256="b" * 64,
+        plugin_sources=(source,),
+        content="signed",
+        source_receipt=receipt,
+        projection_sha256=canonical_sha256(document),
+    )
+
+    with pytest.raises(ValueError, match="runtime projection is invalid"):
+        replace(runtime, content="substituted")
 
 
 def test_department_specialist_proves_absence_then_nearest_winner(

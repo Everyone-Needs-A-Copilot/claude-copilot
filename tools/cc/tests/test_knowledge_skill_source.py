@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 import subprocess
 import threading
@@ -578,6 +579,85 @@ def test_later_layer_failure_aborts_update_without_receipt_or_lock_mutation(
     assert index_path.read_bytes() == index_before
     assert lock_path.read_bytes() == lock_before
     assert all(target.is_dir() for target in targets)
+
+
+def test_second_projection_publication_failure_rolls_back_entire_generation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    layers, bindings, cache_root, _state_path = _two_protected_sources(
+        tmp_path, monkeypatch
+    )
+    index_path = cache_root / "index.json"
+    index_before = index_path.read_bytes()
+    entries = json.loads(index_before)["entries"]
+    old_targets = tuple(cache_root / item["target"] for item in entries.values())
+    old_bytes = {
+        target: (target / "accounting" / "SKILL.md").read_bytes()
+        for target in old_targets
+    }
+    real_rename = os.rename
+    publications = 0
+
+    def fail_second_publication(source, target, *args, **kwargs):
+        nonlocal publications
+        source_path = Path(source)
+        if source_path.parent.name.startswith(".projection-stage-"):
+            publications += 1
+            if publications == 2:
+                raise OSError("injected second publication failure")
+        return real_rename(source, target, *args, **kwargs)
+
+    monkeypatch.setattr(os, "rename", fail_second_publication)
+
+    with pytest.raises(
+        KnowledgeSkillSourceError,
+        match="projection could not be published",
+    ):
+        resolve_protected_knowledge_lock_projections(
+            layers,
+            _advanced_bindings(bindings),
+            cache_root=cache_root,
+        )
+
+    assert publications == 2
+    assert index_path.read_bytes() == index_before
+    assert not (cache_root / ".projection-transaction.json").exists()
+    assert not any(cache_root.glob(".projection-stage-*"))
+    assert all(target.is_dir() for target in old_targets)
+    assert all(
+        (target / "accounting" / "SKILL.md").read_bytes() == old_bytes[target]
+        for target in old_targets
+    )
+    assert {
+        item["revision"]
+        for item in json.loads(index_path.read_text(encoding="utf-8"))[
+            "entries"
+        ].values()
+    } == {1}
+
+
+def test_orphaned_projection_stage_is_removed_before_next_resolution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    layers, bindings, cache_root, _state_path = _two_protected_sources(
+        tmp_path, monkeypatch
+    )
+    stage = cache_root / f".projection-stage-{'1' * 32}"
+    stage.mkdir(mode=0o700)
+    staged_file = stage / "unpublished"
+    staged_file.write_text("unissued", encoding="utf-8")
+    staged_file.chmod(0o400)
+
+    projections = resolve_protected_knowledge_lock_projections(
+        layers,
+        bindings,
+        cache_root=cache_root,
+    )
+
+    assert len(projections) == 2
+    assert not stage.exists()
 
 
 def test_protected_receipt_projects_exact_signed_plugin_lock_identity(

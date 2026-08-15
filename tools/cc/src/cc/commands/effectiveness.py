@@ -15,8 +15,10 @@ from cc.core.evaluation.report import (
     blocked_execution_report_document,
     validate_execution_report_document,
 )
+from cc.core.evaluation.schema import canonical_sha256
 from cc.evaluation_fixtures import (
     PACKAGED_BUNDLE_SHA256,
+    PACKAGED_MATRIX_SHA256,
     PACKAGED_PERSONAL_LAYER_SHA256,
     packaged_cases_root,
     packaged_personal_layer_root,
@@ -28,196 +30,52 @@ effectiveness_app = typer.Typer(
     no_args_is_help=True,
 )
 
-_SIGNED_TAG = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+$")
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
-_TREE = re.compile(r"^[0-9a-f]{40,64}$")
 _IDENTIFIER = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 _MODEL_REFERENCE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
-_REQUIRED_SIGNED_LAYERS = (
-    ("knowledge", "foundation"),
-    ("knowledge", "organization"),
-    ("knowledge", "department"),
-    ("claude", "foundation"),
-    ("claude", "organization"),
-    ("claude", "department"),
-    ("codex", "foundation"),
-    ("codex", "organization"),
-    ("codex", "department"),
-)
-_REQUIRED_PERSONAL_SNAPSHOTS = (
-    ("knowledge", "personal"),
-    ("claude", "personal"),
-    ("codex", "personal"),
-)
-
-
-def _manifest_layers() -> list[dict[str, Any]]:
-    from cc.core.config import resolve_key
-    from cc.core.ecosystem.manifest import load_layers, validate_layers
-
-    manifest = resolve_key("layers.manifest")
-    if not manifest:
-        return []
-    return validate_layers(load_layers(manifest))
-
-
-def _layer_statuses(
-    layers: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], list[str]]:
-    rows = []
-    blockers = []
-    for product, role in _REQUIRED_SIGNED_LAYERS:
-        matches = [
-            layer
-            for layer in layers
-            if layer.get("product") == product and layer.get("role") == role
-        ]
-        pinned = False
-        if len(matches) == 1:
-            source = matches[0].get("source") or {}
-            policy = matches[0].get("policy") or {}
-            proof = matches[0].get("_evaluation_proof") or {}
-            pinned = bool(
-                _SIGNED_TAG.fullmatch(str(source.get("ref", "")))
-                and isinstance(policy.get("allowed_signers"), list)
-                and policy["allowed_signers"]
-                and proof.get("signature_verified") is True
-                and proof.get("joined") is True
-                and proof.get("layer") == matches[0].get("id")
-                and proof.get("ref") == source.get("ref")
-                and proof.get("signer") in policy["allowed_signers"]
-                and _TREE.fullmatch(str(proof.get("tree", "")))
-                and _DIGEST.fullmatch(str(proof.get("lease_sha256", "")))
-                and _DIGEST.fullmatch(str(proof.get("lock_sha256", "")))
-                and _DIGEST.fullmatch(str(proof.get("materialization_sha256", "")))
-            )
-        state = "ready" if pinned else "blocked"
-        rows.append({"product": product, "role": role, "state": state})
-        if not pinned:
-            blockers.append(f"unverified-{product}-{role}")
-    for product, role in _REQUIRED_PERSONAL_SNAPSHOTS:
-        matches = [
-            layer
-            for layer in layers
-            if layer.get("product") == product and layer.get("role") == role
-        ]
-        frozen = False
-        if len(matches) == 1:
-            source = matches[0].get("source") or {}
-            proof = matches[0].get("_evaluation_proof") or {}
-            frozen = bool(
-                re.fullmatch(r"sha256:[0-9a-f]{64}", str(source.get("ref", "")))
-                and proof.get("layer") == matches[0].get("id")
-                and proof.get("ref") == source.get("ref")
-                and proof.get("joined") is True
-                and _DIGEST.fullmatch(str(proof.get("lock_sha256", "")))
-                and _DIGEST.fullmatch(str(proof.get("materialization_sha256", "")))
-            )
-        rows.append(
-            {
-                "product": product,
-                "role": role,
-                "state": "ready" if frozen else "blocked",
-            }
-        )
-        if not frozen:
-            blockers.append(f"personal-snapshot-{product}-unavailable")
-    return rows, blockers
-
-
-def _runtime_statuses() -> tuple[list[dict[str, Any]], list[str]]:
-    from cc.core.ecosystem.codex_plugin_source import resolve_codex_plugin_source
-    from cc.core.evaluation.live_runtime import (
-        _codex_native_executable,
-        _executable_sha256,
-        runtime_authentication_status,
-    )
-    from cc.core.evaluation.models import RuntimeName
-    from cc.core.executables import resolve_executable
-
-    rows = []
-    blockers = []
-    for runtime in ("claude", "codex"):
-        resolved = resolve_executable(runtime)
-        executable = None
-        try:
-            executable = (
-                _codex_native_executable(Path(resolved))
-                if runtime == "codex" and resolved is not None
-                else Path(resolved) if resolved is not None else None
-            )
-            digest = _executable_sha256(executable) if executable else None
-            authenticated, auth_reason = (
-                runtime_authentication_status(RuntimeName(runtime), executable)
-                if executable is not None
-                else (False, "runtime-unavailable")
-            )
-        except (OSError, ValueError):
-            digest = None
-            authenticated, auth_reason = False, "auth-probe-unavailable"
-        state = "ready" if digest and authenticated else "blocked"
-        rows.append(
-            {
-                "runtime": runtime,
-                "state": state,
-                "executable_sha256": digest,
-                "authentication": auth_reason,
-            }
-        )
-        if digest is None:
-            blockers.append(f"{runtime}-runtime-unavailable")
-        elif not authenticated:
-            blockers.append(f"{runtime}-runtime-not-authenticated")
-    try:
-        source = resolve_codex_plugin_source()
-    except (OSError, ValueError):
-        source = None
-    if source is None:
-        blockers.append("codex-plugin-projection-unavailable")
-    else:
-        rows[-1]["projection"] = {
-            "layer": source.layer,
-            "ref": source.ref,
-            "tree": source.tree,
-            "signer": source.signer,
-        }
-    blockers.append("codex-no-tool-isolation-unavailable")
-    return rows, blockers
 
 
 def build_effectiveness_readiness(
     fixtures_root: Optional[Path] = None,
-    *,
-    layers_loader: Callable[[], list[dict[str, Any]]] = _manifest_layers,
-    runtime_loader: Callable[
-        [], tuple[list[dict[str, Any]], list[str]]
-    ] = _runtime_statuses,
 ) -> dict[str, Any]:
-    """Return value-suppressing candidate readiness; never issue run authority."""
+    """Return the sealed canonical no-call snapshot, never dispatch authority."""
 
-    fixtures_root = _resolve_fixtures_root(fixtures_root)
-    matrix, _fixtures = build_matrix(fixtures_root)
-    try:
-        layers = layers_loader()
-        layer_rows, layer_blockers = _layer_statuses(layers)
-    except (OSError, ValueError):
-        layer_rows = []
-        layer_blockers = ["layer-manifest-unavailable"]
-    runtime_rows, runtime_blockers = runtime_loader()
-    candidate_blockers = sorted(set(layer_blockers + runtime_blockers))
-    blockers = sorted(
-        set(candidate_blockers + ["canonical-readiness-verifier-unavailable"])
+    from cc.core.evaluation.readiness import (
+        RUNTIME_MODELS,
+        CanonicalReadinessUnavailable,
+        issue_canonical_readiness,
+        readiness_document,
     )
+
+    selected = _resolve_fixtures_root(fixtures_root)
+    try:
+        report = issue_canonical_readiness(
+            fixtures_root=selected,
+            runtime_models=RUNTIME_MODELS,
+        )
+        return readiness_document(report)
+    except CanonicalReadinessUnavailable as exc:
+        reason = exc.reason
+    except (OSError, RuntimeError, TypeError, ValueError):
+        reason = "canonical-readiness-unavailable"
+    if not _IDENTIFIER.fullmatch(reason):
+        reason = "canonical-readiness-unavailable"
     return {
-        "schema_version": "1.0",
-        "matrix_sha256": matrix.matrix_sha256,
-        "planned_cells": len(matrix.cells),
+        "schema_version": "task285-canonical-readiness-unavailable-v1",
         "state": "blocked",
-        "candidate_state": "satisfied" if not candidate_blockers else "blocked",
-        "layers": layer_rows,
-        "runtimes": runtime_rows,
-        "blockers": blockers,
+        "matrix_sha256": PACKAGED_MATRIX_SHA256,
+        "runtime_models_sha256": canonical_sha256(
+            {
+                "schema_version": "task285-runtime-model-policy-v1",
+                "models": dict(sorted(RUNTIME_MODELS.items())),
+            }
+        ),
+        "cells": [],
+        "runtimes": [],
+        "blockers": [reason],
         "live_calls_started": 0,
+        "artifacts_written": 0,
+        "readiness_sha256": None,
     }
 
 
@@ -255,7 +113,74 @@ def _validated_execution_report(
     *,
     matrix_sha256: str,
 ) -> dict[str, object]:
+    if isinstance(value, Mapping) and value.get("schema_version") == (
+        "task285-phase-one-execution-v1"
+    ):
+        return _validated_phase_one_report(value, matrix_sha256=matrix_sha256)
     return validate_execution_report_document(value, matrix_sha256=matrix_sha256)
+
+
+def _validated_phase_one_report(
+    value: Mapping[str, object],
+    *,
+    matrix_sha256: str,
+) -> dict[str, object]:
+    """Validate a resumable handoff without treating it as final acceptance."""
+
+    expected_keys = {
+        "schema_version",
+        "matrix_sha256",
+        "state",
+        "acceptance_state",
+        "initial_cells_started",
+        "total_attempts_started",
+        "live_calls_started",
+        "completed_cells",
+        "unsupported_cells",
+        "assessment_manifest_sha256",
+        "assessment_bundle_sha256",
+        "terminal_run_sha256",
+        "blockers",
+        "execution_sha256",
+    }
+    if set(value) != expected_keys:
+        raise ValueError("Phase-one execution report has an invalid shape.")
+    document = dict(value)
+    identity = {
+        key: item for key, item in document.items() if key != "execution_sha256"
+    }
+    terminal = document["terminal_run_sha256"]
+    if not (
+        document["schema_version"] == "task285-phase-one-execution-v1"
+        and document["matrix_sha256"] == matrix_sha256 == PACKAGED_MATRIX_SHA256
+        and document["state"] == "awaiting-assessment"
+        and document["acceptance_state"] == "not-evaluated"
+        and all(
+            type(document[field]) is int
+            for field in (
+                "initial_cells_started",
+                "total_attempts_started",
+                "live_calls_started",
+                "completed_cells",
+                "unsupported_cells",
+            )
+        )
+        and document["initial_cells_started"] == 28
+        and document["total_attempts_started"] == 28
+        and document["live_calls_started"] == 14
+        and document["completed_cells"] == 14
+        and document["unsupported_cells"] == 14
+        and _DIGEST.fullmatch(str(document["assessment_manifest_sha256"]))
+        and _DIGEST.fullmatch(str(document["assessment_bundle_sha256"]))
+        and isinstance(terminal, list)
+        and all(isinstance(item, str) and _DIGEST.fullmatch(item) for item in terminal)
+        and len(terminal) == len(set(terminal)) == 28
+        and document["blockers"] == []
+        and _DIGEST.fullmatch(str(document["execution_sha256"]))
+        and document["execution_sha256"] == canonical_sha256(identity)
+    ):
+        raise ValueError("Phase-one execution report failed validation.")
+    return document
 
 
 def _run_effectiveness_matrix(
@@ -372,5 +297,5 @@ def effectiveness_run(
         codex_model=codex_model,
     )
     _emit(document, output_json)
-    if document["state"] != "completed":
+    if document["state"] not in {"completed", "awaiting-assessment"}:
         raise typer.Exit(2)

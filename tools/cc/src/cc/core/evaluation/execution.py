@@ -1237,13 +1237,111 @@ def _verify_runtime_authentication() -> None:
             raise EvaluationExecutionUnavailable(f"{runtime.value}-{stable_reason}")
 
 
-def _require_canonical_readiness(matrix: EvaluationMatrix) -> None:
-    _verify_canonical_claude_content(matrix)
-    _verify_runtime_authentication()
-    # The sealed 0.147 offline registry proof is a necessary but not yet
-    # sufficient Codex execution capability. Production remains zero-call
-    # until its reviewed receipt is wired to an exact additive source issuer.
-    raise EvaluationExecutionUnavailable("codex-content-projection-unavailable")
+def _readiness_plan_sha256(plan: MatrixCellPlan) -> str:
+    return canonical_sha256(
+        {
+            "case_id": plan.case_id,
+            "revision": plan.revision,
+            "variant": plan.variant.value,
+            "runtime": plan.runtime.value,
+            "role": plan.role,
+            "fixture_packet_sha256": plan.fixture_packet_sha256,
+            "route_classification": plan.route_classification,
+            "expected_specialist": plan.expected_specialist,
+            "route_contract_sha256": plan.route_contract_sha256,
+        }
+    )
+
+
+def _require_canonical_readiness(
+    matrix: EvaluationMatrix,
+    runtime_models: Mapping[str, str],
+) -> object:
+    """Consume the exact sealed no-call snapshot without granting dispatch."""
+
+    from cc.core.evaluation.readiness import (
+        CanonicalReadinessUnavailable,
+        issue_canonical_readiness,
+        verify_canonical_readiness,
+    )
+
+    try:
+        report = issue_canonical_readiness(
+            fixtures_root=packaged_cases_root(),
+            runtime_models=runtime_models,
+        )
+    except CanonicalReadinessUnavailable as exc:
+        reason = (
+            exc.reason
+            if re.fullmatch(r"[a-z][a-z0-9-]{0,63}", exc.reason)
+            else "canonical-readiness-unavailable"
+        )
+        raise EvaluationExecutionUnavailable(reason) from exc
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        raise EvaluationExecutionUnavailable("canonical-readiness-unavailable") from exc
+
+    try:
+        expected_cells = tuple(
+            (
+                plan.case_id,
+                plan.variant.value,
+                plan.runtime.value,
+                plan.role,
+                _readiness_plan_sha256(plan),
+            )
+            for plan in matrix.cells
+        )
+        actual_cells = tuple(
+            (
+                item.case_id,
+                item.variant,
+                item.runtime,
+                item.role,
+                item.plan_sha256,
+            )
+            for item in report.cells
+        )
+        expected_runtimes = tuple(
+            (runtime.value, _RUNTIME_MODELS[runtime.value]) for runtime in RuntimeName
+        )
+        actual_runtimes = tuple((item.runtime, item.model) for item in report.runtimes)
+        expected_runtime_models_sha256 = canonical_sha256(
+            {
+                "schema_version": "task285-runtime-model-policy-v1",
+                "models": dict(sorted(_RUNTIME_MODELS.items())),
+            }
+        )
+        authentic = bool(
+            verify_canonical_readiness(report)
+            and report.matrix_sha256 == matrix.matrix_sha256 == PACKAGED_MATRIX_SHA256
+            and actual_cells == expected_cells
+            and actual_runtimes == expected_runtimes
+            and report.runtime_models_sha256 == expected_runtime_models_sha256
+            and report.live_calls_started == 0
+            and report.artifacts_written == 0
+            and tuple(sorted(set(report.blockers))) == report.blockers
+            and report.state == ("ready" if not report.blockers else "blocked")
+        )
+    except (AttributeError, TypeError, ValueError):
+        authentic = False
+    if not authentic:
+        raise EvaluationExecutionUnavailable("canonical-readiness-invalid")
+    if report.blockers:
+        reason = report.blockers[0]
+        if not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", reason):
+            reason = "canonical-readiness-blocked"
+        raise EvaluationExecutionUnavailable(reason)
+    return report
+
+
+def _require_production_dispatch_authority(readiness_report: object) -> None:
+    """Keep readiness observational until a distinct live broker permit exists."""
+
+    from cc.core.evaluation.readiness import verify_canonical_readiness
+
+    if not verify_canonical_readiness(readiness_report):
+        raise EvaluationExecutionUnavailable("canonical-readiness-invalid")
+    raise EvaluationExecutionUnavailable("codex-live-authorization-unavailable")
 
 
 def issue_matrix_execution(
@@ -1255,15 +1353,16 @@ def issue_matrix_execution(
     """Authorize only the exact packaged matrix and released runtime policy.
 
     Readiness consumes verifier-owned source and runtime facts directly. It
-    never accepts caller-authored proof dictionaries, never creates an artifact
-    directory before every prerequisite passes, and currently fails before any
-    model call because the additive Codex content issuer is not yet available.
+    never accepts caller-authored proof dictionaries and never creates an
+    artifact directory before every prerequisite passes. The snapshot remains
+    observational; a distinct production broker authority is still required.
     """
 
     matrix = _require_exact_matrix(fixtures_root)
     _require_exact_models(runtime_models)
     _require_private_artifact_location(artifact_root)
-    _require_canonical_readiness(matrix)
+    readiness_report = _require_canonical_readiness(matrix, runtime_models)
+    _require_production_dispatch_authority(readiness_report)
     _verified_matrix, fixtures = build_matrix(fixtures_root)
     if _verified_matrix != matrix:
         raise EvaluationExecutionUnavailable("preregistered-matrix-unavailable")

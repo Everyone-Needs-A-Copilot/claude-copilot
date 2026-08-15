@@ -32,8 +32,9 @@ def test_execution_boundary_accepts_only_exact_packaged_inputs_and_starts_nothin
     artifact_root = tmp_path / "artifacts"
     observed = []
 
-    def blocked(matrix) -> None:
+    def blocked(matrix, runtime_models) -> None:
         observed.append(matrix.matrix_sha256)
+        assert runtime_models == _models()
         raise EvaluationExecutionUnavailable("codex-content-projection-unavailable")
 
     monkeypatch.setattr(execution, "_require_canonical_readiness", blocked)
@@ -160,7 +161,7 @@ def test_execution_boundary_rejects_untrusted_artifact_location(
     monkeypatch.setattr(
         execution,
         "_require_canonical_readiness",
-        lambda _matrix: pytest.fail("readiness must not run"),
+        lambda _matrix, _models: pytest.fail("readiness must not run"),
     )
 
     with pytest.raises(
@@ -187,7 +188,7 @@ def test_execution_boundary_rejects_symlinked_ancestor_alias(
     monkeypatch.setattr(
         execution,
         "_require_canonical_readiness",
-        lambda _matrix: pytest.fail("readiness must not run"),
+        lambda _matrix, _models: pytest.fail("readiness must not run"),
     )
 
     with pytest.raises(

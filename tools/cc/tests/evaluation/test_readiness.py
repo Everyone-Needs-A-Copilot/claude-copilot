@@ -10,6 +10,7 @@ from cc.core.evaluation.matrix import build_matrix
 from cc.core.evaluation.models import RuntimeName
 from cc.core.evaluation.readiness import (
     RUNTIME_MODELS,
+    CanonicalReadinessReport,
     CanonicalReadinessUnavailable,
     RuntimeReadiness,
     issue_canonical_readiness,
@@ -72,6 +73,22 @@ def _install_ready_probes(
     monkeypatch.setattr(readiness_module, "_probe_content_plan", content)
     monkeypatch.setattr(readiness_module, "_probe_runtime", _ready_runtime)
     return calls
+
+
+def _unregistered_report(
+    report: CanonicalReadinessReport,
+    **changes,
+) -> CanonicalReadinessReport:
+    fields = {**report.__dict__, **changes, "readiness_sha256": "0" * 64}
+    provisional = CanonicalReadinessReport(**fields)
+    return CanonicalReadinessReport(
+        **{
+            **fields,
+            "readiness_sha256": canonical_sha256(
+                readiness_module._report_body(provisional)
+            ),
+        }
+    )
 
 
 def test_exact_synthetic_readiness_covers_all_cells_without_dispatch(
@@ -194,6 +211,146 @@ def test_readiness_copy_and_field_replacement_cannot_retain_authority(
     assert verify_canonical_readiness(report)
     with pytest.raises(ValueError, match="identity is invalid"):
         readiness_document(forged)
+
+
+def test_readiness_has_no_caller_evidence_issuer_and_direct_payloads_reject(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_ready_probes(monkeypatch)
+    report = issue_canonical_readiness(
+        fixtures_root=packaged_cases_root(),
+        runtime_models=RUNTIME_MODELS,
+    )
+    forged_cell = replace(
+        report.cells[0],
+        content_receipt_sha256=canonical_sha256({"forged": "cell"}),
+    )
+    forged_runtime = replace(
+        report.runtimes[0],
+        executable_sha256=canonical_sha256({"forged": "runtime"}),
+    )
+
+    assert not hasattr(readiness_module, "_issue_report")
+    assert not verify_canonical_readiness(_unregistered_report(report))
+    assert not verify_canonical_readiness(
+        _unregistered_report(report, cells=report.cells[:-1])
+    )
+    assert not verify_canonical_readiness(
+        _unregistered_report(
+            report,
+            cells=(forged_cell, *report.cells[1:]),
+        )
+    )
+    assert not verify_canonical_readiness(
+        _unregistered_report(
+            report,
+            runtimes=(forged_runtime, report.runtimes[1]),
+        )
+    )
+
+
+def test_runtime_probe_subject_substitution_fails_before_report_issuance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_ready_probes(monkeypatch)
+
+    def substituted_runtime(runtime: RuntimeName, _model: str) -> RuntimeReadiness:
+        other = (
+            RuntimeName.CODEX if runtime is RuntimeName.CLAUDE else RuntimeName.CLAUDE
+        )
+        return _ready_runtime(other, RUNTIME_MODELS[other.value])
+
+    monkeypatch.setattr(readiness_module, "_probe_runtime", substituted_runtime)
+
+    with pytest.raises(
+        CanonicalReadinessUnavailable,
+        match="runtime-readiness-invalid",
+    ):
+        issue_canonical_readiness(
+            fixtures_root=packaged_cases_root(),
+            runtime_models=RUNTIME_MODELS,
+        )
+
+
+def test_nested_cell_mutation_and_recomputed_public_digest_rejects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_ready_probes(monkeypatch)
+    report = issue_canonical_readiness(
+        fixtures_root=packaged_cases_root(),
+        runtime_models=RUNTIME_MODELS,
+    )
+
+    object.__setattr__(
+        report.cells[0],
+        "content_receipt_sha256",
+        canonical_sha256({"forged": "nested-content"}),
+    )
+    object.__setattr__(
+        report,
+        "readiness_sha256",
+        canonical_sha256(readiness_module._report_body(report)),
+    )
+
+    assert not verify_canonical_readiness(report)
+
+
+def test_nested_runtime_mutation_and_recomputed_public_digest_rejects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_ready_probes(monkeypatch)
+    report = issue_canonical_readiness(
+        fixtures_root=packaged_cases_root(),
+        runtime_models=RUNTIME_MODELS,
+    )
+
+    object.__setattr__(
+        report.runtimes[0],
+        "authentication_evidence_sha256",
+        canonical_sha256({"forged": "nested-runtime"}),
+    )
+    object.__setattr__(
+        report,
+        "readiness_sha256",
+        canonical_sha256(readiness_module._report_body(report)),
+    )
+
+    assert not verify_canonical_readiness(report)
+
+
+def test_short_internal_matrix_cannot_be_sealed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_ready_probes(monkeypatch)
+    matrix, _fixtures = build_matrix(packaged_cases_root())
+    forged = object.__new__(type(matrix))
+    object.__setattr__(forged, "schema_version", matrix.schema_version)
+    object.__setattr__(forged, "cells", matrix.cells[:-1])
+    object.__setattr__(forged, "matrix_sha256", matrix.matrix_sha256)
+    monkeypatch.setattr(readiness_module, "_exact_matrix", lambda _root: forged)
+
+    with pytest.raises(
+        CanonicalReadinessUnavailable,
+        match="readiness-verification-failed",
+    ):
+        issue_canonical_readiness(
+            fixtures_root=packaged_cases_root(),
+            runtime_models=RUNTIME_MODELS,
+        )
+
+
+def test_readiness_report_exposes_no_dispatch_authority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_ready_probes(monkeypatch)
+    report = issue_canonical_readiness(
+        fixtures_root=packaged_cases_root(),
+        runtime_models=RUNTIME_MODELS,
+    )
+
+    assert not hasattr(report, "run_authorized")
+    assert not hasattr(report, "begin_execution")
+    assert not hasattr(report, "permit")
 
 
 def test_readiness_document_is_value_suppressing(

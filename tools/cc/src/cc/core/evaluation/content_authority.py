@@ -18,6 +18,7 @@ import subprocess
 import weakref
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Mapping, Sequence
 
 import yaml
@@ -263,43 +264,60 @@ class CanonicalCodexRuntimeProjection:
     projection_sha256: str
 
     def __post_init__(self) -> None:
-        expected = canonical_sha256(
-            {
-                "schema_version": "evaluation-codex-runtime-projection-v1",
-                "matrix_sha256": self.matrix_sha256,
-                "cell_plan_sha256": self.cell_plan_sha256,
-                "plugins": [
-                    {
-                        "layer": item.layer,
-                        "tier": item.role,
-                        "repository": item.repository,
-                        "relative_path": item.relative_path,
-                        "plugin_name": item.plugin_name,
-                        "source_kind": item.source_kind,
-                        "adapter_version": item.adapter_version,
-                        "activation_sha256": item.activation_sha256,
-                        "ref": _canonical_ref(item.ref),
-                        "tree": item.tree,
-                        "signer": item.signer,
-                        "release_tag": item.release_tag,
-                        "release_commit": item.release_commit,
-                        "release_tree": item.release_tree,
-                    }
-                    for item in self.plugin_sources
-                ],
-                "selected_source": dict(self.source_receipt),
-                "selected_content_sha256": hashlib.sha256(
-                    self.content.encode("utf-8")
-                ).hexdigest(),
-            }
+        if not isinstance(self.source_receipt, Mapping) or not all(
+            isinstance(key, str) and isinstance(value, str)
+            for key, value in self.source_receipt.items()
+        ):
+            raise ValueError("Canonical Codex source receipt is invalid.")
+        object.__setattr__(
+            self,
+            "source_receipt",
+            MappingProxyType(dict(self.source_receipt)),
         )
+        expected = canonical_sha256(_codex_runtime_projection_document(self))
         if self.projection_sha256 != expected:
             raise ValueError("Canonical Codex runtime projection is invalid.")
 
 
+def _codex_runtime_projection_document(
+    value: CanonicalCodexRuntimeProjection,
+) -> dict[str, object]:
+    return {
+        "schema_version": "evaluation-codex-runtime-projection-v1",
+        "matrix_sha256": value.matrix_sha256,
+        "cell_plan_sha256": value.cell_plan_sha256,
+        "plugins": [
+            {
+                "layer": item.layer,
+                "tier": item.role,
+                "repository": item.repository,
+                "relative_path": item.relative_path,
+                "plugin_name": item.plugin_name,
+                "source_kind": item.source_kind,
+                "adapter_version": item.adapter_version,
+                "activation_sha256": item.activation_sha256,
+                "ref": _canonical_ref(item.ref),
+                "tree": item.tree,
+                "signer": item.signer,
+                "release_tag": item.release_tag,
+                "release_commit": item.release_commit,
+                "release_tree": item.release_tree,
+            }
+            for item in value.plugin_sources
+        ],
+        "selected_source": dict(value.source_receipt),
+        "selected_content_sha256": hashlib.sha256(
+            value.content.encode("utf-8")
+        ).hexdigest(),
+    }
+
+
 def _runtime_projection_identity(value: object) -> str:
     if isinstance(value, CanonicalCodexRuntimeProjection):
-        return value.projection_sha256
+        identity = canonical_sha256(_codex_runtime_projection_document(value))
+        if value.projection_sha256 != identity:
+            raise ValueError("Canonical Codex runtime projection changed.")
+        return identity
     return canonical_sha256(dict(value.source_receipt))
 
 

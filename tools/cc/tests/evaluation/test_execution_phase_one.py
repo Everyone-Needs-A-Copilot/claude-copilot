@@ -243,7 +243,7 @@ def test_public_issuer_still_blocks_before_phase_one_coordinator(
     monkeypatch.setattr(
         execution,
         "_require_canonical_readiness",
-        lambda _matrix: (_ for _ in ()).throw(
+        lambda _matrix, _models: (_ for _ in ()).throw(
             EvaluationExecutionUnavailable(
                 "canonical-content-materialized-lock-mismatch"
             )

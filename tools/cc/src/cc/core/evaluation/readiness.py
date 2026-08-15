@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import tempfile
+import threading
 import weakref
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,7 +18,7 @@ from cc.core.evaluation.matrix import (
     build_matrix,
 )
 from cc.core.evaluation.models import LayerVariant, RuntimeName
-from cc.core.evaluation.schema import canonical_sha256
+from cc.core.evaluation.schema import canonical_json_bytes, canonical_sha256
 from cc.evaluation_fixtures import PACKAGED_MATRIX_SHA256, packaged_cases_root
 
 CLAUDE_READINESS_MODEL = "claude-fable-5"
@@ -29,9 +30,7 @@ RUNTIME_MODELS = {
 _BLOCKER = re.compile(r"^[a-z][a-z0-9-]{0,95}$")
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _AUTHORITY = object()
-_ISSUED: weakref.WeakValueDictionary[int, "CanonicalReadinessReport"] = (
-    weakref.WeakValueDictionary()
-)
+_LOCK = threading.RLock()
 
 
 class CanonicalReadinessUnavailable(ValueError):
@@ -161,6 +160,16 @@ class CanonicalReadinessReport:
 
     def validate(self) -> bool:
         return verify_canonical_readiness(self)
+
+
+@dataclass(frozen=True)
+class _IssuedReadinessState:
+    report_ref: weakref.ReferenceType[CanonicalReadinessReport]
+    seal: object
+    body: bytes
+
+
+_ISSUED: dict[int, _IssuedReadinessState] = {}
 
 
 def _plan_document(plan: MatrixCellPlan) -> dict[str, object]:
@@ -428,52 +437,19 @@ def _probe_runtime(runtime: RuntimeName, model: str) -> RuntimeReadiness:
     )
 
 
-def _issue_report(
-    matrix: EvaluationMatrix,
-    runtime_models_sha256: str,
-    cells: tuple[CellReadiness, ...],
-    runtimes: tuple[RuntimeReadiness, ...],
-) -> CanonicalReadinessReport:
-    blockers = tuple(
-        sorted(
-            {
-                *(item.blocker for item in cells if item.blocker is not None),
-                *(blocker for runtime in runtimes for blocker in runtime.blockers),
-            }
-        )
-    )
-    state = "ready" if not blockers else "blocked"
-    seal = object()
-    provisional = CanonicalReadinessReport(
-        schema_version="task285-canonical-readiness-v1",
-        state=state,
-        matrix_sha256=matrix.matrix_sha256,
-        runtime_models_sha256=runtime_models_sha256,
-        cells=cells,
-        runtimes=runtimes,
-        blockers=blockers,
-        live_calls_started=0,
-        artifacts_written=0,
-        readiness_sha256="0" * 64,
-        _seal=seal,
-        _authority=_AUTHORITY,
-    )
-    result = CanonicalReadinessReport(
-        **{
-            **provisional.__dict__,
-            "readiness_sha256": canonical_sha256(_report_body(provisional)),
-        }
-    )
-    _ISSUED[id(result)] = result
-    if not verify_canonical_readiness(result):
-        raise ValueError("Readiness report could not be sealed.")
-    return result
-
-
 def verify_canonical_readiness(value: object) -> bool:
     if not isinstance(value, CanonicalReadinessReport):
         return False
     try:
+        with _LOCK:
+            issued = _ISSUED.get(id(value))
+            if (
+                issued is None
+                or issued.report_ref() is not value
+                or issued.seal is not value._seal
+                or issued.body != canonical_json_bytes(_report_body(value))
+            ):
+                return False
         matrix, _fixtures = build_matrix(packaged_cases_root())
         expected_cells = tuple(
             (
@@ -496,8 +472,7 @@ def verify_canonical_readiness(value: object) -> bool:
             for item in value.cells
         )
         if (
-            _ISSUED.get(id(value)) is not value
-            or value.schema_version != "task285-canonical-readiness-v1"
+            value.schema_version != "task285-canonical-readiness-v1"
             or value.state not in {"ready", "blocked"}
             or value.matrix_sha256 != PACKAGED_MATRIX_SHA256
             or matrix.matrix_sha256 != PACKAGED_MATRIX_SHA256
@@ -551,7 +526,7 @@ def issue_canonical_readiness(
 
     matrix = _exact_matrix(fixtures_root)
     runtime_models_sha256 = _exact_models(runtime_models)
-    cells = []
+    cells: list[CellReadiness] = []
     for plan in matrix.cells:
         content_sha256, projection_sha256, blocker = _probe_content_plan(plan)
         cells.append(
@@ -571,7 +546,64 @@ def issue_canonical_readiness(
         _probe_runtime(runtime, RUNTIME_MODELS[runtime.value])
         for runtime in RuntimeName
     )
-    return _issue_report(matrix, runtime_models_sha256, tuple(cells), runtimes)
+    expected_runtime_subjects = tuple(
+        (runtime.value, RUNTIME_MODELS[runtime.value]) for runtime in RuntimeName
+    )
+    if tuple((item.runtime, item.model) for item in runtimes) != (
+        expected_runtime_subjects
+    ):
+        raise CanonicalReadinessUnavailable("runtime-readiness-invalid")
+    sealed_cells = tuple(cells)
+    blockers = tuple(
+        sorted(
+            {
+                *(item.blocker for item in sealed_cells if item.blocker is not None),
+                *(blocker for runtime in runtimes for blocker in runtime.blockers),
+            }
+        )
+    )
+    state = "ready" if not blockers else "blocked"
+    seal = object()
+    provisional = CanonicalReadinessReport(
+        schema_version="task285-canonical-readiness-v1",
+        state=state,
+        matrix_sha256=matrix.matrix_sha256,
+        runtime_models_sha256=runtime_models_sha256,
+        cells=sealed_cells,
+        runtimes=runtimes,
+        blockers=blockers,
+        live_calls_started=0,
+        artifacts_written=0,
+        readiness_sha256="0" * 64,
+        _seal=seal,
+        _authority=_AUTHORITY,
+    )
+    result = CanonicalReadinessReport(
+        **{
+            **provisional.__dict__,
+            "readiness_sha256": canonical_sha256(_report_body(provisional)),
+        }
+    )
+    object_id = id(result)
+
+    def revoke(reference: weakref.ReferenceType[CanonicalReadinessReport]) -> None:
+        with _LOCK:
+            issued = _ISSUED.get(object_id)
+            if issued is not None and issued.report_ref is reference:
+                _ISSUED.pop(object_id, None)
+
+    reference = weakref.ref(result, revoke)
+    with _LOCK:
+        _ISSUED[object_id] = _IssuedReadinessState(
+            report_ref=reference,
+            seal=seal,
+            body=canonical_json_bytes(_report_body(result)),
+        )
+    if not verify_canonical_readiness(result):
+        with _LOCK:
+            _ISSUED.pop(object_id, None)
+        raise CanonicalReadinessUnavailable("readiness-verification-failed")
+    return result
 
 
 __all__ = [
