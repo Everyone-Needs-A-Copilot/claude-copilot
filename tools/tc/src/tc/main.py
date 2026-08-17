@@ -307,7 +307,10 @@ def worker_cmd(
     without touching the database or spending anything.
 
     This is the canonical tc-side dispatch path for non-interactive (headless)
-    agent runs.  The orchestrate and Discord dispatch paths mirror this flag set.
+    agent runs, and `/orchestrate` mirrors this flag set.  Chat delivery is not
+    a dispatch path here: `copilot discord dispatch -- tc worker <id> ...` wraps
+    this command from CLI Copilot's side, so the reporting concern stays there
+    and this command stays unaware of it.
 
     Examples::
 
