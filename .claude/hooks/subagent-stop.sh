@@ -97,6 +97,124 @@ SESSION_ID="$(printf '%s' "$PAYLOAD" | "$JQ" -r '.session_id // ""' 2>/dev/null 
 AGENT_TYPE="$(printf '%s' "$PAYLOAD" | "$JQ" -r '.agent_type // ""' 2>/dev/null || echo "")"
 LAST_MSG="$(printf '%s' "$PAYLOAD" | "$JQ" -r '.last_assistant_message // ""' 2>/dev/null || echo "")"
 
+# ---------------------------------------------------------------------------
+# Design-stage unknowns check (R2 — "restore asking")
+#
+# WHY THIS IS HERE AND NOT IN THE AGENT FILES ALONE.
+#
+# Every agent's precedence section already exempts a `QUESTION:/OPTIONS:/CONTEXT:`
+# block from its token budget, so the mechanism to ask has always existed. Nothing
+# ever asked for it. It appears in fourteen agent files exclusively as an
+# exception clause -- a right the specialists have and never exercise.
+#
+# What that cost, measured: on an identical brief containing a real contradiction
+# ("Level 4 finish throughout" against "Garage included"), the vanilla arm asked,
+# earned three sealed clarification answers, and priced 25 fewer labour hours. The
+# framework arm, with its full design chain running, earned zero. It resolved
+# internally what should have been a conversation, and priced a guess. For a
+# framework whose stated purpose is experience-first software, that is the wrong
+# trade: knowing what it cannot know is part of a specialist's job.
+#
+# So the unknowns get COUNTED. A design-stage agent that returns without stating
+# its unknowns is not silently accepted, and "no unknowns" has to be claimed
+# rather than achieved by omission. This hook is non-blocking by contract, so it
+# records and surfaces -- it never refuses. The count is what makes "questions
+# raised before building" checkable instead of impressionistic.
+# ---------------------------------------------------------------------------
+DESIGN_STAGE_AGENTS=" sd uxd uids ind cco ta cw "
+
+record_design_unknowns() {
+  local state_file="${STATE_DIR}/asking.json"
+  local asked="none"
+
+  # `Unknowns:` is the required slot; the QUESTION: block is the escalation for
+  # an unknown that actually blocks. Either counts as having surfaced something.
+  if printf '%s' "$LAST_MSG" | grep -qE '^[[:space:]]*QUESTION:'; then
+    asked="question"
+  elif printf '%s' "$LAST_MSG" | grep -qiE '^[[:space:]]*Unknowns:[[:space:]]*(none|n/a|-)?[[:space:]]*$'; then
+    asked="declared-none"
+  elif printf '%s' "$LAST_MSG" | grep -qiE '^[[:space:]]*Unknowns:'; then
+    asked="unknowns"
+  else
+    asked="absent"
+  fi
+
+  mkdir -p "$STATE_DIR" 2>/dev/null || return 0
+
+  # Read prior state as a plain string argument rather than --slurpfile with a
+  # process substitution: that form silently produced an empty `prior` here, so
+  # every write started from {} and the file only ever held the most recent
+  # entry. A counter that resets to one is worse than no counter -- it reads as
+  # real data.
+  local prior='{}'
+  if [[ -s "$state_file" ]]; then
+    prior="$(cat "$state_file" 2>/dev/null || echo '{}')"
+    printf '%s' "$prior" | "$JQ" -e 'type == "object"' >/dev/null 2>&1 || prior='{}'
+  fi
+
+  "$JQ" -n \
+    --arg session "$SESSION_ID" \
+    --arg agent "$AGENT_TYPE" \
+    --arg asked "$asked" \
+    --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --argjson prior "$prior" \
+    '$prior
+     | .[$session] = ((.[$session] // {}) | .entries = ((.entries // []) + [{
+         "agent": $agent, "asked": $asked, "ts": $ts
+       }]))' > "${state_file}.tmp" 2>/dev/null \
+    && mv "${state_file}.tmp" "$state_file" 2>/dev/null || true
+
+  # -------------------------------------------------------------------------
+  # Memory fires here, unasked (R5).
+  #
+  # Memory wrote ZERO entries across seven framework trials. It is
+  # instruction-triggered, so during ordinary work it never runs -- and therefore
+  # carries nothing between real sessions either, while its always-loaded cost is
+  # paid every session regardless. The recommendation was blunt: either it fires
+  # unasked, or it stops being paid for.
+  #
+  # WHY THIS TRIGGER AND NOT A GENERAL ONE. "Store anything interesting" is how a
+  # memory store fills with noise and stops being worth reading, which costs more
+  # than never firing. An unresolved unknown is the narrowest high-value class
+  # available: rare, durable, invisible in the code, and precisely what is lost
+  # when a session ends -- the next session re-derives it or, worse, silently
+  # decides it. It is also the exact gap the sealed-answer benchmark exposed.
+  #
+  # Deliberately not stored: declared-none (nothing to carry), absent (already
+  # surfaced above), and QUESTION blocks (the user is answering those in-session,
+  # so the answer belongs in the transcript, not in a store of open items).
+  # -------------------------------------------------------------------------
+  if [[ "$asked" == "unknowns" ]] && command -v cc &>/dev/null \
+    && [[ "${COPILOT_MEMORY_AUTOCAPTURE:-on}" != "off" ]]; then
+    local unknown_text
+    unknown_text="$(printf '%s' "$LAST_MSG" \
+      | grep -iE '^[[:space:]]*Unknowns:' \
+      | head -1 \
+      | sed -E 's/^[[:space:]]*[Uu]nknowns:[[:space:]]*//' \
+      | cut -c1-400)"
+    if [[ -n "$unknown_text" ]]; then
+      cc memory store \
+        --type context \
+        --tags "unknown,${AGENT_TYPE},auto" \
+        "Open unknown raised by @agent-${AGENT_TYPE}: ${unknown_text}" \
+        >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Surface only the omission. A specialist that stated its unknowns needs no
+  # commentary; one that skipped the required slot is the case worth naming, and
+  # naming it in the transcript is what stops the omission being free.
+  if [[ "$asked" == "absent" ]]; then
+    "$JQ" -n --arg agent "$AGENT_TYPE" \
+      '{systemMessage: ("@agent-" + $agent + " returned no `Unknowns:` line. That slot is required for a design-stage specialist: state the unknowns, or state `Unknowns: none` and own it. An unknown that blocks the work escalates as a QUESTION:/OPTIONS:/CONTEXT: block, which is exempt from every token budget.")}' \
+      2>/dev/null || true
+  fi
+}
+
+if [[ -n "$SESSION_ID" ]] && [[ "$DESIGN_STAGE_AGENTS" == *" $AGENT_TYPE "* ]]; then
+  record_design_unknowns
+fi
+
 # Only act on me and qa agent types
 if [[ "$AGENT_TYPE" != "me" && "$AGENT_TYPE" != "qa" ]]; then
   exit 0

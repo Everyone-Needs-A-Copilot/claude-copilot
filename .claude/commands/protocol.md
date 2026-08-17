@@ -92,6 +92,46 @@ Invoking @agent-sd for service design...
 
 ---
 
+### Flow F: Critique (OPT-IN — not the default, and deliberately so)
+
+**Detection:** Never automatic. Reached only when the user asks for it: `/protocol --critique <request>`, or wording like "explore options", "give me alternatives", "I don't know what this should be yet".
+
+**Shape:** three candidates in parallel → mutual critique → synthesis.
+
+```
+sd, uxd, ind          each produce a DIFFERENT candidate direction, in parallel,
+                      without seeing the others
+      ↓
+uids, uid, ta, qa     each critiques ALL THREE from its own lens — no handoff,
+                      no elaboration, only "what breaks here and why"
+      ↓
+Feature Filter        SOUL.md Section 5's five gates, applied to each candidate
+                      rather than to one, so the gates SELECT instead of approve
+      ↓
+synthesis             one direction, grafting what the runners-up got right;
+                      state what was taken from each and what was dropped
+      ↓
+me                    implementation
+```
+
+**Checkpoints:** After the critique round, before synthesis. That is the moment the user's judgement is worth most — three live options with their weaknesses named, rather than one direction already elaborated four stages deep.
+
+**Why this exists as an alternative.** Flow A is a waterfall with human gates, and a pipeline's error compounds: if `sd` frames the journey wrongly, every downstream specialist elaborates the wrong frame with rising confidence and rising cost, and nothing revisits. The checkpoints are supposed to catch that, but a checkpoint reviews the stage that just ran, not the framing three stages back.
+
+Same agents, different topology. Plausibly cheaper too — three shallow passes plus a synthesis costs less than six deep sequential ones with a full handoff document between each — though that is a prediction, not a measurement.
+
+**Why it is NOT the default.** No evidence supports it over Flow A. None. Flow A is what this framework has always done and what every result in `copilot-bench` describes. Making an unevidenced re-architecture the default would be exactly the mistake this framework's own Honesty Test exists to prevent: claiming better output with no data for it.
+
+So it ships as an opt-in, alongside a way to find out. Paired against Flow A on identical work in `copilot-bench`, the comparison is: which produces the direction the user leaves alone? That is `cc survival` and blind scoring, not token counts — a cheaper wrong answer is not a better one.
+
+**Two things to watch, stated up front so a favourable result is not over-read:**
+- Three parallel candidates cost three framings. If they converge on near-identical directions, the divergence was theatre and the flow is paying triple for one candidate. Say so when it happens.
+- Critique is easier than creation. A round where every lens finds fault with every candidate and nothing is chosen has produced sophistication, not a decision. The synthesis step is mandatory for that reason, and it must name a winner.
+
+**Unknowns still apply.** Every specialist in this flow emits its `Unknowns:` line, and a genuine contradiction in the brief escalates as a `QUESTION:` block before three candidates are built on top of it. Divergent exploration is not a substitute for asking; a wrong brief produces three wrong candidates.
+
+---
+
 ### Flow B: Defect
 
 **Detection:** User reports something broken or not working correctly.
@@ -333,6 +373,7 @@ Override default behavior with flags:
 | `--skip-uids` | Skip UI design (visual) stage |
 | `--skip-uid` | Skip UI component implementation stage |
 | `--design-only` | Stop after design stages (no ta/me) |
+| `--critique` | Flow F: three parallel candidates, mutual critique, Feature-Filter selection, synthesis. Opt-in; no evidence yet that it beats Flow A |
 
 **Examples:**
 ```

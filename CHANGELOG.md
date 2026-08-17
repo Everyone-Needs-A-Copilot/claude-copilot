@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-08-17 — Discord left the framework
+
+- Removed `.claude/bin/discord-dispatch.sh`. Chat delivery is CLI Copilot's
+  concern and now lives there as `copilot discord dispatch`, which runs whatever
+  argv it is handed and knows nothing about `tc`. An instruction layer should not
+  hold a hard dependency on one chat provider, and the Discord contract should
+  not have had a second home that could drift from its owner's — which it did:
+  the script's first version passed a constructed `claude --print` command to
+  `--harness`, a free-text thread-routing label that is never executed, so no
+  process ran and no budget cap was enforced while the suite stayed green on a
+  grep.
+- `tests/test_budget_dispatch.py::TestNoChatIntegrationInThisFramework` guards
+  the boundary: a provider may be named in this repo, never invoked from its
+  executable surface.
+- Relocated `docs/70-reference/initiative-5.12.0-doc-followups.md` — a draft of
+  CLI Copilot's own Discord command docs — to `cli-copilot-internal`.
+
 ## 2026-08-12 — cc 2.12.8
 
 - Removed the `cc mcp` compatibility server and optional MCP dependency.

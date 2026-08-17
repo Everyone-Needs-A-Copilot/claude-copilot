@@ -5,14 +5,18 @@
   "byte_to_token_ratio": 4.0,
   "byte_to_token_basis": "~4 characters per token for English/markdown text -- OpenAI's widely-published tokenizer heuristic (platform.openai.com/tokenizer: 'a helpful rule of thumb is that one token generally corresponds to ~4 characters of text'). No tokenizer dependency is added; this is a documented approximation, applied identically to every artifact so ratios between artifacts stay comparable even though the absolute token count is approximate.",
   "thresholds": {
-    "growth_ratio": 1.10,
+    "growth_ratio": 1.1,
     "growth_ratio_basis": "Matches IMPL-plan item 5's starting point: tight enough to catch a real content-bloat edit, loose enough for normal edits (a new table row, a paragraph) not to trip it. Applies uniformly to every tracked artifact (agents, commands, CLAUDE.md, the SessionStart injection file, and the frontmatter-description catalog). Unchanged from v5.13.3 -- this re-baseline resets the captured byte counts, not the policy.",
-    "shrink_floor_ratio": 0.70,
+    "shrink_floor_ratio": 0.7,
     "shrink_floor_basis": "A single edit legitimately removing under 30% of a file (trimming a stale section) is normal; losing more than 30% in one change is the signature of an accidental body-strip or truncated write, which a growth-only budget cannot see. Unchanged from v5.13.3.",
-    "corpus_ceiling_ratio": 1.10,
+    "corpus_ceiling_ratio": 1.1,
     "corpus_ceiling_basis": "Same 10% headroom as the per-file ratio, applied to the SUM of all 16 agent files, so many small under-ratio additions across different files (each individually compliant) still can't add up to unbounded corpus growth. Unchanged from v5.13.3.",
     "always_loaded_growth_ratio": 1.08,
-    "always_loaded_growth_ratio_basis": "Deliberately tighter than every other ratio in this file (8% vs 10%) because this is the one number that taxes literally every session with zero user action -- CLAUDE.md and the SessionStart injection are read whether or not the session ever touches an agent or a command. Unchanged from v5.13.3; the Output Contract pass's +1,166-byte CLAUDE.md addition (ratio 1.046 against this re-baseline) still fits inside it without needing to loosen it."
+    "always_loaded_growth_ratio_basis": "Deliberately tighter than every other ratio in this file (8% vs 10%) because this is the one number that taxes literally every session with zero user action -- CLAUDE.md and the SessionStart injection are read whether or not the session ever touches an agent or a command. Unchanged from v5.13.3; the Output Contract pass's +1,166-byte CLAUDE.md addition (ratio 1.046 against this re-baseline) still fits inside it without needing to loosen it.",
+    "always_loaded_ceiling_bytes": 26268,
+    "always_loaded_ceiling_bytes_basis": "ABSOLUTE ceiling, not a ratio. Every other threshold here is a growth ratio, which constrains how fast the burden may rise and is structurally unable to require it to fall -- a framework at 26 KB always-loaded and one at 260 KB are equally compliant with an 8% growth cap, and no sequence of compliant edits can ever bring the number down. Set at the measured value on 2026-08-15, so it costs nothing today and makes every future increase a reviewed decision rather than a compliant 8% step. Raising it is legitimate; doing so silently is not.",
+    "agent_corpus_ceiling_bytes": 203126,
+    "agent_corpus_ceiling_bytes_basis": "ABSOLUTE ceiling on the summed agent corpus. Every other threshold here is a growth ratio, which constrains how fast the burden may rise and cannot require it to fall; no sequence of individually-compliant edits can ever bring the number down. Set at the MEASURED value on 2026-08-15 (203,126 B) rather than the v5.13.4 baseline (195,975 B), so the gate costs nothing on the day it lands. That 7,151 B gap is itself the point: the corpus drifted 3.6% above baseline through edits that each passed the 1.1x per-file ratio, which is precisely the ratchet an absolute ceiling exists to stop. Raising this is legitimate; raising it silently is not."
   },
   "agents": {
     "cco.md": 9081,

@@ -612,11 +612,45 @@ except Exception as exc:
     fail(f"{baseline_file.name} is not valid JSON: {exc}")
     sys.exit(0)
 
+# ---------------------------------------------------------------------------
+# Staleness. A baseline older than the artifacts it measures produces a scatter of
+# per-file failures that read like content bloat and are nothing of the kind. On
+# 2026-08-15 exactly that happened: five files failed (three over growth, two under
+# the shrink floor) purely because two feature commits post-dated the baseline. The
+# diagnosis cost far more than the fix. Say it once, plainly, up front.
+# ---------------------------------------------------------------------------
+captured = baseline.get("captured_at")
+if captured:
+    import subprocess as _sp
+    def _last_commit_iso(path):
+        try:
+            out = _sp.run(["git", "log", "-1", "--format=%cI", "--", path],
+                          capture_output=True, text=True, timeout=15)
+            return (out.stdout or "").strip()
+        except Exception:
+            return ""
+    _newer = []
+    for _p in ("CLAUDE.md", str(agents_dir), str(commands_dir)):
+        _iso = _last_commit_iso(_p)
+        if _iso and _iso > captured:
+            _newer.append((_p, _iso[:10]))
+    if _newer:
+        info(
+            "FF9: baseline captured " + captured[:10] + " but tracked artifacts changed "
+            "since: " + ", ".join(f"{a} ({d})" for a, d in _newer) + ". Per-file "
+            "results below are measured against a stale reference -- re-baseline to a "
+            "new version file before treating any of them as content bloat."
+        )
+
 th = baseline["thresholds"]
 GROWTH_RATIO = th["growth_ratio"]
 SHRINK_FLOOR = th["shrink_floor_ratio"]
 CORPUS_RATIO = th["corpus_ceiling_ratio"]
 ALWAYS_RATIO = th["always_loaded_growth_ratio"]
+# Absolute ceilings. Ratios alone can only ratchet upward; these give the budget a
+# direction it can refuse. Absent from older baselines, so default to no ceiling.
+ALWAYS_CEILING = th.get("always_loaded_ceiling_bytes")
+CORPUS_CEILING = th.get("agent_corpus_ceiling_bytes")
 BYTES_PER_TOKEN = baseline["byte_to_token_ratio"]
 
 # ---------------------------------------------------------------------------
@@ -842,6 +876,37 @@ evaluate_ceiling(
     always_loaded_total,
     ALWAYS_RATIO,
 )
+
+
+def evaluate_absolute(label, actual_bytes, ceiling_bytes):
+    """Enforce a hard byte ceiling.
+
+    The ratio checks above answer "did this edit grow too fast". This answers "is it
+    too big", which no ratio can. Benchmarking on 2026-08-15 measured a real cost for
+    always-loaded context that FF9 could not see, because a compliant 8% step is
+    compliant however many times it is taken.
+    """
+    if not ceiling_bytes:
+        return
+    tokens = actual_bytes / BYTES_PER_TOKEN
+    limit_tokens = ceiling_bytes / BYTES_PER_TOKEN
+    if actual_bytes > ceiling_bytes:
+        over = actual_bytes - ceiling_bytes
+        fail(
+            f"{label} is {actual_bytes:,} B (~{tokens:,.0f} tok), over the absolute "
+            f"ceiling of {ceiling_bytes:,} B (~{limit_tokens:,.0f} tok) by {over:,} B. "
+            "Reduce it, or raise the ceiling deliberately in the baseline with a reason."
+        )
+    else:
+        head = ceiling_bytes - actual_bytes
+        ok(
+            f"{label} {actual_bytes:,} B (~{tokens:,.0f} tok) within absolute ceiling "
+            f"{ceiling_bytes:,} B ({head:,} B headroom)"
+        )
+
+
+evaluate_absolute("Always-loaded total", always_loaded_total, ALWAYS_CEILING)
+evaluate_absolute("Agent corpus total", corpus_total, CORPUS_CEILING)
 PYEOF
 )
 
@@ -1057,6 +1122,269 @@ else:
         info("FF11: no '## Available Skills' table rows found")
 PYEOF
 )
+
+# ---------------------------------------------------------------------------
+# FF12: Deployment reconciliation -- does the corpus a session actually loads
+#       match the corpus this repo just validated?
+#
+# WHY THIS EXISTS. Every check above this one measures $AGENTS_DIR, which
+# defaults to this repo's own .claude/agents. A session does not read this repo.
+# It reads the DEPLOYED agent directory (~/.claude/agents by default), and on a
+# real machine those two are not the same thing: at the time this check was
+# written, all 16 filenames matched while 8 files differed in bytes, including
+# cpa.md by 1,672 B and cco.md by 494 B -- content present in the deployed copy
+# and absent from the repo. FF9 passed, truthfully, about a number no session
+# pays. An archived-agents directory (_archive, 8 files, ~59 KB) was also sitting
+# in the deployed tree.
+#
+# That is the same shape as every other silence this framework has been bitten
+# by: a check that answers "is the repo in order?" while nothing answers "is the
+# thing that runs in order?"
+#
+# WHAT FAILS AND WHAT ONLY REPORTS, AND WHY THE SPLIT.
+#   FAIL   the deployed corpus breaches the absolute ceiling. That is the number
+#          sessions actually pay, so it is the number the ceiling is about.
+#   FAIL   a file the repo defines is missing from the deployment, or the
+#          deployment carries an agent the repo does not define. Either way the
+#          roster a session sees is not the roster that was validated.
+#   REPORT per-file byte drift, itemised with the delta and direction. Deliberately
+#          not a failure: a repo edit legitimately precedes its install, and a
+#          check that fails on every uncommitted edit is one that gets disabled --
+#          which would restore the exact silence it exists to end. It is itemised
+#          rather than summarised so it cannot be skimmed as "roughly the same".
+#   SKIP   no deployed directory (CI, a fresh clone). Stated, never assumed clean.
+# ---------------------------------------------------------------------------
+section "FF12: Deployment Reconciliation (repo vs the corpus sessions load)"
+
+DEPLOYED_AGENTS_DIR="${CC_DEPLOYED_AGENTS_DIR:-${HOME}/.claude/agents}"
+
+if [ ! -d "$DEPLOYED_AGENTS_DIR" ]; then
+  echo "  [SKIP] no deployed agent directory at ${DEPLOYED_AGENTS_DIR} -- nothing to reconcile."
+  echo "         Every result above describes this repo, not a running session."
+elif [ "$(cd "$DEPLOYED_AGENTS_DIR" 2>/dev/null && pwd -P)" = "$(cd "$AGENTS_DIR" 2>/dev/null && pwd -P)" ]; then
+  pass "deployed agents resolve to the same directory as the repo (${DEPLOYED_AGENTS_DIR}) -- no drift is possible"
+else
+  FF12_OUT=$(AGENTS_DIR="$AGENTS_DIR" DEPLOYED="$DEPLOYED_AGENTS_DIR" \
+    CEILING="$(python3 -c "
+import json,sys
+from pathlib import Path
+try:
+    for p in sorted(Path('.claude').glob('context-budget-baseline-*.json')):
+        pass
+    print(json.loads(p.read_text())['thresholds']['agent_corpus_ceiling_bytes'])
+except Exception:
+    print(0)
+" 2>/dev/null || echo 0)" python3 - <<'FF12EOF'
+import os
+import re
+import subprocess
+from pathlib import Path
+
+repo = Path(os.environ["AGENTS_DIR"])
+dep = Path(os.environ["DEPLOYED"])
+ceiling = int(os.environ.get("CEILING") or 0)
+
+repo_files = {p.name: p for p in repo.glob("*.md")}
+dep_files = {p.name: p for p in dep.glob("*.md")}
+lines = []
+
+
+def read(path):
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# HOW THIS TELLS COMPOSITION FROM STALENESS FROM REAL DRIFT, AND WHY IT NEEDS TO.
+#
+# Two earlier versions of this check got it wrong, in instructive ways.
+#
+# v1 flagged any byte difference. On a real machine that fired on 8 of 16 files
+# and read as 8 problems. It was 1. Six files were merely behind an uninstalled
+# repo edit, and cpa.md was 1,672 B LARGER because the signed accounting tier
+# appends its method to the base agent at install time -- the tier system working
+# as designed. A check that cries wolf gets disabled, restoring the silence it
+# exists to end.
+#
+# v2 classified by prefix: deployed-starts-with-repo meant composition,
+# repo-starts-with-deployed meant stale. That broke the moment an edit landed in
+# the MIDDLE of a file (the `Unknowns:` line goes inside the Output Format block,
+# not at the end), so six stale files were reported as divergent. Prefix order is
+# not the structure being tested.
+#
+# So the two questions get separated and each is answered with real evidence:
+#
+#   COMPOSITION is declared. A tier block announces itself -- a trailing `## ...
+#   method` section whose body says it preserves the complete foundation contract
+#   above. Strip those and what remains is the base the repo is responsible for.
+#
+#   STALENESS is checkable against git. If the deployed base matches ANY committed
+#   version of that file, the deployment is simply behind; that is a report, not a
+#   failure. If it matches nothing this repo has ever committed, the deployed base
+#   is content of unknown origin -- every check above validated a file the session
+#   does not load, and that is a failure.
+#
+# The distinction matters because only the third case invalidates the run.
+# ---------------------------------------------------------------------------
+TIER_BLOCK = re.compile(
+    r"\n#{2,3} [^\n]*\n+This signed [^\n]*tier preserves the complete foundation[^\n]*\n"
+)
+
+
+def split_tier(text):
+    """Return (base, tier_bytes) by removing declared trailing tier blocks."""
+    match = None
+    for m in TIER_BLOCK.finditer(text):
+        match = m
+    if match is None:
+        return text, 0
+    return text[: match.start()], len(text) - match.start()
+
+
+def committed_versions(name, limit=200):
+    """Every committed body of this agent file, across ALL branches, newest first.
+
+    `--all` is load-bearing, and its absence produced a false alarm on the first real
+    run. `git log -- <path>` walks only the CURRENT branch's history, so a file whose
+    deployed copy came from a NEWER commit on another branch matched nothing and was
+    reported as content of unknown origin. That is exactly what happened to cco.md: the
+    deployed base was main's own newer, shortened wording, and the check was run from a
+    feature branch that predated it. The check accused the deployment of drift when the
+    deployment was simply ahead of the branch doing the checking.
+
+    The limit is per-file and generous for the same reason -- a truncated history is
+    indistinguishable from no match, and both read as a failure.
+    """
+    rel = f".claude/agents/{name}"
+    try:
+        revs = subprocess.run(
+            ["git", "log", "--all", f"-{limit}", "--format=%H", "--", rel],
+            capture_output=True, text=True, timeout=30, check=False,
+        ).stdout.split()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    bodies = []
+    for rev in revs:
+        try:
+            out = subprocess.run(
+                ["git", "show", f"{rev}:{rel}"],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if out.returncode == 0:
+            bodies.append(out.stdout)
+    return bodies
+
+
+composed, behind, divergent = {}, {}, []
+identical = 0
+base_total = 0
+
+for name in sorted(set(repo_files) & set(dep_files)):
+    r, d = read(repo_files[name]), read(dep_files[name])
+    if r is None or d is None:
+        divergent.append((name, "could not be read"))
+        continue
+    d_base, tier_bytes = split_tier(d)
+    base_total += len(d_base)
+    if tier_bytes:
+        composed[name] = tier_bytes
+    if d_base == r:
+        identical += 1
+        continue
+    history = committed_versions(name)
+    if history is None:
+        divergent.append((name, "differs, and git history is unavailable to date it"))
+    elif d_base in history:
+        behind[name] = len(r) - len(d_base)
+    else:
+        divergent.append((name, "matches no version this repo has committed"))
+
+missing = sorted(set(repo_files) - set(dep_files))
+extra = sorted(set(dep_files) - set(repo_files))
+for name in missing:
+    lines.append(f"FAIL|{name} is defined in the repo and absent from the deployment -- "
+                 f"a session cannot route to it")
+for name in extra:
+    base_total += (dep_files[name].stat().st_size)
+    lines.append(f"FAIL|{name} is deployed and not defined in this repo -- sessions load an "
+                 f"agent nothing here validates")
+for name, why in divergent:
+    lines.append(
+        f"FAIL|{name}: the deployed base {why}. Every budget and contract check above "
+        f"validated this repo's copy; the session loads that one. Reconcile before trusting "
+        f"any result above."
+    )
+
+dep_total = sum(p.stat().st_size for p in dep_files.values())
+
+if ceiling:
+    if base_total > ceiling:
+        lines.append(
+            f"FAIL|deployed base agent corpus is {base_total:,} B against an absolute "
+            f"ceiling of {ceiling:,} B (over by {base_total - ceiling:,} B)"
+        )
+    else:
+        lines.append(
+            f"PASS|deployed base agent corpus is {base_total:,} B, within the absolute "
+            f"ceiling of {ceiling:,} B"
+        )
+
+if composed:
+    total = sum(composed.values())
+    lines.append(
+        f"REPORT|signed tier extensions add {total:,} B across {len(composed)} agent(s), so "
+        f"a session on this machine loads {dep_total:,} B, not the {base_total:,} B the "
+        f"ceiling governs. Working as designed -- but it is the number actually paid, and "
+        f"no other check states it."
+    )
+    for name, delta in sorted(composed.items()):
+        lines.append(f"REPORT|  {name}: +{delta:,} B of tier content")
+
+if behind:
+    lines.append(
+        f"REPORT|{len(behind)} agent file(s) are newer in this repo than in the deployment. "
+        f"Sessions run the committed older content until the next `cc reconcile apply` or "
+        f"reinstall -- so any change made here is not yet in effect."
+    )
+    for name, delta in sorted(behind.items()):
+        # `delta` is repo minus deployed and can be negative when the newer repo
+        # version is SHORTER. "repo is -329 B ahead" is nonsense, and nonsense in a
+        # report is how a reader learns to stop reading it.
+        direction = "larger" if delta > 0 else "smaller"
+        lines.append(f"REPORT|  {name}: repo version is {abs(delta):,} B {direction}, "
+                     f"and not yet deployed")
+
+if identical and not divergent and not missing and not extra:
+    lines.append(f"PASS|{identical} agent base(s) byte-identical between repo and deployment")
+
+archive = dep / "_archive"
+if archive.is_dir():
+    arch = list(archive.rglob("*.md"))
+    if arch:
+        lines.append(
+            f"REPORT|the deployment carries {len(arch)} archived agent file(s) "
+            f"({sum(p.stat().st_size for p in arch):,} B) under _archive/, outside every "
+            f"budget measured above"
+        )
+
+print("\n".join(lines))
+FF12EOF
+)
+
+  while IFS='|' read -r verdict message; do
+    [ -z "$verdict" ] && continue
+    case "$verdict" in
+      PASS)   pass "$message" ;;
+      FAIL)   fail "$message" ;;
+      REPORT) echo "  [REPORT] $message" ;;
+      *)      echo "  $verdict$message" ;;
+    esac
+  done <<< "$FF12_OUT"
+fi
 
 # ---------------------------------------------------------------------------
 # Summary

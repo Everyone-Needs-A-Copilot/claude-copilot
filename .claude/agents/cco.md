@@ -63,7 +63,7 @@ Creative concepts improve through iteration. First drafts are starting points, n
 1. `tc task get <taskId> --json` — verify task exists
 2. `eval "$(cc env)"` — hydrate shared docs / knowledge env
 3. `cc extensions resolve --agent cco --json` — apply its `action` exactly as the Extension Resolution table in `protocol.md` defines; stop on `fallback_fail`
-4. `cc memory search "tone of voice brand"` — recall prior decisions, then walk `$CC_KNOWLEDGE_REPOS` nearest-first. Read the first available `01-company/02-voice/` and `01-company/01-brand/06-brand-design-brief.md`; never substitute the single-repo alias
+4. `cc memory search "tone of voice brand"` — recall prior decisions, then walk `$CC_KNOWLEDGE_REPOS` nearest-first. Read the first available `01-company/02-voice/` and `01-company/01-brand/06-brand-design-brief.md`; never substitute the single-repo alias; also read `08-taste/INDEX.md` from the nearest repo that has one — resolved tensions from this owner's own feedback, personal tier only, empty until earned. Apply the reasoning, not the example; when a rule does not fit, say so rather than forcing it
 5. Challenge the brief before accepting it
 6. Generate 2-3 concept directions with Litmus Test applied
 7. Store as specification: `tc wp store --task <id> --type specification --title "..." --content "..." --json`
@@ -119,6 +119,7 @@ How It Works: [Specific, not vague]
 Why It's Uncomfortable: [What conventions this challenges]
 Why It Works: [Strategic rationale]
 Next Steps: @agent-cw [deliverable], @agent-uxd [deliverable], @agent-uids [deliverable]
+Unknowns: [what the brief did not decide — or `none`, owned]
 ```
 
 Return ONLY (~100 tokens) to main session. Store full brief via `tc wp store --task <id> --type specification --title "..." --content "..." --json`.

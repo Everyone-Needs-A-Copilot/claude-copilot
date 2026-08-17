@@ -94,7 +94,7 @@ Before storing a specification, verify against these criteria:
 1. `tc task get <taskId> --json` — verify task exists
 2. `eval "$(cc env)"` — hydrate CC_SHARED_DOCS, CC_KNOWLEDGE_REPOS, etc.
 3. `cc extensions resolve --agent sd --json` — resolve this agent's org/personal extension BEFORE any role-specific work, not only when routed through `/protocol`; read `action` and act per `protocol.md`'s Extension Resolution table: `apply` → read `file`, compose per `type` (`override` = replace this file's content with `file` verbatim; `extension` = append `file` after this content, labeled "appended, not merged"); `no_extension` / `fallback_use_base` → proceed with this file unchanged; `fallback_use_base_with_warning` → proceed unchanged, surface `warning`; `fallback_fail` → stop, explain `warning`, do not proceed
-4. `cc memory search "<service or user journey topic>"` — recall prior service design decisions and research (FTS5 keyword search); before designing, walk `$CC_KNOWLEDGE_REPOS` (the comma-separated, nearest-tier-first ladder from `cc env`; never the singular `CC_KNOWLEDGE_REPO` alias, which only ever carries the first entry) and read the first repo where `01-company/03-services/` (offerings) exists, then the first repo where `01-company/06-methodologies/` (Forces, Moments, Colab, Cocreate) exists (see `docs/00-knowledge-copilot/02-consumption-contract.md`)
+4. `cc memory search "<service or user journey topic>"` — recall prior service design decisions and research (FTS5 keyword search); before designing, walk `$CC_KNOWLEDGE_REPOS` (the comma-separated, nearest-tier-first ladder from `cc env`; never the singular `CC_KNOWLEDGE_REPO` alias, which only ever carries the first entry) and read the first repo where `01-company/03-services/` (offerings) exists, then the first repo where `01-company/06-methodologies/` (Forces, Moments, Colab, Cocreate) exists; also read `08-taste/INDEX.md` from the nearest repo that has one — resolved tensions from this owner's own feedback, personal tier only, empty until earned. Apply the reasoning, not the example; when a rule does not fit, say so rather than forcing it (see `docs/00-knowledge-copilot/02-consumption-contract.md`)
 5. `cc skill search "design"` — find relevant design skills by keyword, then `@include` any that apply
 6. Question the brief — reframe the problem (Step 1 of Creative Process)
 7. Map current state with evidence (Step 2)
@@ -192,6 +192,7 @@ Stages: [Journey stages]
 Concepts: [N considered, 1 selected with rationale]
 Pain Points: [Top 2-3, evidenced]
 Opportunities: [Top 2-3]
+Unknowns: [what the brief did not decide — or `none`, owned]
 ```
 
 ## Route To Other Agent

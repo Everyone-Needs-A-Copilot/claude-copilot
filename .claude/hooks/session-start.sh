@@ -148,6 +148,35 @@ if command -v cc &>/dev/null; then
       fi
     fi
   fi
+
+  # -- 4. Open unknowns carried in from previous sessions ----------------------
+  #
+  # Closes the other half of the memory problem. Memory now FIRES unasked --
+  # SubagentStop stores an entry whenever a design-stage specialist reports a real
+  # unknown (see subagent-stop.sh's record_design_unknowns). Writing without
+  # reading would have been the same defect wearing a different hat: memory that
+  # accumulates and is never consulted carries nothing between sessions while still
+  # costing its always-loaded budget every session.
+  #
+  # These are OPEN questions, not settled facts, so they are labelled as such.
+  # Presenting an unresolved ambiguity as recorded knowledge is precisely the
+  # failure the unknowns rule exists to prevent -- it would convert someone's open
+  # question into the next session's silent assumption.
+  OPEN_UNKNOWNS="$(cc memory list --tags unknown --json 2>/dev/null || true)"
+  if [[ -n "$OPEN_UNKNOWNS" ]] && [[ "$OPEN_UNKNOWNS" != "[]" ]] && [[ "$OPEN_UNKNOWNS" != "null" ]] \
+    && command -v jq &>/dev/null; then
+    UNKNOWN_LINES="$(printf '%s' "$OPEN_UNKNOWNS" \
+      | jq -r 'sort_by(.created) | reverse | .[0:5] | .[] | .content // empty' 2>/dev/null \
+      | grep -v '^[[:space:]]*$' | head -5 | cut -c1-200 | sed 's/^/  - /')"
+    if [[ -n "$UNKNOWN_LINES" ]]; then
+      if [[ -z "$REFS_BLOCK" ]]; then
+        REFS_BLOCK="${REFS_BLOCK}"$'\n'"## Known References"$'\n'
+      fi
+      REFS_BLOCK="${REFS_BLOCK}"$'\n'"Open unknowns from previous sessions — still unresolved, not settled facts. Treat each as a question to ask, never as a decision already made:"$'\n'
+      REFS_BLOCK="${REFS_BLOCK}${UNKNOWN_LINES}"$'\n'
+      REFS_BLOCK="${REFS_BLOCK}  *Resolved one? \`cc memory delete <id>\` — an open item that is no longer open is noise, and noise is how a memory store stops being read.*"$'\n'
+    fi
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -217,8 +246,76 @@ QUOTAEOF
 fi
 
 # ---------------------------------------------------------------------------
+# Enforcement self-report: are all four hook events actually registered here?
+#
+# WHY. This framework's enforcement is registered per-project, into that
+# project's own .claude/settings.json, by `cc settings-hook add`. A project can
+# therefore carry the whole instruction layer -- agents, commands, skills,
+# CLAUDE.md -- with enforcement partly or wholly unregistered, and nothing says
+# so. The session then behaves like vanilla Claude Code with some markdown in
+# it: the agents exist but none is mandatory, and delegation depends entirely on
+# the operator typing /protocol. Every check passes, because from each check's
+# point of view nothing is broken.
+#
+# That state was measured for 300+ benchmark runs and read as the framework's
+# design. Registering the four events on the identical arm, model and task took
+# delegation from 0 subagents to 3 in a session whose prompt never mentioned
+# /protocol, and cut tokens 44% and turns 34%.
+#
+# HONEST LIMIT OF THIS CHECK. It can only report PARTIAL registration, because
+# with zero events registered this script is never invoked at all. The zero case
+# is covered by `cc doctor`'s `instruction-layer-unenforced` check, which is
+# emitted precisely when the instruction layer is present and enforcement cannot
+# be confirmed. Both halves exist because neither alone can see the whole state.
+# ---------------------------------------------------------------------------
+ENFORCEMENT_BLOCK=""
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
+
+if command -v python3 &>/dev/null; then
+  ENFORCEMENT_BLOCK="$(python3 - "$PROJECT_DIR" <<'ENFEOF' 2>/dev/null || true
+import json, sys
+from pathlib import Path
+
+REQUIRED = ("SessionStart", "PreToolUse", "SubagentStop", "UserPromptSubmit")
+root = Path(sys.argv[1])
+
+live = set()
+for name in ("settings.json", "settings.local.json"):
+    path = root / ".claude" / name
+    if not path.is_file():
+        continue
+    try:
+        hooks = (json.loads(path.read_text(encoding="utf-8")) or {}).get("hooks") or {}
+    except (OSError, ValueError):
+        # Unreadable settings is itself a reason enforcement may not be running,
+        # but this hook is not the place to adjudicate it -- `cc doctor` is.
+        continue
+    for event, groups in hooks.items():
+        if any("copilot-hook" in str(group) for group in (groups or [])):
+            live.add(event)
+
+missing = [event for event in REQUIRED if event not in live]
+if missing:
+    print(
+        "## Enforcement is only partly registered in this project\n"
+        f"  Registered: {len(REQUIRED) - len(missing)}/4. Missing: {', '.join(missing)}.\n"
+        "  The instruction layer is loaded, but the missing events are inert -- "
+        "so the discipline they enforce is advisory here, not mechanical.\n"
+        "  Repair: `cc settings-hook add --scope project`"
+    )
+ENFEOF
+  )"
+fi
+
+# ---------------------------------------------------------------------------
 # Compose final message
 # ---------------------------------------------------------------------------
+# Enforcement state leads when it is degraded: a warning that arrives after a
+# quota table is a warning that gets skimmed past.
+if [[ -n "$ENFORCEMENT_BLOCK" ]]; then
+  GUARDRAILS="${ENFORCEMENT_BLOCK}"$'\n\n'"---"$'\n'"${GUARDRAILS}"
+fi
+
 if [[ -n "$REFS_BLOCK" ]] && [[ -n "$QUOTA_BLOCK" ]]; then
   FULL_TEXT="${GUARDRAILS}"$'\n\n'"---"$'\n'"${REFS_BLOCK}"$'\n'"*To register a reference: \`cc config set refs.<name> <value>\` or \`cc memory store --type reference \"<content>\"\`*"$'\n\n'"${QUOTA_BLOCK}"$'\n'"*Run \`cc usage\` to refresh quota data.*"
 elif [[ -n "$REFS_BLOCK" ]]; then

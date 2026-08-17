@@ -1,7 +1,7 @@
 """Tests for Task 143: --max-budget-usd dispatch flag plumbing.
 
 Acceptance criteria:
-  AC: grep proves non-interactive tc/Discord/orchestrate dispatch passes
+  AC: grep proves non-interactive tc/orchestrate dispatch passes
       --max-budget-usd when set.
 
 Tests:
@@ -9,16 +9,26 @@ Tests:
   - tc worker: omits --max-budget-usd when not set
   - tc worker: dry-run prints cmd without executing
   - tc worker --json dry-run: returns JSON with cmd list
-  - Grep proof: --max-budget-usd appears in all three dispatch paths
+  - Grep proof: --max-budget-usd appears in both dispatch paths
   - Does NOT touch pretool-check.sh (isolation check)
+  - Boundary: this framework carries no chat-integration code at all
+
+WAS THREE DISPATCH PATHS, NOW TWO. `.claude/bin/discord-dispatch.sh` was the
+third. It has been removed from this repo entirely: the Discord half of
+"dispatch some work and tell me how it went" is CLI Copilot's concern, and
+now lives there as `copilot discord dispatch`, which runs whatever argv it is
+handed and knows nothing about `tc`. That verb's own tests cover the reporting
+contract. What remains here is the part that was always this framework's:
+`tc worker` and `/orchestrate`, and the budget flag they plumb.
+
+`TestNoChatIntegrationInThisFramework` below is the regression guard for that
+boundary -- it is the reason a future "just add a small notify script" cannot
+quietly re-couple the framework to a chat provider.
 """
 
 from __future__ import annotations
 
-import json
-import os
 import re
-import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -28,7 +38,6 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKER_PY = REPO_ROOT / "tools/tc/src/tc/commands/worker.py"
 ORCHESTRATE_MD = REPO_ROOT / ".claude/commands/orchestrate.md"
-DISCORD_DISPATCH_SH = REPO_ROOT / ".claude/bin/discord-dispatch.sh"
 PRETOOL_CHECK_SH = REPO_ROOT / ".claude/hooks/pretool-check.sh"
 
 
@@ -168,7 +177,7 @@ class TestGrepProof:
     that does not exist). The functional check -- every flag these paths
     build actually exists in `claude --help` -- lives in
     tools/tc/tests/test_claude_flag_existence.py. Keep both: this class still
-    proves the flag is *mentioned* on all three paths.
+    proves the flag is *mentioned* on both paths.
     """
 
     def test_tc_worker_contains_max_budget_usd(self):
@@ -185,23 +194,9 @@ class TestGrepProof:
             f"--max-budget-usd not found in {ORCHESTRATE_MD}"
         )
 
-    def test_discord_dispatch_contains_max_budget_usd(self):
-        """Discord dispatch path: discord-dispatch.sh mentions --max-budget-usd."""
-        content = DISCORD_DISPATCH_SH.read_text(encoding="utf-8")
-        assert "--max-budget-usd" in content, (
-            f"--max-budget-usd not found in {DISCORD_DISPATCH_SH}"
-        )
-
-    def test_discord_dispatch_is_executable_script(self):
-        """discord-dispatch.sh is a shell script (starts with shebang)."""
-        content = DISCORD_DISPATCH_SH.read_text(encoding="utf-8")
-        assert content.startswith("#!/"), (
-            "discord-dispatch.sh must start with a shebang line"
-        )
-
-    def test_all_three_dispatch_paths_have_flag(self):
-        """Umbrella: all three paths contain --max-budget-usd."""
-        paths = [WORKER_PY, ORCHESTRATE_MD, DISCORD_DISPATCH_SH]
+    def test_all_dispatch_paths_have_flag(self):
+        """Umbrella: every dispatch path this framework owns carries the flag."""
+        paths = [WORKER_PY, ORCHESTRATE_MD]
         missing = [p for p in paths if "--max-budget-usd" not in p.read_text(encoding="utf-8")]
         assert not missing, (
             f"These dispatch paths are missing --max-budget-usd: {missing}"
@@ -254,132 +249,129 @@ class TestIsolation:
         )
 
 
+
 # ---------------------------------------------------------------------------
-# End-to-end: discord-dispatch.sh must actually execute a dispatch process.
+# Boundary: this framework owns dispatch, not chat delivery.
 #
-# AUDIT-claims.md finding 1: the old script built HARNESS_CMD="claude --print
-# --max-budget-usd $N" and passed it to `copilot discord handoff --harness`.
-# `--harness` is a free-text thread-routing LABEL (verified live: `copilot
-# discord handoff --help` -> "codex, claude, or another label."), never
-# parsed or executed. So no process ran and no budget cap was enforced. This
-# test stubs both `tc` and `copilot` as fake executables that record their
-# invocation args, runs the real script against them, and asserts a `tc
-# worker` subprocess is genuinely invoked with the budget flag -- and that
-# `--harness` is never handed a constructed command string.
+# `.claude/bin/discord-dispatch.sh` used to live here and is gone. It coupled
+# an instruction layer to one chat provider's CLI surface, and it is where the
+# original defect lived: it built a "claude --print --max-budget-usd $N" string
+# and handed it to `copilot discord handoff --harness`, which is a free-text
+# thread-routing LABEL and is never executed -- so no process ran and no budget
+# cap was ever enforced, while the suite stayed green on a grep.
+#
+# The reporting half now lives in CLI Copilot as `copilot discord dispatch`,
+# which runs whatever argv it is handed and knows nothing about `tc`. This class
+# guards the boundary in the only direction this repo can guard: that no chat
+# integration comes back in here.
 # ---------------------------------------------------------------------------
 
+CHAT_PROVIDERS = ("discord", "slack", "telegram")
 
-class TestDiscordDispatchActuallyExecutesDispatch:
-    """Stub `tc`/`copilot` binaries; run the real discord-dispatch.sh against
-    them; assert on what actually got invoked (not what the script merely
-    prints or embeds in a string)."""
+# Places a chat integration would actually have to live to run: shipped scripts,
+# hooks, commands, and the two CLIs. Excludes docs, CHANGELOG and this test file,
+# where naming a provider is history or explanation rather than a dependency.
+_EXECUTABLE_TREES = (
+    ".claude/bin",
+    ".claude/hooks",
+    ".claude/commands",
+    "tools/tc/src",
+    "tools/cc/src",
+)
 
-    def _make_stub(self, path: Path, record_path: Path, extra_stdout: str = "") -> None:
-        """Write an executable shell stub that appends its args to
-        record_path (one invocation per line, space-joined) and exits 0."""
-        script = (
-            "#!/usr/bin/env bash\n"
-            f'printf "%s\\n" "$*" >> "{record_path}"\n'
+# NAMING A PROVIDER IS ALLOWED. CALLING ONE IS NOT.
+#
+# The first version of this guard matched the bare provider name anywhere in the
+# tree and failed on two files that are entirely legitimate:
+# `content_guard.py` carries a `slack-token` redaction pattern (`xox[baprs]-`),
+# which is a secret-leak defence, and `cc connections`' docstring names the
+# `discord` service's `DISCORD_BOT_TOKEN` as its worked example of a
+# keychain-hinted secret -- `cc` reads CLI Copilot's declared service roster,
+# which is the correct direction of that dependency.
+#
+# A blunter guard than the rule it enforces is worse than no guard: it fails on
+# correct code, gets an exclusion bolted on, and then means nothing. So this
+# matches invocation shapes only -- shelling out to a provider verb, or an API
+# or webhook host. Those are what create the coupling.
+_INVOCATION_PATTERNS = (
+    r"copilot\s+{provider}\b",          # shelling out to CLI Copilot's provider verb
+    r"{provider}\s*(?:handoff|notify|send|post)\b",
+    r"https?://[\w.-]*{provider}[\w.-]*\.(?:com|net|org)",
+    r"{provider}\.(?:com|net|org)/api",
+    r"webhooks?/{provider}",
+)
+
+
+def _code_only(path: Path) -> str:
+    """File text with comments and docstrings stripped.
+
+    The point of the boundary is that a provider may be *discussed* in this repo
+    (history, rationale, the reason a script was removed) and never *called*. A
+    check that cannot tell prose from code cannot express that, so strip prose.
+    """
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return ""
+    if path.suffix == ".py":
+        import ast
+
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            return text
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                doc = ast.get_docstring(node, clean=False)
+                if doc:
+                    text = text.replace(doc, "")
+        return "\n".join(
+            line.split("#", 1)[0] if not line.lstrip().startswith("#") else ""
+            for line in text.splitlines()
         )
-        if extra_stdout:
-            script += f'printf "%s" \'{extra_stdout}\'\n'
-        path.write_text(script, encoding="utf-8")
-        path.chmod(path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    # Shell and markdown: drop whole comment lines. Markdown prose is not
+    # executable, but fenced command blocks are what a reader would copy, so it
+    # is deliberately still searched.
+    return "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith("#")
+    )
 
-    def test_tc_worker_is_actually_invoked_with_budget_flag(self, tmp_path):
-        """The core defect: before the fix, running this script with
-        --max-budget-usd spawned no process at all -- the budget-carrying
-        string was only ever a Discord thread label. After the fix, a real
-        `tc worker <task> --max-budget-usd <n>` subprocess must run."""
-        bin_dir = tmp_path / "bin"
-        bin_dir.mkdir()
-        tc_record = tmp_path / "tc_invocations.log"
-        copilot_record = tmp_path / "copilot_invocations.log"
 
-        self._make_stub(
-            bin_dir / "tc",
-            tc_record,
-            extra_stdout=json.dumps({"returncode": 0, "spend": {}, "breached": False}),
-        )
-        self._make_stub(bin_dir / "copilot", copilot_record)
+class TestNoChatIntegrationInThisFramework:
+    """No chat-provider integration may live in this repo's executable surface."""
 
-        env = dict(os.environ)
-        env["TC_BIN"] = str(bin_dir / "tc")
-        env["COPILOT_BIN"] = str(bin_dir / "copilot")
-
-        result = subprocess.run(
-            [
-                "bash",
-                str(DISCORD_DISPATCH_SH),
-                "--task",
-                "77",
-                "--max-budget-usd",
-                "3.00",
-                "--title",
-                "Test dispatch",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-
-        assert result.returncode == 0, (
-            f"discord-dispatch.sh failed: stdout={result.stdout!r} "
-            f"stderr={result.stderr!r}"
-        )
-        assert tc_record.exists(), (
-            "expected discord-dispatch.sh to invoke the tc binary at least "
-            "once -- no process ran, so no dispatch (and no budget "
-            "enforcement) actually happened"
-        )
-        tc_calls = tc_record.read_text(encoding="utf-8").strip().splitlines()
-        assert any(
-            "worker" in call and "77" in call and "--max-budget-usd" in call and "3.00" in call
-            for call in tc_calls
-        ), f"expected a `tc worker 77 --max-budget-usd 3.00` call, got: {tc_calls}"
-
-    def test_harness_arg_passed_to_copilot_is_a_plain_label(self, tmp_path):
-        """The exact regression this guards: --harness must be a plain
-        label ("claude"), never a `claude --print ...` string built from
-        the budget flag and passed through as if it would run."""
-        bin_dir = tmp_path / "bin"
-        bin_dir.mkdir()
-        tc_record = tmp_path / "tc_invocations.log"
-        copilot_record = tmp_path / "copilot_invocations.log"
-
-        self._make_stub(
-            bin_dir / "tc",
-            tc_record,
-            extra_stdout=json.dumps({"returncode": 0, "spend": {}, "breached": False}),
-        )
-        self._make_stub(bin_dir / "copilot", copilot_record)
-
-        env = dict(os.environ)
-        env["TC_BIN"] = str(bin_dir / "tc")
-        env["COPILOT_BIN"] = str(bin_dir / "copilot")
-
-        result = subprocess.run(
-            [
-                "bash",
-                str(DISCORD_DISPATCH_SH),
-                "--task",
-                "5",
-                "--max-budget-usd",
-                "1.25",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
+    def test_discord_dispatch_script_is_gone(self):
+        assert not (REPO_ROOT / ".claude/bin/discord-dispatch.sh").exists(), (
+            "discord-dispatch.sh is back. Chat delivery belongs to CLI Copilot "
+            "(`copilot discord dispatch`), which owns the Discord contract."
         )
 
-        assert result.returncode == 0
-        assert copilot_record.exists(), "expected copilot to be invoked to report the outcome"
-        copilot_calls = copilot_record.read_text(encoding="utf-8").strip().splitlines()
-        assert copilot_calls, "expected at least one copilot invocation"
-        last_call = copilot_calls[-1]
-        assert "--harness claude" in last_call, (
-            f"expected --harness to be passed the plain label 'claude', got: {last_call!r}"
-        )
-        assert "claude --print" not in last_call, (
-            f"--harness must not carry a constructed claude command: {last_call!r}"
+    @pytest.mark.parametrize("provider", CHAT_PROVIDERS)
+    def test_no_provider_is_invoked_from_executable_surface(self, provider):
+        patterns = [
+            re.compile(p.format(provider=provider), re.IGNORECASE)
+            for p in _INVOCATION_PATTERNS
+        ]
+        offenders = []
+        for tree in _EXECUTABLE_TREES:
+            root = REPO_ROOT / tree
+            if not root.is_dir():
+                continue
+            for path in root.rglob("*"):
+                if not path.is_file() or path.suffix in {".json", ".pyc"}:
+                    continue
+                if "__pycache__" in path.parts or "state" in path.parts:
+                    continue
+                code = _code_only(path)
+                for pattern in patterns:
+                    match = pattern.search(code)
+                    if match:
+                        offenders.append(
+                            f"{path.relative_to(REPO_ROOT)}: {match.group(0)!r}"
+                        )
+                        break
+        assert not offenders, (
+            f"This framework invokes {provider}: {offenders}. Chat delivery belongs "
+            f"in CLI Copilot (`copilot discord dispatch`), which owns and tests the "
+            f"provider contract. Naming a provider is fine; calling one is not."
         )
