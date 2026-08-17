@@ -164,6 +164,43 @@ record_design_unknowns() {
        }]))' > "${state_file}.tmp" 2>/dev/null \
     && mv "${state_file}.tmp" "$state_file" 2>/dev/null || true
 
+  # -------------------------------------------------------------------------
+  # Memory fires here, unasked (R5).
+  #
+  # Memory wrote ZERO entries across seven framework trials. It is
+  # instruction-triggered, so during ordinary work it never runs -- and therefore
+  # carries nothing between real sessions either, while its always-loaded cost is
+  # paid every session regardless. The recommendation was blunt: either it fires
+  # unasked, or it stops being paid for.
+  #
+  # WHY THIS TRIGGER AND NOT A GENERAL ONE. "Store anything interesting" is how a
+  # memory store fills with noise and stops being worth reading, which costs more
+  # than never firing. An unresolved unknown is the narrowest high-value class
+  # available: rare, durable, invisible in the code, and precisely what is lost
+  # when a session ends -- the next session re-derives it or, worse, silently
+  # decides it. It is also the exact gap the sealed-answer benchmark exposed.
+  #
+  # Deliberately not stored: declared-none (nothing to carry), absent (already
+  # surfaced above), and QUESTION blocks (the user is answering those in-session,
+  # so the answer belongs in the transcript, not in a store of open items).
+  # -------------------------------------------------------------------------
+  if [[ "$asked" == "unknowns" ]] && command -v cc &>/dev/null \
+    && [[ "${COPILOT_MEMORY_AUTOCAPTURE:-on}" != "off" ]]; then
+    local unknown_text
+    unknown_text="$(printf '%s' "$LAST_MSG" \
+      | grep -iE '^[[:space:]]*Unknowns:' \
+      | head -1 \
+      | sed -E 's/^[[:space:]]*[Uu]nknowns:[[:space:]]*//' \
+      | cut -c1-400)"
+    if [[ -n "$unknown_text" ]]; then
+      cc memory store \
+        --type context \
+        --tags "unknown,${AGENT_TYPE},auto" \
+        "Open unknown raised by @agent-${AGENT_TYPE}: ${unknown_text}" \
+        >/dev/null 2>&1 || true
+    fi
+  fi
+
   # Surface only the omission. A specialist that stated its unknowns needs no
   # commentary; one that skipped the required slot is the case worth naming, and
   # naming it in the transcript is what stops the omission being free.

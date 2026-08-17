@@ -148,6 +148,35 @@ if command -v cc &>/dev/null; then
       fi
     fi
   fi
+
+  # -- 4. Open unknowns carried in from previous sessions ----------------------
+  #
+  # Closes the other half of the memory problem. Memory now FIRES unasked --
+  # SubagentStop stores an entry whenever a design-stage specialist reports a real
+  # unknown (see subagent-stop.sh's record_design_unknowns). Writing without
+  # reading would have been the same defect wearing a different hat: memory that
+  # accumulates and is never consulted carries nothing between sessions while still
+  # costing its always-loaded budget every session.
+  #
+  # These are OPEN questions, not settled facts, so they are labelled as such.
+  # Presenting an unresolved ambiguity as recorded knowledge is precisely the
+  # failure the unknowns rule exists to prevent -- it would convert someone's open
+  # question into the next session's silent assumption.
+  OPEN_UNKNOWNS="$(cc memory list --tags unknown --json 2>/dev/null || true)"
+  if [[ -n "$OPEN_UNKNOWNS" ]] && [[ "$OPEN_UNKNOWNS" != "[]" ]] && [[ "$OPEN_UNKNOWNS" != "null" ]] \
+    && command -v jq &>/dev/null; then
+    UNKNOWN_LINES="$(printf '%s' "$OPEN_UNKNOWNS" \
+      | jq -r 'sort_by(.created) | reverse | .[0:5] | .[] | .content // empty' 2>/dev/null \
+      | grep -v '^[[:space:]]*$' | head -5 | cut -c1-200 | sed 's/^/  - /')"
+    if [[ -n "$UNKNOWN_LINES" ]]; then
+      if [[ -z "$REFS_BLOCK" ]]; then
+        REFS_BLOCK="${REFS_BLOCK}"$'\n'"## Known References"$'\n'
+      fi
+      REFS_BLOCK="${REFS_BLOCK}"$'\n'"Open unknowns from previous sessions — still unresolved, not settled facts. Treat each as a question to ask, never as a decision already made:"$'\n'
+      REFS_BLOCK="${REFS_BLOCK}${UNKNOWN_LINES}"$'\n'
+      REFS_BLOCK="${REFS_BLOCK}  *Resolved one? \`cc memory delete <id>\` — an open item that is no longer open is noise, and noise is how a memory store stops being read.*"$'\n'
+    fi
+  fi
 fi
 
 # ---------------------------------------------------------------------------
