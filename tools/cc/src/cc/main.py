@@ -19,6 +19,7 @@ from cc.commands.reconcile import reconcile_app
 from cc.commands.settings_hook import settings_hook_app
 from cc.commands.skill import skill_app
 from cc.commands.store import store_app
+from cc.commands.survival import survival_app
 from cc.commands.support import support_app
 from cc.commands.usage import usage_app
 from cc.commands.workspaces import workspaces_app
@@ -44,6 +45,7 @@ app.add_typer(journey_app, name="journey")
 app.add_typer(workspaces_app, name="workspace")
 app.add_typer(reconcile_app, name="reconcile")
 app.add_typer(store_app, name="store")
+app.add_typer(survival_app, name="survival")
 app.add_typer(support_app, name="support")
 app.add_typer(settings_hook_app, name="settings-hook")
 app.add_typer(conformance_app, name="conformance")

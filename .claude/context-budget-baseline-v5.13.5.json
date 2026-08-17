@@ -15,28 +15,28 @@
     "always_loaded_growth_ratio_basis": "Deliberately tighter than every other ratio in this file (8% vs 10%) because this is the one number that taxes literally every session with zero user action -- CLAUDE.md and the SessionStart injection are read whether or not the session ever touches an agent or a command. Unchanged from v5.13.3; the Output Contract pass's +1,166-byte CLAUDE.md addition (ratio 1.046 against this re-baseline) still fits inside it without needing to loosen it.",
     "always_loaded_ceiling_bytes": 26268,
     "always_loaded_ceiling_bytes_basis": "ABSOLUTE ceiling, not a ratio. Every other threshold here is a growth ratio, which constrains how fast the burden may rise and is structurally unable to require it to fall -- a framework at 26 KB always-loaded and one at 260 KB are equally compliant with an 8% growth cap, and no sequence of compliant edits can ever bring the number down. Set at the measured value on 2026-08-15, so it costs nothing today and makes every future increase a reviewed decision rather than a compliant 8% step. Raising it is legitimate; doing so silently is not.",
-    "agent_corpus_ceiling_bytes": 203567,
-    "agent_corpus_ceiling_bytes_basis": "ABSOLUTE ceiling on the summed agent corpus. Every other threshold here is a growth ratio, which constrains how fast the burden may rise and cannot require it to fall; no sequence of individually-compliant edits can ever bring the number down. Set at the MEASURED value on 2026-08-15 (203,126 B) rather than the v5.13.4 baseline (195,975 B), so the gate costs nothing on the day it lands. That 7,151 B gap is itself the point: the corpus drifted 3.6% above baseline through edits that each passed the 1.1x per-file ratio, which is precisely the ratchet an absolute ceiling exists to stop. Raising this is legitimate; raising it silently is not. RAISED 203126 -> 203567 B (+441) on 2026-08-17 for the mandatory `Unknowns:` slot added to the seven design-stage agents' Output Format (sd, uxd, uids, ind, cco, ta, cw). Reason, in full: docs/50-features/surfacing-unknowns.md. Summary: on an identical brief carrying a real contradiction, the no-framework arm asked, earned three sealed clarification answers and priced 25 fewer labour hours; the arm running the full design chain with enforcement verified asked nothing and priced a guess. The chain was resolving internally what should have been a conversation. These are the cheapest bytes available to fix that -- the rationale is deliberately in docs/ rather than in _shared/output-contract.md, which is duplicated into every agent file and would have charged 17x for the same prose."
+    "agent_corpus_ceiling_bytes": 205345,
+    "agent_corpus_ceiling_bytes_basis": "ABSOLUTE ceiling on the summed agent corpus. Every other threshold here is a growth ratio, which constrains how fast the burden may rise and cannot require it to fall; no sequence of individually-compliant edits can ever bring the number down. Set at the MEASURED value on 2026-08-15 (203,126 B) rather than the v5.13.4 baseline (195,975 B), so the gate costs nothing on the day it lands. That 7,151 B gap is itself the point: the corpus drifted 3.6% above baseline through edits that each passed the 1.1x per-file ratio, which is precisely the ratchet an absolute ceiling exists to stop. Raising this is legitimate; raising it silently is not. RAISED 203126 -> 203567 B (+441) on 2026-08-17 for the mandatory `Unknowns:` slot added to the seven design-stage agents' Output Format (sd, uxd, uids, ind, cco, ta, cw). Reason, in full: docs/50-features/surfacing-unknowns.md. Summary: on an identical brief carrying a real contradiction, the no-framework arm asked, earned three sealed clarification answers and priced 25 fewer labour hours; the arm running the full design chain with enforcement verified asked nothing and priced a guess. The chain was resolving internally what should have been a conversation. These are the cheapest bytes available to fix that -- the rationale is deliberately in docs/ rather than in _shared/output-contract.md, which is duplicated into every agent file and would have charged 17x for the same prose. RAISED AGAIN 203567 -> 205345 B (+1778) on 2026-08-17 for the taste-corpus read clause added to the seven agents that already walk $CC_KNOWLEDGE_REPOS. It points at 08-taste/INDEX.md, which exists only in the personal tier (rank 10) and is empty until the owner's own feedback fills it -- so the bytes buy a read path, not content. Placement is deliberate and load-bearing: taste in the org or department tier stops being taste and becomes policy imposed on every inheritor, which SOUL.md's Company Fork anti-pattern refuses. See claude-copilot-private/knowledge/08-taste/README.md."
   },
   "agents": {
-    "cco.md": 10285,
+    "cco.md": 10539,
     "cpa.md": 11240,
     "cs.md": 9633,
-    "cw.md": 10257,
+    "cw.md": 10511,
     "do.md": 10527,
     "doc.md": 8216,
-    "ind.md": 15659,
+    "ind.md": 15913,
     "kc.md": 8580,
     "me.md": 9774,
     "qa.md": 13205,
-    "sd.md": 15972,
+    "sd.md": 16226,
     "sec.md": 10269,
-    "ta.md": 13180,
+    "ta.md": 13434,
     "uid.md": 8630,
-    "uids.md": 26037,
-    "uxd.md": 22103
+    "uids.md": 26291,
+    "uxd.md": 22357
   },
-  "agent_corpus_total_bytes": 203567,
+  "agent_corpus_total_bytes": 205345,
   "agent_corpus_note": "Post-Output-Contract-pass measured total. The pre-pass total (v5.13.3 baseline) was 163,287 bytes; this pass added the 2,042-byte canonical output-contract.md block, byte-for-byte, to all 16 agent files (+32,688 bytes, +20.0%), anchored immediately before '## Runtime Precedence' in each file and verified by FF10.",
   "commands": {
     "config.md": 8735,
