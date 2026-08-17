@@ -1243,12 +1243,24 @@ def split_tier(text):
     return text[: match.start()], len(text) - match.start()
 
 
-def committed_versions(name, limit=60):
-    """Every committed body of this agent file, newest first."""
+def committed_versions(name, limit=200):
+    """Every committed body of this agent file, across ALL branches, newest first.
+
+    `--all` is load-bearing, and its absence produced a false alarm on the first real
+    run. `git log -- <path>` walks only the CURRENT branch's history, so a file whose
+    deployed copy came from a NEWER commit on another branch matched nothing and was
+    reported as content of unknown origin. That is exactly what happened to cco.md: the
+    deployed base was main's own newer, shortened wording, and the check was run from a
+    feature branch that predated it. The check accused the deployment of drift when the
+    deployment was simply ahead of the branch doing the checking.
+
+    The limit is per-file and generous for the same reason -- a truncated history is
+    indistinguishable from no match, and both read as a failure.
+    """
     rel = f".claude/agents/{name}"
     try:
         revs = subprocess.run(
-            ["git", "log", f"-{limit}", "--format=%H", "--", rel],
+            ["git", "log", "--all", f"-{limit}", "--format=%H", "--", rel],
             capture_output=True, text=True, timeout=30, check=False,
         ).stdout.split()
     except (OSError, subprocess.SubprocessError):
@@ -1339,7 +1351,12 @@ if behind:
         f"reinstall -- so any change made here is not yet in effect."
     )
     for name, delta in sorted(behind.items()):
-        lines.append(f"REPORT|  {name}: repo is {delta:+,} B ahead of what is deployed")
+        # `delta` is repo minus deployed and can be negative when the newer repo
+        # version is SHORTER. "repo is -329 B ahead" is nonsense, and nonsense in a
+        # report is how a reader learns to stop reading it.
+        direction = "larger" if delta > 0 else "smaller"
+        lines.append(f"REPORT|  {name}: repo version is {abs(delta):,} B {direction}, "
+                     f"and not yet deployed")
 
 if identical and not divergent and not missing and not extra:
     lines.append(f"PASS|{identical} agent base(s) byte-identical between repo and deployment")
