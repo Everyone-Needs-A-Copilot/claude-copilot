@@ -200,6 +200,7 @@ Task: TASK-xxx | WP: WP-xxx
 Summary: [2-3 sentences describing architecture]
 Streams: Stream-A (foundation), Stream-B (parallel), Stream-Z (integration)
 Next: @agent-me for implementation → @agent-qa for testing
+Unknowns: [what the brief did not decide — or `none`, owned]
 ```
 
 ### ADR Template

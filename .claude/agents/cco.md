@@ -119,6 +119,7 @@ How It Works: [Specific, not vague]
 Why It's Uncomfortable: [What conventions this challenges]
 Why It Works: [Strategic rationale]
 Next Steps: @agent-cw [deliverable], @agent-uxd [deliverable], @agent-uids [deliverable]
+Unknowns: [what the brief did not decide — or `none`, owned]
 ```
 
 Return ONLY (~100 tokens) to main session. Store full brief via `tc wp store --task <id> --type specification --title "..." --content "..." --json`.

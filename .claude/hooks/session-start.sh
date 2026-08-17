@@ -217,8 +217,76 @@ QUOTAEOF
 fi
 
 # ---------------------------------------------------------------------------
+# Enforcement self-report: are all four hook events actually registered here?
+#
+# WHY. This framework's enforcement is registered per-project, into that
+# project's own .claude/settings.json, by `cc settings-hook add`. A project can
+# therefore carry the whole instruction layer -- agents, commands, skills,
+# CLAUDE.md -- with enforcement partly or wholly unregistered, and nothing says
+# so. The session then behaves like vanilla Claude Code with some markdown in
+# it: the agents exist but none is mandatory, and delegation depends entirely on
+# the operator typing /protocol. Every check passes, because from each check's
+# point of view nothing is broken.
+#
+# That state was measured for 300+ benchmark runs and read as the framework's
+# design. Registering the four events on the identical arm, model and task took
+# delegation from 0 subagents to 3 in a session whose prompt never mentioned
+# /protocol, and cut tokens 44% and turns 34%.
+#
+# HONEST LIMIT OF THIS CHECK. It can only report PARTIAL registration, because
+# with zero events registered this script is never invoked at all. The zero case
+# is covered by `cc doctor`'s `instruction-layer-unenforced` check, which is
+# emitted precisely when the instruction layer is present and enforcement cannot
+# be confirmed. Both halves exist because neither alone can see the whole state.
+# ---------------------------------------------------------------------------
+ENFORCEMENT_BLOCK=""
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
+
+if command -v python3 &>/dev/null; then
+  ENFORCEMENT_BLOCK="$(python3 - "$PROJECT_DIR" <<'ENFEOF' 2>/dev/null || true
+import json, sys
+from pathlib import Path
+
+REQUIRED = ("SessionStart", "PreToolUse", "SubagentStop", "UserPromptSubmit")
+root = Path(sys.argv[1])
+
+live = set()
+for name in ("settings.json", "settings.local.json"):
+    path = root / ".claude" / name
+    if not path.is_file():
+        continue
+    try:
+        hooks = (json.loads(path.read_text(encoding="utf-8")) or {}).get("hooks") or {}
+    except (OSError, ValueError):
+        # Unreadable settings is itself a reason enforcement may not be running,
+        # but this hook is not the place to adjudicate it -- `cc doctor` is.
+        continue
+    for event, groups in hooks.items():
+        if any("copilot-hook" in str(group) for group in (groups or [])):
+            live.add(event)
+
+missing = [event for event in REQUIRED if event not in live]
+if missing:
+    print(
+        "## Enforcement is only partly registered in this project\n"
+        f"  Registered: {len(REQUIRED) - len(missing)}/4. Missing: {', '.join(missing)}.\n"
+        "  The instruction layer is loaded, but the missing events are inert -- "
+        "so the discipline they enforce is advisory here, not mechanical.\n"
+        "  Repair: `cc settings-hook add --scope project`"
+    )
+ENFEOF
+  )"
+fi
+
+# ---------------------------------------------------------------------------
 # Compose final message
 # ---------------------------------------------------------------------------
+# Enforcement state leads when it is degraded: a warning that arrives after a
+# quota table is a warning that gets skimmed past.
+if [[ -n "$ENFORCEMENT_BLOCK" ]]; then
+  GUARDRAILS="${ENFORCEMENT_BLOCK}"$'\n\n'"---"$'\n'"${GUARDRAILS}"
+fi
+
 if [[ -n "$REFS_BLOCK" ]] && [[ -n "$QUOTA_BLOCK" ]]; then
   FULL_TEXT="${GUARDRAILS}"$'\n\n'"---"$'\n'"${REFS_BLOCK}"$'\n'"*To register a reference: \`cc config set refs.<name> <value>\` or \`cc memory store --type reference \"<content>\"\`*"$'\n\n'"${QUOTA_BLOCK}"$'\n'"*Run \`cc usage\` to refresh quota data.*"
 elif [[ -n "$REFS_BLOCK" ]]; then

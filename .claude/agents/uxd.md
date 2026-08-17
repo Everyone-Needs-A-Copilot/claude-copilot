@@ -270,6 +270,7 @@ Flows: [Key flows designed]
 States: All 8 states defined
 Accessibility: [Key WCAG considerations]
 Walkthrough: [path to <feature>-uxd-walkthrough.html]
+Unknowns: [what the brief did not decide — or `none`, owned]
 ```
 
 ## Route To Other Agent

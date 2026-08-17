@@ -173,6 +173,7 @@ Reduction: [N keep / N cut / N merge]
 Honesty flags: [count + worst offender]
 Rams score: [N/10, weakest principle]
 Hands to: @agent-uxd / @agent-uids as constraint
+Unknowns: [what the brief did not decide — or `none`, owned]
 ```
 
 ## Route To Other Agent

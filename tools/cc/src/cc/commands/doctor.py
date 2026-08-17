@@ -281,14 +281,87 @@ def _run_checks(
 # ---------------------------------------------------------------------------
 
 
+# The instruction layer, as a project would carry it. Presence of ANY of these
+# means Claude Code is reading this framework's instructions in this project.
+INSTRUCTION_LAYER_MARKERS = (
+    "CLAUDE.md",
+    ".claude/agents",
+    ".claude/commands",
+    ".claude/skills",
+)
+
+
+def _instruction_layer_present(project_path: Path) -> list[str]:
+    """Which instruction-layer markers this project actually carries."""
+    return [m for m in INSTRUCTION_LAYER_MARKERS if (project_path / m).exists()]
+
+
+def _unenforced_instruction_layer_checker(
+    project_path: Path, markers: list[str], reason: str
+) -> Checker:
+    """The one state this whole function exists to stop being silent about.
+
+    A project with the instruction layer and no registered enforcement does not
+    behave like a broken framework. It behaves like vanilla Claude Code that
+    happens to have some markdown in it: agents are available but never
+    mandatory, `protocol-injection.md` never reaches the session, and delegation
+    depends entirely on the operator typing `/protocol`. Everything reports
+    success, because from each individual check's point of view nothing is wrong.
+
+    A benchmark of this framework measured that state for 300+ runs and
+    attributed the result to the framework's design. Registering the four hook
+    events on the identical arm, model and task took delegation from 0 subagents
+    to 3 in a session whose prompt never said `/protocol`, and cut tokens 44% and
+    turns 34%. The framework was not being out-performed; it was not running.
+
+    So this is a `fail`, not a warning, and it is emitted from the branches that
+    previously returned no checkers at all -- an unreadable lock, or a lock with
+    no `claude` component, used to mean "nothing to check here" when it in fact
+    means "the evidence that enforcement is wired is missing."
+    """
+    return Checker(
+        id="instruction-layer-unenforced",
+        severity="fail",
+        product="claude",
+        path=str(project_path / ".claude/settings.json"),
+        detail=(
+            f"This project carries the instruction layer ({', '.join(markers)}) but its "
+            f"enforcement cannot be confirmed: {reason}. Agents and commands are "
+            f"available; none of them is mandatory. Delegation, the protocol injection "
+            f"and the QA gate are all inert, and the session will look and behave like "
+            f"vanilla Claude Code while reporting success."
+        ),
+        repair="cc settings-hook add --scope project, or cc reconcile plan / cc reconcile apply",
+    )
+
+
 def _hook_enforcement_checkers(project_path: Path) -> list[Checker]:
+    markers = _instruction_layer_present(project_path)
+
     lock_target = project_path / "copilot.lock.json"
     try:
         raw = lock_target.read_text(encoding="utf-8")
         lock_document = json.loads(raw)
-    except (FileNotFoundError, OSError, UnicodeDecodeError, json.JSONDecodeError):
+    except (FileNotFoundError, OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        if markers:
+            missing = isinstance(exc, FileNotFoundError)
+            return [
+                _unenforced_instruction_layer_checker(
+                    project_path,
+                    markers,
+                    "copilot.lock.json is missing"
+                    if missing
+                    else f"copilot.lock.json could not be read ({type(exc).__name__})",
+                )
+            ]
         return []
     if not isinstance(lock_document, dict):
+        if markers:
+            return [
+                _unenforced_instruction_layer_checker(
+                    project_path, markers, "copilot.lock.json is not a JSON object"
+                )
+            ]
         return []
     components = lock_document.get("components")
     claude_entry = next(
@@ -300,6 +373,14 @@ def _hook_enforcement_checkers(project_path: Path) -> list[Checker]:
         None,
     ) if isinstance(components, list) else None
     if claude_entry is None:
+        if markers:
+            return [
+                _unenforced_instruction_layer_checker(
+                    project_path,
+                    markers,
+                    "copilot.lock.json records no `claude` component",
+                )
+            ]
         return []
 
     shim_target = project_path / ".claude/hooks/copilot-hook.sh"

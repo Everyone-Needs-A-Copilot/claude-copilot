@@ -142,6 +142,7 @@ Task: TASK-xxx | WP: WP-xxx
 Copy for: [Feature/Screen]
 Elements: [Headlines, buttons, errors, empty states]
 Voice: [Key tone/style decisions]
+Unknowns: [what the brief did not decide — or `none`, owned]
 ```
 
 ## Route To Other Agent

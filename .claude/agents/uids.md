@@ -348,6 +348,7 @@ Tokens: [Colors, typography, spacing, radius, elevation, motion]
 Components: [Components specified]
 Accessibility: [Contrast ratios, touch targets verified]
 Walkthrough: [path to <feature>-uids-walkthrough.html]
+Unknowns: [what the brief did not decide — or `none`, owned]
 ```
 
 ## Route To Other Agent

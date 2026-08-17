@@ -248,3 +248,75 @@ def test_config_doctor_command_accessible():
         or "check" in result.output.lower()
         or "health" in result.output.lower()
     )
+
+
+# ---------------------------------------------------------------------------
+# The instruction-layer-without-enforcement state.
+#
+# This framework's enforcement is registered per-project. A project can carry
+# the whole instruction layer with enforcement unregistered, and every check
+# still passes -- because from each individual check's point of view nothing is
+# broken. The session simply behaves like vanilla Claude Code with markdown in
+# it. A benchmark measured that state for 300+ runs and read the result as the
+# framework's design; registering the four events on the identical arm, model
+# and task took delegation from 0 subagents to 3 and cut tokens 44%.
+#
+# The specific silence being closed: `_hook_enforcement_checkers` used to
+# `return []` -- no checks at all -- whenever copilot.lock.json was unreadable
+# or recorded no `claude` component. "The evidence that enforcement is wired is
+# missing" was being treated as "there is nothing here to check."
+# ---------------------------------------------------------------------------
+
+
+class TestInstructionLayerWithoutEnforcement:
+    def _checkers(self, path):
+        from cc.commands.doctor import _hook_enforcement_checkers
+
+        return _hook_enforcement_checkers(path)
+
+    def test_instruction_layer_with_no_lock_fails_loudly(self, tmp_path):
+        (tmp_path / "CLAUDE.md").write_text("# instructions\n", encoding="utf-8")
+        (tmp_path / ".claude" / "agents").mkdir(parents=True)
+
+        checkers = self._checkers(tmp_path)
+
+        assert checkers, "a project with the instruction layer and no lock reported nothing"
+        assert [c for c in checkers if c.id == "instruction-layer-unenforced"]
+        assert all(c.severity == "fail" for c in checkers if c.id == "instruction-layer-unenforced")
+
+    def test_the_detail_names_the_consequence_not_just_the_missing_file(self, tmp_path):
+        """A repair hint is not a warning. The operator has to know what is off.
+
+        "copilot.lock.json is missing" reads as bookkeeping. "delegation, the
+        protocol injection and the QA gate are all inert" is the actual state,
+        and is the difference between this check being acted on and skimmed.
+        """
+        (tmp_path / "CLAUDE.md").write_text("# instructions\n", encoding="utf-8")
+
+        detail = next(
+            c.detail for c in self._checkers(tmp_path) if c.id == "instruction-layer-unenforced"
+        )
+
+        assert "inert" in detail
+        assert "vanilla" in detail.lower()
+        assert "CLAUDE.md" in detail
+
+    def test_lock_without_a_claude_component_fails(self, tmp_path):
+        import json
+
+        (tmp_path / "CLAUDE.md").write_text("# instructions\n", encoding="utf-8")
+        (tmp_path / "copilot.lock.json").write_text(
+            json.dumps({"components": [{"component": "codex", "files": []}]}), encoding="utf-8"
+        )
+
+        ids = {c.id for c in self._checkers(tmp_path)}
+        assert "instruction-layer-unenforced" in ids
+
+    def test_no_instruction_layer_means_nothing_to_report(self, tmp_path):
+        """A directory that never claimed to be a framework project is not a defect.
+
+        Without this, `cc doctor` would fail in every unrelated directory -- and a
+        check that cries wolf everywhere is one an operator learns to ignore, which
+        is how the original silence would come back wearing a different hat.
+        """
+        assert self._checkers(tmp_path) == []

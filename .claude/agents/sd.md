@@ -192,6 +192,7 @@ Stages: [Journey stages]
 Concepts: [N considered, 1 selected with rationale]
 Pain Points: [Top 2-3, evidenced]
 Opportunities: [Top 2-3]
+Unknowns: [what the brief did not decide — or `none`, owned]
 ```
 
 ## Route To Other Agent
