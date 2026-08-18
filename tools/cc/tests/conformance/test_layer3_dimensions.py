@@ -300,11 +300,12 @@ class TestRealClassificationToml:
     def real_table(self):
         return classes.load_classification_table()
 
-    def test_has_reviewed_audit_entries_plus_deferred_app_disposition(self, real_table):
+    def test_has_reviewed_audit_entries(self, real_table):
         # The post-migration active fleet excludes the 22 directories moved to
         # the out-of-scope archive or deleted, and adds copilot-bench as an
-        # explicit role-less framework component.
-        assert len(real_table) == 56
+        # explicit role-less framework component. The deferred public app repo
+        # was folded into copilot-control-tower and deleted, removing its row.
+        assert len(real_table) == 55
 
     def test_every_entry_has_a_valid_rubric_letter(self, real_table):
         for key, entry in real_table.items():
@@ -318,21 +319,12 @@ class TestRealClassificationToml:
         assert counts[RepoClass.PRODUCT] == 28
         assert counts[RepoClass.SITE_CONTENT] == 4
         assert counts[RepoClass.DOCS_KNOWLEDGE] == 0
-        assert counts[RepoClass.SCRATCH_ARCHIVE] == 6
+        assert counts[RepoClass.SCRATCH_ARCHIVE] == 5
 
     def test_q9_reclassifies_control_tower_as_a_consumer(self, real_table):
         entry = real_table["CSE/copilot-control-tower"]
         assert entry.repo_class is RepoClass.PRODUCT
         assert entry.rubric_letter == "C"
-
-    def test_public_control_tower_app_is_attributably_deferred(self, real_table):
-        entry = real_table["CSE/copilot-control-tower-public"]
-        assert entry.repo_class is RepoClass.SCRATCH_ARCHIVE
-        assert entry.rubric_letter == "E"
-        assert "Pablo Alejo" in entry.rationale
-        assert "PRD-24/TASK-301" in entry.rationale
-        assert "WP-838" in entry.rationale
-        assert "2026-08-13" in entry.rationale
 
     def test_archived_bm_is_not_in_the_active_fleet(self, real_table):
         assert "COPILOT/BM" not in real_table

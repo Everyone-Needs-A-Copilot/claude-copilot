@@ -10,8 +10,8 @@
 # Provenance: seeded verbatim from CLASSIFICATION.md's 2026-08-10 audit (76
 # scanned directories; `COPILOT/shared-docs` is a symlink to
 # `knowledge-copilot-internal`, not a distinct directory, so the audit seeded
-# 75 real rows). The subsequently discovered public app repo adds one reviewed
-# row below, for 76 current entries. The table is further corrected by the
+# 75 real rows). The public app repo that once added a 76th row was folded
+# into `copilot-control-tower` and deleted, so the table is back to 75 entries. The table is further corrected by the
 # owner's ratified answers in
 # `copilot-control-tower/docs/ecosystem-audit-open-questions.md`:
 #   - Q9  (answer B): `copilot-control-tower` reclassified COMPONENT -> PRODUCT
@@ -341,11 +341,6 @@ path = "COPILOT/convoco-policy-build"
 class = "SCRATCH-ARCHIVE"
 rationale = "CLASSIFICATION.md #64: a stale git worktree of convoco, not an independent project. Q15 answer A: remove the worktree registration."
 
-
-[[repos]]
-path = "CSE/copilot-control-tower-public"
-class = "SCRATCH-ARCHIVE"
-rationale = "Reviewed non-applicable disposition: the owner, Pablo Alejo, deferred all macOS app work to PRD-24/TASK-301 in architecture review WP-838 on 2026-08-13. This app-only repository remains discoverable, but framework and lock conformance must report N/A until that separately governed app track resumes."
 
 [[repos]]
 path = "PERSONAL/audible-goodreads-main"
