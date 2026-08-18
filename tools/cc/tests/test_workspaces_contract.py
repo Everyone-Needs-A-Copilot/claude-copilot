@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import stat
 import subprocess
 from collections import Counter
 from pathlib import Path
@@ -1054,6 +1055,33 @@ def test_safe_finish_empty_project_applies_exact_targets_and_verifies(tmp_path):
     assert (project / "AGENTS.md").is_file()
     assert after["safe_action"] is None
     _assert_valid_workspace_report(workspaces_command._report("finish", [after]))
+
+
+def test_safe_finish_copy_normalizes_immutable_snapshot_modes(tmp_path):
+    source = tmp_path / "snapshot"
+    source.mkdir()
+    regular = source / "case.yaml"
+    executable = source / "hook.sh"
+    regular.write_text("case\n", encoding="utf-8")
+    executable.write_text("#!/bin/sh\n", encoding="utf-8")
+    regular.chmod(0o444)
+    executable.chmod(0o555)
+    source.chmod(0o555)
+
+    project = tmp_path / "project"
+    project.mkdir()
+    target = project / "copied"
+    created = []
+    core_workspaces._copy_missing_path(
+        source,
+        target,
+        project=project,
+        created=created,
+    )
+
+    assert stat.S_IMODE(target.stat().st_mode) == 0o755
+    assert stat.S_IMODE((target / "case.yaml").stat().st_mode) == 0o644
+    assert stat.S_IMODE((target / "hook.sh").stat().st_mode) == 0o755
 
 
 def test_safe_finish_refuses_stale_action_without_writes(tmp_path):

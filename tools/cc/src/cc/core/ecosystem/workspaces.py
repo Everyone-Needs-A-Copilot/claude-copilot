@@ -75,6 +75,7 @@ import hashlib
 import json
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 import time
@@ -1193,9 +1194,33 @@ def _copy_missing_path(
         )
     elif source.is_dir():
         shutil.copytree(source, target, symlinks=True)
+        _make_owner_writable(target)
     else:
         shutil.copy2(source, target)
+        _make_owner_writable(target)
     created.append(target)
+
+
+def _make_owner_writable(path: Path) -> None:
+    """Normalize copied snapshot content for an ordinary project checkout.
+
+    Immutable framework snapshots intentionally remove every write bit. A
+    project install is a managed copy, not that immutable source, so retaining
+    mode 0444/0555 makes the next supported update fail with ``EACCES``. Add
+    only the owner's write bit (and owner traversal for directories), preserve
+    executable bits exactly, and never follow copied symlinks.
+    """
+
+    if path.is_symlink():
+        return
+    metadata = path.lstat()
+    mode = stat.S_IMODE(metadata.st_mode) | stat.S_IWUSR
+    if stat.S_ISDIR(metadata.st_mode):
+        path.chmod(mode | stat.S_IXUSR)
+        for child in path.iterdir():
+            _make_owner_writable(child)
+    elif stat.S_ISREG(metadata.st_mode):
+        path.chmod(mode)
 
 
 def _rollback_safe_finish(
