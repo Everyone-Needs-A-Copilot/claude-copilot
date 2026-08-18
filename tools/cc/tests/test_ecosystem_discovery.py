@@ -88,6 +88,28 @@ def test_discover_contributions_hash_changes_when_content_changes(tmp_path):
     assert first != second
 
 
+def test_discover_contributions_ignores_macos_metadata(tmp_path):
+    layer_root = tmp_path / "foundation"
+    skill_dir = layer_root / "skills" / "testing-patterns"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("body")
+    (layer_root / "skills" / ".DS_Store").write_bytes(b"top-level metadata")
+    nested_metadata = skill_dir / ".DS_Store"
+    nested_metadata.write_bytes(b"nested metadata v1")
+
+    layers = [_layer("foundation", 40, local_path=layer_root)]
+    first = discover_contributions(layers)
+
+    assert set(first["foundation"]["skills"]) == {"testing-patterns"}
+    first_hash = first["foundation"]["skills"]["testing-patterns"]
+
+    nested_metadata.write_bytes(b"nested metadata v2")
+    second_hash = discover_contributions(layers)["foundation"]["skills"][
+        "testing-patterns"
+    ]
+    assert second_hash == first_hash
+
+
 def test_discover_contributions_honors_declared_dimensions(tmp_path):
     """A layer whose own `copilot.layer.yml` declares `dimensions:
     [commands]` is never probed for `agents`, even though it has a

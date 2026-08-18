@@ -49,6 +49,12 @@ from cc.core.ecosystem.dimensions import DIMENSION_SEMANTICS
 # is its first real reader (previously WRITE-only -- see this module's own
 # docstring update).
 _LAYER_DECLARATION_FILENAME = "copilot.layer.yml"
+_IGNORED_METADATA_NAMES = frozenset({".DS_Store"})
+
+
+def _is_ignored_metadata(path: Path) -> bool:
+    """Return whether *path* is host metadata, never ecosystem content."""
+    return any(part in _IGNORED_METADATA_NAMES for part in path.parts)
 
 
 def _declared_dimensions(layer_root: Path) -> Optional[tuple[str, ...]]:
@@ -88,7 +94,7 @@ def _hash_dir(path: Path) -> str:
     are often a directory, e.g. `skills/testing-patterns/SKILL.md`)."""
     digest = hashlib.sha256()
     for child in sorted(path.rglob("*")):
-        if child.is_file():
+        if child.is_file() and not _is_ignored_metadata(child.relative_to(path)):
             digest.update(child.relative_to(path).as_posix().encode("utf-8"))
             digest.update(child.read_bytes())
     return digest.hexdigest()
@@ -150,6 +156,8 @@ def discover_contributions(
                     continue
                 items: dict[str, str] = {}
                 for entry in sorted(dim_dir.iterdir()):
+                    if _is_ignored_metadata(Path(entry.name)):
+                        continue
                     if entry.is_file():
                         items[entry.stem] = _hash_file(entry)
                     elif entry.is_dir():

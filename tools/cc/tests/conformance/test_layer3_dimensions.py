@@ -301,10 +301,10 @@ class TestRealClassificationToml:
         return classes.load_classification_table()
 
     def test_has_reviewed_audit_entries_plus_deferred_app_disposition(self, real_table):
-        # 75 real directories from the 2026-08-10 audit, plus the app-only
-        # public repo discovered afterward and explicitly deferred to PRD-24,
-        # then one active Git root omitted from that static audit.
-        assert len(real_table) == 77
+        # The post-migration active fleet excludes the 22 directories moved to
+        # the out-of-scope archive or deleted, and adds copilot-bench as an
+        # explicit role-less framework component.
+        assert len(real_table) == 56
 
     def test_every_entry_has_a_valid_rubric_letter(self, real_table):
         for key, entry in real_table.items():
@@ -314,19 +314,19 @@ class TestRealClassificationToml:
         from collections import Counter
 
         counts = Counter(entry.repo_class for entry in real_table.values())
-        assert counts[RepoClass.COMPONENT] == 17
-        assert counts[RepoClass.PRODUCT] == 36
-        assert counts[RepoClass.SITE_CONTENT] == 8
-        assert counts[RepoClass.DOCS_KNOWLEDGE] == 1
-        assert counts[RepoClass.SCRATCH_ARCHIVE] == 15
+        assert counts[RepoClass.COMPONENT] == 18
+        assert counts[RepoClass.PRODUCT] == 28
+        assert counts[RepoClass.SITE_CONTENT] == 4
+        assert counts[RepoClass.DOCS_KNOWLEDGE] == 0
+        assert counts[RepoClass.SCRATCH_ARCHIVE] == 6
 
     def test_q9_reclassifies_control_tower_as_a_consumer(self, real_table):
-        entry = real_table["COPILOT/copilot-control-tower"]
+        entry = real_table["CSE/copilot-control-tower"]
         assert entry.repo_class is RepoClass.PRODUCT
         assert entry.rubric_letter == "C"
 
     def test_public_control_tower_app_is_attributably_deferred(self, real_table):
-        entry = real_table["COPILOT/copilot-control-tower-public"]
+        entry = real_table["CSE/copilot-control-tower-public"]
         assert entry.repo_class is RepoClass.SCRATCH_ARCHIVE
         assert entry.rubric_letter == "E"
         assert "Pablo Alejo" in entry.rationale
@@ -334,27 +334,32 @@ class TestRealClassificationToml:
         assert "WP-838" in entry.rationale
         assert "2026-08-13" in entry.rationale
 
-    def test_q27_bm_is_docs_knowledge_not_product(self, real_table):
-        entry = real_table["COPILOT/BM"]
-        assert entry.repo_class is RepoClass.DOCS_KNOWLEDGE
-        assert entry.rubric_letter == "D"
+    def test_archived_bm_is_not_in_the_active_fleet(self, real_table):
+        assert "COPILOT/BM" not in real_table
+        assert "_archive/BM" not in real_table
 
     def test_q27_product_creation_copilot_is_a_roleless_component(self, real_table):
-        entry = real_table["COPILOT/product-creation-copilot"]
+        entry = real_table["CSE/product-creation-copilot"]
         assert entry.repo_class is RepoClass.COMPONENT
         assert entry.role is None
         assert entry.rubric_letter == "C"
 
     def test_the_sixteen_tier_rungs_carry_correct_roles(self, real_table):
         for product in ("claude", "cli", "codex", "knowledge"):
-            assert real_table[f"COPILOT/{product}-copilot"].role == "foundation"
+            assert real_table[f"CSE/{product}-copilot"].role == "foundation"
             assert (
-                real_table[f"COPILOT/{product}-copilot-internal"].role == "organization"
+                real_table[f"CSE/{product}-copilot-internal"].role == "organization"
             )
             assert (
-                real_table[f"COPILOT/{product}-copilot-accounting"].role == "department"
+                real_table[f"CSE/{product}-copilot-accounting"].role == "department"
             )
-            assert real_table[f"COPILOT/{product}-copilot-private"].role == "personal"
+            assert real_table[f"CSE/{product}-copilot-private"].role == "personal"
+
+    def test_copilot_bench_is_a_roleless_component(self, real_table):
+        entry = real_table["CSE/copilot-bench"]
+        assert entry.repo_class is RepoClass.COMPONENT
+        assert entry.role is None
+        assert entry.rubric_letter == "C"
 
     def test_personal_dormant_repos_stay_product_not_excluded(self, real_table):
         # Q20 answer B for all four: kept maintained like an active repo.
@@ -937,7 +942,7 @@ class TestRealFleetDiscovery:
             "match) or discover_repos()'s walk regressed."
         )
 
-    def test_archive_and_movies_are_discovered_as_non_git_roots(self, real_roots):
+    def test_active_non_git_roots_are_discovered(self, real_roots):
         # Was `test_playground_and_investr_api_are_discovered_as_non_git_
         # roots`. Re-verified live 2026-08-11: both `playground` and
         # `investr-api` were git-initialized on this machine (unrelated to
@@ -953,9 +958,9 @@ class TestRealFleetDiscovery:
         # proven by the synthetic `TestDiscoverRepos.test_includes_non_git_
         # directories` above, which this real-machine test only corroborates.
         discovered = {str(repo.path): repo for repo in discover_repos(real_roots)}
-        archive = discovered.get("/Volumes/Dev/Sites/COPILOT/_archive")
+        audible = discovered.get("/Volumes/Dev/Sites/PERSONAL/audible-goodreads-main")
         movies = discovered.get("/Volumes/Dev/Sites/PERSONAL/movies")
-        assert archive is not None and archive.is_git_root is False
+        assert audible is not None and audible.is_git_root is False
         assert movies is not None and movies.is_git_root is False
 
     def test_shared_docs_dedupes_into_knowledge_copilot_internal(self, real_roots):

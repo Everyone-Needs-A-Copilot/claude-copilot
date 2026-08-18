@@ -5,6 +5,8 @@ installation. This command is a human-facing adapter over the canonical `cc`
 transaction; it does not copy, delete, merge, or generate framework files
 itself.
 
+The canonical transaction installs `.claude/hooks/copilot-hook.sh`, marks it executable, registers the supported Claude hook events, and records the shim as a framework-owned file in `copilot.lock.json`. Independent verification must reject an installation whose shim is missing, non-executable, unregistered, or absent from the lock; this command must never replace that transaction with a manual copy.
+
 The former partial `minimal` / `quick start` profile is retired. It could not
 produce the declared reference state and created a second repair path. If the
 user asks for that profile, explain that setup now installs the complete local

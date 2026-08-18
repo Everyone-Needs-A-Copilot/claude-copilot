@@ -14,6 +14,7 @@ uninstall:
 dev:
 	@if [ ! -d "$(VENV)" ]; then python3 -m venv $(VENV); fi
 	@$(VENV)/bin/pip install --quiet --upgrade pip
+	@$(VENV)/bin/pip install --quiet -e "../tc"
 	@$(VENV)/bin/pip install --quiet -e ".[dev]"
 	@echo "Dev environment ready. Activate with: source $(VENV)/bin/activate"
 

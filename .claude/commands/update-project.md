@@ -6,6 +6,8 @@ different user intentions, not different installers: current disk and lock
 evidence determines whether the transaction performs a clean setup, a bounded
 repair, an idempotent no-op, or a safety hold.
 
+The canonical update repairs `.claude/hooks/copilot-hook.sh` only when ownership evidence permits it, preserves executable mode and hook registration, and refreshes its framework-owned checksum in `copilot.lock.json`. Independent verification must reject a missing, non-executable, unregistered, or unlocked shim; this command must never perform an untracked manual repair.
+
 The former partial `minimal` profile is not a separate update target. Existing
 minimal installations are degraded inputs to this complete transaction; their
 project-authored instructions and memory are preserved while missing reference
