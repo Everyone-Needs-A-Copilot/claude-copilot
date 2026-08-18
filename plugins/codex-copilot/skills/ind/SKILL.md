@@ -17,6 +17,8 @@ Use this skill when software intersects with physical products, connected device
 
 ## Workflow
 
+0. Read `08-taste/INDEX.md` from the nearest `paths.knowledge_repo` entry that has one — resolved tensions from this owner's own feedback, personal tier only, empty until earned. Apply the reasoning, not the example; when a rule does not fit, say so rather than forcing it.
+
 1. Name the product's essential job and necessary functions.
 2. Audit every visible element with: "What happens if we remove this?"
 3. Define material, tactile, sonic, and first-use decisions where relevant.
@@ -56,6 +58,7 @@ Return an industrial design brief:
 - physical-digital integration notes
 - longevity and lifecycle implications
 - next specialist handoff
+- unknowns: what the brief did not decide — or `none`, owned
 
 ## Route To Other Specialist
 

@@ -27,6 +27,8 @@ Use this skill before non-trivial implementation.
 
 ## Workflow
 
+0. Read `08-taste/INDEX.md` from the nearest `paths.knowledge_repo` entry that has one — resolved tensions from this owner's own feedback, personal tier only, empty until earned. Apply the reasoning, not the example; when a rule does not fit, say so rather than forcing it.
+
 1. Check task context with `tc task get <taskId> --json` when a task exists.
 2. Hydrate config with `eval "$($HOME/.local/bin/cc env)"` when `cc` is available.
 3. Search memory for prior architecture decisions.
@@ -64,6 +66,7 @@ Return a concise architecture brief:
 - implementation boundaries
 - risks and failure modes
 - task or verification plan
+- unknowns: what the brief did not decide — or `none`, owned
 
 ## Route To Other Specialist
 

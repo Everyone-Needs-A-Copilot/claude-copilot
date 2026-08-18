@@ -18,6 +18,8 @@ Use this skill to turn product intent into clear interactions.
 
 ## Workflow
 
+0. Read `08-taste/INDEX.md` from the nearest `paths.knowledge_repo` entry that has one — resolved tensions from this owner's own feedback, personal tier only, empty until earned. Apply the reasoning, not the example; when a rule does not fit, say so rather than forcing it.
+
 1. Identify the primary task and the user's decision points.
 2. Map the screen or surface sequence.
 3. Define interaction states, validation behavior, and product language for each state.
@@ -51,8 +53,9 @@ Use Nielsen heuristics, task analysis, and recognition-over-recall as practical 
 
 Every design engagement ships two artifacts: the markdown specification and a clickable HTML walkthrough — a single self-contained file that steps through the designed flow screen by screen, so the owner sees and feels the process before any code is written.
 
-- One file per design stage, never shared: `$uxd` produces `<feature>-uxd-walkthrough.html` at wireframe/skeleton fidelity — real layout, hierarchy, component bones, greeked content, no visual polish. `$uids` later produces its own `<feature>-uids-walkthrough.html` at visual fidelity. Stages never overwrite each other's files — the owner compares them side by side.
+- One file per design stage, never shared: `$uxd` produces `NN-<feature>-uxd-walkthrough.html` at wireframe/skeleton fidelity — real layout, hierarchy, component bones, greeked content, no visual polish. `$uids` later produces its own adjacent `NN-<feature>-uids-walkthrough.html` at visual fidelity. Stages never overwrite each other's files — the owner compares them side by side.
 - Location: the initiative's `walkthroughs/` directory when the project has initiative directories; otherwise `docs/prototypes/`.
+- Viewing order is part of the artifact contract. Before creating or renaming a walkthrough, inspect every HTML walkthrough in the target directory and assign a unique, contiguous two-digit `NN-` prefix in the order the owner should review them. Order by the product narrative, not creation date; when both stages exist for one experience, place UXD immediately before UIDS. Insert new walkthroughs where they belong, renumber later walkthroughs when necessary, and update every companion link or path reference. Do not leave duplicate prefixes, sequence gaps, unnumbered walkthrough HTML, or stale references. Maintain a `walkthroughs/README.md` order index when the directory contains more than one walkthrough.
 - Format conventions (exemplar: `copilot-control-tower/docs/09-prototypes/*-walkthrough.html`): a commentary register (what the user sees, decides, and where trust is won) wrapping a mock-window register (the screens); numbered screens with TOC navigation and prev/next; light and dark themes via `prefers-color-scheme` plus a `data-theme` toggle; reduced-motion respected; fully self-contained, no external requests, system-font stacks with graceful fallback.
 - Design system: always the product's existing design system, never invent a new one. Render the skeleton only — real layout, hierarchy, component bones, greeked content — leave color and type polish to `$uids`.
 - Coverage: the full journey in order, including empty, loading, error, and edge states, plus resolved design-decision variants.
@@ -66,8 +69,9 @@ Return a concise UX specification:
 - required states
 - product language notes for labels, CTAs, empty states, errors, validation, and feedback
 - accessibility notes
-- walkthrough path: `<feature>-uxd-walkthrough.html`
+- walkthrough path: `NN-<feature>-uxd-walkthrough.html`
 - unresolved questions
+- unknowns: what the brief did not decide — or `none`, owned
 
 ## Route To Other Specialist
 

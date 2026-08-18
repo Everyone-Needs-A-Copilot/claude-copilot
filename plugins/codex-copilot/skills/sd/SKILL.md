@@ -17,6 +17,8 @@ Use this skill to shape software as a service experience before screens or code.
 
 ## Workflow
 
+0. Read `08-taste/INDEX.md` from the nearest `paths.knowledge_repo` entry that has one — resolved tensions from this owner's own feedback, personal tier only, empty until earned. Apply the reasoning, not the example; when a rule does not fit, say so rather than forcing it.
+
 1. Restate the real user or business outcome.
 2. Name assumptions and evidence. If evidence is missing, label hypotheses.
 3. Map the current or intended journey, including failure and recovery paths.
@@ -56,6 +58,7 @@ Return a concise service design brief:
 - failure paths
 - service constraints
 - recommended next specialist
+- unknowns: what the brief did not decide — or `none`, owned
 
 ## Route To Other Specialist
 

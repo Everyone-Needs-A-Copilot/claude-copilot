@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.0.0",
-  "version": "0.6.1",
-  "updatedAt": "2026-07-11T00:00:00Z",
+  "version": "0.6.5",
+  "updatedAt": "2026-08-18T00:00:00Z",
   "$schema": "./agent-catalog.schema.json",
   "_comment": "Codex-native source of truth for active specialists, optional pack specialists, design chain, and routing workflows. Claude runtime lifecycle hooks are not represented here; this catalog drives skills, docs, tests, and explicit tc/script gates.",
   "entrypoints": {

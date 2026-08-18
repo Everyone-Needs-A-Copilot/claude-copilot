@@ -65,6 +65,24 @@ Keep these instruments separate:
 
 For experience work that does not materially change screens, components, or interface states, `$uid` may be skipped only when the checkpoint states why.
 
+## Unknowns
+
+Every design-stage lens (`$sd`, `$uxd`, `$uids`, `$ind`, `$ta`) ends with an `unknowns:` line. `unknowns: none` is permitted and is a claim you own; omitting the line is not.
+
+An unknown that would change the work escalates rather than being noted:
+
+```
+QUESTION: [the one thing that changes the answer]
+OPTIONS: [A — consequence] | [B — consequence]
+CONTEXT: [why this cannot be resolved from what you were given]
+```
+
+One question, not a checklist. Each option carries its consequence so the user can decide in one pass. `CONTEXT:` states what you already ruled out — that is what makes it a question rather than a request to be told what to do.
+
+**Resolving a genuine ambiguity silently is a defect, not efficiency.** Measured on an identical brief carrying a real contradiction ("Level 4 finish throughout" against "Garage included"): the arm with no framework asked, got the answer, and priced 25 fewer labour hours. The arm running the full design chain asked nothing and priced a guess. Inferring an answer where the brief is undecided converts the user's decision into your hidden assumption and buries it in a deliverable, where it resurfaces as rework. Guessing is acceptable only when the guess is stated as one.
+
+This applies with more force here than in a delegating framework, not less: running the lenses inline means no handoff document exists where an unstated assumption might be caught by the next specialist reading it.
+
 ## Checkpoints
 
 For design-heavy flows, stop after major design stages unless the user clearly asked for uninterrupted execution.

@@ -18,6 +18,8 @@ Use this skill to implement polished, accessible UI.
 
 ## Workflow
 
+0. Read `08-taste/INDEX.md` from the nearest `paths.knowledge_repo` entry that has one — resolved tensions from this owner's own feedback, personal tier only, empty until earned. Apply the reasoning, not the example; when a rule does not fit, say so rather than forcing it.
+
 1. Read the existing UI patterns and the relevant design direction.
 2. Identify component boundaries and data/state inputs.
 3. Implement layout, styling, states, and accessibility behavior.
