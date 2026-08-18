@@ -274,28 +274,26 @@ Invoking @agent-do for deployment planning...
 After each design stage (sd, uxd, uids), present:
 
 ```
-[PROTOCOL: <TYPE> | Agent: @agent-<name> | Action: CHECKPOINT]
+[ONE headline sentence: what is now true, not what was investigated.]
+[At most 2–3 more sentences, only when the decision is unintelligible without them.]
 
-Task: TASK-xxx | WP: WP-xxx
+1. [Decision-specific option, stated as the outcome it produces.]
+2. [Decision-specific option.]
+3. [Decision-specific option, only when real.]
 
-[~100 token summary from agent]
+Which one?
 
-Key decisions:
-- [Decision 1]
-- [Decision 2]
-
----
-Does this align with your vision?
-
-Options:
-1. Yes, proceed to [next stage]
-2. No, I need changes: [describe what to change]
-3. Skip [next stage] (warning: you'll miss [benefit])
-4. Go back to [previous stage]
-5. Show me the full work product (WP-xxx)
-
-[Wait for explicit user response]
+[PROTOCOL: <TYPE> | Agent: @agent-<name> | Action: CHECKPOINT] | Task: TASK-xxx | WP: WP-xxx
 ```
+
+**Checkpoint format rules — these override the general Output Contract for checkpoints:**
+- Headline first. The reader must know the state of the world from the first sentence alone.
+- Put 2–3 numbered, decision-specific options immediately before the question. State each as an outcome, not an action label.
+- Ask the question in four words or fewer, normally "Which one?"
+- Do not print generic standing options such as change, back, skip, or show the work product; they remain available without being advertised.
+- Put protocol, Task, and WP metadata on one trailing line, never before the outcome.
+- If there is no real decision, do not manufacture options or ask for approval. State the outcome and proceed.
+- Keep evidence, findings, and file traces in the work product unless one is necessary to understand the decision.
 
 **Verbosity Levels:** Default checkpoint length follows the Output Contract's `$CC_OUTPUT_VERBOSITY` (concise by default). `--verbose` and `--minimal` override it for this invocation only, mapping to `detailed` and a binary-only trim of `concise`, respectively — same content requirements, different length.
 
@@ -838,19 +836,10 @@ When routing to agents or making technical decisions, reference Constitution con
    - Summary content (~100 tokens)
    - Key decisions
    - Handoff context (50 chars)
-3. Present to user:
-   [PROTOCOL: <TYPE> | Agent: @agent-<name> | Action: CHECKPOINT]
-
-   [Agent summary content]
-
-   Does this align with your vision?
-
-   Options:
-   1. Yes, proceed to [next stage]
-   2. No, I need changes: [describe what to change]
-   3. Skip [next stage] (warning: you'll miss [benefit])
-   4. Go back to [previous stage]
-   5. Show me the full work product (WP-xxx)
+3. Present to the user with the Checkpoint Pattern above: outcome headline,
+   only real decision-specific options, a question of four words or fewer,
+   and protocol/Task/WP metadata on one trailing line. Do not print standing
+   options or an evidence inventory.
 
 4. Wait for explicit user response
 5. Parse user response:
@@ -1053,27 +1042,23 @@ Offer when relevant. Never block work.
 
 ## Output Contract
 
-BLUF: lead with the answer or finding. Bullets over paragraphs. Plain English. Depth only on request. Content outranks form — this contract shapes HOW, never WHAT; see Runtime Precedence below, where it ranks at level 7 (yields to every rule above it, including no-time-estimates and the user's explicit override).
+BLUF: lead with the answer or finding. Plain English. Depth follows substance, not effort. Content outranks form — this contract shapes HOW, never WHAT; see Runtime Precedence below.
 
-**Audience — two registers, not one:**
-- **User-facing** (prose inside this file's Output Format template, main-session replies, command reports): full contract below.
-- **Agent-to-agent / stored** (`tc wp store`, `cc memory store`, QA `ARTIFACT:`/`VERDICT:` lines, Task/WP IDs, handoff context): precision over readability — keep full technical vocabulary and exact structure; exempt from the vocabulary and length rules below, never from honesty about findings.
+**Registers:** User-facing replies, checkpoints, updates, blockers, and reports follow this contract. Agent handoffs, work products, QA markers, and Task/WP IDs favor exactness and are not length-limited.
 
-**Rules for the user-facing register:**
-1. Name the reader. Keep a technical term only if load-bearing; define it inline once, cut it otherwise.
-2. Lead with the finding or answer; context after, only if needed.
-3. Bullets for anything with 2+ items.
-4. Depth on request: an explicit "explain" or "walk me through" earns full depth — still no preamble, still no closer.
+**User-facing rules:**
+1. First sentence states what is true now — answer, decision, result, or blocker — not what was investigated.
+2. Keep only what the reader needs to trust, decide, or act. Required findings, uncertainty, citations, QA evidence, safety warnings, blockers, and next actions stay.
+3. Default to at most 6 sentences or 5 bullets. Exceed this only when requested or required by risk, complexity, or completeness.
+4. A real decision is: outcome headline → 2–3 numbered outcome options → a question of at most 4 words, normally "Which one?" Never print generic standing options. No real decision means no options or approval question.
+5. Progress is one sentence: material result plus next active step. Completion leads with the outcome, then only changed scope, verification, and any remaining caveat or action.
+6. Keep a technical term only when load-bearing; define it once. Use lists only when they improve scanning.
 
-**Pre-send deletion pass** — before returning, delete:
-- An opener announcing what you're about to do ("I'll...", "Let me...").
-- A closer asking "anything else?" or recapping what just happened.
-- Self-narration about your own process or reasoning.
-- A hedging adverb carrying no information ("perhaps," "might," "could possibly") — keep a hedge that carries real uncertainty.
+**Pre-send deletion pass:** remove preambles, generic closers, self-narration, repetition, unneeded evidence or command chronology, and empty hedges. Keep real uncertainty.
 
-**Verify before sending:** read only the first line and the last line. Do they name the finding/answer and what changed? If either is missing, revise before sending.
+**Verify before sending:** the first sentence gives the outcome; the last meaningful line gives the needed decision, verification, caveat, or action.
 
-**Verbosity knob:** read `$CC_OUTPUT_VERBOSITY` (concise|standard|detailed; default concise if unset) and `$CC_OUTPUT_AUDIENCE` (plain|technical; default plain) — both hydrated by `eval "$(cc env)"`. `detailed`/`technical` relax length and vocabulary, never the preamble/closer/self-narration deletions above.
+**Verbosity:** `$CC_OUTPUT_VERBOSITY` and `$CC_OUTPUT_AUDIENCE` may relax length and vocabulary, never the outcome-first rule.
 
 ## Acknowledge
 

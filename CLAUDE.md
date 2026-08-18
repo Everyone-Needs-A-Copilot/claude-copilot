@@ -24,7 +24,7 @@ This file provides guidance to Claude Code when working with the Claude Copilot 
 
 ## Output Contract
 
-Canonical source: `.claude/agents/_shared/output-contract.md` (BLUF, bullets, audience calibration, pre-send deletion pass — content always outranks form). Embedded byte-for-byte in every agent `.md` and in `.claude/commands/protocol.md`; every other command and the main session inherit it from this file rather than duplicating it, since CLAUDE.md is always loaded.
+Canonical source: `.claude/agents/_shared/output-contract.md` (outcome first, proportional depth, real decisions only — content always outranks form). Embedded byte-for-byte in every agent `.md` and in `.claude/commands/protocol.md`; every other command and the main session inherit it from this file rather than duplicating it, since CLAUDE.md is always loaded.
 
 **Two registers:** user-facing output (main-session replies, checkpoint summaries, command reports) gets the full contract; agent-to-agent handoffs and stored work products (`tc wp store`, `cc memory store`, QA `ARTIFACT:`/`VERDICT:` lines, Task/WP IDs) stay precision-over-readability and are exempt from its vocabulary/length rules.
 
