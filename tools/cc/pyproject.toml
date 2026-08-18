@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "claude-cli"
-version = "2.12.11"
+version = "2.12.12"
 description = "Unified Claude Copilot CLI for memory, skills, config, and live docs"
 requires-python = ">=3.10"
 dependencies = [

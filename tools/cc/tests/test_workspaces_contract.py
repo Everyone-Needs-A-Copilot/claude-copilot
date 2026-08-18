@@ -498,6 +498,22 @@ def test_activation_resolves_claude_content_through_the_tier_ladder(tmp_path, mo
         claude_root / ".claude/agents/qa.md"
     ).read_text(encoding="utf-8")
 
+    # Installation proof must compare against the same resolved tier bytes
+    # the installer selected, not foundation-only paths. Otherwise every
+    # organization override makes the safe transaction roll itself back.
+    write_install_lock(project, ("claude",), claude_root=claude_root)
+    verified = workspace_status(
+        project,
+        personal_registry=tmp_path / "personal.json",
+        claude_root=claude_root,
+        codex_root=_codex_root,
+    )
+    assert verified["installed_components"] == ["claude"]
+    claude = next(
+        item for item in verified["components"] if item["component"] == "claude"
+    )
+    assert claude["classification"] == "ready"
+
 
 def test_activation_placeholder_override_does_not_shadow_real_foundation_content(
     tmp_path, monkeypatch

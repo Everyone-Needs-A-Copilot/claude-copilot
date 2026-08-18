@@ -26,6 +26,7 @@ from cc.core.ecosystem.project_locking import (
     fingerprint_file_payload,
     fingerprint_symlink,
 )
+from cc.core.ecosystem.project_sources import resolve_claude_content
 from cc.core.ecosystem.projects import PROJECT_LOCK_FILENAME
 
 INTEGRATION_CONTRACT_ID = "project-integration"
@@ -363,11 +364,20 @@ def _framework_root(component: str, supplied: Optional[Path | str]) -> Optional[
 def _claude_source_files(source: Path) -> Optional[dict[str, Path]]:
     try:
         commands, roster = claude_reference_roster(source)
+        resolved = resolve_claude_content(
+            foundation_root=source,
+            items={
+                "commands": tuple(command.removesuffix(".md") for command in commands),
+                "agents": tuple(roster),
+            },
+        )
     except (OSError, ValueError):
         return None
     files = {
         **{
-            f".claude/commands/{command}": source / ".claude/commands" / command
+            f".claude/commands/{command}": resolved[
+                ("commands", command.removesuffix(".md"))
+            ].path
             for command in commands
         },
         ".claude/fitness-check.sh": source / ".claude/fitness-check.sh",
@@ -375,7 +385,7 @@ def _claude_source_files(source: Path) -> Optional[dict[str, Path]]:
     }
     files.update(
         {
-            f".claude/agents/{agent}.md": source / f".claude/agents/{agent}.md"
+            f".claude/agents/{agent}.md": resolved[("agents", agent)].path
             for agent in roster
         }
     )
