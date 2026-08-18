@@ -960,7 +960,7 @@ class TestRealFleetDiscovery:
 
     def test_shared_docs_dedupes_into_knowledge_copilot_internal(self, real_roots):
         discovered = {str(repo.path): repo for repo in discover_repos(real_roots)}
-        target = discovered["/Volumes/Dev/Sites/COPILOT/knowledge-copilot-internal"]
+        target = discovered["/Volumes/Dev/Sites/CSE/knowledge-copilot-internal"]
         assert target.raw_count == 2
         alias_names = {alias.name for alias in target.aliases}
         assert alias_names == {"knowledge-copilot-internal", "shared-docs"}

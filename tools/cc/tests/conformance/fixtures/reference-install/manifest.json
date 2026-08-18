@@ -4,7 +4,7 @@
   "verified_against": {
     "version_json": "VERSION.json (framework 5.14.7, agents 5.6.0, commands 5.3.2)",
     "reference_install": "/Volumes/Dev/Sites/TSM/hermes (read-only inspection; no single repo is a complete reference -- hermes itself fails D3/D4/D7/D11/D12 per TEST-MATRIX.md)",
-    "codex_plugin_source": "/Volumes/Dev/Sites/COPILOT/codex-copilot/plugins/codex-copilot (read-only file count)"
+    "codex_plugin_source": "/Volumes/Dev/Sites/CSE/codex-copilot/plugins/codex-copilot (read-only file count)"
   },
   "rubric_corrections": [
     {

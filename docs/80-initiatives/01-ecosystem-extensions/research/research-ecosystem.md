@@ -14,7 +14,7 @@ Read-only investigation. Source of truth: `/Volumes/Dev/Sites/COPILOT/shared-doc
 | **Codex Copilot** | Yes | Active, public repo, real code |
 | **Cloud Copilot** | **NO** | **Not built, not planned in registry.** Zero footprint: no `/Volumes/Dev/Sites/COPILOT/*cloud*` dir, no dossier under `02-products/`, no mention anywhere in `shared-docs`. It is a vision-only concept the user is proposing; the registry does not contain it. Treat as greenfield in the feasibility doc. |
 
-The framework repo the user is sitting in is **Claude Copilot** (`/Volumes/Dev/Sites/COPILOT/claude-copilot`),
+The framework repo the user is sitting in is **Claude Copilot** (`/Volumes/Dev/Sites/CSE/claude-copilot`),
 a Layer-1 Foundational product — NOT one of the four named targets, but the hub all three real ones orbit.
 
 ---
@@ -35,7 +35,7 @@ a Layer-1 Foundational product — NOT one of the four named targets, but the hu
 
 ## The four projects — profiles
 
-### 1. CLI Copilot — `/Volumes/Dev/Sites/COPILOT/cli-copilot-internal`
+### 1. CLI Copilot — `/Volumes/Dev/Sites/CSE/cli-copilot-internal`
 - **Repo:** `github.com/Everyone-Needs-A-Copilot/cli-copilot` — **private**, branch `main`, HEAD `22544ee`.
 - **What it IS:** the `copilot` binary — a Python 3.11 Typer+Rich CLI fronting ~24 services (a *client* binary,
   not a server; no MCP/HTTP/webhook of its own). Version 1.1.0.
@@ -43,7 +43,7 @@ a Layer-1 Foundational product — NOT one of the four named targets, but the hu
   `copilot_cli/config/settings.py` (Pydantic Settings), `pyproject.toml` console scripts `copilot`/`cli_copilot`
   → `copilot_cli.main:app`.
 - **Config:** single `.env` via Pydantic Settings; resolution `COPILOT_ENV_FILE` → nearest `.env` up-tree → CWD `.env`.
-  Ecosystem `.env` at `/Volumes/Dev/Sites/COPILOT/cli-copilot-internal/.env` (per global CLAUDE.md).
+  Ecosystem `.env` at `/Volumes/Dev/Sites/CSE/cli-copilot-internal/.env` (per global CLAUDE.md).
 - **Extension / integration REGISTRY (key for layering vision):**
   Integrations are **registered as code, not data.** Each service is a Python subpackage under
   `copilot_cli/services/<name>/` exposing a Typer `app`, imported and wired in `copilot_cli/main.py` via
@@ -59,7 +59,7 @@ a Layer-1 Foundational product — NOT one of the four named targets, but the hu
   `.mcp.json.example`; `coolify` service can read creds from an existing `.mcp.json`
   (`services/coolify/core/config.py find_mcp_credentials`). Global `--json` flag for machine-readable output.
 
-### 2. Knowledge Copilot — `/Volumes/Dev/Sites/COPILOT/knowledge-copilot`
+### 2. Knowledge Copilot — `/Volumes/Dev/Sites/CSE/knowledge-copilot`
 - **Repo:** `github.com/Everyone-Needs-A-Copilot/knowledge-copilot` — **public**, `main`, HEAD `061f8710`.
   `shared-docs` is a **symlink** to this dir. Renamed from `shared-docs` 2026-06-29.
 - **What it IS:** the shared company knowledge base (methodologies, brand/voice, product dossiers, skills,
@@ -81,7 +81,7 @@ a Layer-1 Foundational product — NOT one of the four named targets, but the hu
   (`commands/config.py:106-130`) and surfaced on turn 1 by the UserPromptSubmit hook
   (`.claude/hooks/user-prompt-submit.sh:213-251`). Contract rule: agents READ from it, never copy content in.
 
-### 3. Codex Copilot — `/Volumes/Dev/Sites/COPILOT/codex-copilot`
+### 3. Codex Copilot — `/Volumes/Dev/Sites/CSE/codex-copilot`
 - **Repo:** `github.com/Everyone-Needs-A-Copilot/codex-copilot` — **public** (MIT), `main`, HEAD `e1620f7`. v0.5.0.
 - **What it IS:** Codex-native framework layer mirroring Claude Copilot (see relationship section). Ships no
   service/API/MCP. Entry points: `AGENTS.md`, `plugins/codex-copilot/{skills,agent-catalog.json}`, `scripts/`
@@ -137,7 +137,7 @@ knowledge + agent extensions — via `paths.knowledge_repo`:
   are told (via prompts/CLAUDE.md) to read manually after hydrating `CC_KNOWLEDGE_REPO`. So Layer resolution for
   knowledge = real (list-valued pointer); automatic extension merging = aspirational.
 
-### The private companion repo (already created) — `/Volumes/Dev/Sites/COPILOT/claude-copilot-private`
+### The private companion repo (already created) — `/Volumes/Dev/Sites/CSE/claude-copilot-private`
 - **Repo:** `github.com/pablitoalejo/claude-copilot-private` — **private, personal account** (NOT the org), `main`.
 - **What it IS:** private companion to public claude-copilot. Holds `memory/entries/`, `settings.local.json`,
   `mcp.json`, `docs-private/`, and `knowledge/` (a personal extension repo). `bootstrap.sh` symlinks these into a

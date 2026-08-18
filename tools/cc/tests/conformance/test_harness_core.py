@@ -508,7 +508,7 @@ class TestReport:
     def test_framework_baseline_subject_ignores_only_checkout_prefix(
         self, check_id, facet
     ):
-        authoring = f"/Volumes/Dev/Sites/COPILOT/claude-copilot/{facet}"
+        authoring = f"/Volumes/Dev/Sites/CSE/claude-copilot/{facet}"
         snapshot = (
             f"/Users/pabs/.copilot/framework-snapshots/claude-copilot-aa0125/{facet}"
         )
@@ -667,8 +667,8 @@ class TestReport:
         assert filtered[0].severity is Severity.S0
 
     def test_filter_by_repo_matches_exact_and_suffix(self):
-        a = _fail_result(subject="/Volumes/Dev/Sites/COPILOT/claude-copilot")
-        b = _fail_result(subject="/Volumes/Dev/Sites/COPILOT/codex-copilot")
+        a = _fail_result(subject="/Volumes/Dev/Sites/CSE/claude-copilot")
+        b = _fail_result(subject="/Volumes/Dev/Sites/CSE/codex-copilot")
         filtered = report.filter_by_repo([a, b], ["claude-copilot"])
         assert filtered == (a,)
 

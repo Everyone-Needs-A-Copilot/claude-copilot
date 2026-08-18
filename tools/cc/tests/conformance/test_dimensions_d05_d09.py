@@ -160,7 +160,7 @@ class TestD05CcConfig:
                     "$schema": "cc-config-v1",
                     "version": 1,
                     "paths": {
-                        "knowledge_repo": "/Volumes/Dev/Sites/COPILOT/knowledge-copilot-internal"
+                        "knowledge_repo": "/Volumes/Dev/Sites/CSE/knowledge-copilot-internal"
                     },
                 }
             ),

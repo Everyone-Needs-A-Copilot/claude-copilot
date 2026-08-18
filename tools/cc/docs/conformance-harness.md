@@ -43,7 +43,7 @@ Human output (`report.render_human`) groups by layer, then lists every `fail` wi
 
 ```
 LAYER  repo        install conformance             2026 checks   1537 pass    489 FAIL
-  FAIL  S0  repo.d04.hook_present_and_locked  (/Volumes/Dev/Sites/COPILOT/claude-copilot)
+  FAIL  S0  repo.d04.hook_present_and_locked  (/Volumes/Dev/Sites/CSE/claude-copilot)
             expected='present, executable, recorded in the lock' actual='present=True, executable=True, locked=False'
             fix  Wire projects.write_project_lock into setup-project.md / update-project.md's install steps.
 ```

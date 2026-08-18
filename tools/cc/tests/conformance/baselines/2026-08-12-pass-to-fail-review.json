@@ -5,7 +5,7 @@
   "pass_to_fail": [
     {
       "id": "repo.d01.fitness_check_passes",
-      "subject": "/Volumes/Dev/Sites/COPILOT/claude-copilot",
+      "subject": "/Volumes/Dev/Sites/CSE/claude-copilot",
       "classification": "reviewed-open-content-regression",
       "rationale": "The live fitness check now detects that cco.md exceeds its recorded growth budget. This is a real content failure outside TASK-281's baseline/conformance write scope; it remains FAIL and is not waived.",
       "owner": "Claude content maintainer"

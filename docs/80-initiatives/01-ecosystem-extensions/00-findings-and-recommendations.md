@@ -68,7 +68,7 @@ There are two resolution engines, and **only one can layer deterministically**:
 
 ### 3.3 The private companion repo (already scaffolded)
 
-`/Volumes/Dev/Sites/COPILOT/claude-copilot-private` → `github.com/pablitoalejo/claude-copilot-private` (private, personal account). Holds `memory/entries/`, `settings.local.json`, `mcp.json`, `docs-private/`, and a `knowledge/` tree mirroring knowledge-copilot's convention (`knowledge-manifest.json` v1.0 `pablo-personal-knowledge`, `.claude/extensions/`, `skills/`, `docs/glossary.md`). `bootstrap.sh` symlinks these into a sibling checkout **and** runs `cc config add paths.knowledge_repo <dir>` to wire the layer. **This is the personal (L3) layer already existing in prototype form.**
+`/Volumes/Dev/Sites/CSE/claude-copilot-private` → `github.com/pablitoalejo/claude-copilot-private` (private, personal account). Holds `memory/entries/`, `settings.local.json`, `mcp.json`, `docs-private/`, and a `knowledge/` tree mirroring knowledge-copilot's convention (`knowledge-manifest.json` v1.0 `pablo-personal-knowledge`, `.claude/extensions/`, `skills/`, `docs/glossary.md`). `bootstrap.sh` symlinks these into a sibling checkout **and** runs `cc config add paths.knowledge_repo <dir>` to wire the layer. **This is the personal (L3) layer already existing in prototype form.**
 
 ### 3.4 Only 3 of the 4 named projects exist
 

@@ -59,103 +59,103 @@ schema_version = 1
 # ---------------------------------------------------------------------------
 
 [[repos]]
-path = "COPILOT/claude-copilot"
+path = "CSE/claude-copilot"
 class = "COMPONENT"
 role = "foundation"
 rationale = "CLASSIFICATION.md #1: public foundation tier of the instruction layer."
 
 [[repos]]
-path = "COPILOT/claude-copilot-accounting"
+path = "CSE/claude-copilot-accounting"
 class = "COMPONENT"
 role = "department"
 rationale = "CLASSIFICATION.md #2: department tier (accounting)."
 
 [[repos]]
-path = "COPILOT/claude-copilot-internal"
+path = "CSE/claude-copilot-internal"
 class = "COMPONENT"
 role = "organization"
 rationale = "CLASSIFICATION.md #3: org tier, the mature Claude Copilot overlay."
 
 [[repos]]
-path = "COPILOT/claude-copilot-private"
+path = "CSE/claude-copilot-private"
 class = "COMPONENT"
 role = "personal"
 rationale = "CLASSIFICATION.md #4: personal tier."
 
 [[repos]]
-path = "COPILOT/cli-copilot"
+path = "CSE/cli-copilot"
 class = "COMPONENT"
 role = "foundation"
 rationale = "CLASSIFICATION.md #5: public foundation of the `copilot` integration CLI."
 
 [[repos]]
-path = "COPILOT/cli-copilot-accounting"
+path = "CSE/cli-copilot-accounting"
 class = "COMPONENT"
 role = "department"
 rationale = "CLASSIFICATION.md #6: department tier."
 
 [[repos]]
-path = "COPILOT/cli-copilot-internal"
+path = "CSE/cli-copilot-internal"
 class = "COMPONENT"
 role = "organization"
 rationale = "CLASSIFICATION.md #7: org tier -- the live `copilot` binary's mature path."
 
 [[repos]]
-path = "COPILOT/cli-copilot-private"
+path = "CSE/cli-copilot-private"
 class = "COMPONENT"
 role = "personal"
 rationale = "CLASSIFICATION.md #8: personal tier."
 
 [[repos]]
-path = "COPILOT/codex-copilot"
+path = "CSE/codex-copilot"
 class = "COMPONENT"
 role = "foundation"
 rationale = "CLASSIFICATION.md #9: codex-native operating layer, foundation tier."
 
 [[repos]]
-path = "COPILOT/codex-copilot-accounting"
+path = "CSE/codex-copilot-accounting"
 class = "COMPONENT"
 role = "department"
 rationale = "CLASSIFICATION.md #10: department tier."
 
 [[repos]]
-path = "COPILOT/codex-copilot-internal"
+path = "CSE/codex-copilot-internal"
 class = "COMPONENT"
 role = "organization"
 rationale = "CLASSIFICATION.md #11: org tier."
 
 [[repos]]
-path = "COPILOT/codex-copilot-private"
+path = "CSE/codex-copilot-private"
 class = "COMPONENT"
 role = "personal"
 rationale = "CLASSIFICATION.md #12: personal tier."
 
 [[repos]]
-path = "COPILOT/knowledge-copilot"
+path = "CSE/knowledge-copilot"
 class = "COMPONENT"
 role = "foundation"
 rationale = "CLASSIFICATION.md #14: public knowledge foundation, foundation tier."
 
 [[repos]]
-path = "COPILOT/knowledge-copilot-accounting"
+path = "CSE/knowledge-copilot-accounting"
 class = "COMPONENT"
 role = "department"
 rationale = "CLASSIFICATION.md #15: department tier."
 
 [[repos]]
-path = "COPILOT/knowledge-copilot-internal"
+path = "CSE/knowledge-copilot-internal"
 class = "COMPONENT"
 role = "organization"
 rationale = "CLASSIFICATION.md #16: org knowledge tier (also the `shared-docs` symlink target)."
 
 [[repos]]
-path = "COPILOT/knowledge-copilot-private"
+path = "CSE/knowledge-copilot-private"
 class = "COMPONENT"
 role = "personal"
 rationale = "CLASSIFICATION.md #17: personal tier."
 
 [[repos]]
-path = "COPILOT/product-creation-copilot"
+path = "CSE/product-creation-copilot"
 class = "COMPONENT"
 rationale = "Q27 owner answer 'component': a Layer-1 foundational tool, but it is not one of the four synced families and has no copilot.layers.yml entry -- no `role` set, so classes.py treats it as rubric class C (renders/supervises like Q9's copilot-control-tower, does not participate in the inheritance ladder)."
 
@@ -249,7 +249,7 @@ class = "PRODUCT"
 rationale = "CLASSIFICATION.md #37: Obsidian-native writing studio, heaviest framework install in the scan."
 
 [[repos]]
-path = "COPILOT/copilot-control-tower"
+path = "CSE/copilot-control-tower"
 class = "PRODUCT"
 rationale = "Q9 answer B: reclassified from COMPONENT -- renders/supervises the CLI (invariant #1, 'parse, never compute') but is not one of the four synced framework families and carries no copilot.layers.yml source.path entry. Rubric class C, a consumer."
 
@@ -451,7 +451,7 @@ class = "SCRATCH-ARCHIVE"
 rationale = "CLASSIFICATION.md #71: a test clone of research-copilot pushed to a personal fork, not a project."
 
 [[repos]]
-path = "COPILOT/copilot-control-tower-public"
+path = "CSE/copilot-control-tower-public"
 class = "SCRATCH-ARCHIVE"
 rationale = "Reviewed non-applicable disposition: the owner, Pablo Alejo, deferred all macOS app work to PRD-24/TASK-301 in architecture review WP-838 on 2026-08-13. This app-only repository remains discoverable, but framework and lock conformance must report N/A until that separately governed app track resumes."
 
