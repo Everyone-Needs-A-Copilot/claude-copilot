@@ -85,6 +85,7 @@ from cc.core.conformance.types import (
     Verdict,
 )
 from cc.core.ecosystem.lockfile import LAYER_META_KEY
+from cc.core.ecosystem.mirror import EXTERNALLY_CONSUMED_PRODUCTS
 from cc.core.ecosystem.policy import EXECUTABLE_DIMENSIONS
 from cc.core.ecosystem.resolver import resolve_layers
 
@@ -562,13 +563,23 @@ def check_e4_resolve_attribution_matches_lock(
     executable contributors can remain visible in the shadow chain, but
     they cannot excuse a missing lock record for the signed effective
     winner. Every lock-empty effective winner is therefore an unexpected
-    FAIL (`expected_today=PASS`)."""
+    FAIL (`expected_today=PASS`). Products that are deliberately consumed by
+    their own runtime instead of the generic materialize root are outside this
+    assertion. Knowledge is the exception because its authenticated projection
+    lifecycle explicitly writes real lock pins; CLI is loaded by ``copilot``
+    from its tier packages and therefore never has a generic materialization
+    pin to compare."""
 
     items = resolve_layers(list(layers), dict(contributions), lockfile=dict(lockfile))
     layer_by_id = {layer["id"]: layer for layer in layers}
     results: list[CheckResult] = []
 
     for item in items:
+        if (
+            item["product"] in EXTERNALLY_CONSUMED_PRODUCTS
+            and item["product"] != "knowledge"
+        ):
+            continue
         winning_layer = item["winning_layer"]
         subject = (
             f"{item['product']}/{item['dimension']}/{item['item']} -> {winning_layer}"

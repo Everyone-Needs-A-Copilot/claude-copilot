@@ -357,6 +357,31 @@ class TestE4AttributionMatchesLock:
         assert len(results) == 1
         assert results[0].verdict is Verdict.PASS
 
+    def test_fixture_cli_runtime_overlay_is_not_claimed_as_generic_materialization(self):
+        layers = [
+            {
+                "id": "cli-organization",
+                "role": "organization",
+                "rank": 30,
+                "product": "cli",
+                "source": {"repo": "file:///cli", "path": "/cli"},
+                "auth": "anon",
+                "activation": "always",
+            }
+        ]
+        contributions = {
+            "cli-organization": {"plugins": {"codex-copilot": "sha-cli"}}
+        }
+        lockfile = {
+            "cli-organization": {LAYER_META_KEY: {"product": "cli"}}
+        }
+
+        results = eff.check_e4_resolve_attribution_matches_lock(
+            layers=layers, contributions=contributions, lockfile=lockfile
+        )
+
+        assert results == ()
+
     def test_fixture_fail_winner_lock_entry_is_meta_only(self):
         """The exact live discrepancy this check exists to catch: `cc
         resolve --explain` claims `org` wins, but `org`'s lock entry
@@ -383,17 +408,13 @@ class TestE4AttributionMatchesLock:
 
     @requires_real_machine
     @pytest.mark.machine
-    def test_machine_claude_organization_no_longer_wins_anything(self):
-        """TASK-live-2026-08-11 ground truth (superseded, re-verified
-        2026-08-11): `cc resolve --explain` used to report `winning_layer:
-        claude-organization` for `commands/protocol`, while `~/.claude/cc/
-        copilot.lock.json`'s `claude-organization` entry carried only
-        `_meta`. That specific discrepancy is now closed at the source: the
-        stale, empty `commands/protocol.md` placeholder in
-        `claude-copilot-internal` was deleted (E-3's fix, this same task),
-        so `claude-organization` no longer declares anything and cannot
-        win any item at all -- it simply never appears as a `winning_layer`
-        in E-4's results any more, not because the check stopped looking."""
+    def test_machine_claude_organization_current_winner_is_cco(self):
+        """Current post-migration truth: the retired organization protocol
+        placeholder remains absent, while the substantive organization-owned
+        ``agents/cco`` override legitimately wins. The deterministic fixtures
+        above guard E-4's lock-proof verdict because pytest intentionally
+        isolates the machine lock; this machine assertion only prevents the
+        older, narrower "organization never wins" story from returning."""
 
         from cc.commands import conformance as conformance_cmd
 
@@ -402,10 +423,9 @@ class TestE4AttributionMatchesLock:
         e4_results = [r for r in results if r.id == eff.E4_ATTRIBUTION_MATCHES_LOCK.id]
         assert e4_results, "resolver effectiveness probe produced no E-4 result"
         org_results = [r for r in e4_results if "claude-organization" in r.subject]
-        assert org_results == [], (
-            "claude-organization should not win any item now that its only "
-            "declared content (commands/protocol.md) has been removed"
-        )
+        assert [result.subject for result in org_results] == [
+            "claude/agents/cco -> claude-organization"
+        ]
 
     # NOTE: deliberately NOT a `@pytest.mark.machine` test. `tests/conftest.py`'s
     # autouse `_isolate_machine_config` fixture redirects `CC_MACHINE_ROOT`
