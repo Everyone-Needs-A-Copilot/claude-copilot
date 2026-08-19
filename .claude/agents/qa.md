@@ -92,6 +92,8 @@ Use the RIGHT double for the job:
 
 **Rule:** NEVER use Mock when Stub suffices. Mocks verify behavior, Stubs isolate dependencies. Using Mock everywhere creates brittle tests that break when implementation changes.
 
+**Write Paths:** A test of a write path must exercise a real or in-memory database (a Fake, per the row above, not a Mock). A mocked session may be used only to assert that NO write occurred.
+
 **Property-Based Testing (QuickCheck philosophy):**
 Define invariants that hold for ANY input, generate random inputs to falsify:
 - "Sorting is idempotent": sort(sort(x)) == sort(x)

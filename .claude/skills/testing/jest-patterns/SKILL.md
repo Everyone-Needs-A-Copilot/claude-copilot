@@ -45,6 +45,8 @@ jest_smell.py detects structural test smells deterministically via regex. The pr
 
 ## Patterns vs Anti-Patterns
 
+A mock-call assertion (`.toHaveBeenCalledWith`, `.toHaveBeenCalled`) is a valid substitute for a real assertion only at an OUTBOUND boundary the test owns — an HTTP request the code constructs, an event published to an external system — where the call itself IS the observable. It is never a substitute for observing a write path's actual effect; see "Testing Implementation Details" below and the write-path rule in `qa.md`.
+
 ### Test Structure (AAA)
 
 ```typescript
@@ -61,6 +63,8 @@ describe('UserService', () => {
 
     // Assert
     expect(result.id).toBe('1');
+    // mockRepo stands in for an injected collaborator here, illustrating AAA structure only —
+    // a real createUser write-path test must exercise a real/in-memory DB, not assert on the mock call
     expect(mockRepo.save).toHaveBeenCalledWith(userData);
   });
 });

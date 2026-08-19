@@ -147,8 +147,10 @@ def test_invalid_email():
 
 ### Mocking
 
+A mock-call assertion (`.assert_called_*`) is only a valid substitute for a real assertion at an OUTBOUND boundary the test owns — an HTTP request the code constructs, an event published to an external system — where the call itself IS the observable. It is never a substitute for observing a write path's actual effect; see "Overuse of mocking" below and the write-path rule in `qa.md`.
+
 ```python
-# GOOD: Use pytest-mock fixture
+# GOOD: Outbound HTTP call — the request IS the observable
 def test_api_call(mocker):
     mock_get = mocker.patch("requests.get")
     mock_get.return_value.json.return_value = {"data": "test"}
@@ -164,7 +166,7 @@ def test_with_timeout(mocker):
         result = operation_with_retry()
         assert result is not None
 
-# GOOD: Spy for partial mocking
+# GOOD: Spy on an outbound side effect (logging) — not a stand-in for verifying a persisted write
 def test_logs_error(mocker):
     spy = mocker.spy(logger, "error")
 
@@ -172,7 +174,8 @@ def test_logs_error(mocker):
 
     spy.assert_called_once()
 
-# BAD: Overuse of mocking
+# BAD: Overuse of mocking — note module.db.save mocked on what should be a write-path test;
+# that write should hit a real or in-memory database instead (see qa.md Test Double Taxonomy)
 def test_save_user(mocker):
     mocker.patch("module.validate")
     mocker.patch("module.normalize")
