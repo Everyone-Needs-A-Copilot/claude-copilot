@@ -278,7 +278,42 @@ class TestMockOnlyAssertions:
         assert len(hits) == 1
         assert "updates the record" in hits[0]["function"]
 
-    def test_detects_to_have_been_called_times_only(self):
+    def test_detects_bare_status_code_assertion_alongside_orm_write(self):
+        # E2 (b2): a bare status-code check does not check response BODY —
+        # it does not rescue the test from firing on the ORM-write mock.
+        # This is the shape of the flagship MUST-FIRE case (research-copilot
+        # forces.test.ts "should handle nullable fields").
+        source = (
+            "it('handles nullable fields', async () => {\n"
+            "  const response = await updateForce();\n"
+            "  expect(response.status).toBe(200);\n"
+            "  expect(mockPrisma.force.update).toHaveBeenCalledWith({\n"
+            "    where: { id: 'force-123' },\n"
+            "    data: { themeId: 'theme-123' },\n"
+            "  });\n"
+            "});\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert len(hits) == 1
+
+    def test_detects_mockresolvedvalue_field_readback(self):
+        # E2 (b1): reading a field off the exact object the test itself
+        # supplied to .mockResolvedValue() is a tautological read-back.
+        source = (
+            "it('creates with default status', async () => {\n"
+            "  const fakeRecord = { id: 1, status: 'draft' }\n"
+            "  mockPrisma.thing.create.mockResolvedValue(fakeRecord)\n"
+            "  await createThing()\n"
+            "  expect(fakeRecord.status).toBe('draft')\n"
+            "  expect(mockPrisma.thing.create).toHaveBeenCalledWith({ data: { status: 'draft' } });\n"
+            "});\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert len(hits) == 1
+
+    def test_no_false_positive_generic_mock_call_count(self):
+        # E1: a generic, non-ORM mock (no db/prisma/repo shape) does not
+        # count toward firing at all — same policy as a real assertion.
         source = (
             "it('calls once', () => {\n"
             "  doThing();\n"
@@ -286,17 +321,43 @@ class TestMockOnlyAssertions:
             "});\n"
         )
         hits = findings_with_smell(source, "SMELL-08")
-        assert len(hits) == 1
+        assert hits == []
 
-    def test_detects_to_have_been_nth_called_with(self):
+    def test_no_false_positive_on_callback_prop(self):
+        # E1: React callback-prop verification is a legitimate observable,
+        # not a hidden write — must not fire.
         source = (
-            "it('calls in order', () => {\n"
-            "  doThing();\n"
-            "  expect(mockFn).toHaveBeenNthCalledWith(1, 'a');\n"
+            "it('calls onClick handler', () => {\n"
+            "  fireEvent.click(button);\n"
+            "  expect(onClick).toHaveBeenCalledTimes(1);\n"
             "});\n"
         )
         hits = findings_with_smell(source, "SMELL-08")
-        assert len(hits) == 1
+        assert hits == []
+
+    def test_no_false_positive_on_outbound_http_client_mock(self):
+        # E1: an outbound HTTP client mock is a legitimate, owned boundary
+        # (the call itself is the observable), not an ORM/DB write.
+        source = (
+            "it('posts the payload', async () => {\n"
+            "  await client.send();\n"
+            "  expect(mockHttpClient.post).toHaveBeenCalledWith('/x', { a: 1 });\n"
+            "});\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert hits == []
+
+    def test_no_false_positive_on_read_only_orm_call(self):
+        # E1: a read verb (findMany) is not a write path — this rule is
+        # scoped to writes, not reads.
+        source = (
+            "it('lists things', async () => {\n"
+            "  await listThings();\n"
+            "  expect(mockPrisma.thing.findMany).toHaveBeenCalledWith({});\n"
+            "});\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert hits == []
 
     def test_no_false_positive_when_all_mock_assertions_negative(self):
         # .not.toHaveBeenCalled() alone is legitimate — it's the only
@@ -310,13 +371,28 @@ class TestMockOnlyAssertions:
         hits = findings_with_smell(source, "SMELL-08")
         assert hits == []
 
-    def test_no_false_positive_with_real_assertion_alongside_mock(self):
-        # A mock-call assertion alongside a real assertion is fine.
+    def test_no_false_positive_with_real_body_assertion_alongside_orm_mock(self):
+        # A genuine assertion on returned data (not a bare status code, not
+        # a tautological read-back) alongside an ORM-write mock is fine.
         source = (
-            "it('returns 200 and updates', async () => {\n"
+            "it('returns the computed total and updates', async () => {\n"
             "  const response = await updateThing();\n"
-            "  expect(response.status).toBe(200);\n"
+            "  expect(response.data.total).toBe(computeExpectedTotal());\n"
             "  expect(mockPrisma.thing.update).toHaveBeenCalledWith({ id: 1 });\n"
+            "});\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert hits == []
+
+    def test_no_false_positive_when_orm_positive_alongside_other_mock_positive(self):
+        # E1: a positive non-ORM mock verification (e.g. an event
+        # publisher) is a legitimate observable in its own right — it
+        # blocks firing exactly like a real assertion would.
+        source = (
+            "it('updates and publishes an event', async () => {\n"
+            "  await updateThing();\n"
+            "  expect(mockPrisma.thing.update).toHaveBeenCalledWith({ id: 1 });\n"
+            "  expect(mockEventBus.publish).toHaveBeenCalledWith('thing.updated');\n"
             "});\n"
         )
         hits = findings_with_smell(source, "SMELL-08")
@@ -327,12 +403,13 @@ class TestMockOnlyAssertions:
         hits = findings_with_smell(source, "SMELL-08")
         assert hits == []
 
-    def test_mixed_positive_and_negative_mock_assertions_still_fires(self):
-        # Every assertion is mock-call, and at least one is positive.
+    def test_mixed_positive_and_negative_orm_mock_assertions_still_fires(self):
+        # Every assertion is an ORM-write mock-call, and at least one is
+        # positive.
         source = (
-            "it('reads and does not write', () => {\n"
+            "it('updates but does not delete', () => {\n"
             "  doThing();\n"
-            "  expect(mockPrisma.thing.findMany).toHaveBeenCalledWith({});\n"
+            "  expect(mockPrisma.thing.update).toHaveBeenCalledWith({});\n"
             "  expect(mockPrisma.thing.delete).not.toHaveBeenCalled();\n"
             "});\n"
         )
@@ -343,7 +420,7 @@ class TestMockOnlyAssertions:
         source = (
             "it('updates', () => {\n"
             "  doThing();\n"
-            "  expect(mockFn).toHaveBeenCalled();\n"
+            "  expect(mockPrisma.thing.update).toHaveBeenCalled();\n"
             "});\n"
         )
         hits = findings_with_smell(source, "SMELL-08")

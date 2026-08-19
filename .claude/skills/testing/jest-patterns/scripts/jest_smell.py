@@ -67,35 +67,88 @@ Smell rules (each cites authoritative source):
                                (Source: Jest docs migration guide — done
                                callbacks are a "common source of flaky tests")
 
-  SMELL-08  mock_only_assertions — every expect(...) in the test is a
-                               mock call-verification (`toHaveBeenCalled*`,
-                               `toBeCalled*`, `toHaveBeenNthCalledWith`,
-                               `toHaveBeenLastCalledWith`) and at least one
-                               is positive. A test with no assertion on a
-                               real value, return, thrown error, or
-                               observable state passes regardless of
-                               whether the code under test actually works.
-                               Does NOT fire when every mock assertion is
-                               negative (`.not.toHaveBeenCalled*` — proving
-                               "no write occurred" is legitimate) or when a
-                               real assertion is also present.
+  SMELL-08  mock_only_assertions — every expect(...) in the test block is
+                               EITHER (a) a positive mock-call verification
+                               on a mocked ORM/DB CLIENT (`mockPrisma.*`,
+                               `prisma.*`, a mocked repository/db module),
+                               asserted via `toHaveBeenCalled*` on a write
+                               verb (`create`, `update`, `delete`, `upsert`,
+                               `createMany`, `updateMany`, `deleteMany`,
+                               `transaction`, `save`), OR (b) a tautological
+                               assertion (see below) — with at least one
+                               (a). Under this bar the test proves nothing
+                               about whether the write path actually
+                               persisted correct data.
+
+                               Scope (v2 — narrowed from v1's "any mock"):
+                               a mock-call verification only counts toward
+                               (a) when the asserted RECEIVER looks like an
+                               ORM/DB client — root identifier matching
+                               `(mock)?(prisma|db|database|repo(sitory)?|
+                               orm)...` AND the asserted method a write
+                               verb from the list above. A mocked HTTP
+                               client, logger, event emitter, or React
+                               callback prop (`expect(onClick).
+                               toHaveBeenCalledTimes(1)`) has neither signal
+                               and does NOT count toward (a) — if positive
+                               and present, it blocks firing the same as a
+                               real assertion (see MUST-NOT-FIRE cases in
+                               test_jest_smell.py).
+
+                               (b) tautological assertion, two narrow forms:
+                               (b1) asserting on a field of an object that
+                               was passed, by the same test, as the
+                               argument to `.mockResolvedValue(...)` on any
+                               mock — e.g. `const fake = {...}; x.
+                               mockResolvedValue(fake); ...
+                               expect(fake.field).toBe('literal')` reads
+                               back exactly what the test supplied.
+                               (b2) a bare HTTP status-code assertion —
+                               `expect(response.status).toBe(200)` or
+                               `.statusCode` — with no assertion on the
+                               response BODY. Documented as a distinct,
+                               narrower heuristic than (b1): NOT dataflow-
+                               traced back to a literal the test supplied,
+                               justified instead because a 2xx/3xx/4xx/5xx
+                               status check alone, when the entire
+                               persistence layer is mocked to always
+                               succeed, proves the handler didn't throw —
+                               nothing about whether it wrote the right
+                               data. Tautological assertions are NON-
+                               REDEEMING: they do not block firing.
+
+                               Does NOT fire when every ORM-mock assertion
+                               present is negative (`.not.toHaveBeenCalled*`
+                               — proving "no write occurred" is legitimate),
+                               because that means zero positive (a)
+                               assertions exist at all.
                                (Source: qa.md "NEVER use Mock when Stub
                                suffices"; xUnit Patterns "Interaction
                                Testing" — verifying calls instead of
                                outcomes)
-                               KNOWN LIMITATION: cannot structurally
-                               distinguish a mock standing in for a
-                               genuinely-owned outbound boundary (e.g. a
-                               CLI asserting the HTTP request it built,
-                               where the call IS the observable) from a
-                               mock standing in for a write path the test
-                               never observes. Also cannot detect a
-                               "tautological" real assertion — one that
-                               reads back a value the test itself supplied
-                               as a literal — since that requires dataflow
-                               tracing this detector does not do. Under-
-                               fires on both; treat findings as a lower
-                               bound, not a complete list.
+
+                               KNOWN LIMITATIONS (documented, not fabricated
+                               coverage):
+                               - ORM-role detection is name/verb regex, not
+                                 type-aware: a DB client mock reached
+                                 through an unconventionally-named variable
+                                 (no prisma/db/repo token) is missed
+                                 (under-fires — safe direction).
+                               - Tautology (b1) only recognizes a container
+                                 var passed DIRECTLY as the sole argument to
+                                 `.mockResolvedValue(...)` within the SAME
+                                 block — no cross-block, cross-file, or
+                                 multi-hop dataflow tracing (e.g. through an
+                                 intermediate variable reassignment).
+                               - Tautology (b2) is a blunt regex on the
+                                 `expect()` chain text (stdlib-only, no
+                                 parser); a status check wrapped in extra
+                                 whitespace/parens beyond what the regex
+                                 tolerates is treated as real (safe
+                                 direction, under-fires).
+                               Under-fires in the above cases; treat
+                               findings as a lower bound, not a complete
+                               list.
 """
 
 import argparse
@@ -141,7 +194,7 @@ SMELL_META = {
     "SMELL-08": (
         "mock_only_assertions",
         SEV_WARN,
-        "All expect() calls are mock-call verifications — test can pass regardless of real behavior",
+        "All expect() calls are ORM/DB-mock call verifications and/or tautological reads — test can pass regardless of real behavior",
     ),
 }
 
@@ -187,6 +240,51 @@ RE_MOCK_MATCHER = re.compile(
     r"toHaveBeenLastCalledWith)\b"
 )
 
+# ---------------------------------------------------------------------------
+# SMELL-08 v2: ORM/DB-client mock scoping (E1) + tautology detection (E2)
+# ---------------------------------------------------------------------------
+# Write verbs that, on an ORM/DB client, represent a persistence mutation.
+ORM_WRITE_VERBS = {
+    "create",
+    "update",
+    "delete",
+    "upsert",
+    "createMany",
+    "updateMany",
+    "deleteMany",
+    "transaction",
+    "save",
+}
+
+# Root identifier of the asserted receiver must look like an ORM/DB client —
+# e.g. mockPrisma, prisma, db, mockDb, database, repo, repository, orm.
+# Deliberately does NOT match generic mocks (mockClient, mockFetch,
+# mockAxios, mockLogger, mockEmitter, onClick, ...).
+RE_ORM_ROOT = re.compile(r"(?i)^(mock)?(prisma|database|db|repository|repo|orm)\w*$")
+
+# Extract the root identifier (first dotted segment) and the verb (last
+# dotted segment, stripped of any trailing call parens) of the expression
+# passed to expect(...), e.g. "mockPrisma.force.update" -> root="mockPrisma",
+# verb="update".
+RE_RECEIVER_ROOT = re.compile(r"^\s*([A-Za-z_$][\w$]*)")
+RE_RECEIVER_VERB = re.compile(r"([A-Za-z_$][\w$]*)\s*$")
+
+# (b1) tautology: a variable passed as the sole argument to
+# `<mock>.mockResolvedValue(<name>)` — that name is a test-only container;
+# reading one of its fields back and comparing to a literal is a read-back
+# of a value the test itself supplied.
+RE_MOCK_RESOLVED_VALUE_VAR = re.compile(
+    r"\.mockResolvedValue\s*\(\s*([A-Za-z_$][\w$]*)\s*\)"
+)
+
+# (b2) tautology: a bare HTTP status-code assertion with nothing else in the
+# chain — expect(<expr>.status).toBe(<3-digit literal>) or `.statusCode`.
+# Regex-only (stdlib, no parser); tolerates `.not.` and toEqual/toBe.
+RE_STATUS_ONLY_CHAIN = re.compile(
+    r"^expect\s*\(\s*[\w.$]+\.(status|statusCode)\s*\)"
+    r"\s*\.(not\.)?(toBe|toEqual|toStrictEqual)\s*\(\s*\d{3}\s*\)\s*;?\s*$"
+)
+
 
 # ---------------------------------------------------------------------------
 # Per-file analysis
@@ -227,11 +325,14 @@ def extract_test_blocks(source: str) -> list[tuple[int, str]]:
     return blocks
 
 
-def _extract_expect_chains(block: str) -> list[str]:
+def _extract_expect_chains(block: str) -> list[tuple[str, str]]:
     """
-    Return the textual chain for each top-level `expect(...)` statement in a
-    block: `expect(x).matcher(...)`, including any `.not.`/`.resolves.`/
-    `.rejects.` modifiers, up to (but not including) the next `expect(` call.
+    Return (receiver_text, full_chain_text) for each top-level
+    `expect(...)` statement in a block. `receiver_text` is the argument
+    passed to `expect(...)` (e.g. `mockPrisma.force.update`);
+    `full_chain_text` is `expect(x).matcher(...)`, including any
+    `.not.`/`.resolves.`/`.rejects.` modifiers, up to (but not including)
+    the next `expect(` call.
 
     Crude but stdlib-only, consistent with extract_test_blocks() above:
     false negatives (missed chains) are acceptable, false positives are not.
@@ -252,38 +353,97 @@ def _extract_expect_chains(block: str) -> list[str]:
         else:
             # Unbalanced parens (truncated block) — skip this occurrence.
             continue
+        receiver = block[open_paren + 1 : j]
         next_expect = block.find("expect(", j)
         boundary = next_expect if next_expect != -1 else len(block)
-        chains.append(block[m.start() : j + 1] + block[j + 1 : boundary])
+        full_chain = block[m.start() : j + 1] + block[j + 1 : boundary]
+        chains.append((receiver.strip(), full_chain))
     return chains
 
 
-def _classify_expect_chains(block: str) -> tuple[int, int, int]:
+def _is_orm_write_mock_chain(receiver: str) -> bool:
     """
-    Classify every expect(...) assertion chain in a test block.
-    Returns (real_count, mock_positive_count, mock_negative_count).
-
-    "Real" = an expect() chain whose matcher is not one of the mock
-    call-verification matchers (RE_MOCK_MATCHER) — e.g. toBe, toEqual,
-    toThrow, toHaveLength. Classified as real to avoid false positives.
-
-    "Mock" = an expect() chain whose matcher is a mock call-verification
-    matcher, split into positive/negative by the presence of `.not.`.
+    SMELL-08 (E1): True if `receiver` (the expression passed to expect())
+    looks like an ORM/DB client write call — e.g. `mockPrisma.force.update`,
+    `prisma.user.create`, `db.transaction`, `userRepository.save`. Requires
+    BOTH the trailing verb to be a write verb (ORM_WRITE_VERBS) AND the
+    leading identifier to look like an ORM/DB client (RE_ORM_ROOT) — this
+    dual requirement is what keeps a mocked HTTP client, logger, event
+    emitter, or React callback prop out of scope.
     """
-    real = 0
-    mock_pos = 0
-    mock_neg = 0
-    for chain in _extract_expect_chains(block):
+    root_m = RE_RECEIVER_ROOT.match(receiver)
+    verb_m = RE_RECEIVER_VERB.search(receiver)
+    root = root_m.group(1) if root_m else None
+    verb = verb_m.group(1) if verb_m else None
+    if verb not in ORM_WRITE_VERBS:
+        return False
+    return bool(root and RE_ORM_ROOT.match(root))
+
+
+# (b1) tautology: expect(<containerVar>.<field...>).matcher(<literal>) where
+# <containerVar> was passed as the sole argument to `.mockResolvedValue(...)`
+# earlier in the same block.
+RE_CONTAINER_FIELD_LITERAL = re.compile(
+    r"^expect\s*\(\s*([A-Za-z_$][\w$]*)((?:\.[A-Za-z_$][\w$]*)+)\s*\)"
+    r"\s*\.(not\.)?(toBe|toEqual|toStrictEqual)\s*\("
+    r"\s*(['\"].*?['\"]|-?\d+(?:\.\d+)?|true|false|null|undefined)\s*\)\s*;?\s*$",
+    re.DOTALL,
+)
+
+
+def _is_tautological_chain(chain: str, container_vars: set[str]) -> bool:
+    """
+    SMELL-08 (E2): a NON-REDEEMING (tautological) expect() chain, two
+    narrow forms — see module docstring for the full justification and
+    documented limitations of each:
+
+    (b1) reads a field off a variable the same test passed directly to
+    `.mockResolvedValue(...)`, compared to a literal.
+
+    (b2) a bare HTTP status-code assertion (`.status`/`.statusCode`
+    compared to a 3-digit literal) with nothing else checked in the chain.
+    """
+    stripped = chain.strip()
+    if RE_STATUS_ONLY_CHAIN.match(stripped):
+        return True
+    m = RE_CONTAINER_FIELD_LITERAL.match(stripped)
+    if m and m.group(1) in container_vars:
+        return True
+    return False
+
+
+def _classify_expect_chains(block: str) -> dict[str, int]:
+    """
+    Classify every expect(...) assertion chain in a test block into six
+    buckets — see _classify_assertions() in pytest_smell.py for the
+    parallel Python design; buckets have identical semantics here:
+      real, tautological, orm_pos, orm_neg, other_mock_pos, other_mock_neg
+    """
+    counts = {
+        "real": 0,
+        "tautological": 0,
+        "orm_pos": 0,
+        "orm_neg": 0,
+        "other_mock_pos": 0,
+        "other_mock_neg": 0,
+    }
+    container_vars = set(RE_MOCK_RESOLVED_VALUE_VAR.findall(block))
+
+    for receiver, chain in _extract_expect_chains(block):
         matches = list(RE_MOCK_MATCHER.finditer(chain))
-        if not matches:
-            real += 1
+        if matches:
+            # Positive if any matcher occurrence in the chain lacks `.not.`.
+            is_positive = any(m.group(1) is None for m in matches)
+            if _is_orm_write_mock_chain(receiver):
+                counts["orm_pos" if is_positive else "orm_neg"] += 1
+            else:
+                counts["other_mock_pos" if is_positive else "other_mock_neg"] += 1
             continue
-        # Positive if any matcher occurrence in the chain lacks `.not.`.
-        if any(m.group(1) is None for m in matches):
-            mock_pos += 1
+        if _is_tautological_chain(chain, container_vars):
+            counts["tautological"] += 1
         else:
-            mock_neg += 1
-    return real, mock_pos, mock_neg
+            counts["real"] += 1
+    return counts
 
 
 def analyze_source(source: str, filename: str = "<input>") -> list[dict]:
@@ -386,17 +546,19 @@ def analyze_source(source: str, filename: str = "<input>") -> list[dict]:
                 )
             )
 
-        # SMELL-08: every expect() is a mock-call verification
-        real, mock_pos, _mock_neg = _classify_expect_chains(block)
-        if real == 0 and mock_pos > 0:
+        # SMELL-08: every expect() is a positive ORM/DB-write mock-call
+        # verification and/or tautological (E1 + E2 — see module docstring)
+        counts = _classify_expect_chains(block)
+        if counts["real"] == 0 and counts["other_mock_pos"] == 0 and counts["orm_pos"] > 0:
             findings.append(
                 _make_finding(
                     "SMELL-08",
                     filename,
                     start_line,
                     func_name,
-                    f"Test '{func_name}' asserts only on mock calls — it can pass "
-                    "regardless of whether the code under test actually works",
+                    f"Test '{func_name}' only verifies an ORM/DB-write mock call "
+                    "and/or a tautological read-back — it can pass regardless of "
+                    "whether the write actually persisted",
                 )
             )
 
