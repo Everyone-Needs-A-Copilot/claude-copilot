@@ -66,6 +66,36 @@ Smell rules (each cites authoritative source):
                                async/await is the modern replacement.
                                (Source: Jest docs migration guide — done
                                callbacks are a "common source of flaky tests")
+
+  SMELL-08  mock_only_assertions — every expect(...) in the test is a
+                               mock call-verification (`toHaveBeenCalled*`,
+                               `toBeCalled*`, `toHaveBeenNthCalledWith`,
+                               `toHaveBeenLastCalledWith`) and at least one
+                               is positive. A test with no assertion on a
+                               real value, return, thrown error, or
+                               observable state passes regardless of
+                               whether the code under test actually works.
+                               Does NOT fire when every mock assertion is
+                               negative (`.not.toHaveBeenCalled*` — proving
+                               "no write occurred" is legitimate) or when a
+                               real assertion is also present.
+                               (Source: qa.md "NEVER use Mock when Stub
+                               suffices"; xUnit Patterns "Interaction
+                               Testing" — verifying calls instead of
+                               outcomes)
+                               KNOWN LIMITATION: cannot structurally
+                               distinguish a mock standing in for a
+                               genuinely-owned outbound boundary (e.g. a
+                               CLI asserting the HTTP request it built,
+                               where the call IS the observable) from a
+                               mock standing in for a write path the test
+                               never observes. Also cannot detect a
+                               "tautological" real assertion — one that
+                               reads back a value the test itself supplied
+                               as a literal — since that requires dataflow
+                               tracing this detector does not do. Under-
+                               fires on both; treat findings as a lower
+                               bound, not a complete list.
 """
 
 import argparse
@@ -108,6 +138,11 @@ SMELL_META = {
         SEV_WARN,
         "done callback pattern — use async/await instead",
     ),
+    "SMELL-08": (
+        "mock_only_assertions",
+        SEV_WARN,
+        "All expect() calls are mock-call verifications — test can pass regardless of real behavior",
+    ),
 }
 
 VALID_EXTENSIONS = {".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs"}
@@ -144,6 +179,13 @@ RE_AWAIT = re.compile(r"\bawait\b")
 
 # expect( call
 RE_EXPECT = re.compile(r"\bexpect\s*\(")
+
+# Mock call-verification matchers (jest + jest-extended aliases).
+# Group 1 captures an optional immediately-preceding `not.` negation.
+RE_MOCK_MATCHER = re.compile(
+    r"\.(not\.)?(toHaveBeenCalled\w*|toBeCalled\w*|toHaveBeenNthCalledWith|"
+    r"toHaveBeenLastCalledWith)\b"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -183,6 +225,65 @@ def extract_test_blocks(source: str) -> list[tuple[int, str]]:
             i += 1
 
     return blocks
+
+
+def _extract_expect_chains(block: str) -> list[str]:
+    """
+    Return the textual chain for each top-level `expect(...)` statement in a
+    block: `expect(x).matcher(...)`, including any `.not.`/`.resolves.`/
+    `.rejects.` modifiers, up to (but not including) the next `expect(` call.
+
+    Crude but stdlib-only, consistent with extract_test_blocks() above:
+    false negatives (missed chains) are acceptable, false positives are not.
+    """
+    chains = []
+    for m in re.finditer(r"\bexpect\s*\(", block):
+        open_paren = m.end() - 1
+        depth = 0
+        j = open_paren
+        while j < len(block):
+            if block[j] == "(":
+                depth += 1
+            elif block[j] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        else:
+            # Unbalanced parens (truncated block) — skip this occurrence.
+            continue
+        next_expect = block.find("expect(", j)
+        boundary = next_expect if next_expect != -1 else len(block)
+        chains.append(block[m.start() : j + 1] + block[j + 1 : boundary])
+    return chains
+
+
+def _classify_expect_chains(block: str) -> tuple[int, int, int]:
+    """
+    Classify every expect(...) assertion chain in a test block.
+    Returns (real_count, mock_positive_count, mock_negative_count).
+
+    "Real" = an expect() chain whose matcher is not one of the mock
+    call-verification matchers (RE_MOCK_MATCHER) — e.g. toBe, toEqual,
+    toThrow, toHaveLength. Classified as real to avoid false positives.
+
+    "Mock" = an expect() chain whose matcher is a mock call-verification
+    matcher, split into positive/negative by the presence of `.not.`.
+    """
+    real = 0
+    mock_pos = 0
+    mock_neg = 0
+    for chain in _extract_expect_chains(block):
+        matches = list(RE_MOCK_MATCHER.finditer(chain))
+        if not matches:
+            real += 1
+            continue
+        # Positive if any matcher occurrence in the chain lacks `.not.`.
+        if any(m.group(1) is None for m in matches):
+            mock_pos += 1
+        else:
+            mock_neg += 1
+    return real, mock_pos, mock_neg
 
 
 def analyze_source(source: str, filename: str = "<input>") -> list[dict]:
@@ -282,6 +383,20 @@ def analyze_source(source: str, filename: str = "<input>") -> list[dict]:
                     start_line,
                     func_name,
                     f"Test '{func_name}' uses done callback — rewrite with async/await",
+                )
+            )
+
+        # SMELL-08: every expect() is a mock-call verification
+        real, mock_pos, _mock_neg = _classify_expect_chains(block)
+        if real == 0 and mock_pos > 0:
+            findings.append(
+                _make_finding(
+                    "SMELL-08",
+                    filename,
+                    start_line,
+                    func_name,
+                    f"Test '{func_name}' asserts only on mock calls — it can pass "
+                    "regardless of whether the code under test actually works",
                 )
             )
 
@@ -437,7 +552,7 @@ def main() -> None:
             "Smells detected: test_only (SMELL-01), test_skip (SMELL-02), "
             "no_expect (SMELL-03), async_no_await (SMELL-04), "
             "setTimeout_zero (SMELL-05), console_log (SMELL-06), "
-            "done_callback (SMELL-07)."
+            "done_callback (SMELL-07), mock_only_assertions (SMELL-08)."
         ),
     )
     parser.add_argument(

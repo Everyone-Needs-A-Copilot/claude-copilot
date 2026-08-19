@@ -417,6 +417,7 @@ After reviewing or writing test files, run the smell detector to get a structure
 | SMELL-05 | empty_test | ERROR | Body is only `pass` or a docstring |
 | SMELL-06 | sleep_in_test | WARN | `time.sleep()` call inside a test |
 | SMELL-07 | print_in_test | WARN | `print()` call inside a test |
+| SMELL-08 | mock_only_assertions | WARN | Every assertion is a mock-call verification (`.assert_called*`, `.assert_awaited*`) with ≥1 positive — test passes regardless of real behavior. Does not fire when all mock assertions are negative or a real assertion is also present. Known limitation: cannot structurally distinguish a legitimate outbound-boundary mock (e.g. CLI asserting the HTTP request it built) from one hiding an unobserved write — advisory only, review findings by hand |
 
 **Run via Bash (single file):**
 ```bash

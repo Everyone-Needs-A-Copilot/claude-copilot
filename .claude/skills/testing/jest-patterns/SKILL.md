@@ -386,6 +386,7 @@ After reviewing or writing Jest test files, run the smell detector to get a stru
 | SMELL-05 | setTimeout_zero | WARN | `setTimeout(fn, 0)` in test — use `jest.useFakeTimers()` |
 | SMELL-06 | console_log | WARN | `console.log()` left in test — pollutes CI output |
 | SMELL-07 | done_callback | WARN | `done` callback pattern — rewrite with async/await |
+| SMELL-08 | mock_only_assertions | WARN | Every `expect()` is a mock-call verification (`toHaveBeenCalled*`, `toHaveBeenNthCalledWith`, `toHaveBeenLastCalledWith`) with ≥1 positive — test passes regardless of real behavior. Does not fire when all mock assertions are `.not.` negated or a real assertion is also present. Known limitation: cannot structurally distinguish a legitimate outbound-boundary mock (e.g. CLI asserting the HTTP request it built) or a UI callback-prop verification (e.g. `expect(onClick).toHaveBeenCalled()`) from one hiding an unobserved write — advisory only, review findings by hand |
 
 **Run via Bash (single file):**
 ```bash

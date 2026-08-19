@@ -256,6 +256,120 @@ class TestPrintInTest:
 
 
 # ---------------------------------------------------------------------------
+# SMELL-08: mock_only_assertions
+# ---------------------------------------------------------------------------
+
+
+class TestMockOnlyAssertions:
+    def test_detects_sync_mock_only(self):
+        source = (
+            "from unittest.mock import Mock\n"
+            "def test_foo():\n"
+            "    db = Mock()\n"
+            "    db.flush()\n"
+            "    db.flush.assert_called_once()\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert len(hits) == 1
+        assert hits[0]["function"] == "test_foo"
+
+    def test_detects_async_mock_only(self):
+        source = (
+            "from unittest.mock import AsyncMock\n"
+            "async def test_foo():\n"
+            "    db = AsyncMock()\n"
+            "    await db.flush()\n"
+            "    db.flush.assert_awaited_once()\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert len(hits) == 1
+
+    def test_detects_assert_has_calls(self):
+        source = (
+            "def test_foo():\n"
+            "    db = Mock()\n"
+            "    db.flush.assert_has_calls([call(1), call(2)])\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert len(hits) == 1
+
+    def test_no_false_positive_when_all_mock_assertions_negative(self):
+        # assert_not_called / assert_not_awaited alone is legitimate — it's
+        # the only observable for "no write occurred" on a deny path.
+        source = (
+            "def test_foo():\n"
+            "    db = Mock()\n"
+            "    create_requests = Mock()\n"
+            "    create_requests.assert_not_called()\n"
+            "    db.commit.assert_not_called()\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert hits == []
+
+    def test_no_false_positive_with_real_assertion_alongside_mock(self):
+        # A mock-call assertion alongside a real assertion is fine.
+        source = (
+            "def test_foo():\n"
+            "    db = Mock()\n"
+            "    result = 5\n"
+            "    assert result == 5\n"
+            "    db.flush.assert_called_once()\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert hits == []
+
+    def test_no_false_positive_with_pytest_raises_alongside_mock(self):
+        source = (
+            "import pytest\n"
+            "def test_foo():\n"
+            "    db = Mock()\n"
+            "    with pytest.raises(ValueError):\n"
+            "        raise ValueError('x')\n"
+            "    db.flush.assert_called_once()\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert hits == []
+
+    def test_no_false_positive_with_unittest_style_assertion(self):
+        # unittest.TestCase-style assertEqual is a real assertion, not a
+        # mock-call verification — must not collide with MOCK_ASSERT_METHODS.
+        source = (
+            "class TestFoo:\n"
+            "    def test_foo(self):\n"
+            "        db = Mock()\n"
+            "        self.assertEqual(1, 1)\n"
+            "        db.flush.assert_called_once()\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert hits == []
+
+    def test_no_false_positive_on_test_with_no_mocks_at_all(self):
+        source = "def test_foo():\n    assert 1 == 1\n"
+        hits = findings_with_smell(source, "SMELL-08")
+        assert hits == []
+
+    def test_mixed_positive_and_negative_mock_assertions_still_fires(self):
+        # Every assertion is mock-call, and at least one is positive.
+        source = (
+            "def test_foo():\n"
+            "    db = Mock()\n"
+            "    db.flush.assert_called_once()\n"
+            "    db.commit.assert_not_called()\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert len(hits) == 1
+
+    def test_severity_is_warn(self):
+        source = (
+            "def test_foo():\n"
+            "    db = Mock()\n"
+            "    db.flush.assert_called_once()\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert hits[0]["severity"] == SEV_WARN
+
+
+# ---------------------------------------------------------------------------
 # Severity levels
 # ---------------------------------------------------------------------------
 

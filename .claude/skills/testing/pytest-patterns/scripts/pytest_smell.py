@@ -53,6 +53,36 @@ Smell rules (each cites the authoritative reason for the threshold):
                                   or logging, not print statements.
                                   (Source: pytest capfd/capsys docs — print
                                   is an anti-pattern that pollutes CI output)
+  SMELL-08  mock_only_assertions — every assertion in the test is a
+                                  Mock/AsyncMock call-verification
+                                  (`.assert_called*`, `.assert_awaited*`,
+                                  `.assert_has_calls`, `.assert_any_call`,
+                                  etc.) and at least one of them is positive.
+                                  A test with no assertion on a real value,
+                                  return, exception, or observable state
+                                  passes regardless of whether the code under
+                                  test actually works. Does NOT fire when
+                                  every mock assertion is negative
+                                  (`assert_not_called`/`assert_not_awaited` —
+                                  proving "no write occurred" is legitimate)
+                                  or when a real assertion is also present.
+                                  (Source: qa.md "NEVER use Mock when Stub
+                                  suffices"; xUnit Patterns "Interaction
+                                  Testing" — verifying calls instead of
+                                  outcomes)
+                                  KNOWN LIMITATION: cannot structurally
+                                  distinguish a mock standing in for a
+                                  genuinely-owned outbound boundary (e.g. a
+                                  CLI asserting the HTTP request it built,
+                                  where the call IS the observable) from a
+                                  mock standing in for a write path the test
+                                  never observes. Also cannot detect a
+                                  "tautological" real assertion — one that
+                                  reads back a value the test itself supplied
+                                  as a literal — since that requires dataflow
+                                  tracing this detector does not do. Under-
+                                  fires on both; treat findings as a lower
+                                  bound, not a complete list.
 """
 
 import argparse
@@ -87,7 +117,38 @@ SMELL_META = {
         SEV_WARN,
         "print() call inside test — pollutes CI output",
     ),
+    "SMELL-08": (
+        "mock_only_assertions",
+        SEV_WARN,
+        "All assertions are mock-call verifications — test can pass regardless of real behavior",
+    ),
 }
+
+# Mock/AsyncMock call-verification methods (unittest.mock).  Named
+# `assert_<verb>` (snake_case) — deliberately does not overlap with
+# unittest.TestCase's camelCase `assertEqual`/`assertTrue`/etc., which are
+# real assertions and must not be classified as mock verifications.
+MOCK_ASSERT_METHODS = {
+    "assert_called",
+    "assert_called_once",
+    "assert_called_with",
+    "assert_called_once_with",
+    "assert_any_call",
+    "assert_has_calls",
+    "assert_not_called",
+    "assert_awaited",
+    "assert_awaited_once",
+    "assert_awaited_with",
+    "assert_awaited_once_with",
+    "assert_any_await",
+    "assert_has_awaits",
+    "assert_not_awaited",
+}
+
+# The subset of MOCK_ASSERT_METHODS that assert an interaction did NOT
+# happen. Proving "no write occurred" (e.g. on an authorization-deny path)
+# has no other observable and is a legitimate test on its own.
+NEGATIVE_MOCK_ASSERT_METHODS = {"assert_not_called", "assert_not_awaited"}
 
 # Threshold for SMELL-04: magic number lower bound.
 # Chosen as the smallest value that is unlikely to be meaningful arithmetic in
@@ -192,6 +253,58 @@ def _has_sleep(func_node: ast.FunctionDef) -> bool:
             if isinstance(fn, ast.Name) and fn.id == "sleep":
                 return True
     return False
+
+
+def _classify_assertions(func_node: ast.FunctionDef) -> tuple[int, int, int]:
+    """
+    Walk every assertion-like statement in a test function and classify it.
+
+    Returns (real_count, mock_positive_count, mock_negative_count).
+
+    "Real" = a plain `assert` statement, `pytest.raises(...)`/`pytest.warns(...)`,
+    or any unittest-style `self.assertXxx(...)` call (or unrecognized
+    `assert_*` method) not in MOCK_ASSERT_METHODS — classified as real to
+    avoid false positives (prefer under-firing over over-firing).
+
+    "Mock" = a call to one of the Mock/AsyncMock verification methods in
+    MOCK_ASSERT_METHODS, split into positive/negative.
+    """
+    real = 0
+    mock_pos = 0
+    mock_neg = 0
+    for node in ast.walk(func_node):
+        if isinstance(node, ast.Assert):
+            real += 1
+            continue
+        if isinstance(node, ast.Call):
+            fn = node.func
+            if not isinstance(fn, ast.Attribute):
+                continue
+            attr = fn.attr
+            if attr in MOCK_ASSERT_METHODS:
+                if attr in NEGATIVE_MOCK_ASSERT_METHODS:
+                    mock_neg += 1
+                else:
+                    mock_pos += 1
+            elif attr in ("raises", "warns"):
+                real += 1
+            elif attr.startswith("assert"):
+                # unittest.TestCase-style assertion (assertEqual, assertTrue,
+                # assertRaises, ...) or an unrecognized assert_* method.
+                real += 1
+    return real, mock_pos, mock_neg
+
+
+def _is_mock_only_assertions(func_node: ast.FunctionDef) -> bool:
+    """
+    SMELL-08: every assertion in the function is a mock-call verification,
+    and at least one of them is positive (not just assert_not_called /
+    assert_not_awaited).
+    """
+    real, mock_pos, _mock_neg = _classify_assertions(func_node)
+    if real > 0:
+        return False
+    return mock_pos > 0
 
 
 def _has_print(func_node: ast.FunctionDef) -> bool:
@@ -347,6 +460,19 @@ def analyze_source(source: str, filename: str = "<input>") -> list[dict]:
                 )
             )
 
+        # SMELL-08: every assertion is a mock-call verification
+        if _is_mock_only_assertions(node):
+            findings.append(
+                _make_finding(
+                    "SMELL-08",
+                    filename,
+                    line,
+                    name,
+                    f"Test '{name}' asserts only on mock calls — it can pass "
+                    "regardless of whether the code under test actually works",
+                )
+            )
+
     return findings
 
 
@@ -477,7 +603,8 @@ def main() -> None:
         epilog=(
             "Smells detected: no_assert (SMELL-01), bare_except (SMELL-02), "
             "test_naming (SMELL-03), magic_number (SMELL-04), empty_test (SMELL-05), "
-            "sleep_in_test (SMELL-06), print_in_test (SMELL-07)."
+            "sleep_in_test (SMELL-06), print_in_test (SMELL-07), "
+            "mock_only_assertions (SMELL-08)."
         ),
     )
     parser.add_argument(

@@ -262,6 +262,95 @@ class TestDoneCallback:
 
 
 # ---------------------------------------------------------------------------
+# SMELL-08: mock_only_assertions
+# ---------------------------------------------------------------------------
+
+
+class TestMockOnlyAssertions:
+    def test_detects_to_have_been_called_with_only(self):
+        source = (
+            "it('updates the record', async () => {\n"
+            "  await updateThing();\n"
+            "  expect(mockPrisma.thing.update).toHaveBeenCalledWith({ id: 1 });\n"
+            "});\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert len(hits) == 1
+        assert "updates the record" in hits[0]["function"]
+
+    def test_detects_to_have_been_called_times_only(self):
+        source = (
+            "it('calls once', () => {\n"
+            "  doThing();\n"
+            "  expect(mockFn).toHaveBeenCalledTimes(1);\n"
+            "});\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert len(hits) == 1
+
+    def test_detects_to_have_been_nth_called_with(self):
+        source = (
+            "it('calls in order', () => {\n"
+            "  doThing();\n"
+            "  expect(mockFn).toHaveBeenNthCalledWith(1, 'a');\n"
+            "});\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert len(hits) == 1
+
+    def test_no_false_positive_when_all_mock_assertions_negative(self):
+        # .not.toHaveBeenCalled() alone is legitimate — it's the only
+        # observable for "no write occurred" on a deny path.
+        source = (
+            "it('does not write on deny', () => {\n"
+            "  denyAction();\n"
+            "  expect(mockPrisma.thing.create).not.toHaveBeenCalled();\n"
+            "});\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert hits == []
+
+    def test_no_false_positive_with_real_assertion_alongside_mock(self):
+        # A mock-call assertion alongside a real assertion is fine.
+        source = (
+            "it('returns 200 and updates', async () => {\n"
+            "  const response = await updateThing();\n"
+            "  expect(response.status).toBe(200);\n"
+            "  expect(mockPrisma.thing.update).toHaveBeenCalledWith({ id: 1 });\n"
+            "});\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert hits == []
+
+    def test_no_false_positive_on_test_with_no_mocks_at_all(self):
+        source = "it('adds numbers', () => {\n" "  expect(1 + 1).toBe(2);\n" "});\n"
+        hits = findings_with_smell(source, "SMELL-08")
+        assert hits == []
+
+    def test_mixed_positive_and_negative_mock_assertions_still_fires(self):
+        # Every assertion is mock-call, and at least one is positive.
+        source = (
+            "it('reads and does not write', () => {\n"
+            "  doThing();\n"
+            "  expect(mockPrisma.thing.findMany).toHaveBeenCalledWith({});\n"
+            "  expect(mockPrisma.thing.delete).not.toHaveBeenCalled();\n"
+            "});\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert len(hits) == 1
+
+    def test_severity_is_warn(self):
+        source = (
+            "it('updates', () => {\n"
+            "  doThing();\n"
+            "  expect(mockFn).toHaveBeenCalled();\n"
+            "});\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert hits[0]["severity"] == SEV_WARN
+
+
+# ---------------------------------------------------------------------------
 # Output structure
 # ---------------------------------------------------------------------------
 
