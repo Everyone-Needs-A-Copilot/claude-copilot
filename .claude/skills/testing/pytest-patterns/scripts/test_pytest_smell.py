@@ -11,8 +11,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 # ---------------------------------------------------------------------------
 # Load module under test
 # ---------------------------------------------------------------------------
@@ -366,6 +364,213 @@ class TestMockOnlyAssertions:
             "    db.flush.assert_called_once()\n"
         )
         hits = findings_with_smell(source, "SMELL-08")
+        assert hits[0]["severity"] == SEV_WARN
+
+    # -----------------------------------------------------------------------
+    # E1: DB-session scoping — a mock-call verification only counts toward
+    # firing when the mock's ROLE is a DB session (session verb or
+    # db/session/sess/conn/connection variable name). A mocked HTTP client,
+    # logger, or event publisher is a legitimate observable in its own right
+    # and must NOT fire — this is the v2 narrowing from v1's "any mock".
+    # These tests fail if someone reverts to v1 "any mock" behavior.
+    # -----------------------------------------------------------------------
+
+    def test_no_false_positive_on_mocked_http_client(self):
+        # E1: an outbound HTTP client mock is a legitimate, owned boundary —
+        # neither its variable name nor "post" is a DB-session signal.
+        source = (
+            "def test_foo():\n"
+            "    http_client = Mock()\n"
+            "    send_notification()\n"
+            "    http_client.post.assert_called_once()\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert hits == []
+
+    def test_no_false_positive_on_mocked_logger(self):
+        # E1: a logger mock is a legitimate observable, not a DB session —
+        # neither "logger" nor "warning" is a session signal.
+        source = (
+            "def test_foo():\n"
+            "    logger = Mock()\n"
+            "    do_thing()\n"
+            "    logger.warning.assert_called_once()\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert hits == []
+
+    def test_no_false_positive_on_mocked_event_publisher(self):
+        # E1: an event publisher mock is a legitimate observable, not a DB
+        # session — neither "publisher" nor "publish" is a session signal.
+        source = (
+            "def test_foo():\n"
+            "    publisher = Mock()\n"
+            "    emit_event()\n"
+            "    publisher.publish.assert_called_once()\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert hits == []
+
+    def test_no_false_positive_when_session_positive_alongside_other_mock_positive(
+        self,
+    ):
+        # E1: a positive non-session mock verification (e.g. an event
+        # publisher) is a legitimate observable in its own right — it
+        # blocks firing exactly like a real assertion would, even when a
+        # positive session-mock verification is also present.
+        source = (
+            "def test_foo():\n"
+            "    db = Mock()\n"
+            "    publisher = Mock()\n"
+            "    db.commit.assert_called_once()\n"
+            "    publisher.publish.assert_called_once()\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert hits == []
+
+    # -----------------------------------------------------------------------
+    # E2: tautological assertions — an assertion that reads back a value the
+    # test itself supplied is NON-REDEEMING: it does not block firing (does
+    # not count as "real"). These tests fail if the v2 tautology detection
+    # is reverted/removed, since the tautological assertion would then be
+    # misclassified as "real" and block SMELL-08 from firing.
+    # -----------------------------------------------------------------------
+
+    def test_detects_tautological_simplenamespace_readback(self):
+        # E2 case (a): reading an attribute off a SimpleNamespace the test
+        # built inline, compared to a literal the test itself supplied, is
+        # tautological — it does not block firing alongside a positive
+        # session-mock verification.
+        source = (
+            "from types import SimpleNamespace\n"
+            "def test_foo():\n"
+            "    db = Mock()\n"
+            "    conversation = SimpleNamespace(capture_notes='Draft notes')\n"
+            "    db.commit.assert_called_once()\n"
+            "    assert conversation.capture_notes == 'Draft notes'\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert len(hits) == 1
+
+    def test_detects_tautological_mock_container_readback(self):
+        # E2 case (a): the same read-back tautology, but the test-only
+        # container is a plain Mock() rather than a SimpleNamespace.
+        source = (
+            "def test_foo():\n"
+            "    db = Mock()\n"
+            "    fake_record = Mock()\n"
+            "    fake_record.status = 'draft'\n"
+            "    db.flush.assert_called_once()\n"
+            "    assert fake_record.status == 'draft'\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert len(hits) == 1
+
+    def test_detects_tautological_roundtrip_identity(self):
+        # E2 case (b): `assert result is conversation` where `result` was
+        # assigned from a call that itself received `conversation` (or an
+        # attribute of it) as an argument — this only proves the test got
+        # back the object it fed in, not that any field was computed
+        # correctly. Non-redeeming — does not block firing.
+        source = (
+            "from types import SimpleNamespace\n"
+            "async def test_foo():\n"
+            "    db = Mock()\n"
+            "    conversation = SimpleNamespace(id=1)\n"
+            "    result = await service.update_conversation(db, conversation.id)\n"
+            "    db.commit.assert_called_once()\n"
+            "    assert result is conversation\n"
+        )
+        hits = findings_with_smell(source, "SMELL-08")
+        assert len(hits) == 1
+
+
+# ---------------------------------------------------------------------------
+# SMELL-09: bare_mock_truthiness
+# ---------------------------------------------------------------------------
+
+
+class TestBareMockTruthiness:
+    def test_detects_bare_called_truthiness(self):
+        source = (
+            "def test_foo():\n"
+            "    mock_db = Mock()\n"
+            "    do_write()\n"
+            "    assert mock_db.commit.called\n"
+        )
+        hits = findings_with_smell(source, "SMELL-09")
+        assert len(hits) == 1
+        assert hits[0]["function"] == "test_foo"
+
+    def test_detects_bare_call_count_truthiness(self):
+        source = (
+            "def test_foo():\n"
+            "    mock_db = Mock()\n"
+            "    do_write()\n"
+            "    assert mock_db.add.call_count\n"
+        )
+        hits = findings_with_smell(source, "SMELL-09")
+        assert len(hits) == 1
+
+    def test_no_false_positive_on_negative_bare_truthiness(self):
+        # `assert not x.called` is the legitimate equivalent of
+        # `.assert_not_called()` — not flagged.
+        source = (
+            "def test_foo():\n"
+            "    mock_db = Mock()\n"
+            "    do_thing()\n"
+            "    assert not mock_db.commit.called\n"
+        )
+        hits = findings_with_smell(source, "SMELL-09")
+        assert hits == []
+
+    def test_no_false_positive_on_call_count_comparison(self):
+        # A real comparison (exact count) is informative, not bare
+        # truthiness — not flagged.
+        source = (
+            "def test_foo():\n"
+            "    mock_db = Mock()\n"
+            "    do_write()\n"
+            "    assert mock_db.commit.call_count == 2\n"
+        )
+        hits = findings_with_smell(source, "SMELL-09")
+        assert hits == []
+
+    def test_no_false_positive_on_assert_called_once(self):
+        source = (
+            "def test_foo():\n"
+            "    mock_db = Mock()\n"
+            "    do_write()\n"
+            "    mock_db.commit.assert_called_once()\n"
+        )
+        hits = findings_with_smell(source, "SMELL-09")
+        assert hits == []
+
+    def test_evades_smell_08_when_alone(self):
+        # Documents the exact evasion QA found: a bare `.called` truthiness
+        # check is classified as "real" by SMELL-08's assertion classifier
+        # (it's not an ast.Compare node), so it blocks SMELL-08 from firing
+        # even though it verifies nothing about call shape. SMELL-09 is
+        # what catches this case; SMELL-08 must not be made to fire here.
+        source = (
+            "def test_foo():\n"
+            "    db = Mock()\n"
+            "    do_write()\n"
+            "    assert db.commit.called\n"
+        )
+        smell_08_hits = findings_with_smell(source, "SMELL-08")
+        smell_09_hits = findings_with_smell(source, "SMELL-09")
+        assert smell_08_hits == []
+        assert len(smell_09_hits) == 1
+
+    def test_severity_is_warn(self):
+        source = (
+            "def test_foo():\n"
+            "    mock_db = Mock()\n"
+            "    do_write()\n"
+            "    assert mock_db.commit.called\n"
+        )
+        hits = findings_with_smell(source, "SMELL-09")
         assert hits[0]["severity"] == SEV_WARN
 
 

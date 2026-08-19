@@ -154,6 +154,53 @@ Smell rules (each cites the authoritative reason for the threshold):
                                   Under-fires in the above cases; treat
                                   findings as a lower bound, not a complete
                                   list.
+  SMELL-09  bare_mock_truthiness — `assert <chain>.called` or
+                                  `assert <chain>.call_count` used as a bare
+                                  (uncompared, non-negated) truthiness
+                                  check on a mock attribute. This is a
+                                  strictly weaker check than
+                                  `.assert_called_once()` /
+                                  `.assert_called_with(...)`: it cannot
+                                  express call shape or exact count (a
+                                  `.call_count` truthiness check passes on
+                                  ANY nonzero count, including an
+                                  accidental double call), and it reads
+                                  exactly like a real assertion in code
+                                  review. Independent of SMELL-08 and does
+                                  not require the mock to be a DB session —
+                                  applies to any mock. Per hand-written
+                                  adversarial testing, this exact bare form
+                                  silently evaded every other smell rule in
+                                  this file, including SMELL-08 (a bare
+                                  `.called`/`.call_count` read is not an
+                                  `ast.Compare` node, so `_classify_
+                                  assertions` counts it as "real" and it
+                                  BLOCKS SMELL-08 from firing on the same
+                                  test). The negative form (`assert not
+                                  x.called`) is NOT flagged — it is the
+                                  legitimate equivalent of
+                                  `.assert_not_called()`, same exemption
+                                  SMELL-08 gives negative mock-call
+                                  verifications.
+
+                                  NOTE: `.called` and `.call_count` DO
+                                  correctly track whether the underlying
+                                  mock was invoked (verified empirically —
+                                  they are real, accurate instrumentation
+                                  provided by unittest.mock, not always-
+                                  true). The defect this rule targets is
+                                  evidentiary weakness (no argument-shape
+                                  or exact-count verification, easy to
+                                  misread as an equivalent of
+                                  `.assert_called_once()`), not that the
+                                  attribute lies about call state.
+
+                                  (Source: unittest.mock docs — `.called`/
+                                  `.call_count` are informational
+                                  attributes, not assertion helpers;
+                                  `assert_called_once()`/
+                                  `assert_called_with()` are the documented
+                                  assertion API)
 """
 
 import argparse
@@ -192,6 +239,11 @@ SMELL_META = {
         "mock_only_assertions",
         SEV_WARN,
         "All assertions are DB-session mock-call verifications and/or tautological reads — test can pass regardless of real behavior",
+    ),
+    "SMELL-09": (
+        "bare_mock_truthiness",
+        SEV_WARN,
+        "Bare `.called`/`.call_count` truthiness check on a mock — weaker than assert_called_once()/assert_called_with()",
     ),
 }
 
@@ -233,10 +285,13 @@ NEGATIVE_MOCK_ASSERT_METHODS = {"assert_not_called", "assert_not_awaited"}
 #   (ii) the mock's own variable name is/contains db/session/sess/conn/
 #        connection as a whole token (covers a bare mock, e.g.
 #        `mock_session.assert_called_once()`, where there is no verb)
-# A mocked HTTP client (`mock_client.post`), logger (`logger.warning`),
-# event publisher (`mock_publish`), or React callback prop (`onClick`) has
-# neither signal and is deliberately NOT scoped in — see MUST-NOT-FIRE cases
-# in test_pytest_smell.py.
+# A mocked HTTP client (`mock_client.post`), logger (`logger.warning`), or
+# event publisher (`mock_publish`) has neither signal and is deliberately
+# NOT scoped in — see the E1 regression tests
+# (test_no_false_positive_on_mocked_http_client,
+# test_no_false_positive_on_mocked_logger,
+# test_no_false_positive_on_mocked_event_publisher) in
+# test_pytest_smell.py's TestMockOnlyAssertions class.
 SESSION_VERBS = {
     "add",
     "add_all",
@@ -661,6 +716,33 @@ def _has_print(func_node: ast.FunctionDef) -> bool:
     return False
 
 
+def _is_bare_mock_truthiness(test_expr: ast.AST) -> bool:
+    """
+    SMELL-09: True if `test_expr` is a bare `<chain>.called` or
+    `<chain>.call_count` attribute access (not wrapped in a Compare, e.g.
+    `== 2`, and not a BoolOp) — see module docstring for full rationale.
+    Deliberately narrow (single Attribute node only) to stay false-positive
+    free: `assert mock.call_count == 3` is a real, informative assertion
+    and is NOT flagged; `assert not mock.called` is the legitimate negative
+    equivalent of `.assert_not_called()` and is NOT flagged (its test node
+    is an ast.UnaryOp, not a bare ast.Attribute).
+    """
+    return isinstance(test_expr, ast.Attribute) and test_expr.attr in (
+        "called",
+        "call_count",
+    )
+
+
+def _has_bare_mock_truthiness_assert(func_node: ast.FunctionDef) -> bool:
+    """Return True if the function contains `assert <chain>.called` or
+    `assert <chain>.call_count` as a bare truthiness check. Independent of
+    SMELL-08's DB-session classification — see _is_bare_mock_truthiness."""
+    for node in ast.walk(func_node):
+        if isinstance(node, ast.Assert) and _is_bare_mock_truthiness(node.test):
+            return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Per-file analysis
 # ---------------------------------------------------------------------------
@@ -820,6 +902,21 @@ def analyze_source(source: str, filename: str = "<input>") -> list[dict]:
                 )
             )
 
+        # SMELL-09: bare .called/.call_count truthiness check on a mock
+        if _has_bare_mock_truthiness_assert(node):
+            findings.append(
+                _make_finding(
+                    "SMELL-09",
+                    filename,
+                    line,
+                    name,
+                    f"Test '{name}' asserts a bare `.called`/`.call_count` "
+                    "truthiness check on a mock — use assert_called_once()/"
+                    "assert_called_with() to verify call shape, not just "
+                    "that a call happened",
+                )
+            )
+
     return findings
 
 
@@ -951,7 +1048,7 @@ def main() -> None:
             "Smells detected: no_assert (SMELL-01), bare_except (SMELL-02), "
             "test_naming (SMELL-03), magic_number (SMELL-04), empty_test (SMELL-05), "
             "sleep_in_test (SMELL-06), print_in_test (SMELL-07), "
-            "mock_only_assertions (SMELL-08)."
+            "mock_only_assertions (SMELL-08), bare_mock_truthiness (SMELL-09)."
         ),
     )
     parser.add_argument(
