@@ -79,3 +79,7 @@ coverage.xml
 # repo and are symlinked in via its bootstrap.sh. These must never be committed.
 .claude/settings.local.json
 /docs/70-reference/ai-ecosystem-*.md
+
+# Personal session state — never publish (public repo)
+.claude/memory/entries/
+.codex/hooks/state/
