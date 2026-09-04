@@ -41,8 +41,15 @@
 # RULE SETS:
 #   1. force-delegate — deny after 5 consecutive same-tool calls (Bash|Read|Edit)
 #      Task: 17 (P4.2).
-#   2. qa-gate — deny all tool calls except Agent(qa) and safe tc Bash calls
-#      while any task is in pending-qa state for this session.
+#   2. qa-gate — deny all tool calls except Agent(qa), Agent(me) (the
+#      remediation dispatch a REJECTED verdict itself demands), Read
+#      (read-only, cannot mark blocked work verified), and safe tc Bash
+#      calls, while any task is in pending-qa state for this session. A
+#      gate that forbids the remediation it demands is unsatisfiable, not
+#      strict — this is the fix for that deadlock, not a loosening of it:
+#      the gate still owns the only door back to "verified" (a qa_passed
+#      event from subagent-stop.sh) and Edit/Write/other-agent dispatch from
+#      the main session remain denied.
 #      Task: 16 (P4.1). Bypass: COPILOT_QA_GATE=off
 #   3. extension-resolution — on a direct @agent-X dispatch (Agent tool,
 #      main session, no /protocol in between), actually run `cc extensions
@@ -554,12 +561,27 @@ rule_qa_gate() {
     echo "[pretool-check] unrecognized agent_type '${AGENT_TYPE}' (not in MANIFEST_AGENTS) — not exempting from qa-gate" >&2
   fi
 
-  # Allow: Agent tool with subagent_type == "qa"
+  # Allow: Read tool. Inspecting files or gate state is read-only and
+  # cannot itself mark blocked work as verified — blocking it only
+  # prevents the main session from diagnosing why the gate is engaged,
+  # which is a workflow defect, not a safety property.
+  if [[ "$TOOL_NAME" == "Read" ]]; then
+    return 0
+  fi
+
+  # Allow: Agent tool with subagent_type == "qa" (verification) or "me"
+  # (remediation). A REJECTED verdict obligates a fix, and the only actor
+  # that can produce one is the implementing agent — denying its dispatch
+  # while the gate demands remediation is an unsatisfiable deadlock, not
+  # enforcement. This does NOT clear pending_tasks or touch retries; @agent-me
+  # still cannot mark its own work verified, only subagent-stop.sh's
+  # qa_passed path (a genuine QA approval carrying an ARTIFACT marker) can
+  # do that. No other agent_type is exempted here.
   if [[ "$TOOL_NAME" == "Agent" ]]; then
     local subagent_type
     subagent_type="$("$JQ" -r '.tool_input.subagent_type // ""' <<< "$PAYLOAD" 2>/dev/null)" \
       || subagent_type=""
-    if [[ "$subagent_type" == "qa" ]]; then
+    if [[ "$subagent_type" == "qa" || "$subagent_type" == "me" ]]; then
       return 0
     fi
     # Warn if subagent_type is not a known manifest agent
