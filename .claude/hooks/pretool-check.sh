@@ -13,6 +13,8 @@
 #   Set COPILOT_FORCE_DELEGATE=off to bypass all force-delegate checks.
 #   Set COPILOT_QA_GATE=off to bypass all QA gate checks.
 #   Set COPILOT_EXTENSIONS_GATE=off to bypass the extension-resolution gate.
+#   Set COPILOT_QA_GATE_MAX_AGE_HOURS=<int> to override the guardrail-D
+#     staleness threshold (default 24). Non-numeric/<=0/unset → default.
 #   Journey dispatch verification has no bypass: an active journey is a
 #   security/evidence boundary, not an optional workflow preference.
 #
@@ -33,10 +35,28 @@
 #   .claude/hooks/state/streak-<session_id>.json
 #   Shape: { "session_id": "...", "lastTool": "Bash", "streak": 3, "updatedAt": "<ISO>" }
 #
-#   .claude/hooks/state/qa-gate.json
+#   .claude/hooks/state/qa-gate.json (written by subagent-stop.sh)
 #   Shape: { "<session_id>": { "pending_tasks": ["TASK-5"], "retries": { "TASK-5": 1 },
+#             "armed_at": { "TASK-5": "<ISO>" }, "last_parse": { "TASK-5": "<note>" },
 #             "history": [{ "taskId": "TASK-5", "event": "me_completed", "ts": "<ISO>" }],
 #             "lastSeen": "<ISO>" } }
+#   "armed_at"/"last_parse" are additive (TASK-129-followup, guardrails D/E)
+#   — read tolerantly below; an old-shape file simply lacks these keys.
+#
+# STALENESS RELEASE (guardrail D — TASK-129-followup, read side):
+#   subagent-stop.sh's own header comment documents the 72h WRITE-side
+#   prune, which only runs when something WRITES to qa-gate.json. A wedged
+#   gate that nobody is writing to (the exact shape of the incident this
+#   guardrail closes: QA's own retry-attribution kept failing to parse, so
+#   retries never advanced and the file was never touched again) never
+#   prunes under that mechanism — it would deny forever. rule_qa_gate()
+#   below adds the missing READ-side check: a pending task whose arming
+#   timestamp is older than COPILOT_QA_GATE_MAX_AGE_HOURS (default 24h)
+#   drops to ADVISORY on every subsequent read — it stops denying and just
+#   warns — without requiring anyone to write to the file first. This is
+#   what actually guarantees no permanent wedge; the 72h prune alone does
+#   not, because prune-on-write and a wedge nobody writes to are mutually
+#   exclusive by construction.
 #
 # RULE SETS:
 #   1. force-delegate — deny after 5 consecutive same-tool calls (Bash|Read|Edit)
@@ -63,6 +83,10 @@
 #      single-use invocation marker and exact Agent/Knowledge prompt digests.
 #      No active journey is an explicit no-op; indeterminate active state
 #      fails closed.
+#      (qa-gate's guardrails D and E — staleness release and the diagnostic
+#      deny message — are implemented inside rule_qa_gate() itself, not as
+#      separate rule sets; see the STALENESS RELEASE note above and
+#      rule_qa_gate()'s own comments.)
 
 set -uEo pipefail
 # -u  : nounset — error on unbound variables
@@ -534,11 +558,173 @@ rule_qa_gate() {
     return 0
   fi
 
+  # ---------------------------------------------------------------------------
+  # GUARDRAIL D: read-side staleness release (TASK-129-followup).
+  #
+  # WHY THIS HAS TO BE HERE, NOT JUST IN THE 72H PRUNE: prune_stale() in
+  # subagent-stop.sh only runs when something WRITES to qa-gate.json. The
+  # incident this closes is exactly a gate that stopped being written to —
+  # QA's own retry-attribution kept failing to parse the header, so retries
+  # never advanced, the file was never touched again, and the gate denied
+  # every tool call indefinitely. A write-side prune cannot rescue a file
+  # nobody writes to; only a check made at READ time (i.e. here, in the
+  # deny path itself) can.
+  #
+  # Effect: for EACH pending task individually, compute its age from
+  # armed_at[tid] (falling back to the session's lastSeen when armed_at is
+  # absent — old-shape state files, or a task armed before this feature
+  # existed, never crash, they just lose per-task precision and fall back
+  # to session-level recency). A task older than the threshold no longer
+  # counts toward "blocking" — it's ADVISORY: it stops denying and just
+  # gets logged. If EVERY pending task is stale, the gate is fully
+  # advisory this call and the tool is allowed through. If at least one
+  # pending task is still fresh, the gate behaves exactly as before for
+  # that (now possibly smaller) set.
+  #
+  # Fail-closed direction on an UNKNOWN age (no armed_at AND no lastSeen —
+  # should not happen in practice, but must not crash): treat as fresh
+  # (still denies), never as stale. An unparseable/missing timestamp must
+  # never silently make a real, active gate advisory — that would be the
+  # opposite failure mode from the one this guardrail exists to fix.
+  # ---------------------------------------------------------------------------
+  local qa_gate_max_age_seconds=86400  # 24h default
+  local qa_gate_max_age_ceiling_hours=8760  # 1 year — see overflow note below
+  if [[ -n "${COPILOT_QA_GATE_MAX_AGE_HOURS:-}" ]] \
+    && [[ "${COPILOT_QA_GATE_MAX_AGE_HOURS}" =~ ^[0-9]+$ ]]; then
+    local _raw_hours="${COPILOT_QA_GATE_MAX_AGE_HOURS}"
+    local _effective_hours=0
+    # OVERFLOW GUARD (TASK-129-followup defect 2): qa_gate_max_age_seconds
+    # is computed as hours * 3600 in 64-bit signed bash arithmetic (max
+    # ~9.22e18). An unbounded override wraps NEGATIVE past ~2.56e15 hours,
+    # and a negative threshold makes `age -ge threshold` true for every
+    # pending task — i.e. it silently releases the ENTIRE QA gate
+    # machine-wide. Reject on DIGIT LENGTH ALONE, before any arithmetic
+    # ever touches the value: a 15-digit number (max ~10^15) is still
+    # comfortably inside 64-bit range for the comparisons below, so
+    # anything longer than that is treated as "obviously over the
+    # ceiling" and clamped without ever being evaluated numerically — a
+    # 20-digit string (or INT64_MAX itself, 19 digits) never reaches a
+    # `-gt` test or the multiply.
+    if [[ "${#_raw_hours}" -gt 15 ]]; then
+      _effective_hours="$qa_gate_max_age_ceiling_hours"
+      echo "[pretool-check] WARN: COPILOT_QA_GATE_MAX_AGE_HOURS=${_raw_hours} is not a safely-representable number of hours (overflow risk) — clamped to ${qa_gate_max_age_ceiling_hours}h ceiling (session: ${SESSION_ID})" >&2
+      printf '[%s] WARN: qa-gate override COPILOT_QA_GATE_MAX_AGE_HOURS=%s rejected as unsafe (overflow risk) before arithmetic, clamped to %sh ceiling for session %s\n' \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" "$_raw_hours" "$qa_gate_max_age_ceiling_hours" "$SESSION_ID" \
+        >> "${STATE_DIR}/qa-gate.log" 2>/dev/null || true
+    elif [[ "$_raw_hours" -gt "$qa_gate_max_age_ceiling_hours" ]]; then
+      _effective_hours="$qa_gate_max_age_ceiling_hours"
+      echo "[pretool-check] WARN: COPILOT_QA_GATE_MAX_AGE_HOURS=${_raw_hours} exceeds ${qa_gate_max_age_ceiling_hours}h ceiling — clamped to ${qa_gate_max_age_ceiling_hours}h (session: ${SESSION_ID})" >&2
+      printf '[%s] WARN: qa-gate override COPILOT_QA_GATE_MAX_AGE_HOURS=%s exceeds %sh ceiling, clamped to %sh ceiling for session %s\n' \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" "$_raw_hours" "$qa_gate_max_age_ceiling_hours" "$qa_gate_max_age_ceiling_hours" "$SESSION_ID" \
+        >> "${STATE_DIR}/qa-gate.log" 2>/dev/null || true
+    elif [[ "$_raw_hours" -gt 0 ]]; then
+      _effective_hours="$_raw_hours"
+    fi
+    # _effective_hours stays 0 (→ default 24h) for a supplied 0 — degrade,
+    # do not clamp-to-ceiling a value that opted for "no override".
+    if [[ "$_effective_hours" -gt 0 ]]; then
+      qa_gate_max_age_seconds=$(( _effective_hours * 3600 ))
+    fi
+  fi
+
+  # Sets global _QA_TASK_AGE_SECONDS. Empty means "unknown" (see fail-closed
+  # note above) — mirrors the read_streak()/_STREAK_* global-output idiom
+  # already used elsewhere in this file rather than relying on a bash
+  # function's numeric return code (which is capped at 0-255 and, per this
+  # file's own ERR-trap semantics, would fire the trap on a bare nonzero
+  # "not found" return outside an if/while/&&/|| guard).
+  _QA_TASK_AGE_SECONDS=""
+  _qa_gate_task_age_seconds() {
+    _QA_TASK_AGE_SECONDS=""
+    local tid="$1" ts epoch now_epoch
+    ts="$("$JQ" -r --arg sid "$SESSION_ID" --arg tid "$tid" \
+      '.[$sid].armed_at[$tid] // .[$sid].lastSeen // ""' "$gate_file" 2>/dev/null)" || ts=""
+    [[ -z "$ts" ]] && return 0
+    # -u is required on the Darwin branch: armed_at/lastSeen are always
+    # written with a literal "Z" (UTC) suffix by now_iso() in
+    # subagent-stop.sh, but `date -j -f` without -u parses the FIELDS as
+    # local time and ignores the "Z" character in the format string as a
+    # literal to match, not a timezone marker — on a non-UTC host that
+    # silently shifts every parsed epoch by the local UTC offset, which
+    # showed up here as a negative age (an "armed" timestamp 2h in the
+    # past being parsed as hours in the FUTURE on an EDT host). GNU date's
+    # -d already parses a trailing "Z" as UTC correctly and needs no flag.
+    if [[ "$(uname)" == "Darwin" ]]; then
+      epoch="$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "${ts}" +%s 2>/dev/null || echo 0)"
+    else
+      epoch="$(date -d "${ts}" +%s 2>/dev/null || echo 0)"
+    fi
+    [[ "$epoch" =~ ^[0-9]+$ ]] && [[ "$epoch" -gt 0 ]] || return 0
+    printf -v now_epoch '%(%s)T' -1
+    _QA_TASK_AGE_SECONDS=$(( now_epoch - epoch ))
+    return 0
+  }
+
+  local fresh_ids=() stale_ids=() _tid _age
+  while IFS= read -r _tid; do
+    [[ -z "$_tid" ]] && continue
+    _qa_gate_task_age_seconds "$_tid"
+    _age="$_QA_TASK_AGE_SECONDS"
+    if [[ -n "$_age" ]] && [[ "$_age" =~ ^[0-9]+$ ]] && [[ "$_age" -ge "$qa_gate_max_age_seconds" ]]; then
+      stale_ids+=("$_tid")
+    else
+      fresh_ids+=("$_tid")
+    fi
+  done < <("$JQ" -r '.[]' <<< "$pending_json" 2>/dev/null)
+
+  if [[ ${#stale_ids[@]} -gt 0 ]]; then
+    local stale_list="${stale_ids[*]}"
+    echo "[pretool-check] QA gate: task(s) ${stale_list} exceeded max age (${qa_gate_max_age_seconds}s / ${COPILOT_QA_GATE_MAX_AGE_HOURS:-24}h) — dropped to ADVISORY, no longer denying (session: ${SESSION_ID})" >&2
+    printf '[%s] WARN: qa-gate advisory (age): task(s) %s exceeded max age (%ss) for session %s — read-side staleness release, gate no longer denies for these tasks\n' \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" "$stale_list" "$qa_gate_max_age_seconds" "$SESSION_ID" \
+      >> "${STATE_DIR}/qa-gate.log" 2>/dev/null || true
+  fi
+
+  if [[ ${#fresh_ids[@]} -eq 0 ]]; then
+    # Every pending task is stale — the gate is fully advisory this call.
+    return 0
+  fi
+
+  # Re-derive pending_json/pending_count from the FRESH set only: everything
+  # below this point (blocking_ids, the diagnostic suffix, and every deny
+  # call) must reflect only the tasks that are still actually blocking.
+  pending_count=${#fresh_ids[@]}
+  pending_json="$(printf '%s\n' "${fresh_ids[@]}" | "$JQ" -R . | "$JQ" -sc . 2>/dev/null)" || pending_json="[]"
+
   # Build a readable list of blocking task IDs
   local blocking_ids
   blocking_ids="$("$JQ" -r 'join(", ")' <<< "$pending_json" 2>/dev/null)" \
     || blocking_ids="unknown"
   blocking_ids="${blocking_ids:-unknown}"
+
+  # ---------------------------------------------------------------------------
+  # GUARDRAIL E: diagnostic deny message (TASK-129-followup).
+  #
+  # The plain deny text ("... require @agent-qa verification ...") says
+  # what to do but never why the gate hasn't already self-healed, which
+  # reads as a bug report waiting to happen on every repeated denial. This
+  # appends a one-line, read-only diagnostic suffix — retry count and the
+  # most recent parse outcome subagent-stop.sh recorded for the PRIMARY
+  # blocking task (fresh_ids[0]; with a single pending task, the overwhelm-
+  # ingly common case, this is exactly the task being denied) — sourced
+  # entirely from qa-gate.json's retries/last_parse fields (guardrail E's
+  # write side lives in subagent-stop.sh; this is read-only here). Missing
+  # fields (old-shape file, or a task that has never failed QA yet) degrade
+  # to neutral defaults rather than crashing or omitting the suffix.
+  # ---------------------------------------------------------------------------
+  local qa_gate_max_retries=3  # mirrors subagent-stop.sh's MAX_RETRIES; not
+                                # sourced from it (separate script, no shared
+                                # include point) — keep the two in sync by hand.
+  local diagnostic_primary_id="${fresh_ids[0]}"
+  local diagnostic_retries diagnostic_last_parse diagnostic_suffix
+  diagnostic_retries="$("$JQ" -r --arg sid "$SESSION_ID" --arg tid "$diagnostic_primary_id" \
+    '.[$sid].retries[$tid] // 0' "$gate_file" 2>/dev/null)" || diagnostic_retries=0
+  [[ "$diagnostic_retries" =~ ^[0-9]+$ ]] || diagnostic_retries=0
+  diagnostic_last_parse="$("$JQ" -r --arg sid "$SESSION_ID" --arg tid "$diagnostic_primary_id" \
+    '.[$sid].last_parse[$tid] // "no QA feedback recorded yet"' "$gate_file" 2>/dev/null)" \
+    || diagnostic_last_parse="no QA feedback recorded yet"
+  [[ -z "$diagnostic_last_parse" ]] && diagnostic_last_parse="no QA feedback recorded yet"
+  diagnostic_suffix=" (retries ${diagnostic_retries}/${qa_gate_max_retries}; last QA verdict: ${diagnostic_last_parse})"
 
   # Once a subagent is running (agent_type non-empty), its own
   # Bash/Read/Edit/Write calls are exempt from the gate. The gate's job is to
@@ -595,10 +781,10 @@ rule_qa_gate() {
     done
     if [[ "$is_known" -eq 0 ]] && [[ -n "$subagent_type" ]]; then
       # Unknown agent — deny with guidance (may be a typo or retired agent)
-      deny "QA gate active: ${blocking_ids} require @agent-qa verification. Unknown agent '${subagent_type}' — use @agent-qa to unblock. Valid agents: ${VALID_AGENT_LIST}."
+      deny "QA gate active: ${blocking_ids} require @agent-qa verification. Unknown agent '${subagent_type}' — use @agent-qa to unblock. Valid agents: ${VALID_AGENT_LIST}.${diagnostic_suffix}"
     fi
     # All other known Agent calls are denied while gate is active
-    deny "QA gate active: ${blocking_ids} require @agent-qa verification before further work. Invoke @agent-qa to unblock."
+    deny "QA gate active: ${blocking_ids} require @agent-qa verification before further work. Invoke @agent-qa to unblock.${diagnostic_suffix}"
   fi
 
   # Allow: Bash with safe tc introspection command
@@ -612,7 +798,7 @@ rule_qa_gate() {
   fi
 
   # Deny everything else
-  deny "QA gate active: ${blocking_ids} require @agent-qa verification before further work. Only @agent-qa invocation and read-only tc commands (tc task get, tc wp get, etc.) are allowed until QA passes."
+  deny "QA gate active: ${blocking_ids} require @agent-qa verification before further work. Only @agent-qa invocation and read-only tc commands (tc task get, tc wp get, etc.) are allowed until QA passes.${diagnostic_suffix}"
 }
 
 # ---------------------------------------------------------------------------
