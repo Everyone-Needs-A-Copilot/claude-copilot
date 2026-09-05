@@ -65,6 +65,15 @@ Keep these instruments separate:
 
 For experience work that does not materially change screens, components, or interface states, `$uid` may be skipped only when the checkpoint states why.
 
+## User-Facing Output
+
+- Lead with what is now true—the answer, decision, result, or blocker—not what was investigated.
+- Include only what the user needs to trust the result, decide, or act. Preserve required findings, uncertainty, citations, QA evidence, safety warnings, blockers, and next actions.
+- Default to at most 6 sentences or 5 bullets; exceed that only when requested or required by risk, complexity, or completeness.
+- Keep progress updates to one sentence: material result plus next active step. Lead completion reports with the outcome, then give only changed scope, verification, and any remaining caveat or action.
+- Omit preambles, generic closers, self-narration, repeated findings, evidence inventories, command traces, and chronology unless requested or necessary.
+- Store detailed analysis and evidence in `tc` work products. Content outranks form; length never removes a required fact, artifact, verdict, identifier, or blocker.
+
 ## Unknowns
 
 Every design-stage lens (`$sd`, `$uxd`, `$uids`, `$ind`, `$ta`) ends with an `unknowns:` line. `unknowns: none` is permitted and is a claim you own; omitting the line is not.
@@ -94,12 +103,7 @@ Checkpoint stages:
 - after `uids`
 - after `ta` when the plan materially shapes implementation
 
-Each checkpoint should summarize:
-
-- what was decided
-- whether any applicable soul or architecture principle changed the direction
-- what happens next
-- what the user can correct before continuing
+Each checkpoint follows `references/checkpoints.md`: outcome first, only real decision-specific options, and no evidence inventory. Include soul, architecture, QA, or next-step context only when it changes the decision.
 
 ## Main-session pattern
 
