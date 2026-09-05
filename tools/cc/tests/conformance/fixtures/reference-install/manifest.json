@@ -14,7 +14,7 @@
     },
     {
       "claim": "codex plugin tree is '62 files per project'",
-      "measured": "61 files under plugins/codex-copilot/ + scripts/copilot-gate.sh outside plugins/ = 62 total locked paths, not 62 files inside plugins/ alone."
+      "measured": "65 files under plugins/codex-copilot/ + scripts/copilot-gate.sh outside plugins/ = 66 total locked paths, not 66 files inside plugins/ alone."
     }
   ],
   "claude": {
@@ -61,9 +61,9 @@
     }
   },
   "codex": {
-    "plugin_file_count": 61,
+    "plugin_file_count": 65,
     "gate_script": "scripts/copilot-gate.sh",
-    "locked_path_count": 62,
+    "locked_path_count": 66,
     "skill_bridge_relative": ".claude/skills/codex-copilot",
     "skill_bridge_target": "../../plugins/codex-copilot/skills",
     "installed_by_claude_setup_project_md": false,

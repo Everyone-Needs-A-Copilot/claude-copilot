@@ -90,7 +90,13 @@ Use `decision`, `context`, `lesson`, `reference`, or `person` as appropriate.
 
 ## Return Format
 
-Keep chat output compact. Store detailed analysis, specs, and verification records as work products when `tc` context exists.
+Lead user-facing output with the answer, decision, result, or blocker. Include only what the user needs to trust it, decide, or act; store detailed analysis, specs, command traces, and verification records as work products when `tc` context exists.
+
+- Default to at most 6 sentences or 5 bullets unless requested depth, risk, complexity, or completeness requires more.
+- Use one-sentence progress updates: material result plus next active step.
+- Lead completion reports with the outcome, then give only changed scope, verification, and any remaining caveat or action.
+- For a real decision, use an outcome headline, 2–3 numbered outcome options, and a question of at most 4 words. With no real decision, do not manufacture options or ask for approval.
+- Never omit a required finding, uncertainty, citation, safety warning, QA artifact/verdict, Task/WP identifier, or blocker to meet a length target.
 
 ## Quality Gates
 

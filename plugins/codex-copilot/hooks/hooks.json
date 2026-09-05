@@ -1,0 +1,55 @@
+{
+  "description": "Codex-native routing, debugging, and subagent context controls.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/bash -c 'root=\"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}\"; [ -n \"$root\" ] && [ -f \"$root/hooks/$1\" ] || exit 0; exec /bin/bash \"$root/hooks/$1\"' _ user-prompt-protocol.sh",
+            "timeout": 3,
+            "additionalContextLimit": 100
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/bash -c 'root=\"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}\"; [ -n \"$root\" ] && [ -f \"$root/hooks/$1\" ] || exit 0; exec /bin/bash \"$root/hooks/$1\"' _ debug-circuit-breaker.sh",
+            "timeout": 3,
+            "additionalContextLimit": 150
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/bash -c 'root=\"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}\"; [ -n \"$root\" ] && [ -f \"$root/hooks/$1\" ] || exit 0; exec /bin/bash \"$root/hooks/$1\"' _ debug-circuit-breaker.sh",
+            "timeout": 3,
+            "additionalContextLimit": 150
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/bash -c 'root=\"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}\"; [ -n \"$root\" ] && [ -f \"$root/hooks/$1\" ] || exit 0; exec /bin/bash \"$root/hooks/$1\"' _ subagent-return-contract.sh",
+            "timeout": 3,
+            "additionalContextLimit": 100
+          }
+        ]
+      }
+    ]
+  }
+}

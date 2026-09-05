@@ -744,7 +744,7 @@ class TestMachineTruth:
         were genuinely empty of dimension content as of 2026-08-10 (an
         honest `dimensions: []`), but a later ecosystem-conformance-
         remediation fan-out materialized a real, tracked
-        `plugins/codex-copilot/` bridge (61 files, byte-matching the
+        `plugins/codex-copilot/` bridge (65 files, byte-matching the
         pinned Codex mirror, `repo.d02.plugin_tree_matches_pinned_mirror`)
         into both -- confirmed live via `git ls-files`, not assumed. Both
         now declare `dimensions: [plugins]`, matching the same content
