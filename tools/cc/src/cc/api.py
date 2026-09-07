@@ -544,9 +544,17 @@ __all__ = [
     "memory_export",
     # skill ops
     "skill_get",
+    "skill_select",
     "skill_search",
     # docs ops
     "docs_resolve",
     "docs_get",
     "docs_search",
 ]
+
+
+def skill_select(query: str = "", *, required: tuple[str, ...] = (), max_chars: int = 12000) -> dict[str, Any]:
+    """Return the same bounded selection receipt as ``cc skill select --json``."""
+    from cc.core.skill_store import default_skill_paths, discover_skills_with_sources, select_skill_context
+
+    return select_skill_context(query, discover_skills_with_sources(default_skill_paths()), required=required, max_chars=max_chars)

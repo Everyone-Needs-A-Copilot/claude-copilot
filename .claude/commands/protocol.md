@@ -543,17 +543,19 @@ When beginning a new initiative or major task:
    tc progress                         # Task Copilot status summary
    ```
 
-2. **Create PRD if needed:**
+2. **Load optional context if the task needs it beyond mandatory instructions** (see `.claude/agents/_shared/optional-context.md` for the full contract, embedded in ta/me/qa): run `cc skill select "<task topic>" --required <skill> --max-chars 12000 --json` once per task, use `selected[].content`, and store the receipt once as a task-bound `type: context` work product. Visible fallbacks apply when `cc` is unavailable, a required skill is missing, no optional skill matches, or no knowledge repos are configured — name which one applied and continue.
+
+3. **Create PRD if needed:**
    ```bash
    tc prd create --title "<title>" --description "<description>" --content "<content>" --json
    ```
 
-3. **Create tasks from PRD:**
+4. **Create tasks from PRD:**
    ```bash
    tc task create --title "<title>" --prd <prd-id> --agent "<agent>" --metadata '{"phase":"<phase>","complexity":"<complexity>"}' --json
    ```
 
-4. **Store session focus in memory:**
+5. **Store session focus in memory:**
    ```bash
    cc memory store --type context "Focus: <initiative title> | Active PRD: <prd-id>"
    ```
@@ -602,6 +604,50 @@ cc memory store --type lesson "<key learning>"           # repeat for each key l
 ```
 
 **Do NOT store task lists in Memory Copilot** - they live in Task Copilot.
+
+---
+
+## Optional Context
+
+Mandatory repository, project, and system instructions always apply. They are never
+subject to relevance filtering and are never loaded through this step.
+
+When the task needs knowledge beyond those instructions, load it once:
+
+    cc skill select "<task topic>" --required <skill> --max-chars 12000 --json
+
+Use the returned `selected[].content`. If you will not use it, do not load it.
+
+Record the receipt once per task, not once per load:
+
+    tc wp store --task <id> --type context --title "Context selection receipt" --file receipt.json
+
+Keep `query`, `max_chars`, `loaded_characters`, `mandatory_over_budget`, and for every
+entry in `selected` and `excluded` its `name`, `source`, `source_revision`,
+`selection_reason` or exclusion `reason`. Do not re-store the content itself.
+
+Before selecting again inside the same task, read that receipt. Skip any skill whose
+`source_revision` you already hold. Reload only when the revision differs, and when it
+does, record both revisions and say the source changed.
+
+`mandatory_over_budget: true` means a `--required` skill was retained past the budget.
+Report it: "Required context exceeded the `<max_chars>`-character budget by
+`<loaded_characters - max_chars>` characters; retained in full." Never drop it to fit.
+
+Character counts are not model tokens, and a receipt records selection, never proof
+that content was read or obeyed.
+
+**Visible fallbacks.** Name the one that applied, then continue:
+
+- `cc` unavailable or non-zero exit: "Optional context unavailable (`cc skill select`
+  failed: <stderr>); proceeding on repository instructions and prior memory only."
+- Required skill not found (exit 2, `Required skill not found: <name>`): do not
+  substitute a similar skill. State the missing name, then proceed without it — or emit
+  `<promise>BLOCKED</promise>` if the task genuinely cannot proceed without it.
+- No optional skill matched (`selected: []`): "No optional context matched '<query>';
+  proceeding on repository instructions." Do not widen the query to manufacture a match.
+- No knowledge repos configured (`CC_KNOWLEDGE_REPOS` empty): "Knowledge tier
+  unconfigured; optional context limited to project and machine skills." Never block.
 
 ---
 
@@ -1005,6 +1051,7 @@ if [ -n "$CC_KNOWLEDGE_REPOS" ]; then echo "KNOWLEDGE_CONFIGURED"; else echo "NO
 | KNOWLEDGE_CONFIGURED | Any | Proceed normally (knowledge available) |
 | NO_KNOWLEDGE | Experience-first features | Offer knowledge setup contextually |
 | NO_KNOWLEDGE | Technical/Defect work | Proceed without mention |
+| NO_KNOWLEDGE | Agent runs `cc skill select` for optional context | Selection still runs against project/machine skills only; report "Knowledge tier unconfigured; optional context limited to project and machine skills." Never block. |
 
 ### When to Offer Knowledge Setup
 

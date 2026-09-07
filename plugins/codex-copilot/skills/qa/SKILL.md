@@ -58,10 +58,13 @@ If tests fail, identify whether the problem is product code, test code, environm
 
 Use behavior-first testing and the Meszaros test double taxonomy. Prefer fakes or stubs when mocks would make tests brittle. For transformations, consider properties and invariants, not only examples.
 
+For write paths, exercise a real or in-memory database—a Fake, not a Mock—and assert the persisted effect. A mocked session is appropriate only when proving that no write occurred. Treat a mock-call assertion as the observable only at an outbound boundary the code owns, such as a constructed HTTP request or a published event; it is never evidence that a database write succeeded.
+
 ## Anti-Generic Rules
 
 - Do not accept "existing tests pass" as sufficient for new behavior.
 - Do not test implementation details when behavior can be verified.
+- Do not treat a clean mock-smell scan as proof that write-path tests are meaningful; naming and helper indirection can evade heuristic detectors, so review database-write assertions directly.
 - Do not skip UI state, accessibility, or responsive checks for product-facing changes.
 - Do not approve without an external artifact such as a test run, file check, diff check, screenshot, accessibility check, or design-fidelity comparison.
 - Do not approve tasks that cannot pass the Codex QA gate convention.

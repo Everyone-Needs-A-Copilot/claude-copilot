@@ -336,29 +336,12 @@ extract_task_id() {
   printf '%s' "$line" | grep -oE 'TASK-[0-9]+' 2>/dev/null || echo ""
 }
 
-# Extract ALL TASK-N references from a message string.
-# Returns a JSON array of unique task IDs, e.g. '["TASK-5","TASK-12"]'
-#
-# NOTE (sibling audit, see JOB-1 item 5): this one intentionally still scans
-# the whole message body rather than anchoring to the "Task:" header, because
-# it feeds ONLY the qa-pass CLEAR path (handle_qa_completion's targeted vs.
-# full-clear decision) -- never the arm path. A stray extra ID here can at
-# most cause a targeted-clear to also happen to match, or fall through to
-# the already-safe full-clear fallback; it can never arm a gate against an
-# unvalidated task. That asymmetry (arm must be conservative, clear may be
-# generous -- see fail-safe note in handle_me_completion) is why this
-# function was left unanchored rather than changed to match extract_task_id.
-extract_all_task_ids() {
-  local msg="$1"
-  local ids_raw
-  ids_raw="$(printf '%s' "$msg" | grep -oE 'TASK-[0-9]+' | sort -u)" || ids_raw=""
-  if [[ -z "$ids_raw" ]]; then
-    echo '[]'
-    return
-  fi
-  # Build a JSON array
-  printf '%s\n' "$ids_raw" | "$JQ" -R . | "$JQ" -sc . 2>/dev/null || echo '[]'
-}
+# NOTE: `extract_all_task_ids` (the whole-message TASK-N scanner that used
+# to feed the qa-pass "clear all mentioned, or clear everything" decision)
+# was removed along with that decision itself. Clearing is now bound to the
+# single task_id `check_qa_verdict` actually checked — see
+# handle_qa_completion — so there is no longer a second, broader task-ID
+# source for the clear path to fall back to.
 
 # ---------------------------------------------------------------------------
 # Task ID validation — confirm a task ID actually exists in THIS project's
@@ -397,80 +380,82 @@ task_id_valid_in_project() {
 }
 
 # ---------------------------------------------------------------------------
-# QA verdict parsing
-# Returns: "pass", "fail", or "unknown"
-# Precedence (case-insensitive):
-#   1. VERDICT: APPROVED or APPROVED-WITH-MINOR-FIXES WITH an ARTIFACT marker → pass
-#   2. VERDICT: APPROVED or APPROVED-WITH-MINOR-FIXES WITHOUT an ARTIFACT marker → fail
-#      (a bare pass with no artifact is invalid per ADR-001 / WS1 failable-check gate)
-#   3. VERDICT: REJECTED → fail
-#   4. <promise>COMPLETE</promise> with no REJECTED AND an ARTIFACT marker → implicit pass
-#   5. Otherwise → unknown (treated as fail for safety)
+# QA verdict authority — tc task check-qa
 #
-# ARTIFACT marker format (R3 WS1 / TASK-115, extended TASK-131):
-#   ARTIFACT: <type>|<detail>
-#   where type ∈ {test-run, file-check, diff-check, adversarial-run}
-#   Example: ARTIFACT: test-run|pytest tests/foo.py exit=0 "3 passed"
-#   Example: ARTIFACT: adversarial-run|llm FINDINGS: none found exit=0
+# (wp-a-evidence.md section 4.2 / claude-code-handoff.md section B.) The
+# verdict for a completed @agent-qa run is no longer decided by regexing
+# the agent's own returned message — that message is a CLAIM, not evidence.
+# It is decided by calling `tc task check-qa <id> --json`, the same
+# completion authority `tc task update --status completed` enforces (see
+# tools/tc/src/tc/services/qa.py). This hook keeps ONLY session bookkeeping
+# from here down: which task is pending, which session, retry accounting.
 #
-# adversarial-run is OPTIONAL / bonus — emitted by adversarial-pass.sh when a
-# second-model CLI is available.  It satisfies the artifact requirement on its
-# own but is never a NEW mandatory requirement.  The gate still passes on any
-# single recognized artifact type (e.g. test-run alone is sufficient).
+# This closes three named weaknesses in the prior regex-based
+# `parse_qa_verdict`/`has_artifact_marker` pair (removed):
+#   (a) APPROVED was checked before REJECTED, over the WHOLE message, so a
+#       conflicting or quoted token could influence the result. There is no
+#       message-scanning left for that bug to live in.
+#   (b) a passing verdict that named no matching pending task cleared ALL
+#       pending tasks for the session. See handle_qa_completion below:
+#       clearing is bound to the checked task ID only, never a broader set.
+#   (c) after 3 consecutive failures the task was dropped from
+#       pending_tasks with an "advisory unblock" systemMessage. That
+#       recovery path is preserved (a permanently wedged gate is worse than
+#       an under-enforced one), but it now says explicitly that the
+#       SESSION is unblocked, never that the TASK is verified — only tc's
+#       own predicate can ever mark a task's evidence approved.
 #
 # ESCAPE HATCH:
 #   COPILOT_QA_GATE=off bypasses all gate logic in the caller (subagent-stop.sh).
 # ---------------------------------------------------------------------------
 
-# has_artifact_marker: returns 0 (true) if the message contains a valid ARTIFACT line.
-has_artifact_marker() {
-  local msg="$1"
-  # Case-insensitive match for ARTIFACT: <type>|<detail>
-  # type must be one of: test-run, file-check, diff-check, adversarial-run
-  # adversarial-run added in TASK-131 (availability-gated; optional/bonus type).
-  # Adding it here is ADDITIVE — existing types are unchanged; the new type
-  # satisfies the artifact requirement but is never a mandatory gate of its own.
-  printf '%s' "$msg" | grep -qiE '^[[:space:]]*ARTIFACT:[[:space:]]+(test-run|file-check|diff-check|adversarial-run)\|.+$'
-}
+# check_qa_verdict: the sole source of PASS/FAIL truth for a QA completion.
+#
+# Echoes one of:
+#   pass        — `tc task check-qa` exited 0 (task-bound evidence approved).
+#   fail        — `tc task check-qa` ran and reported not-approved, or a
+#                 real per-task error (not found / invalid task id).
+#   unavailable — `tc` is not on PATH, or the ID doesn't parse. Logged
+#                 distinctly so a missing capability is never misread as a
+#                 rejection in the log stream — but it is still treated as
+#                 a FAIL-shaped outcome by the caller (see
+#                 handle_qa_completion): an unverifiable claim must never
+#                 be treated as verified. "Session unblocked" (the retry/
+#                 advisory-unblock path below) is the only thing
+#                 "unavailable" is ever allowed to influence; it can never
+#                 manufacture "task verified".
+check_qa_verdict() {
+  local task_id="$1"
+  local num="${task_id#TASK-}"
 
-parse_qa_verdict() {
-  local msg="$1"
-  local msg_upper
-  msg_upper="$(printf '%s' "$msg" | tr '[:lower:]' '[:upper:]')"
-
-  # Explicit VERDICT tokens (highest precedence)
-  if printf '%s' "$msg_upper" | grep -qE 'VERDICT:[[:space:]]*(APPROVED-WITH-MINOR-FIXES|APPROVED)'; then
-    # APPROVED verdict is only valid when accompanied by an ARTIFACT marker.
-    # A bare "VERDICT: APPROVED" with no artifact is an invalid/insufficient verdict
-    # and must NOT unblock the gate (ADR-001 / WS1 principle: verdicts bind to artifacts).
-    if has_artifact_marker "$msg"; then
-      echo "pass"
-    else
-      echo "fail"
-      log_warn "VERDICT: APPROVED received but NO ARTIFACT marker found — gate NOT unblocked (session: ${SESSION_ID}). QA must include ARTIFACT: test-run|..., ARTIFACT: file-check|..., or ARTIFACT: diff-check|..."
-    fi
+  if ! [[ "$num" =~ ^[0-9]+$ ]]; then
+    echo "unavailable"
     return
   fi
-  if printf '%s' "$msg_upper" | grep -qE 'VERDICT:[[:space:]]*REJECTED'; then
+  if ! command -v tc &>/dev/null; then
+    log_warn "tc not on PATH — cannot check task-bound QA evidence for ${task_id}; treating as unverified, not approved (session: ${SESSION_ID})"
+    echo "unavailable"
+    return
+  fi
+
+  local project_dir="${CLAUDE_PROJECT_DIR:-$PWD}"
+  local output exit_code=0
+  output="$(cd "$project_dir" 2>/dev/null && tc task check-qa "$num" --json 2>&1)" || exit_code=$?
+
+  if [[ "$exit_code" -eq 0 ]]; then
+    echo "pass"
+    return
+  fi
+  if [[ "$exit_code" -eq 1 ]]; then
+    local reason
+    reason="$(printf '%s' "$output" | "$JQ" -r '.reason // empty' 2>/dev/null)"
+    log_warn "tc task check-qa ${num}: not approved${reason:+ (${reason})} (session: ${SESSION_ID})"
     echo "fail"
     return
   fi
 
-  # Implicit pass: COMPLETE promise with no REJECTED language, AND an ARTIFACT marker
-  if printf '%s' "$msg" | grep -qF '<promise>COMPLETE</promise>'; then
-    if ! printf '%s' "$msg_upper" | grep -qE 'REJECTED|VERDICT:[[:space:]]*FAIL'; then
-      if has_artifact_marker "$msg"; then
-        echo "pass"
-      else
-        echo "fail"
-        log_warn "Implicit pass (<promise>COMPLETE</promise>) but NO ARTIFACT marker — gate NOT unblocked (session: ${SESSION_ID})."
-      fi
-      return
-    fi
-  fi
-
-  # Default: unknown → fail (safe default)
-  echo "fail"
+  log_warn "tc task check-qa ${num} unavailable or errored (exit ${exit_code}): ${output} — treating as unverified, NOT a confirmed rejection (session: ${SESSION_ID})"
+  echo "unavailable"
 }
 
 # ---------------------------------------------------------------------------
@@ -571,19 +556,17 @@ handle_me_completion() {
 # Handle @agent-qa completion
 # ---------------------------------------------------------------------------
 handle_qa_completion() {
-  local task_id verdict all_task_ids
+  local task_id verdict
   task_id="$(extract_task_id "$LAST_MSG")"
-  verdict="$(parse_qa_verdict "$LAST_MSG")"
 
-  # On a pass verdict, we can proceed even without a task_id — QA's approval
-  # unblocks ALL pending tasks for the session (a passing QA run clears the gate).
-  # On a fail verdict, we need a task_id to track retries.
-  if [[ -z "$task_id" && "$verdict" != "pass" ]]; then
-    log_warn "agent-qa completed but no TASK-N found in last_assistant_message (session: ${SESSION_ID}, verdict: ${verdict})"
+  if [[ -z "$task_id" ]]; then
+    log_warn "agent-qa completed but no TASK-N found in last_assistant_message (session: ${SESSION_ID}) — cannot look up a task-bound verdict"
     exit 0
   fi
 
-  all_task_ids="$(extract_all_task_ids "$LAST_MSG")"
+  verdict="$(check_qa_verdict "$task_id")"
+  # "unavailable" is handled identically to "fail" from here down — see
+  # check_qa_verdict's docstring for why it must never be treated as pass.
 
   acquire_lock
   trap 'release_lock' EXIT
@@ -596,69 +579,37 @@ handle_qa_completion() {
   local updated_entry advisory_msg=""
 
   if [[ "$verdict" == "pass" ]]; then
-    # Strategy: clear all pending_tasks that appear in the QA message OR (when
-    # the message references a different set of tasks) clear ALL pending tasks.
-    # Rationale: a passing QA verdict means the work round-trip is complete.
-    # The common failure mode is QA mentioning an old/different TASK-N while a
-    # *different* task sits in pending_tasks — the pass should still unblock.
-    #
-    # Algorithm:
-    #   1. Find the intersection of pending_tasks with all IDs mentioned in msg.
-    #   2. If the intersection is non-empty → clear only those (targeted).
-    #   3. If the intersection is empty (QA mentioned unrelated IDs) → clear ALL
-    #      pending tasks (QA has approved work for this session).
-    local pending_json
-    pending_json="$(printf '%s' "$session_entry" | "$JQ" '.pending_tasks // []' 2>/dev/null || echo '[]')"
-    local intersection_count
-    intersection_count="$(printf '%s' "$pending_json" | "$JQ" \
-      --argjson mentioned "$all_task_ids" \
-      '[.[] | select(. as $t | $mentioned | map(. == $t) | any)] | length' 2>/dev/null || echo 0)"
-
-    if [[ "$intersection_count" -gt 0 ]]; then
-      # Targeted clear: remove only the tasks QA mentioned
-      local history_entries
-      history_entries="$(printf '%s' "$all_task_ids" | "$JQ" \
-        --arg now "$now" \
-        --arg event "qa_passed" \
-        '[.[] | {"taskId": ., "event": $event, "ts": $now}]' 2>/dev/null || echo '[]')"
-      updated_entry="$(printf '%s' "$session_entry" | "$JQ" \
-        --argjson mentioned "$all_task_ids" \
-        --argjson hist "$history_entries" \
-        --arg now "$now" '
-        .pending_tasks = (.pending_tasks | map(select(. as $t | $mentioned | map(. == $t) | any | not))) |
-        .retries = (reduce $mentioned[] as $tid (.retries; del(.[$tid]))) |
-        .history = .history + $hist |
-        .lastSeen = $now
-      ' 2>/dev/null)"
-      log_info "qa_passed (targeted): cleared tasks ${all_task_ids} from pending_tasks (session: ${SESSION_ID})"
-    else
-      # Full clear: QA passed but mentioned different task IDs — unblock entire session
-      local pending_arr
-      pending_arr="$(printf '%s' "$pending_json" | "$JQ" -c '.' 2>/dev/null || echo '[]')"
-      local history_entries
-      history_entries="$(printf '%s' "$pending_json" | "$JQ" \
-        --arg now "$now" \
-        --arg event "qa_passed_full_clear" \
-        '[.[] | {"taskId": ., "event": $event, "ts": $now}]' 2>/dev/null || echo '[]')"
-      updated_entry="$(printf '%s' "$session_entry" | "$JQ" \
-        --argjson hist "$history_entries" \
-        --arg now "$now" '
-        .pending_tasks = [] |
-        .retries = {} |
-        .history = .history + $hist |
-        .lastSeen = $now
-      ' 2>/dev/null)"
-      log_info "qa_passed (full clear): cleared all pending tasks ${pending_arr} because QA approved for session ${SESSION_ID} (mentioned: ${all_task_ids})"
-    fi
+    # Targeted clear ONLY (closes weakness b): this task's approval clears
+    # this task, and only this task. A different pending task in the same
+    # session — even one QA's message happens to also mention — is left
+    # untouched; there is no "message mentioned unrelated IDs, clear
+    # everything" fallback left, because the checked task IS the matched
+    # task by construction (check_qa_verdict is scoped to $task_id).
+    updated_entry="$(printf '%s' "$session_entry" | "$JQ" \
+      --arg tid "$task_id" \
+      --arg now "$now" \
+      --arg event "qa_passed" '
+      .pending_tasks = (.pending_tasks | map(select(. != $tid))) |
+      .retries = (.retries | del(.[$tid])) |
+      .history = .history + [{"taskId": $tid, "event": $event, "ts": $now}] |
+      .lastSeen = $now
+    ' 2>/dev/null)"
+    log_info "qa_passed: cleared ${task_id} from pending_tasks (session: ${SESSION_ID}, tc task check-qa approved)"
   else
-    # Fail path: track retries by task_id
+    # Fail path (also covers "unavailable" — see check_qa_verdict):
+    # track retries by task_id.
     local current_retries
     current_retries="$(printf '%s' "$session_entry" | "$JQ" -r --arg tid "$task_id" \
       '.retries[$tid] // 0' 2>/dev/null || echo 0)"
     local new_retries=$(( current_retries + 1 ))
 
     if [[ "$new_retries" -ge "$MAX_RETRIES" ]]; then
-      # Auto-unblock: remove from pending_tasks after 3 failures
+      # Auto-unblock: remove from pending_tasks after 3 failures. This is
+      # SESSION recovery, never TASK verification (closes weakness c) —
+      # only `tc task check-qa` approving can ever mark ${task_id} verified;
+      # this path exists so a wedged gate does not block the session
+      # forever when QA genuinely cannot produce passing evidence (or tc
+      # itself is unavailable).
       local event="qa_failed_advisory_unblock"
       updated_entry="$(printf '%s' "$session_entry" | "$JQ" \
         --arg tid "$task_id" \
@@ -670,8 +621,8 @@ handle_qa_completion() {
         .history = .history + [{"taskId": $tid, "event": $event, "ts": $now}] |
         .lastSeen = $now
       ' 2>/dev/null)"
-      advisory_msg="QA gate degraded to advisory: ${task_id} failed QA ${new_retries} consecutive times. Main session is unblocked, but human review is strongly recommended — the code has not passed automated verification."
-      log_warn "qa_failed_advisory_unblock: ${task_id} failed ${new_retries}x, auto-unblocking (session: ${SESSION_ID})"
+      advisory_msg="QA gate degraded to advisory: ${task_id} did not pass tc's task-bound evidence check ${new_retries} consecutive times. The SESSION is unblocked so work can continue, but ${task_id} is NOT verified -- it still requires \`tc task check-qa\` to approve, or human review, before it should be treated as done."
+      log_warn "qa_failed_advisory_unblock: ${task_id} failed ${new_retries}x (verdict=${verdict}), auto-unblocking SESSION only — task remains unverified (session: ${SESSION_ID})"
     else
       local event="qa_failed_retry_${new_retries}"
       updated_entry="$(printf '%s' "$session_entry" | "$JQ" \
@@ -683,7 +634,7 @@ handle_qa_completion() {
         .history = .history + [{"taskId": $tid, "event": $event, "ts": $now}] |
         .lastSeen = $now
       ' 2>/dev/null)"
-      log_info "qa_failed: ${task_id} retry ${new_retries}/${MAX_RETRIES} (session: ${SESSION_ID})"
+      log_info "qa_failed: ${task_id} retry ${new_retries}/${MAX_RETRIES} (verdict=${verdict}, session: ${SESSION_ID})"
     fi
   fi
 

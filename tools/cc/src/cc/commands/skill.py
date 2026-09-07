@@ -264,3 +264,32 @@ def skill_path(
 
     # Plain text — deliberately no newline decoration so output is pipeable
     typer.echo(str(skill.path))
+
+
+@skill_app.command("select")
+def skill_select(
+    query: str = typer.Argument("", help="Keywords for optional skill selection."),
+    required: Optional[list[str]] = typer.Option(None, "--required", help="Required skill; repeatable, never budget-truncated."),
+    max_chars: int = typer.Option(12000, "--max-chars", min=0, help="Character budget for returned content, not tokens."),
+    scope: str = typer.Option("all", "--scope", help="project | machine | knowledge | all"),
+    output_json: bool = typer.Option(False, "--json", help="Return content and source/selection receipts."),
+) -> None:
+    """Load relevant optional context with a reproducible selection receipt."""
+    from cc.core.skill_store import select_skill_context
+
+    if scope not in _VALID_SCOPES:
+        err_console.print("Invalid skill scope")
+        raise typer.Exit(2)
+    try:
+        result = select_skill_context(query, _load_trusted_skills(scope), required=tuple(required or ()), max_chars=max_chars)
+    except (ValueError, OSError) as exc:
+        err_console.print(f"Context selection failed: {exc}")
+        raise typer.Exit(2) from exc
+    if output_json:
+        typer.echo(json.dumps(result))
+    else:
+        for item in result["selected"]:
+            typer.echo(f"# {item['name']} ({item['selection_reason']}; {item['source_revision']})")
+            typer.echo(item["content"])
+        if result["mandatory_over_budget"]:
+            err_console.print("Required context exceeds the character budget; retained in full.")

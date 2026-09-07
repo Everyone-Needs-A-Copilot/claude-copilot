@@ -616,3 +616,61 @@ def find_skill_by_name(
         if skill.name.lower() == name_lower:
             return skill
     return None
+
+
+def select_skill_context(
+    query: str,
+    skills: list[SkillMeta],
+    *,
+    required: tuple[str, ...] = (),
+    max_chars: int = 12000,
+) -> dict[str, Any]:
+    """Select optional skills within an explicit character budget.
+
+    Existing discovery decides authority and precedence. This function explains
+    keyword selection, never promotes optional content into mandatory policy.
+    Digests identify returned text; only existing signed receipts authenticate it.
+    """
+    import hashlib
+
+    if type(max_chars) is not int or max_chars < 0:
+        raise ValueError("max_chars must be a nonnegative integer")
+    mandatory = []
+    for name in required:
+        skill = find_skill_by_name(name, skills)
+        if skill is None:
+            raise ValueError(f"Required skill not found: {name}")
+        if skill not in mandatory:
+            mandatory.append(skill)
+    tokens = sorted(set(query.lower().split()))
+    optional = search_skills(query, skills) if tokens else []
+    optional.sort(key=lambda s: (-sum(t in " ".join([s.name, s.description, *s.tags]).lower() for t in tokens), s.name.lower()))
+    selected, excluded, seen = [], [], set()
+    used = 0
+    for skill in mandatory + [s for s in optional if s not in mandatory]:
+        result = get_skill_content_with_receipt(skill)
+        digest = hashlib.sha256(result.content.encode("utf-8")).hexdigest()
+        is_required = skill in mandatory
+        reason = "explicit-required" if is_required else "keyword-match"
+        if digest in seen:
+            excluded.append({"name": skill.name, "reason": "duplicate-content", "source_sha256": digest})
+            continue
+        length = len(result.content)
+        if not is_required and used + length > max_chars:
+            excluded.append({"name": skill.name, "reason": "optional-budget", "characters": length})
+            continue
+        receipt = result.receipt.to_dict(include_content=False) if result.receipt is not None else None
+        item = {"name": skill.name, "source": skill.source, "source_revision": "sha256:" + digest,
+                "selection_reason": reason, "required": is_required,
+                "characters": length, "utf8_bytes": len(result.content.encode("utf-8")),
+                "content": result.content, "receipt": receipt}
+        if receipt is None:
+            item["path"] = str(skill.path)
+        selected.append(item)
+        used += length
+        seen.add(digest)
+    return {"schema_version": "1.0", "query": query, "budget_unit": "characters",
+            "max_chars": max_chars, "loaded_characters": used,
+            "mandatory_over_budget": used > max_chars, "selected": selected,
+            "excluded": excluded, "token_count": None,
+            "boundary": "Selection receipt, not proof that a runtime consumed or obeyed this content."}

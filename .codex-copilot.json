@@ -1,5 +1,9 @@
 {
   "installType": "copy",
   "pluginPath": "./plugins/codex-copilot",
-  "projectName": "claude-copilot"
+  "projectName": "claude-copilot",
+  "frameworkVersion": "0.6.5",
+  "frameworkCommit": "32066b4",
+  "updatedAt": "2026-08-26",
+  "updatedBy": "codex-copilot 0.6.5 update-project.sh"
 }

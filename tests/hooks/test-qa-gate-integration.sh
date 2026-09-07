@@ -6,8 +6,16 @@
 #   2. PreToolUse(Bash) → deny
 #   3. PreToolUse(Agent, subagent_type=qa) with an authoritative no-active
 #      journey witness → allow
-#   4. SubagentStop(qa, APPROVED) → pending_tasks cleared
-#   5. PreToolUse(Bash) → allow again
+#   4. SubagentStop(qa, bare APPROVED claim, no stored evidence) →
+#      pending_tasks stays armed and Bash stays denied (B3: a message claim
+#      alone is never authoritative)
+#   5. Store a real, task-bound QA evidence packet, then SubagentStop(qa)
+#      again → tc task check-qa approves and pending_tasks clears
+#   6. PreToolUse(Bash) → allow again, now backed by real evidence
+#
+# Also proves session-unblocked is strictly distinct from task-verified
+# (Scenario 2: retry exhaustion unblocks the session but tc task check-qa
+# still reports the task unapproved).
 #
 # Run: bash tests/hooks/test-qa-gate-integration.sh
 
@@ -130,6 +138,29 @@ send_pretool_agent() {
 get_exit_code() { printf '%s' "$1" | cut -d'|' -f1; }
 get_output()    { printf '%s' "$1" | cut -d'|' -f2-; }
 
+# Store a real, task-bound QA evidence packet (post-B3: this is the ONLY
+# thing that can make `tc task check-qa` — and therefore the hooks — report
+# a task as approved). TEST_PROJECT is a plain tmp directory, not a git
+# repo, so tc.services.qa._current_identity() returns None and staleness
+# comparison against IDENTITY is skipped.
+store_passing_evidence() {
+  local task_num="$1"
+  local content
+  content="CRITERION: implementation satisfies the guarded behavior
+EXPECTED: completion is blocked until real evidence is stored
+OBSERVED: evidence stored and tc task check-qa approves
+IDENTITY: fixture rev=abc1234, clean
+BASELINE: unavailable, fresh fixture database
+ARTIFACT: test-run|pytest tests/test_fixture.py exit=0 5 passed
+UNTESTED: none
+VERDICT: APPROVED"
+  (cd "$TEST_PROJECT" && tc wp store --task "$task_num" --type test --title "Fixture QA evidence" --content "$content" --json) >/dev/null 2>&1
+}
+
+check_qa() {
+  (cd "$TEST_PROJECT" && tc task check-qa "$1" --json 2>/dev/null)
+}
+
 # ---------------------------------------------------------------------------
 # Integration test: full state machine flow
 # ---------------------------------------------------------------------------
@@ -195,29 +226,70 @@ else
   fail "Step 4: expected exit 0 for safe tc command, got exit $EXIT"
 fi
 
-# --- Step 5: SubagentStop(qa, APPROVED) → gate should clear ---
+# --- Step 5: SubagentStop(qa, bare APPROVED claim, no stored evidence) →
+# B3: a message claim alone is never authoritative. tc task check-qa is the
+# verdict source, and no work product has been stored for PRIMARY_TASK yet,
+# so the gate must stay armed. ---
 echo ""
-echo "Step 5: SubagentStop(qa, '${PRIMARY_TASK} VERDICT: APPROVED') → expect gate clear"
+echo "Step 5: SubagentStop(qa, '${PRIMARY_TASK} VERDICT: APPROVED', no stored evidence) → expect gate STAYS ARMED"
 send_stop "qa" "Task: ${PRIMARY_TASK} | WP: WP-2\nAll tests pass.\nVERDICT: APPROVED\nARTIFACT: test-run|pytest tests/test_foo.py exit=0 5 passed"
+
+PENDING="$("$JQ" -r --arg sid "$TEST_SESSION" \
+  '.[$sid].pending_tasks // [] | @json' "$GATE_FILE" 2>/dev/null || echo "[]")"
+
+if printf '%s' "$PENDING" | "$JQ" -e --arg task "$PRIMARY_TASK" 'contains([$task])' > /dev/null 2>&1; then
+  ok "Step 5: pending_tasks still contains ${PRIMARY_TASK} — a bare APPROVED claim with no stored evidence does not clear the gate"
+else
+  fail "Step 5: ${PRIMARY_TASK} should still be pending after an unbacked APPROVED claim: $PENDING"
+fi
+
+# --- Step 5b: PreToolUse(Bash, "ls") → still denied, no evidence yet ---
+echo ""
+echo "Step 5b: PreToolUse(Bash, 'ls') → expect deny (gate still armed, claim unbacked)"
+RESULT="$(send_pretool_bash "ls")"
+EXIT="$(get_exit_code "$RESULT")"
+
+if [[ "$EXIT" -eq 2 ]]; then
+  ok "Step 5b: Bash 'ls' still denied (exit 2) — an unbacked verdict claim never unblocks the gate"
+else
+  fail "Step 5b: expected exit 2 (deny) with no stored evidence, got exit $EXIT"
+fi
+
+# --- Step 5c: store real task-bound evidence for PRIMARY_TASK, then qa
+# reports completion again. This message carries no VERDICT line at all —
+# the point is that tc task check-qa's own read of the stored evidence is
+# what decides, not this hook re-scanning message text. ---
+echo ""
+echo "Step 5c: store task-bound evidence for ${PRIMARY_TASK}, then SubagentStop(qa) → expect gate clear"
+store_passing_evidence "$PRIMARY_TASK_ID"
+
+CHECK_QA="$(check_qa "$PRIMARY_TASK_ID")"
+if printf '%s' "$CHECK_QA" | "$JQ" -e '.approved == true' > /dev/null 2>&1; then
+  ok "Step 5c: tc task check-qa ${PRIMARY_TASK_ID} independently reports approved=true once evidence is stored"
+else
+  fail "Step 5c: tc task check-qa ${PRIMARY_TASK_ID} should report approved=true, got: $CHECK_QA"
+fi
+
+send_stop "qa" "Task: ${PRIMARY_TASK} | WP: WP-2b\nSee stored evidence."
 
 PENDING="$("$JQ" -r --arg sid "$TEST_SESSION" \
   '.[$sid].pending_tasks // [] | @json' "$GATE_FILE" 2>/dev/null || echo "[]")"
 PENDING_COUNT="$(printf '%s' "$PENDING" | "$JQ" 'length' 2>/dev/null || echo 1)"
 
 if [[ "$PENDING_COUNT" -eq 0 ]]; then
-  ok "Step 5: pending_tasks is empty after qa APPROVED"
+  ok "Step 5c: pending_tasks is empty after tc task check-qa approves stored evidence"
 else
-  fail "Step 5: pending_tasks should be empty after qa APPROVED: $PENDING"
+  fail "Step 5c: pending_tasks should be empty after evidence-backed approval: $PENDING"
 fi
 
 # --- Step 6: PreToolUse(Bash, "ls") → should now be allowed ---
 echo ""
-echo "Step 6: PreToolUse(Bash, 'ls') → expect allow (gate cleared)"
+echo "Step 6: PreToolUse(Bash, 'ls') → expect allow (gate cleared by real evidence)"
 RESULT="$(send_pretool_bash "ls")"
 EXIT="$(get_exit_code "$RESULT")"
 
 if [[ "$EXIT" -eq 0 ]]; then
-  ok "Step 6: Bash 'ls' allowed (exit 0) after gate cleared"
+  ok "Step 6: Bash 'ls' allowed (exit 0) after gate cleared by evidence-backed approval"
 else
   fail "Step 6: expected exit 0 (allow) after gate cleared, got exit $EXIT"
 fi
@@ -263,6 +335,17 @@ if [[ "$EXIT" -eq 0 ]]; then
   ok "Scenario 2: Bash allowed after auto-unblock"
 else
   fail "Scenario 2: expected allow after auto-unblock, got exit $EXIT"
+fi
+
+# B3: session-unblocked is strictly distinct from task-verified. The SESSION
+# recovered (Bash allowed above), but tc's own predicate must still report
+# RETRY_TASK as unapproved — retry exhaustion never manufactures evidence.
+echo "Step 6: tc task check-qa ${RETRY_TASK_ID} after auto-unblock → expect approved=false"
+CHECK_QA="$(check_qa "$RETRY_TASK_ID")"
+if printf '%s' "$CHECK_QA" | "$JQ" -e '.approved == false' > /dev/null 2>&1; then
+  ok "Scenario 2: tc task check-qa ${RETRY_TASK_ID} still reports approved=false — session-unblocked never implies task-verified"
+else
+  fail "Scenario 2: tc task check-qa ${RETRY_TASK_ID} should report approved=false after advisory unblock, got: $CHECK_QA"
 fi
 
 echo ""

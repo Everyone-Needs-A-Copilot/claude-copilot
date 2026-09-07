@@ -84,6 +84,7 @@ from tc.services.prds import (
     list_prds,
     update_prd,
 )
+from tc.services.qa import check_task_qa
 from tc.services.wp import (
     get_wp,
     list_wps,
@@ -126,6 +127,7 @@ __all__ = [
     "next_task",
     "add_dependency",
     "remove_dependency",
+    "check_task_qa",
     # prd ops
     "create_prd",
     "get_prd",

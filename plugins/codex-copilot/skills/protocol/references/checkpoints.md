@@ -13,14 +13,27 @@ Typical checkpoint points:
 
 ## What to include
 
-Each checkpoint should be short and concrete:
+Use this shape when the user must make a real decision:
 
-- workflow stage completed
-- 2-4 key decisions
-- soul fit or architecture principle impacts when applicable
-- design-fidelity expectations that QA should verify when product-facing
-- next stage
-- a short prompt for corrections or approval
+```text
+[One headline sentence: what is now true, not what was investigated.]
+[At most 2–3 more sentences, only when the decision is unintelligible without them.]
+
+1. [Decision-specific option, stated as the outcome it produces.]
+2. [Decision-specific option.]
+3. [Decision-specific option, only when real.]
+
+Which one?
+
+Task: TASK-xxx | WP: WP-xxx
+```
+
+- Put 2–3 numbered, decision-specific options immediately before a question of at most 4 words, normally “Which one?”
+- Do not print generic standing options such as change, back, skip, or show the work product.
+- Put Task/WP metadata on one trailing line, never before the outcome.
+- If there is no real decision, state the outcome and proceed without options or an approval question.
+- Include soul, architecture, design-fidelity, QA, or next-step context only when it changes the decision.
+- Keep evidence, findings, and file traces in the work product unless one is necessary to understand the decision.
 
 ## When not to checkpoint
 

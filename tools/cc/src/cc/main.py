@@ -191,6 +191,8 @@ def doctor_cmd(
     output_json: bool = typer.Option(
         False, "--json", help="Output the WS-A doctor contract as JSON."
     ),
+    runtime_details: bool = typer.Option(False, "--runtime-details", help="Report project runtime evidence separately from the stable doctor contract."),
+    exercise_runtime: bool = typer.Option(False, "--exercise-runtime", help="Explicitly run native hook diagnostics in disposable state; implies --runtime-details."),
 ) -> None:
     """Run health checks and report status (WS-A `doctor --json` contract).
 
@@ -205,6 +207,18 @@ def doctor_cmd(
         compute_exit_code,
         render_doctor_report_rich,
     )
+
+    if runtime_details or exercise_runtime:
+        from pathlib import Path
+        from cc.core.runtime_evidence import build_runtime_report
+        try:
+            runtime_report = build_runtime_report(Path.cwd(), exercise=exercise_runtime)
+        except (OSError, ValueError) as exc:
+            typer.echo(_json.dumps({"error": str(exc)}))
+            raise typer.Exit(2) from exc
+        typer.echo(_json.dumps(runtime_report, indent=None if output_json else 2))
+        codex = runtime_report["runtimes"][0]
+        raise typer.Exit(0 if not exercise_runtime or codex["exercised"] else 1)
 
     try:
         report = build_doctor_report()

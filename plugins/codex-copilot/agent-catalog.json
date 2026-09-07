@@ -3,7 +3,7 @@
   "version": "0.6.5",
   "updatedAt": "2026-08-18T00:00:00Z",
   "$schema": "./agent-catalog.schema.json",
-  "_comment": "Codex-native source of truth for active specialists, optional pack specialists, design chain, and routing workflows. Claude runtime lifecycle hooks are not represented here; this catalog drives skills, docs, tests, and explicit tc/script gates.",
+  "_comment": "Codex-native source of truth for active specialists, optional pack specialists, design chain, and routing workflows. Plugin lifecycle hooks live under hooks/; this catalog drives skills, docs, tests, and explicit tc/script gates.",
   "entrypoints": {
     "primary": "protocol",
     "launcher": "launcher"

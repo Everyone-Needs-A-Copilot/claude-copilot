@@ -740,3 +740,29 @@ tools/cc/
     conftest.py
     test_main.py
 ```
+
+## Evidence, context and adoption reporting
+
+`cc skill select "delivery evidence" --required qa --max-chars 12000 --json`
+uses existing skill discovery and authority. Required skills survive the optional
+character budget; duplicate returned content is excluded. Receipts identify source
+text, reason, characters/UTF-8 bytes and signed Knowledge provenance when available.
+No token count or actual runtime-consumption claim is inferred. The equivalent
+Python entry point is `cc.api.skill_select(query, required=("qa",), max_chars=12000)`.
+Existing `get`, `search` and their output contracts remain unchanged.
+
+`cc doctor --runtime-details --json` is a separate project-local diagnostic document;
+ordinary `cc doctor --json` keeps its existing schema. `--exercise-runtime` explicitly
+runs Codex hook-contract probes in temporary state with bounded subprocess waits.
+The report fingerprints local configuration/hook bytes and disable switches; it
+never reuses a cached exercise verdict. It does not read/attest global runtime trust
+or prove lifecycle dispatch. Claude's existing doctor registration and shim-resolution
+checks remain distinct from behavioral enforcement.
+
+`cc eval adoption-freeze plan.json --output frozen.json` freezes a pilot in its own
+directory and refuses to overwrite a freeze. `cc eval adoption-check frozen.json
+observations.json` applies conservative gates to owner-reviewed benchmark observations
+and exits 0 for a supportive pilot signal, 1 to keep baseline, or 2 for invalid input.
+It does not dispatch models, authenticate reviewer judgments, claim statistical
+significance or replace sealed runtime preflight/`tc` QA. Copy the JSON plan and
+observation contract from the [adoption guide](../../docs/30-operations/08-evidence-and-adoption.md).

@@ -384,3 +384,38 @@ def eval_default(
 
     # No agent and no subcommand — show help
     typer.echo(ctx.get_help())
+
+
+@eval_app.command("adoption-freeze")
+def adoption_freeze(
+    plan: Path = typer.Argument(..., help="Pilot plan JSON; brief/rubric paths resolve from its directory."),
+    output: Path = typer.Option(..., "--output", help="New frozen receipt path; refuses overwrite."),
+) -> None:
+    """Freeze held-out inputs, pinned controls and adoption thresholds."""
+    from cc.core.evaluation.adoption import freeze_adoption_plan
+    try:
+        if output.parent.resolve() != plan.parent.resolve():
+            raise ValueError("Keep the frozen receipt in the plan directory")
+        result = freeze_adoption_plan(json.loads(plan.read_text()), plan.parent)
+        with output.open("x") as stream:
+            stream.write(json.dumps(result, indent=2) + "\n")
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        err_console.print(f"Cannot freeze pilot: {exc}")
+        raise typer.Exit(2) from exc
+    typer.echo(json.dumps({"path": str(output), "freeze_sha256": result["freeze_sha256"]}))
+
+
+@eval_app.command("adoption-check")
+def adoption_check(
+    frozen: Path = typer.Argument(..., help="Frozen receipt JSON, located in the pilot directory."),
+    observations: Path = typer.Argument(..., help="JSON array of reviewed trial observations."),
+) -> None:
+    """Apply frozen gates to benchmark observations; no runtime dispatch."""
+    from cc.core.evaluation.adoption import check_adoption
+    try:
+        result = check_adoption(json.loads(frozen.read_text()), json.loads(observations.read_text()), frozen.parent)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        err_console.print(f"Invalid pilot evidence: {exc}")
+        raise typer.Exit(2) from exc
+    typer.echo(json.dumps(result))
+    raise typer.Exit(0 if result["decision"] == "pilot-signal-supports-adoption" else 1)

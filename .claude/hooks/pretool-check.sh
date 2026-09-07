@@ -475,6 +475,7 @@ QA_GATE_SAFE_PREFIXES=(
   "tc task list"
   "tc task create"
   "tc task update"
+  "tc task check-qa"
   "tc wp get"
   "tc wp list"
   "tc wp store"

@@ -120,6 +120,36 @@ def create_task(
         except (TypeError, ValueError) as exc:
             raise ValidationError(f"metadata is not JSON-serialisable: {exc}") from exc
 
+    # Defect 3 (wp-a-evidence.md section 3.4): "requiresQa is opt-in and
+    # unenforced at creation... B should decide whether the flag is set by
+    # policy at creation for implementation-type tasks."
+    #
+    # DECISION (documented, not left silently opt-in): requiresQa remains
+    # an explicit, caller-set flag; it is deliberately NOT auto-defaulted
+    # from `agent` (or any other field) at creation time.
+    #
+    # This was evaluated and rejected, not overlooked. An agent="me"-based
+    # default was implemented and then reverted because it broke three
+    # existing, protected tests that pin the current contract -- an
+    # agent="me" task with no metadata completes immediately with no QA
+    # evidence required:
+    #   tools/tc/tests/test_log.py::TestLog::test_log_after_completion
+    #   tools/tc/tests/test_task.py::TestTaskUpdate::test_update_completed_logs_action
+    #   tools/tc/tests/test_services_c.py::test_update_task_completion_logs_action
+    # Per the test-integrity rule these are read-only; a heuristic keyed on
+    # `agent` cannot avoid firing on exactly the tasks those tests use, so
+    # no field-based default can be added without either breaking them or
+    # narrowing the trigger to the point of not doing anything.
+    #
+    # The gate this module enforces (see `update_task` below) already reads
+    # `metadata.requiresQa` and treats it as authoritative once set, so
+    # opting a task in is one `--metadata '{"requiresQa": true}'` away.
+    # Making that the default for implementation work is a real, separate
+    # decision -- e.g. a dedicated `tc task create --requires-qa` flag
+    # (default False, so it never collides with existing untyped `agent`
+    # semantics), or a PRD-level policy -- left for a follow-up task rather
+    # than smuggled into this predicate change.
+
     owns_conn = conn is None
     if owns_conn:
         resolved = _require_db_path(db_path)
@@ -312,9 +342,39 @@ def update_task(
         conn = _open_conn(resolved)
 
     try:
+        # Defect 7 (wp-a-evidence.md section 3.4, TOCTOU): the completion
+        # gate below reads the current row, decides whether QA evidence is
+        # sufficient, and only then writes `status='completed'`. That
+        # read-then-write must be one atomic unit regardless of whether
+        # this call owns its connection -- a caller batching through
+        # `tc.api.transaction` must get the same write lock a standalone
+        # call gets, not just the QA check. `BEGIN IMMEDIATE` is a no-op
+        # error if a transaction is already open on this connection (e.g.
+        # a prior statement in the same `transaction()` batch already
+        # started one), so it is guarded on `conn.in_transaction`.
+        if not conn.in_transaction:
+            conn.execute("BEGIN IMMEDIATE")
+
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         if row is None:
             raise TaskNotFound(f"task #{task_id} not found")
+
+        # QA completion gate. Only engages when the task is transitioning
+        # to (or already is) 'completed' AND requiresQa is set -- either
+        # already on the row, or being set in this same call. The OR
+        # against `effective_metadata` closes the "set requiresQa=False in
+        # the same call that completes the task" bypass: a caller cannot
+        # downgrade the flag and complete in one step.
+        from tc.services.qa import check_task_qa, task_metadata
+
+        existing_metadata = task_metadata(row["metadata"])
+        effective_metadata = {**existing_metadata, **task_metadata(new_metadata)}
+        if (status or row["status"]) == "completed" and (
+            existing_metadata.get("requiresQa") or effective_metadata.get("requiresQa")
+        ):
+            qa = check_task_qa(task_id=task_id, conn=conn)
+            if not qa["approved"]:
+                raise ValidationError(f"QA gate: {qa['reason']} (task #{task_id})")
 
         updates = []
         params = []

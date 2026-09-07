@@ -167,6 +167,39 @@ def task_update(
             print(f"Updated task #{row['id']}: {row['title']} [{row['status']}]")
 
 
+@task_app.command("check-qa")
+def task_check_qa(
+    task_id: int = typer.Argument(..., help="Task ID."),
+    json: bool = typer.Option(False, "--json", help="Output as JSON."),
+) -> None:
+    """Check task-bound QA evidence using the completion predicate.
+
+    Read-only inspector: reports what `tc task update --status completed`
+    would decide for this task right now, without changing anything. Exits
+    1 when the evidence does not currently support approval.
+    """
+    from tc.services.qa import check_task_qa as _check_task_qa
+
+    db_path = require_db()
+    try:
+        result = _check_task_qa(task_id=task_id, db_path=db_path)
+    except TaskNotFound:
+        if json:
+            output_error_json(f"Task #{task_id} not found", EXIT_NOT_FOUND)
+        error_exit(f"Task #{task_id} not found", EXIT_NOT_FOUND)
+    except ValidationError as exc:
+        if json:
+            output_error_json(str(exc), EXIT_VALIDATION)
+        error_exit(str(exc), EXIT_VALIDATION)
+
+    if json:
+        output_json(result)
+    else:
+        print(result["reason"])
+    if not result["approved"]:
+        raise typer.Exit(1)
+
+
 @task_app.command("claim")
 def task_claim(
     task_id: int = typer.Argument(..., help="Task ID."),

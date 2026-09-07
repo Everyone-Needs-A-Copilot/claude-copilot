@@ -49,6 +49,14 @@ from tc.services.content_guard import (
 # gate). See docs/70-reference/06-wp-type-allowlist.md for the full
 # per-value evidence trail.
 #
+# `context` (PRD-4 task C6) was added after the shipped optional-context
+# instruction (.claude/agents/_shared/optional-context.md and its six
+# byte-identical embeds) instructed `tc wp store --type context ...` for a
+# context-selection receipt — a distinct kind of work product from
+# `specification`, `test`, or any `implementation*` type, and deliberately
+# absent from `IMPLEMENTATION_TYPES` in tc.services.qa so it can never be
+# mistaken for implementation evidence by the QA staleness check.
+#
 # Excluded as junk/probe artifacts, not organic type usage: `bogus`,
 # `badtype`, `ZZZ`, `INVALID`. These showed up (in research-copilot,
 # convoco, and copilot-control-tower) as literal probe words from agents
@@ -69,6 +77,7 @@ WP_VALID_TYPES = frozenset(
         "audit",
         "bugfix",
         "code",
+        "context",
         "decision",
         "deliverable",
         "deploy",

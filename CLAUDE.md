@@ -132,6 +132,25 @@ Skills auto-fire based on their trigger-rich `description` field — native Clau
 
 **Inspect:** `cc skill get <name>`, `cc skill list`
 
+For additional optional context, `cc skill select "<topic>" --required <skill>
+--max-chars 12000 --json` returns source/selection receipts and an explicit character
+budget. Keep the receipt once in the task work product and avoid repeated loads;
+repository/system constraints always apply outside relevance selection. Character
+counts are not tokens, and a receipt records selection, never proof of consumption.
+Full contract, embedded byte-for-byte in `.claude/agents/{ta,me,qa}.md`, `.claude/commands/protocol.md`,
+`templates/CLAUDE.template.md`, and the Codex shared-behaviors reference:
+`.claude/agents/_shared/optional-context.md`. Four visible fallbacks apply, one
+named at a time: `cc` unavailable or non-zero exit (proceed on repository
+instructions and prior memory only); a `--required` skill not found, exit 2
+(state the missing name, never substitute a similar skill, and proceed without it
+or emit `<promise>BLOCKED</promise>` if the task cannot continue); no optional
+skill matched, `selected: []` (proceed on repository instructions; do not widen
+the query to manufacture a match); no knowledge repos configured,
+`CC_KNOWLEDGE_REPOS` empty (optional context limited to project and machine
+skills; never block). `cc doctor --runtime-details --json` distinguishes project
+installation from unobserved runtime trust/dispatch; direct hook probes are explicit
+via `--exercise-runtime` and do not prove lifecycle enforcement.
+
 **Location:** `tools/cc/`
 
 ### 4. Task Copilot
