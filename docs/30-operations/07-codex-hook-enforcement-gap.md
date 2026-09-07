@@ -6,6 +6,25 @@
 **Date:** 2026-09-07
 **Component:** Codex integration — `.codex/hooks.json`, `plugins/codex-copilot/hooks/`
 
+## Follow-up — 2026-09-07
+
+Revised Option C was accepted: shared policy with native Codex adapters, excluding
+forced delegation and retaining task-bound QA evidence. Work is tracked in
+knowledge-copilot-internal PRD-2 / TASK-2–5. Candidate changes are isolated and
+have not activated enforcement in this project.
+
+The installed Codex 0.153.4 app-server reports this project's config layer as
+disabled for lack of project trust, with no discovered hooks. This is an
+additional observed activation gap. July state-file timestamps establish stale
+state, not the exact final hook execution or the original failure cause. Codex
+already has an explicit QA inspection script; the missing automatic interception
+must be distinguished from absence of all QA checks.
+
+Both a generic harmless deny hook and the new shared-policy adapter passed an
+isolated CLI execution canary. The candidate shared evaluator defaults to blocking
+destructive-command matches; the existing Claude rules still warn. These results
+do not prove current desktop or consuming-project enforcement.
+
 ---
 
 ## Summary
