@@ -130,6 +130,17 @@ Reference-mode pages for quick lookup.
 
 ---
 
+## 80 — Initiatives
+
+Multi-phase bodies of work with their own phases, decisions, and retrospectives. This is the live location; `docs/40-initiatives/` holds only the template and is retained for reference, since `40` is already the Extensions namespace in this index.
+
+| File | Description |
+|------|-------------|
+| `80-initiatives/01-ecosystem-extensions/` | Ecosystem extensions initiative |
+| `80-initiatives/02-component-sync/` | Component sync initiative, including its per-initiative ADRs under `decisions/` |
+
+---
+
 ## Schemas
 
 JSON schemas for knowledge repository manifest and example files.

@@ -7,7 +7,7 @@
 
 An initiative is a multi-phase body of work with a defined goal, explicit decisions, and evidence-bound exit criteria. It is larger than a task or a single feature spec and is expected to survive multiple sessions.
 
-Formal initiative documentation lives only in `docs/40-initiatives/NN-slug/`.
+Formal initiative documentation lives only in `docs/80-initiatives/NN-slug/`. That is the live location, and the directory contract below describes it. This directory retains the `_template/` only; `40` is already the Extensions namespace in `docs/README.md`, which is why initiatives moved to `80`.
 
 ## Current Initiatives
 
@@ -17,9 +17,7 @@ Formal initiative documentation lives only in `docs/40-initiatives/NN-slug/`.
 ## Directory Contract
 
 ```text
-docs/40-initiatives/
-  README.md
-  _template/
+docs/80-initiatives/
   NN-slug/
     README.md
     phases/
