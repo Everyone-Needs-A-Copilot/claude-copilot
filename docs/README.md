@@ -63,6 +63,7 @@ How-to pages for day-to-day and advanced operational use.
 | `30-operations/04-token-efficiency-playbook.md` | Patterns for keeping main-session token budgets lean |
 | `30-operations/05-deploy-and-verify.md` | Deployment and infrastructure agent workflows |
 | `30-operations/06-skills-authoring-guide.md` | How to write and publish a `cc skill` — metadata, triggers, SKILL.md format |
+| `30-operations/07-codex-hook-enforcement-gap.md` | Open: framework hooks have not run under Codex since July — evidence, coverage gap, and remediation options |
 
 ---
 
