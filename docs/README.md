@@ -35,6 +35,7 @@ Explanation-mode pages on how and why the framework is structured.
 | `10-architecture/03-decision-guide.md` | When to use which agent, command, or tool |
 | `10-architecture/04-framework-restructure-2026-04.md` | ADR-001: April 2026 restructure — MCP → CLI migration rationale |
 | `10-architecture/05-adr-004-html-output-format.md` | ADR-004: HTML as a work-product output format — token-free side artifact, template auto-detection, attribution |
+| `10-architecture/06-adr-005-force-delegate-cost-budget.md` | ADR-005: Meter force-delegate on cost, not repetition — byte and file budget, FF9 vocabulary reuse |
 
 ---
 
