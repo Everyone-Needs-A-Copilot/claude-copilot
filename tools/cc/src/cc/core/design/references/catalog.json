@@ -1,0 +1,23 @@
+{
+  "shape": {"role": "sd/uxd", "purpose": "Define the surface's job, intent, states and acceptance", "reference": "shape.md"},
+  "system": {"role": "uids/ta", "purpose": "Trace product and visual authority to existing sources", "reference": "system.md"},
+  "typeset": {"role": "uids/uid", "purpose": "Make typography support reading and task priority", "reference": "visual.md"},
+  "layout": {"role": "uids/uid", "purpose": "Organize hierarchy, density and responsive composition", "reference": "visual.md"},
+  "colorize": {"role": "uids/uid", "purpose": "Use semantic color with verified contrast", "reference": "visual.md"},
+  "bolder": {"role": "uids", "purpose": "Increase deliberate emphasis where the brief warrants it", "reference": "expression.md"},
+  "quieter": {"role": "uids", "purpose": "Reduce visual competition without removing useful cues", "reference": "expression.md"},
+  "distill": {"role": "uxd/uids", "purpose": "Remove unnecessary complexity while preserving the task", "reference": "expression.md"},
+  "animate": {"role": "uids/uid", "purpose": "Use purposeful motion and reduced-motion alternatives", "reference": "motion.md"},
+  "delight": {"role": "uxd/uids", "purpose": "Add helpful feedback and product-specific personality", "reference": "motion.md"},
+  "onboard": {"role": "sd/uxd", "purpose": "Design first use, empty states and return journeys", "reference": "interaction.md"},
+  "clarify": {"role": "uxd/doc", "purpose": "Improve action labels, recovery and evidence-backed copy", "reference": "copy.md"},
+  "harden": {"role": "uid/me/qa", "purpose": "Cover data, permission, localization and failure boundaries", "reference": "hardening.md"},
+  "adapt": {"role": "uxd/uid", "purpose": "Preserve the task across viewports and input methods", "reference": "hardening.md"},
+  "optimize": {"role": "uid/me", "purpose": "Measure interaction and rendering costs before changing them", "reference": "performance.md"},
+  "extract": {"role": "uids/ta/me", "purpose": "Extract repeated tokens and components with verified callers", "reference": "system.md"},
+  "critique": {"role": "uids/qa", "purpose": "Record design judgment before detector findings", "reference": "critique.md"},
+  "audit": {"role": "qa", "purpose": "Verify required behavior with contextualized detector evidence", "reference": "evidence.md"},
+  "polish": {"role": "uid/qa", "purpose": "Close specific fidelity and state gaps in bounded passes", "reference": "evidence.md"},
+  "compare": {"role": "uids/qa", "purpose": "Inspect comparable baseline and candidate captures", "reference": "iteration.md"},
+  "live": {"role": "uid/qa", "purpose": "Run optional local visual iteration with explicit scope and recovery", "reference": "iteration.md"}
+}

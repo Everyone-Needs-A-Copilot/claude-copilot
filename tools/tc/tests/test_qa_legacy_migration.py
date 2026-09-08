@@ -9,6 +9,7 @@ regress against.
 from __future__ import annotations
 
 from tc import api
+from .qa_fixtures import bind_packet
 from tc.services.qa import check_task_qa
 
 LEGACY_PASS = "ARTIFACT: test-run|pytest exit=0\nVERDICT: APPROVED\n"
@@ -97,11 +98,11 @@ def test_legacy_task_can_still_be_upgraded_with_new_style_evidence(db_path):
         task_id=task["id"],
         type_="test",
         title="Current-style QA",
-        content=(
+        content=bind_packet(task, db_path, (
             "CRITERION: c\nEXPECTED: e\nOBSERVED: o\nIDENTITY: rev-xyz, clean\n"
             "BASELINE: unavailable, fresh fixture\nARTIFACT: test-run|pytest exit=0\n"
             "UNTESTED: none\nVERDICT: APPROVED\n"
-        ),
+        )),
         db_path=db_path,
     )
     result = check_task_qa(task_id=task["id"], db_path=db_path)
@@ -116,11 +117,11 @@ def test_current_packet_evidence_is_not_flagged_legacy(db_path):
         task_id=task["id"],
         type_="test",
         title="Current QA",
-        content=(
+        content=bind_packet(task, db_path, (
             "CRITERION: c\nEXPECTED: e\nOBSERVED: o\nIDENTITY: rev-xyz\n"
             "BASELINE: unavailable, fresh fixture\nARTIFACT: test-run|pytest exit=0\n"
             "UNTESTED: none\nVERDICT: APPROVED\n"
-        ),
+        )),
         db_path=db_path,
     )
     result = check_task_qa(task_id=task["id"], db_path=db_path)

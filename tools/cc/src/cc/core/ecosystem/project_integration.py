@@ -92,15 +92,9 @@ _MANAGED_OUTPUT_TARGET_KINDS = {
 }
 
 _CLAUDE_RELEVANT_PATHS = (
+    ".claude/commands",
     "CLAUDE.md",
     ".mcp.json",
-    ".claude/commands/protocol.md",
-    ".claude/commands/continue.md",
-    ".claude/commands/pause.md",
-    ".claude/commands/map.md",
-    ".claude/commands/memory.md",
-    ".claude/commands/extensions.md",
-    ".claude/commands/orchestrate.md",
     ".claude/fitness-check.sh",
     ".claude/hooks/copilot-hook.sh",
     ".claude/settings.json",
@@ -123,13 +117,6 @@ _CODEX_RELEVANT_PATHS = (
 _CLAUDE_ACTION_TARGETS = (
     "CLAUDE.md",
     ".mcp.json",
-    ".claude/commands/protocol.md",
-    ".claude/commands/continue.md",
-    ".claude/commands/pause.md",
-    ".claude/commands/map.md",
-    ".claude/commands/memory.md",
-    ".claude/commands/extensions.md",
-    ".claude/commands/orchestrate.md",
     ".claude/fitness-check.sh",
     ".claude/hooks/copilot-hook.sh",
     ".claude/settings.json",
@@ -1246,6 +1233,8 @@ def _missing_action_targets(
     source_files: dict[str, Path],
 ) -> list[str]:
     targets = _CLAUDE_ACTION_TARGETS if component == "claude" else _CODEX_ACTION_TARGETS
+    if component == "claude":
+        targets = (*targets, *sorted(p for p in source_files if p.startswith(".claude/commands/")))
     missing = [path for path in targets if not (root / path).exists()]
     if component == "claude":
         if (

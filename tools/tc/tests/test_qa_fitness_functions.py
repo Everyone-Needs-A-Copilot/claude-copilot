@@ -29,6 +29,7 @@ from pathlib import Path
 import pytest
 
 from tc import api
+from .qa_fixtures import bind_packet
 from tc.evidence.artifact_types import ARTIFACT_TYPES
 from tc.services.qa import check_task_qa
 
@@ -98,7 +99,7 @@ def test_ff2_api_and_cli_check_task_qa_identical_output(db_path, cli, has_eviden
 
     task = api.create_task(title="FF2", metadata={"requiresQa": True}, db_path=db_path)
     if has_evidence:
-        api.store_wp(task_id=task["id"], type_="test", title="QA", content=PASS, db_path=db_path)
+        api.store_wp(task_id=task["id"], type_="test", title="QA", content=bind_packet(task, db_path, PASS), db_path=db_path)
 
     api_result = check_task_qa(task_id=task["id"], db_path=db_path)
     assert qa_module.__file__.startswith(str(TC_SRC)), (

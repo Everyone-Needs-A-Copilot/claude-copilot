@@ -545,6 +545,9 @@ __all__ = [
     # skill ops
     "skill_get",
     "skill_select",
+    "design_context",
+    "design_guide",
+    "design_audit",
     "skill_search",
     # docs ops
     "docs_resolve",
@@ -558,3 +561,21 @@ def skill_select(query: str = "", *, required: tuple[str, ...] = (), max_chars: 
     from cc.core.skill_store import default_skill_paths, discover_skills_with_sources, select_skill_context
 
     return select_skill_context(query, discover_skills_with_sources(default_skill_paths()), required=required, max_chars=max_chars)
+
+
+def design_context(project: Path, contract: str, *, action: str = "shape", max_chars: int = 12000) -> dict[str, Any]:
+    """Same source-bound selection contract as ``cc design context``."""
+    from cc.core.design.contracts import context
+    return context(project, contract, action=action, max_chars=max_chars)
+
+
+def design_guide(action: Optional[str] = None) -> dict[str, Any]:
+    """List or load a focused, packaged design playbook."""
+    from cc.core.design.contracts import guide
+    return guide(action)
+
+
+def design_audit(project: Path, targets: list[str], *, timeout: int = 20) -> dict[str, Any]:
+    """Run the same pinned local detector as the CLI; never grants QA approval."""
+    from cc.core.design.tools import audit
+    return audit(project, targets, timeout=timeout)

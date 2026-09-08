@@ -359,6 +359,14 @@ def update_task(
         if row is None:
             raise TaskNotFound(f"task #{task_id} not found")
 
+        if status == "completed":
+            unmet = conn.execute(
+                "SELECT d.depends_on FROM task_dependencies d JOIN tasks t ON t.id = d.depends_on "
+                "WHERE d.task_id = ? AND t.status != 'completed'", (task_id,),
+            ).fetchall()
+            if unmet:
+                raise ValidationError("Incomplete task dependencies: " + ", ".join(str(r[0]) for r in unmet))
+
         # QA completion gate. Only engages when the task is transitioning
         # to (or already is) 'completed' AND requiresQa is set -- either
         # already on the row, or being set in this same call. The OR
@@ -369,10 +377,21 @@ def update_task(
 
         existing_metadata = task_metadata(row["metadata"])
         effective_metadata = {**existing_metadata, **task_metadata(new_metadata)}
+        if existing_metadata.get("requiresQa") and not effective_metadata.get("requiresQa"):
+            raise ValidationError("QA gate: requiresQa cannot be downgraded after registration")
+        if "acceptanceContract" in effective_metadata:
+            from tc.services.qa_contract import validate_contract
+            validate_contract(effective_metadata["acceptanceContract"])
         if (status or row["status"]) == "completed" and (
             existing_metadata.get("requiresQa") or effective_metadata.get("requiresQa")
         ):
-            qa = check_task_qa(task_id=task_id, conn=conn)
+            candidate = dict(row)
+            candidate["metadata"] = effective_metadata
+            if title is not None:
+                candidate["title"] = title
+            if description is not None:
+                candidate["description"] = description
+            qa = check_task_qa(task_id=task_id, conn=conn, task_override=candidate)
             if not qa["approved"]:
                 raise ValidationError(f"QA gate: {qa['reason']} (task #{task_id})")
 

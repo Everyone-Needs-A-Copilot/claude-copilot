@@ -122,14 +122,22 @@ def inspect_canonical_prerequisites(
             break
 
     tc_path = which("tc")
-    ready = cc_path is not None and tc_path is not None
+    tc_verified = False
+    if tc_path:
+        try:
+            probe = run((str(tc_path), "provenance", "--json"), capture_output=True, text=True, timeout=20, check=False)
+            receipt = json.loads(probe.stdout)
+            tc_verified = probe.returncode == 0 and receipt.get("verified") is True and {"contract", "evidence-identity", "check-qa"} <= set(receipt.get("capabilities", []))
+        except (OSError, subprocess.SubprocessError, ValueError, TypeError, AttributeError):
+            pass
+    ready = cc_path is not None and tc_verified
     return {
         "ready": ready,
         "cc": {
             "state": "ready" if cc_path else "missing-or-wrong-program",
             "path": cc_path,
         },
-        "tc": {"state": "ready" if tc_path else "missing", "path": tc_path},
+        "tc": {"state": "ready" if tc_verified else ("unverified" if tc_path else "missing"), "path": tc_path},
         "responsible_actor": "none" if ready else "person",
         "next_action": (
             "Continue with the canonical project transaction."

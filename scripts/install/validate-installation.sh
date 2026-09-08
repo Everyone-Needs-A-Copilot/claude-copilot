@@ -88,22 +88,22 @@ validate_agents() {
 
   echo "Validating agents..."
 
-  # Expected agents
-  local expected_agents=(
-    "me.md"
-    "ta.md"
-    "qa.md"
-    "sec.md"
-    "doc.md"
-    "do.md"
-    "sd.md"
-    "uxd.md"
-    "uids.md"
-    "uid.md"
-    "cw.md"
-    "cco.md"
-    "kc.md"
-  )
+  # Read the same authoritative roster used by project reconciliation.
+  local roster_output
+  if ! roster_output=$(PYTHONPATH="$PROJECT_ROOT/tools/cc/src" python3 - "$PROJECT_ROOT" "agents" <<'PYROSTER'
+import sys
+from pathlib import Path
+from cc.core.ecosystem.canonical_transaction import claude_reference_roster
+commands, agents = claude_reference_roster(Path(sys.argv[1]))
+print("\n".join(commands if sys.argv[2] == "commands" else (a + ".md" for a in agents)))
+PYROSTER
+  ); then
+    validation_results[agents]="incomplete"
+    validation_errors+=("Unable to verify authoritative agents roster")
+    return 1
+  fi
+  local expected_agents=()
+  while IFS= read -r entry; do expected_agents+=("$entry"); done <<< "$roster_output"
 
   for agent in "${expected_agents[@]}"; do
     if [ ! -f "$agents_dir/$agent" ]; then
@@ -128,15 +128,22 @@ validate_commands() {
 
   echo "Validating commands..."
 
-  # Expected commands
-  local expected_commands=(
-    "protocol.md"
-    "continue.md"
-    "pause.md"
-    "map.md"
-    "memory.md"
-    "orchestrate.md"
-  )
+  # Read the same authoritative roster used by project reconciliation.
+  local roster_output
+  if ! roster_output=$(PYTHONPATH="$PROJECT_ROOT/tools/cc/src" python3 - "$PROJECT_ROOT" "commands" <<'PYROSTER'
+import sys
+from pathlib import Path
+from cc.core.ecosystem.canonical_transaction import claude_reference_roster
+commands, agents = claude_reference_roster(Path(sys.argv[1]))
+print("\n".join(commands if sys.argv[2] == "commands" else (a + ".md" for a in agents)))
+PYROSTER
+  ); then
+    validation_results[commands]="incomplete"
+    validation_errors+=("Unable to verify authoritative commands roster")
+    return 1
+  fi
+  local expected_commands=()
+  while IFS= read -r entry; do expected_commands+=("$entry"); done <<< "$roster_output"
 
   for cmd in "${expected_commands[@]}"; do
     if [ ! -f "$commands_dir/$cmd" ]; then

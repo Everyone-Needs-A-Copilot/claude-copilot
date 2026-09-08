@@ -1,4 +1,8 @@
+> **Combined hardening candidate, 2026-09-08:** cc 2.13.0 / tc 2.0.0 supersede the earlier local versions below. Pending QA work now requires a registered acceptance contract and fresh content identity. Claude PRD-4 TASK-46 verifies the actual candidate; TASK-47 verifies its signed release, and propagation depends on it. Historical preparation is not release evidence.
+
 # Release preparation: framework 5.15.0
+
+> **Design-quality extension, 2026-09-07:** subsequent authorized CSE PRD-11 work adds `cc design` and native guidance, with cc **2.12.16**. This preparation record describes the earlier candidate; its cc-unchanged statement and any source-bound validation must not be reused for the extended candidate. Rebuild and revalidate the final source before signing. The existing tc/QA rollout remains preserved. Its canonical tc 1.4.0 source and local CLI were subsequently verified and activated under CSE PRD-11; the earlier source-version gap below is historical. Signing and release validation remain outstanding.
 
 Prepared 2026-09-07 under `tc` PRD-4 (Claude Copilot's own rollout database) task E1, upstream codex-copilot PRD-9/TASK-16. This document records the candidate this repository is preparing for release, the three proofs the owner's own release script requires, the exact commands the owner runs to cut and sign the release, and what must be re-run if candidate content changes before that signature happens. It authorizes nothing by itself: no tag, no signature, no push, no install has occurred as a result of preparing this document.
 

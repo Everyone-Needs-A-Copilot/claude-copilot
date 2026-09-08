@@ -93,3 +93,74 @@ Task: TASK-123 | WP: WP-456
 ARTIFACT: test-run|pytest tests/test_auth.py exit=0 "3 passed"
 VERDICT: APPROVED
 ```
+
+## Delivery Evidence
+
+Define observable acceptance criteria before editing. For each required criterion,
+record the input/state, expected result, observed result, a local artifact or
+failable command, and the tested identity: repository/worktree, revision plus dirty
+changes, runtime/configuration, and relevant server/process/data-store identity.
+Capture the failing or old behavior during reproduction when possible; otherwise
+name the missing baseline. UI comparisons use comparable viewport, data and state.
+
+Keep this compact packet in the task-bound QA work product:
+
+```text
+CRITERION: <required behavior and input/state>
+EXPECTED: <observable outcome>
+OBSERVED: <actual outcome, including persisted effect when relevant>
+IDENTITY: <checkout/revision + dirty fingerprint; runtime/config/server/data>
+BASELINE: <before artifact and identity, or unavailable + reason>
+ARTIFACT: <accepted type>|<local artifact or failable command + exit/result>
+UNTESTED: <required cases not exercised, or none>
+VERDICT: <supported QA verdict>
+```
+
+Artifact existence, playable media and build success do not establish behavioral
+correctness. A stale artifact, wrong test environment, failed criterion or untested
+required case cannot support approval; rerun against the intended identity or
+reject with the gap. Use the smallest artifact that proves the criterion, including
+non-UI command/output evidence. Keep capture local; uploads, review triggers,
+comments and publication require authority for that destination/action.
+
+<!-- cse-design-quality:start -->
+## Design Quality Contract
+
+Use `critique`, `audit` and `compare`: inspect the rendered product and task behavior, record initial design judgment before viewing detector output, and verify every required criterion against relevant artifacts. Check `tc task get <id> --json` in the named project; the design command validates a task reference, not database membership. Reject unresolved required criteria and stale evidence. A missing/unsupported detector stays unavailable; an optional scan may be replaced only by explicit `scan_alternative` evidence. Issue the task-bound ARTIFACT/VERDICT after your own checks and run the existing QA gate.
+
+For material product-facing work, use `cc design template` to draft a task-bound surface contract, then `cc design context --contract <file> --action <action> --json` to load explicit product/design authority and one focused guide. Inspect omitted authority before editing. Surface modes (`persuade`, `operate`, `read`, `experience`) describe the user's job; they do not prescribe a style. Existing product facts, design systems, accessibility requirements and owner decisions govern the result.
+
+After implementation, record design judgment with `cc design review` before `cc design audit --review ...`; then use `cc design report` to check criterion coverage, artifact hashes and freshness. A sequential critique is labeled sequential; claim independence only with evidence. Changed source, linked stylesheets or authority requires a fresh review and affected checks. Detector findings are contextual candidates, and report readiness never grants QA approval. Keep task execution and the final evidence-bound verdict in `tc`.
+
+Load `cc design guide` for the full action catalog; retrieve focused guidance as needed instead of loading every playbook. `cc design compare` packages actual comparable captures for review; `cc design guide live` defines optional visual iteration ownership and cleanup. Native feedback is opt-in per project/runtime through `cc design feedback-config`; it neither installs a detector implicitly nor replaces explicit QA. See `cc design guide audit` for verification JSON and fallback rules.
+<!-- cse-design-quality:end -->
+
+For optional context selection, apply the full contract in `../specialist-agents/references/shared-behaviors.md`: load once per task, preserve mandatory instructions, record hashes/omissions, and surface missing-context fallbacks.
+
+<!-- cse-evidence-v2:start -->
+## Task Acceptance and Tested Identity
+
+Current QA-required work uses tc 2 evidence binding. Before implementation,
+register a JSON acceptance contract with `tc task contract <id> --file <path>`:
+`schemaVersion: 2`, `criteria: [{id, expected}]`, and explicit project-relative
+`sources` files/directories covering implementation, dependencies and relevant
+configuration. Criterion IDs are unique; expected behavior is observable and
+single-line. Keep generated review outputs outside source scopes.
+
+Before running verification, capture `tc task evidence-identity <id>` and retain
+its exact `IDENTITY:` line in the task work product. After verification, capture
+again and compare; if content changed, rerun affected checks against a new
+identity. Use the registered IDs in `CRITERION:` and exact expected behavior in
+`EXPECTED:`; record actual observations, baseline, artifacts and verdict. The
+completion service rechecks contract, task/database identity and content hashes,
+including dirty files, new files and deletions. It also enforces unfinished task
+dependencies. Do not downgrade requiresQa or replace source evidence with prose.
+
+A v1 packet for pending work must be migrated with a registered contract and
+fresh verification. Historical completed records remain readable and explicitly
+historical; they are not current strict QA evidence. cc design review/report
+checks the named database's acceptance contract and source coverage; detector or
+report readiness still never grants task approval. CLI/API and native adapters
+share the same tc authority. Missing current capabilities require a verified tc
+installation; legacy artifact inspection is not a current completion proof.
+<!-- cse-evidence-v2:end -->

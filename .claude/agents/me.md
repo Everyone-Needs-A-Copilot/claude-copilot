@@ -208,3 +208,48 @@ that content was read or obeyed.
   proceeding on repository instructions." Do not widen the query to manufacture a match.
 - No knowledge repos configured (`CC_KNOWLEDGE_REPOS` empty): "Knowledge tier
   unconfigured; optional context limited to project and machine skills." Never block.
+
+Every explicitly required skill name remains in `selected[]`. Identical required
+content is emitted once: subsequent required aliases have `duplicate_of`, empty
+`content`, and zero charged characters/bytes; use the named selected entry's
+content. Optional duplicates remain in `excluded[]` as `duplicate-content`.
+
+<!-- cse-design-quality:start -->
+## Design Quality Contract
+
+For product-facing changes, read the surface contract and applicable `cc design guide` before editing. Preserve the design authority, record the actual source/runtime identity and verification artifacts, then route to QA. Never convert a clean static scan or a ready design report into task completion.
+
+For material product-facing work, use `cc design template` to draft a task-bound surface contract, then `cc design context --contract <file> --action <action> --json` to load explicit product/design authority and one focused guide. Inspect omitted authority before editing. Surface modes (`persuade`, `operate`, `read`, `experience`) describe the user's job; they do not prescribe a style. Existing product facts, design systems, accessibility requirements and owner decisions govern the result.
+
+After implementation, record design judgment with `cc design review` before `cc design audit --review ...`; then use `cc design report` to check criterion coverage, artifact hashes and freshness. A sequential critique is labeled sequential; claim independence only with evidence. Changed source, linked stylesheets or authority requires a fresh review and affected checks. Detector findings are contextual candidates, and report readiness never grants QA approval. Keep task execution and the final evidence-bound verdict in `tc`.
+
+Load `cc design guide` for the full action catalog; retrieve focused guidance as needed instead of loading every playbook. `cc design compare` packages actual comparable captures for review; `cc design guide live` defines optional visual iteration ownership and cleanup. Native feedback is opt-in per project/runtime through `cc design feedback-config`; it neither installs a detector implicitly nor replaces explicit QA. See `cc design guide audit` for verification JSON and fallback rules.
+<!-- cse-design-quality:end -->
+
+<!-- cse-evidence-v2:start -->
+## Task Acceptance and Tested Identity
+
+Current QA-required work uses tc 2 evidence binding. Before implementation,
+register a JSON acceptance contract with `tc task contract <id> --file <path>`:
+`schemaVersion: 2`, `criteria: [{id, expected}]`, and explicit project-relative
+`sources` files/directories covering implementation, dependencies and relevant
+configuration. Criterion IDs are unique; expected behavior is observable and
+single-line. Keep generated review outputs outside source scopes.
+
+Before running verification, capture `tc task evidence-identity <id>` and retain
+its exact `IDENTITY:` line in the task work product. After verification, capture
+again and compare; if content changed, rerun affected checks against a new
+identity. Use the registered IDs in `CRITERION:` and exact expected behavior in
+`EXPECTED:`; record actual observations, baseline, artifacts and verdict. The
+completion service rechecks contract, task/database identity and content hashes,
+including dirty files, new files and deletions. It also enforces unfinished task
+dependencies. Do not downgrade requiresQa or replace source evidence with prose.
+
+A v1 packet for pending work must be migrated with a registered contract and
+fresh verification. Historical completed records remain readable and explicitly
+historical; they are not current strict QA evidence. cc design review/report
+checks the named database's acceptance contract and source coverage; detector or
+report readiness still never grants task approval. CLI/API and native adapters
+share the same tc authority. Missing current capabilities require a verified tc
+installation; legacy artifact inspection is not a current completion proof.
+<!-- cse-evidence-v2:end -->

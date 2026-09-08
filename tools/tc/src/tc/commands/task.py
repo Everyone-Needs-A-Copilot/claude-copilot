@@ -310,3 +310,39 @@ def deps_remove(
         print(
             f"Removed dependency: task #{task_id} no longer depends on task #{depends_on}"
         )
+
+
+@task_app.command("contract")
+def task_contract(
+    task_id: int = typer.Argument(...),
+    file: str = typer.Option(..., "--file", help="JSON acceptance contract: schemaVersion=2, criteria, sources."),
+    json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Register observable acceptance criteria before implementation/QA."""
+    import json as json_module
+    from pathlib import Path
+    from tc.services.tasks import update_task
+    from tc.services.qa_contract import validate_contract
+    try:
+        path = Path(file)
+        if path.stat().st_size > 128 * 1024:
+            raise ValidationError("Acceptance contract exceeds size limit")
+        contract = validate_contract(json_module.loads(path.read_text()))
+        row = update_task(task_id=task_id, metadata={"requiresQa": True, "acceptanceContract": contract}, db_path=require_db())
+    except (OSError, ValueError, ValidationError, TaskNotFound) as exc:
+        error_exit(str(exc), EXIT_VALIDATION)
+    output_json(row) if json else print(f"Registered acceptance contract for task #{task_id}")
+
+
+@task_app.command("evidence-identity")
+def task_evidence_identity(
+    task_id: int = typer.Argument(...),
+    json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Capture task/source/runtime identity BEFORE running verification."""
+    from tc.services.qa_contract import capture_qa_identity
+    try:
+        receipt = capture_qa_identity(task_id=task_id, db_path=require_db())
+    except (OSError, ValidationError, TaskNotFound) as exc:
+        error_exit(str(exc), EXIT_VALIDATION)
+    output_json(receipt) if json else print(receipt["identity_line"])

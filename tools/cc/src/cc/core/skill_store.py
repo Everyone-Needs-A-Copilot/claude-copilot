@@ -645,7 +645,7 @@ def select_skill_context(
     tokens = sorted(set(query.lower().split()))
     optional = search_skills(query, skills) if tokens else []
     optional.sort(key=lambda s: (-sum(t in " ".join([s.name, s.description, *s.tags]).lower() for t in tokens), s.name.lower()))
-    selected, excluded, seen = [], [], set()
+    selected, excluded, seen = [], [], {}
     used = 0
     for skill in mandatory + [s for s in optional if s not in mandatory]:
         result = get_skill_content_with_receipt(skill)
@@ -653,7 +653,19 @@ def select_skill_context(
         is_required = skill in mandatory
         reason = "explicit-required" if is_required else "keyword-match"
         if digest in seen:
-            excluded.append({"name": skill.name, "reason": "duplicate-content", "source_sha256": digest})
+            if is_required:
+                # Required names remain visible; their bytes are emitted once.
+                original = seen[digest]
+                receipt = result.receipt.to_dict(include_content=False) if result.receipt is not None else None
+                item = {"name": skill.name, "source": skill.source, "source_revision": "sha256:" + digest,
+                        "selection_reason": "explicit-required-duplicate", "required": True,
+                        "characters": 0, "utf8_bytes": 0, "content": "", "receipt": receipt,
+                        "duplicate_of": original["name"]}
+                if receipt is None:
+                    item["path"] = str(skill.path)
+                selected.append(item)
+            else:
+                excluded.append({"name": skill.name, "reason": "duplicate-content", "source_sha256": digest})
             continue
         length = len(result.content)
         if not is_required and used + length > max_chars:
@@ -668,7 +680,7 @@ def select_skill_context(
             item["path"] = str(skill.path)
         selected.append(item)
         used += length
-        seen.add(digest)
+        seen[digest] = item
     return {"schema_version": "1.0", "query": query, "budget_unit": "characters",
             "max_chars": max_chars, "loaded_characters": used,
             "mandatory_over_budget": used > max_chars, "selected": selected,

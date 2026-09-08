@@ -63,3 +63,15 @@ Return:
 - `$qa` for visual, interaction, accessibility, and regression verification.
 - `$uids` when visual direction is insufficient.
 - `$uxd` when interaction behavior is unresolved.
+
+<!-- cse-design-quality:start -->
+## Design Quality Contract
+
+Use `adapt`, `harden`, `optimize`, `extract` and `polish`: implement the contracted states and real content, reuse existing tokens/components, inspect rendered desktop/narrow layouts and actual focus/error/reduced-motion behavior. Preserve a baseline, then provide source identities, screenshots and behavioral checks to QA; a static scan cannot certify rendered accessibility.
+
+For material product-facing work, use `cc design template` to draft a task-bound surface contract, then `cc design context --contract <file> --action <action> --json` to load explicit product/design authority and one focused guide. Inspect omitted authority before editing. Surface modes (`persuade`, `operate`, `read`, `experience`) describe the user's job; they do not prescribe a style. Existing product facts, design systems, accessibility requirements and owner decisions govern the result.
+
+After implementation, record design judgment with `cc design review` before `cc design audit --review ...`; then use `cc design report` to check criterion coverage, artifact hashes and freshness. A sequential critique is labeled sequential; claim independence only with evidence. Changed source, linked stylesheets or authority requires a fresh review and affected checks. Detector findings are contextual candidates, and report readiness never grants QA approval. Keep task execution and the final evidence-bound verdict in `tc`.
+
+Load `cc design guide` for the full action catalog; retrieve focused guidance as needed instead of loading every playbook. `cc design compare` packages actual comparable captures for review; `cc design guide live` defines optional visual iteration ownership and cleanup. Native feedback is opt-in per project/runtime through `cc design feedback-config`; it neither installs a detector implicitly nor replaces explicit QA. See `cc design guide audit` for verification JSON and fallback rules.
+<!-- cse-design-quality:end -->
