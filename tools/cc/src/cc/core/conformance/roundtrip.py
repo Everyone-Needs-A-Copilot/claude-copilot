@@ -22,8 +22,8 @@ job, per §2.4 point 6.
 per `TEST-MATRIX.md`'s own "Ground truth constants" section — not assumed
 from `RUBRIC.md`, which has two confirmed errors: `machineCommands` is 6 on
 this machine, not the 9 `RUBRIC.md` §D1 states, and the codex plugin tree is
-61 files under `plugins/codex-copilot/` + 1 (`scripts/copilot-gate.sh`
-outside it) = 62 locked paths total, not "62 files per project").
+65 files under `plugins/codex-copilot/` + 1 (`scripts/copilot-gate.sh`
+outside it) = 66 locked paths total, not "66 files per project").
 """
 
 from __future__ import annotations
@@ -69,7 +69,7 @@ CC_CONFIG_SENTINEL_VALUE = "@machine"
 # Verified 2026-08-10: `find plugins/codex-copilot -type f | wc -l` = 61 in
 # the real codex-copilot repo; `scripts/copilot-gate.sh` sits outside
 # `plugins/` and is the 62nd locked path (TEST-MATRIX.md "Rubric error #2").
-CODEX_PLUGIN_FILE_COUNT = 61
+CODEX_PLUGIN_FILE_COUNT = 65
 CODEX_LOCKED_PATH_COUNT = 62
 CODEX_SKILL_BRIDGE_RELATIVE = ".claude/skills/codex-copilot"
 CODEX_SKILL_BRIDGE_TARGET = "../../plugins/codex-copilot/skills"
