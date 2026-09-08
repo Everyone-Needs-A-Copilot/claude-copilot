@@ -64,6 +64,19 @@ _COMPONENT_TARGETS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "claude": (
             "CLAUDE.md",
             ".mcp.json",
+            # The individual `.claude/commands/*.md` entries below are kept
+            # for `allowed_targets_for_components()`'s informational listing
+            # of the currently known project commands. They are NOT load-
+            # bearing for `_validate_relative_target()`'s safety boundary --
+            # that boundary accepts any `.claude/commands/<name>.md` target
+            # structurally (see `nested_claude_command` below), the same way
+            # `.claude/agents/**` is accepted structurally rather than
+            # enumerated. `VERSION.json`'s `components.commands
+            # .projectCommands` (read via `claude_reference_roster()`) is the
+            # single source of truth for which commands actually get
+            # installed; this tuple must never again be the thing that gates
+            # whether a reviewed command roster addition can be planned (see
+            # `test_new_version_json_project_command_is_planned_without_static_allowlist_update`).
             ".claude/commands/protocol.md",
             ".claude/commands/continue.md",
             ".claude/commands/pause.md",
@@ -71,6 +84,7 @@ _COMPONENT_TARGETS: Mapping[str, tuple[str, ...]] = MappingProxyType(
             ".claude/commands/memory.md",
             ".claude/commands/extensions.md",
             ".claude/commands/orchestrate.md",
+            ".claude/commands/reflect.md",
             ".claude/fitness-check.sh",
             ".claude/hooks/copilot-hook.sh",
             ".claude/settings.json",
@@ -278,7 +292,27 @@ def _validate_relative_target(component: str, target: str) -> None:
         and len(pure.parts) >= 3
         and pure.parts[:2] == (".claude", "agents")
     )
-    if target not in _COMPONENT_TARGETS[component] and not nested_claude_agent:
+    # Mirrors `nested_claude_agent` above: rather than hand-enumerating every
+    # project command file (the exact roster VERSION.json's own
+    # `components.commands.projectCommands` already owns via
+    # `claude_reference_roster()`), any direct `.claude/commands/<name>.md`
+    # file is structurally in-bounds for the "claude" component. This is the
+    # fix for the class of bug where a reviewed VERSION.json command-roster
+    # addition (e.g. a new project command) was never mirrored into this
+    # static allowlist, which made `_claude_setup()` construct an operation
+    # this validator then rejected -- see
+    # `test_new_version_json_project_command_is_planned_without_static_allowlist_update`.
+    nested_claude_command = (
+        component == "claude"
+        and len(pure.parts) == 3
+        and pure.parts[:2] == (".claude", "commands")
+        and pure.parts[2].endswith(".md")
+    )
+    if (
+        target not in _COMPONENT_TARGETS[component]
+        and not nested_claude_agent
+        and not nested_claude_command
+    ):
         raise RecipeValidationError(
             f"Recipe target {target!r} is not allowlisted for {component}."
         )
