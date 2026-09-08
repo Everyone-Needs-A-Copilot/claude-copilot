@@ -108,6 +108,11 @@ that content was read or obeyed.
 - No knowledge repos configured (`CC_KNOWLEDGE_REPOS` empty): "Knowledge tier
   unconfigured; optional context limited to project and machine skills." Never block.
 
+Every explicitly required skill name remains in `selected[]`. Identical required
+content is emitted once: subsequent required aliases have `duplicate_of`, empty
+`content`, and zero charged characters/bytes; use the named selected entry's
+content. Optional duplicates remain in `excluded[]` as `duplicate-content`.
+
 ---
 
 ## Session Management
@@ -146,3 +151,31 @@ Full contract: `$CC_KNOWLEDGE_REPO/docs/00-knowledge-copilot/02-consumption-cont
 All plans, roadmaps, and task breakdowns MUST omit time estimates. Use phases, priorities, complexity ratings, and dependencies instead of dates or durations. See `~/.claude/copilot/CLAUDE.md` for full policy.
 
 {{PROJECT_RULES}}
+
+<!-- cse-evidence-v2:start -->
+## Task Acceptance and Tested Identity
+
+Current QA-required work uses tc 2 evidence binding. Before implementation,
+register a JSON acceptance contract with `tc task contract <id> --file <path>`:
+`schemaVersion: 2`, `criteria: [{id, expected}]`, and explicit project-relative
+`sources` files/directories covering implementation, dependencies and relevant
+configuration. Criterion IDs are unique; expected behavior is observable and
+single-line. Keep generated review outputs outside source scopes.
+
+Before running verification, capture `tc task evidence-identity <id>` and retain
+its exact `IDENTITY:` line in the task work product. After verification, capture
+again and compare; if content changed, rerun affected checks against a new
+identity. Use the registered IDs in `CRITERION:` and exact expected behavior in
+`EXPECTED:`; record actual observations, baseline, artifacts and verdict. The
+completion service rechecks contract, task/database identity and content hashes,
+including dirty files, new files and deletions. It also enforces unfinished task
+dependencies. Do not downgrade requiresQa or replace source evidence with prose.
+
+A v1 packet for pending work must be migrated with a registered contract and
+fresh verification. Historical completed records remain readable and explicitly
+historical; they are not current strict QA evidence. cc design review/report
+checks the named database's acceptance contract and source coverage; detector or
+report readiness still never grants task approval. CLI/API and native adapters
+share the same tc authority. Missing current capabilities require a verified tc
+installation; legacy artifact inspection is not a current completion proof.
+<!-- cse-evidence-v2:end -->

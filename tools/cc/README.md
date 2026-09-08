@@ -766,3 +766,17 @@ and exits 0 for a supportive pilot signal, 1 to keep baseline, or 2 for invalid 
 It does not dispatch models, authenticate reviewer judgments, claim statistical
 significance or replace sealed runtime preflight/`tc` QA. Copy the JSON plan and
 observation contract from the [adoption guide](../../docs/30-operations/08-evidence-and-adoption.md).
+
+<!-- cse-design-quality:start -->
+Design quality: `cc design guide`, explicit surface contracts, pinned static audits and evidence-bound review. See [the operating guide](../../docs/30-operations/10-design-quality.md).
+<!-- cse-design-quality:end -->
+
+### Combined evidence/design hardening
+
+Current `cc design review` and `report` require a registered tc acceptance contract
+in the named project database; design criteria and task criteria must agree, and
+task source scope must cover every design target/authority. See tools/tc/README.md
+for contract registration and pre-verification identity capture. Required duplicate
+skills retain selected names with `duplicate_of` while emitting their content once.
+Project readiness now verifies tc installation provenance and enforcement capability,
+not just command presence; use the reviewed installer to repair a missing receipt.

@@ -91,6 +91,7 @@ from cc.core.conformance.types import (
 )
 from cc.core.ecosystem.dimensions import DIMENSION_SEMANTICS
 from cc.core.ecosystem.manifest import load_layers, validate_layers
+from cc.core.ecosystem.mirror import mirror_content_root
 from cc.core.ecosystem.project_integration import (
     _CLAUDE_REQUIRED_LOCK_PATHS as _CLAUDE_REQUIRED_LOCK_PATHS_SOURCE,
 )
@@ -142,6 +143,26 @@ def _real_manifest_path(home: Path) -> Path:
     if manifest:
         return Path(manifest).expanduser()
     return home / ".config" / "copilot" / "copilot.layers.yml"
+
+
+def _real_mirror_root_base(home: Path) -> Path:
+    """Same resolution shape as `_real_manifest_path`/`_real_projects_roots`
+    (module docstring point 2 -- `Path.home()` + a direct read of the real
+    `~/.claude/cc/config.json`, never `resolve_key()`), applied to
+    `paths.mirrors_root`. A `@pytest.mark.machine` test's autouse fixture
+    redirects `CC_MACHINE_ROOT` to an empty `tmp_path`; a call through
+    `resolve_key()` here would silently resolve an empty machine's mirror
+    root instead of the real one, exactly the failure mode point 2 already
+    guards against for the manifest and project-roots paths. Falls back to
+    `mirror.py`'s own unconfigured default (`~/.copilot/mirrors`) when the
+    machine config has no override, so this can never silently disagree
+    with what a real `cc update`/`cc resolve --explain` resolved to."""
+
+    config = _real_machine_config(home)
+    configured = (config.get("paths") or {}).get("mirrors_root")
+    if configured:
+        return Path(configured).expanduser()
+    return home / ".copilot" / "mirrors"
 
 
 def _real_projects_roots(home: Path) -> tuple[Path, ...]:
@@ -200,20 +221,56 @@ def tier_variant_layers(manifest_path: Path) -> tuple[dict[str, Any], ...]:
     )
 
 
-def _layer_source_path(layer: Mapping[str, Any]) -> Path:
+def _layer_source_path(
+    layer: Mapping[str, Any], *, mirror_root_base: Path | None = None
+) -> Path:
+    """A layer's real content root: its literal `source.path` when declared,
+    else (task 52) the same mirror-clone root `cc.core.ecosystem.mirror`'s
+    `mirror_content_root()` already computes for `commands/update.py` and
+    `commands/resolve.py` -- reused here rather than re-derived, so a
+    pinned-release layer that resolves from its immutable mirror (no
+    `source.path`) is not mistaken for one this checker cannot see at all.
+
+    `mirror_root_base` is injectable for callers/tests with an explicit
+    machine root; real-machine callers (`run_rc*`) omit it and get
+    `_real_mirror_root_base(_default_home())` -- the same `Path.home()`-based
+    resolution the module already uses for the manifest and project roots
+    (module docstring point 2), never `resolve_key()`.
+
+    Still raises `LookupError` for a layer with neither a literal
+    `source.path` nor a resolvable mirror root (no `source.repo`, or an
+    explicit local `source.path` was expected but absent) -- callers that
+    tolerate this (`check_rc3`, `check_rc5`) already catch it and skip that
+    layer; callers that require it (`run_rc1`, `run_rc2`, `run_rc4` via
+    `_foundation_source_path`) let it propagate as a genuine "this
+    foundation cannot be located at all" failure."""
+
     source = layer.get("source") or {}
     path = source.get("path")
-    if not path:
-        raise LookupError(f"layer {layer.get('id')!r} has no source.path")
-    return Path(path).expanduser()
+    if path:
+        return Path(path).expanduser()
+
+    base = (
+        mirror_root_base
+        if mirror_root_base is not None
+        else _real_mirror_root_base(_default_home())
+    )
+    content_root = mirror_content_root(dict(layer), mirror_root_base=base)
+    if content_root is not None:
+        return content_root
+
+    raise LookupError(f"layer {layer.get('id')!r} has no source.path")
 
 
 def _foundation_source_path(
-    layers: Sequence[Mapping[str, Any]], product: str
+    layers: Sequence[Mapping[str, Any]],
+    product: str,
+    *,
+    mirror_root_base: Path | None = None,
 ) -> Path | None:
     for layer in layers:
         if layer.get("product") == product:
-            return _layer_source_path(layer)
+            return _layer_source_path(layer, mirror_root_base=mirror_root_base)
     return None
 
 

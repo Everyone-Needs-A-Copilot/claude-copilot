@@ -85,6 +85,7 @@ from tc.services.prds import (
     update_prd,
 )
 from tc.services.qa import check_task_qa
+from tc.services.qa_contract import capture_qa_identity
 from tc.services.wp import (
     get_wp,
     list_wps,
@@ -128,6 +129,7 @@ __all__ = [
     "add_dependency",
     "remove_dependency",
     "check_task_qa",
+    "capture_qa_identity",
     # prd ops
     "create_prd",
     "get_prd",

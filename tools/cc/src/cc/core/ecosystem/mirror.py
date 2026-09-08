@@ -109,6 +109,50 @@ def mirror_root(tier: str, *, _root: Optional[Path | str] = None) -> Path:
     return base / tier
 
 
+def mirror_content_root(
+    layer: dict[str, Any],
+    *,
+    mirror_root_base: Path | str,
+    externally_consumed_products: frozenset[str] = EXTERNALLY_CONSUMED_PRODUCTS,
+) -> Optional[Path]:
+    """
+    The on-disk root a remote-sourced layer's mirror clone occupies (or
+    WOULD occupy): `<mirror_root_base>/<product>/<layer id>` for
+    `externally_consumed_products` (knowledge/cli), `<mirror_root_base>/
+    <layer id>` for everything else -- the EXACT same construction
+    `clone_or_update_mirror()`'s own `target = Path(mirror_root).expanduser()
+    / tier` uses. This is the checkout root itself, BEFORE any declared
+    `source.subpath` is folded in -- callers that need the checkout (git
+    plumbing against it, or a relative path the caller supplies on top of
+    the repo root, not the materialized content root) want THIS, not
+    `synthesize_source_path()`'s subpath-folded result.
+
+    Extracted so `synthesize_source_path()` below and any other read-only
+    caller needing the bare mirror root (e.g.
+    `cc.core.conformance.root_causes`'s `_layer_source_path()` fallback for
+    a mirror-backed layer that declares no local `source.path`) share the
+    identical computation rather than each re-deriving it -- a second,
+    divergent implementation of "where does this layer's mirror live" is
+    exactly the drift this function exists to prevent.
+
+    Returns `None` for a layer with no `source.repo`, or one that already
+    carries an explicit local `source.path` (a local-path-sourced layer is
+    not this function's concern -- its path is already static).
+    """
+    source = layer.get("source") or {}
+    repo = source.get("repo")
+    local_path = source.get("path")
+    if not repo or local_path:
+        return None
+
+    product = layer.get("product")
+    base = Path(mirror_root_base).expanduser()
+    product_root = (
+        base / str(product) if product in externally_consumed_products else base
+    )
+    return product_root / layer["id"]
+
+
 def synthesize_source_path(
     layer: dict[str, Any],
     *,
@@ -117,12 +161,8 @@ def synthesize_source_path(
 ) -> Optional[Path]:
     """
     Compute the on-disk content root a remote-sourced layer's mirror
-    clone resolves (or WOULD resolve) to: `<mirror_root_base>/<product>/
-    <layer id>` for `externally_consumed_products` (knowledge/cli),
-    `<mirror_root_base>/<layer id>` for everything else, plus any declared
-    `source.subpath` joined on top -- the EXACT same construction
-    `clone_or_update_mirror()`'s own `target = Path(mirror_root).expanduser()
-    / tier` uses.
+    clone resolves (or WOULD resolve) to: `mirror_content_root()`'s bare
+    checkout root, plus any declared `source.subpath` joined on top.
 
     WP-372 P5.1: pure path arithmetic -- never touches disk or network,
     never clones/fetches anything, and never requires the mirror to
@@ -151,19 +191,15 @@ def synthesize_source_path(
     performs at materialize time, now shared so `resolve --explain` can
     never silently disagree with what `update` would actually do.
     """
-    source = layer.get("source") or {}
-    repo = source.get("repo")
-    local_path = source.get("path")
-    if not repo or local_path:
+    content_root = mirror_content_root(
+        layer,
+        mirror_root_base=mirror_root_base,
+        externally_consumed_products=externally_consumed_products,
+    )
+    if content_root is None:
         return None
 
-    product = layer.get("product")
-    base = Path(mirror_root_base).expanduser()
-    product_root = (
-        base / str(product) if product in externally_consumed_products else base
-    )
-    content_root = product_root / layer["id"]
-
+    source = layer.get("source") or {}
     subpath = source.get("subpath")
     if not subpath:
         return content_root

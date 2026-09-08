@@ -6,7 +6,7 @@ The hooks system provides lifecycle-based injection and enforcement for the main
 
 | Hook File | Claude Lifecycle Event | Rule | Enforcement |
 |-----------|----------------------|------|-------------|
-| `pretool-check.sh` | PreToolUse | Force-delegate (5 consecutive same-tool calls) | Mandatory — exit 2 |
+| `pretool-check.sh` | PreToolUse | Force-delegate (estimated bytes and distinct file targets, ADR-005) | Mandatory — exit 2 |
 | `pretool-check.sh` | PreToolUse | QA gate (after @agent-me, before @agent-qa) | Mandatory — exit 2 |
 | `pretool-check.sh` | PreToolUse | Active-journey Agent dispatch witness | Mandatory for active journeys — exit 2 on mismatch/indeterminate state |
 | `pretool-check.sh` | PreToolUse | Destructive-command safety `/careful` | block → exit 2; warn → exit 0 + stderr |
@@ -27,7 +27,7 @@ The hooks system provides lifecycle-based injection and enforcement for the main
 | `COPILOT_SAFETY=off` | Both `/careful` and `/freeze` (convenience alias) |
 
 Active-journey verification has no escape hatch. Optional rule bookkeeping
-(including force-delegate streak locking) may time out and skip its own update,
+(including force-delegate budget locking) may time out and skip its own update,
 but it must continue to the final journey decision. Once a direct main-session
 Agent call is identified, unexpected hook errors fail closed rather than
 silently permitting a dispatch whose active state was not verified.
@@ -172,16 +172,34 @@ Runtime state is written to `.claude/hooks/state/` (gitignored, contents ephemer
 
 | File | Shape | Purpose |
 |------|-------|---------|
-| `streak-<session_id>.json` | `{ session_id, lastTool, streak, updatedAt }` | Consecutive tool call counter per session |
+| `budget-<session_id>.json` | `{ session_id, bytesCharged, filesTouched, updatedAt }` | Accepted estimated cost per session; dispatch does not reset it |
 | `qa-gate.json` | See below | QA gate pending-tasks and retry state |
 
-State files are written atomically (write to `.tmp` file then `mv`) to prevent corruption if the hook is interrupted. Stale sessions (>24h streak / >72h qa-gate) are auto-cleaned on next write.
+State files are written atomically (write to `.tmp` file then `mv`) to prevent corruption if the hook is interrupted. Abandoned budget state (>24h) and QA state (>72h) expire on next use. Old streak files are ignored.
+
+The highest-version `.claude/force-delegate-budget-baseline-v*.json` supplies the
+policy. The initial policy allows 40,000 estimated bytes and five distinct
+Read/Edit/Write targets, warns at 80%, and denies a call that would exceed either
+limit without charging the denied attempt. Read charges file bytes (or a line
+slice); Edit/Write charge UTF-8 replacement/content bytes. Bash uses estimates:
+300 bytes for bounded commands and 8,000 for recognized unbounded output.
+Shell classification is heuristic, Bash paths are not counted, and equivalent
+path spellings are not canonicalized. This is context-budget guidance enforced
+before execution, not exact token accounting or a security boundary.
+
+`COPILOT_FORCE_DELEGATE=off` bypasses this meter explicitly. For a reviewed exact
+overage, `COPILOT_FORCE_DELEGATE_BUDGET_OVERRIDE='bytes:reason'` (or `files:reason`)
+appends a local review entry to `.claude/force-delegate-budget-overrides.jsonl`.
+Local entries may authorize the same meter/threshold/actual/policy hash again;
+CI ignores the override environment variable and reads only entries committed
+in HEAD. A changed total or policy needs a new review. Missing policy or malformed
+state reports budget unavailability; other dispatcher gates still run.
 
 ### Rule Sets
 
 | Rule | Owner Task | Trigger | Action |
 |------|-----------|---------|--------|
-| `rule_force_delegate` | P4.2 (task 17) | 5+ consecutive Bash/Read/Edit calls | Deny with agent delegation suggestion |
+| `rule_force_delegate` | ADR-005 / TASK-49 | Prospective byte or distinct-file budget exceeded | Deny with measured estimate and narrowing/delegation guidance |
 | `rule_qa_gate` | P4.1 (task 16) | Any task in pending-qa state for this session | Deny all except Agent(qa) and safe tc reads |
 | `rule_journey_dispatch` | TASK-296 | Direct main-session framework `Agent` call | Ask `cc journey verify-dispatch` to allow no active journey or atomically authorize the exact prepared dispatch |
 
@@ -195,11 +213,11 @@ To add a rule:
 
 ### Force-Delegate Rule
 
-Tracks consecutive calls to the same tool (`Bash`, `Read`, `Edit`). On the 5th consecutive same-tool call, the hook denies and suggests delegating to a framework agent.
+Tracks estimated bytes and distinct file targets across `Bash`, `Read`, `Edit`, and `Write` using the versioned budget baseline described above. Over-budget attempts are denied without increasing accepted spend.
 
-- `Agent` tool calls are **never blocked** at any streak length
-- Streak resets when a different tool is called
-- Streak resets to 0 after a deny (clean slate for retry)
+- `Agent` calls are not charged by this rule; journey and QA checks still apply
+- Changing tools or dispatching an agent does not reset accumulated spend
+- Exact reviewed overrides are recorded; CI accepts only committed matching entries
 - **Escape hatch:** Set `COPILOT_FORCE_DELEGATE=off` to disable for a shell session
 
 ### QA-Gate Rule
@@ -210,7 +228,7 @@ Enforces the mandatory QA checkpoint after `@agent-me` completes. When `subagent
 - `Bash` with a safe `tc` command prefix: `tc task get`, `tc task list`, `tc task create`, `tc task update`, `tc wp get`, `tc wp list`, `tc wp store`, `tc progress`, `tc log`, `tc handoff`, `tc prd`, `tc stream`
 - `Bash` starting with `python3 -m pytest` or `pytest` — allowed because test runs are read-only with respect to product state (they never mutate the codebase, they only verify it). This lets QA subagents run tests while the gate is active. Note: the prefix match only allows commands that literally start with these strings, so `python3 -m pytest` does NOT widen to arbitrary `python3` commands.
 
-When `@agent-qa` completes and the verdict is parsed as a pass, the task is removed from `pending_tasks` and subsequent tool calls flow normally.
+When `@agent-qa` completes, `tc task check-qa` must approve the stored task-bound evidence before the task is removed from `pending_tasks`. A message claiming approval is insufficient.
 
 **State file:** `.claude/hooks/state/qa-gate.json`
 

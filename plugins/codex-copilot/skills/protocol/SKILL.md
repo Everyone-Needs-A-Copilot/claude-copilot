@@ -139,3 +139,39 @@ For substantial work:
 
 Read `references/generated-workflows.md` for the catalog-derived specialist sequences,
 `references/flows.md` for routing details, and `references/checkpoints.md` for checkpoint behavior.
+
+<!-- cse-design-quality:start -->
+## Design Quality Routing
+
+For material product-facing work, carry one named surface contract through service/interaction design, visual design, implementation and QA. Use `cc design guide` for focused actions and `cc design context` for explicit source authority; retain the existing specialist chain and required walkthroughs. Record initial critique before detector evidence, inspect the rendered result, and leave approval to task-bound QA. Static findings and screenshot comparisons inform judgment; neither replaces behavioral verification.
+<!-- cse-design-quality:end -->
+
+For optional context selection, apply the full contract in `../specialist-agents/references/shared-behaviors.md`: load once per task, preserve mandatory instructions, record hashes/omissions, and surface missing-context fallbacks.
+
+<!-- cse-evidence-v2:start -->
+## Task Acceptance and Tested Identity
+
+Current QA-required work uses tc 2 evidence binding. Before implementation,
+register a JSON acceptance contract with `tc task contract <id> --file <path>`:
+`schemaVersion: 2`, `criteria: [{id, expected}]`, and explicit project-relative
+`sources` files/directories covering implementation, dependencies and relevant
+configuration. Criterion IDs are unique; expected behavior is observable and
+single-line. Keep generated review outputs outside source scopes.
+
+Before running verification, capture `tc task evidence-identity <id>` and retain
+its exact `IDENTITY:` line in the task work product. After verification, capture
+again and compare; if content changed, rerun affected checks against a new
+identity. Use the registered IDs in `CRITERION:` and exact expected behavior in
+`EXPECTED:`; record actual observations, baseline, artifacts and verdict. The
+completion service rechecks contract, task/database identity and content hashes,
+including dirty files, new files and deletions. It also enforces unfinished task
+dependencies. Do not downgrade requiresQa or replace source evidence with prose.
+
+A v1 packet for pending work must be migrated with a registered contract and
+fresh verification. Historical completed records remain readable and explicitly
+historical; they are not current strict QA evidence. cc design review/report
+checks the named database's acceptance contract and source coverage; detector or
+report readiness still never grants task approval. CLI/API and native adapters
+share the same tc authority. Missing current capabilities require a verified tc
+installation; legacy artifact inspection is not a current completion proof.
+<!-- cse-evidence-v2:end -->

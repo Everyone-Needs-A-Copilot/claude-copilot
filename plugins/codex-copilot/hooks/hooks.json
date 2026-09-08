@@ -1,5 +1,5 @@
 {
-  "description": "Codex-native routing, debugging, and subagent context controls.",
+  "description": "Codex-native routing, debugging, subagent context, and opt-in design feedback.",
   "hooks": {
     "UserPromptSubmit": [
       {
@@ -27,6 +27,17 @@
       }
     ],
     "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/bash -c 'root=\"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}\"; [ -n \"$root\" ] && [ -f \"$root/hooks/$1\" ] || exit 0; exec /bin/bash \"$root/hooks/$1\"' _ design-feedback.sh",
+            "timeout": 5,
+            "additionalContextLimit": 400
+          }
+        ]
+      },
       {
         "matcher": "^Bash$",
         "hooks": [

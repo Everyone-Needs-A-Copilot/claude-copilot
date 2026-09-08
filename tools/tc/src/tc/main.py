@@ -351,5 +351,26 @@ def worker_cmd(
     raise typer.Exit(outcome["returncode"])
 
 
+
+@app.command("provenance")
+def provenance(
+    record: bool = typer.Option(False, "--record", help="Explicitly record this installation after package setup."),
+    json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Verify source, dependency and enforcement capability against install receipts."""
+    from tc import provenance as provenance_module
+    from tc.db.exceptions import ValidationError
+    from tc.formatting import output_json
+    try:
+        result = provenance_module.record() if record else provenance_module.verify()
+    except (OSError, ValidationError) as exc:
+        if json:
+            output_json({"verified": False, "reason": str(exc)})
+        else:
+            typer.echo(str(exc), err=True)
+        raise typer.Exit(1)
+    output_json(result) if json else print("tc installation provenance verified (" + result["mode"] + ")")
+
+
 if __name__ == "__main__":
     app()

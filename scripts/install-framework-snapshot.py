@@ -602,6 +602,8 @@ def _default_cc_installer(snapshot: Path, staged_shim: Path) -> None:
     try:
         environment = dict(os.environ)
         environment["PYTHONDONTWRITEBYTECODE"] = "1"
+        environment.pop("PYTHONPATH", None)
+        environment.pop("PYTHONHOME", None)
         subprocess.run(
             (
                 "bash",
@@ -622,6 +624,8 @@ def _default_cc_verifier(staged_shim: Path) -> None:
     try:
         environment = dict(os.environ)
         environment["PYTHONDONTWRITEBYTECODE"] = "1"
+        environment.pop("PYTHONPATH", None)
+        environment.pop("PYTHONHOME", None)
         subprocess.run(
             (str(staged_shim), "--version"),
             check=True,
@@ -631,6 +635,22 @@ def _default_cc_verifier(staged_shim: Path) -> None:
         )
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         raise FrameworkInstallError("staged cc verification failed") from exc
+
+
+def _default_tc_verifier(staged_shim: Path) -> dict:
+    try:
+        environment = dict(os.environ)
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
+        environment.pop("PYTHONPATH", None)
+        environment.pop("PYTHONHOME", None)
+        result = subprocess.run((str(staged_shim), "provenance", "--json"), check=True,
+                                capture_output=True, text=True, env=environment, timeout=30)
+        receipt = json.loads(result.stdout)
+        if receipt.get("verified") is not True or receipt.get("mode") != "snapshot" or not {"contract", "evidence-identity", "check-qa"} <= set(receipt.get("capabilities", [])):
+            raise ValueError("Missing verified snapshot enforcement receipt")
+        return receipt
+    except (OSError, ValueError, TypeError, subprocess.SubprocessError) as exc:
+        raise FrameworkInstallError("staged tc provenance/enforcement verification failed") from exc
 
 
 def _remove_created_snapshot(snapshot: Path) -> None:
@@ -685,6 +705,7 @@ def _publish_runtime(
     active_manifest: Path,
     manifest_payload: bytes,
     fail_after_publish: int | None = None,
+    tc_target: tuple[Path, bytes, int, str] | None = None,
 ) -> int:
     targets: list[tuple[Path, bytes, int, str]] = [
         (commands_root / item.name, item.payload, 0o644, item.checksum)
@@ -696,6 +717,8 @@ def _publish_runtime(
         (active_manifest, manifest_payload, 0o600, _sha256(manifest_payload))
     )
 
+    if tc_target is not None:
+        targets.insert(-1, tc_target)
     captured = {path: _capture_regular_file(path) for path, *_rest in targets}
     changed = sum(
         1
@@ -735,6 +758,7 @@ def install_framework_snapshot(
     home: Path | None = None,
     cc_installer: CcInstaller = _default_cc_installer,
     cc_verifier: CcVerifier = _default_cc_verifier,
+    tc_verifier: Callable[[Path], dict] = _default_tc_verifier,
     codex_runner: CodexRunner = run_codex_plugin,
     _fail_after_publish: int | None = None,
 ) -> dict[str, object]:
@@ -781,6 +805,17 @@ def install_framework_snapshot(
                     raise
 
             cc_verifier(staged_shim)
+            runtime_tc = snapshot / "tools" / "cc" / ".venv" / "bin" / "tc"
+            tc_payload = _read_regular(runtime_tc, readonly=True)
+            tc_receipt = tc_verifier(runtime_tc)
+            if tc_receipt.get("source_commit") != commit or tc_receipt.get("source_tree") != tree:
+                raise FrameworkInstallError("tc provenance belongs to a different source snapshot")
+            declared = json.loads(_read_regular(snapshot / "VERSION.json"))
+            if tc_receipt.get("version") != declared.get("components", {}).get("tc", {}).get("version"):
+                raise FrameworkInstallError("tc version differs from the source manifest")
+            tc_receipt_path = snapshot / "tools" / "cc" / ".venv" / "tc-provenance.json"
+            if _sha256(_read_regular(tc_receipt_path, readonly=True)) != tc_receipt.get("receipt_sha256"):
+                raise FrameworkInstallError("tc receipt checksum mismatch")
             shim_checksum = _sha256(_read_regular(staged_shim))
             try:
                 plugin_artifacts, plugin_manifest_sha256 = validate_snapshot_plugin(
@@ -805,6 +840,7 @@ def install_framework_snapshot(
                     "path": str(home_root / ".local" / "bin" / "cc"),
                     "sha256": shim_checksum,
                 },
+                "tc": {**tc_receipt, "path": str(shim_root / "tc"), "sha256": _sha256(tc_payload)},
                 "machine_commands": [
                     {"name": item.name, "sha256": item.checksum} for item in commands
                 ],
@@ -830,6 +866,7 @@ def install_framework_snapshot(
                     active_manifest=copilot_root / "framework-runtime.json",
                     manifest_payload=manifest_payload,
                     fail_after_publish=_fail_after_publish,
+                    tc_target=(shim_root / "tc", tc_payload, 0o755, _sha256(tc_payload)),
                 )
             except BaseException as publish_error:
                 try:

@@ -1,4 +1,18 @@
+## 2026-09-08 — Combined CSE hardening candidate (unreleased)
+
+- tc 2.0.0 requires registered acceptance criteria and captured task/source/runtime identity for pending QA-required work; preserves labelled historical records and enforces completion dependencies.
+- cc 2.13.0 binds design reviews to the authoritative task contract, retains required duplicate-skill names, and derives missing command handling from the declared roster.
+- Installation records/verifies tc source/dependency receipts, publishes cc/tc atomically for snapshots, and prevents ambient Python paths from substituting checkout code during verification.
+- Migration: pending QA work requires contract registration and fresh evidence; see tools/tc/README.md. This record does not claim a signed release or ecosystem effectiveness.
+
 # Changelog
+
+## 2026-09-07 — Unreleased design-quality extension (cc 2.12.16)
+
+- Add shared `cc design`: explicit surface authority, 21 focused playbooks, critique/audit/report receipts, source/dependency freshness checks, pinned local detector execution and offline capture comparison.
+- Strengthen seven native specialist definitions and protocol routing; add optional per-runtime edit feedback with session deduplication and recovery.
+- Keep `tc` as the QA authority. Static findings, structural readiness and screenshot similarity never grant approval.
+- This extends the earlier 5.15.0 candidate below; revalidate its final source before signing. See [the operating guide](docs/30-operations/10-design-quality.md).
 
 ## 2026-09-07 — Framework 5.15.0 candidate: task-bound QA authority, optional-context delivery, taste precedence
 

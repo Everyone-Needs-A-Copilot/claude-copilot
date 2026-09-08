@@ -82,6 +82,7 @@ class PreparedReconciliation:
     canonical_request: dict[str, Any]
     request_fingerprint: str
     plan_fingerprint: str
+    machine_verification: MachineVerification
 
 
 def _timestamp(value: datetime | None = None) -> str:
@@ -1302,6 +1303,77 @@ def _default_machine_builder() -> dict[str, Any]:
     return build_machine_assessment()
 
 
+def _default_verified_machine_builder() -> tuple[dict[str, Any], MachineVerification]:
+    from cc.core.ecosystem.machine_assessment import (
+        build_machine_assessment_with_verification,
+    )
+
+    return build_machine_assessment_with_verification()
+
+
+def _conservative_verification(machine: Mapping[str, Any]) -> MachineVerification:
+    """Fail closed for an injected builder that supplies no attribution."""
+    from cc.core.ecosystem.machine_assessment import MachineVerification
+
+    return MachineVerification(
+        frozenset(),
+        machine.get("state") == "could-not-verify",
+    )
+
+
+def _requested_components(request: ReconciliationRequest) -> frozenset[str]:
+    return frozenset(
+        component
+        for project in request.projects
+        for component in project.components
+    )
+
+
+def _machine_blocks_request(
+    machine: Mapping[str, Any],
+    projects: Sequence[Mapping[str, Any]],
+    verification: MachineVerification,
+    requested: frozenset[str],
+) -> bool:
+    """Whether machine unverifiability blocks THIS request.
+
+    A framework this request never touches cannot make the machine
+    unverifiable for it. Anything unattributed still blocks everything.
+    """
+    if _assessment_result(machine, projects) != "blocked":
+        return False
+    if verification.unknown_beyond_frameworks:
+        return True
+    return bool(verification.unknown_framework_components & requested)
+
+
+def _scoped_assessment_result(
+    machine: Mapping[str, Any],
+    projects: Sequence[Mapping[str, Any]],
+    verification: MachineVerification,
+    requested: frozenset[str],
+) -> str:
+    """`_assessment_result`, scoped so an unrequested framework's
+    unverifiability cannot surface as this request's `blocked` result.
+
+    `_assessment_result` itself stays untouched (it has no request and must
+    remain globally honest for `assess_reconciliation`). This only changes
+    what request-bearing callers (`plan`, `verify`) report as `result`: when
+    `_machine_blocks_request` says the raw could-not-verify machine state
+    does not apply to this request's components, the raw state is not passed
+    through, so it cannot mechanically re-trigger `_assessment_result`'s own
+    unconditional could-not-verify -> blocked rule.
+    """
+    if _machine_blocks_request(machine, projects, verification, requested):
+        return "blocked"
+    scoped_machine = (
+        {**machine, "state": "action-required"}
+        if machine.get("state") == "could-not-verify"
+        else machine
+    )
+    return _assessment_result(scoped_machine, projects)
+
+
 def _default_census_builder(**kwargs: Any) -> list[dict[str, Any]]:
     from cc.core.ecosystem.project_reconciliation import build_project_census
 
@@ -1382,7 +1454,11 @@ def prepare_reconciliation(
         for project in resolved_request.projects
         if project.recipe_ids
     }
-    machine = (machine_builder or _default_machine_builder)()
+    if machine_builder is None:
+        machine, machine_verification = _default_verified_machine_builder()
+    else:
+        machine = machine_builder()
+        machine_verification = _conservative_verification(machine)
     try:
         projects = _validated_projects(
             (census_builder or _default_census_builder)(
@@ -1492,6 +1568,7 @@ def prepare_reconciliation(
         canonical_request,
         request_fingerprint,
         plan_fingerprint,
+        machine_verification,
     )
 
 
@@ -1527,7 +1604,19 @@ def build_plan_report(
         schema_version=RECONCILIATION_SCHEMA_VERSION,
     )
     has_operations = any(plan.get("operations") for plan in prepared.public_plans)
-    assessment_result = _assessment_result(prepared.machine, prepared.projects)
+    requested_components = _requested_components(request)
+    machine_blocks = _machine_blocks_request(
+        prepared.machine,
+        prepared.projects,
+        prepared.machine_verification,
+        requested_components,
+    )
+    scoped_result = _scoped_assessment_result(
+        prepared.machine,
+        prepared.projects,
+        prepared.machine_verification,
+        requested_components,
+    )
     projects_by_path = {str(project["path"]): project for project in prepared.projects}
     has_blocked_selection = any(
         not plan.get("operations")
@@ -1536,12 +1625,12 @@ def build_plan_report(
     )
     result = (
         "blocked"
-        if assessment_result == "blocked"
+        if machine_blocks
         else "action-required"
         if has_operations
         else "blocked"
         if has_blocked_selection
-        else assessment_result
+        else scoped_result
     )
     issued_plan_id = _plan_value(issued, "plan_id") or _plan_value(issued, "id")
     expires_at = _plan_value(issued, "expires_at")
@@ -1690,7 +1779,12 @@ def build_apply_report(
     execution_started = False
 
     try:
-        if _assessment_result(prepared.machine, prepared.projects) == "blocked":
+        if _machine_blocks_request(
+            prepared.machine,
+            prepared.projects,
+            prepared.machine_verification,
+            _requested_components(request),
+        ):
             raise ReconciliationError(
                 "unsafe-machine-preflight",
                 "The Mac could not be verified safely enough to apply this plan. Resolve its machine blockers, then create a fresh plan.",
@@ -2287,7 +2381,11 @@ def build_verify_report(
     selections = {
         project.path: list(project.components) for project in request.projects
     }
-    machine = (machine_builder or _default_machine_builder)()
+    if machine_builder is None:
+        machine, machine_verification = _default_verified_machine_builder()
+    else:
+        machine = machine_builder()
+        machine_verification = _conservative_verification(machine)
     projects = _validated_projects(
         (census_builder or _default_census_builder)(
             roots=request.roots,
@@ -2296,10 +2394,13 @@ def build_verify_report(
         )
     )
     _validate_requested_authority(request, machine, projects)
+    result = _scoped_assessment_result(
+        machine, projects, machine_verification, _requested_components(request)
+    )
     return {
         "schema_version": RECONCILIATION_SCHEMA_VERSION,
         "phase": "verify",
-        "result": _assessment_result(machine, projects),
+        "result": result,
         "run_id": _run_id(run_id),
         "generated_at": _timestamp(now),
         "machine": machine,

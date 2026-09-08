@@ -138,20 +138,22 @@ send_pretool_agent() {
 get_exit_code() { printf '%s' "$1" | cut -d'|' -f1; }
 get_output()    { printf '%s' "$1" | cut -d'|' -f2-; }
 
-# Store a real, task-bound QA evidence packet (post-B3: this is the ONLY
-# thing that can make `tc task check-qa` — and therefore the hooks — report
-# a task as approved). TEST_PROJECT is a plain tmp directory, not a git
-# repo, so tc.services.qa._current_identity() returns None and staleness
-# comparison against IDENTITY is skipped.
+# Store v2 task-bound evidence against an actual fixture source and check.
+# Plain directories also require a registered contract and real source identity.
 store_passing_evidence() {
   local task_num="$1"
-  local content
-  content="CRITERION: implementation satisfies the guarded behavior
-EXPECTED: completion is blocked until real evidence is stored
-OBSERVED: evidence stored and tc task check-qa approves
-IDENTITY: fixture rev=abc1234, clean
+  local content identity
+  printf '%s\n' 'guarded fixture' > "$TEST_PROJECT/acceptance-input.txt"
+  printf '%s\n' '{"schemaVersion":2,"criteria":[{"id":"C1","expected":"The guarded fixture input exists"}],"sources":["acceptance-input.txt"]}' > "$TEST_ROOT/contract.json"
+  (cd "$TEST_PROJECT" && tc task contract "$task_num" --file "$TEST_ROOT/contract.json" --json) >/dev/null || return 1
+  identity="$(cd "$TEST_PROJECT" && tc task evidence-identity "$task_num")" || return 1
+  (cd "$TEST_PROJECT" && test -f acceptance-input.txt) || return 1
+  content="CRITERION: C1
+EXPECTED: The guarded fixture input exists
+OBSERVED: test -f acceptance-input.txt returned exit 0 against the captured source
+$identity
 BASELINE: unavailable, fresh fixture database
-ARTIFACT: test-run|pytest tests/test_fixture.py exit=0 5 passed
+ARTIFACT: test-run|test -f acceptance-input.txt exit=0
 UNTESTED: none
 VERDICT: APPROVED"
   (cd "$TEST_PROJECT" && tc wp store --task "$task_num" --type test --title "Fixture QA evidence" --content "$content" --json) >/dev/null 2>&1
@@ -292,6 +294,16 @@ if [[ "$EXIT" -eq 0 ]]; then
   ok "Step 6: Bash 'ls' allowed (exit 0) after gate cleared by evidence-backed approval"
 else
   fail "Step 6: expected exit 0 (allow) after gate cleared, got exit $EXIT"
+fi
+
+echo ""
+echo "Step 7: change the captured source → expect stored evidence rejected"
+printf '%s\n' 'changed guarded fixture' > "$TEST_PROJECT/acceptance-input.txt"
+QA_RESULT="$(check_qa "$PRIMARY_TASK_ID")"
+if printf '%s' "$QA_RESULT" | "$JQ" -e '.approved == false and (.reason | contains("stale"))' >/dev/null; then
+  ok "Step 7: changed source invalidates previously approved evidence"
+else
+  fail "Step 7: stale evidence should be rejected: $QA_RESULT"
 fi
 
 echo ""
