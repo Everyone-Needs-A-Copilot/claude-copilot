@@ -64,6 +64,8 @@ How-to pages for day-to-day and advanced operational use.
 | `30-operations/05-deploy-and-verify.md` | Deployment and infrastructure agent workflows |
 | `30-operations/06-skills-authoring-guide.md` | How to write and publish a `cc skill` — metadata, triggers, SKILL.md format |
 | `30-operations/07-codex-hook-enforcement-gap.md` | Open: framework hooks have not run under Codex since July — evidence, coverage gap, and remediation options |
+| `30-operations/14-testing-rethink-evidence-and-recommendations.md` | Measured foundation testing costs, repairs and recommendations |
+| `30-operations/15-source-integration-5.15.1.md` | Source integration versions, verification, residual failures and distribution boundaries |
 
 ---
 
@@ -131,12 +133,17 @@ Reference-mode pages for quick lookup.
 
 ---
 
-## 80 — Initiatives
+## Initiatives
 
-Multi-phase bodies of work with their own phases, decisions, and retrospectives. This is the live location; `docs/40-initiatives/` holds only the template and is retained for reference, since `40` is already the Extensions namespace in this index.
+Multi-phase bodies of work with their own phases, decisions, and retrospectives.
+The current root `AGENTS.md` governs new work: use `docs/40-initiatives/` and its
+index. The `80-initiatives` entries below retain the historical layout reference;
+this correction does not relocate historical work.
 
 | File | Description |
 |------|-------------|
+| [40-initiatives/README.md](40-initiatives/README.md) | Current initiative index and governing directory contract |
+| [40-initiatives/01-risk-based-verification/](40-initiatives/01-risk-based-verification/README.md) | Proposed visible, bounded verification workflow and adoption gates |
 | `80-initiatives/01-ecosystem-extensions/` | Ecosystem extensions initiative |
 | `80-initiatives/02-component-sync/` | Component sync initiative, including its per-initiative ADRs under `decisions/` |
 

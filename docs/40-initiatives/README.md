@@ -7,17 +7,21 @@
 
 An initiative is a multi-phase body of work with a defined goal, explicit decisions, and evidence-bound exit criteria. It is larger than a task or a single feature spec and is expected to survive multiple sessions.
 
-Formal initiative documentation lives only in `docs/80-initiatives/NN-slug/`. That is the live location, and the directory contract below describes it. This directory retains the `_template/` only; `40` is already the Extensions namespace in `docs/README.md`, which is why initiatives moved to `80`.
+Formal initiative documentation lives in `docs/40-initiatives/NN-slug/`, as required
+by the repository's root `AGENTS.md`. This index follows that governing contract;
+the former `80-initiatives` direction was inconsistent with it. No historical
+directories are moved by this correction.
 
 ## Current Initiatives
 
 | Folder | Initiative | Goal | Status | `tc` context |
 | --- | --- | --- | --- | --- |
+| [01-risk-based-verification](01-risk-based-verification/README.md) | Fast, visible verification | Bounded feedback, root-cause diagnosis and reproducible UI evidence | Proposed | PRD-5 / TASK-58 |
 
 ## Directory Contract
 
 ```text
-docs/80-initiatives/
+docs/40-initiatives/
   NN-slug/
     README.md
     phases/

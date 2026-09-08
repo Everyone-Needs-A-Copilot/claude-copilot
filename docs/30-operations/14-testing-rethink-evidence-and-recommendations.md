@@ -1,5 +1,9 @@
 # Testing rethink: evidence and recommendations
 
+> Follow-up: [the concrete adoption plan](../40-initiatives/01-risk-based-verification/README.md)
+> and [5.15.1 source integration](15-source-integration-5.15.1.md) supersede this
+> review's working-tree/merge status, not its recorded measurements.
+
 Explanation and proposed operating policy, 2026-09-08. Execution record:
 Claude Copilot PRD-4 / TASK-55; repairs TASK-49, TASK-51, TASK-53, TASK-54.
 Read with [the incoming handoff](13-handoff-remaining-work-and-testing-rethink.md).

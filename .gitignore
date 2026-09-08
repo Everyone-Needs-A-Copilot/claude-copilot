@@ -64,10 +64,8 @@ PROJECT_MAP.md
 *.pid
 
 # Hook state files (ephemeral, session-local)
-.claude/hooks/state/*.json
-.claude/hooks/state/*.lock
-.claude/hooks/state/*.tmp.*
-.claude/hooks/state/.freeze
+.claude/hooks/state/**
+!.claude/hooks/state/.gitkeep
 
 # Local/generated artifacts
 coverage.xml

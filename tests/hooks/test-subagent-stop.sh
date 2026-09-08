@@ -68,8 +68,8 @@ invoke_hook() {
   printf '%d|%s' "$exit_code" "$output"
 }
 
-get_exit_code() { printf '%s' "$1" | cut -d'|' -f1; }
-get_output()    { printf '%s' "$1" | cut -d'|' -f2-; }
+get_exit_code() { local result="$1"; printf '%s' "${result%%|*}"; }
+get_output()    { local result="$1"; printf '%s' "${result#*|}"; }
 
 # Build a SubagentStop payload
 make_payload() {
@@ -112,34 +112,8 @@ read_last_event() {
     '.[$sid].history // [] | if length > 0 then .[-1].event else "" end' "$GATE_FILE" 2>/dev/null || echo ""
 }
 
-# ---------------------------------------------------------------------------
-# Store a real, task-bound QA evidence packet (post-B3: this is the ONLY
-# thing that can make `tc task check-qa` — and therefore this hook — report
-# a task as approved; see .claude/hooks/subagent-stop.sh's check_qa_verdict).
-# TEST_PROJECT is a plain tmp directory, not a git repo, so
-# tc.services.qa._current_identity() returns None and staleness comparison
-# against IDENTITY is skipped — IDENTITY only needs to be present and
-# non-empty here, matching tools/tc/tests/test_qa_completion.py's own
-# fixture packet shape.
-# ---------------------------------------------------------------------------
-store_evidence() {
-  local task_num="$1"
-  local verdict="${2:-APPROVED}"
-  local content
-  content="CRITERION: implementation satisfies the guarded behavior
-EXPECTED: completion is blocked until real evidence is stored
-OBSERVED: evidence stored and tc task check-qa approves
-IDENTITY: fixture rev=abc1234, clean
-BASELINE: unavailable, fresh fixture database
-ARTIFACT: test-run|pytest tests/test_fixture.py exit=0 5 passed
-UNTESTED: none
-VERDICT: ${verdict}"
-  (cd "$TEST_PROJECT" && tc wp store --task "$task_num" --type test --title "Fixture QA evidence" --content "$content" --json) >/dev/null 2>&1
-}
-
-store_passing_evidence() {
-  store_evidence "$1" "APPROVED"
-}
+# Real v2 contracts/identities are required even in plain temporary directories.
+source "$SCRIPT_DIR/lib/qa-evidence-fixture.sh"
 
 # Direct read of the verdict authority itself (tc task check-qa), used to
 # confirm a hook-observed outcome independently of the hook's own state file.

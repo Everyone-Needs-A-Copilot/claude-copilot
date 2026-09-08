@@ -138,26 +138,8 @@ send_pretool_agent() {
 get_exit_code() { printf '%s' "$1" | cut -d'|' -f1; }
 get_output()    { printf '%s' "$1" | cut -d'|' -f2-; }
 
-# Store v2 task-bound evidence against an actual fixture source and check.
-# Plain directories also require a registered contract and real source identity.
-store_passing_evidence() {
-  local task_num="$1"
-  local content identity
-  printf '%s\n' 'guarded fixture' > "$TEST_PROJECT/acceptance-input.txt"
-  printf '%s\n' '{"schemaVersion":2,"criteria":[{"id":"C1","expected":"The guarded fixture input exists"}],"sources":["acceptance-input.txt"]}' > "$TEST_ROOT/contract.json"
-  (cd "$TEST_PROJECT" && tc task contract "$task_num" --file "$TEST_ROOT/contract.json" --json) >/dev/null || return 1
-  identity="$(cd "$TEST_PROJECT" && tc task evidence-identity "$task_num")" || return 1
-  (cd "$TEST_PROJECT" && test -f acceptance-input.txt) || return 1
-  content="CRITERION: C1
-EXPECTED: The guarded fixture input exists
-OBSERVED: test -f acceptance-input.txt returned exit 0 against the captured source
-$identity
-BASELINE: unavailable, fresh fixture database
-ARTIFACT: test-run|test -f acceptance-input.txt exit=0
-UNTESTED: none
-VERDICT: APPROVED"
-  (cd "$TEST_PROJECT" && tc wp store --task "$task_num" --type test --title "Fixture QA evidence" --content "$content" --json) >/dev/null 2>&1
-}
+# Shared with SubagentStop so lifecycle consumers cannot retain an old schema.
+source "$SCRIPT_DIR/lib/qa-evidence-fixture.sh"
 
 check_qa() {
   (cd "$TEST_PROJECT" && tc task check-qa "$1" --json 2>/dev/null)
