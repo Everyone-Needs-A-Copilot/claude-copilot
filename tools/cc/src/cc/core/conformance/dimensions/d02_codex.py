@@ -19,9 +19,9 @@ classes A/B/C — optional for D — not E):
 Ground truth verified directly on this machine (2026-08-10), not trusted
 from rubric prose: `plugins/codex-copilot/` under the pinned mirror
 (`~/.copilot/mirrors/codex-foundation` by default) and under a correctly
-installed project (`TSM/hermes`) both contain exactly **61 files**;
+installed project (`TSM/hermes`) both contain exactly **65 files**;
 `scripts/copilot-gate.sh` lives OUTSIDE `plugins/` — so the correct count
-of locked codex paths is **61 + 1 = 62**, not "62 files [inside
+of locked codex paths is **65 + 1 = 66**, not "66 files [inside
 plugins/codex-copilot]" as an earlier draft stated
 (`TEST-MATRIX.md`: "Rubric error #2").
 

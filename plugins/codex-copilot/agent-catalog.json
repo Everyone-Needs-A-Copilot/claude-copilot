@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "version": "0.6.5",
+  "version": "0.7.0",
   "updatedAt": "2026-08-18T00:00:00Z",
   "$schema": "./agent-catalog.schema.json",
   "_comment": "Codex-native source of truth for active specialists, optional pack specialists, design chain, and routing workflows. Plugin lifecycle hooks live under hooks/; this catalog drives skills, docs, tests, and explicit tc/script gates.",
