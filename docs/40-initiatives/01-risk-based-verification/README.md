@@ -2,9 +2,14 @@
 
 > Mode: Initiative
 >
-> Status: Proposed — planning authorized; policy/runner implementation not started
+> Status: Foundation source implemented with local verification; UI pilot and measured adoption pending
 >
 > `tc` context: Claude Copilot PRD-5 / TASK-58
+
+The accepted design below has its first implementation in TASK-60–63. See
+[foundation operation and explicit limits](phases/01-foundation-implementation.md)
+for the source CLI, actual lane configuration, and work not yet performed; the
+phase sequence is not a claim that every optimization, pilot or rollout is complete.
 
 ## What you get
 
@@ -82,7 +87,7 @@ boundaries. These are sequential adoption gates, not delivery-time estimates.
 
 ## What the runner will do
 
-Proposed CLI surface—not available yet:
+Source CLI surface (machine installation is separate):
 
 ```text
 cc verify plan --task <id> --base <review-base> --json

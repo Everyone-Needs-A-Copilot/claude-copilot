@@ -1,6 +1,7 @@
 # ADR-001 — Local, bounded execution; one QA authority
 
-Status: Proposed. Context: PRD-5 / TASK-58.
+Status: Accepted for user-authorized foundation implementation; pilot adoption
+remains gated. Context: PRD-5 / TASK-58 and TASK-60–63.
 
 ## Decision
 

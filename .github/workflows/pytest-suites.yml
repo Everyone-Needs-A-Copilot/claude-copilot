@@ -95,10 +95,25 @@ jobs:
         working-directory: tools/cc
         run: |
           # World-B tests intentionally require the developer's configured
-          # fleet. The conformance workflow runs the complete portable
-          # World-A contract and committed baseline; shared CI must not
+          # fleet. This whole-directory run is the single Linux owner of
+          # the World-A contract and committed baseline; shared CI must not
           # fabricate a machine fleet for tests marked `machine`.
           python -m pytest tests/ -m "not machine"
+
+  conformance-suite:
+    # Preserve the existing required check display name. Do not replace this
+    # with an if-success job: GitHub can treat skipped required jobs as passing.
+    # Workflow-specific branch rules require a separate remote policy audit.
+    name: Conformance harness (World-A fixtures + committed baseline)
+    needs: cc-tests
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Require the portable suite owner to pass
+        env:
+          CC_TEST_RESULT: ${{ needs.cc-tests.result }}
+        run: test "$CC_TEST_RESULT" = success
 
   skill-test-scripts:
     name: Skill script self-tests (.claude/skills/**/scripts/test_*.py)

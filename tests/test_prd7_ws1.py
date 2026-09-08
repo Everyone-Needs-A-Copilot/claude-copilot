@@ -8,9 +8,14 @@ TASK-117: Gate the QA-gate hook on an artifact marker, not the word 'pass'
 These are failable checks — they verify the hook behavior with external artifacts,
 not model introspection.
 
-Test plan (per task instruction):
+Contract migration (PRD-5 / TASK-60): message-only ARTIFACT + APPROVED used
+to clear a gate. Current tc v2 requires a stored task/contract/source/runtime
+bound packet. Exercise that actual authority, never a copied approval regex.
+Retain negative controls for missing artifacts, stale sources and wrong tasks.
+
+Test plan:
   (a) A verdict WITHOUT an artifact does NOT unblock the gate
-  (b) A verdict WITH a valid artifact DOES unblock
+  (b) A valid stored source-bound verdict DOES unblock; message-only does not
   (c) Escape hatch (COPILOT_QA_GATE=off) still bypasses
   (d) 3-fail auto-unblock still fires
   (e) sec.md halts only at the 3rd warning (WARNING_HALT_THRESHOLD = 3)
@@ -24,7 +29,10 @@ import sys
 import importlib.util
 import tempfile
 import shutil
+import shlex
 from pathlib import Path
+
+import pytest
 
 BASE = str(Path(__file__).resolve().parents[1])
 AGENTS_DIR = os.path.join(BASE, ".claude/agents")
@@ -35,6 +43,7 @@ SUBAGENT_STOP = os.path.join(HOOKS_DIR, "subagent-stop.sh")
 PRETOOL_CHECK = os.path.join(HOOKS_DIR, "pretool-check.sh")
 VALIDATION_LIB = os.path.join(HOOKS_DIR, "lib", "validation_result.py")
 README_HOOKS = os.path.join(HOOKS_DIR, "README.md")
+sys.path.insert(0, os.path.join(BASE, "tools", "tc", "src"))
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +77,7 @@ def _make_gate_file(content: dict) -> str:
 
 
 def _parse_verdict_from_subagent_stop(last_message: str, session_id: str, agent_type: str = "qa",
-                                       initial_gate: dict = None) -> dict:
+                                       initial_gate: dict = None, env_extra: dict = None) -> dict:
     """
     Run subagent-stop.sh and return the resulting gate state for the session.
 
@@ -104,6 +113,8 @@ def _parse_verdict_from_subagent_stop(last_message: str, session_id: str, agent_
 
     env = os.environ.copy()
     env["COPILOT_HOOK_STATE_DIR"] = tmp_state_dir
+    if env_extra:
+        env.update(env_extra)
 
     result = subprocess.run(
         ["/bin/bash", SUBAGENT_STOP],
@@ -111,7 +122,7 @@ def _parse_verdict_from_subagent_stop(last_message: str, session_id: str, agent_
         capture_output=True,
         text=True,
         env=env,
-        cwd=BASE,
+        cwd=env.get("CLAUDE_PROJECT_DIR", BASE),
         timeout=10
     )
 
@@ -121,6 +132,8 @@ def _parse_verdict_from_subagent_stop(last_message: str, session_id: str, agent_
         with open(gate_path) as f:
             gate_state = json.load(f)
 
+    log_path = Path(tmp_state_dir) / "qa-gate.log"
+    log = log_path.read_text() if log_path.exists() else ""
     # Cleanup
     shutil.rmtree(tmp_state_dir, ignore_errors=True)
 
@@ -129,49 +142,82 @@ def _parse_verdict_from_subagent_stop(last_message: str, session_id: str, agent_
         "stdout": result.stdout,
         "stderr": result.stderr,
         "gate_state": gate_state,
+        "log": log,
     }
 
 
 # ---------------------------------------------------------------------------
-# Helpers: call parse_qa_verdict logic directly by importing it from bash
-# We extract parse_qa_verdict logic into Python for fast unit testing.
-# The shell integration is tested via the full subagent-stop.sh invocation.
+# Helpers: use tc's actual parser and persistent approval authority. The hook
+# integration also uses this runtime, not whichever installed tc is on PATH.
 # ---------------------------------------------------------------------------
 
 def _extract_has_artifact(message: str) -> bool:
-    """Python equivalent of has_artifact_marker() in subagent-stop.sh.
-
-    ARTIFACT: <type>|<detail>
-    type ∈ {test-run, file-check, diff-check}
-    """
-    pattern = re.compile(
-        r'^\s*ARTIFACT:\s+(test-run|file-check|diff-check)\|.+$',
-        re.MULTILINE | re.IGNORECASE
+    """Inspect the real parser/type registry, not a second approval regex."""
+    from tc.evidence import is_valid_artifact_type, parse_packet
+    return any(
+        is_valid_artifact_type(kind) and separator and detail.strip()
+        for kind, separator, detail in (
+            item.partition("|") for item in parse_packet(message)["artifacts"]
+        )
     )
-    return bool(pattern.search(message))
+
+
+def _qa_project(project):
+    from tc.api import capture_qa_identity, create_task
+    from tc.db.connection import init_db
+
+    project.mkdir(exist_ok=True)
+    source = project / "input.txt"
+    source.write_text("guarded fixture\n")
+    db = init_db(project / ".copilot" / "tasks.db")
+    task = create_task(title="Source-bound QA fixture", metadata={
+        "requiresQa": True,
+        "acceptanceContract": {"schemaVersion": 2, "criteria": [
+            {"id": "C1", "expected": "The guarded fixture input exists"}
+        ], "sources": ["input.txt"]},
+    }, db_path=db)
+    identity = capture_qa_identity(task_id=task["id"], db_path=db)["identity_line"]
+    assert source.is_file()
+    prefix = (
+        "CRITERION: C1\nEXPECTED: The guarded fixture input exists\n"
+        "OBSERVED: input.txt exists in this disposable project\n"
+        f"{identity}\nBASELINE: fresh fixture database\nUNTESTED: none\n"
+    )
+    return db, task["id"], prefix
 
 
 def _python_parse_verdict(msg: str) -> str:
-    """Python port of parse_qa_verdict() for fast unit testing without bash overhead."""
-    msg_upper = msg.upper()
+    """Retained test helper name; now invokes real v2 stored-evidence checks.
 
-    if re.search(r'VERDICT:\s*(APPROVED-WITH-MINOR-FIXES|APPROVED)', msg_upper):
-        if _extract_has_artifact(msg):
-            return "pass"
-        else:
-            return "fail"
+    Message variants are synthetic parser inputs inside a complete bound packet;
+    this is not a claim that their illustrative artifact commands were executed.
+    """
+    from tc.api import check_task_qa, store_wp
+    with tempfile.TemporaryDirectory(prefix="ws1-evidence-") as directory:
+        db, task_id, prefix = _qa_project(Path(directory))
+        store_wp(task_id=task_id, type_="test", title="Parser fixture",
+                 content=prefix + msg, db_path=db)
+        return "pass" if check_task_qa(task_id=task_id, db_path=db)["approved"] else "fail"
 
-    if re.search(r'VERDICT:\s*REJECTED', msg_upper):
-        return "fail"
 
-    if '<promise>COMPLETE</promise>' in msg:
-        if not re.search(r'REJECTED|VERDICT:\s*FAIL', msg_upper):
-            if _extract_has_artifact(msg):
-                return "pass"
-            else:
-                return "fail"
-
-    return "fail"
+@pytest.fixture
+def qa_project(tmp_path):
+    project = tmp_path / "project"
+    db, task_id, prefix = _qa_project(project)
+    # Keep identity capture and hook validation in the exact same Python/tc
+    # runtime. The wrapper dispatches the real CLI, with no approval stub.
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    wrapper = bin_dir / "tc"
+    entrypoint = shlex.quote("from tc.main import app; app()")
+    wrapper.write_text(f"#!/bin/sh\nexec {shlex.quote(sys.executable)} -c {entrypoint} \"$@\"\n")
+    wrapper.chmod(0o755)
+    return {
+        "project": project, "db": db, "task_id": task_id, "prefix": prefix,
+        "env": {"CLAUDE_PROJECT_DIR": str(project),
+                "PYTHONPATH": os.path.join(BASE, "tools", "tc", "src"),
+                "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"]},
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +248,7 @@ class TestQAAgentArtifactRequirement:
             content = f.read()
         # Must explicitly warn that a bare VERDICT: APPROVED without ARTIFACT will not unblock
         assert "NOT unblock" in content or "will not unblock" in content.lower() or \
-               "WILL NOT" in content, (
+               "WILL NOT" in content or "A bare verdict is invalid" in content, (
             "qa.md must explicitly state that a bare VERDICT: APPROVED will not unblock the gate"
         )
 
@@ -216,13 +262,11 @@ class TestQAAgentArtifactRequirement:
 
 
 # ---------------------------------------------------------------------------
-# TASK-115 + TASK-117: Artifact marker parsing logic — unit tests (Python port)
-# These are fast unit tests verifying the logic used by has_artifact_marker()
-# and parse_qa_verdict() in subagent-stop.sh.
+# TASK-115 + TASK-117: Artifact variants through the real stored-evidence check
 # ---------------------------------------------------------------------------
 
 class TestArtifactMarkerParsing:
-    """(a) verdict WITHOUT artifact does NOT unblock; (b) WITH artifact DOES unblock."""
+    """Artifact/verdict variants inside a registered source-bound packet."""
 
     # --- (a) No artifact → must NOT pass ---
 
@@ -296,13 +340,13 @@ class TestArtifactMarkerParsing:
         )
         assert _python_parse_verdict(msg) == "pass"
 
-    def test_complete_promise_with_artifact_passes(self):
+    def test_complete_promise_with_artifact_is_not_a_qa_verdict(self):
         msg = (
             "Task: TASK-115\n"
             "ARTIFACT: file-check|.claude/hooks/subagent-stop.sh exists has_artifact_marker\n"
             "<promise>COMPLETE</promise>"
         )
-        assert _python_parse_verdict(msg) == "pass"
+        assert _python_parse_verdict(msg) == "fail"
 
     def test_artifact_case_insensitive(self):
         """ARTIFACT keyword matching must be case-insensitive."""
@@ -344,62 +388,90 @@ class TestGateHookIntegration:
 
     def _run_hook(self, message: str, agent_type: str = "qa",
                   initial_gate: dict = None, env_extra: dict = None) -> dict:
-        """Invoke the patched subagent-stop.sh and return gate state."""
+        """Invoke the real subagent-stop.sh and return gate state."""
         result = _parse_verdict_from_subagent_stop(
             last_message=message,
             session_id=self.SESSION,
             agent_type=agent_type,
             initial_gate=initial_gate,
+            env_extra=env_extra,
         )
         return result
 
-    def test_bare_approved_does_not_clear_gate(self):
+    def test_bare_approved_does_not_clear_gate(self, qa_project):
         """(a) A bare VERDICT: APPROVED without ARTIFACT must not clear pending_tasks."""
-        # Set up a gate with a pending task
+        # Set up a gate with a pending task in a disposable database.
+        task_name = f"TASK-{qa_project['task_id']}"
         initial = {
             self.SESSION: {
-                "pending_tasks": ["TASK-115"],
+                "pending_tasks": [task_name],
                 "retries": {},
                 "history": [],
                 "lastSeen": "2026-06-17T10:00:00Z"
             }
         }
-        msg = "Task: TASK-115 | WP: WP-200\nVERDICT: APPROVED"
-        result = self._run_hook(msg, initial_gate=initial)
+        msg = f"Task: {task_name}\nVERDICT: APPROVED"
+        result = self._run_hook(msg, initial_gate=initial, env_extra=qa_project["env"])
 
         gate = result["gate_state"]
         # pending_tasks must still contain TASK-115 — gate NOT cleared
         session = gate.get(self.SESSION, {})
         pending = session.get("pending_tasks", [])
-        assert "TASK-115" in pending, (
+        assert task_name in pending, (
             f"Bare VERDICT: APPROVED without artifact must NOT clear pending_tasks; "
             f"got: {pending}"
         )
 
-    def test_approved_with_artifact_clears_gate(self):
-        """(b) VERDICT: APPROVED WITH ARTIFACT must clear pending_tasks."""
+    def test_approved_with_stored_source_bound_artifact_clears_gate(self, qa_project):
+        """(b) Only actual tc v2 approval clears the matching pending task."""
+        from tc.api import check_task_qa, store_wp
+        task_id = qa_project["task_id"]
+        task_name = f"TASK-{task_id}"
         initial = {
             self.SESSION: {
-                "pending_tasks": ["TASK-115"],
+                "pending_tasks": [task_name, "TASK-9999"],
                 "retries": {},
                 "history": [],
                 "lastSeen": "2026-06-17T10:00:00Z"
             }
         }
-        msg = (
-            "Task: TASK-115 | WP: WP-200\n"
-            "ARTIFACT: test-run|pytest tests/test_prd7_ws1.py exit=0 \"passed\"\n"
-            "VERDICT: APPROVED"
-        )
-        result = self._run_hook(msg, initial_gate=initial)
+        store_wp(task_id=task_id, type_="test", title="Current fixture evidence",
+                 content=qa_project["prefix"] +
+                 "ARTIFACT: file-check|input.txt exists\nVERDICT: APPROVED",
+                 db_path=qa_project["db"])
+        assert check_task_qa(task_id=task_id, db_path=qa_project["db"])["approved"]
+        # No message approval/artifact required: stored evidence is authority.
+        result = self._run_hook(f"Task: {task_name}", initial_gate=initial,
+                                env_extra=qa_project["env"])
 
         gate = result["gate_state"]
         session = gate.get(self.SESSION, {})
         pending = session.get("pending_tasks", [])
-        assert "TASK-115" not in pending, (
-            f"VERDICT: APPROVED with artifact must clear TASK-115 from pending_tasks; "
-            f"got: {pending}"
-        )
+        assert result["returncode"] == 0
+        assert task_name not in pending, pending
+        assert "TASK-9999" in pending, "Approval must not clear another task"
+
+    @pytest.mark.parametrize("invalid", ["message-only", "missing-artifact", "stale-source", "wrong-task"])
+    def test_unbound_or_invalid_evidence_cannot_clear_gate(self, qa_project, invalid):
+        from tc.api import create_task, store_wp
+        task_id = qa_project["task_id"]
+        if invalid != "message-only":
+            content = qa_project["prefix"] + "VERDICT: APPROVED\n"
+            if invalid != "missing-artifact":
+                content += "ARTIFACT: file-check|input.txt exists\n"
+            store_wp(task_id=task_id, type_="test", title="Negative control",
+                     content=content, db_path=qa_project["db"])
+        if invalid == "stale-source":
+            (qa_project["project"] / "input.txt").write_text("changed since verification\n")
+        if invalid == "wrong-task":
+            task_id = create_task(title="Different task", db_path=qa_project["db"])["id"]
+        task_name = f"TASK-{task_id}"
+        initial = {self.SESSION: {"pending_tasks": [task_name], "retries": {}, "history": []}}
+        message = f"Task: {task_name}\nARTIFACT: file-check|input.txt exists\nVERDICT: APPROVED"
+        result = self._run_hook(message, initial_gate=initial, env_extra=qa_project["env"])
+        assert task_name in result["gate_state"][self.SESSION]["pending_tasks"]
+        assert "not approved (" in result["log"], result
+        assert "unavailable or errored" not in result["log"], result
 
     def test_escape_hatch_bypasses_gate(self):
         """(c) COPILOT_QA_GATE=off must bypass all state management."""
@@ -454,30 +526,31 @@ class TestGateHookIntegration:
             f"gate file was modified: {gate_after} != {initial}"
         )
 
-    def test_three_fail_auto_unblock_fires(self):
-        """(d) After 3 consecutive QA failures, gate auto-unblocks (MAX_RETRIES=3)."""
-        # Build a state with TASK-115 at 2 retries already
+    def test_three_fail_auto_unblock_fires(self, qa_project):
+        """(d) After 3 failures the session unblocks; the task is NOT approved."""
+        from tc.api import check_task_qa
+        task_name = f"TASK-{qa_project['task_id']}"
         initial = {
             self.SESSION: {
-                "pending_tasks": ["TASK-115"],
-                "retries": {"TASK-115": 2},  # already 2 failures
+                "pending_tasks": [task_name],
+                "retries": {task_name: 2},  # already 2 failures
                 "history": [
-                    {"taskId": "TASK-115", "event": "qa_failed_retry_1", "ts": "2026-06-17T10:00:00Z"},
-                    {"taskId": "TASK-115", "event": "qa_failed_retry_2", "ts": "2026-06-17T10:01:00Z"},
+                    {"taskId": task_name, "event": "qa_failed_retry_1", "ts": "2026-06-17T10:00:00Z"},
+                    {"taskId": task_name, "event": "qa_failed_retry_2", "ts": "2026-06-17T10:01:00Z"},
                 ],
                 "lastSeen": "2026-06-17T10:01:00Z"
             }
         }
         # Send a 3rd failing verdict (no artifact, so it fails)
-        msg = "Task: TASK-115\nVERDICT: APPROVED"  # bare, no artifact → fail verdict
-        result = self._run_hook(msg, initial_gate=initial)
+        msg = f"Task: {task_name}\nVERDICT: APPROVED"
+        result = self._run_hook(msg, initial_gate=initial, env_extra=qa_project["env"])
 
         gate = result["gate_state"]
         session = gate.get(self.SESSION, {})
         pending = session.get("pending_tasks", [])
 
         # After 3 failures, task should be removed from pending_tasks (auto-unblock)
-        assert "TASK-115" not in pending, (
+        assert task_name not in pending, (
             f"After 3 consecutive QA failures, TASK-115 should be auto-unblocked; "
             f"pending_tasks={pending}"
         )
@@ -486,6 +559,7 @@ class TestGateHookIntegration:
         assert "advisory" in result["stdout"].lower() or "degraded" in result["stdout"].lower(), (
             f"Auto-unblock should emit an advisory systemMessage; stdout={result['stdout']!r}"
         )
+        assert not check_task_qa(task_id=qa_project["task_id"], db_path=qa_project["db"])["approved"]
 
 
 # ---------------------------------------------------------------------------
@@ -493,7 +567,7 @@ class TestGateHookIntegration:
 # ---------------------------------------------------------------------------
 
 class TestHasArtifactMarker:
-    """Unit tests for the has_artifact_marker regex logic."""
+    """Unit tests for tc's actual artifact parser and accepted-type registry."""
 
     def test_empty_string_has_no_artifact(self):
         assert not _extract_has_artifact("")
@@ -638,29 +712,26 @@ class TestReadmeDocumentation:
 
 
 # ---------------------------------------------------------------------------
-# TASK-117: subagent-stop.sh contains has_artifact_marker function
+# TASK-117: shell adapter delegates approval and diagnostics to tc
 # ---------------------------------------------------------------------------
 
 class TestSubagentStopHookHardening:
-    """subagent-stop.sh must contain the artifact marker enforcement."""
+    """The hook delegates to current tc authority, not a message regex."""
 
-    def test_subagent_stop_has_artifact_function(self):
+    def test_subagent_stop_uses_task_bound_authority(self):
         with open(SUBAGENT_STOP) as f:
             content = f.read()
-        assert "has_artifact_marker" in content, (
-            "subagent-stop.sh must define has_artifact_marker()"
-        )
+        assert 'tc task check-qa "$num" --json' in content
+        assert not re.search(r"^has_artifact_marker\s*\(\)", content, re.MULTILINE)
 
-    def test_subagent_stop_artifact_types_in_regex(self):
-        with open(SUBAGENT_STOP) as f:
-            content = f.read()
+    def test_approval_authority_recognizes_required_artifact_types(self):
+        from tc.evidence import is_valid_artifact_type
         for t in ("test-run", "file-check", "diff-check"):
-            assert t in content, (
-                f"subagent-stop.sh must include artifact type '{t}' in has_artifact_marker regex"
-            )
+            assert is_valid_artifact_type(t)
+        assert not is_valid_artifact_type("unverified-agent-confidence")
 
     def test_subagent_stop_fail_on_missing_artifact(self):
-        """subagent-stop.sh parse_qa_verdict must return fail when artifact is absent."""
+        """A non-approved tc result must take the fail path, not clear the gate."""
         with open(SUBAGENT_STOP) as f:
             content = f.read()
         # Must have logic that returns/echoes "fail" when artifact is absent
@@ -668,14 +739,12 @@ class TestSubagentStopHookHardening:
             "subagent-stop.sh must echo fail when artifact is missing from an APPROVED verdict"
         )
 
-    def test_subagent_stop_warns_on_missing_artifact(self):
-        """subagent-stop.sh must log a warning when artifact is absent from approved verdict."""
+    def test_subagent_stop_logs_the_authority_rejection_reason(self):
+        """Missing artifact and stale source reasons come from the tc result."""
         with open(SUBAGENT_STOP) as f:
             content = f.read()
-        assert "NO ARTIFACT" in content or "no artifact" in content.lower() or \
-               "ARTIFACT marker" in content, (
-            "subagent-stop.sh must warn when ARTIFACT marker is missing from passing verdict"
-        )
+        assert '.reason // empty' in content
+        assert 'not approved${reason:+' in content
 
     def test_subagent_stop_preserves_escape_hatch(self):
         with open(SUBAGENT_STOP) as f:

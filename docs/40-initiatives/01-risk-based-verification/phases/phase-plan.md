@@ -1,6 +1,8 @@
 # Phase implementation and verification contract
 
-Planning record: PRD-5 / TASK-58. All implementation below is proposed. Create
+Planning record: PRD-5 / TASK-58. Foundation implementation is in TASK-60–63;
+[operation and limits](01-foundation-implementation.md) distinguish implemented
+source behavior from the remaining pilot and adoption work. Create
 repo-local QA-required execution tasks and register exact source scopes before
 editing each phase. Codex changes belong in the Codex foundation, then follow its
 normal distribution path; editing Claude's vendored copy alone is not parity.

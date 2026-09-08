@@ -23,6 +23,7 @@ from cc.commands.store import store_app
 from cc.commands.survival import survival_app
 from cc.commands.support import support_app
 from cc.commands.usage import usage_app
+from cc.commands.verify import verify_app
 from cc.commands.workspaces import workspaces_app
 from cc.core.config import resolve_key
 
@@ -39,6 +40,7 @@ app.add_typer(config_app, name="config")
 app.add_typer(docs_app, name="docs")
 app.add_typer(design_app, name="design")
 app.add_typer(usage_app, name="usage")
+app.add_typer(verify_app, name="verify")
 app.add_typer(eval_app, name="eval")
 app.add_typer(extensions_app, name="extensions")
 app.add_typer(auth_app, name="auth")

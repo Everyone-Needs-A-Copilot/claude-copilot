@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "inputs": [
+    "verification.json",
+    "VERSION.json",
+    "package.json",
+    "pytest.ini",
+    "conftest.py",
+    "tools/cc/pyproject.toml",
+    "tools/cc/uv.lock",
+    "tools/tc/pyproject.toml"
+  ],
+  "fallbackLanes": ["cc-portable", "tc-portable", "root-portable", "qa-gate", "subagent-stop"],
+  "lanes": [
+    {
+      "id": "verification-contract",
+      "description": "Check the real repository lane manifest and initiative documentation contract.",
+      "paths": ["verification.json", "tests/test_verification_manifest.py", "docs/40-initiatives/01-risk-based-verification/**"],
+      "argv": ["{python}", "-m", "pytest", "tests/test_verification_manifest.py", "-p", "no:cov", "--junitxml={artifact_dir}/results.xml"],
+      "cwd": ".",
+      "timeoutSeconds": 60,
+      "inputs": ["tests/test_verification_manifest.py", "docs/40-initiatives/01-risk-based-verification", "tools/cc/src/cc/core/verification", "tools/cc/src/cc/commands/verify.py", "tools/cc/src/cc/main.py"],
+      "hermetic": false,
+      "junit": "results.xml"
+    },
+    {
+      "id": "verification-runner",
+      "description": "Exercise runner selection, real processes, timeout, cancellation and evidence identity.",
+      "paths": ["tools/cc/src/cc/core/verification/**", "tools/cc/src/cc/commands/verify.py", "tools/cc/tests/test_verify.py"],
+      "argv": ["{python}", "-m", "pytest", "tests/test_verify.py", "--junitxml={artifact_dir}/results.xml"],
+      "cwd": "tools/cc",
+      "timeoutSeconds": 60,
+      "inputs": ["tools/cc/src", "tools/cc/tests/test_verify.py", "tools/cc/tests/conftest.py"],
+      "hermetic": false,
+      "junit": "results.xml"
+    },
+    {
+      "id": "instruction-policy",
+      "description": "Verify proportional verification rules and current task-bound QA authority.",
+      "paths": [".claude/agents/me.md", ".claude/agents/qa.md", ".claude/agents/_shared/verification-policy.md", "tests/instructions/test-verification-policy.sh"],
+      "argv": ["bash", "tests/instructions/test-verification-policy.sh"],
+      "cwd": ".",
+      "timeoutSeconds": 60,
+      "inputs": [".claude/agents", "tests/instructions/test-verification-policy.sh"],
+      "hermetic": false
+    },
+    {
+      "id": "instruction-context",
+      "description": "Retain byte-identical mandatory optional-context contracts across delivery surfaces.",
+      "paths": [".claude/agents/me.md", ".claude/agents/qa.md", ".claude/agents/_shared/**", "tests/instructions/test-optional-context-surfaces.sh"],
+      "argv": ["bash", "tests/instructions/test-optional-context-surfaces.sh"],
+      "cwd": ".",
+      "timeoutSeconds": 60,
+      "inputs": [".claude/agents", ".claude/commands/protocol.md", "templates/CLAUDE.template.md", "plugins/codex-copilot/skills/specialist-agents/references/shared-behaviors.md", "tests/instructions/test-optional-context-surfaces.sh"],
+      "hermetic": false
+    },
+    {
+      "id": "root-contracts",
+      "description": "Verify migrated QA assertions, isolated fitness negative controls, and CI ownership.",
+      "paths": ["tests/test_prd7_ws1.py", "tests/test_ff6_negative.py", "tests/test_verification_ci.py", ".github/workflows/pytest-suites.yml", ".github/workflows/conformance.yml"],
+      "argv": ["{python}", "-m", "pytest", "tests/test_prd7_ws1.py", "tests/test_ff6_negative.py", "tests/test_verification_ci.py", "-p", "no:cov", "--junitxml={artifact_dir}/results.xml"],
+      "cwd": ".",
+      "timeoutSeconds": 180,
+      "inputs": ["tests/test_prd7_ws1.py", "tests/test_ff6_negative.py", "tests/test_verification_ci.py", ".github/workflows", ".claude/fitness-check.sh", "CLAUDE.md", "CHANGELOG.md", ".claude/agents", ".claude/commands", ".claude/hooks", "tools/tc/src"],
+      "hermetic": false,
+      "junit": "results.xml"
+    },
+    {
+      "id": "cc-portable",
+      "description": "Discover the complete portable cc suite; machine checks are explicitly excluded.",
+      "paths": [],
+      "argv": ["{python}", "-m", "pytest", "tests/", "-m", "not machine", "--junitxml={artifact_dir}/results.xml"],
+      "cwd": "tools/cc",
+      "timeoutSeconds": 600,
+      "inputs": ["tools/cc/src", "tools/cc/tests", "tools/tc/src", "scripts", "templates", ".claude/agents", ".claude/commands", "plugins/codex-copilot"],
+      "hermetic": false,
+      "junit": "results.xml"
+    },
+    {
+      "id": "tc-portable",
+      "description": "Discover the complete tc suite, including task identity and approval rejection cases.",
+      "paths": [],
+      "argv": ["{python}", "-m", "pytest", "tests/", "--junitxml={artifact_dir}/results.xml"],
+      "cwd": "tools/tc",
+      "timeoutSeconds": 60,
+      "inputs": ["tools/tc/src", "tools/tc/tests"],
+      "hermetic": false,
+      "junit": "results.xml"
+    },
+    {
+      "id": "root-portable",
+      "description": "Discover root product tests, retaining visible fitness failures; vendored TUI has its own CI owner.",
+      "paths": [],
+      "argv": ["{python}", "-m", "pytest", "tests/", "--ignore=tests/tui", "-p", "no:cov", "--junitxml={artifact_dir}/results.xml"],
+      "cwd": ".",
+      "timeoutSeconds": 120,
+      "inputs": ["tests", "tools/cc/src", "tools/tc/src", ".claude/agents", ".claude/commands", ".claude/hooks", ".claude/fitness-check.sh", ".claude/force-delegate-budget-baseline-v1.0.0.json", "CLAUDE.md", "CHANGELOG.md", ".github/workflows", "docs/40-initiatives/01-risk-based-verification", "scripts", "templates", "plugins/codex-copilot"],
+      "hermetic": false,
+      "junit": "results.xml"
+    },
+    {
+      "id": "qa-gate",
+      "description": "Exercise the actual QA lifecycle shell boundary, including stale and bare-claim rejection.",
+      "paths": ["tests/hooks/test-qa-gate-integration.sh", "tests/hooks/lib/qa-evidence-fixture.sh"],
+      "argv": ["bash", "tests/hooks/test-qa-gate-integration.sh"],
+      "cwd": ".",
+      "timeoutSeconds": 60,
+      "inputs": ["tests/hooks", ".claude/hooks", "tools/tc/src"],
+      "hermetic": false
+    },
+    {
+      "id": "subagent-stop",
+      "description": "Exercise task-bound SubagentStop behavior through the real shell consumer.",
+      "paths": ["tests/hooks/test-subagent-stop.sh", "tests/hooks/lib/qa-evidence-fixture.sh"],
+      "argv": ["bash", "tests/hooks/test-subagent-stop.sh"],
+      "cwd": ".",
+      "timeoutSeconds": 60,
+      "inputs": ["tests/hooks", ".claude/hooks", "tools/tc/src"],
+      "hermetic": false
+    }
+  ]
+}
