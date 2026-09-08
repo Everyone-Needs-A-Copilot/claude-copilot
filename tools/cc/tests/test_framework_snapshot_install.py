@@ -222,7 +222,7 @@ def _source_repository(
     subprocess.run(("git", "init", "--quiet", str(repo)), check=True)
     _write(
         repo / "VERSION.json",
-        json.dumps({"components": {"commands": {"machineCommands": list(roster)}}})
+        json.dumps({"components": {"commands": {"machineCommands": list(roster)}, "tc": {"version": "2.0.0"}}})
         + "\n",
     )
     for name in MACHINE_COMMANDS:
@@ -290,6 +290,16 @@ def _fake_cc_installer(snapshot: Path, staged_shim: Path) -> None:
     runtime.parent.mkdir(parents=True)
     runtime.write_bytes(payload)
     runtime.chmod(0o755)
+    receipt_file = runtime.parent.parent / "tc-provenance.json"
+    receipt_file.write_text('{"fixture":"tc-provenance"}\n')
+    tc_info = {"verified": True, "mode": "snapshot", "version": "2.0.0",
+               "source_commit": (snapshot / ".source-commit").read_text().strip(),
+               "source_tree": (snapshot / ".source-tree").read_text().strip(),
+               "capabilities": ["check-qa", "contract", "evidence-identity"],
+               "receipt_sha256": hashlib.sha256(receipt_file.read_bytes()).hexdigest()}
+    tc_runtime = runtime.with_name("tc")
+    tc_runtime.write_text("#!/bin/sh\ncat <<'TC_RECEIPT'\n" + json.dumps(tc_info) + "\nTC_RECEIPT\n")
+    tc_runtime.chmod(0o755)
     staged_shim.parent.mkdir(parents=True, exist_ok=True)
     staged_shim.write_bytes(payload)
     staged_shim.chmod(0o755)

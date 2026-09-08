@@ -17,6 +17,7 @@ from __future__ import annotations
 import pytest
 
 from tc import api
+from .qa_fixtures import bind_packet
 from tc.db.exceptions import ValidationError
 from tc.services.qa import check_task_qa
 
@@ -35,7 +36,7 @@ PASS = (
 def test_completion_requires_current_task_bound_evidence(db_path):
     task = api.create_task(title="Guarded", metadata={"requiresQa": True}, db_path=db_path)
     other = api.create_task(title="Other", db_path=db_path)
-    api.store_wp(task_id=other["id"], type_="test", title="Other QA", content=PASS, db_path=db_path)
+    api.store_wp(task_id=other["id"], type_="test", title="Other QA", content=bind_packet(other, db_path, PASS), db_path=db_path)
 
     with pytest.raises(ValidationError, match="QA gate"):
         api.update_task(
@@ -43,7 +44,7 @@ def test_completion_requires_current_task_bound_evidence(db_path):
         )
     assert api.get_task(task_id=task["id"], db_path=db_path)["status"] == "pending"
 
-    api.store_wp(task_id=task["id"], type_="test", title="QA", content=PASS, db_path=db_path)
+    api.store_wp(task_id=task["id"], type_="test", title="QA", content=bind_packet(task, db_path, PASS), db_path=db_path)
     assert check_task_qa(task_id=task["id"], db_path=db_path)["approved"]
     assert api.update_task(task_id=task["id"], status="completed", db_path=db_path)["status"] == "completed"
 
@@ -54,7 +55,7 @@ def test_completion_requires_current_task_bound_evidence(db_path):
 )
 def test_later_rejection_or_implementation_invalidates_qa(db_path, new_type, content):
     task = api.create_task(title="Guarded", metadata={"requiresQa": True}, db_path=db_path)
-    api.store_wp(task_id=task["id"], type_="test", title="Old QA", content=PASS, db_path=db_path)
+    api.store_wp(task_id=task["id"], type_="test", title="Old QA", content=bind_packet(task, db_path, PASS), db_path=db_path)
     api.store_wp(task_id=task["id"], type_=new_type, title="New evidence", content=content, db_path=db_path)
 
     with pytest.raises(ValidationError, match="QA gate"):
@@ -88,24 +89,14 @@ def test_check_qa_command_reports_not_found_task(db_path):
 
 def test_criterion_set_spread_across_multiple_work_products_passes(db_path):
     task = api.create_task(title="Multi-WP QA", metadata={"requiresQa": True}, db_path=db_path)
-    api.store_wp(
-        task_id=task["id"],
-        type_="test",
-        title="Area 1",
-        content="CRITERION: area one\nEXPECTED: e1\nOBSERVED: o1\nARTIFACT: test-run|pytest a1 exit=0\n",
-        db_path=db_path,
-    )
-    api.store_wp(
-        task_id=task["id"],
-        type_="test",
-        title="Area 2 + verdict",
-        content=(
-            "CRITERION: area two\nEXPECTED: e2\nOBSERVED: o2\n"
-            "IDENTITY: fixture rev=abc1234\nBASELINE: unavailable, fresh fixture\n"
-            "ARTIFACT: test-run|pytest a2 exit=0\nUNTESTED: none\nVERDICT: APPROVED\n"
-        ),
-        db_path=db_path,
-    )
+    combined = bind_packet(task, db_path,
+        "CRITERION: area one\nEXPECTED: e1\nOBSERVED: o1\nARTIFACT: test-run|pytest a1 exit=0\n"
+        "CRITERION: area two\nEXPECTED: e2\nOBSERVED: o2\n"
+        "IDENTITY: fixture\nBASELINE: unavailable, fresh fixture\n"
+        "ARTIFACT: test-run|pytest a2 exit=0\nUNTESTED: none\nVERDICT: APPROVED\n")
+    first, second = combined.split("CRITERION: area_two", 1)
+    api.store_wp(task_id=task["id"], type_="test", title="Area 1", content=first, db_path=db_path)
+    api.store_wp(task_id=task["id"], type_="test", title="Area 2 + verdict", content="CRITERION: area_two" + second, db_path=db_path)
     result = check_task_qa(task_id=task["id"], db_path=db_path)
     assert result["approved"], result["reason"]
     assert api.update_task(task_id=task["id"], status="completed", db_path=db_path)["status"] == "completed"
@@ -120,7 +111,7 @@ def test_prior_rejected_round_does_not_bleed_into_new_approved_round(db_path):
         content="CRITERION: c\nEXPECTED: e\nOBSERVED: wrong\nVERDICT: REJECTED\n",
         db_path=db_path,
     )
-    api.store_wp(task_id=task["id"], type_="test", title="Round 2 (passed)", content=PASS, db_path=db_path)
+    api.store_wp(task_id=task["id"], type_="test", title="Round 2 (passed)", content=bind_packet(task, db_path, PASS), db_path=db_path)
     result = check_task_qa(task_id=task["id"], db_path=db_path)
     assert result["approved"], result["reason"]
 
@@ -197,7 +188,7 @@ def test_one_tasks_pass_leaves_a_second_qa_required_task_pending(db_path):
     one via a real evidence packet must never affect the other's gate."""
     task_a = api.create_task(title="A", metadata={"requiresQa": True}, db_path=db_path)
     task_b = api.create_task(title="B", metadata={"requiresQa": True}, db_path=db_path)
-    api.store_wp(task_id=task_a["id"], type_="test", title="QA for A", content=PASS, db_path=db_path)
+    api.store_wp(task_id=task_a["id"], type_="test", title="QA for A", content=bind_packet(task_a, db_path, PASS), db_path=db_path)
 
     assert check_task_qa(task_id=task_a["id"], db_path=db_path)["approved"] is True
     assert check_task_qa(task_id=task_b["id"], db_path=db_path)["approved"] is False
@@ -218,10 +209,11 @@ def test_concurrent_work_product_writes_for_two_tasks_preserve_both_records(db_p
     task_a = api.create_task(title="Concurrent A", metadata={"requiresQa": True}, db_path=db_path)
     task_b = api.create_task(title="Concurrent B", metadata={"requiresQa": True}, db_path=db_path)
     errors: list[Exception] = []
+    packets = {t["id"]: bind_packet(t, db_path, PASS) for t in (task_a, task_b)}
 
     def _store(task_id: int, label: str) -> None:
         try:
-            api.store_wp(task_id=task_id, type_="test", title=label, content=PASS, db_path=db_path)
+            api.store_wp(task_id=task_id, type_="test", title=label, content=packets[task_id], db_path=db_path)
         except Exception as exc:  # pragma: no cover - surfaced via `errors`
             errors.append(exc)
 
@@ -255,7 +247,7 @@ def test_cli_check_qa_and_api_check_qa_agree_on_the_same_task(db_path, cli):
     import tc.services.qa as qa_module
 
     task = api.create_task(title="CLI parity", metadata={"requiresQa": True}, db_path=db_path)
-    api.store_wp(task_id=task["id"], type_="test", title="QA", content=PASS, db_path=db_path)
+    api.store_wp(task_id=task["id"], type_="test", title="QA", content=bind_packet(task, db_path, PASS), db_path=db_path)
 
     api_result = check_task_qa(task_id=task["id"], db_path=db_path)
     assert qa_module.__name__ == "tc.services.qa"  # module path this side exercised

@@ -39,3 +39,8 @@ that content was read or obeyed.
   proceeding on repository instructions." Do not widen the query to manufacture a match.
 - No knowledge repos configured (`CC_KNOWLEDGE_REPOS` empty): "Knowledge tier
   unconfigured; optional context limited to project and machine skills." Never block.
+
+Every explicitly required skill name remains in `selected[]`. Identical required
+content is emitted once: subsequent required aliases have `duplicate_of`, empty
+`content`, and zero charged characters/bytes; use the named selected entry's
+content. Optional duplicates remain in `excluded[]` as `duplicate-content`.

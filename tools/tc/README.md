@@ -271,3 +271,34 @@ tools/tc/
     test_services.py     # service layer + api facade + transaction tests
     ...
 ```
+
+## Evidence v2 migration and installation
+
+QA-required pending tasks now need a registered acceptance contract and captured
+source identity. Completed pre-v2 history remains readable, labelled historical.
+This is a breaking completion-contract change; no stored evidence is rewritten.
+
+```json
+{"schemaVersion":2,"criteria":[{"id":"C1","expected":"The named input produces the required result"}],"sources":["src","tests"]}
+```
+
+Run `tc task contract ID --file acceptance.json`, then
+`tc task evidence-identity ID` **before** executing QA; retain the exact identity
+line with criterion/expected/observed/baseline/artifact/verdict evidence. Capture
+again after tests and compare. Source, task description, criteria, runtime, or
+configuration changes invalidate the identity; rerun verification. Sources are
+explicit: include dependencies and configuration that can change the result.
+Put generated artifacts in `.copilot` outside source scopes. Hashes do not prove
+that observations happened; QA remains responsible for behavioral evidence.
+
+The CLI and `tc.api.capture_qa_identity` use the same implementation. Task
+completion enforces dependencies and cannot downgrade requiresQa. Registering a
+new contract on completed work requires reopening and fresh evidence.
+
+Install standalone development tc with `bash tools/tc/install.sh`; its prior
+launcher is backed up and source/dependency receipts are written inside the venv.
+`tc provenance --json` verifies without changing anything. `--record` is an
+explicit installation operation, never a verification fallback. Development
+receipts describe mutable checkouts; release installation uses verified source
+snapshots and publishes cc/tc together with rollback. Ambient PYTHONPATH and
+PYTHONHOME are removed during install verification to prevent checkout borrowing.

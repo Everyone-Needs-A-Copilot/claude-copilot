@@ -1,55 +1,16 @@
-"""tc.services.qa — the task completion authority for QA evidence.
+"""One task-completion authority for CLI, API and native hooks.
 
-``check_task_qa(...)`` is the ONLY function ``tc.services.tasks.update_task``
-calls to decide whether a task may transition to ``status='completed'``
-when its metadata carries ``requiresQa=true`` (see ``update_task`` and the
-requiresQa-at-creation policy documented in ``tc.services.tasks.create_task``
-for defect 3). Both the CLI (``tc task update`` / `tc task check-qa`) and
-``tc.api.update_task`` reach this same function object -- there is exactly
-one completion authority, not one per caller.
-
-This module owns exactly three concerns that ``tc.evidence`` does NOT:
-
-  1. DB traversal -- which work products count as evidence for a task, and
-     in what order (defect 5: a criterion set spread across several work
-     products, not just the single latest ``type='test'`` row).
-  2. Staleness / identity comparison against the CURRENT repository state
-     (defect 4), via ``_current_identity`` (git revision + dirty-tree
-     fingerprint) and ``tc.evidence.validate``'s IDENTITY comparison.
-  3. Legacy-evidence policy, keyed on ``EVIDENCE_SCHEMA_VERSION`` (see
-     LEGACY POLICY below).
-
-Everything about what a SINGLE evidence packet must contain to be
-well-formed lives in ``tc.evidence`` (pure, no DB/git/subprocess).
-
-LEGACY POLICY (defect-3.4 migration requirement -- preserve history,
-never silently upgrade old evidence to satisfy a stronger contract it
-predates):
-
-    A work product's content is "legacy-shaped"
-    (``tc.evidence.parse.is_legacy_shaped``) when it carries a VERDICT
-    and/or ARTIFACT line but no IDENTITY field at all. IDENTITY is the one
-    field the v1 contract requires that no pre-v1 packet ever had, so its
-    total absence is a reliable, self-contained version signal -- no stored
-    schema-version number is needed on historical rows.
-
-    * Task already ``status='completed'``: legacy evidence remains
-      sufficient. ``check_task_qa`` returns ``approved=True``,
-      ``legacy=True``, and a reason saying so. This never re-runs the
-      stronger validator against history, so an already-completed task is
-      not retroactively invalidated by a contract it predates.
-    * Task NOT yet completed: legacy-shaped evidence alone does NOT satisfy
-      the current (v{EVIDENCE_SCHEMA_VERSION}) predicate. ``check_task_qa``
-      returns ``approved=False``, ``legacy=True``, and a reason naming the
-      gap explicitly (never a silent pass), so legacy-shaped evidence can
-      never be mistaken for satisfying the stronger contract going forward.
+Pending QA-required work needs a registered v2 acceptance contract, exact
+criterion coverage and a machine-captured content identity. tc.evidence retains
+its pure v1 text parser/structural validator; qa_contract owns database/source
+binding. Completed pre-v2 history stays readable and is explicitly historical,
+never evidence of current strict verification. Updating/reopening work requires
+fresh v2 evidence. Artifact text is inspected, never executed.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
-import subprocess
 from pathlib import Path
 from typing import Any, Optional
 
@@ -77,79 +38,6 @@ def task_metadata(raw: Any) -> dict:
     return value
 
 
-def _current_identity(cwd: Optional[str] = None) -> Optional[dict]:
-    """Best-effort current git revision + dirty-tree fingerprint (defect 4).
-
-    Returns ``{"revision": <7-hex-char short sha>, "dirty": bool,
-    "dirty_fingerprint": <12-hex-char digest of `git diff HEAD`>}``, or
-    ``None`` when `cwd` is not inside a git repository (or git is
-    unavailable) -- in which case staleness comparison is skipped rather
-    than failing closed on an environment that cannot supply the signal at
-    all (e.g. a fresh test database in a plain temp directory).
-
-    The 7-character short revision matches git's own default short-sha
-    length, so it is very likely to appear verbatim as a substring of
-    whatever revision notation a QA agent wrote into IDENTITY (full sha,
-    `git describe`, or its own 7-char short form) -- see
-    ``tc.evidence.validate``'s comparison. The dirty-tree fingerprint is a
-    much narrower, best-effort signal: it can only catch drift when the
-    recorded IDENTITY explicitly claims "clean" (a real, checkable
-    contradiction) or embeds a `dirty:<hex>`/`fingerprint:<hex>` token
-    using the same convention -- there is no shared fingerprint algorithm
-    a QA-authoring agent is required to reproduce, so silence on this half
-    is not itself proof of staleness.
-    """
-    try:
-        revision = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=cwd, capture_output=True, text=True, timeout=5, check=False,
-        )
-        if revision.returncode != 0 or not revision.stdout.strip():
-            return None
-        status = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=cwd, capture_output=True, text=True, timeout=5, check=False,
-        )
-        dirty = bool(status.stdout.strip()) if status.returncode == 0 else None
-        diff = subprocess.run(
-            ["git", "diff", "HEAD"],
-            cwd=cwd, capture_output=True, text=True, timeout=5, check=False,
-        )
-        dirty_fingerprint = None
-        if diff.returncode == 0 and diff.stdout:
-            dirty_fingerprint = hashlib.sha256(diff.stdout.encode("utf-8")).hexdigest()[:12]
-        return {
-            "revision": revision.stdout.strip(),
-            "dirty": dirty,
-            "dirty_fingerprint": dirty_fingerprint,
-        }
-    except (OSError, subprocess.SubprocessError):
-        return None
-
-
-def _db_repo_root(conn) -> Optional[str]:
-    """Best-effort project root for `conn`'s attached database file.
-
-    By convention the database lives at ``<project>/.copilot/tasks.db``, so
-    its grandparent directory is the project checkout `_current_identity`
-    should be scoped to -- deliberately NOT the process's ambient cwd,
-    which in a test run is the tc/cc developer's own checkout rather than
-    the (test-isolated) project the database belongs to.
-    """
-    try:
-        rows = conn.execute("PRAGMA database_list").fetchall()
-    except Exception:
-        return None
-    for row in rows:
-        try:
-            name, file = row["name"], row["file"]
-        except (KeyError, IndexError, TypeError):
-            name, file = row[1], row[2]
-        if name == "main" and file:
-            return str(Path(file).parent.parent)
-    return None
-
-
 def _evidence_work_products(task_id: int, conn) -> list[dict]:
     """Every work product for `task_id`, oldest to newest.
 
@@ -167,7 +55,7 @@ def _evidence_work_products(task_id: int, conn) -> list[dict]:
     return [get_wp(wp_id=row["id"], conn=conn) for row in rows]
 
 
-def check_task_qa(*, task_id: int, conn=None, db_path: Optional[Path] = None) -> dict[str, Any]:
+def check_task_qa(*, task_id: int, conn=None, db_path: Optional[Path] = None, task_override: Optional[dict] = None) -> dict[str, Any]:
     """The completion predicate.
 
     Returns a dict with at least: ``task_id``, ``approved`` (bool),
@@ -188,6 +76,7 @@ def check_task_qa(*, task_id: int, conn=None, db_path: Optional[Path] = None) ->
         if task is None:
             raise TaskNotFound(f"task #{task_id} not found")
 
+        task = task_override or dict(task)
         result: dict[str, Any] = {
             "task_id": task_id,
             "approved": False,
@@ -200,7 +89,9 @@ def check_task_qa(*, task_id: int, conn=None, db_path: Optional[Path] = None) ->
         if not work_products:
             return result
 
-        current_identity = _current_identity(cwd=_db_repo_root(conn))
+        # Completed pre-v2 history remains inspectable; pending work must migrate.
+        historical = task["status"] == "completed" and not task_metadata(task["metadata"]).get("acceptanceContract")
+        current_identity = None
 
         # Assemble the current criterion set (defect 5): walk newest to
         # oldest, collecting evidence-shaped work products. A work product
@@ -267,7 +158,7 @@ def check_task_qa(*, task_id: int, conn=None, db_path: Optional[Path] = None) ->
         # contributing set can supply.
         if (combined["verdicts"] or combined["artifacts"]) and not combined["identity"]:
             result["legacy"] = True
-            if (task["status"] or "") == "completed":
+            if historical:
                 result.update(
                     approved=True,
                     reason=(
@@ -301,9 +192,15 @@ def check_task_qa(*, task_id: int, conn=None, db_path: Optional[Path] = None) ->
             )
             return result
 
+        if not historical:
+            from tc.services.qa_contract import binding_errors
+            errors = binding_errors(task, conn, combined)
+            if errors:
+                result.update(approved=False, reason=errors[0])
+                return result
         verdict = validate_packet(combined, current_identity=current_identity)
         if verdict["valid"]:
-            result.update(approved=True, reason="Task-bound evidence packet passes")
+            result.update(approved=True, legacy=historical, reason="Historical pre-v2 approval preserved; not current strict verification" if historical else "Task-bound evidence packet passes")
         else:
             result.update(approved=False, reason=verdict["reason"])
         return result

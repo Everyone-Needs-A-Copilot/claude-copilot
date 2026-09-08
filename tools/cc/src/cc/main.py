@@ -9,6 +9,7 @@ from cc.commands.auth import auth_app
 from cc.commands.config import config_app
 from cc.commands.conformance import conformance_app
 from cc.commands.docs import docs_app
+from cc.commands.design import design_app
 from cc.commands.eval import eval_app
 from cc.commands.extensions import extensions_app
 from cc.commands.journey import journey_app
@@ -36,6 +37,7 @@ app.add_typer(memory_app, name="memory")
 app.add_typer(skill_app, name="skill")
 app.add_typer(config_app, name="config")
 app.add_typer(docs_app, name="docs")
+app.add_typer(design_app, name="design")
 app.add_typer(usage_app, name="usage")
 app.add_typer(eval_app, name="eval")
 app.add_typer(extensions_app, name="extensions")

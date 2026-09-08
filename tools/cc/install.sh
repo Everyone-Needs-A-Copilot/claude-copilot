@@ -11,6 +11,9 @@
 
 set -euo pipefail
 
+# Build/verification must not import an unrelated checkout through ambient paths.
+unset PYTHONPATH PYTHONHOME
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/.venv"
 TC_DIR="$SCRIPT_DIR/../tc"
@@ -93,6 +96,9 @@ fi
     echo "ERROR: cc runtime cannot import the Task Copilot evidence API" >&2
     exit 1
 }
+
+# Bind the bundled tc runtime to its reviewed source before publication.
+"$VENV_DIR/bin/tc" provenance --record --json >/dev/null
 
 # Step 3: Ensure shim directory exists
 mkdir -p "$SHIM_DIR"

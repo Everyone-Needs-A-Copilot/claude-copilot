@@ -15,6 +15,10 @@ Use this skill when software intersects with physical products, connected device
 - Remove elements until function breaks, then stop.
 - Reject fake materials, decorative complexity, and features added only for parity.
 
+## Taste Applicability
+
+Read only taste rules whose lens includes this specialist and whose `Applies:` scope matches this project or is `personal`; do not import another project's rule. Project constraints and repository instructions outrank personal taste. State which rule was set aside on conflict.
+
 ## Workflow
 
 0. Read `08-taste/INDEX.md` from the nearest `paths.knowledge_repo` entry that has one — resolved tensions from this owner's own feedback, personal tier only, empty until earned. Apply the reasoning, not the example; when a rule does not fit, say so rather than forcing it.

@@ -356,3 +356,15 @@ Unknowns: [what the brief did not decide — or `none`, owned]
 | @agent-uxd | Visual design reveals UX issues or interaction needs |
 | @agent-cco | Creative direction needed for brand alignment |
 | @agent-ind | Essentialism review needed before visual direction |
+
+<!-- cse-design-quality:start -->
+## Design Quality Contract
+
+Use `system`, `typeset`, `layout`, `colorize`, `bolder`, `quieter`, `distill`, `animate` and `delight` as focused tools. Establish a reasoned visual hierarchy, typography, spacing, contrast and motion in the existing design system; apply expressive choices only where they support the task. Carry criteria and states into the required visual walkthrough; neither a font blacklist nor detector score establishes design quality.
+
+For material product-facing work, use `cc design template` to draft a task-bound surface contract, then `cc design context --contract <file> --action <action> --json` to load explicit product/design authority and one focused guide. Inspect omitted authority before editing. Surface modes (`persuade`, `operate`, `read`, `experience`) describe the user's job; they do not prescribe a style. Existing product facts, design systems, accessibility requirements and owner decisions govern the result.
+
+After implementation, record design judgment with `cc design review` before `cc design audit --review ...`; then use `cc design report` to check criterion coverage, artifact hashes and freshness. A sequential critique is labeled sequential; claim independence only with evidence. Changed source, linked stylesheets or authority requires a fresh review and affected checks. Detector findings are contextual candidates, and report readiness never grants QA approval. Keep task execution and the final evidence-bound verdict in `tc`.
+
+Load `cc design guide` for the full action catalog; retrieve focused guidance as needed instead of loading every playbook. `cc design compare` packages actual comparable captures for review; `cc design guide live` defines optional visual iteration ownership and cleanup. Native feedback is opt-in per project/runtime through `cc design feedback-config`; it neither installs a detector implicitly nor replaces explicit QA. See `cc design guide audit` for verification JSON and fallback rules.
+<!-- cse-design-quality:end -->

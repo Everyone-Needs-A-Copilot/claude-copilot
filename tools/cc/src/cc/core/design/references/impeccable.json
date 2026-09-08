@@ -1,0 +1,28 @@
+{
+  "version": "0.1.3",
+  "source_revision": "2bc2879276c1f321a53c4ca99d3371e411329b52",
+  "release_tag": "engine-v0.1.3",
+  "license": "Apache-2.0",
+  "assets": {
+    "darwin-arm64": {
+      "name": "impeccable-darwin-arm64",
+      "url": "https://github.com/pbakaus/impeccable/releases/download/engine-v0.1.3/impeccable-darwin-arm64",
+      "sha256": "23821135d4c62f1428fd15ddb9e91d695402727f43b13a6eb3e9f31fc01b4072"
+    },
+    "darwin-x64": {
+      "name": "impeccable-darwin-x64",
+      "url": "https://github.com/pbakaus/impeccable/releases/download/engine-v0.1.3/impeccable-darwin-x64",
+      "sha256": "a5bb0ae15d1bd8f61ebd2a6a21d39c2b357a211c39b4b95cc2a947cdb10a4db4"
+    },
+    "linux-arm64": {
+      "name": "impeccable-linux-arm64",
+      "url": "https://github.com/pbakaus/impeccable/releases/download/engine-v0.1.3/impeccable-linux-arm64",
+      "sha256": "523c0a223ac0c1522489759a9f56dccb0b458b42d6a5c66e74e6fe2255af60ce"
+    },
+    "linux-x64": {
+      "name": "impeccable-linux-x64",
+      "url": "https://github.com/pbakaus/impeccable/releases/download/engine-v0.1.3/impeccable-linux-x64",
+      "sha256": "afc7a424e0bd6c606b7be4c773c70e87284afbdb41d748eb9a34f8a4478e57da"
+    }
+  }
+}
