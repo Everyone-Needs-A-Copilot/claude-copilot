@@ -93,6 +93,18 @@ _TARGETS = {
     ".agents/plugins/marketplace.json",
     ".claude/agents",
     ".claude/cc/config.json",
+    # The individual `.claude/commands/*.md` entries below are kept for
+    # documentation of the currently known project commands only. They are
+    # NOT load-bearing for `_allowed_target()`'s safety boundary -- that
+    # boundary accepts any `.claude/commands/<name>.md` target structurally
+    # (see `nested_claude_command` below), the same way `.claude/agents/**`
+    # is accepted structurally rather than enumerated. `VERSION.json`'s
+    # `components.commands.projectCommands` (read via
+    # `claude_reference_roster()`) is the single source of truth for which
+    # commands actually get distributed; this set must never again be the
+    # thing that gates whether a reviewed plan's command operation can be
+    # diagnosed -- see
+    # `test_new_version_json_project_command_is_diagnosed_without_static_allowlist_update`.
     ".claude/commands/continue.md",
     ".claude/commands/extensions.md",
     ".claude/commands/map.md",
@@ -121,20 +133,43 @@ _TARGETS = {
 
 
 def _allowed_target(value: Any) -> bool:
-    """Accept the closed target set plus one manifest-roster agent leaf."""
+    """Accept the closed target set plus one manifest-roster agent leaf.
+
+    Mirrors `reconciliation_recipes._validate_relative_target()`'s
+    `nested_claude_command` structural exemption: a second, previously
+    unfixed hardcoded command allowlist here made every real
+    `finalize_run_diagnostic()` call raise on a reviewed operation whose
+    target was a genuine, currently-rostered `.claude/commands/<name>.md`
+    file (e.g. `reflect.md`) that was simply never added to `_TARGETS`. That
+    silently downgraded the run's diagnostics to `unavailable` and left the
+    machine's reconciliation state permanently "interrupted" -- every
+    subsequent `apply` was refused, and `recover()` hit the identical
+    exception re-finalizing the same run, so it could never clear either.
+    Accepting any `.claude/commands/<name>.md` leaf structurally means a
+    future `VERSION.json` command-roster addition can never again reproduce
+    this failure mode here, regardless of whether anyone remembers to touch
+    this set.
+    """
 
     if not isinstance(value, str):
         return False
     if value in _TARGETS:
         return True
     pure = Path(value)
-    return (
-        not pure.is_absolute()
-        and ".." not in pure.parts
-        and len(pure.parts) >= 3
+    if pure.is_absolute() or ".." in pure.parts:
+        return False
+    nested_claude_agent = (
+        len(pure.parts) >= 3
         and pure.parts[:2] == (".claude", "agents")
         and pure.name not in {"", ".", ".."}
     )
+    nested_claude_command = (
+        len(pure.parts) == 3
+        and pure.parts[:2] == (".claude", "commands")
+        and pure.parts[2].endswith(".md")
+        and pure.name not in {"", ".", ".."}
+    )
+    return nested_claude_agent or nested_claude_command
 
 
 _TARGET_KINDS = {"directory", "file", "missing", "symlink", "uninspected"}
