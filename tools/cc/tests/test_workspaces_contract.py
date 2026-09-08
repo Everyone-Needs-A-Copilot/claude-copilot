@@ -441,9 +441,20 @@ def test_activation_resolves_claude_content_through_the_tier_ladder(tmp_path, mo
     # shadows -- long enough here to clear the substance gate's size-ratio
     # check (core/ecosystem/substance.py) just like genuine company content
     # would, rather than reading as an inert, disproportionately-smaller
-    # stub.
-    org_override = "# ENAC protocol override\n\n" + (
-        "Real, substantive, company-specific instruction content. " * 400
+    # stub. Derived from the ACTUAL live shadow file's byte size at test
+    # time (rather than a fixed repeat count) so this fixture cannot
+    # silently rot again as protocol.md grows -- with a generous margin
+    # (>=1x the shadow size, double the substance gate's 0.5 minimum ratio)
+    # so ordinary growth of protocol.md never puts it at risk of drifting
+    # back under the gate.
+    shadow_path = claude_root / ".claude" / "commands" / "protocol.md"
+    shadow_size = shadow_path.stat().st_size
+    header = "# ENAC protocol override\n\n"
+    unit = "Real, substantive, company-specific instruction content. "
+    repeat_count = (shadow_size // len(unit.encode("utf-8"))) + 1
+    org_override = header + (unit * repeat_count)
+    assert len(org_override.encode("utf-8")) >= shadow_size, (
+        "fixture override must be at least as large as the live shadow file"
     )
     (org_root / "commands" / "protocol.md").write_text(org_override, encoding="utf-8")
 
