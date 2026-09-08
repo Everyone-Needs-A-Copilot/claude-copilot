@@ -28,6 +28,7 @@ outside it) = 66 locked paths total, not "66 files per project").
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -39,6 +40,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from cc.core.conformance.registry import register_check
+from cc.core.ecosystem.canonical_transaction import claude_reference_roster
 from cc.core.conformance.types import (
     CheckResult,
     Evidence,
@@ -57,15 +59,6 @@ from cc.core.conformance.types import (
 # expectations a check uses when it has no live VERSION.json to read).
 # ---------------------------------------------------------------------------
 
-REFERENCE_COMMANDS: tuple[str, ...] = (
-    "protocol",
-    "continue",
-    "pause",
-    "map",
-    "memory",
-    "extensions",
-    "orchestrate",
-)
 SETUP_STAGE_COMMANDS: tuple[str, ...] = ("protocol", "continue")
 CLAUDE_MD_HEADING = "## Claude Copilot"
 MCP_JSON_REFERENCE: dict[str, Any] = {"mcpServers": {}}
@@ -825,6 +818,37 @@ def load_reference_manifest(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def reference_command_names(source: Path) -> tuple[str, ...]:
+    """Expected membership comes from the source declaration, never the install."""
+    commands, _ = claude_reference_roster(source)
+    return tuple(sorted(Path(name).stem for name in commands))
+
+
+def reference_for_sources(
+    reference: Mapping[str, Any], *, claude_source: Path, codex_source: Path
+) -> dict[str, Any]:
+    """Bind historical reference shape to the sources being installed.
+
+    Historical negative fixtures retain their original expectations. Live
+    installs use the declared Claude roster and exact Codex source membership,
+    so adding a capability does not require editing several count constants.
+    The destination is never consulted to construct the expected result.
+    """
+    bound = copy.deepcopy(dict(reference))
+    commands, agents = claude_reference_roster(claude_source)
+    bound["claude"]["commands"].update(
+        names=sorted(Path(name).stem for name in commands), count=len(commands)
+    )
+    bound["claude"]["agents"].update(names=sorted(agents), count=len(agents))
+    plugin = codex_source / "plugins/codex-copilot"
+    if not (plugin / ".codex-plugin/plugin.json").is_file():
+        raise InstallerScriptError(f"Codex source plugin manifest is missing: {plugin}")
+    files = sorted(path.relative_to(plugin).as_posix() for path in plugin.rglob("*") if path.is_file())
+    bound["codex"].update(plugin_file_count=len(files), plugin_files=files,
+                          locked_path_count=len(files) + 1)
+    return bound
+
+
 # ---------------------------------------------------------------------------
 # Check registrations — Layer 5
 # ---------------------------------------------------------------------------
@@ -910,13 +934,12 @@ _CLOSES_COMMAND_GAP = register_check(
     scope=Scope.PER_REPO,
     summary=(
         "Running `/update-project` immediately after `/setup-project` "
-        "closes the command-set gap: exactly the 7 REFERENCE_COMMANDS are "
+        "closes the command-set gap: exactly the source-declared commands are "
         "present afterward (TEST-MATRIX.md RT-2)."
     ),
     remediation=(
-        "No fix needed while this passes -- update-project.md Step 6 "
-        "already copies all 7 project commands. This check exists to catch "
-        "a future regression."
+        "Reconcile the installed command set against VERSION.json through "
+        "the canonical transaction; preserve exact membership validation."
     ),
     mode=Mode.FULL,
     expected_today=ExpectedToday.PASS,
@@ -1391,6 +1414,10 @@ def check_produces_reference_install(
         and observed["codex_skill_bridge_present"]
         and observed["codex_skill_bridge_target"] == codex_ref["skill_bridge_target"]
     )
+    if "plugin_files" in codex_ref:
+        plugin = project / "plugins/codex-copilot"
+        actual_files = sorted(path.relative_to(plugin).as_posix() for path in plugin.rglob("*") if path.is_file())
+        codex_ok = codex_ok and actual_files == codex_ref["plugin_files"]
     results.append(
         _facet_result(
             _PRODUCES_REFERENCE,
@@ -1446,9 +1473,11 @@ def check_installs_enforcement_hook(*, project: Path, subject: str) -> CheckResu
     )
 
 
-def check_closes_command_gap(*, project: Path, subject: str) -> CheckResult:
+def check_closes_command_gap(
+    *, project: Path, subject: str, framework_repo_root: Path | None = None
+) -> CheckResult:
     observed = observe_install(project)
-    expected = tuple(sorted(REFERENCE_COMMANDS))
+    expected = reference_command_names(framework_repo_root or discover_framework_repo_root())
     return _facet_result(
         _CLOSES_COMMAND_GAP,
         subject=subject,
@@ -1733,7 +1762,8 @@ __all__ = [
     "InstallerScriptError",
     "MACHINE_COMMANDS_GROUND_TRUTH_COUNT",
     "MCP_JSON_REFERENCE",
-    "REFERENCE_COMMANDS",
+    "reference_command_names",
+    "reference_for_sources",
     "RUBRIC_CLAIMED_MACHINE_COMMANDS_COUNT",
     "SETUP_PROJECT_FITNESS_SECTION",
     "SETUP_PROJECT_SECTIONS",

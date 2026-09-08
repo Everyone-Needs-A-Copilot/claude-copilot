@@ -1,9 +1,9 @@
 {
-  "framework": "5.15.0",
+  "framework": "5.15.1",
   "lastUpdated": "2026-09-08",
   "components": {
     "cc": {
-      "version": "2.13.0",
+      "version": "2.13.1",
       "path": "tools/cc",
       "installScript": "tools/cc/install.sh",
       "provides": [
@@ -112,10 +112,10 @@
   },
   "workingTreeAdoption": {
     "initiative": "codex-copilot/docs/40-initiatives/04-evidence-and-verified-learning",
-    "date": "2026-09-07",
-    "releaseState": "combined candidate under verification; unpublished",
-    "candidateVersion": "5.15.0",
-    "releasePrepDoc": "docs/30-operations/09-release-preparation-5.15.0.md"
+    "date": "2026-09-08",
+    "releaseState": "source integration 5.15.1; signed packaging and consumer rollout are separate",
+    "candidateVersion": "5.15.1",
+    "releasePrepDoc": "docs/30-operations/15-source-integration-5.15.1.md"
   },
   "designQualityAdoption": {
     "date": "2026-09-07",

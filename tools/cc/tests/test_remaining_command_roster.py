@@ -53,3 +53,74 @@ def test_workspace_finish_installs_only_missing_reflect(tmp_path):
         assert hashlib.sha256((project / name).read_bytes()).hexdigest() == sha
     after = workspace_status(project, personal_registry=tmp_path / 'personal.json', claude_root=claude_root, codex_root=codex_root)
     assert after['classification'] == 'ready'
+
+
+def test_roundtrip_uses_declared_roster_and_detects_membership_errors(tmp_path):
+    import json
+    from cc.core.conformance import roundtrip as rt
+    from cc.core.conformance.types import Verdict
+
+    source = tmp_path / 'source'
+    source.mkdir()
+    declaration = {'components': {'commands': {'projectCommands': ['reflect.md']},
+                                  'agents': {'frameworkAgents': ['me']}}}
+    manifest = source / 'VERSION.json'
+    manifest.write_text(json.dumps(declaration))
+    project = tmp_path / 'consumer'
+    commands = project / '.claude/commands'
+    commands.mkdir(parents=True)
+    (commands / 'reflect.md').write_text('reflect')
+
+    def verdict():
+        return rt.check_closes_command_gap(
+            project=project, subject='roster', framework_repo_root=source
+        ).verdict
+
+    assert verdict() is Verdict.PASS
+    # Mutate the declaration after the first call: no import-time snapshot.
+    declaration['components']['commands']['projectCommands'].append('future-command.md')
+    manifest.write_text(json.dumps(declaration))
+    assert verdict() is Verdict.FAIL  # required file absent
+    (commands / 'future-command.md').write_text('new command')
+    assert verdict() is Verdict.PASS
+    (commands / 'extra.md').write_text('not declared')
+    assert verdict() is Verdict.FAIL  # extra file
+    (commands / 'reflect.md').unlink()
+    assert verdict() is Verdict.FAIL  # right count, wrong membership
+
+
+def test_roundtrip_source_reference_detects_equal_count_codex_substitution(tmp_path):
+    import json
+    import shutil
+    from cc.core.conformance import roundtrip as rt
+    from cc.core.conformance.types import Verdict
+
+    source = tmp_path / 'source'
+    plugin = source / 'plugins/codex-copilot'
+    (plugin / '.codex-plugin').mkdir(parents=True)
+    (plugin / '.codex-plugin/plugin.json').write_text('{"name":"codex-copilot"}')
+    (plugin / 'hook.sh').write_text('echo hook')
+    (source / 'VERSION.json').write_text(json.dumps({'components': {
+        'commands': {'projectCommands': ['reflect.md']},
+        'agents': {'frameworkAgents': ['me']}}}))
+    historical = rt.load_reference_manifest(
+        Path(__file__).parent / 'conformance/fixtures/reference-install/manifest.json'
+    )
+    reference = rt.reference_for_sources(historical, claude_source=source, codex_source=source)
+    assert historical['claude']['commands']['names'] != ['reflect']
+    assert reference['claude']['commands']['names'] == ['reflect']
+    project = tmp_path / 'consumer'
+    installed = project / 'plugins/codex-copilot'
+    shutil.copytree(plugin, installed)
+    bridge = project / '.claude/skills/codex-copilot'
+    bridge.parent.mkdir(parents=True)
+    bridge.symlink_to('../../plugins/codex-copilot/skills')
+
+    def verdict():
+        return next(r.verdict for r in rt.check_produces_reference_install(
+            project=project, reference=reference, subject_prefix='install'
+        ) if r.subject.endswith('::codex'))
+
+    assert verdict() is Verdict.PASS
+    (installed / 'hook.sh').rename(installed / 'wrong.sh')
+    assert verdict() is Verdict.FAIL

@@ -1,0 +1,19 @@
+{
+  "$comment": "Committed baseline for rule_force_delegate's cost budget in .claude/hooks/pretool-check.sh (ADR-005: docs/10-architecture/06-adr-005-force-delegate-cost-budget.md). Modeled directly on FF9's baseline (.claude/context-budget-baseline-v*.json, see .claude/fitness-check.sh): highest-version file wins, so a deliberate threshold change is a new file and a reviewable diff, never a silent edit of this one. Unlike FF9, this file has no captured per-artifact byte counts to drift against -- it carries only the two runtime meters' thresholds -- so its version tracks the BUDGET POLICY, not the framework release.",
+  "schema_version": "1.0.0",
+  "captured_at": "2026-09-07T00:00:00Z",
+  "byte_to_token_ratio": 4.0,
+  "byte_to_token_basis": "Reused verbatim from FF9's basis rather than inventing a second conversion for the same framework (ADR-005 Decision): ~4 characters per token for English/markdown/code text, OpenAI's published tokenizer heuristic. Applied identically to every charge so the token figure in a deny message stays comparable to FF9's own token estimates.",
+  "thresholds": {
+    "byte_budget_bytes": 40000,
+    "byte_budget_basis": "~10,000 tokens (~5% of a 200K-token context window) charged into the main session per session, ratcheting and never resetting except at session start (ADR-005 Decision). Deliberately strict -- per ADR-005 the safer failure is a delegation that was not strictly necessary -- while still leaving headroom for a handful of ordinary reads/edits (e.g. 3-4 files at ~10KB average) before the rule forces delegation. A single call charging more than this on its own (e.g. one large `cat` or one wide Read) is denied on first contact rather than only after repetition, which is the entire point of metering cost instead of call count.",
+    "files_budget_count": 5,
+    "files_budget_basis": "Deliberately looser than protocol-injection.md's own main-session guidance of 3 files (see .claude/hooks/protocol-injection.md and .claude/commands/protocol.md), which is enforced by agent discipline, not this hook. The hard block sits at ~1.7x that guidance so ordinary judgment calls the guidance still allows (read the file, its test, one related config) don't trip a hard deny at the exact edge of reasonable behavior, while 6+ distinct files -- real sprawl -- still gets caught. Counts only Read/Edit/Write `file_path` targets (ADR-005 Decision): a Bash command that cats or greps a path is not counted here, and that hole is intentional -- see the code comment at its enforcement site.",
+    "warning_ratio": 0.8,
+    "warning_ratio_basis": "ADR-005 Decision: emit an advisory before the deny, not only at it. 80% leaves at least one more small call's worth of runway after the first warning fires, so the warning is a genuine heads-up rather than a same-call co-occurrence with the deny.",
+    "bash_bounded_charge_bytes": 300,
+    "bash_bounded_charge_basis": "Flat charge for an ordinary bounded Bash call (git status, a scoped grep with -m, a tc CLI call, ls of a directory) -- small enough that ~130 such calls fit inside the byte budget before forcing delegation, which is the everyday case ADR-005's Defect 1 says should stop tripping the rule.",
+    "bash_unbounded_charge_bytes": 8000,
+    "bash_unbounded_charge_basis": "Flat charge for a Bash call that is structurally unbounded -- an unfiltered recursive grep/ripgrep, a `find` across a tree with no -maxdepth, or a whole-file `cat` (ADR-005's own Decision table and Consequences: 'unfiltered recursive search, `cat` of a whole file, `find` across a tree'). ~5 such calls exhaust the byte budget on their own, matching Defect 2 in the ADR: a single `cat` of a large file should cost something instead of nothing. Pattern-matched on the command string, not measured, so this is an estimate -- see the code comment at its enforcement site for the acknowledged imprecision (ADR-005 Consequences)."
+  }
+}

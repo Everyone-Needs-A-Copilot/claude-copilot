@@ -915,7 +915,11 @@ def _run_roundtrip_layer() -> tuple[CheckResult, ...]:
 
         reference_path = _reference_install_manifest_path()
         if reference_path.is_file():
-            reference = roundtrip.load_reference_manifest(reference_path)
+            reference = roundtrip.reference_for_sources(
+                roundtrip.load_reference_manifest(reference_path),
+                claude_source=Path(resolve_key("paths.claude_copilot_root")),
+                codex_source=Path(resolve_key("paths.codex_copilot_root")),
+            )
             results.extend(
                 roundtrip.check_produces_reference_install(
                     project=project, reference=reference, subject_prefix=subject
@@ -986,7 +990,10 @@ def _run_roundtrip_layer() -> tuple[CheckResult, ...]:
             state_root=state_root,
         )
         results.append(
-            roundtrip.check_closes_command_gap(project=project, subject=subject)
+            roundtrip.check_closes_command_gap(
+                project=project, subject=subject,
+                framework_repo_root=Path(resolve_key("paths.claude_copilot_root")),
+            )
         )
         results.append(
             roundtrip.check_preserves_project_owned(

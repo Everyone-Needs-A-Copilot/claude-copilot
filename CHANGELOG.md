@@ -1,11 +1,52 @@
-## 2026-09-08 — Combined CSE hardening candidate (unreleased)
+# Changelog
+
+## [5.15.1] — 2026-09-08 — Source integration
+
+Framework **5.15.1**, `cc` **2.13.1**, `tc` **2.0.0**. This entry supersedes the
+candidate notes below for the integrated source. It is not a foundation-signed
+package release, a consumer-rollout receipt, or an effectiveness claim.
+
+### Fixed
+
+- Replace the five-call delegation streak with the owner-specified byte/file
+  budget, persistent accepted-spend accounting, warnings and exact reviewed
+  overrides. CI uses committed override entries; denied retries do not consume
+  budget. Preserve QA, journey and freeze enforcement.
+- Resolve pinned foundation layers through the shared mirror content-root helper
+  in machine assessment and conformance; isolate selected reconciliation scope
+  from unrelated machine blockers without weakening selected-component gates.
+- Derive roundtrip command and plugin membership from the independent source
+  manifest/tree. Reject missing, extra and equal-count/wrong-member installs.
+- Freeze current candidate sources in disposable snapshot tests; use real v2
+  acceptance contracts and source identities in QA-hook integration fixtures.
+- Align the `cc` lockfile's package identity with its Python and framework
+  manifests without upgrading dependencies. Exclude all ephemeral hook state
+  from future commits while preserving the tracked directory placeholder.
+
+### Included from earlier main integration
+
+- Task-bound `tc` 2.0 evidence authority, dependency enforcement, installation
+  provenance and atomic cc/tc snapshot publication.
+- `cc design`, native feedback, optional-context handling and command-roster
+  recovery; retain main's Codex plugin v0.7.0 sync and executable hooks.
+
+### Documentation and migration
+
+- Pending QA-required tasks need a registered v2 contract and fresh evidence;
+  completed historical records remain historical. See [Task Copilot](tools/tc/README.md).
+- Add the [measured testing review](docs/30-operations/14-testing-rethink-evidence-and-recommendations.md)
+  and [proposed adoption plan](docs/40-initiatives/01-risk-based-verification/README.md).
+  The new verification runner and policy/CI redesign are **not implemented** by
+  this source integration.
+- See [integration and verification notes](docs/30-operations/15-source-integration-5.15.1.md)
+  for preserved history, residual machine checks, and distribution boundaries.
+
+## 2026-09-08 — Combined CSE hardening candidate (historical; superseded by 5.15.1)
 
 - tc 2.0.0 requires registered acceptance criteria and captured task/source/runtime identity for pending QA-required work; preserves labelled historical records and enforces completion dependencies.
 - cc 2.13.0 binds design reviews to the authoritative task contract, retains required duplicate-skill names, and derives missing command handling from the declared roster.
 - Installation records/verifies tc source/dependency receipts, publishes cc/tc atomically for snapshots, and prevents ambient Python paths from substituting checkout code during verification.
 - Migration: pending QA work requires contract registration and fresh evidence; see tools/tc/README.md. This record does not claim a signed release or ecosystem effectiveness.
-
-# Changelog
 
 ## 2026-09-07 — Unreleased design-quality extension (cc 2.12.16)
 

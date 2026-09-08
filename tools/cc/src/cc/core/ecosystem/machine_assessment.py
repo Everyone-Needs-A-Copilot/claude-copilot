@@ -14,6 +14,7 @@ import re
 import stat
 import subprocess
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -41,6 +42,21 @@ _FRAMEWORK_CONFIG_KEYS = {
 _DEPENDENCIES = ("git", "gh", "copilot", "claude", "codex")
 _REQUIRED_DEPENDENCIES = frozenset({"git", "copilot"})
 _VERSION_PATTERN = re.compile(r"(?<!\d)(\d+)\.(\d+)(?:\.(\d+))?")
+
+
+@dataclass(frozen=True)
+class MachineVerification:
+    """Why a machine assessment could not verify itself, attributed by component.
+
+    Never serialized. `unknown_framework_components` names frameworks whose
+    OWN row is could-not-verify; `unknown_beyond_frameworks` is True when any
+    other contributor (diagnostics, doctor, connections, authentication,
+    connectivity, layers) made the machine unverifiable. Absence of attribution
+    is always read as "blocks everything" by callers.
+    """
+
+    unknown_framework_components: frozenset[str]
+    unknown_beyond_frameworks: bool
 
 
 def _evidence(identifier: str, state: str, detail: str) -> Evidence:
@@ -500,10 +516,9 @@ def _framework_assessments(
     config: dict[str, Any],
     version_reader: FrameworkVersionReader,
     source_validator: FrameworkSourceValidator,
-) -> tuple[list[dict[str, Any]], list[Blocker], bool]:
+) -> tuple[list[dict[str, Any]], list[Blocker], frozenset[str]]:
     rows: list[dict[str, Any]] = []
     blockers: list[Blocker] = []
-    could_not_verify = False
     for component, key in _FRAMEWORK_CONFIG_KEYS.items():
         raw_path = _lookup(config, key)
         path = Path(str(raw_path)).expanduser() if raw_path else None
@@ -522,7 +537,6 @@ def _framework_assessments(
             )
         elif not _readable(path, directory=True):
             state = "could-not-verify"
-            could_not_verify = True
             detail = f"The configured {component.title()} framework source cannot be inspected safely."
             blockers.append(
                 _blocker(
@@ -534,7 +548,6 @@ def _framework_assessments(
             )
         elif not source_validator(component, path):
             state = "could-not-verify"
-            could_not_verify = True
             detail = f"The configured {component.title()} framework source cannot supply a verified reconciliation recipe."
             blockers.append(
                 _blocker(
@@ -549,7 +562,6 @@ def _framework_assessments(
             minimum = _MINIMUM_FRAMEWORK_VERSIONS[component]
             if version is None:
                 state = "could-not-verify"
-                could_not_verify = True
                 detail = (
                     f"The {component.title()} framework version could not be verified."
                 )
@@ -585,7 +597,10 @@ def _framework_assessments(
                 "detail": detail,
             }
         )
-    return rows, blockers, could_not_verify
+    unknown_components = frozenset(
+        row["component"] for row in rows if row["state"] == "could-not-verify"
+    )
+    return rows, blockers, unknown_components
 
 
 def _authentication_assessment(
@@ -991,7 +1006,7 @@ def _connection_blockers(
     return blockers, result == "copilot-unavailable"
 
 
-def build_machine_assessment(
+def build_machine_assessment_with_verification(
     *,
     doctor_builder: ReportBuilder | None = None,
     connections_builder: ReportBuilder | None = None,
@@ -1006,8 +1021,9 @@ def build_machine_assessment(
     framework_source_validator: FrameworkSourceValidator | None = None,
     helper_version: str | None = __version__,
     executable_version_reader: ExecutableVersionReader | None = None,
-) -> MachineAssessment:
-    """Return the complete read-only machine portion of reconciliation truth.
+) -> tuple[MachineAssessment, MachineVerification]:
+    """Return the complete read-only machine portion of reconciliation truth,
+    plus an in-process, never-serialized attribution of any unverifiability.
 
     Every collaborator is injectable for deterministic fixture coverage.  The
     production defaults are resolved inside the function so monkeypatching the
@@ -1065,7 +1081,8 @@ def build_machine_assessment(
         executable_version_reader = _default_executable_version
 
     blockers: list[Blocker] = []
-    could_not_verify = False
+    other_unknown = False
+    framework_unknown_components: frozenset[str] = frozenset()
 
     try:
         config = config_reader()
@@ -1073,7 +1090,7 @@ def build_machine_assessment(
             raise TypeError("configuration source did not return an object")
     except Exception:
         config = {}
-        could_not_verify = True
+        other_unknown = True
         blockers.append(
             _blocker(
                 "configuration-source-unavailable",
@@ -1086,7 +1103,7 @@ def build_machine_assessment(
         root_entries = roots_builder()
     except Exception:
         root_entries = []
-        could_not_verify = True
+        other_unknown = True
         blockers.append(
             _blocker(
                 "approved-roots-source-unavailable",
@@ -1107,7 +1124,7 @@ def build_machine_assessment(
         config_path = config_path_getter()
     except Exception:
         config_path = Path("/unavailable/machine-config.json")
-        could_not_verify = True
+        other_unknown = True
         blockers.append(
             _blocker(
                 "machine-config-path-unavailable",
@@ -1120,19 +1137,20 @@ def build_machine_assessment(
         _configuration_assessment(config, config_path, root_entries)
     )
     blockers.extend(configuration_blockers)
-    could_not_verify = could_not_verify or configuration_unknown
+    other_unknown = other_unknown or configuration_unknown
 
     diagnostics_blockers, diagnostics_unknown = _diagnostics_readiness(
         diagnostics_path_getter
     )
     blockers.extend(diagnostics_blockers)
-    could_not_verify = could_not_verify or diagnostics_unknown
+    other_unknown = other_unknown or diagnostics_unknown
 
-    frameworks, framework_blockers, framework_unknown = _framework_assessments(
-        config, framework_version_reader, framework_source_validator
+    frameworks, framework_blockers, framework_unknown_components = (
+        _framework_assessments(
+            config, framework_version_reader, framework_source_validator
+        )
     )
     blockers.extend(framework_blockers)
-    could_not_verify = could_not_verify or framework_unknown
 
     try:
         doctor = doctor_builder()
@@ -1140,7 +1158,7 @@ def build_machine_assessment(
             raise TypeError("doctor source did not return an object")
     except Exception:
         doctor = None
-        could_not_verify = True
+        other_unknown = True
         blockers.append(
             _blocker(
                 "doctor-unavailable",
@@ -1155,23 +1173,23 @@ def build_machine_assessment(
             raise TypeError("connections source did not return an object")
     except Exception:
         connections = None
-        could_not_verify = True
+        other_unknown = True
 
     authentication, authentication_blockers, authentication_unknown = (
         _authentication_assessment(doctor, config, identity_reader, credential_reader)
     )
     blockers.extend(authentication_blockers)
-    could_not_verify = could_not_verify or authentication_unknown
+    other_unknown = other_unknown or authentication_unknown
 
     connectivity, connectivity_blockers, connectivity_unknown = (
         _connectivity_assessment(doctor, connections)
     )
     blockers.extend(connectivity_blockers)
-    could_not_verify = could_not_verify or connectivity_unknown
+    other_unknown = other_unknown or connectivity_unknown
 
     layers, layer_blockers, layers_unknown = _layer_assessment(doctor)
     blockers.extend(layer_blockers)
-    could_not_verify = could_not_verify or layers_unknown
+    other_unknown = other_unknown or layers_unknown
 
     dependencies, dependency_blockers = _dependency_assessments(
         executable_resolver, executable_version_reader
@@ -1180,8 +1198,9 @@ def build_machine_assessment(
 
     connection_blockers, connections_unknown = _connection_blockers(connections)
     blockers.extend(connection_blockers)
-    could_not_verify = could_not_verify or connections_unknown
+    other_unknown = other_unknown or connections_unknown
 
+    could_not_verify = other_unknown or bool(framework_unknown_components)
     state = (
         "could-not-verify"
         if could_not_verify
@@ -1194,7 +1213,7 @@ def build_machine_assessment(
         if blockers
         else "No machine action is required. Select projects to review or reconcile."
     )
-    return {
+    report: MachineAssessment = {
         "state": state,
         "helper": helper,
         "frameworks": frameworks,
@@ -1206,6 +1225,52 @@ def build_machine_assessment(
         "blockers": blockers,
         "next_action": next_action,
     }
+    return report, MachineVerification(framework_unknown_components, other_unknown)
 
 
-__all__ = ["build_machine_assessment"]
+def build_machine_assessment(
+    *,
+    doctor_builder: ReportBuilder | None = None,
+    connections_builder: ReportBuilder | None = None,
+    config_reader: ConfigReader | None = None,
+    config_path_getter: PathGetter | None = None,
+    diagnostics_path_getter: PathGetter | None = None,
+    roots_builder: RootsBuilder | None = None,
+    identity_reader: IdentityReader | None = None,
+    credential_reader: CredentialReader | None = None,
+    executable_resolver: ExecutableResolver | None = None,
+    framework_version_reader: FrameworkVersionReader | None = None,
+    framework_source_validator: FrameworkSourceValidator | None = None,
+    helper_version: str | None = __version__,
+    executable_version_reader: ExecutableVersionReader | None = None,
+) -> MachineAssessment:
+    """Return the complete read-only machine portion of reconciliation truth.
+
+    Thin compatibility wrapper over :func:`build_machine_assessment_with_verification`
+    that drops the never-serialized :class:`MachineVerification` attribution. Every
+    existing caller and every injected test builder keeps this exact signature and
+    return shape.
+    """
+    report, _verification = build_machine_assessment_with_verification(
+        doctor_builder=doctor_builder,
+        connections_builder=connections_builder,
+        config_reader=config_reader,
+        config_path_getter=config_path_getter,
+        diagnostics_path_getter=diagnostics_path_getter,
+        roots_builder=roots_builder,
+        identity_reader=identity_reader,
+        credential_reader=credential_reader,
+        executable_resolver=executable_resolver,
+        framework_version_reader=framework_version_reader,
+        framework_source_validator=framework_source_validator,
+        helper_version=helper_version,
+        executable_version_reader=executable_version_reader,
+    )
+    return report
+
+
+__all__ = [
+    "MachineVerification",
+    "build_machine_assessment",
+    "build_machine_assessment_with_verification",
+]

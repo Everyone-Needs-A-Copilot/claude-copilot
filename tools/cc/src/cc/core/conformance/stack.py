@@ -120,6 +120,7 @@ from cc.core.conformance.types import (
     Verdict,
 )
 from cc.core.ecosystem.manifest import ManifestError, load_layers, validate_layers
+from cc.core.ecosystem.mirror import mirror_content_root
 
 # ---------------------------------------------------------------------------
 # The 16-cell topology
@@ -344,6 +345,37 @@ def _first_match(
     return None
 
 
+def _resolve_cell_source_path(layer: Mapping[str, Any]) -> Path | None:
+    """A cell's real content root: its literal `source.path` when declared,
+    else the same mirror-clone root `cc.core.ecosystem.mirror`'s
+    `mirror_content_root()` already computes for `commands/update.py`,
+    `commands/resolve.py`, and (task 53)
+    `conformance.root_causes._layer_source_path()`'s own fallback -- reused
+    here rather than re-derived, so a pinned-release cell that resolves from
+    its immutable mirror (no `source.path`, e.g. claude-foundation /
+    codex-foundation post task 52) is not silently treated by CS-DECL/
+    CS-PATH/CS-REF-VALID/CS-ANCESTOR/CS-MIRROR as undeclared or unresolvable
+    the way it was before this fix -- this is the FOURTH call site this
+    session found computing "does this layer have a source path", and the
+    third that was re-deriving it instead of asking `mirror.py`.
+
+    `mirror_root_base` is `_mirrors_root()` -- the same `paths.mirrors_root`
+    resolution CS-MIRROR's own classification already uses, so this module
+    never computes two different mirror roots for the same real machine.
+
+    Returns `None` for a layer with neither a literal `source.path` nor a
+    `source.repo` to derive a mirror root from -- every caller already
+    treats a missing/undeclared path as COULD_NOT_RUN or FAIL, unchanged;
+    this only widens what counts as "has a path", never how a missing one
+    is reported."""
+
+    source = layer.get("source") or {}
+    raw_path = source.get("path")
+    if raw_path:
+        return Path(raw_path).expanduser()
+    return mirror_content_root(dict(layer), mirror_root_base=_mirrors_root())
+
+
 # ---------------------------------------------------------------------------
 # CS-DECL
 # ---------------------------------------------------------------------------
@@ -396,7 +428,7 @@ def check_cs_decl(
             if match is None:
                 missing_from.append(snapshot.path)
                 continue
-            if not match.get("source", {}).get("path"):
+            if _resolve_cell_source_path(match) is None:
                 no_source_path.append(snapshot.path)
 
         if missing_from or no_source_path:
@@ -407,7 +439,8 @@ def check_cs_decl(
                     expected=(
                         f"a layers[] entry with product={product!r} "
                         f"role={role!r} rank={EXPECTED_RANK_BY_ROLE[role]} "
-                        "and source.path set"
+                        "and a resolvable source path (literal source.path "
+                        "or a source.repo mirror)"
                     ),
                     actual="no matching entry",
                 )
@@ -416,8 +449,8 @@ def check_cs_decl(
                 Evidence(
                     kind="manifest",
                     path=str(path),
-                    expected="source.path set",
-                    actual="matching entry has no source.path",
+                    expected="source.path set, or source.repo to resolve a mirror from",
+                    actual="matching entry has neither",
                 )
                 for path in no_source_path
             )
@@ -431,7 +464,7 @@ def check_cs_decl(
                     detail=(
                         f"missing from {len(missing_from)}/{len(loadable)} "
                         f"manifest(s); {len(no_source_path)} matching "
-                        f"entr{plural} lack source.path"
+                        f"entr{plural} have no resolvable source path"
                     ),
                 )
             )
@@ -441,7 +474,7 @@ def check_cs_decl(
                     subject=subject,
                     verdict=Verdict.PASS,
                     expected_today=ExpectedToday.PASS,
-                    detail=f"declared with source.path set in all {len(loadable)} checked manifest(s)",
+                    detail=f"declared with a resolvable source path in all {len(loadable)} checked manifest(s)",
                 )
             )
     return results
@@ -470,18 +503,17 @@ def check_cs_path(
             continue
 
         _, layer = found
-        raw_path = layer.get("source", {}).get("path")
-        if not raw_path:
+        source_path = _resolve_cell_source_path(layer)
+        if source_path is None:
             results.append(
                 _CS_PATH.result(
                     subject=subject,
                     verdict=Verdict.COULD_NOT_RUN,
-                    detail="matching entry has no source.path (see CS-DECL)",
+                    detail="matching entry has no resolvable source path (see CS-DECL)",
                 )
             )
             continue
 
-        source_path = Path(raw_path)
         git_dir = source_path / ".git"
         if source_path.is_dir() and git_dir.exists():
             results.append(
@@ -541,7 +573,7 @@ def check_cs_ref_valid(
         manifest_path, layer = found
         source = layer.get("source", {})
         ref = source.get("ref")
-        raw_path = source.get("path")
+        source_path = _resolve_cell_source_path(layer)
 
         if not ref:
             evidence = (
@@ -563,17 +595,16 @@ def check_cs_ref_valid(
             )
             continue
 
-        if not raw_path or not Path(raw_path).is_dir():
+        if source_path is None or not source_path.is_dir():
             results.append(
                 _CS_REF_VALID.result(
                     subject=subject,
                     verdict=Verdict.COULD_NOT_RUN,
-                    detail="source.path missing or not a directory (see CS-PATH)",
+                    detail="source path missing or not a directory (see CS-PATH)",
                 )
             )
             continue
 
-        source_path = Path(raw_path)
         check = run_git_readonly(
             ("rev-parse", "--verify", f"{ref}^{{commit}}"), cwd=source_path
         )
@@ -658,19 +689,19 @@ def check_cs_ancestor(
         _, layer = found
         source = layer.get("source", {})
         ref = source.get("ref")
-        raw_path = source.get("path")
+        resolved_path = _resolve_cell_source_path(layer)
 
-        if not ref or not raw_path or not Path(raw_path).is_dir():
+        if not ref or resolved_path is None or not resolved_path.is_dir():
             results.append(
                 _CS_ANCESTOR.result(
                     subject=subject,
                     verdict=Verdict.COULD_NOT_RUN,
-                    detail="source.ref/source.path unavailable (see CS-PATH/CS-REF-VALID)",
+                    detail="source.ref/source path unavailable (see CS-PATH/CS-REF-VALID)",
                 )
             )
             continue
 
-        path = Path(raw_path)
+        path = resolved_path
         ref_check = run_git_readonly(
             ("rev-parse", "--verify", f"{ref}^{{commit}}"), cwd=path
         )
@@ -841,18 +872,17 @@ def check_cs_mirror(
             continue
 
         _, layer = found
-        raw_path = layer.get("source", {}).get("path")
-        if not raw_path or not Path(raw_path).is_dir():
+        path = _resolve_cell_source_path(layer)
+        if path is None or not path.is_dir():
             results.append(
                 _CS_MIRROR.result(
                     subject=subject,
                     verdict=Verdict.COULD_NOT_RUN,
-                    detail="source.path missing (see CS-PATH)",
+                    detail="source path missing (see CS-PATH)",
                 )
             )
             continue
 
-        path = Path(raw_path)
         try:
             resolved = path.resolve()
         except OSError:
@@ -1055,18 +1085,18 @@ def check_cs_dim(
                 continue
 
             _, layer = found
-            raw_path = layer.get("source", {}).get("path")
-            if not raw_path or not Path(raw_path).is_dir():
+            raw_path = _resolve_cell_source_path(layer)
+            if raw_path is None or not raw_path.is_dir():
                 results.append(
                     _CS_DIM.result(
                         subject=subject,
                         verdict=Verdict.COULD_NOT_RUN,
-                        detail="source.path missing (see CS-PATH)",
+                        detail="source path missing (see CS-PATH)",
                     )
                 )
                 continue
 
-            layer_file = Path(raw_path) / _COPILOT_LAYER_YML
+            layer_file = raw_path / _COPILOT_LAYER_YML
             if not layer_file.is_file():
                 evidence = (
                     Evidence(

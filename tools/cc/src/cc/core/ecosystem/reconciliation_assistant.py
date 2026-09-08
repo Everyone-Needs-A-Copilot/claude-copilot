@@ -179,7 +179,11 @@ def _fresh_context(
     selections = {
         project.path: list(project.components) for project in request.projects
     }
-    machine = (machine_builder or coordinator._default_machine_builder)()
+    if machine_builder is None:
+        machine, verification = coordinator._default_verified_machine_builder()
+    else:
+        machine = machine_builder()
+        verification = coordinator._conservative_verification(machine)
     try:
         projects = coordinator._validated_projects(
             (census_builder or coordinator._default_census_builder)(
@@ -197,7 +201,9 @@ def _fresh_context(
             "The selected projects could not be inspected safely for Claude Code preparation.",
             exit_code=2,
         ) from exc
-    if coordinator._assessment_result(machine, projects) == "blocked":
+    if coordinator._machine_blocks_request(
+        machine, projects, verification, coordinator._requested_components(request)
+    ):
         raise _reconciliation_error(
             "assistant-machine-blocked",
             "This Mac is not ready for bounded Claude Code preparation. Resolve the machine blocker and assess again.",

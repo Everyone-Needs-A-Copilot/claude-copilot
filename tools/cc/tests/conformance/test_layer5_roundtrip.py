@@ -300,6 +300,10 @@ def _build_synthetic_reference_project(project: Path, reference: Mapping) -> Non
 
 
 def test_rt1_setup_project_produces_reference_install(scratch, reference):
+    reference = rt.reference_for_sources(
+        reference, claude_source=scratch.framework_repo_root,
+        codex_source=scratch.framework_repo_root,
+    )
     run = rt.run_setup_project(
         scratch.project,
         framework_repo_root=scratch.framework_repo_root,
@@ -459,7 +463,7 @@ def test_rt2_canonical_transaction_closes_command_gap(scratch):
         cc_bin=scratch.cc_bin,
     )
     before = rt.observe_install(scratch.project)
-    assert before["command_names"] == tuple(sorted(rt.REFERENCE_COMMANDS))
+    assert before["command_names"] == rt.reference_command_names(scratch.framework_repo_root)
 
     update_run = rt.run_update_project(
         scratch.project,
@@ -469,7 +473,9 @@ def test_rt2_canonical_transaction_closes_command_gap(scratch):
     )
     assert update_run.steps
 
-    result = rt.check_closes_command_gap(project=scratch.project, subject="rt2")
+    result = rt.check_closes_command_gap(
+        project=scratch.project, subject="rt2", framework_repo_root=scratch.framework_repo_root
+    )
     assert result.verdict is Verdict.PASS
 
 
@@ -656,6 +662,10 @@ def test_degraded_install_is_detected(tmp_path, reference, degradation_shapes):
 
 
 def test_degraded_shapes_are_distinct_from_a_healthy_reference(scratch, reference):
+    reference = rt.reference_for_sources(
+        reference, claude_source=scratch.framework_repo_root,
+        codex_source=scratch.framework_repo_root,
+    )
     """A control case for the detector above: applying NO degradation must
     NOT trip `check_degraded_install_detected`'s own logic into reporting a
     fabricated FAIL against a healthy canonical reference install. The

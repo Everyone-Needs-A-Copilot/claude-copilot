@@ -33,6 +33,41 @@ MACHINE_COMMANDS = (
 )
 
 
+@pytest.fixture(scope="module")
+def candidate_repository(tmp_path_factory: pytest.TempPathFactory):
+    """Freeze the sources under test, including uncommitted candidate changes.
+
+    Archiving the real HEAD here mixes yesterday's runtime with today's installer.
+    Commit only a disposable copy; never stage or commit the author's worktree.
+    Each install still receives its own mutable destination.
+    """
+    repo = tmp_path_factory.mktemp("snapshot-candidate")
+    names = subprocess.check_output(
+        ("git", "-C", str(REPO_ROOT), "ls-files", "--cached", "--others",
+         "--exclude-standard", "-z")
+    ).split(b"\0")
+    for raw in sorted(set(names)):
+        if not raw:
+            continue
+        name = os.fsdecode(raw)
+        if name.startswith((".copilot/", ".claude/hooks/state/")):
+            continue  # Runtime state is never candidate source.
+        source, target = REPO_ROOT / name, repo / name
+        if not source.exists() and not source.is_symlink():
+            continue  # Preserve working-tree deletions.
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target, follow_symlinks=False)
+    subprocess.run(("git", "init", "--quiet", str(repo)), check=True)
+    subprocess.run(("git", "-C", str(repo), "add", "--all"), check=True)
+    subprocess.run(
+        ("git", "-C", str(repo), "-c", "user.name=Snapshot Test",
+         "-c", "user.email=snapshot@test.invalid", "-c", "commit.gpgsign=false",
+         "commit", "--quiet", "-m", "isolated candidate fixture"),
+        check=True,
+    )
+    return repo, _git(repo, "rev-parse", "HEAD"), _git(repo, "rev-parse", "HEAD^{tree}")
+
+
 class _FakeCodexRunner:
     def __init__(self) -> None:
         self.marketplaces: dict[str, Path] = {}
@@ -712,16 +747,15 @@ def test_reuse_rejects_snapshot_that_no_longer_matches_git(
 
 
 def test_full_repository_snapshot_runs_real_roundtrip_without_cnr(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, candidate_repository
 ):
     from cc.commands import conformance
     from cc.core.conformance import roundtrip
     from cc.core.conformance.types import Verdict
 
-    commit = _git(REPO_ROOT, "rev-parse", "HEAD")
-    tree = _git(REPO_ROOT, "rev-parse", "HEAD^{tree}")
+    source, commit, tree = candidate_repository
     home = tmp_path / "home"
-    report = _install(REPO_ROOT, commit, tree, home)
+    report = _install(source, commit, tree, home)
     snapshot = Path(report["snapshot"])
     codex_fixture = (
         REPO_ROOT / "tools" / "cc" / "tests" / "fixtures" / "codex-installer"
@@ -743,10 +777,9 @@ def test_full_repository_snapshot_runs_real_roundtrip_without_cnr(
 
 
 def test_full_repository_real_installer_succeeds_in_isolated_home(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, candidate_repository
 ):
-    commit = _git(REPO_ROOT, "rev-parse", "HEAD")
-    tree = _git(REPO_ROOT, "rev-parse", "HEAD^{tree}")
+    source, commit, tree = candidate_repository
     home = tmp_path / "home"
     home.mkdir()
     for name in ("tmp", "cache", "pip-cache", "uv-cache"):
@@ -758,7 +791,7 @@ def test_full_repository_real_installer_succeeds_in_isolated_home(
     monkeypatch.setenv("UV_CACHE_DIR", str(tmp_path / "uv-cache"))
 
     report = installer.install_framework_snapshot(
-        source_root=REPO_ROOT,
+        source_root=source,
         source_commit=commit,
         source_tree=tree,
         home=home,

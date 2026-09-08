@@ -1,4 +1,4 @@
-> **Combined hardening candidate, 2026-09-08:** cc 2.13.0 / tc 2.0.0 supersede the earlier local versions below. Pending QA work now requires a registered acceptance contract and fresh content identity. Claude PRD-4 TASK-46 verifies the actual candidate; TASK-47 verifies its signed release, and propagation depends on it. Historical preparation is not release evidence.
+> **Historical preparation, superseded 2026-09-08:** use [5.15.1 source integration](15-source-integration-5.15.1.md) for current versions and merge evidence. The text below preserves earlier candidate history, not current machine state. TASK-47 gates signed macOS packaging only, not Claude configuration distribution; consumer propagation has its own source-identity and per-project verification requirements.
 
 # Release preparation: framework 5.15.0
 

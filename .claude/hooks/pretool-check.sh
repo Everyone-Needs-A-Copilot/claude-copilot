@@ -30,8 +30,8 @@
 # PERFORMANCE TARGET: <50ms per invocation
 #
 # STATE FILES:
-#   .claude/hooks/state/streak-<session_id>.json
-#   Shape: { "session_id": "...", "lastTool": "Bash", "streak": 3, "updatedAt": "<ISO>" }
+#   .claude/hooks/state/budget-<session_id>.json
+#   Shape: { "session_id": "...", "bytesCharged": 300, "filesTouched": [], "updatedAt": "<ISO>" }
 #
 #   .claude/hooks/state/qa-gate.json
 #   Shape: { "<session_id>": { "pending_tasks": ["TASK-5"], "retries": { "TASK-5": 1 },
@@ -39,8 +39,7 @@
 #             "lastSeen": "<ISO>" } }
 #
 # RULE SETS:
-#   1. force-delegate — deny after 5 consecutive same-tool calls (Bash|Read|Edit)
-#      Task: 17 (P4.2).
+#   1. force-delegate — estimated byte cost and distinct file budget (ADR-005).
 #   2. qa-gate — deny all tool calls except Agent(qa) and safe tc Bash calls
 #      while any task is in pending-qa state for this session.
 #      Task: 16 (P4.1). Bypass: COPILOT_QA_GATE=off
@@ -88,7 +87,10 @@ trap '_unexpected_hook_failure "$LINENO" 141 PIPE' PIPE
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)" \
+SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
+SCRIPT_PARENT="."
+[[ "$SCRIPT_PATH" == */* ]] && SCRIPT_PARENT="${SCRIPT_PATH%/*}"
+SCRIPT_DIR="$(cd "$SCRIPT_PARENT" 2>/dev/null && pwd)" \
   || { echo "[pretool-check] could not resolve SCRIPT_DIR" >&2; exit 0; }
 STATE_DIR="${COPILOT_HOOK_STATE_DIR:-${SCRIPT_DIR}/state}"
 MANIFEST_FILE="${SCRIPT_DIR}/../agents/manifest.json"
@@ -179,7 +181,8 @@ _is_known_agent() {
 # ---------------------------------------------------------------------------
 # Read hook payload from stdin
 # ---------------------------------------------------------------------------
-PAYLOAD="$(cat)"
+PAYLOAD=""
+IFS= read -r -d '' PAYLOAD || true
 
 if [[ -z "$PAYLOAD" ]]; then
   exit 0
@@ -204,10 +207,11 @@ fi
 # unsatisfiable from inside a subagent. See rule_force_delegate and
 # rule_qa_gate below for where this is consumed.
 _PAYLOAD_FIELDS="$("$JQ" -r \
-  '[.session_id // "", .tool_name // "", .agent_type // ""] | @tsv' \
+  '([.session_id // "", .tool_name // "", .agent_type // ""] | @tsv),
+   (if .tool_name == "Bash" then (.tool_input.command // "") else "" end)' \
   <<< "$PAYLOAD" 2>/dev/null)" \
   || { echo "[pretool-check] jq parse failed reading payload fields" >&2; exit 0; }
-IFS=$'\t' read -r SESSION_ID TOOL_NAME AGENT_TYPE <<< "$_PAYLOAD_FIELDS"
+IFS=$'\t' read -r SESSION_ID TOOL_NAME AGENT_TYPE <<< "${_PAYLOAD_FIELDS%%$'\n'*}"
 
 if [[ -z "$SESSION_ID" || -z "$TOOL_NAME" ]]; then
   # Malformed payload — allow and let Claude handle it
@@ -230,15 +234,16 @@ fi
 # .tool_input.command, so this is skipped entirely for Read/Edit/Agent/etc.
 TOOL_COMMAND=""
 if [[ "$TOOL_NAME" == "Bash" ]]; then
-  TOOL_COMMAND="$("$JQ" -r '.tool_input.command // ""' <<< "$PAYLOAD" 2>/dev/null)" \
-    || TOOL_COMMAND=""
+  if [[ "$_PAYLOAD_FIELDS" == *$'\n'* ]]; then
+    TOOL_COMMAND="${_PAYLOAD_FIELDS#*$'\n'}"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
 # State helpers
 # ---------------------------------------------------------------------------
-STATE_FILE="${STATE_DIR}/streak-${SESSION_ID}.json"
-LOCK_FILE="${STATE_DIR}/streak-${SESSION_ID}.lock"
+STATE_FILE="${STATE_DIR}/budget-${SESSION_ID}.json"
+LOCK_FILE="${STATE_DIR}/budget-${SESSION_ID}.lock"
 STALENESS_SECONDS=86400  # 24 hours
 
 # Acquire a simple lock to prevent concurrent corruption
@@ -251,7 +256,7 @@ acquire_lock() {
     if [[ $i -ge 10 ]]; then
       # Streak bookkeeping is optional. A timeout skips only this rule; it
       # must never terminate the dispatcher before the journey gate.
-      echo "[pretool-check] force-delegate streak lock timed out; skipping streak update" >&2
+      echo "[pretool-check] force-delegate budget lock timed out; skipping budget update" >&2
       return 1
     fi
   done
@@ -261,201 +266,174 @@ release_lock() {
   rmdir "$LOCK_FILE" 2>/dev/null || true
 }
 
-# Sets globals _STREAK_LAST_TOOL and _STREAK_COUNT rather than echoing JSON
-# for the caller to re-parse. When STATE_FILE doesn't exist (the common case
-# — first call of a session, or right after a streak reset) this makes zero
-# subprocess calls at all; when it does exist, one jq call reads updatedAt,
-# lastTool, and streak together instead of the state file being parsed
-# multiple times (once for staleness, again per field).
-read_streak() {
-  _STREAK_LAST_TOOL=""
-  _STREAK_COUNT=0
-  if [[ ! -f "$STATE_FILE" ]]; then
-    return
-  fi
-  local raw updated_at
-  raw="$("$JQ" -r '[.updatedAt // "", .lastTool // "", (.streak // 0 | tostring)] | @tsv' \
-    "$STATE_FILE" 2>/dev/null)" \
-    || { echo "[pretool-check] jq parse failed reading streak state from $STATE_FILE" >&2; return; }
-  IFS=$'\t' read -r updated_at _STREAK_LAST_TOOL _STREAK_COUNT <<< "$raw"
-  _STREAK_COUNT="${_STREAK_COUNT:-0}"
-
-  if [[ -n "$updated_at" ]]; then
-    local now_epoch file_epoch
-    printf -v now_epoch '%(%s)T' -1
-    # date -j -f "%Y-%m-%dT%H:%M:%SZ" on macOS; fallback on Linux
-    if [[ "$(uname)" == "Darwin" ]]; then
-      file_epoch="$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "${updated_at}" +%s 2>/dev/null || echo 0)"
-    else
-      file_epoch="$(date -d "${updated_at}" +%s 2>/dev/null || echo 0)"
-    fi
-    local age=$(( now_epoch - file_epoch ))
-    if [[ "$age" -gt "$STALENESS_SECONDS" ]]; then
-      # Stale — treat as fresh
-      _STREAK_LAST_TOOL=""
-      _STREAK_COUNT=0
-    fi
-  fi
-}
-
-write_streak() {
-  local last_tool="$1"
-  local streak="$2"
-  local now
-  # Bash builtin strftime — no subprocess (was: date -u +%Y-%m-%dT%H:%M:%SZ).
-  # TZ=UTC0 is required: bash's %()T uses the local zone by default, which
-  # would silently mislabel a local-time value with the "Z" (UTC) suffix.
-  TZ=UTC0 printf -v now '%(%Y-%m-%dT%H:%M:%SZ)T' -1
-  local tmp="${STATE_FILE}.tmp.$$"
-  printf '{"session_id":"%s","lastTool":"%s","streak":%d,"updatedAt":"%s"}\n' \
-    "$SESSION_ID" "$last_tool" "$streak" "$now" > "$tmp"
-  mv "$tmp" "$STATE_FILE"
-}
-
 deny() {
   local reason="$1"
-  # Escape for JSON using bash builtins only — no subprocess, no pipeline,
-  # no pipefail interaction. Escapes backslashes first (order matters), then
-  # double quotes. Our deny messages are hardcoded ASCII but this is robust.
   local escaped="${reason//\\/\\\\}"
   escaped="${escaped//\"/\\\"}"
-  # Write reason to stderr SO the harness can surface it in the error message
-  # (harness format: "hook error: [path]: [stderr content]"). Without this,
-  # the harness shows "No stderr output" — which looks like an internal crash
-  # rather than an intentional policy block.
   echo "[hook-deny] ${reason}" >&2
   printf '{"permissionDecision":"deny","reason":"%s"}\n' "$escaped"
   exit 2
 }
 
-# ---------------------------------------------------------------------------
-# Safe Bash command prefixes that are always allowed in force-delegate rule.
-# These are single-shot, non-looping operations that must not count toward the
-# consecutive-tool streak.
-# ---------------------------------------------------------------------------
-FORCE_DELEGATE_SAFE_PREFIXES=(
-  "git push"
-  "git pull"
-  "git fetch"
-  "git status"
-  "git log"
-  "git diff"
-  "git show"
-  "git stash"
-  "git tag"
-  "git remote"
-)
-
-is_force_delegate_safe_bash() {
-  local cmd="$1"
-  local prefix
-  for prefix in "${FORCE_DELEGATE_SAFE_PREFIXES[@]}"; do
-    if [[ "$cmd" == "${prefix}"* ]]; then
+# Exact approvals bind policy content, meter, threshold and prospective total.
+# Local entries await review; CI reads HEAD's ledger and ignores env overrides.
+budget_override_allows() {
+  local meter="$1" threshold="$2" actual="$3" baseline="$4"
+  local ledger="${SCRIPT_DIR}/../force-delegate-budget-overrides.jsonl"
+  local policy record reason requested="${COPILOT_FORCE_DELEGATE_BUDGET_OVERRIDE:-}"
+  policy="$(shasum -a 256 "$baseline")"
+  policy="${policy%% *}"
+  if [[ -z "${CI:-}" && "$requested" == "${meter}:"* ]]; then
+    reason="${requested#*:}"
+    if [[ -n "${reason//[[:space:]]/}" ]]; then
+      record="$("$JQ" -cn --arg meter "$meter" --argjson threshold "$threshold" \
+        --argjson actual "$actual" --arg policy "$policy" --arg reason "$reason" \
+        --arg session "$SESSION_ID" \
+        '{meter:$meter,threshold:$threshold,actual:$actual,policy:$policy,
+          reason:$reason,session_id:$session,createdAt:(now|todateiso8601)}')" || return 1
+      printf '%s\n' "$record" >> "$ledger" || return 1
+      echo "[force-delegate-budget-override] ${meter} ${actual}/${threshold}: ${reason}" >&2
       return 0
     fi
-  done
-  return 1
+  fi
+  if [[ -n "${CI:-}" ]]; then
+    record="$(git -C "${SCRIPT_DIR}/../.." show HEAD:.claude/force-delegate-budget-overrides.jsonl 2>/dev/null)" || return 1
+  elif [[ -f "$ledger" ]]; then
+    record="$(<"$ledger")"
+  else
+    return 1
+  fi
+  "$JQ" -es --arg meter "$meter" --argjson threshold "$threshold" \
+    --argjson actual "$actual" --arg policy "$policy" \
+    'any(.[]; .meter == $meter and .threshold == $threshold and
+      .actual == $actual and .policy == $policy and
+      (.reason | type == "string" and test("\\S")))' <<< "$record" >/dev/null 2>&1
 }
 
-# ---------------------------------------------------------------------------
-# Rule: force-delegate
-# Deny when the same tool (Bash|Read|Edit) is called 5+ times consecutively.
-# The Agent tool is never subject to this rule (delegation is always allowed).
-# Bypass: COPILOT_FORCE_DELEGATE=off (env var or command prefix)
-# ---------------------------------------------------------------------------
+# ADR-005 estimates cost before execution; it is not a tokenizer/shell parser.
+# Only Read/Edit/Write file targets count. Bash gets an output-cost estimate.
+# Dispatch/alternation never refund spend. Denied attempts never consume it.
 rule_force_delegate() {
-  # Check escape hatch via environment variable
-  if [[ "${COPILOT_FORCE_DELEGATE:-}" == "off" ]]; then
-    return 0
-  fi
-
-  # Subagent/sidechain tool calls are exempt — they ARE the delegation this
-  # rule exists to force. Claude Code shares SESSION_ID between a main
-  # session and its subagents, so without this check a subagent's own
-  # Read/Edit/Bash calls would silently continue (and trip) the main
-  # session's streak counter. Denying them is a livelock: framework agents
-  # do not carry the Agent/Task tool, so "delegate to a framework agent
-  # instead" has no satisfiable next step from inside a subagent. This must
-  # come before the tool-name case below so it also exempts subagent Bash
-  # calls, not just Read/Edit.
-  #
-  # The exemption only applies to a RECOGNIZED agent_type (validated against
-  # MANIFEST_AGENTS). An unrecognized non-empty value is surfaced to stderr
-  # and falls through to normal main-session handling rather than being
-  # silently granted the exemption — see _is_known_agent above.
+  [[ "${COPILOT_FORCE_DELEGATE:-}" == "off" ]] && return 0
   if [[ -n "$AGENT_TYPE" ]]; then
-    if _is_known_agent "$AGENT_TYPE"; then
-      return 0
-    fi
-    echo "[pretool-check] unrecognized agent_type '${AGENT_TYPE}' (not in MANIFEST_AGENTS) — not exempting from force-delegate" >&2
+    if _is_known_agent "$AGENT_TYPE"; then return 0; fi
+    echo "[pretool-check] unrecognized agent_type '${AGENT_TYPE}' — not exempting from force-delegate" >&2
   fi
-
-  # Only track Bash, Read, Edit — not Agent or other tools. A main-session
-  # Agent dispatch (reached here only because AGENT_TYPE was empty, i.e. this
-  # IS the main session delegating, not a subagent's own call) is the exact
-  # corrective action this rule exists to force, so it must reset any
-  # pre-delegation streak. Otherwise stale streak state survives untouched
-  # through the whole subagent invocation (subagent calls are exempt above
-  # and never write to it) and the main session's first tool call after a
-  # LEGITIMATE delegation gets falsely denied against the old count.
   case "$TOOL_NAME" in
-    Bash|Read|Edit) ;;
-    Agent)
-      if ! acquire_lock; then
-        return 0
-      fi
-      trap 'release_lock' EXIT
-      write_streak "" 0
-      release_lock
-      trap - EXIT
-      return 0
-      ;;
+    Bash|Read|Edit|Write) ;;
     *) return 0 ;;
   esac
-
-  # For Bash calls: check command-string escape hatch and safe-prefix allowlist.
-  # TOOL_COMMAND was parsed once at the top of the script (shared with
-  # rule_destructive_command and rule_path_scope below).
-  if [[ "$TOOL_NAME" == "Bash" ]]; then
-    local cmd="$TOOL_COMMAND"
-
-    # Command-string escape hatch: COPILOT_FORCE_DELEGATE=off as command prefix
-    if [[ "$cmd" == COPILOT_FORCE_DELEGATE=off* ]]; then
-      return 0
-    fi
-
-    # Safe single-shot git operations don't count toward the streak
-    if is_force_delegate_safe_bash "$cmd"; then
-      return 0
-    fi
-  fi
-
-  if ! acquire_lock; then
+  if [[ "$TOOL_NAME" == "Bash" &&
+        "$TOOL_COMMAND" =~ ^COPILOT_FORCE_DELEGATE=off([[:space:]]|$) ]]; then
     return 0
   fi
+
+  local baseline="" candidate
+  local -a baselines=()
+  for candidate in "${SCRIPT_DIR}"/../force-delegate-budget-baseline-v*.json; do
+    [[ -f "$candidate" ]] && baselines+=("$candidate")
+  done
+  if [[ "${#baselines[@]}" -eq 0 ]]; then
+    echo "[pretool-check] force-delegate budget baseline missing; budget unavailable" >&2
+    return 0
+  fi
+  baseline="${baselines[0]}"
+  if [[ "${#baselines[@]}" -gt 1 ]]; then
+    baseline="$(printf '%s\n' "${baselines[@]}" | sort -V | tail -1)"
+  fi
+
+  local file_path="" charge=0 offset=0 limit="" read_fields
+  if [[ "$TOOL_NAME" == "Read" ]]; then
+    # Never evaluate input as shell. Count line slices in bytes, not characters.
+    read_fields="$("$JQ" -r '.tool_input | (.file_path // ""), (.offset // 0), (.limit // "")' <<< "$PAYLOAD")" || return 0
+    local -a fields=()
+    mapfile -t fields <<< "$read_fields"
+    file_path="${fields[0]:-}"
+    offset="${fields[1]:-0}"
+    limit="${fields[2]:-}"
+    if [[ -f "$file_path" ]]; then
+      if [[ "$offset" =~ ^[0-9]+$ && "$limit" =~ ^[0-9]+$ ]]; then
+        charge="$(LC_ALL=C awk -v start="$offset" -v count="$limit" \
+          'BEGIN { if (start < 1) start=1; stop=start+count }
+           NR >= stop { exit } NR >= start { bytes += length($0)+1 }
+           END { print bytes+0 }' "$file_path")"
+      elif [[ "$offset" =~ ^[0-9]+$ && "$offset" -gt 1 ]]; then
+        charge="$(LC_ALL=C awk -v start="$offset" 'NR >= start {bytes+=length($0)+1} END {print bytes+0}' "$file_path")"
+      else
+        charge="$(wc -c < "$file_path")"
+        charge="${charge//[[:space:]]/}"
+      fi
+    fi
+  fi
+
+  [[ -d "$STATE_DIR" ]] || mkdir -p "$STATE_DIR"
+  if ! acquire_lock; then return 0; fi
   trap 'release_lock' EXIT
+  local previous=/dev/null result
+  [[ -f "$STATE_FILE" ]] && previous="$STATE_FILE"
+  # Validate policy and compute prospective state in one jq call. State older
+  # than 24h expires; old streak files are intentionally never imported.
+  result="$("$JQ" -r --slurpfile policies "$baseline" --slurpfile previous "$previous" \
+    --arg tool "$TOOL_NAME" --arg session "$SESSION_ID" --arg file "$file_path" \
+    --arg command "$TOOL_COMMAND" --argjson readCharge "$charge" \
+    --argjson stale "$STALENESS_SECONDS" '
+    $policies[0] as $policy | $policy.thresholds as $t |
+    if ([$t.byte_budget_bytes,$t.files_budget_count,$t.bash_bounded_charge_bytes,
+         $t.bash_unbounded_charge_bytes] | all(type == "number" and . > 0 and floor == .)) and
+       ($t.warning_ratio > 0 and $t.warning_ratio < 1) and $policy.byte_to_token_ratio > 0
+    then . else error("invalid budget policy") end |
+    (.tool_input // {}) as $input |
+    ($previous[0] // {}) as $old |
+    (if $old.session_id == $session and
+        ((try ($old.updatedAt|fromdateiso8601) catch 0) > (now-$stale))
+     then $old else {} end) as $state |
+    (if $tool == "Read" then $file
+     elif $tool == "Edit" or $tool == "Write" then ($input.file_path // "")
+     else "" end) as $target |
+    (if $tool == "Read" then $readCharge
+     elif $tool == "Edit" then ($input.new_string // "" | utf8bytelength)
+     elif $tool == "Write" then ($input.content // "" | utf8bytelength)
+     elif ($command | test("(^|[;&|\\n]\\s*|\\s)(cat|find)(\\s|$)")) or
+          (($command | test("(^|[;&|\\n]\\s*|\\s)(rg|grep)(\\s|$)")) and
+           ($command | test("(^|\\s)(-m\\s*\\d+|--max-count[= ]\\d+)(\\s|$)") | not))
+     then $t.bash_unbounded_charge_bytes else $t.bash_bounded_charge_bytes end) as $cost |
+    (($state.bytesCharged // 0) + $cost) as $bytes |
+    (($state.filesTouched // []) + (if $target == "" then [] else [$target] end) | unique) as $files |
+    {session_id:$session,bytesCharged:$bytes,filesTouched:$files,
+     updatedAt:(now|todateiso8601)} as $next |
+    ([$bytes,($files|length),$t.byte_budget_bytes,$t.files_budget_count,
+     (($bytes >= $t.byte_budget_bytes*$t.warning_ratio) or
+      (($files|length) >= $t.files_budget_count*$t.warning_ratio)),
+     ($bytes/$policy.byte_to_token_ratio|ceil)] | @tsv),
+    ($next|tojson)
+    ' <<< "$PAYLOAD")" || {
+      echo "[pretool-check] force-delegate budget state/policy invalid; budget unavailable" >&2
+      release_lock; trap - EXIT; return 0;
+    }
 
-  local last_tool streak
-  read_streak; last_tool="$_STREAK_LAST_TOOL"; streak="$_STREAK_COUNT"
-
-  if [[ "$TOOL_NAME" == "$last_tool" ]]; then
-    streak=$((streak + 1))
-  else
-    streak=1
+  local header="${result%%$'\n'*}" state="${result#*$'\n'}"
+  local bytes files byte_budget file_budget warn tokens
+  IFS=$'\t' read -r bytes files byte_budget file_budget warn tokens <<< "$header"
+  local exceeded=""
+  if [[ "$bytes" -gt "$byte_budget" ]] &&
+     ! budget_override_allows bytes "$byte_budget" "$bytes" "$baseline"; then
+    exceeded="bytes"
   fi
-
-  if [[ "$streak" -ge 5 ]]; then
-    # Reset streak on deny so the next call starts fresh
-    write_streak "$TOOL_NAME" 0
-    release_lock
-    trap - EXIT
+  if [[ "$files" -gt "$file_budget" ]] &&
+     ! budget_override_allows files "$file_budget" "$files" "$baseline"; then
+    exceeded="${exceeded:+${exceeded} and }files"
+  fi
+  if [[ -n "$exceeded" ]]; then
+    release_lock; trap - EXIT
     _ensure_manifest_loaded
-    deny "Main session has issued 5+ consecutive ${TOOL_NAME} calls. Delegate to a framework agent instead. Valid agents: ${VALID_AGENT_LIST}. This preserves context budget and matches the framework's core purpose."
+    deny "Main session cost budget exceeded (${exceeded}): ${bytes}/${byte_budget} estimated bytes (~${tokens} tokens), ${files}/${file_budget} distinct file targets. Narrow the call or delegate. Valid agents: ${VALID_AGENT_LIST}. COPILOT_FORCE_DELEGATE=off is the explicit bypass."
   fi
-
-  write_streak "$TOOL_NAME" "$streak"
-  release_lock
-  trap - EXIT
+  printf '%s\n' "$state" > "${STATE_FILE}.tmp.$$"
+  mv "${STATE_FILE}.tmp.$$" "$STATE_FILE"
+  release_lock; trap - EXIT
+  if [[ "$warn" == "true" ]]; then
+    echo "[force-delegate-budget-warn] ${bytes}/${byte_budget} estimated bytes; ${files}/${file_budget} distinct file targets" >&2
+  fi
   return 0
 }
 
