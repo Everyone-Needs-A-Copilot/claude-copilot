@@ -62,7 +62,9 @@ def _event_targets(event: dict, runtime: str) -> list[str]:
         path = inputs.get("file_path", inputs.get("path"))
         return [path] if isinstance(path, str) else []
     if runtime == "codex" and tool.endswith("apply_patch"):
-        patch = inputs.get("input", inputs.get("patch", ""))
+        # Native Codex lifecycle hooks normalize apply_patch into command;
+        # input/patch remain supported for older adapters and explicit replay.
+        patch = inputs.get("command", inputs.get("input", inputs.get("patch", "")))
         if isinstance(patch, str):
             return re.findall(r"^\*\*\* (?:Add|Update) File: (.+)$", patch, re.MULTILINE)[:8]
     return []

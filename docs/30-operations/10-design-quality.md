@@ -40,8 +40,9 @@ Edit the draft before using it. A minimal complete contract looks like this:
 Files must remain inside the project and cannot use symlink aliases. Product and
 design authority must exist. Context can name planned target files; review/audit
 requires actual files. Task IDs are local to a project database: verify membership
-with `tc task get` in the same project; the design parser validates the reference,
-not database membership. `detector_required: true` explicitly disallows replacing
+with `tc task get` in the same project. Review and report bind the design criteria
+to that database task’s registered acceptance contract and require its source scope
+to cover every target and authority file. `detector_required: true` explicitly disallows replacing
 an unavailable scan with manual evidence. Its default is false.
 
 ```bash
