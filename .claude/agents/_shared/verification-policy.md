@@ -1,60 +1,33 @@
 ## Proportional Verification
 
-Record criterion, affected consumers, lane/commands, exclusions/reasons and cap
-before checks. Select behavior and risk, not file extension.
+Before edits, record deliverable, required criteria, consumers, lane/commands, exclusions/reasons and cap in task. Select by behavior/risk, not extension.
 
 | Change | Default checks | Expand when |
 |--------|----------------|-------------|
-| Instructions/routing | Parse, references, manifest, actual dispatch/hook wiring | Changed routing/judgment: bounded behavioral scenario; wording alone does not require live model evaluation |
-| Logic/transformation | Reproducer, boundaries, affected callers | Shared API, serialization, concurrency/state change |
-| Storage/installation | Disposable real persistence, rollback, preservation, repeat no-op | Schema/installer/release: platform/snapshot coverage |
-| UI behavior | Seeded Playwright semantic assertions; comparable before/after trace and video for defects | Shared component/navigation/auth/responsive changes: affected journeys/states |
+| Instructions/routing | Parse, refs, manifest, actual dispatch/hook wiring | Routing/judgment: bounded scenario; wording alone does not require live model evaluation |
+| Logic/transformation | Reproducer, boundaries, affected callers | Shared API/serialization/concurrency/state |
+| Storage/installation | Disposable real persistence, rollback, preservation, repeat no-op | Schema/installer/release: platform/snapshot |
+| UI behavior | Seeded Playwright semantic assertions; comparable before/after trace and video for defects | Shared component/navigation/auth/responsive: affected journeys/states |
 | Machine/model effectiveness | Separate environment assessment or frozen paired evaluation | Relevant machine/model change, never an unrelated code edit |
 
 Unknown impact selects a broader named lane, never an empty selection. New tests
-are required for missing behavior coverage, not each edited file. Existing mapped
-coverage may suffice; unexplained gaps or broken behavior fail approval. Preserve
-safety, concurrency, transaction and evidence-parser negative controls.
+are required for missing behavior coverage, not edited files; reuse sufficient checks. Gaps/broken behavior fail. Keep safety/concurrency/transaction/evidence-parser negative controls.
 
-Reproduce first: expected/actual values and first divergent state. Inspect extra-item
-IDs/membership and the introducing transformation, not count alone. Failures through
-one unchanged dependency are one observation. After two falsified root-cause
-hypotheses, inspect the enforcement path and cite file:line; change investigation,
-not more speculative tests or automatic abandonment.
+Reproduce expected/actual and first divergent state; extra-item IDs/membership + introducing transformation, not count. Unchanged dependency failures count once. After two falsified root-cause
+hypotheses: inspect enforcement, cite file:line; change investigation, not speculative tests/abandonment.
 
 ### Fixed finish line
 
-Before implementation, state the deliverable, required acceptance criteria,
-affected consumers, verification lane/cap and explicit exclusions in the task.
-Freeze that boundary for the batch; a new requirement needs an explicit scope
-decision, not an automatic extra improvement.
+Freeze that boundary for the batch; new requirements need explicit scope decisions.
+Smallest sufficient checks, then one planned batch acceptance pass. Repair change-caused failures; rerun affected checks only. Record unrelated defects; they do not silently reopen completed work. Pre-existing failure of a required criterion still blocks that criterion. Never lower acceptance/hide failures for caps.
 
-Run the smallest sufficient checks, then one planned batch acceptance pass.
-Repair failures caused by this change and rerun affected checks only. Record
-unrelated defects separately; they do not silently reopen completed work. A
-pre-existing defect that prevents a required criterion still blocks that criterion.
-Never lower acceptance or hide a failure to meet a cap.
+Current source-bound QA approval for all required criteria: close task, report complete/separately pending work, then stop. Further polish/audit/broad rerun/tasks need a new request. Missing evidence/exhausted cap: incomplete, not complete; name blocker and stop retries until scope/cap decision.
 
-When every required criterion has current source-bound QA approval, close the
-task, report what is complete and any separately pending work, then stop. Do not
-start another polish, audit, broad rerun or follow-up task without a new request.
-Missing required evidence or an exhausted cap means incomplete, not complete;
-report the specific blocker and stop automatic retries until scope/cap is decided.
-
-Focused checks first; broad portable checks once per completed batch/release.
-Rerun affected checks when inputs change. Caps: focused 60 seconds, affected 180
-seconds, broad 900 seconds. Show operation, elapsed time and artifact path at least
-every 30 seconds. Timeout is incomplete, never a pass or silent restart; record a
-scope/cap decision before retry. Limits are ceilings, not required passes or delivery
-estimates. Test subprocesses need no model inference.
-Reuse requires matching source/test/dependency/runtime/config/data, cases, commands
-and intact successful artifacts; non-hermetic machine/model runs are not cacheable
-by default. Reuse artifacts, never another task's approval: tc remains the sole
+Focused first; broad portable checks once/batch or release. Changed inputs: affected rerun. Caps: focused 60 seconds, affected 180
+seconds, broad 900 seconds. Show operation/elapsed/artifact at least
+every 30 seconds. Timeout is incomplete, never a pass or silent restart; decide scope/cap before retry. Caps are ceilings, not required passes/estimates; subprocesses need no inference.
+Reuse: matching source/test/dependency/runtime/config/data, cases/commands and intact successful artifacts; non-hermetic machine/model runs default uncached. Reuse artifacts, never another task's approval: tc remains the sole
 source-bound QA authority.
 
-Never weaken, skip or delete assertions to hide a defect. Obsolete-contract migration
-requires explicit authority, old/new expectations and rationale, exact changed
-assertions/diff and a negative control rejecting the targeted broken behavior.
-Report changed tests; green alone does not establish integrity. Escalate undecided
-authority/behavior. UI healing cannot pass by skipping required behavior; evidence
-stays local/private unless upload is explicitly authorized.
+Never weaken, skip or delete assertions to hide defects. Obsolete-contract migration needs explicit authority, old/new expectations and rationale, exact changed
+assertions/diff and negative control rejecting targeted broken behavior. Report test changes; green alone cannot establish integrity. Escalate undecided authority/behavior. UI healing cannot skip required behavior; evidence stays local/private absent explicit upload authority.

@@ -1,21 +1,13 @@
 # Reflect Command
 
-Review the memory captured this session — decisions, lessons, and context — surface
-gaps or errors in reasoning, and store any corrections as memory entries.
+Review session memory for reasoning gaps/errors and store confirmed corrections.
 
 ## Overview
 
-`/reflect` is the end-of-session review step on top of the `cc memory` CLI. It
-replaces the MCP-era correction-detection system (the `correction_*` tools and the
-pending/approved/rejected queue were removed in the CLI migration).
-
-`/reflect` does **not**:
-- Auto-detect correction patterns in user messages (the MCP pattern engine is gone).
-- Maintain a pending/approved/rejected queue.
-- Route corrections to skill or agent files automatically.
-
-To update a skill or agent from a correction, edit the `SKILL.md` / agent file
-directly or delegate to `@agent-me`.
+End-of-session review uses `cc memory`, replacing removed MCP `correction_*`
+tools. No automatic correction-pattern detection, pending/approved/rejected queue,
+or skill/agent routing remains. Update `SKILL.md`/agent files directly or delegate
+to `@agent-me` when a correction warrants it.
 
 ## Arguments
 
@@ -46,23 +38,14 @@ cc memory get <entry-id>
 
 ## Step 2: Present a Review Dashboard
 
-Format the gathered entries as a compact review (newest first; truncate long
-content to ~100 chars). Example:
+Group entries by type, newest first, with IDs and ~100-character excerpts:
 
 ```
 ## Session Reflection
 
-**Stored this session:** 3 lessons · 2 decisions · 1 context
-
-### Lessons
-- [a1b2c3] "Use async/await instead of callbacks in Express middleware…"
-- [d4e5f6] "Yarn workspaces, not npm — earlier assumption was wrong"
-
-### Decisions
-- [g7h8i9] "Adopt FTS5 keyword search; defer semantic embeddings"
-
-### Context
-- [j0k1l2] "Auth service runs behind Cloudflare Access in staging"
+**Stored this session:** <counts by type>
+### <Type>
+- [<id>] "<excerpt>"
 ```
 
 ## Step 3: Reflect
@@ -92,13 +75,6 @@ cc memory store --type decision "<revised decision and rationale>."
 cc memory store --type reference "<corrected reference fact>."
 ```
 
-| Memory Type | When to Use |
-|-------------|-------------|
-| `lesson` | Process or technique that was wrong and is now corrected |
-| `context` | Factual correction about the project, codebase, or environment |
-| `decision` | Revised architectural or design decision |
-| `reference` | Corrected external fact (API endpoint, library version, etc.) |
-
 ## Step 5: Remove Stale Entries
 
 Delete memory that is outdated or was stored in error:
@@ -109,16 +85,8 @@ cc memory delete <entry-id>
 
 ## Edge Cases
 
-**No memory stored this session:**
-
-```
-## Session Reflection
-
-No memory entries found for review.
-
-Tip: store decisions and lessons as you work with
-`cc memory store --type decision "…"` so /reflect can review them.
-```
+If no memory was stored, say "No memory entries found for review" and suggest
+`cc memory store --type decision "…"` while working so future reviews have evidence.
 
 ## Retrieval Next Session
 

@@ -1,0 +1,81 @@
+{
+  "$comment": "2026-09-09: explicit measurement/allocation refresh AFTER in-place compression brought the corpus234759→203916B and always-loaded27699→26212B under the ORIGINAL hard ceilings204014/26268B, independently checked against v5.13.5. TASK77/PRD9; rationale: docs/30-operations/19-context-budget-reconciliation.md. Per-file reference sizes are deliberately reallocated for accepted evidence/design/verification capabilities since August; this is not a claim that the old per-file references passed. ALL thresholds (including hard ceilings and growth/shrink ratios), byte-to-token assumptions and override ledger are unchanged. Old baseline files remain immutable; no runtime/checker/test/assertion changes. Unknown-origin publisher-Mac deployment drift is separately recorded, not overwritten or treated as source approval.",
+  "framework_version": "5.15.1",
+  "captured_at": "2026-09-09T14:09:03.453Z",
+  "byte_to_token_ratio": 4,
+  "byte_to_token_basis": "~4 characters per token for English/markdown text -- OpenAI's widely-published tokenizer heuristic (platform.openai.com/tokenizer: 'a helpful rule of thumb is that one token generally corresponds to ~4 characters of text'). No tokenizer dependency is added; this is a documented approximation, applied identically to every artifact so ratios between artifacts stay comparable even though the absolute token count is approximate.",
+  "thresholds": {
+    "growth_ratio": 1.1,
+    "growth_ratio_basis": "Matches IMPL-plan item 5's starting point: tight enough to catch a real content-bloat edit, loose enough for normal edits (a new table row, a paragraph) not to trip it. Applies uniformly to every tracked artifact (agents, commands, CLAUDE.md, the SessionStart injection file, and the frontmatter-description catalog). Unchanged from v5.13.3 -- this re-baseline resets the captured byte counts, not the policy.",
+    "shrink_floor_ratio": 0.7,
+    "shrink_floor_basis": "A single edit legitimately removing under 30% of a file (trimming a stale section) is normal; losing more than 30% in one change is the signature of an accidental body-strip or truncated write, which a growth-only budget cannot see. Unchanged from v5.13.3.",
+    "corpus_ceiling_ratio": 1.1,
+    "corpus_ceiling_basis": "Same 10% headroom as the per-file ratio, applied to the SUM of all 16 agent files, so many small under-ratio additions across different files (each individually compliant) still can't add up to unbounded corpus growth. Unchanged from v5.13.3.",
+    "always_loaded_growth_ratio": 1.08,
+    "always_loaded_growth_ratio_basis": "Deliberately tighter than every other ratio in this file (8% vs 10%) because this is the one number that taxes literally every session with zero user action -- CLAUDE.md and the SessionStart injection are read whether or not the session ever touches an agent or a command. Unchanged from v5.13.3; the Output Contract pass's +1,166-byte CLAUDE.md addition (ratio 1.046 against this re-baseline) still fits inside it without needing to loosen it.",
+    "always_loaded_ceiling_bytes": 26268,
+    "always_loaded_ceiling_bytes_basis": "ABSOLUTE ceiling, not a ratio. Every other threshold here is a growth ratio, which constrains how fast the burden may rise and is structurally unable to require it to fall -- a framework at 26 KB always-loaded and one at 260 KB are equally compliant with an 8% growth cap, and no sequence of compliant edits can ever bring the number down. Set at the measured value on 2026-08-15, so it costs nothing today and makes every future increase a reviewed decision rather than a compliant 8% step. Raising it is legitimate; doing so silently is not.",
+    "agent_corpus_ceiling_bytes": 204014,
+    "agent_corpus_ceiling_bytes_basis": "ABSOLUTE ceiling on the summed agent corpus. Every other threshold here is a growth ratio, which constrains how fast the burden may rise and cannot require it to fall; no sequence of individually-compliant edits can ever bring the number down. Set at the MEASURED value on 2026-08-15 (203,126 B) rather than the v5.13.4 baseline (195,975 B), so the gate costs nothing on the day it lands. That 7,151 B gap is itself the point: the corpus drifted 3.6% above baseline through edits that each passed the 1.1x per-file ratio, which is precisely the ratchet an absolute ceiling exists to stop. Raising this is legitimate; raising it silently is not. RAISED 203126 -> 203567 B (+441) on 2026-08-17 for the mandatory `Unknowns:` slot added to the seven design-stage agents' Output Format (sd, uxd, uids, ind, cco, ta, cw). Reason, in full: docs/50-features/surfacing-unknowns.md. Summary: on an identical brief carrying a real contradiction, the no-framework arm asked, earned three sealed clarification answers and priced 25 fewer labour hours; the arm running the full design chain with enforcement verified asked nothing and priced a guess. The chain was resolving internally what should have been a conversation. These are the cheapest bytes available to fix that -- the rationale is deliberately in docs/ rather than in _shared/output-contract.md, which is duplicated into every agent file and would have charged 17x for the same prose. RAISED AGAIN 203567 -> 205345 B (+1778) on 2026-08-17 for the taste-corpus read clause added to the seven agents that already walk $CC_KNOWLEDGE_REPOS. It points at 08-taste/INDEX.md, which exists only in the personal tier (rank 10) and is empty until the owner's own feedback fills it -- so the bytes buy a read path, not content. Placement is deliberate and load-bearing: taste in the org or department tier stops being taste and becomes policy imposed on every inheritor, which SOUL.md's Company Fork anti-pattern refuses. See claude-copilot-private/knowledge/08-taste/README.md. RE-MEASURED 205345 -> 204014 B after rebasing the benchmark-recommendations work onto main (framework 5.14.10). Rebasing brought main's own newer agent and command content, which this baseline predated, so four command files tripped FF9 without anyone having edited them today. Re-measuring records main's reality rather than leaving five failures that a reader would have to learn to ignore."
+  },
+  "agents": {
+    "cco.md": 8594,
+    "cpa.md": 9767,
+    "cs.md": 8160,
+    "cw.md": 9365,
+    "do.md": 8725,
+    "doc.md": 6743,
+    "ind.md": 14767,
+    "kc.md": 7369,
+    "me.md": 14295,
+    "qa.md": 16399,
+    "sd.md": 16637,
+    "sec.md": 8796,
+    "ta.md": 14856,
+    "uid.md": 9152,
+    "uids.md": 27189,
+    "uxd.md": 23102
+  },
+  "agent_corpus_total_bytes": 203916,
+  "agent_corpus_note": "Measured after TASK77 in-place compression; full mandatory contracts remain embedded at every existing named-file load site.",
+  "commands": {
+    "config.md": 8735,
+    "continue.md": 15202,
+    "extensions.md": 5228,
+    "knowledge-copilot.md": 2736,
+    "map.md": 3894,
+    "memory.md": 4881,
+    "orchestrate.md": 5118,
+    "pause.md": 5416,
+    "protocol.md": 48766,
+    "reflect.md": 4476,
+    "setup-copilot.md": 1320,
+    "setup-knowledge-sync.md": 4602,
+    "setup-project.md": 5796,
+    "setup.md": 7521,
+    "skills-approve.md": 2394,
+    "update-copilot.md": 4733,
+    "update-project.md": 4830
+  },
+  "always_loaded": {
+    "claude_md_bytes": 20475,
+    "claude_md_note": "Actual root CLAUDE.md bytes after removing duplicate explanations, retaining all obligations.",
+    "session_start_injection_bytes": 3445,
+    "session_start_injection_note": "`.claude/hooks/protocol-injection.md`, emitted verbatim as the SessionStart hook's `systemMessage` on every session (session-start.sh), gated only by the `COPILOT_SESSION_START=off` escape hatch. The hook also appends a variable-length 'Known References' block (from `cc config`/`cc memory`, empty on a fresh install) and a 'Session Quota' block (from a usage cache) -- both runtime-computed and excluded here because they are not committed, reviewable file content and can't be measured as a static byte budget the way the rest of this manifest is. Unchanged in this pass.",
+    "frontmatter_catalog_bytes": 2292,
+    "frontmatter_catalog_note": "Unchanged2292B catalog: all16completefrontmatterblocks verified byte-identical to pre-repairfa43834.",
+    "total_bytes": 26212
+  },
+  "excluded_from_always_loaded": {
+    "protocol.md": {
+      "bytes": 48766,
+      "reason": "Explicit slash-command load, not unconditional session injection. Included in per-artifact command growth/shrink checks; excluded from always-loaded sum on the same basis as v5.13.5.",
+      "verification": "No PreToolUse/SessionStart/UserPromptSubmit hook reads or emits protocol.md's content; grep across .claude/hooks/*.sh for 'protocol.md' returns no reference. It is read only when the user's harness resolves an explicit /protocol slash-command invocation."
+    },
+    "AGENTS.md": {
+      "bytes": 5840,
+      "reason": "Codex-layer file (per its own header: 'This project uses the shared codex-copilot framework through the project-local plugin link'). Not referenced via an `@path` import in CLAUDE.md (verified: `grep -n '^@' CLAUDE.md` and `grep -n AGENTS.md CLAUDE.md` both return nothing) and not read by any Claude Code hook under `.claude/hooks/`. Excluded because it is not, in fact, loaded into a Claude Code session at all -- it is Codex's equivalent of CLAUDE.md, consumed by a different harness. Unchanged in this pass -- the Output Contract work was scoped to Claude-side agents/commands only (see repo-root CLAUDE.md's Output Contract section); Codex-side mirrors under plugins/codex-copilot/ were intentionally left untouched, consistent with this branch's recent removal of cross-product Codex plugin contribution."
+    }
+  },
+  "override_log": ".claude/context-budget-overrides.jsonl"
+}
