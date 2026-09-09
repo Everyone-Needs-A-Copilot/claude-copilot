@@ -4,13 +4,13 @@ You are starting a new conversation. **The Agent-First Protocol is now active.**
 
 ## Project Protocol Precedence
 
-**Before anything else below: check the current project for its own `.claude/commands/protocol.md`.** Claude Code resolves a same-named personal/machine-level command (this file, materialized to `~/.claude/commands/protocol.md`) over a project-level one by filename precedence alone -- so without this check, a project's own protocol would silently lose to this machine copy every time, even on a project that intentionally defines its own.
+**First check the current project's `.claude/commands/protocol.md`.** Claude Code's filename precedence favors this machine copy at `~/.claude/commands/protocol.md`; explicitly check for a project override before routing.
 
 1. Read `.claude/commands/protocol.md` relative to the current project's root, if the project has one.
-2. **If it exists and its content differs from this file:** follow the PROJECT file's instructions in full, in place of everything below this section -- this machine copy is superseded for the rest of this conversation. Declare it: `[Protocol: project]`. This is expected and correct for a non-software project (documents, presentations, image creation, etc.) whose protocol has nothing to do with the software flows below.
+2. **If its content differs:** follow the PROJECT instructions in full instead of everything below for the rest of this conversation. Declare `[Protocol: project]`. Non-software projects may legitimately use different flows.
 3. **If it is absent, or identical to this file:** this file governs, unchanged. Declare it: `[Protocol: machine]`.
 
-Do this check once, before any flow detection or agent routing below -- never mid-flow, and never skipped because a flow already seems obvious from the user's first message.
+Check once before flow detection/routing, never mid-flow or skipped because intent seems obvious.
 
 ## Command Argument Handling
 
@@ -20,13 +20,7 @@ This command supports an optional task description argument for quick task initi
 - `/protocol` - Interactive mode (select task type manually)
 - `/protocol [description]` - Auto-detect intent and route to appropriate agent chain
 
-**Examples:**
-```
-/protocol add user voice profiles          → Experience Flow (sd → uxd → uids → uid → ta → me)
-/protocol fix login authentication bug     → Defect Flow (qa → me → qa)
-/protocol refactor auth module             → Technical Flow (ta → me)
-/protocol improve the dashboard            → Clarification Flow (ask user)
-```
+Each flow below includes an invocation example and its route.
 
 ## Fixed Delivery Boundary
 
@@ -409,7 +403,7 @@ User can interrupt at any checkpoint:
 
 ## CRITICAL: Token Efficiency Rules
 
-This framework exists to prevent context bloat. Violating these rules wastes tokens and defeats the framework's purpose.
+Prevent context bloat:
 
 **The main session (you) should NEVER:**
 - Read more than 3 files directly (use agents instead)
@@ -451,7 +445,7 @@ This framework exists to prevent context bloat. Violating these rules wastes tok
 | `Plan` | Returns full plans to context, no Task Copilot | `@agent-ta` with PRD creation |
 | `general-purpose` | No Task Copilot integration | Specific framework agent |
 
-Generic agents bypass Task Copilot entirely. Their outputs bloat context.
+Generic agents bypass Task Copilot and bloat context.
 
 ---
 
@@ -619,50 +613,37 @@ cc memory store --type lesson "<key learning>"           # repeat for each key l
 
 ## Optional Context
 
-Mandatory repository, project, and system instructions always apply. They are never
-subject to relevance filtering and are never loaded through this step.
+Mandatory repository/project/system instructions always apply; never filter or load them here.
 
-When the task needs knowledge beyond those instructions, load it once:
+Load needed additional knowledge once; use `selected[].content` or do not load it:
 
     cc skill select "<task topic>" --required <skill> --max-chars 12000 --json
 
-Use the returned `selected[].content`. If you will not use it, do not load it.
-
-Record the receipt once per task, not once per load:
+Record one receipt per task, not per load:
 
     tc wp store --task <id> --type context --title "Context selection receipt" --file receipt.json
 
-Keep `query`, `max_chars`, `loaded_characters`, `mandatory_over_budget`, and for every
-entry in `selected` and `excluded` its `name`, `source`, `source_revision`,
-`selection_reason` or exclusion `reason`. Do not re-store the content itself.
+Keep `query`, `max_chars`, `loaded_characters`, `mandatory_over_budget`; each
+`selected`/`excluded` entry's `name`, `source`, `source_revision`, `selection_reason`
+or `reason`, not content. Before reselection read the receipt; skip held revisions.
+Reload only changes; record both revisions and announce the change.
 
-Before selecting again inside the same task, read that receipt. Skip any skill whose
-`source_revision` you already hold. Reload only when the revision differs, and when it
-does, record both revisions and say the source changed.
+Retain required skills in full if `mandatory_over_budget: true`; report `max_chars`
+and overage `loaded_characters - max_chars`. Characters are not tokens; receipts
+prove selection, not reading/obedience.
 
-`mandatory_over_budget: true` means a `--required` skill was retained past the budget.
-Report it: "Required context exceeded the `<max_chars>`-character budget by
-`<loaded_characters - max_chars>` characters; retained in full." Never drop it to fit.
+Keep every required name in `selected[]`; identical aliases have `duplicate_of`,
+empty `content`, zero charged characters/bytes: use the selected entry named by
+`duplicate_of`. Optional
+duplicates stay `excluded[]` as `duplicate-content`.
 
-Character counts are not model tokens, and a receipt records selection, never proof
-that content was read or obeyed.
+**Visible fallbacks:** name the applicable one, then continue:
 
-**Visible fallbacks.** Name the one that applied, then continue:
-
-- `cc` unavailable or non-zero exit: "Optional context unavailable (`cc skill select`
-  failed: <stderr>); proceeding on repository instructions and prior memory only."
-- Required skill not found (exit 2, `Required skill not found: <name>`): do not
-  substitute a similar skill. State the missing name, then proceed without it — or emit
-  `<promise>BLOCKED</promise>` if the task genuinely cannot proceed without it.
-- No optional skill matched (`selected: []`): "No optional context matched '<query>';
-  proceeding on repository instructions." Do not widen the query to manufacture a match.
-- No knowledge repos configured (`CC_KNOWLEDGE_REPOS` empty): "Knowledge tier
+- `cc` absent/nonzero: report failure/stderr; use repository instructions and prior memory only.
+- Exit 2, `Required skill not found: <name>`: name it, never substitute; proceed without it or emit `<promise>BLOCKED</promise>` if indispensable.
+- `selected: []`: report no match for the query; use repository instructions, never widen the query to force a match.
+- `CC_KNOWLEDGE_REPOS` empty: "Knowledge tier
   unconfigured; optional context limited to project and machine skills." Never block.
-
-Every explicitly required skill name remains in `selected[]`. Identical required
-content is emitted once: subsequent required aliases have `duplicate_of`, empty
-`content`, and zero charged characters/bytes; use the named selected entry's
-content. Optional duplicates remain in `excluded[]` as `duplicate-content`.
 
 ---
 
@@ -1104,23 +1085,19 @@ Offer when relevant. Never block work.
 
 ## Output Contract
 
-BLUF: lead with the answer or finding. Plain English. Depth follows substance, not effort. Content outranks form — this contract shapes HOW, never WHAT; see Runtime Precedence below.
+BLUF: lead with the answer or finding. Content outranks form — this contract shapes HOW, never WHAT. Use plain English; depth follows substance, not effort.
 
-**Registers:** User-facing replies, checkpoints, updates, blockers, and reports follow this contract. Agent handoffs, work products, QA markers, and Task/WP IDs favor exactness and are not length-limited.
+User-facing output follows this contract; handoffs, work products, QA markers and Task/WP IDs favor exactness, without length limits.
 
-**User-facing rules:**
-1. First sentence states what is true now — answer, decision, result, or blocker — not what was investigated.
-2. Keep only what the reader needs to trust, decide, or act. Required findings, uncertainty, citations, QA evidence, safety warnings, blockers, and next actions stay.
-3. Default to at most 6 sentences or 5 bullets. Exceed this only when requested or required by risk, complexity, or completeness.
-4. A real decision is: outcome headline → 2–3 numbered outcome options → a question of at most 4 words, normally "Which one?" Never print generic standing options. No real decision means no options or approval question.
-5. Progress is one sentence: material result plus next active step. Completion leads with the outcome, then only changed scope, verification, and any remaining caveat or action.
-6. Keep a technical term only when load-bearing; define it once. Use lists only when they improve scanning.
+- Keep what readers need to trust/decide/act: required findings, uncertainty, citations, QA evidence, safety warnings, blockers, next actions.
+- Default ≤6 sentences or 5 bullets; exceed for requests/risk/complexity/completeness.
+- Decision: outcome → 2–3 numbered outcome options → ≤4-word question (usually "Which one?"). No generic options; no decision, no options/approval question.
+- Progress: one sentence, result + next step. Completion: outcome, scope, verification, remaining caveat/action.
+- Define necessary jargon once; lists only for scanning.
 
-**Pre-send deletion pass:** remove preambles, generic closers, self-narration, repetition, unneeded evidence or command chronology, and empty hedges. Keep real uncertainty.
-
-**Verify before sending:** the first sentence gives the outcome; the last meaningful line gives the needed decision, verification, caveat, or action.
-
-**Verbosity:** `$CC_OUTPUT_VERBOSITY` and `$CC_OUTPUT_AUDIENCE` may relax length and vocabulary, never the outcome-first rule.
+**Pre-send deletion pass:** cut preambles/closers, self-narration, repetition, unneeded evidence/command chronology, empty hedges; keep real uncertainty.
+**Verify before sending:** first sentence states the current answer/decision/result/blocker; needed decision/verification/caveat/action last.
+`$CC_OUTPUT_VERBOSITY` / `$CC_OUTPUT_AUDIENCE` relax length/vocabulary, never outcome-first.
 
 ## Acknowledge
 

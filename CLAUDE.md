@@ -48,16 +48,10 @@ Read via `eval "$(cc env)"` as `$CC_OUTPUT_VERBOSITY` / `$CC_OUTPUT_AUDIENCE` �
 | Context bloat from agents | Ephemeral task/work product storage | **Task Copilot** |
 | Inconsistent processes | Battle-tested workflows | **Protocol** |
 
-### Feature Comparison
-
-| Feature | Invocation | Persistence | Best For |
-|---------|------------|-------------|----------|
-| **Memory** | Auto | Cross-session | Context preservation, decisions, lessons |
-| **Agents** | Protocol | Session | Expert tasks, complex work |
-| **Skills** | Auto-fire (description match) | On-demand | Reusable patterns, code-bearing scripts |
-| **Tasks** | CLI (`tc`) | Per-initiative | PRDs, task tracking, work products |
-| **Commands** | Manual | Session | Quick shortcuts, workflows |
-| **Extensions** | Auto | Permanent | Team standards, custom methodologies |
+Memory preserves context/decisions/lessons across sessions; Protocol invokes
+specialists per session. Skills auto-fire on demand for reusable patterns/scripts;
+`tc` stores PRDs/tasks/work products per initiative. Commands are manual session
+shortcuts; extensions automatically apply permanent team standards/methodologies.
 
 ---
 
@@ -122,11 +116,14 @@ Persistent memory across sessions with full-text (FTS5 keyword) search.
 
 ### 3. Skills
 
-Skills auto-fire based on their trigger-rich `description` field — native Claude Code surfaces every skill's `name` + `description` at session start and fires the skill when a prompt matches. For prose-only skills, auto-firing handles discovery. For code-bearing skills, auto-firing handles discovery but the agent must still invoke the L3 script via Bash. No MCP server required.
+Claude Code loads each skill's `name` + trigger-rich `description` at session start
+and auto-fires on prompt matches. This discovers prose/code skills; code-bearing
+skills still require invoking the L3 script via Bash. No MCP server required.
 
-**Primary discovery:** Auto-fire from `description` match (no agent action needed)
+**Primary discovery:** Automatic `description` match.
 
-**Fallback discovery:** `cc skill search "<topic>"` — case-insensitive substring match over name, description, and tags. Use this fallback when a needed skill did not auto-surface (e.g., in a subagent context).
+**Fallback:** If needed skills did not surface (including in subagents), use
+`cc skill search "<topic>"`: case-insensitive substring over name/description/tags.
 
 **Load:** `@include .claude/skills/NAME/SKILL.md` (explicit fallback path)
 
@@ -221,19 +218,17 @@ Agents verify their task exists and check environment health before starting wor
 All agents inherit these. Individual agent files should NOT repeat them.
 
 - **Env Hydration:** Run `eval "$(cc env)"` at start to hydrate `CC_SHARED_DOCS`, `CC_KNOWLEDGE_REPO`, and other machine-level paths
-- **Skill Discovery:** Skills auto-fire from their trigger-rich `description` field — no explicit search step needed in normal operation. If a needed skill did not auto-surface, use `cc skill search "<topic>"` (case-insensitive substring match over name, description, tags) as a fallback, then `@include` the returned path. No `evaluate` step needed — skills are model-readable markdown, not code.
-- **Live Docs — Verify upstream APIs before coding:** Before implementing or planning against a third-party library/framework API where correctness depends on the *installed* version, run `cc docs get <pkg>` (also `cc docs resolve <pkg>` for the active version and `cc docs search <pkg> "<query>"`) instead of trusting training-data memory of that API. It returns docs for the version actually installed in the project, is local-first so it works offline/headless, and only falls back to a self-owned network fetch when the optional `httpx` extra is present.
+- **Skill Discovery:** Auto-fire from `description`; if needed skills did not surface, `cc skill search "<topic>"` (case-insensitive substring over name/description/tags), then `@include` the returned path. No normal search or `evaluate` step: skills are model-readable markdown.
+- **Live Docs:** Before planning/coding against version-sensitive third-party APIs, use `cc docs get <pkg>`, not API memory. `cc docs resolve <pkg>` identifies the installed version; `cc docs search <pkg> "<query>"` searches it. Local-first/offline/headless; self-owned network fallback requires optional `httpx`.
 - **Memory — Recall at start:** Run `cc memory search "<task topic>"` to recall prior decisions, lessons, and context relevant to the current task.
 - **Memory — Store at end:** After completing meaningful work, run `cc memory store --type <decision|context|lesson|reference> "<content>"` to persist decisions and lessons for future sessions. Do NOT call it "semantic" — it is FTS5 keyword search.
 - **Memory commands:** `cc memory store`, `cc memory search`, `cc memory get`, `cc memory list`, `cc memory export` (not MCP `memory_store`/`memory_search`)
 - **Task Copilot Pattern:** `tc task get` → do work → `tc wp store` → `tc task update --status completed`
-- **Code-Execution Path (PREFER for >=3 related ops):** When performing 3+ related tc or cc operations (create PRD + tasks, wire deps, store multiple WPs, batch memory stores), use a SINGLE `python3` Bash block importing `tc.api` or `cc.api` instead of multiple CLI calls. Each CLI round-trip echoes a full JSON payload back into context; a python3 block returns only what you `print()`.
+- **Code-Execution Path:** For ≥3 related operations, prefer one `python3` Bash block using `tc.api` or `cc.api`; print only the needed summary, avoiding repeated CLI JSON payloads.
   - tc-only block: `from tc.api import create_prd, create_task, add_dependency, transaction`
   - cc-only block: `from cc.api import memory_store, memory_search, memory_list`
-  - CRITICAL: tc and cc are in separate environments — keep each block to ONE tool.
-  - Keep CLI for single one-shot ops (`tc task get 40 --json`; one `tc wp store`; one `cc memory search`).
-  - Token win example: PRD + 18 tasks + 17 deps = 36 CLI calls (~9-20K tokens echoed) vs one python3 block (~25 tokens returned).
-  - See `tools/tc/README.md` and `tools/cc/README.md` for the full usage pattern.
+  - Separate environments: ONE tool per block. Keep CLI for single operations.
+  - Usage: `tools/tc/README.md`, `tools/cc/README.md`.
 - **Iteration Loop:** Self-manage iterations (max from frontmatter). Pass → complete. Blocked → emit `<promise>BLOCKED</promise>`. Confused → emit `<promise>CONFUSED</promise>` (see Confused Loop-State). Else → iterate.
 - **Confused Loop-State:** When mid-task you hit a genuine decision fork that only the user can resolve, emit `<promise>CONFUSED</promise>` and record loop-state in a fenced block immediately after the promise tag:
   ```
@@ -243,7 +238,7 @@ All agents inherit these. Individual agent files should NOT repeat them.
   - B: <option description>
   CONTEXT: <why the choice matters — consequences of each option>
   ```
-  Do NOT guess. Suspend iteration and wait for the user's answer, then resume from where you stopped. **Distinct from `<promise>BLOCKED</promise>`** (technical blocker or unmet external dependency): CONFUSED is for decision forks where user judgment defines the correct path, not for missing prerequisites.
+  Never guess: suspend until the user answers, then resume. CONFUSED needs user judgment; BLOCKED means a technical blocker or unmet external prerequisite.
 - **Return Format:** Return ONLY ~100 tokens to main session. Store all details via `tc wp store`.
 - **Context Compaction:** If response exceeds ~14K tokens, store as work product and return summary only.
 - **Knowledge:** Run `cc memory search "<voice/brand query>"` for user-facing features. Never block work for missing knowledge.

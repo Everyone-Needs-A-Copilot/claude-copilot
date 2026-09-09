@@ -5,23 +5,58 @@ on:
     branches:
       - main
       - feat/adopt-and-project-setup
-    paths:
-      - ".github/workflows/cc-onboard-contract.yml"
-      - "scripts/package-cc-macos-release.sh"
-      - "tools/cc/**"
-      - "tools/tc/**"
   push:
     branches:
       - main
       - feat/adopt-and-project-setup
-    paths:
-      - ".github/workflows/cc-onboard-contract.yml"
-      - "scripts/package-cc-macos-release.sh"
-      - "tools/cc/**"
-      - "tools/tc/**"
 
 jobs:
+  select-paths:
+    name: Select cc Onboard Contract paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      applicable: ${{ steps.paths.outputs.applicable }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: Select the original workflow paths
+        id: paths
+        env:
+          CSE_EVENT: ${{ github.event_name }}
+          CSE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          CSE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$CSE_BASE" =~ ^[0-9a-f]{40}$ && "$CSE_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          git cat-file -e "$CSE_HEAD^{commit}"
+          if [[ "$CSE_EVENT" == push && "$CSE_BASE" == 0000000000000000000000000000000000000000 ]]; then
+            echo "New branch: conservatively require the contract suite."
+            echo "applicable=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git cat-file -e "$CSE_BASE^{commit}"
+          case "$CSE_EVENT" in
+            pull_request) CSE_BASE="$(git merge-base "$CSE_BASE" "$CSE_HEAD")" ;;
+            push) ;;
+            *) echo "Unsupported event: $CSE_EVENT" >&2; exit 1 ;;
+          esac
+          # Same include patterns as the former workflow-level paths filter.
+          difference=0
+          git diff --quiet "$CSE_BASE" "$CSE_HEAD" -- \
+            '.github/workflows/cc-onboard-contract.yml' \
+            'scripts/package-cc-macos-release.sh' \
+            ':(glob)tools/cc/**' ':(glob)tools/tc/**' || difference=$?
+          case "$difference" in
+            0) echo "applicable=false" >> "$GITHUB_OUTPUT"; echo "No matching paths: contract suite is not applicable." ;;
+            1) echo "applicable=true" >> "$GITHUB_OUTPUT"; echo "Matching paths: contract suite is required." ;;
+            *) echo "Path comparison failed ($difference)." >&2; exit 1 ;;
+          esac
+
   onboard-contract:
+    needs: select-paths
+    if: needs.select-paths.outputs.applicable == 'true'
     runs-on: macos-latest
     timeout-minutes: 10
 
@@ -79,3 +114,24 @@ jobs:
             tests/test_workspace_transaction_faults.py \
             tests/test_workspace_transaction_locking.py \
             tests/test_workspace_transaction_recovery.py
+
+  onboard-contract-gate:
+    name: cc Onboard Contract gate
+    needs: [select-paths, onboard-contract]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Require a successful applicable suite or proven irrelevance
+        env:
+          SELECTOR_RESULT: ${{ needs.select-paths.result }}
+          APPLICABLE: ${{ needs.select-paths.outputs.applicable }}
+          SUITE_RESULT: ${{ needs.onboard-contract.result }}
+        run: |
+          set -euo pipefail
+          test "$SELECTOR_RESULT" = success
+          case "$APPLICABLE:$SUITE_RESULT" in
+            true:success) echo "Applicable contract suite passed." ;;
+            false:skipped) echo "Contract suite explicitly not applicable to this change." ;;
+            *) echo "Contract suite incomplete: applicable=$APPLICABLE result=$SUITE_RESULT" >&2; exit 1 ;;
+          esac

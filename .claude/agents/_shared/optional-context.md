@@ -1,46 +1,33 @@
 ## Optional Context
 
-Mandatory repository, project, and system instructions always apply. They are never
-subject to relevance filtering and are never loaded through this step.
+Mandatory repository/project/system instructions always apply; never filter or load them here.
 
-When the task needs knowledge beyond those instructions, load it once:
+Load needed additional knowledge once; use `selected[].content` or do not load it:
 
     cc skill select "<task topic>" --required <skill> --max-chars 12000 --json
 
-Use the returned `selected[].content`. If you will not use it, do not load it.
-
-Record the receipt once per task, not once per load:
+Record one receipt per task, not per load:
 
     tc wp store --task <id> --type context --title "Context selection receipt" --file receipt.json
 
-Keep `query`, `max_chars`, `loaded_characters`, `mandatory_over_budget`, and for every
-entry in `selected` and `excluded` its `name`, `source`, `source_revision`,
-`selection_reason` or exclusion `reason`. Do not re-store the content itself.
+Keep `query`, `max_chars`, `loaded_characters`, `mandatory_over_budget`; each
+`selected`/`excluded` entry's `name`, `source`, `source_revision`, `selection_reason`
+or `reason`, not content. Before reselection read the receipt; skip held revisions.
+Reload only changes; record both revisions and announce the change.
 
-Before selecting again inside the same task, read that receipt. Skip any skill whose
-`source_revision` you already hold. Reload only when the revision differs, and when it
-does, record both revisions and say the source changed.
+Retain required skills in full if `mandatory_over_budget: true`; report `max_chars`
+and overage `loaded_characters - max_chars`. Characters are not tokens; receipts
+prove selection, not reading/obedience.
 
-`mandatory_over_budget: true` means a `--required` skill was retained past the budget.
-Report it: "Required context exceeded the `<max_chars>`-character budget by
-`<loaded_characters - max_chars>` characters; retained in full." Never drop it to fit.
+Keep every required name in `selected[]`; identical aliases have `duplicate_of`,
+empty `content`, zero charged characters/bytes: use the selected entry named by
+`duplicate_of`. Optional
+duplicates stay `excluded[]` as `duplicate-content`.
 
-Character counts are not model tokens, and a receipt records selection, never proof
-that content was read or obeyed.
+**Visible fallbacks:** name the applicable one, then continue:
 
-**Visible fallbacks.** Name the one that applied, then continue:
-
-- `cc` unavailable or non-zero exit: "Optional context unavailable (`cc skill select`
-  failed: <stderr>); proceeding on repository instructions and prior memory only."
-- Required skill not found (exit 2, `Required skill not found: <name>`): do not
-  substitute a similar skill. State the missing name, then proceed without it — or emit
-  `<promise>BLOCKED</promise>` if the task genuinely cannot proceed without it.
-- No optional skill matched (`selected: []`): "No optional context matched '<query>';
-  proceeding on repository instructions." Do not widen the query to manufacture a match.
-- No knowledge repos configured (`CC_KNOWLEDGE_REPOS` empty): "Knowledge tier
+- `cc` absent/nonzero: report failure/stderr; use repository instructions and prior memory only.
+- Exit 2, `Required skill not found: <name>`: name it, never substitute; proceed without it or emit `<promise>BLOCKED</promise>` if indispensable.
+- `selected: []`: report no match for the query; use repository instructions, never widen the query to force a match.
+- `CC_KNOWLEDGE_REPOS` empty: "Knowledge tier
   unconfigured; optional context limited to project and machine skills." Never block.
-
-Every explicitly required skill name remains in `selected[]`. Identical required
-content is emitted once: subsequent required aliases have `duplicate_of`, empty
-`content`, and zero charged characters/bytes; use the named selected entry's
-content. Optional duplicates remain in `excluded[]` as `duplicate-content`.
