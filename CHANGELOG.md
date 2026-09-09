@@ -8,6 +8,8 @@ Framework **5.15.2**, `cc` **2.13.2**, `tc` **2.0.0**.
   Claude onboarding. Keep the historical signer and Codex allowlist unchanged.
 - Select the replacement in Claude's release preflight without relaxing signed
   commit, signed annotated tag, exact commit, or main-ancestry requirements.
+- Add explicit `--claude-only` snapshot installation with atomic cc/tc and
+  Claude-command publication, preserving unselected Codex registrations.
 - Document the reviewed trust bootstrap, protected signed-commit merge, recovery,
   and separate installed-content acceptance boundary in the
   [migration guide](docs/30-operations/19-claude-signer-migration.md).

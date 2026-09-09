@@ -760,6 +760,7 @@ def install_framework_snapshot(
     cc_verifier: CcVerifier = _default_cc_verifier,
     tc_verifier: Callable[[Path], dict] = _default_tc_verifier,
     codex_runner: CodexRunner = run_codex_plugin,
+    claude_only: bool = False,
     _fail_after_publish: int | None = None,
 ) -> dict[str, object]:
     commit = _validate_object_id(source_commit, label="source commit")
@@ -817,20 +818,21 @@ def install_framework_snapshot(
             if _sha256(_read_regular(tc_receipt_path, readonly=True)) != tc_receipt.get("receipt_sha256"):
                 raise FrameworkInstallError("tc receipt checksum mismatch")
             shim_checksum = _sha256(_read_regular(staged_shim))
-            try:
-                plugin_artifacts, plugin_manifest_sha256 = validate_snapshot_plugin(
-                    snapshot
-                )
-                plugin_transaction = normalize_codex_plugin(
-                    snapshot,
-                    plugin_artifacts,
-                    plugin_manifest_sha256,
-                    home_root,
-                    codex_runner,
-                )
-            except CodexPluginError as exc:
-                raise FrameworkInstallError(str(exc)) from exc
-            plugin = plugin_transaction.receipt
+            plugin_transaction = None
+            if not claude_only:
+                try:
+                    plugin_artifacts, plugin_manifest_sha256 = validate_snapshot_plugin(
+                        snapshot
+                    )
+                    plugin_transaction = normalize_codex_plugin(
+                        snapshot,
+                        plugin_artifacts,
+                        plugin_manifest_sha256,
+                        home_root,
+                        codex_runner,
+                    )
+                except CodexPluginError as exc:
+                    raise FrameworkInstallError(str(exc)) from exc
             manifest = {
                 "schema_version": "1.0",
                 "source_commit": commit,
@@ -844,7 +846,10 @@ def install_framework_snapshot(
                 "machine_commands": [
                     {"name": item.name, "sha256": item.checksum} for item in commands
                 ],
-                "codex_plugin": {
+            }
+            if plugin_transaction is not None:
+                plugin = plugin_transaction.receipt
+                manifest["codex_plugin"] = {
                     "plugin_id": plugin.plugin_id,
                     "marketplace": plugin.marketplace,
                     "marketplace_source": plugin.marketplace_source,
@@ -852,8 +857,14 @@ def install_framework_snapshot(
                     "installed_path": plugin.installed_path,
                     "manifest_sha256": plugin.manifest_sha256,
                     "tree_sha256": plugin.tree_sha256,
-                },
-            }
+                }
+            else:
+                # Do not copy a stale receipt or imply unselected Codex was
+                # inspected. Its registrations and files remain untouched.
+                manifest["installation_scope"] = {
+                    "selected": ["claude", "cc", "tc"],
+                    "unselected": ["codex"],
+                }
             manifest_payload = (
                 json.dumps(manifest, indent=2, sort_keys=True) + "\n"
             ).encode("utf-8")
@@ -870,14 +881,17 @@ def install_framework_snapshot(
                 )
             except BaseException as publish_error:
                 try:
-                    plugin_transaction.rollback()
+                    if plugin_transaction is not None:
+                        plugin_transaction.rollback()
                 except BaseException as rollback_error:
                     raise FrameworkInstallError(
                         "runtime publication failed and Codex plugin rollback was "
                         f"incomplete: {rollback_error}"
                     ) from publish_error
                 raise
-            changed = published_changed + plugin_transaction.changed
+            changed = published_changed + (
+                plugin_transaction.changed if plugin_transaction is not None else 0
+            )
         finally:
             shutil.rmtree(operation_root, ignore_errors=True)
 
@@ -897,6 +911,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--source-tree", required=True)
     parser.add_argument(
+        "--claude-only",
+        action="store_true",
+        help="Install cc/tc and Claude machine commands without inspecting or changing Codex plugins.",
+    )
+    parser.add_argument(
         "--home",
         type=Path,
         help="Alternate machine home root (primarily for isolated verification).",
@@ -912,6 +931,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             source_commit=arguments.source_commit,
             source_tree=arguments.source_tree,
             home=arguments.home,
+            claude_only=arguments.claude_only,
         )
     except (CodexPluginError, FrameworkInstallError, OSError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

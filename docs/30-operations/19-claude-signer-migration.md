@@ -66,6 +66,13 @@ recoverable backups outside agent discovery, and actual installed verification.
 Claude authoring layers are not disposable consumer installations. Do not
 overwrite unknown differences or change Codex pins as part of this migration.
 
+Use `scripts/install-framework-snapshot.py --claude-only` with the verified
+source root, commit and tree for this rollout. It installs the shared cc/tc
+runtime and declared Claude machine commands without invoking Codex or altering
+its plugin registrations. The receipt marks Codex unselected, not verified.
+The default combined installer retains its existing Codex normalization and
+verification behavior; the scoped option does not weaken selected checks.
+
 Acceptance requires intended tier-resolved agents and commands, preserved
 customizations, provenance, no duplicate active names, the existing context
 budget, the current proportional-testing/fixed-finish-line instructions, and

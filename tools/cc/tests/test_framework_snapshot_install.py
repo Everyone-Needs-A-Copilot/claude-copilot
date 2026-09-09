@@ -528,6 +528,42 @@ def test_reinstall_is_idempotent_and_reuses_valid_readonly_snapshot(tmp_path: Pa
     assert active.read_bytes() == before
 
 
+def test_claude_only_preserves_codex_and_keeps_rollback_and_repeat_noop(tmp_path: Path):
+    repo, commit, tree = _source_repository(tmp_path)
+    home = tmp_path / "home"
+    codex_state = home / ".codex/config.toml"
+    _write(codex_state, '[plugins.legacy]\nenabled = false\n')
+    shim = home / ".local/bin/cc"
+    _write(shim, "old cc\n", mode=0o755)
+    active = home / ".copilot/framework-runtime.json"
+    _write(active, '{"old":"receipt"}\n', mode=0o600)
+    before = {p: (p.read_bytes(), p.stat().st_mode) for p in (codex_state, shim, active)}
+
+    def forbidden_codex(*args):
+        pytest.fail("Claude-only installation must not invoke the Codex boundary")
+
+    with pytest.raises(installer.FrameworkInstallError):
+        _install(repo, commit, tree, home, claude_only=True,
+                 codex_runner=forbidden_codex, _fail_after_publish=2)
+    assert {p: (p.read_bytes(), p.stat().st_mode) for p in before} == before
+    assert not (home / ".local/bin/tc").exists()
+
+    first = _install(repo, commit, tree, home, claude_only=True, codex_runner=forbidden_codex)
+    assert first["result"] == "installed"
+    receipt = json.loads(active.read_text())
+    assert receipt["installation_scope"] == {"selected": ["claude", "cc", "tc"], "unselected": ["codex"]}
+    assert "codex_plugin" not in receipt
+    assert receipt["tc"]["source_commit"] == commit
+    assert (home / ".local/bin/tc").is_file()
+    assert codex_state.read_bytes() == before[codex_state][0]
+    assert list((home / ".codex").iterdir()) == [codex_state]
+    accepted = active.read_bytes()
+    second = _install(repo, commit, tree, home, claude_only=True, codex_runner=forbidden_codex)
+    assert second["result"] == "up-to-date"
+    assert second["changed_targets"] == 0
+    assert active.read_bytes() == accepted
+
+
 def test_normalization_removes_duplicate_copilot_and_preserves_unrelated_state(
     tmp_path: Path,
 ):
