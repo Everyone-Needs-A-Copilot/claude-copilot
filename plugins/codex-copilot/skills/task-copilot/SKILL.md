@@ -68,7 +68,22 @@ Implementation tasks that require verification should use metadata like:
 {"requiresQa": true, "qaStatus": "pending"}
 ```
 
-After QA approval, record `qaStatus`, `qaWpId`, and `verifiedAt` when possible. Use `scripts/copilot-gate.sh` to inspect the convention.
+For current tc 2.0.0 work, register a schemaVersion 2 acceptance contract before
+implementation with `tc task contract <id> --file acceptance.json --json`.
+Include observable criteria and source scopes covering implementation, dependencies
+and relevant authority. Capture `tc task evidence-identity <id>` before checks,
+compare a second capture afterwards, and preserve the exact identity in the
+same task's `test` work product with observed results for every criterion.
+
+Use one verdict per result. Metadata alone, an artifact marker alone or stale
+source evidence cannot support approval. Completion also rejects unfinished
+dependencies. Historical completed records remain historical; pending work needs
+a current contract and fresh verification.
+
+After QA approval, metadata may index `qaStatus`, `qaWpId` and `verifiedAt`.
+Inspect with `tc task check-qa <id> --json` and `scripts/copilot-gate.sh --task <id>`.
+In the framework checkout, `docs/02-user-guides/04-quality-gates.md` contains a
+complete example; the standalone project plugin does not ship that docs tree.
 
 ## When no task exists
 
@@ -86,6 +101,9 @@ Formal multi-phase initiative knowledge belongs in `docs/40-initiatives/NN-slug/
 Link the initiative README to its PRD and tasks. Do not reproduce a live task board in Markdown.
 
 ## Work-product guidance
+
+`tc wp store` requires a task ID. Create a PRD/task first when needed; the current
+CLI does not provide standalone work-product storage.
 
 Store detailed output when:
 

@@ -39,7 +39,15 @@ Quality assurance engineer who verifies observable behavior with proportionate e
 8. `cc memory store --type lesson "<testing insight or edge case discovered>"` -- persist for future sessions
 9. Store test plan: `tc wp store --task <id> --type test-plan --title "..." --content "..." --json`
 
-## Meaningful Test Design
+## Core Behaviors
+
+**Always:**
+- Verify the task's fixed acceptance scope using Proportional Verification below.
+
+**Never:**
+- Approve missing required evidence or expand completed work into unrelated repairs.
+
+### Meaningful Test Design
 
 Test behavior, not implementation details; cover relevant empty/null, invalid,
 boundary, permission, race and recovery states. Prefer deterministic, maintainable
@@ -81,6 +89,25 @@ IDs/membership and the introducing transformation, not count alone. Failures thr
 one unchanged dependency are one observation. After two falsified root-cause
 hypotheses, inspect the enforcement path and cite file:line; change investigation,
 not more speculative tests or automatic abandonment.
+
+### Fixed finish line
+
+Before implementation, state the deliverable, required acceptance criteria,
+affected consumers, verification lane/cap and explicit exclusions in the task.
+Freeze that boundary for the batch; a new requirement needs an explicit scope
+decision, not an automatic extra improvement.
+
+Run the smallest sufficient checks, then one planned batch acceptance pass.
+Repair failures caused by this change and rerun affected checks only. Record
+unrelated defects separately; they do not silently reopen completed work. A
+pre-existing defect that prevents a required criterion still blocks that criterion.
+Never lower acceptance or hide a failure to meet a cap.
+
+When every required criterion has current source-bound QA approval, close the
+task, report what is complete and any separately pending work, then stop. Do not
+start another polish, audit, broad rerun or follow-up task without a new request.
+Missing required evidence or an exhausted cap means incomplete, not complete;
+report the specific blocker and stop automatic retries until scope/cap is decided.
 
 Focused checks first; broad portable checks once per completed batch/release.
 Rerun affected checks when inputs change. Caps: focused 60 seconds, affected 180

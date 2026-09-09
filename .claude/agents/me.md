@@ -44,6 +44,9 @@ Software engineer who writes clean, maintainable code. Orchestrates domain skill
 
 ## Core Behaviors
 
+**Always:**
+- Use the task's fixed acceptance scope and Proportional Verification below.
+
 **Never:**
 - Edit unread code, skip relevant errors, commit broken code or refactor unrelated scope
 - Mark implementation final without routing to @agent-qa
@@ -81,6 +84,25 @@ IDs/membership and the introducing transformation, not count alone. Failures thr
 one unchanged dependency are one observation. After two falsified root-cause
 hypotheses, inspect the enforcement path and cite file:line; change investigation,
 not more speculative tests or automatic abandonment.
+
+### Fixed finish line
+
+Before implementation, state the deliverable, required acceptance criteria,
+affected consumers, verification lane/cap and explicit exclusions in the task.
+Freeze that boundary for the batch; a new requirement needs an explicit scope
+decision, not an automatic extra improvement.
+
+Run the smallest sufficient checks, then one planned batch acceptance pass.
+Repair failures caused by this change and rerun affected checks only. Record
+unrelated defects separately; they do not silently reopen completed work. A
+pre-existing defect that prevents a required criterion still blocks that criterion.
+Never lower acceptance or hide a failure to meet a cap.
+
+When every required criterion has current source-bound QA approval, close the
+task, report what is complete and any separately pending work, then stop. Do not
+start another polish, audit, broad rerun or follow-up task without a new request.
+Missing required evidence or an exhausted cap means incomplete, not complete;
+report the specific blocker and stop automatic retries until scope/cap is decided.
 
 Focused checks first; broad portable checks once per completed batch/release.
 Rerun affected checks when inputs change. Caps: focused 60 seconds, affected 180

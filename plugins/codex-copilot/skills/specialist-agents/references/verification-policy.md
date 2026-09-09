@@ -58,3 +58,27 @@ assertions/diff and a negative control rejecting the targeted broken behavior.
 Report changed tests; green alone does not establish integrity. Escalate undecided
 authority/behavior. UI healing cannot pass by skipping required behavior; evidence
 stays local/private unless upload is explicitly authorized.
+
+### Codex test-change receipt
+
+`scripts/check-test-integrity.sh <base-ref> --test-change-receipt <local.json>`
+validates an explicitly reviewed change, not authority or semantic correctness.
+Keep the comparison base fixed. Receipt schema 1 requires:
+
+- `baseCommit`, `task`, `authorizationRef`, `oldExpectation`, `newExpectation`,
+  `rationale`: exact base commit and real task/user authority plus contract change.
+- `changes`: exact changed grading-file set; each entry has repository-relative
+  `path`, `beforeSha256`, `indexSha256`, `afterSha256` (null only for absence), and
+  `assertions` describing the exact additions/removals/changes.
+- `diffSha256`: SHA-256 of compact JSON of the hexadecimal byte strings of both
+  unstaged-plus-staged and cached diffs against the base, using `git diff
+  --no-ext-diff --no-textconv --binary --no-renames`, restricted to sorted changed
+  grading paths. Content hashes also bind untracked test files.
+- `negativeControl`: command argument array, nonzero `exitCode`, `rejectedBehavior`,
+  repository-relative artifact `path` and its `sha256`. Capture a real rejection of
+  the targeted broken behavior in a disposable copy; do not invent a log or status.
+
+The gate detects missing/stale evidence, not whether these claims are true. QA must
+review authority, exact assertions and the negative control before source-bound tc
+approval; receipt success alone is not a pass. `tests/test_verification_policy.py`
+contains a synthetic format example and adversarial fixtures, not reusable authority.

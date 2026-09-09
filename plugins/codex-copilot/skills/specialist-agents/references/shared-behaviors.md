@@ -66,11 +66,10 @@ tc task update <taskId> --status completed --json
 
 If no task exists, create a PRD and task rather than writing planning state into ad hoc markdown.
 
-`--task` on `tc wp store` is optional (`task_id` is schema-nullable): if a
-work product needs to be externalized and no task ID exists yet, omit
-`--task` and store a standalone work product instead — it stays fully
-listable/gettable/searchable. No task ID is never a valid reason to skip
-storage and fall back to inlining the full deliverable in chat.
+Current `tc wp store` requires `--task`. If a work product needs to be
+externalized and no task exists, create the appropriate PRD/task first, then
+attach the work product to that task. Do not document standalone storage as an
+available CLI path or use missing task context to skip the durable record.
 
 Never trust `which tc` as an availability gate — the common
 `alias which='type -all'` dotfile pattern makes `which <anything>` fail

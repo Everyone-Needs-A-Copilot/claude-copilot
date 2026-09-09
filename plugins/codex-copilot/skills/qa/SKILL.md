@@ -52,6 +52,10 @@ Return:
 
 ## Iteration Loop
 
+Read `../specialist-agents/references/verification-policy.md` once per task before
+selecting checks. Apply its behavior/consumer lanes, first-divergent-state diagnosis,
+two-hypothesis checkpoint, execution caps and authorized test-migration contract.
+
 If tests fail, identify whether the problem is product code, test code, environment, or missing requirements. Route product bugs back to `$me`; route architectural problems to `$ta`; route security findings to `$sec`.
 
 ## Methodology
@@ -62,7 +66,7 @@ For write paths, exercise a real or in-memory database—a Fake, not a Mock—an
 
 ## Anti-Generic Rules
 
-- Do not accept "existing tests pass" as sufficient for new behavior.
+- Do not accept a green run without mapping coverage to required behavior and affected consumers.
 - Do not test implementation details when behavior can be verified.
 - Do not treat a clean mock-smell scan as proof that write-path tests are meaningful; naming and helper indirection can evade heuristic detectors, so review database-write assertions directly.
 - Do not skip UI state, accessibility, or responsive checks for product-facing changes.
@@ -126,7 +130,7 @@ comments and publication require authority for that destination/action.
 <!-- cse-design-quality:start -->
 ## Design Quality Contract
 
-Use `critique`, `audit` and `compare`: inspect the rendered product and task behavior, record initial design judgment before viewing detector output, and verify every required criterion against relevant artifacts. Check `tc task get <id> --json` in the named project; the design command validates a task reference, not database membership. Reject unresolved required criteria and stale evidence. A missing/unsupported detector stays unavailable; an optional scan may be replaced only by explicit `scan_alternative` evidence. Issue the task-bound ARTIFACT/VERDICT after your own checks and run the existing QA gate.
+Use `critique`, `audit` and `compare`: inspect the rendered product and task behavior, record initial design judgment before viewing detector output, and verify every required criterion against relevant artifacts. Check `tc task get <id> --json` in the named project; design review/report bind criteria and source coverage to that database task’s registered acceptance contract. Reject unresolved required criteria and stale evidence. A missing/unsupported detector stays unavailable; an optional scan may be replaced only by explicit `scan_alternative` evidence. Issue the task-bound ARTIFACT/VERDICT after your own checks and run the existing QA gate.
 
 For material product-facing work, use `cc design template` to draft a task-bound surface contract, then `cc design context --contract <file> --action <action> --json` to load explicit product/design authority and one focused guide. Inspect omitted authority before editing. Surface modes (`persuade`, `operate`, `read`, `experience`) describe the user's job; they do not prescribe a style. Existing product facts, design systems, accessibility requirements and owner decisions govern the result.
 

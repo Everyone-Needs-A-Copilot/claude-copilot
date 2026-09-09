@@ -28,6 +28,16 @@ This command supports an optional task description argument for quick task initi
 /protocol improve the dashboard            → Clarification Flow (ask user)
 ```
 
+## Fixed Delivery Boundary
+
+Before implementation, state the deliverable, required acceptance criteria,
+affected consumers, verification lane/cap and exclusions in `tc`. Freeze this
+batch scope; use the engineering/QA Proportional Verification fixed finish line.
+After current source-bound QA approval satisfies every required criterion, close
+the task, report completion and separately pending work, then stop. Unrelated
+findings do not authorize another improvement cycle. Missing required evidence or
+an exhausted cap remains incomplete; never weaken acceptance to declare completion.
+
 ## Intent Detection & Flow Routing
 
 When an argument is provided, the system detects intent via keyword matching and routes to the appropriate agent chain:

@@ -17,6 +17,7 @@ directories are moved by this correction.
 | Folder | Initiative | Goal | Status | `tc` context |
 | --- | --- | --- | --- | --- |
 | [01-risk-based-verification](01-risk-based-verification/README.md) | Fast, visible verification | Bounded feedback, root-cause diagnosis and reproducible UI evidence | Proposed | PRD-5 / TASK-58 |
+| [02-bounded-foundation-rollout](02-bounded-foundation-rollout/README.md) | Bounded foundation rollout | Shared visibility, native compatibility and a fixed finish line | See `tc` acceptance | PRD-6 / TASK-67–70 |
 
 ## Directory Contract
 
