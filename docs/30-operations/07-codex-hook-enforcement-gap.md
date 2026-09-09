@@ -2,11 +2,50 @@
 
 **Diátaxis mode:** Explanation (findings and remediation options)
 
-**Status:** Open — needs review and a decision
+**Status:** Local remediation activated and verified; broader rollout remains separate
 **Date:** 2026-09-07
 **Component:** Codex integration — `.codex/hooks.json`, `plugins/codex-copilot/hooks/`
 
+## Follow-up — 2026-09-07
+
+Revised Option C was accepted: shared policy with native Codex adapters, excluding
+forced delegation and retaining task-bound QA evidence. Work is tracked in
+knowledge-copilot-internal PRD-2 / TASK-2–5. The user subsequently authorized
+activation in this project from hash-pinned local snapshots, without an upstream
+release or changes to other projects' hook enablement.
+
+Before activation, the Codex 0.153.4 app-server reported this project's layer as
+disabled for lack of project trust, with no discovered hooks. This is an
+additional observed activation gap. July state-file timestamps establish stale
+state, not the exact final hook execution or the original failure cause. Codex
+already has an explicit QA inspection script; the missing automatic interception
+must be distinguished from absence of all QA checks.
+
+Both a generic harmless deny hook and the new shared-policy adapter passed an
+isolated CLI execution canary. The candidate shared evaluator defaults to blocking
+destructive-command matches; the existing Claude rules still warn. These results
+did not by themselves prove desktop or consuming-project enforcement.
+
+After activation, saved registration and trust passed harmless allow/deny probes
+with CLI 0.153.4 and the desktop-bundled 0.153.3 binary. The scoped plugin is
+globally disabled and enabled only here. Shared cc/tc local builds provide shell
+policy evaluation and authoritative QA completion checks through the normal
+machine launchers. Four dead legacy registrations were retired; agent files,
+legacy scripts, and existing plugin customizations were preserved.
+
+The activation and rollback record is
+`knowledge-copilot-internal/docs/40-initiatives/01-codex-shared-enforcement/retrospectives/02-local-activation.md`.
+Exact backups and execution evidence are in
+`/Users/pabs/.copilot/enforcement-backup.WblNqF/`. Start a fresh project session to
+load the configuration; hot reload in existing conversations is unverified.
+Managed ecosystem updates may replace the local build until upstream promotion.
+
 ---
+
+## Original investigation (historical; corrections and outcome above)
+
+The following records the original proposal, not the current activation state.
+Its exact July cessation claim was not established by the timestamp evidence.
 
 ## Summary
 

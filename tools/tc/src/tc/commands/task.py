@@ -17,6 +17,25 @@ from tc.db.exceptions import ConflictError, TaskNotFound, ValidationError
 task_app = typer.Typer(name="task", help="Task management commands.")
 
 
+@task_app.command("check-qa")
+def task_check_qa(
+    task_id: int = typer.Argument(..., help="Task ID."),
+    json: bool = typer.Option(False, "--json", help="Output as JSON."),
+) -> None:
+    """Check current task-bound QA evidence using the completion predicate."""
+    from tc.services.qa import check_task_qa
+    try:
+        result = check_task_qa(task_id=task_id, db_path=require_db())
+    except (TaskNotFound, ValidationError) as exc:
+        error_exit(str(exc), EXIT_VALIDATION)
+    if json:
+        output_json(result)
+    else:
+        print(result["reason"])
+    if not result["approved"]:
+        raise typer.Exit(1)
+
+
 @task_app.command("create")
 def task_create(
     title: str = typer.Option(..., "--title", help="Task title."),

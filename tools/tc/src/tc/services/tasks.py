@@ -310,11 +310,22 @@ def update_task(
     if owns_conn:
         resolved = _require_db_path(db_path)
         conn = _open_conn(resolved)
+        conn.execute("BEGIN IMMEDIATE")
 
     try:
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         if row is None:
             raise TaskNotFound(f"task #{task_id} not found")
+
+        from tc.services.qa import check_task_qa, task_metadata
+        existing_metadata = task_metadata(row["metadata"])
+        effective_metadata = {**existing_metadata, **task_metadata(new_metadata)}
+        if (status or row["status"]) == "completed" and (
+            existing_metadata.get("requiresQa") or effective_metadata.get("requiresQa")
+        ):
+            qa = check_task_qa(task_id=task_id, conn=conn)
+            if not qa["approved"]:
+                raise ValidationError(f"QA gate: {qa['reason']} (task #{task_id})")
 
         updates = []
         params = []
