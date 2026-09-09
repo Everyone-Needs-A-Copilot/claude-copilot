@@ -641,6 +641,10 @@ test_warning_before_deny() {
 # CC_BUDGET_OVERRIDE / context-budget-overrides.jsonl.
 # ---------------------------------------------------------------------------
 test_override_path() {
+  # This case exercises local approval authoring, even when invoked by CI.
+  # CI's distinct HEAD-only trust boundary is exercised below, not bypassed.
+  local CI=""
+  export CI
   clean_state
   clean_overrides_file
 
@@ -686,8 +690,7 @@ test_override_path() {
 
   # Fresh session, SAME overage shape (same big_file → same actual bytes),
   # NO env var this time: the committed ledger entry alone must cover it —
-  # this is the "CI never sets the env var, only a committed entry passes"
-  # guarantee.
+  # local ledger reuse. The separate CI case proves only HEAD is trusted.
   clean_state
   result="$(invoke_hook_read_file "$big_file")"
   exit_code="$(get_exit_code "$result")"
@@ -698,6 +701,85 @@ test_override_path() {
   fi
 
   clean_overrides_file
+}
+
+# CI must not accept either an environment override or an uncommitted ledger.
+# Use the real hook in a disposable Git repository so HEAD is an actual commit,
+# without committing an approval to (or changing HEAD in) the tested checkout.
+test_ci_override_contract() {
+  local fixture_root="$FIXTURE_DIR/ci-ledger"
+  if ! (mkdir -p "$fixture_root/.claude/hooks" &&
+      cp "$HOOK" "$fixture_root/.claude/hooks/pretool-check.sh" &&
+      cp "$BUDGET_BASELINE_FILE" "$fixture_root/.claude/" &&
+      git init -q "$fixture_root" &&
+      git -C "$fixture_root" add .claude &&
+      git -C "$fixture_root" -c user.name=Fixture -c user.email=fixture@example.invalid \
+        -c commit.gpgsign=false commit -qm 'Fixture policy'); then
+    fail "CI ledger fixture could not initialize a real Git HEAD"
+    return
+  fi
+  local HOOK="$fixture_root/.claude/hooks/pretool-check.sh"
+  local STATE_DIR="$fixture_root/.claude/hooks/state"
+  local BUDGET_OVERRIDES_FILE="$fixture_root/.claude/force-delegate-budget-overrides.jsonl"
+  local baseline="$fixture_root/.claude/$(basename "$BUDGET_BASELINE_FILE")"
+  local big_file="$fixture_root/oversized.txt" big_bytes=$(( BYTE_BUDGET + 777 ))
+  local result exit_code
+  make_sized_file "$big_file" "$big_bytes"
+
+  result="$(invoke_hook_read_file "$big_file" "CI=true COPILOT_FORCE_DELEGATE_BUDGET_OVERRIDE='bytes:reviewed test fixture'")"
+  if [[ "$(get_exit_code "$result")" -eq 2 && ! -e "$BUDGET_OVERRIDES_FILE" ]]; then
+    ok "CI rejects an environment override and does not author a ledger"
+  else
+    fail "CI must reject environment approval and leave no approval ledger"
+  fi
+
+  result="$(invoke_hook_read_file "$big_file" "CI= COPILOT_FORCE_DELEGATE_BUDGET_OVERRIDE='bytes:reviewed test fixture'")"
+  if [[ "$(get_exit_code "$result")" -ne 0 || ! -s "$BUDGET_OVERRIDES_FILE" ]]; then
+    fail "CI fixture pre-condition: local approval must create the exact ledger"
+    return
+  fi
+  clean_state
+  result="$(invoke_hook_read_file "$big_file" "CI=true")"
+  if [[ "$(get_exit_code "$result")" -eq 2 ]]; then
+    ok "CI rejects an uncommitted local approval ledger"
+  else
+    fail "CI trusted an approval absent from HEAD"
+  fi
+
+  if ! (git -C "$fixture_root" add .claude/force-delegate-budget-overrides.jsonl &&
+      git -C "$fixture_root" -c user.name=Fixture -c user.email=fixture@example.invalid \
+        -c commit.gpgsign=false commit -qm 'Fixture reviewed approval'); then
+    fail "CI ledger fixture could not commit its reviewed approval"
+    return
+  fi
+  # The working-copy ledger is deliberately empty: CI must read Git HEAD.
+  : > "$BUDGET_OVERRIDES_FILE"
+  clean_state
+  result="$(invoke_hook_read_file "$big_file" "CI=true")"
+  if [[ "$(get_exit_code "$result")" -eq 0 ]]; then
+    ok "CI accepts the exact approval from HEAD, not the working-copy ledger"
+  else
+    fail "CI failed to honor the exact committed approval"
+  fi
+
+  clean_state
+  make_sized_file "$big_file" "$(( big_bytes + 1 ))"
+  result="$(invoke_hook_read_file "$big_file" "CI=true")"
+  if [[ "$(get_exit_code "$result")" -eq 2 ]]; then
+    ok "CI rejects a different overage despite the committed approval"
+  else
+    fail "CI reused an approval for a different overage"
+  fi
+  clean_state
+  make_sized_file "$big_file" "$big_bytes"
+  printf '\n' >> "$baseline"
+  result="$(invoke_hook_read_file "$big_file" "CI=true")"
+  if [[ "$(get_exit_code "$result")" -eq 2 ]]; then
+    ok "CI rejects an approval after policy content changes"
+  else
+    fail "CI reused an approval bound to different policy content"
+  fi
+  clean_state
 }
 
 # ---------------------------------------------------------------------------
@@ -727,7 +809,7 @@ test_budget_does_not_reset_on_agent_dispatch() {
   local agent_payload
   agent_payload="$(printf '{"session_id":"%s","tool_name":"Agent","tool_input":{"subagent_type":"qa"}}' "$TEST_SESSION")"
   local ec=0
-  bash "$HOOK" <<< "$agent_payload" > /dev/null 2>&1 || ec=$?
+  COPILOT_CC_BIN="$NO_ACTIVE_CC" bash "$HOOK" <<< "$agent_payload" > /dev/null 2>&1 || ec=$?
   if [[ "$ec" -ne 0 ]]; then
     fail "Agent dispatch itself should always be allowed, got exit $ec"
     clean_no_active_cc
@@ -1577,6 +1659,8 @@ echo "--- Test 14: warning emitted before the deny"
 test_warning_before_deny
 echo "--- Test 15: audited budget override (env var + committed ledger)"
 test_override_path
+echo "--- Test 15b: CI trusts only exact committed approvals"
+test_ci_override_contract
 echo "--- Test 16: budget does NOT reset on Agent dispatch"
 test_budget_does_not_reset_on_agent_dispatch
 echo "--- Test 17: Performance <50ms"
