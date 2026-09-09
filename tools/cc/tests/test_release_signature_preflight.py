@@ -4,6 +4,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 SCRIPT = Path(__file__).parents[3] / "scripts" / "verify-foundation-release.sh"
 
 
@@ -89,3 +91,37 @@ def test_release_preflight_accepts_signed_tag_over_signed_non_root_commit(tmp_pa
 
     assert result.returncode == 0, result.stderr
     assert "foundation release signatures: verified" in result.stdout
+
+
+@pytest.mark.parametrize("defect", ["unsigned-tag", "unknown-signer", "wrong-commit", "off-main"])
+def test_release_preflight_rejects_invalid_release(tmp_path: Path, defect: str) -> None:
+    repo, _key, env = _repo_and_key(tmp_path)
+    subprocess.run(["git", "commit", "-qS", "-m", "base"], cwd=repo, check=True)
+    base = _run("git", "rev-parse", "HEAD", cwd=repo).stdout.strip()
+    if defect == "off-main":
+        subprocess.run(["git", "switch", "-qc", "unmerged"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-qS", "--allow-empty", "-m", "candidate"], cwd=repo, check=True,
+    )
+    commit = _run("git", "rev-parse", "HEAD", cwd=repo).stdout.strip()
+    if defect == "unsigned-tag":
+        tag_args = ["git", "-c", "tag.gpgSign=false", "tag", "-a", "v1.2.5", "-m", "unsigned"]
+    else:
+        tag_args = ["git", "tag", "-s", "v1.2.5", "-m", "release"]
+    subprocess.run(tag_args, cwd=repo, check=True)
+    if defect == "unknown-signer":
+        other_key = tmp_path / "unapproved-key"
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(other_key)], check=True)
+        env["FOUNDATION_RELEASE_PUBLIC_KEY"] = other_key.with_suffix(".pub").read_text().strip()
+    if defect == "wrong-commit":
+        commit = base
+
+    result = _run(str(SCRIPT), str(repo), "v1.2.5", commit, "main", cwd=repo, env=env)
+
+    assert result.returncode != 0
+    assert {
+        "unsigned-tag": "valid foundation release signature",
+        "unknown-signer": "valid foundation release signature",
+        "wrong-commit": "resolves to",
+        "off-main": "not an ancestor",
+    }[defect] in result.stderr

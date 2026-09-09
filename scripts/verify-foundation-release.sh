@@ -67,7 +67,10 @@ git -C "${REPO}" merge-base --is-ancestor "${SOURCE_COMMIT}" "${branch_ref}" ||
     die "${SOURCE_COMMIT} is not an ancestor of ${branch_ref} (RC-3: refusing a release-cut step that is not a real descendant of the branch it claims)"
 
 principal="${FOUNDATION_RELEASE_PRINCIPAL:-enac-foundation}"
-public_key="${FOUNDATION_RELEASE_PUBLIC_KEY:-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINah8Gf036FQkhMcUU35m2p7Nqa41oBtVS/QV9tYZX8H}"
+# Claude's owner-authorized 2026-09-09 replacement signer. Historical releases
+# can still be checked with their explicitly supplied historical public key.
+# See docs/30-operations/19-claude-signer-migration.md; no check is optional.
+public_key="${FOUNDATION_RELEASE_PUBLIC_KEY:-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIDGEZqgcjnCXb5XJQvD5/BKBAdO8CJcKYbteehyzu+i}"
 trust_file="$(mktemp "${TMPDIR:-/tmp}/foundation-release-signers.XXXXXX")"
 cleanup() {
     rm -f "${trust_file}"

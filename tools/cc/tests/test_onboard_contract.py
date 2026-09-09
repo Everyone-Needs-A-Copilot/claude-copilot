@@ -2342,11 +2342,12 @@ def test_ecosystem_apply_writes_exact_refs_and_runs_update_doctor(
 
 def test_foundation_release_signer_is_compiled_for_both_products():
     approved = "SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo"
+    replacement = "SHA256:Dg6yz1MZ4IgBlm+E1TAC49FlVbQ4aaEsvDY7wHNPG5s"
 
     assert onboard_module.FOUNDATION_ALLOWED_SIGNERS == {
         "knowledge": (),
         "cli": (),
-        "claude": (approved,),
+        "claude": (replacement, approved),
         "codex": (approved,),
     }
 

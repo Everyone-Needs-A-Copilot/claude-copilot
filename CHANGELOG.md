@@ -1,5 +1,19 @@
 # Changelog
 
+## [5.15.2] — 2026-09-09 — Claude release signer migration
+
+Framework **5.15.2**, `cc` **2.13.2**, `tc` **2.0.0**.
+
+- Add the owner-approved replacement SSH release signer to compiled trust and
+  Claude onboarding. Keep the historical signer and Codex allowlist unchanged.
+- Select the replacement in Claude's release preflight without relaxing signed
+  commit, signed annotated tag, exact commit, or main-ancestry requirements.
+- Document the reviewed trust bootstrap, protected signed-commit merge, recovery,
+  and separate installed-content acceptance boundary in the
+  [migration guide](docs/30-operations/19-claude-signer-migration.md).
+- This source entry is not proof of publication or installation; those require
+  exact release and deployment receipts in Task Copilot.
+
 ## [5.15.1] — 2026-09-08 — Source integration
 
 Framework **5.15.1**, `cc` **2.13.1**, `tc` **2.0.0**. This entry supersedes the

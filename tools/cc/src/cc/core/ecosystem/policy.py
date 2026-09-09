@@ -38,6 +38,13 @@ def _normalize_fingerprint(value: str) -> str:
 
 
 FOUNDATION_SSH_SIGNING_KEYS: dict[str, str] = {
+    # Owner-authorized Claude signer migration (2026-09-09). A compiled key
+    # alone grants nothing: each layer must also explicitly allow its signer.
+    _normalize_fingerprint("SHA256:Dg6yz1MZ4IgBlm+E1TAC49FlVbQ4aaEsvDY7wHNPG5s"): (
+        "ssh-ed25519 "
+        "AAAAC3NzaC1lZDI1NTE5AAAAIIDGEZqgcjnCXb5XJQvD5/BKBAdO8CJcKYbteehyzu+i"
+    ),
+    # Retained for historical releases and unchanged Codex trust policy.
     _normalize_fingerprint("SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo"): (
         "ssh-ed25519 "
         "AAAAC3NzaC1lZDI1NTE5AAAAINah8Gf036FQkhMcUU35m2p7Nqa41oBtVS/QV9tYZX8H"

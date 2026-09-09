@@ -71,7 +71,10 @@ _COMPONENT_LABELS: dict[str, str] = {
 FOUNDATION_ALLOWED_SIGNERS: dict[str, tuple[str, ...]] = {
     "knowledge": (),
     "cli": (),
-    "claude": ("SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo",),
+    "claude": (
+        "SHA256:Dg6yz1MZ4IgBlm+E1TAC49FlVbQ4aaEsvDY7wHNPG5s",
+        "SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo",
+    ),
     "codex": ("SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo",),
 }
 Run = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
