@@ -2,20 +2,56 @@ name: Time Estimate Language Check
 
 on:
   pull_request:
-    paths:
-      - '.claude/agents/**/*.md'
-      - '.claude/commands/**/*.md'
-      - 'templates/**/*.md'
   push:
     branches:
       - main
-    paths:
-      - '.claude/agents/**/*.md'
-      - '.claude/commands/**/*.md'
-      - 'templates/**/*.md'
 
 jobs:
+  select-paths:
+    name: Select Time Estimate Language paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      applicable: ${{ steps.paths.outputs.applicable }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: Select the original workflow paths
+        id: paths
+        env:
+          CSE_EVENT: ${{ github.event_name }}
+          CSE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          CSE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$CSE_BASE" =~ ^[0-9a-f]{40}$ && "$CSE_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          git cat-file -e "$CSE_HEAD^{commit}"
+          if [[ "$CSE_EVENT" == push && "$CSE_BASE" == 0000000000000000000000000000000000000000 ]]; then
+            echo "New branch: conservatively require the language scan."
+            echo "applicable=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git cat-file -e "$CSE_BASE^{commit}"
+          case "$CSE_EVENT" in
+            pull_request) CSE_BASE="$(git merge-base "$CSE_BASE" "$CSE_HEAD")" ;;
+            push) ;;
+            *) echo "Unsupported event: $CSE_EVENT" >&2; exit 1 ;;
+          esac
+          # Same include patterns as the former workflow-level paths filter.
+          difference=0
+          git diff --quiet "$CSE_BASE" "$CSE_HEAD" -- \
+            ':(glob).claude/agents/**/*.md' ':(glob).claude/commands/**/*.md' \
+            ':(glob)templates/**/*.md' || difference=$?
+          case "$difference" in
+            0) echo "applicable=false" >> "$GITHUB_OUTPUT"; echo "No matching paths: language scan is not applicable." ;;
+            1) echo "applicable=true" >> "$GITHUB_OUTPUT"; echo "Matching paths: language scan is required." ;;
+            *) echo "Path comparison failed ($difference)." >&2; exit 1 ;;
+          esac
+
   check-time-language:
+    needs: select-paths
+    if: needs.select-paths.outputs.applicable == 'true'
     runs-on: ubuntu-latest
     name: Check for time estimate violations
 
@@ -114,3 +150,24 @@ jobs:
             **Reference:** See \`docs/qa/time-estimate-audit-report.md\` for detailed patterns and examples.
             `
             })
+
+  time-language-gate:
+    name: Time Estimate Language gate
+    needs: [select-paths, check-time-language]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Require a successful applicable scan or proven irrelevance
+        env:
+          SELECTOR_RESULT: ${{ needs.select-paths.result }}
+          APPLICABLE: ${{ needs.select-paths.outputs.applicable }}
+          SUITE_RESULT: ${{ needs.check-time-language.result }}
+        run: |
+          set -euo pipefail
+          test "$SELECTOR_RESULT" = success
+          case "$APPLICABLE:$SUITE_RESULT" in
+            true:success) echo "Applicable language scan passed." ;;
+            false:skipped) echo "Language scan explicitly not applicable to this change." ;;
+            *) echo "Language scan incomplete: applicable=$APPLICABLE result=$SUITE_RESULT" >&2; exit 1 ;;
+          esac

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "organization": "Everyone-Needs-A-Copilot",
+  "branch": "main",
+  "rulesetName": "CSE CI merge gate",
+  "enforcement": "active",
+  "bypassActors": [],
+  "requirePullRequest": true,
+  "strictRequiredStatusChecks": true,
+  "integrationId": 15368,
+  "integrationSlug": "github-actions",
+  "repositories": {
+    "claude-copilot": [
+      "CodeQL",
+      "smoke-tests",
+      "Root tests/ suite",
+      "tools/tc/tests full suite",
+      "tools/cc/tests full suite",
+      "Conformance harness (World-A fixtures + committed baseline)",
+      "Skill script self-tests (.claude/skills/**/scripts/test_*.py)",
+      "tests/tui suite (vendored claude_monitor package)",
+      "TypeScript + shell test suite",
+      "cc eval (local runner, no LLM calls)",
+      "check-test-wiring",
+      "check-hardcoded-paths",
+      "cc Onboard Contract gate",
+      "Time Estimate Language gate"
+    ],
+    "cli-copilot": ["lint-and-test (3.11)", "lint-and-test (3.12)"],
+    "cli-copilot-internal": ["lint-and-test (3.11)", "lint-and-test (3.12)"],
+    "copilot-control-tower": ["shipping-swift-fitness"]
+  }
+}
