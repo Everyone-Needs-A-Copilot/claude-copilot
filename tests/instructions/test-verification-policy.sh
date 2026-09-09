@@ -30,6 +30,10 @@ def verify_policy(content):
         "never another task's approval", 'tc remains the sole\nsource-bound QA authority',
         'explicit authority', 'old/new expectations and rationale', 'exact changed\nassertions/diff',
         'negative control', 'Never weaken, skip or delete assertions',
+        '### Fixed finish line', 'Freeze that boundary for the batch',
+        'one planned batch acceptance pass', 'rerun affected checks only',
+        'do not silently reopen completed work', 'still blocks that criterion',
+        'then stop', 'incomplete, not complete',
     ):
         assert required in content, required
 
@@ -52,12 +56,17 @@ for mutant in (
     policy.replace('negative control', 'optional observation'),
     policy.replace('wording alone does not require live model', 'always run live model'),
     policy.replace('tc remains the sole\nsource-bound QA authority', 'runner grants approval'),
+    policy.replace('then stop', 'then improve again'),
+    policy.replace('still blocks that criterion', 'never blocks completion'),
 ):
     try:
         verify_policy(mutant)
     except AssertionError:
         continue
     raise AssertionError('policy negative control unexpectedly passed')
-print('PASS: 5 lane contracts, shared me/qa loading, evidence authority, 4 negative controls')
+protocol = Path('.claude/commands/protocol.md').read_text()
+assert '## Fixed Delivery Boundary' in protocol
+assert 'close\nthe task' in protocol and 'then stop' in protocol
+print('PASS: 5 lane contracts, shared me/qa loading, fixed finish line, evidence authority, 6 negative controls')
 print('UNTESTED: live model compliance; this check validates instruction structure only')
 PY

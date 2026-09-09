@@ -135,18 +135,18 @@
     },
     {
       "component": "codex",
-      "release_tag": "v0.6.5",
-      "version": "0.6.5",
+      "release_tag": "v0.7.0",
+      "version": "0.7.0",
       "files": [
         {
           "path": "plugins/codex-copilot/.codex-plugin/plugin.json",
           "ownership": "framework",
-          "checksum": "sha256:ffa9e9557cb1340767b9eacf53817a84827e20c527953db8df9e30a122532104"
+          "checksum": "sha256:30749afe34661317c29cc1819259e8dac6b743494eb2fa9ee7f3932e29ee9b60"
         },
         {
           "path": "plugins/codex-copilot/agent-catalog.json",
           "ownership": "framework",
-          "checksum": "sha256:dd2a5503fadff1d2932682992b9f1ab754a87ec487e110b814daa1f2a2f7f197"
+          "checksum": "sha256:0e38ea06d37602b89f4877e59b3b0d9639c0f47af28d23051331b56ab3101002"
         },
         {
           "path": "plugins/codex-copilot/agent-catalog.schema.json",
@@ -249,9 +249,14 @@
           "checksum": "sha256:ec49921cb22e206b4b8dab31280cbd8f79276235f4dbf9b9646c1ecd31e4baf1"
         },
         {
+          "path": "plugins/codex-copilot/hooks/design-feedback.sh",
+          "ownership": "framework",
+          "checksum": "sha256:bef24125e02272f08449250aa90d90a8c928249fbe40e1e7acac3bff791a9c22"
+        },
+        {
           "path": "plugins/codex-copilot/hooks/hooks.json",
           "ownership": "framework",
-          "checksum": "sha256:8911ad99bce9913fc04eb421910d990d1c7c5b40d0983f5c1abe9d3a1b50cd69"
+          "checksum": "sha256:2237eeb3825667b49e715dfd6a2d70251aee22bab26ad2f5645093ba4329cf49"
         },
         {
           "path": "plugins/codex-copilot/hooks/subagent-return-contract.sh",
@@ -291,7 +296,7 @@
         {
           "path": "plugins/codex-copilot/skills/ind/SKILL.md",
           "ownership": "framework",
-          "checksum": "sha256:9671778a53ef0a7140c8ada68d01ba73356b3fada4440d5677cc64f948b04f81"
+          "checksum": "sha256:594c37da56ac34e54e1209e928d4c6e19cc986ac289dee93076cba78b2143e6d"
         },
         {
           "path": "plugins/codex-copilot/skills/knowledge-copilot/SKILL.md",
@@ -316,7 +321,7 @@
         {
           "path": "plugins/codex-copilot/skills/me/SKILL.md",
           "ownership": "framework",
-          "checksum": "sha256:b238a75165be0e80ccfa82a24f853b5217fd8828da12f2ee9a951ef706c43fd7"
+          "checksum": "sha256:2e0592b2c58ad1edeb8c75e8ebf6ecc475aecf7df39ebc0e7b04d0ddc966ad38"
         },
         {
           "path": "plugins/codex-copilot/skills/memory/SKILL.md",
@@ -346,7 +351,7 @@
         {
           "path": "plugins/codex-copilot/skills/protocol/SKILL.md",
           "ownership": "framework",
-          "checksum": "sha256:6366c9a677a666da01782a5df9b5c7bb17d03e9660cb120eb388825038ae23e5"
+          "checksum": "sha256:075c88b2ba8dba6134272f21066853c7ebd809b3e5bc38200f0cf4747f961f6f"
         },
         {
           "path": "plugins/codex-copilot/skills/protocol/references/checkpoints.md",
@@ -366,17 +371,17 @@
         {
           "path": "plugins/codex-copilot/skills/qa/SKILL.md",
           "ownership": "framework",
-          "checksum": "sha256:7b1c06a1e27628315ac53585e6d8de1fe6f26eec97e6d491aaab642a43f3072b"
+          "checksum": "sha256:d0588934337ebd0c4bd174949e895759b4f665cec477d99c3c139ce49a81cbf1"
         },
         {
           "path": "plugins/codex-copilot/skills/reflect/SKILL.md",
           "ownership": "framework",
-          "checksum": "sha256:ab432ddfeb8dd3dfff39843438e49326c06001cc7e84c594538b4332bc1f4e44"
+          "checksum": "sha256:fc7f3cba82d18497709822e3681a10b011663e338644173b1e006e5c543463de"
         },
         {
           "path": "plugins/codex-copilot/skills/sd/SKILL.md",
           "ownership": "framework",
-          "checksum": "sha256:179c8213005fccf52037e35f205f7f995df652d6cffd51e107a76949a2c23df5"
+          "checksum": "sha256:c9b5f5c56f2ba551e06844b4514da339c08d2ed4a0fceee096f71087f539e34e"
         },
         {
           "path": "plugins/codex-copilot/skills/sec/SKILL.md",
@@ -421,17 +426,22 @@
         {
           "path": "plugins/codex-copilot/skills/specialist-agents/references/shared-behaviors.md",
           "ownership": "framework",
-          "checksum": "sha256:af8be49c1ee6a8b7d30a15193ed2c11973f7095a06b7d12b8674aac86d887d6f"
+          "checksum": "sha256:98644194c7c5e6a1868a7164fcd0ddf7671fe78ac8e5180e2ef6f7e1f9d83adb"
+        },
+        {
+          "path": "plugins/codex-copilot/skills/specialist-agents/references/verification-policy.md",
+          "ownership": "framework",
+          "checksum": "sha256:d403eb763b32997e966f4a531b01345f1c24789295023c1da31bbdac8cc9306d"
         },
         {
           "path": "plugins/codex-copilot/skills/ta/SKILL.md",
           "ownership": "framework",
-          "checksum": "sha256:a7b228ce327333ae03219bfc8e05d963dda2a5c0d4cdec9a82ebce367030f75f"
+          "checksum": "sha256:04b54c9248dc0e5bcc1490972b8529b55868713a2908e22444f8cdd195b12042"
         },
         {
           "path": "plugins/codex-copilot/skills/task-copilot/SKILL.md",
           "ownership": "framework",
-          "checksum": "sha256:c7520436f80b0a30c98958492be51d21fae0620c7d8cf1d42f9f6f8d903a3003"
+          "checksum": "sha256:3e3759cdd68845b18c48872a754d6a5e51183b1a2acc21cd670a2d3380ac1eb6"
         },
         {
           "path": "plugins/codex-copilot/skills/task-copilot/references/work-product-types.md",
@@ -441,12 +451,12 @@
         {
           "path": "plugins/codex-copilot/skills/uid/SKILL.md",
           "ownership": "framework",
-          "checksum": "sha256:4b6b9c22988fb08bf196ec52d12baa33058c3803486a4d7ec9e2adbffd0a14f8"
+          "checksum": "sha256:7ca7b98ea89f7b1c12ead5191e26870be9932a79cf41243a8330707a0191100c"
         },
         {
           "path": "plugins/codex-copilot/skills/uids/SKILL.md",
           "ownership": "framework",
-          "checksum": "sha256:cd8a27c2958be5b2fce3e2e4df8b25e00c5cb7f2068aa30bbd35722e32bfadd5"
+          "checksum": "sha256:1b971cbf811979c51922a9073672ee558a085638230f4658c8e919c7b7026ebe"
         },
         {
           "path": "plugins/codex-copilot/skills/update-copilot/SKILL.md",
@@ -461,12 +471,12 @@
         {
           "path": "plugins/codex-copilot/skills/uxd/SKILL.md",
           "ownership": "framework",
-          "checksum": "sha256:3029161fcec2a385c4f5b3bcad5ae785ff956dc3df365131a31cbcaf6986b832"
+          "checksum": "sha256:5ce412d8096725c47f26ea052288870667f268b606699467df0b694d40971ba2"
         },
         {
           "path": "scripts/copilot-gate.sh",
           "ownership": "framework",
-          "checksum": "sha256:06b215427f0d8cd6820d5a249240dc667d16c9188d33634615212df9e0137883"
+          "checksum": "sha256:224a3e11de7c925edd5041c3a03427f4d38b6ccf293d6031c098372bdcafb0e4"
         }
       ],
       "managed_outputs": [
@@ -478,7 +488,7 @@
         {
           "path": ".codex-copilot.json",
           "kind": "merged-json",
-          "fingerprint": "sha256:36b51f7de68308392bf297f15adbec9c317faa29d63233b0b78baf4b9ac166ac"
+          "fingerprint": "sha256:a0f6190f9517170cc9d4baebe041eb62628304d7f5f00565f69ac579b6739bc9"
         }
       ]
     }

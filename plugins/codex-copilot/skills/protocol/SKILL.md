@@ -65,6 +65,16 @@ Keep these instruments separate:
 
 For experience work that does not materially change screens, components, or interface states, `$uid` may be skipped only when the checkpoint states why.
 
+## Fixed Delivery Boundary
+
+Before implementation, state the deliverable, required acceptance criteria,
+affected consumers, verification lane/cap and exclusions in `tc`. Freeze this
+batch scope; use the engineering/QA Proportional Verification fixed finish line.
+After current source-bound QA approval satisfies every required criterion, close
+the task, report completion and separately pending work, then stop. Unrelated
+findings do not authorize another improvement cycle. Missing required evidence or
+an exhausted cap remains incomplete; never weaken acceptance to declare completion.
+
 ## User-Facing Output
 
 - Lead with what is now true—the answer, decision, result, or blocker—not what was investigated.

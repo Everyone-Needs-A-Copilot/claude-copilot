@@ -40,7 +40,10 @@ Use this skill to make focused, working code changes.
 
 ## Iteration Loop
 
-Make a focused change, validate observable behavior, analyze failures, and refine. Stop only when validation passes, the task is genuinely blocked, or the remaining risk is explicitly reported.
+Read `../specialist-agents/references/verification-policy.md` once per task before
+selecting checks. Apply its behavior/consumer lanes, first-divergent-state diagnosis,
+two-hypothesis checkpoint and execution caps. Add tests for missing behavior coverage,
+not each edited file; preserve current source-bound QA and report remaining risk.
 
 ## Methodology
 

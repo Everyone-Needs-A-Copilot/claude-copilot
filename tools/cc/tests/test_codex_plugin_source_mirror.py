@@ -137,7 +137,7 @@ def test_a_dirty_sibling_working_checkout_does_not_affect_a_mirror_resolved_laye
 
     # A SEPARATE live working checkout of the same origin repo, made dirty
     # with uncommitted, unpinned bytes -- the exact shape of the live
-    # `/Users/pabs/Sites/CSE/codex-copilot` checkout on the real machine.
+    # developer's codex-copilot checkout on the real machine.
     live_checkout = tmp_path / "live-working-checkout"
     subprocess.run(
         ["git", "clone", "--quiet", str(repo), str(live_checkout)], check=True

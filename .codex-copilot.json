@@ -2,8 +2,8 @@
   "installType": "copy",
   "pluginPath": "./plugins/codex-copilot",
   "projectName": "claude-copilot",
-  "frameworkVersion": "0.6.5",
-  "frameworkCommit": "32066b4",
-  "updatedAt": "2026-08-26",
-  "updatedBy": "codex-copilot 0.6.5 update-project.sh"
+  "frameworkVersion": "0.7.0",
+  "frameworkCommit": "a8db093",
+  "updatedAt": "2026-09-09",
+  "updatedBy": "codex-copilot 0.7.0 update-project.sh"
 }
