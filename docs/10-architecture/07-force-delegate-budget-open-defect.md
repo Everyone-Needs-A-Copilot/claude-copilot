@@ -1,9 +1,6 @@
 # Open Defect: force-delegate byte budget still denies bounded, cheap Bash calls
 
-Status: fixed in the local working tree (2026-09-11), TASK-81. The original
-diagnosis below is retained as historical context; its line numbers and blanket
-glob/pipeline fallback describe the pre-fix implementation. Related:
-`06-adr-005-force-delegate-cost-budget.md`.
+Status: superseded (2026-09-18). The TASK-81 estimator fixes described below held only until the next unpriced shape produced the same flat 8,000-byte denial (41,500/40,000). The byte meter now measures main-session output from the session transcript instead of estimating commands, which removes this whole class of defect; see the 2026-09-18 addendum in `06-adr-005-force-delegate-cost-budget.md`. Everything below is historical: the resolver, the pipeline helper and the floor exemption it describes no longer exist.
 
 ## Resolution
 
