@@ -85,16 +85,18 @@ TRANSCRIPT="$FIXTURE_DIR/transcript.jsonl"
 # Appends a main-session tool_result whose content is exactly $1 bytes.
 append_result() {
   local bytes="$1" sidechain="${2:-false}"
-  "$JQ_BIN" -cn --arg content "$(head -c "$bytes" /dev/zero | tr '\0' 'a')" --argjson side "$sidechain" \
-    '{type:"user", isSidechain:$side, message:{role:"user", content:[{type:"tool_result", tool_use_id:"t", content:$content}]}}' \
+  # Content is piped, not passed as an argument: Linux caps one argv string
+  # at 128 KiB, below the budget-sized results these tests append.
+  head -c "$bytes" /dev/zero | tr '\0' 'a' | "$JQ_BIN" -Rsc --argjson side "$sidechain" \
+    '{type:"user", isSidechain:$side, message:{role:"user", content:[{type:"tool_result", tool_use_id:"t", content:.}]}}' \
     >> "$TRANSCRIPT"
 }
 
 # Appends a main-session Write tool_use whose content is exactly $1 bytes.
 append_write() {
   local bytes="$1"
-  "$JQ_BIN" -cn --arg content "$(head -c "$bytes" /dev/zero | tr '\0' 'a')" \
-    '{type:"assistant", isSidechain:false, message:{role:"assistant", content:[{type:"tool_use", id:"t", name:"Write", input:{file_path:"f", content:$content}}]}}' \
+  head -c "$bytes" /dev/zero | tr '\0' 'a' | "$JQ_BIN" -Rsc \
+    '{type:"assistant", isSidechain:false, message:{role:"assistant", content:[{type:"tool_use", id:"t", name:"Write", input:{file_path:"f", content:.}}]}}' \
     >> "$TRANSCRIPT"
 }
 
