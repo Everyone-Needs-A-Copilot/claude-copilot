@@ -7,8 +7,8 @@
   "thresholds": {
     "byte_budget_bytes": 200000,
     "byte_budget_basis": "~50,000 tokens, which is v1.0.0's own stated target of ~5% of the context window, applied to the 1M-token window sessions now run with (v1.0.0 sized 5% of a 200K window). Calibrated on 38 retained main-session transcripts measured the same way the hook now measures (2026-09-18): 17 exceeded v1.0.0's 40,000 bytes, so the old threshold tripped on ordinary work once measured honestly; 2 exceeded 200,000 bytes (311,691 and 363,023), the genuine main-session sprawl this rule exists to stop; none exceeded 400,000. The meter resets at compaction, since compaction removes the measured output from context.",
-    "files_budget_count": 5,
-    "files_budget_basis": "Unchanged from v1.0.0: ~1.7x protocol-injection.md's 3-file main-session guidance. Counts only Read/Edit/Write file_path targets, which are exact before the call runs. Resets at compaction together with the byte meter.",
+    "files_budget_count": 10,
+    "files_budget_basis": "Raised from v1.0.0's 5, calibrated on the same 38 transcripts (distinct Read/Edit/Write/MultiEdit/NotebookEdit targets per main session, 2026-09-18): 5 was exceeded by 8 sessions (21%), mostly ordinary work, while 10 is exceeded by exactly 2 (17 and 21 files), the same sprawl rate the byte budget targets. Counts only file-tool targets, which are exact before the call runs. Resets at compaction together with the byte meter.",
     "warning_ratio": 0.8,
     "warning_ratio_basis": "Unchanged from v1.0.0: emit an advisory at 80% of either meter, before the deny.",
     "image_block_bytes": 6000,

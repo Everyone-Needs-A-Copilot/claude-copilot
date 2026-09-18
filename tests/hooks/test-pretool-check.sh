@@ -342,7 +342,7 @@ test_write_content_charged() {
 }
 
 # ---------------------------------------------------------------------------
-# Test 6: distinct-files meter — 5 distinct small files allowed, a 6th
+# Test 6: distinct-files meter — $FILES_BUDGET distinct small files allowed, one more
 # distinct file denied even though bytes are trivial; re-reading an
 # already-touched file does not grow the count.
 # ---------------------------------------------------------------------------
@@ -374,7 +374,7 @@ test_distinct_files_budget() {
     fail "re-read of an already-touched file should stay allowed with no count growth, got exit $exit_code count=$(budget_state_files_count)"
   fi
 
-  # A genuinely new (6th) distinct file exceeds the files budget → denied.
+  # A genuinely new distinct file past $FILES_BUDGET exceeds the files budget → denied.
   local new_file="$FIXTURE_DIR/distinct-new.txt"
   make_sized_file "$new_file" 50
   result="$(invoke_hook_read_file "$new_file")"
@@ -1285,8 +1285,8 @@ subagent_read_payload() {
 # Replay 1: main session touches 4 distinct files (files budget = $FILES_BUDGET,
 # so 4 is under it), then a subagent (same session_id, agent_type set) reads
 # TWO further distinct files — allowed, and the parent's filesTouched count
-# must be untouched by them. The main session's 5th distinct file is then
-# still allowed (count reaches exactly $FILES_BUDGET), and its 6th is denied
+# must be untouched by them. The main session's last in-budget distinct file is then
+# still allowed (count reaches exactly $FILES_BUDGET), and the next one is denied
 # — proving the subagent's reads neither got blocked nor silently donated to
 # (or stole from) the parent's distinct-files budget.
 # ---------------------------------------------------------------------------
@@ -1294,17 +1294,17 @@ test_subagent_read_exempt_from_force_delegate() {
   clean_state
   local result exit_code i
 
-  for i in 1 2 3 4; do
+  for (( i = 1; i < FILES_BUDGET; i++ )); do
     make_sized_file "$FIXTURE_DIR/replay1-main-$i.txt" 20
     result="$(invoke_hook_raw "$(subagent_read_payload "$TEST_SESSION" "" "$FIXTURE_DIR/replay1-main-$i.txt")")"
     exit_code="$(get_exit_code "$result")"
     if [[ "$exit_code" -ne 0 ]]; then
-      fail "replay: main-session Read $i/4 should be allowed, got exit $exit_code"
+      fail "replay: main-session Read $i should be allowed, got exit $exit_code"
       return
     fi
   done
-  if [[ "$(budget_state_files_count)" -ne 4 ]]; then
-    fail "replay pre-condition: expected filesTouched=4 after 4 main-session reads, got $(budget_state_files_count)"
+  if [[ "$(budget_state_files_count)" -ne $(( FILES_BUDGET - 1 )) ]]; then
+    fail "replay pre-condition: expected filesTouched=$(( FILES_BUDGET - 1 )) after $(( FILES_BUDGET - 1 )) main-session reads, got $(budget_state_files_count)"
     return
   fi
 
@@ -1327,31 +1327,31 @@ test_subagent_read_exempt_from_force_delegate() {
     fail "replay: subagent's 2nd Read should be allowed, got exit $exit_code"
   fi
 
-  if [[ "$(budget_state_files_count)" -eq 4 ]]; then
-    ok "replay: subagent's 2 reads of 2 NEW distinct files did not change the parent's filesTouched count (still 4)"
+  if [[ "$(budget_state_files_count)" -eq $(( FILES_BUDGET - 1 )) ]]; then
+    ok "replay: subagent's 2 reads of 2 NEW distinct files did not change the parent's filesTouched count (still $(( FILES_BUDGET - 1 )))"
   else
     fail "replay: parent's filesTouched should still be 4 after subagent reads, got $(budget_state_files_count)"
   fi
 
-  # Main session's 5th distinct file: allowed, count reaches exactly $FILES_BUDGET.
-  make_sized_file "$FIXTURE_DIR/replay1-main-5.txt" 20
-  result="$(invoke_hook_raw "$(subagent_read_payload "$TEST_SESSION" "" "$FIXTURE_DIR/replay1-main-5.txt")")"
+  # Main session's last in-budget distinct file: allowed, count reaches exactly $FILES_BUDGET.
+  make_sized_file "$FIXTURE_DIR/replay1-main-last.txt" 20
+  result="$(invoke_hook_raw "$(subagent_read_payload "$TEST_SESSION" "" "$FIXTURE_DIR/replay1-main-last.txt")")"
   exit_code="$(get_exit_code "$result")"
   if [[ "$exit_code" -eq 0 ]] && [[ "$(budget_state_files_count)" -eq "$FILES_BUDGET" ]]; then
-    ok "replay: main session's 5th distinct file allowed (count reaches $FILES_BUDGET)"
+    ok "replay: main session's last in-budget distinct file allowed (count reaches $FILES_BUDGET)"
   else
-    fail "replay: main session's 5th distinct file should be allowed with count=$FILES_BUDGET, got exit $exit_code count=$(budget_state_files_count)"
+    fail "replay: main session's last in-budget distinct file should be allowed with count=$FILES_BUDGET, got exit $exit_code count=$(budget_state_files_count)"
   fi
 
-  # Main session's 6th distinct file: denied — the subagent's own files did
+  # Main session's first over-budget distinct file: denied — the subagent's own files did
   # not silently consume any of the parent's budget headroom.
-  make_sized_file "$FIXTURE_DIR/replay1-main-6.txt" 20
-  result="$(invoke_hook_raw "$(subagent_read_payload "$TEST_SESSION" "" "$FIXTURE_DIR/replay1-main-6.txt")")"
+  make_sized_file "$FIXTURE_DIR/replay1-main-over.txt" 20
+  result="$(invoke_hook_raw "$(subagent_read_payload "$TEST_SESSION" "" "$FIXTURE_DIR/replay1-main-over.txt")")"
   exit_code="$(get_exit_code "$result")"
   if [[ "$exit_code" -eq 2 ]]; then
-    ok "replay: main session's 6th distinct file still denied — subagent reads did not pollute the parent's budget"
+    ok "replay: main session's first over-budget distinct file still denied — subagent reads did not pollute the parent's budget"
   else
-    fail "replay: main session's 6th distinct file should still be denied, got exit $exit_code"
+    fail "replay: main session's first over-budget distinct file should still be denied, got exit $exit_code"
   fi
 }
 
@@ -1480,45 +1480,45 @@ test_unknown_agent_type_not_exempt_force_delegate() {
   rm -f "${STATE_DIR}/budget-${sess}.json" "${STATE_DIR}/budget-${sess}.lock" 2>/dev/null || true
 
   local i f result exit_code all_passed=true
-  for i in 1 2 3 4; do
+  for (( i = 1; i < FILES_BUDGET; i++ )); do
     f="$FIXTURE_DIR/unknown-agent-$i.txt"
     make_sized_file "$f" 20
     result="$(invoke_hook_raw "$(subagent_read_payload "$sess" "bogus-nonexistent-agent" "$f")")"
     exit_code="$(get_exit_code "$result")"
     if [[ "$exit_code" -ne 0 ]]; then
       all_passed=false
-      fail "unknown-agent-type: call $i/4 (agent_type=bogus-nonexistent-agent) should be allowed under the files budget, got exit $exit_code"
+      fail "unknown-agent-type: call $i (agent_type=bogus-nonexistent-agent) should be allowed under the files budget, got exit $exit_code"
     fi
   done
   if $all_passed; then
-    ok "unknown-agent-type: 4 distinct-file reads with an unrecognized agent_type are charged normally (allowed under budget)"
+    ok "unknown-agent-type: $(( FILES_BUDGET - 1 )) distinct-file reads with an unrecognized agent_type are charged normally (allowed under budget)"
   fi
 
-  # A 5th distinct file is still allowed (count reaches exactly $FILES_BUDGET
+  # A last in-budget distinct file is still allowed (count reaches exactly $FILES_BUDGET
   # — the calls above genuinely counted, unlike an exempt subagent's would).
-  local f5="$FIXTURE_DIR/unknown-agent-5.txt"
+  local f5="$FIXTURE_DIR/unknown-agent-last.txt"
   make_sized_file "$f5" 20
   result="$(invoke_hook_raw "$(subagent_read_payload "$sess" "bogus-nonexistent-agent" "$f5")")"
   exit_code="$(get_exit_code "$result")"
   local files_count
   files_count="$("$JQ_BIN" -r '.filesTouched // [] | length' "${STATE_DIR}/budget-${sess}.json" 2>/dev/null || echo 0)"
   if [[ "$exit_code" -eq 0 ]] && [[ "$files_count" -eq "$FILES_BUDGET" ]]; then
-    ok "unknown-agent-type: 5th distinct file reaches filesTouched=$FILES_BUDGET — calls genuinely counted, not exempt"
+    ok "unknown-agent-type: last in-budget distinct file reaches filesTouched=$FILES_BUDGET — calls genuinely counted, not exempt"
   else
     fail "unknown-agent-type: expected exit 0 and filesTouched=$FILES_BUDGET, got exit $exit_code count=$files_count"
   fi
 
-  # A 6th distinct file, still tagged with the unrecognized agent_type, is
+  # A first over-budget distinct file, still tagged with the unrecognized agent_type, is
   # denied — the bypass the pre-VERIFY-B bug allowed is gone under the new
   # budget just as it was under the old streak.
-  local f6="$FIXTURE_DIR/unknown-agent-6.txt"
+  local f6="$FIXTURE_DIR/unknown-agent-over.txt"
   make_sized_file "$f6" 20
   result="$(invoke_hook_raw "$(subagent_read_payload "$sess" "bogus-nonexistent-agent" "$f6")")"
   exit_code="$(get_exit_code "$result")"
   if [[ "$exit_code" -eq 2 ]]; then
-    ok "unknown-agent-type: 6th distinct file with unrecognized agent_type is denied (not granted subagent exemption)"
+    ok "unknown-agent-type: first over-budget distinct file with unrecognized agent_type is denied (not granted subagent exemption)"
   else
-    fail "unknown-agent-type: 6th distinct file with unrecognized agent_type should be denied (bypass), got exit $exit_code"
+    fail "unknown-agent-type: first over-budget distinct file with unrecognized agent_type should be denied (bypass), got exit $exit_code"
   fi
 
   rm -f "${STATE_DIR}/budget-${sess}.json" "${STATE_DIR}/budget-${sess}.lock" 2>/dev/null || true
