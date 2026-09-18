@@ -21,6 +21,11 @@
 #     session_id  — unique session identifier
 #     tool_name   — e.g. "Bash", "Read", "Edit", "Agent"
 #     tool_input  — tool-specific parameters (object)
+#     cwd         — the Bash tool's actual working directory for this call.
+#                   Used only to resolve relative-path Bash targets in
+#                   rule_force_delegate's size-aware charge (_bash_target_bytes)
+#                   against the right directory instead of this hook
+#                   process's own $PWD.
 #
 # OUTPUT:
 #   Exit 0 + empty stdout  → allow
@@ -188,12 +193,19 @@ if [[ -z "$PAYLOAD" ]]; then
   exit 0
 fi
 
-# Single jq call extracts the three top-level identifier fields together.
+# Single jq call extracts the four top-level identifier fields together.
 # Each separate jq invocation costs ~2-3ms of fork/exec overhead; parsing
 # the same PAYLOAD three times used to dominate the hook's <50ms performance
-# budget. session_id/tool_name/agent_type are harness-generated tokens (never
-# free-form text), so @tsv's escaping of tabs/newlines/backslashes is a safe
-# no-op for them.
+# budget. Joined with U+001F (ASCII unit separator), not a tab: bash `read`
+# treats any run of IFS characters that are themselves shell blanks (space,
+# tab, newline) as ONE delimiter and silently drops empty fields between
+# them, so a tab-joined line with agent_type empty (the common case) and a
+# non-empty field after it — .cwd, added below — shifts every field after
+# the gap left by mistake. \x1f is not a shell blank, so empty fields are
+# preserved positionally. session_id/tool_name/agent_type/cwd are harness-
+# generated tokens (never free-form text needing escaping). PAYLOAD_CWD is
+# consumed only by rule_force_delegate's Bash byte estimator
+# (_bash_target_bytes) below; every other rule ignores it.
 #
 # AGENT_TYPE non-empty means this PreToolUse call originated inside a
 # subagent (sidechain), even though it shares SESSION_ID with the main
@@ -207,11 +219,11 @@ fi
 # unsatisfiable from inside a subagent. See rule_force_delegate and
 # rule_qa_gate below for where this is consumed.
 _PAYLOAD_FIELDS="$("$JQ" -r \
-  '([.session_id // "", .tool_name // "", .agent_type // ""] | @tsv),
+  '([.session_id // "", .tool_name // "", .agent_type // "", .cwd // ""] | join("")),
    (if .tool_name == "Bash" then (.tool_input.command // "") else "" end)' \
   <<< "$PAYLOAD" 2>/dev/null)" \
   || { echo "[pretool-check] jq parse failed reading payload fields" >&2; exit 0; }
-IFS=$'\t' read -r SESSION_ID TOOL_NAME AGENT_TYPE <<< "${_PAYLOAD_FIELDS%%$'\n'*}"
+IFS=$'\x1f' read -r SESSION_ID TOOL_NAME AGENT_TYPE PAYLOAD_CWD <<< "${_PAYLOAD_FIELDS%%$'\n'*}"
 
 if [[ -z "$SESSION_ID" || -z "$TOOL_NAME" ]]; then
   # Malformed payload — allow and let Claude handle it
@@ -245,6 +257,12 @@ fi
 STATE_FILE="${STATE_DIR}/budget-${SESSION_ID}.json"
 LOCK_FILE="${STATE_DIR}/budget-${SESSION_ID}.lock"
 STALENESS_SECONDS=86400  # 24 hours
+
+# ADR-005 floor exemption: a call whose own estimated cost is at or below
+# this many bytes is never denied on the byte meter, even once the session
+# total is already over budget — a tiny, scoped inspection call must not be
+# starved by an earlier unrelated charge. Override without a code edit.
+FORCE_DELEGATE_FLOOR_BYTES="${COPILOT_FORCE_DELEGATE_FLOOR_BYTES:-4096}"
 
 # Acquire a simple lock to prevent concurrent corruption
 # Uses mkdir atomicity (POSIX-guaranteed).
@@ -310,6 +328,171 @@ budget_override_allows() {
       (.reason | type == "string" and test("\\S")))' <<< "$record" >/dev/null 2>&1
 }
 
+# Whole-file byte count, shared by rule_force_delegate's Read branch and its
+# Bash target-resolution branch below, so there is one sizing implementation,
+# not two.
+_file_byte_size() {
+  local size
+  size="$(wc -c < "$1" 2>/dev/null)" || return 1
+  printf '%s' "${size//[[:space:]]/}"
+}
+
+# Resolves a candidate Bash target against base_dir when it is a relative
+# path, leaving absolute paths untouched. base_dir is normally the payload's
+# .cwd (the Bash tool's actual working directory); when base_dir is empty,
+# this returns the candidate unchanged, which is exactly the pre-cwd-
+# threading behavior — a relative candidate then resolves via bash's own
+# implicit `[[ -f "$c" ]]` test against this hook process's own $PWD.
+_resolve_against_cwd() {
+  local candidate="$1" base_dir="$2"
+  if [[ "$candidate" == /* || -z "$base_dir" ]]; then
+    printf '%s' "$candidate"
+  else
+    printf '%s' "${base_dir%/}/${candidate}"
+  fi
+}
+
+# Resolves ONE simple, unchained cat/find/grep/rg invocation (no ; | && > <
+# ` $( inside it — the caller already split those out) to its file
+# target(s), relative to base_dir when a target itself is a relative path,
+# and sums their byte sizes via _file_byte_size — mirroring how
+# rule_force_delegate's Read branch stats a real file instead of guessing by
+# command name. A target that does not resolve to an existing regular file
+# prints nothing and returns non-zero, so the caller keeps the conservative
+# unbounded charge for this segment. Being conservative when the target is
+# unknowable is intentional.
+_bash_single_segment_bytes() {
+  local segment="$1" base_dir="$2"
+  local -a tokens=()
+  read -ra tokens <<< "$segment"
+  [[ "${#tokens[@]}" -gt 0 ]] || return 1
+  local cmd_name="" i
+  for ((i = 0; i < ${#tokens[@]}; i++)); do
+    case "${tokens[$i]}" in
+      cat|find|rg|grep) cmd_name="${tokens[$i]}"; break ;;
+      *=*) continue ;;  # leading VAR=val assignment before the command
+      *) return 1 ;;
+    esac
+  done
+  [[ -n "$cmd_name" ]] || return 1
+  local -a candidates=()
+  local skip_pattern=0 j tok
+  [[ "$cmd_name" == "grep" || "$cmd_name" == "rg" ]] && skip_pattern=1
+  for ((j = i + 1; j < ${#tokens[@]}; j++)); do
+    tok="${tokens[$j]}"
+    [[ "$tok" == -* ]] && continue
+    if [[ "$skip_pattern" -eq 1 ]]; then
+      skip_pattern=0  # first non-flag token is the pattern, not a target
+      continue
+    fi
+    candidates+=("$tok")
+  done
+  [[ "${#candidates[@]}" -gt 0 ]] || return 1
+  local total=0 size c resolved target
+  local -a matches=()
+  for c in "${candidates[@]}"; do
+    resolved="$(_resolve_against_cwd "$c" "$base_dir")"
+    if [[ -f "$resolved" ]]; then
+      matches=("$resolved")
+    else
+      # compgen expands a pattern as data, never as shell code. Preserve
+      # the fallback for unmatched globs, directories and quoted patterns
+      # this deliberately narrow word splitter cannot resolve.
+      matches=()
+      mapfile -t matches < <(compgen -G "$resolved")
+      [[ "${#matches[@]}" -gt 0 ]] || return 1
+    fi
+    for target in "${matches[@]}"; do
+      [[ -f "$target" ]] || return 1
+      size="$(_file_byte_size "$target")" || return 1
+      total=$((total + size))
+    done
+  done
+  printf '%s' "$total"
+}
+
+# Resolves a Bash command's file target(s) to real paths and sums their byte
+# sizes, instead of a flat charge by command-name match alone. Two things
+# beyond a single simple command are supported here, both deliberately
+# narrow:
+#
+#   1. A relative target resolves against payload_cwd — the harness's .cwd
+#      for this Bash call — not this hook process's own $PWD, which is
+#      whatever directory happened to spawn copilot-hook.sh and is
+#      frequently a different directory. Absolute targets are unaffected.
+#      When payload_cwd is absent, empty, or not a real directory, this
+#      falls back to the pre-cwd-threading behavior (see
+#      _resolve_against_cwd) rather than erroring.
+#   2. A single leading `cd <dir> &&` or `cd <dir>;` is peeled off, and
+#      everything after it resolves against <dir> instead (itself resolved
+#      against payload_cwd when <dir> is relative). This is the shape the
+#      main session actually issues ahead of a `grep`/`cat` pair. Only a cd
+#      at the very start counts; a cd anywhere else, or any other chaining
+#      (pipes, redirection, command substitution, backticks) alongside it,
+#      is not tracked — those command shapes return non-zero here so the
+#      caller keeps the conservative unbounded charge, which is the correct
+#      answer when the target is genuinely unknowable.
+#
+# What remains after step 2 (one command, or several simple commands
+# separated by `;`) is split on `;` and each segment resolved independently
+# via _bash_single_segment_bytes, so a mixed command like
+# `grep -c "x" a.md; cat b.json` sums both real file sizes. A segment that
+# cannot be resolved contributes unbounded_charge on its own rather than
+# forcing the whole call back to a single flat charge, so one unresolvable
+# segment never hides the real, known size of the segments next to it.
+_bash_target_bytes() {
+  local command="$1" payload_cwd="${2:-}" unbounded_charge="${3:-8000}"
+  [[ "$unbounded_charge" =~ ^[0-9]+$ ]] || unbounded_charge=8000
+
+  local base_dir=""
+  [[ -n "$payload_cwd" && -d "$payload_cwd" ]] && base_dir="$payload_cwd"
+
+  local body="$command"
+  if [[ "$command" == cd\ * ]]; then
+    local after="${command#cd }" cd_target="" cd_rest=""
+    if [[ "$after" == *' && '* ]]; then
+      cd_target="${after%% && *}"
+      cd_rest="${after#* && }"
+    elif [[ "$after" == *';'* ]]; then
+      cd_target="${after%%;*}"
+      cd_rest="${after#*;}"
+    else
+      return 1  # `cd` with nothing recognizable after it — not this shape
+    fi
+    case "$cd_target" in
+      *'|'*|*'&&'*|*';'*|*'>'*|*'<'*|*'`'*|*'$('*) return 1 ;;
+    esac
+    read -r cd_target <<< "$cd_target"
+    [[ -n "$cd_target" ]] || return 1
+    base_dir="$(_resolve_against_cwd "$cd_target" "$base_dir")"
+    body="$cd_rest"
+  fi
+
+  # Beyond a leading cd, only `;`-separated simple segments are supported.
+  # Pipes, redirection, command substitution, and backticks anywhere in the
+  # remainder make the target ambiguous, same as before cwd threading.
+  case "$body" in
+    *'|'*|*'&&'*|*'>'*|*'<'*|*'`'*|*'$('*) return 1 ;;
+  esac
+
+  local -a segments=()
+  IFS=';' read -ra segments <<< "$body"
+  [[ "${#segments[@]}" -gt 0 ]] || return 1
+
+  local total=0 seg seg_bytes processed=0
+  for seg in "${segments[@]}"; do
+    [[ -z "${seg//[[:space:]]/}" ]] && continue  # blank segment, e.g. trailing `;`
+    processed=$((processed + 1))
+    if seg_bytes="$(_bash_single_segment_bytes "$seg" "$base_dir")"; then
+      total=$((total + seg_bytes))
+    else
+      total=$((total + unbounded_charge))
+    fi
+  done
+  [[ "$processed" -gt 0 ]] || return 1
+  printf '%s' "$total"
+}
+
 # ADR-005 estimates cost before execution; it is not a tokenizer/shell parser.
 # Only Read/Edit/Write file targets count. Bash gets an output-cost estimate.
 # Dispatch/alternation never refund spend. Denied attempts never consume it.
@@ -360,11 +543,60 @@ rule_force_delegate() {
       elif [[ "$offset" =~ ^[0-9]+$ && "$offset" -gt 1 ]]; then
         charge="$(LC_ALL=C awk -v start="$offset" 'NR >= start {bytes+=length($0)+1} END {print bytes+0}' "$file_path")"
       else
-        charge="$(wc -c < "$file_path")"
-        charge="${charge//[[:space:]]/}"
+        charge="$(_file_byte_size "$file_path")"
       fi
     fi
   fi
+
+  # Size-aware Bash charge (ADR-005 follow-up): resolve cat/find/grep/rg
+  # targets to real paths and sum their byte sizes the way Read does above,
+  # instead of a flat charge by command-name match alone. Relative targets
+  # resolve against the payload's .cwd (PAYLOAD_CWD), not this hook
+  # process's own $PWD — see _bash_target_bytes. $bash_target is empty when
+  # the target cannot be resolved at all; jq then keeps the existing flat
+  # unbounded fallback, which stays correct for a bare `find /`, a
+  # piped/chained command, or a grep reading stdin.
+  #
+  # The `case` below is a cheap, deliberately loose pre-filter (plain glob,
+  # no fork, no regex engine): it only gates whether it's worth paying for
+  # resolution at all. It is a superset of jq's own word-boundary match
+  # below (any command containing cat/find/grep/rg as a whole word also
+  # contains it as a substring), so it can only ever over-match, never
+  # under-match — a command jq would classify as unbounded is never skipped
+  # here. Most Bash calls (`git status`, `tc task get`, `ls`, ...) contain
+  # none of these substrings and skip this block entirely, which is also
+  # why bash_unbounded_charge is fetched lazily inside the case rather than
+  # unconditionally for every Bash call — that fetch is a real jq fork, and
+  # a majority of Bash calls never need the value it produces.
+  local bash_target="" bash_pipeline_json="null" pipeline_cost=""
+  if [[ "$TOOL_NAME" == "Bash" ]]; then
+    # Recognize terminal head limits and help/version stdin filters before
+    # whole-file sizing. Tokenize only; never execute the proposed command.
+    # Unsupported syntax or a missing helper retains the conservative cost.
+    case "$TOOL_COMMAND" in
+      *'|'*head*|*--help*'|'*|*--version*'|'*)
+        if pipeline_cost="$(printf '%s' "$TOOL_COMMAND" | python3 "${SCRIPT_DIR}/lib/bash_pipeline_cost.py" 2>/dev/null)"; then
+          if [[ "$pipeline_cost" =~ ^[0-9]+$ ]]; then
+            bash_pipeline_json="$pipeline_cost"
+          elif [[ "$pipeline_cost" == bounded ]]; then
+            bash_pipeline_json='"bounded"'
+          fi
+        fi
+        ;;
+    esac
+    if [[ "$bash_pipeline_json" == null ]]; then
+      case "$TOOL_COMMAND" in
+        *cat*|*find*|*grep*|*rg*)
+          local bash_unbounded_charge
+          bash_unbounded_charge="$("$JQ" -r '.thresholds.bash_unbounded_charge_bytes // 8000' "$baseline" 2>/dev/null)"
+          [[ "$bash_unbounded_charge" =~ ^[0-9]+$ ]] || bash_unbounded_charge=8000
+          bash_target="$(_bash_target_bytes "$TOOL_COMMAND" "$PAYLOAD_CWD" "$bash_unbounded_charge")" || bash_target=""
+          ;;
+      esac
+    fi
+  fi
+  local bash_target_json="null"
+  [[ "$bash_target" =~ ^[0-9]+$ ]] && bash_target_json="$bash_target"
 
   [[ -d "$STATE_DIR" ]] || mkdir -p "$STATE_DIR"
   if ! acquire_lock; then return 0; fi
@@ -376,6 +608,8 @@ rule_force_delegate() {
   result="$("$JQ" -r --slurpfile policies "$baseline" --slurpfile previous "$previous" \
     --arg tool "$TOOL_NAME" --arg session "$SESSION_ID" --arg file "$file_path" \
     --arg command "$TOOL_COMMAND" --argjson readCharge "$charge" \
+    --argjson bashTargetBytes "$bash_target_json" \
+    --argjson bashPipelineBytes "$bash_pipeline_json" \
     --argjson stale "$STALENESS_SECONDS" '
     $policies[0] as $policy | $policy.thresholds as $t |
     if ([$t.byte_budget_bytes,$t.files_budget_count,$t.bash_bounded_charge_bytes,
@@ -393,10 +627,13 @@ rule_force_delegate() {
     (if $tool == "Read" then $readCharge
      elif $tool == "Edit" then ($input.new_string // "" | utf8bytelength)
      elif $tool == "Write" then ($input.content // "" | utf8bytelength)
+     elif $bashPipelineBytes == "bounded" then $t.bash_bounded_charge_bytes
+     elif $bashPipelineBytes != null then $bashPipelineBytes
      elif ($command | test("(^|[;&|\\n]\\s*|\\s)(cat|find)(\\s|$)")) or
           (($command | test("(^|[;&|\\n]\\s*|\\s)(rg|grep)(\\s|$)")) and
            ($command | test("(^|\\s)(-m\\s*\\d+|--max-count[= ]\\d+)(\\s|$)") | not))
-     then $t.bash_unbounded_charge_bytes else $t.bash_bounded_charge_bytes end) as $cost |
+     then ($bashTargetBytes // $t.bash_unbounded_charge_bytes)
+     else $t.bash_bounded_charge_bytes end) as $cost |
     (($state.bytesCharged // 0) + $cost) as $bytes |
     (($state.filesTouched // []) + (if $target == "" then [] else [$target] end) | unique) as $files |
     {session_id:$session,bytesCharged:$bytes,filesTouched:$files,
@@ -404,7 +641,7 @@ rule_force_delegate() {
     ([$bytes,($files|length),$t.byte_budget_bytes,$t.files_budget_count,
      (($bytes >= $t.byte_budget_bytes*$t.warning_ratio) or
       (($files|length) >= $t.files_budget_count*$t.warning_ratio)),
-     ($bytes/$policy.byte_to_token_ratio|ceil)] | @tsv),
+     ($bytes/$policy.byte_to_token_ratio|ceil),$cost] | @tsv),
     ($next|tojson)
     ' <<< "$PAYLOAD")" || {
       echo "[pretool-check] force-delegate budget state/policy invalid; budget unavailable" >&2
@@ -412,10 +649,11 @@ rule_force_delegate() {
     }
 
   local header="${result%%$'\n'*}" state="${result#*$'\n'}"
-  local bytes files byte_budget file_budget warn tokens
-  IFS=$'\t' read -r bytes files byte_budget file_budget warn tokens <<< "$header"
+  local bytes files byte_budget file_budget warn tokens cost
+  IFS=$'\t' read -r bytes files byte_budget file_budget warn tokens cost <<< "$header"
   local exceeded=""
   if [[ "$bytes" -gt "$byte_budget" ]] &&
+     [[ "$cost" -gt "$FORCE_DELEGATE_FLOOR_BYTES" ]] &&
      ! budget_override_allows bytes "$byte_budget" "$bytes" "$baseline"; then
     exceeded="bytes"
   fi
@@ -426,7 +664,7 @@ rule_force_delegate() {
   if [[ -n "$exceeded" ]]; then
     release_lock; trap - EXIT
     _ensure_manifest_loaded
-    deny "Main session cost budget exceeded (${exceeded}): ${bytes}/${byte_budget} estimated bytes (~${tokens} tokens), ${files}/${file_budget} distinct file targets. Narrow the call or delegate. Valid agents: ${VALID_AGENT_LIST}. COPILOT_FORCE_DELEGATE=off is the explicit bypass."
+    deny "Main session cost budget exceeded (${exceeded}): ${bytes}/${byte_budget} estimated bytes (~${tokens} tokens), ${files}/${file_budget} distinct file targets. This call: ${cost} estimated bytes. Narrow the call or delegate. Valid agents: ${VALID_AGENT_LIST}. COPILOT_FORCE_DELEGATE=off is the explicit bypass."
   fi
   printf '%s\n' "$state" > "${STATE_FILE}.tmp.$$"
   mv "${STATE_FILE}.tmp.$$" "$STATE_FILE"

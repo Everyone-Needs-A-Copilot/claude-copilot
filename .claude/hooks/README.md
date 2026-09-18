@@ -181,11 +181,57 @@ The highest-version `.claude/force-delegate-budget-baseline-v*.json` supplies th
 policy. The initial policy allows 40,000 estimated bytes and five distinct
 Read/Edit/Write targets, warns at 80%, and denies a call that would exceed either
 limit without charging the denied attempt. Read charges file bytes (or a line
-slice); Edit/Write charge UTF-8 replacement/content bytes. Bash uses estimates:
-300 bytes for bounded commands and 8,000 for recognized unbounded output.
-Shell classification is heuristic, Bash paths are not counted, and equivalent
-path spellings are not canonicalized. This is context-budget guidance enforced
-before execution, not exact token accounting or a security boundary.
+slice); Edit/Write charge UTF-8 replacement/content bytes. Bash charges by
+recognized shape: a simple, unchained `cat`/`find`/unflagged `grep`/`rg` whose
+file target(s) resolve to real, existing regular files is charged the actual
+summed byte size of those targets, including unquoted globs matching regular
+files, the same way the Read branch stats a real
+file instead of guessing. A relative target resolves against the PreToolUse
+payload's own `.cwd` field, the Bash tool's actual working directory for
+that call, not this hook process's own `$PWD`, which is frequently a
+different directory (the shim spawns the hook from wherever the harness
+happened to invoke it, not from the directory a `cd` inside the Bash call
+itself would target). A single leading `cd <dir> &&` or `cd <dir>;` is also
+recognized: everything after it resolves against `<dir>` instead, so
+`cd some/initiative && grep -c "x" 00-handoff.md; cat _meta.json` sums both
+real file sizes rather than falling back to a flat estimate. Only a `cd` at
+the very start of the command counts, only for the remainder of that same
+command; a `cd` anywhere else, or any other chaining (pipes, redirection,
+command substitution, backticks) alongside it, is not tracked. A command with
+several simple targets separated by `;` sums the real size of every target it
+can resolve; a segment it cannot resolve contributes the flat unbounded
+estimate for that segment alone rather than discarding the segments that did
+resolve. When a target cannot be resolved this way at all (a bare `find /`, a
+directory target, a piped or chained command, stdin, an unmatched glob, or a
+relative target with no usable `.cwd`), the charge falls back to the flat
+estimate: 300 bytes for bounded commands, 8,000 bytes for unresolved unbounded
+output. Shell classification is still heuristic, Bash paths are not counted
+toward the distinct-file-target meter, and equivalent path spellings are not
+canonicalized. This is context-budget guidance enforced before execution, not
+exact token accounting or a security boundary.
+
+Two pipeline shapes are priced before that fallback. A supported search/read
+pipeline ending in `head -N`, `head -n N`/`--lines=N`, or `head -c N`/`--bytes=N`
+is charged 128 estimated bytes per line or the explicit byte count. Bare `head`
+uses its ten-line default. A CLI with optional plain subcommands and a final
+`--help`/`--version` flag, piped through `grep`/`rg` filters that consume only
+stdin, retains the baseline's bounded charge (300 bytes). A leading `cd`,
+`2>/dev/null`, and `2>&1` are supported. Separate commands, substitutions,
+other redirections, file operands on help filters, and unsupported limits keep
+the conservative fallback. Large numeric limits keep their large charge.
+The optional Python 3 helper tokenizes without executing commands; if it is
+unavailable, the existing fallback applies. Line and help estimates remain
+heuristic; `head -c` gives a byte cap. Denials now include the call's own charge.
+
+A call whose own estimated cost is at or below `FORCE_DELEGATE_FLOOR_BYTES`
+(default 4,096 bytes; override with `COPILOT_FORCE_DELEGATE_FLOOR_BYTES`) is
+never denied on the byte meter, even when the session total is already over
+budget. This floor exemption exists because the byte meter ratchets and never
+resets mid-session (see the ADR-005 addendum below): without it, one earlier
+unbounded-pattern charge could permanently lock a session out of every
+subsequent small, scoped inspection call. The floor does not exempt the
+distinct-file-target meter, and a call above the floor is still denied
+normally once the session is over budget.
 
 `COPILOT_FORCE_DELEGATE=off` bypasses this meter explicitly. For a reviewed exact
 overage, `COPILOT_FORCE_DELEGATE_BUDGET_OVERRIDE='bytes:reason'` (or `files:reason`)
@@ -474,7 +520,7 @@ Security validation is handled inside `pretool-check.sh` as part of the PreToolU
 
 | Rule | Trigger | Action |
 |------|---------|--------|
-| `rule_force_delegate` | 5+ consecutive Bash/Read/Edit calls | Deny, suggest agent delegation |
+| `rule_force_delegate` | Prospective byte or distinct-file budget exceeded, subject to the small-call floor | Deny, suggest narrowing or delegation |
 | `rule_qa_gate` | Task in pending-qa state for this session | Deny all except Agent(qa) and safe tc reads |
 | `rule_destructive_command` | Bash command matching a pattern in `security-rules.json` | `action: block` → deny (exit 2); `action: warn` → stderr warning (exit 0) |
 | `rule_path_scope` | Edit/Write/Bash targeting a path outside the freeze dir | Deny (exit 2) |

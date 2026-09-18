@@ -77,3 +77,38 @@ One residual risk. If the distinct-files meter counts only file-tool targets, it
 
 1. Where the budget resets. A new session is clear. Whether a compaction can be observed from a hook is not established.
 2. Whether the distinct-files meter counts Bash-inspected paths or only file-tool targets, per the residual risk above.
+
+## Addendum (2026-09-11): Bash charge precision and a floor exemption
+
+This does not revisit the Decision above; the budget still ratchets within a session and does not reset mid-session, per the Decision and Open Question 1. Two defects surfaced from real use and were fixed in `rule_force_delegate` without touching either. First, the Bash unbounded charge was size-blind: `cat`, `find`, and unflagged `grep`/`rg` were charged the flat 8,000-byte estimate by command-name pattern match alone, so a `grep` scoped to one small file was charged the same as an unfiltered recursive search or a whole large-file `cat`. `rule_force_delegate` now resolves a simple, unchained invocation's file target(s) to real paths and charges the actual summed byte size, the same way the `Read` charge already stats a real file; when the target cannot be resolved this way (a bare `find /`, a directory, a piped or chained command, stdin, an unmatched glob) it keeps the original flat estimate, which stays the correct conservative fallback for a genuinely unknowable target. Second, because the byte meter never resets mid-session, one earlier flat-charged unbounded call could push the session total over budget and then deny every subsequent call regardless of size, including a call whose own real cost was a few dozen bytes. A floor exemption now guarantees that a call whose own estimated cost is at or below `FORCE_DELEGATE_FLOOR_BYTES` (default 4,096 bytes, overridable via `COPILOT_FORCE_DELEGATE_FLOOR_BYTES`) is never denied on the byte meter, even when the session total is already over the ceiling; the distinct-file-target meter is unaffected by this floor.
+
+## Addendum (2026-09-11, follow-up): resolving Bash targets against the harness's own working directory
+
+The size-aware Bash charge above shipped with a defect that reproduced the exact "fix was applied but the denial is unchanged" symptom: `_bash_target_bytes` tested a relative target's existence against this hook process's own `$PWD`, not the Bash tool's actual working directory for that call. The two directories are commonly different: the shim spawns `pretool-check.sh` from wherever the harness happened to invoke it, which need not be, and in the reproducing case was not, the directory a real Bash command's relative `00-handoff.md` or `_meta.json` actually lived in. Every ordinary relative-path `cat`/`grep`/`find` therefore failed its existence check and silently fell through to the pre-fix flat 8,000-byte charge, reproducing the identical deny message byte-for-byte even though the size-aware code was live and correct in every other respect.
+
+The PreToolUse payload the harness sends carries a top-level `cwd` field naming the Bash tool's actual working directory for that call. `rule_force_delegate` now reads it (`PAYLOAD_CWD`) and threads it into `_bash_target_bytes`, which resolves a relative target against it before testing existence; an absolute target is unaffected, and a missing, empty, or non-directory `.cwd` falls back to the pre-existing behavior (test against this hook process's own `$PWD`) rather than erroring. A single leading `cd <dir> &&` or `cd <dir>;` is also recognized and peeled off: everything after it resolves against `<dir>` (itself resolved against `.cwd` when relative), because that is the shape the main session actually issues ahead of a `grep`/`cat` pair, and `cd some/initiative && grep -c "x" 00-handoff.md; cat _meta.json` is exactly the reproduction that surfaced this defect. Only a `cd` at the very start of the command is tracked, and only for the rest of that same command; a `cd` anywhere else, or any other chaining (pipes, redirection, command substitution, backticks) alongside it, is deliberately not attempted, and falls back to the conservative flat charge, which is the correct answer once the target is genuinely unknowable. What remains after an optional leading `cd` is split on `;` and each simple segment resolved independently, so a multi-command call sums the real size of every target it can resolve; a segment that cannot be resolved contributes the flat unbounded estimate for that segment alone, rather than discarding the real sizes of the segments next to it.
+
+Extracting `.cwd` piggybacks on the single jq call that already reads `session_id`/`tool_name`/`agent_type` from the payload, so it costs no additional fork. The Bash resolution path itself is gated behind a cheap glob pre-filter (`case "$TOOL_COMMAND" in *cat*|*find*|*grep*|*rg*)`) so the majority of Bash calls that are not `cat`/`find`/`grep`/`rg`-shaped skip it entirely, same as before this addendum. For a command that does match and does need real path resolution, the reproduction case, resolving two files via `stat`, this addendum is measurably slower on the development machine used to fix it: roughly 50-100ms slower per call in informal benchmarking, layered on top of a baseline that was already running well above the hook's own <50ms target on that machine (Test 17 in `tests/hooks/test-pretool-check.sh` was already failing before this addendum, for reasons unrelated to it). Whether that added cost is acceptable, or whether the `stat`-based resolution needs to be cheapened further, is a call for Pablo, not something resolved silently here.
+
+One field-extraction defect surfaced and was fixed while adding `.cwd`: joining the four payload fields with a tab (`@tsv`) and splitting them back with `IFS=$'\t' read` silently shifted every field after an empty one, because bash's `read` treats a run of IFS characters that are themselves shell blanks (space, tab, newline) as a single delimiter and drops the empty field between them. This was invisible with three fields, where the only-ever-empty one (`agent_type`) was last, but it corrupted `agent_type` with the `cwd` value as soon as a fourth, frequently-non-empty field followed it. The join now uses `` (ASCII unit separator), which is not a shell blank, so empty fields are preserved positionally.
+
+## Addendum (2026-09-11): matching globs and bounded pipelines
+
+The remaining live failure was a search pipeline ending in `head -20`. Its
+35,912-byte session balance plus the flat 8,000-byte fallback produced the
+reported 43,912/40,000 denial. Resolving literal paths alone could never repair
+that case. The [defect report](07-force-delegate-budget-open-defect.md) also
+identifies file globs and filtered CLI help output.
+
+The resolver now expands unquoted matching globs as data and sums regular-file
+sizes. A narrow Python tokenizer recognizes terminal `head` limits (128 estimated
+bytes per line, or the explicit `-c` byte count) and CLI help/version output piped
+through stdin-only search filters (the existing bounded charge). Quoted pipes
+remain arguments; separate commands and substitutions are not recognized as one
+bounded pipeline. Missing helpers and unsupported syntax retain the fallback.
+No proposed command is executed to estimate it. Large limits remain expensive.
+
+This refines the earlier addenda's blanket pipeline/glob fallback; it changes
+neither the thresholds, floor, session ratchet, overrides nor distinct-file
+meter. Estimates remain heuristic, particularly for long output lines and CLI
+help. Exact post-execution output accounting remains outside this change.

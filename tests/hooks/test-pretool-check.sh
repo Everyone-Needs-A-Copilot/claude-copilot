@@ -188,6 +188,26 @@ invoke_hook_bash_cmd() {
   printf '%d|%s' "$exit_code" "$output"
 }
 
+# Invoke hook with Bash payload specifying command string AND a top-level
+# .cwd (the harness's field for the Bash tool's actual working directory).
+# Built via jq -n rather than printf's %s substitution so a command
+# containing double quotes (a real grep pattern, for example) is JSON-
+# escaped correctly instead of corrupting the payload.
+invoke_hook_bash_cmd_cwd() {
+  local cmd="$1" cwd="$2" extra_env="${3:-}"
+  local payload
+  payload="$("$JQ_BIN" -cn --arg session "$TEST_SESSION" --arg cmd "$cmd" --arg cwd "$cwd" \
+    '{session_id:$session, tool_name:"Bash", cwd:$cwd, tool_input:{command:$cmd}}')"
+  local exit_code=0
+  local output
+  if [[ -n "$extra_env" ]]; then
+    output="$(eval "env $extra_env bash '$HOOK'" <<< "$payload" 2>/dev/null)" || exit_code=$?
+  else
+    output="$(bash "$HOOK" <<< "$payload" 2>/dev/null)" || exit_code=$?
+  fi
+  printf '%d|%s' "$exit_code" "$output"
+}
+
 # Send a payload to the hook and capture exit code + stdout
 invoke_hook() {
   local tool_name="$1"
@@ -306,14 +326,16 @@ test_five_small_reads_allowed_single_large_read_denied() {
 # Test 4 (ADR-005 Defect 3): alternating tool names no longer defeats the
 # meter. Bash(cat, unbounded charge) and Read(small) alternate — no tool
 # name repeats consecutively at all — yet cumulative spend still crosses the
-# budget and the crossing call is denied.
+# budget and the crossing call is denied. cat_file is sized to
+# BASH_UNBOUNDED_CHARGE so the now size-aware cat charge equals what the
+# flat estimate used to be, keeping the calls_needed math unchanged.
 # ---------------------------------------------------------------------------
 test_alternating_tools_no_longer_defeat_meter() {
   clean_state
   local small_file="$FIXTURE_DIR/alt-small.txt"
   make_sized_file "$small_file" 100
   local cat_file="$FIXTURE_DIR/alt-cat-source.txt"
-  make_sized_file "$cat_file" 50
+  make_sized_file "$cat_file" "$BASH_UNBOUNDED_CHARGE"
 
   local calls_needed=$(( BYTE_BUDGET / BASH_UNBOUNDED_CHARGE + 2 ))
   local i result exit_code last_exit=0
@@ -438,22 +460,34 @@ test_narrowed_read_charges_less_than_full_file() {
 }
 
 # ---------------------------------------------------------------------------
-# Test 8: Bash unbounded-vs-bounded charge — a whole-file `cat` charges
-# \$BASH_UNBOUNDED_CHARGE, a bounded command charges \$BASH_BOUNDED_CHARGE,
-# and the two are configured to differ (ADR-005 table: "cat of a whole file"
-# is a structurally-unbounded Bash charge).
+# Test 8: Bash unbounded-vs-bounded charge, now size-aware. A `cat` whose
+# target cannot be resolved to a real path (piped into another command)
+# still charges the flat \$BASH_UNBOUNDED_CHARGE fallback. A `cat` of a real,
+# existing file charges its actual byte size instead of that flat estimate
+# (the size-blind-charging defect fix). A bounded command still charges
+# \$BASH_BOUNDED_CHARGE, and the flat unbounded/bounded charges are
+# configured to differ (ADR-005 table).
 # ---------------------------------------------------------------------------
 test_bash_unbounded_vs_bounded_charge() {
   clean_state
-  local f="$FIXTURE_DIR/cat-target.txt"
-  make_sized_file "$f" 10
   local result exit_code
-  result="$(invoke_hook_bash_cmd "cat $f")"
+  result="$(invoke_hook_bash_cmd "cat ${FIXTURE_DIR}/cat-unresolvable.txt | wc -l")"
   exit_code="$(get_exit_code "$result")"
   if [[ "$exit_code" -eq 0 ]] && [[ "$(budget_state_bytes)" -eq "$BASH_UNBOUNDED_CHARGE" ]]; then
-    ok "whole-file 'cat' charges \$BASH_UNBOUNDED_CHARGE ($BASH_UNBOUNDED_CHARGE bytes)"
+    ok "'cat' piped into another command (unresolvable target) charges the flat \$BASH_UNBOUNDED_CHARGE ($BASH_UNBOUNDED_CHARGE bytes)"
   else
-    fail "expected cat to charge $BASH_UNBOUNDED_CHARGE bytes, got $(budget_state_bytes)"
+    fail "expected unresolvable-target cat to charge the flat $BASH_UNBOUNDED_CHARGE bytes, got $(budget_state_bytes)"
+  fi
+
+  clean_state
+  local f="$FIXTURE_DIR/cat-target.txt"
+  make_sized_file "$f" 10
+  result="$(invoke_hook_bash_cmd "cat $f")"
+  exit_code="$(get_exit_code "$result")"
+  if [[ "$exit_code" -eq 0 ]] && [[ "$(budget_state_bytes)" -eq 10 ]]; then
+    ok "whole-file 'cat' of a real 10 B file charges its actual size (10 B), not the flat \$BASH_UNBOUNDED_CHARGE"
+  else
+    fail "expected cat of a real 10 B file to charge 10 bytes, got $(budget_state_bytes)"
   fi
 
   clean_state
@@ -469,6 +503,105 @@ test_bash_unbounded_vs_bounded_charge() {
     ok "unbounded charge ($BASH_UNBOUNDED_CHARGE) > bounded charge ($BASH_BOUNDED_CHARGE) in the committed baseline"
   else
     fail "baseline misconfigured: unbounded charge should exceed bounded charge"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Test 8b: Bash target resolution against the payload's .cwd, not this hook
+# process's own $PWD (the "fix applied but denial unchanged" defect). A
+# relative target resolves via .cwd; with no .cwd it falls back to prior
+# behavior; a leading `cd <dir> &&`/`cd <dir>;` plus a `;`-separated
+# multi-command remainder (the real reproduction shape) sums real file
+# sizes; the conservative fallbacks (`find /`, a piped grep) are unchanged.
+# ---------------------------------------------------------------------------
+test_bash_cwd_resolves_relative_target() {
+  clean_state
+  local f="$FIXTURE_DIR/cwd-target.txt"
+  make_sized_file "$f" 37
+  local result exit_code
+  result="$(invoke_hook_bash_cmd_cwd "cat cwd-target.txt" "$FIXTURE_DIR")"
+  exit_code="$(get_exit_code "$result")"
+  if [[ "$exit_code" -eq 0 ]] && [[ "$(budget_state_bytes)" -eq 37 ]]; then
+    ok "relative 'cat' target resolves against payload .cwd, charges real size (37 B)"
+  else
+    fail "expected relative cat target resolved via .cwd to charge 37 bytes, got $(budget_state_bytes) (exit $exit_code)"
+  fi
+}
+
+test_bash_cwd_absent_falls_back_to_prior_behavior() {
+  clean_state
+  local f="$FIXTURE_DIR/cwd-missing-context.txt"
+  make_sized_file "$f" 12
+  local result exit_code
+  # No .cwd in the payload, and this hook process's own $PWD does not
+  # contain a same-named relative file, so resolution must fail exactly
+  # like it did before .cwd threading existed: flat unbounded charge.
+  result="$(invoke_hook_bash_cmd "cat cwd-missing-context.txt")"
+  exit_code="$(get_exit_code "$result")"
+  if [[ "$exit_code" -eq 0 ]] && [[ "$(budget_state_bytes)" -eq "$BASH_UNBOUNDED_CHARGE" ]]; then
+    ok "relative cat target with no payload .cwd falls back to flat \$BASH_UNBOUNDED_CHARGE ($BASH_UNBOUNDED_CHARGE bytes)"
+  else
+    fail "expected no-cwd relative target to charge flat $BASH_UNBOUNDED_CHARGE bytes, got $(budget_state_bytes)"
+  fi
+}
+
+test_bash_cwd_leading_cd_multi_segment_sums_real_sizes() {
+  clean_state
+  local f1="$FIXTURE_DIR/00-handoff.md"
+  local f2="$FIXTURE_DIR/_meta.json"
+  make_sized_file "$f1" 41
+  make_sized_file "$f2" 59
+  # Payload .cwd is deliberately a DIFFERENT directory (/tmp) than the
+  # leading cd's absolute target, proving resolution follows the cd target,
+  # not the payload cwd, once a leading cd is present.
+  local cmd="cd ${FIXTURE_DIR} && grep -c \"gitkeep\" 00-handoff.md; cat _meta.json"
+  local result exit_code
+  result="$(invoke_hook_bash_cmd_cwd "$cmd" "/tmp")"
+  exit_code="$(get_exit_code "$result")"
+  if [[ "$exit_code" -eq 0 ]] && [[ "$(budget_state_bytes)" -eq 100 ]]; then
+    ok "leading 'cd <dir> && grep ...; cat ...' sums both real file sizes (41 + 59 = 100 B)"
+  else
+    fail "expected leading-cd multi-segment command to charge 100 bytes, got $(budget_state_bytes) (exit $exit_code)"
+  fi
+}
+
+test_bash_cwd_allowed_despite_over_budget_session() {
+  clean_state
+  printf '{"session_id":"%s","bytesCharged":%d,"filesTouched":[],"updatedAt":"%s"}\n' \
+    "$TEST_SESSION" "$BYTE_BUDGET" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "${STATE_DIR}/budget-${TEST_SESSION}.json"
+  local f1="$FIXTURE_DIR/over-budget-handoff.md"
+  local f2="$FIXTURE_DIR/over-budget-meta.json"
+  make_sized_file "$f1" 20
+  make_sized_file "$f2" 20
+  local cmd="cd ${FIXTURE_DIR} && grep -c \"gitkeep\" over-budget-handoff.md; cat over-budget-meta.json"
+  local result exit_code
+  result="$(invoke_hook_bash_cmd_cwd "$cmd" "/tmp")"
+  exit_code="$(get_exit_code "$result")"
+  if [[ "$exit_code" -eq 0 ]]; then
+    ok "a tiny, real cwd-resolved multi-segment command is allowed even when the session is already at budget"
+  else
+    fail "expected tiny resolved command to be allowed despite over-budget session, got exit $exit_code: $(get_output "$result")"
+  fi
+}
+
+test_bash_cwd_conservative_regressions_still_unbounded() {
+  clean_state
+  local result exit_code
+  result="$(invoke_hook_bash_cmd_cwd "find /" "$FIXTURE_DIR")"
+  exit_code="$(get_exit_code "$result")"
+  if [[ "$exit_code" -eq 0 ]] && [[ "$(budget_state_bytes)" -eq "$BASH_UNBOUNDED_CHARGE" ]]; then
+    ok "'find /' (no resolvable target) still charges the flat \$BASH_UNBOUNDED_CHARGE even with a valid payload .cwd"
+  else
+    fail "expected 'find /' to still charge flat $BASH_UNBOUNDED_CHARGE bytes, got $(budget_state_bytes)"
+  fi
+
+  clean_state
+  result="$(invoke_hook_bash_cmd_cwd "somecmd | grep pattern" "$FIXTURE_DIR")"
+  exit_code="$(get_exit_code "$result")"
+  if [[ "$exit_code" -eq 0 ]] && [[ "$(budget_state_bytes)" -eq "$BASH_UNBOUNDED_CHARGE" ]]; then
+    ok "'grep' reading from a pipe (no file argument) still charges the flat \$BASH_UNBOUNDED_CHARGE"
+  else
+    fail "expected piped grep with no file arg to still charge flat $BASH_UNBOUNDED_CHARGE bytes, got $(budget_state_bytes)"
   fi
 }
 
@@ -1645,6 +1778,12 @@ echo "--- Test 7: narrowed Read (offset/limit) charges less than the full file"
 test_narrowed_read_charges_less_than_full_file
 echo "--- Test 8: Bash unbounded vs bounded charge"
 test_bash_unbounded_vs_bounded_charge
+echo "--- Test 8b: Bash target resolution against payload .cwd"
+test_bash_cwd_resolves_relative_target
+test_bash_cwd_absent_falls_back_to_prior_behavior
+test_bash_cwd_leading_cd_multi_segment_sums_real_sizes
+test_bash_cwd_allowed_despite_over_budget_session
+test_bash_cwd_conservative_regressions_still_unbounded
 echo "--- Test 9: Agent tool always allowed, never charged"
 test_agent_always_allowed
 echo "--- Test 10: COPILOT_FORCE_DELEGATE=off escape hatch"
