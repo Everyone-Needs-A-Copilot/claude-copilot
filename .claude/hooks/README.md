@@ -6,7 +6,7 @@ The hooks system provides lifecycle-based injection and enforcement for the main
 
 | Hook File | Claude Lifecycle Event | Rule | Enforcement |
 |-----------|----------------------|------|-------------|
-| `pretool-check.sh` | PreToolUse | Force-delegate (estimated bytes and distinct file targets, ADR-005) | Mandatory — exit 2 |
+| `pretool-check.sh` | PreToolUse | Force-delegate (measured main-session output bytes and distinct file targets, ADR-005) | Mandatory — exit 2 |
 | `pretool-check.sh` | PreToolUse | QA gate (after @agent-me, before @agent-qa) | Mandatory — exit 2 |
 | `pretool-check.sh` | PreToolUse | Active-journey Agent dispatch witness | Mandatory for active journeys — exit 2 on mismatch/indeterminate state |
 | `pretool-check.sh` | PreToolUse | Destructive-command safety `/careful` | block → exit 2; warn → exit 0 + stderr |
@@ -172,34 +172,26 @@ Runtime state is written to `.claude/hooks/state/` (gitignored, contents ephemer
 
 | File | Shape | Purpose |
 |------|-------|---------|
-| `budget-<session_id>.json` | `{ session_id, bytesCharged, filesTouched, updatedAt }` | Accepted estimated cost per session; dispatch does not reset it |
+| `budget-<session_id>.json` | `{ session_id, bytesCharged, filesTouched, transcriptPath, transcriptOffset, updatedAt }` | Measured main-session output and file targets per session; dispatch does not reset it, compaction does |
 | `qa-gate.json` | See below | QA gate pending-tasks and retry state |
 
-State files are written atomically (write to `.tmp` file then `mv`) to prevent corruption if the hook is interrupted. Abandoned budget state (>24h) and QA state (>72h) expire on next use. Old streak files are ignored.
+State files are written atomically (write to `.tmp` file then `mv`) to prevent corruption if the hook is interrupted. Budget state does not expire by age (measured bytes stay true while the same transcript is continued); QA state (>72h) expires on next use. Old streak files are ignored.
 
-The highest-version `.claude/force-delegate-budget-baseline-v*.json` supplies the
-policy. The initial policy allows 40,000 estimated bytes and five distinct
-Read/Edit/Write targets, warns at 80%, and denies a call that would exceed either
-limit without charging the denied attempt. Read charges file bytes (or a line
-slice); Edit/Write charge UTF-8 replacement/content bytes. Bash uses estimates:
-300 bytes for bounded commands and 8,000 for recognized unbounded output.
-Shell classification is heuristic, Bash paths are not counted, and equivalent
-path spellings are not canonicalized. This is context-budget guidance enforced
-before execution, not exact token accounting or a security boundary.
+The highest-version `.claude/force-delegate-budget-baseline-v*.json` supplies the policy. v1.1.0 allows 200,000 bytes of measured main-session output (~50,000 tokens, 5% of a 1M-token window) and ten distinct Read/Edit/Write targets, and warns at 80% of either. Both limits were calibrated on 38 retained session transcripts to trip only on the 2 genuine sprawl sessions (see the baseline's `*_basis` fields).
 
-`COPILOT_FORCE_DELEGATE=off` bypasses this meter explicitly. For a reviewed exact
-overage, `COPILOT_FORCE_DELEGATE_BUDGET_OVERRIDE='bytes:reason'` (or `files:reason`)
-appends a local review entry to `.claude/force-delegate-budget-overrides.jsonl`.
-Local entries may authorize the same meter/threshold/actual/policy hash again;
-CI ignores the override environment variable and reads only entries committed
-in HEAD. A changed total or policy needs a new review. Missing policy or malformed
-state reports budget unavailability; other dispatcher gates still run.
+The byte meter measures, it does not estimate. Every PreToolUse payload names the session transcript (`transcript_path`), and the hook reads only the bytes appended since its previous call (a stored offset, so the cost tracks new output, not session length). It charges the main-session entries that actually entered context: `tool_result` content (UTF-8 text bytes; an image or other non-text block is the policy's flat `image_block_bytes`) and the Edit/Write/MultiEdit/NotebookEdit input the model wrote. Subagent turns live in their own transcript files and are also skipped if flagged `isSidechain`. A command's text therefore costs nothing: `grep -rn x src/*.py | head` is charged whatever it returned, never a guess. A line still being written is left for the next call. Transcript lines are parsed as JSON data only, never executed.
+
+Because output is measured after it exists, the meter cannot stop the call that produces it; it stops the session from continuing on top of it. Once either meter is over its limit, main-session Bash/Read/Edit/Write calls are denied until the work is delegated or the session is compacted. Claude Code already truncates a single Bash result (~30,000 characters) and refuses oversized Reads, so one call cannot overshoot by more than that. A denied call keeps the measurement (bytes and offset are facts about the transcript) but does not add its file target.
+
+Compaction removes the measured output from context, so `session-start.sh` zeroes both meters when SessionStart fires with `source: "compact"`, anchored at the transcript's current end so the compacted history is never re-measured. No other event resets the meters. State left by the retired pre-call estimator (no `transcriptPath`) is re-measured from the transcript on first use; its file targets are kept. A missing transcript leaves the meter where it was and says so on stderr.
+
+`COPILOT_FORCE_DELEGATE=off` bypasses this meter explicitly. For a reviewed exact overage, `COPILOT_FORCE_DELEGATE_BUDGET_OVERRIDE='bytes:reason'` (or `files:reason`) appends a local review entry to `.claude/force-delegate-budget-overrides.jsonl`. Local entries may authorize the same meter/threshold/actual/policy hash again; CI ignores the override environment variable and reads only entries committed in HEAD. A changed total or policy needs a new review. Missing policy or malformed state reports budget unavailability; other dispatcher gates still run.
 
 ### Rule Sets
 
 | Rule | Owner Task | Trigger | Action |
 |------|-----------|---------|--------|
-| `rule_force_delegate` | ADR-005 / TASK-49 | Prospective byte or distinct-file budget exceeded | Deny with measured estimate and narrowing/delegation guidance |
+| `rule_force_delegate` | ADR-005 / TASK-49 | Measured output bytes or distinct-file budget exceeded | Deny with the measured totals and delegation/`/compact` guidance |
 | `rule_qa_gate` | P4.1 (task 16) | Any task in pending-qa state for this session | Deny all except Agent(qa) and safe tc reads |
 | `rule_journey_dispatch` | TASK-296 | Direct main-session framework `Agent` call | Ask `cc journey verify-dispatch` to allow no active journey or atomically authorize the exact prepared dispatch |
 
@@ -213,10 +205,10 @@ To add a rule:
 
 ### Force-Delegate Rule
 
-Tracks estimated bytes and distinct file targets across `Bash`, `Read`, `Edit`, and `Write` using the versioned budget baseline described above. Over-budget attempts are denied without increasing accepted spend.
+Tracks measured main-session output bytes and distinct file targets across `Bash`, `Read`, `Edit`, and `Write` using the versioned budget baseline described above. Over-budget attempts are denied; a denied attempt never adds its file target.
 
 - `Agent` calls are not charged by this rule; journey and QA checks still apply
-- Changing tools or dispatching an agent does not reset accumulated spend
+- Changing tools or dispatching an agent does not reset accumulated spend; compaction does
 - Exact reviewed overrides are recorded; CI accepts only committed matching entries
 - **Escape hatch:** Set `COPILOT_FORCE_DELEGATE=off` to disable for a shell session
 
@@ -474,7 +466,7 @@ Security validation is handled inside `pretool-check.sh` as part of the PreToolU
 
 | Rule | Trigger | Action |
 |------|---------|--------|
-| `rule_force_delegate` | 5+ consecutive Bash/Read/Edit calls | Deny, suggest agent delegation |
+| `rule_force_delegate` | Measured output bytes or distinct-file budget exceeded | Deny, suggest delegation or `/compact` |
 | `rule_qa_gate` | Task in pending-qa state for this session | Deny all except Agent(qa) and safe tc reads |
 | `rule_destructive_command` | Bash command matching a pattern in `security-rules.json` | `action: block` → deny (exit 2); `action: warn` → stderr warning (exit 0) |
 | `rule_path_scope` | Edit/Write/Bash targeting a path outside the freeze dir | Deny (exit 2) |

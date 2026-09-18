@@ -1,0 +1,17 @@
+{
+  "$comment": "Committed baseline for rule_force_delegate's cost budget in .claude/hooks/pretool-check.sh (ADR-005: docs/10-architecture/06-adr-005-force-delegate-cost-budget.md, measured revision). Highest-version file wins, so a deliberate threshold change is a new file and a reviewable diff. v1.1.0 supersedes v1.0.0: the byte meter now measures tool output that actually entered the main session (read from the session transcript) instead of estimating each call's cost before it runs, so the pre-call Bash charges (bash_bounded_charge_bytes, bash_unbounded_charge_bytes) no longer exist.",
+  "schema_version": "1.1.0",
+  "captured_at": "2026-09-18T00:00:00Z",
+  "byte_to_token_ratio": 4.0,
+  "byte_to_token_basis": "Unchanged from v1.0.0 (FF9's basis): ~4 characters per token for English/markdown/code text. Used only to show an approximate token figure in deny and warning messages.",
+  "thresholds": {
+    "byte_budget_bytes": 200000,
+    "byte_budget_basis": "~50,000 tokens, which is v1.0.0's own stated target of ~5% of the context window, applied to the 1M-token window sessions now run with (v1.0.0 sized 5% of a 200K window). Calibrated on 38 retained main-session transcripts measured the same way the hook now measures (2026-09-18): 17 exceeded v1.0.0's 40,000 bytes, so the old threshold tripped on ordinary work once measured honestly; 2 exceeded 200,000 bytes (311,691 and 363,023), the genuine main-session sprawl this rule exists to stop; none exceeded 400,000. The meter resets at compaction, since compaction removes the measured output from context.",
+    "files_budget_count": 10,
+    "files_budget_basis": "Raised from v1.0.0's 5, calibrated on the same 38 transcripts (distinct Read/Edit/Write/MultiEdit/NotebookEdit targets per main session, 2026-09-18): 5 was exceeded by 8 sessions (21%), mostly ordinary work, while 10 is exceeded by exactly 2 (17 and 21 files), the same sprawl rate the byte budget targets. Counts only file-tool targets, which are exact before the call runs. Resets at compaction together with the byte meter.",
+    "warning_ratio": 0.8,
+    "warning_ratio_basis": "Unchanged from v1.0.0: emit an advisory at 80% of either meter, before the deny.",
+    "image_block_bytes": 6000,
+    "image_block_basis": "Flat charge for a non-text tool_result block (an image or document read into the session), whose transcript form is base64 and would badly overstate its context cost if counted as text. ~1,500 tokens at the 4.0 byte_to_token_ratio, a typical screenshot-sized image. The only estimate left in the meter."
+  }
+}

@@ -34,6 +34,8 @@ GATE_FILE="${STATE_DIR}/qa-gate.json"
 clean_state() {
   rm -f "${STATE_DIR}/budget-${TEST_SESSION}.json" \
         "${STATE_DIR}/budget-${TEST_SESSION}.lock" 2>/dev/null || true
+  [[ -n "${TRANSCRIPT:-}" ]] && : > "$TRANSCRIPT"
+  return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -51,8 +53,6 @@ fi
 BYTE_BUDGET="$("$JQ_BIN" -r '.thresholds.byte_budget_bytes' "$BUDGET_BASELINE_FILE")"
 FILES_BUDGET="$("$JQ_BIN" -r '.thresholds.files_budget_count' "$BUDGET_BASELINE_FILE")"
 WARNING_RATIO="$("$JQ_BIN" -r '.thresholds.warning_ratio' "$BUDGET_BASELINE_FILE")"
-BASH_BOUNDED_CHARGE="$("$JQ_BIN" -r '.thresholds.bash_bounded_charge_bytes' "$BUDGET_BASELINE_FILE")"
-BASH_UNBOUNDED_CHARGE="$("$JQ_BIN" -r '.thresholds.bash_unbounded_charge_bytes' "$BUDGET_BASELINE_FILE")"
 
 # Committed override ledger — tests that exercise the override path append to
 # and must clean up the SAME file the hook writes to (.claude/force-delegate-
@@ -76,34 +76,36 @@ make_sized_file() {
   head -c "$bytes" /dev/zero | tr '\0' 'a' > "$path"
 }
 
-# Read payload for a specific file_path, optional offset/limit.
-invoke_hook_read_file() {
-  local file_path="$1" extra_env="${2:-}" offset="${3:-}" limit="${4:-}"
-  local payload
-  if [[ -n "$offset" || -n "$limit" ]]; then
-    payload="$(printf '{"session_id":"%s","tool_name":"Read","tool_input":{"file_path":"%s","offset":%s,"limit":%s}}' \
-      "$TEST_SESSION" "$file_path" "${offset:-0}" "${limit:-1000000}")"
-  else
-    payload="$(printf '{"session_id":"%s","tool_name":"Read","tool_input":{"file_path":"%s"}}' \
-      "$TEST_SESSION" "$file_path")"
-  fi
-  local exit_code=0 output
-  if [[ -n "$extra_env" ]]; then
-    output="$(eval "env $extra_env bash '$HOOK'" <<< "$payload" 2>/dev/null)" || exit_code=$?
-  else
-    output="$(bash "$HOOK" <<< "$payload" 2>/dev/null)" || exit_code=$?
-  fi
-  printf '%d|%s' "$exit_code" "$output"
+# The measured byte meter reads the session transcript named in the payload.
+# Every main-session helper below points at this fixture transcript, and a
+# test "produces tool output" by appending the entry Claude Code would write.
+TRANSCRIPT="$FIXTURE_DIR/transcript.jsonl"
+: > "$TRANSCRIPT"
+
+# Appends a main-session tool_result whose content is exactly $1 bytes.
+append_result() {
+  local bytes="$1" sidechain="${2:-false}"
+  # Content is piped, not passed as an argument: Linux caps one argv string
+  # at 128 KiB, below the budget-sized results these tests append.
+  head -c "$bytes" /dev/zero | tr '\0' 'a' | "$JQ_BIN" -Rsc --argjson side "$sidechain" \
+    '{type:"user", isSidechain:$side, message:{role:"user", content:[{type:"tool_result", tool_use_id:"t", content:.}]}}' \
+    >> "$TRANSCRIPT"
 }
 
-# Write payload with $2 bytes of content (all "a") targeting $1.
-invoke_hook_write_bytes() {
-  local file_path="$1" content_bytes="$2" extra_env="${3:-}"
-  local content
-  content="$(head -c "$content_bytes" /dev/zero | tr '\0' 'a')"
+# Appends a main-session Write tool_use whose content is exactly $1 bytes.
+append_write() {
+  local bytes="$1"
+  head -c "$bytes" /dev/zero | tr '\0' 'a' | "$JQ_BIN" -Rsc \
+    '{type:"assistant", isSidechain:false, message:{role:"assistant", content:[{type:"tool_use", id:"t", name:"Write", input:{file_path:"f", content:.}}]}}' \
+    >> "$TRANSCRIPT"
+}
+
+# Read payload for a specific file_path.
+invoke_hook_read_file() {
+  local file_path="$1" extra_env="${2:-}"
   local payload
-  payload="$(printf '{"session_id":"%s","tool_name":"Write","tool_input":{"file_path":"%s","content":"%s"}}' \
-    "$TEST_SESSION" "$file_path" "$content")"
+  payload="$(printf '{"session_id":"%s","tool_name":"Read","transcript_path":"%s","tool_input":{"file_path":"%s"}}' \
+    "$TEST_SESSION" "$TRANSCRIPT" "$file_path")"
   local exit_code=0 output
   if [[ -n "$extra_env" ]]; then
     output="$(eval "env $extra_env bash '$HOOK'" <<< "$payload" 2>/dev/null)" || exit_code=$?
@@ -176,8 +178,8 @@ invoke_hook_bash_cmd() {
   local cmd="$1"
   local extra_env="${2:-}"
   local payload
-  payload="$(printf '{"session_id":"%s","tool_name":"Bash","tool_input":{"command":"%s"}}' \
-    "$TEST_SESSION" "$cmd")"
+  payload="$("$JQ_BIN" -cn --arg session "$TEST_SESSION" --arg cmd "$cmd" --arg transcript "$TRANSCRIPT" \
+    '{session_id:$session, tool_name:"Bash", transcript_path:$transcript, tool_input:{command:$cmd}}')"
   local exit_code=0
   local output
   if [[ -n "$extra_env" ]]; then
@@ -193,8 +195,8 @@ invoke_hook() {
   local tool_name="$1"
   local extra_env="${2:-}"
   local payload
-  payload="$(printf '{"session_id":"%s","tool_name":"%s","tool_input":{"command":"echo hi"}}' \
-    "$TEST_SESSION" "$tool_name")"
+  payload="$(printf '{"session_id":"%s","tool_name":"%s","transcript_path":"%s","tool_input":{"command":"echo hi"}}' \
+    "$TEST_SESSION" "$tool_name" "$TRANSCRIPT")"
   local exit_code=0
   local output
   if [[ -n "$extra_env" ]]; then
@@ -224,151 +226,125 @@ test_single_bash_allowed() {
 }
 
 # ---------------------------------------------------------------------------
-# Test 2: a bounded Bash call charges exactly the configured bounded amount,
-# and four more consecutive bounded calls stay allowed (ADR-005: cost, not
-# call count — this used to be "streak never reaches 5", now it's "total
-# spend stays under budget").
+# Test 2 (ADR-005 measured revision): a Bash call's command text costs
+# nothing; only the output that actually lands in the transcript is charged,
+# and each byte is charged once however many calls follow it.
 # ---------------------------------------------------------------------------
-test_bash_bounded_charge_and_repetition_allowed() {
+test_bash_measured_output_charged_once() {
   clean_state
   local result exit_code
   result="$(invoke_hook "Bash")"
   exit_code="$(get_exit_code "$result")"
-  if [[ "$exit_code" -eq 0 ]] && [[ "$(budget_state_bytes)" -eq "$BASH_BOUNDED_CHARGE" ]]; then
-    ok "single bounded Bash call charges exactly \$BASH_BOUNDED_CHARGE ($BASH_BOUNDED_CHARGE bytes)"
+  if [[ "$exit_code" -eq 0 ]] && [[ "$(budget_state_bytes)" -eq 0 ]]; then
+    ok "a Bash call with no output in the transcript yet charges 0 bytes"
   else
-    fail "expected exit 0 and bytesCharged=$BASH_BOUNDED_CHARGE, got exit $exit_code bytesCharged=$(budget_state_bytes)"
+    fail "expected exit 0 and bytesCharged=0, got exit $exit_code bytesCharged=$(budget_state_bytes)"
   fi
 
+  append_result 300
   local i all_passed=true
-  for i in 1 2 3 4; do
+  for i in 1 2 3 4 5; do
     result="$(invoke_hook "Bash")"
     exit_code="$(get_exit_code "$result")"
-    if [[ "$exit_code" -ne 0 ]]; then
-      all_passed=false
-      fail "call $i of 4 more bounded Bash calls should be allowed, got exit $exit_code"
-    fi
+    [[ "$exit_code" -eq 0 ]] || { all_passed=false; fail "call $i of 5 should be allowed, got exit $exit_code"; }
   done
-  local expected=$(( BASH_BOUNDED_CHARGE * 5 ))
-  if $all_passed && [[ "$(budget_state_bytes)" -eq "$expected" ]]; then
-    ok "5 total bounded Bash calls: all allowed, bytesCharged ratchets to $expected (5 x $BASH_BOUNDED_CHARGE)"
+  if $all_passed && [[ "$(budget_state_bytes)" -eq 300 ]]; then
+    ok "300 B of measured output is charged exactly once across 5 later calls (bytesCharged=300)"
   else
-    fail "expected bytesCharged=$expected after 5 bounded Bash calls, got $(budget_state_bytes)"
+    fail "expected bytesCharged=300 after 5 calls over one 300 B result, got $(budget_state_bytes)"
   fi
 }
 
 # ---------------------------------------------------------------------------
-# Test 3 (ADR-005 core case): five small reads stay allowed; a single large
-# read that alone exceeds the byte budget is denied on FIRST contact — this
-# is Defect 1/2 from ADR-005 directly: cost is metered, not call count, so a
-# single expensive call can be denied before any repetition at all.
+# Test 3: five small results stay allowed; one result that alone exceeds the
+# byte budget denies the NEXT main-session call. The meter cannot stop the
+# call that produced it (the output is measured after it exists), but it
+# stops the session from continuing on top of it.
 # ---------------------------------------------------------------------------
-test_five_small_reads_allowed_single_large_read_denied() {
+test_small_results_allowed_oversized_result_denies_next_call() {
   clean_state
-  local small_bytes=500
-  local i f result exit_code all_passed=true
+  local i result exit_code all_passed=true
   for i in 1 2 3 4 5; do
-    f="$FIXTURE_DIR/small-$i.txt"
-    make_sized_file "$f" "$small_bytes"
-    result="$(invoke_hook_read_file "$f")"
+    append_result 500
+    result="$(invoke_hook "Bash")"
     exit_code="$(get_exit_code "$result")"
-    if [[ "$exit_code" -ne 0 ]]; then
-      all_passed=false
-      fail "small read $i/5 ($small_bytes B) should be allowed, got exit $exit_code"
-    fi
+    [[ "$exit_code" -eq 0 ]] || { all_passed=false; fail "small result $i/5 should leave the next call allowed, got exit $exit_code"; }
   done
-  local expected_small=$(( small_bytes * 5 ))
-  if $all_passed && [[ "$(budget_state_bytes)" -eq "$expected_small" ]]; then
-    ok "5 reads of $small_bytes B each ($expected_small B total, budget $BYTE_BUDGET B): all allowed"
+  if $all_passed && [[ "$(budget_state_bytes)" -eq 2500 ]]; then
+    ok "5 results of 500 B each (2500 B, budget $BYTE_BUDGET B): all following calls allowed"
   else
-    fail "expected bytesCharged=$expected_small after 5 small reads, got $(budget_state_bytes)"
+    fail "expected bytesCharged=2500 after 5 small results, got $(budget_state_bytes)"
   fi
 
-  # Fresh session: ONE read whose size alone exceeds the byte budget.
-  local sess2="test-large-read-$$"
-  rm -f "${STATE_DIR}/budget-${sess2}.json" "${STATE_DIR}/budget-${sess2}.lock" 2>/dev/null || true
-  local big_bytes=$(( BYTE_BUDGET + 1 ))
-  local big_file="$FIXTURE_DIR/big-single.txt"
-  make_sized_file "$big_file" "$big_bytes"
-  local payload
-  payload="$(printf '{"session_id":"%s","tool_name":"Read","tool_input":{"file_path":"%s"}}' "$sess2" "$big_file")"
+  clean_state
+  append_result $(( BYTE_BUDGET + 1 ))
   local out ec=0
-  out="$(bash "$HOOK" <<< "$payload" 2>/dev/null)" || ec=$?
+  result="$(invoke_hook "Bash")"
+  ec="$(get_exit_code "$result")"
+  out="$(get_output "$result")"
   if [[ "$ec" -eq 2 ]] && printf '%s' "$out" | "$JQ_BIN" -e '.permissionDecision == "deny"' > /dev/null 2>&1; then
-    ok "a single read of $big_bytes B (> $BYTE_BUDGET B budget) is denied on the FIRST call, not the 5th"
+    ok "one result of $(( BYTE_BUDGET + 1 )) B (> $BYTE_BUDGET B budget) denies the very next call"
   else
-    fail "single oversized read should deny on first contact, got exit $ec: $out"
+    fail "next call after an oversized result should deny, got exit $ec: $out"
   fi
-  rm -f "${STATE_DIR}/budget-${sess2}.json" "${STATE_DIR}/budget-${sess2}.lock" 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------------------
-# Test 4 (ADR-005 Defect 3): alternating tool names no longer defeats the
-# meter. Bash(cat, unbounded charge) and Read(small) alternate — no tool
-# name repeats consecutively at all — yet cumulative spend still crosses the
-# budget and the crossing call is denied.
+# Test 4 (ADR-005 Defect 3): alternating tool names does not defeat the
+# meter. Bash and Read alternate, each producing output, and the call after
+# cumulative output crosses the budget is denied.
 # ---------------------------------------------------------------------------
 test_alternating_tools_no_longer_defeat_meter() {
   clean_state
   local small_file="$FIXTURE_DIR/alt-small.txt"
   make_sized_file "$small_file" 100
-  local cat_file="$FIXTURE_DIR/alt-cat-source.txt"
-  make_sized_file "$cat_file" 50
-
-  local calls_needed=$(( BYTE_BUDGET / BASH_UNBOUNDED_CHARGE + 2 ))
+  local chunk=$(( BYTE_BUDGET / 5 ))
   local i result exit_code last_exit=0
-  for (( i = 1; i <= calls_needed; i++ )); do
-    result="$(invoke_hook_bash_cmd "cat $cat_file")"
+  for (( i = 1; i <= 8; i++ )); do
+    append_result "$chunk"
+    result="$(invoke_hook_bash_cmd "git status")"
     exit_code="$(get_exit_code "$result")"
-    if [[ "$exit_code" -eq 2 ]]; then
-      last_exit=2
-      break
-    fi
+    [[ "$exit_code" -eq 2 ]] && { last_exit=2; break; }
     result="$(invoke_hook_read_file "$small_file")"
     exit_code="$(get_exit_code "$result")"
-    if [[ "$exit_code" -eq 2 ]]; then
-      last_exit=2
-      break
-    fi
+    [[ "$exit_code" -eq 2 ]] && { last_exit=2; break; }
   done
-
   if [[ "$last_exit" -eq 2 ]]; then
-    ok "alternating cat/Read (no consecutive same-tool repetition) still trips the budget once cumulative spend crosses $BYTE_BUDGET B"
+    ok "alternating Bash/Read still trips the budget once cumulative measured output crosses $BYTE_BUDGET B"
   else
-    fail "alternating cat/Read never denied after $calls_needed round-trips — meter is defeatable by alternation (ADR-005 Defect 3 regression)"
+    fail "alternating Bash/Read never denied — meter is defeatable by alternation (ADR-005 Defect 3 regression)"
   fi
 }
 
 # ---------------------------------------------------------------------------
-# Test 5 (ADR-005 Defect 4): Write is now charged. Previously Write was
-# unmetered entirely (free), while a one-line Edit was charged. A large
-# Write now contributes to the budget exactly like Read/Edit.
+# Test 5 (ADR-005 Defect 4): Write content the model put into the session is
+# charged, exactly like tool output.
 # ---------------------------------------------------------------------------
-test_write_now_charged() {
+test_write_content_charged() {
   clean_state
-  local small_write=200
+  append_write 200
   local result exit_code
-  result="$(invoke_hook_write_bytes "$FIXTURE_DIR/write-small.txt" "$small_write")"
+  result="$(invoke_hook "Bash")"
   exit_code="$(get_exit_code "$result")"
-  if [[ "$exit_code" -eq 0 ]] && [[ "$(budget_state_bytes)" -eq "$small_write" ]]; then
-    ok "Write of $small_write B charges exactly $small_write B (Write is no longer free)"
+  if [[ "$exit_code" -eq 0 ]] && [[ "$(budget_state_bytes)" -eq 200 ]]; then
+    ok "a 200 B Write in the transcript charges exactly 200 B (Write is not free)"
   else
-    fail "expected exit 0 and bytesCharged=$small_write after small Write, got exit $exit_code bytesCharged=$(budget_state_bytes)"
+    fail "expected exit 0 and bytesCharged=200 after a 200 B Write, got exit $exit_code bytesCharged=$(budget_state_bytes)"
   fi
 
   clean_state
-  local big_write=$(( BYTE_BUDGET + 1000 ))
-  result="$(invoke_hook_write_bytes "$FIXTURE_DIR/write-big.txt" "$big_write")"
+  append_write $(( BYTE_BUDGET + 1000 ))
+  result="$(invoke_hook "Bash")"
   exit_code="$(get_exit_code "$result")"
   if [[ "$exit_code" -eq 2 ]]; then
-    ok "a single Write of $big_write B (> $BYTE_BUDGET B budget) is denied — Write now participates in the budget"
+    ok "a Write of $(( BYTE_BUDGET + 1000 )) B (> $BYTE_BUDGET B budget) denies the next call — Write participates in the budget"
   else
-    fail "oversized Write should be denied, got exit $exit_code"
+    fail "call after an oversized Write should be denied, got exit $exit_code"
   fi
 }
 
 # ---------------------------------------------------------------------------
-# Test 6: distinct-files meter — 5 distinct small files allowed, a 6th
+# Test 6: distinct-files meter — $FILES_BUDGET distinct small files allowed, one more
 # distinct file denied even though bytes are trivial; re-reading an
 # already-touched file does not grow the count.
 # ---------------------------------------------------------------------------
@@ -400,136 +376,119 @@ test_distinct_files_budget() {
     fail "re-read of an already-touched file should stay allowed with no count growth, got exit $exit_code count=$(budget_state_files_count)"
   fi
 
-  # A genuinely new (6th) distinct file exceeds the files budget → denied.
+  # A genuinely new distinct file past $FILES_BUDGET exceeds the files budget → denied.
   local new_file="$FIXTURE_DIR/distinct-new.txt"
   make_sized_file "$new_file" 50
   result="$(invoke_hook_read_file "$new_file")"
   exit_code="$(get_exit_code "$result")"
-  if [[ "$exit_code" -eq 2 ]]; then
-    ok "a $(( FILES_BUDGET + 1 ))th distinct file (bytes trivial) is denied by the files-count meter, independent of the byte meter"
+  if [[ "$exit_code" -eq 2 ]] && [[ "$(budget_state_files_count)" -eq "$FILES_BUDGET" ]]; then
+    ok "a $(( FILES_BUDGET + 1 ))th distinct file is denied by the files-count meter, and the denied target is not recorded"
   else
-    fail "the file pushing distinct-files count over $FILES_BUDGET should be denied, got exit $exit_code"
+    fail "the file pushing distinct-files count over $FILES_BUDGET should be denied and not recorded, got exit $exit_code count=$(budget_state_files_count)"
   fi
 }
 
 # ---------------------------------------------------------------------------
-# Test 7: a Read narrowed by offset/limit charges less than the file's full
-# stat size (ADR-005 table: "File size from stat, narrowed when offset and
-# limit are given").
+# Test 7: a Read is charged what it returned, not the size of the file it
+# names. A Read of a file far larger than the budget is allowed; only the
+# result that lands in the transcript counts.
 # ---------------------------------------------------------------------------
-test_narrowed_read_charges_less_than_full_file() {
+test_read_charged_by_result_not_file_size() {
   clean_state
-  local f="$FIXTURE_DIR/narrowed.txt"
-  local i
-  { for (( i = 0; i < 1000; i++ )); do printf 'line %d of filler text\n' "$i"; done; } > "$f"
-  local full_size
-  full_size="$(wc -c < "$f" | tr -d '[:space:]')"
-
+  local f="$FIXTURE_DIR/huge-but-narrowed.txt"
+  make_sized_file "$f" $(( BYTE_BUDGET * 3 ))
   local result exit_code
-  result="$(invoke_hook_read_file "$f" "" "0" "10")"
+  result="$(invoke_hook_read_file "$f")"
   exit_code="$(get_exit_code "$result")"
-  local narrowed_charge
-  narrowed_charge="$(budget_state_bytes)"
-  if [[ "$exit_code" -eq 0 ]] && [[ "$narrowed_charge" -gt 0 ]] && [[ "$narrowed_charge" -lt "$full_size" ]]; then
-    ok "Read with offset=0/limit=10 on a $full_size B / 1000-line file charges $narrowed_charge B — less than the full file"
+  append_result 640
+  invoke_hook "Bash" > /dev/null
+  if [[ "$exit_code" -eq 0 ]] && [[ "$(budget_state_bytes)" -eq 640 ]]; then
+    ok "Read of a $(( BYTE_BUDGET * 3 )) B file is allowed and charged its 640 B result, not the file size"
   else
-    fail "narrowed Read should charge > 0 and < full file size ($full_size B), charged $narrowed_charge B, exit $exit_code"
+    fail "expected exit 0 and bytesCharged=640, got exit $exit_code bytesCharged=$(budget_state_bytes)"
   fi
 }
 
 # ---------------------------------------------------------------------------
-# Test 8: Bash unbounded-vs-bounded charge — a whole-file `cat` charges
-# \$BASH_UNBOUNDED_CHARGE, a bounded command charges \$BASH_BOUNDED_CHARGE,
-# and the two are configured to differ (ADR-005 table: "cat of a whole file"
-# is a structurally-unbounded Bash charge).
+# Test 8: the command shapes the retired estimator priced at a flat 8000 B
+# (unresolvable cat, piped grep, find /) cost nothing up front; subagent
+# (sidechain) output in the transcript is never charged to the main session.
 # ---------------------------------------------------------------------------
-test_bash_unbounded_vs_bounded_charge() {
+test_command_shapes_and_sidechain_cost_nothing() {
   clean_state
-  local f="$FIXTURE_DIR/cat-target.txt"
-  make_sized_file "$f" 10
-  local result exit_code
-  result="$(invoke_hook_bash_cmd "cat $f")"
-  exit_code="$(get_exit_code "$result")"
-  if [[ "$exit_code" -eq 0 ]] && [[ "$(budget_state_bytes)" -eq "$BASH_UNBOUNDED_CHARGE" ]]; then
-    ok "whole-file 'cat' charges \$BASH_UNBOUNDED_CHARGE ($BASH_UNBOUNDED_CHARGE bytes)"
+  local cmd result all_passed=true
+  for cmd in "cat unknown.txt | wc -l" "somecmd | grep pattern" "find /" "grep -rn x src/*.py"; do
+    result="$(invoke_hook_bash_cmd "$cmd")"
+    [[ "$(get_exit_code "$result")" -eq 0 ]] || all_passed=false
+  done
+  if $all_passed && [[ "$(budget_state_bytes)" -eq 0 ]]; then
+    ok "cat/grep/find command shapes are allowed and charge 0 B before producing output"
   else
-    fail "expected cat to charge $BASH_UNBOUNDED_CHARGE bytes, got $(budget_state_bytes)"
+    fail "expected command shapes to charge 0 B, got bytesCharged=$(budget_state_bytes)"
   fi
 
-  clean_state
-  result="$(invoke_hook_bash_cmd "git status")"
-  exit_code="$(get_exit_code "$result")"
-  if [[ "$exit_code" -eq 0 ]] && [[ "$(budget_state_bytes)" -eq "$BASH_BOUNDED_CHARGE" ]]; then
-    ok "'git status' (bounded) charges \$BASH_BOUNDED_CHARGE ($BASH_BOUNDED_CHARGE bytes)"
+  append_result 5000 true
+  append_result 10
+  invoke_hook "Bash" > /dev/null
+  if [[ "$(budget_state_bytes)" -eq 10 ]]; then
+    ok "sidechain (subagent) output is skipped; only the 10 B main-session result is charged"
   else
-    fail "expected git status to charge $BASH_BOUNDED_CHARGE bytes, got $(budget_state_bytes)"
-  fi
-
-  if [[ "$BASH_UNBOUNDED_CHARGE" -gt "$BASH_BOUNDED_CHARGE" ]]; then
-    ok "unbounded charge ($BASH_UNBOUNDED_CHARGE) > bounded charge ($BASH_BOUNDED_CHARGE) in the committed baseline"
-  else
-    fail "baseline misconfigured: unbounded charge should exceed bounded charge"
+    fail "expected bytesCharged=10 with a 5000 B sidechain result ignored, got $(budget_state_bytes)"
   fi
 }
 
 # ---------------------------------------------------------------------------
-# Test 9: Agent tool always allowed and never charged, even with a large
-# accumulated budget already spent.
+# Test 9: Agent tool always allowed and never charged, even with the budget
+# already exhausted.
 # ---------------------------------------------------------------------------
 test_agent_always_allowed() {
   clean_state
-  local f="$FIXTURE_DIR/pre-agent.txt"
-  make_sized_file "$f" $(( BYTE_BUDGET - 100 ))
-  invoke_hook_read_file "$f" > /dev/null 2>&1 || true
+  append_result $(( BYTE_BUDGET + 1 ))
+  invoke_hook "Bash" > /dev/null 2>&1 || true
 
   local result exit_code
   result="$(invoke_hook "Agent")"
   exit_code="$(get_exit_code "$result")"
   if [[ "$exit_code" -eq 0 ]]; then
-    ok "Agent call with a nearly-exhausted budget already spent: still allowed (exit 0)"
+    ok "Agent call with the budget already exhausted: still allowed (exit 0)"
   else
     fail "Agent call expected exit 0, got $exit_code"
   fi
 }
 
 # ---------------------------------------------------------------------------
-# Test 10: COPILOT_FORCE_DELEGATE=off → allowed regardless of budget, and
-# does not persist any charge (bypasses the meter entirely, not just the
-# deny).
+# Test 10: COPILOT_FORCE_DELEGATE=off → allowed regardless of budget.
 # ---------------------------------------------------------------------------
 test_escape_hatch_off() {
   clean_state
-  local big_file="$FIXTURE_DIR/escape-hatch-big.txt"
-  make_sized_file "$big_file" $(( BYTE_BUDGET * 3 ))
-  local payload result exit_code
-  payload="$(printf '{"session_id":"%s","tool_name":"Read","tool_input":{"file_path":"%s"}}' "$TEST_SESSION" "$big_file")"
-  local out ec=0
-  out="$(env COPILOT_FORCE_DELEGATE=off bash "$HOOK" <<< "$payload" 2>/dev/null)" || ec=$?
+  append_result $(( BYTE_BUDGET * 3 ))
+  local payload ec=0
+  payload="$(printf '{"session_id":"%s","tool_name":"Bash","transcript_path":"%s","tool_input":{"command":"ls"}}' "$TEST_SESSION" "$TRANSCRIPT")"
+  env COPILOT_FORCE_DELEGATE=off bash "$HOOK" <<< "$payload" > /dev/null 2>&1 || ec=$?
   if [[ "$ec" -eq 0 ]]; then
-    ok "COPILOT_FORCE_DELEGATE=off: a read 3x the byte budget is still allowed"
+    ok "COPILOT_FORCE_DELEGATE=off: allowed with 3x the byte budget already measured"
   else
     fail "COPILOT_FORCE_DELEGATE=off escape hatch failed, got exit $ec"
   fi
 }
 
 # ---------------------------------------------------------------------------
-# Test 11: Stale session state (>24h old) resets the ratchet rather than
-# erroring or carrying forward a huge stale bytesCharged.
+# Test 11: state left by the retired pre-call estimator (no transcriptPath)
+# is re-measured from the transcript: its guessed bytes are dropped, its
+# file targets are kept.
 # ---------------------------------------------------------------------------
-test_stale_state_no_error() {
+test_estimator_state_remeasured() {
   clean_state
-  # Write a stale state file (1970 timestamp) with a bytesCharged that would
-  # itself already exceed the budget if honored.
-  printf '{"session_id":"%s","bytesCharged":%d,"filesTouched":[],"updatedAt":"1970-01-01T00:00:00Z"}\n' \
-    "$TEST_SESSION" "$(( BYTE_BUDGET * 2 ))" > "${STATE_DIR}/budget-${TEST_SESSION}.json"
-
+  printf '{"session_id":"%s","bytesCharged":%d,"filesTouched":["/old/target"],"updatedAt":"%s"}\n' \
+    "$TEST_SESSION" "$(( BYTE_BUDGET * 2 ))" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "${STATE_DIR}/budget-${TEST_SESSION}.json"
+  append_result 42
   local result exit_code
   result="$(invoke_hook "Bash")"
   exit_code="$(get_exit_code "$result")"
-  if [[ "$exit_code" -eq 0 ]] && [[ "$(budget_state_bytes)" -eq "$BASH_BOUNDED_CHARGE" ]]; then
-    ok "stale state file (1970 epoch, bytesCharged already over budget): treated as fresh, ratchet resets to 0 + this call's charge"
+  if [[ "$exit_code" -eq 0 ]] && [[ "$(budget_state_bytes)" -eq 42 ]] && [[ "$(budget_state_files_count)" -eq 1 ]]; then
+    ok "estimator-era state (guessed bytes over budget): re-measured to 42 B from the transcript, file target kept"
   else
-    fail "stale state file should reset the ratchet: expected exit 0 and bytesCharged=$BASH_BOUNDED_CHARGE, got exit $exit_code bytesCharged=$(budget_state_bytes)"
+    fail "expected exit 0, bytesCharged=42, filesTouched=1; got exit $exit_code bytesCharged=$(budget_state_bytes) files=$(budget_state_files_count)"
   fi
 }
 
@@ -608,11 +567,10 @@ test_warning_before_deny() {
   clean_state
   local warn_bytes
   warn_bytes="$(awk -v b="$BYTE_BUDGET" -v r="$WARNING_RATIO" 'BEGIN{printf "%d", b * r}')"
-  local f="$FIXTURE_DIR/warn-threshold.txt"
-  make_sized_file "$f" "$warn_bytes"
+  append_result "$warn_bytes"
 
   local payload out ec=0
-  payload="$(printf '{"session_id":"%s","tool_name":"Read","tool_input":{"file_path":"%s"}}' "$TEST_SESSION" "$f")"
+  payload="$(printf '{"session_id":"%s","tool_name":"Bash","transcript_path":"%s","tool_input":{"command":"ls"}}' "$TEST_SESSION" "$TRANSCRIPT")"
   out="$(bash "$HOOK" <<< "$payload" 2>&1 >/dev/null)" || ec=$?
   if [[ "$ec" -eq 0 ]] && printf '%s' "$out" | grep -q "force-delegate-budget-warn"; then
     ok "crossing the $WARNING_RATIO warning ratio ($warn_bytes/$BYTE_BUDGET B): allowed, with an advisory on stderr"
@@ -621,9 +579,7 @@ test_warning_before_deny() {
   fi
 
   # Push over the top: denied, with the deny diagnostic (not just the warn).
-  local f2="$FIXTURE_DIR/warn-then-deny.txt"
-  make_sized_file "$f2" "$(( BYTE_BUDGET - warn_bytes + 1 ))"
-  payload="$(printf '{"session_id":"%s","tool_name":"Read","tool_input":{"file_path":"%s"}}' "$TEST_SESSION" "$f2")"
+  append_result "$(( BYTE_BUDGET - warn_bytes + 1 ))"
   ec=0
   out="$(bash "$HOOK" <<< "$payload" 2>&1 >/dev/null)" || ec=$?
   if [[ "$ec" -eq 2 ]] && printf '%s' "$out" | grep -q "hook-deny"; then
@@ -650,7 +606,7 @@ test_override_path() {
 
   local big_file="$FIXTURE_DIR/override-big.txt"
   local big_bytes=$(( BYTE_BUDGET + 777 ))
-  make_sized_file "$big_file" "$big_bytes"
+  append_result "$big_bytes"
 
   # Without an override: denied.
   local result exit_code
@@ -688,10 +644,11 @@ test_override_path() {
     fail "expected a ledger entry with reason 'reviewed test fixture' in $BUDGET_OVERRIDES_FILE"
   fi
 
-  # Fresh session, SAME overage shape (same big_file → same actual bytes),
-  # NO env var this time: the committed ledger entry alone must cover it —
-  # local ledger reuse. The separate CI case proves only HEAD is trusted.
+  # Fresh session, SAME overage shape (same measured bytes), NO env var this
+  # time: the committed ledger entry alone must cover it — local ledger
+  # reuse. The separate CI case proves only HEAD is trusted.
   clean_state
+  append_result "$big_bytes"
   result="$(invoke_hook_read_file "$big_file")"
   exit_code="$(get_exit_code "$result")"
   if [[ "$exit_code" -eq 0 ]]; then
@@ -724,7 +681,8 @@ test_ci_override_contract() {
   local baseline="$fixture_root/.claude/$(basename "$BUDGET_BASELINE_FILE")"
   local big_file="$fixture_root/oversized.txt" big_bytes=$(( BYTE_BUDGET + 777 ))
   local result exit_code
-  make_sized_file "$big_file" "$big_bytes"
+  : > "$TRANSCRIPT"
+  append_result "$big_bytes"
 
   result="$(invoke_hook_read_file "$big_file" "CI=true COPILOT_FORCE_DELEGATE_BUDGET_OVERRIDE='bytes:reviewed test fixture'")"
   if [[ "$(get_exit_code "$result")" -eq 2 && ! -e "$BUDGET_OVERRIDES_FILE" ]]; then
@@ -739,6 +697,7 @@ test_ci_override_contract() {
     return
   fi
   clean_state
+  append_result "$big_bytes"
   result="$(invoke_hook_read_file "$big_file" "CI=true")"
   if [[ "$(get_exit_code "$result")" -eq 2 ]]; then
     ok "CI rejects an uncommitted local approval ledger"
@@ -755,6 +714,7 @@ test_ci_override_contract() {
   # The working-copy ledger is deliberately empty: CI must read Git HEAD.
   : > "$BUDGET_OVERRIDES_FILE"
   clean_state
+  append_result "$big_bytes"
   result="$(invoke_hook_read_file "$big_file" "CI=true")"
   if [[ "$(get_exit_code "$result")" -eq 0 ]]; then
     ok "CI accepts the exact approval from HEAD, not the working-copy ledger"
@@ -763,7 +723,7 @@ test_ci_override_contract() {
   fi
 
   clean_state
-  make_sized_file "$big_file" "$(( big_bytes + 1 ))"
+  append_result "$(( big_bytes + 1 ))"
   result="$(invoke_hook_read_file "$big_file" "CI=true")"
   if [[ "$(get_exit_code "$result")" -eq 2 ]]; then
     ok "CI rejects a different overage despite the committed approval"
@@ -771,7 +731,7 @@ test_ci_override_contract() {
     fail "CI reused an approval for a different overage"
   fi
   clean_state
-  make_sized_file "$big_file" "$big_bytes"
+  append_result "$big_bytes"
   printf '\n' >> "$baseline"
   result="$(invoke_hook_read_file "$big_file" "CI=true")"
   if [[ "$(get_exit_code "$result")" -eq 2 ]]; then
@@ -784,30 +744,28 @@ test_ci_override_contract() {
 
 # ---------------------------------------------------------------------------
 # Test 16 (ADR-005 settled decision): the budget does NOT reset on a
-# main-session Agent dispatch — only at session start. A near-exhausted
-# budget, followed by a legitimate Agent dispatch and the subagent's own
-# (exempt) work, still denies the main session's next call if it would push
-# the ratchet over the top.
+# main-session Agent dispatch. A near-exhausted budget, followed by a
+# legitimate Agent dispatch and the subagent's own (exempt) work, still
+# denies the main session once more output pushes it over the top.
 # ---------------------------------------------------------------------------
 test_budget_does_not_reset_on_agent_dispatch() {
   clean_state
   prepare_no_active_cc
 
   local near_full=$(( BYTE_BUDGET - 5000 ))
-  local f1="$FIXTURE_DIR/pre-dispatch.txt"
-  make_sized_file "$f1" "$near_full"
+  append_result "$near_full"
   local result exit_code
-  result="$(invoke_hook_read_file "$f1")"
+  result="$(invoke_hook "Bash")"
   exit_code="$(get_exit_code "$result")"
   if [[ "$exit_code" -ne 0 ]]; then
-    fail "pre-dispatch read of $near_full B should be allowed (pre-condition), got exit $exit_code"
+    fail "pre-dispatch call with $near_full B measured should be allowed (pre-condition), got exit $exit_code"
     clean_no_active_cc
     return
   fi
 
   # Main session delegates — always allowed, never charged.
   local agent_payload
-  agent_payload="$(printf '{"session_id":"%s","tool_name":"Agent","tool_input":{"subagent_type":"qa"}}' "$TEST_SESSION")"
+  agent_payload="$(printf '{"session_id":"%s","tool_name":"Agent","transcript_path":"%s","tool_input":{"subagent_type":"qa"}}' "$TEST_SESSION" "$TRANSCRIPT")"
   local ec=0
   COPILOT_CC_BIN="$NO_ACTIVE_CC" bash "$HOOK" <<< "$agent_payload" > /dev/null 2>&1 || ec=$?
   if [[ "$ec" -ne 0 ]]; then
@@ -818,7 +776,7 @@ test_budget_does_not_reset_on_agent_dispatch() {
 
   # The subagent does its own (exempt) work — must not touch the meter.
   local sub_payload
-  sub_payload="$(printf '{"session_id":"%s","agent_type":"qa","agent_id":"task-1","tool_name":"Read","tool_input":{"file_path":"%s"}}' "$TEST_SESSION" "$f1")"
+  sub_payload="$(printf '{"session_id":"%s","agent_type":"qa","agent_id":"task-1","tool_name":"Read","transcript_path":"%s","tool_input":{"file_path":"/tmp/x"}}' "$TEST_SESSION" "$TRANSCRIPT")"
   bash "$HOOK" <<< "$sub_payload" > /dev/null 2>&1 || true
 
   if [[ "$(budget_state_bytes)" -ne "$near_full" ]]; then
@@ -827,21 +785,58 @@ test_budget_does_not_reset_on_agent_dispatch() {
     return
   fi
 
-  # Main session's first call after the delegation returns: a 10000 B read
-  # pushes the ratchet past the budget. If the dispatch had reset it, this
-  # would be allowed; since it must NOT reset (ADR-005), this is denied.
-  local f2="$FIXTURE_DIR/post-dispatch.txt"
-  make_sized_file "$f2" 10000
-  result="$(invoke_hook_read_file "$f2")"
+  # The delegation's result returns 10000 B into the main session: that
+  # pushes the meter past the budget. If the dispatch had reset it, the next
+  # call would be allowed; since it must NOT reset (ADR-005), it is denied.
+  append_result 10000
+  result="$(invoke_hook "Bash")"
   exit_code="$(get_exit_code "$result")"
   if [[ "$exit_code" -eq 2 ]]; then
-    ok "main session's first read after a legitimate Agent dispatch is still denied — the budget ratcheted through the dispatch, it did not reset"
+    ok "main session's first call after a legitimate Agent dispatch is still denied — the budget carried through the dispatch, it did not reset"
   else
     fail "budget should NOT reset on Agent dispatch (ADR-005), expected exit 2 after dispatch, got exit $exit_code"
   fi
 
   clean_state
   clean_no_active_cc
+}
+
+# ---------------------------------------------------------------------------
+# Test 16b (ADR-005 measured revision): compaction removes the measured
+# output from context, so SessionStart with source=compact zeroes both
+# meters, anchored at the transcript's end so the compacted history is never
+# re-measured. Any other SessionStart source leaves the meter alone.
+# ---------------------------------------------------------------------------
+test_compaction_resets_meter() {
+  clean_state
+  append_result $(( BYTE_BUDGET + 1 ))
+  local result
+  result="$(invoke_hook "Bash")"
+  if [[ "$(get_exit_code "$result")" -ne 2 ]]; then
+    fail "pre-condition: call over budget should be denied, got exit $(get_exit_code "$result")"
+    return
+  fi
+
+  local session_start="$PROJECT_ROOT/.claude/hooks/session-start.sh"
+  printf '{"session_id":"%s","source":"resume","transcript_path":"%s"}' "$TEST_SESSION" "$TRANSCRIPT" \
+    | COPILOT_SESSION_START=off COPILOT_HOOK_STATE_DIR="$STATE_DIR" bash "$session_start" > /dev/null 2>&1
+  result="$(invoke_hook "Bash")"
+  if [[ "$(get_exit_code "$result")" -eq 2 ]]; then
+    ok "SessionStart source=resume leaves the meter alone (still denied)"
+  else
+    fail "SessionStart source=resume must not reset the meter, got exit $(get_exit_code "$result")"
+  fi
+
+  printf '{"session_id":"%s","source":"compact","transcript_path":"%s"}' "$TEST_SESSION" "$TRANSCRIPT" \
+    | COPILOT_SESSION_START=off COPILOT_HOOK_STATE_DIR="$STATE_DIR" bash "$session_start" > /dev/null 2>&1
+  append_result 70
+  result="$(invoke_hook "Bash")"
+  if [[ "$(get_exit_code "$result")" -eq 0 ]] && [[ "$(budget_state_bytes)" -eq 70 ]]; then
+    ok "SessionStart source=compact resets the meter; only the 70 B produced after compaction is charged"
+  else
+    fail "expected exit 0 and bytesCharged=70 after compaction, got exit $(get_exit_code "$result") bytesCharged=$(budget_state_bytes)"
+  fi
+  clean_state
 }
 
 # ---------------------------------------------------------------------------
@@ -1127,58 +1122,50 @@ test_qa_gate_cleared_allows_calls() {
 }
 
 # ---------------------------------------------------------------------------
-# Test 18: git push / git pull now pass on cost like any other bounded Bash
-# command (ADR-005: the hardcoded 10-prefix git allowlist is removed — "the
-# genuinely unbounded cases" are what need the large charge, not an
-# exemption; a plain git op is cheap enough on its own merits).
+# Test 18: git push / git pull pass on measured cost like any other command
+# (ADR-005: no hardcoded git allowlist); with no output yet they charge 0.
 # ---------------------------------------------------------------------------
-test_git_push_pull_charged_like_any_bounded_command() {
+test_git_push_pull_charged_like_any_command() {
   clean_state
-
   local result exit_code
   result="$(invoke_hook_bash_cmd "git push origin main")"
   exit_code="$(get_exit_code "$result")"
-  if [[ "$exit_code" -eq 0 ]] && [[ "$(budget_state_bytes)" -eq "$BASH_BOUNDED_CHARGE" ]]; then
-    ok "git push is allowed and charges the ordinary bounded amount ($BASH_BOUNDED_CHARGE B) — no special-case exemption"
+  append_result 120
+  local result2 exit_code2
+  result2="$(invoke_hook_bash_cmd "git pull origin main")"
+  exit_code2="$(get_exit_code "$result2")"
+  if [[ "$exit_code" -eq 0 && "$exit_code2" -eq 0 ]] && [[ "$(budget_state_bytes)" -eq 120 ]]; then
+    ok "git push and git pull are allowed and charged only their measured output (120 B) — no special-case exemption"
   else
-    fail "expected git push to charge $BASH_BOUNDED_CHARGE B like any bounded command, got exit $exit_code bytesCharged=$(budget_state_bytes)"
-  fi
-
-  result="$(invoke_hook_bash_cmd "git pull origin main")"
-  exit_code="$(get_exit_code "$result")"
-  local expected=$(( BASH_BOUNDED_CHARGE * 2 ))
-  if [[ "$exit_code" -eq 0 ]] && [[ "$(budget_state_bytes)" -eq "$expected" ]]; then
-    ok "git pull is also allowed and adds another $BASH_BOUNDED_CHARGE B (ratchets to $expected, not exempt)"
-  else
-    fail "expected git pull to bring bytesCharged to $expected, got exit $exit_code bytesCharged=$(budget_state_bytes)"
+    fail "expected both allowed with bytesCharged=120, got exits $exit_code/$exit_code2 bytesCharged=$(budget_state_bytes)"
   fi
 }
 
 # ---------------------------------------------------------------------------
 # Test 19: command-string escape hatch — COPILOT_FORCE_DELEGATE=off prefix
-# still bypasses the meter entirely (no charge persisted at all), even when
-# the command would otherwise be denied on cost.
+# still bypasses the meter entirely (nothing persisted), even when the
+# session is over budget.
 # ---------------------------------------------------------------------------
 test_command_string_escape_hatch() {
   clean_state
+  append_result $(( BYTE_BUDGET * 2 ))
 
-  local big_file="$FIXTURE_DIR/escape-prefix-big.txt"
-  make_sized_file "$big_file" $(( BYTE_BUDGET * 2 ))
-
-  # Verify a plain (non-escaped) unbounded Bash call against the same
-  # backdrop would in fact be denied (pre-condition — proves the escape
-  # hatch below is bypassing a real deny, not a no-op).
+  # Pre-condition: an ordinary call is denied, so the escape hatch below is
+  # bypassing a real deny, not a no-op.
   local result exit_code
-  result="$(invoke_hook_bash_cmd "cat $big_file")"
-  exit_code="$(get_exit_code "$result")"
+  result="$(invoke_hook_bash_cmd "git status")"
+  if [[ "$(get_exit_code "$result")" -ne 2 ]]; then
+    fail "pre-condition: over-budget call should be denied, got exit $(get_exit_code "$result")"
+    return
+  fi
 
-  clean_state
-  result="$(invoke_hook_bash_cmd "COPILOT_FORCE_DELEGATE=off cat $big_file")"
+  rm -f "${STATE_DIR}/budget-${TEST_SESSION}.json"
+  result="$(invoke_hook_bash_cmd "COPILOT_FORCE_DELEGATE=off git status")"
   exit_code="$(get_exit_code "$result")"
-  if [[ "$exit_code" -eq 0 ]] && [[ "$(budget_state_bytes)" -eq 0 ]]; then
-    ok "command-string escape hatch: COPILOT_FORCE_DELEGATE=off prefix allows the call and persists no charge at all"
+  if [[ "$exit_code" -eq 0 ]] && [[ ! -e "${STATE_DIR}/budget-${TEST_SESSION}.json" ]]; then
+    ok "command-string escape hatch: COPILOT_FORCE_DELEGATE=off prefix allows the call and persists nothing"
   else
-    fail "command-string escape hatch should allow with zero persisted charge, got exit $exit_code bytesCharged=$(budget_state_bytes)"
+    fail "command-string escape hatch should allow with nothing persisted, got exit $exit_code"
   fi
 }
 
@@ -1300,8 +1287,8 @@ subagent_read_payload() {
 # Replay 1: main session touches 4 distinct files (files budget = $FILES_BUDGET,
 # so 4 is under it), then a subagent (same session_id, agent_type set) reads
 # TWO further distinct files — allowed, and the parent's filesTouched count
-# must be untouched by them. The main session's 5th distinct file is then
-# still allowed (count reaches exactly $FILES_BUDGET), and its 6th is denied
+# must be untouched by them. The main session's last in-budget distinct file is then
+# still allowed (count reaches exactly $FILES_BUDGET), and the next one is denied
 # — proving the subagent's reads neither got blocked nor silently donated to
 # (or stole from) the parent's distinct-files budget.
 # ---------------------------------------------------------------------------
@@ -1309,17 +1296,17 @@ test_subagent_read_exempt_from_force_delegate() {
   clean_state
   local result exit_code i
 
-  for i in 1 2 3 4; do
+  for (( i = 1; i < FILES_BUDGET; i++ )); do
     make_sized_file "$FIXTURE_DIR/replay1-main-$i.txt" 20
     result="$(invoke_hook_raw "$(subagent_read_payload "$TEST_SESSION" "" "$FIXTURE_DIR/replay1-main-$i.txt")")"
     exit_code="$(get_exit_code "$result")"
     if [[ "$exit_code" -ne 0 ]]; then
-      fail "replay: main-session Read $i/4 should be allowed, got exit $exit_code"
+      fail "replay: main-session Read $i should be allowed, got exit $exit_code"
       return
     fi
   done
-  if [[ "$(budget_state_files_count)" -ne 4 ]]; then
-    fail "replay pre-condition: expected filesTouched=4 after 4 main-session reads, got $(budget_state_files_count)"
+  if [[ "$(budget_state_files_count)" -ne $(( FILES_BUDGET - 1 )) ]]; then
+    fail "replay pre-condition: expected filesTouched=$(( FILES_BUDGET - 1 )) after $(( FILES_BUDGET - 1 )) main-session reads, got $(budget_state_files_count)"
     return
   fi
 
@@ -1342,31 +1329,31 @@ test_subagent_read_exempt_from_force_delegate() {
     fail "replay: subagent's 2nd Read should be allowed, got exit $exit_code"
   fi
 
-  if [[ "$(budget_state_files_count)" -eq 4 ]]; then
-    ok "replay: subagent's 2 reads of 2 NEW distinct files did not change the parent's filesTouched count (still 4)"
+  if [[ "$(budget_state_files_count)" -eq $(( FILES_BUDGET - 1 )) ]]; then
+    ok "replay: subagent's 2 reads of 2 NEW distinct files did not change the parent's filesTouched count (still $(( FILES_BUDGET - 1 )))"
   else
     fail "replay: parent's filesTouched should still be 4 after subagent reads, got $(budget_state_files_count)"
   fi
 
-  # Main session's 5th distinct file: allowed, count reaches exactly $FILES_BUDGET.
-  make_sized_file "$FIXTURE_DIR/replay1-main-5.txt" 20
-  result="$(invoke_hook_raw "$(subagent_read_payload "$TEST_SESSION" "" "$FIXTURE_DIR/replay1-main-5.txt")")"
+  # Main session's last in-budget distinct file: allowed, count reaches exactly $FILES_BUDGET.
+  make_sized_file "$FIXTURE_DIR/replay1-main-last.txt" 20
+  result="$(invoke_hook_raw "$(subagent_read_payload "$TEST_SESSION" "" "$FIXTURE_DIR/replay1-main-last.txt")")"
   exit_code="$(get_exit_code "$result")"
   if [[ "$exit_code" -eq 0 ]] && [[ "$(budget_state_files_count)" -eq "$FILES_BUDGET" ]]; then
-    ok "replay: main session's 5th distinct file allowed (count reaches $FILES_BUDGET)"
+    ok "replay: main session's last in-budget distinct file allowed (count reaches $FILES_BUDGET)"
   else
-    fail "replay: main session's 5th distinct file should be allowed with count=$FILES_BUDGET, got exit $exit_code count=$(budget_state_files_count)"
+    fail "replay: main session's last in-budget distinct file should be allowed with count=$FILES_BUDGET, got exit $exit_code count=$(budget_state_files_count)"
   fi
 
-  # Main session's 6th distinct file: denied — the subagent's own files did
+  # Main session's first over-budget distinct file: denied — the subagent's own files did
   # not silently consume any of the parent's budget headroom.
-  make_sized_file "$FIXTURE_DIR/replay1-main-6.txt" 20
-  result="$(invoke_hook_raw "$(subagent_read_payload "$TEST_SESSION" "" "$FIXTURE_DIR/replay1-main-6.txt")")"
+  make_sized_file "$FIXTURE_DIR/replay1-main-over.txt" 20
+  result="$(invoke_hook_raw "$(subagent_read_payload "$TEST_SESSION" "" "$FIXTURE_DIR/replay1-main-over.txt")")"
   exit_code="$(get_exit_code "$result")"
   if [[ "$exit_code" -eq 2 ]]; then
-    ok "replay: main session's 6th distinct file still denied — subagent reads did not pollute the parent's budget"
+    ok "replay: main session's first over-budget distinct file still denied — subagent reads did not pollute the parent's budget"
   else
-    fail "replay: main session's 6th distinct file should still be denied, got exit $exit_code"
+    fail "replay: main session's first over-budget distinct file should still be denied, got exit $exit_code"
   fi
 }
 
@@ -1495,45 +1482,45 @@ test_unknown_agent_type_not_exempt_force_delegate() {
   rm -f "${STATE_DIR}/budget-${sess}.json" "${STATE_DIR}/budget-${sess}.lock" 2>/dev/null || true
 
   local i f result exit_code all_passed=true
-  for i in 1 2 3 4; do
+  for (( i = 1; i < FILES_BUDGET; i++ )); do
     f="$FIXTURE_DIR/unknown-agent-$i.txt"
     make_sized_file "$f" 20
     result="$(invoke_hook_raw "$(subagent_read_payload "$sess" "bogus-nonexistent-agent" "$f")")"
     exit_code="$(get_exit_code "$result")"
     if [[ "$exit_code" -ne 0 ]]; then
       all_passed=false
-      fail "unknown-agent-type: call $i/4 (agent_type=bogus-nonexistent-agent) should be allowed under the files budget, got exit $exit_code"
+      fail "unknown-agent-type: call $i (agent_type=bogus-nonexistent-agent) should be allowed under the files budget, got exit $exit_code"
     fi
   done
   if $all_passed; then
-    ok "unknown-agent-type: 4 distinct-file reads with an unrecognized agent_type are charged normally (allowed under budget)"
+    ok "unknown-agent-type: $(( FILES_BUDGET - 1 )) distinct-file reads with an unrecognized agent_type are charged normally (allowed under budget)"
   fi
 
-  # A 5th distinct file is still allowed (count reaches exactly $FILES_BUDGET
+  # A last in-budget distinct file is still allowed (count reaches exactly $FILES_BUDGET
   # — the calls above genuinely counted, unlike an exempt subagent's would).
-  local f5="$FIXTURE_DIR/unknown-agent-5.txt"
+  local f5="$FIXTURE_DIR/unknown-agent-last.txt"
   make_sized_file "$f5" 20
   result="$(invoke_hook_raw "$(subagent_read_payload "$sess" "bogus-nonexistent-agent" "$f5")")"
   exit_code="$(get_exit_code "$result")"
   local files_count
   files_count="$("$JQ_BIN" -r '.filesTouched // [] | length' "${STATE_DIR}/budget-${sess}.json" 2>/dev/null || echo 0)"
   if [[ "$exit_code" -eq 0 ]] && [[ "$files_count" -eq "$FILES_BUDGET" ]]; then
-    ok "unknown-agent-type: 5th distinct file reaches filesTouched=$FILES_BUDGET — calls genuinely counted, not exempt"
+    ok "unknown-agent-type: last in-budget distinct file reaches filesTouched=$FILES_BUDGET — calls genuinely counted, not exempt"
   else
     fail "unknown-agent-type: expected exit 0 and filesTouched=$FILES_BUDGET, got exit $exit_code count=$files_count"
   fi
 
-  # A 6th distinct file, still tagged with the unrecognized agent_type, is
+  # A first over-budget distinct file, still tagged with the unrecognized agent_type, is
   # denied — the bypass the pre-VERIFY-B bug allowed is gone under the new
   # budget just as it was under the old streak.
-  local f6="$FIXTURE_DIR/unknown-agent-6.txt"
+  local f6="$FIXTURE_DIR/unknown-agent-over.txt"
   make_sized_file "$f6" 20
   result="$(invoke_hook_raw "$(subagent_read_payload "$sess" "bogus-nonexistent-agent" "$f6")")"
   exit_code="$(get_exit_code "$result")"
   if [[ "$exit_code" -eq 2 ]]; then
-    ok "unknown-agent-type: 6th distinct file with unrecognized agent_type is denied (not granted subagent exemption)"
+    ok "unknown-agent-type: first over-budget distinct file with unrecognized agent_type is denied (not granted subagent exemption)"
   else
-    fail "unknown-agent-type: 6th distinct file with unrecognized agent_type should be denied (bypass), got exit $exit_code"
+    fail "unknown-agent-type: first over-budget distinct file with unrecognized agent_type should be denied (bypass), got exit $exit_code"
   fi
 
   rm -f "${STATE_DIR}/budget-${sess}.json" "${STATE_DIR}/budget-${sess}.lock" 2>/dev/null || true
@@ -1627,30 +1614,30 @@ test_freeze_write_regression() {
 # Run all tests
 # ---------------------------------------------------------------------------
 echo "=== pretool-check.sh tests ==="
-echo "(rule_force_delegate: ADR-005 cost budget, baseline $(basename "$BUDGET_BASELINE_FILE"))"
+echo "(rule_force_delegate: ADR-005 measured budget, baseline $(basename "$BUDGET_BASELINE_FILE"))"
 echo ""
 echo "--- Test 1: Single Bash call allowed"
 test_single_bash_allowed
-echo "--- Test 2: bounded Bash charge amount, repetition allowed under budget"
-test_bash_bounded_charge_and_repetition_allowed
-echo "--- Test 3: five small reads allowed; a single large read denied on first contact"
-test_five_small_reads_allowed_single_large_read_denied
+echo "--- Test 2: Bash command text costs nothing; measured output charged once"
+test_bash_measured_output_charged_once
+echo "--- Test 3: small results allowed; an oversized result denies the next call"
+test_small_results_allowed_oversized_result_denies_next_call
 echo "--- Test 4: alternating tool names no longer defeat the meter"
 test_alternating_tools_no_longer_defeat_meter
-echo "--- Test 5: Write is now charged"
-test_write_now_charged
+echo "--- Test 5: Write content is charged"
+test_write_content_charged
 echo "--- Test 6: distinct-files budget"
 test_distinct_files_budget
-echo "--- Test 7: narrowed Read (offset/limit) charges less than the full file"
-test_narrowed_read_charges_less_than_full_file
-echo "--- Test 8: Bash unbounded vs bounded charge"
-test_bash_unbounded_vs_bounded_charge
+echo "--- Test 7: Read charged by its result, not the file size"
+test_read_charged_by_result_not_file_size
+echo "--- Test 8: command shapes and sidechain output cost nothing"
+test_command_shapes_and_sidechain_cost_nothing
 echo "--- Test 9: Agent tool always allowed, never charged"
 test_agent_always_allowed
 echo "--- Test 10: COPILOT_FORCE_DELEGATE=off escape hatch"
 test_escape_hatch_off
-echo "--- Test 11: Stale state file resets the ratchet"
-test_stale_state_no_error
+echo "--- Test 11: estimator-era state is re-measured"
+test_estimator_state_remeasured
 echo "--- Test 12: Malformed/empty payload"
 test_malformed_payload
 echo "--- Test 13: Concurrent session isolation"
@@ -1663,6 +1650,8 @@ echo "--- Test 15b: CI trusts only exact committed approvals"
 test_ci_override_contract
 echo "--- Test 16: budget does NOT reset on Agent dispatch"
 test_budget_does_not_reset_on_agent_dispatch
+echo "--- Test 16b: compaction resets the meter"
+test_compaction_resets_meter
 echo "--- Test 17: Performance <50ms"
 test_performance
 
@@ -1687,8 +1676,8 @@ echo "--- QA-gate Test 9: COPILOT_QA_GATE=off escape hatch"
 test_qa_gate_escape_hatch
 echo "--- QA-gate Test 10: Pending tasks cleared → subsequent calls allowed"
 test_qa_gate_cleared_allows_calls
-echo "--- Test 18: git push / git pull charged like any bounded command (allowlist removed)"
-test_git_push_pull_charged_like_any_bounded_command
+echo "--- Test 18: git push / git pull charged like any command (allowlist removed)"
+test_git_push_pull_charged_like_any_command
 echo "--- Test 19: command-string escape hatch (COPILOT_FORCE_DELEGATE=off prefix)"
 test_command_string_escape_hatch
 echo "--- Test 20: crash fix — git push exits 0 (no hook crash)"

@@ -94,7 +94,7 @@
       "argv": ["{python}", "-m", "pytest", "tests/", "--ignore=tests/tui", "-p", "no:cov", "--junitxml={artifact_dir}/results.xml"],
       "cwd": ".",
       "timeoutSeconds": 120,
-      "inputs": ["tests", "tools/cc/src", "tools/tc/src", ".claude/agents", ".claude/commands", ".claude/hooks", ".claude/fitness-check.sh", ".claude/force-delegate-budget-baseline-v1.0.0.json", "CLAUDE.md", "CHANGELOG.md", ".github/workflows", "docs/40-initiatives/01-risk-based-verification", "scripts", "templates", "plugins/codex-copilot"],
+      "inputs": ["tests", "tools/cc/src", "tools/tc/src", ".claude/agents", ".claude/commands", ".claude/hooks", ".claude/fitness-check.sh", ".claude/force-delegate-budget-baseline-v1.0.0.json", ".claude/force-delegate-budget-baseline-v1.1.0.json","CLAUDE.md", "CHANGELOG.md", ".github/workflows", "docs/40-initiatives/01-risk-based-verification", "scripts", "templates", "plugins/codex-copilot"],
       "hermetic": false,
       "junit": "results.xml"
     },

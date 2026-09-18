@@ -30,6 +30,41 @@ INJECTION_FILE="${SCRIPT_DIR}/protocol-injection.md"
 MANIFEST_FILE="${SCRIPT_DIR}/../agents/manifest.json"
 
 # ---------------------------------------------------------------------------
+# Force-delegate meter reset on compaction (ADR-005, measured revision)
+# ---------------------------------------------------------------------------
+# Compaction removes the measured tool output from the main session's
+# context, so both force-delegate meters restart from zero, anchored at the
+# transcript's current end so pretool-check.sh never re-measures the
+# compacted history. Runs ahead of the escape hatch below: it is budget
+# accounting, not the context injection that COPILOT_SESSION_START=off skips.
+if [[ ! -t 0 ]]; then
+  _SS_PAYLOAD="$(cat)"
+  _SS_FIELDS="$(/usr/bin/jq -r 'select(.source == "compact") |
+      [.session_id // "", .transcript_path // ""] | @tsv' <<< "$_SS_PAYLOAD" 2>/dev/null || true)"
+  IFS=$'\t' read -r _SS_SESSION _SS_TRANSCRIPT <<< "$_SS_FIELDS"
+  if [[ -n "${_SS_SESSION:-}" && "$_SS_SESSION" != */* ]]; then
+    _SS_STATE_DIR="${COPILOT_HOOK_STATE_DIR:-${SCRIPT_DIR}/state}"
+    _SS_OFFSET=0
+    if [[ -n "${_SS_TRANSCRIPT:-}" && -f "$_SS_TRANSCRIPT" ]]; then
+      _SS_OFFSET="$(wc -c < "$_SS_TRANSCRIPT" 2>/dev/null | tr -d '[:space:]')"
+      [[ "$_SS_OFFSET" =~ ^[0-9]+$ ]] || _SS_OFFSET=0
+    fi
+    mkdir -p "$_SS_STATE_DIR" 2>/dev/null
+    _SS_STATE_FILE="${_SS_STATE_DIR}/budget-${_SS_SESSION}.json"
+    if /usr/bin/jq -cn --arg session "$_SS_SESSION" --arg transcript "${_SS_TRANSCRIPT:-}" \
+        --argjson offset "$_SS_OFFSET" \
+        '{session_id: $session, bytesCharged: 0, filesTouched: [], transcriptPath: $transcript,
+          transcriptOffset: $offset, updatedAt: (now | todateiso8601)}' \
+        > "${_SS_STATE_FILE}.tmp.$$" 2>/dev/null; then
+      mv "${_SS_STATE_FILE}.tmp.$$" "$_SS_STATE_FILE"
+      echo "[force-delegate-budget] meter reset after compaction" >&2
+    else
+      rm -f "${_SS_STATE_FILE}.tmp.$$"
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Escape hatch
 # ---------------------------------------------------------------------------
 if [[ "${COPILOT_SESSION_START:-}" == "off" ]]; then

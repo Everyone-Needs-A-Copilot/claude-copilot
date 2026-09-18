@@ -21,6 +21,9 @@
 #     session_id  — unique session identifier
 #     tool_name   — e.g. "Bash", "Read", "Edit", "Agent"
 #     tool_input  — tool-specific parameters (object)
+#     transcript_path — the session transcript. Used only by
+#                   rule_force_delegate to measure the tool output that
+#                   actually entered the main session.
 #
 # OUTPUT:
 #   Exit 0 + empty stdout  → allow
@@ -31,7 +34,8 @@
 #
 # STATE FILES:
 #   .claude/hooks/state/budget-<session_id>.json
-#   Shape: { "session_id": "...", "bytesCharged": 300, "filesTouched": [], "updatedAt": "<ISO>" }
+#   Shape: { "session_id": "...", "bytesCharged": 300, "filesTouched": [],
+#            "transcriptPath": "...", "transcriptOffset": 0, "updatedAt": "<ISO>" }
 #
 #   .claude/hooks/state/qa-gate.json
 #   Shape: { "<session_id>": { "pending_tasks": ["TASK-5"], "retries": { "TASK-5": 1 },
@@ -39,7 +43,8 @@
 #             "lastSeen": "<ISO>" } }
 #
 # RULE SETS:
-#   1. force-delegate — estimated byte cost and distinct file budget (ADR-005).
+#   1. force-delegate — measured main-session tool output and distinct file
+#      budget (ADR-005, measured revision).
 #   2. qa-gate — deny all tool calls except Agent(qa) and safe tc Bash calls
 #      while any task is in pending-qa state for this session.
 #      Task: 16 (P4.1). Bypass: COPILOT_QA_GATE=off
@@ -121,11 +126,14 @@ _load_manifest_agents() {
   fi
 }
 
-# Format agents as @agent-X list for deny messages
+# Format agents as a plain name list for deny messages. Deliberately not
+# @agent-X: Claude Code treats every @agent-X mention in hook output the user
+# pastes back as a request to invoke that agent, so a list of all of them
+# asks it to launch every framework agent at once.
 _format_agent_list() {
   local result=""
   for a in $MANIFEST_AGENTS; do
-    result="${result}@agent-${a}, "
+    result="${result}${a}, "
   done
   echo "${result%, }"
 }
@@ -188,12 +196,19 @@ if [[ -z "$PAYLOAD" ]]; then
   exit 0
 fi
 
-# Single jq call extracts the three top-level identifier fields together.
+# Single jq call extracts the four top-level identifier fields together.
 # Each separate jq invocation costs ~2-3ms of fork/exec overhead; parsing
 # the same PAYLOAD three times used to dominate the hook's <50ms performance
-# budget. session_id/tool_name/agent_type are harness-generated tokens (never
-# free-form text), so @tsv's escaping of tabs/newlines/backslashes is a safe
-# no-op for them.
+# budget. Joined with U+001F (ASCII unit separator), not a tab: bash `read`
+# treats any run of IFS characters that are themselves shell blanks (space,
+# tab, newline) as ONE delimiter and silently drops empty fields between
+# them, so a tab-joined line with agent_type empty (the common case) and a
+# non-empty field after it — .transcript_path — shifts every field after
+# the gap left by mistake. \x1f is not a shell blank, so empty fields are
+# preserved positionally. session_id/tool_name/agent_type/transcript_path
+# are harness-generated tokens (never free-form text needing escaping).
+# TRANSCRIPT_PATH is consumed only by rule_force_delegate's measured byte
+# meter below; every other rule ignores it.
 #
 # AGENT_TYPE non-empty means this PreToolUse call originated inside a
 # subagent (sidechain), even though it shares SESSION_ID with the main
@@ -207,11 +222,11 @@ fi
 # unsatisfiable from inside a subagent. See rule_force_delegate and
 # rule_qa_gate below for where this is consumed.
 _PAYLOAD_FIELDS="$("$JQ" -r \
-  '([.session_id // "", .tool_name // "", .agent_type // ""] | @tsv),
+  '([.session_id // "", .tool_name // "", .agent_type // "", .transcript_path // ""] | join("")),
    (if .tool_name == "Bash" then (.tool_input.command // "") else "" end)' \
   <<< "$PAYLOAD" 2>/dev/null)" \
   || { echo "[pretool-check] jq parse failed reading payload fields" >&2; exit 0; }
-IFS=$'\t' read -r SESSION_ID TOOL_NAME AGENT_TYPE <<< "${_PAYLOAD_FIELDS%%$'\n'*}"
+IFS=$'\x1f' read -r SESSION_ID TOOL_NAME AGENT_TYPE TRANSCRIPT_PATH <<< "${_PAYLOAD_FIELDS%%$'\n'*}"
 
 if [[ -z "$SESSION_ID" || -z "$TOOL_NAME" ]]; then
   # Malformed payload — allow and let Claude handle it
@@ -244,7 +259,8 @@ fi
 # ---------------------------------------------------------------------------
 STATE_FILE="${STATE_DIR}/budget-${SESSION_ID}.json"
 LOCK_FILE="${STATE_DIR}/budget-${SESSION_ID}.lock"
-STALENESS_SECONDS=86400  # 24 hours
+# Budget state does not expire by age: measured bytes stay true for as long
+# as the transcript they came from is the one being continued.
 
 # Acquire a simple lock to prevent concurrent corruption
 # Uses mkdir atomicity (POSIX-guaranteed).
@@ -310,9 +326,46 @@ budget_override_allows() {
       (.reason | type == "string" and test("\\S")))' <<< "$record" >/dev/null 2>&1
 }
 
-# ADR-005 estimates cost before execution; it is not a tokenizer/shell parser.
-# Only Read/Edit/Write file targets count. Bash gets an output-cost estimate.
-# Dispatch/alternation never refund spend. Denied attempts never consume it.
+# ADR-005 (measured revision): the byte meter charges tool output that
+# actually entered the main session, read from the transcript Claude Code
+# writes (payload .transcript_path), not a pre-call guess from the command
+# string. Each call reads only the transcript bytes appended since the
+# previous call (a stored byte offset), so cost tracks new output, not
+# session length. Charged, main-session entries only: tool_result content
+# (text bytes; an image or other non-text block is the policy's flat
+# image_block_bytes) and Edit/Write/MultiEdit/NotebookEdit input the model
+# wrote. Subagent turns live in their own transcript files and are also
+# skipped if flagged isSidechain. Transcript lines are parsed as JSON data
+# and never executed. A line still being written is left for the next call.
+#
+# The file meter still counts distinct Read/Edit/Write targets from the
+# payload, which is exact before the call runs. Denied attempts never add a
+# file target. Compaction zeroes both meters (session-start.sh), because it
+# removes the measured output from context.
+_FD_JQ_DEFS='
+  def tbytes: if type == "string" then utf8bytelength else 0 end;
+  def result_bytes($image):
+    if type == "string" then utf8bytelength
+    elif type == "array" then
+      map(if type != "object" then 0 elif .type == "text" then (.text | tbytes) else $image end) | add // 0
+    else 0 end;
+  def edit_bytes($name):
+    if type != "object" then 0
+    elif $name == "Edit" then (.new_string | tbytes)
+    elif $name == "Write" then (.content | tbytes)
+    elif $name == "NotebookEdit" then (.new_source | tbytes)
+    elif $name == "MultiEdit" then ([.edits[]? | objects | .new_string | tbytes] | add // 0)
+    else 0 end;
+  def entry_bytes($image):
+    if type != "object" or .isSidechain == true then 0 else
+      . as $e | (((.message | objects | .content | arrays) // [])
+      | map(if type != "object" then 0
+            elif .type == "tool_result" and $e.type == "user" then (.content | result_bytes($image))
+            elif .type == "tool_use" and $e.type == "assistant" then (.name as $n | .input | edit_bytes($n))
+            else 0 end)
+      | add // 0) end;
+'
+
 rule_force_delegate() {
   [[ "${COPILOT_FORCE_DELEGATE:-}" == "off" ]] && return 0
   if [[ -n "$AGENT_TYPE" ]]; then
@@ -328,90 +381,86 @@ rule_force_delegate() {
     return 0
   fi
 
-  local baseline="" candidate
-  local -a baselines=()
+  # Highest vX.Y.Z baseline wins, compared in bash: a `sort -V` fork here
+  # cost more than the whole meter once a second baseline existed.
+  local baseline="" candidate best=-1 rank
   for candidate in "${SCRIPT_DIR}"/../force-delegate-budget-baseline-v*.json; do
-    [[ -f "$candidate" ]] && baselines+=("$candidate")
+    [[ -f "$candidate" && "$candidate" =~ -v([0-9]+)\.([0-9]+)\.([0-9]+)\.json$ ]] || continue
+    rank=$(( 10#${BASH_REMATCH[1]} * 1000000 + 10#${BASH_REMATCH[2]} * 1000 + 10#${BASH_REMATCH[3]} ))
+    if [[ "$rank" -gt "$best" ]]; then best="$rank"; baseline="$candidate"; fi
   done
-  if [[ "${#baselines[@]}" -eq 0 ]]; then
+  if [[ -z "$baseline" ]]; then
     echo "[pretool-check] force-delegate budget baseline missing; budget unavailable" >&2
     return 0
-  fi
-  baseline="${baselines[0]}"
-  if [[ "${#baselines[@]}" -gt 1 ]]; then
-    baseline="$(printf '%s\n' "${baselines[@]}" | sort -V | tail -1)"
-  fi
-
-  local file_path="" charge=0 offset=0 limit="" read_fields
-  if [[ "$TOOL_NAME" == "Read" ]]; then
-    # Never evaluate input as shell. Count line slices in bytes, not characters.
-    read_fields="$("$JQ" -r '.tool_input | (.file_path // ""), (.offset // 0), (.limit // "")' <<< "$PAYLOAD")" || return 0
-    local -a fields=()
-    mapfile -t fields <<< "$read_fields"
-    file_path="${fields[0]:-}"
-    offset="${fields[1]:-0}"
-    limit="${fields[2]:-}"
-    if [[ -f "$file_path" ]]; then
-      if [[ "$offset" =~ ^[0-9]+$ && "$limit" =~ ^[0-9]+$ ]]; then
-        charge="$(LC_ALL=C awk -v start="$offset" -v count="$limit" \
-          'BEGIN { if (start < 1) start=1; stop=start+count }
-           NR >= stop { exit } NR >= start { bytes += length($0)+1 }
-           END { print bytes+0 }' "$file_path")"
-      elif [[ "$offset" =~ ^[0-9]+$ && "$offset" -gt 1 ]]; then
-        charge="$(LC_ALL=C awk -v start="$offset" 'NR >= start {bytes+=length($0)+1} END {print bytes+0}' "$file_path")"
-      else
-        charge="$(wc -c < "$file_path")"
-        charge="${charge//[[:space:]]/}"
-      fi
-    fi
   fi
 
   [[ -d "$STATE_DIR" ]] || mkdir -p "$STATE_DIR"
   if ! acquire_lock; then return 0; fi
   trap 'release_lock' EXIT
-  local previous=/dev/null result
+  local previous=/dev/null
   [[ -f "$STATE_FILE" ]] && previous="$STATE_FILE"
-  # Validate policy and compute prospective state in one jq call. State older
-  # than 24h expires; old streak files are intentionally never imported.
+
+  # Resume from the stored offset only when it belongs to this session's
+  # current transcript; the state file is per session, so a matching
+  # transcriptPath is the whole validity check. State from the retired
+  # pre-call estimator has no transcriptPath: its guessed bytes are dropped
+  # and the transcript is measured from the start instead. Read with bash
+  # builtins, not a jq fork, since this runs on every main-session call;
+  # $continuing is passed to jq so both agree. Transcripts are append-only,
+  # so one `tail` from the offset is the whole read. A line still being
+  # written is excluded by jq and read again next call.
+  local offset=0 continuing=false chunk=/dev/null saved=""
+  if [[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]]; then
+    [[ "$previous" != /dev/null ]] && saved="$(<"$previous")"
+    if [[ "$saved" == *"\"transcriptPath\":\"${TRANSCRIPT_PATH}\""* &&
+          "$saved" =~ \"transcriptOffset\":([0-9]+) ]]; then
+      offset="${BASH_REMATCH[1]}"; continuing=true
+    fi
+    chunk="${STATE_FILE}.chunk.$$"
+    tail -c +"$((offset + 1))" "$TRANSCRIPT_PATH" > "$chunk" 2>/dev/null || : > "$chunk"
+  elif [[ -n "$TRANSCRIPT_PATH" ]]; then
+    echo "[pretool-check] transcript not found; byte meter not advanced" >&2
+  fi
+
+  local result
   result="$("$JQ" -r --slurpfile policies "$baseline" --slurpfile previous "$previous" \
-    --arg tool "$TOOL_NAME" --arg session "$SESSION_ID" --arg file "$file_path" \
-    --arg command "$TOOL_COMMAND" --argjson readCharge "$charge" \
-    --argjson stale "$STALENESS_SECONDS" '
+    --rawfile chunk "$chunk" --arg session "$SESSION_ID" --arg tool "$TOOL_NAME" \
+    --arg transcript "$TRANSCRIPT_PATH" --argjson offset "$offset" \
+    --argjson continuing "$continuing" \
+    "${_FD_JQ_DEFS}"'
     $policies[0] as $policy | $policy.thresholds as $t |
-    if ([$t.byte_budget_bytes,$t.files_budget_count,$t.bash_bounded_charge_bytes,
-         $t.bash_unbounded_charge_bytes] | all(type == "number" and . > 0 and floor == .)) and
+    if ([$t.byte_budget_bytes, $t.files_budget_count, $t.image_block_bytes]
+          | all(type == "number" and . > 0 and floor == .)) and
        ($t.warning_ratio > 0 and $t.warning_ratio < 1) and $policy.byte_to_token_ratio > 0
     then . else error("invalid budget policy") end |
-    (.tool_input // {}) as $input |
-    ($previous[0] // {}) as $old |
-    (if $old.session_id == $session and
-        ((try ($old.updatedAt|fromdateiso8601) catch 0) > (now-$stale))
-     then $old else {} end) as $state |
-    (if $tool == "Read" then $file
-     elif $tool == "Edit" or $tool == "Write" then ($input.file_path // "")
-     else "" end) as $target |
-    (if $tool == "Read" then $readCharge
-     elif $tool == "Edit" then ($input.new_string // "" | utf8bytelength)
-     elif $tool == "Write" then ($input.content // "" | utf8bytelength)
-     elif ($command | test("(^|[;&|\\n]\\s*|\\s)(cat|find)(\\s|$)")) or
-          (($command | test("(^|[;&|\\n]\\s*|\\s)(rg|grep)(\\s|$)")) and
-           ($command | test("(^|\\s)(-m\\s*\\d+|--max-count[= ]\\d+)(\\s|$)") | not))
-     then $t.bash_unbounded_charge_bytes else $t.bash_bounded_charge_bytes end) as $cost |
-    (($state.bytesCharged // 0) + $cost) as $bytes |
+    (($previous[0] // {}) | if type == "object" and .session_id == $session then . else {} end) as $state |
+    ($chunk | split("\n") | .[:-1]) as $lines |
+    ($lines | map(utf8bytelength + 1) | add // 0) as $consumed |
+    ($lines | map(try (fromjson | entry_bytes($t.image_block_bytes)) catch 0) | add // 0) as $added |
+    ((if $continuing then ($state.bytesCharged // 0) else 0 end) + $added) as $bytes |
+    (if $tool == "Bash" then "" else (.tool_input.file_path // "") end) as $target |
     (($state.filesTouched // []) + (if $target == "" then [] else [$target] end) | unique) as $files |
-    {session_id:$session,bytesCharged:$bytes,filesTouched:$files,
-     updatedAt:(now|todateiso8601)} as $next |
-    ([$bytes,($files|length),$t.byte_budget_bytes,$t.files_budget_count,
-     (($bytes >= $t.byte_budget_bytes*$t.warning_ratio) or
-      (($files|length) >= $t.files_budget_count*$t.warning_ratio)),
-     ($bytes/$policy.byte_to_token_ratio|ceil)] | @tsv),
-    ($next|tojson)
+    {session_id: $session, bytesCharged: $bytes, filesTouched: $files,
+     transcriptPath: $transcript, transcriptOffset: ($offset + $consumed),
+     updatedAt: (now | todateiso8601)} as $next |
+    ([$bytes, ($files | length), $t.byte_budget_bytes, $t.files_budget_count,
+      (($bytes >= $t.byte_budget_bytes * $t.warning_ratio) or
+       (($files | length) >= $t.files_budget_count * $t.warning_ratio)),
+      ($bytes / $policy.byte_to_token_ratio | ceil)] | @tsv),
+    ($next | tojson),
+    ($next | .filesTouched = ($state.filesTouched // []) | tojson)
     ' <<< "$PAYLOAD")" || {
       echo "[pretool-check] force-delegate budget state/policy invalid; budget unavailable" >&2
+      [[ "$chunk" != /dev/null ]] && rm -f "$chunk"
       release_lock; trap - EXIT; return 0;
     }
+  [[ "$chunk" != /dev/null ]] && rm -f "$chunk"
 
-  local header="${result%%$'\n'*}" state="${result#*$'\n'}"
+  # Line 2 is the allowed-call state; line 3 is the denied-call state, which
+  # keeps the measurement (bytes and offset are facts about the transcript,
+  # so a retry never re-reads it) but not this call's file target.
+  local header="${result%%$'\n'*}" rest="${result#*$'\n'}"
+  local state="${rest%%$'\n'*}" denied_state="${rest#*$'\n'}"
   local bytes files byte_budget file_budget warn tokens
   IFS=$'\t' read -r bytes files byte_budget file_budget warn tokens <<< "$header"
   local exceeded=""
@@ -424,15 +473,17 @@ rule_force_delegate() {
     exceeded="${exceeded:+${exceeded} and }files"
   fi
   if [[ -n "$exceeded" ]]; then
+    printf '%s\n' "$denied_state" > "${STATE_FILE}.tmp.$$"
+    mv "${STATE_FILE}.tmp.$$" "$STATE_FILE"
     release_lock; trap - EXIT
     _ensure_manifest_loaded
-    deny "Main session cost budget exceeded (${exceeded}): ${bytes}/${byte_budget} estimated bytes (~${tokens} tokens), ${files}/${file_budget} distinct file targets. Narrow the call or delegate. Valid agents: ${VALID_AGENT_LIST}. COPILOT_FORCE_DELEGATE=off is the explicit bypass."
+    deny "Main session budget exceeded (${exceeded}): ${bytes}/${byte_budget} bytes of tool output measured since session start or the last /compact (~${tokens} tokens), ${files}/${file_budget} distinct file targets. Delegate the remaining work to a framework agent (${VALID_AGENT_LIST}) or run /compact to reset the meter. COPILOT_FORCE_DELEGATE=off is the explicit bypass."
   fi
   printf '%s\n' "$state" > "${STATE_FILE}.tmp.$$"
   mv "${STATE_FILE}.tmp.$$" "$STATE_FILE"
   release_lock; trap - EXIT
   if [[ "$warn" == "true" ]]; then
-    echo "[force-delegate-budget-warn] ${bytes}/${byte_budget} estimated bytes; ${files}/${file_budget} distinct file targets" >&2
+    echo "[force-delegate-budget-warn] ${bytes}/${byte_budget} measured bytes; ${files}/${file_budget} distinct file targets" >&2
   fi
   return 0
 }

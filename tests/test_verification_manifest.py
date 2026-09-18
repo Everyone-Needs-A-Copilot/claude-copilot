@@ -90,7 +90,8 @@ def test_broad_inventory_uses_directory_discovery_and_no_default_reuse():
         # These are read by the real routing-negative test, not copied constants.
         assert {".claude/fitness-check.sh", "CLAUDE.md", "CHANGELOG.md"}.issubset(lanes[lane_id]["inputs"])
     assert {".github/workflows", "docs/40-initiatives/01-risk-based-verification",
-            ".claude/force-delegate-budget-baseline-v1.0.0.json"}.issubset(lanes["root-portable"]["inputs"])
+            ".claude/force-delegate-budget-baseline-v1.0.0.json",
+            ".claude/force-delegate-budget-baseline-v1.1.0.json"}.issubset(lanes["root-portable"]["inputs"])
 
 
 def test_declared_local_inputs_and_working_directories_exist():
