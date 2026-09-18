@@ -92,7 +92,10 @@ def source_manifest(root: Path, scopes: list[str]) -> list[dict]:
         probe = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=root, capture_output=True, timeout=5)
         is_repo = probe.returncode == 0 and Path(os.fsdecode(probe.stdout.strip())).resolve() == root
         if is_repo:
-            result = subprocess.run(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"], cwd=root, capture_output=True, timeout=10, check=True)
+            # Bound the inventory to the contract before enforcing its byte cap.
+            # Large unrelated tracked dependencies must not block a narrow audit.
+            paths = [f":(literal){scope}" for scope in scopes]
+            result = subprocess.run(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", *paths], cwd=root, capture_output=True, timeout=10, check=True)
             if len(result.stdout) > 4 * 1024 * 1024:
                 raise ValidationError("QA source inventory exceeds limit")
             for raw in result.stdout.split(b"\0"):

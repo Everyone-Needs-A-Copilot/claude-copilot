@@ -127,3 +127,55 @@ def test_unfinished_dependency_blocks_persisted_completion(db_path):
     with pytest.raises(ValidationError, match='Incomplete task dependencies'):
         api.update_task(task_id=rollout['id'], status='completed', db_path=db_path)
     assert api.get_task(task_id=rollout['id'], db_path=db_path)['status'] == 'pending'
+
+
+def test_large_unrelated_git_inventory_does_not_block_narrow_scope(db_path, monkeypatch):
+    import subprocess
+    from tc.services.qa_contract import source_manifest
+    root = db_path.parent.parent
+    subprocess.run(['git', 'init', '-q', str(root)], check=True)
+    original = subprocess.run
+
+    def large_inventory(command, **kwargs):
+        if command[:2] == ['git', 'ls-files'] and '--' not in command:
+            return subprocess.CompletedProcess(command, 0, stdout=b'unrelated/' * 500_000)
+        return original(command, **kwargs)
+
+    (root / 'src').mkdir()
+    (root / 'src/main.py').write_text('initial source\n')
+    monkeypatch.setattr(subprocess, 'run', large_inventory)
+    assert source_manifest(root, ['src/main.py'])
+    (root / 'src/main.py').write_text('changed source\n')
+    first = source_manifest(root, ['src/main.py'])
+    (root / 'src/main.py').write_text('changed again\n')
+    assert source_manifest(root, ['src/main.py']) != first
+
+
+def test_large_in_scope_git_inventory_still_fails(db_path, monkeypatch):
+    import subprocess
+    from tc.services.qa_contract import source_manifest
+    root = db_path.parent.parent
+    subprocess.run(['git', 'init', '-q', str(root)], check=True)
+    original = subprocess.run
+
+    def large_inventory(command, **kwargs):
+        if command[:2] == ['git', 'ls-files']:
+            return subprocess.CompletedProcess(command, 0, stdout=b'src/entry\0' * 500_000)
+        return original(command, **kwargs)
+
+    monkeypatch.setattr(subprocess, 'run', large_inventory)
+    with pytest.raises(ValidationError, match='inventory exceeds limit'):
+        source_manifest(root, ['src'])
+
+
+def test_git_root_and_literal_scopes_include_only_matching_paths(db_path):
+    import subprocess
+    from tc.services.qa_contract import source_manifest
+    root = db_path.parent.parent
+    subprocess.run(['git', 'init', '-q', str(root)], check=True)
+    (root / 'normal.py').write_text('normal\n')
+    (root / 'literal[1].py').write_text('literal\n')
+    (root / 'literal1.py').write_text('different\n')
+    names = {r['path'] for r in source_manifest(root, ['.'])}
+    assert {'normal.py', 'literal[1].py', 'literal1.py'} <= names
+    assert [r['path'] for r in source_manifest(root, ['literal[1].py'])] == ['literal[1].py']
