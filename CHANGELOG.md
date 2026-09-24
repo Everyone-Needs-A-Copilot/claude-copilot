@@ -7,6 +7,7 @@ Framework **5.15.3**; component versions unchanged.
 - Moved the Ecosystem Extensions and Component Sync initiatives from `docs/80-initiatives/` into the canonical `docs/40-initiatives/` as `03-ecosystem-extensions` and `04-component-sync` (next unused numbers after `01` and `02`), and removed `docs/80-initiatives/`.
 - Added the `phases/`, `decisions/`, and `retrospectives/` folders the directory contract requires, and listed both initiatives in the `docs/40-initiatives/` and `docs/README.md` indexes.
 - Updated every in-repo path reference, including `cc` source comments and schema fixture descriptions; fixed a broken relative link in `design-product-composition.md` and Component Sync references that wrongly pointed at `copilot-control-tower`.
+- Synced `.claude-plugin/marketplace.json` to the framework version; it had been left at 5.8.0 and failed the manifest fitness check.
 
 ## [5.15.2] — 2026-09-09 — Claude release signer migration
 
