@@ -136,16 +136,15 @@ Reference-mode pages for quick lookup.
 ## Initiatives
 
 Multi-phase bodies of work with their own phases, decisions, and retrospectives.
-The current root `AGENTS.md` governs new work: use `docs/40-initiatives/` and its
-index. The `80-initiatives` entries below retain the historical layout reference;
-this correction does not relocate historical work.
+The root `AGENTS.md` governs: every initiative lives in `docs/40-initiatives/` and is listed in its index.
 
 | File | Description |
 |------|-------------|
 | [40-initiatives/README.md](40-initiatives/README.md) | Current initiative index and governing directory contract |
 | [40-initiatives/01-risk-based-verification/](40-initiatives/01-risk-based-verification/README.md) | Proposed visible, bounded verification workflow and adoption gates |
-| `80-initiatives/01-ecosystem-extensions/` | Ecosystem extensions initiative |
-| `80-initiatives/02-component-sync/` | Component sync initiative, including its per-initiative ADRs under `decisions/` |
+| [40-initiatives/02-bounded-foundation-rollout/](40-initiatives/02-bounded-foundation-rollout/README.md) | Bounded foundation rollout: shared visibility, native compatibility and a fixed finish line |
+| [40-initiatives/03-ecosystem-extensions/](40-initiatives/03-ecosystem-extensions/README.md) | Ecosystem extensions initiative |
+| [40-initiatives/04-component-sync/](40-initiatives/04-component-sync/README.md) | Component sync initiative, including its per-initiative ADRs under `decisions/` |
 
 ---
 

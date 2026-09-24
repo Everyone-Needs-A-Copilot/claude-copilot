@@ -7,10 +7,7 @@
 
 An initiative is a multi-phase body of work with a defined goal, explicit decisions, and evidence-bound exit criteria. It is larger than a task or a single feature spec and is expected to survive multiple sessions.
 
-Formal initiative documentation lives in `docs/40-initiatives/NN-slug/`, as required
-by the repository's root `AGENTS.md`. This index follows that governing contract;
-the former `80-initiatives` direction was inconsistent with it. No historical
-directories are moved by this correction.
+Formal initiative documentation lives in `docs/40-initiatives/NN-slug/`, as required by the repository's root `AGENTS.md`. The two initiatives formerly kept under `docs/80-initiatives/` (Ecosystem Extensions and Component Sync) moved here on 2026-09-24 as `03` and `04`, taking the next unused numbers; `docs/80-initiatives/` no longer exists.
 
 ## Current Initiatives
 
@@ -18,6 +15,8 @@ directories are moved by this correction.
 | --- | --- | --- | --- | --- |
 | [01-risk-based-verification](01-risk-based-verification/README.md) | Fast, visible verification | Bounded feedback, root-cause diagnosis and reproducible UI evidence | Proposed | PRD-5 / TASK-58 |
 | [02-bounded-foundation-rollout](02-bounded-foundation-rollout/README.md) | Bounded foundation rollout | Shared visibility, native compatibility and a fixed finish line | See `tc` acceptance | PRD-6 / TASK-67–70 |
+| [03-ecosystem-extensions](03-ecosystem-extensions/README.md) | Ecosystem Extensions | Layered PERSONAL › DEPARTMENT › ORG › FOUNDATION resolution for agents, skills, commands, and knowledge, plus Copilot Control Tower | Research / Proposed | PRD-TBD |
+| [04-component-sync](04-component-sync/README.md) | Component Sync | Update a framework component once and every project on the machine follows | Planned | PRD-TBD / TASK-TBD |
 
 ## Directory Contract
 
