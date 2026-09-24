@@ -1,5 +1,5 @@
 ---
-initiative: 02-component-sync
+initiative: 04-component-sync
 title: Component Sync — Update Once, Every Project Follows
 status: planned
 status_note: Approved for build (owner, 2026-07-16). Scope = the cc CLI machine-wide verbs + the tracked lock manifest; Control Tower rendering is downstream. Reconciles codex 02 (portability, removes symlinks) with claude 01 (Control Tower, guided sync) by restoring automatic propagation at the machine level.
@@ -325,12 +325,7 @@ Cannot be called complete until evidence-bound QA demonstrates:
   initiative removes symlinks; this one restores automatic propagation via the
   lock manifests it introduces). **Not edited here** — different repo, other
   sessions may be active. Owner/next session to apply.
-- **Canonical-path drift (R8).** This repo keeps initiatives at
-  `docs/80-initiatives/`; the ecosystem standard's canonical path is
-  `docs/40-initiatives/` and flags `80-initiatives` as a hard failure. Placed
-  here to sit beside the existing `01-ecosystem-extensions` sibling. Migrating
-  both to `40-initiatives` (and backfilling `01`'s frontmatter + generating the
-  index) is a separate, repo-wide cleanup — out of scope for this initiative.
+- **Canonical-path drift (R8) — resolved 2026-09-24.** This initiative and its Ecosystem Extensions sibling moved from `docs/80-initiatives/` to the canonical `docs/40-initiatives/` (as `04` and `03`) and are listed in the `docs/40-initiatives/README.md` index.
 - **Checker not installed here.** claude-copilot has no `check-initiatives.sh`
   pre-commit hook and no generated `README.md` index. Adopting the initiative
   package from `knowledge-copilot/00-best-practices/03-templates/07-initiative-package`

@@ -1,7 +1,7 @@
 """Machine-wide project discovery + per-project freshness.
 
 Component Sync initiative (Stream-E, WS-A-style verbs), Phase 2 (read-only):
-copilot-control-tower/docs/80-initiatives/02-component-sync/ (README +
+claude-copilot/docs/40-initiatives/04-component-sync/ (README +
 ADR-001 lock-manifest-as-propagation-index + ADR-002
 auto-apply-and-hold-on-dirty + phases/phase-2-discovery-and-freshness.md).
 

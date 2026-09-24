@@ -70,7 +70,7 @@ _log = logging.getLogger(__name__)
 _DEPARTMENT_REPO_TEMPLATE = "{component}-copilot-{unit}"
 
 # "separate repo per department" is the documented default topology
-# (claude-copilot/docs/80-initiatives/01-ecosystem-extensions/research/
+# (claude-copilot/docs/40-initiatives/03-ecosystem-extensions/research/
 # design-naming-topology.md §5: confidential-by-default department
 # content) -- the only topology this reconciliation derives today.
 # `subfolder`-topology derivation is a distinct `source.path` shape this
@@ -80,7 +80,7 @@ _DEFAULT_TOPOLOGY = "separate"
 _SUPPORTED_TOPOLOGIES = frozenset({_DEFAULT_TOPOLOGY})
 
 # Department tier rank (PERSONAL 10 < DEPARTMENT 20 < ORG 30 < FOUNDATION
-# 40 -- claude-copilot/docs/80-initiatives/01-ecosystem-extensions/
+# 40 -- claude-copilot/docs/40-initiatives/03-ecosystem-extensions/
 # 02-four-tier-and-github-topology.md §2) -- the manifest position a
 # joined department layer must land at so it folds between personal and
 # org, not after foundation (`commands/layers.py`'s `_next_rank()` would
@@ -220,7 +220,7 @@ def department_catalog(cfg: Optional[dict[str, Any]] = None) -> list[dict[str, A
 
     WHY THE READER DERIVES (not the producer/admin): deriving here is the
     entire point of the ecosystem.yml design (claude-copilot/docs/
-    80-initiatives/01-ecosystem-extensions/research/design-naming-
+    40-initiatives/03-ecosystem-extensions/research/design-naming-
     topology.md §2: "one fetch, entire matrix derived") -- asking an admin
     to hand-type a repo URL for every (department x component) pair is
     exactly the manual-paste tax that design exists to avoid, and a single

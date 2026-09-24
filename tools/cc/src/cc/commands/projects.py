@@ -1,7 +1,7 @@
 """Machine-wide fan-out sync: `cc projects` (Component Sync Stream-E).
 
 Backs the app's "Updated Claude Copilot across N of your projects" surface
-(copilot-control-tower/docs/80-initiatives/02-component-sync/README.md
+(claude-copilot/docs/40-initiatives/04-component-sync/README.md
 Target Outcomes + phases/phase-2-discovery-and-freshness.md,
 phases/phase-3-materialize-and-fanout.md). NOT wired into `cc/main.py`'s
 Typer app in this slice -- integration wires the `cc projects`/

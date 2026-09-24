@@ -3,7 +3,7 @@
   "$id": "https://everyoneneedsacopilot.com/schemas/copilot-control-tower/projects.schema.json",
   "$comment": "VENDORED COPY for the WS-A contract test in claude-copilot/tools/cc. Source of truth is copilot-control-tower/docs/01-architecture/schemas/projects.schema.json — update this copy from there, not the reverse.",
   "title": "copilot projects --json",
-  "description": "Component Sync (docs/80-initiatives/02-component-sync/) machine-wide fan-out verbs. Two report shapes, distinguished structurally (never by an explicit discriminant field, since neither the freshness sweep nor the fan-out roll-up needs one to be unambiguous): the read-only all-projects freshness sweep (`projects`+`global`) and the write-side fan-out roll-up (`summary`+`results`). A single project's own `cc materialize --project <path> --json` result reuses update.schema.json's shape (plus its additive `path` property) rather than a third shape defined here -- see that schema's `path` property description.",
+  "description": "Component Sync (docs/40-initiatives/04-component-sync/) machine-wide fan-out verbs. Two report shapes, distinguished structurally (never by an explicit discriminant field, since neither the freshness sweep nor the fan-out roll-up needs one to be unambiguous): the read-only all-projects freshness sweep (`projects`+`global`) and the write-side fan-out roll-up (`summary`+`results`). A single project's own `cc materialize --project <path> --json` result reuses update.schema.json's shape (plus its additive `path` property) rather than a third shape defined here -- see that schema's `path` property description.",
   "oneOf": [
     { "$ref": "#/$defs/all_projects_freshness" },
     { "$ref": "#/$defs/fanout_report" }
