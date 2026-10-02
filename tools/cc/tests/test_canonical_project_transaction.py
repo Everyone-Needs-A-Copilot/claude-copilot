@@ -419,6 +419,22 @@ def test_setup_and_update_commands_are_thin_canonical_adapters() -> None:
     assert "former partial `minimal` / `quick start` profile is retired" in setup_text
 
 
+def test_setup_project_interview_runs_only_after_ready_and_stays_outside_managed_blocks() -> None:
+    repository = Path(__file__).parents[3]
+    text = (repository / ".claude/commands/setup-project.md").read_text(
+        encoding="utf-8"
+    )
+    step = text.split("## 3. Capture the project identity", 1)[1]
+
+    assert text.index("reconcile verify") < text.index("## 3. Capture the project identity")
+    assert "AskUserQuestion" in step
+    assert "What's this project about?" in step
+    assert "What's the main tech stack?" in step
+    assert "never edit between the framework's `cc:project-integration` markers" in step
+    assert "skip this step entirely" in step
+    assert "already has a project-authored description" in step
+
+
 def test_prerequisite_fact_rejects_system_compiler_and_names_machine_setup(
     tmp_path: Path,
 ) -> None:
@@ -1189,3 +1205,67 @@ def test_provenance_lock_never_downgrades_when_manifest_disappears(
         )
     assert (project / "copilot.lock.json").read_bytes() == lock_before
     assert _snapshot(project) == before
+
+
+@pytest.mark.parametrize("placement", ["before", "after"])
+def test_project_authored_text_beside_managed_blocks_still_verifies_ready(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, placement: str
+) -> None:
+    claude, codex, _commands = _reference_sources(tmp_path)
+    _configure_sources(monkeypatch, claude, codex)
+    authority = tmp_path / "projects"
+    project = _git_project(authority)
+    request = build_canonical_project_request(project, approved_roots=(authority,))
+    state_root = tmp_path / "transaction-state"
+
+    def machine_builder() -> dict[str, Any]:
+        return _machine(authority.resolve())
+
+    census_builder = _census(project, authority.resolve())
+
+    def plan_issuer(**kwargs: Any) -> Any:
+        return issue_plan(**kwargs, root=state_root)
+
+    plan = build_plan_report(
+        request,
+        machine_builder=machine_builder,
+        census_builder=census_builder,
+        plan_issuer=plan_issuer,
+    )
+    applied = build_apply_report(
+        request,
+        plan["plan_id"],
+        machine_builder=machine_builder,
+        census_builder=census_builder,
+        state_root=state_root,
+    )
+    assert applied["result"] == "applied"
+
+    section = "## Project\n\n**Description:** A person-authored description.\n"
+    for name in ("CLAUDE.md", "AGENTS.md"):
+        path = project / name
+        original = path.read_text(encoding="utf-8")
+        path.write_text(
+            section + "\n" + original
+            if placement == "before"
+            else original + "\n" + section,
+            encoding="utf-8",
+        )
+
+    def verify() -> dict[str, Any]:
+        return build_verify_report(
+            request,
+            machine_builder=machine_builder,
+            census_builder=census_builder,
+        )
+
+    assert verify()["result"] == "ready"
+
+    claude_md = project / "CLAUDE.md"
+    claude_md.write_text(
+        claude_md.read_text(encoding="utf-8").replace(
+            "## Claude Copilot", "## Tampered Copilot"
+        ),
+        encoding="utf-8",
+    )
+    assert verify()["result"] != "ready"

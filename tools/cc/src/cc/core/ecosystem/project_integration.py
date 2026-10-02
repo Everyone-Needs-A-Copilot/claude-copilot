@@ -24,6 +24,7 @@ from cc.core.config import resolve_key
 from cc.core.ecosystem.canonical_transaction import claude_reference_roster
 from cc.core.ecosystem.project_locking import (
     fingerprint_file_payload,
+    fingerprint_managed_block_payload,
     fingerprint_symlink,
 )
 from cc.core.ecosystem.project_sources import resolve_claude_content
@@ -105,6 +106,8 @@ _CLAUDE_RELEVANT_PATHS = (
     ".claude/memory/.gitignore",
 )
 
+_PROJECT_INSTRUCTION_FILES = frozenset({"CLAUDE.md", "AGENTS.md"})
+
 _CODEX_RELEVANT_PATHS = (
     "AGENTS.md",
     ".codex-copilot.json",
@@ -156,6 +159,30 @@ def _checksum(path: Path) -> str:
     else:
         payload = path.read_bytes()
     return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def _managed_output_matches(
+    root: Path, relative: str, kind: str, expected: str
+) -> bool:
+    if _managed_output_fingerprint(root, relative) == expected:
+        return True
+    if kind != "managed-text" or relative not in _PROJECT_INSTRUCTION_FILES:
+        return False
+    target, _ = _safe_relative_target(root, relative)
+    if target is None:
+        return False
+    try:
+        metadata = target.lstat()
+        if not stat.S_ISREG(metadata.st_mode):
+            return False
+        return (
+            fingerprint_managed_block_payload(
+                target.read_bytes(), mode=stat.S_IMODE(metadata.st_mode)
+            )
+            == expected
+        )
+    except OSError:
+        return False
 
 
 def _managed_output_fingerprint(root: Path, relative: str) -> Optional[str]:
@@ -627,6 +654,8 @@ def _verify_lock_entry(
         managed_paths.add(rel_path)
         actual = _managed_output_fingerprint(root, rel_path)
         expected = str(output["fingerprint"])
+        if _managed_output_matches(root, rel_path, str(output["kind"]), expected):
+            actual = expected
         fingerprint.append(
             ["managed-output", rel_path, output["kind"], expected, actual]
         )
