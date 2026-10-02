@@ -127,3 +127,30 @@ If the project is degraded but eligible, the plan repairs only verified
 framework-owned targets. If it is dirty, ambiguous, customized beyond a
 reviewed recipe, or cannot be verified, it is held for the named actor. Never
 bypass that decision with manual file operations or a legacy installer.
+
+## 3. Capture the project identity
+
+This step is a person-authored addition after the transaction, not part of it. Run it only when apply returned `applied` in this run and verification reported this project's components `ready`. If apply was an already-ready no-op, if the run was an update, or if the plan was held, declined, or failed, skip this step entirely and do not ask the questions.
+
+Also skip it when the project already has a project-authored description: read `CLAUDE.md` and `AGENTS.md` and treat any content outside the `<!-- cc:project-integration:...:start -->` / `<!-- cc:project-integration:...:end -->` blocks (an existing `## Project` section, an overview, or a description written by the person) as authoritative. Never overwrite it.
+
+Otherwise use AskUserQuestion to ask, letting the person type freely and offering a skip option on every question (skipping every question writes nothing):
+
+1. "What's this project about?" (header: "Description") - one or two sentences.
+2. "What's the main tech stack?" (header: "Stack") - suggest options detected from the repository (for example `package.json`, `pyproject.toml`, `go.mod`) plus "Other (describe)".
+3. "Anything else a new teammate or agent should know?" (header: "Notes") - conventions, how to run and test, constraints. Optional.
+
+Write only the answers given, as a project-authored section, using the project folder name as the name:
+
+```markdown
+## Project
+
+**Name:** <folder name>
+**Description:** <answer>
+**Stack:** <answer>
+**Notes:** <answer>
+```
+
+Place the section in `CLAUDE.md`, and the same section in `AGENTS.md` so Codex sees it too. Put it above the framework block (directly after the title when there is one) and never edit between the framework's `cc:project-integration` markers, which the transaction owns; do not use the transaction's overwrite-project-instructions path. Omit lines for skipped questions. Do not duplicate machine-level settings such as output verbosity or Knowledge, which machine setup owns.
+
+Finish by running `reconcile verify` again; the project must still report `ready`. If it does not, remove the section you added and report the verification result rather than leaving the project unverified.

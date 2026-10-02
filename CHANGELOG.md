@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- `/setup-project` asks again what the project is about and its main tech stack (plus optional notes) after a successful apply and ready verification, and writes a project-authored `## Project` section into `CLAUDE.md` and `AGENTS.md` outside the framework-managed blocks. The questions were dropped when the command became an adapter over `cc reconcile` (a572b71). They are skipped for no-op or update runs, held or failed plans, and projects that already have a project-authored description.
+- `cc` verification no longer reports `verified-managed-output` mismatch when a person adds their own text before or after the framework-managed block in `CLAUDE.md` or `AGENTS.md`. The block itself is still verified byte-for-byte; edits inside it, or a duplicated or malformed block, still fail.
+
 ## [5.15.3] — 2026-09-24 — Initiatives consolidated under 40-initiatives
 
 Framework **5.15.3**; component versions unchanged.

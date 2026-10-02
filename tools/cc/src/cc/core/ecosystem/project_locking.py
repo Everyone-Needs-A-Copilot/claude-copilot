@@ -115,12 +115,42 @@ def _sha256(value: Any) -> str:
     return "sha256:" + hashlib.sha256(_canonical_json(value)).hexdigest()
 
 
+_MANAGED_BLOCK_START = re.compile(
+    rb"<!-- cc:project-integration:(claude|codex):v1:start -->\n"
+)
+_MANAGED_BLOCK_START_ANY = re.compile(rb"cc:project-integration:[a-z]+:v1:start")
+
+
 def fingerprint_missing() -> str:
     return _sha256(["missing"])
 
 
 def fingerprint_file_payload(payload: bytes, *, mode: int = 0o644) -> str:
     return _sha256(["file", mode, hashlib.sha256(payload).hexdigest()])
+
+
+def fingerprint_managed_block_payload(
+    payload: bytes, *, mode: int = 0o644
+) -> str | None:
+    """Fingerprint only the one framework-managed block inside a text file.
+
+    Project-authored text around the block is the person's, so it must not
+    change whether the framework's own block verifies. Returns None unless the
+    payload holds exactly one well-formed ``cc:project-integration`` block.
+    """
+    starts = list(_MANAGED_BLOCK_START.finditer(payload))
+    if len(starts) != 1 or len(_MANAGED_BLOCK_START_ANY.findall(payload)) != 1:
+        return None
+    start = starts[0]
+    end_marker = b"<!-- cc:project-integration:%s:v1:end -->\n" % start.group(1)
+    if payload.count(end_marker) != 1:
+        return None
+    end = payload.index(end_marker)
+    if end < start.start():
+        return None
+    return fingerprint_file_payload(
+        payload[start.start() : end + len(end_marker)], mode=mode
+    )
 
 
 def fingerprint_symlink(link_value: str) -> str:
@@ -1055,6 +1085,7 @@ __all__ = [
     "atomic_json_write",
     "ensure_private_directory",
     "fingerprint_file_payload",
+    "fingerprint_managed_block_payload",
     "fingerprint_missing",
     "fingerprint_symlink",
     "fingerprint_tree_source",
