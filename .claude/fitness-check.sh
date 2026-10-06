@@ -86,6 +86,29 @@ fi
 COPILOT_PATH="${COPILOT_PATH_FLAG:-${CC_COPILOT_PATH:-${HOME}/.claude/copilot}}"
 
 # ---------------------------------------------------------------------------
+# Framework repo vs consumer project. The same script ships into every
+# installed project, and several checks below are only meaningful in one of
+# the two: the context-budget baseline (FF9) and the agent git history (FF12)
+# live in the framework repo, never in a consumer. The framework repo is the
+# directory whose VERSION.json declares `framework` and that carries tools/cc;
+# an installed project has neither. CC_FITNESS_MODE=framework|consumer
+# overrides detection (tests, unusual layouts).
+# ---------------------------------------------------------------------------
+if [ -n "${CC_FITNESS_MODE:-}" ]; then
+  FITNESS_MODE="$CC_FITNESS_MODE"
+elif [ -f "${_SCRIPT_DIR}/tools/cc/pyproject.toml" ] && \
+     python3 -c "import json,sys; sys.exit(0 if 'framework' in json.load(open(sys.argv[1])) else 1)" \
+       "${_SCRIPT_DIR}/VERSION.json" 2>/dev/null; then
+  FITNESS_MODE="framework"
+else
+  FITNESS_MODE="consumer"
+fi
+case "$FITNESS_MODE" in
+  framework|consumer) echo "Fitness mode: $FITNESS_MODE" >&2 ;;
+  *) echo "Unknown CC_FITNESS_MODE: $FITNESS_MODE (expected framework|consumer)" >&2; exit 1 ;;
+esac
+
+# ---------------------------------------------------------------------------
 # Read roster from VERSION.json
 # ---------------------------------------------------------------------------
 if [ -n "$VERSION_FILE" ] && [ -f "$VERSION_FILE" ]; then
@@ -545,6 +568,14 @@ fi
 # ---------------------------------------------------------------------------
 section "FF9: Context Budget (bytes + token estimate vs committed baseline)"
 
+if [ "$FITNESS_MODE" = "consumer" ]; then
+  # The baseline is a framework-development budget: it pins the byte size of
+  # the framework's own corpus so a framework change cannot silently grow
+  # what every session loads. A consumer project receives that corpus already
+  # budgeted (the framework's own FF9 ran before release) and has no baseline
+  # of its own to compare against -- so absence here is expected, not a defect.
+  echo "  [SKIP] consumer project -- the context budget is enforced against the framework's committed baseline before release, not per install"
+else
 FF9_BUDGET_DIR="$(dirname "$AGENTS_DIR")"
 FF9_CLAUDE_MD="CLAUDE.md"
 FF9_SESSION_INJECTION="${FF9_BUDGET_DIR}/hooks/protocol-injection.md"
@@ -909,6 +940,7 @@ evaluate_absolute("Always-loaded total", always_loaded_total, ALWAYS_CEILING)
 evaluate_absolute("Agent corpus total", corpus_total, CORPUS_CEILING)
 PYEOF
 )
+fi
 
 # ---------------------------------------------------------------------------
 # FF10: Output Contract block -- present exactly once, byte-identical to the
@@ -984,32 +1016,34 @@ fi
 
 # ---------------------------------------------------------------------------
 # FF11: No dead skill references -- every skill an agent definition points
-#      at must actually resolve, checked two ways since agents reference
-#      skills two ways:
-#        1. Explicit `@include .claude/skills/<path>/SKILL.md` paths --
-#           checked directly against the filesystem (repo-relative, no
-#           external dependency, always runs).
-#        2. Backtick-quoted skill NAMES in an '## Available Skills' table
-#           row (e.g. `` `terraform-patterns` ``) -- checked against a
-#           SINGLE `cc skill list --scope all --json` call (multi-scope:
-#           project / machine / shared knowledge, the same lookup agents
-#           perform at runtime), not one `cc skill get` subprocess per
-#           name -- with ~20 table rows across the roster, per-name
-#           subprocesses measured ~75s for one fitness-check.sh run (each
-#           `cc` invocation pays its own interpreter + CLI startup cost),
-#           which multiplies out badly in test files that run
-#           fitness-check.sh repeatedly (e.g. tests/test_ff6_negative.py).
-#           One `cc skill list` call is ~6s regardless of table size. A
-#           skill that only lives in the shared knowledge repo is still
-#           correctly recognized as real, not flagged for not sitting
-#           under .claude/skills/ locally. If `cc` is not on PATH, or the
-#           list call fails, this half is skipped (PASS, noted) rather
-#           than failed -- an environment limitation, not a project
-#           defect.
-#      Exists to catch exactly the class of drift found 2026-08-09 in
-#      do.md: a renamed/typo'd skill name (`terraform-patterns` instead of
-#      `terraform-best-practices`) sitting in an agent's Available Skills
-#      table, unenforced, pointing at nothing.
+#      at must resolve the way the agent resolves it at runtime: BY NAME,
+#      through the multi-scope lookup (`cc skill get <name>`: project ->
+#      machine -> shared knowledge, with the installed framework's own
+#      catalog as part of machine scope).
+#
+#      Agents reference skills two ways, and both are checked by name:
+#        1. `cc skill get <name>` anywhere in the agent body.
+#        2. Backtick-quoted names in an '## Available Skills' table row
+#           (e.g. `` `terraform-patterns` ``).
+#
+#      Repo-relative `.claude/skills/<category>/<name>/SKILL.md` paths are
+#      themselves a failure, in every project. They only ever resolved in
+#      the framework checkout: the installer ships agents into consumer
+#      projects but never the framework's .claude/skills tree, so the same
+#      line was a dead reference in every installed project (38 consumer
+#      fitness failures, 2026-10-06, 22 of them this class).
+#
+#      Resolution uses ONE `cc skill list --scope all --json` call, not one
+#      `cc skill get` per name (~20 names across the roster measured ~75s as
+#      subprocesses; one listing is ~6s). When `cc` is unavailable (not on
+#      PATH, or the macOS C compiler answering to `cc`), the same scopes are
+#      scanned on disk instead: <project>/.claude/skills, ~/.claude/skills,
+#      and the framework catalog at $COPILOT_PATH/.claude/skills -- so CI and
+#      a machine without cc still get a real verdict rather than a skip.
+#
+#      Exists to catch the class of drift found 2026-08-09 in do.md (a
+#      renamed skill, `terraform-patterns` for `terraform-best-practices`,
+#      pointing at nothing) and the 2026-10-06 consumer-path class above.
 # ---------------------------------------------------------------------------
 section "FF11: No Dead Skill References"
 
@@ -1020,7 +1054,7 @@ while IFS= read -r ff11_line; do
     "FAIL "*) fail "${ff11_line#FAIL }" ;;
     *) fail "FF11 checker produced unparseable output: $ff11_line" ;;
   esac
-done < <(python3 - "$AGENTS_DIR" <<'PYEOF'
+done < <(python3 - "$AGENTS_DIR" "$COPILOT_PATH" <<'PYEOF'
 import json
 import re
 import shutil
@@ -1029,6 +1063,7 @@ import sys
 from pathlib import Path
 
 agents_dir = Path(sys.argv[1])
+copilot_path = Path(sys.argv[2]).expanduser() if len(sys.argv) > 2 and sys.argv[2] else None
 
 
 def fail(msg):
@@ -1043,83 +1078,102 @@ def info(msg):
     print(msg, file=sys.stderr)
 
 
-INCLUDE_RE = re.compile(r"\.claude/skills/[A-Za-z0-9_\-./]+/SKILL\.md")
+PATH_REF_RE = re.compile(r"\.claude/skills/[A-Za-z0-9_\-./]+/SKILL\.md")
+GET_RE = re.compile(r"cc skill get ([A-Za-z0-9_\-]+)")
 TABLE_ROW_RE = re.compile(r"^\|\s*`([A-Za-z0-9_\-]+)`\s*\|")
+NAME_RE = re.compile(r"^name:\s*['\"]?([A-Za-z0-9_\-]+)", re.MULTILINE)
 
-repo_root = agents_dir.resolve().parents[1]
+project_root = agents_dir.resolve().parents[1]
 agent_files = sorted(p for p in agents_dir.glob("*.md") if p.is_file())
 
 if not agent_files:
     fail(f"no agent .md files found under {agents_dir}")
     sys.exit(0)
 
-# 1. Explicit @include .claude/skills/.../SKILL.md paths.
-found_any_path_ref = False
+# Collect every reference, keyed by agent.
+refs = {}  # agent -> {name: how}
 for agent_file in agent_files:
-    agent_name = agent_file.stem
+    agent = agent_file.stem
     text = agent_file.read_text(encoding="utf-8")
-    for match in sorted(set(INCLUDE_RE.findall(text))):
-        found_any_path_ref = True
-        target = repo_root / match
-        if target.is_file():
-            ok(f"{agent_name}.md: referenced skill file exists ({match})")
-        else:
-            fail(f"{agent_name}.md: references nonexistent skill file {match}")
-if not found_any_path_ref:
-    info("FF11: no @include .claude/skills/*/SKILL.md path references found")
+    for path_ref in sorted(set(PATH_REF_RE.findall(text))):
+        name = Path(path_ref).parent.name
+        fail(
+            f"{agent}.md: repo-relative skill path {path_ref} -- consumer projects never "
+            f"receive the framework's .claude/skills tree; reference it as `cc skill get {name}`"
+        )
+    names = refs.setdefault(agent, {})
+    for name in GET_RE.findall(text):
+        names.setdefault(name, "cc skill get")
+    in_table = False
+    for line in text.splitlines():
+        if line.strip() == "## Available Skills":
+            in_table = True
+            continue
+        if in_table and line.startswith("## "):
+            in_table = False
+            continue
+        if in_table:
+            m = TABLE_ROW_RE.match(line)
+            if m:
+                names.setdefault(m.group(1), "Available Skills table")
 
-# 2. Backtick skill names in '## Available Skills' tables -- resolved
-#    against ONE `cc skill list` call (see comment above on why not one
-#    subprocess per name).
-cc_bin = shutil.which("cc")
-known_skill_names = None
-if cc_bin is not None:
+if not any(refs.values()):
+    info("FF11: no skill name references found")
+    sys.exit(0)
+
+
+def cc_listing():
+    cc_bin = shutil.which("cc")
+    if cc_bin is None:
+        return None, "`cc` not on PATH"
     try:
         listing = subprocess.run(
             [cc_bin, "skill", "list", "--scope", "all", "--json"],
-            capture_output=True,
-            text=True,
-            timeout=60,
+            capture_output=True, text=True, timeout=60,
         )
-        if listing.returncode == 0 and listing.stdout.strip():
-            known_skill_names = {
-                entry["name"] for entry in json.loads(listing.stdout) if "name" in entry
-            }
-    except Exception as exc:
-        info(f"FF11: `cc skill list` errored, skipping name-based lookup: {exc}")
+    except Exception as exc:  # noqa: BLE001 -- any failure falls back to disk
+        return None, f"`cc skill list` errored ({exc})"
+    if listing.returncode != 0 or not listing.stdout.strip():
+        return None, "`cc skill list` unavailable"
+    try:
+        return {e["name"] for e in json.loads(listing.stdout) if "name" in e}, None
+    except (ValueError, TypeError, KeyError):
+        return None, "`cc skill list` returned unparseable output"
 
-if cc_bin is None:
-    ok("Available Skills table entries: `cc` not on PATH -- skipping name-based lookup")
-elif known_skill_names is None:
-    ok("Available Skills table entries: `cc skill list` unavailable -- skipping name-based lookup")
-else:
-    found_any_name_ref = False
-    for agent_file in agent_files:
-        agent_name = agent_file.stem
-        in_table = False
-        for line in agent_file.read_text(encoding="utf-8").splitlines():
-            if line.strip() == "## Available Skills":
-                in_table = True
+
+def disk_listing():
+    roots = [project_root / ".claude" / "skills", Path.home() / ".claude" / "skills"]
+    if copilot_path is not None:
+        roots.append(copilot_path / ".claude" / "skills")
+    found = set()
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for skill_md in root.rglob("SKILL.md"):
+            found.add(skill_md.parent.name)
+            try:
+                head = skill_md.read_text(encoding="utf-8", errors="replace")[:2000]
+            except OSError:
                 continue
-            if in_table and line.startswith("## "):
-                in_table = False
-                continue
-            if not in_table:
-                continue
-            m = TABLE_ROW_RE.match(line)
-            if not m:
-                continue
-            name = m.group(1)
-            found_any_name_ref = True
-            if name in known_skill_names:
-                ok(f"{agent_name}.md: skill `{name}` resolves via `cc skill list`")
-            else:
-                fail(
-                    f"{agent_name}.md: skill `{name}` listed in Available Skills "
-                    f"but not found by `cc skill list --scope all`"
-                )
-    if not found_any_name_ref:
-        info("FF11: no '## Available Skills' table rows found")
+            m = NAME_RE.search(head)
+            if m:
+                found.add(m.group(1))
+    return found
+
+
+known, why_not_cc = cc_listing()
+via = "`cc skill list`"
+if known is None:
+    info(f"FF11: {why_not_cc} -- resolving skill names from the on-disk scopes instead")
+    known = disk_listing()
+    via = "on-disk skill scopes"
+
+for agent in sorted(refs):
+    for name, how in sorted(refs[agent].items()):
+        if name in known:
+            ok(f"{agent}.md: skill `{name}` ({how}) resolves via {via}")
+        else:
+            fail(f"{agent}.md: skill `{name}` ({how}) not found by {via} (project, machine, knowledge)")
 PYEOF
 )
 
@@ -1156,25 +1210,74 @@ PYEOF
 # ---------------------------------------------------------------------------
 section "FF12: Deployment Reconciliation (repo vs the corpus sessions load)"
 
-DEPLOYED_AGENTS_DIR="${CC_DEPLOYED_AGENTS_DIR:-${HOME}/.claude/agents}"
+# WHICH TWO DIRECTORIES, BY MODE.
+#   framework  repo = this checkout's agents ($AGENTS_DIR); deployed = the machine
+#              corpus (~/.claude/agents); history = this checkout's git.
+#   consumer   repo = the framework source ($COPILOT_PATH/.claude/agents); deployed =
+#              THIS project's agents ($AGENTS_DIR), because project-scope agents
+#              shadow ~/.claude/agents for every session opened here; history = the
+#              framework's git, not the project's. Running the framework-mode
+#              comparison from a consumer compared the project against a stale
+#              machine corpus and searched the PROJECT's git for agent history,
+#              so every installed agent "matched no committed version" (16 false
+#              failures in a clean install, 2026-10-06). A consumer may also
+#              define its own agents; those are reported, not failed. And the
+#              lock's release_tag must name a tag the framework actually has.
+if [ "$FITNESS_MODE" = "consumer" ]; then
+  FF12_REPO_AGENTS="${COPILOT_PATH}/.claude/agents"
+  DEPLOYED_AGENTS_DIR="${CC_DEPLOYED_AGENTS_DIR:-$AGENTS_DIR}"
+  FF12_HISTORY_ROOT="$COPILOT_PATH"
+else
+  FF12_REPO_AGENTS="$AGENTS_DIR"
+  DEPLOYED_AGENTS_DIR="${CC_DEPLOYED_AGENTS_DIR:-${HOME}/.claude/agents}"
+  FF12_HISTORY_ROOT="."
+fi
 
-if [ ! -d "$DEPLOYED_AGENTS_DIR" ]; then
+if [ "$FITNESS_MODE" = "consumer" ]; then
+  FF12_LOCK="${_SCRIPT_DIR}/copilot.lock.json"
+  FF12_TAG="$(python3 -c "
+import json, sys
+try:
+    lock = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(0)
+for c in lock.get('components', []):
+    if c.get('component') == 'claude':
+        print(c.get('release_tag') or '')
+" "$FF12_LOCK" 2>/dev/null)"
+  if [ ! -f "$FF12_LOCK" ]; then
+    echo "  [SKIP] no copilot.lock.json at ${FF12_LOCK} -- no recorded release to verify"
+  elif [ -z "$FF12_TAG" ]; then
+    fail "copilot.lock.json records no Claude Copilot release_tag -- the install cannot be traced to a release"
+  elif ! git -C "$COPILOT_PATH" rev-parse --git-dir >/dev/null 2>&1; then
+    echo "  [SKIP] ${COPILOT_PATH} is not a git checkout -- cannot verify release tag ${FF12_TAG}"
+  elif git -C "$COPILOT_PATH" rev-parse -q --verify "refs/tags/${FF12_TAG}^{commit}" >/dev/null 2>&1; then
+    pass "copilot.lock.json release_tag ${FF12_TAG} is a tag in the framework repo"
+  else
+    fail "copilot.lock.json is locked to ${FF12_TAG}, which the framework repo at ${COPILOT_PATH} has not tagged (fetch tags, or the release was never tagged)"
+  fi
+fi
+
+if [ ! -d "$FF12_REPO_AGENTS" ]; then
+  echo "  [SKIP] no framework agent source at ${FF12_REPO_AGENTS} -- nothing to reconcile against."
+elif [ ! -d "$DEPLOYED_AGENTS_DIR" ]; then
   echo "  [SKIP] no deployed agent directory at ${DEPLOYED_AGENTS_DIR} -- nothing to reconcile."
   echo "         Every result above describes this repo, not a running session."
-elif [ "$(cd "$DEPLOYED_AGENTS_DIR" 2>/dev/null && pwd -P)" = "$(cd "$AGENTS_DIR" 2>/dev/null && pwd -P)" ]; then
+elif [ "$(cd "$DEPLOYED_AGENTS_DIR" 2>/dev/null && pwd -P)" = "$(cd "$FF12_REPO_AGENTS" 2>/dev/null && pwd -P)" ]; then
   pass "deployed agents resolve to the same directory as the repo (${DEPLOYED_AGENTS_DIR}) -- no drift is possible"
 else
-  FF12_OUT=$(AGENTS_DIR="$AGENTS_DIR" DEPLOYED="$DEPLOYED_AGENTS_DIR" \
+  FF12_OUT=$(AGENTS_DIR="$FF12_REPO_AGENTS" DEPLOYED="$DEPLOYED_AGENTS_DIR" \
+    HISTORY_ROOT="$FF12_HISTORY_ROOT" MODE="$FITNESS_MODE" \
     CEILING="$(python3 -c "
 import json,sys
 from pathlib import Path
 try:
-    for p in sorted(Path('.claude').glob('context-budget-baseline-*.json')):
+    for p in sorted((Path(sys.argv[1]) / '.claude').glob('context-budget-baseline-*.json')):
         pass
     print(json.loads(p.read_text())['thresholds']['agent_corpus_ceiling_bytes'])
 except Exception:
     print(0)
-" 2>/dev/null || echo 0)" python3 - <<'FF12EOF'
+" "$FF12_HISTORY_ROOT" 2>/dev/null || echo 0)" python3 - <<'FF12EOF'
 import os
 import re
 import subprocess
@@ -1183,6 +1286,8 @@ from pathlib import Path
 repo = Path(os.environ["AGENTS_DIR"])
 dep = Path(os.environ["DEPLOYED"])
 ceiling = int(os.environ.get("CEILING") or 0)
+history_root = os.environ.get("HISTORY_ROOT") or "."
+consumer = os.environ.get("MODE") == "consumer"
 
 repo_files = {p.name: p for p in repo.glob("*.md")}
 dep_files = {p.name: p for p in dep.glob("*.md")}
@@ -1260,7 +1365,7 @@ def committed_versions(name, limit=200):
     rel = f".claude/agents/{name}"
     try:
         revs = subprocess.run(
-            ["git", "log", "--all", f"-{limit}", "--format=%H", "--", rel],
+            ["git", "-C", history_root, "log", "--all", f"-{limit}", "--format=%H", "--", rel],
             capture_output=True, text=True, timeout=30, check=False,
         ).stdout.split()
     except (OSError, subprocess.SubprocessError):
@@ -1269,7 +1374,7 @@ def committed_versions(name, limit=200):
     for rev in revs:
         try:
             out = subprocess.run(
-                ["git", "show", f"{rev}:{rel}"],
+                ["git", "-C", history_root, "show", f"{rev}:{rel}"],
                 capture_output=True, text=True, timeout=30, check=False,
             )
         except (OSError, subprocess.SubprocessError):
@@ -1310,8 +1415,13 @@ for name in missing:
                  f"a session cannot route to it")
 for name in extra:
     base_total += (dep_files[name].stat().st_size)
-    lines.append(f"FAIL|{name} is deployed and not defined in this repo -- sessions load an "
-                 f"agent nothing here validates")
+    if consumer:
+        # A consumer project may define its own agents; the framework does not
+        # own them, so their presence is stated, not failed.
+        lines.append(f"REPORT|{name} is a project-defined agent (not in the framework roster)")
+    else:
+        lines.append(f"FAIL|{name} is deployed and not defined in this repo -- sessions load an "
+                     f"agent nothing here validates")
 for name, why in divergent:
     lines.append(
         f"FAIL|{name}: the deployed base {why}. Every budget and contract check above "
@@ -1358,7 +1468,7 @@ if behind:
         lines.append(f"REPORT|  {name}: repo version is {abs(delta):,} B {direction}, "
                      f"and not yet deployed")
 
-if identical and not divergent and not missing and not extra:
+if identical and not divergent and not missing and (consumer or not extra):
     lines.append(f"PASS|{identical} agent base(s) byte-identical between repo and deployment")
 
 archive = dep / "_archive"

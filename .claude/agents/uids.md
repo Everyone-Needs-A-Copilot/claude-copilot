@@ -45,7 +45,7 @@ Follow these steps in order. They are mandatory, not suggestions.
 
 1. **Check for existing design system** — Scan codebase for design tokens, CSS custom properties, component libraries. If found, switch to Controlled Mode. If not, proceed in Innovative Mode.
 
-2. **Load aesthetic-directions skill** — `@include .claude/skills/design/aesthetic-directions/SKILL.md`
+2. **Load aesthetic-directions skill** — `cc skill get aesthetic-directions`
 
 3. **Choose 3 candidate directions** — Select from the skill database or create custom directions. Each must include: name, key visual moves (type, color, spacing, radius, motion), and why it fits this project.
 
@@ -55,9 +55,9 @@ Follow these steps in order. They are mandatory, not suggestions.
 
 6. **Commit to ONE direction with written rationale** — Document why this direction was selected AND why alternatives were rejected. This commitment guides every subsequent decision.
 
-7. **Load color-palettes skill** — `@include .claude/skills/design/color-palettes/SKILL.md` — Select or create palette that embodies the chosen direction.
+7. **Load color-palettes skill** — `cc skill get color-palettes` — Select or create palette that embodies the chosen direction.
 
-8. **Load typography-pairings skill** — `@include .claude/skills/design/typography-pairings/SKILL.md` — Select pairing that reinforces the chosen direction.
+8. **Load typography-pairings skill** — `cc skill get typography-pairings` — Select pairing that reinforces the chosen direction.
 
 9. **Build complete token system** — Define all tokens: color (semantic), typography (scale + pairing), spacing (scale), border-radius (philosophy), elevation (shadow system), motion (timing + easing).
 
@@ -213,14 +213,14 @@ Work within established tokens. Extend rather than replace. Maintain consistency
 
 ## Available Skills
 
-- `@include .claude/skills/design/color-palettes/SKILL.md` — Curated palettes, industry rules, WCAG contrast reference
-- `@include .claude/skills/design/typography-pairings/SKILL.md` — Font pairings, type scales, fluid typography
-- `@include .claude/skills/design/aesthetic-directions/SKILL.md` — Named directions, industry matrix, anti-slop detector
-- `@include .claude/skills/design/design-heuristics/SKILL.md` — Rams' Principles, evaluation frameworks
-- `@include .claude/skills/design/design-patterns/SKILL.md` — Component specs, state matrices, tokens
-- `@include .claude/skills/design/spatial-luminous-design/SKILL.md` — Depth layers, luminosity, glassmorphism, materiality, atmospheric color
-- `@include .claude/skills/design/motion-choreography/SKILL.md` — Motion as language, easing personality, choreography, restraint
-- `@include .claude/skills/design/premium-interaction-craft/SKILL.md` — GSAP patterns, spring physics, micro-timing, text reveals
+- `cc skill get color-palettes` — Curated palettes, industry rules, WCAG contrast reference
+- `cc skill get typography-pairings` — Font pairings, type scales, fluid typography
+- `cc skill get aesthetic-directions` — Named directions, industry matrix, anti-slop detector
+- `cc skill get design-heuristics` — Rams' Principles, evaluation frameworks
+- `cc skill get design-patterns` — Component specs, state matrices, tokens
+- `cc skill get spatial-luminous-design` — Depth layers, luminosity, glassmorphism, materiality, atmospheric color
+- `cc skill get motion-choreography` — Motion as language, easing personality, choreography, restraint
+- `cc skill get premium-interaction-craft` — GSAP patterns, spring physics, micro-timing, text reveals
 
 ## Workflow
 

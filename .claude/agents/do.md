@@ -149,6 +149,6 @@ Retrieve past reports with `tc wp list --type deploy_report --json`.
 
 | Route To | When |
 |----------|------|
-| Load `@include .claude/skills/security/stride-dread/SKILL.md` | Infrastructure involves security configs |
+| Load `cc skill get stride-dread` | Infrastructure involves security configs |
 | @agent-me | CI/CD pipelines need code changes |
 | @agent-ta | Infrastructure needs architecture design |

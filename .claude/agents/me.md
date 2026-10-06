@@ -142,7 +142,7 @@ Summary: [2-3 sentences]
 | @agent-doc | API documentation |
 
 Before auth/crypto/PII implementation, load STRIDE+DREAD:
-`@include .claude/skills/security/stride-dread/SKILL.md`
+`cc skill get stride-dread`
 
 ## Evidence Handoff
 

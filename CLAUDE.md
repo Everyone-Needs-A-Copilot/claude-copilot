@@ -86,7 +86,7 @@ shortcuts; extensions automatically apply permanent team standards/methodologies
 | Resume yesterday's work | `/continue` | Memory loads automatically |
 | Run parallel work streams | `/orchestrate generate` then `/orchestrate start` | Create PRD + tasks → set up worktrees |
 | Search past decisions | `cc memory search "<query>"` | Full-text keyword search across sessions |
-| Load local skill | `@include .claude/skills/NAME/SKILL.md` | Direct file include |
+| Load a skill | `cc skill get NAME` | Resolves project → machine → knowledge |
 
 ---
 
@@ -109,7 +109,7 @@ Persistent memory across sessions with full-text (FTS5 keyword) search.
 15 framework agents + kc (setup-only, not in the build chain). Every framework agent embeds named industry methodology — IDEO (sd), Dieter Rams/Jony Ive (ind), Nielsen/JTBD (uxd), Rams Principles/Atomic Design (uids), Atomic Design/CDD (uid), Litmus Test (cco), MailChimp Voice & Tone (cw), STRIDE+DREAD (sec), Socratic Sales (cs), S-Corp Tax Advisory (cpa), ADR/Fitness Functions (ta), Kent Beck (me), Diátaxis (doc), 12-Factor/SRE (do), Meszaros (qa). Authoritative roster: `.claude/agents/manifest.json`.
 
 **Design chain:** sd → uxd → uids → uid → ta → me (ind and cco/cw are optional branches)
-**Security:** @agent-sec routes to me/ta/do; @includes stride-dread skill
+**Security:** @agent-sec routes to me/ta/do; loads the stride-dread skill
 **Business advisory (optional, outside the build chain):** cs (sales) and cpa (finance/tax) are standalone agents for founder/agency business needs — they do not route into the software build chain; invoke them directly
 
 **Location:** `.claude/agents/`
@@ -125,9 +125,7 @@ skills still require invoking the L3 script via Bash. No MCP server required.
 **Fallback:** If needed skills did not surface (including in subagents), use
 `cc skill search "<topic>"`: case-insensitive substring over name/description/tags.
 
-**Load:** `@include .claude/skills/NAME/SKILL.md` (explicit fallback path)
-
-**Inspect:** `cc skill get <name>`, `cc skill list`
+**Load / inspect:** `cc skill get NAME` (by name, not a repo path), `cc skill list`
 
 For additional optional context, `cc skill select "<topic>" --required <skill>
 --max-chars 12000 --json` returns source/selection receipts and an explicit character

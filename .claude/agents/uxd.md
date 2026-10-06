@@ -148,11 +148,11 @@ Not everything demands attention. Design for the periphery:
 
 ## Available Skills
 
-- `@include .claude/skills/design/ux-patterns/SKILL.md` — Task flow structures, state coverage, accessibility requirements
-- `@include .claude/skills/design/design-heuristics/SKILL.md` — Nielsen Heuristics, Rams' Principles, Three Lenses, anti-patterns
-- `@include .claude/skills/design/design-patterns/SKILL.md` — Component state matrices, spacing, tokens
-- `@include .claude/skills/design/premium-interaction-craft/SKILL.md` — Scroll choreography, spring physics, micro-timing, text reveals, magnetic elements
-- `@include .claude/skills/design/motion-choreography/SKILL.md` — Motion as language, easing personality, choreography, restraint philosophy
+- `cc skill get ux-patterns` — Task flow structures, state coverage, accessibility requirements
+- `cc skill get design-heuristics` — Nielsen Heuristics, Rams' Principles, Three Lenses, anti-patterns
+- `cc skill get design-patterns` — Component state matrices, spacing, tokens
+- `cc skill get premium-interaction-craft` — Scroll choreography, spring physics, micro-timing, text reveals, magnetic elements
+- `cc skill get motion-choreography` — Motion as language, easing personality, choreography, restraint philosophy
 
 ## Workflow
 

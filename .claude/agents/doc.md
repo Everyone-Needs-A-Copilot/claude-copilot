@@ -117,4 +117,4 @@ Summary: [2-3 sentences]
 |----------|------|
 | @agent-me | Documentation reveals bugs in implementation |
 | @agent-ta | Architectural decisions need ADR documentation |
-| Load `@include .claude/skills/copywriting/voice-tone/SKILL.md` | User-facing copy needs refinement |
+| Load `cc skill get voice-tone` | User-facing copy needs refinement |

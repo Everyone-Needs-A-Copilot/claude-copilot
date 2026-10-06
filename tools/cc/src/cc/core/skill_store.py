@@ -103,6 +103,35 @@ def knowledge_skill_paths() -> list[Path]:
     return [path for path, _source in resolve_knowledge_skill_sources()]
 
 
+def _framework_skills_dir() -> Path | None:
+    """The installed Claude Copilot framework's .claude/skills, or None.
+
+    `paths.claude_copilot_root` (machine config) names the installed framework
+    snapshot; ~/.claude/copilot is the conventional fallback.
+    """
+    root: Any = None
+    try:
+        from cc.core.config import resolve_key
+
+        root = resolve_key("paths.claude_copilot_root", scope="machine")
+    except Exception:  # noqa: BLE001 -- config trouble must not break skill lookup
+        _log.debug("framework root resolution failed", exc_info=True)
+    candidates = [Path(str(root)).expanduser()] if root else []
+    candidates.append(Path.home() / ".claude" / "copilot")
+    for candidate in candidates:
+        skills = candidate / ".claude" / "skills"
+        if skills.is_dir():
+            return skills
+    return None
+
+
+def _same_dir(a: Path, b: Path) -> bool:
+    try:
+        return a.resolve() == b.resolve()
+    except OSError:
+        return False
+
+
 def default_skill_paths(
     *, knowledge_sources: Optional[list[tuple[Path, Any]]] = None
 ) -> list[tuple[Path, str]]:
@@ -124,6 +153,18 @@ def default_skill_paths(
     machine_skills = Path.home() / ".claude" / "skills"
     if machine_skills.exists():
         paths.append((machine_skills, "machine"))
+
+    # The installed framework's own catalog is machine scope too. Agents
+    # reference framework skills by name (`cc skill get stride-dread`), and
+    # consumer projects never receive the framework's .claude/skills tree, so
+    # without this root those names resolve only on machines where
+    # ~/.claude/skills happens to hold a copy. ~/.claude/skills stays first:
+    # a personal override of a framework skill wins.
+    framework_skills = _framework_skills_dir()
+    if framework_skills is not None and all(
+        _same_dir(framework_skills, existing) is False for existing, _ in paths
+    ):
+        paths.append((framework_skills, "machine"))
 
     # Knowledge skills: every configured paths.knowledge_repo entry's
     # 03-ai-enabling/01-skills/ tree (WP-372 P2.2). A caller that already

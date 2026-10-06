@@ -86,8 +86,8 @@ Before storing a specification, verify against these criteria:
 
 ## Available Skills
 
-- `@include .claude/skills/design/ux-patterns/SKILL.md` — Service blueprint patterns, task flow structures
-- `@include .claude/skills/design/design-heuristics/SKILL.md` — Rams' Principles, Nielsen Heuristics, Three Lenses evaluation
+- `cc skill get ux-patterns` — Service blueprint patterns, task flow structures
+- `cc skill get design-heuristics` — Rams' Principles, Nielsen Heuristics, Three Lenses evaluation
 
 ## Workflow
 

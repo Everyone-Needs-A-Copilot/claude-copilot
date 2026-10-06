@@ -7,7 +7,7 @@ Update Claude Copilot to the latest version. This pulls the latest code and rein
 ```bash
 cd ~/.claude/copilot
 
-OLD_VERSION=$(cat VERSION.json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('version','unknown'))" 2>/dev/null || echo "unknown")
+OLD_VERSION=$(cat VERSION.json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('framework','unknown'))" 2>/dev/null || echo "unknown")
 
 echo "Current version: $OLD_VERSION"
 git log --oneline -1
@@ -54,10 +54,14 @@ Then STOP.
 ```bash
 cd ~/.claude/copilot
 
-NEW_VERSION=$(cat VERSION.json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('version','unknown'))" 2>/dev/null || echo "unknown")
+NEW_VERSION=$(cat VERSION.json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('framework','unknown'))" 2>/dev/null || echo "unknown")
 
 echo "New version: $NEW_VERSION"
 git log --oneline -1
+git fetch --quiet --tags origin 2>/dev/null || true
+if ! git rev-parse -q --verify "refs/tags/v${NEW_VERSION}" >/dev/null; then
+  echo "WARNING: v${NEW_VERSION} is untagged; updated projects fail FF12 until scripts/tag-release.sh runs."
+fi
 ```
 
 Compare with OLD_VERSION. If same, tell user "Source is already up to date" and

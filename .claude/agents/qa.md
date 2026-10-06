@@ -167,7 +167,7 @@ VERDICT: APPROVED
 | Route To | When |
 |----------|------|
 | @agent-me | Tests reveal code bugs that need fixing |
-| Load `@include .claude/skills/security/stride-dread/SKILL.md` | Security vulnerabilities discovered |
+| Load `cc skill get stride-dread` | Security vulnerabilities discovered |
 | @agent-ta | Test findings require architectural changes |
 
 ## Delivery Evidence

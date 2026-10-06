@@ -1,5 +1,18 @@
 # Changelog
 
+## [5.15.5] — 2026-10-06 — Installed projects pass their own fitness check
+
+Framework **5.15.5**, `cc` **2.13.4**, `tc` **2.0.0**.
+
+- Fixed a clean project install failing its own `.claude/fitness-check.sh` with 38 failures, all caused by the framework. After updating, an installed project reports 0.
+- Agents now load skills by name (`cc skill get stride-dread`) instead of repo-relative `@include .claude/skills/<category>/<name>/SKILL.md` paths. Those paths only worked inside the framework checkout, because the installer never ships the framework's `.claude/skills` into projects. This affected do, doc, me, qa, sd, sec, ta, uids and uxd. `copywriting/voice-tone` exists and now resolves like the rest.
+- `cc` skill lookup now includes the installed framework's own skill catalog in machine scope, after `~/.claude/skills` so personal overrides still win. Agent skill names resolve on a fresh machine that has no `~/.claude/skills` copy.
+- FF11 checks every `cc skill get` name and Available Skills entry through one `cc skill list --scope all` call. When Copilot's `cc` is unavailable, it falls back to scanning the same scopes on disk. Any repo-relative `.claude/skills/.../SKILL.md` reference in an agent now fails, in every project.
+- The fitness check now detects whether it is running in the framework repo or in an installed project (override with `CC_FITNESS_MODE=framework|consumer`). In a project, FF9 skips: the context budget is enforced against the framework's baseline before release.
+- In a project, FF12 now compares the project's own agents (the ones its sessions load) against the framework's git history. It used to compare against the machine's `~/.claude/agents` and search the project's git, so every agent "matched no committed version". It also verifies that the lock's `release_tag` is a real framework tag. Project-defined agents are reported, not failed.
+- Release tagging: version bumps reach main as squash-merged PRs and nothing tagged them, so 5.15.3 and 5.15.4 went into project locks while the newest tag was v5.15.2. Added `scripts/tag-release.sh`, which checks that the version files and CHANGELOG agree, then cuts a signed annotated tag on a main commit (`--at` tags an earlier one retroactively). Added the `release-tag-check` workflow, which turns main red while the current version is untagged. `/update-copilot` warns when it installs an untagged version, and now reads the version from VERSION.json's `framework` key (it always printed "unknown").
+- `tag-release.sh` runs `verify-foundation-release.sh` on a release cut from main HEAD and deletes the tag instead of pushing it if the preflight fails. v5.15.3 and v5.15.4 get retroactive `--at` tags on their merge commits. Those commits carry GitHub's merge signature, so the tags anchor history but are not foundation sources.
+
 ## [5.15.4] — 2026-10-06 — Project setup runs on cc's own runtime
 
 Framework **5.15.4**, `cc` **2.13.3**, `tc` **2.0.0**.

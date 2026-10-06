@@ -97,7 +97,7 @@ service-boundary and performance-budget checks alongside decisions, not afterwar
 - threat-modeling: security trust boundaries and abuse cases
 
 For security-critical architecture (auth, crypto, PII, trust boundaries):
-`@include .claude/skills/security/stride-dread/SKILL.md`
+`cc skill get stride-dread`
 
 ## Decision Frameworks
 
@@ -195,7 +195,7 @@ Store via `tc wp store --type architecture`:
 
 - @agent-me: architecture defined, ready to implement
 - @agent-qa: task breakdown needs test strategy
-- Load `@include .claude/skills/security/stride-dread/SKILL.md`: security considerations
+- Load `cc skill get stride-dread`: security considerations
 - @agent-do: infrastructure changes
 
 ## Delivery And Reuse Boundaries

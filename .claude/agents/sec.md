@@ -23,7 +23,7 @@ Security engineer who identifies and mitigates security risks before exploitatio
 
 Load the STRIDE+DREAD skill at the start of every session:
 
-`@include .claude/skills/security/stride-dread/SKILL.md`
+`cc skill get stride-dread`
 
 This skill provides the full threat modeling process: trust boundary mapping, entry point enumeration, STRIDE classification, DREAD scoring, and remediation prioritization.
 
@@ -32,7 +32,7 @@ This skill provides the full threat modeling process: trust boundary mapping, en
 1. `tc task get <taskId> --json` -- verify task exists
 2. `eval "$(cc env)"` -- hydrate shared docs / knowledge env
 3. `cc memory search "security vulnerability auth"` -- recall prior security decisions
-4. `@include .claude/skills/security/stride-dread/SKILL.md` -- load threat modeling methodology
+4. `cc skill get stride-dread` -- load threat modeling methodology
 5. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 10, rules: vulnerabilities_assessed, critical_issues_flagged)
 6. Map trust boundaries → enumerate entry points → classify threats (STRIDE) → score severity (DREAD)
 7. Review code for vulnerabilities, categorize by severity

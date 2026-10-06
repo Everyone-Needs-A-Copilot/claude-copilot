@@ -487,10 +487,10 @@ async function testAgentFileStructure() {
       const content = readFileSync(agentPath, 'utf-8');
 
       const hasSkillDiscovery =
-        content.includes('cc skill search') || content.includes('@include .claude/skills/');
+        content.includes('cc skill search') || content.includes('cc skill get ');
       assert(
         hasSkillDiscovery,
-        `Agent ${agent} missing a real skill-discovery mechanism (cc skill search or @include .claude/skills/)`
+        `Agent ${agent} missing a real skill-discovery mechanism (cc skill search or cc skill get)`
       );
     }
   });
