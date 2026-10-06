@@ -1101,12 +1101,7 @@ def _lock_payload(root: Path, entry: Any) -> dict[str, Any]:
 
 def _claude_customized_lock_entry(source: Path, root: Path) -> dict[str, Any]:
     entry = _lock_entry(source, "claude")
-    commands, _agents = claude_reference_roster(source)
-    owned_paths = {
-        *(f".claude/commands/{command}" for command in commands),
-        ".claude/fitness-check.sh",
-        ".claude/hooks/copilot-hook.sh",
-    }
+    owned_paths = _claude_support_paths(source)
     return {
         **entry,
         "ownership_mode": "customized-preserve",
@@ -1583,7 +1578,66 @@ def _claude_legacy(root: Path, component: str) -> tuple[RecipeOperation, ...]:
     )
 
 
+def _claude_customized_update(
+    root: Path, component: str, existing: Mapping[str, Any]
+) -> tuple[RecipeOperation, ...]:
+    """Refresh a customized-preserve install without touching project content.
+
+    Only files the lock already records (plus absent or identical support
+    files) are refreshed. Framework agents are not installed: the project owns
+    its agent tree.
+    """
+    source = _source_root(component)
+    desired = _desired_component_contract(root, component, existing)
+    operations = [
+        operation
+        for operation in _claude_setup(root, component)
+        if operation.kind != RecipeOperationKind.UPSERT_LOCK_COMPONENT
+        and operation.target != ".claude/agents"
+        and not operation.target.startswith(".claude/agents/")
+    ]
+    planned_targets = {operation.target for operation in operations}
+    for item in desired["files"]:
+        target = str(item["path"])
+        if target in planned_targets:
+            continue
+        try:
+            current = _bytes_hash((root / target).read_bytes())
+        except OSError:
+            current = None
+        if current == item["checksum"]:
+            continue
+        operations.append(
+            _operation(
+                root=root,
+                component=component,
+                kind=RecipeOperationKind.COPY_FILE_FROM_SOURCE,
+                target=target,
+                description=f"Refresh the verified framework-owned {target} file.",
+                source=source / target,
+                payload={
+                    "source_path": str(source / target),
+                    "mode": 0o755 if target.endswith(".sh") else 0o644,
+                },
+            )
+        )
+    operations.append(
+        _operation(
+            root=root,
+            component=component,
+            kind=RecipeOperationKind.UPSERT_LOCK_COMPONENT,
+            target="copilot.lock.json",
+            description="Record the refreshed Claude framework-owned checksums.",
+            payload=_lock_payload(root, desired),
+        )
+    )
+    return tuple(operations)
+
+
 def _claude_update(root: Path, component: str) -> tuple[RecipeOperation, ...]:
+    existing = _existing_lock_entries(root).get(component)
+    if existing is not None and existing.get("ownership_mode") == "customized-preserve":
+        return _claude_customized_update(root, component, existing)
     source = _source_root(component)
     operations = list(_claude_setup(root, component))
     planned_targets = {operation.target for operation in operations}
@@ -2694,6 +2748,42 @@ def _verified_update_boundary(
         )
 
 
+def _claude_support_paths(source: Path) -> set[str]:
+    """The framework-owned Claude files a customized install may carry.
+
+    Agents are never in this set: a customized-preserve project keeps its own
+    agent tree and the framework agents load from the user-level deployment.
+    """
+    commands, _agents = claude_reference_roster(source)
+    return {
+        *(f".claude/commands/{command}" for command in commands),
+        ".claude/fitness-check.sh",
+        ".claude/hooks/copilot-hook.sh",
+    }
+
+
+def _claude_new_support_paths(
+    root: Path, desired_files: Sequence[Mapping[str, Any]]
+) -> set[str]:
+    """Support files a customized install does not record yet but may add.
+
+    A path qualifies only when it is absent or already byte-identical to the
+    authoritative file, so project-authored content is never claimed.
+    """
+    support = _claude_support_paths(_source_root("claude"))
+    result: set[str] = set()
+    for item in desired_files:
+        relative = str(item.get("path", ""))
+        if relative not in support:
+            continue
+        if _target_missing(root, relative) or (
+            _safe_target_kind(root, relative) == "regular"
+            and _bytes_hash((root / relative).read_bytes()) == item.get("checksum")
+        ):
+            result.add(relative)
+    return result
+
+
 def _desired_component_contract(
     root: Path, component: str, existing: Mapping[str, Any]
 ) -> dict[str, Any]:
@@ -2707,6 +2797,8 @@ def _desired_component_contract(
         for item in existing.get("files", [])
         if isinstance(item, Mapping) and isinstance(item.get("path"), str)
     }
+    if component == "claude":
+        owned_paths |= _claude_new_support_paths(root, desired["files"])
     desired["ownership_mode"] = "customized-preserve"
     desired["files"] = [
         item for item in desired["files"] if str(item.get("path", "")) in owned_paths
@@ -2737,14 +2829,15 @@ def component_lock_update_required(root: Path, component: str) -> bool:
         return False
     desired = _desired_component_contract(root, component, existing)
     _verified_update_boundary(root, component, existing, desired)
-    update_required = _normalized_component_contract(
-        existing
-    ) != _normalized_component_contract(desired)
-    if update_required and existing.get("ownership_mode") == "customized-preserve":
-        raise ComponentSourceConflict(
-            "The customized framework boundary differs from the authoritative source and requires owner review."
-        )
-    return update_required
+    # A customized-preserve lock differs from today's source whenever the
+    # release moved. That is a bounded update, not a conflict: the desired
+    # contract is already restricted to the files the lock records (plus
+    # absent or identical support files), retired paths and colliding new
+    # paths were rejected above, and the inspector verified the recorded files
+    # against disk before this comparison ran.
+    return _normalized_component_contract(existing) != _normalized_component_contract(
+        desired
+    )
 
 
 def _managed_records(entry: Mapping[str, Any]) -> list[dict[str, str]]:

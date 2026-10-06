@@ -109,6 +109,71 @@ case "$FITNESS_MODE" in
 esac
 
 # ---------------------------------------------------------------------------
+# Customized-preserve installs. A project that keeps its own agent tree is
+# installed in `customized-preserve` ownership mode (copilot.lock.json): the
+# framework adds only its commands, hook shim and this script, and the
+# framework agents (cco ... uxd, _shared/) are deployed once at user level
+# (~/.claude/agents), which Claude Code loads in every project. Requiring those
+# files inside the project would demand exactly the copies the preservation
+# install is built not to make, so in this mode the framework roster resolves
+# against the project first and the user-level deployment second. Project-owned
+# agents are the project's: they are not held to the framework's agent contract
+# (model key, Runtime Precedence / Output Contract blocks). Every other
+# install keeps the strict project-only behaviour.
+# ---------------------------------------------------------------------------
+PRESERVE_MODE=0
+USER_AGENTS_DIR=""
+if [ "$FITNESS_MODE" = "consumer" ] && [ -f "${_SCRIPT_DIR}/copilot.lock.json" ] && \
+   python3 -c "
+import json, sys
+lock = json.load(open(sys.argv[1]))
+claude = [c for c in lock.get('components', []) if c.get('component') == 'claude']
+sys.exit(0 if claude and claude[0].get('ownership_mode') == 'customized-preserve' else 1)
+" "${_SCRIPT_DIR}/copilot.lock.json" 2>/dev/null; then
+  PRESERVE_MODE=1
+  USER_AGENTS_DIR="${CC_USER_AGENTS_DIR:-${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/agents}"
+  echo "Install ownership: customized-preserve (framework agents load from ${USER_AGENTS_DIR})" >&2
+fi
+
+# agent_path NAME -- the file a session loads for agent NAME.
+agent_path() {
+  if [ -f "${AGENTS_DIR}/$1.md" ] || [ "$PRESERVE_MODE" -ne 1 ]; then
+    echo "${AGENTS_DIR}/$1.md"
+  elif [ -f "${USER_AGENTS_DIR}/$1.md" ]; then
+    echo "${USER_AGENTS_DIR}/$1.md"
+  else
+    echo "${AGENTS_DIR}/$1.md"
+  fi
+}
+
+# shared_path NAME -- the canonical _shared/NAME block source.
+shared_path() {
+  if [ -f "${AGENTS_DIR}/_shared/$1" ] || [ "$PRESERVE_MODE" -ne 1 ]; then
+    echo "${AGENTS_DIR}/_shared/$1"
+  elif [ -f "${USER_AGENTS_DIR}/_shared/$1" ]; then
+    echo "${USER_AGENTS_DIR}/_shared/$1"
+  else
+    echo "${AGENTS_DIR}/_shared/$1"
+  fi
+}
+
+# block_agent_files -- the agent files that must carry the canonical blocks
+# (FF8, FF10): every agent in the framework repo or a standard install. A
+# customized-preserve project carries none of the framework agents and its own
+# agents are the project's, so only a roster agent the project itself carries
+# is held to the blocks; the deployed framework agents are the machine's, and
+# their drift from the framework is reconciled and reported by FF12.
+block_agent_files() {
+  if [ "$PRESERVE_MODE" -eq 1 ]; then
+    for agent in $ROSTER; do
+      [ -f "${AGENTS_DIR}/${agent}.md" ] && echo "${AGENTS_DIR}/${agent}.md"
+    done
+  else
+    for f in "${AGENTS_DIR}"/*.md; do [ -f "$f" ] && echo "$f"; done
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Read roster from VERSION.json
 # ---------------------------------------------------------------------------
 if [ -n "$VERSION_FILE" ] && [ -f "$VERSION_FILE" ]; then
@@ -160,8 +225,9 @@ for ref in $REFERENCED_AGENTS; do
     [ "$ref" = "$allowed" ] && is_allowed=1 && break
   done
 
-  if [ -f "${AGENTS_DIR}/${ref}.md" ]; then
-    pass "@agent-${ref} resolves to ${AGENTS_DIR}/${ref}.md"
+  ref_file=$(agent_path "$ref")
+  if [ -f "$ref_file" ]; then
+    pass "@agent-${ref} resolves to ${ref_file}"
   elif [ $is_allowed -eq 1 ]; then
     pass "@agent-${ref} (allowlisted — external or setup agent)"
   else
@@ -175,10 +241,10 @@ done
 section "FF2: Roster Parity (all manifest agents present)"
 
 for agent in $ROSTER; do
-  if [ -f "${AGENTS_DIR}/${agent}.md" ]; then
+  if [ -f "$(agent_path "$agent")" ]; then
     pass "${agent}.md present"
   else
-    fail "${agent}.md MISSING (in VERSION.json roster but not in ${AGENTS_DIR}/)"
+    fail "${agent}.md MISSING (in VERSION.json roster but not in ${AGENTS_DIR}/$([ "$PRESERVE_MODE" -eq 1 ] && echo " or ${USER_AGENTS_DIR}/"))"
   fi
 done
 
@@ -213,7 +279,7 @@ REQUIRED_SECTIONS=("Core Behaviors" "Route To Other Agent")
 SPECIALIST_AGENTS="uxd uids uid ind cco cw sec cs cpa"
 
 for agent in $SPECIALIST_AGENTS; do
-  agent_file="${AGENTS_DIR}/${agent}.md"
+  agent_file=$(agent_path "$agent")
   if [ ! -f "$agent_file" ]; then
     fail "${agent}.md missing — skipping section check"
     continue
@@ -235,7 +301,7 @@ section "FF5: No Orphan Agent-to-Agent Routes"
 # Include on-disk agent basenames so project-owned custom agents (e.g. critic,
 # structural-editor, line-editor) are treated as known without needing to be in
 # the framework roster or allowlist.
-ON_DISK_AGENTS=$(for f in "${AGENTS_DIR}"/*.md; do [ -f "$f" ] && basename "$f" .md; done 2>/dev/null | tr '\n' ' ')
+ON_DISK_AGENTS=$(for f in "${AGENTS_DIR}"/*.md $([ "$PRESERVE_MODE" -eq 1 ] && echo "${USER_AGENTS_DIR}"/*.md); do [ -f "$f" ] && basename "$f" .md; done 2>/dev/null | tr '\n' ' ')
 KNOWN_AGENTS="$ROSTER $ON_DISK_AGENTS $ALLOWLIST"
 
 for agent_file in "${AGENTS_DIR}"/*.md; do
@@ -307,13 +373,15 @@ while IFS= read -r ff7_line; do
     "FAIL "*) fail "${ff7_line#FAIL }" ;;
     *) fail "FF7 checker produced unparseable output: $ff7_line" ;;
   esac
-done < <(python3 - "$AGENTS_DIR" "$ROSTER" <<'PYEOF'
+done < <(python3 - "$AGENTS_DIR" "$ROSTER" "$PRESERVE_MODE" "$USER_AGENTS_DIR" <<'PYEOF'
 import re
 import sys
 from pathlib import Path
 
 agents_dir = Path(sys.argv[1])
 roster = set(sys.argv[2].split()) if len(sys.argv) > 2 else set()
+preserve = len(sys.argv) > 3 and sys.argv[3] == "1"
+user_dir = Path(sys.argv[4]) if preserve and len(sys.argv) > 4 and sys.argv[4] else None
 
 KNOWN_TOP = {"name", "description", "tools", "model", "iteration"}
 REQUIRED_TOP = ("name", "description", "tools", "model")
@@ -359,7 +427,15 @@ if not agents_dir.is_dir():
     fail(f"agents directory not found: {agents_dir}")
     sys.exit(0)
 
-for md in sorted(agents_dir.glob("*.md")):
+agent_files = {md.name: md for md in agents_dir.glob("*.md")}
+if user_dir is not None and user_dir.is_dir():
+    # A customized-preserve install loads the framework roster from the
+    # user-level deployment; a project file of the same name shadows it.
+    for md in user_dir.glob("*.md"):
+        if md.stem in roster:
+            agent_files.setdefault(md.name, md)
+
+for _, md in sorted(agent_files.items()):
     name = md.stem
     text = md.read_text(encoding="utf-8")
 
@@ -400,7 +476,14 @@ for md in sorted(agents_dir.glob("*.md")):
             f"{md.name}: unexpected top-level frontmatter key '{k}' "
             f"(check indentation -- likely belongs nested under 'iteration:')"
         )
-    missing_required = [k for k in REQUIRED_TOP if k not in top_keys]
+    # A customized-preserve project's own agents are not held to the framework
+    # roster's `model` requirement (Claude Code treats it as optional); a
+    # `model` they do declare is still validated below.
+    required_top = [
+        k for k in REQUIRED_TOP
+        if not (preserve and k == "model" and name not in roster)
+    ]
+    missing_required = [k for k in required_top if k not in top_keys]
     for k in missing_required:
         fail(f"{md.name}: missing required frontmatter key '{k}'")
     if not unexpected and not missing_required:
@@ -490,13 +573,16 @@ PYEOF
 #      the anti-drift mechanism for the block until agent generation lands.
 # ---------------------------------------------------------------------------
 section "FF8: Runtime Precedence Block (present, unique, byte-identical, anchored)"
+if [ "$PRESERVE_MODE" -eq 1 ]; then
+  echo "  [REPORT] customized-preserve install: only framework agents carried by the project are checked here; deployed framework agents are reconciled by FF12"
+fi
 
-PRECEDENCE_SRC="${AGENTS_DIR}/_shared/precedence.md"
+PRECEDENCE_SRC=$(shared_path precedence.md)
 if [ ! -f "$PRECEDENCE_SRC" ]; then
   fail "canonical precedence block missing at ${PRECEDENCE_SRC}"
 else
   PRECEDENCE_CONTENT=$(cat "$PRECEDENCE_SRC")
-  for agent_file in "${AGENTS_DIR}"/*.md; do
+  while IFS= read -r agent_file; do
     [ -f "$agent_file" ] || continue
     agent_name=$(basename "$agent_file" .md)
 
@@ -527,7 +613,7 @@ else
         pass "${agent_name}.md: Runtime Precedence anchored immediately before Output Format"
       fi
     fi
-  done
+  done < <(block_agent_files)
 fi
 
 # ---------------------------------------------------------------------------
@@ -955,14 +1041,17 @@ fi
 #      checked here.
 # ---------------------------------------------------------------------------
 section "FF10: Output Contract Block (present, unique, byte-identical, anchored)"
+if [ "$PRESERVE_MODE" -eq 1 ]; then
+  echo "  [REPORT] customized-preserve install: only framework agents carried by the project are checked here; deployed framework agents are reconciled by FF12"
+fi
 
-CONTRACT_SRC="${AGENTS_DIR}/_shared/output-contract.md"
+CONTRACT_SRC=$(shared_path output-contract.md)
 if [ ! -f "$CONTRACT_SRC" ]; then
   fail "canonical output-contract block missing at ${CONTRACT_SRC}"
 else
   CONTRACT_CONTENT=$(cat "$CONTRACT_SRC")
 
-  for agent_file in "${AGENTS_DIR}"/*.md; do
+  while IFS= read -r agent_file; do
     [ -f "$agent_file" ] || continue
     agent_name=$(basename "$agent_file" .md)
 
@@ -993,7 +1082,7 @@ else
         pass "${agent_name}.md: Output Contract anchored immediately before Runtime Precedence"
       fi
     fi
-  done
+  done < <(block_agent_files)
 
   PROTOCOL_MD="${COMMANDS_DIR}/protocol.md"
   if [ ! -f "$PROTOCOL_MD" ]; then
@@ -1226,10 +1315,18 @@ section "FF12: Deployment Reconciliation (repo vs the corpus sessions load)"
 if [ "$FITNESS_MODE" = "consumer" ]; then
   FF12_REPO_AGENTS="${COPILOT_PATH}/.claude/agents"
   DEPLOYED_AGENTS_DIR="${CC_DEPLOYED_AGENTS_DIR:-$AGENTS_DIR}"
+  FF12_OVERLAY_DIR=""
+  if [ "$PRESERVE_MODE" -eq 1 ]; then
+    # Framework agents load from the user-level deployment; the project's own
+    # agents (overlay) shadow it and are reported as project-defined.
+    DEPLOYED_AGENTS_DIR="${CC_DEPLOYED_AGENTS_DIR:-$USER_AGENTS_DIR}"
+    FF12_OVERLAY_DIR="$AGENTS_DIR"
+  fi
   FF12_HISTORY_ROOT="$COPILOT_PATH"
 else
   FF12_REPO_AGENTS="$AGENTS_DIR"
   DEPLOYED_AGENTS_DIR="${CC_DEPLOYED_AGENTS_DIR:-${HOME}/.claude/agents}"
+  FF12_OVERLAY_DIR=""
   FF12_HISTORY_ROOT="."
 fi
 
@@ -1266,7 +1363,7 @@ elif [ ! -d "$DEPLOYED_AGENTS_DIR" ]; then
 elif [ "$(cd "$DEPLOYED_AGENTS_DIR" 2>/dev/null && pwd -P)" = "$(cd "$FF12_REPO_AGENTS" 2>/dev/null && pwd -P)" ]; then
   pass "deployed agents resolve to the same directory as the repo (${DEPLOYED_AGENTS_DIR}) -- no drift is possible"
 else
-  FF12_OUT=$(AGENTS_DIR="$FF12_REPO_AGENTS" DEPLOYED="$DEPLOYED_AGENTS_DIR" \
+  FF12_OUT=$(AGENTS_DIR="$FF12_REPO_AGENTS" DEPLOYED="$DEPLOYED_AGENTS_DIR" OVERLAY="$FF12_OVERLAY_DIR" \
     HISTORY_ROOT="$FF12_HISTORY_ROOT" MODE="$FITNESS_MODE" \
     CEILING="$(python3 -c "
 import json,sys
@@ -1291,6 +1388,9 @@ consumer = os.environ.get("MODE") == "consumer"
 
 repo_files = {p.name: p for p in repo.glob("*.md")}
 dep_files = {p.name: p for p in dep.glob("*.md")}
+overlay = os.environ.get("OVERLAY")
+if overlay:
+    dep_files.update({p.name: p for p in Path(overlay).glob("*.md")})
 lines = []
 
 
@@ -1414,12 +1514,13 @@ for name in missing:
     lines.append(f"FAIL|{name} is defined in the repo and absent from the deployment -- "
                  f"a session cannot route to it")
 for name in extra:
-    base_total += (dep_files[name].stat().st_size)
     if consumer:
         # A consumer project may define its own agents; the framework does not
-        # own them, so their presence is stated, not failed.
+        # own them, so their presence is stated, not failed, and their bytes
+        # are outside the ceiling that governs the framework's base corpus.
         lines.append(f"REPORT|{name} is a project-defined agent (not in the framework roster)")
     else:
+        base_total += dep_files[name].stat().st_size
         lines.append(f"FAIL|{name} is deployed and not defined in this repo -- sessions load an "
                      f"agent nothing here validates")
 for name, why in divergent:

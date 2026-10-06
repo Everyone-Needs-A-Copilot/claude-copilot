@@ -1007,12 +1007,15 @@ def test_custom_family_apply_verifies_and_repeats_without_work(
     assert _git(project, "status", "--porcelain=v1")
 
 
-def test_customized_lock_source_drift_requires_owner_review(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def _customized_preserve_project(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+) -> tuple[Path, Path, Path]:
+    """A verified customized-preserve install that keeps its own agent tree."""
     claude_source, codex_source = _framework_sources(tmp_path)
     _configure_sources(monkeypatch, claude_source, codex_source)
-    project = _project(tmp_path, "customized-source-drift")
+    project = _project(tmp_path, name)
     _install_current(project, claude_source, codex_source, ("claude",))
     lock_path = project / "copilot.lock.json"
     lock = json.loads(lock_path.read_text(encoding="utf-8"))
@@ -1023,21 +1026,106 @@ def test_customized_lock_source_drift_requires_owner_review(
         if not item["path"].startswith(".claude/agents/")
     ]
     _write(lock_path, json.dumps(lock, indent=2) + "\n")
+    # The framework agents live at user level; the project keeps its own.
+    for framework_agent in ("me.md", "kc.md"):
+        (project / ".claude/agents" / framework_agent).unlink()
+    _write(project / ".claude/agents/studio-own.md", "project-owned agent\n")
     _commit(project)
+    return project, claude_source, codex_source
+
+
+def test_customized_lock_source_drift_is_a_bounded_safe_update(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Replaces the owner-review contract for customized-preserve source drift.
+
+    Old expectation: any difference between a customized-preserve lock and the
+    authoritative source was an `owner-decision` with no recipe. That made every
+    framework release strand every preserved project (the lock records the
+    release version, so the first release after install always differed).
+    New expectation: drift confined to the files the lock already owns (plus
+    absent or identical support files) is a `safe-update-available` that
+    refreshes only those files, never installs framework agents, keeps the
+    customized-preserve mode, and verifies ready. Negative controls below keep
+    edited framework files and project content out of reach.
+    """
+    project, claude_source, _codex = _customized_preserve_project(
+        tmp_path, monkeypatch, "customized-source-drift"
+    )
 
     version = json.loads((claude_source / "VERSION.json").read_text(encoding="utf-8"))
     version["framework"] = "5.14.10"
     _write(claude_source / "VERSION.json", json.dumps(version))
     _write(claude_source / ".claude/commands/protocol.md", "updated protocol\n")
+    _write(claude_source / ".claude/fitness-check.sh", "#!/bin/sh\nexit 7\n", 0o755)
 
     stale = assess_project(
         project,
         approved_root=tmp_path,
         selected_components=("claude",),
     )
-    assert stale["route"] == "owner-decision", stale
-    assert _component(stale, "claude")["state"] == "owner-decision"
-    assert _component(stale, "claude")["recipe_options"] == []
+    assert _component(stale, "claude")["state"] == "safe-update-available", stale
+
+    _, plans = build_project_plans([stale], {str(project): ("claude",)})
+    targets = {operation.target for operation in plans[0].operations}
+    assert not any(target.startswith(".claude/agents") for target in targets), targets
+    assert {
+        ".claude/commands/protocol.md",
+        ".claude/fitness-check.sh",
+        "copilot.lock.json",
+    } <= targets
+
+    receipts = execute_reconciliation(
+        [plans[0].transaction_plan()],
+        run_id="run_" + "c" * 32,
+        root=tmp_path / "transaction-state",
+    )
+    assert receipts[0]["status"] == "applied", receipts
+
+    assert (project / ".claude/commands/protocol.md").read_text() == "updated protocol\n"
+    assert (project / ".claude/fitness-check.sh").read_text() == "#!/bin/sh\nexit 7\n"
+    assert (project / ".claude/agents/studio-own.md").read_text() == "project-owned agent\n"
+    assert sorted(path.name for path in (project / ".claude/agents").iterdir()) == [
+        "studio-own.md"
+    ]
+    entry = json.loads((project / "copilot.lock.json").read_text())["components"][0]
+    assert entry["version"] == "5.14.10"
+    assert entry["release_tag"] == "v5.14.10"
+    assert entry["ownership_mode"] == "customized-preserve"
+    assert not any(item["path"].startswith(".claude/agents/") for item in entry["files"])
+    verified = integration.inspect_project_integration(project, detail=True)
+    assert next(
+        item["classification"]
+        for item in verified["components"]
+        if item["component"] == "claude"
+    ) == "ready"
+
+    _commit(project)
+    repeat = assess_project(
+        project, approved_root=tmp_path, selected_components=("claude",)
+    )
+    assert _component(repeat, "claude")["state"] == "ready", repeat
+    _, repeat_plans = build_project_plans([repeat], {str(project): ("claude",)})
+    assert repeat_plans[0].operations == ()
+
+
+def test_customized_lock_update_never_overwrites_an_edited_framework_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, claude_source, _codex = _customized_preserve_project(
+        tmp_path, monkeypatch, "customized-edited-owned-file"
+    )
+    _write(project / ".claude/commands/protocol.md", "project edit\n")
+    _commit(project)
+    _write(claude_source / ".claude/commands/protocol.md", "updated protocol\n")
+
+    assessment = assess_project(
+        project, approved_root=tmp_path, selected_components=("claude",)
+    )
+    assert _component(assessment, "claude")["state"] != "safe-update-available", (
+        assessment
+    )
+    assert (project / ".claude/commands/protocol.md").read_text() == "project edit\n"
 
 
 def test_verified_read_only_knowledge_links_allow_local_dual_integration(
