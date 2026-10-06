@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased] — Project CLAUDE.md follows current Claude Code practice
+
+- Rewrote `templates/CLAUDE.template.md` (168 to 85 lines). It now holds only what hooks and tools cannot supply: project rules first, one line per Copilot surface under `## Claude Copilot`, the Knowledge Copilot walk, the pinned Optional Context block, a condensed task-evidence summary, and the no-time-estimates rule.
+- Removed the agent and command tables (Claude Code lists agents, skills and commands itself) and references to retired surfaces: Memory Copilot, `knowledge_search` and `knowledge_get`.
+- Fixed the template sending agents to the singular `$CC_KNOWLEDGE_REPO`, which carries only the first knowledge tier. It now walks `$CC_KNOWLEDGE_REPOS`, as the consumption contract requires.
+- Fixed `{{WORKSPACE_ID}}`, `{{EXTERNAL_SKILLS_STATUS}}`, `{{OUTPUT_VERBOSITY}}` and `{{OUTPUT_AUDIENCE}}` reaching installed projects unrendered; the template no longer uses tokens the installer does not fill.
+- Declared project-defined agents first-class, so a project's own specialists are routed to rather than around.
+- Added `docs/20-configuration/04-claude-md-standard.md`, the standard the template implements.
+
 ## [5.15.5] — 2026-10-06 — Installed projects pass their own fitness check
 
 Framework **5.15.5**, `cc` **2.13.4**, `tc` **2.0.0**.
