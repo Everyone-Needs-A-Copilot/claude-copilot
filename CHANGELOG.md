@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.15.7] — 2026-10-06 — Projects with their own agents and plugins can be set up
+
+Framework **5.15.7**, `cc` **2.13.5**, `tc` **2.0.0**.
+
+- Fixed every Codex project reconciliation being blocked on machines whose personal, department or organization layer repo is itself a Codex Copilot project. Layer discovery counted that repo's own `plugins/codex-copilot` install (declared by its `.codex-copilot.json` `pluginPath`) as a plugin contribution, so an unsigned personal copy outranked the signed foundation release and failed verification. A layer repo's own declared install is no longer a contribution; real plugin contributions are unchanged.
+- Fixed Claude setup refusing any project that exposes its own plugin skills to Claude. The assistant preservation recipe accepted only the `.claude/skills/codex-copilot` link; it now accepts any `.claude/skills/<name>` link to the same project's `plugins/<name>/skills`, still rejecting links that leave the project, cross to another plugin, or pass through a symlinked plugin folder.
+
 ## [5.15.6] — 2026-10-06 — Project CLAUDE.md follows current Claude Code practice
 
 Framework **5.15.6**; component versions unchanged.
