@@ -55,6 +55,16 @@ _REQUIRED_SNAPSHOT_FILES = (
     "tools/cc/src/cc/core/conformance/roundtrip.py",
 )
 _MARKER_NAMES = (".source-commit", ".source-tree")
+# Every committed version of the framework-installed paths, so a project update
+# can recognise an older framework copy it never recorded (see
+# tools/cc/src/cc/core/ecosystem/framework_history.py, which reads it).
+_HISTORY_MARKER = ".framework-history.json"
+_HISTORY_PATHSPECS = (
+    ".claude/agents",
+    ".claude/commands",
+    ".claude/fitness-check.sh",
+    ".claude/hooks/copilot-hook.sh",
+)
 
 
 class FrameworkInstallError(RuntimeError):
@@ -210,6 +220,48 @@ def _member_parts(name: str) -> tuple[str, ...]:
     return pure.parts
 
 
+def _framework_path_history(source_root: Path, commit: str) -> dict[str, list[str]]:
+    """Standard-library copy of cc's framework_history.collect_history()."""
+
+    try:
+        log = subprocess.run(
+            (
+                "git", "-C", str(source_root), "log", "--format=", "--raw",
+                "--no-abbrev", "--no-renames", commit, "--", *_HISTORY_PATHSPECS,
+            ),
+            check=True, capture_output=True, text=True, timeout=120.0,
+        ).stdout
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise FrameworkInstallError("framework path history could not be read") from exc
+    blobs: dict[str, set[str]] = {}
+    for line in log.splitlines():
+        if not line.startswith(":") or "\t" not in line:
+            continue
+        meta, path = line.split("\t", 1)
+        new_blob = meta.split()[3]
+        if new_blob != "0" * 40:
+            blobs.setdefault(path, set()).add(new_blob)
+    unique = sorted({blob for ids in blobs.values() for blob in ids})
+    digests: dict[str, str] = {}
+    if unique:
+        try:
+            batch = subprocess.run(
+                ("git", "-C", str(source_root), "cat-file", "--batch"),
+                input="".join(f"{blob}\n" for blob in unique).encode("ascii"),
+                check=True, capture_output=True, timeout=120.0,
+            ).stdout
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise FrameworkInstallError("framework path history could not be read") from exc
+        offset = 0
+        for blob in unique:
+            header_end = batch.index(b"\n", offset)
+            size = int(batch[offset:header_end].split()[2])
+            start = header_end + 1
+            digests[blob] = "sha256:" + hashlib.sha256(batch[start:start + size]).hexdigest()
+            offset = start + size + 1
+    return {path: sorted({digests[b] for b in ids}) for path, ids in sorted(blobs.items())}
+
+
 def _extract_git_archive(source_root: Path, commit: str, destination: Path) -> None:
     """Extract a validated Git tar without ever following archived links."""
 
@@ -358,6 +410,7 @@ def _git_archive_identity(source_root: Path, commit: str) -> dict[str, TrackedAr
 def _is_installer_owned_extra(relative: str) -> bool:
     return (
         relative in _MARKER_NAMES
+        or relative == _HISTORY_MARKER
         or relative == "tools/cc/.venv"
         or relative.startswith("tools/cc/.venv/")
     )
@@ -576,7 +629,7 @@ def _materialize_snapshot(
     stage.mkdir(mode=0o700)
     try:
         _extract_git_archive(source_root, commit, stage)
-        for marker_name in _MARKER_NAMES:
+        for marker_name in (*_MARKER_NAMES, _HISTORY_MARKER):
             marker = stage / marker_name
             if marker.exists() or marker.is_symlink():
                 raise FrameworkInstallError(
@@ -586,6 +639,20 @@ def _materialize_snapshot(
             stage / ".source-commit", f"{commit}\n".encode("ascii"), mode=0o444
         )
         _atomic_write(stage / ".source-tree", f"{tree}\n".encode("ascii"), mode=0o444)
+        _atomic_write(
+            stage / _HISTORY_MARKER,
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "commit": commit,
+                    "paths": _framework_path_history(source_root, commit),
+                },
+                indent=2,
+                sort_keys=True,
+            ).encode("utf-8")
+            + b"\n",
+            mode=0o444,
+        )
         _load_machine_commands(stage)
         for relative in _REQUIRED_SNAPSHOT_FILES:
             _read_regular(stage / relative)

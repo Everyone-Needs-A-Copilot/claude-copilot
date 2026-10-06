@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.15.10] — 2026-10-06 — Updates replace older framework copies instead of holding the project
+
+Framework **5.15.10**, `cc` **2.13.8**, `tc` **2.0.0**.
+
+- Fixed standard installs being held as `owner-decision` when a release starts managing a file the project already holds as an older framework copy that its lock never recorded. On 2026-10-06 this held admin-server, pipeline-copilot, force-readiness-assessment, product-creation-copilot and spanish-copilot (`.claude/agents/manifest.schema.json`) and tracker (`.claude/commands/reflect.md`). Each copy was byte-identical to a committed framework version. The update now replaces such a file with the current version and records it in the lock. A file whose bytes the framework never committed at that path is still refused as project content.
+- The snapshot installer writes `.framework-history.json` into each snapshot: the sha256 of every committed version of every framework-installed path (`.claude/agents`, `.claude/commands`, the fitness check and the hook shim), read from the source repository at install time. Snapshots carry no `.git`; a development checkout is read from Git directly, and with neither the update keeps its previous strict behaviour.
+
 ## [5.15.9] — 2026-10-06 — Customized installs update and pass their own fitness check
 
 Framework **5.15.9**, `cc` **2.13.7**, `tc` **2.0.0**.

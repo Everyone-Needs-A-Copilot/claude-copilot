@@ -21,6 +21,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 from cc.core.config import resolve_key
 from cc.core.ecosystem.canonical_transaction import claude_reference_roster
+from cc.core.ecosystem.framework_history import is_prior_framework_version
 from cc.core.ecosystem.codex_plugin_source import (
     CodexPluginSource,
     CodexPluginSourceError,
@@ -2712,11 +2713,18 @@ def _verified_update_boundary(
                 "A newly managed framework path could not be inspected safely."
             ) from exc
         try:
-            conflicts = (
-                stat.S_ISLNK(metadata.st_mode)
-                or not stat.S_ISREG(metadata.st_mode)
-                or _bytes_hash(target.read_bytes()) != desired_files[relative]
+            conflicts = stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(
+                metadata.st_mode
             )
+            if not conflicts:
+                current = _bytes_hash(target.read_bytes())
+                # An older framework copy the lock never recorded is framework
+                # content, not project content: replacing it is the update.
+                conflicts = current != desired_files[
+                    relative
+                ] and not is_prior_framework_version(
+                    _source_root(component), relative, current
+                )
         except OSError as exc:
             raise ComponentSourceConflict(
                 "A newly managed framework path could not be inspected safely."
