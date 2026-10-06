@@ -307,6 +307,24 @@ def test_recipe_selection_failures_map_to_typed_invalid_recipe(
     assert "untrusted internal" not in raised.value.detail
 
 
+def test_project_changed_during_planning_is_not_reported_as_invalid_recipe() -> None:
+    def changed(**_kwargs):
+        raise project_module.ProjectReconciliationError(
+            "Project evidence changed after the census; assess again."
+        )
+
+    with pytest.raises(ReconciliationError) as raised:
+        build_plan_report(
+            _request(),
+            machine_builder=_machine,
+            census_builder=lambda **_kwargs: [_project()],
+            plan_builder=changed,
+        )
+
+    assert (raised.value.code, raised.value.exit_code) == ("project-changed", 2)
+    assert "Assess again" in raised.value.detail
+
+
 def test_authoritative_recipe_source_failure_maps_to_business_block() -> None:
     def unavailable(**_kwargs):
         raise RecipeValidationError(
