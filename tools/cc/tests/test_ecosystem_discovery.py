@@ -188,3 +188,44 @@ def test_discover_contributions_layer_missing_id_is_skipped_not_raised(tmp_path)
     ]
     # Must not raise -- a malformed layer is skipped, not fatal.
     assert discover_contributions(layers) == {}
+
+
+def test_discover_contributions_skips_the_layer_repos_own_codex_install(tmp_path):
+    layer_root = tmp_path / "personal"
+    (layer_root / "plugins/codex-copilot").mkdir(parents=True)
+    (layer_root / "plugins/codex-copilot/plugin.json").write_text("{}")
+    (layer_root / "plugins/personal-tool").mkdir(parents=True)
+    (layer_root / "plugins/personal-tool/plugin.json").write_text("{}")
+    (layer_root / ".codex-copilot.json").write_text(
+        '{"installType": "copy", "pluginPath": "./plugins/codex-copilot"}'
+    )
+
+    result = discover_contributions([_layer("personal", 10, local_path=layer_root)])
+
+    assert set(result["personal"]["plugins"]) == {"personal-tool"}
+
+
+def test_discover_contributions_keeps_plugin_without_own_install_declaration(tmp_path):
+    layer_root = tmp_path / "foundation"
+    (layer_root / "plugins/codex-copilot").mkdir(parents=True)
+    (layer_root / "plugins/codex-copilot/plugin.json").write_text("{}")
+
+    result = discover_contributions([_layer("foundation", 40, local_path=layer_root)])
+
+    assert set(result["foundation"]["plugins"]) == {"codex-copilot"}
+
+
+@pytest.mark.parametrize("plugin_path", ["../outside", "/abs/plugins/codex-copilot", 7])
+def test_discover_contributions_ignores_unsafe_own_install_declaration(
+    tmp_path, plugin_path
+):
+    import json
+
+    layer_root = tmp_path / "personal"
+    (layer_root / "plugins/codex-copilot").mkdir(parents=True)
+    (layer_root / "plugins/codex-copilot/plugin.json").write_text("{}")
+    (layer_root / ".codex-copilot.json").write_text(json.dumps({"pluginPath": plugin_path}))
+
+    result = discover_contributions([_layer("personal", 10, local_path=layer_root)])
+
+    assert set(result["personal"]["plugins"]) == {"codex-copilot"}

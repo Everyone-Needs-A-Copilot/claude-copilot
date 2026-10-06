@@ -2032,20 +2032,34 @@ def _safe_claude_project_tree(root: Path) -> bool:
 
 
 def _recognized_internal_codex_skill_bridge(root: Path, path: Path) -> bool:
-    """Admit only Codex's exact project-contained skill bridge.
+    """Admit only exact project-contained plugin skill bridges.
 
-    Claude preservation recipes never write through this link.  The target is
-    the portable Codex plugin already contained by the same project, so this
-    does not grant access to an external shared checkout or broaden the recipe
-    mutation boundary.
+    A bridge is `.claude/skills/<name>` linking to `../../plugins/<name>/skills`
+    in the same project: Codex's own `codex-copilot` bridge, or a bridge to a
+    project-owned plugin that exposes its skills to Claude the same way.
+    Claude preservation recipes never write through these links. The target
+    is a real directory inside the same project, so this does not grant access
+    to an external shared checkout or broaden the recipe mutation boundary.
     """
     try:
-        if path.relative_to(root).as_posix() != ".claude/skills/codex-copilot":
+        relative = path.relative_to(root)
+        if len(relative.parts) != 3 or relative.parts[:2] != (".claude", "skills"):
             return False
-        if path.readlink().as_posix() != "../../plugins/codex-copilot/skills":
+        name = relative.parts[2]
+        if name in {"", ".", ".."}:
             return False
-        expected = (root / "plugins/codex-copilot/skills").resolve(strict=True)
-        return path.resolve(strict=True) == expected and expected.is_dir()
+        if path.readlink().as_posix() != f"../../plugins/{name}/skills":
+            return False
+        plugins = root / "plugins"
+        for part in (plugins, plugins / name, plugins / name / "skills"):
+            if stat.S_ISLNK(part.lstat().st_mode):
+                return False
+        expected = (plugins / name / "skills").resolve(strict=True)
+        return (
+            path.resolve(strict=True) == expected
+            and expected.is_dir()
+            and expected.is_relative_to(root.resolve(strict=True))
+        )
     except (OSError, ValueError):
         return False
 
