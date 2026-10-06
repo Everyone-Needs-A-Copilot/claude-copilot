@@ -1,11 +1,12 @@
 # Changelog
 
-## [5.15.12] — 2026-10-06 — Editing CLAUDE.md never blocks a project's updates
+## [5.15.12] — 2026-10-06 — Project-owned CLAUDE.md and agents never block updates
 
 Framework **5.15.12**, `cc` **2.13.9**, `tc` **2.0.1**.
 
 - Fixed projects becoming `could-not-verify`, and so refusing every update, after they edited their own `CLAUDE.md` or `AGENTS.md`. When a project had no instruction file, setup created one, with a bounded entry telling the project to keep its instructions there, and recorded its exact bytes as a managed output. Any later edit then failed verification ("CLAUDE.md is missing or mismatched"). On 2026-10-06 this blocked something-new and copilot-control-tower after their CLAUDE.md moved to the 5.15.6 standard.
 - Instruction files are now verified by the recognized-entry check (`## Claude Copilot` / `## Codex Copilot`), as they already were for projects that wrote their own. A recorded fingerprint no longer has to match, but a missing file still fails.
+- Fixed updates ignoring `owner: project`, the documented marker for keeping a project's own agent or command under a framework name. The update counted such a file as a collision and held the whole project as `owner-decision`; on 2026-10-06 this held voice-copilot over its own `cco.md`. Now an `owner: project` file is never overwritten, never recorded in the lock, and never holds an update. If an older lock recorded it as framework-owned, verification accepts it and the update hands it back to the project. This matches the conformance rule `lock.ownership.frontmatter_agrees`.
 
 ## [5.15.11] — 2026-10-06 — tc's database temp files no longer hold project updates
 

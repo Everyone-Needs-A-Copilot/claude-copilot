@@ -76,3 +76,30 @@ def test_missing_claude_md_is_still_a_failure(tmp_path, monkeypatch):
     _commit(project, "remove CLAUDE.md")
     state = _claude_state(project, authority)
     assert state["state"] != "ready"
+
+
+def test_project_owned_agent_is_kept_and_never_holds_the_update(tmp_path, monkeypatch):
+    """voice-copilot, 2026-10-06: its own `cco.md` (frontmatter `owner: project`)
+    sat under a framework agent name, and the update held the whole project as
+    owner-decision instead of leaving the project's agent alone."""
+    claude, project, authority, plan, apply = _setup(tmp_path, monkeypatch)
+    own = "---\nname: me\nowner: project\n---\n\nThe project's own engineer.\n"
+    (project / ".claude/agents/me.md").write_text(own)
+    _commit(project, "project-owned me agent")
+
+    version = json.loads((claude / "VERSION.json").read_text())
+    version["framework"] = "5.13.4"
+    (claude / "VERSION.json").write_text(json.dumps(version))
+    (claude / ".claude/agents/me.md").write_text("me v2\n")
+    (claude / ".claude/agents/qa.md").write_text("qa v2\n")
+
+    assert _claude_state(project, authority)["state"] == "safe-update-available"
+    report = plan()
+    assert report["result"] == "action-required", report
+    assert apply(report["plan_id"])["result"] == "applied"
+    assert (project / ".claude/agents/me.md").read_text() == own
+    assert (project / ".claude/agents/qa.md").read_text() == "qa v2\n"
+    lock = json.loads((project / "copilot.lock.json").read_text())
+    claude_entry = next(c for c in lock["components"] if c["component"] == "claude")
+    assert ".claude/agents/me.md" not in {f["path"] for f in claude_entry["files"]}
+    assert _claude_state(project, authority)["state"] == "ready"

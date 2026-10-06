@@ -23,6 +23,7 @@ from cc.core.ecosystem.codex_plugin_source import (
     CodexPluginSourceError,
     resolve_codex_plugin_source,
 )
+from cc.core.ecosystem.project_ownership import declares_project_owner
 from cc.core.ecosystem.project_integration import (
     PROJECT_INSTRUCTION_FILES,
     inspect_project_integration,
@@ -512,7 +513,13 @@ def _dirty_paths_are_repeat_safe(
                 or not _sha256_fingerprint(checksum)
                 or not _framework_path_allowed(str(component), str(relative))
                 or relative in recorded
-                or _framework_checksum(project, relative) != checksum
+                or (
+                    _framework_checksum(project, relative) != checksum
+                    and not (
+                        _framework_checksum(project, relative) is not None
+                        and declares_project_owner(project / str(relative))
+                    )
+                )
             ):
                 return False
             recorded.add(str(relative))

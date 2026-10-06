@@ -20,6 +20,7 @@ import stat
 from pathlib import Path, PurePosixPath
 from typing import Any, Optional
 
+from cc.core.ecosystem.project_ownership import declares_project_owner
 from cc.core.config import resolve_key
 from cc.core.ecosystem.canonical_transaction import claude_reference_roster
 from cc.core.ecosystem.project_locking import (
@@ -589,7 +590,11 @@ def _verify_lock_entry(
             actual = None
         expected = file_info["checksum"]
         fingerprint.append([rel_path, expected, actual])
-        if actual != expected:
+        # A file the project has since claimed (`owner: project`) is not drift;
+        # the next update re-records the lock without it.
+        if actual != expected and not (
+            actual is not None and declares_project_owner(target)
+        ):
             state = "missing" if actual is None else "mismatch"
             evidence.append(
                 _evidence(

@@ -22,6 +22,7 @@ from typing import Any, Callable, Mapping, Sequence
 from cc.core.config import resolve_key
 from cc.core.ecosystem.canonical_transaction import claude_reference_roster
 from cc.core.ecosystem.framework_history import is_prior_framework_version
+from cc.core.ecosystem.project_ownership import declares_project_owner
 from cc.core.ecosystem.codex_plugin_source import (
     CodexPluginSource,
     CodexPluginSourceError,
@@ -1093,6 +1094,17 @@ def _ecosystem_lock_collision(root: Path) -> bool:
     )
 
 
+def _exclude_project_owned(root: Path, entry: dict[str, Any]) -> dict[str, Any]:
+    """Drop framework paths the project has claimed with `owner: project`
+    (see `project_ownership`)."""
+    files = [
+        item
+        for item in entry.get("files", [])
+        if not declares_project_owner(root / str(item.get("path", "")))
+    ]
+    return {**entry, "files": files}
+
+
 def _lock_payload(root: Path, entry: Any) -> dict[str, Any]:
     payload: dict[str, Any] = {"component_entry": entry}
     if _ecosystem_lock_collision(root):
@@ -1543,7 +1555,7 @@ def _claude_setup(root: Path, component: str) -> tuple[RecipeOperation, ...]:
                 },
             )
         )
-    lock_entry = _lock_entry(source, component)
+    lock_entry = _exclude_project_owned(root, _lock_entry(source, component))
     operations.append(
         _operation(
             root=root,
@@ -1574,7 +1586,9 @@ def _claude_legacy(root: Path, component: str) -> tuple[RecipeOperation, ...]:
             kind=RecipeOperationKind.UPSERT_LOCK_COMPONENT,
             target="copilot.lock.json",
             description="Refresh only the Claude lock component after verification.",
-            payload=_lock_payload(root, _lock_entry(source, component)),
+            payload=_lock_payload(
+                root, _exclude_project_owned(root, _lock_entry(source, component))
+            ),
         ),
     )
 
@@ -1642,7 +1656,7 @@ def _claude_update(root: Path, component: str) -> tuple[RecipeOperation, ...]:
     source = _source_root(component)
     operations = list(_claude_setup(root, component))
     planned_targets = {operation.target for operation in operations}
-    desired = _lock_entry(source, component)
+    desired = _exclude_project_owned(root, _lock_entry(source, component))
     for item in desired["files"]:
         target = str(item["path"])
         if target in planned_targets:
@@ -2697,7 +2711,14 @@ def _verified_update_boundary(
         and isinstance(item.get("path"), str)
         and isinstance(item.get("checksum"), str)
     }
-    retired = set(existing_files) - set(desired_files)
+    # A recorded path the project has since claimed (`owner: project`) is
+    # handed back to the project, not retired: the update re-records the lock
+    # without it and never touches the file.
+    retired = {
+        relative
+        for relative in set(existing_files) - set(desired_files)
+        if not declares_project_owner(root / relative)
+    }
     if retired:
         raise ComponentSourceConflict(
             "The authoritative source retires framework paths that require an owner-reviewed disposition."
@@ -2797,6 +2818,8 @@ def _desired_component_contract(
 ) -> dict[str, Any]:
     binding = _codex_plugin_binding(root) if component == "codex" else _BINDING_UNSET
     desired = _lock_entry(_source_root(component), component, codex_binding=binding)
+    if component == "claude":
+        desired = _exclude_project_owned(root, desired)
     if existing.get("ownership_mode") != "customized-preserve":
         return desired
 
