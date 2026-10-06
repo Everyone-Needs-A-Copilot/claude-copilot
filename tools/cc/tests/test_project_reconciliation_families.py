@@ -1466,3 +1466,23 @@ def test_forged_reversed_declaration_order_is_held_even_with_matching_fingerprin
         selected_components=("claude", "codex"),
     )
     assert assessment["route"] == "held"
+
+
+@pytest.mark.parametrize(
+    ("relative", "allowed"),
+    [
+        (".claude/commands/protocol.md", True),
+        (".claude/commands/pause.md", True),
+        (".claude/commands/reflect.md", True),
+        (".claude/fitness-check.sh", True),
+        (".claude/hooks/copilot-hook.sh", True),
+        (".claude/commands/nested/evil.md", False),
+        (".claude/commands/notes.txt", False),
+        (".claude/agents/me.md", False),
+        ("CLAUDE.md", False),
+    ],
+)
+def test_customized_claude_lock_admits_every_installed_framework_command(
+    relative: str, allowed: bool
+) -> None:
+    assert integration._customized_framework_path_allowed("claude", relative) is allowed
