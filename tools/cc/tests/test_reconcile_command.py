@@ -226,8 +226,8 @@ def test_recover_command_emits_its_strict_schema_branch(
 def _prerequisites(ready: bool) -> dict:
     return {
         "ready": ready,
-        "cc": {"state": "ready", "path": "/home/.local/bin/cc"},
-        "tc": {"state": "ready" if ready else "unverified", "path": "/home/.local/bin/tc"},
+        "cc": {"state": "ready", "path": "/opt/fixture/bin/cc"},
+        "tc": {"state": "ready" if ready else "unverified", "path": "/opt/fixture/bin/tc"},
         "responsible_actor": "none" if ready else "person",
         "next_action": "fixture",
     }

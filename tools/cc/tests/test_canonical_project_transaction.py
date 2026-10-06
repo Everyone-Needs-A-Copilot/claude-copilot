@@ -453,7 +453,7 @@ def test_prerequisite_fact_names_tc_reinstall_when_its_receipt_is_stale(
     tmp_path: Path,
 ) -> None:
     def which(name: str) -> str | None:
-        return {"cc": "/home/.local/bin/cc", "tc": "/home/.local/bin/tc"}.get(name)
+        return {"cc": "/opt/fixture/bin/cc", "tc": "/opt/fixture/bin/tc"}.get(name)
 
     def run(command: Any, **_kwargs: Any) -> subprocess.CompletedProcess[str]:
         if command[1] == "--version":
