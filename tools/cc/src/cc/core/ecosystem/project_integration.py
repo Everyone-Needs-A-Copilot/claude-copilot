@@ -67,7 +67,16 @@ _CODEX_REQUIRED_LOCK_PATHS = (
 
 def _customized_framework_path_allowed(component: str, relative: str) -> bool:
     if component == "claude":
-        return relative in _CLAUDE_REQUIRED_LOCK_PATHS
+        # The preservation recipe installs every VERSION.json project command,
+        # not only the required ones, so any single framework command file is
+        # part of the bounded support-file subset.
+        parts = PurePosixPath(relative).parts
+        return relative in _CLAUDE_REQUIRED_LOCK_PATHS or (
+            len(parts) == 3
+            and parts[:2] == (".claude", "commands")
+            and parts[2].endswith(".md")
+            and parts[2] not in {".md", "..md"}
+        )
     return relative == "scripts/copilot-gate.sh" or relative.startswith(
         "plugins/codex-copilot/"
     )

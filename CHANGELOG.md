@@ -1,5 +1,11 @@
 # Changelog
 
+## [5.15.8] — 2026-10-06 — Customized Claude installs pass their own verification
+
+Framework **5.15.8**, `cc` **2.13.6**, `tc` **2.0.0**.
+
+- Fixed every Claude install through the assistant preservation recipe rolling back. The recipe installs all eight VERSION.json project commands and records them in the lock, but post-install verification of a customized lock accepted only the four required paths, so it rejected the lock the recipe had just written. Any single `.claude/commands/<name>.md` framework command is now part of the bounded support-file subset; nested paths, non-Markdown files and agents remain rejected.
+
 ## [5.15.7] — 2026-10-06 — Projects with their own agents and plugins can be set up
 
 Framework **5.15.7**, `cc` **2.13.5**, `tc` **2.0.0**.
