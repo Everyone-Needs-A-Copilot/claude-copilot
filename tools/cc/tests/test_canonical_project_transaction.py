@@ -403,8 +403,14 @@ def test_setup_and_update_commands_are_thin_canonical_adapters() -> None:
 
     for command in commands:
         text = command.read_text(encoding="utf-8")
-        assert "canonical_project_request_json" in text
-        assert "inspect_canonical_prerequisites" in text
+        # The request is built inside cc's own runtime. A bare `python3` cannot
+        # import cc (it lives in its own venv or a frozen release binary).
+        assert (
+            'reconcile request --project "$PROJECT_ROOT" --output "$REQUEST_FILE"'
+            in text
+        )
+        assert "python3" not in text
+        assert "from cc." not in text
         assert 'reconcile plan --request "$REQUEST_FILE"' in text
         assert 'reconcile apply --request "$REQUEST_FILE"' in text
         assert 'reconcile verify --request "$REQUEST_FILE"' in text
@@ -441,6 +447,37 @@ def test_prerequisite_fact_rejects_system_compiler_and_names_machine_setup(
         "responsible_actor": "person",
         "next_action": "Complete Claude Copilot machine setup in ~/.claude/copilot with /setup, open a fresh shell, then retry the project transaction.",
     }
+
+
+def test_prerequisite_fact_names_tc_reinstall_when_its_receipt_is_stale(
+    tmp_path: Path,
+) -> None:
+    def which(name: str) -> str | None:
+        return {"cc": "/home/.local/bin/cc", "tc": "/home/.local/bin/tc"}.get(name)
+
+    def run(command: Any, **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if command[1] == "--version":
+            return subprocess.CompletedProcess(command, 0, "cc version 2.13.3\n", "")
+        return subprocess.CompletedProcess(
+            command,
+            1,
+            json.dumps(
+                {
+                    "verified": False,
+                    "reason": "tc source, dependency, runtime or capability differs from installation receipt",
+                }
+            ),
+            "",
+        )
+
+    report = inspect_canonical_prerequisites(
+        which=which, run=run, home=tmp_path / "empty-home"
+    )
+
+    assert report["ready"] is False
+    assert report["cc"]["state"] == "ready"
+    assert report["tc"]["state"] == "unverified"
+    assert "tools/tc/install.sh" in report["next_action"]
 
 
 def test_complete_canonical_transaction_applies_verifies_and_repeats_zero_op(

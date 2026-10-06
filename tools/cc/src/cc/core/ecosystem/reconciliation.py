@@ -1497,6 +1497,19 @@ def prepare_reconciliation(
     except ReconciliationError:
         raise
     except Exception as exc:
+        from cc.core.ecosystem.project_reconciliation import (
+            ProjectReconciliationError,
+        )
+
+        if isinstance(exc, ProjectReconciliationError):
+            # The fresh census disagreed with the selection or changed while
+            # planning. No recipe was at fault, so "choose another recipe"
+            # would send the person to the wrong fix.
+            raise ReconciliationError(
+                "project-changed",
+                "The project changed or no longer matches the selection while the plan was being built. Assess again, then plan.",
+                exit_code=2,
+            ) from exc
         message = str(exc).lower()
         source_unavailable = (
             "authoritative" in message and "source" in message

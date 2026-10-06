@@ -42,26 +42,9 @@ if [ -z "$CC_BIN" ] || ! command -v tc >/dev/null 2>&1; then
 fi
 PROJECT_ROOT="$(git rev-parse --show-toplevel)"
 REQUEST_FILE="$(mktemp -t cc-project-request.XXXXXX)"
-CC_PATH_FILE="$(mktemp -t cc-project-cli.XXXXXX)"
-trap 'rm -f "$REQUEST_FILE" "$CC_PATH_FILE"' EXIT
-chmod 600 "$REQUEST_FILE" "$CC_PATH_FILE"
-python3 - "$PROJECT_ROOT" "$REQUEST_FILE" "$CC_PATH_FILE" <<'PY'
-import json
-import sys
-from pathlib import Path
-from cc.core.ecosystem.canonical_transaction import (
-    canonical_project_request_json,
-    inspect_canonical_prerequisites,
-)
-
-prerequisites = inspect_canonical_prerequisites()
-if not prerequisites["ready"]:
-    print(json.dumps(prerequisites, sort_keys=True), file=sys.stderr)
-    raise SystemExit(3)
-Path(sys.argv[3]).write_text(str(prerequisites["cc"]["path"]), encoding="utf-8")
-Path(sys.argv[2]).write_text(canonical_project_request_json(sys.argv[1]), encoding="utf-8")
-PY
-CC_BIN="$(cat "$CC_PATH_FILE")"
+trap 'rm -f "$REQUEST_FILE"' EXIT
+chmod 600 "$REQUEST_FILE"
+"$CC_BIN" reconcile request --project "$PROJECT_ROOT" --output "$REQUEST_FILE"
 "$CC_BIN" reconcile plan --request "$REQUEST_FILE" --json
 ```
 
@@ -94,26 +77,9 @@ if [ -z "$CC_BIN" ] || ! command -v tc >/dev/null 2>&1; then
 fi
 PROJECT_ROOT="$(git rev-parse --show-toplevel)"
 REQUEST_FILE="$(mktemp -t cc-project-request.XXXXXX)"
-CC_PATH_FILE="$(mktemp -t cc-project-cli.XXXXXX)"
-trap 'rm -f "$REQUEST_FILE" "$CC_PATH_FILE"' EXIT
-chmod 600 "$REQUEST_FILE" "$CC_PATH_FILE"
-python3 - "$PROJECT_ROOT" "$REQUEST_FILE" "$CC_PATH_FILE" <<'PY'
-import json
-import sys
-from pathlib import Path
-from cc.core.ecosystem.canonical_transaction import (
-    canonical_project_request_json,
-    inspect_canonical_prerequisites,
-)
-
-prerequisites = inspect_canonical_prerequisites()
-if not prerequisites["ready"]:
-    print(json.dumps(prerequisites, sort_keys=True), file=sys.stderr)
-    raise SystemExit(3)
-Path(sys.argv[3]).write_text(str(prerequisites["cc"]["path"]), encoding="utf-8")
-Path(sys.argv[2]).write_text(canonical_project_request_json(sys.argv[1]), encoding="utf-8")
-PY
-CC_BIN="$(cat "$CC_PATH_FILE")"
+trap 'rm -f "$REQUEST_FILE"' EXIT
+chmod 600 "$REQUEST_FILE"
+"$CC_BIN" reconcile request --project "$PROJECT_ROOT" --output "$REQUEST_FILE"
 "$CC_BIN" reconcile apply --request "$REQUEST_FILE" --plan-id "<PLAN_ID>" --json
 "$CC_BIN" reconcile verify --request "$REQUEST_FILE" --json
 ```

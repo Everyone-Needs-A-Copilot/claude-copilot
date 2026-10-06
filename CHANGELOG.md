@@ -1,5 +1,14 @@
 # Changelog
 
+## [5.15.4] — 2026-10-06 — Project setup runs on cc's own runtime
+
+Framework **5.15.4**, `cc` **2.13.3**, `tc` **2.0.0**.
+
+- Fixed `/setup-project` and `/update-project` failing on every machine at the first step with `ModuleNotFoundError: No module named 'cc'`. Their request helper ran a heredoc under the system `python3`, which cannot import `cc` (it lives in its own venv, or inside a frozen release binary).
+- Added `cc reconcile request --project <root> --output <file>`, which checks the cc/tc prerequisites and writes the canonical one-project request from inside cc's runtime. Both commands now call it instead of any Python interpreter; a failed prerequisite still exits 3 with the prerequisite report on stderr.
+- `cc reconcile plan` now reports `project-changed` ("assess again, then plan") when the fresh census disagrees with the selection or changes while planning. It was mislabeled `invalid-recipe`, which told the person to choose a different recipe when none was at fault.
+- When `tc` is installed but its provenance receipt no longer matches its source (in a development checkout, any new commit or pull does this), the prerequisite report now names the one-step repair, `bash ~/.claude/copilot/tools/tc/install.sh`, instead of sending the person through full machine setup.
+
 ## [5.15.3] — 2026-09-24 — Initiatives consolidated under 40-initiatives
 
 Framework **5.15.3**; component versions unchanged.

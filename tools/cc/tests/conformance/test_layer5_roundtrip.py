@@ -716,7 +716,7 @@ def test_setup_adapter_names_the_canonical_transaction(framework_repo_root):
     markdown = (
         framework_repo_root / ".claude" / "commands" / "setup-project.md"
     ).read_text(encoding="utf-8")
-    assert "canonical_project_request_json" in markdown
+    assert '"$CC_BIN" reconcile request' in markdown
     assert '"$CC_BIN" reconcile plan' in markdown
     assert '"$CC_BIN" reconcile apply' in markdown
     assert '"$CC_BIN" reconcile verify' in markdown

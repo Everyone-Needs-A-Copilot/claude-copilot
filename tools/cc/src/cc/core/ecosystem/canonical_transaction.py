@@ -142,6 +142,11 @@ def inspect_canonical_prerequisites(
         "next_action": (
             "Continue with the canonical project transaction."
             if ready
+            # An installed tc whose receipt no longer matches its source (the
+            # usual cause: the development checkout moved to a new commit)
+            # needs only a reinstall, not full machine setup.
+            else "Reinstall tc from reviewed source with `bash ~/.claude/copilot/tools/tc/install.sh`, then retry the project transaction."
+            if cc_path is not None and tc_path
             else "Complete Claude Copilot machine setup in ~/.claude/copilot with /setup, open a fresh shell, then retry the project transaction."
         ),
     }
