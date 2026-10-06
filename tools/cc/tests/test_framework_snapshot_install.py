@@ -327,7 +327,10 @@ def _fake_cc_installer(snapshot: Path, staged_shim: Path) -> None:
     runtime.chmod(0o755)
     receipt_file = runtime.parent.parent / "tc-provenance.json"
     receipt_file.write_text('{"fixture":"tc-provenance"}\n')
-    tc_info = {"verified": True, "mode": "snapshot", "version": "2.0.0",
+    # Report the version the snapshot's own manifest declares, as a real tc would.
+    manifest = json.loads((snapshot / "VERSION.json").read_text())
+    tc_version = manifest.get("components", {}).get("tc", {}).get("version", "2.0.0")
+    tc_info = {"verified": True, "mode": "snapshot", "version": tc_version,
                "source_commit": (snapshot / ".source-commit").read_text().strip(),
                "source_tree": (snapshot / ".source-tree").read_text().strip(),
                "capabilities": ["check-qa", "contract", "evidence-identity"],
