@@ -1,6 +1,8 @@
 # Changelog
 
-## [Unreleased] — Project CLAUDE.md follows current Claude Code practice
+## [5.15.6] — 2026-10-06 — Project CLAUDE.md follows current Claude Code practice
+
+Framework **5.15.6**; component versions unchanged.
 
 - Rewrote `templates/CLAUDE.template.md` (168 to 85 lines). It now holds only what hooks and tools cannot supply: project rules first, one line per Copilot surface under `## Claude Copilot`, the Knowledge Copilot walk, the pinned Optional Context block, a condensed task-evidence summary, and the no-time-estimates rule.
 - Removed the agent and command tables (Claude Code lists agents, skills and commands itself) and references to retired surfaces: Memory Copilot, `knowledge_search` and `knowledge_get`.
