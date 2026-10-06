@@ -252,3 +252,40 @@ class TestVersion:
         result = runner.invoke(app, ["version"])
         assert result.exit_code == 0
         assert "tc version" in result.output
+
+
+def test_sqlite_runtime_files_never_make_the_project_dirty(tmp_path, monkeypatch):
+    """WAL/SHM side files go in the clone's .git/info/exclude, so a project
+    using tc stays clean for Claude Copilot's update stability check."""
+    import subprocess
+
+    from tc.db.connection import get_db, init_db
+
+    subprocess.run(("git", "init", "-q", str(tmp_path)), check=True)
+    monkeypatch.chdir(tmp_path)
+    db = init_db()
+    conn = get_db(db)
+    conn.execute("CREATE TABLE IF NOT EXISTS probe (x)")
+    conn.execute("INSERT INTO probe VALUES (1)")
+    conn.commit()
+    assert (tmp_path / ".copilot" / "tasks.db-wal").exists()
+
+    status = subprocess.run(
+        ("git", "status", "--porcelain", "--untracked-files=all"),
+        cwd=tmp_path, capture_output=True, text=True, check=True,
+    ).stdout
+    assert ".db-wal" not in status and ".db-shm" not in status
+    assert ".copilot/tasks.db" in status  # the database itself stays committable
+    exclude = (tmp_path / ".git" / "info" / "exclude").read_text()
+    get_db(db).close()
+    assert (tmp_path / ".git" / "info" / "exclude").read_text() == exclude
+    assert exclude.count("**/.copilot/*.db-wal") == 1
+    conn.close()
+
+
+def test_runtime_exclude_is_skipped_outside_git(tmp_path, monkeypatch):
+    from tc.db.connection import get_db, init_db
+
+    monkeypatch.chdir(tmp_path)
+    get_db(init_db()).close()
+    assert not (tmp_path / ".git").exists()

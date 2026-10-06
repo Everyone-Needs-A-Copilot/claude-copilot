@@ -1,6 +1,7 @@
 """Database connection management for Task Copilot CLI."""
 
 import sqlite3
+import subprocess
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator, Optional
@@ -41,6 +42,39 @@ def _ensure_guard_columns(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN guard TEXT")
 
 
+# SQLite's WAL-mode side files are machine-local and change on every
+# connection. Left visible they made every tc-using project look dirty, and
+# Claude Copilot holds updates for a dirty project. They go in the clone's own
+# `.git/info/exclude` (never committed, so no new file to commit in each
+# project) rather than the project's `.gitignore`.
+_RUNTIME_EXCLUDES = ("**/.copilot/*.db-wal", "**/.copilot/*.db-shm")
+
+
+def _exclude_runtime_files(db_dir: Path) -> None:
+    """Best-effort: add the WAL/SHM patterns to the enclosing repo's exclude."""
+    try:
+        result = subprocess.run(
+            ("git", "rev-parse", "--git-path", "info/exclude"),
+            cwd=db_dir, capture_output=True, text=True, timeout=5, check=False,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return
+        exclude = Path(result.stdout.strip())
+        if not exclude.is_absolute():
+            exclude = db_dir / exclude
+        current = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
+        lines = set(current.splitlines())
+        missing = [pattern for pattern in _RUNTIME_EXCLUDES if pattern not in lines]
+        if not missing:
+            return
+        exclude.parent.mkdir(parents=True, exist_ok=True)
+        prefix = "" if not current or current.endswith("\n") else "\n"
+        with exclude.open("a", encoding="utf-8") as handle:
+            handle.write(prefix + "# tc: SQLite runtime files\n" + "".join(f"{p}\n" for p in missing))
+    except (OSError, subprocess.SubprocessError, UnicodeError):
+        return
+
+
 def find_db_path() -> Optional[Path]:
     """Walk up from cwd to find .copilot/tasks.db. Returns Path or None."""
     current = Path.cwd()
@@ -71,6 +105,7 @@ def get_db(path: Optional[Path] = None) -> sqlite3.Connection:
             "No tasks.db found. Run `tc init` to create a database."
         )
 
+    _exclude_runtime_files(Path(path).parent)
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode = WAL")
@@ -122,6 +157,7 @@ def init_db(path: Optional[Path] = None) -> Path:
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    _exclude_runtime_files(path.parent)
 
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row

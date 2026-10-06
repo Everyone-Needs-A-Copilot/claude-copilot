@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.15.11] — 2026-10-06 — tc's database temp files no longer hold project updates
+
+Framework **5.15.11**, `cc` **2.13.8**, `tc` **2.0.1**.
+
+- Fixed every project that uses `tc` looking dirty, which made Claude Copilot hold its updates ("Stabilize the Git project before changing Claude"). SQLite's WAL-mode side files, `.copilot/tasks.db-wal` and `.copilot/tasks.db-shm`, were never ignored. On 2026-10-06 they held something-new, copilot-bench, thoughts and investr-api.
+- `tc` now adds `**/.copilot/*.db-wal` and `**/.copilot/*.db-shm` to the clone's own `.git/info/exclude` whenever it opens or creates a database. That file is never committed, so no project gains a file to commit; `tasks.db` itself stays committable. Outside a Git repository nothing is written.
+
 ## [5.15.10] — 2026-10-06 — Updates replace older framework copies instead of holding the project
 
 Framework **5.15.10**, `cc` **2.13.8**, `tc` **2.0.0**.
