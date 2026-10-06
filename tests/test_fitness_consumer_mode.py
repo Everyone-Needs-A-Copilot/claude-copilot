@@ -73,7 +73,10 @@ def _run(project: Path, framework: Path, tmp_path: Path, *, cc_names=None, mode=
         listing = json.dumps([{"name": n} for n in cc_names])
         cc.write_text(f"#!/bin/sh\ncat <<'EOF'\n{listing}\nEOF\n")
     cc.chmod(0o755)
-    env = {k: v for k, v in os.environ.items() if not k.startswith("CC_")}
+    env = {
+        k: v for k, v in os.environ.items()
+        if not k.startswith("CC_") and k != "CLAUDE_CONFIG_DIR"
+    }
     env.update(HOME=str(home), PATH=f"{fake_bin}{os.pathsep}{env.get('PATH', '')}",
                CC_COPILOT_PATH=str(framework))
     if mode:
@@ -210,3 +213,92 @@ def test_ff12_consumer_fails_lock_naming_an_untagged_release(tmp_path):
         f"copilot.lock.json is locked to v1.0.1, which the framework repo at {fw} "
         "has not tagged (fetch tags, or the release was never tagged)"
     ], fails
+
+
+# ---- customized-preserve installs -------------------------------------------
+# A project that keeps its own agent tree carries no framework agents; they are
+# deployed once at user level (~/.claude/agents). Contract: the roster resolves
+# project-first then user-level, project-owned agents are not held to the
+# framework agent contract, and nothing else is relaxed.
+
+
+def _preserve_consumer(tmp_path: Path, fw: Path) -> Path:
+    project = tmp_path / "preserve"
+    (project / ".claude/agents").mkdir(parents=True)
+    shutil.copytree(REPO_ROOT / ".claude" / "commands", project / ".claude" / "commands")
+    shutil.copy2(FITNESS, project / ".claude" / "fitness-check.sh")
+    shutil.copy2(REPO_ROOT / "CLAUDE.md", project / "CLAUDE.md")
+    # A project-owned agent: no `model`, no framework blocks, routes to a roster agent.
+    (project / ".claude/agents/studio-own.md").write_text(
+        "---\nname: studio-own\ndescription: project agent\ntools: Read\n---\n"
+        "# studio-own\nRoutes to @agent-me.\n"
+    )
+    (project / "copilot.lock.json").write_text(json.dumps({"components": [
+        {"component": "claude", "release_tag": "v1.0.0", "files": [],
+         "ownership_mode": "customized-preserve"}
+    ]}))
+    user_agents = tmp_path / "home" / ".claude" / "agents"
+    shutil.copytree(fw / ".claude" / "agents", user_agents)
+    return project
+
+
+def test_preserve_install_accepts_user_level_framework_agents(tmp_path):
+    fw = _framework(tmp_path)
+    project = _preserve_consumer(tmp_path, fw)
+    out = _run(project, fw, tmp_path)
+    assert "Install ownership: customized-preserve" in out
+    assert re.search(r"FITNESS CHECK PASSED", out), "\n".join(_fails(out))
+    assert "studio-own.md is a project-defined agent" in out
+
+
+def test_preserve_install_still_fails_a_roster_agent_missing_everywhere(tmp_path):
+    fw = _framework(tmp_path)
+    project = _preserve_consumer(tmp_path, fw)
+    (tmp_path / "home/.claude/agents/me.md").unlink()
+    fails = _fails(_run(project, fw, tmp_path))
+    assert any(f.startswith("me.md MISSING") for f in fails), fails
+    assert any("@agent-me referenced but" in f for f in fails), fails
+
+
+def test_standard_install_does_not_accept_user_level_framework_agents(tmp_path):
+    fw = _framework(tmp_path)
+    project = _preserve_consumer(tmp_path, fw)
+    lock = json.loads((project / "copilot.lock.json").read_text())
+    lock["components"][0]["ownership_mode"] = "full"
+    (project / "copilot.lock.json").write_text(json.dumps(lock))
+    fails = _fails(_run(project, fw, tmp_path))
+    assert any(f.startswith("me.md MISSING") for f in fails), fails
+
+
+def test_preserve_install_holds_a_framework_agent_it_carries_to_the_blocks(tmp_path):
+    fw = _framework(tmp_path)
+    project = _preserve_consumer(tmp_path, fw)
+    shutil.copy2(fw / ".claude/agents/me.md", project / ".claude/agents/me.md")
+    shutil.copytree(fw / ".claude/agents/_shared", project / ".claude/agents/_shared")
+    me = project / ".claude/agents/me.md"
+    me.write_text(me.read_text().replace("## Runtime Precedence", "## Runtime Precedence\nedited", 1))
+    fails = _fails(_run(project, fw, tmp_path))
+    assert any("me.md: Runtime Precedence block differs from canonical" in f for f in fails), fails
+
+
+def test_preserve_install_still_validates_a_project_agent_model_when_declared(tmp_path):
+    fw = _framework(tmp_path)
+    project = _preserve_consumer(tmp_path, fw)
+    own = project / ".claude/agents/studio-own.md"
+    own.write_text(own.read_text().replace("tools: Read", "tools: Read\nmodel: gpt"))
+    fails = _fails(_section(_run(project, fw, tmp_path), "FF7"))
+    assert fails == ["studio-own.md: model 'gpt' not one of sonnet|opus"], fails
+
+
+def test_consumer_ceiling_excludes_project_defined_agents(tmp_path):
+    fw = _framework(tmp_path)
+    corpus = sum(p.stat().st_size for p in (fw / ".claude/agents").glob("*.md"))
+    baseline = {"thresholds": {"agent_corpus_ceiling_bytes": corpus + 1000}}
+    (fw / ".claude/context-budget-baseline-test.json").write_text(json.dumps(baseline))
+    _git(fw, "add", "-A")
+    _git(fw, "commit", "-qm", "baseline")
+    project = _preserve_consumer(tmp_path, fw)
+    (project / ".claude/agents/studio-big.md").write_text("x" * 50_000)
+    out = _section(_run(project, fw, tmp_path), "FF12")
+    assert _fails(out) == [], out
+    assert "within the absolute ceiling" in out

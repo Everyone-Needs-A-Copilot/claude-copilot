@@ -1,5 +1,14 @@
 # Changelog
 
+## [5.15.9] — 2026-10-06 — Customized installs update and pass their own fitness check
+
+Framework **5.15.9**, `cc` **2.13.7**, `tc` **2.0.0**.
+
+- Fixed every customized-preserve Claude install becoming an `owner-decision` after the next framework release. The lock records the release version, so any later release differed from it, and the update check treated every difference as a collision. Drift confined to the files the lock already owns (commands, hook shim, fitness check), plus support files that are absent or already identical, is now a `safe-update-available`. The update refreshes only those files, never installs framework agents, keeps `customized-preserve`, and still refuses files the project has edited.
+- Fixed the fitness check failing 66 ways in a customized-preserve project. Such a project keeps its own agent tree and loads the framework agents from the user-level deployment (`~/.claude/agents`), so the check demanded copies the install is built not to make. In that mode the roster now resolves project-first then user-level, the project's own agents are no longer required to declare `model`, and FF8 and FF10 check only framework agents the project itself carries (deployed agents are reconciled by FF12). Standard installs keep the strict project-only behaviour.
+- In every installed project, FF12's absolute ceiling now measures only the framework's base corpus; a project's own agents are reported, not counted against it.
+- The hook shim now writes a `*` ignore file into `.claude/hooks/state/`, so session state no longer makes an installed project look unstable and hold its updates.
+
 ## [5.15.8] — 2026-10-06 — Customized Claude installs pass their own verification
 
 Framework **5.15.8**, `cc` **2.13.6**, `tc` **2.0.0**.
