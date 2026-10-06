@@ -82,6 +82,15 @@ def _customized_framework_path_allowed(component: str, relative: str) -> bool:
     )
 
 
+# Project instruction files belong to the project. The installer may create
+# one (a bounded entry that itself says to keep project instructions there) and
+# record its fingerprint, but every later edit the project makes is expected,
+# not drift. Their compatibility is proven by the recognized-entry check
+# (`## Claude Copilot` / `## Codex Copilot`), never by byte equality; requiring
+# equality made every project that edited its CLAUDE.md unverifiable and
+# blocked its updates.
+PROJECT_INSTRUCTION_FILES = frozenset({"CLAUDE.md", "AGENTS.md"})
+
 _MANAGED_OUTPUT_TARGET_KINDS = {
     "claude": {
         "CLAUDE.md": "managed-text",
@@ -639,7 +648,9 @@ def _verify_lock_entry(
         fingerprint.append(
             ["managed-output", rel_path, output["kind"], expected, actual]
         )
-        if actual != expected:
+        if actual != expected and not (
+            rel_path in PROJECT_INSTRUCTION_FILES and actual is not None
+        ):
             evidence.append(
                 _evidence(
                     "managed-output",

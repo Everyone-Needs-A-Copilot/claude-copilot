@@ -23,7 +23,10 @@ from cc.core.ecosystem.codex_plugin_source import (
     CodexPluginSourceError,
     resolve_codex_plugin_source,
 )
-from cc.core.ecosystem.project_integration import inspect_project_integration
+from cc.core.ecosystem.project_integration import (
+    PROJECT_INSTRUCTION_FILES,
+    inspect_project_integration,
+)
 from cc.core.ecosystem.project_locking import (
     ProjectIdentity,
     ProjectIdentityMismatch,
@@ -529,7 +532,13 @@ def _dirty_paths_are_repeat_safe(
                 or target_kinds.get(relative) != kind
                 or not _sha256_fingerprint(fingerprint)
                 or relative in recorded
-                or _path_fingerprint(project, relative) != fingerprint
+                or (
+                    _path_fingerprint(project, relative) != fingerprint
+                    and not (
+                        relative in PROJECT_INSTRUCTION_FILES
+                        and _path_fingerprint(project, relative) is not None
+                    )
+                )
             ):
                 return False
             if (
