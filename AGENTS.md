@@ -13,7 +13,7 @@
 - When editing Claude agents, preserve their frontmatter (name, description, tools, model), role/mission, Core Behaviors, output format, Route To Other Agent, and Task Copilot Integration. Use industry-standard methods and document decision authority.
 - Claude runtime guardrails, hook schemas, `@agent-*` routing, and slash commands describe the product maintained here; they are not Codex runtime features. Apply Codex specialist playbooks locally unless the user requests delegation.
 - Read the relevant development guidance in `CLAUDE.md` when maintaining framework assets, and the corresponding `tools/cc/` or `tools/tc/` documentation when changing those tools. Do not import Claude session/delegation instructions into Codex.
-- For publishing/notarization work, the `ct-notary` profile is a standing credential in macOS Data Protection Keychain by default, not `login.keychain-db`. Probe with `xcrun notarytool history --keychain-profile ct-notary --output-format json`; retry transient local lookup failures, and continue if a probe succeeds. Preflight before expensive builds, never bypass signing/source/artifact verification, and never request new credentials from a single local lookup failure.
+- Before publishing/notarization, read `docs/30-operations/20-notarization-credentials.md`.
 - Keep shared project requirements consistent between CLAUDE.md and AGENTS.md; preserve their scope and keep tool-specific instructions in the appropriate entrypoint.
 
 ## Project Commands
