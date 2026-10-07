@@ -302,3 +302,39 @@ def test_consumer_ceiling_excludes_project_defined_agents(tmp_path):
     out = _section(_run(project, fw, tmp_path), "FF12")
     assert _fails(out) == [], out
     assert "within the absolute ceiling" in out
+
+
+# ---- project-owned agents in a standard install ----------------------------
+
+
+def test_standard_install_does_not_hold_project_agents_to_the_framework_contract(tmp_path):
+    """spanish-copilot / small-business-copilot / voice-copilot, 2026-10-06: the
+    projects' own agents (and an `owner: project` override of a roster name)
+    failed FF4/FF7/FF8/FF10/FF12 for lacking framework-only blocks and keys."""
+    fw = _framework(tmp_path)
+    project = _consumer(tmp_path, fw)
+    (project / ".claude/agents/tutor.md").write_text(
+        "---\nname: tutor\nowner: project\ndescription: project tutor\ntools: Read\n---\n# tutor\n"
+    )
+    (project / ".claude/agents/aqa.md").write_text(
+        "---\nname: aqa\ndescription: no owner key, not in the roster\ntools: Read\n"
+        "validationRules: [x]\n---\n# aqa\n"
+    )
+    (project / ".claude/agents/cco.md").write_text(
+        "---\nname: cco\nowner: project\ndescription: our own creative lens\ntools: Read\n---\n# cco\n"
+    )
+    out = _run(project, fw, tmp_path)
+    for ff in ("FF4", "FF7", "FF8", "FF10", "FF12"):
+        fails = _fails(_section(out, ff))
+        assert fails == [], (ff, fails)
+    assert "tutor.md: project-owned agent -- framework frontmatter contract not applied" in out
+    assert "cco.md is project-owned (owner: project); the framework's cco.md is not deployed here by design" in out
+
+
+def test_standard_install_still_holds_unmarked_framework_agents_to_the_blocks(tmp_path):
+    fw = _framework(tmp_path)
+    project = _consumer(tmp_path, fw)
+    me = project / ".claude/agents/me.md"
+    me.write_text(me.read_text().replace("## Runtime Precedence", "## Runtime Precedence\nedited", 1))
+    fails = _fails(_section(_run(project, fw, tmp_path), "FF8"))
+    assert any("me.md: Runtime Precedence block differs from canonical" in f for f in fails), fails

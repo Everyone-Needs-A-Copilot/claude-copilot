@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.15.13] — 2026-10-06 — The fitness check leaves a project's own agents to the project
+
+Framework **5.15.13**, `cc` **2.13.9**, `tc` **2.0.1**.
+
+- Fixed installed projects failing their own fitness check over agents that belong to the project. A project agent was held to the framework agent contract: framework frontmatter keys and iteration block (FF7), specialist sections (FF4), and the Runtime Precedence and Output Contract blocks (FF8, FF10). Even the documented `owner: project` key was flagged as an unexpected frontmatter key. On 2026-10-06 this produced spanish-copilot's 9 failures (its tutor, grammar and vocab agents), small-business-copilot's 8 (aqa, red) and voice-copilot's 29 (nine `owner: project` agents, including its own `cco`).
+- In an installed project, an agent is the project's own when it declares `owner: project`, or when it is outside the framework roster and the lock does not record it as a framework file (so the setup-only `kc` stays a framework agent). These agents skip FF4, FF7, FF8 and FF10; a `model` they declare is still validated. FF12 reports an `owner: project` agent under a framework name instead of failing it as content of unknown origin. FF11 still checks every agent, because a dead skill reference fails at runtime whoever owns the file. Framework agents a project carries unmarked are still held to every check.
+
 ## [5.15.12] — 2026-10-06 — Project-owned CLAUDE.md and agents never block updates
 
 Framework **5.15.12**, `cc` **2.13.9**, `tc` **2.0.1**.

@@ -166,11 +166,14 @@ shared_path() {
 block_agent_files() {
   if [ "$PRESERVE_MODE" -eq 1 ]; then
     for agent in $ROSTER; do
-      [ -f "${AGENTS_DIR}/${agent}.md" ] && echo "${AGENTS_DIR}/${agent}.md"
+      [ -f "${AGENTS_DIR}/${agent}.md" ] && ! is_project_agent "$agent" && echo "${AGENTS_DIR}/${agent}.md"
     done
   else
-    for f in "${AGENTS_DIR}"/*.md; do [ -f "$f" ] && echo "$f"; done
+    for f in "${AGENTS_DIR}"/*.md; do
+      [ -f "$f" ] && ! is_project_agent "$(basename "$f" .md)" && echo "$f"
+    done
   fi
+  return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -198,6 +201,44 @@ else
   ROSTER="cco cpa cs cw do doc ind kc me qa sd sec ta uid uids uxd"
   RETIRED="design"
 fi
+
+# Project-owned agents. In an installed project, an agent that declares
+# `owner: project` (the documented way to keep a project's own agent, even
+# under a framework name) or that is not in the framework roster at all is the
+# project's own. It is not held to the framework's agent contract: the
+# frontmatter schema (FF7), the specialist sections (FF4), and the Runtime
+# Precedence / Output Contract blocks (FF8, FF10). Those exist so framework
+# agents stay byte-aligned with the framework; a project's tutor or studio agent
+# has no framework counterpart to align with. FF11 (dead skill references) still
+# applies to every agent, because a dead reference fails at runtime whoever
+# owns the file. The framework repo itself has no project agents.
+PROJECT_AGENTS=""
+if [ "$FITNESS_MODE" = "consumer" ]; then
+  # Agents the lock records as framework files (e.g. the setup-only kc, which
+  # is not in the build roster) are framework agents whatever their name.
+  LOCKED_AGENTS=$(python3 -c "
+import json, sys
+try:
+    lock = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(0)
+for c in lock.get('components', []):
+    if c.get('component') == 'claude':
+        for f in c.get('files', []):
+            p = str(f.get('path', ''))
+            if p.startswith('.claude/agents/') and p.count('/') == 2 and p.endswith('.md'):
+                print(p.rsplit('/', 1)[1][:-3])
+" "${_SCRIPT_DIR}/copilot.lock.json" 2>/dev/null | tr '\n' ' ')
+  for f in "${AGENTS_DIR}"/*.md; do
+    [ -f "$f" ] || continue
+    n=$(basename "$f" .md)
+    if grep -q '^owner: project' "$f" 2>/dev/null || \
+       { [[ " $ROSTER " != *" $n "* ]] && [[ " $LOCKED_AGENTS " != *" $n "* ]]; }; then
+      PROJECT_AGENTS="$PROJECT_AGENTS $n"
+    fi
+  done
+fi
+is_project_agent() { [[ " $PROJECT_AGENTS " == *" $1 "* ]]; }
 
 # ---------------------------------------------------------------------------
 # FF1: No orphan routes — every @agent-X referenced in agents/ and commands/
@@ -280,6 +321,10 @@ SPECIALIST_AGENTS="uxd uids uid ind cco cw sec cs cpa"
 
 for agent in $SPECIALIST_AGENTS; do
   agent_file=$(agent_path "$agent")
+  if is_project_agent "$agent"; then
+    pass "${agent}.md is project-owned (owner: project) -- framework specialist sections not required"
+    continue
+  fi
   if [ ! -f "$agent_file" ]; then
     fail "${agent}.md missing — skipping section check"
     continue
@@ -373,7 +418,7 @@ while IFS= read -r ff7_line; do
     "FAIL "*) fail "${ff7_line#FAIL }" ;;
     *) fail "FF7 checker produced unparseable output: $ff7_line" ;;
   esac
-done < <(python3 - "$AGENTS_DIR" "$ROSTER" "$PRESERVE_MODE" "$USER_AGENTS_DIR" <<'PYEOF'
+done < <(python3 - "$AGENTS_DIR" "$ROSTER" "$PRESERVE_MODE" "$USER_AGENTS_DIR" "$PROJECT_AGENTS" <<'PYEOF'
 import re
 import sys
 from pathlib import Path
@@ -382,6 +427,7 @@ agents_dir = Path(sys.argv[1])
 roster = set(sys.argv[2].split()) if len(sys.argv) > 2 else set()
 preserve = len(sys.argv) > 3 and sys.argv[3] == "1"
 user_dir = Path(sys.argv[4]) if preserve and len(sys.argv) > 4 and sys.argv[4] else None
+project_agents = set(sys.argv[5].split()) if len(sys.argv) > 5 else set()
 
 KNOWN_TOP = {"name", "description", "tools", "model", "iteration"}
 REQUIRED_TOP = ("name", "description", "tools", "model")
@@ -437,6 +483,20 @@ if user_dir is not None and user_dir.is_dir():
 
 for _, md in sorted(agent_files.items()):
     name = md.stem
+    if name in project_agents and md.parent == agents_dir:
+        # The project's own agent: no framework schema or iteration contract,
+        # but a `model` it declares must still be one Claude Code accepts.
+        own = md.read_text(encoding="utf-8")
+        own_end = own.find("\n---", 3) if own.startswith("---") else -1
+        own_model = None
+        for line in (own[3:own_end].splitlines() if own_end != -1 else []):
+            if line.startswith("model:"):
+                own_model = line.split(":", 1)[1].strip()
+        if own_model is not None and own_model not in ("sonnet", "opus"):
+            fail(f"{md.name}: model '{own_model}' not one of sonnet|opus")
+        else:
+            ok(f"{md.name}: project-owned agent -- framework frontmatter contract not applied")
+        continue
     text = md.read_text(encoding="utf-8")
 
     if not text.startswith("---"):
@@ -1364,7 +1424,7 @@ elif [ "$(cd "$DEPLOYED_AGENTS_DIR" 2>/dev/null && pwd -P)" = "$(cd "$FF12_REPO_
   pass "deployed agents resolve to the same directory as the repo (${DEPLOYED_AGENTS_DIR}) -- no drift is possible"
 else
   FF12_OUT=$(AGENTS_DIR="$FF12_REPO_AGENTS" DEPLOYED="$DEPLOYED_AGENTS_DIR" OVERLAY="$FF12_OVERLAY_DIR" \
-    HISTORY_ROOT="$FF12_HISTORY_ROOT" MODE="$FITNESS_MODE" \
+    HISTORY_ROOT="$FF12_HISTORY_ROOT" MODE="$FITNESS_MODE" PROJECT_AGENTS="$PROJECT_AGENTS" \
     CEILING="$(python3 -c "
 import json,sys
 from pathlib import Path
@@ -1385,6 +1445,7 @@ dep = Path(os.environ["DEPLOYED"])
 ceiling = int(os.environ.get("CEILING") or 0)
 history_root = os.environ.get("HISTORY_ROOT") or "."
 consumer = os.environ.get("MODE") == "consumer"
+project_agents = set(os.environ.get("PROJECT_AGENTS", "").split())
 
 repo_files = {p.name: p for p in repo.glob("*.md")}
 dep_files = {p.name: p for p in dep.glob("*.md")}
@@ -1489,6 +1550,11 @@ identical = 0
 base_total = 0
 
 for name in sorted(set(repo_files) & set(dep_files)):
+    if name[:-3] in project_agents:
+        # The project's own agent under a framework name (owner: project):
+        # not a deployment of the framework file, so nothing to reconcile.
+        lines.append(f"REPORT|{name} is project-owned (owner: project); the framework's {name} is not deployed here by design")
+        continue
     r, d = read(repo_files[name]), read(dep_files[name])
     if r is None or d is None:
         divergent.append((name, "could not be read"))
