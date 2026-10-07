@@ -1644,12 +1644,39 @@ def _component_draft(
             and entry_requirement_ids <= {"valid-mcp-marker"}
             and all(item.get("state") != "unreadable" for item in entry_evidence)
         )
+        # An absent `.mcp.json` (a project that dropped its MCP servers and the
+        # empty roster with them) is repairable: setup recreates exactly the
+        # empty `{"mcpServers": {}}` roster. A present but malformed file is
+        # project content and stays could-not-verify.
+        mcp_roster_absent = any(
+            item.get("path") == ".mcp.json" and item.get("state") == "missing"
+            for item in entry_evidence
+        )
+        # ...including when the lock recorded that roster as a managed output.
+        mcp_only_lock_gap = (
+            mcp_roster_absent
+            and bool(lock_missing)
+            and all(
+                item["id"] == "verified-managed-output"
+                and item["detail"].startswith(".mcp.json ")
+                for item in lock_missing
+            )
+        )
         if (
             component == "claude"
-            and (lock_ok or legacy_claude_lock or repairable_claude_lock)
+            and (
+                lock_ok
+                or legacy_claude_lock
+                or repairable_claude_lock
+                or mcp_only_lock_gap
+            )
             and entry_requirement_ids
             <= {"compatible-claude-entry"}
-            | ({"valid-mcp-marker"} if repairable_claude_lock else set())
+            | (
+                {"valid-mcp-marker"}
+                if repairable_claude_lock or mcp_roster_absent
+                else set()
+            )
             and all(item["state"] != "unreadable" for item in entry_evidence)
             and (lock_missing or entry_missing)
         ):
@@ -1657,8 +1684,14 @@ def _component_draft(
                 "claude-legacy-lock-v1"
                 if legacy_claude_lock
                 else (
+                    # Missing files with a compatible entry (including only an
+                    # absent MCP roster) are a repair, never an entry append.
                     "claude-missing-framework-files-v1"
                     if repairable_claude_lock
+                    or (
+                        (mcp_roster_absent or mcp_only_lock_gap)
+                        and "compatible-claude-entry" not in entry_requirement_ids
+                    )
                     else "claude-legacy-entry-v1"
                 )
             )

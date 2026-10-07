@@ -1,5 +1,11 @@
 # Changelog
 
+## [5.15.14] — 2026-10-06 — A deleted MCP roster is repaired, not unverifiable
+
+Framework **5.15.14**, `cc` **2.13.10**, `tc` **2.0.1**.
+
+- Fixed a project that deleted its `.mcp.json`, typically along with MCP servers it no longer uses, becoming `could-not-verify` with no repair offered. On 2026-10-06 this blocked research-copilot. Setup's own recipe recreates exactly the empty `{"mcpServers": {}}` roster, and an absent roster now routes to that repair, including when the lock recorded the roster as a managed output. The repair never appends a second Claude Copilot entry to a CLAUDE.md that already has one. A present but malformed `.mcp.json` is project content and still needs the owner.
+
 ## [5.15.13] — 2026-10-06 — The fitness check leaves a project's own agents to the project
 
 Framework **5.15.13**, `cc` **2.13.9**, `tc` **2.0.1**.

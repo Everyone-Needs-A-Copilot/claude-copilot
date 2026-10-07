@@ -103,3 +103,26 @@ def test_project_owned_agent_is_kept_and_never_holds_the_update(tmp_path, monkey
     claude_entry = next(c for c in lock["components"] if c["component"] == "claude")
     assert ".claude/agents/me.md" not in {f["path"] for f in claude_entry["files"]}
     assert _claude_state(project, authority)["state"] == "ready"
+
+
+def test_absent_mcp_roster_is_recreated_not_unverifiable(tmp_path, monkeypatch):
+    """research-copilot, 2026-10-06: it deleted `.mcp.json` along with its dead
+    MCP servers and became could-not-verify with no repair offered, although
+    setup's own recipe recreates exactly the empty roster."""
+    _claude, project, authority, plan, apply = _setup(tmp_path, monkeypatch)
+    (project / ".mcp.json").unlink()
+    _commit(project, "drop MCP roster")
+
+    assert _claude_state(project, authority)["state"] != "could-not-verify"
+    report = plan()
+    assert report["result"] == "action-required", report
+    assert apply(report["plan_id"])["result"] == "applied"
+    assert json.loads((project / ".mcp.json").read_text()) == {"mcpServers": {}}
+    assert _claude_state(project, authority)["state"] == "ready"
+
+
+def test_malformed_mcp_roster_still_needs_the_owner(tmp_path, monkeypatch):
+    _claude, project, authority, _plan, _apply = _setup(tmp_path, monkeypatch)
+    (project / ".mcp.json").write_text('{"servers": "not a roster"}\n')
+    _commit(project, "malformed roster")
+    assert _claude_state(project, authority)["state"] == "could-not-verify"
