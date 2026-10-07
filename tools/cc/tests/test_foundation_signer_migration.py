@@ -30,8 +30,11 @@ def test_claude_migration_does_not_change_codex_authority():
     assert FOUNDATION_ALLOWED_SIGNERS["knowledge"] == ()
 
 
-def test_release_preflight_defaults_to_same_reviewed_key():
+def test_release_preflight_trusts_exactly_the_claude_signers():
     script = (ROOT / "scripts/verify-foundation-release.sh").read_text()
-    default = re.search(r'public_key="\$\{FOUNDATION_RELEASE_PUBLIC_KEY:-(.*?)\}"', script)
-    assert default is not None
-    assert default.group(1) == FOUNDATION_SSH_SIGNING_KEYS[NEW.upper()]
+    block = re.search(r"trusted_keys=\(\n(.*?)\n\)", script, re.S)
+    assert block is not None
+    keys = re.findall(r'"(ssh-ed25519 [^"]+)"', block.group(1))
+    assert keys == [
+        FOUNDATION_SSH_SIGNING_KEYS[fp.upper()] for fp in FOUNDATION_ALLOWED_SIGNERS["claude"]
+    ]

@@ -30,6 +30,12 @@ public key/source change, successful CI, and local verification of the new
 release commit and tag using the approved key. Never accept a new public key
 merely because an untrusted release or manifest supplied it.
 
+## 2026-10-07: both keys sign Claude releases
+
+Owner-authorized on 2026-10-07. The Dg6yz key lives only on the owner's laptop, so releases cut from the Mac mini were signed with the ENAC foundation release key (FIfpp) and failed the release preflight, although cc already trusted that key for Claude (`FOUNDATION_ALLOWED_SIGNERS["claude"]` lists both, and `claude-copilot-internal/ecosystem.yml` allows FIfpp). The preflight now trusts exactly the compiled Claude signers, so a release signed with either key passes. `FOUNDATION_RELEASE_PUBLIC_KEY` still narrows the check to one key.
+
+The FIfpp private key is stored passphrase-protected in Infisical so any of the owner's machines can sign: project `copilot-ecosystem`, environment `prod`, path `/shared`, keys `ENAC_FOUNDATION_RELEASE_SSH_KEY_B64` (the base64-encoded private key file) and `ENAC_FOUNDATION_RELEASE_SSH_PUB`. The passphrase is not stored there. To install it on a new machine, decode the value into `~/.ssh/enac_foundation_release` with mode 600, add the public key alongside it, and set `git config --global user.signingkey ~/.ssh/enac_foundation_release.pub` with `gpg.format ssh`.
+
 ## Release procedure
 
 1. Prepare one owner-signed candidate directly on the current main commit.

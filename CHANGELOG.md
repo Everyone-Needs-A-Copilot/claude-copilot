@@ -1,5 +1,11 @@
 # Changelog
 
+## [5.15.15] — 2026-10-07 — Either trusted key can sign a Claude release
+
+Framework **5.15.15**, `cc` **2.13.10**, `tc` **2.0.1**.
+
+- Fixed the release preflight (`scripts/verify-foundation-release.sh`) rejecting releases signed with the ENAC foundation release key. cc already trusts that key for Claude, but the preflight checked only the owner's GitHub key, which lives on one laptop, so v5.15.5 through v5.15.14 (signed on the Mac mini) failed it. The preflight now trusts exactly the compiled Claude signers, and a test keeps the two lists equal. `FOUNDATION_RELEASE_PUBLIC_KEY` still narrows it to one key. The foundation key is stored, passphrase-protected, in Infisical so either machine can sign (see `docs/30-operations/19-claude-signer-migration.md`).
+
 ## [5.15.14] — 2026-10-06 — A deleted MCP roster is repaired, not unverifiable
 
 Framework **5.15.14**, `cc` **2.13.10**, `tc` **2.0.1**.
