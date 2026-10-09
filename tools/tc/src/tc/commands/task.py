@@ -66,15 +66,20 @@ def task_list(
     agent: Optional[str] = typer.Option(None, "--agent", help="Filter by agent."),
     stream: Optional[int] = typer.Option(None, "--stream", help="Filter by stream ID."),
     prd: Optional[int] = typer.Option(None, "--prd", help="Filter by PRD ID."),
+    include_parked: bool = typer.Option(
+        False, "--include-parked", help="Also list parked tasks (hidden by default)."
+    ),
+    parked_only: bool = typer.Option(False, "--parked", help="List only parked tasks."),
     json: bool = typer.Option(False, "--json", help="Output as JSON."),
 ) -> None:
-    """List tasks with optional filters."""
+    """List tasks with optional filters. Parked tasks are hidden unless asked for."""
     from tc.services.tasks import list_tasks as _list_tasks
 
     db_path = require_db()
+    parked = True if parked_only else (None if include_parked else False)
     try:
         data = _list_tasks(
-            status=status, agent=agent, stream=stream, prd=prd, db_path=db_path
+            status=status, agent=agent, stream=stream, prd=prd, parked=parked, db_path=db_path
         )
     except ValidationError as exc:
         error_exit(str(exc), EXIT_VALIDATION)
@@ -249,6 +254,112 @@ def task_next(
     else:
         for k, v in row.items():
             print(f"{k}: {v}")
+
+
+# Stale triage: find open work nobody is moving, then park, cancel or keep it.
+
+
+def _resolve_ids(ids: list[int], stale: bool, days: int, db_path) -> list[int]:
+    from tc.services.tasks import stale_tasks as _stale_tasks
+
+    if stale:
+        if ids:
+            error_exit("give task IDs or --stale, not both", EXIT_VALIDATION)
+        return [t["id"] for t in _stale_tasks(days=days, db_path=db_path)]
+    if not ids:
+        error_exit("give one or more task IDs, or --stale", EXIT_VALIDATION)
+    return ids
+
+
+@task_app.command("stale")
+def task_stale(
+    days: int = typer.Option(30, "--days", help="Idle for at least this many days."),
+    json: bool = typer.Option(False, "--json", help="Output as JSON."),
+) -> None:
+    """List open, unparked tasks with no activity for --days days (oldest first)."""
+    from tc.services.tasks import stale_tasks as _stale_tasks
+
+    db_path = require_db()
+    try:
+        data = _stale_tasks(days=days, db_path=db_path)
+    except ValidationError as exc:
+        error_exit(str(exc), EXIT_VALIDATION)
+    if json:
+        output_json(data)
+    else:
+        output_table(["id", "title", "status", "agent", "idle_days"], data, title=f"Stale tasks (idle {days}+ days)")
+
+
+@task_app.command("park")
+def task_park(
+    task_ids: list[int] = typer.Argument(None, help="Task IDs to park."),
+    reason: str = typer.Option(..., "--reason", help="Why it is set aside."),
+    stale: bool = typer.Option(False, "--stale", help="Park every stale task instead of listed IDs."),
+    days: int = typer.Option(30, "--days", help="With --stale: idle threshold in days."),
+    json: bool = typer.Option(False, "--json", help="Output as JSON."),
+) -> None:
+    """Set open tasks aside without closing them. Hidden from `list` and `next`; undo with `unpark`."""
+    from tc.services.tasks import park_tasks as _park_tasks
+
+    db_path = require_db()
+    ids = _resolve_ids(task_ids or [], stale, days, db_path)
+    if not ids:
+        output_json([]) if json else print("No tasks to park.")
+        return
+    try:
+        rows = _park_tasks(task_ids=ids, reason=reason, db_path=db_path)
+    except (ValidationError, TaskNotFound) as exc:
+        error_exit(str(exc), EXIT_VALIDATION if isinstance(exc, ValidationError) else EXIT_NOT_FOUND)
+    output_json(rows) if json else print(f"Parked {len(rows)} task(s): {', '.join(f'#{r['id']}' for r in rows)}")
+
+
+@task_app.command("unpark")
+def task_unpark(
+    task_ids: list[int] = typer.Argument(..., help="Task IDs to return to the active list."),
+    json: bool = typer.Option(False, "--json", help="Output as JSON."),
+) -> None:
+    """Return parked tasks to the active list."""
+    from tc.services.tasks import unpark_tasks as _unpark_tasks
+
+    db_path = require_db()
+    try:
+        rows = _unpark_tasks(task_ids=task_ids, db_path=db_path)
+    except (ValidationError, TaskNotFound) as exc:
+        error_exit(str(exc), EXIT_VALIDATION if isinstance(exc, ValidationError) else EXIT_NOT_FOUND)
+    output_json(rows) if json else print(f"Unparked {len(rows)} task(s): {', '.join(f'#{r['id']}' for r in rows)}")
+
+
+@task_app.command("cancel")
+def task_cancel(
+    task_ids: list[int] = typer.Argument(None, help="Task IDs to cancel."),
+    reason: str = typer.Option(..., "--reason", help="Why it will not be done."),
+    stale: bool = typer.Option(False, "--stale", help="Cancel every stale task instead of listed IDs."),
+    days: int = typer.Option(30, "--days", help="With --stale: idle threshold in days."),
+    json: bool = typer.Option(False, "--json", help="Output as JSON."),
+) -> None:
+    """Cancel tasks with a recorded reason (metadata.cancelReason)."""
+    from tc.db.connection import get_db, transaction
+    from tc.services.tasks import update_task as _update_task
+
+    db_path = require_db()
+    if not reason.strip():
+        error_exit("a reason is required to cancel a task", EXIT_VALIDATION)
+    ids = _resolve_ids(task_ids or [], stale, days, db_path)
+    if not ids:
+        output_json([]) if json else print("No tasks to cancel.")
+        return
+    conn = get_db(db_path)
+    try:
+        with transaction(conn):
+            rows = [
+                _update_task(task_id=i, status="cancelled", metadata={"cancelReason": reason}, conn=conn)
+                for i in ids
+            ]
+    except (ValidationError, TaskNotFound) as exc:
+        error_exit(str(exc), EXIT_VALIDATION if isinstance(exc, ValidationError) else EXIT_NOT_FOUND)
+    finally:
+        conn.close()
+    output_json(rows) if json else print(f"Cancelled {len(rows)} task(s): {', '.join(f'#{r['id']}' for r in rows)}")
 
 
 # Dependency subcommands

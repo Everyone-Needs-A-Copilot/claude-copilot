@@ -124,13 +124,23 @@ finally:
 ```bash
 tc task create  --title "..." --prd <id> --agent <slug> --priority 0-3 [--max-budget-usd <float>]
 tc task get     <id> [--json]
-tc task list    [--status pending] [--agent me] [--prd <id>]
+tc task list    [--status pending] [--agent me] [--prd <id>] [--include-parked | --parked]
 tc task update  <id> --status completed
 tc task claim   <id> --agent <slug> [--max-budget-usd <float>]
 tc task next    [--agent me]
 tc task deps add    <id> --depends-on <id>
 tc task deps remove <id> --depends-on <id>
+
+# Stale triage
+tc task stale   [--days 30] [--json]
+tc task park    <id>... --reason "..."   |  tc task park --stale [--days N] --reason "..."
+tc task unpark  <id>...
+tc task cancel  <id>... --reason "..."   |  tc task cancel --stale [--days N] --reason "..."
 ```
+
+Every status change is written to the activity log (`tc log`), with JSON details naming the previous status and, inside Claude Code or Codex, the session that made it (`CLAUDE_CODE_SESSION_ID` / `CODEX_THREAD_ID`).
+
+**Stale triage.** `tc task stale` lists open tasks (pending, in progress, blocked) whose latest activity, the later of the row's update and its newest log entry, is at least `--days` old. For each, decide: keep working, **park** it, or **cancel** it with a reason. A parked task is set aside, not finished: it keeps its status (an in-progress task returns to pending and loses its claim), records `metadata.parked = {"at", "reason"}`, and is skipped by `tc task next` and hidden from `tc task list` unless `--include-parked` or `--parked` is given. `tc task unpark` brings it back. Cancel records `metadata.cancelReason`. Park and cancel are all-or-nothing across the IDs given, and nothing is ever deleted.
 
 ### `tc prd`
 

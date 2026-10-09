@@ -1,5 +1,14 @@
 # Changelog
 
+## [5.17.0] — 2026-10-09 — tc stale triage: find idle open work, then park or cancel it
+
+Framework **5.17.0**, `cc` **2.13.10**, `tc` **2.2.0**.
+
+- New `tc task stale [--days 30]` lists open tasks (pending, in progress, blocked) with no activity for at least that many days, oldest first, with `idle_days`. Activity is the later of the task's last update and its newest log entry. Across one owner's 26 projects, 555 of 618 open tasks had been idle for 30+ days.
+- New `tc task park <ids> --reason` sets tasks aside without closing them: `metadata.parked = {"at", "reason"}`, an in-progress task returns to pending and loses its claim, `tc task next` skips it, and `tc task list` hides it unless `--include-parked` or `--parked` is given. `tc task unpark <ids>` reverses it.
+- New `tc task cancel <ids> --reason` cancels with `metadata.cancelReason`. Park and cancel also take `--stale [--days N]` instead of IDs, are all-or-nothing, and log each change. Nothing is deleted.
+- `list_tasks` gains `parked` (None returns everything, as before; False excludes parked; True returns only parked). No schema change.
+
 ## [5.16.0] — 2026-10-09 — tc logs every status change with the session that made it
 
 Framework **5.16.0**, `cc` **2.13.10**, `tc` **2.1.0**.

@@ -158,6 +158,8 @@ Ephemeral PRD, task, and work product storage. Reduces context for externalized 
 
 **Collaboration:** `tc handoff`, `tc log --task <id>`
 
+**Triage:** `tc task stale [--days 30]`, then `tc task park <ids> --reason`, `tc task cancel <ids> --reason`, or keep working; `tc task unpark <ids>`. Parked tasks are hidden from `tc task list` and skipped by `tc task next`.
+
 **Dispatch:** `tc worker run <task_id>` (budget cap flag stored in metadata; enforcement is roadmap P1)
 
 **Location:** `tools/tc/`

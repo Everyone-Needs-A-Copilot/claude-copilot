@@ -671,3 +671,103 @@ class TestTaskDeps:
         result = cli(["task", "get", "2", "--json"])
         data = json.loads(result.output)
         assert data["dependencies"] == []
+
+
+# ---------------------------------------------------------------------------
+# Stale triage: stale / park / unpark / cancel
+# ---------------------------------------------------------------------------
+
+
+def _age(db_dir, task_id, days):
+    """Backdate a task (and its log) so it looks idle for `days` days."""
+    import sqlite3
+
+    c = sqlite3.connect(db_dir / ".copilot" / "tasks.db")
+    c.execute("UPDATE tasks SET updated_at = datetime('now', ?) WHERE id = ?", (f"-{days} days", task_id))
+    c.execute("UPDATE agent_log SET created_at = datetime('now', ?) WHERE task_id = ?", (f"-{days} days", task_id))
+    c.commit()
+    c.close()
+
+
+class TestStaleTriage:
+    def test_stale_lists_only_idle_open_tasks(self, cli, tmp_path):
+        _create_task(cli, "Old open")
+        _create_task(cli, "Fresh open")
+        _create_task(cli, "Old done")
+        cli(["task", "update", "3", "--status", "completed"])
+        _age(tmp_path, 1, 45)
+        _age(tmp_path, 3, 45)
+        data = json.loads(cli(["task", "stale", "--json"]).output)
+        assert [t["id"] for t in data] == [1]
+        assert data[0]["idle_days"] >= 44
+
+    def test_recent_log_entry_keeps_task_fresh(self, cli, tmp_path):
+        _create_task(cli, "Talked about", agent="me")
+        _age(tmp_path, 1, 45)
+        import sqlite3
+
+        c = sqlite3.connect(tmp_path / ".copilot" / "tasks.db")
+        c.execute("INSERT INTO agent_log (agent, task_id, action) VALUES ('me', 1, 'note')")
+        c.commit()
+        c.close()
+        assert json.loads(cli(["task", "stale", "--json"]).output) == []
+
+    def test_park_hides_from_list_and_next_and_releases_claim(self, cli, tmp_path):
+        _create_task(cli, "Parked one", agent="me")
+        _create_task(cli, "Active one", agent="me")
+        cli(["task", "claim", "1", "--agent", "me"])
+        result = cli(["task", "park", "1", "--reason", "waiting on vendor", "--json"])
+        assert result.exit_code == 0, result.output
+        row = json.loads(result.output)[0]
+        assert row["status"] == "pending" and row["claimed_by"] is None
+        assert json.loads(row["metadata"])["parked"]["reason"] == "waiting on vendor"
+        assert [t["id"] for t in json.loads(cli(["task", "list", "--json"]).output)] == [2]
+        assert [t["id"] for t in json.loads(cli(["task", "list", "--parked", "--json"]).output)] == [1]
+        assert len(json.loads(cli(["task", "list", "--include-parked", "--json"]).output)) == 2
+        assert json.loads(cli(["task", "next", "--json"]).output)["id"] == 2
+        log = json.loads(cli(["log", "--json"]).output)
+        assert any(e["action"] == "parked" and e["task_id"] == 1 for e in log)
+
+    def test_parked_tasks_are_not_stale(self, cli, tmp_path):
+        _create_task(cli, "Old")
+        _age(tmp_path, 1, 45)
+        cli(["task", "park", "1", "--reason", "later"])
+        _age(tmp_path, 1, 45)
+        assert json.loads(cli(["task", "stale", "--json"]).output) == []
+
+    def test_unpark_restores(self, cli):
+        _create_task(cli, "Back")
+        cli(["task", "park", "1", "--reason", "later"])
+        result = cli(["task", "unpark", "1", "--json"])
+        assert result.exit_code == 0
+        assert "parked" not in (json.loads(result.output)[0]["metadata"] or "{}")
+        assert [t["id"] for t in json.loads(cli(["task", "list", "--json"]).output)] == [1]
+
+    def test_park_requires_reason_and_open_task(self, cli):
+        _create_task(cli, "Done")
+        cli(["task", "update", "1", "--status", "completed"])
+        assert cli(["task", "park", "1", "--reason", "x"]).exit_code != 0
+        assert cli(["task", "park", "1", "--reason", "  "]).exit_code != 0
+
+    def test_park_is_all_or_nothing(self, cli):
+        _create_task(cli, "Open")
+        assert cli(["task", "park", "1", "99", "--reason", "x"]).exit_code != 0
+        assert json.loads(cli(["task", "list", "--parked", "--json"]).output) == []
+
+    def test_park_and_cancel_stale(self, cli, tmp_path):
+        for t in ("A", "B", "C"):
+            _create_task(cli, t)
+        _age(tmp_path, 1, 45)
+        _age(tmp_path, 2, 90)
+        result = cli(["task", "cancel", "--stale", "--days", "60", "--reason", "superseded", "--json"])
+        assert result.exit_code == 0, result.output
+        assert [r["id"] for r in json.loads(result.output)] == [2]
+        row = json.loads(cli(["task", "get", "2", "--json"]).output)
+        assert row["status"] == "cancelled" and json.loads(row["metadata"])["cancelReason"] == "superseded"
+        cli(["task", "park", "--stale", "--reason", "later"])
+        assert [t["id"] for t in json.loads(cli(["task", "list", "--parked", "--json"]).output)] == [1]
+
+    def test_ids_and_stale_are_exclusive(self, cli):
+        _create_task(cli, "X")
+        assert cli(["task", "park", "1", "--stale", "--reason", "x"]).exit_code != 0
+        assert cli(["task", "park", "--reason", "x"]).exit_code != 0

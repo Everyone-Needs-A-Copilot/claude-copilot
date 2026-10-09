@@ -30,6 +30,15 @@ from tc.services.content_guard import (
 _VALID_STATUSES = {"pending", "in_progress", "completed", "blocked", "cancelled"}
 
 
+# A parked task is set aside, not finished: it keeps its status but carries
+# metadata.parked = {"at": ..., "reason": ...}, and `next` and the default
+# `tc task list` skip it. Guarded by json_valid so legacy free-text metadata
+# never raises.
+_PARKED_SQL = "(t.metadata IS NOT NULL AND json_valid(t.metadata) AND json_extract(t.metadata, '$.parked') IS NOT NULL)"
+
+_OPEN_STATUSES = ("pending", "in_progress", "blocked")
+
+
 def _status_log_details(**fields: Any) -> str:
     """JSON details for a status-change log entry, stamped with the session.
 
@@ -242,10 +251,14 @@ def list_tasks(
     agent: Optional[str] = None,
     stream: Optional[int] = None,
     prd: Optional[int] = None,
+    parked: Optional[bool] = None,
     conn: Optional[sqlite3.Connection] = None,
     db_path: Optional[Path] = None,
 ) -> list[dict[str, Any]]:
     """Return a list of task dicts with optional filters.
+
+    ``parked``: None returns parked and unparked tasks alike (the API default,
+    unchanged); False excludes parked tasks; True returns only parked tasks.
 
     Args:
         status:  Filter by status string.
@@ -272,8 +285,12 @@ def list_tasks(
         conn = _open_conn(resolved)
 
     try:
-        query = "SELECT * FROM tasks WHERE 1=1"
+        query = "SELECT * FROM tasks t WHERE 1=1"
         params: list = []
+        if parked is True:
+            query += f" AND {_PARKED_SQL}"
+        elif parked is False:
+            query += f" AND NOT {_PARKED_SQL}"
 
         if status is not None:
             query += " AND status = ?"
@@ -577,9 +594,10 @@ def next_task(
         conn = _open_conn(resolved)
 
     try:
-        query = """
+        query = f"""
             SELECT t.* FROM tasks t
             WHERE t.status = 'pending'
+              AND NOT {_PARKED_SQL}
               AND NOT EXISTS (
                   SELECT 1 FROM task_dependencies td
                   JOIN tasks dep ON dep.id = td.depends_on
@@ -691,6 +709,149 @@ def add_dependency(
             conn.commit()
 
         return {"task_id": task_id, "depends_on": depends_on, "status": "added"}
+    finally:
+        if owns_conn:
+            conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Stale triage
+# ---------------------------------------------------------------------------
+
+
+def stale_tasks(
+    *,
+    days: int = 30,
+    conn: Optional[sqlite3.Connection] = None,
+    db_path: Optional[Path] = None,
+) -> list[dict[str, Any]]:
+    """Open, unparked tasks with no activity for at least ``days`` days.
+
+    Activity is the later of the row's updated_at and its newest agent_log
+    entry. Each dict gains ``last_activity`` and ``idle_days``; oldest first.
+    """
+    if days < 0:
+        raise ValidationError("days must be >= 0")
+    owns_conn = conn is None
+    if owns_conn:
+        conn = _open_conn(_require_db_path(db_path))
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT t.*, MAX(t.updated_at, COALESCE(
+                       (SELECT MAX(created_at) FROM agent_log WHERE task_id = t.id), '')) AS last_activity
+            FROM tasks t
+            WHERE t.status IN ({",".join("?" * len(_OPEN_STATUSES))})
+              AND NOT {_PARKED_SQL}
+            """,
+            _OPEN_STATUSES,
+        ).fetchall()
+        cutoff = conn.execute("SELECT datetime('now', ?)", (f"-{days} days",)).fetchone()[0]
+        out = []
+        for r in rows:
+            if r["last_activity"] > cutoff:
+                continue
+            d = _row_to_dict(r)
+            d["idle_days"] = conn.execute(
+                "SELECT CAST(julianday('now') - julianday(?) AS INTEGER)", (r["last_activity"],)
+            ).fetchone()[0]
+            out.append(d)
+        return sorted(out, key=lambda d: d["last_activity"])
+    finally:
+        if owns_conn:
+            conn.close()
+
+
+def park_tasks(
+    *,
+    task_ids: list[int],
+    reason: str,
+    conn: Optional[sqlite3.Connection] = None,
+    db_path: Optional[Path] = None,
+) -> list[dict[str, Any]]:
+    """Set tasks aside without closing them.
+
+    Each task gets metadata.parked = {"at", "reason"}; an in-progress task goes
+    back to pending and loses its claim, since nobody is working on it. Only
+    open tasks can be parked. All-or-nothing: an unknown or closed ID aborts
+    the whole call.
+    """
+    if not reason.strip():
+        raise ValidationError("a reason is required to park a task")
+    return _set_parked(task_ids=task_ids, reason=reason, park=True, conn=conn, db_path=db_path)
+
+
+def unpark_tasks(
+    *,
+    task_ids: list[int],
+    conn: Optional[sqlite3.Connection] = None,
+    db_path: Optional[Path] = None,
+) -> list[dict[str, Any]]:
+    """Return parked tasks to the active list (status is left as pending)."""
+    return _set_parked(task_ids=task_ids, reason=None, park=False, conn=conn, db_path=db_path)
+
+
+def _set_parked(
+    *,
+    task_ids: list[int],
+    reason: Optional[str],
+    park: bool,
+    conn: Optional[sqlite3.Connection],
+    db_path: Optional[Path],
+) -> list[dict[str, Any]]:
+    if not task_ids:
+        raise ValidationError("no task IDs given")
+    owns_conn = conn is None
+    if owns_conn:
+        conn = _open_conn(_require_db_path(db_path))
+    try:
+        if not conn.in_transaction:
+            conn.execute("BEGIN IMMEDIATE")
+        out = []
+        for task_id in task_ids:
+            row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            if row is None:
+                raise TaskNotFound(f"task #{task_id} not found")
+            if park and row["status"] not in _OPEN_STATUSES:
+                raise ValidationError(f"task #{task_id} is {row['status']}; only open tasks can be parked")
+            try:
+                meta = json.loads(row["metadata"]) if row["metadata"] else {}
+            except json.JSONDecodeError:
+                meta = {}
+            if not isinstance(meta, dict):
+                meta = {}
+            if park:
+                at = conn.execute("SELECT datetime('now')").fetchone()[0]
+                meta["parked"] = {"at": at, "reason": reason}
+                status = "pending" if row["status"] == "in_progress" else row["status"]
+                conn.execute(
+                    "UPDATE tasks SET metadata = ?, status = ?, claimed_by = NULL, claimed_at = NULL,"
+                    " updated_at = datetime('now') WHERE id = ?",
+                    (json.dumps(meta), status, task_id),
+                )
+                details = _status_log_details(**{"from": row["status"], "reason": reason})
+            else:
+                if "parked" not in meta:
+                    out.append(_row_to_dict(row))
+                    continue
+                meta.pop("parked")
+                conn.execute(
+                    "UPDATE tasks SET metadata = ?, updated_at = datetime('now') WHERE id = ?",
+                    (json.dumps(meta) if meta else None, task_id),
+                )
+                details = _status_log_details()
+            conn.execute(
+                "INSERT INTO agent_log (agent, stream_id, task_id, action, details) VALUES (?, ?, ?, ?, ?)",
+                (row["agent"] or "unassigned", row["stream_id"], task_id, "parked" if park else "unparked", details),
+            )
+            out.append(_row_to_dict(conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()))
+        if owns_conn:
+            conn.commit()
+        return out
+    except Exception:
+        if owns_conn:
+            conn.rollback()
+        raise
     finally:
         if owns_conn:
             conn.close()
