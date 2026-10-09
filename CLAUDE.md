@@ -152,7 +152,7 @@ via `--exercise-runtime` and do not prove lifecycle enforcement.
 
 Ephemeral PRD, task, and work product storage. Reduces context for externalized work products by ~94% vs inlining outputs above the 8KB threshold (not end-to-end session savings — see [derivation](docs/70-reference/04-framework-modernization-analysis.md)). Uses the `tc` CLI tool (installed at `tools/tc/`). Agents call `tc` commands via Bash.
 
-**Core Commands:** `tc prd create`, `tc task create [--max-budget-usd <float>]`, `tc task update`, `tc task get`, `tc wp store`, `tc wp get`, `tc wp render <id> --html`, `tc progress`, `tc task stale|park|unpark|cancel`
+**Core Commands:** `tc prd create`, `tc task create [--max-budget-usd <float>]`, `tc task update`, `tc task get`, `tc wp store`, `tc wp get`, `tc wp render <id> --html`, `tc progress`, `tc task stale|park|unpark|cancel`, `tc archive`, `tc history`
 
 **Stream Commands:** `tc stream list`, `tc stream get`
 

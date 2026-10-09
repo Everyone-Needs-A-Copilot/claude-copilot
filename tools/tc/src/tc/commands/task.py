@@ -17,6 +17,13 @@ from tc.db.exceptions import ConflictError, TaskNotFound, ValidationError
 task_app = typer.Typer(name="task", help="Task management commands.")
 
 
+def _auto_archive(db_path) -> None:
+    """Daily, silent move of old finished work to the history file (see tc archive)."""
+    from tc.services.archive import maybe_auto_archive
+
+    maybe_auto_archive(db_path)
+
+
 @task_app.command("create")
 def task_create(
     title: str = typer.Option(..., "--title", help="Task title."),
@@ -170,6 +177,7 @@ def task_update(
             print("Nothing to update.")
         else:
             print(f"Updated task #{row['id']}: {row['title']} [{row['status']}]")
+    _auto_archive(db_path)
 
 
 @task_app.command("check-qa")
@@ -311,6 +319,7 @@ def task_park(
     except (ValidationError, TaskNotFound) as exc:
         error_exit(str(exc), EXIT_VALIDATION if isinstance(exc, ValidationError) else EXIT_NOT_FOUND)
     output_json(rows) if json else print(f"Parked {len(rows)} task(s): {', '.join(f'#{r['id']}' for r in rows)}")
+    _auto_archive(db_path)
 
 
 @task_app.command("unpark")
@@ -327,6 +336,7 @@ def task_unpark(
     except (ValidationError, TaskNotFound) as exc:
         error_exit(str(exc), EXIT_VALIDATION if isinstance(exc, ValidationError) else EXIT_NOT_FOUND)
     output_json(rows) if json else print(f"Unparked {len(rows)} task(s): {', '.join(f'#{r['id']}' for r in rows)}")
+    _auto_archive(db_path)
 
 
 @task_app.command("cancel")
@@ -360,6 +370,7 @@ def task_cancel(
     finally:
         conn.close()
     output_json(rows) if json else print(f"Cancelled {len(rows)} task(s): {', '.join(f'#{r['id']}' for r in rows)}")
+    _auto_archive(db_path)
 
 
 # Dependency subcommands

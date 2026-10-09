@@ -143,11 +143,13 @@ def transaction(conn: sqlite3.Connection) -> Generator[sqlite3.Connection, None,
         raise
 
 
-def init_db(path: Optional[Path] = None) -> Path:
+def init_db(path: Optional[Path] = None, *, wal: bool = True) -> Path:
     """Create .copilot/ directory and database with full schema.
 
     Args:
         path: Explicit path for the database. Defaults to .copilot/tasks.db in cwd.
+        wal:  WAL journal (the default). The rarely written history file uses a
+              rollback journal so it leaves no -wal/-shm files.
 
     Returns:
         Path to the created database.
@@ -161,7 +163,7 @@ def init_db(path: Optional[Path] = None) -> Path:
 
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute(f"PRAGMA journal_mode = {'WAL' if wal else 'DELETE'}")
     conn.execute("PRAGMA busy_timeout = 5000")
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA synchronous = NORMAL")

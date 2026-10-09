@@ -142,6 +142,20 @@ Every status change is written to the activity log (`tc log`), with JSON details
 
 **Stale triage.** `tc task stale` lists open tasks (pending, in progress, blocked) whose latest activity, the later of the row's update and its newest log entry, is at least `--days` old. For each, decide: keep working, **park** it, or **cancel** it with a reason. A parked task is set aside, not finished: it keeps its status (an in-progress task returns to pending and loses its claim), records `metadata.parked = {"at", "reason"}`, and is skipped by `tc task next` and hidden from `tc task list` unless `--include-parked` or `--parked` is given. `tc task unpark` brings it back. Cancel records `metadata.cancelReason`. Park and cancel are all-or-nothing across the IDs given, and nothing is ever deleted.
 
+### `tc archive` / `tc history`
+
+```bash
+tc archive [--days 14] [--dry-run] [--json]
+tc history list   [--limit 50]
+tc history search "<words>"        # titles and work-product text
+tc history get    <id>             # task, activity log, work products
+tc history restore <id>...
+```
+
+Finished tasks (completed or cancelled) whose latest activity is at least `--days` old move, with their activity log, work products and dependency rows, from `.copilot/tasks.db` into `.copilot/tasks.db-history`, a file with the same schema. A finished task stays while any task left in `tasks.db` still points at it as parent or dependency. Nothing is deleted, task IDs are never reused, and `tc history restore` moves tasks back. Projects that ignore `.copilot/tasks.db*` ignore the history file too.
+
+Archiving also runs automatically, at most once a day, after a writing `tc task` command (`update`, `park`, `unpark`, `cancel`). Turn it off with `TC_AUTO_ARCHIVE=0`; change the age with `TC_ARCHIVE_DAYS`. `tc progress` and `tc task list` cover only `tasks.db`.
+
 ### `tc prd`
 
 ```bash

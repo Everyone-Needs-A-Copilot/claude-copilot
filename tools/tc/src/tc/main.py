@@ -13,6 +13,7 @@ from tc.commands.task import task_app
 from tc.commands.wp import wp_app
 from tc.commands.db_cmd import db_app
 from tc.commands.deploy import deploy_app
+from tc.commands.history import archive_command, history_app
 
 app = typer.Typer(
     name="tc",
@@ -27,6 +28,8 @@ app.add_typer(task_app, name="task")
 app.add_typer(wp_app, name="wp")
 app.add_typer(db_app, name="db")
 app.add_typer(deploy_app, name="deploy")
+app.add_typer(history_app, name="history")
+app.command("archive")(archive_command)
 
 
 @app.command("init")

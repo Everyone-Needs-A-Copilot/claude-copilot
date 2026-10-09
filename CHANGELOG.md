@@ -1,5 +1,14 @@
 # Changelog
 
+## [5.18.0] — 2026-10-09 — tc archives finished work to a history file
+
+Framework **5.18.0**, `cc` **2.13.10**, `tc` **2.3.0**.
+
+- New `tc archive [--days 14] [--dry-run]` moves finished tasks (completed or cancelled, no activity for `--days` days), with their activity log, work products and dependency rows, from `.copilot/tasks.db` into `.copilot/tasks.db-history`. That file has the same schema and a rollback journal, so it leaves no `-wal`/`-shm` files, and projects that ignore `.copilot/tasks.db*` already ignore it. A finished task stays in `tasks.db` while any task left there points at it as parent or dependency. On a copy of one 894-task project it moved 595 tasks in 0.2 s, and both files passed `integrity_check` and `foreign_key_check`.
+- New `tc history list | search <words> | get <id> | restore <id>...`. Search covers titles and work-product text. Restore moves tasks back. Nothing is deleted and task IDs are never reused.
+- Archiving runs automatically at most once a day after `tc task update`, `park`, `unpark` or `cancel`, silently and without ever failing the command. `TC_AUTO_ARCHIVE=0` turns it off; `TC_ARCHIVE_DAYS` sets the age.
+- `init_db` gains `wal=` (default True). No schema change.
+
 ## [5.17.0] — 2026-10-09 — tc stale triage: find idle open work, then park or cancel it
 
 Framework **5.17.0**, `cc` **2.13.10**, `tc` **2.2.0**.
