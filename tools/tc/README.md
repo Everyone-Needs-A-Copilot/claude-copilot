@@ -152,9 +152,19 @@ tc history get    <id>             # task, activity log, work products
 tc history restore <id>...
 ```
 
-Finished tasks (completed or cancelled) whose latest activity is at least `--days` old move, with their activity log, work products and dependency rows, from `.copilot/tasks.db` into `.copilot/tasks.db-history`, a file with the same schema. A finished task stays while any task left in `tasks.db` still points at it as parent or dependency. Nothing is deleted, task IDs are never reused, and `tc history restore` moves tasks back. Projects that ignore `.copilot/tasks.db*` ignore the history file too.
+Finished tasks (completed or cancelled) whose latest activity is at least `--days` old move, with their activity log, work products and dependency rows, from `.copilot/tasks.db` into `.copilot/tasks.db-history`, a file with the same schema. A finished task stays while any task left in `tasks.db` still points at it as parent or dependency. Nothing is deleted, task IDs are never reused, and `tc history restore` moves tasks back. The history file is committed with the project, like `tasks.db`.
 
 Archiving also runs automatically, at most once a day, after a writing `tc task` command (`update`, `park`, `unpark`, `cancel`). Turn it off with `TC_AUTO_ARCHIVE=0`; change the age with `TC_ARCHIVE_DAYS`. `tc progress` and `tc task list` cover only `tasks.db`.
+
+### Task state is committed with the project
+
+```bash
+tc db track [--check]
+```
+
+A project commits `.copilot/tasks.db`, `.copilot/tasks.db-history` and `.copilot/wp/`, so its tasks, history and work products travel with the repository between machines. SQLite's `-wal`, `-shm` and `-journal` files and `.copilot/tasks.db-archive-stamp` stay ignored. `tc init` writes this rule into the project's `.gitignore` as one managed block; `tc db track` applies it to an existing project, and `--check` exits 1 if a project is not at the standard. A bare `.copilot/` rule becomes `.copilot/*`, which ignores the same contents but lets the task files back in.
+
+Each `tc` command closes its connection, which folds the WAL into `tasks.db`, so the committed file is current. SQLite files cannot be merged: work on one machine at a time and pull before you start. Git-mergeable task files are the planned successor (codex-copilot ADR-001).
 
 ### `tc prd`
 
