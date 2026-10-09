@@ -162,7 +162,7 @@ Archiving also runs automatically, at most once a day, after a writing `tc task`
 tc db track [--check]
 ```
 
-A project commits `.copilot/tasks.db`, `.copilot/tasks.db-history` and `.copilot/wp/`, so its tasks, history and work products travel with the repository between machines. SQLite's `-wal`, `-shm` and `-journal` files and `.copilot/tasks.db-archive-stamp` stay ignored. `tc init` writes this rule into the project's `.gitignore` as one managed block; `tc db track` applies it to an existing project, and `--check` exits 1 if a project is not at the standard. A bare `.copilot/` rule becomes `.copilot/*`, which ignores the same contents but lets the task files back in.
+A project commits `.copilot/tasks.db`, `.copilot/tasks.db-history` and `.copilot/wp/`, so its tasks, history and work products travel with the repository between machines. SQLite's `-wal`, `-shm` and `-journal` files and `.copilot/tasks.db-archive-stamp` stay ignored. `tc init` writes this rule into the project's `.gitignore` as one managed block; `tc db track` applies it to an existing project, and `--check` exits 1 if a project is not at the standard. A bare `.copilot/` rule becomes `.copilot/*`, which ignores the same contents but lets the task files back in. **Public repositories opt out:** work products hold internal notes and machine paths, so a `.gitignore` containing the line `# tc: task state stays local` is never changed and its task state stays out of Git.
 
 Each `tc` command closes its connection, which folds the WAL into `tasks.db`, so the committed file is current. SQLite files cannot be merged: work on one machine at a time and pull before you start. Git-mergeable task files are the planned successor (codex-copilot ADR-001).
 

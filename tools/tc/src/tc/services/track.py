@@ -11,6 +11,10 @@ managed block and removes older rules that ignored the database. A bare
 lets the block re-include the task files (Git cannot re-include a file inside
 an ignored directory). Line endings are preserved.
 
+Opt-out: a public repository must not publish its task state (work products
+hold internal notes and machine paths). A ``.gitignore`` containing the line
+``# tc: task state stays local`` is left untouched.
+
 Interim: committed SQLite cannot merge, so work on one machine at a time and
 pull before starting. Git-mergeable task files are the planned successor
 (codex-copilot ADR-001).
@@ -35,6 +39,7 @@ BLOCK = (
     ".copilot/tasks.db-archive-stamp",
     END,
 )
+OPT_OUT = "# tc: task state stays local"
 _WHOLE_DIR = {".copilot/", ".copilot", "/.copilot/", "/.copilot"}
 _DB_RULES = {
     ".copilot/tasks.db", ".copilot/tasks.db*", "/.copilot/tasks.db", "/.copilot/tasks.db*",
@@ -43,7 +48,9 @@ _DB_RULES = {
 
 
 def rendered(text: str) -> str:
-    """``text`` (a .gitignore) rewritten to the standard."""
+    """``text`` (a .gitignore) rewritten to the standard (unchanged if opted out)."""
+    if OPT_OUT in text.splitlines():
+        return text
     newline = "\r\n" if "\r\n" in text else "\n"
     lines = text.splitlines()
     if BEGIN in lines and END in lines[lines.index(BEGIN):]:

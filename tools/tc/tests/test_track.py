@@ -67,3 +67,11 @@ def test_tc_init_applies_standard(tmp_path, monkeypatch):
     assert CliRunner().invoke(app, ["init"]).exit_code == 0
     assert not _ignored(tmp_path, ".copilot/tasks.db")
     assert CliRunner().invoke(app, ["db", "track", "--check"]).exit_code == 0
+
+
+def test_opt_out_is_left_alone(repo):
+    text = "# tc: task state stays local\n.copilot/\n"
+    (repo / ".gitignore").write_text(text)
+    assert ensure_tracked(repo) is False
+    assert (repo / ".gitignore").read_text() == text
+    assert _ignored(repo, ".copilot/tasks.db")
