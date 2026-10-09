@@ -1,5 +1,13 @@
 # Changelog
 
+## [5.16.0] — 2026-10-09 — tc logs every status change with the session that made it
+
+Framework **5.16.0**, `cc` **2.13.10**, `tc` **2.1.0**.
+
+- `tc task update` now writes an activity-log entry for every status change (in progress, blocked, pending, cancelled, completed), not only completion. Before, starting or blocking a task left no trace, so a task could be mid-work with nothing in the log. A completion is now logged even when the task has no assigned agent (attributed to `unassigned`).
+- Status-change and claim entries carry JSON details stamped with the harness session: `{"from": "pending", "harness": "claude", "session": "<CLAUDE_CODE_SESSION_ID>"}`, or `"harness": "codex"` with `CODEX_THREAD_ID`. That ID names the conversation's transcript file, so a viewer such as Copilot Fleet can show which live conversation is working on which task. Outside a harness the session fields are omitted. A claim's details change from the text `Claimed by <agent>` to `{"claimed_by": "<agent>", ...}`.
+- No schema change.
+
 ## [5.15.15] — 2026-10-07 — Either trusted key can sign a Claude release
 
 Framework **5.15.15**, `cc` **2.13.10**, `tc` **2.0.1**.

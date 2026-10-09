@@ -304,6 +304,34 @@ class TestTaskUpdate:
         data = json.loads(result.output)
         assert any(e["action"] == "completed" and e["agent"] == "me" for e in data)
 
+    def test_update_logs_every_status_change_with_session(self, cli, monkeypatch):
+        """Starts and blocks are logged too, stamped with the harness session."""
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-123")
+        monkeypatch.delenv("CODEX_THREAD_ID", raising=False)
+        _create_task(cli, "Started", agent="me")
+        cli(["task", "update", "1", "--status", "in_progress"])
+        cli(["task", "update", "1", "--status", "blocked"])
+        data = json.loads(cli(["log", "--json"]).output)
+        started = next(e for e in data if e["action"] == "in_progress")
+        assert started["agent"] == "me" and started["task_id"] == 1
+        assert json.loads(started["details"]) == {"from": "pending", "harness": "claude", "session": "sess-123"}
+        assert any(e["action"] == "blocked" for e in data)
+
+    def test_update_codex_session(self, cli, monkeypatch):
+        monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+        monkeypatch.setenv("CODEX_THREAD_ID", "thread-9")
+        _create_task(cli, "Codex", agent="me")
+        cli(["task", "update", "1", "--status", "in_progress"])
+        entry = next(e for e in json.loads(cli(["log", "--json"]).output) if e["action"] == "in_progress")
+        assert json.loads(entry["details"])["session"] == "thread-9"
+
+    def test_update_same_status_is_not_logged(self, cli, monkeypatch):
+        monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+        monkeypatch.delenv("CODEX_THREAD_ID", raising=False)
+        _create_task(cli, "Same", agent="me")
+        cli(["task", "update", "1", "--status", "pending"])
+        assert json.loads(cli(["log", "--json"]).output) == []
+
     def test_update_human_readable(self, cli):
         _create_task(cli, "HR Update")
         result = cli(["task", "update", "1", "--status", "blocked"])

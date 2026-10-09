@@ -28,6 +28,26 @@ from tc.services.content_guard import (
 )
 
 _VALID_STATUSES = {"pending", "in_progress", "completed", "blocked", "cancelled"}
+
+
+def _status_log_details(**fields: Any) -> str:
+    """JSON details for a status-change log entry, stamped with the session.
+
+    The harness's session ID ties the entry to the conversation that made the
+    change: Claude Code names its transcript ``<CLAUDE_CODE_SESSION_ID>.jsonl``
+    and Codex its rollout ``rollout-*-<CODEX_THREAD_ID>.jsonl``, so a viewer
+    (Copilot Fleet) can tell which live conversation is working on which task.
+    """
+    import os
+
+    details = {k: v for k, v in fields.items() if v is not None}
+    if os.environ.get("CLAUDE_CODE_SESSION_ID"):
+        details["harness"] = "claude"
+        details["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+    elif os.environ.get("CODEX_THREAD_ID"):
+        details["harness"] = "codex"
+        details["session"] = os.environ["CODEX_THREAD_ID"]
+    return json.dumps(details, sort_keys=True)
 _VALID_PRIORITIES = range(0, 4)
 
 
@@ -430,12 +450,19 @@ def update_task(
         params.append(task_id)
         conn.execute(f"UPDATE tasks SET {', '.join(updates)} WHERE id = ?", params)
 
-        # Log completion if status changed to completed and agent is set
-        if status == "completed" and row["agent"]:
+        # Log every status change (not only completion), so starts, blocks and
+        # reopenings are visible in the activity log, attributed to a session.
+        if status is not None and status != row["status"]:
             conn.execute(
                 "INSERT INTO agent_log (agent, stream_id, task_id, action, details)"
                 " VALUES (?, ?, ?, ?, ?)",
-                (row["agent"], row["stream_id"], task_id, "completed", None),
+                (
+                    agent or row["agent"] or "unassigned",
+                    row["stream_id"],
+                    task_id,
+                    status,
+                    _status_log_details(**{"from": row["status"]}),
+                ),
             )
 
         if owns_conn:
@@ -506,7 +533,7 @@ def claim_task(
                 row["stream_id"] if row else None,
                 task_id,
                 "claimed",
-                f"Claimed by {agent}",
+                _status_log_details(claimed_by=agent),
             ),
         )
         conn.commit()
