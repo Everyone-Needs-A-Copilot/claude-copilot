@@ -52,7 +52,7 @@ migrate.sh
 !.env.example
 
 # Task Copilot CLI database (project-local)
-.copilot/
+.copilot/*
 copilot.db
 
 # Git worktrees for parallel streams
@@ -81,3 +81,13 @@ coverage.xml
 # Personal session state — never publish (public repo)
 .claude/memory/entries/
 .codex/hooks/state/
+
+# >>> tc task state (committed so tasks travel with the project)
+!.copilot/tasks.db
+!.copilot/tasks.db-history
+!.copilot/wp/
+.copilot/*.db-wal
+.copilot/*.db-shm
+.copilot/*-journal
+.copilot/tasks.db-archive-stamp
+# <<< tc task state
