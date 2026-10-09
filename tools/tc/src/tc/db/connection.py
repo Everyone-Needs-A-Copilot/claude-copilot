@@ -47,7 +47,12 @@ def _ensure_guard_columns(conn: sqlite3.Connection) -> None:
 # Claude Copilot holds updates for a dirty project. They go in the clone's own
 # `.git/info/exclude` (never committed, so no new file to commit in each
 # project) rather than the project's `.gitignore`.
-_RUNTIME_EXCLUDES = ("**/.copilot/*.db-wal", "**/.copilot/*.db-shm")
+_RUNTIME_EXCLUDES = (
+    "**/.copilot/*.db-wal",
+    "**/.copilot/*.db-shm",
+    "**/.copilot/*-journal",
+    "**/.copilot/tasks.db-archive-stamp",
+)
 
 
 def _exclude_runtime_files(db_dir: Path) -> None:
@@ -189,5 +194,15 @@ def init_db(path: Optional[Path] = None, *, wal: bool = True) -> Path:
     )
     conn.commit()
     conn.close()
+
+    # A project's own task database is committed with the project (tc 2.4
+    # standard); the history file created by `tc archive` is not a project root.
+    if wal and path.name == DEFAULT_DB_NAME and path.parent.name == DEFAULT_DB_DIR:
+        from tc.services.track import ensure_tracked
+
+        try:
+            ensure_tracked(path.parent.parent)
+        except OSError:
+            pass
 
     return path
