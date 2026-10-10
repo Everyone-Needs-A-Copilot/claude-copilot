@@ -1,5 +1,6 @@
 """Database connection management for Task Copilot CLI."""
 
+import os
 import sqlite3
 import subprocess
 from contextlib import contextmanager
@@ -80,10 +81,49 @@ def _exclude_runtime_files(db_dir: Path) -> None:
         return
 
 
+def _main_checkout(worktree: Path) -> Optional[Path]:
+    """The main checkout of a linked git worktree, or None.
+
+    A linked worktree's `.git` is a file ("gitdir: <repo>/.git/worktrees/<n>"),
+    and that directory's `commondir` points at the shared `.git`. Submodules
+    also have a `.git` file but no `commondir`, so they are not matched. Pure
+    file reads: tc must not shell out to git on every command.
+    """
+    try:
+        text = (worktree / ".git").read_text(encoding="utf-8").strip()
+        if not text.startswith("gitdir:"):
+            return None
+        gitdir = Path(text[len("gitdir:"):].strip())
+        if not gitdir.is_absolute():
+            gitdir = worktree / gitdir
+        common = (gitdir / "commondir").read_text(encoding="utf-8").strip()
+        common_dir = Path(common) if Path(common).is_absolute() else gitdir / common
+        common_dir = common_dir.resolve()
+    except (OSError, UnicodeError):
+        return None
+    if common_dir.name != ".git":
+        return None   # bare repository: no main checkout holds a database
+    return common_dir.parent
+
+
 def find_db_path() -> Optional[Path]:
-    """Walk up from cwd to find .copilot/tasks.db. Returns Path or None."""
+    """Walk up from cwd to find .copilot/tasks.db. Returns Path or None.
+
+    Inside a linked git worktree the task database is the main checkout's,
+    so every worktree of a repository shares one task list. A worktree's own
+    `.copilot/tasks.db` is only the committed snapshot its branch checked
+    out; writing to it would fork the project's tasks. Set
+    TC_WORKTREE_DB=local to use the worktree's own copy instead.
+    """
     current = Path.cwd()
+    local_only = os.environ.get("TC_WORKTREE_DB", "").lower() == "local"
     while True:
+        if not local_only and (current / ".git").is_file():
+            main = _main_checkout(current)
+            if main is not None:
+                shared = main / DEFAULT_DB_DIR / DEFAULT_DB_NAME
+                if shared.exists():
+                    return shared
         candidate = current / DEFAULT_DB_DIR / DEFAULT_DB_NAME
         if candidate.exists():
             return candidate

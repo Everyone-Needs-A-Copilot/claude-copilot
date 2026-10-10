@@ -1,5 +1,13 @@
 # Changelog
 
+## [5.20.0] — 2026-10-10 — Git worktrees share the main checkout's task list
+
+Framework **5.20.0**, `cc` **2.13.10**, `tc` **2.5.0**.
+
+- Inside a linked git worktree, tc now reads and writes the main checkout's `.copilot/tasks.db` instead of the worktree's own copy. Since 5.19.0 commits the task database, every branch carries a snapshot of it, and each worktree checked that snapshot out: one owner's Convoco repository had seven sibling worktrees, each holding a frozen copy 55 tasks behind the real list, and a `tc` command run in any of them would have written to that copy and forked the project's tasks.
+- The main checkout is found from the worktree's `.git` file and its `commondir`, with plain file reads (no git subprocess). Submodules, which also have a `.git` file but no `commondir`, are unaffected, as is a worktree whose main checkout has no task database. `TC_WORKTREE_DB=local` restores the old behaviour.
+- Still open: switching branches in the main checkout replaces `tasks.db` with that branch's snapshot. Git-mergeable task files (codex-copilot ADR-001) remain the fix for that.
+
 ## [5.19.0] — 2026-10-09 — Task state is committed with the project
 
 Framework **5.19.0**, `cc` **2.13.10**, `tc` **2.4.0**.

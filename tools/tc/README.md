@@ -166,6 +166,8 @@ A project commits `.copilot/tasks.db`, `.copilot/tasks.db-history` and `.copilot
 
 Each `tc` command closes its connection, which folds the WAL into `tasks.db`, so the committed file is current. SQLite files cannot be merged: work on one machine at a time and pull before you start. Git-mergeable task files are the planned successor (codex-copilot ADR-001).
 
+**Git worktrees share one task list.** Inside a linked worktree (a sibling checkout from `git worktree add`, or an agent worktree under `.claude/worktrees/`), tc reads and writes the main checkout's `.copilot/tasks.db`. The worktree's own copy is only the snapshot its branch checked out; writing to it would fork the project's tasks. tc finds the main checkout from the worktree's `.git` file without running git. Set `TC_WORKTREE_DB=local` to use the worktree's own copy. Switching branches in the main checkout still replaces `tasks.db` with that branch's committed snapshot; commit or pull task state before switching.
+
 ### `tc prd`
 
 ```bash
