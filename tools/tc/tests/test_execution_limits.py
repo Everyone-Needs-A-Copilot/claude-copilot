@@ -407,3 +407,244 @@ def test_reported_overrun_is_retained_and_blocks_subsequent_work(db_path, guarde
         ex.execution_status(task_id=guarded[0], db_path=db_path)["usage"]["cost_usd"]
         == 0.3
     )
+
+
+def succeed(db_path, guarded, **kwargs):
+    return ex.succeed_limits(
+        task_id=guarded[0],
+        attempts=kwargs.get("attempts", 8),
+        calls=kwargs.get("calls", 20),
+        cost_usd=kwargs.get("usd", 4),
+        authority=kwargs.get("authority", ["owner-message:second-approval"]),
+        db_path=db_path,
+    )
+
+
+def test_successor_carries_usage_failures_and_lineage(db_path, guarded):
+    register(db_path, guarded, attempts=3, calls=3, usd=".6")
+    for label in ("first", "second"):
+        finish(db_path, guarded, start(db_path, guarded, label), calls=1, cost_usd=".2")
+    before = ex.execution_status(task_id=guarded[0], db_path=db_path)
+    assert before["usage"]["attempts"] == 2 and before["round"] == 1
+
+    successor = succeed(db_path, guarded)
+
+    assert successor["round"] == 2 and successor["predecessor"] == 1
+    after = ex.execution_status(task_id=guarded[0], db_path=db_path)
+    assert after["usage"] == before["usage"]
+    assert after["attempts"] == before["attempts"]
+    assert after["remaining"] == {"attempts": 6, "calls": 18, "cost_usd": 3.6}
+    assert [r["round"] for r in after["lineage"]] == [1, 2]
+    assert [r["superseded"] for r in after["lineage"]] == [True, False]
+    assert after["lineage"][1]["predecessor"] == 1
+    assert after["lineage"][1]["authority"] == ["owner-message:second-approval"]
+    assert after["authority"] == [
+        "owner-message:test-approval",
+        "owner-message:second-approval",
+    ]
+    with get_db(db_path) as conn:
+        row = conn.execute(
+            "SELECT used_attempts, used_calls, used_micros, predecessor_round FROM execution_rounds"
+        ).fetchone()
+    assert tuple(row) == (2, 2, 400_000, 1)
+
+
+def test_successor_does_not_count_as_a_diagnosis(db_path, guarded):
+    register(db_path, guarded)
+    for _ in range(2):
+        finish(db_path, guarded, start(db_path, guarded))
+    succeed(db_path, guarded)
+    state = ex.execution_status(task_id=guarded[0], db_path=db_path)
+    assert (
+        state["state"] == "blocked"
+        and state["blocker"] == "diagnosis_required:DELIVERY"
+    )
+    with pytest.raises(ValidationError, match="Two failed"):
+        start(db_path, guarded, "third")
+
+
+def test_successor_unblocks_cumulative_limit_but_not_beyond_new_caps(db_path, guarded):
+    register(db_path, guarded, attempts=1)
+    finish(db_path, guarded, start(db_path, guarded), success=True)
+    assert (
+        ex.execution_status(task_id=guarded[0], db_path=db_path)["blocker"]
+        == "cumulative_limit"
+    )
+    with pytest.raises(ValidationError, match="Cumulative"):
+        start(db_path, guarded)
+    succeed(db_path, guarded, attempts=2)
+    state = ex.execution_status(task_id=guarded[0], db_path=db_path)
+    assert state["blocker"] is None and state["remaining"]["attempts"] == 1
+    finish(db_path, guarded, start(db_path, guarded, "after"), success=True)
+    with pytest.raises(ValidationError, match="Cumulative"):
+        start(db_path, guarded)
+
+
+def test_successor_refuses_lower_caps(db_path, guarded):
+    register(db_path, guarded, attempts=3, calls=5, usd=".6")
+    for _ in range(2):
+        finish(db_path, guarded, start(db_path, guarded), calls=1, cost_usd=".2")
+    for override in (
+        {"attempts": 1},
+        {"attempts": 2, "calls": 1},
+        {"usd": ".3"},
+        {"attempts": 2, "calls": 4},  # above used, below the predecessor cap
+    ):
+        with pytest.raises(ValidationError, match="only raise"):
+            succeed(db_path, guarded, **{"calls": 20, "usd": 4, **override})
+    assert len(ex.execution_status(task_id=guarded[0], db_path=db_path)["lineage"]) == 1
+
+
+def test_successor_requires_new_authority(db_path, guarded):
+    register(db_path, guarded)
+    for authority in (
+        ["owner-message:test-approval"],
+        ["owner-message:test-approval", "owner-message:test-approval"],
+    ):
+        with pytest.raises(ValidationError, match="new explicit owner authority"):
+            succeed(db_path, guarded, authority=authority)
+    for authority in ([], [" "], "owner-message:second-approval"):
+        with pytest.raises(ValidationError, match="nonempty list"):
+            succeed(db_path, guarded, authority=authority)
+    succeed(db_path, guarded, authority=["owner-message:test-approval", "new ref"])
+    with pytest.raises(ValidationError, match="new explicit owner authority"):
+        succeed(db_path, guarded, attempts=9, authority=["new ref"])
+
+
+def test_successor_refuses_without_predecessor_or_with_open_attempt(db_path, guarded):
+    with pytest.raises(ValidationError, match="no registered"):
+        succeed(db_path, guarded)
+    register(db_path, guarded)
+    start(db_path, guarded)
+    with pytest.raises(ValidationError, match="unsettled"):
+        succeed(db_path, guarded)
+
+
+def test_predecessor_stays_immutable_and_register_still_refuses_changes(
+    db_path, guarded
+):
+    original = register(db_path, guarded)
+    with get_db(db_path) as conn:
+        stored = conn.execute("SELECT policy FROM execution_limits").fetchone()[0]
+    succeed(db_path, guarded)
+    with get_db(db_path) as conn:
+        assert (
+            conn.execute("SELECT policy FROM execution_limits").fetchone()[0] == stored
+        )
+    assert register(db_path, guarded) == original
+    with pytest.raises(ValidationError, match="immutable"):
+        register(db_path, guarded, attempts=500)
+    with pytest.raises(ValidationError, match="immutable"):
+        ex.register_limits(
+            task_id=guarded[0],
+            attempts=8,
+            calls=20,
+            cost_usd=4,
+            authority=["owner-message:second-approval"],
+            timeout_seconds=30,
+            stale_seconds=1,
+            db_path=db_path,
+        )
+    assert ex.execution_status(task_id=guarded[0], db_path=db_path)["round"] == 2
+
+
+def test_consume_and_run_charge_lifetime_counters_under_latest_caps(
+    db_path, guarded, cli
+):
+    register(db_path, guarded, attempts=1, calls=2, usd=".5")
+    first = start(db_path, guarded, calls=2, usd=".5")
+    ex.consume_call(token=first["token"], db_path=db_path)
+    finish(db_path, guarded, first, success=True, calls=1, cost_usd=".3")
+    succeed(db_path, guarded, attempts=3, calls=5, usd=1)
+
+    second = start(db_path, guarded, "second", calls=2, usd=".4")
+    ex.consume_call(token=second["token"], db_path=db_path)
+    ex.consume_call(token=second["token"], db_path=db_path)
+    with pytest.raises(ValidationError, match="exhausted"):
+        ex.consume_call(token=second["token"], db_path=db_path)
+    finish(db_path, guarded, second, success=True, calls=2, cost_usd=".4")
+    state = ex.execution_status(task_id=guarded[0], db_path=db_path)
+    assert state["usage"] == {
+        "attempts": 2,
+        "calls": 3,
+        "micros": 700_000,
+        "cost_usd": 0.7,
+    }
+    assert state["remaining"] == {"attempts": 1, "calls": 2, "cost_usd": 0.3}
+
+    with pytest.raises(ValidationError, match="Cumulative"):
+        start(db_path, guarded, "over-cost", calls=1, usd=".4")
+    ran = cli(
+        [
+            "execution",
+            "run",
+            str(guarded[0]),
+            "--criterion",
+            "DELIVERY",
+            "--calls",
+            "2",
+            "--usd",
+            ".3",
+            "--",
+            sys.executable,
+            "-c",
+            'print("checked")',
+        ]
+    )
+    assert ran.exit_code == 0, ran.output
+    state = ex.execution_status(task_id=guarded[0], db_path=db_path)
+    assert state["usage"]["attempts"] == 3 and state["usage"]["calls"] == 5
+    assert state["remaining"] == {"attempts": 0, "calls": 0, "cost_usd": 0.0}
+    assert state["blocker"] == "cumulative_limit"
+
+
+def test_second_successor_chains_lineage_and_authority(db_path, guarded, cli):
+    register(db_path, guarded, attempts=1)
+    finish(db_path, guarded, start(db_path, guarded), success=True)
+    succeed(db_path, guarded, attempts=2)
+    finish(db_path, guarded, start(db_path, guarded, "two"), success=True)
+    with pytest.raises(ValidationError, match="only raise"):
+        succeed(db_path, guarded, attempts=1, authority=["third ref"])
+    third = cli(
+        [
+            "execution",
+            "succeed",
+            str(guarded[0]),
+            "--attempts",
+            "4",
+            "--calls",
+            "30",
+            "--usd",
+            "5",
+            "--authority",
+            "third ref",
+            "--authority",
+            "owner-message:second-approval",
+        ]
+    )
+    assert third.exit_code == 0, third.output
+    state = ex.execution_status(task_id=guarded[0], db_path=db_path)
+    assert state["round"] == 3 and state["remaining"]["attempts"] == 2
+    assert [r["round"] for r in state["lineage"]] == [1, 2, 3]
+    assert [r["predecessor"] for r in state["lineage"]] == [None, 1, 2]
+    assert [r["superseded"] for r in state["lineage"]] == [True, True, False]
+    assert state["lineage"][2]["authority"] == ["third ref"]
+    assert state["authority"] == [
+        "owner-message:test-approval",
+        "owner-message:second-approval",
+        "third ref",
+    ]
+    with get_db(db_path) as conn:
+        row = conn.execute(
+            "SELECT predecessor_round, predecessor_created FROM execution_rounds WHERE round=3"
+        ).fetchone()
+    assert row[0] == 2 and row[1] is not None
+
+
+def test_cli_succeed_help_and_refusals(db_path, guarded, cli):
+    result = cli(["execution", "succeed", "--help"])
+    assert result.exit_code == 0 and "--authority" in result.output
+    refused = cli(
+        ["execution", "succeed", str(guarded[0]), "--attempts", "3", "--authority", "x"]
+    )
+    assert refused.exit_code != 0

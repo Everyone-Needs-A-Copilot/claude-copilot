@@ -382,6 +382,17 @@ source. It unlocks diagnosis only; **it does not reset any cumulative cap**.
 The prove command requests strict-stub transport; QA must still judge whether
 the regression proves the cause. A command exit of zero is not a QA verdict.
 
+### Successor ledgers
+
+A successor ledger continues the same task and criteria after a registration is exhausted. It is the only sanctioned way to continue after an exhausted registration. A successor carries all consumed usage and failures forward, requires a new explicit owner authority, can only raise lifetime caps, never resets anything, and is recorded in status lineage. The agent must quote the owner's authority verbatim.
+
+```sh
+tc execution succeed 42 --attempts 40 --calls 200 --usd 6.00 \
+  --authority 'owner approval: verbatim quote or WP reference'
+```
+
+Caps are lifetime totals, not fresh allowances; `status` shows each round, lifetime usage and `remaining` (new cap minus lifetime used). Creation is refused when no registration exists, when no `--authority` differs byte-for-byte from every earlier one, when any cap is below lifetime usage or the predecessor cap, or while an attempt is unsettled. The predecessor row stays immutable and is marked superseded; `register` on that task still accepts only a byte-identical repeat. A successor of a successor follows the same rules. A successor is not a diagnosis: failed-attempt history and blocked states are inherited, and `diagnose` is still required.
+
 `tc worker` requires limits, `--criterion`, and `--max-budget-usd` for QA tasks.
 It reserves before launch and records the native harness's measured cost.
 Legacy non-QA workers retain their existing behavior. Worker model turns are

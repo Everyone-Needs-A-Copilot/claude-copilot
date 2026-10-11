@@ -57,6 +57,32 @@ def register(
     )
 
 
+@execution_app.command("succeed")
+def succeed(
+    task: int,
+    attempts: int = typer.Option(...),
+    calls: int = 0,
+    usd: float = 0,
+    authority: List[str] = typer.Option(...),
+    timeout: Optional[int] = None,
+    stale: Optional[int] = None,
+):
+    """Open a successor round. Caps are lifetime totals and can only rise; all
+    usage and failures carry forward. Needs a new, verbatim owner --authority."""
+    output_json(
+        _call(
+            ex.succeed_limits,
+            task_id=task,
+            attempts=attempts,
+            calls=calls,
+            cost_usd=usd,
+            authority=authority,
+            timeout_seconds=timeout,
+            stale_seconds=stale,
+        )
+    )
+
+
 @execution_app.command("status")
 def status(task: int):
     """Observed execution state and exact authorizations; no guessed ETA."""

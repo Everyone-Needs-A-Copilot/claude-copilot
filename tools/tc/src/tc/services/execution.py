@@ -33,6 +33,12 @@ _TABLES = (
     criterion TEXT NOT NULL, kind TEXT NOT NULL, source TEXT NOT NULL,
     artifact TEXT NOT NULL, artifact_hash TEXT NOT NULL, created REAL NOT NULL,
     through_started REAL NOT NULL DEFAULT 0)""",
+    """CREATE TABLE IF NOT EXISTS execution_rounds (
+    task_id INTEGER NOT NULL REFERENCES tasks(id), round INTEGER NOT NULL,
+    policy TEXT NOT NULL, predecessor_round INTEGER NOT NULL,
+    predecessor_created REAL, created REAL NOT NULL,
+    used_attempts INTEGER NOT NULL, used_calls INTEGER NOT NULL,
+    used_micros INTEGER NOT NULL, PRIMARY KEY (task_id, round))""",
 )
 
 
@@ -75,13 +81,31 @@ def _contract(task):
     return validate_contract(metadata.get("acceptanceContract"))
 
 
-def _policy(conn, task_id):
+def _rounds(conn, task_id):
+    """Ordered lineage; round 1 is the immutable registration (its time predates this record)."""
     row = conn.execute(
         "SELECT policy FROM execution_limits WHERE task_id=?", (task_id,)
     ).fetchone()
     if not row:
         raise ValidationError(f"Task {task_id} has no registered execution limits")
-    p = json.loads(row[0])
+    rounds = [{"round": 1, "policy": json.loads(row[0]), "created": None}]
+    for r in conn.execute(
+        "SELECT * FROM execution_rounds WHERE task_id=? ORDER BY round", (task_id,)
+    ):
+        rounds.append(
+            {
+                "round": r["round"],
+                "policy": json.loads(r["policy"]),
+                "created": r["created"],
+            }
+        )
+    return rounds
+
+
+def _policy(conn, task_id):
+    """The current (latest) round's policy; usage is always lifetime for the task."""
+    latest = _rounds(conn, task_id)[-1]
+    p = {**latest["policy"], "round": latest["round"]}
     if digest(_contract(get_task(task_id=task_id, conn=conn))) != p["contract_sha256"]:
         raise ValidationError(
             "Acceptance scope changed after execution limits were registered"
@@ -182,6 +206,98 @@ def register_limits(
             (task_id, json.dumps(p)),
         )
     return p
+
+
+def succeed_limits(
+    *,
+    task_id,
+    attempts,
+    calls,
+    cost_usd,
+    authority,
+    timeout_seconds=None,
+    stale_seconds=None,
+    db_path=None,
+):
+    """Open a successor round: lifetime caps may only rise, nothing is erased.
+
+    Usage and failure history live per task, so every counter and checkpoint
+    carries forward by construction. A diagnosis is a separate act and is not
+    implied here. The new owner authority must differ from every earlier one.
+    """
+    attempts = _integer(attempts, "attempts", 1)
+    calls = _integer(calls, "calls")
+    micros = _micros(cost_usd)
+    if (
+        not isinstance(authority, list)
+        or not authority
+        or any(not isinstance(a, str) or not a.strip() for a in authority)
+    ):
+        raise ValidationError(
+            "Keep explicit authorization references in a nonempty list"
+        )
+    with _db(db_path) as conn:
+        rounds = _rounds(conn, task_id)  # Refuses when nothing is registered.
+        previous = rounds[-1]
+        prior = previous["policy"]
+        timeout_seconds = _integer(
+            prior["timeout_seconds"] if timeout_seconds is None else timeout_seconds,
+            "timeout_seconds",
+            1,
+        )
+        stale_seconds = _integer(
+            prior["stale_seconds"] if stale_seconds is None else stale_seconds,
+            "stale_seconds",
+            1,
+        )
+        _policy(conn, task_id)  # Scope must still match the frozen contract.
+        if any(r["state"] == "running" for r in _rows(conn, task_id)):
+            raise ValidationError(
+                "An attempt is unsettled; reconcile it before opening a successor"
+            )
+        known = {a for r in rounds for a in r["policy"]["authority"]}
+        new = [a for a in dict.fromkeys(authority) if a not in known]
+        if not new:
+            raise ValidationError(
+                "A successor requires a new explicit owner authority not already recorded"
+            )
+        used = _usage(_rows(conn, task_id))
+        for name, value, floor in (
+            ("attempts", attempts, max(used["attempts"], prior["attempts"])),
+            ("calls", calls, max(used["calls"], prior["calls"])),
+            ("micros", micros, max(used["micros"], prior["micros"])),
+        ):
+            if value < floor:
+                raise ValidationError(
+                    f"Successor {name} cap is below lifetime used or the predecessor cap; successors can only raise caps"
+                )
+        p = {
+            **prior,
+            "attempts": attempts,
+            "calls": calls,
+            "micros": micros,
+            "authority": [*prior["authority"], *new],
+            "new_authority": new,
+            "timeout_seconds": timeout_seconds,
+            "stale_seconds": stale_seconds,
+            "predecessor": previous["round"],
+        }
+        number = previous["round"] + 1
+        conn.execute(
+            "INSERT INTO execution_rounds VALUES (?,?,?,?,?,?,?,?,?)",
+            (
+                task_id,
+                number,
+                json.dumps(p),
+                previous["round"],
+                previous["created"],
+                time.time(),
+                used["attempts"],
+                used["calls"],
+                used["micros"],
+            ),
+        )
+    return {**p, "round": number}
 
 
 def protect_update(conn, task_id, old_metadata, new_metadata, old_status, new_status):
@@ -439,6 +555,22 @@ def snapshot(*, task_id, conn):
     if task["status"] in ("completed", "cancelled", "blocked"):
         state = task["status"]
     usage = _usage(rows)
+    rounds = _rounds(conn, task_id)
+    lineage = [
+        {
+            "round": r["round"],
+            "created": r["created"],
+            "superseded": r["round"] < rounds[-1]["round"],
+            "predecessor": r["policy"].get("predecessor"),
+            "caps": {
+                "attempts": r["policy"]["attempts"],
+                "calls": r["policy"]["calls"],
+                "cost_usd": r["policy"]["micros"] / 1_000_000,
+            },
+            "authority": r["policy"].get("new_authority", r["policy"]["authority"]),
+        }
+        for r in rounds
+    ]
     blocker = None
     if not active and state == "idle":
         if (
@@ -483,6 +615,13 @@ def snapshot(*, task_id, conn):
         "authority": p["authority"],
         "limits": p,
         "usage": {**usage, "cost_usd": usage["micros"] / 1_000_000},
+        "remaining": {
+            "attempts": p["attempts"] - usage["attempts"],
+            "calls": p["calls"] - usage["calls"],
+            "cost_usd": (p["micros"] - usage["micros"]) / 1_000_000,
+        },
+        "round": p["round"],
+        "lineage": lineage,
         "attempts": rows,
         "qa_approved": False
         if active
