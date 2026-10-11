@@ -414,6 +414,8 @@ def update_task(
 
         existing_metadata = task_metadata(row["metadata"])
         effective_metadata = {**existing_metadata, **task_metadata(new_metadata)}
+        from tc.services.execution import protect_update
+        protect_update(conn, task_id, existing_metadata, effective_metadata, row["status"], status)
         if existing_metadata.get("requiresQa") and not effective_metadata.get("requiresQa"):
             raise ValidationError("QA gate: requiresQa cannot be downgraded after registration")
         if "acceptanceContract" in effective_metadata:

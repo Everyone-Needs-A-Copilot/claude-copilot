@@ -338,3 +338,72 @@ explicit installation operation, never a verification fallback. Development
 receipts describe mutable checkouts; release installation uses verified source
 snapshots and publishes cc/tc together with rollback. Ambient PYTHONPATH and
 PYTHONHOME are removed during install verification to prevent checkout borrowing.
+
+## Persistent execution limits
+
+For iterative QA work, register the task's v2 acceptance contract first, then
+freeze its execution budget. Caps belong to the task, not the round label or
+agent process. Registration is immutable; a handoff cannot raise it or erase
+prior attempts. Authorization references are carried verbatim in status and
+handoff output.
+
+```sh
+tc execution register 42 --attempts 3 --calls 12 --usd 1.50 \
+  --timeout 900 --stale 300 --authority 'owner approval: message or WP reference'
+tc execution run 42 --criterion DELIVERY --label qualification \
+  --calls 4 --usd 0.50 --usage-file /absolute/fresh-report.json -- python run_case.py
+tc execution status 42
+```
+
+Choose caps from the actual workload: each AI attempt must have enough allowance
+for its complete write/review/repair/re-review loop. Register before spending;
+do not split a failing criterion into another task to reset its budget.
+`--root` selects the source worktree when the task database is shared.
+
+The runner executes from the registered root without a shell, with a process-group
+timeout, and writes private output/receipt files under
+`.copilot/execution/<task>/<attempt>/`. A fresh usage report supplies
+`network_calls` and `recorded_cost_usd`; missing receipts retain the full reserved
+allowance. Crashed reservations remain outstanding and prevent another attempt.
+Reconcile one with `tc execution settle TOKEN --artifact REPORT`; only supply
+`--calls` and `--usd` when actual measured usage is available. Never infer zero
+spend from a missing report. Overruns are retained and block further spending.
+
+After two failed attempts for a criterion, paid repetition stops. Locate the
+enforcing code, fix the measured cause, and run its corrective regression:
+
+```sh
+tc execution prove 42 --criterion DELIVERY -- python -m pytest tests/test_delivery.py
+tc execution diagnose 42 --criterion DELIVERY --regression /path/from/prove/result.json
+```
+
+The checkpoint must be a runner-recorded passing result on changed, stable
+source. It unlocks diagnosis only; **it does not reset any cumulative cap**.
+The prove command requests strict-stub transport; QA must still judge whether
+the regression proves the cause. A command exit of zero is not a QA verdict.
+
+`tc worker` requires limits, `--criterion`, and `--max-budget-usd` for QA tasks.
+It reserves before launch and records the native harness's measured cost.
+Legacy non-QA workers retain their existing behavior. Worker model turns are
+not counted as application transport requests. Passing current source-bound QA
+prevents redundant guarded runs and reopening completed passing tasks. Scope
+metadata cannot be widened after registration.
+
+For application transports, call `tc.api.consume_call(token=...,
+db_path=...)` **before each actual outbound request, including retries**. The
+runner exports `TC_EXECUTION_TOKEN` and `TC_EXECUTION_DB`. This atomically counts
+requests and rejects exhausted, expired or source-stale reservations. Retain the
+provider's per-request cost/token bound and report actual total cost at settlement.
+Without that transport integration, request counts/cost are reserved and
+reconciled, not intercepted. Neither this local tool nor its environment flags
+sandbox arbitrary shell commands or block network access by themselves.
+
+Status distinguishes idle, awaiting a result, stale unresolved execution,
+blocked, and terminal task state. Staleness is an overdue-evidence signal, not
+proof a process died. It is checked on demand; no daemon is installed. Use newly
+persisted result artifacts to report progress. Handoffs preserve this state and
+authorization references without turning them into QA approval.
+
+These controls are local execution discipline, not a security boundary against
+an actor who can edit the SQLite database, manufacture reports, or bypass tc.
+Existing QA evidence and test-integrity requirements remain the acceptance gate.
