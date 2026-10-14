@@ -11,6 +11,13 @@
 # version bump lands on main; .github/workflows/release-tag-check.yml turns main
 # red until you do.
 #
+# SIGNED HEAD. A HEAD release needs a release-key-signed commit at main's tip,
+# and GitHub's squash and rebase merges re-create commits without that
+# signature (rebase also drops empty commits). Land the signed release commit by
+# opening its PR, waiting for the required checks, then fast-forward pushing that
+# exact commit: `git push origin <branch>:main`. GitHub accepts it and marks the
+# PR merged, and the signature survives.
+#
 # Usage:
 #   scripts/tag-release.sh [--at <commit>] [--push]
 #
