@@ -1,5 +1,16 @@
 # Changelog
 
+## [5.21.2] — 2026-10-14 — Solo setup: `/setup-project` works without an organization
+
+Framework **5.21.2**, `cc` **2.14.1**, `tc` **2.5.0**.
+
+- `/setup-project` (`cc reconcile`) no longer blocks a person who has no organization. When no `layers.manifest` is configured and no organization config (ecosystem.yml) exists, the machine assessment treats the Mac as a solo setup: sign-in, the layer manifest and organization config become optional, layers report `not-configured` ("no signed layer pins are required"), and the project is wired fully, including the hook shim, hook registrations and `copilot.lock.json`. Previously the missing manifest made the whole machine `could-not-verify`, so plan reported `blocked` and apply refused to change the project.
+- The organization path is unchanged: a configured manifest (even a broken one), or any organization config, keeps every sign-in, layer and organization-config check. An unreadable configuration or connections source never counts as solo.
+- Solo has no layer pins by design: pins live in the machine ecosystem lockfile and apply only to layers named by a manifest; the project `copilot.lock.json` records framework file ownership and needs none.
+- Python 3.10 or newer is now stated and enforced everywhere: `/setup`, `/update-copilot`, `project-context.md` and the mypy target said or implied 3.9; `tools/cc/install.sh` and `tools/tc/install.sh` now stop early with a clear message on older Python (macOS system `python3` is 3.9).
+- `/knowledge-copilot` clones the canonical knowledge repo over anonymous HTTPS instead of SSH, and `/setup-project` documents solo mode and the approved-folder step.
+- Existing installed projects need no change.
+
 ## [5.21.1] — 2026-10-14 — Proactive worktree housekeeping
 
 Framework **5.21.1**, `cc` **2.14.0**, `tc` **2.5.0**.
