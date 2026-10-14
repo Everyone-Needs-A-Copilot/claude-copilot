@@ -2,6 +2,14 @@
 # Explicit development installation with verified source/dependency receipts.
 set -euo pipefail
 unset PYTHONPATH PYTHONHOME
+
+# Both CLIs declare requires-python >=3.10; fail early with a clear message
+# instead of a pip resolver error (macOS system python3 is 3.9).
+if ! command -v python3 >/dev/null 2>&1 || \
+   ! python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)'; then
+    echo "ERROR: Python 3.10 or newer is required (found: $(python3 --version 2>&1 || echo none)). Install it (for example: brew install python@3.12), put it ahead of /usr/bin on PATH, then retry." >&2
+    exit 1
+fi
 TC_SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TC_VENV_DIR="$TC_SOURCE_DIR/.venv"
 TC_SHIM="$HOME/.local/bin/tc"

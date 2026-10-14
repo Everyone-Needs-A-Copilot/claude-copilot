@@ -33,7 +33,7 @@
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Python | Ready | 3.9+ required |
+| Python | Ready | 3.10+ required |
 | uv | Required | Package manager |
 | Rich | Ready | Terminal UI library |
 | pytest | Required | Install with dev dependencies |

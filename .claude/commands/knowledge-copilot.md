@@ -44,7 +44,7 @@ Ask the user (use AskUserQuestion):
 **Question:** "No Knowledge Copilot repo found on this machine. What would you like to do?"
 **Header:** "Setup"
 **Options:**
-1. **"Clone the canonical repo"** — ask where to put it (default: a sibling directory next to this project), then `git clone git@github.com:Everyone-Needs-A-Copilot/knowledge-copilot.git "$REPO_PATH"`
+1. **"Clone the canonical repo"** — ask where to put it (default: a sibling directory next to this project), then `git clone https://github.com/Everyone-Needs-A-Copilot/knowledge-copilot.git "$REPO_PATH"` (the repo is public, so this works anonymously over HTTPS with no sign-in or SSH key)
 2. **"Create a new knowledge repo"** — start fresh with guided discovery
 3. **"Link an existing local repo"** — provide a path
 

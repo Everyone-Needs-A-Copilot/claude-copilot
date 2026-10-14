@@ -195,7 +195,7 @@ cd your-project
 ### cc install fails
 
 ```bash
-# Ensure Python 3 is available
+# Ensure Python 3.10 or newer is available (cc and tc require it)
 python3 --version
 
 # Retry the exact checked-out commit; do not point the shim at mutable source
