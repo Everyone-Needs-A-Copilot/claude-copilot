@@ -52,6 +52,11 @@ _MINIMUM_TOKEN_LIFETIME_SECONDS = 300
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _NONCE = re.compile(r"^[0-9a-f]{64}$")
 _TOKEN_NAME = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+_MESSAGE_ID = re.compile(
+    r"^msg_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
+_TURN_STATE = re.compile(r"^[A-Za-z0-9._~+/=-]{1,4096}$", re.ASCII)
 _EXPECTED_REQUEST_FIELDS = frozenset(
     {
         "client_metadata",
@@ -67,6 +72,29 @@ _EXPECTED_REQUEST_FIELDS = frozenset(
         "text",
         "tool_choice",
         "tools",
+    }
+)
+_CLIENT_METADATA_FIELDS = frozenset(
+    {
+        "session_id",
+        "thread_id",
+        "turn_id",
+        "x-codex-installation-id",
+        "x-codex-turn-metadata",
+        "x-codex-window-id",
+    }
+)
+_TURN_METADATA_FIELDS = frozenset(
+    {
+        "installation_id",
+        "request_kind",
+        "sandbox",
+        "session_id",
+        "thread_id",
+        "thread_source",
+        "turn_id",
+        "turn_started_at_unix_ms",
+        "window_id",
     }
 )
 _ALLOWED_INBOUND_HEADERS = frozenset(
@@ -105,6 +133,17 @@ _PROHIBITED_RESPONSE_HEADERS = frozenset(
         "www-authenticate",
     }
 )
+_ALLOWED_RESPONSE_HEADERS = frozenset(
+    {
+        "connection",
+        "content-length",
+        "content-type",
+        "date",
+        "server",
+        "x-codex-turn-state",
+    }
+)
+_WORKER_SHUTDOWN_SECONDS = _TOTAL_TIMEOUT_SECONDS + _IDLE_TIMEOUT_SECONDS + 2.0
 _LOCK = threading.RLock()
 _RECEIPT_AUTHORITY = object()
 _FAKE_UPSTREAM_AUTHORITY = object()
@@ -135,6 +174,16 @@ _BODY_POLICY_SHA256 = canonical_sha256(
         "tools": [],
         "maximum_json_depth": _MAX_JSON_DEPTH,
         "duplicate_keys": "rejected-recursively",
+        "client_metadata_fields": sorted(_CLIENT_METADATA_FIELDS),
+        "turn_metadata_fields": sorted(_TURN_METADATA_FIELDS),
+        "input_roles": ["developer", "user", "user"],
+        "identifier_format": "lowercase-uuid",
+        "input_item_schema": {
+            "fields": ["content", "id", "role", "type"],
+            "type": "message",
+            "content_fields": ["text", "type"],
+            "content_type": "input_text",
+        },
         "forwarding": "exact-verified-raw-bytes",
     }
 )
@@ -183,6 +232,16 @@ class CodexBrokerUnavailable(ValueError):
 def _require_digest(value: object, field_name: str) -> str:
     if not isinstance(value, str) or not _DIGEST.fullmatch(value):
         raise CodexBrokerUnavailable(f"{field_name} is not a SHA-256 digest.")
+    return value
+
+
+def _require_turn_state(value: object) -> str:
+    if (
+        not isinstance(value, str)
+        or not value.isascii()
+        or not _TURN_STATE.fullmatch(value)
+    ):
+        raise CodexBrokerUnavailable("Upstream turn state differs.")
     return value
 
 
@@ -617,6 +676,8 @@ def _verify_request_body(raw: bytes, *, expected_model: str) -> dict[str, Any]:
     if len(raw) > _MAX_REQUEST_BYTES:
         raise CodexBrokerUnavailable("Codex request exceeds its closed limit.")
     body = _closed_json(raw, canonical=False)
+    client_metadata = body.get("client_metadata")
+    inputs = body.get("input")
     if (
         set(body) != _EXPECTED_REQUEST_FIELDS
         or body.get("model") != expected_model
@@ -626,16 +687,92 @@ def _verify_request_body(raw: bytes, *, expected_model: str) -> dict[str, Any]:
         or body.get("stream") is not True
         or body.get("store") is not False
         or body.get("include") != ["reasoning.encrypted_content"]
-        or not isinstance(body.get("input"), list)
-        or not body["input"]
+        or body.get("reasoning") != {"effort": "low"}
+        or body.get("text") != {"verbosity": "low"}
         or not isinstance(body.get("instructions"), str)
         or not body["instructions"]
-        or not isinstance(body.get("client_metadata"), dict)
-        or _contains_prohibited_model_input(body)
+        or not isinstance(client_metadata, dict)
+        or set(client_metadata) != _CLIENT_METADATA_FIELDS
+        or not isinstance(inputs, list)
+        or len(inputs) != 3
     ):
         raise CodexBrokerUnavailable(
             "Codex request body differs from the tool-free contract."
         )
+
+    identifiers = {
+        name: client_metadata.get(name)
+        for name in (
+            "session_id",
+            "thread_id",
+            "turn_id",
+            "x-codex-installation-id",
+            "x-codex-window-id",
+        )
+    }
+    if (
+        any(not isinstance(value, str) or not value for value in identifiers.values())
+        or any(
+            not _UUID.fullmatch(identifiers[name])
+            for name in (
+                "session_id",
+                "thread_id",
+                "turn_id",
+                "x-codex-installation-id",
+            )
+        )
+        or identifiers["session_id"] != identifiers["thread_id"]
+        or identifiers["x-codex-window-id"] != f'{identifiers["thread_id"]}:0'
+        or body.get("prompt_cache_key") != identifiers["thread_id"]
+        or not isinstance(client_metadata.get("x-codex-turn-metadata"), str)
+    ):
+        raise CodexBrokerUnavailable("Codex client metadata differs.")
+    turn_metadata_raw = client_metadata["x-codex-turn-metadata"].encode("utf-8")
+    turn_metadata = _closed_json(turn_metadata_raw, canonical=False)
+    started = turn_metadata.get("turn_started_at_unix_ms")
+    if (
+        set(turn_metadata) != _TURN_METADATA_FIELDS
+        or turn_metadata.get("installation_id")
+        != identifiers["x-codex-installation-id"]
+        or turn_metadata.get("session_id") != identifiers["session_id"]
+        or turn_metadata.get("thread_id") != identifiers["thread_id"]
+        or turn_metadata.get("turn_id") != identifiers["turn_id"]
+        or turn_metadata.get("window_id") != identifiers["x-codex-window-id"]
+        or turn_metadata.get("request_kind") != "turn"
+        or turn_metadata.get("thread_source") != "user"
+        or turn_metadata.get("sandbox") != "seatbelt"
+        or not isinstance(started, int)
+        or isinstance(started, bool)
+        or started < 0
+    ):
+        raise CodexBrokerUnavailable("Codex turn metadata differs.")
+
+    expected_roles = ("developer", "user", "user")
+    for index, (item, expected_role) in enumerate(zip(inputs, expected_roles)):
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"content", "id", "role", "type"}
+            or item.get("type") != "message"
+            or item.get("role") != expected_role
+            or not isinstance(item.get("id"), str)
+            or not _MESSAGE_ID.fullmatch(item["id"])
+            or not isinstance(item.get("content"), list)
+            or not item["content"]
+        ):
+            raise CodexBrokerUnavailable(
+                f"Codex input message {index} differs from its closed schema."
+            )
+        for content in item["content"]:
+            if (
+                not isinstance(content, dict)
+                or set(content) != {"text", "type"}
+                or content.get("type") != "input_text"
+                or not isinstance(content.get("text"), str)
+                or not content["text"]
+            ):
+                raise CodexBrokerUnavailable(
+                    f"Codex input message {index} content differs."
+                )
     return body
 
 
@@ -854,7 +991,7 @@ def _parse_sse(raw: bytes) -> tuple[str, int]:
         or set(completed["response"]) != {"id", "status", "output"}
         or completed["response"].get("id") != created["response"].get("id")
         or completed["response"].get("status") != "completed"
-        or not isinstance(completed["response"].get("output"), list)
+        or completed["response"].get("output") != []
     ):
         raise CodexBrokerUnavailable("Upstream SSE response lineage differs.")
     allowed_middle = {"response.output_text.delta"}
@@ -876,6 +1013,7 @@ def _fake_tls_request(
     body: bytes,
     *,
     now: int,
+    owner: _BrokerServerState,
 ) -> _UpstreamResponse:
     if not upstream.validate() or not auth.validate(now=now):
         raise CodexBrokerUnavailable("Fake upstream or retained auth is unavailable.")
@@ -893,7 +1031,9 @@ def _fake_tls_request(
             (upstream.connect_host, upstream.port),
             timeout=_TOTAL_TIMEOUT_SECONDS,
         )
+        owner.retain_upstream_socket(raw_socket)
         tls_socket = context.wrap_socket(raw_socket, server_hostname="chatgpt.com")
+        owner.replace_upstream_socket(raw_socket, tls_socket)
         raw_socket = None
         peer = tls_socket.getpeercert(binary_form=True)
         if hashlib.sha256(peer).hexdigest() != upstream.certificate_sha256:
@@ -922,18 +1062,15 @@ def _fake_tls_request(
             if lowered in headers:
                 raise CodexBrokerUnavailable("Upstream response repeats a header.")
             headers[lowered] = value
-        if any(name in headers for name in _PROHIBITED_RESPONSE_HEADERS):
+        if any(name in headers for name in _PROHIBITED_RESPONSE_HEADERS) or not set(
+            headers
+        ).issubset(_ALLOWED_RESPONSE_HEADERS):
             raise CodexBrokerUnavailable(
                 "Upstream response contains a prohibited header."
             )
         content_type = headers.get("content-type", "")
-        turn_state = headers.get("x-codex-turn-state", "")
-        if (
-            response.status != 200
-            or content_type != "text/event-stream"
-            or not turn_state
-            or len(turn_state.encode()) > 4096
-        ):
+        turn_state = _require_turn_state(headers.get("x-codex-turn-state"))
+        if response.status != 200 or content_type != "text/event-stream":
             raise CodexBrokerUnavailable("Upstream response contract differs.")
         response_body = response.read(_MAX_SSE_BYTES + 1)
         semantic_sha256, event_count = _parse_sse(response_body)
@@ -956,6 +1093,7 @@ def _fake_tls_request(
             tls_socket.close()
         if raw_socket is not None:
             raw_socket.close()
+        owner.release_upstream_socket(tls_socket or raw_socket)
 
 
 class _AttemptJournal:
@@ -1154,6 +1292,56 @@ class _BrokerServerState:
     response: _UpstreamResponse | None = None
     call_count: int = 0
     stopped: bool = False
+    cancel_requested: threading.Event = field(default_factory=threading.Event)
+    worker_terminated: threading.Event = field(default_factory=threading.Event)
+    upstream_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    active_upstream_socket: socket.socket | None = field(default=None, repr=False)
+
+    def retain_upstream_socket(self, value: socket.socket) -> None:
+        with self.upstream_lock:
+            if (
+                self.cancel_requested.is_set()
+                or self.active_upstream_socket is not None
+            ):
+                value.close()
+                raise CodexBrokerUnavailable("Broker egress was cancelled.")
+            self.active_upstream_socket = value
+
+    def replace_upstream_socket(
+        self,
+        previous: socket.socket,
+        replacement: socket.socket,
+    ) -> None:
+        with self.upstream_lock:
+            if (
+                self.cancel_requested.is_set()
+                or self.active_upstream_socket is not previous
+            ):
+                replacement.close()
+                raise CodexBrokerUnavailable("Broker egress was cancelled.")
+            self.active_upstream_socket = replacement
+
+    def release_upstream_socket(self, value: socket.socket | None) -> None:
+        if value is None:
+            return
+        with self.upstream_lock:
+            if self.active_upstream_socket is value:
+                self.active_upstream_socket = None
+
+    def cancel_upstream(self) -> None:
+        self.cancel_requested.set()
+        with self.upstream_lock:
+            value = self.active_upstream_socket
+        if value is None:
+            return
+        try:
+            value.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        try:
+            value.close()
+        except OSError:
+            pass
 
 
 def _read_until(connection: socket.socket, marker: bytes, maximum: int) -> bytes:
@@ -1242,11 +1430,12 @@ def _parse_child_request(
 def _send_child_response(
     connection: socket.socket, response: _UpstreamResponse
 ) -> None:
+    turn_state = _require_turn_state(response.turn_state)
     head = (
         "HTTP/1.1 200 OK\r\n"
         "Content-Type: text/event-stream\r\n"
         f"Content-Length: {len(response.body)}\r\n"
-        f"x-codex-turn-state: {response.turn_state}\r\n"
+        f"x-codex-turn-state: {turn_state}\r\n"
         "Connection: close\r\n\r\n"
     ).encode("ascii")
     connection.sendall(head + response.body)
@@ -1297,6 +1486,7 @@ def _serve_broker(state: _BrokerServerState) -> None:
                             state.auth,
                             pending_body,
                             now=state.now,
+                            owner=state,
                         )
                         state.request_sha256 = hashlib.sha256(pending_body).hexdigest()
                         state.request_bytes = len(pending_body)
@@ -1352,6 +1542,42 @@ def _serve_broker(state: _BrokerServerState) -> None:
         if pending is not None:
             _send_child_failure(pending)
             pending.close()
+        state.worker_terminated.set()
+
+
+def _stop_broker_worker(
+    state: _BrokerServerState,
+    listener: socket.socket,
+    worker: threading.Thread,
+) -> bool:
+    """Cancel exact egress and retain all authorities until the worker exits."""
+
+    state.stopped = True
+    state.cancel_upstream()
+    try:
+        listener.close()
+    except OSError:
+        pass
+    deadline = time.monotonic() + _WORKER_SHUTDOWN_SECONDS
+    while worker.is_alive():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            state.poisoned = True
+            state.error = "Broker worker exceeded its shutdown deadline."
+            break
+        worker.join(timeout=min(0.1, remaining))
+    within_deadline = not worker.is_alive()
+    if not within_deadline:
+        # Every real egress phase owns a bounded socket and cancellation closes that
+        # exact socket. This final wait is a fail-safe: retained credential, journal,
+        # and TLS authorities must never close underneath a still-running worker.
+        worker.join()
+    return bool(
+        within_deadline
+        and not worker.is_alive()
+        and state.worker_terminated.is_set()
+        and state.active_upstream_socket is None
+    )
 
 
 @dataclass
@@ -1536,6 +1762,8 @@ def _exercise_fake_codex_broker(
             or state.response is None
             or state.request_sha256 != expected_request.sha256
             or not state.journal.validate()
+            or not state.worker_terminated.is_set()
+            or state.active_upstream_socket is not None
         ):
             raise CodexBrokerUnavailable(
                 "Broker proof did not reach one exact completion."
@@ -1659,13 +1887,11 @@ def _exercise_fake_codex_broker(
 
         dispatch.run_once(invoke)
         time.sleep(_QUIET_SECONDS * 2)
-        server_state.stopped = True
-        listener.close()
+        shutdown_clean = _stop_broker_worker(server_state, listener, server_thread)
         listener = None
-        server_thread.join(timeout=2)
-        if server_thread.is_alive():
-            raise CodexBrokerUnavailable("Broker listener survived shutdown.")
         server_thread = None
+        if not shutdown_clean:
+            raise CodexBrokerUnavailable("Broker worker shutdown was not bounded.")
         if not auth.validate(now=now):
             raise CodexBrokerUnavailable("Codex auth changed after broker completion.")
         receipt = issue_receipt(
@@ -1677,12 +1903,16 @@ def _exercise_fake_codex_broker(
         journal = None
         return receipt
     finally:
-        if server_state is not None:
-            server_state.stopped = True
-        if listener is not None:
+        if (
+            server_state is not None
+            and listener is not None
+            and server_thread is not None
+        ):
+            _stop_broker_worker(server_state, listener, server_thread)
+            listener = None
+            server_thread = None
+        elif listener is not None:
             listener.close()
-        if server_thread is not None:
-            server_thread.join(timeout=2)
         if auth is not None:
             auth.close()
         expected_request.close()

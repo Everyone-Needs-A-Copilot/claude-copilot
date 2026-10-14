@@ -94,24 +94,71 @@ def _auth_file(
 
 
 def _request_body(*, tool: bool = False) -> bytes:
+    thread_id = "01a00000-0000-7000-8000-000000000001"
+    turn_id = "01a00000-0000-7000-8000-000000000002"
+    installation_id = "01a00000-0000-7000-8000-000000000003"
+    window_id = f"{thread_id}:0"
     body: dict[str, Any] = {
         "client_metadata": {
-            "turn_id": "01a00000-0000-7000-8000-000000000002",
-            "thread_id": "01a00000-0000-7000-8000-000000000001",
+            "turn_id": turn_id,
+            "x-codex-installation-id": installation_id,
+            "thread_id": thread_id,
+            "session_id": thread_id,
+            "x-codex-window-id": window_id,
+            "x-codex-turn-metadata": json.dumps(
+                {
+                    "installation_id": installation_id,
+                    "session_id": thread_id,
+                    "thread_id": thread_id,
+                    "turn_id": turn_id,
+                    "window_id": window_id,
+                    "request_kind": "turn",
+                    "thread_source": "user",
+                    "sandbox": "seatbelt",
+                    "turn_started_at_unix_ms": 1,
+                },
+                separators=(",", ":"),
+            ),
         },
         "include": ["reasoning.encrypted_content"],
         "input": [
             {
                 "type": "message",
                 "id": "msg_01a00000-0000-7000-8000-000000000004",
+                "role": "developer",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": "<skills_instructions>Synthetic.</skills_instructions>",
+                    },
+                    {
+                        "type": "input_text",
+                        "text": "<permissions instructions>read-only</permissions instructions>",
+                    },
+                ],
+            },
+            {
+                "type": "message",
+                "id": "msg_01a00000-0000-7000-8000-000000000005",
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": "<environment_context>Synthetic.</environment_context>",
+                    }
+                ],
+            },
+            {
+                "type": "message",
+                "id": "msg_01a00000-0000-7000-8000-000000000006",
                 "role": "user",
                 "content": [{"type": "input_text", "text": "Synthetic prompt"}],
-            }
+            },
         ],
         "instructions": "Synthetic official instructions.",
         "model": MODEL,
         "parallel_tool_calls": True,
-        "prompt_cache_key": "01a00000-0000-7000-8000-000000000001",
+        "prompt_cache_key": thread_id,
         "reasoning": {"effort": "low"},
         "store": False,
         "stream": True,
@@ -160,10 +207,20 @@ def _sse(*, behavior: str = "success") -> bytes:
             }
         )
     if behavior != "incomplete":
+        terminal_outputs: dict[str, list[dict[str, str]]] = {
+            "terminal-web-search": [{"type": "web_search_call", "id": "call_1"}],
+            "terminal-local-shell": [{"type": "local_shell_call", "id": "call_1"}],
+            "terminal-mcp": [{"type": "mcp_call", "id": "call_1"}],
+            "terminal-unknown": [{"type": "unregistered", "id": "call_1"}],
+        }
         events.append(
             {
                 "type": "response.completed",
-                "response": {"id": identifier, "status": "completed", "output": []},
+                "response": {
+                    "id": identifier,
+                    "status": "completed",
+                    "output": terminal_outputs.get(behavior, []),
+                },
             }
         )
     return b"".join(
@@ -242,10 +299,18 @@ class _Handler(BaseHTTPRequestHandler):
         )
         if state.mutate is not None:
             state.mutate()
+        if state.behavior == "stall-headers":
+            time.sleep(0.3)
         status = 500 if state.behavior == "status" else 200
         self.send_response(status)
         self.send_header("Content-Type", "text/event-stream")
-        self.send_header("x-codex-turn-state", "private-turn-state")
+        turn_state = {
+            "turn-crlf": "ok\r\nX-Injected: yes",
+            "turn-control": "ok\x00bad",
+            "turn-nonascii": "café",
+            "turn-oversize": "a" * 4097,
+        }.get(state.behavior, "private-turn-state")
+        self.send_header("x-codex-turn-state", turn_state)
         if state.behavior == "cookie":
             self.send_header("Set-Cookie", "session=forbidden")
         body = _sse(behavior=state.behavior)
@@ -253,7 +318,17 @@ class _Handler(BaseHTTPRequestHandler):
             body = b"data: {\n\n"
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            if state.behavior == "stall-body":
+                midpoint = len(body) // 2
+                self.wfile.write(body[:midpoint])
+                self.wfile.flush()
+                time.sleep(0.3)
+                self.wfile.write(body[midpoint:])
+            else:
+                self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
+            pass
 
     def log_message(self, _format: str, *args: object) -> None:
         del args
@@ -317,24 +392,29 @@ def _dispatch(
     return receipt, dispatch
 
 
-def _post_child(raw: bytes) -> Callable[..., int]:
+def _post_child(raw: bytes, *, timeout: float = 2) -> Callable[..., int]:
     def child(_context, endpoint: str, nonce: str) -> int:
         parsed = urlsplit(endpoint)
-        connection = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=2)
-        connection.request(
-            "POST",
-            parsed.path + "/responses",
-            body=raw,
-            headers={
-                "Content-Type": "application/json",
-                "x-cc-broker-nonce": nonce,
-            },
+        connection = http.client.HTTPConnection(
+            parsed.hostname,
+            parsed.port,
+            timeout=timeout,
         )
-        response = connection.getresponse()
-        response.read()
-        status = response.status
-        connection.close()
-        return status
+        try:
+            connection.request(
+                "POST",
+                parsed.path + "/responses",
+                body=raw,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-cc-broker-nonce": nonce,
+                },
+            )
+            response = connection.getresponse()
+            response.read()
+            return response.status
+        finally:
+            connection.close()
 
     return child
 
@@ -470,7 +550,18 @@ def test_auth_snapshot_rejects_inexact_or_refresh_required_state(
 
 
 @pytest.mark.parametrize(
-    "behavior", ("tool", "incomplete", "malformed", "cookie", "status")
+    "behavior",
+    (
+        "tool",
+        "incomplete",
+        "malformed",
+        "cookie",
+        "status",
+        "terminal-web-search",
+        "terminal-local-shell",
+        "terminal-mcp",
+        "terminal-unknown",
+    ),
 )
 def test_sse_status_and_header_substitution_fail_after_exactly_one_accounted_call(
     tmp_path: Path,
@@ -486,7 +577,77 @@ def test_sse_status_and_header_substitution_fail_after_exactly_one_accounted_cal
     assert json.loads(marker.read_text())["call_started"] == 1
 
 
-@pytest.mark.parametrize("substitution", ("tool", "duplicate", "unknown"))
+@pytest.mark.parametrize(
+    "behavior", ("turn-crlf", "turn-control", "turn-nonascii", "turn-oversize")
+)
+def test_turn_state_header_injection_returns_only_fixed_failure_after_one_call(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    behavior: str,
+) -> None:
+    raw = _request_body()
+    captured: list[bytes] = []
+
+    def child(_context, endpoint: str, nonce: str) -> int:
+        parsed = urlsplit(endpoint)
+        request = (
+            f"POST {parsed.path}/responses HTTP/1.1\r\n"
+            f"Host: 127.0.0.1:{parsed.port}\r\n"
+            "Content-Type: application/json\r\n"
+            f"Content-Length: {len(raw)}\r\n"
+            f"x-cc-broker-nonce: {nonce}\r\n"
+            "\r\n"
+        ).encode() + raw
+        connection = socket.create_connection(("127.0.0.1", parsed.port), timeout=2)
+        connection.sendall(request)
+        response = bytearray()
+        while True:
+            part = connection.recv(4096)
+            if not part:
+                break
+            response.extend(part)
+        connection.close()
+        captured.append(bytes(response))
+        return 400
+
+    with pytest.raises(CodexBrokerUnavailable, match="completion"):
+        _run(
+            tmp_path,
+            monkeypatch,
+            behavior=behavior,
+            child=child,
+        )
+    assert len(captured) == 1
+    assert captured[0].startswith(b"HTTP/1.1 400 Bad Request\r\n")
+    assert b"X-Injected" not in captured[0]
+    assert b"x-codex-turn-state" not in captured[0].lower()
+    assert (
+        json.loads((tmp_path / "journal" / "call-started.json").read_text())[
+            "call_started"
+        ]
+        == 1
+    )
+
+
+@pytest.mark.parametrize(
+    "substitution",
+    (
+        "tool",
+        "duplicate",
+        "unknown",
+        "web-search",
+        "local-shell",
+        "mcp",
+        "unknown-message",
+        "unknown-content",
+        "content-image",
+        "unknown-metadata",
+        "unknown-turn-metadata",
+        "duplicate-turn-metadata",
+        "unknown-reasoning",
+        "unknown-text",
+    ),
+)
 def test_substituted_request_body_is_rejected_before_listener_or_egress(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -497,7 +658,48 @@ def test_substituted_request_body_is_rejected_before_listener_or_egress(
         raw = raw.replace(b'"tools":[]', b'"tools":[],"tools":[]', 1)
     elif substitution == "unknown":
         raw = raw.replace(b"{", b'{"unknown":true,', 1)
-    with pytest.raises(CodexBrokerUnavailable, match="tool-free|duplicate"):
+    elif substitution not in {"tool"}:
+        body = json.loads(raw)
+        if substitution in {"web-search", "local-shell", "mcp"}:
+            kind = {
+                "web-search": "web_search_call",
+                "local-shell": "local_shell_call",
+                "mcp": "mcp_call",
+            }[substitution]
+            body["input"][2] = {"type": kind, "id": "call_1"}
+        elif substitution == "unknown-message":
+            body["input"][2]["unknown"] = True
+        elif substitution == "unknown-content":
+            body["input"][2]["content"][0]["unknown"] = True
+        elif substitution == "content-image":
+            body["input"][2]["content"][0] = {
+                "type": "input_image",
+                "image_url": "https://example.invalid/forbidden",
+            }
+        elif substitution == "unknown-metadata":
+            body["client_metadata"]["unknown"] = True
+        elif substitution in {"unknown-turn-metadata", "duplicate-turn-metadata"}:
+            nested = body["client_metadata"]["x-codex-turn-metadata"]
+            if substitution == "unknown-turn-metadata":
+                nested_body = json.loads(nested)
+                nested_body["unknown"] = True
+                nested = json.dumps(nested_body, separators=(",", ":"))
+            else:
+                nested = nested.replace(
+                    '"turn_id":',
+                    '"turn_id":"duplicate","turn_id":',
+                    1,
+                )
+            body["client_metadata"]["x-codex-turn-metadata"] = nested
+        elif substitution == "unknown-reasoning":
+            body["reasoning"]["unknown"] = True
+        elif substitution == "unknown-text":
+            body["text"]["unknown"] = True
+        raw = json.dumps(body, separators=(",", ":")).encode()
+    with pytest.raises(
+        CodexBrokerUnavailable,
+        match="contract|metadata|message|content|duplicate",
+    ):
         _run(tmp_path, monkeypatch, raw=raw)
     assert not any((tmp_path / "journal").iterdir())
 
@@ -758,6 +960,75 @@ def test_child_crash_closes_dispatch_listener_and_keeps_zero_call_journal(
     finally:
         upstream.close()
         measurement.close()
+
+
+@pytest.mark.parametrize("behavior", ("stall-headers", "stall-body"))
+def test_child_timeout_cancels_active_egress_and_joins_before_auth_close(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    behavior: str,
+) -> None:
+    retained_auth: list[broker._RetainedAuthSnapshot] = []
+    original = broker._fake_tls_request
+
+    def observed(*args, **kwargs):
+        retained_auth.append(args[1])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(broker, "_fake_tls_request", observed)
+    raw = _request_body()
+    with pytest.raises((TimeoutError, socket.timeout)):
+        _run(
+            tmp_path,
+            monkeypatch,
+            behavior=behavior,
+            child=_post_child(raw, timeout=0.1),
+        )
+    assert len(retained_auth) == 1
+    assert retained_auth[0].closed
+    assert not any(
+        thread.name == "cc-codex-broker-test" for thread in threading.enumerate()
+    )
+    assert (
+        json.loads((tmp_path / "journal" / "call-started.json").read_text())[
+            "call_started"
+        ]
+        == 1
+    )
+
+
+def test_uncancellable_test_double_is_joined_before_retained_auth_is_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entered = threading.Event()
+    completed = threading.Event()
+    auth_closed_while_running: list[bool] = []
+
+    def stalled(_upstream, auth, _body, *, now, owner):
+        del now, owner
+        entered.set()
+        time.sleep(0.3)
+        auth_closed_while_running.append(auth.closed)
+        completed.set()
+        raise CodexBrokerUnavailable("Synthetic bounded egress stall.")
+
+    monkeypatch.setattr(broker, "_fake_tls_request", stalled)
+    raw = _request_body()
+    started = time.monotonic()
+    with pytest.raises((TimeoutError, socket.timeout)):
+        _run(
+            tmp_path,
+            monkeypatch,
+            child=_post_child(raw, timeout=0.1),
+        )
+    assert entered.is_set()
+    assert completed.is_set()
+    assert time.monotonic() - started >= 0.3
+    assert auth_closed_while_running == [False]
+    assert not any(
+        thread.name == "cc-codex-broker-test" for thread in threading.enumerate()
+    )
 
 
 def test_receipt_copy_replace_close_and_journal_mutation_fail_closed(
