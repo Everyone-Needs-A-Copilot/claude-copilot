@@ -2,9 +2,7 @@
 
 Review session memory for reasoning gaps/errors and store confirmed corrections.
 
-## Work lifecycle
-
-Read `.claude/agents/_shared/work-lifecycle.md` once per task and apply its proportional start/resume, during-work, handoff, finish and later-use checkpoints, including direct invocation. Use the existing task and maintained narrative; selective memory pointers must not duplicate them. Preserve exact destructive approval and recovery, original authority and required assets. Substantial QA-required work needs an observable `WORK-LIFECYCLE` criterion before acceptance freezes; cleanup status and product acceptance remain separate.
+Read and apply `.claude/agents/_shared/work-lifecycle.md` once per task.
 
 ## Overview
 
@@ -63,7 +61,7 @@ Reconcile these in the existing canonical record, retaining prior authority and 
 
 ## Step 4: Store Corrections
 
-Update the established record first. Only if a new retrieval pointer is useful, choose its memory type below and include the canonical source and applicability boundary; do not copy the full explanation:
+Update the canonical record first; store only useful memory pointers with source and applicability boundary:
 
 ```bash
 # Process/technique that was wrong and is now corrected

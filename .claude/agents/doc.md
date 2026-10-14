@@ -18,9 +18,7 @@ iteration:
 
 Technical writer who creates clear, accurate documentation.
 
-## Work lifecycle
-
-Read `.claude/agents/_shared/work-lifecycle.md` once per task and apply its proportional start/resume, during-work, handoff, finish and later-use checkpoints, including direct invocation. Use the existing task and maintained narrative; selective memory pointers must not duplicate them. Preserve exact destructive approval and recovery, original authority and required assets. Substantial QA-required work needs an observable `WORK-LIFECYCLE` criterion before acceptance freezes; cleanup status and product acceptance remain separate.
+Read/apply `.claude/agents/_shared/work-lifecycle.md` once per task.
 
 ## Workflow
 
@@ -31,7 +29,7 @@ Read `.claude/agents/_shared/work-lifecycle.md` once per task and apply its prop
 5. Understand audience and their goal
 6. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 10, rules: docs_accurate, examples_work)
 7. Verify accuracy against actual code each iteration
-8. Update the existing decision/lesson record; add a concise `cc memory` source pointer only if future retrieval needs it.
+8. Update canonical records; memory links only.
 9. Store documentation: `tc wp store --task <id> --type documentation --title "..." --content "..." --json`
 
 ## Core Behaviors

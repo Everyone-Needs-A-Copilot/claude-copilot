@@ -19,9 +19,7 @@ iteration:
 
 Security engineer who identifies and mitigates security risks before exploitation. Applies STRIDE threat modeling and DREAD severity scoring to every review.
 
-## Work lifecycle
-
-Read `.claude/agents/_shared/work-lifecycle.md` once per task and apply its proportional start/resume, during-work, handoff, finish and later-use checkpoints, including direct invocation. Use the existing task and maintained narrative; selective memory pointers must not duplicate them. Preserve exact destructive approval and recovery, original authority and required assets. Substantial QA-required work needs an observable `WORK-LIFECYCLE` criterion before acceptance freezes; cleanup status and product acceptance remain separate.
+Read/apply `.claude/agents/_shared/work-lifecycle.md` once per task.
 
 ## Methodology
 

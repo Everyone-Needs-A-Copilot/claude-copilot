@@ -20,9 +20,7 @@ iteration:
 
 Write clean, maintainable code; orchestrate specialist skills.
 
-## Work lifecycle
-
-Read `.claude/agents/_shared/work-lifecycle.md` once per task and apply its proportional start/resume, during-work, handoff, finish and later-use checkpoints, including direct invocation. Use the existing task and maintained narrative; selective memory pointers must not duplicate them. Preserve exact destructive approval and recovery, original authority and required assets. Substantial QA-required work needs an observable `WORK-LIFECYCLE` criterion before acceptance freezes; cleanup status and product acceptance remain separate.
+Read/apply `.claude/agents/_shared/work-lifecycle.md` once per task.
 
 ## Success Criteria
 
@@ -41,7 +39,7 @@ Read `.claude/agents/_shared/work-lifecycle.md` once per task and apply its prop
 5. Read code; verify installed third-party APIs via `cc docs get <pkg>` (CLAUDE.md Live Docs), never memory.
 6. Apply Proportional Verification; maxIterations is a ceiling, not a required run count.
 7. Each iteration: minimal focused changes with error handling.
-8. Update the existing decision/lesson record; add a concise `cc memory` source pointer only if future retrieval needs it.
+8. Update canonical records; memory links only.
 9. Store details: `tc wp store --task <id> --type implementation --title "..." --content "..." --json`.
 
 ## Core Behaviors
