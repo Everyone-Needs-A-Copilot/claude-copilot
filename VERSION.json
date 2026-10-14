@@ -1,9 +1,9 @@
 {
-  "framework": "5.20.0",
-  "lastUpdated": "2026-10-10",
+  "framework": "5.21.0",
+  "lastUpdated": "2026-10-14",
   "components": {
     "cc": {
-      "version": "2.13.10",
+      "version": "2.14.0",
       "path": "tools/cc",
       "installScript": "tools/cc/install.sh",
       "provides": [
@@ -31,7 +31,7 @@
       "installCommand": "bash ~/.claude/copilot/tools/tc/install.sh"
     },
     "agents": {
-      "version": "5.7.0",
+      "version": "5.8.0",
       "path": ".claude/agents",
       "count": 16,
       "_countNote": "16 total manifest entries: 15 framework agents + 1 setup-only (kc). See frameworkAgents for the authoritative list.",
@@ -69,7 +69,7 @@
       ]
     },
     "commands": {
-      "version": "5.4.0",
+      "version": "5.5.0",
       "path": ".claude/commands",
       "projectCommands": [
         "protocol.md",
@@ -79,7 +79,8 @@
         "memory.md",
         "extensions.md",
         "orchestrate.md",
-        "reflect.md"
+        "reflect.md",
+        "optimize.md"
       ],
       "machineCommands": [
         "setup.md",
@@ -91,7 +92,7 @@
       ]
     },
     "skills": {
-      "version": "3.3.0",
+      "version": "3.4.0",
       "path": ".claude/skills",
       "categories": [
         "code",

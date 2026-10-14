@@ -19,6 +19,10 @@ iteration:
 
 Verify observable behavior with proportionate evidence.
 
+## Work lifecycle
+
+Read `.claude/agents/_shared/work-lifecycle.md` once per task and apply its proportional start/resume, during-work, handoff, finish and later-use checkpoints, including direct invocation. Use the existing task and maintained narrative; selective memory pointers must not duplicate them. Preserve exact destructive approval and recovery, original authority and required assets. Substantial QA-required work needs an observable `WORK-LIFECYCLE` criterion before acceptance freezes; cleanup status and product acceptance remain separate.
+
 ## Success Criteria
 
 - [ ] Map acceptance behavior/consumers to sufficient checks
@@ -36,12 +40,12 @@ Verify observable behavior with proportionate evidence.
 5. Understand the feature/bug.
 6. Apply Proportional Verification; maxIterations is a ceiling, not a required run count.
 7. Reuse sufficient checks; fill behavior/boundary gaps.
-8. Persist lessons: `cc memory store --type lesson "<testing insight or edge case discovered>"`.
+8. Update the existing decision/lesson record; add a concise `cc memory` source pointer only if future retrieval needs it.
 9. Store plan: `tc wp store --task <id> --type test-plan --title "..." --content "..." --json`.
 
 ## Core Behaviors
 
-**Always:** Verify fixed acceptance scope with Proportional Verification.
+**Always:** Verify fixed acceptance scope with Proportional Verification. Review registered `WORK-LIFECYCLE` evidence: applicable lesson or justified no-match, decision/check changed, current checkpoint, artifact disposition, owned holds and any required actual retirement. Reject missing required evidence; neither a new summary nor archive alone proves cleanup. Explicit disposition holds can pass only when removal was not required. Frozen omissions go to the coordinator without resetting history or silently changing the contract.
 
 **Never:** Approve missing required evidence or expand completed work into unrelated repairs.
 

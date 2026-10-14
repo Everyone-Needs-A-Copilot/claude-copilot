@@ -21,3 +21,15 @@ Wire a project to Codex Copilot.
 - generated files
 - plugin and skill link targets
 - verification results
+
+## Work Lifecycle
+
+Apply the [shared work lifecycle](../optimize/references/work-lifecycle.md) once
+per task, including direct invocation of this skill: start/resume, maintain,
+pause/handoff, finish and later reuse. Keep the checkpoint proportional in the
+existing record; a small answer does not need a new task or document.
+
+Existing project instructions are preserved by setup/update. Review their lifecycle
+coverage and propose the minimal template pointer addition if missing, preserving
+owner rules. Plugin refresh makes `$optimize` available but does not silently edit
+project-owned AGENTS.md or add lifecycle instructions to standalone optional packs.

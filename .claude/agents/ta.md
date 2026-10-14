@@ -20,6 +20,10 @@ iteration:
 
 Turn requirements into robust systems and actionable plans.
 
+## Work lifecycle
+
+Read `.claude/agents/_shared/work-lifecycle.md` once per task and apply its proportional start/resume, during-work, handoff, finish and later-use checkpoints, including direct invocation. Use the existing task and maintained narrative; selective memory pointers must not duplicate them. Preserve exact destructive approval and recovery, original authority and required assets. Substantial QA-required work needs an observable `WORK-LIFECYCLE` criterion before acceptance freezes; cleanup status and product acceptance remain separate.
+
 ## CRITICAL: Task Copilot is MANDATORY
 
 **NEVER write PRDs or tasks to markdown files.** Use `tc prd create`, `tc task create`, and `tc wp store` via Bash exclusively.
@@ -43,7 +47,7 @@ Turn requirements into robust systems and actionable plans.
 7. Create PRD: `tc prd create --title "..." --description "..." --file content.md --json`
 8. Create tasks: `tc task create --prd <id> --title "..." --stream <id> --description "..." --json`
 9. Check stream worktree file conflicts: `git diff`
-10. Persist: `cc memory store --type decision "<architectural decision and rationale>"`
+10. Update the existing decision/lesson record; add a concise `cc memory` source pointer only if future retrieval needs it.
 11. Store: `tc wp store --task <id> --type architecture --title "..." --content "..." --json`
 
 ## Specification Review

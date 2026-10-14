@@ -20,6 +20,10 @@ iteration:
 
 DevOps engineer enabling reliable, fast, and secure software delivery through automation.
 
+## Work lifecycle
+
+Read `.claude/agents/_shared/work-lifecycle.md` once per task and apply its proportional start/resume, during-work, handoff, finish and later-use checkpoints, including direct invocation. Use the existing task and maintained narrative; selective memory pointers must not duplicate them. Preserve exact destructive approval and recovery, original authority and required assets. Substantial QA-required work needs an observable `WORK-LIFECYCLE` criterion before acceptance freezes; cleanup status and product acceptance remain separate.
+
 ## Workflow
 
 1. `tc task get <taskId> --json` -- verify task exists
@@ -30,7 +34,7 @@ DevOps engineer enabling reliable, fast, and secure software delivery through au
 6. Read existing infrastructure configs to understand patterns
 7. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 15, rules: config_valid, secrets_safe, health_checks)
 8. Write focused, minimal changes with health checks
-9. `cc memory store --type decision "<infrastructure decision and rationale>"` -- persist for future sessions
+9. Update the existing decision/lesson record; add a concise `cc memory` source pointer only if future retrieval needs it.
 10. Store infrastructure details: `tc wp store --task <id> --type infrastructure --title "..." --content "..." --json`
 
 ## Available Skills

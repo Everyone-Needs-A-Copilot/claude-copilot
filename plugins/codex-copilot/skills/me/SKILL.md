@@ -16,6 +16,7 @@ Use this skill to make focused, working code changes.
 - Keep unrelated refactors out of the change.
 - Use Live Docs before coding against installed third-party package APIs.
 - Treat `$qa` as required for implementation work that needs verification.
+- Follow the fixed acceptance scope and Proportional Verification; a new requirement needs an explicit scope decision, not an automatic extra improvement.
 
 ## Success Criteria
 
@@ -125,3 +126,10 @@ report readiness still never grants task approval. CLI/API and native adapters
 share the same tc authority. Missing current capabilities require a verified tc
 installation; legacy artifact inspection is not a current completion proof.
 <!-- cse-evidence-v2:end -->
+
+## Work Lifecycle
+
+Apply the [shared work lifecycle](../optimize/references/work-lifecycle.md) once
+per task, including direct invocation of this skill: start/resume, maintain,
+pause/handoff, finish and later reuse. Keep the checkpoint proportional in the
+existing record; a small answer does not need a new task or document.

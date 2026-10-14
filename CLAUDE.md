@@ -211,6 +211,12 @@ Agents verify their task exists and check environment health before starting wor
 
 ---
 
+## Work lifecycle
+
+Read `.claude/agents/_shared/work-lifecycle.md` once per task and apply its proportional start/resume, during-work, handoff, finish and later-use checkpoints, including direct invocation. Use the existing task and maintained narrative; selective memory pointers must not duplicate them. Preserve exact destructive approval and recovery, original authority and required assets. Substantial QA-required work needs an observable `WORK-LIFECYCLE` criterion before acceptance freezes; cleanup status and product acceptance remain separate.
+
+Use `/optimize` for accumulated clutter; ordinary work applies the same compact checkpoint without creating another tracker.
+
 ## Agent Shared Behaviors
 
 All agents inherit these. Individual agent files should NOT repeat them.
@@ -219,7 +225,7 @@ All agents inherit these. Individual agent files should NOT repeat them.
 - **Skill Discovery:** Auto-fire from `description`; if needed skills did not surface, `cc skill search "<topic>"` (case-insensitive substring over name/description/tags), then `@include` the returned path. No normal search or `evaluate` step: skills are model-readable markdown.
 - **Live Docs:** Before planning/coding against version-sensitive third-party APIs, use `cc docs get <pkg>`, not API memory. `cc docs resolve <pkg>` identifies the installed version; `cc docs search <pkg> "<query>"` searches it. Local-first/offline/headless; self-owned network fallback requires optional `httpx`.
 - **Memory — Recall at start:** Run `cc memory search "<task topic>"` to recall prior decisions, lessons, and context relevant to the current task.
-- **Memory — Store at end:** After completing meaningful work, run `cc memory store --type <decision|context|lesson|reference> "<content>"` to persist decisions and lessons for future sessions. Do NOT call it "semantic" — it is FTS5 keyword search.
+- **Memory — Selective pointers:** Maintain decisions and lessons in existing task/work products and the canonical narrative. Add a source pointer through `cc memory` only when useful for future retrieval; never automatically duplicate session prose.
 - **Memory commands:** `cc memory store`, `cc memory search`, `cc memory get`, `cc memory list`, `cc memory export` (not MCP `memory_store`/`memory_search`)
 - **Task Copilot Pattern:** `tc task get` → do work → `tc wp store` → `tc task update --status completed`
 - **Code-Execution Path:** For ≥3 related operations, prefer one `python3` Bash block using `tc.api` or `cc.api`; print only the needed summary, avoiding repeated CLI JSON payloads.
@@ -308,16 +314,7 @@ Use `/continue` to load context from Memory Copilot.
 
 ### End of Session
 
-Call `cc memory store --type initiative "<content>"` with session context. Include:
-
-| Field | Content |
-|-------|---------|
-| `completed` | Tasks finished |
-| `inProgress` | Current state |
-| `resumeInstructions` | Next steps |
-| `lessons` | Insights gained |
-| `decisions` | Choices made |
-| `keyFiles` | Important files touched |
+Apply the work-lifecycle pause/handoff or finish checkpoint in the existing task. Preserve original approvals, failed criteria, cumulative execution history and the next owner/action; memory is an optional locator, not another session summary.
 
 ---
 

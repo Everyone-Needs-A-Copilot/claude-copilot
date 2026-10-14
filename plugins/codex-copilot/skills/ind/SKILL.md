@@ -69,3 +69,10 @@ Return an industrial design brief:
 - `$sd` for service journey implications.
 - `$uxd` and `$uids` for digital interaction and visual expression.
 - `$ta` for technical feasibility.
+
+## Work Lifecycle
+
+Apply the [shared work lifecycle](../optimize/references/work-lifecycle.md) once
+per task, including direct invocation of this skill: start/resume, maintain,
+pause/handoff, finish and later reuse. Keep the checkpoint proportional in the
+existing record; a small answer does not need a new task or document.

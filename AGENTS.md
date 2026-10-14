@@ -94,7 +94,7 @@ For three or more related `tc` operations, prefer one `python3` block using `tc.
 
 Formal multi-phase initiatives live in `docs/40-initiatives/NN-slug/`.
 
-- each initiative includes `README.md`, `phases/`, `decisions/`, and `retrospectives/`
+- each initiative starts with one maintained `README.md`; create supporting phase, decision and retrospective files only when current work needs them, never empty scaffolding
 - initiative Markdown stores durable goals, phase design, decisions, validation evidence, and outcomes
 - `tc` remains authoritative for live tasks, dependencies, assignments, work products, and QA status
 - link initiative documents to their `tc` PRD/tasks instead of maintaining a second task board
@@ -115,6 +115,10 @@ This does not change the design-led product creation protocol.
 Passing QA verdicts must be evidence-bound. Valid artifact markers include
 `test-run`, `file-check`, `diff-check`, `screenshot-check`, `a11y-check`, and
 `design-fidelity-check`.
+
+## Work lifecycle
+
+Read `.claude/agents/_shared/work-lifecycle.md` once per task and apply its proportional start/resume, during-work, handoff, finish and later-use checkpoints, including direct invocation. Use the existing task and maintained narrative; selective memory pointers must not duplicate them. Preserve exact destructive approval and recovery, original authority and required assets. Substantial QA-required work needs an observable `WORK-LIFECYCLE` criterion before acceptance freezes; cleanup status and product acceptance remain separate.
 
 ## Framework Rules
 

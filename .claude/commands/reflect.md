@@ -2,6 +2,10 @@
 
 Review session memory for reasoning gaps/errors and store confirmed corrections.
 
+## Work lifecycle
+
+Read `.claude/agents/_shared/work-lifecycle.md` once per task and apply its proportional start/resume, during-work, handoff, finish and later-use checkpoints, including direct invocation. Use the existing task and maintained narrative; selective memory pointers must not duplicate them. Preserve exact destructive approval and recovery, original authority and required assets. Substantial QA-required work needs an observable `WORK-LIFECYCLE` criterion before acceptance freezes; cleanup status and product acceptance remain separate.
+
 ## Overview
 
 End-of-session review uses `cc memory`, replacing removed MCP `correction_*`
@@ -55,11 +59,11 @@ Review the session against what was stored and surface:
 - **Errors** — guidance given that later proved wrong (candidate `lesson` entries).
 - **Stale entries** — memory that is now outdated or contradicted.
 
-Present these as a short list and ask the user which to store, revise, or remove.
+Reconcile these in the existing canonical record, retaining prior authority and contrary evidence. Add a memory locator only if retrieval needs it; obtain exact approval for destructive removal.
 
 ## Step 4: Store Corrections
 
-Persist confirmed corrections as memory entries (pick the type by intent):
+Update the established record first. Only if a new retrieval pointer is useful, choose its memory type below and include the canonical source and applicability boundary; do not copy the full explanation:
 
 ```bash
 # Process/technique that was wrong and is now corrected
@@ -75,9 +79,9 @@ cc memory store --type decision "<revised decision and rationale>."
 cc memory store --type reference "<corrected reference fact>."
 ```
 
-## Step 5: Remove Stale Entries
+## Step 5: Retire Stale Entries Safely
 
-Delete memory that is outdated or was stored in error:
+Age or contradiction alone is not deletion authority. Check consumers and unique history, preserve the correction and original authority, prepare exact entry IDs with verified export/recovery, then request explicit destructive approval. Only after approval:
 
 ```bash
 cc memory delete <entry-id>
@@ -86,7 +90,7 @@ cc memory delete <entry-id>
 ## Edge Cases
 
 If no memory was stored, say "No memory entries found for review" and suggest
-`cc memory store --type decision "…"` while working so future reviews have evidence.
+maintaining a decision and source in the existing task record while working.
 
 ## Retrieval Next Session
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## [5.21.0] — 2026-10-14 — Work lifecycle, learning and repository optimization
+
+Framework **5.21.0**, `cc` **2.14.0**, `tc` **2.5.0**.
+
+- Add `/optimize` and one shared lifecycle contract for protocol, direct specialists, resume, pause, reflection and completion. Checkpoints use existing task records and one maintained narrative; no routine handoff trees or duplicate memory transcripts.
+- Require scoped lesson application and measured later outcomes; preserving a lesson does not establish improved product quality.
+- Make cleanup measurable: preserve required assets and original evidence, verify recovery and dependencies, obtain exact destructive approval, and report net retirement separately from holds.
+- Ship the optimize skill and shared reference through cc activation and reconciliation, preserving project-owned collisions.
+- Remove contradictory automatic memory dumping and mandatory initiative scaffolding.
+- Align the bundled Codex plugin exactly with Codex 0.9.0, including its existing proportional-verification guidance and version metadata.
+- This is a signed source release. Existing installed projects require reviewed adoption; no automatic deletion, model calls or project updates occur.
+
 ## [5.20.0] — 2026-10-10 — Git worktrees share the main checkout's task list
 
 Framework **5.20.0**, `cc` **2.13.10**, `tc` **2.5.0**.

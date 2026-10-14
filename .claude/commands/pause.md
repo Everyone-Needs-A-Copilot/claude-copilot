@@ -2,6 +2,10 @@
 
 Create a named checkpoint of current work to enable easy resumption later.
 
+## Work lifecycle
+
+Read `.claude/agents/_shared/work-lifecycle.md` once per task and apply its proportional start/resume, during-work, handoff, finish and later-use checkpoints, including direct invocation. Use the existing task and maintained narrative; selective memory pointers must not duplicate them. Preserve exact destructive approval and recovery, original authority and required assets. Substantial QA-required work needs an observable `WORK-LIFECYCLE` criterion before acceptance freezes; cleanup status and product acceptance remain separate.
+
 ## Command Argument Handling
 
 This command supports an optional pause reason/name:
@@ -69,14 +73,9 @@ tc task update <id> --status paused --metadata '{"pauseReason":"<reason>","resum
 
 This preserves the pause reason and context directly on the task for later resumption.
 
-## Step 4: Store Pause Context in Memory
+## Step 4: Preserve a Usable Checkpoint
 
-```bash
-# Persist pause context as a memory entry (type:context surfaces at next session
-# start; the decision is recorded separately for the audit trail).
-cc memory store --type context "Paused work: <reason>. Resume with /continue to restore paused tasks (tc task list --status paused)."
-cc memory store --type decision "Paused <N> task(s). Rationale: <reason>."
-```
+Update the existing task/work product with current source identity, exact approvals, failed criteria, cumulative charged usage, pending results, artifact locations and next owner/action. Preserve authoritative journey capsules. Add a memory source pointer only when future retrieval requires it; do not duplicate the checkpoint into context and decision entries.
 
 ## Step 5: Return Confirmation
 

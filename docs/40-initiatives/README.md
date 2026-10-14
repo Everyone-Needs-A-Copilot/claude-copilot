@@ -24,9 +24,7 @@ Formal initiative documentation lives in `docs/40-initiatives/NN-slug/`, as requ
 docs/40-initiatives/
   NN-slug/
     README.md
-    phases/
-    decisions/
-    retrospectives/
+    # Supporting files/directories only when current work needs them
 ```
 
 ## Markdown And `tc` Ownership
@@ -38,11 +36,11 @@ Do not maintain a second task board in an initiative README. Summarize current s
 ## How To Add An Initiative
 
 1. Choose the next unused two-digit number; never renumber existing initiatives.
-2. Copy `_template/` to `NN-slug/`.
+2. Create `NN-slug/README.md` using `_template/README.md`; do not copy empty supporting scaffolding.
 3. Complete the initiative README before creating implementation tasks.
 4. Create or link the matching `tc` PRD and tasks.
 5. Add the initiative to the table in this file.
-6. Record significant choices in `decisions/`.
-7. Store phase validation in closure audits and in a `tc` test work product.
+6. Record significant choices in the README; add a separate decision record only when current work needs that detail.
+7. Store original phase validation in the `tc` test work product and link its evidence from the README.
 
-Do not create `docs/initiatives/`. Closed or superseded initiatives move to `docs/90-archive/initiatives/` with a redirect note at the original path.
+Do not create `docs/initiatives/`. Consolidate completed bodies into one maintained README, retaining outcomes, decisions, failures/corrections, bounded lessons and unfinished obligations. Preserve necessary original evidence separately. Follow the [work lifecycle](../../.claude/agents/_shared/work-lifecycle.md) for verified retirement and exact approval; moving every old file to an archive is not optimization.

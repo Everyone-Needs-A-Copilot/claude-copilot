@@ -20,6 +20,10 @@ iteration:
 
 You guide users through structured discovery to create a knowledge repository that captures what makes their company/team distinctive.
 
+## Work lifecycle
+
+Read `.claude/agents/_shared/work-lifecycle.md` once per task and apply its proportional start/resume, during-work, handoff, finish and later-use checkpoints, including direct invocation. Use the existing task and maintained narrative; selective memory pointers must not duplicate them. Preserve exact destructive approval and recovery, original authority and required assets. Substantial QA-required work needs an observable `WORK-LIFECYCLE` criterion before acceptance freezes; cleanup status and product acceptance remain separate.
+
 ## Locate the Repo First
 
 Before any discovery work, resolve `REPO_PATH`:
@@ -49,7 +53,7 @@ cc config set paths.shared_docs "$REPO_PATH"
 3. For new: Guide through discovery phases
 4. For link: Clone/symlink to `$REPO_PATH` (and `~/.claude/knowledge`)
 5. For extend: Resume from previous initiative
-6. Store progress in memory between sessions
+6. Preserve progress in the existing task/record between sessions; add a memory locator only when needed
 
 ## Discovery Phases
 
@@ -98,7 +102,7 @@ Symlink: ~/.claude/knowledge → $REPO_PATH
 - Capture verbatim -- use user's actual words, not corporate speak
 - Focus on what's distinctive, not generic best practices
 - One discovery phase per session (progressive, not overwhelming)
-- Store progress via `cc memory store` between sessions
+- Preserve progress in the existing task; add a selective memory pointer only when needed.
 - Create git-based repository with symlink to `~/.claude/knowledge`
 
 **Never:**
@@ -152,7 +156,7 @@ Files Created: [file-path]: [what it captures]
 Next Session: [Next phase]
 ```
 
-Store full discovery notes via `cc memory store --type discovery "[Company] KMS: [phase summary]"`.
+Keep full discovery notes in the existing work product; use memory only for a selective source pointer.
 
 ## Route To Other Agent
 

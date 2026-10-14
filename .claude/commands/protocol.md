@@ -2,6 +2,10 @@
 
 You are starting a new conversation. **The Agent-First Protocol is now active.**
 
+## Work lifecycle
+
+Read `.claude/agents/_shared/work-lifecycle.md` once per task and apply its proportional start/resume, during-work, handoff, finish and later-use checkpoints, including direct invocation. Use the existing task and maintained narrative; selective memory pointers must not duplicate them. Preserve exact destructive approval and recovery, original authority and required assets. Substantial QA-required work needs an observable `WORK-LIFECYCLE` criterion before acceptance freezes; cleanup status and product acceptance remain separate.
+
 ## Project Protocol Precedence
 
 **First check the current project's `.claude/commands/protocol.md`.** Claude Code's filename precedence favors this machine copy at `~/.claude/commands/protocol.md`; explicitly check for a project override before routing.
@@ -559,10 +563,7 @@ When beginning a new initiative or major task:
    tc task create --title "<title>" --prd <prd-id> --agent "<agent>" --metadata '{"phase":"<phase>","complexity":"<complexity>"}' --json
    ```
 
-5. **Store session focus in memory:**
-   ```bash
-   cc memory store --type context "Focus: <initiative title> | Active PRD: <prd-id>"
-   ```
+5. **Register lifecycle acceptance before freezing substantial QA work:** name observable learning/application and artifact-disposition evidence. Keep current focus in the task; add a memory locator only when retrieval needs it.
 
 ### Routing to Agents
 
@@ -600,14 +601,7 @@ Use `tc progress` for compact status (~200 tokens):
 
 ### End of Session
 
-Update Memory Copilot with slim context:
-```bash
-cc memory store --type context "Focus: Phase 2 implementation | Next: Continue with TASK-xxx"
-cc memory store --type decision "<strategic decision>"   # repeat for each key decision
-cc memory store --type lesson "<key learning>"           # repeat for each key learning
-```
-
-**Do NOT store task lists in Memory Copilot** - they live in Task Copilot.
+Apply the canonical pause/handoff or finish checkpoint to the existing task and maintained narrative. Store only a selective memory locator if needed; preserve authority, failures, cumulative usage and unfinished obligations.
 
 ---
 
