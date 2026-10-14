@@ -10,6 +10,7 @@ Framework **5.21.2**, `cc` **2.14.1**, `tc` **2.5.0**.
 - Python 3.10 or newer is now stated and enforced everywhere: `/setup`, `/update-copilot`, `project-context.md` and the mypy target said or implied 3.9; `tools/cc/install.sh` and `tools/tc/install.sh` now stop early with a clear message on older Python (macOS system `python3` is 3.9).
 - `/knowledge-copilot` clones the canonical knowledge repo over anonymous HTTPS instead of SSH, and `/setup-project` documents solo mode and the approved-folder step.
 - Existing installed projects need no change.
+- `knowledge-copilot` and `cli-copilot` are now public (MIT), so a solo setup can clone every foundation component anonymously.
 
 ## [5.21.1] — 2026-10-14 — Proactive worktree housekeeping
 
