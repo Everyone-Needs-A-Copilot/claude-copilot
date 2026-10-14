@@ -15,6 +15,24 @@ ask whether to continue. A decline stops without mutation. An existing minimal
 installation is treated as degraded input and repaired through this same
 transaction.
 
+## Solo and organization setups
+
+This command works with or without an organization. When the Mac has no
+organization at all (no `layers.manifest` configured and no inherited
+organization config), `cc` treats it as a **solo setup**: sign-in, the layer
+manifest and organization config are optional, the assessment reports layers as
+`not-configured`, and no signed layer pins are needed. The project is still
+fully wired, including the hook shim, the supported hook registrations and
+`copilot.lock.json`. A solo person gets personal and local content only; signed
+layer resolution starts when an organization is configured. If a layer manifest
+or organization config exists, the full organization checks apply unchanged, so
+a broken or signed-out organization setup still blocks.
+
+The project must sit inside an approved project folder (`projects.roots`). If
+the request step says the project is not inside one, ask the person to confirm
+the folder, then run `cc config add projects.roots "<absolute folder>"`
+(prefer the project folder itself or its parent, never `$HOME`) and retry.
+
 ## 0. Verify the local CLI prerequisites
 
 The cc-owned prerequisite fact must report both Copilot CLIs ready. It rejects
