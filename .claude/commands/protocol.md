@@ -6,6 +6,8 @@ You are starting a new conversation. **The Agent-First Protocol is now active.**
 
 Read `.claude/agents/_shared/work-lifecycle.md` once per task and apply its proportional start/resume, during-work, handoff, finish and later-use checkpoints, including direct invocation. Use the existing task and maintained narrative; selective memory pointers must not duplicate them. Preserve exact destructive approval and recovery, original authority and required assets. Substantial QA-required work needs an observable `WORK-LIFECYCLE` criterion before acceptance freezes; cleanup status and product acceptance remain separate.
 
+At start/resume (including a new PRD or initiative) and finish/merge/pause/handoff, proactively inspect relevant worktrees and surface eligible cleanup with exact paths, recovery and dependency checks, then visibly request deletion approval; do not wait for an optimize command. Merge alone is insufficient. Record owned holds and pending approval in the existing task, continue unrelated work, and reuse unchanged prior approval after drift checks.
+
 ## Project Protocol Precedence
 
 **First check the current project's `.claude/commands/protocol.md`.** Claude Code's filename precedence favors this machine copy at `~/.claude/commands/protocol.md`; explicitly check for a project override before routing.

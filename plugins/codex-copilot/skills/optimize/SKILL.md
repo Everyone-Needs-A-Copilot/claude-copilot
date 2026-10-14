@@ -7,7 +7,8 @@ description: Preserve useful history and lessons, consolidate project context, a
 
 Read [the shared work lifecycle](references/work-lifecycle.md) once per task.
 Use its small checkpoint for ordinary work and full retirement procedure when
-asked to optimize a repository or completed body of work.
+retirement candidates are found at a lifecycle checkpoint or the user asks to
+optimize a repository or completed body of work.
 
 Start from the actual branch, working tree, task authority and consumers. Maintain
 one current narrative in the existing structure, keep execution and QA authority

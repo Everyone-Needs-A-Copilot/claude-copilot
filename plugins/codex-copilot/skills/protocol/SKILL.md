@@ -193,6 +193,8 @@ per task, including direct invocation of this skill: start/resume, maintain,
 pause/handoff, finish and later reuse. Keep the checkpoint proportional in the
 existing record; a small answer does not need a new task or document.
 
+At start/resume (including a new PRD or initiative) and finish/merge/pause/handoff, proactively inspect relevant worktrees and surface eligible cleanup with exact paths, recovery and dependency checks, then visibly request deletion approval; do not wait for an optimize command. Merge alone is insufficient. Record owned holds and pending approval in the existing task, continue unrelated work, and reuse unchanged prior approval after drift checks.
+
 For substantial QA-required work, include an observable `WORK-LIFECYCLE` (or
 equivalent) criterion before acceptance is frozen. QA inspects the maintained
 record, applicable lesson-to-decision/check evidence, recovery/retirement results

@@ -1,5 +1,13 @@
 # Changelog
 
+## [5.21.1] — 2026-10-14 — Proactive worktree housekeeping
+
+Framework **5.21.1**, `cc` **2.14.0**, `tc` **2.5.0**.
+
+- Require scoped worktree disposition at start/resume, including a new PRD or initiative, and at finish, merge, pause or handoff without waiting for `/optimize`.
+- Surface eligible paths in a visible deletion approval request after recovery and dependency checks. Hold unique work and active consumers with an owner and next action; reuse unchanged prior approval after drift checks and keep unrelated new work moving.
+- Clarify protocol and project-template instructions and align the bundled Codex plugin with 0.9.1. These are agent-executed checkpoints, not automatic deletion hooks; installed projects require reviewed adoption.
+
 ## [5.21.0] — 2026-10-14 — Work lifecycle, learning and repository optimization
 
 Framework **5.21.0**, `cc` **2.14.0**, `tc` **2.5.0**.

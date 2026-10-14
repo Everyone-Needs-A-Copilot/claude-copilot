@@ -213,6 +213,8 @@ Agents verify their task exists and check environment health before starting wor
 
 Read and apply `.claude/agents/_shared/work-lifecycle.md` once per task.
 
+At start/resume (including a new PRD or initiative) and finish/merge/pause/handoff, proactively inspect relevant worktrees and surface eligible cleanup with exact paths, recovery and dependency checks, then visibly request deletion approval; do not wait for an optimize command. Merge alone is insufficient. Record owned holds and pending approval in the existing task, continue unrelated work, and reuse unchanged prior approval after drift checks.
+
 Use `/optimize` for accumulated clutter; ordinary checkpoints use existing records.
 
 ## Agent Shared Behaviors
