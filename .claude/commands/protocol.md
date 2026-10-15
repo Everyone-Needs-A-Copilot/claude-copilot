@@ -66,7 +66,12 @@ cc journey begin --task <N> --session <current-session-id> --runtime claude \
 ```
 
 Keep the returned opaque `run_id`. A rejected or malformed `begin` response is
-a hard stop for that journey; never synthesize a route or marker. Question-only
+a hard stop for that journey; never synthesize a route or marker.
+`begin` refuses a route whose specialists' Knowledge cannot be prepared, so a
+rejected `begin` leaves no active journey and dispatch proceeds unframed. If a
+begun journey later cannot progress, close it with `cc journey abandon --run
+<run-id> --session <current-session-id> --reason <slug> --json`; abandonment
+authorizes nothing and is never a substitute for completing an approved route. Question-only
 responses and workflows for which no Task Copilot journey is begun retain their
 existing behavior.
 

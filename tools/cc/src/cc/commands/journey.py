@@ -7,6 +7,7 @@ import json
 import typer
 
 from cc.core.evaluation.journey_runtime import (
+    abandon_run,
     begin_run,
     bind_prompt,
     inspect_run,
@@ -88,6 +89,18 @@ def journey_pause(
 ) -> None:
     del output_json
     _emit(lambda: pause_run(run))
+
+
+@journey_app.command("abandon")
+def journey_abandon(
+    run: str = typer.Option(..., "--run"),
+    session: str = typer.Option(..., "--session"),
+    reason: str = typer.Option(..., "--reason"),
+    output_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Close an unfinished run so it stops gating its session."""
+    del output_json
+    _emit(lambda: abandon_run(run, session_id=session, reason=reason))
 
 
 @journey_app.command("resume")
