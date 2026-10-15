@@ -142,7 +142,7 @@ def test_project_usage_matches_single_task_and_sums_across_tasks(db_path, guarde
     ex.set_budget(calls=10, cost_usd=5, authority=["q1"], db_path=db_path)
     a = begin(db_path, guarded[0], calls=2, usd=".5")
     with get_db(db_path) as conn:
-        project = ex._rounds(conn, guarded[0])[-1]["policy"]["root"]
+        project = ex._default_project(conn)
         single = ex._usage(ex._rows(conn, guarded[0]))
         assert ex._project_usage(conn, project) == {
             "calls": single["calls"],
@@ -154,6 +154,21 @@ def test_project_usage_matches_single_task_and_sums_across_tasks(db_path, guarde
         total = ex._project_usage(conn, project)
     assert total == {"calls": 4, "micros": 750_000}
     settle(db_path, guarded[1], b, calls=3, cost_usd=".5")
+
+
+def test_tasks_registered_against_different_roots_share_the_project_budget(
+    db_path, guarded, tmp_path
+):
+    wt = tmp_path / "linked-worktree"
+    wt.mkdir()
+    (wt / "code.py").write_text("value = 1\n")
+    other = make_task(db_path, guarded[1])
+    v2(db_path, guarded[0])
+    v2(db_path, other, root=wt)
+    ex.set_budget(calls=3, cost_usd=1, authority=["q"], db_path=db_path)
+    settle(db_path, guarded[1], begin(db_path, guarded[0], calls=2, usd=".5"), calls=2, cost_usd=".5")
+    with pytest.raises(ValidationError, match="DECISION NEEDED"):
+        begin(db_path, other, calls=2, usd=".1")  # 2 + 2 > 3 across both roots
 
 
 # --- T4: project budget ------------------------------------------------------------

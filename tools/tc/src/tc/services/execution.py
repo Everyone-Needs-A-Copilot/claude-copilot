@@ -420,16 +420,17 @@ def _default_project(conn):
     return _project_key(database_path(conn).parent.parent)
 
 
-def _project_usage(conn, project):
-    """Lifetime paid usage across every task whose current policy root is ``project``.
+def _project_usage(conn, project=None):
+    """Lifetime paid usage across every task in this project's task database.
 
-    Computed from attempts on each call (running attempts count their full
-    reservation, exactly as ``_usage`` does), so there is no counter to reset.
+    A project is one task database: linked worktrees resolve to their main
+    checkout's database, so they share a budget no matter which source root a
+    task was registered against. Computed from attempts on each call (running
+    attempts count their full reservation, exactly as ``_usage`` does), so there
+    is no counter to reset.
     """
     total = {"calls": 0, "micros": 0}
     for (task_id,) in conn.execute("SELECT task_id FROM execution_limits").fetchall():
-        if _rounds(conn, task_id)[-1]["policy"]["root"] != project:
-            continue
         used = _usage(_rows(conn, task_id))
         total["calls"] += used["calls"]
         total["micros"] += used["micros"]
@@ -497,14 +498,12 @@ def _budget_view(conn, project):
     }
 
 
-def budget_status(*, project=None, db_path=None):
+def budget_status(*, db_path=None):
     with _db(db_path) as conn:
-        return _budget_view(
-            conn, _project_key(project) if project else _default_project(conn)
-        )
+        return _budget_view(conn, _default_project(conn))
 
 
-def set_budget(*, project=None, calls, cost_usd, authority, db_path=None):
+def set_budget(*, calls, cost_usd, authority, db_path=None):
     """Append a lifetime budget round for a project. Only an owner quote raises money.
 
     The quote must be new, and neither figure may drop below the previous round
@@ -514,7 +513,7 @@ def set_budget(*, project=None, calls, cost_usd, authority, db_path=None):
     micros = _micros(cost_usd)
     authority = _authority_list(authority)
     with _db(db_path) as conn:
-        project = _project_key(project) if project else _default_project(conn)
+        project = _default_project(conn)
         prev_calls, prev_micros, rounds = _budget(conn, project)
         known = {a for r in rounds for a in r["authority"]}
         new = [a for a in dict.fromkeys(authority) if a not in known]
@@ -539,7 +538,7 @@ def set_budget(*, project=None, calls, cost_usd, authority, db_path=None):
 def _reserve_within_budget(conn, p, task_id, reserve_calls, reserve_micros):
     if not (reserve_calls or reserve_micros):
         return
-    project = p["root"]
+    project = _default_project(conn)
     budget_calls, budget_micros, _ = _budget(conn, project)
     used = _project_usage(conn, project)
     over_calls = max(0, used["calls"] + reserve_calls - budget_calls)
@@ -1089,7 +1088,8 @@ def migrate_ledgers(*, db_path=None, task_id=None, dry_run=False, backup=True):
             entry["reconciled"] = len(reconcilable)
             report["tasks"].append(entry)
             seed = seeds.setdefault(
-                prior["root"], {"calls": 0, "micros": 0, "authority": [], "tasks": []}
+                _default_project(conn),
+                {"calls": 0, "micros": 0, "authority": [], "tasks": []},
             )
             seed["calls"] += prior["calls"]
             seed["micros"] += prior["micros"]
@@ -1209,7 +1209,7 @@ def snapshot(*, task_id, conn):
     from tc.services.qa import check_task_qa
 
     if v2:
-        budget = _budget_view(conn, p["root"])
+        budget = _budget_view(conn, _default_project(conn))
         remaining = {
             "attempts": p["ceiling_attempts"] - usage["attempts"],
             "calls": budget["remaining_calls"],

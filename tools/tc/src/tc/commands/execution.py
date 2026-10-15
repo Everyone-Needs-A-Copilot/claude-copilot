@@ -72,9 +72,10 @@ execution_app.add_typer(budget_app, name="budget")
 
 
 @budget_app.command("show")
-def budget_show(project: Optional[Path] = None):
-    """Budget, lifetime spend and remaining for a project (default: this one)."""
-    output_json(_call(ex.budget_status, project=project))
+def budget_show():
+    """Budget, lifetime spend and remaining for this project (one task database;
+    linked worktrees share their main checkout's)."""
+    output_json(_call(ex.budget_status))
 
 
 @budget_app.command("set")
@@ -82,13 +83,11 @@ def budget_set(
     calls: int = typer.Option(...),
     usd: float = typer.Option(...),
     authority: List[str] = typer.Option(...),
-    project: Optional[Path] = None,
 ):
     """Append a budget round with lifetime totals. Needs a new verbatim owner quote."""
     output_json(
         _call(
             ex.set_budget,
-            project=project,
             calls=calls,
             cost_usd=usd,
             authority=authority,
