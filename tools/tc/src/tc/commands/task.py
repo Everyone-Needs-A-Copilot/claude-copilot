@@ -1,6 +1,7 @@
 """Task commands for Task Copilot CLI."""
 
 from typing import Optional
+from pathlib import Path
 
 import typer
 
@@ -460,11 +461,12 @@ def task_contract(
 def task_evidence_identity(
     task_id: int = typer.Argument(...),
     json: bool = typer.Option(False, "--json"),
+    root: Optional[Path] = typer.Option(None, "--root"),
 ) -> None:
     """Capture task/source/runtime identity BEFORE running verification."""
     from tc.services.qa_contract import capture_qa_identity
     try:
-        receipt = capture_qa_identity(task_id=task_id, db_path=require_db())
+        receipt = capture_qa_identity(task_id=task_id, root=root, db_path=require_db())
     except (OSError, ValidationError, TaskNotFound) as exc:
         error_exit(str(exc), EXIT_VALIDATION)
     output_json(receipt) if json else print(receipt["identity_line"])

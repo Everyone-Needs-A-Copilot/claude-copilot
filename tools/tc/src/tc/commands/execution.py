@@ -66,6 +66,7 @@ def succeed(
     authority: List[str] = typer.Option(...),
     timeout: Optional[int] = None,
     stale: Optional[int] = None,
+    root: Optional[Path] = None,
 ):
     """Open a successor round. Caps are lifetime totals and can only rise; all
     usage and failures carry forward. Needs a new, verbatim owner --authority."""
@@ -79,6 +80,7 @@ def succeed(
             authority=authority,
             timeout_seconds=timeout,
             stale_seconds=stale,
+            root=root,
         )
     )
 

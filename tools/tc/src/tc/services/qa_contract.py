@@ -155,25 +155,55 @@ def bound_contract(task: dict, conn) -> dict:
     return {"database": str(database_path(conn)), "task_id": task["id"], "title": task["title"], "description": task["description"], "contract": contract}
 
 
-def capture_for_task(task: dict, conn) -> dict:
+def validate_source_root(root: Path, canonical: Path) -> Path:
+    """Allow the project itself or an actual linked worktree of that project."""
+    root, canonical = Path(root).resolve(), Path(canonical).resolve()
+    if root == canonical:
+        return root
+    def common(directory):
+        try:
+            top = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], cwd=directory, stderr=subprocess.DEVNULL, timeout=5)
+            if Path(os.fsdecode(top).strip()).resolve() != directory:
+                raise ValueError()
+            value = subprocess.check_output(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=directory, stderr=subprocess.DEVNULL, timeout=5)
+            return Path(os.fsdecode(value).strip()).resolve()
+        except (OSError, ValueError, subprocess.SubprocessError):
+            raise ValidationError("Source root must be the project or its linked worktree") from None
+    if common(root) != common(canonical):
+        raise ValidationError("Source root belongs to a different repository")
+    return root
+
+
+def capture_for_task(task: dict, conn, *, root=None) -> dict:
     bound = bound_contract(task, conn)
-    root = database_path(conn).parent.parent
+    canonical = database_path(conn).parent.parent
+    registered_root = canonical
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='execution_limits'").fetchone():
+        if conn.execute("SELECT 1 FROM execution_limits WHERE task_id=?", (task["id"],)).fetchone():
+            from tc.services.execution import _policy
+            registered_root = Path(_policy(conn, task["id"])["root"])
+    # An explicitly registered execution root is authoritative even when a task
+    # database coordinates work in another repository. Unregistered overrides
+    # still have to be a genuine linked worktree of the authoritative root.
+    root = validate_source_root(root or registered_root, registered_root)
     sources = source_manifest(root, bound["contract"]["sources"])
     package = Path(__file__).resolve().parents[1]
     runtime = {p.relative_to(package).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(package.rglob("*.py"))}
     identity = {"schemaVersion": CONTRACT_VERSION, "database": bound["database"], "task_id": task["id"],
                 "contract_sha256": digest(bound), "source_sha256": digest(sources), "source_count": len(sources),
                 "runtime": {"python": sys.version, "executable": str(Path(sys.executable).absolute()), "tc_sha256": digest(runtime)}}
+    if root != canonical.resolve():
+        identity["source_root"] = str(root)
     return {"identity": identity, "sources": sources, "identity_line": "IDENTITY: " + json.dumps(identity, sort_keys=True, separators=(",", ":"))}
 
 
-def capture_qa_identity(*, task_id: int, conn=None, db_path=None) -> dict:
+def capture_qa_identity(*, task_id: int, root=None, conn=None, db_path=None) -> dict:
     from tc.services.tasks import get_task, _open_conn, _require_db_path
     owns = conn is None
     if owns:
         conn = _open_conn(_require_db_path(db_path))
     try:
-        return capture_for_task(get_task(task_id=task_id, conn=conn), conn)
+        return capture_for_task(get_task(task_id=task_id, conn=conn), conn, root=root)
     finally:
         if owns:
             conn.close()
@@ -189,7 +219,8 @@ def binding_errors(task: dict, conn, packet: dict) -> list[str]:
         if any(r["expected"] != expected[r["criterion"]] for r in records):
             return ["Evidence expected behavior differs from the task acceptance contract"]
         recorded = json.loads(packet.get("identity") or "null")
-        if recorded != capture_for_task(task, conn)["identity"]:
+        root = recorded.get("source_root") if isinstance(recorded, dict) else None
+        if recorded != capture_for_task(task, conn, root=root)["identity"]:
             return ["QA identity is stale or belongs to a different task, contract, source or runtime"]
         return []
     except (ValidationError, OSError, ValueError, TypeError) as exc:

@@ -16,7 +16,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from tc.db.exceptions import ValidationError
-from tc.services.qa_contract import digest, source_manifest, validate_contract
+from tc.services.qa_contract import digest, source_manifest, validate_contract, validate_source_root
 from tc.services.tasks import _open_conn, _require_db_path, get_task
 
 _TABLES = (
@@ -217,6 +217,7 @@ def succeed_limits(
     authority,
     timeout_seconds=None,
     stale_seconds=None,
+    root=None,
     db_path=None,
 ):
     """Open a successor round: lifetime caps may only rise, nothing is erased.
@@ -282,6 +283,10 @@ def succeed_limits(
             "stale_seconds": stale_seconds,
             "predecessor": previous["round"],
         }
+        if root is not None:
+            # A root correction is a successor, never an edit to old receipts.
+            # Validate against the prior checkout; task databases may be central.
+            p["root"] = str(validate_source_root(root, Path(prior["root"])))
         number = previous["round"] + 1
         conn.execute(
             "INSERT INTO execution_rounds VALUES (?,?,?,?,?,?,?,?,?)",
