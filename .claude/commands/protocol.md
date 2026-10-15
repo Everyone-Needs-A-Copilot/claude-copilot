@@ -282,7 +282,7 @@ Invoking @agent-do for deployment planning...
 
 ## Checkpoint System
 
-**CRITICAL: Explicit approval required.** No auto-proceed. User must explicitly approve to continue.
+**Design-flow checkpoints require explicit approval.** At these checkpoints (sd, uxd, uids, and PRD/design approval) there is no auto-proceed: the user must explicitly approve to continue. Everywhere else, when there is no real decision, state the outcome and proceed.
 
 ### Checkpoint Pattern
 
@@ -308,6 +308,7 @@ Which one?
 - Do not print generic standing options such as change, back, skip, or show the work product; they remain available without being advertised.
 - Put protocol, Task, and WP metadata on one trailing line, never before the outcome.
 - If there is no real decision, do not manufacture options or ask for approval. State the outcome and proceed.
+- Every request that needs the owner's input, from a checkpoint or from a `tc` refusal, carries one line `DECISION NEEDED: <concrete decision>` (for example `DECISION NEEDED: $4 over Convoco budget for 30 more API calls`). This is the only form such a request takes; money beyond the project budget is the only case that also needs a verbatim owner quote.
 - Keep evidence, findings, and file traces in the work product unless one is necessary to understand the decision.
 
 **Verbosity Levels:** Default checkpoint length follows the Output Contract's `$CC_OUTPUT_VERBOSITY` (concise by default). `--verbose` and `--minimal` override it for this invocation only, mapping to `detailed` and a binary-only trim of `concise`, respectively — same content requirements, different length.
@@ -321,7 +322,7 @@ Which one?
 **Request Changes (Option 2):**
 - User says: "No, change X", "Make it do Y instead"
 - Action: Re-invoke agent with user feedback as constraint
-- Iterate until approved or user abandons (max 3 iterations before suggesting restart)
+- Iterate until approved or user abandons; if revisions stop converging, say so and offer a fresh start (the no-progress rule, not a fixed count)
 
 **Skip Stage (Option 3):**
 - User says: "Skip", "Go to next", "3"
@@ -482,14 +483,14 @@ Generic agents bypass Task Copilot and bloat context.
    - Use generic agents (Explore, Plan, general-purpose) for framework tasks
    - Write code directly - always delegate to @agent-me
    - Create PRDs or task lists directly - always delegate to @agent-ta
-   - Auto-proceed at checkpoints - ALWAYS wait for explicit user approval
+   - Auto-proceed at design-flow checkpoints - ALWAYS wait for explicit user approval there
 
 4. **Self-Check Before Each Response:**
    - Am I about to read multiple files? → Delegate to agent
    - Am I about to write code? → Delegate to @agent-me
    - Am I about to create a plan? → Delegate to @agent-ta
    - Am I using a generic agent? → Switch to framework agent
-   - Am I at a checkpoint? → WAIT for explicit user approval
+   - Am I at a design-flow checkpoint? → WAIT for explicit user approval
 
 5. **Time Estimate Prohibition:**
    - NEVER include hours, days, weeks, months, quarters, or sprints in any output
@@ -502,8 +503,7 @@ Generic agents bypass Task Copilot and bloat context.
    - If in active iteration loop: auto-resumes by re-invoking the current agent to continue
    - If no iteration loop: prompts user to continue incomplete work
    - Tracks continuation count in task metadata
-   - Warns if >5 continuations (possible runaway)
-   - Blocks if >10 continuations (runaway protection)
+   - Runaway protection is enforced in code by `tc execution` (hard ceiling per task, halt and report), not by continuation counts
    - Agents can explicitly signal continuation needed: `<thinking>CONTINUATION_NEEDED</thinking>`
 
 ---
@@ -985,8 +985,7 @@ When user requests changes at a checkpoint:
 
 4. Wait for revised checkpoint summary
 5. Present checkpoint again with version note
-6. Track iteration count (warn after 3 iterations):
-   After 3 iterations: "Would you like to proceed with current version or start fresh?"
+6. Track iteration count. If revisions repeat without converging, ask: "Would you like to proceed with current version or start fresh?"
 ```
 
 ### State Tracking

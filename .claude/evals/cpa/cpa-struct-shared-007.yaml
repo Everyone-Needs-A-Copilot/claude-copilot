@@ -1,20 +1,19 @@
 id: cpa-struct-shared-007
-name: Debug-spiral circuit breaker is present
+name: No-progress stop pointer is present
 priority: P1
-description: After three consecutive unsuccessful fix attempts, the agent must stop iterating
-  and ask a diagnostic question rather than keep guessing. This is a runaway-loop guard shared
-  across the roster.
+description: Repeated attempts without a newly passing criterion or new evidence are stopped
+  by tc execution (rule 4); the agent reports instead of retrying. Shared across the roster.
 type: structural
 source:
   type: file
   path: .claude/agents/cpa.md
 assertions:
 - type: contains
-  value: Debug-spiral circuit breaker.
-  description: Debug-spiral breaker named
+  value: No-progress stop.
+  description: No-progress stop named
 - type: contains
-  value: After three consecutive unsuccessful fix attempts on the same problem, stop iterating.
-  description: Three-attempt stop condition present
+  value: "`tc execution` stops attempts"
+  description: Enforcement pointer to tc execution present
 - type: contains
-  value: Name the assumption that may be wrong, and ask one diagnostic question.
-  description: Required diagnostic-question follow-up present
+  value: report the unmet criterion and the suspect assumption
+  description: Report-instead-of-retry follow-up present
