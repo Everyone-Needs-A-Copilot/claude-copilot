@@ -156,6 +156,10 @@ Final messages: `TASK-N`, `WP-N`, external `ARTIFACT: <type>|<detail>`, and one
 Required failures/untested criteria cannot pass. Types: `test-run`, `file-check`,
 `diff-check`, `screenshot-check`, `a11y-check`, `design-fidelity-check`; specify
 failable command/result or inspected property. A bare verdict is invalid.
+Per-criterion results may be written as one `VERDICT: SUPPORTED` or `VERDICT: REJECTED` line per
+`CRITERION`: any REJECTED rejects the packet; approval needs a SUPPORTED line for every criterion.
+A rejection with otherwise complete, current evidence moves the task to rework (the QA gate then
+lets `@agent-me` fix it); incomplete or ambiguous evidence stays blocked.
 Optional adversarial/model checks need explicit scope/budget, never replacing required evidence.
 
 ```text

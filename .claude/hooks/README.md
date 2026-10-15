@@ -15,6 +15,12 @@ The hooks system provides lifecycle-based injection and enforcement for the main
 | `user-prompt-submit.sh` | UserPromptSubmit | Session length cap (500 / 750 turns) | Advisory — systemMessage |
 | `session-start.json` | SessionStart | Protocol injection | Advisory |
 
+### Configuration
+
+| Variable | Effect |
+|----------|--------|
+| `COPILOT_TC_BIN` | Executable the QA gate uses for `task get` / `task check-qa` (command name on `PATH` or absolute path). Default: plain `tc`. Set it when agents record QA through a different runtime (for example a `tc` wrapper in another venv): `tc` binds QA evidence to the runtime that recorded it, so the gate must check with the same one. Commands that invoke this executable (or its basename) get the same safe-prefix treatment as `tc` while the gate is armed. A missing executable fails open for arming (task not validated) and counts as unverified for QA. |
+
 ### Escape Hatches
 
 | Variable | Disables |
@@ -222,12 +228,17 @@ Enforces the mandatory QA checkpoint after `@agent-me` completes. When `subagent
 
 When `@agent-qa` completes, `tc task check-qa` must approve the stored task-bound evidence before the task is removed from `pending_tasks`. A message claiming approval is insufficient.
 
+**Rework state.** If `tc task check-qa` reports exactly `VERDICT is REJECTED` (a clean, well-formed rejection: identity, coverage and every field are valid and the verdict is the only problem), the task moves from `pending_tasks` to `rework_tasks`. It is not approved and does not count as a retry. While only rework tasks remain, the gate allows `Agent` with `subagent_type` `me` or `qa`, `Read`/`Edit`/`Write`, and the safe `tc` commands, and denies everything else. When `@agent-me` stops on the task it is re-armed in `pending_tasks`, and QA must approve it before it clears. Malformed, stale, missing or ambiguous evidence is not a clean rejection: the task stays pending, counts a retry and keeps blocking.
+
+**Header-less QA stops.** If `@agent-qa`'s final message has no `Task: TASK-N` header, the hook checks the session's pending tasks instead of ignoring the stop, so retries still advance.
+
 **State file:** `.claude/hooks/state/qa-gate.json`
 
 ```json
 {
   "<session_id>": {
     "pending_tasks": ["TASK-5"],
+    "rework_tasks": [],
     "retries": { "TASK-5": 1 },
     "history": [
       { "taskId": "TASK-5", "event": "me_completed", "ts": "2026-04-22T..." },
@@ -316,6 +327,7 @@ Manages QA-gate state in response to `@agent-me` and `@agent-qa` subagent comple
 | `agent_type == "me"` with `<promise>CONFUSED</promise>` | Skip gate — decision fork surfaces to user, no `pending_tasks` entry |
 | `agent_type == "me"` (normal completion) | Extract `TASK-N` from the structured `Task:` header, validate it against THIS project's tc database, add to `pending_tasks` only if both succeed |
 | `agent_type == "qa"` with pass verdict | Remove task from `pending_tasks`, clear retry counter |
+| `agent_type == "qa"` with clean rejection (`VERDICT is REJECTED`) | Move task to `rework_tasks` (not a retry); `@agent-me` stop re-arms it as pending |
 | `agent_type == "qa"` with fail verdict | Increment retry counter; after 3 failures, auto-unblock + advisory |
 | Any other agent type | No action |
 

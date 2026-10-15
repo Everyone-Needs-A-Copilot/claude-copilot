@@ -517,15 +517,65 @@ QA_GATE_SAFE_PREFIXES=(
   "pytest"
 )
 
+# TC executable used by the QA gate. COPILOT_TC_BIN (a command name on PATH or
+# an absolute path) overrides plain `tc`, e.g. for a wrapper runtime that
+# records QA evidence. Commands invoking the override are treated as `tc`.
+QA_GATE_TC_BIN="${COPILOT_TC_BIN:-tc}"
+
 is_safe_bash_command() {
   local cmd="$1"
-  local prefix
+  local prefix tc_name
+  if [[ "$QA_GATE_TC_BIN" != "tc" ]]; then
+    tc_name="${QA_GATE_TC_BIN##*/}"
+    if [[ "$cmd" == "${QA_GATE_TC_BIN} "* ]]; then
+      cmd="tc ${cmd#"${QA_GATE_TC_BIN} "}"
+    elif [[ "$cmd" == "${tc_name} "* ]]; then
+      cmd="tc ${cmd#"${tc_name} "}"
+    fi
+  fi
   for prefix in "${QA_GATE_SAFE_PREFIXES[@]}"; do
     if [[ "$cmd" == "${prefix}"* ]]; then
       return 0
     fi
   done
   return 1
+}
+
+# Rework-only state: QA rejected the task with a clean, well-formed verdict.
+# Allow @agent-me (and @agent-qa) dispatch plus read/edit tools so the
+# rejection can be fixed; deny everything else. Never reached while any task
+# is still pending QA.
+_qa_gate_rework_only() {
+  local rework_json="$1"
+  local ids
+  ids="$("$JQ" -r 'join(", ")' <<< "$rework_json" 2>/dev/null)" || ids="unknown"
+
+  if [[ -n "$AGENT_TYPE" && "$TOOL_NAME" != "Agent" ]] && _is_known_agent "$AGENT_TYPE"; then
+    return 0
+  fi
+
+  case "$TOOL_NAME" in
+    Read|Edit|Write)
+      return 0
+      ;;
+    Agent)
+      local subagent_type
+      subagent_type="$("$JQ" -r '.tool_input.subagent_type // ""' <<< "$PAYLOAD" 2>/dev/null)" \
+        || subagent_type=""
+      if [[ "$subagent_type" == "me" || "$subagent_type" == "qa" ]]; then
+        return 0
+      fi
+      deny "QA gate rework: ${ids} was rejected by @agent-qa. Dispatch @agent-me to fix the rejection (then @agent-qa must re-verify); other agents are blocked until it is approved."
+      ;;
+    Bash)
+      local cmd
+      cmd="$("$JQ" -r '.tool_input.command // ""' <<< "$PAYLOAD" 2>/dev/null)" || cmd=""
+      if is_safe_bash_command "$cmd"; then
+        return 0
+      fi
+      ;;
+  esac
+  deny "QA gate rework: ${ids} was rejected by @agent-qa. Only @agent-me (to fix it), @agent-qa, read/edit tools and read-only tc commands are allowed until QA approves."
 }
 
 rule_qa_gate() {
@@ -553,7 +603,21 @@ rule_qa_gate() {
     || { echo "[pretool-check] jq parse failed counting pending_tasks" >&2; return 0; }
   pending_count="${pending_count:-0}"
 
+  # Tasks QA cleanly rejected (rework state). They do not block the fix, but
+  # they are never approved: the implementer's stop re-arms them as pending.
+  local rework_json rework_count
+  rework_json="$("$JQ" -r --arg sid "$SESSION_ID" \
+    '.[$sid].rework_tasks // [] | @json' "$gate_file" 2>/dev/null)" || rework_json="[]"
+  rework_json="${rework_json:-[]}"
+  rework_count="$("$JQ" 'length' <<< "$rework_json" 2>/dev/null)" || rework_count=0
+  rework_count="${rework_count:-0}"
+
+  if [[ "$pending_count" -eq 0 && "$rework_count" -eq 0 ]]; then
+    return 0
+  fi
+
   if [[ "$pending_count" -eq 0 ]]; then
+    _qa_gate_rework_only "$rework_json"
     return 0
   fi
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased] — QA gate: rejections can be reworked
+
+Framework version and `tc` version bump are left to the release. `tc` needs a minor bump (new accepted VERDICT shape).
+
+- **Rejection no longer deadlocks the session.** A clean, well-formed QA rejection (`tc task check-qa` reason exactly `VERDICT is REJECTED`) moves the task to a new `rework_tasks` state in `qa-gate.json`. The gate then allows `@agent-me`, `@agent-qa`, `Read`/`Edit`/`Write` and the safe `tc` commands, and re-arms the task as pending when the implementer stops. Only `tc task check-qa` approval clears it; a rejection never counts as approval and never consumes a retry. Malformed, stale or missing evidence keeps blocking exactly as before.
+- **Retries now advance on every QA stop.** `@agent-qa` stops whose final message had no parseable `Task: TASK-N` header were silently ignored, so the counter stayed put. The hook now falls back to the session's pending tasks, and the header match tolerates markdown emphasis and list markers.
+- **`tc` (evidence validator):** per-criterion verdicts are parsed explicitly. `VERDICT: SUPPORTED` / `VERDICT: REJECTED` lines (one per `CRITERION`) no longer read as "conflicting VERDICT values": any REJECTED is a rejection; approval needs SUPPORTED for every criterion, plus the existing identity and coverage checks. An overall approval next to a REJECTED, two different approvals, or a SUPPORTED count that does not match the criteria stays invalid.
+- **Configurable `tc` executable.** The gate hooks honour `COPILOT_TC_BIN` (default plain `tc`), so a gate can check with the same runtime that recorded the QA evidence (`tc` binds evidence to its recording runtime). Documented in `.claude/hooks/README.md`.
+
 ## [5.21.3] — 2026-10-15 — Journey tracking can no longer lock a session
 
 Framework **5.21.3**, `cc` **2.14.2**, `tc` **2.5.0**.
