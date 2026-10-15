@@ -191,6 +191,16 @@ Because output is measured after it exists, the meter cannot stop the call that 
 
 Compaction removes the measured output from context, so `session-start.sh` zeroes both meters when SessionStart fires with `source: "compact"`, anchored at the transcript's current end so the compacted history is never re-measured. No other event resets the meters. State left by the retired pre-call estimator (no `transcriptPath`) is re-measured from the transcript on first use; its file targets are kept. A missing transcript leaves the meter where it was and says so on stderr.
 
+**What the budget does and does not block.** The budget exists to stop context bloat from large reads and output, so over budget it denies Read, large-read-shaped Bash (`cat`, unbounded `grep`/`find`/`ls -R`, `git diff|log|show`, or a command over 1,000 characters, unless piped to `head`/`tail`/`wc`), and large Write/Edit calls only. Other Bash commands pass with the warning. Always allowed and never counted: Claude Code auto-memory writes (`<claude config dir>/projects/<project>/memory/**`, with `..` traversal rejected). Allowed with a visible `[force-delegate-budget-warn]` line on stderr: a Write/Edit whose content is 8,192 bytes or less (`FD_SMALL_MUTATION_BYTES`). Warning comes first: at 80% of either limit every call is allowed with the same warning prefix before any deny.
+
+**Per-project relaxation.** A project whose instructions say not to delegate can set, in its `.claude/cc/config.json`:
+
+```json
+{"hooks": {"force_delegate": {"mode": "warn"}}}
+```
+
+`enforce` (default) denies as above; `warn` never denies for budget reasons and only prints the over-budget warning; `off` skips the meter entirely. An unknown value is reported on stderr and treated as `enforce`. The file is read from `$CLAUDE_PROJECT_DIR` (the working directory if unset). Destructive-command, `/freeze`, QA-gate and journey gates are unaffected.
+
 `COPILOT_FORCE_DELEGATE=off` bypasses this meter explicitly. For a reviewed exact overage, `COPILOT_FORCE_DELEGATE_BUDGET_OVERRIDE='bytes:reason'` (or `files:reason`) appends a local review entry to `.claude/force-delegate-budget-overrides.jsonl`. Local entries may authorize the same meter/threshold/actual/policy hash again; CI ignores the override environment variable and reads only entries committed in HEAD. A changed total or policy needs a new review. Missing policy or malformed state reports budget unavailability; other dispatcher gates still run.
 
 ### Rule Sets

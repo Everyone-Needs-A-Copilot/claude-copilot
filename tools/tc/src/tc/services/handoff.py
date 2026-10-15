@@ -74,7 +74,12 @@ def handoff_task(
         if task_row is None:
             raise TaskNotFound(f"task #{task_id} not found")
 
+        from tc.services.execution import has_limits, snapshot
+        execution = snapshot(task_id=task_id, conn=conn) if has_limits(task_id=task_id, conn=conn) else None
         details = f"{from_agent} -> {to_agent}: {context}"
+        if execution:
+            import json
+            details += "\nExecution: " + json.dumps(execution)
 
         conn.execute(
             "INSERT INTO agent_log (agent, stream_id, task_id, action, details)"
@@ -96,6 +101,7 @@ def handoff_task(
             "to": to_agent,
             "context": context,
             "status": "handed_off",
+            **({"execution": execution} if execution else {}),
         }
     finally:
         if owns_conn:

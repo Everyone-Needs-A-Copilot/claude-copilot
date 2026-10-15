@@ -338,3 +338,144 @@ explicit installation operation, never a verification fallback. Development
 receipts describe mutable checkouts; release installation uses verified source
 snapshots and publishes cc/tc together with rollback. Ambient PYTHONPATH and
 PYTHONHOME are removed during install verification to prevent checkout borrowing.
+
+## Persistent execution limits
+
+Five rules replace the older pile of overlapping approval and stop rules. The
+first, second and third are policy; the fourth and fifth are enforced here.
+
+1. **Money.** Each project (one task database; linked worktrees share their main checkout's) has one lifetime budget (paid calls and dollars) that
+   only the owner raises, with a verbatim quote. Agents spend inside it silently
+   and ask only when a reservation would exceed it. No budget means `$0`.
+2. **Irreversible or outward actions** (deploy, email, posting, force-push,
+   deleting others' work): ask once per action.
+3. **Real decisions surface as choices.** "No auto-proceed" applies only to
+   design-flow checkpoints; elsewhere proceed when there is no real fork.
+4. **No progress stops the task, with a report and no approval request.** The
+   two-failure prove/diagnose gate per criterion is unchanged. N consecutive
+   attempts (default 3) with no newly passing criterion, no new evidence and no
+   new source stop the task (`no_progress`, message starts `STOPPED:`). A
+   diagnosis checkpoint on changed source reopens it.
+5. **Runaway ceiling.** 50 attempts or 6 hours of cumulative attempt runtime per
+   task, whichever comes first, halts the task (`ceiling_reached`). Restart needs
+   the owner's recorded decision (`tc execution reopen`), not a money quote.
+
+Every request that needs the owner begins `DECISION NEEDED: <concrete decision>`,
+for example `DECISION NEEDED: $4 over Convoco budget for 30 more API calls`.
+
+```sh
+# Policy v2 task: no --attempts, no per-task money
+tc execution register 42 --timeout 900
+tc execution run 42 --criterion DELIVERY -- python run_case.py
+tc execution status 42            # state: idle | no_progress | ceiling_reached | ...
+
+# Project budget (lifetime, append-only; quote must be new, totals can only rise)
+tc execution budget show
+tc execution budget set --calls 200 --usd 20 --authority 'owner: verbatim quote'
+
+# After a ceiling halt and the owner's decision
+tc execution reopen 42 --decision 'owner: continue, the work is converging'
+```
+
+Progress is machine-checked per attempt: it passes a criterion for the first
+time, produces output not seen before for that criterion (digits are ignored, so
+timings do not count as new evidence), or runs on source not tried before.
+Timed-out running attempts that reserved and consumed nothing paid are settled
+`abandoned` (`auto-reconciled: timed out, zero paid`) on `begin`, `status` and
+`reopen`, and count as failures for the two-failure rule; anything paid keeps its
+lock and full charge. Spend is always computed from attempts, never stored as a
+counter, so no API can lower it.
+
+### Migrating existing ledgers
+
+`tc execution migrate --dry-run` lists every legacy (v1) task with its prior state
+and the state it would have under v2, plus the budget each project would receive;
+it writes nothing. Without `--dry-run` it copies the database first
+(`tasks.db.pre-migrate-<timestamp>.bak`), then appends one `execution_rounds` row
+per task. Earlier rounds, attempts, checkpoints and the acceptance contract are
+never rewritten, lifetime attempts count toward the ceiling, and each project's
+budget starts as the sum of its tasks' existing per-task approvals (with their
+verbatim quotes). Tasks holding a paid or unexpired running attempt are skipped
+and reported. Rerunning is a no-op. Older runtimes read a migrated round as a
+plain 50-attempt cap, so they still enforce something.
+
+### Legacy v1 registration (fixed attempt cap)
+
+Passing `--attempts` registers the older policy, which still works unchanged. For
+iterative QA work, register the task's v2 acceptance contract first, then
+freeze its execution budget. Caps belong to the task, not the round label or
+agent process. Registration is immutable; a handoff cannot raise it or erase
+prior attempts. Authorization references are carried verbatim in status and
+handoff output.
+
+```sh
+tc execution register 42 --attempts 3 --calls 12 --usd 1.50 \
+  --timeout 900 --stale 300 --authority 'owner approval: message or WP reference'
+tc execution run 42 --criterion DELIVERY --label qualification \
+  --calls 4 --usd 0.50 --usage-file /absolute/fresh-report.json -- python run_case.py
+tc execution status 42
+```
+
+Choose caps from the actual workload: each AI attempt must have enough allowance
+for its complete write/review/repair/re-review loop. Register before spending;
+do not split a failing criterion into another task to reset its budget.
+`--root` selects the source worktree when the task database is shared.
+
+The runner executes from the registered root without a shell, with a process-group
+timeout, and writes private output/receipt files under
+`.copilot/execution/<task>/<attempt>/`. A fresh usage report supplies
+`network_calls` and `recorded_cost_usd`; missing receipts retain the full reserved
+allowance. Crashed reservations remain outstanding and prevent another attempt.
+Reconcile one with `tc execution settle TOKEN --artifact REPORT`; only supply
+`--calls` and `--usd` when actual measured usage is available. Never infer zero
+spend from a missing report. Overruns are retained and block further spending.
+
+After two failed attempts for a criterion, paid repetition stops. Locate the
+enforcing code, fix the measured cause, and run its corrective regression:
+
+```sh
+tc execution prove 42 --criterion DELIVERY -- python -m pytest tests/test_delivery.py
+tc execution diagnose 42 --criterion DELIVERY --regression /path/from/prove/result.json
+```
+
+The checkpoint must be a runner-recorded passing result on changed, stable
+source. It unlocks diagnosis only; **it does not reset any cumulative cap**.
+The prove command requests strict-stub transport; QA must still judge whether
+the regression proves the cause. A command exit of zero is not a QA verdict.
+
+### Successor ledgers (v1 only)
+
+A successor ledger continues the same task and criteria after a registration is exhausted. It is the only sanctioned way to continue after an exhausted registration. A successor carries all consumed usage and failures forward, requires a new explicit owner authority, can only raise lifetime caps, never resets anything, and is recorded in status lineage. The agent must quote the owner's authority verbatim.
+
+```sh
+tc execution succeed 42 --attempts 40 --calls 200 --usd 6.00 \
+  --authority 'owner approval: verbatim quote or WP reference'
+```
+
+Caps are lifetime totals, not fresh allowances; `status` shows each round, lifetime usage and `remaining` (new cap minus lifetime used). Creation is refused when no registration exists, when no `--authority` differs byte-for-byte from every earlier one, when any cap is below lifetime usage or the predecessor cap, or while an attempt is unsettled. The predecessor row stays immutable and is marked superseded; `register` on that task still accepts only a byte-identical repeat. A successor of a successor follows the same rules. A successor is not a diagnosis: failed-attempt history and blocked states are inherited, and `diagnose` is still required.
+
+`tc worker` requires limits, `--criterion`, and `--max-budget-usd` for QA tasks.
+It reserves before launch and records the native harness's measured cost.
+Legacy non-QA workers retain their existing behavior. Worker model turns are
+not counted as application transport requests. Passing current source-bound QA
+prevents redundant guarded runs and reopening completed passing tasks. Scope
+metadata cannot be widened after registration.
+
+For application transports, call `tc.api.consume_call(token=...,
+db_path=...)` **before each actual outbound request, including retries**. The
+runner exports `TC_EXECUTION_TOKEN` and `TC_EXECUTION_DB`. This atomically counts
+requests and rejects exhausted, expired or source-stale reservations. Retain the
+provider's per-request cost/token bound and report actual total cost at settlement.
+Without that transport integration, request counts/cost are reserved and
+reconciled, not intercepted. Neither this local tool nor its environment flags
+sandbox arbitrary shell commands or block network access by themselves.
+
+Status distinguishes idle, awaiting a result, stale unresolved execution,
+blocked, and terminal task state. Staleness is an overdue-evidence signal, not
+proof a process died. It is checked on demand; no daemon is installed. Use newly
+persisted result artifacts to report progress. Handoffs preserve this state and
+authorization references without turning them into QA approval.
+
+These controls are local execution discipline, not a security boundary against
+an actor who can edit the SQLite database, manufacture reports, or bypass tc.
+Existing QA evidence and test-integrity requirements remain the acceptance gate.

@@ -195,6 +195,22 @@ else
   fi
 fi
 
+# ---------------------------------------------------------------------------
+# 6. pretool-check must be registered exactly once (through the shim). A second,
+#    direct registration ran every Bash/Read/Edit/Write/Agent check twice.
+# ---------------------------------------------------------------------------
+PRETOOL_COUNT="$("$JQ" '[.hooks.PreToolUse[]?.hooks[]?.command | select(test("pretool-check"))] | length' "$SETTINGS_FILE" 2>/dev/null)"
+if [[ "$PRETOOL_COUNT" == "1" ]]; then
+  ok "exactly one PreToolUse entry runs pretool-check"
+else
+  fail "expected exactly one PreToolUse pretool-check registration, found: ${PRETOOL_COUNT:-none}"
+fi
+if "$JQ" -e '[.hooks.PreToolUse[]?.hooks[]?.command | select(test("copilot-hook.sh\"? pretool-check"))] | length == 1' "$SETTINGS_FILE" >/dev/null 2>&1; then
+  ok "the single registration is the copilot-hook.sh shim"
+else
+  fail "the single pretool-check registration is not the copilot-hook.sh shim"
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 if [[ "$FAIL" -gt 0 ]]; then

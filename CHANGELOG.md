@@ -1,5 +1,24 @@
 # Changelog
 
+## [5.22.0] — 2026-10-15 — Execution limits consolidated into five rules
+
+Framework **5.22.0**, `cc` **2.14.2**, `tc` **2.7.0**. Also ships the force-delegate fixes listed under Unreleased below.
+
+- **`tc execution` ships** (merged from `fix/execution-limits`): persistent task scope, evidence checkpoints, the two-failure prove/diagnose gate and successor ledgers.
+- **Policy v2.** `tc execution register` without `--attempts` has no fixed attempt cap. N=3 attempts with no newly passing criterion, no new evidence and no new source stop the task with a `STOPPED:` report (`no_progress`, no approval). A hard ceiling of 50 attempts or 6 hours of attempt runtime halts it (`ceiling_reached`); `tc execution reopen` continues on the owner's recorded decision. Legacy `--attempts` registrations behave exactly as before.
+- **Project budget.** `tc execution budget show|set`: one lifetime, append-only paid-call budget per project (default `$0`), raised only by a new verbatim owner quote. Spending inside it is silent; exceeding it refuses with `DECISION NEEDED: $X over <project> budget for N more paid calls`.
+- **Auto-reconcile.** Timed-out running attempts that reserved and used nothing paid are settled `abandoned`; paid ones keep their lock and full charge.
+- **`tc execution migrate [--dry-run]`** appends a v2 round per legacy task (backup first, history, spend and QA identity untouched) and seeds each project's budget from its existing per-task approvals. Idempotent.
+- **Instructions.** `/protocol` scopes "no auto-proceed" to design-flow checkpoints, documents the `DECISION NEEDED:` convention, and drops the unenforced 3-iteration and continuation counts. The debug-spiral paragraph in every agent and the canonical precedence block now points at the `tc` no-progress stop (evals updated to match). `tests/instructions/test-retired-phrases.sh` keeps the retired text out.
+- **Hooks.** The credential-URL and database-URL block patterns no longer match ordinary commands that merely contain `://`, a colon and an at-sign; `pretool-check` is registered once (via the shim) instead of running twice per tool call.
+
+## [Unreleased] — Force-delegate budget no longer strands small writes
+
+- **Memory writes are never blocked or counted.** Writes and edits to Claude Code auto-memory (`<claude config dir>/projects/<project>/memory/**`) pass the byte/file budget even when it is exhausted, and are excluded from the byte meter. Path traversal is rejected.
+- **Over budget, only large reads/output and large writes are denied.** A Write/Edit of 8,192 bytes or less is allowed with a `[force-delegate-budget-warn]` message; the 80% warning before any deny is unchanged and now covered by a test. The deny text says what is still allowed.
+- **Cheap Bash passes over budget.** Commands that are not shaped like a large read or listing (`git status`, `tc ...`, `mkdir`, `git commit`, anything piped to `head`) are allowed with the warning; `cat`, unbounded `grep`/`find`, `git diff|log|show` and very long commands are still denied.
+- **Per-project relaxation.** `.claude/cc/config.json` `{"hooks":{"force_delegate":{"mode":"enforce|warn|off"}}}` lets a project whose instructions say not to delegate downgrade the deny to a warning or skip the meter. Default is `enforce`; `COPILOT_FORCE_DELEGATE=off` still bypasses. Documented in `.claude/hooks/README.md`. Hook rules live in the machine runtime, so projects inherit the fix on the next framework snapshot install without any per-project file change.
+
 ## [5.21.4] — 2026-10-15 — QA gate: rejections can be reworked
 
 Framework **5.21.4**, `cc` **2.14.2**, `tc` **2.6.0**.
