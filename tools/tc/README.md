@@ -400,6 +400,24 @@ not counted as application transport requests. Passing current source-bound QA
 prevents redundant guarded runs and reopening completed passing tasks. Scope
 metadata cannot be widened after registration.
 
+Omitted evidence dependencies can be added separately without changing the frozen
+acceptance contract or any budget:
+
+```sh
+tc execution add-coverage 42 --source path/to/omitted_harness.py \
+  --authority 'exact authority already recorded on this task' \
+  --reason 'Measured correction lives in this omitted dependency'
+```
+
+This records an immutable successor with exact existing regular files and their
+hashes. It cannot remove sources, change criteria, change roots/caps/timeouts, or
+reset usage/failures. Active attempts must first settle. It does not count as a
+diagnosis: run a fresh offline `prove`, review the actual corrective mechanism,
+then explicitly `diagnose`. Adding coverage changes a fingerprint; it does not
+by itself prove behavior changed. Original receipts and QA runtime identities
+must remain available. These controls validate evidence structure, not the
+semantic adequacy of a test or an operator's authority.
+
 For application transports, call `tc.api.consume_call(token=...,
 db_path=...)` **before each actual outbound request, including retries**. The
 runner exports `TC_EXECUTION_TOKEN` and `TC_EXECUTION_DB`. This atomically counts

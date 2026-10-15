@@ -91,6 +91,18 @@ def status(task: int):
     output_json(_call(ex.execution_status, task_id=task))
 
 
+@execution_app.command("add-coverage")
+def add_coverage(
+    task: int,
+    source: List[str] = typer.Option(...),
+    authority: List[str] = typer.Option(...),
+    reason: str = typer.Option(...),
+):
+    """Add omitted evidence files. Never changes caps, criteria or failure blocks."""
+    output_json(_call(ex.add_source_coverage, task_id=task, sources=source,
+                      authority=authority, reason=reason))
+
+
 @execution_app.command("begin")
 def begin(
     task: int,

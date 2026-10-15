@@ -305,6 +305,60 @@ def succeed_limits(
     return {**p, "round": number}
 
 
+def add_source_coverage(*, task_id, sources, authority, reason, db_path=None):
+    """Audit omitted evidence dependencies without changing acceptance or limits.
+
+    This is supplementary coverage, not new scope or a diagnosis. Old receipts,
+    policy and failure history stay immutable. Reviewers must still prove the
+    measured correction: adding a path changes a fingerprint, not behavior.
+    """
+    if not isinstance(authority, list) or not authority or any(
+        not isinstance(a, str) or not a.strip() for a in authority
+    ):
+        raise ValidationError("Keep explicit authorization references in a nonempty list")
+    if not isinstance(reason, str) or not reason.strip() or len(reason) > 4000:
+        raise ValidationError("Coverage correction requires a bounded reason")
+    with _db(db_path) as conn:
+        prior = _policy(conn, task_id)
+        rows = _rows(conn, task_id)
+        if any(r["state"] == "running" for r in rows):
+            raise ValidationError("An attempt is unsettled; reconcile before adding coverage")
+        # No new spending/scope authority is created by this operation.
+        if not set(authority).issubset(prior["authority"]):
+            raise ValidationError("Coverage must cite authority already recorded for this task")
+        contract = _contract(get_task(task_id=task_id, conn=conn))
+        validate_contract({**contract, "sources": sources})
+        if any(s in prior["sources"] for s in sources):
+            raise ValidationError("Coverage must contain only additional source files")
+        combined = [*prior["sources"], *sources]
+        validate_contract({**contract, "sources": combined})
+        manifest = source_manifest(Path(prior["root"]), sources)
+        if len(manifest) != len(sources) or any(r["kind"] != "file" for r in manifest):
+            raise ValidationError("Supplementary coverage requires existing regular files")
+        previous = _rounds(conn, task_id)[-1]
+        used = _usage(rows)
+        p = {k: v for k, v in prior.items() if k != "round"}
+        p.update(
+            sources=combined,
+            predecessor=previous["round"],
+            new_authority=[],
+            coverage_correction={
+                "added_sources": sources,
+                "authority": list(dict.fromkeys(authority)),
+                "reason": reason,
+                "previous_source": _source(prior),
+                "added_manifest": manifest,
+            },
+        )
+        number = previous["round"] + 1
+        conn.execute(
+            "INSERT INTO execution_rounds VALUES (?,?,?,?,?,?,?,?,?)",
+            (task_id, number, json.dumps(p), previous["round"], previous["created"],
+             time.time(), used["attempts"], used["calls"], used["micros"]),
+        )
+    return {**p, "round": number}
+
+
 def protect_update(conn, task_id, old_metadata, new_metadata, old_status, new_status):
     """Shared task API/CLI mutation guard. Legacy tasks remain compatible."""
     if not conn.execute(
