@@ -33,15 +33,22 @@ def _call(fn, **kwargs):
 @execution_app.command("register")
 def register(
     task: int,
-    attempts: int = typer.Option(...),
+    attempts: Optional[int] = typer.Option(
+        None, help="Legacy v1 fixed attempt cap. Omit for policy v2 (recommended)."
+    ),
     calls: int = 0,
     usd: float = 0,
-    authority: List[str] = typer.Option(...),
+    authority: Optional[List[str]] = typer.Option(None),
     root: Optional[Path] = None,
     timeout: int = 900,
     stale: int = 300,
+    no_progress_n: Optional[int] = None,
+    ceiling_attempts: Optional[int] = None,
+    ceiling_seconds: Optional[int] = None,
 ):
-    """Freeze task scope and cumulative caps; --authority may be repeated."""
+    """Freeze task scope. Policy v2 (no --attempts): no fixed attempt cap, stops on
+    no progress, hard runaway ceiling, paid calls come from the project budget.
+    With --attempts: legacy v1 caps (--authority required, may be repeated)."""
     output_json(
         _call(
             ex.register_limits,
@@ -49,11 +56,75 @@ def register(
             attempts=attempts,
             calls=calls,
             cost_usd=usd,
-            authority=authority,
+            authority=authority or None,
             root=root,
             timeout_seconds=timeout,
             stale_seconds=stale,
+            no_progress_n=no_progress_n,
+            ceiling_attempts=ceiling_attempts,
+            ceiling_seconds=ceiling_seconds,
         )
+    )
+
+
+budget_app = typer.Typer(help="Per-project lifetime paid-call budget (append-only).")
+execution_app.add_typer(budget_app, name="budget")
+
+
+@budget_app.command("show")
+def budget_show(project: Optional[Path] = None):
+    """Budget, lifetime spend and remaining for a project (default: this one)."""
+    output_json(_call(ex.budget_status, project=project))
+
+
+@budget_app.command("set")
+def budget_set(
+    calls: int = typer.Option(...),
+    usd: float = typer.Option(...),
+    authority: List[str] = typer.Option(...),
+    project: Optional[Path] = None,
+):
+    """Append a budget round with lifetime totals. Needs a new verbatim owner quote."""
+    output_json(
+        _call(
+            ex.set_budget,
+            project=project,
+            calls=calls,
+            cost_usd=usd,
+            authority=authority,
+        )
+    )
+
+
+@execution_app.command("reopen")
+def reopen(
+    task: int,
+    decision: str = typer.Option(..., help="Pablo's recorded decision to continue."),
+    ceiling_attempts: Optional[int] = None,
+    ceiling_seconds: Optional[int] = None,
+):
+    """Raise a runaway ceiling after an owner decision. Carries all history."""
+    output_json(
+        _call(
+            ex.reopen_ceiling,
+            task_id=task,
+            decision=decision,
+            ceiling_attempts=ceiling_attempts,
+            ceiling_seconds=ceiling_seconds,
+        )
+    )
+
+
+@execution_app.command("migrate")
+def migrate(
+    task: Optional[int] = None,
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    no_backup: bool = False,
+):
+    """Append a policy-v2 round to v1 tasks and seed the project budget from their
+    existing approvals. Idempotent; history, usage and QA identity are untouched."""
+    output_json(
+        _call(ex.migrate_ledgers, task_id=task, dry_run=dry_run, backup=not no_backup)
     )
 
 
