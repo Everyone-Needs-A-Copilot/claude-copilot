@@ -1,8 +1,8 @@
 # Changelog
 
-## [Unreleased] — QA gate: rejections can be reworked
+## [5.21.4] — 2026-10-15 — QA gate: rejections can be reworked
 
-Framework version and `tc` version bump are left to the release. `tc` needs a minor bump (new accepted VERDICT shape).
+Framework **5.21.4**, `cc` **2.14.2**, `tc` **2.6.0**.
 
 - **Rejection no longer deadlocks the session.** A clean, well-formed QA rejection (`tc task check-qa` reason exactly `VERDICT is REJECTED`) moves the task to a new `rework_tasks` state in `qa-gate.json`. The gate then allows `@agent-me`, `@agent-qa`, `Read`/`Edit`/`Write` and the safe `tc` commands, and re-arms the task as pending when the implementer stops. Only `tc task check-qa` approval clears it; a rejection never counts as approval and never consumes a retry. Malformed, stale or missing evidence keeps blocking exactly as before.
 - **Retries now advance on every QA stop.** `@agent-qa` stops whose final message had no parseable `Task: TASK-N` header were silently ignored, so the counter stayed put. The hook now falls back to the session's pending tasks, and the header match tolerates markdown emphasis and list markers.

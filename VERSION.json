@@ -1,5 +1,5 @@
 {
-  "framework": "5.21.3",
+  "framework": "5.21.4",
   "lastUpdated": "2026-10-15",
   "components": {
     "cc": {
@@ -26,7 +26,7 @@
       ]
     },
     "tc": {
-      "version": "2.5.0",
+      "version": "2.6.0",
       "path": "tools/tc",
       "installCommand": "bash ~/.claude/copilot/tools/tc/install.sh"
     },
