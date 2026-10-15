@@ -158,11 +158,22 @@ def bound_contract(task: dict, conn) -> dict:
 def capture_for_task(task: dict, conn) -> dict:
     bound = bound_contract(task, conn)
     root = database_path(conn).parent.parent
+    # Guarded tasks can execute in a worktree while retaining the shared task
+    # database. Use their frozen execution scope, never the caller's cwd.
+    has_limits = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='execution_limits'"
+    ).fetchone()
+    if has_limits and conn.execute(
+        "SELECT 1 FROM execution_limits WHERE task_id=?", (task["id"],)
+    ).fetchone():
+        from tc.services.execution import _policy
+
+        root = Path(_policy(conn, task["id"])["root"]).resolve(strict=True)
     sources = source_manifest(root, bound["contract"]["sources"])
     package = Path(__file__).resolve().parents[1]
     runtime = {p.relative_to(package).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(package.rglob("*.py"))}
     identity = {"schemaVersion": CONTRACT_VERSION, "database": bound["database"], "task_id": task["id"],
-                "contract_sha256": digest(bound), "source_sha256": digest(sources), "source_count": len(sources),
+                "contract_sha256": digest(bound), "source_root": str(root), "source_sha256": digest(sources), "source_count": len(sources),
                 "runtime": {"python": sys.version, "executable": str(Path(sys.executable).absolute()), "tc_sha256": digest(runtime)}}
     return {"identity": identity, "sources": sources, "identity_line": "IDENTITY: " + json.dumps(identity, sort_keys=True, separators=(",", ":"))}
 
