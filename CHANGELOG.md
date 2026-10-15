@@ -1,5 +1,13 @@
 # Changelog
 
+## [5.21.3] — 2026-10-15 — Journey tracking can no longer lock a session
+
+Framework **5.21.3**, `cc` **2.14.2**, `tc` **2.5.0**.
+
+- `cc journey begin` now checks that Knowledge can be prepared for every specialist in the route before it records anything, and refuses the route otherwise. Previously a route that included a specialist with no extension (for example `sd`) began successfully. Every later `prepare` and `pause` then failed with "Required authenticated Knowledge is unavailable", and the dispatch hook denied every Agent call in that session.
+- New `cc journey abandon --run <id> --session <id> --reason <slug>` closes an unfinished run so it stops gating its session. Abandoning authorizes nothing: only the session that began the run can abandon it, the abandon record must be the run's last row, it binds the dispatch evidence it closes over, and the run can never again prepare, bind or authorize a dispatch. An abandoned run never counts as completed journey evidence.
+- `/protocol` documents both behaviors. Installed projects pick up the updated `protocol.md` on update; no other change is needed.
+
 ## [5.21.2] — 2026-10-14 — Solo setup: `/setup-project` works without an organization
 
 Framework **5.21.2**, `cc` **2.14.1**, `tc` **2.5.0**.

@@ -1,9 +1,9 @@
 {
-  "framework": "5.21.2",
-  "lastUpdated": "2026-10-14",
+  "framework": "5.21.3",
+  "lastUpdated": "2026-10-15",
   "components": {
     "cc": {
-      "version": "2.14.1",
+      "version": "2.14.2",
       "path": "tools/cc",
       "installScript": "tools/cc/install.sh",
       "provides": [
