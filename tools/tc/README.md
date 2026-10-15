@@ -344,7 +344,7 @@ PYTHONHOME are removed during install verification to prevent checkout borrowing
 Five rules replace the older pile of overlapping approval and stop rules. The
 first, second and third are policy; the fourth and fifth are enforced here.
 
-1. **Money.** Each project has one lifetime budget (paid calls and dollars) that
+1. **Money.** Each project (one task database; linked worktrees share their main checkout's) has one lifetime budget (paid calls and dollars) that
    only the owner raises, with a verbatim quote. Agents spend inside it silently
    and ask only when a reservation would exceed it. No budget means `$0`.
 2. **Irreversible or outward actions** (deploy, email, posting, force-push,
