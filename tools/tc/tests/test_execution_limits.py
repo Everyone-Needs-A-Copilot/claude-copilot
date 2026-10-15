@@ -1,5 +1,6 @@
 """Real SQLite/process regressions for persistent scope and attempt limits."""
 
+import re
 import concurrent.futures
 import json
 import sys
@@ -643,7 +644,9 @@ def test_second_successor_chains_lineage_and_authority(db_path, guarded, cli):
 
 def test_cli_succeed_help_and_refusals(db_path, guarded, cli):
     result = cli(["execution", "succeed", "--help"])
-    assert result.exit_code == 0 and "--authority" in result.output
+    # Rich emits ANSI styling when CI forces colour; strip it before matching.
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert result.exit_code == 0 and "--authority" in plain
     refused = cli(
         ["execution", "succeed", str(guarded[0]), "--attempts", "3", "--authority", "x"]
     )
