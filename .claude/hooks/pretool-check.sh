@@ -373,6 +373,21 @@ _FD_JQ_DEFS='
 # Largest Write/Edit payload still allowed once a meter is over budget.
 FD_SMALL_MUTATION_BYTES=8192
 
+# Over budget, a Bash command is "cheap" unless it is shaped to read or list
+# a lot: a content/search/listing tool with no head/tail/-m limiter, or a
+# command too long to be a quick one-liner. Output is only measured after the
+# call, so this is a shape check; the meter still stops the next large read.
+_fd_bash_is_cheap() {
+  local c="$1"
+  [[ ${#c} -le 1000 ]] || return 1
+  if [[ "$c" =~ (^|[;\&\|\(\`[:space:]])(cat|less|more|bat|tac|nl|grep|egrep|fgrep|rg|ag|find|tree|xxd|od|strings|zcat)([[:space:]]|$) ||
+        "$c" =~ (^|[;\&\|[:space:]])(git[[:space:]]+(diff|log|show)|ls[[:space:]]+-[a-zA-Z]*R) ]]; then
+    [[ "$c" =~ \|[[:space:]]*(head|tail|wc)([[:space:]]|$) ]] && return 0
+    return 1
+  fi
+  return 0
+}
+
 rule_force_delegate() {
   [[ "${COPILOT_FORCE_DELEGATE:-}" == "off" ]] && return 0
   if [[ -n "$AGENT_TYPE" ]]; then
@@ -519,6 +534,8 @@ rule_force_delegate() {
       # Write/Edit adds almost nothing, and denying it can strand work
       # (e.g. a note the session must save before it can be compacted).
       relax="small ${TOOL_NAME} of ${mutation_bytes} bytes (limit ${FD_SMALL_MUTATION_BYTES})"
+    elif [[ "$TOOL_NAME" == "Bash" ]] && _fd_bash_is_cheap "$TOOL_COMMAND"; then
+      relax="cheap Bash command (no large read/listing shape)"
     fi
     if [[ -n "$relax" ]]; then
       printf '%s\n' "$state" > "${STATE_FILE}.tmp.$$"
@@ -531,7 +548,7 @@ rule_force_delegate() {
     mv "${STATE_FILE}.tmp.$$" "$STATE_FILE"
     release_lock; trap - EXIT
     _ensure_manifest_loaded
-    deny "Main session budget exceeded (${exceeded}): ${bytes}/${byte_budget} bytes of tool output measured since session start or the last /compact (~${tokens} tokens), ${files}/${file_budget} distinct file targets. Large reads and output are blocked; small Write/Edit calls and auto-memory writes are still allowed. Delegate the remaining work to a framework agent (${VALID_AGENT_LIST}) or run /compact to reset the meter. COPILOT_FORCE_DELEGATE=off is the explicit bypass; a project can relax this in .claude/cc/config.json (hooks.force_delegate.mode = warn|off)."
+    deny "Main session budget exceeded (${exceeded}): ${bytes}/${byte_budget} bytes of tool output measured since session start or the last /compact (~${tokens} tokens), ${files}/${file_budget} distinct file targets. Large reads and output are blocked; small Write/Edit calls, cheap Bash commands and auto-memory writes are still allowed. Delegate the remaining work to a framework agent (${VALID_AGENT_LIST}) or run /compact to reset the meter. COPILOT_FORCE_DELEGATE=off is the explicit bypass; a project can relax this in .claude/cc/config.json (hooks.force_delegate.mode = warn|off)."
   fi
   printf '%s\n' "$state" > "${STATE_FILE}.tmp.$$"
   mv "${STATE_FILE}.tmp.$$" "$STATE_FILE"

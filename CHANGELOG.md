@@ -4,6 +4,7 @@
 
 - **Memory writes are never blocked or counted.** Writes and edits to Claude Code auto-memory (`<claude config dir>/projects/<project>/memory/**`) pass the byte/file budget even when it is exhausted, and are excluded from the byte meter. Path traversal is rejected.
 - **Over budget, only large reads/output and large writes are denied.** A Write/Edit of 8,192 bytes or less is allowed with a `[force-delegate-budget-warn]` message; the 80% warning before any deny is unchanged and now covered by a test. The deny text says what is still allowed.
+- **Cheap Bash passes over budget.** Commands that are not shaped like a large read or listing (`git status`, `tc ...`, `mkdir`, `git commit`, anything piped to `head`) are allowed with the warning; `cat`, unbounded `grep`/`find`, `git diff|log|show` and very long commands are still denied.
 - **Per-project relaxation.** `.claude/cc/config.json` `{"hooks":{"force_delegate":{"mode":"enforce|warn|off"}}}` lets a project whose instructions say not to delegate downgrade the deny to a warning or skip the meter. Default is `enforce`; `COPILOT_FORCE_DELEGATE=off` still bypasses. Documented in `.claude/hooks/README.md`. Hook rules live in the machine runtime, so projects inherit the fix on the next framework snapshot install without any per-project file change.
 
 ## [5.21.4] — 2026-10-15 — QA gate: rejections can be reworked

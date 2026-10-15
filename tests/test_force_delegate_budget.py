@@ -32,7 +32,7 @@ def budget(tmp_path):
     def invoke(tool='Bash', data=None, *, through_shim=False, **overrides):
         payload = {'session_id': 'budget-test', 'tool_name': tool,
                    'transcript_path': str(transcript),
-                   'tool_input': data or {'command': 'echo small'}}
+                   'tool_input': data or {'command': 'cat big.log'}}
         script = 'copilot-hook.sh' if through_shim else 'pretool-check.sh'
         return subprocess.run(
             ['bash', str(hooks / script), 'pretool-check'], cwd=tmp_path,
@@ -308,3 +308,23 @@ def test_explicit_bypass_still_works_and_default_without_config_enforces(budget)
     over_budget(transcript)
     assert invoke('Read', {'file_path': str(root / 'a')}).returncode == 2
     assert invoke('Read', {'file_path': str(root / 'a')}, COPILOT_FORCE_DELEGATE='off').returncode == 0
+
+
+# --- Cheap Bash over budget (task 152, Pablo-approved): pass with a warning; large reads stay governed ---
+
+def test_cheap_bash_passes_over_budget_with_a_warning(budget):
+    _, _, transcript, invoke, _ = budget
+    over_budget(transcript)
+    for command in ('echo small', 'git status', 'git add -A && git commit -m x', 'ls', 'tc task get 1',
+                    'mkdir -p out', 'git log -5 | head -20', 'grep -rn x src | head -20'):
+        result = invoke(data={'command': command})
+        assert result.returncode == 0, command
+        assert 'force-delegate-budget-warn' in result.stderr and 'cheap Bash' in result.stderr
+
+
+def test_large_read_shaped_bash_is_still_denied_over_budget(budget):
+    _, _, transcript, invoke, _ = budget
+    over_budget(transcript)
+    for command in ('cat big.log', 'grep -rn x src', 'find / -name z', 'git diff', 'git log', 'ls -laR /',
+                    'echo ' + 'x' * 1100):
+        assert invoke(data={'command': command}).returncode == 2, command
