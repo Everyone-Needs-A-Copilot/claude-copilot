@@ -544,3 +544,65 @@ def test_cli_budget_migrate_and_reopen_commands(cli, db_path, guarded):
     assert dry.exit_code == 0 and json.loads(dry.output)["tasks"][0]["result"] == "already_v2"
     reopened = cli(["execution", "reopen", str(guarded[0]), "--decision", "Pablo: go"])
     assert reopened.exit_code == 0, reopened.output
+
+
+# --- T10: approval-surface fitness ---------------------------------------------------
+
+OWNER_INPUT_MARKERS = (
+    "owner authority",
+    "new owner decision",
+    "Cumulative task execution limit",
+    "more paid calls",
+)
+
+
+def _message_text(node):
+    import ast
+
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr):
+        return "".join(_message_text(v) for v in node.values)
+    if isinstance(node, ast.FormattedValue):
+        inner = node.value
+        return "DECISION NEEDED: " if getattr(inner, "id", "") == "DECISION" else "{}"
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return _message_text(node.left) + _message_text(node.right)
+    if isinstance(node, ast.Name):
+        return "DECISION NEEDED: " if node.id == "DECISION" else "{}"
+    return "{}"
+
+
+def owner_input_refusals(source):
+    """Every ValidationError whose text asks for owner input -> (text, prefixed)."""
+    import ast
+
+    found = []
+    for node in ast.walk(ast.parse(source)):
+        if (
+            isinstance(node, ast.Call)
+            and getattr(node.func, "id", "") == "ValidationError"
+            and node.args
+        ):
+            text = _message_text(node.args[0])
+            if any(m in text for m in OWNER_INPUT_MARKERS):
+                found.append((text, text.startswith("DECISION NEEDED: ")))
+    return found
+
+
+def test_every_owner_input_refusal_carries_the_decision_marker():
+    from pathlib import Path
+
+    refusals = owner_input_refusals(Path(ex.__file__).read_text())
+    assert len(refusals) >= 5  # non-vacuous: successor, cumulative, budget x2, reopen
+    unmarked = [text for text, prefixed in refusals if not prefixed]
+    assert unmarked == []
+
+
+def test_fitness_check_rejects_an_unmarked_owner_input_refusal():
+    bad = 'raise ValidationError("A successor requires a new explicit owner authority")'
+    good = 'raise ValidationError(DECISION + "a successor requires a new owner authority")'
+    assert owner_input_refusals(bad) == [
+        ("A successor requires a new explicit owner authority", False)
+    ]
+    assert owner_input_refusals(good)[0][1] is True

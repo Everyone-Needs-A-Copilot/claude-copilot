@@ -341,7 +341,68 @@ PYTHONHOME are removed during install verification to prevent checkout borrowing
 
 ## Persistent execution limits
 
-For iterative QA work, register the task's v2 acceptance contract first, then
+Five rules replace the older pile of overlapping approval and stop rules. The
+first, second and third are policy; the fourth and fifth are enforced here.
+
+1. **Money.** Each project has one lifetime budget (paid calls and dollars) that
+   only the owner raises, with a verbatim quote. Agents spend inside it silently
+   and ask only when a reservation would exceed it. No budget means `$0`.
+2. **Irreversible or outward actions** (deploy, email, posting, force-push,
+   deleting others' work): ask once per action.
+3. **Real decisions surface as choices.** "No auto-proceed" applies only to
+   design-flow checkpoints; elsewhere proceed when there is no real fork.
+4. **No progress stops the task, with a report and no approval request.** The
+   two-failure prove/diagnose gate per criterion is unchanged. N consecutive
+   attempts (default 3) with no newly passing criterion, no new evidence and no
+   new source stop the task (`no_progress`, message starts `STOPPED:`). A
+   diagnosis checkpoint on changed source reopens it.
+5. **Runaway ceiling.** 50 attempts or 6 hours of cumulative attempt runtime per
+   task, whichever comes first, halts the task (`ceiling_reached`). Restart needs
+   the owner's recorded decision (`tc execution reopen`), not a money quote.
+
+Every request that needs the owner begins `DECISION NEEDED: <concrete decision>`,
+for example `DECISION NEEDED: $4 over Convoco budget for 30 more API calls`.
+
+```sh
+# Policy v2 task: no --attempts, no per-task money
+tc execution register 42 --timeout 900
+tc execution run 42 --criterion DELIVERY -- python run_case.py
+tc execution status 42            # state: idle | no_progress | ceiling_reached | ...
+
+# Project budget (lifetime, append-only; quote must be new, totals can only rise)
+tc execution budget show
+tc execution budget set --calls 200 --usd 20 --authority 'owner: verbatim quote'
+
+# After a ceiling halt and the owner's decision
+tc execution reopen 42 --decision 'owner: continue, the work is converging'
+```
+
+Progress is machine-checked per attempt: it passes a criterion for the first
+time, produces output not seen before for that criterion (digits are ignored, so
+timings do not count as new evidence), or runs on source not tried before.
+Timed-out running attempts that reserved and consumed nothing paid are settled
+`abandoned` (`auto-reconciled: timed out, zero paid`) on `begin`, `status` and
+`reopen`, and count as failures for the two-failure rule; anything paid keeps its
+lock and full charge. Spend is always computed from attempts, never stored as a
+counter, so no API can lower it.
+
+### Migrating existing ledgers
+
+`tc execution migrate --dry-run` lists every legacy (v1) task with its prior state
+and the state it would have under v2, plus the budget each project would receive;
+it writes nothing. Without `--dry-run` it copies the database first
+(`tasks.db.pre-migrate-<timestamp>.bak`), then appends one `execution_rounds` row
+per task. Earlier rounds, attempts, checkpoints and the acceptance contract are
+never rewritten, lifetime attempts count toward the ceiling, and each project's
+budget starts as the sum of its tasks' existing per-task approvals (with their
+verbatim quotes). Tasks holding a paid or unexpired running attempt are skipped
+and reported. Rerunning is a no-op. Older runtimes read a migrated round as a
+plain 50-attempt cap, so they still enforce something.
+
+### Legacy v1 registration (fixed attempt cap)
+
+Passing `--attempts` registers the older policy, which still works unchanged. For
+iterative QA work, register the task's v2 acceptance contract first, then
 freeze its execution budget. Caps belong to the task, not the round label or
 agent process. Registration is immutable; a handoff cannot raise it or erase
 prior attempts. Authorization references are carried verbatim in status and
@@ -382,7 +443,7 @@ source. It unlocks diagnosis only; **it does not reset any cumulative cap**.
 The prove command requests strict-stub transport; QA must still judge whether
 the regression proves the cause. A command exit of zero is not a QA verdict.
 
-### Successor ledgers
+### Successor ledgers (v1 only)
 
 A successor ledger continues the same task and criteria after a registration is exhausted. It is the only sanctioned way to continue after an exhausted registration. A successor carries all consumed usage and failures forward, requires a new explicit owner authority, can only raise lifetime caps, never resets anything, and is recorded in status lineage. The agent must quote the owner's authority verbatim.
 
