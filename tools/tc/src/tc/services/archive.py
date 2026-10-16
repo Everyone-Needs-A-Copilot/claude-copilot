@@ -42,6 +42,16 @@ _TASK_OWNED = (
     ("work_products", "task_id"),
 )
 
+# These records are not part of the legacy archive format. Moving the task
+# without them strands its execution history; moving the ledger separately
+# would also change lifetime accounting, which currently reads the live DB.
+_EXECUTION_TABLES = (
+    "execution_limits",
+    "execution_attempts",
+    "execution_checkpoints",
+    "execution_rounds",
+)
+
 
 def history_path(db_path: Path) -> Path:
     return Path(str(db_path) + HISTORY_SUFFIX)
@@ -144,12 +154,32 @@ def archivable_ids(conn: sqlite3.Connection, days: int) -> list[int]:
     return sorted(candidates)
 
 
+def _require_supported_history(conn: sqlite3.Connection, src: str, dst: str, ids: list[int]) -> None:
+    """Call under a write lock; neither side may contain unmigratable history."""
+    for schema in (src, dst):
+        for table in _EXECUTION_TABLES:
+            exists = conn.execute(
+                f"SELECT 1 FROM {schema}.sqlite_master WHERE type='table' AND name=?",
+                (table,),
+            ).fetchone()
+            if exists and conn.execute(
+                f"SELECT 1 FROM {schema}.{table} WHERE task_id IN {_in(ids)} LIMIT 1",
+                ids,
+            ).fetchone():
+                raise ValidationError(
+                    "Cannot archive or restore tasks with execution history: "
+                    "the archive format does not yet preserve execution records "
+                    "and lifetime accounting. No source task data was removed."
+                )
+
+
 def _move(conn: sqlite3.Connection, src: str, dst: str, ids: list[int]) -> dict[str, int]:
     """Copy tasks ``ids`` and everything they own from src to dst, then delete from src."""
     counts: dict[str, int] = {}
     where = f"id IN {_in(ids)}"
-    # Copy, committed, before any delete.
+    # Check both sides under the write lock, including interrupted earlier moves.
     conn.execute("BEGIN IMMEDIATE")
+    _require_supported_history(conn, src, dst, ids)
     for table, ref in (("prds", "id"), ("streams", "id")):
         fk = "prd_id" if table == "prds" else "stream_id"
         _copy(conn, src, dst, table,
@@ -160,6 +190,9 @@ def _move(conn: sqlite3.Connection, src: str, dst: str, ids: list[int]) -> dict[
         counts[table] = _copy(conn, src, dst, table, f"{col} IN {_in(ids)}", ids)
     conn.commit()
     conn.execute("BEGIN IMMEDIATE")
+    # Execution records can appear in the gap between the two transactions.
+    # Keep the original (and the safe duplicate) rather than strand that history.
+    _require_supported_history(conn, src, dst, ids)
     for table, col in _TASK_OWNED:
         conn.execute(f"DELETE FROM {src}.{table} WHERE {col} IN {_in(ids)}", ids)
     conn.execute(f"DELETE FROM {src}.tasks WHERE {where}", ids)
