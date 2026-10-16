@@ -1,5 +1,14 @@
 # Changelog
 
+## [5.23.0] - 2026-10-16 - `/optimize` renamed to `/cleanup`
+
+Framework **5.23.0**, `cc` **2.15.0**, `tc` **2.7.0**.
+
+- **Renamed.** The work-lifecycle command and skill are now `/cleanup` and the `cleanup` skill (`.claude/commands/cleanup.md`, `.claude/skills/cleanup/`, Codex `plugins/codex-copilot/skills/cleanup/`, `$cleanup`). The old name read as code or product optimization; the job is retiring accumulated clutter. The canonical procedure, `.claude/agents/_shared/work-lifecycle.md`, now names its section "Finish and clean up".
+- **No alias.** `/optimize` and the `optimize` skill are gone. Earlier entries below keep the old name as history. The `optimize:` protocol keyword and the `optimize` design verb are unrelated and unchanged.
+- **Installer constants follow the rename.** `VERSION.json` `projectCommands`, the canonical lifecycle support-file check, project-integration targets, reconciliation recipes and diagnostics, the `CLAUDE.md` managed block text and `templates/CLAUDE.template.md` now name `cleanup`.
+- **Existing installs keep a stale copy until removed.** The update path never deletes a retired command or skill. A project that recorded the Codex `optimize` skill in `copilot.lock.json` is stopped by the verified-update boundary ("retires framework paths that require an owner-reviewed disposition") until that copy is removed or claimed. Remove `.claude/commands/optimize.md`, `.claude/skills/optimize/` and `plugins/codex-copilot/skills/optimize/` by hand, then update.
+
 ## [5.22.0] — 2026-10-15 — Execution limits consolidated into five rules
 
 Framework **5.22.0**, `cc` **2.14.2**, `tc` **2.7.0**. Also ships the force-delegate fixes listed under Unreleased below.

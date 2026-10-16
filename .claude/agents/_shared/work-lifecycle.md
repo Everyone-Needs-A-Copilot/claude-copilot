@@ -10,7 +10,7 @@ Before freezing substantial QA-required work, include observable `WORK-LIFECYCLE
 
 ## Proactive worktree housekeeping
 
-At start/resume, including a new PRD or initiative, and at finish, merge, pause or handoff, the coordinator inspects relevant project worktrees without waiting for `/optimize`. Use `git worktree list --porcelain` and the existing task's ownership/disposition record; inspect the current project's worktrees only. Recheck changed state rather than repeating full inventories.
+At start/resume, including a new PRD or initiative, and at finish, merge, pause or handoff, the coordinator inspects relevant project worktrees without waiting for `/cleanup`. Use `git worktree list --porcelain` and the existing task's ownership/disposition record; inspect the current project's worktrees only. Recheck changed state rather than repeating full inventories.
 
 For retirement candidates, verify integration into the intended branch, unique commits, tracked/untracked/ignored work, active processes/consumers, links and evidence dependencies. Merge alone never proves eligibility. Hold dirty or unique work until explicitly preserved and dispositioned; hold active dependencies. Each hold names owner, reason and next action. Do not remove another developer's work or the checkout running this session.
 
@@ -26,11 +26,11 @@ A reusable lesson states **applicability → failure → changed decision/check 
 
 Preserve tested identity, approvals, failed criteria, charged usage, pending work, artifact locations and next owner/action in the existing record, retaining authoritative journey/run capsules. Distinguish awaiting results, idle, stale, blocked and complete. A live process is not progress; pausing is not acceptance. The incoming coordinator reconciles handoff against live state, including pending cleanup approval.
 
-## Finish and optimize
+## Finish and clean up
 
 Consolidate completed work into its maintained README/equivalent: outcome, decisions, failures/corrections, bounded lessons and unfinished obligations. Supporting documents require current need; no empty scaffolding. Retain legitimate software, deliverables and evidence separately.
 
-Use this sequence for proactive retirement or explicit `/optimize`:
+Use this sequence for proactive retirement or explicit `/cleanup`:
 
 1. Measure scoped files/directories/bytes and reading path; verify branch, dirty state, unique commits, task authority, consumers, links and evidence dependencies. Age proves nothing.
 2. Distill knowledge into the existing narrative, reconcile contradictions and review preservation fidelity.

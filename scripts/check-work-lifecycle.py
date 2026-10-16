@@ -29,32 +29,32 @@ class LifecycleDelivery(unittest.TestCase):
             root = Path(name)
             self.assertEqual({}, claude_support_files(root, ("protocol.md",)))
             with self.assertRaises(RequestValidationError):
-                claude_support_files(root, ("optimize.md",))
+                claude_support_files(root, ("cleanup.md",))
             canonical = root / ".claude/agents/_shared/work-lifecycle.md"
             canonical.parent.mkdir(parents=True)
             canonical.write_text("contract")
             with self.assertRaises(RequestValidationError):
-                claude_support_files(root, ("optimize.md",))
-            skill = root / ".claude/skills/optimize/SKILL.md"
+                claude_support_files(root, ("cleanup.md",))
+            skill = root / ".claude/skills/cleanup/SKILL.md"
             skill.parent.mkdir(parents=True)
             skill.symlink_to(canonical)
             with self.assertRaises(RequestValidationError):
-                claude_support_files(root, ("optimize.md",))
+                claude_support_files(root, ("cleanup.md",))
             skill.unlink()
             skill.write_text("entrypoint")
-            self.assertEqual(2, len(claude_support_files(root, ("optimize.md",))))
+            self.assertEqual(2, len(claude_support_files(root, ("cleanup.md",))))
 
     def test_all_entrypoints_and_template_reach_contract(self):
         commands, agents = claude_reference_roster(ROOT)
-        self.assertIn("optimize.md", commands)
+        self.assertIn("cleanup.md", commands)
         paths = [ROOT / f".claude/agents/{agent}.md" for agent in agents]
         paths += [ROOT / f".claude/commands/{name}.md" for name in
-                  ("protocol", "continue", "pause", "reflect", "optimize")]
+                  ("protocol", "continue", "pause", "reflect", "cleanup")]
         paths += [ROOT / name for name in ("CLAUDE.md", "AGENTS.md", "templates/CLAUDE.template.md")]
         for path in paths:
             with self.subTest(path=str(path.relative_to(ROOT))):
                 self.assertIn(".claude/agents/_shared/work-lifecycle.md", path.read_text())
-        skill = ROOT / ".claude/skills/optimize/SKILL.md"
+        skill = ROOT / ".claude/skills/cleanup/SKILL.md"
         self.assertTrue((skill.parent / "../../agents/_shared/work-lifecycle.md").is_file())
         self.assertLess(len((ROOT / ".claude/agents/_shared/work-lifecycle.md").read_text().split()), 1000)
 
@@ -80,7 +80,7 @@ class LifecycleDelivery(unittest.TestCase):
                 self.assertIn(relative, {item["path"] for item in _framework_files(ROOT, "claude")})
                 self.assertIn(relative, _claude_support_paths(ROOT))
                 _validate_relative_target("claude", relative)
-            skill = target / ".claude/skills/optimize/SKILL.md"
+            skill = target / ".claude/skills/cleanup/SKILL.md"
             skill.parent.mkdir(parents=True)
             skill.write_text("project-owned content")
             _, collisions = _claude_plan(target, ROOT)

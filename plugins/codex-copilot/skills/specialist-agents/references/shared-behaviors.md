@@ -164,7 +164,7 @@ content. Optional duplicates remain in `excluded[]` as `duplicate-content`.
 
 ## Work Lifecycle
 
-Read [the runtime-neutral lifecycle](../../optimize/references/work-lifecycle.md)
+Read [the runtime-neutral lifecycle](../../cleanup/references/work-lifecycle.md)
 once per task. It governs direct specialist work as well as protocol routing,
 including proportionate checkpoints and later measurement of lesson application.
 The coordinator owns continuity and artifact disposition; QA owns evidence-bound

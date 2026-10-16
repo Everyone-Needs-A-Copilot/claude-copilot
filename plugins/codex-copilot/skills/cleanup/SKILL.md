@@ -1,14 +1,14 @@
 ---
-name: optimize
+name: cleanup
 description: Preserve useful history and lessons, consolidate project context, and retire unnecessary artifacts after dependency, recovery and exact approval checks. Use for repository cleanup or work lifecycle checkpoints; not application performance optimization.
 ---
 
-# Optimize
+# Cleanup
 
 Read [the shared work lifecycle](references/work-lifecycle.md) once per task.
 Use its small checkpoint for ordinary work and full retirement procedure when
 retirement candidates are found at a lifecycle checkpoint or the user asks to
-optimize a repository or completed body of work.
+clean up a repository or completed body of work.
 
 Start from the actual branch, working tree, task authority and consumers. Maintain
 one current narrative in the existing structure, keep execution and QA authority

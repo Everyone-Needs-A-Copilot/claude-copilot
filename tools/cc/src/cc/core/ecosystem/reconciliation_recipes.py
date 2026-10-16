@@ -90,8 +90,8 @@ _COMPONENT_TARGETS: Mapping[str, tuple[str, ...]] = MappingProxyType(
             ".claude/commands/extensions.md",
             ".claude/commands/orchestrate.md",
             ".claude/commands/reflect.md",
-            ".claude/commands/optimize.md",
-            ".claude/skills/optimize/SKILL.md",
+            ".claude/commands/cleanup.md",
+            ".claude/skills/cleanup/SKILL.md",
             ".claude/fitness-check.sh",
             ".claude/hooks/copilot-hook.sh",
             ".claude/settings.json",
@@ -180,7 +180,7 @@ _CLAUDE_BLOCK = (
     "project-specific instructions in this file and the installed `.claude/` "
     "capabilities. Read `.claude/agents/_shared/work-lifecycle.md` when installed "
     "for proportional learning, handoff and verified retirement checkpoints; "
-    "use `/optimize` for accumulated clutter.\n"
+    "use `/cleanup` for accumulated clutter.\n"
     "<!-- cc:project-integration:claude:v1:end -->\n"
 )
 

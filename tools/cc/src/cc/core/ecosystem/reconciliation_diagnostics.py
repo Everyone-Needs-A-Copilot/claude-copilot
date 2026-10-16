@@ -118,7 +118,7 @@ _TARGETS = {
     ".claude/memory/.gitignore",
     ".claude/memory/entries/.gitkeep",
     ".claude/skills/codex-copilot",
-    ".claude/skills/optimize/SKILL.md",
+    ".claude/skills/cleanup/SKILL.md",
     ".codex-copilot.json",
     ".mcp.json",
     "AGENTS.md",

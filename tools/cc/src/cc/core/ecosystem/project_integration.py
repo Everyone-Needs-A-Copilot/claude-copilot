@@ -77,7 +77,7 @@ def _customized_framework_path_allowed(component: str, relative: str) -> bool:
         parts = PurePosixPath(relative).parts
         return relative in (*_CLAUDE_REQUIRED_LOCK_PATHS,
             ".claude/agents/_shared/work-lifecycle.md",
-            ".claude/skills/optimize/SKILL.md",
+            ".claude/skills/cleanup/SKILL.md",
         ) or (
             len(parts) == 3
             and parts[:2] == (".claude", "commands")
@@ -124,7 +124,7 @@ _CLAUDE_RELEVANT_PATHS = (
     ".claude/hooks/copilot-hook.sh",
     ".claude/settings.json",
     ".claude/agents",
-    ".claude/skills/optimize",
+    ".claude/skills/cleanup",
     ".claude/evals",
     ".claude/cc/config.json",
     ".claude/memory/entries/.gitkeep",
@@ -1270,7 +1270,7 @@ def _missing_action_targets(
     if component == "claude":
         targets = (*targets, *sorted(
             p for p in source_files
-            if p.startswith((".claude/commands/", ".claude/skills/optimize/"))
+            if p.startswith((".claude/commands/", ".claude/skills/cleanup/"))
         ))
     missing = [path for path in targets if not (root / path).exists()]
     if component == "claude":

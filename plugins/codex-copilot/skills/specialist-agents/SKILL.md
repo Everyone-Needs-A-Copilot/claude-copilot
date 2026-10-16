@@ -51,7 +51,7 @@ Core roles:
 
 ## Work Lifecycle
 
-Apply the [shared work lifecycle](../optimize/references/work-lifecycle.md) once
+Apply the [shared work lifecycle](../cleanup/references/work-lifecycle.md) once
 per task, including direct invocation of this skill: start/resume, maintain,
 pause/handoff, finish and later reuse. Keep the checkpoint proportional in the
 existing record; a small answer does not need a new task or document.

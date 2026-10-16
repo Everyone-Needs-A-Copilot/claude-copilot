@@ -92,14 +92,14 @@ def claude_reference_roster(
 def claude_support_files(source: Path, commands: Sequence[str]) -> dict[str, Path]:
     """Required local references for commands declared by this framework.
 
-    Keep older installations readable; a release declaring optimize must ship
+    Keep older installations readable; a release declaring cleanup must ship
     both its thin skill and canonical lifecycle, never a dangling command.
     """
-    if "optimize.md" not in commands:
+    if "cleanup.md" not in commands:
         return {}
     paths = (
         ".claude/agents/_shared/work-lifecycle.md",
-        ".claude/skills/optimize/SKILL.md",
+        ".claude/skills/cleanup/SKILL.md",
     )
     files = {relative: source / relative for relative in paths}
     if any(not path.is_file() or path.is_symlink() for path in files.values()):
