@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.23.1] - 2026-10-17 - Owner-requested behavior changes update the checks they make obsolete
+
+Framework **5.23.1**, `cc` **2.15.0**, `tc` **2.7.0**, agents **5.9.1**.
+
+- **Obsolete checks no longer wait for approval.** The verification policy used to require explicit authority before a check made obsolete by a behavior change could be updated. Now a behavior change the owner requested is that authority: update the checks, record old/new expectations, rationale and exact changed files in the work product, and report it without asking. Ask only when the change was not requested, or when a failing check reveals a real defect, which is fixed in the product, never by weakening, skipping or deleting the check. "Never weaken, skip or delete assertions to hide defects" is unchanged.
+- **One text, every copy.** `.claude/agents/_shared/verification-policy.md`, its embeds in `me.md` and `qa.md`, and the Codex reference copy under `plugins/codex-copilot/skills/specialist-agents/references/` carry the same rule. The sentence "Escalate undecided authority/behavior" is dropped; the "Ask only when" clause replaces it.
+- **Test.** `tests/instructions/test-verification-policy.sh` asserts the new sentence and the retained "Never weaken, skip or delete assertions" sentence, and rejects the old obsolete-migration wording. The two assertions that required the retired "explicit authority" and "negative control" wording were replaced by the new-rule assertions.
 ## [5.23.0] - 2026-10-16 - `/optimize` renamed to `/cleanup`
 
 Framework **5.23.0**, `cc` **2.15.0**, `tc` **2.7.0**.
