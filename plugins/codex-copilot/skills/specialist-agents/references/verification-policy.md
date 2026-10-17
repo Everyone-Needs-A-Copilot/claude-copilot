@@ -76,11 +76,17 @@ Keep the comparison base fixed. Receipt schema 1 requires:
   unstaged-plus-staged and cached diffs against the base, using `git diff
   --no-ext-diff --no-textconv --binary --no-renames`, restricted to sorted changed
   grading paths. Content hashes also bind untracked test files.
-- `negativeControl`: command argument array, nonzero `exitCode`, `rejectedBehavior`,
-  repository-relative artifact `path` and its `sha256`. Capture a real rejection of
-  the targeted broken behavior in a disposable copy; do not invent a log or status.
+- `changeBasis`: `owner-requested-obsolete-check` when the owner requested a behavior
+  change that makes the checks obsolete (the request is the authority; `authorizationRef`
+  cites it and no separate approval is needed), or `defect-detection` for new or changed
+  checks that must detect a defect. Absent means `defect-detection`.
+- `negativeControl`: required unless `changeBasis` is `owner-requested-obsolete-check`
+  (optional there, validated if supplied): command argument array, nonzero `exitCode`,
+  `rejectedBehavior`, repository-relative artifact `path` and its `sha256`. Capture a
+  real rejection of the targeted broken behavior in a disposable copy; do not invent a
+  log or status.
 
 The gate detects missing/stale evidence, not whether these claims are true. QA must
-review authority, exact assertions and the negative control before source-bound tc
+review authority, exact assertions and any negative control before source-bound tc
 approval; receipt success alone is not a pass. `tests/test_verification_policy.py`
 contains a synthetic format example and adversarial fixtures, not reusable authority.

@@ -1,5 +1,13 @@
 # Changelog
 
+## [5.23.2] - 2026-10-17 - Codex reference copies resynced; foundation entrypoint fixture completed
+
+Framework **5.23.2**, `cc` **2.15.0**, `tc` **2.7.0**, agents **5.9.1**.
+
+- **Codex `shared-behaviors.md` was out of sync.** Its Optional Context block still carried the pre-condensation wording, while the canonical `.claude/agents/_shared/optional-context.md` had been condensed in the delivery-evidence work (`062cff0`). `tests/instructions/test-optional-context-surfaces.sh` failed on that copy on a clean checkout. The copy is resynced byte for byte from the canonical source; the test and its assertions are unchanged.
+- **Codex `verification-policy.md` mirrors the receipt change.** The vendored Codex reference now matches codex-copilot 0.10.2: a test-change receipt whose `changeBasis` is `owner-requested-obsolete-check` records the old/new expectation, rationale and changed files and needs no negative control; `defect-detection` or unlabeled receipts still do.
+- **`test_foundation_entrypoint` fixture.** `test_canonical_consumer_setup_then_shared_verification` failed locally whenever a sibling `codex-copilot` checkout existed (CI has none and skips it). Its staged Claude source lacked `.claude/skills/cleanup`, which the 5.23.0 lifecycle support-file check requires, so the Claude installer read as unverifiable and the plan held. The fixture now stages that skill; no assertion changed.
+
 ## [5.23.1] - 2026-10-17 - Owner-requested behavior changes update the checks they make obsolete
 
 Framework **5.23.1**, `cc` **2.15.0**, `tc` **2.7.0**, agents **5.9.1**.
