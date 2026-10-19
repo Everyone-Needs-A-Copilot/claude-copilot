@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json as json_mod
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -42,7 +43,9 @@ _DEPLOY_CLI_CONFIG_KEY = "deploy.cli"
 #: Fallback used when the config key is absent.  Written here as a constant so
 #: the framework code contains no hardcoded vendor name — the default is the
 #: constant, and users who never set the config key get the same behaviour.
-_DEPLOY_CLI_DEFAULT = "python -m copilot_cli"
+#: ``python3``, not ``python``: macOS and many Linux distributions ship no bare
+#: ``python``, so that default failed before the CLI was ever reached.
+_DEPLOY_CLI_DEFAULT = "python3 -m copilot_cli"
 
 
 def _get_deploy_cli() -> list[str]:
@@ -51,7 +54,8 @@ def _get_deploy_cli() -> list[str]:
     Resolution order (highest wins):
       1. CC_DEPLOY_CLI environment variable
       2. deploy.cli key in cc machine or project config
-      3. Built-in default: ``python -m copilot_cli``
+      3. Built-in default: ``python3 -m copilot_cli`` (``python`` only when no
+         ``python3`` is on PATH)
 
     The returned list is ready to prepend to subprocess args, e.g.::
 
@@ -74,7 +78,10 @@ def _get_deploy_cli() -> list[str]:
     except Exception:
         pass
 
-    return shlex.split(_DEPLOY_CLI_DEFAULT)
+    default = shlex.split(_DEPLOY_CLI_DEFAULT)
+    if default[0] == "python3" and not shutil.which("python3") and shutil.which("python"):
+        default[0] = "python"
+    return default
 
 
 def _run_copilot(args: list[str]) -> subprocess.CompletedProcess:
@@ -133,8 +140,11 @@ def _trigger_deploy(app_id: str, force: bool) -> str:
             EXIT_BAD_CONFIG,
         )
 
-    # The Coolify API returns {"deployment_uuid": "...", "message": "..."}
-    # or a list of such dicts for tag deploys.
+    # The Coolify /deploy endpoint returns {"deployments": [{"deployment_uuid":
+    # "...", "resource_uuid": "...", "message": "..."}, ...]}. A bare dict
+    # carrying deployment_uuid, or a bare list of them, is also accepted.
+    if isinstance(data, dict) and isinstance(data.get("deployments"), list):
+        data = data["deployments"]
     if isinstance(data, list):
         if not data:
             error_exit(

@@ -1,5 +1,14 @@
 # Changelog
 
+## [5.23.3] - 2026-10-19 - `tc deploy wait` reaches the deploy CLI and reads Coolify's trigger response
+
+Framework **5.23.3**, `cc` **2.15.0**, `tc` **2.7.1**, agents **5.9.1**.
+
+- **Default deploy CLI runs `python3`.** With no `CC_DEPLOY_CLI` and no `deploy.cli` config, `tc deploy wait` ran `python -m copilot_cli`. macOS and many Linux distributions ship no bare `python`, so the deploy step failed before reaching CLI Copilot. The default is now `python3 -m copilot_cli`, falling back to `python` only when no `python3` is on PATH. Explicit `CC_DEPLOY_CLI` and `deploy.cli` settings are unchanged.
+- **Trigger response shape.** Coolify's `/deploy` endpoint returns `{"deployments": [{"deployment_uuid": ..., "resource_uuid": ..., "message": ...}]}`, but `tc` read only a bare dict or list carrying `deployment_uuid`, so a real trigger stopped with "missing 'deployment_uuid'". The envelope is now unwrapped and its first deployment polled; an empty envelope still exits 4. The bare dict and list shapes still work.
+- **Tests.** `tools/tc/tests/test_deploy.py` adds four cases: the `python3` default, the `python` fallback, the `deployments` envelope and an empty envelope. No existing assertion changed.
+- **Found by** a consumer release (The Herd microsite, releases 19 and 20) that pushed and queued its deployment but had to be finished by hand. The companion fix, the Coolify commands honouring the CLI's global `--json`, ships in cli-copilot-internal.
+
 ## [5.23.2] - 2026-10-17 - Codex reference copies resynced; foundation entrypoint fixture completed
 
 Framework **5.23.2**, `cc` **2.15.0**, `tc` **2.7.0**, agents **5.9.1**.

@@ -175,6 +175,26 @@ class TestGetDeployCli:
             result = _get_deploy_cli()
         assert result == shlex.split(_DEPLOY_CLI_DEFAULT)
 
+    def test_default_is_python3_not_bare_python(self):
+        """The default runs python3: macOS ships no bare `python`, so `python -m` never reached the CLI."""
+        from tc.commands.deploy import _get_deploy_cli
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CC_DEPLOY_CLI", None)
+            with patch("tc.commands.deploy.shutil.which", side_effect=lambda n: f"/usr/bin/{n}" if n == "python3" else None):
+                result = _get_deploy_cli()
+        assert result == ["python3", "-m", "copilot_cli"]
+
+    def test_default_uses_python_only_without_python3(self):
+        """With no python3 on PATH but a python, the default falls back to python."""
+        from tc.commands.deploy import _get_deploy_cli
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CC_DEPLOY_CLI", None)
+            with patch("tc.commands.deploy.shutil.which", side_effect=lambda n: "/usr/bin/python" if n == "python" else None):
+                result = _get_deploy_cli()
+        assert result == ["python", "-m", "copilot_cli"]
+
     def test_env_var_overrides_default(self):
         """CC_DEPLOY_CLI env var wins over everything."""
         from tc.commands.deploy import _get_deploy_cli
@@ -765,6 +785,29 @@ class TestTriggerParsing:
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["deployment_uuid"] == "uuid-first"
+
+    def test_deployments_envelope_uses_first_item(self, cli):
+        """The Coolify /deploy endpoint wraps queued deployments in {"deployments": [...]}."""
+        trigger_stdout = json.dumps(
+            {
+                "deployments": [
+                    {"message": "Application deployment queued.", "resource_uuid": "app-uuid", "deployment_uuid": "uuid-env"}
+                ]
+            }
+        )
+        with patch("tc.commands.deploy._run_copilot") as mock_copilot:
+            mock_copilot.side_effect = _copilot_mock(trigger_stdout=trigger_stdout)
+            result = cli(["deploy", "wait", "app-uuid", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["deployment_uuid"] == "uuid-env"
+        assert data["deploy_status"] == "success"
+
+    def test_empty_deployments_envelope_exits_4(self, cli):
+        with patch("tc.commands.deploy._run_copilot") as mock_copilot:
+            mock_copilot.side_effect = _copilot_mock(trigger_stdout=json.dumps({"deployments": []}))
+            result = cli(["deploy", "wait", "app-uuid"])
+        assert result.exit_code == 4
 
     def test_missing_uuid_exits_4(self, cli):
         bad_response = json.dumps({"message": "no uuid here"})
