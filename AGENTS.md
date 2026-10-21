@@ -14,7 +14,7 @@
 - Claude runtime guardrails, hook schemas, `@agent-*` routing, and slash commands describe the product maintained here; they are not Codex runtime features. Apply Codex specialist playbooks locally unless the user requests delegation.
 - Read the relevant development guidance in `CLAUDE.md` when maintaining framework assets, and the corresponding `tools/cc/` or `tools/tc/` documentation when changing those tools. Do not import Claude session/delegation instructions into Codex.
 - Before publishing/notarization, read `docs/30-operations/20-notarization-credentials.md`.
-- Keep shared project requirements consistent between CLAUDE.md and AGENTS.md; preserve their scope and keep tool-specific instructions in the appropriate entrypoint.
+- Keep shared rules consistent across CLAUDE.md and AGENTS.md; preserve scope and place tool-specific rules in their own entrypoint.
 
 ## Project Commands
 

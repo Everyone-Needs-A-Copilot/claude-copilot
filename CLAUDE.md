@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code when working with the Claude Copilot framework.
+Claude Code guidance for the Claude Copilot framework.
 
 ---
 
@@ -355,4 +355,4 @@ Use dependency chains, phases, priority levels, and complexity ratings instead.
 ## Project Rules
 
 - Before publishing/notarization, read `docs/30-operations/20-notarization-credentials.md`.
-- Keep shared project requirements consistent between CLAUDE.md and AGENTS.md; preserve their scope and keep tool-specific instructions in the appropriate entrypoint.
+- Keep shared rules consistent across CLAUDE.md and AGENTS.md; preserve scope and place tool-specific rules in their own entrypoint.
