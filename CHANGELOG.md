@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+
+- `/setup-project` asks for optional project identity after a newly applied, verified setup, preserving existing descriptions and skipped answers. Current project-owned instruction behavior supersedes PR #99’s older byte-for-byte managed-block proposal.
+
 ## [5.23.3] - 2026-10-19 - `tc deploy wait` reaches the deploy CLI and reads Coolify's trigger response
 
 Framework **5.23.3**, `cc` **2.15.0**, `tc` **2.7.1**, agents **5.9.1**.
