@@ -5,22 +5,39 @@
   "plugins": [
     {
       "name": "claude-copilot",
-      "version": "5.15.15",
-      "description": "Claude Copilot — specialized agents (ta/me/qa/sd/do/doc/kc), skills, commands, and hooks that give Claude persistent memory, expert methodology, and task tracking.",
+      "version": "5.23.3",
+      "description": "Claude Copilot \u2014 specialized agents (ta/me/qa/sd/do/doc/kc), skills, commands, and hooks that give Claude persistent memory, expert methodology, and task tracking.",
       "author": "Claude Copilot contributors",
       "homepage": "https://github.com/pabloalej/claude-copilot",
       "manifest": ".claude-plugin/plugin.json",
-      "tags": ["agents", "memory", "tasks", "skills", "hooks", "framework"],
+      "tags": [
+        "agents",
+        "memory",
+        "tasks",
+        "skills",
+        "hooks",
+        "framework"
+      ],
       "requires_external": {
         "cc": {
-          "description": "cc CLI — memory, skill management, extension resolution",
+          "description": "cc CLI \u2014 memory, skill management, extension resolution",
           "install": "bash tools/cc/install.sh",
-          "degraded_without": ["cc memory", "cc skill", "cc extension resolution", "agent override layer"]
+          "degraded_without": [
+            "cc memory",
+            "cc skill",
+            "cc extension resolution",
+            "agent override layer"
+          ]
         },
         "tc": {
-          "description": "tc CLI — task copilot (PRD, task, work product storage)",
+          "description": "tc CLI \u2014 task copilot (PRD, task, work product storage)",
           "install": "pip install -e tools/tc",
-          "degraded_without": ["tc task", "tc wp", "tc handoff", "tc progress"]
+          "degraded_without": [
+            "tc task",
+            "tc wp",
+            "tc handoff",
+            "tc progress"
+          ]
         }
       }
     }

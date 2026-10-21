@@ -20,7 +20,10 @@ from types import MappingProxyType
 from typing import Any, Callable, Mapping, Sequence
 
 from cc.core.config import resolve_key
-from cc.core.ecosystem.canonical_transaction import claude_reference_roster
+from cc.core.ecosystem.canonical_transaction import (
+    claude_reference_roster,
+    claude_support_files,
+)
 from cc.core.ecosystem.framework_history import is_prior_framework_version
 from cc.core.ecosystem.project_ownership import declares_project_owner
 from cc.core.ecosystem.codex_plugin_source import (
@@ -87,6 +90,8 @@ _COMPONENT_TARGETS: Mapping[str, tuple[str, ...]] = MappingProxyType(
             ".claude/commands/extensions.md",
             ".claude/commands/orchestrate.md",
             ".claude/commands/reflect.md",
+            ".claude/commands/cleanup.md",
+            ".claude/skills/cleanup/SKILL.md",
             ".claude/fitness-check.sh",
             ".claude/hooks/copilot-hook.sh",
             ".claude/settings.json",
@@ -173,7 +178,9 @@ _CLAUDE_BLOCK = (
     "## Claude Copilot\n\n"
     "This project uses the shared Claude Copilot framework. Preserve the "
     "project-specific instructions in this file and the installed `.claude/` "
-    "capabilities.\n"
+    "capabilities. Read `.claude/agents/_shared/work-lifecycle.md` when installed "
+    "for proportional learning, handoff and verified retirement checkpoints; "
+    "use `/cleanup` for accumulated clutter.\n"
     "<!-- cc:project-integration:claude:v1:end -->\n"
 )
 
@@ -893,6 +900,7 @@ def _framework_files(source: Path, component: str) -> list[dict[str, str]]:
     if component == "claude":
         try:
             commands, agents = claude_reference_roster(source)
+            support_files = claude_support_files(source, commands)
             agent_files = _claude_agent_files(source)
         except (OSError, RequestValidationError) as exc:
             raise RecipeValidationError(
@@ -903,6 +911,7 @@ def _framework_files(source: Path, component: str) -> list[dict[str, str]]:
             ".claude/fitness-check.sh",
             ".claude/hooks/copilot-hook.sh",
             *agent_files,
+            *(path for path in support_files if path not in agent_files),
         ]
         required_agents = {f".claude/agents/{agent}.md" for agent in agents}
         if not required_agents <= set(agent_files):
@@ -1332,6 +1341,7 @@ def _claude_setup(root: Path, component: str) -> tuple[RecipeOperation, ...]:
     source = _source_root(component)
     try:
         command_roster, agent_roster = claude_reference_roster(source)
+        support_files = claude_support_files(source, command_roster)
     except RequestValidationError as exc:
         raise RecipeValidationError(str(exc)) from exc
     operations: list[RecipeOperation] = []
@@ -1359,6 +1369,7 @@ def _claude_setup(root: Path, component: str) -> tuple[RecipeOperation, ...]:
         )
     for target in (
         *(f".claude/commands/{command}" for command in command_roster),
+        *(path for path in support_files if not path.startswith(".claude/agents/")),
         ".claude/fitness-check.sh",
     ):
         if _target_missing(root, target):
@@ -1609,7 +1620,8 @@ def _claude_customized_update(
         for operation in _claude_setup(root, component)
         if operation.kind != RecipeOperationKind.UPSERT_LOCK_COMPONENT
         and operation.target != ".claude/agents"
-        and not operation.target.startswith(".claude/agents/")
+        and (not operation.target.startswith(".claude/agents/")
+             or operation.target in claude_support_files(source, claude_reference_roster(source)[0]))
     ]
     planned_targets = {operation.target for operation in operations}
     for item in desired["files"]:
@@ -2332,9 +2344,9 @@ def _claude_assistant_preserve_entry(
     operations = _claude_customized_preserve_entry(root, component)
     bounded: list[RecipeOperation] = []
     for operation in operations:
-        if operation.target == ".claude/agents" or operation.target.startswith(
+        if (operation.target == ".claude/agents" or operation.target.startswith(
             ".claude/agents/"
-        ):
+        )) and operation.target not in claude_support_files(source, claude_reference_roster(source)[0]):
             continue
         if operation.kind == RecipeOperationKind.UPSERT_LOCK_COMPONENT:
             bounded.append(
@@ -2780,11 +2792,12 @@ def _verified_update_boundary(
 def _claude_support_paths(source: Path) -> set[str]:
     """The framework-owned Claude files a customized install may carry.
 
-    Agents are never in this set: a customized-preserve project keeps its own
-    agent tree and the framework agents load from the user-level deployment.
+    Agent definitions are never in this set: a customized-preserve project
+    keeps them. The canonical lifecycle reference is a bounded support file.
     """
     commands, _agents = claude_reference_roster(source)
     return {
+        *claude_support_files(source, commands),
         *(f".claude/commands/{command}" for command in commands),
         ".claude/fitness-check.sh",
         ".claude/hooks/copilot-hook.sh",

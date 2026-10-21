@@ -52,11 +52,13 @@ and intact successful artifacts; non-hermetic machine/model runs are not cacheab
 by default. Reuse artifacts, never another task's approval: tc remains the sole
 source-bound QA authority.
 
-Never weaken, skip or delete assertions to hide a defect. Obsolete-contract migration
-requires explicit authority, old/new expectations and rationale, exact changed
-assertions/diff and a negative control rejecting the targeted broken behavior.
-Report changed tests; green alone does not establish integrity. Escalate undecided
-authority/behavior. UI healing cannot pass by skipping required behavior; evidence
+Never weaken, skip or delete assertions to hide a defect. A behavior change the
+owner requested is the authority to update checks it makes obsolete: update them,
+record old/new expectations, rationale and exact changed files in the work product,
+and report it without asking. Ask only when the change was not requested, or when
+a failing check reveals a real defect, which is fixed in the product, never by
+weakening, skipping or deleting the check. Report changed tests; green alone does
+not establish integrity. UI healing cannot pass by skipping required behavior; evidence
 stays local/private unless upload is explicitly authorized.
 
 ### Codex test-change receipt
@@ -74,11 +76,17 @@ Keep the comparison base fixed. Receipt schema 1 requires:
   unstaged-plus-staged and cached diffs against the base, using `git diff
   --no-ext-diff --no-textconv --binary --no-renames`, restricted to sorted changed
   grading paths. Content hashes also bind untracked test files.
-- `negativeControl`: command argument array, nonzero `exitCode`, `rejectedBehavior`,
-  repository-relative artifact `path` and its `sha256`. Capture a real rejection of
-  the targeted broken behavior in a disposable copy; do not invent a log or status.
+- `changeBasis`: `owner-requested-obsolete-check` when the owner requested a behavior
+  change that makes the checks obsolete (the request is the authority; `authorizationRef`
+  cites it and no separate approval is needed), or `defect-detection` for new or changed
+  checks that must detect a defect. Absent means `defect-detection`.
+- `negativeControl`: required unless `changeBasis` is `owner-requested-obsolete-check`
+  (optional there, validated if supplied): command argument array, nonzero `exitCode`,
+  `rejectedBehavior`, repository-relative artifact `path` and its `sha256`. Capture a
+  real rejection of the targeted broken behavior in a disposable copy; do not invent a
+  log or status.
 
 The gate detects missing/stale evidence, not whether these claims are true. QA must
-review authority, exact assertions and the negative control before source-bound tc
+review authority, exact assertions and any negative control before source-bound tc
 approval; receipt success alone is not a pass. `tests/test_verification_policy.py`
 contains a synthetic format example and adversarial fixtures, not reusable authority.

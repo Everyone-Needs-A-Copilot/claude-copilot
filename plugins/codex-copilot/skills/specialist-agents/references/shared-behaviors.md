@@ -148,3 +148,16 @@ duplicates stay `excluded[]` as `duplicate-content`.
 - `selected: []`: report no match for the query; use repository instructions, never widen the query to force a match.
 - `CC_KNOWLEDGE_REPOS` empty: "Knowledge tier
   unconfigured; optional context limited to project and machine skills." Never block.
+
+Every explicitly required skill name remains in `selected[]`. Identical required
+content is emitted once: subsequent required aliases have `duplicate_of`, empty
+`content`, and zero charged characters/bytes; use the named selected entry's
+content. Optional duplicates remain in `excluded[]` as `duplicate-content`.
+
+## Work Lifecycle
+
+Read [the runtime-neutral lifecycle](../../cleanup/references/work-lifecycle.md)
+once per task. It governs direct specialist work as well as protocol routing,
+including proportionate checkpoints and later measurement of lesson application.
+The coordinator owns continuity and artifact disposition; QA owns evidence-bound
+acceptance. Existing tc/cc systems retain their authority.

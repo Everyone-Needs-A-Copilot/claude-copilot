@@ -721,7 +721,9 @@ class TestSubagentStopHookHardening:
     def test_subagent_stop_uses_task_bound_authority(self):
         with open(SUBAGENT_STOP) as f:
             content = f.read()
-        assert 'tc task check-qa "$num" --json' in content
+        # The tc executable is configurable (COPILOT_TC_BIN); the call must still be task-bound.
+        assert 'TC_BIN="${COPILOT_TC_BIN:-tc}"' in content
+        assert '"$TC_BIN" task check-qa "$num" --json' in content
         assert not re.search(r"^has_artifact_marker\s*\(\)", content, re.MULTILINE)
 
     def test_approval_authority_recognizes_required_artifact_types(self):

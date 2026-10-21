@@ -52,6 +52,7 @@ migrate.sh
 !.env.example
 
 # Task Copilot CLI database (project-local)
+# tc: task state stays local
 .copilot/
 copilot.db
 

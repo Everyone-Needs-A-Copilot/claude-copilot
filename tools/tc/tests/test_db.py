@@ -124,6 +124,65 @@ class TestFindDbPath:
         # so we can only assert it returns a Path or None
 
 
+class TestFindDbPathWorktree:
+    """A linked git worktree shares its main checkout's task database."""
+
+    @staticmethod
+    def _worktree(main: Path, wt: Path, name: str = "wt") -> None:
+        gitdir = main / ".git" / "worktrees" / name
+        gitdir.mkdir(parents=True)
+        (gitdir / "commondir").write_text("../..\n")
+        wt.mkdir(parents=True, exist_ok=True)
+        (wt / ".git").write_text(f"gitdir: {gitdir}\n")
+
+    def test_worktree_uses_main_checkout_db(self, tmp_dir, monkeypatch):
+        main, wt = tmp_dir / "repo", tmp_dir / "repo-feature"
+        init_db(main / ".copilot" / "tasks.db")
+        self._worktree(main, wt)
+        init_db(wt / ".copilot" / "tasks.db")   # the branch's committed snapshot
+        (wt / "src").mkdir()
+        monkeypatch.chdir(wt / "src")
+        assert find_db_path() == main / ".copilot" / "tasks.db"
+
+    def test_nested_agent_worktree_uses_main_checkout_db(self, tmp_dir, monkeypatch):
+        main = tmp_dir / "repo"
+        wt = main / ".claude" / "worktrees" / "agent-1"
+        init_db(main / ".copilot" / "tasks.db")
+        self._worktree(main, wt, "agent-1")
+        init_db(wt / ".copilot" / "tasks.db")
+        monkeypatch.chdir(wt)
+        assert find_db_path() == main / ".copilot" / "tasks.db"
+
+    def test_local_override_uses_worktree_copy(self, tmp_dir, monkeypatch):
+        main, wt = tmp_dir / "repo", tmp_dir / "repo-feature"
+        init_db(main / ".copilot" / "tasks.db")
+        self._worktree(main, wt)
+        init_db(wt / ".copilot" / "tasks.db")
+        monkeypatch.chdir(wt)
+        monkeypatch.setenv("TC_WORKTREE_DB", "local")
+        assert find_db_path() == wt / ".copilot" / "tasks.db"
+
+    def test_worktree_without_main_db_falls_back(self, tmp_dir, monkeypatch):
+        main, wt = tmp_dir / "repo", tmp_dir / "repo-feature"
+        (main / ".git").mkdir(parents=True)
+        self._worktree(main, wt)
+        init_db(wt / ".copilot" / "tasks.db")
+        monkeypatch.chdir(wt)
+        assert find_db_path() == wt / ".copilot" / "tasks.db"
+
+    def test_submodule_is_not_a_worktree(self, tmp_dir, monkeypatch):
+        parent = tmp_dir / "repo"
+        init_db(parent / ".copilot" / "tasks.db")
+        modules = parent / ".git" / "modules" / "sub"
+        modules.mkdir(parents=True)   # no commondir: a submodule
+        sub = parent / "sub"
+        sub.mkdir()
+        (sub / ".git").write_text(f"gitdir: {modules}\n")
+        init_db(sub / ".copilot" / "tasks.db")
+        monkeypatch.chdir(sub)
+        assert find_db_path() == sub / ".copilot" / "tasks.db"
+
+
 class TestGetDb:
     """Tests for get_db connection utility."""
 

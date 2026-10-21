@@ -23,3 +23,15 @@ Refresh project-local Codex Copilot wiring in place.
 - skill symlink and `.codex-copilot.json` status
 - `copilot.lock.json` write confirmation
 - idempotence check (second run == no changes needed)
+
+## Work Lifecycle
+
+Apply the [shared work lifecycle](../cleanup/references/work-lifecycle.md) once
+per task, including direct invocation of this skill: start/resume, maintain,
+pause/handoff, finish and later reuse. Keep the checkpoint proportional in the
+existing record; a small answer does not need a new task or document.
+
+Existing project instructions are preserved by setup/update. Review their lifecycle
+coverage and propose the minimal template pointer addition if missing, preserving
+owner rules. Plugin refresh makes `$cleanup` available but does not silently edit
+project-owned AGENTS.md or add lifecycle instructions to standalone optional packs.

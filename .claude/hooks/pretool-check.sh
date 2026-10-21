@@ -349,8 +349,12 @@ _FD_JQ_DEFS='
     elif type == "array" then
       map(if type != "object" then 0 elif .type == "text" then (.text | tbytes) else $image end) | add // 0
     else 0 end;
+  def is_memory_path:
+    (. // "") as $p | ($mem | length) > 0 and ($p | startswith($mem)) and
+    (($p | ltrimstr($mem)) | test("^[^/]+/memory/[^/]") and (test("(^|/)\\.\\.(/|$)") | not));
   def edit_bytes($name):
     if type != "object" then 0
+    elif (.file_path | is_memory_path) then 0
     elif $name == "Edit" then (.new_string | tbytes)
     elif $name == "Write" then (.content | tbytes)
     elif $name == "NotebookEdit" then (.new_source | tbytes)
@@ -366,6 +370,24 @@ _FD_JQ_DEFS='
       | add // 0) end;
 '
 
+# Largest Write/Edit payload still allowed once a meter is over budget.
+FD_SMALL_MUTATION_BYTES=8192
+
+# Over budget, a Bash command is "cheap" unless it is shaped to read or list
+# a lot: a content/search/listing tool with no head/tail/-m limiter, or a
+# command too long to be a quick one-liner. Output is only measured after the
+# call, so this is a shape check; the meter still stops the next large read.
+_fd_bash_is_cheap() {
+  local c="$1"
+  [[ ${#c} -le 1000 ]] || return 1
+  if [[ "$c" =~ (^|[;\&\|\(\`[:space:]])(cat|less|more|bat|tac|nl|grep|egrep|fgrep|rg|ag|find|tree|xxd|od|strings|zcat)([[:space:]]|$) ||
+        "$c" =~ (^|[;\&\|[:space:]])(git[[:space:]]+(diff|log|show)|ls[[:space:]]+-[a-zA-Z]*R) ]]; then
+    [[ "$c" =~ \|[[:space:]]*(head|tail|wc)([[:space:]]|$) ]] && return 0
+    return 1
+  fi
+  return 0
+}
+
 rule_force_delegate() {
   [[ "${COPILOT_FORCE_DELEGATE:-}" == "off" ]] && return 0
   if [[ -n "$AGENT_TYPE" ]]; then
@@ -380,6 +402,37 @@ rule_force_delegate() {
         "$TOOL_COMMAND" =~ ^COPILOT_FORCE_DELEGATE=off([[:space:]]|$) ]]; then
     return 0
   fi
+
+  # Claude Code auto-memory (<config>/projects/<project>/memory/**) is the
+  # session's own notes: always allowed, never counted (the byte meter's jq
+  # skips the same paths in the transcript; see is_memory_path).
+  _FD_MEMORY_PREFIX="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}/projects/"
+  local mutation_bytes=-1
+  if [[ "$TOOL_NAME" == "Edit" || "$TOOL_NAME" == "Write" ]]; then
+    local _target _size
+    IFS=$'\x1f' read -r _target _size < <("$JQ" -r \
+      '[(.tool_input.file_path // ""), (((.tool_input.content // .tool_input.new_string // "") | tostring | utf8bytelength) | tostring)] | join("\u001f")' \
+      <<< "$PAYLOAD" 2>/dev/null) || { _target=""; _size=""; }
+    if [[ "$_target" == "$_FD_MEMORY_PREFIX"* ]]; then
+      local _rest="${_target#"$_FD_MEMORY_PREFIX"}"
+      if [[ "$_rest" =~ ^[^/]+/memory/[^/] && ! "$_rest" =~ (^|/)\.\.(/|$) ]]; then
+        return 0
+      fi
+    fi
+    [[ "$_size" =~ ^[0-9]+$ ]] && mutation_bytes="$_size"
+  fi
+
+  # Project opt-out/relaxation: <project>/.claude/cc/config.json
+  #   {"hooks":{"force_delegate":{"mode":"enforce|warn|off"}}}   (default enforce)
+  local mode="enforce" project_config="${CLAUDE_PROJECT_DIR:-$PWD}/.claude/cc/config.json"
+  if [[ -f "$project_config" ]]; then
+    mode="$("$JQ" -r '.hooks.force_delegate.mode // "enforce"' "$project_config" 2>/dev/null)" || mode="enforce"
+    case "$mode" in
+      enforce|warn|off) ;;
+      *) echo "[pretool-check] ignoring invalid hooks.force_delegate.mode '${mode}' in ${project_config}; enforcing" >&2; mode="enforce" ;;
+    esac
+  fi
+  [[ "$mode" == "off" ]] && return 0
 
   # Highest vX.Y.Z baseline wins, compared in bash: a `sort -V` fork here
   # cost more than the whole meter once a second baseline existed.
@@ -426,7 +479,7 @@ rule_force_delegate() {
   result="$("$JQ" -r --slurpfile policies "$baseline" --slurpfile previous "$previous" \
     --rawfile chunk "$chunk" --arg session "$SESSION_ID" --arg tool "$TOOL_NAME" \
     --arg transcript "$TRANSCRIPT_PATH" --argjson offset "$offset" \
-    --argjson continuing "$continuing" \
+    --argjson continuing "$continuing" --arg mem "$_FD_MEMORY_PREFIX" \
     "${_FD_JQ_DEFS}"'
     $policies[0] as $policy | $policy.thresholds as $t |
     if ([$t.byte_budget_bytes, $t.files_budget_count, $t.image_block_bytes]
@@ -473,11 +526,29 @@ rule_force_delegate() {
     exceeded="${exceeded:+${exceeded} and }files"
   fi
   if [[ -n "$exceeded" ]]; then
+    local relax=""
+    if [[ "$mode" == "warn" ]]; then
+      relax="project hooks.force_delegate.mode=warn"
+    elif [[ "$mutation_bytes" -ge 0 && "$mutation_bytes" -le "$FD_SMALL_MUTATION_BYTES" ]]; then
+      # The budget stops context bloat from large reads/output. A small
+      # Write/Edit adds almost nothing, and denying it can strand work
+      # (e.g. a note the session must save before it can be compacted).
+      relax="small ${TOOL_NAME} of ${mutation_bytes} bytes (limit ${FD_SMALL_MUTATION_BYTES})"
+    elif [[ "$TOOL_NAME" == "Bash" ]] && _fd_bash_is_cheap "$TOOL_COMMAND"; then
+      relax="cheap Bash command (no large read/listing shape)"
+    fi
+    if [[ -n "$relax" ]]; then
+      printf '%s\n' "$state" > "${STATE_FILE}.tmp.$$"
+      mv "${STATE_FILE}.tmp.$$" "$STATE_FILE"
+      release_lock; trap - EXIT
+      echo "[force-delegate-budget-warn] over budget (${exceeded}): ${bytes}/${byte_budget} measured bytes, ${files}/${file_budget} distinct file targets; allowed: ${relax}. Run /compact or delegate large reads." >&2
+      return 0
+    fi
     printf '%s\n' "$denied_state" > "${STATE_FILE}.tmp.$$"
     mv "${STATE_FILE}.tmp.$$" "$STATE_FILE"
     release_lock; trap - EXIT
     _ensure_manifest_loaded
-    deny "Main session budget exceeded (${exceeded}): ${bytes}/${byte_budget} bytes of tool output measured since session start or the last /compact (~${tokens} tokens), ${files}/${file_budget} distinct file targets. Delegate the remaining work to a framework agent (${VALID_AGENT_LIST}) or run /compact to reset the meter. COPILOT_FORCE_DELEGATE=off is the explicit bypass."
+    deny "Main session budget exceeded (${exceeded}): ${bytes}/${byte_budget} bytes of tool output measured since session start or the last /compact (~${tokens} tokens), ${files}/${file_budget} distinct file targets. Large reads and output are blocked; small Write/Edit calls, cheap Bash commands and auto-memory writes are still allowed. Delegate the remaining work to a framework agent (${VALID_AGENT_LIST}) or run /compact to reset the meter. COPILOT_FORCE_DELEGATE=off is the explicit bypass; a project can relax this in .claude/cc/config.json (hooks.force_delegate.mode = warn|off)."
   fi
   printf '%s\n' "$state" > "${STATE_FILE}.tmp.$$"
   mv "${STATE_FILE}.tmp.$$" "$STATE_FILE"
@@ -517,15 +588,65 @@ QA_GATE_SAFE_PREFIXES=(
   "pytest"
 )
 
+# TC executable used by the QA gate. COPILOT_TC_BIN (a command name on PATH or
+# an absolute path) overrides plain `tc`, e.g. for a wrapper runtime that
+# records QA evidence. Commands invoking the override are treated as `tc`.
+QA_GATE_TC_BIN="${COPILOT_TC_BIN:-tc}"
+
 is_safe_bash_command() {
   local cmd="$1"
-  local prefix
+  local prefix tc_name
+  if [[ "$QA_GATE_TC_BIN" != "tc" ]]; then
+    tc_name="${QA_GATE_TC_BIN##*/}"
+    if [[ "$cmd" == "${QA_GATE_TC_BIN} "* ]]; then
+      cmd="tc ${cmd#"${QA_GATE_TC_BIN} "}"
+    elif [[ "$cmd" == "${tc_name} "* ]]; then
+      cmd="tc ${cmd#"${tc_name} "}"
+    fi
+  fi
   for prefix in "${QA_GATE_SAFE_PREFIXES[@]}"; do
     if [[ "$cmd" == "${prefix}"* ]]; then
       return 0
     fi
   done
   return 1
+}
+
+# Rework-only state: QA rejected the task with a clean, well-formed verdict.
+# Allow @agent-me (and @agent-qa) dispatch plus read/edit tools so the
+# rejection can be fixed; deny everything else. Never reached while any task
+# is still pending QA.
+_qa_gate_rework_only() {
+  local rework_json="$1"
+  local ids
+  ids="$("$JQ" -r 'join(", ")' <<< "$rework_json" 2>/dev/null)" || ids="unknown"
+
+  if [[ -n "$AGENT_TYPE" && "$TOOL_NAME" != "Agent" ]] && _is_known_agent "$AGENT_TYPE"; then
+    return 0
+  fi
+
+  case "$TOOL_NAME" in
+    Read|Edit|Write)
+      return 0
+      ;;
+    Agent)
+      local subagent_type
+      subagent_type="$("$JQ" -r '.tool_input.subagent_type // ""' <<< "$PAYLOAD" 2>/dev/null)" \
+        || subagent_type=""
+      if [[ "$subagent_type" == "me" || "$subagent_type" == "qa" ]]; then
+        return 0
+      fi
+      deny "QA gate rework: ${ids} was rejected by @agent-qa. Dispatch @agent-me to fix the rejection (then @agent-qa must re-verify); other agents are blocked until it is approved."
+      ;;
+    Bash)
+      local cmd
+      cmd="$("$JQ" -r '.tool_input.command // ""' <<< "$PAYLOAD" 2>/dev/null)" || cmd=""
+      if is_safe_bash_command "$cmd"; then
+        return 0
+      fi
+      ;;
+  esac
+  deny "QA gate rework: ${ids} was rejected by @agent-qa. Only @agent-me (to fix it), @agent-qa, read/edit tools and read-only tc commands are allowed until QA approves."
 }
 
 rule_qa_gate() {
@@ -553,7 +674,21 @@ rule_qa_gate() {
     || { echo "[pretool-check] jq parse failed counting pending_tasks" >&2; return 0; }
   pending_count="${pending_count:-0}"
 
+  # Tasks QA cleanly rejected (rework state). They do not block the fix, but
+  # they are never approved: the implementer's stop re-arms them as pending.
+  local rework_json rework_count
+  rework_json="$("$JQ" -r --arg sid "$SESSION_ID" \
+    '.[$sid].rework_tasks // [] | @json' "$gate_file" 2>/dev/null)" || rework_json="[]"
+  rework_json="${rework_json:-[]}"
+  rework_count="$("$JQ" 'length' <<< "$rework_json" 2>/dev/null)" || rework_count=0
+  rework_count="${rework_count:-0}"
+
+  if [[ "$pending_count" -eq 0 && "$rework_count" -eq 0 ]]; then
+    return 0
+  fi
+
   if [[ "$pending_count" -eq 0 ]]; then
+    _qa_gate_rework_only "$rework_json"
     return 0
   fi
 

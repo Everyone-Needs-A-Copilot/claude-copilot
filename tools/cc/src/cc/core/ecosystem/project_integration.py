@@ -22,7 +22,10 @@ from typing import Any, Optional
 
 from cc.core.ecosystem.project_ownership import declares_project_owner
 from cc.core.config import resolve_key
-from cc.core.ecosystem.canonical_transaction import claude_reference_roster
+from cc.core.ecosystem.canonical_transaction import (
+    claude_reference_roster,
+    claude_support_files,
+)
 from cc.core.ecosystem.project_locking import (
     fingerprint_file_payload,
     fingerprint_symlink,
@@ -72,7 +75,10 @@ def _customized_framework_path_allowed(component: str, relative: str) -> bool:
         # not only the required ones, so any single framework command file is
         # part of the bounded support-file subset.
         parts = PurePosixPath(relative).parts
-        return relative in _CLAUDE_REQUIRED_LOCK_PATHS or (
+        return relative in (*_CLAUDE_REQUIRED_LOCK_PATHS,
+            ".claude/agents/_shared/work-lifecycle.md",
+            ".claude/skills/cleanup/SKILL.md",
+        ) or (
             len(parts) == 3
             and parts[:2] == (".claude", "commands")
             and parts[2].endswith(".md")
@@ -118,6 +124,7 @@ _CLAUDE_RELEVANT_PATHS = (
     ".claude/hooks/copilot-hook.sh",
     ".claude/settings.json",
     ".claude/agents",
+    ".claude/skills/cleanup",
     ".claude/evals",
     ".claude/cc/config.json",
     ".claude/memory/entries/.gitkeep",
@@ -370,6 +377,7 @@ def _framework_root(component: str, supplied: Optional[Path | str]) -> Optional[
 def _claude_source_files(source: Path) -> Optional[dict[str, Path]]:
     try:
         commands, roster = claude_reference_roster(source)
+        support_files = claude_support_files(source, commands)
         resolved = resolve_claude_content(
             foundation_root=source,
             items={
@@ -395,6 +403,7 @@ def _claude_source_files(source: Path) -> Optional[dict[str, Path]]:
             for agent in roster
         }
     )
+    files.update(support_files)
     # Eval cases travel with the framework like every other owned dimension
     # (agents, commands, hooks). Globbed rather than roster-driven because
     # the case set per agent is not fixed cardinality the way the agent
@@ -1259,7 +1268,10 @@ def _missing_action_targets(
 ) -> list[str]:
     targets = _CLAUDE_ACTION_TARGETS if component == "claude" else _CODEX_ACTION_TARGETS
     if component == "claude":
-        targets = (*targets, *sorted(p for p in source_files if p.startswith(".claude/commands/")))
+        targets = (*targets, *sorted(
+            p for p in source_files
+            if p.startswith((".claude/commands/", ".claude/skills/cleanup/"))
+        ))
     missing = [path for path in targets if not (root / path).exists()]
     if component == "claude":
         if (

@@ -33,6 +33,7 @@ BIND_TITLE = "Journey v2.1 prompt binding evidence"
 DISPATCH_TITLE = "Journey v2.1 dispatch evidence"
 PAUSE_TITLE = "Journey v2.1 pause evidence"
 FINAL_TITLE = "Journey v2.1 final evidence"
+ABANDON_TITLE = "Journey v2.1 abandon evidence"
 MARKER_HEADER = "CC-JOURNEY-INVOCATION: "
 KNOWLEDGE_BEGIN = "CC-JOURNEY-KNOWLEDGE-BEGIN"
 KNOWLEDGE_END = "CC-JOURNEY-KNOWLEDGE-END"
@@ -113,6 +114,11 @@ _RECORD_KEYS = {
     "final_authorization": {
         "result_json",
         "result_sha256",
+        "dispatch_authorizations_sha256",
+    },
+    "abandon": {
+        "session_id_sha256",
+        "reason",
         "dispatch_authorizations_sha256",
     },
 }
@@ -681,6 +687,9 @@ def begin_run(
     ledger: TcJourneyLedger | None = None,
     capability: CliCopilotHealthCapabilityAdapter | None = None,
     security: MandatorySecurityVerifier | None = None,
+    resolver: Callable[
+        [str], tuple[str, tuple[dict[str, Any], ...]]
+    ] = resolve_specialist_knowledge,
 ) -> dict[str, Any]:
     if task_id < 1 or not _DIGEST.fullmatch(prompt_sha256):
         raise ValueError("Task or prompt identity is malformed.")
@@ -710,6 +719,19 @@ def begin_run(
     payload["security"] = _require_security(
         payload, security or MandatorySecurityVerifier(), selected
     )
+    # A begun run gates every dispatch in its session until it completes, so
+    # refuse a route that could never be prepared rather than strand it.
+    for specialist in dict.fromkeys(trace.specialists):
+        try:
+            content, raw_sources = selected.invoke(resolver, specialist)
+            _validate_sources(raw_sources)
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise ValueError(
+                f"Required authenticated Knowledge is unavailable for {specialist}; "
+                "the route cannot be prepared, so no journey was begun."
+            ) from exc
+        if not content or KNOWLEDGE_BEGIN in content or KNOWLEDGE_END in content:
+            raise ValueError("Required Knowledge payload is malformed.")
     payload["capability"] = asdict(
         selected.invoke(
             (capability or CliCopilotHealthCapabilityAdapter()).invoke,
@@ -745,6 +767,8 @@ def _expected_title(payload: Mapping[str, Any]) -> str:
         return PAUSE_TITLE
     if kind == "final_authorization":
         return FINAL_TITLE
+    if kind == "abandon":
+        return ABANDON_TITLE
     raise ValueError("Journey record type is invalid.")
 
 
@@ -758,6 +782,7 @@ def _state(run_id: str, ledger: TcJourneyLedger) -> dict[str, Any]:
             "dispatch_authorization",
             "pause_capsule",
             "final_authorization",
+            "abandon",
         )
     }
     row_ids: dict[int, int] = {}
@@ -778,8 +803,14 @@ def _state(run_id: str, ledger: TcJourneyLedger) -> dict[str, Any]:
         seen_row_ids.add(row_id)
         buckets[kind].append(payload)
         row_ids[id(payload)] = row_id
-    if len(buckets["begin"]) != 1 or len(buckets["final_authorization"]) > 1:
+    if (
+        len(buckets["begin"]) != 1
+        or len(buckets["final_authorization"]) > 1
+        or len(buckets["abandon"]) > 1
+    ):
         raise ValueError("Journey evidence is missing or ambiguous.")
+    if buckets["final_authorization"] and buckets["abandon"]:
+        raise ValueError("Journey terminal evidence is ambiguous.")
     begin = buckets["begin"][0]
     begin_id = row_ids[id(begin)]
     if any(
@@ -798,6 +829,27 @@ def _state(run_id: str, ledger: TcJourneyLedger) -> dict[str, Any]:
             if payload_id != id(final)
         ):
             raise ValueError("Journey final chronology is invalid.")
+    if buckets["abandon"]:
+        abandoned = buckets["abandon"][0]
+        abandon_id = row_ids[id(abandoned)]
+        if any(
+            row_id >= abandon_id
+            for payload_id, row_id in row_ids.items()
+            if payload_id != id(abandoned)
+        ):
+            raise ValueError("Journey abandon chronology is invalid.")
+        if abandoned.get("session_id_sha256") != begin.get(
+            "session_id_sha256"
+        ) or abandoned.get("dispatch_authorizations_sha256") != _sha(
+            _canonical(
+                sorted(
+                    buckets["dispatch_authorization"],
+                    key=lambda item: int(item["stage_index"]),
+                )
+            )
+        ):
+            raise ValueError("Journey abandon evidence changed.")
+        _safe_text(str(abandoned.get("reason", "")))
     route_trace = _route_from(begin.get("route", {}))
     route = route_trace.specialists
     dispatches = sorted(
@@ -951,6 +1003,17 @@ def _terminal_result(run_id: str, state: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _public_state(run_id: str, state: Mapping[str, Any]) -> dict[str, Any]:
+    if state["abandon"]:
+        result = _unfinished_public_state(run_id, state)
+        result.update(
+            {
+                "status": "abandoned",
+                "abandon_reason": state["abandon"][0]["reason"],
+                "next_specialist": None,
+                "next_stage_state": None,
+            }
+        )
+        return result
     if state["final_authorization"]:
         final = state["final_authorization"][0]
         result_json = final.get("result_json")
@@ -988,6 +1051,8 @@ def prepare_run(
     selected = ledger or TcJourneyLedger(_task_from_run(run_id))
     with selected.claim(run_id):
         state = _state(run_id, selected)
+        if state["abandon"]:
+            raise ValueError("Journey was abandoned.")
         stage = len(state["completed"])
         if stage >= len(state["route"]) or state["route"][stage] != specialist:
             raise ValueError("Specialist is not the exact next protocol stage.")
@@ -1062,6 +1127,8 @@ def bind_prompt(
     selected = ledger or TcJourneyLedger(_task_from_run(run_id))
     with selected.claim(run_id):
         state = _state(run_id, selected)
+        if state["abandon"]:
+            raise ValueError("Journey was abandoned.")
         stage = len(state["completed"])
         prepared = [
             item for item in state["prepare"] if item.get("stage_index") == stage
@@ -1146,6 +1213,8 @@ def pause_run(
 ) -> dict[str, Any]:
     selected = ledger or TcJourneyLedger(_task_from_run(run_id))
     initial = _state(run_id, selected)
+    if initial["abandon"]:
+        return _public_state(run_id, initial)
     next_index = len(initial["completed"])
     if next_index < len(initial["route"]) and not any(
         item.get("stage_index") == next_index for item in initial["prepare"]
@@ -1209,7 +1278,7 @@ def _active_runs_for_session(session_id: str, ledger: TcJourneyLedger) -> list[s
                     allow_missing_guard=ledger._allow_missing_guard,
                 ),
             )
-            if not state["final_authorization"]:
+            if not state["final_authorization"] and not state["abandon"]:
                 runs.append(run_id)
     return sorted(set(runs))
 
@@ -1239,6 +1308,7 @@ def resume_run(
                 for item in value["pause_capsule"]
             )
             and not value["final_authorization"]
+            and not value["abandon"]
         ]
         if not active:
             return {"schema_version": RUNTIME_SCHEMA_VERSION, "state": "no_journey"}
@@ -1248,7 +1318,7 @@ def resume_run(
     if _task_from_run(run_id) != task_id or run_id not in states:
         raise ValueError("Journey continuation identity is invalid.")
     state = states[run_id]
-    if state["final_authorization"]:
+    if state["final_authorization"] or state["abandon"]:
         return _public_state(run_id, state)
     capsules = [
         item
@@ -1278,9 +1348,51 @@ def resume_run(
     return public
 
 
+def abandon_run(
+    run_id: str,
+    *,
+    session_id: str,
+    reason: str,
+    ledger: TcJourneyLedger | None = None,
+) -> dict[str, Any]:
+    """Close an unfinished run so it stops gating its session's dispatches.
+
+    Abandonment authorizes nothing: it records that the protocol route was not
+    completed, and the run can never again prepare, bind or authorize a
+    dispatch. Only the session that began the run may abandon it, and a run
+    whose dispatches are all authorized is already terminal.
+    """
+    session_id = _safe_session(session_id)
+    reason = _safe_text(reason)
+    selected = ledger or TcJourneyLedger(_task_from_run(run_id))
+    with selected.claim(run_id):
+        state = _state(run_id, selected)
+        if state["final_authorization"] or state["abandon"]:
+            return _public_state(run_id, state)
+        if state["begin_record"].get("session_id_sha256") != _sha(session_id):
+            raise ValueError("Journey abandon session does not match its begin.")
+        selected.append(
+            ABANDON_TITLE,
+            {
+                "record_type": "abandon",
+                "run_id": run_id,
+                "session_id_sha256": _sha(session_id),
+                "reason": reason,
+                "dispatch_authorizations_sha256": _sha(
+                    _canonical(state["dispatch_authorization"])
+                ),
+            },
+        )
+        return _public_state(run_id, _state(run_id, selected))
+
+
 def _store_final(run_id: str, ledger: TcJourneyLedger) -> None:
     state = _state(run_id, ledger)
-    if state["final_authorization"] or len(state["completed"]) != len(state["route"]):
+    if (
+        state["final_authorization"]
+        or state["abandon"]
+        or len(state["completed"]) != len(state["route"])
+    ):
         return
     # Build the terminal value before adding the terminal row.  Its claim is
     # deliberately dispatch authorization, never specialist completion.
@@ -1362,6 +1474,8 @@ def verify_dispatch(
     with ledger.claim(run_id):
         state = _state(run_id, ledger)
         stage = len(state["completed"])
+        if state["abandon"]:
+            raise ValueError("dispatch-run-abandoned")
         if state["final_authorization"]:
             _public_state(run_id, state)
             raise ValueError("dispatch-replay")
@@ -1492,6 +1606,7 @@ __all__ = [
     "PreparedInvocation",
     "SecurityAuthorization",
     "TcJourneyLedger",
+    "abandon_run",
     "begin_run",
     "bind_prompt",
     "inspect_run",

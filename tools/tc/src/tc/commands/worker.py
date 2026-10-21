@@ -134,6 +134,7 @@ def dispatch(
     cmd: list[str],
     agent: Optional[str],
     db_path: Optional[Path] = None,
+    criterion: Optional[str] = None,
 ) -> dict[str, Any]:
     """Execute the dispatch command, record spend, and handle budget breach.
 
@@ -148,8 +149,32 @@ def dispatch(
         ``{"returncode": int, "spend": dict, "breached": bool}``.
     """
     effective_agent = agent or "me"
-    result = _subprocess.run(cmd, capture_output=True, text=True)
-    spend = _parse_spend(result.stdout)
+    from tc.services.tasks import _open_conn, _require_db_path, get_task
+    from tc.services.execution import has_limits
+    from tc.db.exceptions import ValidationError
+    resolved = _require_db_path(db_path)
+    conn = _open_conn(resolved)
+    try:
+        guarded = has_limits(task_id=task_id, conn=conn)
+        task = get_task(task_id=task_id, conn=conn)
+    finally:
+        conn.close()
+    metadata = task.get("metadata") or {}
+    if isinstance(metadata, str):
+        metadata = _json.loads(metadata)
+    if metadata.get("requiresQa") and not guarded:
+        raise ValidationError("QA workers require registered tc execution limits before dispatch")
+    if guarded:
+        if not criterion or "--max-budget-usd" not in cmd:
+            raise ValidationError("Guarded workers require --criterion and --max-budget-usd")
+        from tc.commands.execution import execute_command
+        budget = cmd[cmd.index("--max-budget-usd") + 1]
+        run = execute_command(task=task_id, criterion=criterion, command=cmd,
+                              db_path=resolved, label="worker", usd=budget, worker=True)
+        returncode, spend = run["exit_code"], run["spend"]
+    else:
+        result = _subprocess.run(cmd, capture_output=True, text=True)
+        returncode, spend = result.returncode, _parse_spend(result.stdout)
     breached = is_budget_breach(spend)
 
     from tc.services.log import record_log
@@ -158,7 +183,7 @@ def dispatch(
         agent=effective_agent,
         task=task_id,
         action="worker_dispatch",
-        details=_json.dumps({"returncode": result.returncode, **spend}),
+        details=_json.dumps({"returncode": returncode, **spend}),
         db_path=db_path,
     )
 
@@ -179,4 +204,4 @@ def dispatch(
             db_path=db_path,
         )
 
-    return {"returncode": result.returncode, "spend": spend, "breached": breached}
+    return {"returncode": returncode, "spend": spend, "breached": breached}

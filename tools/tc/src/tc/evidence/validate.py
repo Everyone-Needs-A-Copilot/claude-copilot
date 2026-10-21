@@ -22,7 +22,9 @@ import re
 from typing import Any, Optional
 
 from .artifact_types import is_valid_artifact_type
-from .schema import UNTESTED_NONE_VALUES, VALID_VERDICTS
+from .schema import PER_CRITERION_VERDICTS, UNTESTED_NONE_VALUES, VALID_VERDICTS
+
+_APPROVING_VERDICTS = tuple(v for v in VALID_VERDICTS if v != "REJECTED")
 
 _FINGERPRINT_TOKEN_RE = re.compile(r"(?:dirty|fingerprint)[:=]\s*([0-9a-f]{6,})", re.IGNORECASE)
 
@@ -58,6 +60,52 @@ def _identity_errors(identity: Optional[str], current_identity: Optional[dict]) 
             "current working tree"
         )
     return errors
+
+
+def _resolve_verdict(verdicts: list[str], criterion_count: int, errors: list[str]) -> Optional[str]:
+    """Resolve the packet's VERDICT lines into one verdict, appending to `errors`.
+
+    Two shapes are accepted:
+
+      * Overall verdict: one distinct value from ``VALID_VERDICTS``.
+      * Per-criterion results: ``SUPPORTED`` / ``REJECTED`` lines (one per
+        CRITERION), optionally alongside one overall approval value. Any
+        ``REJECTED`` makes the packet a rejection; otherwise the packet is an
+        approval only when SUPPORTED lines cover every CRITERION exactly.
+
+    Anything else (an overall approval next to a REJECTED, two different
+    approvals, unknown values, SUPPORTED lines that do not match the
+    criteria) is ambiguous and stays invalid.
+    """
+    if not verdicts:
+        errors.append("missing VERDICT")
+        return None
+    distinct = set(verdicts)
+    unknown = sorted(v for v in distinct if v not in VALID_VERDICTS and v not in PER_CRITERION_VERDICTS)
+    if unknown:
+        errors.append(f"unsupported VERDICT {unknown[0]!r}")
+        return unknown[0]
+    overall_approvals = distinct & set(_APPROVING_VERDICTS)
+    if len(overall_approvals) > 1:
+        errors.append(f"conflicting VERDICT values: {sorted(distinct)}")
+        return None
+    supported = verdicts.count("SUPPORTED")
+    if "REJECTED" in distinct:
+        if overall_approvals:
+            # An overall approval next to a rejection is a contradiction,
+            # not a per-criterion split.
+            errors.append(f"conflicting VERDICT values: {sorted(distinct)}")
+            return None
+        errors.append("VERDICT is REJECTED")
+        return "REJECTED"
+    if supported:
+        if supported != criterion_count:
+            errors.append(
+                f"per-criterion VERDICT count {supported} does not match {criterion_count} CRITERION record(s)"
+            )
+            return None
+        return next(iter(overall_approvals), "APPROVED")
+    return next(iter(overall_approvals))
 
 
 def validate_packet(packet: dict[str, Any], *, current_identity: Optional[dict] = None) -> dict[str, Any]:
@@ -113,18 +161,7 @@ def validate_packet(packet: dict[str, Any], *, current_identity: Optional[dict] 
     if untested and untested.strip().lower() not in UNTESTED_NONE_VALUES:
         errors.append(f"untested required case(s) recorded and cannot support approval: {untested}")
 
-    verdicts = packet.get("verdicts") or []
-    verdict_value: Optional[str] = None
-    if not verdicts:
-        errors.append("missing VERDICT")
-    elif len(set(verdicts)) > 1:
-        errors.append(f"conflicting VERDICT values: {sorted(set(verdicts))}")
-    else:
-        verdict_value = verdicts[0]
-        if verdict_value not in VALID_VERDICTS:
-            errors.append(f"unsupported VERDICT {verdict_value!r}")
-        elif verdict_value == "REJECTED":
-            errors.append("VERDICT is REJECTED")
+    verdict_value = _resolve_verdict(packet.get("verdicts") or [], len(records), errors)
 
     valid = not errors
     reason = "evidence packet is well-formed and current" if valid else errors[0]

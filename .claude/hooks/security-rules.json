@@ -18,7 +18,7 @@
         "xox[baprs]-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24,}",
         "eyJ[A-Za-z0-9_-]*\\.eyJ[A-Za-z0-9_-]*\\.[A-Za-z0-9_-]*",
         "password\\s*[=:]\\s*[\"']([^\"']{6,})[\"']",
-        "(postgres|mysql|mongodb)://[^:]+:[^@]+@",
+        "(postgres|mysql|mongodb)://[^\\s:/@]+:[^\\s@/]+@",
         "-----BEGIN (RSA|DSA|EC|OPENSSH) PRIVATE KEY-----"
       ],
       "action": "block",
@@ -91,7 +91,7 @@
       "enabled": true,
       "priority": 88,
       "patterns": [
-        "https?://[^:]+:[^@]+@"
+        "https?://[^\\s:/@]+:[^\\s@/]+@"
       ],
       "action": "block",
       "severity": "critical"

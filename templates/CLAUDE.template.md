@@ -15,10 +15,18 @@ This project runs on Claude Copilot, the Claude Code layer of the Copilot Soluti
 - **Agents and skills:** Claude Code lists them automatically. Route each piece of work to the specialist whose description fits. Agents defined by this project in `.claude/agents/` are first-class framework agents for this project.
 - **Sessions:** `/protocol` starts new work, `/continue` resumes it, `/pause` checkpoints it.
 - **Tasks:** `tc` is the live state for initiatives, tasks, and work products. Store detailed output with `tc wp store` and return a summary.
-- **Memory:** `cc memory` holds durable decisions and lessons that other sessions, Codex, and other machines must see. Claude Code's own auto memory is for personal working notes only.
+- **Memory:** `cc memory` holds selective source pointers for future retrieval. Keep decision/lesson detail in existing task records and maintained narratives, not repeated session prose. Claude Code's own auto memory is for personal working notes only.
 - **Skills on demand:** if a needed skill did not surface, `cc skill search "<topic>"`, then `cc skill get <name>`.
 - **Library docs:** `cc docs get <package> --topic <area> --json` before coding against a third-party API.
 - **Health:** `cc doctor`. A failing `instruction-layer-unenforced` check means the hooks are not registered and nothing above is enforced.
+
+## Work lifecycle
+
+Read `.claude/agents/_shared/work-lifecycle.md` once per task and apply its proportional start/resume, during-work, handoff, finish and later-use checkpoints, including direct invocation. Use the existing task and maintained narrative; selective memory pointers must not duplicate them. Preserve exact destructive approval and recovery, original authority and required assets. Substantial QA-required work needs an observable `WORK-LIFECYCLE` criterion before acceptance freezes; cleanup status and product acceptance remain separate.
+
+At start/resume (including a new PRD or initiative) and finish/merge/pause/handoff, proactively inspect relevant worktrees and surface eligible cleanup with exact paths, recovery and dependency checks, then visibly request deletion approval; do not wait for a cleanup command. Merge alone is insufficient. Record owned holds and pending approval in the existing task, continue unrelated work, and reuse unchanged prior approval after drift checks.
+
+Use `/cleanup` for accumulated clutter. Completed bodies keep one maintained README; supporting documents are created only for a current need. No routine retrospective directory or duplicate task board.
 
 ## Knowledge Copilot
 

@@ -33,6 +33,7 @@ It's not separate software—it's markdown files (agents, commands, project inst
 | **15 Framework Agents**    | Lean agents with on-demand skill loading; methodology-embedded from IDEO to Kent Beck; `kc` is setup-only (not in the build chain). Authoritative roster: `.claude/agents/manifest.json` |
 | **Auto-Firing Skills**     | Skills surface automatically from trigger-rich descriptions; code-bearing skills run executable scripts |
 | **Parallel Orchestration** | Headless workers execute streams concurrently with `/orchestrate` _(works; unproven at large scale — no proven >5-stream run; tests are mock-only)_ |
+| **Learning & Cleanup**   | Built-in work checkpoints and `/cleanup`: preserved lessons, verified retirement and measured outcomes |
 | **Pause & Resume**         | Context switch mid-task with `/pause`, return with `/continue`                       |
 | **Task Management**        | [PRD](docs/70-reference/05-glossary.md#prd)s, tasks, and work products ([WP](docs/70-reference/05-glossary.md#wp-work-product)) via `tc` CLI with minimal context usage               |
 | **Stream Management**      | Parallel work streams with conflict detection and dependencies                       |
@@ -290,6 +291,7 @@ All streams completed. 18 git commits created.
 | -------------------- | ---------------------------------- |
 | `/protocol [task]`   | Start any work                     |
 | `/continue`          | Resume yesterday's work            |
+| `/cleanup [scope]` | Consolidate history and retire approved clutter |
 | `/pause [reason]`    | Context switch, save state         |
 | `/orchestrate start` | Set up worktrees, launch agents    |
 | `/orchestrate status`| Check stream progress              |
@@ -366,6 +368,7 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 | ----------------------- | --------------------------------------- |
 | `/protocol [task]`      | Start work (auto-routes to right agent) |
 | `/continue [stream]`    | Resume from memory or specific stream   |
+| `/cleanup [scope]` | Consolidate history and retire approved clutter |
 | `/pause [reason]`       | Save checkpoint for context switch      |
 | `/orchestrate start`    | Set up worktrees, launch stream agents  |
 | `/orchestrate status`   | Check stream progress                   |

@@ -83,7 +83,10 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Optional, Sequence
 
 from cc.core.config import resolve_key
-from cc.core.ecosystem.canonical_transaction import claude_reference_roster
+from cc.core.ecosystem.canonical_transaction import (
+    claude_reference_roster,
+    claude_support_files,
+)
 from cc.core.ecosystem.mutations import (
     DEFAULT_HOOK_ENTRIES,
     canonical_settings_bytes,
@@ -920,6 +923,7 @@ def _claude_plan(project: Path, source: Path) -> tuple[list[tuple[Path, Path]], 
     try:
         json.loads(version_path.read_text(encoding="utf-8"))
         commands, roster_values = claude_reference_roster(source)
+        support_files = claude_support_files(source, commands)
         roster = list(roster_values)
     except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError, ValueError):
         raise ActivationError("The Claude Copilot installer is incomplete.")
@@ -953,6 +957,7 @@ def _claude_plan(project: Path, source: Path) -> tuple[list[tuple[Path, Path]], 
         (ladder_items[("agents", agent)].path, project / f".claude/agents/{agent}.md")
         for agent in roster
     )
+    copies.extend((path, project / relative) for relative, path in support_files.items())
     for src, _dst in copies:
         if not src.is_file():
             raise ActivationError("The Claude Copilot installer is incomplete.")

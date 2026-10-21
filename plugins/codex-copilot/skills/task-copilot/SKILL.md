@@ -28,7 +28,7 @@ Fallback:
 1. retrieve the task
 2. do the work
 3. store the work product
-4. complete the task
+4. verify required delivery and lifecycle criteria through task-bound QA before completing the task
 
 Commands:
 
@@ -117,3 +117,19 @@ Read `references/work-product-types.md` for type guidance.
 For a large work product that benefits from token-free review, use
 `tc wp render <id> --html`. The HTML is a rendering of the authoritative work
 product, not a second source of task state.
+
+## Work Lifecycle
+
+Apply the [shared work lifecycle](../cleanup/references/work-lifecycle.md) once
+per task, including direct invocation of this skill: start/resume, maintain,
+pause/handoff, finish and later reuse. Keep the checkpoint proportional in the
+existing record; a small answer does not need a new task or document.
+
+For substantial QA-required work, include an observable `WORK-LIFECYCLE` (or
+equivalent) criterion before acceptance is frozen. QA inspects the maintained
+record, applicable lesson-to-decision/check evidence, recovery/retirement results
+and explicit holds, using the shared lifecycle's acceptance guidance. A missing
+checkpoint cannot pass on metadata or a bare approval. A verified, in-scope hold
+can satisfy delivery checkpoint evidence while cleanup remains pending; it does
+not establish a cleanup or product-quality success. Preserve frozen scope and
+cumulative history for existing work.

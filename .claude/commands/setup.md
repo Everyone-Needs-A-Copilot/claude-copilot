@@ -46,15 +46,16 @@ Let me check what's already in place...
 ## Step 3: Check Prerequisites
 
 ```bash
-# Check Python 3
+# Check Python 3.10+ (the cc and tc CLIs require it; macOS system python3 is 3.9)
 python3 --version
+python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' && echo "python ok" || echo "python too old"
 
 # Get home directory
 echo $HOME
 ```
 
-**If Python 3 missing:**
-Tell user: "Please install Python 3.9+ and run this setup again."
+**If Python 3 is missing, or the check prints "python too old":**
+Tell user: "Please install Python 3.10 or newer (for example `brew install python@3.12`), make sure it comes before `/usr/bin` on your PATH, and run this setup again."
 Then STOP.
 
 ---

@@ -46,6 +46,10 @@ REQUIRED_FIELDS = (CRITERION, EXPECTED, OBSERVED, IDENTITY, BASELINE, ARTIFACT, 
 
 VALID_VERDICTS = ("APPROVED", "APPROVED-WITH-MINOR-FIXES", "REJECTED")
 
+# Per-criterion results that may appear as additional VERDICT lines (one per
+# CRITERION). Any REJECTED rejects the packet; all SUPPORTED supports approval.
+PER_CRITERION_VERDICTS = ("SUPPORTED", "REJECTED")
+
 # Values for UNTESTED that mean "no gap" -- anything else names a real
 # untested required case and therefore cannot support approval (qa.md:
 # "an untested required case cannot support approval; rerun ... or reject

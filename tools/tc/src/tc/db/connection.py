@@ -1,5 +1,6 @@
 """Database connection management for Task Copilot CLI."""
 
+import os
 import sqlite3
 import subprocess
 from contextlib import contextmanager
@@ -47,7 +48,12 @@ def _ensure_guard_columns(conn: sqlite3.Connection) -> None:
 # Claude Copilot holds updates for a dirty project. They go in the clone's own
 # `.git/info/exclude` (never committed, so no new file to commit in each
 # project) rather than the project's `.gitignore`.
-_RUNTIME_EXCLUDES = ("**/.copilot/*.db-wal", "**/.copilot/*.db-shm")
+_RUNTIME_EXCLUDES = (
+    "**/.copilot/*.db-wal",
+    "**/.copilot/*.db-shm",
+    "**/.copilot/*-journal",
+    "**/.copilot/tasks.db-archive-stamp",
+)
 
 
 def _exclude_runtime_files(db_dir: Path) -> None:
@@ -75,10 +81,49 @@ def _exclude_runtime_files(db_dir: Path) -> None:
         return
 
 
+def _main_checkout(worktree: Path) -> Optional[Path]:
+    """The main checkout of a linked git worktree, or None.
+
+    A linked worktree's `.git` is a file ("gitdir: <repo>/.git/worktrees/<n>"),
+    and that directory's `commondir` points at the shared `.git`. Submodules
+    also have a `.git` file but no `commondir`, so they are not matched. Pure
+    file reads: tc must not shell out to git on every command.
+    """
+    try:
+        text = (worktree / ".git").read_text(encoding="utf-8").strip()
+        if not text.startswith("gitdir:"):
+            return None
+        gitdir = Path(text[len("gitdir:"):].strip())
+        if not gitdir.is_absolute():
+            gitdir = worktree / gitdir
+        common = (gitdir / "commondir").read_text(encoding="utf-8").strip()
+        common_dir = Path(common) if Path(common).is_absolute() else gitdir / common
+        common_dir = common_dir.resolve()
+    except (OSError, UnicodeError):
+        return None
+    if common_dir.name != ".git":
+        return None   # bare repository: no main checkout holds a database
+    return common_dir.parent
+
+
 def find_db_path() -> Optional[Path]:
-    """Walk up from cwd to find .copilot/tasks.db. Returns Path or None."""
+    """Walk up from cwd to find .copilot/tasks.db. Returns Path or None.
+
+    Inside a linked git worktree the task database is the main checkout's,
+    so every worktree of a repository shares one task list. A worktree's own
+    `.copilot/tasks.db` is only the committed snapshot its branch checked
+    out; writing to it would fork the project's tasks. Set
+    TC_WORKTREE_DB=local to use the worktree's own copy instead.
+    """
     current = Path.cwd()
+    local_only = os.environ.get("TC_WORKTREE_DB", "").lower() == "local"
     while True:
+        if not local_only and (current / ".git").is_file():
+            main = _main_checkout(current)
+            if main is not None:
+                shared = main / DEFAULT_DB_DIR / DEFAULT_DB_NAME
+                if shared.exists():
+                    return shared
         candidate = current / DEFAULT_DB_DIR / DEFAULT_DB_NAME
         if candidate.exists():
             return candidate
@@ -143,11 +188,13 @@ def transaction(conn: sqlite3.Connection) -> Generator[sqlite3.Connection, None,
         raise
 
 
-def init_db(path: Optional[Path] = None) -> Path:
+def init_db(path: Optional[Path] = None, *, wal: bool = True) -> Path:
     """Create .copilot/ directory and database with full schema.
 
     Args:
         path: Explicit path for the database. Defaults to .copilot/tasks.db in cwd.
+        wal:  WAL journal (the default). The rarely written history file uses a
+              rollback journal so it leaves no -wal/-shm files.
 
     Returns:
         Path to the created database.
@@ -161,7 +208,7 @@ def init_db(path: Optional[Path] = None) -> Path:
 
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute(f"PRAGMA journal_mode = {'WAL' if wal else 'DELETE'}")
     conn.execute("PRAGMA busy_timeout = 5000")
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA synchronous = NORMAL")
@@ -187,5 +234,15 @@ def init_db(path: Optional[Path] = None) -> Path:
     )
     conn.commit()
     conn.close()
+
+    # A project's own task database is committed with the project (tc 2.4
+    # standard); the history file created by `tc archive` is not a project root.
+    if wal and path.name == DEFAULT_DB_NAME and path.parent.name == DEFAULT_DB_DIR:
+        from tc.services.track import ensure_tracked
+
+        try:
+            ensure_tracked(path.parent.parent)
+        except OSError:
+            pass
 
     return path

@@ -144,7 +144,7 @@ quote-style = "double"
 
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 warn_return_any = true      # Catch unintended Any returns
 warn_no_return = true       # Ensure functions return as expected
 strict_optional = true      # Disallow None where not annotated

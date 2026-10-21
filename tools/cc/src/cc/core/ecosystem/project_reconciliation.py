@@ -413,6 +413,7 @@ def _framework_path_allowed(component: str, relative: str) -> bool:
             in {
                 ".claude/fitness-check.sh",
                 ".claude/hooks/copilot-hook.sh",
+                ".claude/skills/cleanup/SKILL.md",
             }
             or (pure.parts[:2] == (".claude", "agents") and len(pure.parts) >= 3)
             or (

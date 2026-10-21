@@ -152,7 +152,7 @@ via `--exercise-runtime` and do not prove lifecycle enforcement.
 
 Ephemeral PRD, task, and work product storage. Reduces context for externalized work products by ~94% vs inlining outputs above the 8KB threshold (not end-to-end session savings — see [derivation](docs/70-reference/04-framework-modernization-analysis.md)). Uses the `tc` CLI tool (installed at `tools/tc/`). Agents call `tc` commands via Bash.
 
-**Core Commands:** `tc prd create`, `tc task create [--max-budget-usd <float>]`, `tc task update`, `tc task get`, `tc wp store`, `tc wp get`, `tc wp render <id> --html`, `tc progress`
+**Core Commands:** `tc prd create`, `tc task create [--max-budget-usd <float>]`, `tc task update`, `tc task get`, `tc wp store`, `tc wp get`, `tc wp render <id> --html`, `tc progress`, `tc task stale|park|unpark|cancel`, `tc archive`, `tc history`
 
 **Stream Commands:** `tc stream list`, `tc stream get`
 
@@ -211,6 +211,8 @@ Agents verify their task exists and check environment health before starting wor
 
 ---
 
+Start/resume/new PRD/initiative/finish/merge/pause/handoff: apply `.claude/agents/_shared/work-lifecycle.md`; proactively inspect worktrees; get exact deletion approval.
+
 ## Agent Shared Behaviors
 
 All agents inherit these. Individual agent files should NOT repeat them.
@@ -219,7 +221,7 @@ All agents inherit these. Individual agent files should NOT repeat them.
 - **Skill Discovery:** Auto-fire from `description`; if needed skills did not surface, `cc skill search "<topic>"` (case-insensitive substring over name/description/tags), then `@include` the returned path. No normal search or `evaluate` step: skills are model-readable markdown.
 - **Live Docs:** Before planning/coding against version-sensitive third-party APIs, use `cc docs get <pkg>`, not API memory. `cc docs resolve <pkg>` identifies the installed version; `cc docs search <pkg> "<query>"` searches it. Local-first/offline/headless; self-owned network fallback requires optional `httpx`.
 - **Memory — Recall at start:** Run `cc memory search "<task topic>"` to recall prior decisions, lessons, and context relevant to the current task.
-- **Memory — Store at end:** After completing meaningful work, run `cc memory store --type <decision|context|lesson|reference> "<content>"` to persist decisions and lessons for future sessions. Do NOT call it "semantic" — it is FTS5 keyword search.
+- **Memory — Selective pointers:** Keep decisions/lessons in canonical task records and narratives; add `cc memory` locators only for useful retrieval, never duplicate session prose.
 - **Memory commands:** `cc memory store`, `cc memory search`, `cc memory get`, `cc memory list`, `cc memory export` (not MCP `memory_store`/`memory_search`)
 - **Task Copilot Pattern:** `tc task get` → do work → `tc wp store` → `tc task update --status completed`
 - **Code-Execution Path:** For ≥3 related operations, prefer one `python3` Bash block using `tc.api` or `cc.api`; print only the needed summary, avoiding repeated CLI JSON payloads.
@@ -308,16 +310,7 @@ Use `/continue` to load context from Memory Copilot.
 
 ### End of Session
 
-Call `cc memory store --type initiative "<content>"` with session context. Include:
-
-| Field | Content |
-|-------|---------|
-| `completed` | Tasks finished |
-| `inProgress` | Current state |
-| `resumeInstructions` | Next steps |
-| `lessons` | Insights gained |
-| `decisions` | Choices made |
-| `keyFiles` | Important files touched |
+Apply the work-lifecycle pause/handoff or finish checkpoint in the existing task. Preserve original approvals, failed criteria, cumulative execution history and the next owner/action; memory is an optional locator, not another session summary.
 
 ---
 

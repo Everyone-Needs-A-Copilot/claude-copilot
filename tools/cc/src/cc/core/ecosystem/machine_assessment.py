@@ -603,6 +603,44 @@ def _framework_assessments(
     return rows, blockers, unknown_components
 
 
+def _is_solo_machine(
+    config: dict[str, Any],
+    connections: dict[str, Any] | None,
+    *,
+    config_readable: bool,
+) -> bool:
+    """True when this Mac has no organization at all, so one person can set up
+    their own projects without sign-in, layer manifest or organization config.
+
+    Solo requires positive evidence of BOTH absences: no `layers.manifest` is
+    configured, and the connections source reported that the organization's
+    inherited configuration (ecosystem.yml) is not on this Mac.  A configured
+    manifest (even a broken one) or any organization config keeps the full
+    organization checks, and an unreadable configuration or unavailable
+    connections source fails closed to the organization path.
+    """
+    if not config_readable or not isinstance(connections, dict):
+        return False
+    if _lookup(config, "layers.manifest"):
+        return False
+    return connections.get("result") == "org-config-unavailable"
+
+
+_SOLO_LAYERS_DETAIL = (
+    "No organization layer manifest is configured. This is a solo setup: it uses "
+    "your own personal and local content, so no signed layer pins are required."
+)
+
+
+def _solo_layer_assessment() -> dict[str, Any]:
+    return {
+        "state": "not-configured",
+        "ready": 0,
+        "total": 0,
+        "detail": _SOLO_LAYERS_DETAIL,
+    }
+
+
 def _authentication_assessment(
     doctor: dict[str, Any] | None,
     config: dict[str, Any],
@@ -938,6 +976,8 @@ def _dependency_assessments(
 
 def _connection_blockers(
     connections: dict[str, Any] | None,
+    *,
+    solo: bool = False,
 ) -> tuple[list[Blocker], bool]:
     if connections is None:
         return (
@@ -962,7 +1002,7 @@ def _connection_blockers(
                 "Restore the supported Copilot CLI, then run assessment again.",
             )
         )
-    elif result == "org-config-unavailable":
+    elif result == "org-config-unavailable" and not solo:
         blockers.append(
             _blocker(
                 "organization-config-unavailable",
@@ -1084,12 +1124,14 @@ def build_machine_assessment_with_verification(
     other_unknown = False
     framework_unknown_components: frozenset[str] = frozenset()
 
+    config_readable = True
     try:
         config = config_reader()
         if not isinstance(config, dict):
             raise TypeError("configuration source did not return an object")
     except Exception:
         config = {}
+        config_readable = False
         other_unknown = True
         blockers.append(
             _blocker(
@@ -1175,11 +1217,16 @@ def build_machine_assessment_with_verification(
         connections = None
         other_unknown = True
 
+    solo = _is_solo_machine(config, connections, config_readable=config_readable)
+
     authentication, authentication_blockers, authentication_unknown = (
         _authentication_assessment(doctor, config, identity_reader, credential_reader)
     )
-    blockers.extend(authentication_blockers)
-    other_unknown = other_unknown or authentication_unknown
+    if not solo:
+        # A solo person has no organization to sign in to; the state is still
+        # reported, but it cannot block or make the machine unverifiable.
+        blockers.extend(authentication_blockers)
+        other_unknown = other_unknown or authentication_unknown
 
     connectivity, connectivity_blockers, connectivity_unknown = (
         _connectivity_assessment(doctor, connections)
@@ -1187,16 +1234,21 @@ def build_machine_assessment_with_verification(
     blockers.extend(connectivity_blockers)
     other_unknown = other_unknown or connectivity_unknown
 
-    layers, layer_blockers, layers_unknown = _layer_assessment(doctor)
-    blockers.extend(layer_blockers)
-    other_unknown = other_unknown or layers_unknown
+    if solo:
+        layers = _solo_layer_assessment()
+    else:
+        layers, layer_blockers, layers_unknown = _layer_assessment(doctor)
+        blockers.extend(layer_blockers)
+        other_unknown = other_unknown or layers_unknown
 
     dependencies, dependency_blockers = _dependency_assessments(
         executable_resolver, executable_version_reader
     )
     blockers.extend(dependency_blockers)
 
-    connection_blockers, connections_unknown = _connection_blockers(connections)
+    connection_blockers, connections_unknown = _connection_blockers(
+        connections, solo=solo
+    )
     blockers.extend(connection_blockers)
     other_unknown = other_unknown or connections_unknown
 
