@@ -1,49 +1,22 @@
 # Setup Project
 
-Set up the current project with the complete Claude + Codex Copilot reference
-installation. This command is a human-facing adapter over the canonical `cc`
-transaction; it does not copy, delete, merge, or generate framework files
-itself.
+Install the complete Claude + Codex reference through the canonical cc transaction. Never manually copy framework files. The transaction installs executable .claude/hooks/copilot-hook.sh, registers supported hook events and records the shim in copilot.lock.json. Verification rejects a missing, non-executable, unregistered or unlocked shim.
 
-The canonical transaction installs `.claude/hooks/copilot-hook.sh`, marks it executable, registers the supported Claude hook events, and records the shim as a framework-owned file in `copilot.lock.json`. Independent verification must reject an installation whose shim is missing, non-executable, unregistered, or absent from the lock; this command must never replace that transaction with a manual copy.
-
-The former partial `minimal` / `quick start` profile is retired. It could not
-produce the declared reference state and created a second repair path. If the
-user asks for that profile, explain that setup now installs the complete local
-reference while preserving existing memory and project-authored files, then
-ask whether to continue. A decline stops without mutation. An existing minimal
-installation is treated as degraded input and repaired through this same
-transaction.
+The former partial `minimal` / `quick start` profile is retired. If requested, explain complete setup preserves memory and project-authored files and ask whether to continue; a decline stops without mutation. Repair existing minimal installs through this transaction.
 
 ## Solo and organization setups
 
-This command works with or without an organization. When the Mac has no
-organization at all (no `layers.manifest` configured and no inherited
-organization config), `cc` treats it as a **solo setup**: sign-in, the layer
-manifest and organization config are optional, the assessment reports layers as
-`not-configured`, and no signed layer pins are needed. The project is still
-fully wired, including the hook shim, the supported hook registrations and
-`copilot.lock.json`. A solo person gets personal and local content only; signed
-layer resolution starts when an organization is configured. If a layer manifest
-or organization config exists, the full organization checks apply unchanged, so
-a broken or signed-out organization setup still blocks.
+Without configured or inherited organization settings, solo setup needs no sign-in, layer manifest or signed pins. Layers report `not-configured`; personal/local content and full hook wiring still install. When an organization is configured, all organization checks apply: broken or signed-out configurations block.
 
-The project must sit inside an approved project folder (`projects.roots`). If
-the request step says the project is not inside one, ask the person to confirm
-the folder, then run `cc config add projects.roots "<absolute folder>"`
-(prefer the project folder itself or its parent, never `$HOME`) and retry.
+Projects must be inside `projects.roots`. If outside, ask the person to confirm a folder, run `cc config add projects.roots "<absolute folder>"` and retry. Prefer the project or parent folder, never `$HOME`.
 
 ## 0. Verify the local CLI prerequisites
 
-The cc-owned prerequisite fact must report both Copilot CLIs ready. It rejects
-macOS' unrelated C compiler even when it is named `cc`, and names machine setup
-as the person's recovery when either `cc` or `tc` is unavailable. Do not plan
-or mutate on a failed prerequisite report.
+Both Copilot CLIs must be ready. The cc-owned prerequisite fact rejects macOS' unrelated C compiler and names machine setup as recovery. Never plan or mutate on failed prerequisites.
 
 ## 1. Build and inspect the exact plan
 
-Run this from the project root. The helper only creates a temporary request;
-planning is read-only and the request is removed when the shell exits.
+Run from the project root. Planning is read-only; shell exit removes the temporary request.
 
 ```bash
 set -eu
@@ -66,19 +39,11 @@ chmod 600 "$REQUEST_FILE"
 "$CC_BIN" reconcile plan --request "$REQUEST_FILE" --json
 ```
 
-The plan is the authority. Explain its result in plain language, including
-every held, owner-decision, or could-not-verify state. Do not apply a blocked
-plan and do not suggest overwriting, resetting, stashing, or deleting a
-person's work.
-
-Ask the user to confirm the exact plan. If they decline, stop without changing
-the project.
+Explain every held, owner-decision or could-not-verify state. Never apply a blocked plan or suggest overwriting, resetting, stashing or deleting the person's work. Confirm the exact plan; a decline stops without mutation.
 
 ## 2. Apply the confirmed plan
 
-Use the exact `plan_id` returned above. Recreate the same canonical request
-and pass both to the guarded transaction. Replace `<PLAN_ID>` only with that
-opaque value; never infer or reuse an older plan id.
+Recreate the same request with the exact returned `plan_id`. Replace `<PLAN_ID>` only with that opaque value; never infer or reuse an old ID.
 
 ```bash
 set -eu
@@ -102,12 +67,18 @@ chmod 600 "$REQUEST_FILE"
 "$CC_BIN" reconcile verify --request "$REQUEST_FILE" --json
 ```
 
-Report success only when apply returns `applied` or an already-ready receipt
-and the independent verification returns `ready`. The transaction owns
-preflight, identity binding, Claude and Codex materialization, lock generation,
-the completed-actions receipt, postconditions, snapshots, and rollback.
+Report success only after apply returns `applied` or an already-ready receipt and independent verification returns `ready`. The transaction owns preflight, identity binding, materialization, locks, receipts, postconditions, snapshots and rollback. Repair only verified framework-owned targets. Dirty, ambiguous, unsupported customizations or unverifiable states stay held for the named actor; never bypass with manual operations or legacy installers.
 
-If the project is degraded but eligible, the plan repairs only verified
-framework-owned targets. If it is dirty, ambiguous, customized beyond a
-reviewed recipe, or cannot be verified, it is held for the named actor. Never
-bypass that decision with manual file operations or a legacy installer.
+## 3. Capture the project identity
+
+Only run after a new setup returned `applied` and verification reported `ready`. For updates, already-ready no-ops, held, declined or failed runs, skip this step entirely. Also skip when the project already has a project-authored description in CLAUDE.md or AGENTS.md; existing authored text is authoritative.
+
+Otherwise use AskUserQuestion with free text and a skip option for each question:
+
+1. "What's this project about?" — one or two sentences.
+2. "What's the main tech stack?" — suggest detected repository choices and allow a typed answer.
+3. "Anything else a new teammate or agent should know?" — optional conventions, run/test commands or constraints.
+
+Write only supplied answers under `## Project` in both CLAUDE.md and AGENTS.md, with the folder name and Description, Stack and Notes fields. Omit skipped fields; all skipped means no writes. Insert above the framework block, after any title, and never edit between the framework's `cc:project-integration` markers. Preserve existing content; never use overwrite-project-instructions or duplicate machine-level settings.
+
+Run `reconcile verify` again. If not ready, undo only the section just added and report the failure.
